@@ -445,25 +445,57 @@ class _DMatrixReuseMixin:
                     if sample_weight_eval_set and i < len(sample_weight_eval_set)
                     else None
                 )
-                val_key = _signature_of(X_val)
+                # Composite key (train_key, val_key) so we only reuse the
+                # val DMatrix when BOTH the val content AND the originating
+                # train content match. Different train content -> different
+                # quantile cuts -> stale val bins would silently corrupt the
+                # eval signal. Same lookup chain as train: instance -> module
+                # -> fresh build. Without the module fallback (round-4 legacy)
+                # sklearn.clone() in the composite-ensemble OOF refit produced
+                # a fresh shim with empty instance cache and rebuilt the val
+                # DMatrix every fit -- 5-10s wasted x4-5 refits per round.
+                val_key = (_signature_of(X_val), train_key)
+                dval = None
+                _val_source: str = "miss"
                 if (
                     self._cached_val_key == val_key
                     and self._cached_val_dmatrix is not None
                 ):
                     dval = self._cached_val_dmatrix
+                    _val_source = "instance"
+                else:
+                    _global_val_hit = _xgb_cache_get(val_key)
+                    if _global_val_hit is not None:
+                        dval = _global_val_hit
+                        _val_source = "module"
+                if dval is not None:
                     dval.set_label(np.asarray(y_val))
                     if w_val is not None:
                         dval.set_weight(np.asarray(w_val))
+                    else:
+                        dval.set_weight(np.ones(dval.num_row(), dtype=np.float32))
+                    self._cached_val_dmatrix = dval
+                    self._cached_val_key = val_key
+                    logger.debug(
+                        "[xgb-shim] reused %s cached val DMatrix (id=%d, shape=%dx%d)",
+                        _val_source, id(dval), dval.num_row(), dval.num_col(),
+                    )
                 else:
                     dval = _build_quantile_dmatrix(
                         X_val, y_val, w_val,
-                        ref_dmatrix=dtrain,  # share quantile cuts
+                        ref_dmatrix=dtrain,
                         enable_categorical=self.get_params().get(
                             "enable_categorical", True
                         ),
                     )
                     self._cached_val_dmatrix = dval
                     self._cached_val_key = val_key
+                    _xgb_cache_put(val_key, dval)
+                    logger.debug(
+                        "[xgb-shim] built fresh val DMatrix (id=%d, shape=%dx%d); "
+                        "stored in module cache for cross-clone reuse",
+                        id(dval), dval.num_row(), dval.num_col(),
+                    )
                 evals.append((dval, f"validation_{i}"))
 
         # ---- Resolve params for xgb.train() --------------------------

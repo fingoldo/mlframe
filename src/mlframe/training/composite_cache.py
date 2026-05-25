@@ -471,7 +471,7 @@ def make_discovery_cache_key(
     target_col: str,
     config_signature: ConfigSignatureV1,
     _legacy_random_state_sentinel: int = _DISCOVERY_DEFAULT_SEED,
-    random_state: int | None = None,
+    random_state: int | None = _DISCOVERY_DEFAULT_SEED,
 ) -> str:
     """Combine the parts of a discovery cache key into a stable hex string. The ``config_signature`` is a ``ConfigSignatureV1`` produced by :func:`compute_config_signature_v1`; a plain ``str`` still works at runtime (``NewType`` is structurally compatible) but type-checkers will warn callers that bypass the factory.
 

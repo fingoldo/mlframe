@@ -34,40 +34,35 @@ def _module_source(mod) -> str:
 
 
 class TestMlpExtremeArGroupAwareSkip:
-    def test_env_var_default_enabled(self) -> None:
-        """Skip is gated via env var so it doesn't fan out into the
-        TrainingBehaviorConfig -> configure_training_params **kwargs
-        chain (which would reject unknown fields). Default semantics:
-        unset env -> skip enabled."""
-        import os
-        # Default (unset) should evaluate as enabled in the source-
-        # code default branch.
-        assert os.environ.get(
-            "MLFRAME_MLP_EXTREME_AR_GROUP_AWARE_SKIP", "1"
-        ) not in ("0", "false", "False", "")
+    def test_behavior_config_has_mlp_knobs_default_off(self) -> None:
+        """Skip is a TrainingBehaviorConfig field (2026-05-25 rework:
+        previously env-var-gated to avoid the kwarg-splat rejection,
+        but configure_training_params now has **_unused_behavior_kwargs
+        catch-all so adding behavior knobs is safe). Default off so
+        MLP trains by default; opt-in for extreme-AR group-aware regimes."""
+        from mlframe.training._model_configs import TrainingBehaviorConfig
+        fields = getattr(TrainingBehaviorConfig, "model_fields", {})
+        assert "mlp_extreme_ar_group_aware_skip" in fields
+        assert "mlp_extreme_ar_threshold" in fields
+        cfg = TrainingBehaviorConfig()
+        assert cfg.mlp_extreme_ar_group_aware_skip is False
+        assert cfg.mlp_extreme_ar_threshold == 0.99
 
-    def test_skip_logic_present_in_train_one_target_body(self) -> None:
-        """Lock in the skip-block presence so a future refactor that
-        moves the per-model loop doesn't silently drop the gate."""
+    def test_skip_logic_reads_from_behavior_config(self) -> None:
+        """Lock in that the per-model loop reads the skip flag from
+        behavior_config (not env). Catches a future refactor that
+        re-introduces env-var gating without updating the config."""
         from mlframe.training.core import _phase_train_one_target_body
         src = _module_source(_phase_train_one_target_body)
-        assert "MLFRAME_MLP_EXTREME_AR_GROUP_AWARE_SKIP" in src
-        assert "MLFRAME_MLP_EXTREME_AR_THRESHOLD" in src
+        assert "mlp_extreme_ar_group_aware_skip" in src
+        assert "mlp_extreme_ar_threshold" in src
         assert "lag1_autocorr_per_group" in src
         assert "prefer_group_aware" in src
         assert "extreme-AR + group-aware skip fired" in src
         assert "if mlframe_model_name == \"mlp\":" in src
-
-    def test_behavior_config_does_NOT_have_mlp_knobs(self) -> None:
-        """Regression guard: adding mlp_extreme_ar_* to
-        TrainingBehaviorConfig blew up training because
-        configure_training_params (downstream of `**effective_behavior_params`)
-        rejected the new kwargs. Keep these knobs OUT of
-        TrainingBehaviorConfig."""
-        from mlframe.training._model_configs import TrainingBehaviorConfig
-        fields = getattr(TrainingBehaviorConfig, "model_fields", {})
-        assert "mlp_extreme_ar_group_aware_skip" not in fields
-        assert "mlp_extreme_ar_threshold" not in fields
+        # No leftover env-var references for the MLP skip.
+        assert "MLFRAME_MLP_EXTREME_AR_GROUP_AWARE_SKIP" not in src
+        assert "MLFRAME_MLP_EXTREME_AR_THRESHOLD" not in src
 
 
 class TestAlwaysBuildCtEnsembleForRaw:

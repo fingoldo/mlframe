@@ -544,6 +544,15 @@ def run_composite_post_processing(
                                 "falling back to train_tail.",
                                 _orig_tname,
                             )
+                    _group_ids_for_oof = None
+                    _ctx_groups = getattr(ctx, "group_ids", None) if "ctx" in dir() else None
+                    if _ctx_groups is not None:
+                        try:
+                            _group_ids_for_oof = (
+                                np.asarray(_ctx_groups)[filtered_train_idx]
+                            )
+                        except (TypeError, IndexError):
+                            _group_ids_for_oof = None
                     try:
                         _oof_pred_matrix, _oof_y_holdout, _surviving = (
                             compute_oof_holdout_predictions(
@@ -563,6 +572,7 @@ def run_composite_post_processing(
                                 external_holdout_X=_ext_X,
                                 external_holdout_y=_ext_y,
                                 external_holdout_base_per_spec=_ext_base_per_spec,
+                                group_ids=_group_ids_for_oof,
                             )
                         )
                     except Exception as _oof_err:

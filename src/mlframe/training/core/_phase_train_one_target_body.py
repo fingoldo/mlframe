@@ -271,25 +271,12 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             # 2.7 min train + 126 MB save dump is pure cost. Skip MLP
             # in this regime; lag_predict + Ridge carry the AR signal.
             if mlframe_model_name == "mlp":
-                # Gating via env var (default ON). Mirror of the
-                # MLFRAME_DTW_BACKEND pattern -- avoids polluting
-                # TrainingBehaviorConfig (whose fields fan out via
-                # **effective_behavior_params into configure_training_params
-                # which would reject unknown kwargs). Override:
-                #   MLFRAME_MLP_EXTREME_AR_GROUP_AWARE_SKIP=0  -> force MLP train
-                #   MLFRAME_MLP_EXTREME_AR_THRESHOLD=0.95      -> adjust gate
-                import os as _os
-                _mlp_skip_enabled = (
-                    _os.environ.get(
-                        "MLFRAME_MLP_EXTREME_AR_GROUP_AWARE_SKIP", "1"
-                    ) not in ("0", "false", "False", "")
-                )
-                try:
-                    _ea_thr = float(_os.environ.get(
-                        "MLFRAME_MLP_EXTREME_AR_THRESHOLD", "0.99"
-                    ))
-                except ValueError:
-                    _ea_thr = 0.99
+                _mlp_skip_enabled = bool(getattr(
+                    behavior_config, "mlp_extreme_ar_group_aware_skip", False,
+                ))
+                _ea_thr = float(getattr(
+                    behavior_config, "mlp_extreme_ar_threshold", 0.99,
+                ))
                 _td_report = metadata.get("target_distribution_report", {}) or {}
                 _td_diag = _td_report.get("diagnostics", {}) or {}
                 _td_knobs = _td_report.get("knob_overrides", {}) or {}
@@ -303,11 +290,8 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                     logger.warning(
                         "Skipping MLP training for target='%s' (model %d/%d): "
                         "extreme-AR + group-aware skip fired "
-                        "(lag1_autocorr_per_group=%.4f >= %.2f). MLP cannot "
-                        "learn a transferable residual on this regime; the "
-                        "ensemble quality-gate would drop its predictions "
-                        "regardless. Disable via "
-                        "MLFRAME_MLP_EXTREME_AR_GROUP_AWARE_SKIP=0.",
+                        "(lag1_autocorr_per_group=%.4f >= %.2f). Disable via "
+                        "TrainingBehaviorConfig(mlp_extreme_ar_group_aware_skip=False).",
                         cur_target_name, _model_idx_in_run + 1,
                         _total_models_in_run, float(_lag1_ar), _ea_thr,
                     )

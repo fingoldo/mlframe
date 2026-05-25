@@ -143,22 +143,40 @@ def recommend_boosting_regression_loss(
             "n_finite": n_finite,
         }
     if excess_kurt > _EXCESS_KURT_HEAVY:
-        # 2026-05-23 round 5: collapsed the previous (1.5, 3.0] Huber +
-        # (3.0, 10.0] L1 ladder into a single Huber band above 1.5.
-        # Pure L1 was triggering the "MAE-gradient-is-noise" pathology
-        # on production TVT residuals (kurt=6.37 -> CB es_best_iter=1,
-        # LGB es_best_iter=5) DESPITE the previous round's threshold
-        # raise from 1.5 -> 3.0. Huber's bounded-influence loss
-        # retains a useful gradient on small residuals AND attenuates
-        # outlier influence across the full leptokurtic range; pure L1
-        # is reserved for the rare cases where the operator explicitly
-        # prefers the Laplace MLE (set via ``target_quantile=0.5`` or
-        # by overriding the per-backend value post-call).
         _extreme = excess_kurt > _EXCESS_KURT_EXTREME
+        # MAD-calibrated Huber slope. The canon 1.345 is robust-stats
+        # tuned to MAD UNITS (~0.67*sigma for a Normal sample). LGB
+        # ``huber`` and CB ``Huber:delta=1.345`` are documented to
+        # operate in MAD units. XGB ``reg:pseudohubererror`` takes
+        # ``huber_slope`` in RAW residual units; defaulting to 1.0 on a
+        # T-scale residual with std~13 (TVT-addres composite 2026-05-24)
+        # means slope < 10% of std -> pseudo-Huber is quadratic over
+        # essentially every realistic residual -> tree splits chase
+        # heavy-tail outliers -> pred range blows from |T|<=50 to +340.
+        # Scale to MAD(target) so XGB matches LGB/CB regimes.
+        try:
+            arr = np.asarray(y_target, dtype=np.float64).reshape(-1)
+            arr_f = arr[np.isfinite(arr)]
+            mad = float(np.median(np.abs(arr_f - np.median(arr_f))))
+        except (TypeError, ValueError):
+            mad = 0.0
+        xgb_huber_slope = max(1.0, 1.345 * mad) if mad > 0 else 1.0
+        # CB: switch overfit detector from Iter (constant-magnitude
+        # gradient stops ES at iter=1 on small-residual composite
+        # targets) to IncToDec with a small p-value so tiny absolute
+        # improvements still count as progress. Plus widen od_wait so
+        # CB doesn't bail on a single noisy iter.
+        cb_extra = {
+            "od_type": "IncToDec",
+            "od_pval": 1e-5,
+            "od_wait": 100,
+        }
         return {
             "cb": "Huber:delta=1.345",
             "lgb": "huber",
             "xgb": "reg:pseudohubererror",
+            "xgb_extra_params": {"huber_slope": xgb_huber_slope},
+            "cb_extra_params": cb_extra,
             "rationale": (
                 f"excess_kurt={excess_kurt:.2f} > {_EXCESS_KURT_HEAVY}"
                 + (
@@ -166,11 +184,14 @@ def recommend_boosting_regression_loss(
                     if _extreme else ""
                 )
                 + " -- Huber bounded-influence loss keeps the "
-                "gradient informative on small residuals while "
-                "attenuating outlier influence."
+                f"gradient informative on small residuals while "
+                f"attenuating outlier influence. XGB huber_slope="
+                f"{xgb_huber_slope:.4g} (MAD-calibrated). CB od_pval=1e-5 "
+                f"+ od_wait=100 (prevent ES at iter=1 on small residuals)."
             ),
             "excess_kurt": excess_kurt,
             "n_finite": n_finite,
+            "mad": mad,
         }
     return {
         "cb": "RMSE",

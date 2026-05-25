@@ -234,33 +234,70 @@ def _maybe_pass_sample_weight(
 
 def _carve_inner_eval_split(
     X, y, *, frac: float = 0.1, random_state: int | None = 0,
+    group_ids: np.ndarray | None = None,
 ):
     """Return ``(X_fit, y_fit, X_eval, y_eval)`` for OOF refits that need
     an eval_set to satisfy early-stopping callbacks on cloned boosters.
 
-    Uses the last ``frac`` of rows (deterministic, no shuffle) to keep
-    the inner split reproducible and to mirror the temporal nature of
-    the production split where val_placement='forward' carves the tail.
+    When ``group_ids`` is supplied, carves whole groups into the eval
+    slice (no group spans both fit and eval). Required for honest OOF on
+    group-aware splits: rows from the same well/user/session in both fit
+    and eval make early-stopping see same-group leakage, model
+    under-stops, OOF RMSE artificially degrades (TVT prod 2026-05-24:
+    val_RMSE 10.64 from direct fit vs honest-OOF 13.34 from group-blind
+    carve, +25% degradation that wrongly triggered the AR1 failsafe).
+
+    Without ``group_ids`` falls back to the deterministic last-``frac``
+    tail split (mirrors val_placement='forward' for temporal splits).
     For row counts below 1000 the split is skipped (returns
-    ``X, y, None, None``) -- early-stopping at that scale is noise."""
+    ``X, y, None, None``) - early-stopping at that scale is noise."""
     try:
         n = len(y)
     except TypeError:
         return X, y, None, None
     if n < 1000:
         return X, y, None, None
-    n_eval = max(100, int(frac * n))
-    if n_eval >= n - 100:
+    n_eval_target = max(100, int(frac * n))
+    if n_eval_target >= n - 100:
         return X, y, None, None
-    # Last-tail split. Deterministic, no shuffle.
-    cut = n - n_eval
+    if group_ids is not None:
+        g = np.asarray(group_ids)
+        if g.shape[0] == n:
+            uniq, first_idx = np.unique(g, return_index=True)
+            if uniq.size >= 4:
+                order = np.argsort(first_idx)
+                groups_in_order = uniq[order]
+                rng = np.random.default_rng(random_state)
+                shuffled = rng.permutation(groups_in_order)
+                _, _, counts_orig = np.unique(g, return_index=True, return_counts=True)
+                idx_for_group = {gid: i for i, gid in enumerate(uniq)}
+                cumulative = 0
+                eval_groups: list = []
+                for gid in shuffled:
+                    eval_groups.append(gid)
+                    cumulative += int(counts_orig[idx_for_group[gid]])
+                    if cumulative >= n_eval_target:
+                        break
+                if 0 < cumulative < n - 100 and len(eval_groups) < uniq.size:
+                    eval_set = set(eval_groups.tolist() if hasattr(eval_groups, "tolist") else list(eval_groups))
+                    eval_mask = np.isin(g, list(eval_set))
+                    fit_mask = ~eval_mask
+                    return _slice_rows(X, fit_mask), y[fit_mask], _slice_rows(X, eval_mask), y[eval_mask]
+    cut = n - n_eval_target
     if hasattr(X, "iloc"):
         return X.iloc[:cut], y[:cut], X.iloc[cut:], y[cut:]
     if hasattr(X, "select") and hasattr(X, "slice"):
-        # polars
-        return X.slice(0, cut), y[:cut], X.slice(cut, n_eval), y[cut:]
-    # ndarray
+        return X.slice(0, cut), y[:cut], X.slice(cut, n_eval_target), y[cut:]
     return X[:cut], y[:cut], X[cut:], y[cut:]
+
+
+def _slice_rows(X, mask: np.ndarray):
+    """Index rows of X (pandas / polars / ndarray) by a boolean mask."""
+    if hasattr(X, "iloc"):
+        return X.iloc[mask].reset_index(drop=True) if hasattr(X.iloc[mask], "reset_index") else X.iloc[mask]
+    if hasattr(X, "filter") and hasattr(X, "slice"):
+        return X.filter(pl.Series(mask))
+    return X[mask]
 
 
 # Module-level memo cache for compute_oof_holdout_predictions. OOF-K-NOT-CACHED: keyed by
@@ -311,6 +348,7 @@ def _compute_oof_with_external_holdout(
     external_holdout_base_per_spec: dict[str, np.ndarray],
     sample_weight: np.ndarray | None,
     full_key: tuple | None,
+    group_ids: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray, list[str]]:
     """Fit each component clone on full train, predict on caller-
     supplied external holdout (typically the suite's val split).
@@ -362,9 +400,18 @@ def _compute_oof_with_external_holdout(
                     None if sample_weight is None
                     else sample_weight[valid]
                 )
+                _group_for_valid = None
+                if group_ids is not None:
+                    try:
+                        _g_arr = np.asarray(group_ids)
+                        if _g_arr.shape[0] == valid.shape[0]:
+                            _group_for_valid = _g_arr[valid]
+                    except (TypeError, IndexError):
+                        _group_for_valid = None
                 _X_fit_c, _t_fit_c, _X_ev_c, _t_ev_c = (
                     _carve_inner_eval_split(
                         X_train_valid, t_train, random_state=0,
+                        group_ids=_group_for_valid,
                     )
                 )
                 _eval_set_c = (
@@ -396,6 +443,7 @@ def _compute_oof_with_external_holdout(
                 _X_fit_r, _y_fit_r, _X_ev_r, _y_ev_r = (
                     _carve_inner_eval_split(
                         X_stack_t, y_train_full, random_state=0,
+                        group_ids=group_ids,
                     )
                 )
                 _eval_set_r = (
@@ -470,6 +518,7 @@ def compute_oof_holdout_predictions(
     external_holdout_X: Any | None = None,
     external_holdout_y: np.ndarray | None = None,
     external_holdout_base_per_spec: dict[str, np.ndarray] | None = None,
+    group_ids: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray, list[str]]:
     """Compute honest holdout predictions for each component.
 
@@ -627,8 +676,17 @@ def compute_oof_holdout_predictions(
                     else:
                         inner_clone = clone(inner)
                         _sw_stack = None if sample_weight is None else sample_weight[fold_train_idx]
+                        _group_for_fold = None
+                        if group_ids is not None:
+                            try:
+                                _g_arr = np.asarray(group_ids)
+                                if _g_arr.shape[0] >= int(np.max(fold_train_idx)) + 1:
+                                    _group_for_fold = _g_arr[fold_train_idx]
+                            except (TypeError, IndexError, ValueError):
+                                _group_for_fold = None
                         _X_fit, _y_fit, _X_ev, _y_ev = _carve_inner_eval_split(
                             X_stack_t, y_stack, random_state=int(random_state),
+                            group_ids=_group_for_fold,
                         )
                         _eval_set = (_X_ev, _y_ev) if _X_ev is not None else None
                         _sw_fit = _sw_stack[:len(_y_fit)] if _sw_stack is not None else None
@@ -697,6 +755,7 @@ def compute_oof_holdout_predictions(
             ),
             sample_weight=sample_weight,
             full_key=_full_key,
+            group_ids=group_ids,
         )
 
     # Decide whether to do a time-aware split. We use the explicit

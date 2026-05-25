@@ -550,6 +550,18 @@ class TrainingBehaviorConfig(BaseConfig):
     target_temporal_audit_save_plot: bool = True
     """Save the time-series chart to the per-target charts folder."""
 
+    # Extreme-AR + group-aware MLP skip. When the target's per-group
+    # lag1 autocorrelation is at or above ``mlp_extreme_ar_threshold``
+    # AND the split is group-aware (test groups unseen at training),
+    # the MLP fit is skipped: its near-linear surface extrapolates
+    # catastrophically on unseen groups (TVT prod 2026-05-24:
+    # pred_std=58 vs target_std=645, R2=-286 on test). The ensemble
+    # quality gate would drop the predictions anyway, so the train
+    # is pure cost. Default OFF (MLP trains) -- user-facing knob, no
+    # silent skip without an explicit opt-in. Set True to enable.
+    mlp_extreme_ar_group_aware_skip: bool = False
+    mlp_extreme_ar_threshold: float = 0.99
+
 
 class MultilabelDispatchConfig(BaseConfig):
     """Configuration for multilabel-classification dispatch.

@@ -92,11 +92,15 @@ def test_pipeline_cache_pandas_frame_size_accounted(monkeypatch) -> None:
     assert cache.get("big_b") is not None, "big_b just inserted; must survive"
 
 
-def test_pipeline_cache_default_byte_limit_is_2gb() -> None:
-    """Per the spec, default byte cap is 2_000_000_000 (2GB streaming threshold from CLAUDE.md). The env var is the override knob."""
+def test_pipeline_cache_default_byte_limit_is_dynamic() -> None:
+    """2026-05-25: hardcoded 2 GB default replaced with psutil-driven
+    (available RAM - 8 GB reserve), clamped to [2 GB, 64 GB]. The env
+    var override knob still wins. On any dev/CI box with > 10 GB free
+    we expect at least 2 GB and at most 64 GB."""
     os.environ.pop("MLFRAME_PIPELINE_CACHE_BYTES_LIMIT", None)
     cache = PipelineCache(verbose=False)
-    assert cache._bytes_limit == 2_000_000_000
+    assert cache._bytes_limit >= 2 * 1024 * 1024 * 1024
+    assert cache._bytes_limit <= 64 * 1024 * 1024 * 1024
 
 
 def test_pipeline_cache_eviction_logs_at_info(monkeypatch, caplog) -> None:

@@ -811,15 +811,15 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # RMSE is within ``(1 + lag_predict_failsafe_tolerance)`` of the
     # best single trained component, prefer the zero-parameter
     # ``lag_predict`` over the multi-component stack. Defends against
-    # the train-tail-vs-test distribution mismatch on strong-AR targets
-    # (TVT prod 2026-05-23: train-tail lag RMSE=15.18 vs test=11.58, a
-    # 31% gap that drove NNLS to underweight lag_predict, leaving the
-    # ensemble 14.8% worse than the trivial dummy on TEST). Default
-    # bumped 0.10 -> 0.50 because on train-tail holdouts of group-aware
-    # AR(1) splits the gap between lag_predict OOF RMSE and the best
-    # trained-model OOF RMSE is commonly 30-40%; a 10% tolerance never
-    # fires in practice. Set to 0 to disable.
-    lag_predict_failsafe_tolerance: float = 0.50
+    # the train-tail-vs-test distribution mismatch on strong-AR targets.
+    # Default 0.10 (10%). The earlier 0.50 was calibrated for
+    # group-blind train-tail carves where the trained-model OOF was
+    # artificially inflated by ~25% due to within-group leakage in
+    # the inner early-stopping eval; now that ``_carve_inner_eval_split``
+    # is group-aware (2026-05-25), the trained-model honest OOF is no
+    # longer biased high vs lag, so the tolerance no longer needs to
+    # absorb the gap. Set to 0 to disable.
+    lag_predict_failsafe_tolerance: float = 0.10
 
     # Dummy-floor gate: when honest OOF predictions are available, drop
     # any component from the CompositeCrossTargetEnsemble pool whose

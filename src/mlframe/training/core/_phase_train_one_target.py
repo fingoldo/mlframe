@@ -147,9 +147,13 @@ def _apply_loss_recommendation_in_place(
             if _value == "MAE":
                 return ("eval_metric", "MAE")
             if _value.startswith("Huber"):
-                # Huber not a stock CB eval_metric; MAE approximates Huber
-                # near zero and is bounded-influence on tails.
-                return ("eval_metric", "MAE")
+                # Huber:delta=X IS a valid CB eval_metric (CatBoost 1.0+);
+                # match the loss exactly so ES tracks the same surface
+                # the optimiser descends. Prior code returned MAE which
+                # has a constant-magnitude gradient and stops ES at iter=1
+                # on small-residual composite targets (TVT-addres-TVT_prev
+                # 2026-05-24: CB pred [-25,+5] for T in [-45,+45], R2=-0.41).
+                return ("eval_metric", _value)
         elif _backend == "lgb":
             if _value == "regression":
                 return ("metric", "l2")  # l2 == rmse-squared, LGB stops on it
@@ -184,11 +188,20 @@ def _apply_loss_recommendation_in_place(
         _em = _eval_metric_for(_backend, _value)
         if _em is not None:
             _set_kwargs[_em[0]] = _em[1]
+        # Backend-specific extra params from the recommendation
+        # (e.g. xgb_extra_params={"huber_slope": MAD*1.345} when XGB
+        # gets reg:pseudohubererror; without this the slope defaults to
+        # 1.0 and on T-scale composite targets with std~13 the loss
+        # is effectively MSE on tails -> pred range blows out by 30x).
+        _extra_params = rec.get(f"{_backend}_extra_params") or {}
+        if isinstance(_extra_params, dict):
+            _set_kwargs.update(_extra_params)
         try:
             _model.set_params(**_set_kwargs)
             _applied.append(
                 f"{_backend}:{_param_name}={_value}"
                 + (f",{_em[0]}={_em[1]}" if _em is not None else "")
+                + (f",{'+'.join(_extra_params)}" if _extra_params else "")
             )
         except (ValueError, TypeError) as _set_err:
             # Backend may reject the combined value. Try objective-only as fallback.

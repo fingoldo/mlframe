@@ -246,12 +246,34 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
             y_train_median = float(np.median(y_train[finite]))
             y_clip_low, y_clip_high = _y_train_clip_bounds(y_train[finite])
 
+        # T-scale clip bounds (mirror the .fit() path). On the
+        # from_fitted_inner route we don't have direct T_train access -
+        # caller passed y_train + transform_fitted_params. Reconstruct
+        # a conservative T envelope from y_train statistics when possible
+        # (transforms y - alpha*base have T-range bounded by y-range +
+        # alpha*base-range, but base isn't available here, so we widen
+        # to +/- 10 * y_std as a conservative T-envelope proxy that still
+        # catches order-of-magnitude blow-ups while leaving in-distribution
+        # T predictions untouched).
+        if finite.size >= 10 and finite.any():
+            y_std = float(np.std(y_train[finite]))
+            if y_std > 0:
+                t_envelope = 10.0 * y_std
+                t_clip_low = -t_envelope
+                t_clip_high = +t_envelope
+            else:
+                t_clip_low, t_clip_high = float("-inf"), float("inf")
+        else:
+            t_clip_low, t_clip_high = float("-inf"), float("inf")
+
         instance.estimator_ = fitted_inner
         instance.fitted_params_ = {
             **dict(transform_fitted_params),
             "y_clip_low": y_clip_low,
             "y_clip_high": y_clip_high,
             "y_train_median": y_train_median,
+            "t_clip_low": t_clip_low,
+            "t_clip_high": t_clip_high,
         }
         # Inherit feature_names_in_ from the already-fitted inner. The
         # __init__ path captures it via .fit() (line 618); the
@@ -549,12 +571,41 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
             )
             y_train_median = 0.0
 
+        # T-scale clip bounds. Inner predict() can blow out far past the
+        # T-train envelope on heavy-tail residual targets (TVT-addres-TVT_prev
+        # 2026-05-24: XGB reg:pseudohubererror with un-calibrated
+        # huber_slope=1.0 produced T_hat in [-50, +340] for T_train in
+        # [-50, +50]; the additive inverse then pushed y_hat 340 above
+        # the train envelope and the y-clip only catches the part outside
+        # [y_min, y_max], not the wildly-extrapolated middle).
+        # T-clip BEFORE inverse uses MAD-scaled bounds (median(T) +/- 10*MAD)
+        # so the in-distribution mass is unaffected while gross blow-up
+        # is bounded. MAD-based to be robust to a few outlying T values
+        # in the train fold itself.
+        t_finite = t_train[np.isfinite(t_train)]
+        if t_finite.size >= 10:
+            t_med = float(np.median(t_finite))
+            t_mad = float(np.median(np.abs(t_finite - t_med)))
+            if t_mad > 0:
+                t_clip_low = t_med - 10.0 * t_mad
+                t_clip_high = t_med + 10.0 * t_mad
+                t_observed_min = float(t_finite.min())
+                t_observed_max = float(t_finite.max())
+                t_clip_low = min(t_clip_low, t_observed_min)
+                t_clip_high = max(t_clip_high, t_observed_max)
+            else:
+                t_clip_low, t_clip_high = float("-inf"), float("inf")
+        else:
+            t_clip_low, t_clip_high = float("-inf"), float("inf")
+
         self.estimator_ = estimator
         self.fitted_params_ = {
             **transform_params,
             "y_clip_low": y_clip_low,
             "y_clip_high": y_clip_high,
             "y_train_median": y_train_median,
+            "t_clip_low": t_clip_low,
+            "t_clip_high": t_clip_high,
             "n_train_valid": int(y_train.size),
             "n_train_invalid": n_invalid,
         }
@@ -645,6 +696,30 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         t_hat = np.asarray(
             self.estimator_.predict(X_for_inner), dtype=np.float64,
         ).reshape(-1)
+
+        # T-scale clip BEFORE inverse. Heavy-tail composite targets
+        # (TVT-addres-TVT_prev 2026-05-24 on XGB) can blow predictions
+        # 30x outside the T-train envelope; the post-inverse y-clip
+        # only catches what falls outside the y-train range, missing
+        # the wildly-extrapolated middle. T-clip here bounds the
+        # blow-up at its source while leaving in-distribution T
+        # predictions untouched. NaN-only batches and missing bounds
+        # (legacy fitted_params without t_clip_*) are no-ops.
+        t_clip_low = params.get("t_clip_low", float("-inf"))
+        t_clip_high = params.get("t_clip_high", float("+inf"))
+        if (np.isfinite(t_clip_low) or np.isfinite(t_clip_high)):
+            t_low_hits = int(np.sum(t_hat < t_clip_low))
+            t_high_hits = int(np.sum(t_hat > t_clip_high))
+            if t_low_hits or t_high_hits:
+                t_hat = np.clip(t_hat, t_clip_low, t_clip_high)
+                logger.warning(
+                    "[CompositeTargetEstimator] T-clip applied transform='%s' "
+                    "base='%s': %d row(s) below %.4g, %d row(s) above %.4g. "
+                    "Inner predict produced T-scale outliers (likely Huber-slope "
+                    "miscalibration or extreme-tail blow-up).",
+                    self.transform_name, self.base_column,
+                    t_low_hits, t_clip_low, t_high_hits, t_clip_high,
+                )
 
         # Unary transforms have no base column at predict-time; size the
         # placeholder + domain mask to match t_hat. Inverse ignores the

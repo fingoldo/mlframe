@@ -751,6 +751,35 @@ def _resolve_model_spec(
 _DEFAULT_PIPELINE_CACHE_BYTES_LIMIT = 2_000_000_000
 
 
+def _resolve_pipeline_cache_budget() -> int:
+    """Decide the PipelineCache byte budget for this process.
+
+    Priority:
+      1. ``MLFRAME_PIPELINE_CACHE_BYTES_LIMIT`` env var (operator override).
+      2. Dynamic: ``available_ram - 8 GB safety reserve``, clamped to
+         ``[2 GB, 64 GB]``. On a 128 GB box the previous hardcoded 2 GB
+         default evicted every entry on every SET (entry sizes ~2.5 GB
+         each) -- cache became net-negative overhead with 0 hits.
+      3. Fallback ``_DEFAULT_PIPELINE_CACHE_BYTES_LIMIT`` if psutil is
+         unavailable or raises.
+    """
+    env_raw = os.environ.get("MLFRAME_PIPELINE_CACHE_BYTES_LIMIT")
+    if env_raw:
+        try:
+            return int(env_raw)
+        except (TypeError, ValueError):
+            pass
+    try:
+        import psutil as _psutil
+        available = int(_psutil.virtual_memory().available)
+        reserve = 8 * 1024 * 1024 * 1024
+        budget = max(2 * 1024 * 1024 * 1024, available - reserve)
+        budget = min(budget, 64 * 1024 * 1024 * 1024)
+        return int(budget)
+    except Exception:
+        return _DEFAULT_PIPELINE_CACHE_BYTES_LIMIT
+
+
 def _estimate_slot_nbytes(slot: Any) -> int:
     """Best-effort byte-size estimate for a cached frame / array slot.
 
@@ -814,14 +843,7 @@ class PipelineCache:
         self.n_evicted: int = 0
         self.verbose: bool = bool(verbose)
         if bytes_limit is None:
-            env_raw = os.environ.get("MLFRAME_PIPELINE_CACHE_BYTES_LIMIT")
-            if env_raw:
-                try:
-                    bytes_limit = int(env_raw)
-                except (TypeError, ValueError):
-                    bytes_limit = _DEFAULT_PIPELINE_CACHE_BYTES_LIMIT
-            else:
-                bytes_limit = _DEFAULT_PIPELINE_CACHE_BYTES_LIMIT
+            bytes_limit = _resolve_pipeline_cache_budget()
         self._bytes_limit: int = int(bytes_limit)
 
     def get(self, cache_key: str) -> Optional[Tuple[Any, Any, Any]]:
@@ -858,7 +880,18 @@ class PipelineCache:
         self._evict_until_under_limit(active_key=cache_key)
 
     def _evict_until_under_limit(self, *, active_key: Optional[str]) -> None:
-        """LRU-evict entries until total bytes <= limit; never evict ``active_key`` (the just-inserted entry stays pinned even if a single oversized entry exceeds the cap on its own)."""
+        """LRU-evict entries until total bytes <= limit; never evict ``active_key`` (the just-inserted entry stays pinned even if a single oversized entry exceeds the cap on its own).
+
+        Re-checks current available RAM on every call: if free memory has
+        dropped since init (other processes loaded), the effective limit
+        tightens dynamically so the cache never pushes the system into
+        swap. Operator-set ``MLFRAME_PIPELINE_CACHE_BYTES_LIMIT`` is
+        respected as an upper bound.
+        """
+        try:
+            self._bytes_limit = min(self._bytes_limit, _resolve_pipeline_cache_budget())
+        except Exception:
+            pass
         if self._total_bytes <= self._bytes_limit:
             return
         evicted_count = 0
