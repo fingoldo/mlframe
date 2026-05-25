@@ -257,7 +257,9 @@ def plot_feature_importance(
         ax.set_axisbelow(True)
 
         if plot_file:
-            fig_top.savefig(plot_file)
+            # bbox_inches="tight" so long ytick labels (feature names) and
+            # the title don't get cropped by the default figure bbox.
+            fig_top.savefig(plot_file, bbox_inches="tight", pad_inches=0.15)
 
         if show_plots:
             # 2026-05-11: prefer explicit ``IPython.display.display(fig)``

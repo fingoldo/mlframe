@@ -71,6 +71,8 @@ def estimate_features_relevancy(
     max_permuted_prevalence_percent: float = 0.05,
     # stopping criteria
     max_runtime_mins: float = None,
+    # rng
+    random_state: int | None = 42,
     # style
     leave_progressbar: bool = False,
     max_log_text_width: int = 300,
@@ -124,8 +126,11 @@ def estimate_features_relevancy(
     if verbose > 1:
         logger.info("Computing original MIs...")
 
-    arr = bins.to_numpy(allow_copy=True).copy()
+    # ``to_numpy(allow_copy=True)`` already returns an owned buffer; the extra ``.copy()`` doubled peak RAM on 100+ GB binned matrices. The downstream permutation loop shuffles only target columns, so the leading-edge view is safe to mutate in place.
+    arr = bins.to_numpy(allow_copy=True)
     target_indices = [bins.columns.index(target_col) for target_col in target_columns]
+    # Per-call deterministic RNG so two parallel suite calls (or parent-process pre-seeding) cannot interleave shuffles; ``np.random.shuffle`` on the legacy global RNG was the source of non-deterministic baselines under joblib + fork workers.
+    _rng = np.random.default_rng(random_state)
 
     original_mi_results = mi_algorithms_ranking[0](arr, target_indices)
 
@@ -161,7 +166,7 @@ def estimate_features_relevancy(
     for permutation_id in tqdmu(range(num_randomized_permutations), desc="Permutation", leave=leave_progressbar):
 
         for idx in target_indices:
-            np.random.shuffle(arr[:, idx])
+            _rng.shuffle(arr[:, idx])
 
         permuted_mi_results = mi_algorithms_ranking[0](arr, target_indices)
 
