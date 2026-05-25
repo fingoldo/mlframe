@@ -1,0 +1,96 @@
+{
+  "agent_slug": "w10b-caching-followups",
+  "started_utc": "2026-05-25T13:49:00Z",
+  "finished_utc": "2026-05-25T14:24:00Z",
+  "findings_assigned": [
+    "AP1_eviction_sidecar_leak",
+    "AP1_total_bytes_misses_sidecars",
+    "_PRE_PIPELINE_CACHE_x_content_hash_extension",
+    "DiscoveryCache_bytes_total_helper",
+    "DiscoveryCache_SuiteArtefactCache_joint_stash_arch",
+    "polars_lazyframe_cache_in_training_core",
+    "inference_predict_prewarm_lru",
+    "PRE_PIPELINE_CACHE_LRU_atomic_put_evict"
+  ],
+  "findings_status": {
+    "AP1_eviction_sidecar_leak": {
+      "status": "DONE",
+      "commit": "b8083ef6",
+      "test_file": "tests/training/test_regression_w10b_caching_followups.py",
+      "notes": "_evict_lru_locked now logs WARN on sidecar removal failure rather than swallowing OSError silently. RED-FAIL on test_total_bytes_accounts_for_sidecars confirmed pre-fix (delta 520 of 1150). GREEN post-fix."
+    },
+    "AP1_total_bytes_misses_sidecars": {
+      "status": "DONE",
+      "commit": "b8083ef6",
+      "test_file": "tests/training/test_regression_w10b_caching_followups.py::test_total_bytes_accounts_for_sidecars",
+      "notes": "_total_bytes_locked now counts .pkl AND .pkl.sha256 so the budget figure reflects the FULL on-disk footprint; existing AP1 23-test suite still passes."
+    },
+    "_PRE_PIPELINE_CACHE_x_content_hash_extension": {
+      "status": "DONE",
+      "commit": "54d456ae",
+      "test_file": "tests/training/test_regression_w10b_caching_followups.py::test_pre_pipeline_cache_key_distinguishes_x_content_with_shared_sample_cells",
+      "notes": "New _full_x_content_hash mirrors MRMR A1#8 fix + folded into _pre_pipeline_cache_key. RED-FAIL on tuple-equal collision verified pre-fix; GREEN post-fix. All 55 existing pipeline_cache_* tests still pass."
+    },
+    "DiscoveryCache_bytes_total_helper": {
+      "status": "DONE",
+      "commit": "65b3dded",
+      "test_file": "tests/training/test_regression_w10b_caching_followups.py::test_discovery_cache_bytes_total_helper_walks_pkl_files",
+      "notes": "_discovery_cache_bytes_total helper added to composite_cache.py; mirrors _mrmr_cache_bytes_total + SuiteArtefactCache._total_bytes_locked pattern. Counts .pkl + .pkl.sha256."
+    },
+    "DiscoveryCache_SuiteArtefactCache_joint_stash_arch": {
+      "status": "ARCH-DEFER",
+      "commit": "c70c9317",
+      "proposal": "audit/critique_2026_05_24/architectural_proposals/A5-discovery-suite-joint-stash.md",
+      "notes": "Documented 3 options (do nothing / layer on / shared backend Protocol) + recommended Option A (do nothing) for Wave 10; Option C is the safer Wave 11+ landing pattern."
+    },
+    "polars_lazyframe_cache_in_training_core": {
+      "status": "ARCH-DEFER",
+      "proposal": "audit/critique_2026_05_24/architectural_proposals/A5-P2-9-polars-lazyframe-cache.md",
+      "notes": "Already documented as ARCH-DEFER in Wave 7. .lazy() call sites in training/core are single-leaf, not multi-branch graphs -- .cache() requires SuiteFrameContext restructure that needs bench before landing. Confirmed Wave 10 carries through the deferral; no code change."
+    },
+    "inference_predict_prewarm_lru": {
+      "status": "DEFERRED",
+      "notes": "inference/predict.py loads models eagerly via joblib.load with no lazy state to prewarm. The A5#10 / cb5acc82 load_mlframe_model LRU already covers warm-prediction service callers via that path. Adding an LRU to inference.predict.read_trained_models would be a sibling fix but the caller pattern (one-shot read_trained_models per service start) makes the LRU win marginal -- defer."
+    },
+    "PRE_PIPELINE_CACHE_LRU_atomic_put_evict": {
+      "status": "VERIFIED_ALREADY_FIXED",
+      "notes": "_pre_pipeline_cache_set / _pre_pipeline_cache_get already hold _PRE_PIPELINE_CACHE_LOCK (threading.Lock) for the full put + evict critical section. Two parallel target fits in one process serialize cleanly; cross-key races are by design (LRU eviction is the cap-enforcement mechanism). No bug to fix."
+    }
+  },
+  "blocked": [],
+  "test_results": {
+    "green_paths": [
+      "tests/training/test_suite_artefact_cache.py (23 tests)",
+      "tests/training/test_regression_w10b_caching_followups.py (5 tests)",
+      "tests/training/test_pipeline_cache_collision_across_boosters.py",
+      "tests/training/test_pipeline_cache_content_based.py",
+      "tests/training/test_pipeline_cache_key_includes_feature_lists.py",
+      "tests/training/test_pipeline_cache_polars_pandas_agnostic.py",
+      "tests/training/test_pipeline_cache_verbose_logs.py",
+      "tests/training/test_regression_S01_pipeline_cache_fp_collision.py",
+      "tests/training/test_regression_A5_p2_8_pandas_view_cache_lru.py",
+      "tests/training/test_regression_A5_p2_10_load_model_lru.py",
+      "tests/training/test_regression_A5_p2_11_pre_pipeline_seed_in_key.py",
+      "tests/training/test_regression_A5_low_13_discovery_cache_hard_error.py",
+      "tests/training/test_regression_A5_low_14_fp_cache_env_override.py",
+      "tests/training/test_composite_cache_default_caps.py",
+      "tests/training/test_composite_cache_row_order.py"
+    ],
+    "red_paths": []
+  },
+  "commits": [
+    {"sha": "b8083ef6", "msg": "fix(suite-cache): count + remove .pkl.sha256 sidecars during eviction"},
+    {"sha": "54d456ae", "msg": "fix(pipeline-cache): fold full-X blake2b into _pre_pipeline_cache_key"},
+    {"sha": "65b3dded", "msg": "feat(composite-cache): add _discovery_cache_bytes_total on-disk size helper"},
+    {"sha": "c70c9317", "msg": "docs(audit): architectural proposal for DiscoveryCache + SuiteArtefactCache joint-stash"}
+  ],
+  "files_touched": [
+    "src/mlframe/training/suite_artefact_cache.py",
+    "src/mlframe/training/_pipeline_cache.py",
+    "src/mlframe/training/composite_cache.py",
+    "tests/training/test_suite_artefact_cache.py",
+    "tests/training/test_regression_w10b_caching_followups.py",
+    "audit/critique_2026_05_24/architectural_proposals/A5-discovery-suite-joint-stash.md"
+  ],
+  "notes": "All 4 active fixes ship with regression sensors that RED-FAIL pre-fix + GREEN post-fix. ARCH-DEFER items documented per IMPLEMENTATION_RULES.md. No push (per orchestrator policy). No -- no-verify. No wavelet_dwt.py touch."
+}
