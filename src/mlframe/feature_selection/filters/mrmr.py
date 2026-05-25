@@ -432,6 +432,10 @@ class MRMR(BaseEstimator, TransformerMixin):
         #
         # Default flipped False -> True 2026-05-18 (Accuracy/perf over legacy): on multi-target suites the second MRMR call on the same X usually hits the cache and saves the full FE pipeline run-time. The conservative case (prior identity result was wrong for the new target) is rare in practice because composite-target y values are highly correlated with the raw y -- if MRMR found nothing on raw y, it almost never finds something on the residual.
         mrmr_skip_when_prior_was_identity: bool = True,
+        # When True, ``fit(groups=...)`` raises ``NotImplementedError`` instead of emitting the warn-only "MRMR does not consume groups" UserWarning. Use this in production pipelines where silently
+        # ignoring groups would mask a real correctness gap (cross-group leakage in MI estimation on panel / user-session / sliding-window data). Default False keeps the legacy warn behaviour for
+        # ad-hoc callers who already know the limitation and want MI computed per-row anyway.
+        strict_groups: bool = False,
         # hidden
         stop_file: str = "stop",
     ):
@@ -555,6 +559,7 @@ class MRMR(BaseEstimator, TransformerMixin):
             "cat_fe_config": None,
             "_cat_fe_state_": None,
             "_cat_fe_cache_": None,  # streaming cache; None on legacy pickles
+            "strict_groups": False,  # added 2026-05-25; legacy pickles default to warn-only behaviour
         }
         for k, v in defaults.items():
             state.setdefault(k, v)
@@ -634,10 +639,18 @@ class MRMR(BaseEstimator, TransformerMixin):
 
         2026-05-18 #2: cross-target identity cache. When a prior fit on the SAME X (same columns + same dtypes) produced an identity result (all input columns selected + zero engineered features), subsequent calls with a different y short-circuit the 80+ min FE pipeline and return identity-equivalent output. Opt-in via ``mrmr_skip_when_prior_was_identity=True``."""
         if groups is not None:
+            if getattr(self, "strict_groups", False):
+                raise NotImplementedError(
+                    "MRMR.fit received groups but the current implementation does NOT consume them and "
+                    "strict_groups=True was set. Either implement grouped MI estimation by wrapping MRMR "
+                    "with a per-group selector and aggregating manually, set strict_groups=False to "
+                    "accept the warn-only fallback, or pass groups=None."
+                )
             warnings.warn(
                 "MRMR.fit received groups but the current implementation does NOT consume them; "
                 "MI is estimated per-row. For grouped MI estimation, wrap MRMR with a per-group "
-                "selector and aggregate manually. Pass groups=None to silence this warning.",
+                "selector and aggregate manually. Pass groups=None to silence this warning, or set "
+                "strict_groups=True to raise instead.",
                 UserWarning,
                 stacklevel=2,
             )
