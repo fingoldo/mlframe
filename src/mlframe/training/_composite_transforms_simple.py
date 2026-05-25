@@ -83,8 +83,11 @@ def _diff_domain(y: np.ndarray | None, base: np.ndarray) -> np.ndarray:
 # inverse: y = T + base + beta. Distinct from ``diff`` when the
 # (y, base) relationship has a non-zero level shift.
 # ----------------------------------------------------------------------
-def _additive_residual_fit(y: np.ndarray, base: np.ndarray) -> dict[str, Any]:
-    finite = np.isfinite(y) & np.isfinite(base)
+def _additive_residual_fit(
+    y: np.ndarray, base: np.ndarray, _finite_mask: np.ndarray | None = None,
+) -> dict[str, Any]:
+    # ``_finite_mask`` lets the outer ``Transform.fit`` dispatcher precompute the joint finite mask once per (y, base) pair and thread it through all per-spec fits; saves N x np.isfinite passes on hot discovery paths where the same (y, base) feeds 10+ specs.
+    finite = _finite_mask if _finite_mask is not None else (np.isfinite(y) & np.isfinite(base))
     if not finite.any():
         return {"beta": 0.0}
     beta = float(np.mean(y[finite] - base[finite]))
@@ -163,8 +166,10 @@ def _median_residual_per_bin_medians(
     return _median_residual_per_bin_medians_v1_pyloop(y_f, bin_idx, n_bins)
 
 
-def _median_residual_fit(y: np.ndarray, base: np.ndarray) -> dict[str, Any]:
-    finite = np.isfinite(y) & np.isfinite(base)
+def _median_residual_fit(
+    y: np.ndarray, base: np.ndarray, _finite_mask: np.ndarray | None = None,
+) -> dict[str, Any]:
+    finite = _finite_mask if _finite_mask is not None else (np.isfinite(y) & np.isfinite(base))
     if not finite.any():
         return {
             "bin_edges": np.array([0.0]), "bin_medians": np.array([0.0]),
@@ -240,8 +245,11 @@ _Y_QUANTILE_CLIP_LO: float = 0.005
 _Y_QUANTILE_CLIP_HI: float = 0.995
 
 
-def _y_quantile_clip_fit(y: np.ndarray, base: np.ndarray) -> dict[str, Any]:
-    finite = np.isfinite(y)
+def _y_quantile_clip_fit(
+    y: np.ndarray, base: np.ndarray, _finite_mask: np.ndarray | None = None,
+) -> dict[str, Any]:
+    # Unary y-only transform; ``_finite_mask`` (when supplied by the outer dispatcher) is treated as the y-side finite gate (the base argument is ignored either way).
+    finite = _finite_mask if _finite_mask is not None else np.isfinite(y)
     if not finite.any():
         return {"q_lo": 0.0, "q_hi": 0.0}
     y_f = y[finite].astype(np.float64)
@@ -278,12 +286,20 @@ def _y_quantile_clip_domain(
 # ratio: T = y / base. Requires |base| >= eps.
 # ----------------------------------------------------------------------
 
-def _ratio_fit(y: np.ndarray, base: np.ndarray) -> dict[str, Any]:
+def _ratio_fit(
+    y: np.ndarray, base: np.ndarray, _finite_mask: np.ndarray | None = None,
+) -> dict[str, Any]:
     # eps relative to the typical scale of base on train -- small enough
     # not to bias the transform but large enough to keep division
     # numerically clean. Stored in params so predict time uses the
-    # SAME eps (no train/test drift).
-    scale = float(np.median(np.abs(base[np.isfinite(base) & (base != 0)])))
+    # SAME eps (no train/test drift). When the outer dispatcher already
+    # validated finiteness, ``_finite_mask`` lets us skip the per-call
+    # np.isfinite recompute on base.
+    if _finite_mask is not None:
+        base_finite = _finite_mask & (base != 0)
+    else:
+        base_finite = np.isfinite(base) & (base != 0)
+    scale = float(np.median(np.abs(base[base_finite])))
     eps = max(scale * 1e-6, 1e-12) if scale > 0 else 1e-12
     return {"eps": eps}
 
@@ -318,11 +334,15 @@ _ROLLING_QUANTILE_DEFAULT_K: int = 7
 
 def _rolling_quantile_ratio_fit(
     y: np.ndarray, base: np.ndarray, k: int = _ROLLING_QUANTILE_DEFAULT_K,
+    _finite_mask: np.ndarray | None = None,
 ) -> dict[str, Any]:
     """Stores the window span ``k`` and an eps floor derived from train base scale to keep division safe at predict time on near-zero rolling medians."""
     k = max(1, int(k))
     base_f = np.asarray(base, dtype=np.float64).reshape(-1)
-    finite = np.isfinite(base_f) & (base_f != 0)
+    if _finite_mask is not None:
+        finite = _finite_mask & (base_f != 0)
+    else:
+        finite = np.isfinite(base_f) & (base_f != 0)
     scale = float(np.median(np.abs(base_f[finite]))) if finite.any() else 1.0
     eps = max(scale * 1e-6, 1e-12)
     return {"k": k, "eps": eps}

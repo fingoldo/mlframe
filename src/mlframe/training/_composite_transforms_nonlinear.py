@@ -284,6 +284,7 @@ def _quantile_residual_fit(
     y: np.ndarray, base: np.ndarray,
     n_bins: int = _QUANTILE_RESIDUAL_DEFAULT_N_BINS,
     min_bin_n: int = _QUANTILE_RESIDUAL_DEFAULT_MIN_BIN_N,
+    _finite_mask: np.ndarray | None = None,
 ) -> dict[str, Any]:
     """Fit per-bucket median(y) + IQR(y) over ``n_bins`` quantile bins of ``base``.
 
@@ -306,7 +307,7 @@ def _quantile_residual_fit(
     min_bin_n = max(2, int(min_bin_n))
     y_f = np.asarray(y, dtype=np.float64).reshape(-1)
     base_f = np.asarray(base, dtype=np.float64).reshape(-1)
-    finite = np.isfinite(y_f) & np.isfinite(base_f)
+    finite = _finite_mask if _finite_mask is not None else (np.isfinite(y_f) & np.isfinite(base_f))
     if finite.sum() < n_bins * 2:
         # Degenerate: fall back to global stats so the inverse is still safe.
         med = float(np.median(y_f[finite])) if finite.any() else 0.0
@@ -398,6 +399,7 @@ def _monotonic_residual_fit(
     y: np.ndarray, base: np.ndarray,
     n_knots: int = _MONOTONIC_RESIDUAL_DEFAULT_N_KNOTS,
     min_knot_n: int = _MONOTONIC_RESIDUAL_DEFAULT_MIN_KNOT_N,
+    _finite_mask: np.ndarray | None = None,
 ) -> dict[str, Any]:
     """Fit a monotone PCHIP spline g(base) via per-quantile-knot medians and orient by the sign of the global Spearman correlation between y and base. Stores the knot x/y arrays + the global y mean as a fallback. Domain at predict time: base values outside [knots_x[0], knots_x[-1]] are clipped to the edge knots (PCHIP extrapolation is not safe -- it can run off to +/- inf rapidly).
 
@@ -420,7 +422,7 @@ def _monotonic_residual_fit(
     min_knot_n = max(2, int(min_knot_n))
     y_f = np.asarray(y, dtype=np.float64).reshape(-1)
     base_f = np.asarray(base, dtype=np.float64).reshape(-1)
-    finite = np.isfinite(y_f) & np.isfinite(base_f)
+    finite = _finite_mask if _finite_mask is not None else (np.isfinite(y_f) & np.isfinite(base_f))
     if finite.sum() < n_knots * 2:
         y_med = float(np.median(y_f[finite])) if finite.any() else 0.0
         return {
@@ -555,6 +557,7 @@ def _monotonic_residual_domain(
     return base_ok & np.isfinite(np.asarray(y, dtype=np.float64).reshape(-1))
 def _ewma_residual_fit(
     y: np.ndarray, base: np.ndarray, k: int = _EWMA_RESIDUAL_DEFAULT_K,
+    _finite_mask: np.ndarray | None = None,
 ) -> dict[str, Any]:
     """Fit stores only the EWMA half-life span ``k``. The EWMA itself is re-computed at forward / inverse time -- this keeps the fitted params JSON-serialisable and stateless (the alternative of storing the full N-row EWMA trace would bloat metadata and break predict-on-new-data). The first-row anchor is the train-base mean: ``ewma[0] = mean(base_train)``."""
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
@@ -563,7 +566,7 @@ def _ewma_residual_fit(
     from .composite_transforms import _EWMA_RESIDUAL_DEFAULT_K
     k = max(1, int(k))
     base_f = np.asarray(base, dtype=np.float64).reshape(-1)
-    finite = np.isfinite(base_f)
+    finite = _finite_mask if _finite_mask is not None else np.isfinite(base_f)
     anchor = float(np.mean(base_f[finite])) if finite.any() else 0.0
     return {"k": k, "anchor": anchor}
 def _ewma_compute(base: np.ndarray, k: int, anchor: float) -> np.ndarray:
@@ -845,6 +848,7 @@ def _frac_diff_weights(d: float, lags: int) -> np.ndarray:
 def _frac_diff_fit(
     y: np.ndarray, base: np.ndarray,
     d: float = _FRAC_DIFF_DEFAULT_D, lags: int = _FRAC_DIFF_DEFAULT_LAGS,
+    _finite_mask: np.ndarray | None = None,
 ) -> dict[str, Any]:
     """Store fractional order ``d``, lag truncation ``lags``, and the train-y mean used as a pre-window anchor (rows whose lag history is shorter than ``lags`` need a fallback value for the missing past terms)."""
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
@@ -854,7 +858,7 @@ def _frac_diff_fit(
     d = float(d)
     lags = max(1, int(lags))
     y_f = np.asarray(y, dtype=np.float64).reshape(-1)
-    finite = np.isfinite(y_f)
+    finite = _finite_mask if _finite_mask is not None else np.isfinite(y_f)
     anchor = float(np.mean(y_f[finite])) if finite.any() else 0.0
     return {"d": d, "lags": lags, "anchor": anchor, "weights": _frac_diff_weights(d, lags).tolist()}
 def _frac_diff_forward(
