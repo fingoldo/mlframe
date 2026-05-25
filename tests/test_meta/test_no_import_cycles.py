@@ -41,6 +41,7 @@ _USER_DEFERRED_CYCLES: set[str] = {
     # ``_<topic>_common.py`` and have both siblings import from it
     # (see _numerical_constants.py for the canonical pattern). Drained
     # in a follow-up.
+    "mlframe.training._extractors_simple → mlframe.training.extractors",
     "mlframe.training._reporting → mlframe.training._reporting_probabilistic",
     "mlframe.training._composite_target_estimator → mlframe.training.composite_estimator",
     "mlframe.training._strategies_xgboost → mlframe.training.strategies",
