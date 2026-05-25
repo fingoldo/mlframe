@@ -12,46 +12,25 @@ is needed here.
 from __future__ import annotations
 
 import copy
-import hashlib
 import logging
 import textwrap
-from contextlib import nullcontext
 from os.path import exists
 from timeit import default_timer as timer
 from typing import Union
 
 import numpy as np
 import pandas as pd
-import polars as pl
 
 from pyutilz.system import tqdmu
-from pyutilz.pythonlib import (
-    suppress_stdout_stderr,
-)
 
-from sklearn.base import (
-    clone,
-    is_classifier,
-    is_regressor,
-)
-from sklearn.metrics import make_scorer, mean_squared_error
 from sklearn.pipeline import Pipeline
 
-from mlframe.config import CATBOOST_MODEL_TYPES
 from mlframe.utils.misc import set_random_seed
-from mlframe.estimators.baselines import get_best_dummy_score
-from mlframe.core.helpers import has_early_stopping_support
-from mlframe.training.helpers import compute_cb_text_processing
-from mlframe.preprocessing.transforms import pack_val_set_into_fit_params
-from mlframe.metrics.core import compute_probabilistic_multiclass_error
 
 from ._enums import OptimumSearch
 from ._helpers import (
-    _detect_multithreaded,
     _pin_threads_to_one,
-    get_feature_importances,
     get_next_features_subset,
-    split_into_train_test,
     store_averaged_cv_scores,
     suppress_irritating_3rdparty_warnings,
 )
@@ -61,6 +40,12 @@ from ._rfecv_finalize import _finalize_fit_results
 from ._rfecv_checkpoint import _maybe_resume_from_checkpoint
 from ._rfecv_must_include import _resolve_must_include
 from ._rfecv_fit_init import _init_fit_state
+from ._rfecv_fit_setup import (
+    filter_cat_features_by_dtype,
+    resolve_default_scoring,
+    resolve_effective_n_jobs,
+)
+from ._rfecv_fit_fold import _eval_fold_body
 
 logger = logging.getLogger("mlframe.feature_selection.wrappers._rfecv")
 
@@ -130,33 +115,7 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     leave_progressbars = self.leave_progressbars
     verbose = self.verbose
     show_plot = self.show_plot
-    cat_features = self.cat_features
-    # Strip cat_features whose columns have already been numerically encoded by an upstream pipeline step (e.g. CatBoostEncoder turning
-    # cat_0 -> float). With cat_0 still in cat_features, inner CatBoost.fit raises ``Invalid type for cat_feature``. Restrict to columns
-    # whose dtype is still categorical/object - those are the ones CB/XGB can actually consume. LOCAL only - never mutate
-    # self.cat_features (back-to-back fits across encoded/un-encoded frames must each pick the right subset for their X).
-    if cat_features and isinstance(X, pd.DataFrame):
-        try:
-            _consumable_kinds = {"O", "U", "S"}
-            _consumable = []
-            for _c in cat_features:
-                if _c not in X.columns:
-                    continue
-                _dt = X[_c].dtype
-                if str(_dt).startswith("category") or getattr(_dt, "kind", "") in _consumable_kinds:
-                    _consumable.append(_c)
-            if len(_consumable) != len(cat_features):
-                if verbose:
-                    logger.info(
-                        "wrappers.fit: %d/%d cat_features kept after dtype check; "
-                        "the rest (%s) appear numerically encoded upstream and "
-                        "are skipped for the inner estimator.",
-                        len(_consumable), len(cat_features),
-                        [c for c in cat_features if c not in _consumable],
-                    )
-                cat_features = _consumable
-        except Exception:
-            pass
+    cat_features = filter_cat_features_by_dtype(X, self.cat_features, verbose)
     keep_estimators = self.keep_estimators
     feature_cost = self.feature_cost
     smooth_perf = self.smooth_perf
@@ -164,27 +123,9 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     best_desired_score = self.best_desired_score
     max_noimproving_iters = self.max_noimproving_iters
 
-    # Resolve effective n_jobs. Multi-threaded estimators (CB/LGB/XGB/RF/...) already use all cores natively; parallelising folds on top
-    # oversubscribes and SLOWS DOWN. Auto-fallback to sequential unless force_parallel=True (then pin inner threads to 1 in _eval_fold).
-    n_jobs_effective = int(self.n_jobs) if self.n_jobs else 1
-    if n_jobs_effective < 0:
-        # joblib semantics: -1 = all cores.
-        try:
-            import os as _os
-            n_jobs_effective = max(1, (_os.cpu_count() or 1))
-        except Exception:
-            n_jobs_effective = 1
-    _is_multithreaded = _detect_multithreaded(estimator)
-    if n_jobs_effective > 1 and _is_multithreaded and not self.force_parallel:
-        if verbose:
-            logger.info(
-                "RFECV: n_jobs=%d requested, but %s already uses native "
-                "multi-threading. Auto-falling back to sequential CV folds "
-                "to avoid core oversubscription. Pass ``force_parallel=True`` "
-                "to override (will pin inner threads to 1).",
-                n_jobs_effective, type(estimator).__name__,
-            )
-        n_jobs_effective = 1
+    n_jobs_effective, _is_multithreaded = resolve_effective_n_jobs(
+        self.n_jobs, estimator, self.force_parallel, verbose,
+    )
     ndigits = self.report_ndigits
 
     start_time = timer()
@@ -227,15 +168,7 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     suppress_irritating_3rdparty_warnings()
 
     if scoring is None:
-        if is_classifier(estimator):
-            logger.info(f"Scoring omitted, using probabilistic_multiclass_error by default.")
-            # response_method='predict_proba' for sklearn 1.4+ (needs_proba is deprecated).
-            scoring = make_scorer(score_func=compute_probabilistic_multiclass_error, response_method="predict_proba", greater_is_better=False)
-        elif is_regressor(estimator):
-            logger.info(f"Scoring omitted, using mean_squared_error by default.")
-            scoring = make_scorer(score_func=mean_squared_error, greater_is_better=False)
-        else:
-            raise ValueError(f"Appropriate scoring not known for estimator type: {estimator}")
+        scoring = resolve_default_scoring(scoring, estimator)
         self.scoring = scoring
 
     if verbose:
@@ -365,256 +298,33 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
             _fold_seed = int(self._rng.integers(0, 2**31 - 1))
             _fold_args.append((_nfold, _tr_idx, _te_idx, _fold_seed))
 
-        def _eval_fold(nfold, train_index, test_index, fold_seed, current_features=current_features, scores=scores):
-            """Per-fold evaluation. Returns a dict or None on skip. Fold-local state (RNG, estimator clone, fit_params) is built fresh inside.
-
-            ``current_features`` and ``scores`` are passed as default args so they bind at def-time to the current outer-iter values; this is
-            safe because the closure is created fresh each outer iter and consumed within that iter (sequentially or via joblib.Parallel).
-
-            Note: under ``n_jobs_effective > 1`` the per-fold ``scores.append`` calls happen from worker threads concurrently. The GIL makes ``list.append`` atomic so the result is order-INDEPENDENT for ``np.min(...)``-style aggregation, but per-fold log line ordering is best-effort. Don't rely on log order for fold attribution; emit ``nfold`` explicitly when needed.
-            """
-            if self.min_train_size and len(train_index) < self.min_train_size:
-                return None
-            if frac:
-                size = int(len(train_index) * frac)
-                if size > 10:
-                    # Per-fold local RNG seeded deterministically; avoids races on self._rng when joblib runs folds in parallel.
-                    local_rng = np.random.default_rng(fold_seed)
-                    train_index = local_rng.choice(train_index, size=size, replace=False)
-
-            # Actual fit/score uses must_include + optimiser's pick. current_features already lives in the search-universe complement
-            # (must_include filtered out at fit entry), so concatenation never duplicates.
-            if must_include_resolved:
-                fit_features = list(must_include_resolved) + list(current_features)
-            else:
-                fit_features = current_features
-            X_train, y_train, X_test, y_test = split_into_train_test(
-                X=X, y=y, train_index=train_index, test_index=test_index, features_indices=fit_features
-            )  # this splits both dataframes & ndarrays in the same fashion
-            if verbose > 2:
-                print(f"Train set size={len(y_train):_}, train idx sum={train_index.sum():_}")
-
-            if val_cv and has_early_stopping_support(estimator_type):
-
-                # Additional early-stopping split from X_train.
-                if groups is not None:
-                    if isinstance(groups, pd.Series):
-                        train_groups = groups.iloc[train_index]
-                    else:
-                        train_groups = groups[train_index]
-                else:
-                    train_groups = None
-
-                splits = list(val_cv.split(X=X_train, y=y_train, groups=train_groups))
-                true_train_index, val_index = splits[-1]
-
-                X_train, y_train, X_val, y_val = split_into_train_test(X=X_train, y=y_train, train_index=true_train_index, test_index=val_index)
-                if verbose > 2:
-                    print(f"Val set size={len(y_val):_}, val idx sum={val_index.sum():_}")
-
-                # If the estimator type is known, craft early-stopping fit params tailored to it.
-                temp_cat_features = [current_features.index(var) for var in cat_features if var in current_features] if cat_features else None
-
-                temp_fit_params = pack_val_set_into_fit_params(
-                    model=estimator,
-                    X_val=X_val,
-                    y_val=y_val,
-                    early_stopping_rounds=early_stopping_rounds,
-                    cat_features=temp_cat_features,
-                )
-                # Filter feature-list keys (cat_features / text_features / embedding_features) coming in via fit_params to only columns
-                # present in the current selector iteration. Otherwise names from the outer call reference columns dropped by the
-                # current iteration and CB raises ``Error while processing column for feature 'cat_0'``.
-                #
-                # cat_features: pack_val_set_into_fit_params above already injected index-based temp_cat_features IFF that list was
-                # non-empty. When empty (current_features doesn't intersect self.cat_features) we MUST still pass a name-list filtered
-                # to current_features so CB doesn't fall back to auto-detect on numerically-encoded category columns (target-encoded
-                # cats look like floats and trip CB's "Invalid type for cat_feature").
-                # When current_features holds integer indices (ndarray X path), set-membership against string column names always
-                # misses; in that case the user-supplied lists pass through unfiltered (the inner estimator can deal with missing
-                # column references on its own).
-                _features_are_integer = (
-                    len(current_features) > 0
-                    and isinstance(current_features[0], (int, np.integer))
-                )
-                _current_set = set(current_features) if not _features_are_integer else None
-                _filtered_fit_params = {}
-                for _k, _v in fit_params.items():
-                    if _k == "cat_features":
-                        if "cat_features" in temp_fit_params:
-                            # temp's index-based cat_features wins; drop outer name list.
-                            continue
-                        if _v and _current_set is not None:
-                            _filtered = [c for c in _v if c in _current_set]
-                            _filtered_fit_params[_k] = _filtered or None
-                        elif _v:
-                            _filtered_fit_params[_k] = _v
-                        continue
-                    if _k in ("text_features", "embedding_features") and _v:
-                        if _current_set is not None:
-                            _filtered = [c for c in _v if c in _current_set]
-                            _filtered_fit_params[_k] = _filtered or None
-                        else:
-                            _filtered_fit_params[_k] = _v
-                        continue
-                    _filtered_fit_params[_k] = _v
-                temp_fit_params.update(_filtered_fit_params)
-
-            else:
-
-                temp_fit_params = {}
-                X_val = None
-
-            # Per-fold sample_weight slicing. Estimator-side: pass via temp_fit_params only when the estimator's
-            # fit signature accepts sample_weight (sklearn convention). Scorer-side: detected at score-call time
-            # below (sklearn's _BaseScorer.__call__ accepts sample_weight=).
-            _fold_train_sw = None
-            _fold_test_sw = None
-            if self._fit_sample_weight_ is not None:
-                _fold_train_sw = self._fit_sample_weight_[train_index]
-                _fold_test_sw = self._fit_sample_weight_[test_index]
-
-            # Fit on current train fold, score on test, get FI.
-
-            # Always clone per fold via sklearn.base.clone. copy.copy is a SHALLOW copy that shares mutable state (cat_features list,
-            # set_params side effects, warm_start buffers) across folds. clone() returns an unfitted estimator with the same
-            # constructor params and NO fitted state.
-            fitted_estimator = clone(estimator)
-
-            # Dynamic CB ``text_processing`` calibration for THIS fold's clone (not the outer estimator). RFECV folds are typically
-            # much smaller than the outer training set; with CB's default ``occurrence_lower_bound=50`` words that occur < 50 times in
-            # the fold are pruned, leaving an empty dictionary and HANGING CB's C++ ``_train`` loop. ``compute_cb_text_processing``
-            # returns a config that scales the floor proportionally to fold rows, or None when the fold is large enough.
-            if val_cv and has_early_stopping_support(estimator_type):
-                _temp_text_feats = _filtered_fit_params.get("text_features") or []
-                if _temp_text_feats and "CatBoost" in type(fitted_estimator).__name__:
-                    _fold_rows = X_train.shape[0] if hasattr(X_train, "shape") else None
-                    _tp = compute_cb_text_processing(_fold_rows) if _fold_rows is not None else None
-                    if _tp is not None and hasattr(fitted_estimator, "set_params"):
-                        try:
-                            fitted_estimator.set_params(text_processing=_tp)
-                        except Exception as _tp_exc:
-                            logger.warning(
-                                "RFECV inner fold: failed to set CB text_processing "
-                                "(fold_rows=%s, exc=%s).", _fold_rows, _tp_exc,
-                            )
-
-            # Empty-train guard: heavy upstream filtering (small n + outlier_detection + trainset_aging_limit) can collapse X_train /
-            # y_train to 0 rows on a CV fold; CatBoost then raises "Labels variable is empty" deep in C++ Pool init. Skip the fold
-            # cleanly with a NaN score; sklearn's RFECV does the same on degenerate inner folds.
-            _x_n = X_train.shape[0] if hasattr(X_train, "shape") else None
-            _y_n = len(y_train) if y_train is not None and hasattr(y_train, "__len__") else None
-            if (_x_n is not None and _x_n == 0) or (_y_n is not None and _y_n == 0):
-                # Always-on ERROR (not verbose-gated) so the operator sees the empty-fold collapse. Root cause is upstream filter
-                # aggression (OD + trainset_aging_limit together can shrink the inner-CV training fraction below cv splits) - fix
-                # that, not this guard.
-                logger.error(
-                    "wrappers.fit: skipping fold %s - empty train slice "
-                    "(rows=%s, target_len=%s). Upstream filters reduced "
-                    "the train batch to zero. Investigate "
-                    "outlier_detection contamination + "
-                    "trainset_aging_limit interactions.",
-                    nfold, _x_n, _y_n,
-                )
-                scores.append(np.nan)
-                feature_importances[f"{len(current_features)}_{nfold}"] = {}
-                # The body has since been wrapped in a nested ``_eval_fold`` function so an outer-loop ``continue`` is no longer
-                # legal; return None to skip the fold (matches the function's documented "or None on skip" contract).
-                return None
-            # Multi-estimator: fit ALL estimators (singular case is a len-1 list). Score per fold = mean across estimators; FI runs
-            # stored under separate keys ("{N}_{fold}" for singular, "{N}_{fold}_e{idx}" for multi) so the voting layer treats each
-            # estimator's importances as an independent run.
-            _est_scores = []
-            _est_fi_runs = []  # list of (key, fi_dict)
-            for _est_idx, _est_proto in enumerate(estimators_list):
-                if _est_idx == 0:
-                    # First estimator was already cloned + text_processing tuned above as ``fitted_estimator``.
-                    _fitted = fitted_estimator
-                else:
-                    _fitted = clone(_est_proto)
-                    # Apply CB text_processing if applicable for THIS clone.
-                    if val_cv and has_early_stopping_support(estimator_type):
-                        _temp_text_feats = _filtered_fit_params.get("text_features") or []
-                        if _temp_text_feats and "CatBoost" in type(_fitted).__name__:
-                            _fold_rows = X_train.shape[0] if hasattr(X_train, "shape") else None
-                            _tp = compute_cb_text_processing(_fold_rows) if _fold_rows is not None else None
-                            if _tp is not None and hasattr(_fitted, "set_params"):
-                                try:
-                                    _fitted.set_params(text_processing=_tp)
-                                except Exception:
-                                    pass
-
-                _model_type_name = type(_fitted).__name__
-                _ctx = suppress_stdout_stderr() if _model_type_name in CATBOOST_MODEL_TYPES else nullcontext()
-                # Build per-call fit kwargs: only attach sample_weight when the estimator's fit signature accepts it.
-                # CatBoost / LGBM / sklearn estimators all accept it; some custom shims may not, so introspect.
-                _per_est_fit_params = dict(temp_fit_params)
-                if _fold_train_sw is not None and "sample_weight" not in _per_est_fit_params:
-                    try:
-                        import inspect as _inspect
-                        _sig = _inspect.signature(_fitted.fit)
-                        if "sample_weight" in _sig.parameters or any(p.kind == _inspect.Parameter.VAR_KEYWORD for p in _sig.parameters.values()):
-                            _per_est_fit_params["sample_weight"] = _fold_train_sw
-                    except (TypeError, ValueError):
-                        pass
-                with _ctx:
-                    _fitted.fit(X=X_train, y=y_train, **_per_est_fit_params)
-                # Scorer-side: forward fold-test sample_weight when sklearn scorer accepts it. make_scorer-wrapped
-                # callables expose sample_weight via _BaseScorer.__call__; bare callables may not.
-                if _fold_test_sw is not None:
-                    try:
-                        _score = scoring(_fitted, X_test, y_test, sample_weight=_fold_test_sw)
-                    except TypeError:
-                        _score = scoring(_fitted, X_test, y_test)
-                else:
-                    _score = scoring(_fitted, X_test, y_test)
-                _est_scores.append(_score)
-
-                # FI is computed on the actual fit_features.
-                _fi_full = get_feature_importances(
-                    model=_fitted, current_features=fit_features,
-                    data=X_test, reference_data=X_val, target=y_test,
-                    importance_getter=importance_getter,
-                )
-                if must_include_resolved:
-                    must_set = set(must_include_resolved)
-                    _fi = {k: v for k, v in _fi_full.items() if k not in must_set}
-                else:
-                    _fi = _fi_full
-
-                _est_suffix = f"_e{_est_idx}" if len(estimators_list) > 1 else ""
-                _key = f"{len(current_features)}_{nfold}{_est_suffix}"
-                _est_fi_runs.append((_key, _fi))
-                if keep_estimators:
-                    fitted_estimators[_key] = _fitted
-
-            # Aggregate fold score via worst-case (min) across estimators given sklearn's "higher is better". Mean would let one strong
-            # estimator (e.g. RF on 2 informative features) mask the fact that another (e.g. LR) needs more features to converge;
-            # worst-case forces N to be where ALL estimators agree it's sufficient. For the singular path (len-1 list), min == mean.
-            if _est_scores:
-                valid_scores = [s for s in _est_scores if not np.isnan(s)]
-                score = float(np.min(valid_scores)) if valid_scores else float("nan")
-            else:
-                score = float("nan")
-            scores.append(score)
-            # Persist every estimator's FI run.
-            for _k, _fi in _est_fi_runs:
-                feature_importances[_k] = _fi
-
-            if 0 not in evaluated_scores_mean:
-
-                # Dummy baselines serve as fitness @ 0 features.
-                if not self.nofeatures_dummy_scoring:
-                    # Sign-direction-agnostic "worse than model" placeholder. ``score/10`` silently put the dummy ABOVE the model when
-                    # _sign==+1 and score was negative (e.g. R^2 < 0). Subtracting a positive number always makes the score worse
-                    # under both sklearn conventions; use a magnitude-relative fudge so it scales with the metric in play (log-loss
-                    # ~0.5, MSE ~1e6, R^2 ~1).
-                    fudge = max(abs(score), 1e-3) * 9.0
-                    dummy_scores.append(score - fudge)
-                else:
-                    dummy_scores.append(
-                        get_best_dummy_score(estimator=estimator, X_train=X_train, y_train=y_train, X_test=X_test, y_test=y_test, scoring=scoring)
-                    )
+        # ``current_features`` and ``scores`` are passed as default args so they bind at def-time to the current outer-iter values; this is safe because the closure is created fresh each outer iter and consumed within that iter (sequentially or via joblib.Parallel).
+        def _eval_fold(nfold, train_index, test_index, fold_seed, _current_features=current_features, _scores=scores):
+            return _eval_fold_body(
+                nfold, train_index, test_index, fold_seed,
+                self=self,
+                current_features=_current_features,
+                frac=frac,
+                must_include_resolved=must_include_resolved,
+                X=X, y=y,
+                val_cv=val_cv,
+                estimator_type=estimator_type,
+                groups=groups,
+                verbose=verbose,
+                cat_features=cat_features,
+                early_stopping_rounds=early_stopping_rounds,
+                fit_params=fit_params,
+                estimators_list=estimators_list,
+                estimator=estimator,
+                scoring=scoring,
+                importance_getter=importance_getter,
+                keep_estimators=keep_estimators,
+                evaluated_scores_mean=evaluated_scores_mean,
+                scores=_scores,
+                feature_importances=feature_importances,
+                fitted_estimators=fitted_estimators,
+                dummy_scores=dummy_scores,
+            )
 
         # Dispatch _eval_fold sequentially or in parallel. n_jobs>1 uses prefer="threads" so we don't pickle X/y across workers
         # (datasets stay in shared memory) and the closure can keep mutating outer state under the GIL. When n_jobs>1 AND the
