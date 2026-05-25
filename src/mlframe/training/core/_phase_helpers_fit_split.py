@@ -296,17 +296,27 @@ def _phase_train_val_test_split(
             )
             _stratify_y = None
     with phase("split_data"):
-        # ``calib_size`` is a TrainingSplitConfig field for opt-in
-        # post-calibration; ``make_train_test_split`` does not accept it
-        # (the calibration slice is carved by downstream code, not the
-        # splitter). Exclude alongside ``use_groups`` (which is
-        # consumed above to derive ``_groups``).
+        # Exclude TrainingSplitConfig fields that DON'T map onto
+        # make_train_test_split's signature. These knobs configure
+        # caller-side behaviour around the splitter:
+        # * ``use_groups`` -- consumed above to derive ``_groups``.
+        # * ``calib_size`` -- carves the post-train calibration slice
+        #   downstream, not in the splitter itself.
+        # * ``composite_cardinality_cap`` -- read above (line ~139) to
+        #   decide whether bucket stratification is feasible for the
+        #   target's cardinality; never passed to make_train_test_split.
+        # Adding new TrainingSplitConfig fields means updating this
+        # exclude set in lockstep or the suite will TypeError at the
+        # splitter call. 2026-05-25 prod TVT run surfaced the gap when
+        # ``composite_cardinality_cap`` shipped without the exclude.
         train_idx, val_idx, test_idx, train_details, val_details, test_details = make_train_test_split(
             df=df,
             timestamps=timestamps,
             stratify_y=_stratify_y,
             groups=_groups,
-            **split_config.model_dump(exclude={"use_groups", "calib_size"}),
+            **split_config.model_dump(
+                exclude={"use_groups", "calib_size", "composite_cardinality_cap"},
+            ),
         )
     if verbose:
         log_ram_usage()

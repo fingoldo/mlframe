@@ -516,8 +516,14 @@ class TestCACHE_P1_7_SizeSafetyFactor:
         src = open(ph.__file__, encoding="utf-8").read()
         assert "_CAT_SIZE_SAFETY_FACTOR = 1.5" in src
         assert "_cat_heavy_size" in src
-        # Post-conversion recompute branch must be present.
-        assert "memory_usage(deep=True, index=False).sum()" in src
+        # Post-conversion recompute branch must be present. 2026-05-25
+        # update: the recompute path was switched from
+        # memory_usage(deep=True) (~17.6s on a 4Mx25 object-heavy frame)
+        # to memory_usage(deep=False) (~1ms) when the polars-side
+        # estimated_size + 1.5x cat-heavy safety factor already gives an
+        # accurate-enough value upstream. The shallow recompute is the
+        # current fallback when train_df_size_bytes_cached is None.
+        assert "memory_usage(deep=False, index=False).sum()" in src
 
 
 # ---------------------------------------------------------------------------
