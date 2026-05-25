@@ -673,6 +673,8 @@ AXES: dict[str, tuple[Any, ...]] = {
     # MultilabelDispatchConfig depth-4 list-typed fields (never set pre-iter180)
     "multilabel_per_label_thresholds_cfg": (None, "uniform_0.4"),
     "multilabel_chain_seeds_cfg": (None, "explicit"),
+    # F1 (fuzz_blind_spots_F1_F2_F5_F6_F7) -- enable_crash_reporting is a suite-level kwarg consumed directly by train_mlframe_models_suite. Canonicalises to False on non-Windows hosts (crash_reporting is a Windows-specific Faulthandler dump hook there).
+    "enable_crash_reporting_cfg": (False, True),
 }
 
 
@@ -969,6 +971,8 @@ class FuzzCombo:
     fhc_cache_persistence_cfg: str = "auto"
     multilabel_per_label_thresholds_cfg: "str | None" = None
     multilabel_chain_seeds_cfg: "str | None" = None
+    # F1 -- enable_crash_reporting (suite-level kwarg; Windows-only meaningful).
+    enable_crash_reporting_cfg: bool = False
 
     def canonical_key(self) -> tuple:
         """Hashable tuple used for dedup. Canonicalizes semantically
@@ -1484,6 +1488,10 @@ class FuzzCombo:
             # RecurrentConfig nested only when a recurrent model is requested.
             (self.recurrent_precision_cfg if self._canonical_recurrent_model() is not None else "32-true"),
             (self.recurrent_sequence_preprocessing_cfg if self._canonical_recurrent_model() is not None else "none"),
+            # F5 -- PySR cannot consume non-finite values; when inject_inf_nan is on, the True/False variants are behaviour-identical (both crash on the first inf/nan row) so collapse the True variant to False to spare pairwise budget. Also collapse when the upstream cat-feature gate already disabled the bridge (cats + non-encoded path) since PySR runs inside the sklearn bridge.
+            self._canonical_pysr_enabled(),
+            # F1 -- enable_crash_reporting is a Windows-only Faulthandler dump hook; on non-Windows hosts the True variant is a no-op so collapse to False. On Windows the axis stays meaningful.
+            self._canonical_enable_crash_reporting(),
         )
 
     def _canonical_recurrent_model(self) -> "str | None":
@@ -1524,6 +1532,21 @@ class FuzzCombo:
         if self.use_mrmr_fs:
             return None
         return rec
+
+    def _canonical_pysr_enabled(self) -> bool:
+        """F5 -- PySR symbolic regression cannot consume inf / NaN values. Whenever ``inject_inf_nan=True`` the PySR path crashes on the first non-finite row regardless of the True/False axis value, so canonicalise to the disabled variant to spare pairwise-coverage budget."""
+        if not self.prep_ext_pysr_enabled_cfg:
+            return False
+        if self.inject_inf_nan or self.inject_all_nan_col:
+            return False
+        return True
+
+    def _canonical_enable_crash_reporting(self) -> bool:
+        """F1 -- crash_reporting is a Windows-only Faulthandler dump hook (``mlframe.training.crash_reporting``). On non-Windows hosts the True variant is a no-op so collapse to False; on Windows it stays meaningful."""
+        import platform as _platform
+        if _platform.system() != "Windows":
+            return False
+        return bool(self.enable_crash_reporting_cfg)
 
     def _canonical_rfecv_estimator(self) -> "str | None":
         rfe = self.rfecv_estimator_cfg
@@ -2260,6 +2283,8 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         fhc_cache_persistence_cfg=axes.get("fhc_cache_persistence_cfg", "auto"),
         multilabel_per_label_thresholds_cfg=axes.get("multilabel_per_label_thresholds_cfg", None),
         multilabel_chain_seeds_cfg=axes.get("multilabel_chain_seeds_cfg", None),
+        # F1 -- enable_crash_reporting suite-level kwarg (Windows-only meaningful).
+        enable_crash_reporting_cfg=axes.get("enable_crash_reporting_cfg", False),
     )
 
 

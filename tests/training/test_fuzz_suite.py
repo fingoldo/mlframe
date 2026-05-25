@@ -261,6 +261,8 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
     behavior_kwargs: dict = {
         "align_polars_categorical_dicts": combo.align_polars_categorical_dicts,
         "continue_on_model_failure": combo.continue_on_model_failure,
+        # F1 -- suite-level Faulthandler dump hook (Windows-only meaningful; canon-collapsed to False elsewhere by FuzzCombo._canonical_enable_crash_reporting).
+        "enable_crash_reporting": combo._canonical_enable_crash_reporting(),
         "prefer_calibrated_classifiers": _effective_prefer_calibrated,
         # 2026-04-24 round 2
         "use_robust_eval_metric": combo.use_robust_eval_metric_cfg,
