@@ -77,11 +77,9 @@ def _warmup_njit():
 # ---------------------------------------------------------------------------
 
 
-def test_biz_val_permutation_besag_clifford_3x_faster_strong_signal():
-    """Besag-Clifford early-stop must be >=3x faster than the full-
-    budget ``parallel_mi`` on a strong-signal target. Measured
-    2026-05-10: 9.6x (95ms -> 10ms at npermutations=1000). Floor 3x
-    leaves headroom for slow CI runners."""
+def test_biz_val_permutation_besag_clifford_2x_faster_strong_signal():
+    """Besag-Clifford early-stop must be >=2x faster than the full-budget ``parallel_mi`` on a strong-signal target. Floor lowered from 3x to 2x after parallel_mi switched from
+    np.random.shuffle (process-global RNG) to inline LCG Fisher-Yates (~6x faster shuffle); the legitimate-speedup margin shrinks because the baseline is now also fast."""
     from mlframe.feature_selection.filters.permutation import (
         parallel_mi, parallel_mi_besag_clifford,
     )
@@ -100,8 +98,8 @@ def test_biz_val_permutation_besag_clifford_3x_faster_strong_signal():
     t_bc = time.perf_counter() - t0
 
     speedup = t_full / max(t_bc, 1e-6)
-    assert speedup >= 3.0, (
-        f"Besag-Clifford must be >=3x faster than full on strong-signal "
+    assert speedup >= 2.0, (
+        f"Besag-Clifford must be >=2x faster than full on strong-signal "
         f"target; got {speedup:.1f}x ({t_full*1000:.1f}ms vs "
         f"{t_bc*1000:.1f}ms)"
     )
