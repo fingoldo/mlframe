@@ -581,16 +581,15 @@ class TestLagPredictFailsafeKnob:
         """Behavioural check: import the phase-post module and confirm
         the failsafe-tolerance config attribute is consumed by name."""
         from mlframe.training.core import _phase_composite_post as _ppost
-        # The phase module imports the config via the helper; consuming
-        # the named attribute is the wiring contract. ``hasattr`` on a
-        # fresh config instance proves the attribute exists end-to-end.
         from mlframe.training._composite_target_discovery_config import (
             CompositeTargetDiscoveryConfig,
         )
         cfg = CompositeTargetDiscoveryConfig()
         assert hasattr(cfg, "lag_predict_failsafe_tolerance")
-        # Module imports successfully (smoke).
-        assert _ppost is not None
+        # The module must expose a callable phase entry so the failsafe path is reachable end-to-end (the inner config read is exercised by the behavioural failsafe E2E sibling, not this smoke).
+        assert callable(getattr(_ppost, "run_composite_post_processing", None)), (
+            "_phase_composite_post no longer exposes run_composite_post_processing"
+        )
 
 
 class TestDummyFloorGateCtEnsemble:
@@ -624,7 +623,9 @@ class TestDummyFloorGateCtEnsemble:
         cfg = CompositeTargetDiscoveryConfig()
         assert hasattr(cfg, "ct_ensemble_dummy_floor_enabled")
         assert hasattr(cfg, "ct_ensemble_dummy_floor_tolerance")
-        assert _ppost is not None
+        assert callable(getattr(_ppost, "run_composite_post_processing", None)), (
+            "_phase_composite_post no longer exposes run_composite_post_processing"
+        )
 
 
 class TestExtremeArGroupAwareSkip:
@@ -658,7 +659,9 @@ class TestExtremeArGroupAwareSkip:
         cfg = CompositeTargetDiscoveryConfig()
         assert hasattr(cfg, "extreme_ar_group_aware_skip")
         assert hasattr(cfg, "extreme_ar_threshold")
-        assert _disc is not None
+        assert callable(getattr(_disc, "run_composite_target_discovery", None)), (
+            "_phase_composite_discovery no longer exposes run_composite_target_discovery"
+        )
 
 
 class TestGroupAwareTinyRerank:
@@ -678,20 +681,20 @@ class TestGroupAwareTinyRerank:
         assert "groups" in sig_raw.parameters
 
     def test_rerank_threads_groups_via_attribute(self) -> None:
-        """Behavioural check: the rerank module must expose a function
-        whose signature accepts groups (or whose tiny-CV helpers accept
-        groups, verified by the y-scale-accepts-groups-kwarg test above)."""
+        """Behavioural check: the rerank entry point is callable; the
+        end-to-end groups-routing is verified by
+        test_groupkfold_used_when_groups_supplied below."""
         from mlframe.training import _composite_discovery_tiny_rerank as mod
-        # Module imports successfully; the kwarg-routing behaviour is
-        # covered end-to-end by test_groupkfold_used_when_groups_supplied.
-        assert mod is not None
+        rerank = getattr(mod, "_tiny_model_rerank", None)
+        assert callable(rerank), "_composite_discovery_tiny_rerank dropped _tiny_model_rerank"
 
     def test_discovery_phase_sets_group_attr_when_group_aware(self) -> None:
-        """Behavioural smoke: discovery-phase module imports cleanly.
-        End-to-end group-aware routing is gated by
-        test_groupkfold_used_when_groups_supplied."""
+        """Behavioural smoke: discovery phase exposes ``run_composite_target_discovery``
+        so the suite can call the group-aware entry."""
         from mlframe.training.core import _phase_composite_discovery as _disc
-        assert _disc is not None
+        assert callable(getattr(_disc, "run_composite_target_discovery", None)), (
+            "_phase_composite_discovery no longer exposes run_composite_target_discovery"
+        )
 
     def test_groupkfold_used_when_groups_supplied(self) -> None:
         """End-to-end: pass groups to _tiny_cv_rmse_y_scale and verify
