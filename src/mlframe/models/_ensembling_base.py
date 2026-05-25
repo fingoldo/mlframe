@@ -510,6 +510,13 @@ def _rrf_aggregate_probs(preds_arr: np.ndarray, k: int = 60) -> np.ndarray:
         # Promote (M, N) -> (M, N, 1) for the scalar / 1-D path
         preds_arr = preds_arr.reshape(preds_arr.shape[0], preds_arr.shape[1], -1)
     M, N, K = preds_arr.shape
+    # The K=1 binary/scalar path returns the raw RRF score (no per-row normalisation), which is NOT a probability and is calibrated only up to monotone rank order. Production callers stamping AUC / logloss on the result hit silently miscalibrated outputs; surface a one-line WARN so the path is grep-able. sklearn classifiers should always pass (M, N, 2) two-column probabilities; integrators feeding (M, N) decision_function-style scores must rank-aggregate elsewhere or sigmoid-transform first.
+    if K == 1:
+        logger.warning(
+            "[_rrf_aggregate_probs] received K=1 (scalar / 1-column) inputs (M=%d, N=%d); output is the raw reciprocal-rank score and is NOT a calibrated probability. "
+            "Pass two-column (N, 2) probabilities for binary classifiers, or wrap the result with sigmoid / min-max scaling before treating it as a probability.",
+            M, N,
+        )
 
     # Numba parallel-over-M fastpath. Bench (2026-05-19,
     # mlframe._benchmarks.bench_ensemble_rrf) shows 2.6-4.1x speedup across
