@@ -1,0 +1,104 @@
+{
+  "agent_slug": "w12a-deeper-carves",
+  "task": "Deep carve wave: drop _rfecv_fit.py / _ensembling_score.py / _phase_composite_post.py further toward their <500/<600/<700 LOC targets by extracting closure-heavy sub-bodies; behavioural-equivalence required because these are real refactors, not pure carves.",
+  "carves": {
+    "_phase_composite_post.py": {
+      "pre_loc": 938,
+      "post_loc": 263,
+      "delta_loc": -675,
+      "target_loc": "<700",
+      "target_met": true,
+      "siblings": [
+        "src/mlframe/training/core/_phase_composite_post_xt_ensemble.py"
+      ],
+      "sibling_loc": 696,
+      "sibling_count": 1,
+      "carve_pattern": "per_target_loop_body_extracted_as_helper_with_explicit_kwargs",
+      "sensor": "tests/training/test_monolith_split_w12a_phase_composite_post.py",
+      "sensor_tests": 4,
+      "sensor_status": "4/4 PASS",
+      "behavioural_eq_passed": true,
+      "behavioural_eq_evidence": "65 composite-ensemble + composite-post tests across tests/training/test_composite_ensemble*.py + tests/training/test_composite_post*.py + tests/training/test_phase_composite_post_module_split.py + tests/training/test_monolith_split_w11a_phase_composite_post.py all GREEN post-carve.",
+      "commit": "a7ccf9eb",
+      "notes": "Cross-target ensemble per-target loop body (~700 LOC inside the nested for loop over original-target names) was lifted to _build_cross_target_ensemble_for_target. Every previously-closure-captured outer local is now passed as an explicit kwarg (~25 kwargs). Mutation contract preserved: helper mutates ``models`` / ``metadata`` / ``_train_pred_cache`` in place via the caller-owned references. The always-None ctx-introspection branches (`if 'ctx' in dir() else None`) at original lines 426 / 433 / 481 -- which evaluated to None because ``ctx`` was never bound inside the function frame -- are preserved verbatim in the sibling so the new path returns the same None for time_ordering / sample_weight / group_ids."
+    },
+    "_ensembling_score.py": {
+      "pre_loc": 950,
+      "post_loc": 709,
+      "delta_loc": -241,
+      "target_loc": "<600",
+      "target_met": false,
+      "target_met_reason": "Hit 709 LOC (vs <600 target). Three discrete pure-logic blocks safely carved (select_gate_source_split / catastrophic_drop_kn / catastrophic_drop_k2). The remaining body is the ensembling-methods for-loop + diversity/identical/stacking-aware-gate blocks whose state is too deeply interleaved with the level_models_and_predictions / ensembling_methods / ensemble_name / res mutation chain to extract safely without behavioural risk. Further carving would require restructuring around an EnsembleScoreState dataclass which is a real refactor beyond a behavioural-only carve.",
+      "siblings": [
+        "src/mlframe/models/_ensembling_score_gate.py"
+      ],
+      "sibling_loc": 344,
+      "sibling_count": 1,
+      "carve_pattern": "three_pure_helpers_lifted_verbatim",
+      "sensor": "tests/models/test_monolith_split_w12a_ensembling_score.py",
+      "sensor_tests": 7,
+      "sensor_status": "7/7 PASS",
+      "behavioural_eq_passed": true,
+      "behavioural_eq_evidence": "202 ensembling tests across tests/test_ensembling*.py + tests/training/test_ensembling*.py + tests/training/test_ensemble_*.py + tests/training/test_composite_ensemble*.py + tests/training/test_regression_w*_ensembling*.py + tests/models/test_monolith_split_w11a_ensembling_score.py all GREEN post-carve.",
+      "commit": "b1ce9710",
+      "notes": "Three pure helpers extracted: (a) select_gate_source_split -- gate-source preference (OOF first, val/test/train fallback) + coarse-gate threshold flips; (b) catastrophic_drop_kn -- K>2 absolute-target-MAE drop with borderline diagnostic + all-members-catastrophic sentinel; (c) catastrophic_drop_k2 -- K=2 single-member dropout with early-return signal back to caller (since the original returned ``res`` mid-function on this path). All three preserve original side-effects: logger.warning calls on the parent logger name, in-place res-dict stamping, list rebinding, ensemble_name regex-rewrite."
+    },
+    "_rfecv_fit.py": {
+      "pre_loc": 826,
+      "post_loc": 536,
+      "delta_loc": -290,
+      "target_loc": "<500",
+      "target_met": false,
+      "target_met_reason": "Hit 536 LOC (vs <500 target). The remaining body is the outer while-loop scoring/Optimizer/checkpoint/break-condition state machine, which is tightly coupled to ~12 mutable outer-loop locals (nsteps, prev_score, best_score, best_iter, best_nfeatures, n_noimproving_iters, ran_out_of_time, nofeatures_score, evaluated_scores_mean, evaluated_scores_std, dummy_scores, feature_importances) and emits ``break`` to exit early on six conditions. Lifting the iteration body would require packaging all state in a FitState dataclass AND signaling early-exit via a return enum -- a real refactor whose behavioural-equivalence risk on edge cases (max_runtime_mins, best_desired_score, max_noimproving_iters, consecutive_nan_iters) outweighs the LOC gain. Pre-loop setup + per-fold body carves (the two safe extractions) landed cleanly.",
+      "siblings": [
+        "src/mlframe/feature_selection/wrappers/_rfecv_fit_setup.py",
+        "src/mlframe/feature_selection/wrappers/_rfecv_fit_fold.py"
+      ],
+      "sibling_loc_total": 392,
+      "sibling_count": 2,
+      "carve_pattern": "pre_loop_setup_helpers_plus_eval_fold_body_lifted_to_module_level",
+      "sensor": "tests/feature_selection/test_monolith_split_w12a_rfecv_fit.py",
+      "sensor_tests": 10,
+      "sensor_status": "10/10 PASS",
+      "behavioural_eq_passed": true,
+      "behavioural_eq_evidence": "112 RFECV tests across tests/feature_selection/test_biz_val_wrappers_rfecv*.py (90 biz_val tests covering all major param variations + n_features rules + stability_selection + must_include + conditional_permutation + checkpoint + parallel fold dispatch) + tests/feature_selection/test_rfecv_*.py + tests/feature_selection/test_regression_*_rfecv*.py + tests/feature_selection/test_monolith_split_w11a_rfecv_fit.py all GREEN post-carve. The deterministic synthetic-regression behavioural-eq pin (sel.fit() x2 -> identical support_) acts as the regression sensor for future sessions.",
+      "commit": "012ba68f",
+      "notes": "Two carves: (1) _rfecv_fit_setup.py with 3 pure helpers -- filter_cat_features_by_dtype (drops numeric-encoded cats), resolve_effective_n_jobs (multi-threaded estimator detection + auto-fallback to sequential), resolve_default_scoring (probabilistic_multiclass_error / mean_squared_error defaults). (2) _rfecv_fit_fold.py with _eval_fold_body lifted out of the nested closure -- every previously-captured outer local is now an explicit kwarg (20 readonly locals + 4 mutable containers passed by reference). Parent's _eval_fold becomes a 24-line thin wrapper that forwards into _eval_fold_body. The four mutable containers (scores / feature_importances / fitted_estimators / dummy_scores) keep their reference identity across the parent->sibling boundary so worker-thread GIL-atomic mutations remain observable in the outer loop exactly as before. Removed 6 now-unused imports from parent (sklearn make_scorer, mean_squared_error, is_classifier, is_regressor; mlframe compute_probabilistic_multiclass_error; nullcontext / suppress_stdout_stderr / has_early_stopping_support / get_best_dummy_score / get_feature_importances / split_into_train_test / pack_val_set_into_fit_params / compute_cb_text_processing / CATBOOST_MODEL_TYPES / _detect_multithreaded / clone / hashlib / polars / contextlib)."
+    }
+  },
+  "total_loc_removed_from_parents": 1206,
+  "total_siblings_created": 4,
+  "total_sensors_added": 3,
+  "total_sensor_tests": 21,
+  "all_commits_squash_safe_via_dash_o_flag": true,
+  "commits_local_master": [
+    "a7ccf9eb refactor(training): carve cross-target ensemble per-target body to sibling helper",
+    "b1ce9710 refactor(ensembling): carve gate-source + KN/K2 catastrophic-drop helpers to sibling",
+    "012ba68f refactor(feature_selection): carve RFECV.fit pre-loop setup helpers + per-fold body to siblings"
+  ],
+  "pushed": false,
+  "behavioural_eq_test_summary": {
+    "composite_post_carve": "65 composite-ensemble / composite-post tests GREEN",
+    "ensembling_carve": "202 ensembling tests GREEN",
+    "rfecv_carve": "112 RFECV tests GREEN (90 biz_val + 22 unit/regression)",
+    "monolith_split_sensors": "38 monolith-split sensors GREEN (W11A + W12A across all 3 files)"
+  },
+  "deviations_from_plan": [
+    {
+      "file": "_ensembling_score.py",
+      "deviation": "Hit 709 LOC vs <600 target",
+      "rationale": "Three pure logic blocks carved safely (gate-source-selection 75 LOC + KN-catastrophic 135 LOC + K2-catastrophic 95 LOC = ~305 LOC removed). The remaining body holds the ensembling-methods for-loop + diversity-pair check + identical-collapse + stacking-aware NNLS gate -- these blocks share write-state on ``level_models_and_predictions`` / ``ensembling_methods`` / ``ensemble_name`` / ``_nnls_weights_for_blend`` and the diversity-check block reads + mutates ``_gate_stats`` from the embedded compute_member_quality_gate call. A safe carve would require an EnsembleScoreState dataclass packaging ~15 mutables, which is a real refactor outside the behavioural-only constraint. Per the original task brief: 'Если behavioural-equivalence НЕ achievable... DEFER finding, document precisely в manifest почему. Не ship refactor что меняет numerical output silently.' Deferred."
+    },
+    {
+      "file": "_rfecv_fit.py",
+      "deviation": "Hit 536 LOC vs <500 target",
+      "rationale": "Pre-loop setup helpers (60 LOC) + per-fold body (~210 LOC) carved cleanly (-270 LOC achieved). The remaining body is the outer while-loop state machine with ~12 mutable outer-loop locals + 6 break conditions + checkpoint persistence + Optimizer.submit_evaluations calls + RAM-aware GC hook. Lifting this requires an OuterLoopState dataclass + an early-exit enum return -- a real refactor whose behavioural-equivalence risk on edge cases (consecutive-NaN guard, max_runtime_mins, best_desired_score, max_noimproving_iters) outweighs the LOC gain. The deterministic Ridge+make_regression sensor in test_monolith_split_w12a_rfecv_fit.py pins the post-carve output for the next session's regression detector."
+    }
+  ],
+  "wall_minutes_estimate": 95,
+  "next_session_recommendations": [
+    "Consider EnsembleScoreState dataclass refactor for _ensembling_score.py if further LOC reduction is needed; pair with full ensembling biz_value coverage as the behavioural-eq witness.",
+    "For _rfecv_fit.py: an OuterLoopState dataclass + EarlyExitReason enum could lift the while-loop body cleanly; the existing biz_value suite (90 tests) is comprehensive enough to serve as the behavioural-eq witness.",
+    "All three carves landed under the meta-test no-file-over-1k-LOC sensor (run tests/test_meta/test_no_file_over_1k_loc.py to confirm)."
+  ]
+}
