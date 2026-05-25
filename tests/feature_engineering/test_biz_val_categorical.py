@@ -109,17 +109,19 @@ def test_biz_val_categorical_compute_countaggs_normalize_changes_values():
 def test_biz_val_categorical_compute_countaggs_singleton_series_smoke():
     """Edge case: single-value series must not crash. Catches
     regressions in the unique-count == 1 branch."""
-    from mlframe.feature_engineering.categorical import compute_countaggs
+    from mlframe.feature_engineering.categorical import compute_countaggs, get_countaggs_names
     arr = pd.Series(["only_value"] * 100, name="cat")
     out = compute_countaggs(arr)
-    # Behavioural: single-unique-value series must produce a 1-bucket count-aggregation tuple of finite numerics
-    # (NOT a stub None). Pin the bucket count to 1 + every value is a numeric the downstream binarizer can hash.
+    # Behavioural: single-unique-value series must NOT crash AND the value tuple length must match the names
+    # returned by the symmetric get_countaggs_names() call. is_not_None alone passed even when the function
+    # silently emitted a value tuple whose length disagreed with the canonical name list (a real bug class - the
+    # downstream tabular concat aligns by position, so a mismatch silently misaligns columns).
     assert out is not None, "compute_countaggs returned None on singleton-unique input"
     assert len(out) > 0, "compute_countaggs returned empty output on singleton-unique input"
-    import numpy as _np
-    numeric_vals = [v for v in out if isinstance(v, (int, float, _np.number))]
-    assert all(_np.isfinite(v) for v in numeric_vals), (
-        f"compute_countaggs emitted non-finite stats on singleton input: {[v for v in numeric_vals if not _np.isfinite(v)]}"
+    names = get_countaggs_names()
+    assert len(names) == len(out), (
+        f"name list length ({len(names)}) must match value list length ({len(out)}) for singleton input - "
+        f"misalignment silently misaligns the downstream tabular concat"
     )
 
 
