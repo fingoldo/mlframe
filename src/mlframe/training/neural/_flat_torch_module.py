@@ -1,0 +1,531 @@
+"""MLPTorchModel carved out of ``mlframe.training.neural.flat``.
+
+Re-imported at the parent module bottom so historical
+``from mlframe.training.neural.flat import MLPTorchModel`` callers keep working.
+"""
+from __future__ import annotations
+
+import logging
+from typing import Any, Callable, Dict, List, Optional
+
+import lightning as L
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+from .base import MetricSpec, to_numpy_safe
+
+logger = logging.getLogger("mlframe.training.neural.flat")
+
+
+class MLPTorchModel(L.LightningModule):
+    def __init__(
+        self,
+        loss_fn: Callable,
+        metrics: List[MetricSpec],
+        network: torch.nn.Module,
+        learning_rate: float = 1e-3,
+        l1_alpha: float = 0.0,
+        optimizer: Optional[type] = None,
+        optimizer_kwargs: Optional[Dict[str, Any]] = None,
+        lr_scheduler: Optional[type] = None,
+        lr_scheduler_kwargs: Optional[Dict[str, Any]] = None,
+        compile_network: Optional[str] = None,
+        compute_trainset_metrics: bool = False,
+        lr_scheduler_interval: str = "epoch",
+        lr_scheduler_monitor: Optional[str] = None,
+        load_best_weights_on_train_end: bool = True,
+        log_lr: bool = False,
+        task_type: Optional[str] = None,
+    ):
+        """
+        PyTorch Lightning module for MLP training.
+
+        Args:
+            loss_fn: Loss function callable
+            metrics: List of MetricSpec objects for evaluation
+            network: The neural network module
+            learning_rate: Learning rate for optimizer
+            l1_alpha: L1 regularization coefficient (0.0 = no regularization)
+            optimizer: Optimizer class (default: AdamW)
+            optimizer_kwargs: Additional kwargs for optimizer
+            lr_scheduler: Learning rate scheduler class
+            lr_scheduler_kwargs: Additional kwargs for scheduler
+            compile_network: torch.compile mode (e.g., 'max-autotune', 'reduce-overhead')
+            compute_trainset_metrics: Whether to compute metrics on training set
+            lr_scheduler_interval: 'epoch' or 'step'
+            lr_scheduler_monitor: Metric to monitor for scheduler (e.g., 'val_loss')
+            load_best_weights_on_train_end: Load best checkpoint weights after training
+        """
+        super().__init__()
+
+        if network is None:
+            raise ValueError("network must be provided")
+        if loss_fn is None:
+            raise ValueError("loss_fn must be provided")
+        if metrics is None:
+            metrics = []
+        if lr_scheduler_interval not in ["epoch", "step"]:
+            raise ValueError(f"lr_scheduler_interval must be 'epoch' or 'step', got {lr_scheduler_interval}")
+
+        optimizer = optimizer or torch.optim.AdamW
+        optimizer_kwargs = optimizer_kwargs or {}
+        lr_scheduler_kwargs = lr_scheduler_kwargs or {}
+
+        # Skip non-serializable objects so Lightning can pickle hparams.
+        self.save_hyperparameters(ignore=["loss_fn", "metrics", "network", "optimizer", "lr_scheduler"])
+
+        self.network = network
+        self.loss_fn = loss_fn
+        self.metrics = metrics
+        self.optimizer = optimizer
+        self.lr_scheduler = lr_scheduler
+        self.best_epoch = None
+        # task_type drives predict_step activation for K>1 outputs: None keeps softmax (multi-class),
+        # "multilabel" switches to per-label sigmoid. Regression/binary go through the dim==1 branch.
+        self.task_type = task_type
+
+        self.training_step_outputs = []
+        self.validation_step_outputs = []
+
+        self._apply_torch_compile()
+
+        if hasattr(network, "example_input_array"):
+            self.example_input_array = network.example_input_array
+        else:
+            logger.debug("Network lacks 'example_input_array'; ONNX export may require manual input")
+
+    def _apply_torch_compile(self) -> None:
+        """Apply torch.compile to the network if enabled.
+
+        Compiled models cannot be pickled in PyTorch 2.8 ("cannot pickle 'ConfigModuleInstance' object"),
+        which breaks checkpoint saving. See https://github.com/pytorch/pytorch/issues/126154.
+        """
+        if not self.hparams.compile_network:
+            return
+
+        if torch.__version__ < "2.0":
+            logger.warning("torch.compile requires PyTorch >= 2.0. Skipping compilation.")
+            return
+
+        try:
+            self.network = torch.compile(self.network, mode=self.hparams.compile_network)
+            logger.info("Applied torch.compile with mode='%s'", self.hparams.compile_network)
+        except Exception:
+            logger.warning("Failed to apply torch.compile. Using uncompiled network.", exc_info=True)
+
+    def forward(self, *args, **kwargs) -> torch.Tensor:
+        """Forward pass through the network."""
+        return self.network(*args, **kwargs)
+
+    def _unpack_batch(self, batch) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+        """Unpack batch into features, labels, and optional sample_weight."""
+        if isinstance(batch, dict):
+            return batch["features"], batch["labels"], batch.get("sample_weight")
+        elif isinstance(batch, (tuple, list)):
+            if len(batch) == 3:
+                return batch[0], batch[1], batch[2]
+            elif len(batch) == 2:
+                return batch[0], batch[1], None
+        raise TypeError(f"Unexpected batch format: {type(batch).__name__}")
+
+    def _loss_unreduced(self, predictions: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+        """Per-sample loss via self.loss_fn with reduction='none' when available.
+
+        Most torch.nn loss modules expose a ``reduction`` attribute; toggling it
+        round-trip preserves the loss type (BCE stays BCE, MSE stays MSE) so
+        sample weighting doesn't silently swap loss semantics.
+        """
+        # Module loss (CrossEntropyLoss / BCEWithLogitsLoss / MSELoss / ...):
+        # set reduction='none', call, restore.
+        if hasattr(self.loss_fn, "reduction"):
+            prev = self.loss_fn.reduction
+            try:
+                self.loss_fn.reduction = "none"
+                return self.loss_fn(predictions, labels)
+            finally:
+                self.loss_fn.reduction = prev
+        # Functional / lambda loss: try kwarg, fall back to CE/MSE shape-guess.
+        try:
+            return self.loss_fn(predictions, labels, reduction="none")
+        except TypeError:
+            if predictions.dim() == 2 and predictions.shape[1] > 1:
+                return F.cross_entropy(predictions, labels, reduction="none")
+            return F.mse_loss(predictions, labels, reduction="none")
+
+    def _compute_weighted_loss(self, predictions: torch.Tensor, labels: torch.Tensor, sample_weight: Optional[torch.Tensor]) -> torch.Tensor:
+        """Compute loss with optional sample weighting.
+
+        Args:
+            predictions: Model predictions
+            labels: Ground truth labels
+            sample_weight: Optional per-sample weights
+
+        Returns:
+            Scalar loss tensor
+        """
+        # Defensive shape alignment: torch's MSELoss / L1Loss / SmoothL1Loss
+        # emit a UserWarning ("Using a target size (torch.Size([N])) that is
+        # different to the input size (torch.Size([N, 1]))") AND apply
+        # incorrect broadcasting when predictions and labels disagree on a
+        # singleton trailing dim. training_step + validation_step squeeze
+        # raw_predictions in the common (N, 1) case, but other call paths
+        # (test fixtures, ranker, custom loss_fn) can still enter here
+        # mismatched. Squeeze the singleton dim on either side so the loss
+        # function never sees a broadcasting collision.
+        if predictions.dim() == 2 and predictions.shape[-1] == 1 and labels.dim() == 1:
+            predictions = predictions.squeeze(-1)
+        elif labels.dim() == 2 and labels.shape[-1] == 1 and predictions.dim() == 1:
+            labels = labels.squeeze(-1)
+
+        if sample_weight is None:
+            return self.loss_fn(predictions, labels)
+
+        # Honour self.loss_fn if it supports reduction='none' (every
+        # torch.nn.*Loss does); the previous hard-coded CE/MSE branch silently
+        # switched a BCE binary classifier (with sample_weight) to MSE,
+        # producing a degenerate gradient.
+        loss_unreduced = self._loss_unreduced(predictions, labels)
+
+        # torch.dot fuses mul+sum into one kernel; ~1.7-2.2x faster than
+        # (a*b).sum() across N=256-16384 on CPU. 1-D fast path covers the
+        # common case (per-sample weights, scalar-per-sample loss); fall
+        # back to broadcast-mul for any unexpected shape.
+        weight_sum = sample_weight.sum()
+        if loss_unreduced.dim() == 1 and sample_weight.dim() == 1 and loss_unreduced.shape == sample_weight.shape:
+            raw = torch.dot(loss_unreduced, sample_weight)
+        else:
+            # Multilabel BCE / multiclass per-sample losses produce a 2-D
+            # (B, K) loss tensor while sample_weight is 1-D (B,); torch
+            # broadcasts (B,) as (1, B) which collides with the (B, K)
+            # right-aligned shape (B vs K mismatch). Reshape 1-D weights to
+            # (B, 1) so they broadcast across labels / classes uniformly.
+            # Fuzz c0052 (multilabel + MLP + uniform weights) crashed here
+            # before the unsqueeze: "tensor a (3) must match tensor b (30928)".
+            if loss_unreduced.dim() == 2 and sample_weight.dim() == 1 and sample_weight.shape[0] == loss_unreduced.shape[0]:
+                sample_weight_b = sample_weight.unsqueeze(1)
+            else:
+                sample_weight_b = sample_weight
+            raw = (loss_unreduced * sample_weight_b).sum()
+        # Safe divide avoids the prior ``if weight_sum > 0`` Python branch (a
+        # forced GPU->CPU sync ~30 us per call) without losing the all-zero-
+        # weight semantic: when weight_sum is 0, raw is also 0 (sum(loss * 0)),
+        # so 0 / clamp(0, 1e-12) = 0 -- the same zero loss the legacy branch
+        # returned. Bench at n=50k (c0117 batch shape, CUDA): 299 us -> 267 us
+        # per call (~10%), bit-identical for both non-degenerate and all-zero-
+        # weight cases. The once-per-process all-zero-weight WARN is dropped:
+        # zero gradient surfaces downstream as flat val loss, and per-batch
+        # sync to log a single warning was a poor trade.
+        weighted_loss = raw / torch.clamp(weight_sum, min=1e-12)
+        return weighted_loss
+
+    def training_step(self, batch, batch_idx: int) -> Dict[str, torch.Tensor]:
+        """Training step."""
+        features, labels, sample_weight = self._unpack_batch(batch)
+        raw_predictions = self(features)
+
+        # Squeeze single-output regression to match label shape.
+        if raw_predictions.ndim == 2 and raw_predictions.shape[1] == 1:
+            raw_predictions_for_loss = raw_predictions.squeeze(1)
+        else:
+            raw_predictions_for_loss = raw_predictions
+
+        loss = self._compute_weighted_loss(raw_predictions_for_loss, labels, sample_weight)
+
+        if self.hparams.l1_alpha > 0:
+            # Python sum() forces a host-side reduction per parameter tensor,
+            # so each .abs().sum() implicitly syncs the GPU. Stack the per-
+            # tensor scalars first and sum once on-device to amortise the sync.
+            _abs_sums = [p.abs().sum().unsqueeze(0) for p in self.network.parameters()]
+            l1_norm = torch.cat(_abs_sums).sum() if _abs_sums else torch.tensor(0.0, device=loss.device)
+            loss = loss + self.hparams.l1_alpha * l1_norm
+            # self.log raises RuntimeError when the module is detached from a Trainer (unit-test usage).
+            try:
+                self.log("train_l1_norm", l1_norm, on_step=False, on_epoch=True)
+            except RuntimeError:
+                pass
+
+        try:
+            self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
+        except RuntimeError:
+            pass
+
+        result = {"loss": loss}
+        if self.hparams.compute_trainset_metrics:
+            # Move outputs to CPU immediately; otherwise GPU memory accumulates across the whole epoch.
+            output = {"raw_predictions": raw_predictions.detach().cpu(), "labels": labels.detach().cpu()}
+            self.training_step_outputs.append(output)
+
+        return result
+
+    def on_train_epoch_end(self) -> None:
+        """Called at the end of training epoch."""
+
+        if self.hparams.log_lr:
+            current_lr = self.trainer.optimizers[0].param_groups[0]["lr"]
+            logger.info("Epoch %s, Step %s: LR = %.2e", self.current_epoch, self.global_step, current_lr)
+
+        if not self.hparams.compute_trainset_metrics:
+            return
+
+        if not self.training_step_outputs:
+            logger.warning("No training outputs collected for metric computation")
+            return
+
+        preds_and_labels = [(out["raw_predictions"], out["labels"]) for out in self.training_step_outputs]
+        self.compute_metrics(preds_and_labels, prefix="train")
+        self.training_step_outputs.clear()
+
+    def validation_step(self, batch, batch_idx: int) -> Dict[str, torch.Tensor]:
+        """Validation step."""
+        features, labels, sample_weight = self._unpack_batch(batch)
+
+        raw_predictions = self(features)
+
+        if raw_predictions.ndim == 2 and raw_predictions.shape[1] == 1:
+            raw_predictions_for_loss = raw_predictions.squeeze(1)
+        else:
+            raw_predictions_for_loss = raw_predictions
+
+        # Validation loss excludes L1 regularisation so the val curve is comparable across l1_alpha values.
+        loss = self._compute_weighted_loss(raw_predictions_for_loss, labels, sample_weight)
+
+        try:
+            self.log("val_loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
+        except RuntimeError:
+            pass
+
+        # Move outputs to CPU immediately to prevent GPU memory accumulation across the epoch.
+        output = {"raw_predictions": raw_predictions.detach().cpu(), "labels": labels.detach().cpu()}
+        self.validation_step_outputs.append(output)
+
+        return output
+
+    def on_validation_epoch_end(self) -> None:
+        """Called at the end of validation epoch."""
+        if not self.validation_step_outputs:
+            logger.warning("No validation outputs collected for metric computation")
+            return
+
+        preds_and_labels = [(out["raw_predictions"], out["labels"]) for out in self.validation_step_outputs]
+        self.compute_metrics(preds_and_labels, prefix="val")
+        self.validation_step_outputs.clear()
+
+    def compute_metrics(self, predictions_and_labels: List[Tuple[torch.Tensor, torch.Tensor]], prefix: str = "val") -> None:
+        """
+        Compute and log all metrics given raw predictions and labels.
+        Optimized: compute argmax, softmax, CPU/numpy only if needed, once each.
+
+        Args:
+            predictions_and_labels: List of (raw_predictions, labels) tuples from each batch (on CPU)
+            prefix: Logging prefix ('train' or 'val')
+        """
+        raw_predictions, labels = zip(*predictions_and_labels)
+        raw_predictions = torch.cat(raw_predictions)
+        labels = torch.cat(labels)
+
+        need_argmax = any(m.requires_argmax for m in self.metrics)
+        need_softmax = any(m.requires_probs for m in self.metrics)
+        need_cpu = any(m.requires_cpu for m in self.metrics)
+
+        # argmax along the class dim only makes sense for multi-class K>1 logits (shape (N, K)).
+        # Regression (dim==1) or multilabel BCE (each label independent) would silently emit
+        # garbage from raw_predictions.argmax(dim=1); guard explicitly.
+        _is_multiclass = (raw_predictions.dim() == 2 and raw_predictions.shape[1] > 1 and self.task_type != "multilabel")
+
+        preds_dict = {}
+        if need_argmax:
+            if _is_multiclass:
+                preds_dict["argmax"] = raw_predictions.argmax(dim=1)
+            elif self.task_type == "multilabel":
+                # Multilabel: per-label thresholded predictions at 0.5 (each output independent binary).
+                preds_dict["argmax"] = (torch.sigmoid(raw_predictions) >= 0.5).long()
+            else:
+                # Regression / binary single-output: argmax has no meaning; skip metric below.
+                preds_dict["argmax"] = None
+        if need_softmax:
+            if _is_multiclass:
+                preds_dict["softmax"] = F.softmax(raw_predictions, dim=1)
+            elif self.task_type == "multilabel":
+                preds_dict["softmax"] = torch.sigmoid(raw_predictions)
+            else:
+                preds_dict["softmax"] = raw_predictions
+
+        labels_cpu = None
+        if need_cpu:
+            # cpu=False: tensors are already on CPU thanks to the per-step .cpu() in *_step.
+            labels_cpu = to_numpy_safe(labels, cpu=False)
+
+        # CPU-numpy memoisation keyed by tagged source (argmax / softmax / raw) NOT id(preds).
+        # id() values can be reused after garbage collection across loop iterations and silently
+        # return the wrong tensor's cached numpy view.
+        cpu_cache: dict[str, np.ndarray] = {}
+
+        for metric in self.metrics:
+            if metric.requires_argmax:
+                preds = preds_dict["argmax"]
+                preds_tag = "argmax"
+            elif metric.requires_probs:
+                preds = preds_dict["softmax"]
+                preds_tag = "softmax"
+            else:
+                preds = raw_predictions
+                preds_tag = "raw"
+
+            if preds is None:
+                # argmax requested but logits aren't multi-class; skip silently to avoid garbage.
+                continue
+
+            if metric.requires_cpu:
+                if preds_tag not in cpu_cache:
+                    cpu_cache[preds_tag] = to_numpy_safe(preds, cpu=False)
+                preds_np = cpu_cache[preds_tag]
+                labels_np = labels_cpu
+            else:
+                preds_np = preds
+                labels_np = labels
+
+            try:
+                value = metric.fcn(y_true=labels_np, y_score=preds_np)
+                self.log(
+                    f"{prefix}_{metric.name}",
+                    value,
+                    prog_bar=True,
+                    on_step=False,
+                    on_epoch=True,
+                    sync_dist=True,
+                )
+            except Exception:
+                logger.exception("Failed to compute metric %s_%s", prefix, metric.name)
+
+    def configure_optimizers(self):
+        """Configure optimizer and optional learning rate scheduler."""
+        optimizer_kwargs = {"lr": self.hparams.learning_rate, **self.hparams.optimizer_kwargs}
+        optimizer = self.optimizer(self.parameters(), **optimizer_kwargs)
+
+        if self.lr_scheduler is None:
+            return optimizer
+
+        # OneCycleLR needs total_steps computed from the trainer; cannot be expressed in static kwargs.
+        if self.lr_scheduler.__name__ == "OneCycleLR":
+
+            logger.info("Configuring OneCycleLR scheduler")
+
+            steps_per_epoch = (
+                len(self.trainer.datamodule.train_dataloader())
+                if hasattr(self.trainer, "datamodule") and self.trainer.datamodule
+                else len(self.trainer.train_dataloader)
+            )
+
+            total_steps = self.trainer.max_epochs * steps_per_epoch
+
+            logger.info("OneCycleLR config:")
+            logger.info("  - Steps per epoch: %s", steps_per_epoch)
+            logger.info("  - Max epochs: %s", self.trainer.max_epochs)
+            logger.info("  - Total steps: %s", total_steps)
+            logger.info("  - Interval: %s", self.hparams.lr_scheduler_interval)
+
+            scheduler_kwargs = {
+                **self.hparams.lr_scheduler_kwargs,
+                "total_steps": total_steps,
+            }
+            # OneCycleLR rejects epochs+steps_per_epoch when total_steps is given; strip them.
+            scheduler_kwargs.pop("epochs", None)
+            scheduler_kwargs.pop("steps_per_epoch", None)
+
+            scheduler = self.lr_scheduler(optimizer, **scheduler_kwargs)
+        else:
+            scheduler = self.lr_scheduler(optimizer, **self.hparams.lr_scheduler_kwargs)
+
+        scheduler_config = {
+            "scheduler": scheduler,
+            "interval": self.hparams.lr_scheduler_interval,
+        }
+
+        # monitor is required for ReduceLROnPlateau and similar value-driven schedulers.
+        if self.hparams.lr_scheduler_monitor:
+            scheduler_config["monitor"] = self.hparams.lr_scheduler_monitor
+
+        logger.info("LR scheduler config: %s", scheduler_config)
+        return {"optimizer": optimizer, "lr_scheduler": scheduler_config}
+
+    def on_train_end(self) -> None:
+        """Load best model weights after training completes."""
+        if not self.hparams.load_best_weights_on_train_end:
+            return
+
+        # In distributed runs only rank 0 should touch the checkpoint file.
+        if not self.trainer.is_global_zero:
+            return
+
+        checkpoint_callback = None
+        for callback in self.trainer.callbacks:
+            if isinstance(callback, ModelCheckpoint):
+                checkpoint_callback = callback
+                break
+
+        if checkpoint_callback is None:
+            logger.warning("No ModelCheckpoint callback found. Cannot load best weights.")
+            return
+
+        best_model_path = checkpoint_callback.best_model_path
+
+        if not best_model_path or not os.path.exists(best_model_path):
+            logger.warning(f"No valid checkpoint at {best_model_path}. Using current weights.")
+            return
+
+        best_score = checkpoint_callback.best_model_score
+        score_str = f"{best_score:.4f}" if best_score is not None else "N/A"
+        logger.info("Loading best model from %s (score: %s)", best_model_path, score_str)
+
+        try:
+            checkpoint = torch.load(best_model_path, map_location=self.device, weights_only=True)
+
+            if "state_dict" not in checkpoint:
+                logger.error("Checkpoint missing 'state_dict'. Cannot load weights.")
+                return
+
+            missing, unexpected = self.load_state_dict(checkpoint["state_dict"], strict=False)
+
+            if missing:
+                logger.warning(f"Missing keys in state_dict: {missing}")
+            if unexpected:
+                logger.warning(f"Unexpected keys in state_dict: {unexpected}")
+
+            if "epoch" in checkpoint:
+                self.best_epoch = checkpoint["epoch"]
+                logger.info("Loaded weights from epoch %s", self.best_epoch)
+
+        except Exception as e:
+            logger.error(f"Failed to load checkpoint: {e}", exc_info=True)
+
+    def predict_step(self, batch, batch_idx: int) -> torch.Tensor:
+        """
+        Handle prediction for both (x, y) and x-only batches.
+
+        Returns raw model output (logits for classification, values for regression).
+        Softmax/argmax conversion is handled in the estimator's predict methods.
+        """
+        if self.training:
+            logger.warning(f"Model was in training mode during predict_step at batch {batch_idx}. Switching to eval mode.")
+            self.eval()
+
+        # Accept both training/testing format (x, y) and prediction format (x only).
+        if isinstance(batch, (tuple, list)):
+            x = batch[0]
+        else:
+            x = batch
+
+        with torch.no_grad():
+            logits = self(x)
+
+        # task_type='multilabel' returns per-label sigmoid (each output independent binary in [0, 1]);
+        # default multi-class K>1 path returns softmax rows that sum to 1.
+        if logits.dim() == 2 and logits.shape[1] > 1:
+            if self.task_type == "multilabel":
+                return torch.sigmoid(logits)
+            return torch.softmax(logits, dim=1)
+        else:
+            # Regression or binary classification: return raw values.
+            return logits
