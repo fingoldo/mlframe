@@ -58,3 +58,43 @@ This part is out-of-scope for Wave 3 — it changes CI workflow configuration. O
 ## Recommendation
 
 Proceed with Parts 1 + 2 in Wave 3. Defer Part 3 (CI workflow) to a dedicated wave with explicit user OK, since the GH Actions YAML change is irrevocable on push without a force-push or revert PR.
+
+## Status (2026-05-25 update)
+
+**Part 1 + Part 2**: DONE in commit ``b26cfa93`` (w3c B1_N1_to_N12). Marker registered in ``pyproject.toml``; helper scripts ``scripts/run_numba_coverage.sh`` + ``scripts/run_numba_coverage.ps1`` shipped.
+
+**Part 3**: DONE in commit ``06727c04`` (W8C AP5). Workflow ``.github/workflows/numba-coverage.yml`` active. Meta-sensor ``tests/test_meta/test_numba_coverage_workflow_exists.py`` pins the workflow file.
+
+### Validation steps (operator-facing)
+
+To manually trigger and observe a nightly run:
+
+```bash
+gh workflow run numba-coverage-nightly --ref master
+gh run list --workflow=numba-coverage-nightly --limit=5
+gh run view <RUN_ID> --log              # full log
+gh run view <RUN_ID> --log-failed       # just the failed step
+```
+
+To preview locally (Windows):
+
+```powershell
+$env:NUMBA_DISABLE_JIT='1'; $env:PYTHONUNBUFFERED='1'
+& "D:/ProgramData/anaconda3/python.exe" -m pytest tests/feature_engineering/ tests/feature_selection/ tests/metrics/ tests/training/ --no-cov -p no:randomly --timeout=600
+```
+
+To preview locally (POSIX):
+
+```bash
+bash scripts/run_numba_coverage.sh
+```
+
+### First-run observations (2026-05-25 nightly run id 26388114573)
+
+The first scheduled run on master at 03:00 UTC 2026-05-25 surfaced two test failures, consistent with the "Risks" section above:
+
+1. **``tests/feature_engineering/test_audit_regression_multi_agent_findings.py::TestMpsCorrectness::test_monotone_rise_then_fall``** -- ``IndexError: index 7 is out of bounds for axis 0 with size 7`` at ``src/mlframe/feature_engineering/mps.py:129``. This is a real prod bug surfaced by no-JIT execution of an off-by-one or boundary check that the JIT-compiled path was silently tolerating (numba's bounds-checking is relaxed by default; pure Python is strict). **Action**: flag for the Wave-11 backlog; investigate ``mps.py:129`` and ship a regression sensor that runs under both ``NUMBA_DISABLE_JIT=0`` and ``NUMBA_DISABLE_JIT=1``.
+
+2. **``tests/feature_selection/test_biz_val_filters_hermite_fe.py::test_biz_njit_poly_eval_3x_faster_than_numpy_at_n2k``** -- ``AssertionError: njit hermeval must be >=3x faster than numpy at n=2k; got 0.01x (20.7us vs 3450.1us)``. This is the predicted Risk #2 (Performance test pollution): under ``NUMBA_DISABLE_JIT=1`` the @njit kernel runs as plain Python and is therefore SLOWER than the C-vectorized numpy baseline, not 3x faster. The perf-floor assertion is correct under normal CI and wrong under no-JIT. **Action**: gate the biz_value perf-floor tests via ``pytest.mark.skipif(os.environ.get('NUMBA_DISABLE_JIT') == '1')`` so they are skipped in the nightly run. The non-perf correctness assertions in the same file should still run.
+
+Both items are tracked for the Wave-11 backlog under ``audit/critique_2026_05_24/FINAL_VERIFICATION.md`` (post-2026-05-25 amendment) and do not block the AP5 closure status; the workflow IS landed and IS producing actionable signal, which is the proposal's primary purpose.
