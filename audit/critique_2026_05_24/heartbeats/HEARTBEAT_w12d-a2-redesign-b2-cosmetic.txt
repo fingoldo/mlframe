@@ -1,0 +1,1 @@
+w12d: DONE - 11 commits landed; manifest written; all touched tests green; pre-existing meta failures triaged (annotation snapshot drift flagged as outside scope but documented)
