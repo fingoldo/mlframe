@@ -1,5 +1,44 @@
 # Changelog
 
+## 2026-05-25 — Round 2026-05-24 audit cycle (Waves 1-10)
+
+Multi-wave correctness/perf/hygiene sweep covering 23 critique deliverables (A1 feature selection, A2 feature engineering, A3 ensembling, A4 perf hotspots, A5 pipeline caching, A6 polars zero-copy, B1 tests-expand, B2 tests-optimize, C1 monoliths split, D1 ML best practices, D2 code/arch standards) plus 14 architectural proposals. 125 commits in range ``da68ca6..HEAD``. Honest closure: 172/258 atomic-finding rows (66.7%); 86 rows remain DEFERRED in the Wave 10 backlog with explicit reasons (predominantly perf-hygiene, test-coverage extensions, and monolith carves). See ``audit/critique_2026_05_24/FINAL_VERIFICATION.md`` for the full per-finding disposition table.
+
+### Major source landings (selected)
+
+- **AP1 SuiteArtefactCache** (``src/mlframe/training/suite_artefact_cache.py`` 513 LOC): new cross-process disk cache for composite_target_specs + dummy_baselines + fit_and_transform_pipeline + apply_preprocessing_extensions + trainset_features_stats. SuiteKeyBuilder digest via orjson+blake2b. 2GB default bytes limit, env override ``MLFRAME_SUITE_CACHE_MAX_BYTES`` / ``MLFRAME_SUITE_CACHE_DIR``.
+- **AP6 safe_pickle** (``src/mlframe/utils/safe_pickle.py``): centralised sha256-sidecar verification across all four pickle entry points (predict, inference, FE cache, composite cache). Default fail-closed on missing sidecar with ``MLFRAME_ALLOW_UNVERIFIED_PICKLE=1`` opt-out.
+- **AP7 NNLS stacking-aware blend** + **AP8 nbytes streaming dispatcher**: ensemble weights flow back into ``combine_probs``; streaming vs materialised path selected by frame nbytes.
+- **AP9 sklearn-matrix compliance step**: ``sklearn.utils.estimator_checks`` wired into ``sklearn-matrix-ci.yml`` across sklearn 1.5.2 / 1.6.1 / 1.7.2 / 1.8.0.
+- **AP11 pre-commit hooks**: ruff + black + calibration-scoped mypy enforced locally via ``.pre-commit-config.yaml``.
+- **AP12 calibration policy** (``src/mlframe/calibration/quality.py``): ``pick_best_calibrator`` selects Sigmoid / Isotonic / NoCal by OOF ECE with bootstrap CI; reliability plot rendered in standard reporting.
+- **AP13 honest_diagnostics aggregator** (``src/mlframe/training/honest_diagnostics.py``): ReportingConfig.honest_estimator_diagnostics default ON; aggregator consumes the S68 bootstrap module to attach 95% CIs to top-line metrics.
+- **AP14 provenance** (``src/mlframe/training/provenance.py``): hyperparam provenance trail wired into 19 source surfaces; ``format_provenance_table`` consumed by finalize.
+- **AP2 F15 finite_mask threading**: precomputed ``_finite_mask`` threaded through 9 residual ``_fit`` kernels in composite_transforms.
+- **AP4 fuzz axes**: 5 new fuzz/reachability sensors covering crash-reporting, polars-ds × LTR, PySR inf/nan, composite-discovery × outlier-detection, diagnostics-without-baselines.
+- **AP5 numba-coverage nightly CI**: ``.github/workflows/numba-coverage.yml`` cron 03:00 UTC with ``NUMBA_DISABLE_JIT=1`` so @njit kernel bodies become visible to coverage.py.
+- **S68 bootstrap + DeLong** (``src/mlframe/evaluation/bootstrap.py``): ``bootstrap_metric`` percentile CI + ``delong_test`` paired AUC.
+- **S66 categorical PSI** in drift_report; **S64 + S67 Enum bundle** persistence end-to-end through model meta.
+- **D1 split-config** knobs: ``composite_cardinality_cap``, ``bucket_stratify`` (regression default ON), ``cv_shuffle`` respected over temporal auto-detect.
+- **D2 ruff + mypy + io.collect_lib_versions** hardening (per-rule ignore justification, calibration strict beachhead, cupy/numba/pydantic/lightning/torch added to recorded lib versions, ``feature_selection.wrappers.RFECV`` public re-export, underscore-convention docstring + meta-test, conftest dedup).
+
+### Monoliths carved (4 of 18 planned)
+
+- ``composite_transforms.py``: 1194 -> 295 LOC (w6a).
+- ``metrics/core.py``: 1064 -> 232 LOC (w6b).
+- ``_setup_helpers.py``: 1058 -> 356 LOC (w6b).
+- ``_target_distribution_analyzer.py``: 1017 -> 188 LOC (w6a).
+
+Remaining 14 carves (``_phase_composite_post.py``, ``wrappers/_rfecv_fit.py``, ``_composite_target_estimator.py``, ``training/helpers.py``, ``training/neural/recurrent.py``, ``boruta_shap.py``, ``target_temporal_audit.py``, ``_phase_helpers.py``, ``baseline_diagnostics.py``, ``train_eval.py``, ``training/neural/flat.py``, ``extractors.py``, ``training/neural/ranker.py``, ``training/neural/base.py``) deferred to Wave 11+ with carve plans persisted in ``audit/critique_2026_05_24/monoliths-split.md``.
+
+### Rejected with bench (selected)
+
+A6#8 percol str(dtype) signature distinction; A6#10 per-column np.unique cost dominates; A6#16 dtype-agnostic 0.06ms; A6#18 PySR pyarrow extension path is 3x slower; A6#20 timeseries list-of-lists parity; A6#21/22 polars allow_copy=False multi-col; A6#24 stacked_qnn float32 intentional; A4#9 4% gain; A4#11 per-call schema iter µs; A4#14 user-visible tqdm progress > perf; A2#7 timeseries dtype= kwarg parity.
+
+### Dropped (user)
+
+AP3 K-target joblib; AP10 dep upper-bound caps; AP11-c CI continue-on-error drop.
+
 ## 2026-05-24 — Round 5.4: MLP-skip on extreme-AR + raw-only CT_ENSEMBLE + verdict-table test fallback
 
 TVT prod 2026-05-24 (post-round-5.3) successfully short-circuited
