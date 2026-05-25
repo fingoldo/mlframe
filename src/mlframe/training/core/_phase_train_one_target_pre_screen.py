@@ -70,6 +70,24 @@ def _maybe_run_unsupervised_pre_screen(ctx, targets):
             _val = getattr(ctx, _attr, None)
             if isinstance(_val, str) and _val:
                 _protected.add(_val)
+        # Defensive double-source: also pull group/ts column names from upstream extractor + split_config so a group-aware split with a missing ctx attribute still protects the columns. Without this fallback, variance/null pre-screen can drop the group_id column itself (high-cardinality string IDs often look like "near-all-unique strings") and break GroupShuffleSplit downstream.
+        _extractor = getattr(ctx, "extractor", None) or getattr(ctx, "features_and_targets_extractor", None)
+        if _extractor is not None:
+            for _attr in ("group_field", "timestamps_column", "ts_column", "timestamp_field"):
+                _val = getattr(_extractor, _attr, None)
+                if isinstance(_val, str) and _val:
+                    _protected.add(_val)
+        _split_cfg = getattr(ctx, "split_config", None)
+        if _split_cfg is not None:
+            for _attr in ("group_field", "timestamps_column", "ts_column"):
+                _val = getattr(_split_cfg, _attr, None)
+                if isinstance(_val, str) and _val:
+                    _protected.add(_val)
+        _split_cfg_use_groups = bool(getattr(_split_cfg, "use_groups", False)) if _split_cfg is not None else False
+        if _split_cfg_use_groups and not _protected:
+            logger.warning(
+                "[pre-screen] split_config.use_groups=True but protected_columns set is empty; group/ts columns at risk of variance/null pruning. Verify ctx.group_id_col / extractor.group_field is set.",
+            )
         _train_for_screen = ctx.filtered_train_df if ctx.filtered_train_df is not None else (ctx.train_df_polars or ctx.train_df_pd)
         _drops = compute_unsupervised_drops(
             _train_for_screen,
