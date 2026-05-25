@@ -52,6 +52,7 @@ def _process_single_ensemble_method(
     degenerate_class_ratio: float = 0.01,
     sample_weight: Optional[np.ndarray] = None,
     rrf_k: int = 60,
+    precomputed_weights: Optional[np.ndarray] = None,
 ) -> tuple:
     """Process a single ensemble method. Returns (method_name, results, conf_results, next_level_pred)."""
     # E1.1 opt-out: these lazy imports break a circular dep with mlframe.training.
@@ -71,10 +72,27 @@ def _process_single_ensemble_method(
     # preds, the ensemble call gets an empty tuple; downstream
     # ``ensemble_probabilistic_predictions`` already returns
     # ``(None, None, None)`` for that case (line ~438).
+    # NNLS-weight alignment: when ``precomputed_weights`` is supplied it is length-M aligned to
+    # ``level_models_and_predictions``. Each per-split branch below filters None members so we
+    # build a parallel mask + slice the weights before handing them to ``ensemble_probabilistic_predictions``.
+    _pcw_full = (
+        np.asarray(precomputed_weights, dtype=np.float64).reshape(-1)
+        if precomputed_weights is not None else None
+    )
+
+    def _slice_weights(mask: list[bool]) -> Optional[np.ndarray]:
+        if _pcw_full is None:
+            return None
+        if _pcw_full.shape[0] != len(mask):
+            return None
+        return _pcw_full[np.asarray(mask, dtype=bool)]
+
     if not is_regression:
+        _val_mask = [el.val_probs is not None for el in level_models_and_predictions]
         _val_preds = [el.val_probs for el in level_models_and_predictions if el.val_probs is not None]
         predictions = iter(_val_preds)
     else:
+        _val_mask = [el.val_preds is not None for el in level_models_and_predictions]
         _val_preds = [el.val_preds for el in level_models_and_predictions if el.val_preds is not None]
         predictions = (p.reshape(-1, 1) for p in _val_preds)
 
@@ -91,13 +109,16 @@ def _process_single_ensemble_method(
         verbose=verbose,
         sample_weight=sample_weight,
         rrf_k=rrf_k,
+        precomputed_weights=_slice_weights(_val_mask),
     )
 
     # 2026-05-13: same ``None``-guard for test_preds / test_probs.
     if not is_regression:
+        _test_mask = [el.test_probs is not None for el in level_models_and_predictions]
         _test_preds = [el.test_probs for el in level_models_and_predictions if el.test_probs is not None]
         predictions = iter(_test_preds)
     else:
+        _test_mask = [el.test_preds is not None for el in level_models_and_predictions]
         _test_preds = [el.test_preds for el in level_models_and_predictions if el.test_preds is not None]
         predictions = (p.reshape(-1, 1) for p in _test_preds)
 
@@ -114,6 +135,7 @@ def _process_single_ensemble_method(
         verbose=verbose,
         sample_weight=sample_weight,
         rrf_k=rrf_k,
+        precomputed_weights=_slice_weights(_test_mask),
     )
 
     # Level-1 aggregation reads OOF predictions when present (the K-fold cross_val_predict output stamped by the trainer), not in-sample ``train_preds``/``train_probs`` -- the latter are produced by predicting on rows the model already saw during fit and leak that fit's residual structure into a meta-learner. Falling back to ``train_*`` keeps the path alive when OOF was unavailable (e.g. tiny datasets, multi-output paths where ``cross_val_predict`` skipped); a higher-level guard in ``score_ensemble`` raises when ``max_ensembling_level > 1`` AND any member is missing OOF.
@@ -151,6 +173,10 @@ def _process_single_ensemble_method(
             ensemble_method, ensembling_level, _fallback_used,
         )
 
+    # train branch: ``predictions`` was built via ``_oof_or_train`` which preserves the per-member
+    # order but may contain ``None`` entries when neither OOF nor train_* was available. Build the
+    # alignment mask to slice precomputed_weights consistently with the per-split branches above.
+    _train_mask = [(p is not None) for p in predictions] if predictions else []
     train_ensembled_predictions, _, train_confident_indices = ensemble_probabilistic_predictions(
         *predictions,
         ensemble_method=ensemble_method,
@@ -164,6 +190,7 @@ def _process_single_ensemble_method(
         verbose=verbose,
         sample_weight=sample_weight,
         rrf_k=rrf_k,
+        precomputed_weights=_slice_weights(_train_mask) if _train_mask and _pcw_full is not None and len(_train_mask) == _pcw_full.shape[0] else None,
     )
 
     internal_ensemble_method = f"{ensemble_method} L{ensembling_level}" if ensembling_level > 0 else ensemble_method

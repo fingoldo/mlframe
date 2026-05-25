@@ -49,6 +49,7 @@ def ensemble_probabilistic_predictions(
     verbose: bool = True,
     sample_weight: Optional[np.ndarray] = None,
     rrf_k: int = 60,
+    precomputed_weights: Optional[np.ndarray] = None,
 ) -> tuple:
     """Ensembles probabilistic predictions. All elements of the preds tuple must have the same shape.
     uncertainty_quantile>0 produces separate charts for points where the models are confident (agree).
@@ -90,7 +91,16 @@ def ensemble_probabilistic_predictions(
         )
     confident_indices = None
 
-    preds = [p for p in preds if p is not None]
+    # Filter out None preds while keeping ``precomputed_weights`` aligned with the surviving
+    # member ordering. Without this re-alignment a None member would push every later weight
+    # one position upstream of its actual prediction.
+    _orig_preds = list(preds)
+    _keep_mask = [p is not None for p in _orig_preds]
+    preds = [p for p, k in zip(_orig_preds, _keep_mask) if k]
+    if precomputed_weights is not None and len(_orig_preds) != len(preds):
+        precomputed_weights = np.asarray(precomputed_weights, dtype=np.float64).reshape(-1)
+        if precomputed_weights.shape[0] == len(_orig_preds):
+            precomputed_weights = precomputed_weights[np.asarray(_keep_mask, dtype=bool)]
     if len(preds) == 0:
         return None, None, None
 
@@ -160,7 +170,12 @@ def ensemble_probabilistic_predictions(
                 skipped_preds_indices.add(i)
         if skipped_preds_indices:
             if len(skipped_preds_indices) < len(preds):
-                preds = [el for i, el in enumerate(preds) if i not in skipped_preds_indices]
+                _kept_mask = np.array([i not in skipped_preds_indices for i in range(len(preds))], dtype=bool)
+                preds = [el for i, el in enumerate(preds) if _kept_mask[i]]
+                if precomputed_weights is not None:
+                    _pw = np.asarray(precomputed_weights, dtype=np.float64).reshape(-1)
+                    if _pw.shape[0] == _kept_mask.shape[0]:
+                        precomputed_weights = _pw[_kept_mask]
                 if verbose:
                     logger.info("Using %d members of ensemble", len(preds))
                 # Members were dropped -- re-materialise the cached tensor
@@ -188,6 +203,7 @@ def ensemble_probabilistic_predictions(
         rrf_k=int(rrf_k),
         sample_weight=sample_weight,
         ensure_prob_limits=ensure_prob_limits,
+        precomputed_weights=precomputed_weights,
     )
 
     # -----------------------------------------------------------------------------------------------------------------------------------------------------

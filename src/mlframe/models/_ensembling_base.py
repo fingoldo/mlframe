@@ -620,6 +620,7 @@ def combine_probs(
     rrf_k: int = 60,
     sample_weight: Optional[np.ndarray] = None,
     ensure_prob_limits: bool = True,
+    precomputed_weights: Optional[np.ndarray] = None,
 ) -> np.ndarray:
     """Single canonical per-flavour ensemble math, shared by train and predict.
 
@@ -635,6 +636,12 @@ def combine_probs(
     train-side zero-handling / clip-before-blend / NaN-fallback. Replay drift surfaced
     when any member's preds approached 0 / 1 (harm) or had NaN rows (any). One helper,
     one set of semantics; predict-time output now matches train-stamp within fp64 tol.
+
+    ``precomputed_weights`` (NNLS-derived, length M aligned with ``stacked`` axis 0) replace
+    the uniform ``1/M`` weight used by the arithm/harm/quad/qube/geo flavours. ``median`` and
+    ``rrf`` ignore the weights silently (no canonical weighted-median/weighted-rank-fusion is
+    in scope here). Validation: shape must be (M,), all entries finite and non-negative; the
+    function renormalises (warn-and-correct) if ``abs(sum(w)-1) > 1e-3``.
     """
     flav = (flavour or "").lower()
     if flav in ("", "arith", "mean"):
@@ -651,16 +658,51 @@ def combine_probs(
     if ensure_prob_limits and flav in ("arithm", "harm", "quad", "qube", "median"):
         stacked = np.clip(stacked, 0.0, 1.0)
 
+    weights_arr: Optional[np.ndarray] = None
+    if precomputed_weights is not None:
+        weights_arr = np.asarray(precomputed_weights, dtype=np.float64).reshape(-1)
+        M = stacked.shape[0]
+        if weights_arr.shape != (M,):
+            raise ValueError(
+                f"combine_probs: precomputed_weights shape {weights_arr.shape} does not match "
+                f"stacked member axis (M={M},). Caller must align weights with the post-gate "
+                f"member ordering of ``stacked``."
+            )
+        if not np.all(np.isfinite(weights_arr)):
+            raise ValueError("combine_probs: precomputed_weights contains non-finite entries (NaN/inf).")
+        if (weights_arr < 0).any():
+            raise ValueError("combine_probs: precomputed_weights must be non-negative (NNLS contract).")
+        _wsum = float(weights_arr.sum())
+        if _wsum <= 0.0:
+            raise ValueError("combine_probs: precomputed_weights sum to zero; no member contributes.")
+        if abs(_wsum - 1.0) > 1e-3:
+            logger.warning(
+                "[ensemble] combine_probs: precomputed_weights sum=%.6f deviates from 1.0; renormalising.",
+                _wsum,
+            )
+            weights_arr = weights_arr / _wsum
+        elif _wsum != 1.0:
+            weights_arr = weights_arr / _wsum
+
     if flav == "harm":
         # Harmonic mean: when any model predicts exactly 0, HM is defined as 0.
         any_zero = (stacked == 0).any(axis=0)
         with np.errstate(divide="ignore", invalid="ignore"):
-            inv_sum = np.sum(1.0 / stacked, axis=0)
-            combined = len(stacked) / inv_sum
+            inv = 1.0 / stacked
+            if weights_arr is not None:
+                # Weighted harmonic mean: 1 / sum_i w_i * (1 / p_i). Weights normalised to sum=1.
+                w_shape = (weights_arr.shape[0],) + (1,) * (inv.ndim - 1)
+                combined = 1.0 / np.sum(weights_arr.reshape(w_shape) * inv, axis=0)
+            else:
+                inv_sum = np.sum(inv, axis=0)
+                combined = len(stacked) / inv_sum
         if any_zero.any():
             combined = np.where(any_zero, 0.0, combined)
     elif flav == "arithm":
-        combined = np.mean(stacked, axis=0)
+        if weights_arr is not None:
+            combined = np.average(stacked, axis=0, weights=weights_arr)
+        else:
+            combined = np.mean(stacked, axis=0)
     elif flav == "median":
         if sample_weight is not None:
             try:
@@ -678,23 +720,36 @@ def combine_probs(
             # arith-fallback further below catches any NaN cells either way.
             combined = np.median(stacked, axis=0)
     elif flav == "quad":
-        combined = np.sqrt(np.mean(stacked * stacked, axis=0))
+        sq = stacked * stacked
+        if weights_arr is not None:
+            combined = np.sqrt(np.maximum(np.average(sq, axis=0, weights=weights_arr), 0.0))
+        else:
+            combined = np.sqrt(np.mean(sq, axis=0))
     elif flav == "qube":
         # Underflow guard: for all-positive but extremely-small probs, cbrt(mean(p^3))
         # can lose precision near 1e-100 because p^3 underflows below float64 min.
         # Clip the pre-cube floor at the cube root of the smallest safe float64 (~1e-103).
         _safe = np.clip(stacked, 1e-103, None) if (stacked > 0).all() else stacked
-        # _safe * _safe * _safe over _safe ** 3 avoids np.power dispatch
-        # (~3x; same antipattern as iter138 fixes).
-        combined = np.cbrt(np.mean(_safe * _safe * _safe, axis=0))
+        cu = _safe * _safe * _safe
+        if weights_arr is not None:
+            combined = np.cbrt(np.average(cu, axis=0, weights=weights_arr))
+        else:
+            combined = np.cbrt(np.mean(cu, axis=0))
     elif flav == "geo":
         with np.errstate(divide="ignore"):
-            combined = np.exp(np.mean(np.log(np.clip(stacked, 1e-300, None)), axis=0))
+            log_stack = np.log(np.clip(stacked, 1e-300, None))
+            if weights_arr is not None:
+                combined = np.exp(np.average(log_stack, axis=0, weights=weights_arr))
+            else:
+                combined = np.exp(np.mean(log_stack, axis=0))
     elif flav == "rrf":
         combined = _rrf_aggregate_probs(stacked, k=int(rrf_k))
     else:
         # Unrecognised flavour -> arithmetic mean fallback (matches the legacy predict-side default).
-        combined = np.mean(stacked, axis=0)
+        if weights_arr is not None:
+            combined = np.average(stacked, axis=0, weights=weights_arr)
+        else:
+            combined = np.mean(stacked, axis=0)
 
     # NaN/inf fallback to arithmetic mean. Train side ran this AFTER the flavour reduce;
     # predict now does the same so a single NaN cell doesn't poison the whole batch.

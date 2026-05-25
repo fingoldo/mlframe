@@ -138,6 +138,12 @@ def score_ensemble(
     # suite caller to opt in, so the default suite path lost the diagnostics entirely.
     enable_stacking_aware_gate: bool = True,
     stacking_gate_min_weight: float = 0.05,
+    # AP7: when True, the NNLS weights computed by ``stacking_aware_gate`` are fed into
+    # ``combine_probs`` as ``precomputed_weights`` (replacing the uniform 1/M weight on
+    # arithm / harm / quad / qube / geo flavours). Default True -- the gate already runs
+    # observationally so wiring its output into the blend is the natural finalisation. Set
+    # False to restore the legacy uniform-mean behaviour while keeping the NNLS diagnostic.
+    use_nnls_weights: bool = True,
     # P1-7: optional auto-drop of one member from each high-correlation pair.
     # ``None`` preserves the observational-only default (just WARNs + stamps to _diversity);
     # passing a float in (0, 1] activates auto-drop when any pair's |corr| exceeds the floor.
@@ -815,16 +821,31 @@ def score_ensemble(
     # Stacking-aware gate (composite_stacking.stacking_aware_gate). Observational by default: runs
     # NNLS over member OOF preds, persists survivors / weights on ``res["_stacking_gate"]``. The
     # caller can choose to feed the survivors into a follow-up linear stack at the suite level.
+    _nnls_weights_for_blend: Optional[np.ndarray] = None
     if enable_stacking_aware_gate and _gate_preds_for_check is not None and target_arr is not None:
         try:
             from mlframe.training.composite_stacking import stacking_aware_gate as _saw_gate
 
             _saw_y = np.asarray(target_arr).reshape(-1)
-            _saw_preds = {
-                _ensemble_member_tags[i]: np.asarray(p, dtype=np.float64).ravel()
-                for i, p in enumerate(_gate_preds_for_check)
-                if np.asarray(p).reshape(-1).shape[0] == _saw_y.shape[0]
-            }
+            # Keep two parallel views: a member-tag -> array dict for the gate, plus a list of
+            # tags in the same order as ``level_models_and_predictions`` so we can later assemble
+            # a length-M weight vector. Duplicate tags fall back to suffix-disambiguation (rare;
+            # short_model_tag collapses CB+CB_v2 to "cb" but the underlying tags from the suite
+            # builder are typically unique).
+            _ordered_tags: list[str] = []
+            _seen_tags: set[str] = set()
+            _saw_preds: dict[str, np.ndarray] = {}
+            for i, p in enumerate(_gate_preds_for_check):
+                _p_arr = np.asarray(p).reshape(-1)
+                if _p_arr.shape[0] != _saw_y.shape[0]:
+                    _ordered_tags.append("")  # placeholder: this member was skipped in the gate
+                    continue
+                _tag = _ensemble_member_tags[i]
+                if _tag in _seen_tags:
+                    _tag = f"{_tag}#{i}"
+                _seen_tags.add(_tag)
+                _ordered_tags.append(_tag)
+                _saw_preds[_tag] = _p_arr.astype(np.float64)
             if _saw_preds:
                 _saw_survivors, _saw_weights = _saw_gate(_saw_preds, _saw_y, min_weight=stacking_gate_min_weight)
                 res["_stacking_gate"] = {
@@ -832,6 +853,31 @@ def score_ensemble(
                     "weights": dict(_saw_weights),
                     "min_weight": float(stacking_gate_min_weight),
                 }
+                # AP7: assemble length-M weight vector aligned with ``level_models_and_predictions``.
+                # Members not in the survivor set get weight 0. Members whose gate-source was missing
+                # also get 0. When use_nnls_weights=False this is computed but unused (stamped only
+                # for the observational report).
+                if use_nnls_weights and _saw_survivors:
+                    _w_aligned = np.zeros(len(level_models_and_predictions), dtype=np.float64)
+                    _surv_set = set(_saw_survivors)
+                    for i, _tag in enumerate(_ordered_tags):
+                        if _tag and _tag in _surv_set:
+                            _w_aligned[i] = float(_saw_weights.get(_tag, 0.0))
+                    _wsum = float(_w_aligned.sum())
+                    if _wsum > 0.0:
+                        _w_aligned = _w_aligned / _wsum
+                        _nnls_weights_for_blend = _w_aligned
+                        res["_stacking_gate"]["aligned_weights"] = _w_aligned.tolist()
+                        res["_stacking_gate"]["applied_to_blend"] = True
+                        if verbose:
+                            logger.info(
+                                "[ensemble] NNLS weights applied to blend: %s",
+                                {_ensemble_member_tags[i]: float(_w_aligned[i]) for i in range(len(_w_aligned))},
+                            )
+                    else:
+                        res["_stacking_gate"]["applied_to_blend"] = False
+                else:
+                    res["_stacking_gate"]["applied_to_blend"] = False
         except Exception as _saw_err:  # pragma: no cover -- defensive
             logger.warning("[ensemble] stacking_aware_gate failed: %s", _saw_err)
 
@@ -871,6 +917,7 @@ def score_ensemble(
             degenerate_class_ratio=degenerate_class_ratio,
             sample_weight=sample_weight,
             rrf_k=rrf_k,
+            precomputed_weights=_nnls_weights_for_blend,
         )
 
         if len(ensembling_methods) > 1 and effective_n_jobs > 1:
