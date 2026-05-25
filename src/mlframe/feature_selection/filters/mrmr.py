@@ -679,6 +679,25 @@ class MRMR(BaseEstimator, TransformerMixin):
         X, y = self._maybe_resample_for_sample_weight(X, y, self._fit_sample_weight_)
         try:
             result = self._fit_impl(X, y, groups, **fit_params)
+            try:
+                from mlframe.training.provenance import record_provenance as _record_provenance
+                _n_rows = int(X.shape[0]) if hasattr(X, "shape") else None
+                _record_provenance(
+                    getattr(self, "_provenance_sink_", None),
+                    "mrmr",
+                    source="train_only",
+                    n_rows=_n_rows,
+                    seed=int(getattr(self, "random_state", 0) or 0) if getattr(self, "random_state", None) is not None else None,
+                    extra={"n_features_in": int(X.shape[1]) if hasattr(X, "shape") and len(X.shape) > 1 else None},
+                )
+                self.provenance_ = {
+                    "step": "mrmr",
+                    "source": "train_only",
+                    "n_rows": _n_rows,
+                    "seed": int(getattr(self, "random_state", 0) or 0) if getattr(self, "random_state", None) is not None else None,
+                }
+            except Exception:
+                pass
             # Stash X-fingerprint -> identity-bool in cross-target cache so a SUBSEQUENT fit (different y, same X) can early-skip the FE pipeline.
             if _identity_skip and _x_fp is not None:
                 try:

@@ -545,6 +545,17 @@ def _phase_fit_pipeline(
     metadata["pipeline"] = pipeline
     metadata["extensions_pipeline"] = extensions_pipeline
     metadata["cat_features"] = cat_features
+    try:
+        from mlframe.training.provenance import record_provenance as _record_provenance
+        _record_provenance(
+            metadata,
+            "preprocessing_pipeline",
+            source="train",
+            n_rows=int(train_df.shape[0]) if hasattr(train_df, "shape") else None,
+            extra={"n_features_out": int(train_df.shape[1]) if hasattr(train_df, "shape") and len(train_df.shape) > 1 else None},
+        )
+    except Exception:
+        pass
     _post_cols = train_df.columns.tolist() if isinstance(train_df, pd.DataFrame) else list(train_df.columns)
     # SKEW-COL-ORDER: write the explicit "post_pipeline_columns" name AND the legacy "columns" alias. ``_post_cols`` is already a freshly built list; reuse
     # the same reference under both keys so an in-place mutation by one downstream consumer is visible under the other (the historical aliasing contract).

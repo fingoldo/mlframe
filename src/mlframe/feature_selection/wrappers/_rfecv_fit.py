@@ -1018,4 +1018,22 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
         show_plot=show_plot,
         signature=signature,
     )
+    try:
+        from mlframe.training.provenance import record_provenance as _record_provenance
+        _n_rows_done = int(X.shape[0]) if hasattr(X, "shape") else None
+        _cv_n_done = self.cv if isinstance(self.cv, int) else getattr(self.cv, "n_splits", None)
+        _record_provenance(
+            getattr(self, "_provenance_sink_", None),
+            "rfecv",
+            source="train_only",
+            n_rows=_n_rows_done,
+            seed=int(getattr(self, "random_state", 0) or 0) if getattr(self, "random_state", None) is not None else None,
+            extra={"cv_folds": int(_cv_n_done) if _cv_n_done is not None else None, "n_features_in": int(X.shape[1]) if hasattr(X, "shape") and len(X.shape) > 1 else None},
+        )
+        self.provenance_ = {
+            "step": "rfecv", "source": "train_only", "n_rows": _n_rows_done,
+            "cv_folds": int(_cv_n_done) if _cv_n_done is not None else None,
+        }
+    except Exception:
+        pass
     return self

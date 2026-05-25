@@ -99,6 +99,12 @@ def analyze_target_distribution(
     diagnostics: dict[str, float] = {"n_samples": float(n)}
     pathologies: list[str] = []
     knob_overrides: dict[str, dict[str, Any]] = {}
+    knob_overrides_provenance: dict[str, dict[str, dict[str, Any]]] = {}
+
+    def _stamp_prov(slot: str, knob: str, value: Any, reason: str) -> None:
+        knob_overrides_provenance.setdefault(slot, {})[knob] = {
+            "value": value, "source": "analyzer", "reason": reason,
+        }
 
     if ttype == "regression":
         if n < 30:
@@ -107,6 +113,7 @@ def analyze_target_distribution(
                 target_type="regression", n_samples=n,
                 pathologies=["insufficient_samples_n<30"],
                 knob_overrides=knob_overrides, diagnostics=diagnostics,
+                knob_overrides_provenance=knob_overrides_provenance,
             )
 
         mu = float(np.mean(y_for_stats))
@@ -123,6 +130,7 @@ def analyze_target_distribution(
                 target_type="regression", n_samples=n,
                 pathologies=pathologies, knob_overrides=knob_overrides,
                 diagnostics=diagnostics,
+                knob_overrides_provenance=knob_overrides_provenance,
             )
 
         # Heavy tail
@@ -136,6 +144,9 @@ def analyze_target_distribution(
             mlp_mp["loss_fn"] = "huber"  # MLP family knob; consumed at MLPTorchModel
             knob_overrides.setdefault("lgb_kwargs", {})["objective"] = "huber"
             knob_overrides.setdefault("xgb_kwargs", {})["objective"] = "reg:pseudohubererror"
+            _stamp_prov("mlp_kwargs", "model_params.loss_fn", "huber", "heavy_tail")
+            _stamp_prov("lgb_kwargs", "objective", "huber", "heavy_tail")
+            _stamp_prov("xgb_kwargs", "objective", "reg:pseudohubererror", "heavy_tail")
 
         # Skewness
         skew = _skewness(y_for_stats)
@@ -215,6 +226,7 @@ def analyze_target_distribution(
             knob_overrides.setdefault("mlp_kwargs", {})
             mlp_np = knob_overrides["mlp_kwargs"].setdefault("network_params", {})
             mlp_np["use_layernorm"] = False
+            _stamp_prov("mlp_kwargs", "network_params.use_layernorm", False, "strong_AR_target")
 
         # Clustered target (within-group << between-group variance)
         if group_ids is not None:
@@ -229,6 +241,7 @@ def analyze_target_distribution(
                     # Recommend group-aware splitting; the suite already supports this via
                     # ``group_column`` in the split config, so we just surface the hint.
                     knob_overrides.setdefault("split_config", {})["prefer_group_aware"] = True
+                    _stamp_prov("split_config", "prefer_group_aware", True, "clustered_target")
                     # E5.2 (2026-05-21): clustered targets share the SAME MLP-LayerNorm collapse mode
                     # as strong-AR (per-row LayerNorm destroys the between-row absolute-scale signal
                     # that the group label encodes). The strong-AR detector above already turns
@@ -236,6 +249,7 @@ def analyze_target_distribution(
                     # closes the third path (group-clustered target where AR is weak but the
                     # absolute group level dominates -- e.g. wellbore TVT, customer LTV by tenure).
                     knob_overrides.setdefault("mlp_kwargs", {}).setdefault("network_params", {})["use_layernorm"] = False
+                    _stamp_prov("mlp_kwargs", "network_params.use_layernorm", False, "clustered_target")
 
     else:  # classification
         if n < 30:
@@ -243,6 +257,7 @@ def analyze_target_distribution(
                 target_type="classification", n_samples=n,
                 pathologies=["insufficient_samples_n<30"],
                 knob_overrides=knob_overrides, diagnostics=diagnostics,
+                knob_overrides_provenance=knob_overrides_provenance,
             )
         # Class frequency table.
         classes, counts = np.unique(y, return_counts=True)
@@ -254,6 +269,7 @@ def analyze_target_distribution(
                 target_type="classification", n_samples=n,
                 pathologies=pathologies, knob_overrides=knob_overrides,
                 diagnostics=diagnostics,
+                knob_overrides_provenance=knob_overrides_provenance,
             )
         freqs = counts / counts.sum()
         max_freq = float(freqs.max())
@@ -272,6 +288,9 @@ def analyze_target_distribution(
             knob_overrides.setdefault("lgb_kwargs", {})["class_weight"] = "balanced"
             knob_overrides.setdefault("xgb_kwargs", {})["scale_pos_weight"] = max(1.0, ratio)
             knob_overrides.setdefault("cb_kwargs", {})["auto_class_weights"] = "Balanced"
+            _stamp_prov("lgb_kwargs", "class_weight", "balanced", "class_imbalance")
+            _stamp_prov("xgb_kwargs", "scale_pos_weight", max(1.0, ratio), "class_imbalance")
+            _stamp_prov("cb_kwargs", "auto_class_weights", "Balanced", "class_imbalance")
         # Rare classes.
         rare_classes = [int(c) for c, k in zip(classes, counts) if int(k) < _RARE_CLASS_MIN_N]
         diagnostics["n_rare_classes"] = float(len(rare_classes))
@@ -284,4 +303,5 @@ def analyze_target_distribution(
         target_type=ttype, n_samples=n,
         pathologies=pathologies, knob_overrides=knob_overrides,
         diagnostics=diagnostics,
+        knob_overrides_provenance=knob_overrides_provenance,
     )

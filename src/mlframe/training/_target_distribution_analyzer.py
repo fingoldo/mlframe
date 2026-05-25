@@ -106,6 +106,10 @@ class TargetDistributionReport:
     pathologies: list[str] = field(default_factory=list)
     knob_overrides: dict[str, dict[str, Any]] = field(default_factory=dict)
     diagnostics: dict[str, float] = field(default_factory=dict)
+    # Per-knob provenance stamps: {slot: {knob_name: {"value": v, "source": "analyzer", "reason": "<pathology>"}}}.
+    # Parallel to ``knob_overrides`` so existing consumers (suite caller's deep-merge) keep working unchanged; consumers
+    # that care about origin (which value came from the analyzer vs the user vs the project default) inspect this field.
+    knob_overrides_provenance: dict[str, dict[str, dict[str, Any]]] = field(default_factory=dict)
 
     def merge_into_config(self, base_config: dict, override_existing: bool = False) -> dict:
         """Deep-merge knob_overrides into a (possibly nested) hyperparams config.

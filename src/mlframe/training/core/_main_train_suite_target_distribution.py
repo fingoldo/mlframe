@@ -170,8 +170,42 @@ def _run_target_distribution_analyzer(
                 "n_samples": _td_report.n_samples,
                 "pathologies": list(_td_report.pathologies),
                 "knob_overrides": dict(_td_report.knob_overrides),
+                "knob_overrides_provenance": dict(getattr(_td_report, "knob_overrides_provenance", {}) or {}),
                 "diagnostics": dict(_td_report.diagnostics),
             }
+            try:
+                from mlframe.training.provenance import record_provenance as _record_provenance
+                _record_provenance(
+                    metadata,
+                    "target_distribution_analyzer",
+                    source="train_only",
+                    n_rows=int(_td_report.n_samples),
+                    extra={"target_type": _td_report.target_type, "n_pathologies": len(_td_report.pathologies)},
+                )
+            except Exception:
+                pass
+            # Maintain a per-knob "hyperparams_used" provenance dict so downstream consumers (model factories, audit
+            # reports) can distinguish analyzer-injected knobs from caller-supplied defaults. User overrides take
+            # precedence: if a slot+knob already lives in caller's hyperparams_config, keep that source as "user".
+            try:
+                _hpd = metadata.setdefault("hyperparams_used", {})
+                _user_hpd = {}
+                if hyperparams_config is not None:
+                    if hasattr(hyperparams_config, "model_dump"):
+                        _user_hpd = hyperparams_config.model_dump()
+                    elif isinstance(hyperparams_config, dict):
+                        _user_hpd = dict(hyperparams_config)
+                for _slot, _knobs in (getattr(_td_report, "knob_overrides_provenance", {}) or {}).items():
+                    _slot_store = _hpd.setdefault(_slot, {})
+                    _user_slot = _user_hpd.get(_slot) if isinstance(_user_hpd, dict) else None
+                    for _knob_name, _stamp in _knobs.items():
+                        _has_user = isinstance(_user_slot, dict) and _knob_name.split(".")[0] in _user_slot
+                        if _has_user:
+                            _slot_store[_knob_name] = {"value": _user_slot[_knob_name.split(".")[0]], "source": "user"}
+                        else:
+                            _slot_store[_knob_name] = dict(_stamp)
+            except Exception:
+                pass
             # Gap-fill merge into hyperparams_config. The config can be a
             # pydantic ModelHyperparamsConfig (dump+rebuild) or a dict (merge
             # in place via the report helper). For the Pydantic path the merge

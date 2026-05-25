@@ -79,6 +79,17 @@ def _maybe_run_unsupervised_pre_screen(ctx, targets):
         )
         ctx._pre_screen_dropped_cols = list(_drops)
         ctx._pre_screen_done = True
+        try:
+            from mlframe.training.provenance import record_provenance as _record_provenance
+            _record_provenance(
+                getattr(ctx, "metadata", None),
+                "pre_screen",
+                source="train_only",
+                n_rows=int(_train_for_screen.shape[0]) if hasattr(_train_for_screen, "shape") else None,
+                extra={"n_dropped": len(_drops)},
+            )
+        except Exception:
+            pass
         if _drops:
             for _frame_attr in (
                 "filtered_train_df", "filtered_val_df",

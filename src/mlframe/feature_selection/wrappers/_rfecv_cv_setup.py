@@ -116,6 +116,14 @@ def _resolve_cv_and_val_cv(
                     "Using cv=%s (auto-detected from monotonic DatetimeIndex; "
                     "pass cv=KFold(...) explicitly to override).", cv,
                 )
+            # Distinguish the auto-upgrade case so callers running the outer suite in temporal mode see an explicit confirmation that the inner FS CV is temporal too. Without this line, a caller who set ctx.split_config.timestamps had to inspect cv_ attribute manually to confirm the upgrade reached RFECV.
+            logger.info(
+                "RFECV: temporal CV upgrade applied because outer split_config is temporal "
+                "(detected via %s); inner FS folds will respect time ordering.",
+                "fit_params['timestamps'] hint" if _ts_hint is not None else (
+                    "polars datetime schema" if _polars_time_series_hint else "pandas DatetimeIndex"
+                ),
+            )
         elif is_classifier(estimator):
             if groups is not None:
                 cv = StratifiedGroupKFold(n_splits=cv, shuffle=cv_shuffle, random_state=random_state if cv_shuffle else None)
