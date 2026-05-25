@@ -264,8 +264,11 @@ def test_score_ensemble_applies_nnls_weights_to_blend():
     stacked = np.column_stack([members[i].val_preds for i in range(3)]).T  # (3, N)
     expected = aligned[0] * stacked[0] + aligned[1] * stacked[1] + aligned[2] * stacked[2]
     uniform = np.mean(stacked, axis=0)
+    # ``res['arithm']`` is the train_and_evaluate_model tuple; element 0 is the SimpleNamespace
+    # carrying predictions / metrics. Pre-fix probe assumed a .predictions wrapper that does not exist.
     arithm_result = res["arithm"]
-    actual = np.asarray(arithm_result.predictions.val_preds, dtype=np.float64).reshape(-1)
+    arithm_ns = arithm_result[0] if isinstance(arithm_result, tuple) else arithm_result
+    actual = np.asarray(arithm_ns.val_preds, dtype=np.float64).reshape(-1)
     np.testing.assert_allclose(actual, expected, rtol=1e-9, atol=1e-9)
     # Sanity: when the weights are not uniform, the blend must differ from
     # the uniform mean. If this fails the wire-up regressed.
@@ -306,6 +309,9 @@ def test_score_ensemble_use_nnls_weights_false_falls_back_to_uniform():
 
     stacked = np.column_stack([members[i].val_preds for i in range(3)]).T
     uniform = np.mean(stacked, axis=0)
+    # ``res['arithm']`` is the train_and_evaluate_model tuple; element 0 is the SimpleNamespace
+    # carrying predictions / metrics. Pre-fix probe assumed a .predictions wrapper that does not exist.
     arithm_result = res["arithm"]
-    actual = np.asarray(arithm_result.predictions.val_preds, dtype=np.float64).reshape(-1)
+    arithm_ns = arithm_result[0] if isinstance(arithm_result, tuple) else arithm_result
+    actual = np.asarray(arithm_ns.val_preds, dtype=np.float64).reshape(-1)
     np.testing.assert_allclose(actual, uniform, rtol=1e-9, atol=1e-9)
