@@ -1,0 +1,254 @@
+"""Unit tests for `training.feature_drift_report` public API.
+
+Pre-existing `test_feature_drift_auto_action_e2e.py` exercises the auto-action
+wiring via a full suite call. This file pins the unit-level contracts of the
+two sklearn-MLP override translators and `compute_feature_distribution_drift`
+(numeric z-score) + `compute_categorical_drift_psi` directly.
+"""
+from __future__ import annotations
+
+import math
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from mlframe.training.feature_drift_report import (
+    compute_categorical_drift_psi,
+    compute_feature_distribution_drift,
+    translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs,
+    translate_sklearn_mlp_overrides_to_recurrent_config_kwargs,
+)
+
+
+# ----- translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs --------------
+
+
+def test_translate_mlp_empty_overrides_returns_empty_dict():
+    assert translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs({}) == {}
+
+
+def test_translate_mlp_alpha_maps_to_weight_decay():
+    pytest.importorskip("torch")
+    out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs({"alpha": 1e-4})
+    assert "model_params" in out
+    assert "optimizer_kwargs" in out["model_params"]
+    assert out["model_params"]["optimizer_kwargs"]["weight_decay"] == pytest.approx(1e-4)
+
+
+def test_translate_mlp_hidden_layer_sizes_populates_network_params():
+    out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
+        {"hidden_layer_sizes": (64, 32, 16)}
+    )
+    assert "network_params" in out
+    np_ = out["network_params"]
+    assert np_["nlayers"] == 3
+    assert np_["first_layer_num_neurons"] == 64
+    assert np_["min_layer_neurons"] == 16
+    assert np_["consec_layers_neurons_ratio"] == pytest.approx(64 / 16)
+
+
+def test_translate_mlp_activation_relu_routes_to_torch_relu():
+    pytest.importorskip("torch")
+    import torch
+    out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs({"activation": "relu"})
+    assert out["network_params"]["activation_function"] is torch.nn.ReLU
+
+
+def test_translate_mlp_activation_identity_collapses_to_linear():
+    # Per docstring: identity activation MUST set nlayers=1 and zero the
+    # dropout sources to keep the network honestly linear (prod TVT
+    # 2026-05-22 regression).
+    pytest.importorskip("torch")
+    import torch
+    out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs({"activation": "identity"})
+    np_ = out["network_params"]
+    assert np_["activation_function"] is torch.nn.Identity
+    assert np_["nlayers"] == 1
+    assert np_["dropout_prob"] == 0.0
+    assert np_["inputs_dropout_prob"] == 0.0
+
+
+def test_translate_mlp_passes_through_unknown_keys_under_model_params():
+    out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
+        {"custom_knob": 42, "lr": 0.001}
+    )
+    assert out["model_params"]["custom_knob"] == 42
+    assert out["model_params"]["lr"] == 0.001
+
+
+def test_translate_mlp_unknown_activation_recorded_in_untranslated():
+    pytest.importorskip("torch")
+    out = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
+        {"activation": "not_a_real_activation"}
+    )
+    assert "__untranslated__" in out
+    assert any("not_a_real_activation" in s for s in out["__untranslated__"])
+
+
+# ----- translate_sklearn_mlp_overrides_to_recurrent_config_kwargs ---------
+
+
+def test_translate_recurrent_empty_overrides_returns_empty_dict():
+    assert translate_sklearn_mlp_overrides_to_recurrent_config_kwargs({}) == {}
+
+
+def test_translate_recurrent_alpha_maps_to_weight_decay():
+    out = translate_sklearn_mlp_overrides_to_recurrent_config_kwargs({"alpha": 1e-3})
+    assert out["weight_decay"] == pytest.approx(1e-3)
+
+
+def test_translate_recurrent_hidden_layer_sizes_to_mlp_hidden_sizes():
+    out = translate_sklearn_mlp_overrides_to_recurrent_config_kwargs(
+        {"hidden_layer_sizes": (128, 64)}
+    )
+    assert out["mlp_hidden_sizes"] == (128, 64)
+
+
+def test_translate_recurrent_activation_recorded_as_untranslated():
+    # Recurrent cells have hard-coded gate activations; the translator
+    # documents this and records the skip rather than silently fabricating.
+    out = translate_sklearn_mlp_overrides_to_recurrent_config_kwargs(
+        {"activation": "relu"}
+    )
+    assert "__untranslated__" in out
+    assert any("activation" in s for s in out["__untranslated__"])
+
+
+# ----- compute_feature_distribution_drift (numeric z) --------------------
+
+
+def _make_pandas_frame(seed: int, n_rows: int, shift_x: float = 0.0):
+    rng = np.random.default_rng(seed)
+    df = pd.DataFrame({
+        "x": rng.normal(loc=shift_x, scale=1.0, size=n_rows),
+        "y": rng.normal(loc=0.0, scale=2.0, size=n_rows),
+        "cat": rng.choice(["a", "b", "c"], size=n_rows),
+    })
+    return df
+
+
+def test_numeric_drift_no_shift_keeps_z_small():
+    train = _make_pandas_frame(0, 2000)
+    val = _make_pandas_frame(1, 500)
+    test = _make_pandas_frame(2, 500)
+    out = compute_feature_distribution_drift(train, val, test)
+    assert "per_feature" in out
+    assert "x" in out["per_feature"]
+    # |z| < 3 sigma for both x and y on matched DGP.
+    for col in ("x", "y"):
+        entry = out["per_feature"][col]
+        assert abs(entry["val_z"]) < 3.0
+        assert abs(entry["test_z"]) < 3.0
+    assert out["drift_candidates"] == []
+
+
+def test_numeric_drift_shifted_mean_appears_in_candidates():
+    train = _make_pandas_frame(3, 2000, shift_x=0.0)
+    # 5-sigma shifted x on val and test.
+    val = _make_pandas_frame(4, 500, shift_x=5.0)
+    test = _make_pandas_frame(5, 500, shift_x=5.0)
+    out = compute_feature_distribution_drift(train, val, test, warn_threshold_z=3.0)
+    candidates = dict(out["drift_candidates"])
+    assert "x" in candidates
+    # |z| should be ~5 sigma; pin a conservative floor (>=3.0).
+    assert candidates["x"] >= 3.0
+    # And "y" should NOT be flagged because its DGP matched.
+    assert "y" not in candidates
+
+
+def test_numeric_drift_constant_train_column_nan_z():
+    # A constant feature has no drift signal; the function must yield
+    # NaN z without crashing.
+    train = pd.DataFrame({"const": np.full(500, 7.0), "v": np.linspace(0, 1, 500)})
+    val = pd.DataFrame({"const": np.full(100, 7.0), "v": np.linspace(0.5, 1.5, 100)})
+    test = pd.DataFrame({"const": np.full(100, 7.0), "v": np.linspace(0.5, 1.5, 100)})
+    out = compute_feature_distribution_drift(train, val, test)
+    entry = out["per_feature"]["const"]
+    assert entry["train_std"] == 0.0
+    assert math.isnan(entry["val_z"])
+    assert math.isnan(entry["test_z"])
+
+
+def test_numeric_drift_handles_none_val_or_test():
+    train = _make_pandas_frame(6, 500)
+    out = compute_feature_distribution_drift(train, None, None)
+    for col in ("x", "y"):
+        entry = out["per_feature"][col]
+        assert math.isnan(entry["val_z"])
+        assert math.isnan(entry["test_z"])
+
+
+def test_numeric_drift_weighted_score_uses_feature_importance():
+    train = _make_pandas_frame(7, 2000, shift_x=0.0)
+    val = _make_pandas_frame(8, 500, shift_x=5.0)
+    test = _make_pandas_frame(9, 500, shift_x=5.0)
+    # Heavy weight on x (the shifted col) -> high weighted_drift_score.
+    out_heavy = compute_feature_distribution_drift(
+        train, val, test, feature_importance={"x": 1.0, "y": 0.01},
+    )
+    # Heavy weight on y (the matched col) -> low weighted_drift_score.
+    out_light = compute_feature_distribution_drift(
+        train, val, test, feature_importance={"x": 0.01, "y": 1.0},
+    )
+    assert out_heavy["weighted_drift_score"] is not None
+    assert out_light["weighted_drift_score"] is not None
+    # Drift on the important feature must score strictly higher.
+    assert out_heavy["weighted_drift_score"] > out_light["weighted_drift_score"]
+
+
+# ----- compute_categorical_drift_psi -------------------------------------
+
+
+def test_categorical_psi_no_drift_when_train_val_test_match_distribution():
+    rng = np.random.default_rng(20)
+    train = pd.DataFrame({"cat": rng.choice(["a", "b", "c"], size=2000, p=[0.5, 0.3, 0.2])})
+    val = pd.DataFrame({"cat": rng.choice(["a", "b", "c"], size=500, p=[0.5, 0.3, 0.2])})
+    test = pd.DataFrame({"cat": rng.choice(["a", "b", "c"], size=500, p=[0.5, 0.3, 0.2])})
+    out = compute_categorical_drift_psi(train, val, test)
+    assert "per_feature" in out
+    assert "cat" in out["per_feature"]
+    entry = out["per_feature"]["cat"]
+    # Matched DGP -> PSI well below moderate threshold (0.20).
+    assert entry["val_psi"] < 0.10
+    assert entry["test_psi"] < 0.10
+    # No drift candidates flagged.
+    assert out["drift_candidates"] == []
+
+
+def test_categorical_psi_shifted_distribution_flagged():
+    train = pd.DataFrame({"cat": ["a"] * 700 + ["b"] * 200 + ["c"] * 100})
+    # val/test: nearly all "c" (heavily shifted).
+    val = pd.DataFrame({"cat": ["c"] * 450 + ["a"] * 50})
+    test = pd.DataFrame({"cat": ["c"] * 450 + ["a"] * 50})
+    out = compute_categorical_drift_psi(train, val, test)
+    entry = out["per_feature"]["cat"]
+    # Shifted distribution -> PSI well above moderate threshold.
+    assert entry["val_psi"] > 0.25
+    assert entry["test_psi"] > 0.25
+    # Candidate list contains the column.
+    assert any(c == "cat" for c, _ in out["drift_candidates"])
+
+
+def test_categorical_psi_new_category_in_val_treated_as_positive_psi():
+    # A category present only in val (never seen in train) is exactly the
+    # silent-prod-failure case PSI is meant to surface. Confirm the
+    # implementation routes it to a finite POSITIVE PSI (not nan, not 0).
+    train = pd.DataFrame({"cat": ["a"] * 500 + ["b"] * 500})
+    val = pd.DataFrame({"cat": ["new_cat"] * 200 + ["a"] * 100})  # all-new
+    test = pd.DataFrame({"cat": ["a"] * 100 + ["b"] * 100})
+    out = compute_categorical_drift_psi(train, val, test)
+    entry = out["per_feature"]["cat"]
+    assert math.isfinite(entry["val_psi"])
+    # New category contributes >0 PSI.
+    assert entry["val_psi"] > 0.0
+
+
+def test_categorical_psi_no_categorical_columns_returns_empty_per_feature():
+    # Numeric-only frame -> no cat columns -> empty per_feature dict.
+    train = pd.DataFrame({"x": np.arange(100, dtype=float)})
+    val = pd.DataFrame({"x": np.arange(50, dtype=float)})
+    test = pd.DataFrame({"x": np.arange(50, dtype=float)})
+    out = compute_categorical_drift_psi(train, val, test)
+    assert out["per_feature"] == {}
+    assert out["n_categorical_features"] == 0
