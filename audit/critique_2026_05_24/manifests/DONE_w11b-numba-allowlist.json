@@ -1,0 +1,48 @@
+{
+  "agent_slug": "w11b-numba-allowlist",
+  "started_utc": "2026-05-25T16:00:00Z",
+  "finished_utc": "2026-05-25T17:00:00Z",
+  "findings_assigned": [
+    "W10D-mps-no-jit-index",
+    "W10D-biz-njit-poly-eval-skipif",
+    "W10D-cross-pkg-underscore-allowlist-drain"
+  ],
+  "findings_status": {
+    "W10D-mps-no-jit-index": {
+      "status": "DONE",
+      "commit": "290bd967",
+      "src_file": "src/mlframe/feature_engineering/mps.py",
+      "test_file": "tests/feature_engineering/test_regression_w11b_mps_no_jit_index.py",
+      "notes": "compute_area_profits bounded position indexing by prices.shape[0]; under NUMBA_DISABLE_JIT=1 strict-Python bounds checks raised IndexError when positions length < prices length. Fixed by introducing n_pos = positions.shape[0] separate from n_prices = prices.shape[0]. Output array length preserved (n_prices) so downstream callers that do profits[:-1] keep working. Sensor has 3 tests: direct compute_area_profits call, end-to-end find_maximum_profit_system, and a subprocess sensor with NUMBA_DISABLE_JIT=1 that catches the regression even when the parent pytest process has JIT enabled. Pre-fix subprocess sensor RED; post-fix all 3 GREEN. All 18 mps-related tests pass."
+    },
+    "W10D-biz-njit-poly-eval-skipif": {
+      "status": "DONE",
+      "commit": "cd6669a6",
+      "src_file": "tests/feature_selection/test_biz_val_filters_hermite_fe.py",
+      "notes": "Added @pytest.mark.skipif(os.environ.get('NUMBA_DISABLE_JIT') == '1') gate on test_biz_njit_poly_eval_3x_faster_than_numpy_at_n2k. Verified: passes under JIT enabled, SKIPPED under NUMBA_DISABLE_JIT=1. Other biz_njit_* tests in the file are not perf-floor assertions and stay enabled."
+    },
+    "W10D-cross-pkg-underscore-allowlist-drain": {
+      "status": "DONE",
+      "commit": "e6b89771",
+      "test_file": "tests/test_meta/test_no_underscore_imports_cross_package.py",
+      "notes": "All 9 baseline ALLOWLIST entries promoted via public re-export in the owning package's __init__.py. Disposition per entry (all PROMOTED + consumer-switched, none kept):\n  1. mlframe.training._gpu_probe.LGB_GPU_AVAILABLE -> mlframe.training.LGB_GPU_AVAILABLE (also XGB_GPU_AVAILABLE, CUDA_IS_AVAILABLE added)\n  2,8. mlframe.metrics._calibration_plot._show_plots_unless_agg -> mlframe.metrics.show_plots_unless_agg (consumer: importance.py, _eval_helpers.py)\n  3. mlframe.feature_engineering.transformer._utils.is_gpu_available -> mlframe.feature_engineering.transformer.is_gpu_available (consumer: _cat_interactions_step.py)\n  4. mlframe.training._ram_helpers symbols -> already in mlframe.training __all__; consumer switched (_rfecv_fit.py)\n  5. mlframe.feature_selection.filters._prewarm.prewarm_fs_numba_cache -> already exposed at filters __init__; consumer switched (_core_numba_warmup.py)\n  6. mlframe.training._format.short_model_tag / strip_shim_suffix -> mlframe.training (added to lazy imports + __all__); consumer switched (_ensembling_score.py - note: the file was also being refactored by another agent in parallel; my edit landed cleanly inside their carve)\n  7. mlframe.feature_selection.filters._kernel_tuning.get_kernel_tuning_cache -> mlframe.feature_selection.filters.get_kernel_tuning_cache (consumer: _composite_transforms_nonlinear.py)\n  9. mlframe.feature_selection.wrappers._rfecv.RFECV -> already exposed at wrappers __init__; consumer switched (_feature_selection_config.py)\nALLOWLIST is now empty (set()). Meta-test test_no_new_underscore_imports_cross_package + test_underscore_imports_allowlist_is_not_stale both GREEN."
+    }
+  },
+  "blocked": [],
+  "test_results": {
+    "green_paths": [
+      "tests/test_meta/test_no_underscore_imports_cross_package.py (2 tests)",
+      "tests/feature_engineering/test_regression_w11b_mps_no_jit_index.py (3 tests)",
+      "tests/feature_engineering/test_audit_regression_multi_agent_findings.py::TestMpsCorrectness (1 test)",
+      "tests/feature_engineering/test_audit_regression_multi_agent_findings.py::TestMpsTradeCountFix (6 tests)",
+      "tests/feature_selection/test_biz_val_filters_hermite_fe.py::test_biz_njit_poly_eval_3x_faster_than_numpy_at_n2k (1 test, PASS under JIT / SKIPPED under NUMBA_DISABLE_JIT=1)",
+      "Bonus: import smoke - all 9 consumer modules + new public symbols all resolve"
+    ],
+    "red_paths": []
+  },
+  "commits_landed": [
+    "290bd967 fix(mps): bound position indexing by positions.shape[0] not prices.shape[0]",
+    "cd6669a6 test(hermite_fe): skip biz_njit_poly_eval perf floor when NUMBA_DISABLE_JIT=1",
+    "e6b89771 refactor: promote 9 cross-package underscore-imports to public re-exports"
+  ]
+}
