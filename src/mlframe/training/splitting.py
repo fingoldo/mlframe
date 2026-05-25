@@ -214,6 +214,37 @@ def make_train_test_split(
     if timestamps is None or val_size == 0:
         _effective_val_placement = "forward"
 
+    # Implied-temporal-layout INFO: when caller supplied timestamps AND default val_placement="forward" (a quiet default that assumes iid-friendly target), surface the resulting val/train/test ranges + the val->train gap + estimated train->prod gap so the time-series user can see at a glance how their split lays out. Cheap one-time log; never auto-flips the default.
+    if (
+        timestamps is not None
+        and val_placement == "forward"
+        and _effective_val_placement == "forward"
+        and val_size > 0
+    ):
+        try:
+            _ts = pd.to_datetime(timestamps, errors="coerce")
+            _ts_sorted = _ts.sort_values().reset_index(drop=True)
+            _n = len(_ts_sorted)
+            if _n >= 3:
+                _n_test = max(1, int(round(_n * test_size))) if test_size > 0 else 0
+                _n_val = max(1, int(round(_n * val_size)))
+                _train_end_pos = _n - _n_test - _n_val
+                _val_end_pos = _n - _n_test
+                _t_train_max = _ts_sorted.iloc[max(0, _train_end_pos - 1)]
+                _t_val_min = _ts_sorted.iloc[_train_end_pos] if _train_end_pos < _n else _ts_sorted.iloc[-1]
+                _t_val_max = _ts_sorted.iloc[max(0, _val_end_pos - 1)]
+                _t_test_min = _ts_sorted.iloc[_val_end_pos] if _val_end_pos < _n else _ts_sorted.iloc[-1]
+                _t_test_max = _ts_sorted.iloc[-1]
+                _gap_val_train_days = float((_t_val_min - _t_train_max).total_seconds() / 86400.0) if pd.notna(_t_val_min) and pd.notna(_t_train_max) else float("nan")
+                _gap_train_prod_days = float((_t_test_max - _t_train_max).total_seconds() / 86400.0) if pd.notna(_t_test_max) and pd.notna(_t_train_max) else float("nan")
+                logger.info(
+                    "Temporal layout (val_placement='forward', default): train_max=%s, val=[%s..%s], test=[%s..%s], val->train_gap=%.2fd, train->prod_estimated_gap=%.2fd. Mazzanti backward layout typically gives a better prod-error proxy under drift; set val_placement='backward' to switch.",
+                    _t_train_max, _t_val_min, _t_val_max, _t_test_min, _t_test_max,
+                    _gap_val_train_days, _gap_train_prod_days,
+                )
+        except Exception as _layout_err:
+            logger.debug("Temporal-layout INFO compute failed: %s", _layout_err)
+
     # Diagnostic: surface the effective placement at INFO so a user who
     # passed ``val_placement="backward"`` but sees a forward-style split
     # in the log can immediately confirm whether (a) the value reached
