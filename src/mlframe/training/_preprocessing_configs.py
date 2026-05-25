@@ -172,6 +172,12 @@ class TrainingSplitConfig(BaseConfig):
     # the split.
     use_groups: bool = True
 
+    # Cap on number of distinct composite-stratify classes (multi-head classification). sklearn StratifiedShuffleSplit allocates O(n_classes) buckets per split and requires at least 2 samples per class; >200 classes typically means most classes have <2 rows and the splitter rejects (silent UN-stratified fallback before WARN was added). Users with many-head problems and sufficient n per row-tuple can opt-in to a larger cap; the WARN-on-skip path continues to surface the abandoned stratification.
+    composite_cardinality_cap: int = Field(default=200, ge=2)
+
+    # Bucket-stratify ALL split modes (regression by decile/quartile bins, classification by class). When True (default), regression targets are binned and stratified the same way classification targets are -- prevents heavy-tail / multimodal regression from concentrating tail rows in val or test. Combine with groups via iterative-stratification when installed; with timestamps the temporal split wins and a chi-square check on bucket distribution per fold logs a WARN on imbalance.
+    bucket_stratify: bool = True
+
     @model_validator(mode="after")
     def validate_split_sizes(self) -> "TrainingSplitConfig":
         """Ensure test_size + val_size + calib_size <= 1.0 to leave room for training data."""
