@@ -260,6 +260,20 @@ def explain(self):
     else:
         basis = self.X_boruta
 
+    # SHAP background must be the TRAIN slice -- self.X_boruta = [self.X | shadow] and self.X was set in fit() from the caller-supplied X (train) via X.copy(). The shadow half is randomized from self.X column-wise so it stays train-distribution-aligned. Both invariants must hold for SHAP TreeExplainer (tree_path_dependent feature_perturbation) to produce attributions on the same distribution the surrogate model was trained on; mixing val/test rows here would let SHAP interpolate against held-out distribution and inflate borderline features' importance.
+    if hasattr(self, "X") and hasattr(self.X, "shape") and hasattr(self.X_boruta, "shape"):
+        _n_train = int(self.X.shape[0])
+        _n_basis = int(self.X_boruta.shape[0]) if not self.sample else int(basis.shape[0])
+        if not self.sample:
+            assert _n_basis == _n_train, (
+                f"BorutaShap: SHAP background row count ({_n_basis}) != train row count ({_n_train}); "
+                f"val/test rows must not leak into the explainer basis."
+            )
+        logger.info(
+            "BorutaShap: SHAP TreeExplainer fitted on train background (n_train=%d, n_basis=%d, sampled=%s)",
+            _n_train, _n_basis, bool(self.sample),
+        )
+
     # ``self.y.shape[1] > 1`` raises IndexError on 1-D regression targets
     # (shape is ``(n,)``). The intent is "multi-output regression"; guard
     # with ``ndim >= 2``. Pre-fix iter-237 / iter-280: BorutaShap on a 1-D
