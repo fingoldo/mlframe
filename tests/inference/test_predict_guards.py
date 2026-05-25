@@ -5,6 +5,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
+# Dummy-model stand-ins + 200-row pandas frames; guard logic only, no real estimator fits, wall <0.5s.
+pytestmark = [pytest.mark.fast]
+
 
 class _DummyModel:
     """Stand-in model that records the X handed to fn() so we can assert the imputed values."""

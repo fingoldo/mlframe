@@ -29,6 +29,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
+# Synthetic SimpleNamespace stand-in models + tiny pandas frames; no estimator fits, wall <0.5s.
+pytestmark = [pytest.mark.fast]
+
 
 class _AlwaysFailingModel:
     """Stand-in for a fitted estimator whose ``.predict`` always raises.

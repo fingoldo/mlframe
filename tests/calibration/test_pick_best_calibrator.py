@@ -12,6 +12,9 @@ import tempfile
 import numpy as np
 import pytest
 
+# Synthetic miscalibrated 2k-sample binary probs + 200-bootstrap policy fits; wall <2s per test.
+pytestmark = [pytest.mark.fast]
+
 
 def _make_miscalibrated(n: int, seed: int = 7) -> tuple[np.ndarray, np.ndarray]:
     rng = np.random.default_rng(seed)

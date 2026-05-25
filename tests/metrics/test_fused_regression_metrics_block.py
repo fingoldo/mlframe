@@ -27,6 +27,9 @@ from mlframe.metrics.core import (
     fast_root_mean_squared_error,
 )
 
+# Numerical-equivalence / edge-case assertions vs sklearn fast_* helpers on numpy arrays up to n=10k; <1s total.
+pytestmark = [pytest.mark.fast]
+
 
 def _ref_block(y_true, y_pred):
     """Reference dict computed via the 4 separate ``fast_*`` kernels."""

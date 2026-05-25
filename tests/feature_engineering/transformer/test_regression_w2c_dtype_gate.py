@@ -9,6 +9,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
+# Cache-key invalidation + dtype-passthrough sensors on n<=20 frames; pure helper logic, no fits, wall <0.3s total.
+pytestmark = [pytest.mark.fast]
+
 
 # ---------- #13: _coerce_features_to_float32 cache key invalidates on column mutation ----------
 

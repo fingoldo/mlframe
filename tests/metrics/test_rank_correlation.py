@@ -6,6 +6,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+# Deterministic batched-Spearman correctness on synthetic n<=2000 rows; numba-prewarmed via session fixture.
+pytestmark = [pytest.mark.fast]
+
 
 def _scipy_per_row(X: np.ndarray, Y: np.ndarray) -> np.ndarray:
     """Reference: scipy.stats.spearmanr per row (the slow loop the

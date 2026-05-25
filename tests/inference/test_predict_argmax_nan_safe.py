@@ -21,6 +21,10 @@ import logging
 from pathlib import Path
 
 import numpy as np
+import pytest
+
+# AST-grep sensors over predict.py siblings + NaN-row argmax checks on synthetic 4-row arrays; wall <0.2s.
+pytestmark = [pytest.mark.fast]
 
 
 _PREDICT_SIBLINGS = (

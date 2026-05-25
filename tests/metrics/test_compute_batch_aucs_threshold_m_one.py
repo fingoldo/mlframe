@@ -19,6 +19,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+# Deterministic numerical dispatch + small-N CPU correctness checks; wall <1s.
+pytestmark = [pytest.mark.fast]
+
 
 def test_auto_dispatch_picks_cpu_at_m_one_n_large():
     """``_resolve_backend(None, N=1M, M=1)`` should return False (CPU)."""
