@@ -138,7 +138,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         # disambiguate; either empty hash => skip cache (don't risk a wrong replay). Symmetric X/y guarantee closes A1#8: the prior 1024-strided X sample alone left a window where a
         # column-wise outlier clip preserving the sampled positions silently replayed the unclipped fit.
         _y_name = _target_name_signature(y)
-        _y_full_hash = _full_y_content_hash(y)
+        # Reuse _y_hash_for_sig computed above; recomputing on 1M-row y costs ~0.5ms per fit and was paid twice pre-fix (A1#15).
+        _y_full_hash = _y_hash_for_sig
         _x_full_hash = _full_x_content_hash(X)
         if not _y_full_hash or not _x_full_hash:
             _cache_key = None
