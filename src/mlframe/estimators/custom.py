@@ -203,7 +203,7 @@ class PdOrdinalEncoder(OrdinalEncoder):
 
     def transform(self, X):
         if isinstance(X,pd.DataFrame):
-            col_names = X.columns.values.tolist()
+            col_names = X.columns.tolist()
         else:
             col_names=None
 
@@ -230,7 +230,7 @@ class PdKBinsDiscretizer(KBinsDiscretizer):
 
     def transform(self, X):
         if isinstance(X,pd.DataFrame):
-            col_names = X.columns.values.tolist()
+            col_names = X.columns.tolist()
         else:
             col_names=None
 
@@ -590,7 +590,7 @@ class IdentityEstimator(BaseEstimator):
     def predict(self, X):
         if isinstance(X, (pd.DataFrame, pd.Series)):
             if self.feature_names:
-                return X.loc[:, self.feature_names].values
+                return X.loc[:, self.feature_names].to_numpy()
             else:
                 # Wave 31 (2026-05-20): assert -> ValueError so -O doesn't
                 # strip the guard. Constructor default is None for both
@@ -603,7 +603,7 @@ class IdentityEstimator(BaseEstimator):
                         "feature_indices set on the instance; pass one at "
                         "construction time."
                     )
-                return X.iloc[:, self.feature_indices].values
+                return X.iloc[:, self.feature_indices].to_numpy()
         else:
             if self.feature_indices is None:
                 raise ValueError(
