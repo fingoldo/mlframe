@@ -7,11 +7,13 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from types import SimpleNamespace  # bundled config return at the bottom of get_training_configs
 from typing import Any, Optional, Sequence, Union
 
 import numpy as np
 import pandas as pd
 import polars as pl
+import psutil  # used for n_jobs=cpu_count(logical=False) in XGB_GENERAL_PARAMS
 import lightgbm as lgb
 import xgboost as xgb
 from xgboost.callback import TrainingCallback  # noqa: F401
