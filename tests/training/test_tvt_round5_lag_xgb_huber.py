@@ -561,10 +561,14 @@ class TestLagPredictFailsafeKnob:
     different residual structure from the test split on AR(1) targets;
     the failsafe defends the test floor."""
 
-    def test_config_knob_default_is_50pct_round_52(self) -> None:
-        """Round 5.2: tolerance bumped 0.10 -> 0.50 because the
-        train-tail-vs-test gap on group-aware AR(1) splits is 30-40%,
-        and a 10% tolerance never fires in practice."""
+    def test_config_knob_default_is_10pct(self) -> None:
+        """Default tolerance is 0.10 (10%): the earlier 0.50 default was
+        calibrated for group-blind train-tail carves where the trained
+        OOF was artificially inflated by ~25% due to within-group
+        leakage in the inner early-stopping eval. Once
+        ``_carve_inner_eval_split`` was made group-aware (2026-05-25)
+        the trained OOF was no longer biased high vs lag, so the
+        tolerance was dropped to 10%."""
         from mlframe.training._composite_target_discovery_config import (
             CompositeTargetDiscoveryConfig,
         )
@@ -572,8 +576,8 @@ class TestLagPredictFailsafeKnob:
         assert fields is not None
         assert "lag_predict_failsafe_tolerance" in fields
         cfg = CompositeTargetDiscoveryConfig()
-        assert cfg.lag_predict_failsafe_tolerance == 0.50, (
-            f"Round 5.2 bumped this from 0.10 to 0.50; got "
+        assert cfg.lag_predict_failsafe_tolerance == 0.10, (
+            f"lag_predict_failsafe_tolerance default is 0.10 since 2026-05-25 group-aware inner eval; got "
             f"{cfg.lag_predict_failsafe_tolerance}"
         )
 
