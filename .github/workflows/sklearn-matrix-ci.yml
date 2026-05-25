@@ -127,3 +127,22 @@ jobs:
             -p no:randomly \
             --timeout=120 \
             -v
+
+      - name: Sklearn-compliance harness
+        # Runs sklearn.utils.estimator_checks against every wrapper class
+        # (CompositeTargetEstimator, _LagPredictDeployableModel,
+        # ESTransformedTargetRegressor, EstimatorWithEarlyStopping, RFECV
+        # wrapper, PdOrdinalEncoder, PdKBinsDiscretizer). xfail_strict from
+        # pyproject means version-specific incompatibilities documented in
+        # the test file trip if they silently start passing on a newer
+        # sklearn -- catches both regressions and accidental "fixes".
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: |
+          pytest \
+            tests/test_sklearn_compliance.py \
+            tests/test_sklearn_compliance_composite.py \
+            --no-cov \
+            -p no:randomly \
+            --timeout=120 \
+            -v

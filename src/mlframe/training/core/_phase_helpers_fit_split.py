@@ -489,6 +489,9 @@ def _phase_auto_detect_feature_types(
             # unseen (built from train+val ONLY). Symmetric with dict-alignment
             # in _phase_polars_fixes.py.
             _enum_domains: dict[str, list[str]] = {}
+            # Track per-column val-only category counts so operators see the implicit Enum-domain widening (memory: feedback_observability_loud).
+            # Without this log the train+val union is silent. Behaviour stays unchanged; only observability improves.
+            _val_only_diag: dict[str, tuple[int, list]] = {}
             for _c in _str_cols:
                 try:
                     _u_train = train_df.select(pl.col(_c).drop_nulls().unique())[_c].to_list()
@@ -499,8 +502,20 @@ def _phase_auto_detect_feature_types(
                         except Exception:
                             _u_val = []
                     _enum_domains[_c] = sorted(set(_u_train) | set(_u_val), key=str)
+                    _train_set = set(_u_train)
+                    _val_only = [v for v in _u_val if v not in _train_set]
+                    if _val_only:
+                        _val_only_diag[_c] = (len(_val_only), _val_only[:5])
                 except Exception:
                     pass
+            if _val_only_diag:
+                # INFO-level. Per Wave 72 contract this widening is intentional (val=ES detector must not silently null-cast); the log only surfaces what was previously invisible.
+                _summary = ", ".join(f"{c}:{n}" for c, (n, _) in _val_only_diag.items())
+                _samples = ", ".join(f"{c}={vs}" for c, (_, vs) in list(_val_only_diag.items())[:3])
+                logger.info(
+                    "[enum-domain] Enum domain widened to include val-only categories on %d col(s): %s. Sample val-only values: %s",
+                    len(_val_only_diag), _summary, _samples,
+                )
 
             def _enum_cast(df, strict: bool, split_name: str | None = None):
                 if df is None:
