@@ -92,10 +92,13 @@ jobs:
         # imports of optional deps (calibration/viz/signal stacks). Installing
         # the union here avoids a treadmill of CI failures from one ImportError
         # at a time. Excludes [neural] (torch), [mlflow], [automl] which the
-        # composite path doesn't touch.
+        # composite path doesn't touch. ``db`` is included for the
+        # ``zstandard`` dep that ``mlframe.training.io`` (safe_pickle compression)
+        # imports unconditionally; the sklearn-compliance harness fails at
+        # collection without it.
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[boosting,calibration,viz,signal,stats,sampling,unsupervised,polars_ext,dev]"
+          pip install -e ".[boosting,calibration,viz,signal,stats,sampling,unsupervised,polars_ext,db,dev]"
 
       - name: Pin scikit-learn to ${{ matrix.sklearn-version }}
         run: pip install --force-reinstall "scikit-learn==${{ matrix.sklearn-version }}"
