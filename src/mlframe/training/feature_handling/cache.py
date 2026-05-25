@@ -358,6 +358,17 @@ class FeatureCache:
             raise
         except Exception as e:  # pragma: no cover
             logger.warning("disk cache write to %s failed: %s; in-memory still populated", path, e)
+            return
+        # Write the sha256 sidecar so safe_load consumers can verify subsequent reads. Only matters
+        # for the pickle-fallback path (allow_pickle=True); the npz path is numeric-only and not
+        # an RCE vector, but the sidecar is cheap so we write it unconditionally to keep parity
+        # with composite_cache.
+        if allow_pickle:
+            from mlframe.utils.safe_pickle import write_sidecar as _swrite
+            try:
+                _swrite(path)
+            except OSError as _sc_err:
+                logger.debug("FeatureCache sidecar write failed (value written OK): %s", _sc_err)
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -488,9 +499,15 @@ def _deserialize(path: str, *, allow_pickle: bool = False) -> Any:
                 f"FeatureCache: failed to read {path!r} via numpy and "
                 "CacheConfig.allow_pickle is False; refusing pickle fallback."
             )
-        with open(path, "rb") as f:
-            import pickle
-            return pickle.load(f)
+        # Pickle fallback: route through safe_pickle.safe_load so a sidecar-digest mismatch
+        # surfaces as PickleVerificationError instead of executing tampered bytes. legacy
+        # entries written before the sidecar landed have no .sha256, so allow_unverified=True
+        # keeps them readable; strict mode is opt-in via MLFRAME_FEATURE_CACHE_STRICT=1.
+        from mlframe.utils.safe_pickle import safe_load as _sload
+        _strict = os.environ.get("MLFRAME_FEATURE_CACHE_STRICT", "").strip().lower() in (
+            "1", "true", "yes", "on",
+        )
+        return _sload(path, allow_unverified=not _strict)
     # ``np.load`` with ``allow_pickle=True`` on a pure-pickle file (no
     # npy / npz magic header) returns the unpickled object directly.
     # NpzFile exposes ``.files``; anything else is already the value.

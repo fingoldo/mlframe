@@ -31,46 +31,19 @@ import tempfile
 
 import joblib
 
+from mlframe.utils.safe_pickle import (
+    _sha256_of_file as _safe_pickle_sha256_of_file,
+    verify_sidecar as _safe_pickle_verify_sidecar,
+)
+
 
 def _sha256_of_file(path: str, chunk: int = 1 << 20) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for block in iter(lambda: f.read(chunk), b""):
-            h.update(block)
-    return h.hexdigest()
+    return _safe_pickle_sha256_of_file(path, chunk=chunk)
 
 
 def _verify_sidecar(path: str) -> bool:
-    """Verify the pickle bundle against its `.sha256` sidecar.
-
-    Default contract is fail-closed: a missing sidecar returns False so loaders
-    refuse the bundle. Set ``MLFRAME_ALLOW_UNVERIFIED_PICKLE=1`` to opt back into
-    the legacy permissive behaviour (loud WARN). Mirrors inference.predict._verify_sidecar
-    so the two pickle entry points share the same security posture.
-    """
-    sidecar = path + ".sha256"
-    try:
-        with open(sidecar, encoding="utf-8") as f:
-            expected = f.read().strip().split()[0].lower()
-    except FileNotFoundError:
-        import logging as _lg
-        import os as _os
-        if _os.environ.get("MLFRAME_ALLOW_UNVERIFIED_PICKLE", "").strip() in ("1", "true", "True", "yes"):
-            _lg.getLogger(__name__).warning(
-                "_verify_sidecar: no .sha256 sidecar for %s; MLFRAME_ALLOW_UNVERIFIED_PICKLE is set so "
-                "load proceeds WITHOUT content verification (RCE risk if path is attacker-reachable). "
-                "Generate the sidecar with `sha256sum <path> > <path>.sha256` to remove the opt-in.",
-                path,
-            )
-            return True
-        _lg.getLogger(__name__).error(
-            "_verify_sidecar: no .sha256 sidecar for %s -- refusing to load. "
-            "Generate the sidecar with `sha256sum <path> > <path>.sha256` or set "
-            "MLFRAME_ALLOW_UNVERIFIED_PICKLE=1 to allow unverified loads.",
-            path,
-        )
-        return False
-    return _sha256_of_file(path).lower() == expected
+    """Back-compat shim delegating to :func:`mlframe.utils.safe_pickle.verify_sidecar`."""
+    return _safe_pickle_verify_sidecar(path)
 
 import matplotlib as mpl
 import matplotlib.cm as cm

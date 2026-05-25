@@ -16,6 +16,13 @@ import time
 import warnings
 from typing import Any, Dict, List, NewType, Optional, Sequence, Tuple
 
+from mlframe.utils.safe_pickle import (
+    PickleVerificationError,
+    safe_load as _safe_pickle_load,
+    verify_sidecar as _safe_pickle_verify_sidecar,
+    write_sidecar as _safe_pickle_write_sidecar,
+)
+
 # Typed alias for discovery-cache config signatures (see ``compute_config_signature_v1`` below).
 # Keeping it a ``NewType`` over ``str`` means callers that build their own legacy string
 # signatures keep working (assignment-compatible at runtime), but new code that types its
@@ -660,10 +667,25 @@ class DiscoveryCache:
         entry.
         """
         path = self._path(key)
+        # Route the load through safe_pickle so a corrupt-sidecar finding (digest mismatch from
+        # tampering or partial write) raises PickleVerificationError instead of silently returning
+        # stale data. allow_unverified=True keeps the migration story: legacy entries written before
+        # the sidecar landed remain readable (cache miss is the safe fallback if they're broken).
+        # Operators who want strict-only behaviour set MLFRAME_DISCOVERY_CACHE_STRICT=1.
+        _strict = os.environ.get("MLFRAME_DISCOVERY_CACHE_STRICT", "").strip().lower() in (
+            "1", "true", "yes", "on",
+        )
         try:
-            with open(path, "rb") as f:
-                value = pickle.load(f)
-        except (FileNotFoundError, OSError, EOFError, pickle.UnpicklingError, AttributeError):
+            if _strict:
+                value = _safe_pickle_load(path)
+            else:
+                # allow_unverified=True: missing sidecar is OK (WARN-logged once by verify_sidecar);
+                # digest mismatch still raises so a tampered file does not slip into the cache hit
+                # path. The broad except below converts the mismatch to a cache miss so callers see
+                # consistent semantics.
+                value = _safe_pickle_load(path, allow_unverified=True)
+        except (FileNotFoundError, OSError, EOFError, pickle.UnpicklingError, AttributeError,
+                PickleVerificationError):
             return default
         except Exception:
             return default
@@ -770,6 +792,10 @@ class DiscoveryCache:
                 lru.pop(stem, None)
             except OSError:
                 pass
+            try:
+                os.remove(path + ".sha256")
+            except OSError:
+                pass
             i += 1
         if removed:
             self._save_lru(lru)
@@ -802,6 +828,14 @@ class DiscoveryCache:
                 f.flush()
                 os.fsync(f.fileno())
             os.replace(tmp_path, path)
+            # Write the sha256 sidecar AFTER the rename so the digest matches the on-disk bytes.
+            # Sidecar write failures are logged at DEBUG (the value file is already durable); a
+            # subsequent strict load will refuse the entry until the sidecar is regenerated, which
+            # is the correct fail-closed behaviour.
+            try:
+                _safe_pickle_write_sidecar(path)
+            except OSError as _sc_err:
+                logger.debug("DiscoveryCache.set sidecar write failed (value written OK): %s", _sc_err)
             # Audit D L-10 (2026-05-18): POSIX requires ``fsync(dirfd)`` to make the new entry's
             # directory metadata durable across a power loss; without it the rename is visible
             # to readers but may revert after a crash on journaled-data-mode-off filesystems.
@@ -854,6 +888,11 @@ class DiscoveryCache:
             os.remove(path)
         except FileNotFoundError:
             return False
+        # Also drop the sha256 sidecar so a future write of the same key starts fresh.
+        try:
+            os.remove(path + ".sha256")
+        except OSError:
+            pass
         # Mirror the deletion in the LRU sidecar so a stale ledger
         # doesn't keep ghost keys pinning the count.
         try:
@@ -870,6 +909,10 @@ class DiscoveryCache:
         for f in files:
             try:
                 os.remove(f)
+            except OSError:
+                pass
+            try:
+                os.remove(f + ".sha256")
             except OSError:
                 pass
         try:
