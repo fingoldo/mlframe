@@ -10,13 +10,8 @@ from __future__ import annotations
 
 import importlib.util
 import logging
-import os
 import re
-import sys
-from abc import ABC, abstractmethod
-from collections import OrderedDict
-from typing import Optional, List, Any, Dict, FrozenSet, Tuple, TYPE_CHECKING
-from sklearn.pipeline import Pipeline
+from typing import Any, Dict, Optional, Tuple, TYPE_CHECKING
 
 logger = logging.getLogger(__name__)
 
@@ -33,21 +28,23 @@ if TYPE_CHECKING:
 # Used across pipeline.py, trainer.py, utils.py, core.py to detect categoricals.
 # Import these instead of hardcoding type lists.
 #
-# 2026-05-21: PANDAS_CATEGORICAL_DTYPES is the SINGLE source of truth in
+# PANDAS_CATEGORICAL_DTYPES is the SINGLE source of truth in
 # _strategies_base.py. This module re-exports it (and includes it in __all__
 # at the bottom of the file) so all the historical
 # ``from .strategies import PANDAS_CATEGORICAL_DTYPES`` import sites keep
-# working without duplicating the set (which previously caused a wave-107-
-# related drift when only one copy was updated to include "str").
+# working without duplicating the set.
 from ._strategies_base import (  # noqa: F401
     PANDAS_CATEGORICAL_DTYPES,
     PANDAS_CATEGORICAL_SELECT_DTYPES,
+    ModelPipelineStrategy,
 )
+
 
 def _polars_categorical_dtypes():
     """Lazy import to avoid importing polars at module level."""
     import polars as pl
     return (pl.Categorical, pl.Utf8, pl.String)
+
 
 def is_polars_categorical(dtype) -> bool:
     """Check whether a Polars dtype is categorical/string.
@@ -69,466 +66,20 @@ def is_polars_categorical(dtype) -> bool:
         return True
     return False
 
+
 def get_polars_cat_columns(df: "pl.DataFrame") -> list:
     """Detect categorical/string columns from a Polars DataFrame schema."""
     return [name for name, dtype in df.schema.items() if is_polars_categorical(dtype)]
 
 
-# Wave 104 (2026-05-21): ModelPipelineStrategy ABC moved to _strategies_base.py.
-from ._strategies_base import ModelPipelineStrategy  # noqa: F401, E402
-
-class TreeModelStrategy(ModelPipelineStrategy):
-    """
-    Strategy for tree-based models (CatBoost, LightGBM, XGBoost).
-
-    These models:
-    - Handle NaN values natively
-    - Don't require feature scaling
-    - CatBoost handles categorical features natively
-    - LightGBM/XGBoost can handle categoricals with proper setup
-    """
-
-    cache_key = "tree"
-    requires_scaling = False
-    requires_encoding = False
-    requires_imputation = False
-    # All tree models (CB/LGB/XGB) support multiclass natively via library
-    # objective kwargs. Multilabel native is CB-only -- overridden in
-    # CatBoostStrategy. LGB has no native multilabel (issue #524 since 2017),
-    # XGB 3.x experimental but unstable.
-    supports_native_multiclass = True
-    # LGB has native LGBMRanker; CB/XGB override below with their own
-    # objective dispatch. Setting True at TreeModelStrategy level means
-    # the default (LGB) path is correctly enabled.
-    supports_native_ranking = True
-
-    def get_ranker_objective_kwargs(self, ranking_config=None, y_max=None):
-        """LGBMRanker objective. ``lambdarank`` (default) handles both
-        binary and graded relevance. ``rank_xendcg`` is an alternative.
-        """
-        objective = "lambdarank"
-        if ranking_config is not None:
-            objective = getattr(ranking_config, "lgb_objective", None) or objective
-        return {
-            "objective": objective,
-            # eval_metric defaults to ndcg for ranker; expose explicitly.
-            "metric": "ndcg",
-        }
-
-    def build_pipeline(
-        self,
-        base_pipeline: Optional[Pipeline],
-        cat_features: List[str],
-        category_encoder: Optional[Any] = None,
-        imputer: Optional[Any] = None,
-        scaler: Optional[Any] = None,
-    ) -> Optional[Pipeline]:
-        """Tree models just use the base pipeline (feature selection) if any."""
-        return base_pipeline
-
-
-class CatBoostStrategy(TreeModelStrategy):
-    """
-    Strategy for CatBoost models.
-
-    Inherits tree model behavior and additionally supports native Polars DataFrames,
-    allowing training without pandas conversion (CatBoost >= 1.2.7).
-    Also supports text_features and embedding_features natively.
-    """
-
-    supports_polars = True
-    supports_text_features = True
-    supports_embedding_features = True
-    # 2026-04-24: native multi-output support via loss_function='MultiClass'
-    # for K>2 single-label and 'MultiLogloss' for K independent binary
-    # outputs. The dispatch wires these via
-    # ModelPipelineStrategy.get_classif_objective_kwargs +
-    # _maybe_wrap_multilabel (which short-circuits the wrapper for
-    # supports_native_multilabel=True strategies).
-    supports_native_multiclass = True
-    supports_native_multilabel = True
-    supports_native_ranking = True
-    # 2026-05-08 QR: CatBoost MultiQuantile loss handles K alphas in one
-    # fit; predict returns (N, K) directly.
-    supports_native_quantile = True
-    # Inherits cache_key = "tree" from TreeModelStrategy so CB/LGB/XGB share
-    # transformed-DF cache (they have identical preprocessing requirements).
-
-    def get_quantile_objective_kwargs(self, qr_config) -> dict:
-        """CatBoost ``MultiQuantile`` loss_function with comma-joined alphas.
-
-        Format: ``"MultiQuantile:alpha=0.1,0.5,0.9"`` (no brackets, no
-        spaces). predict() then returns shape (N, K).
-        """
-        alphas_str = ",".join(str(a) for a in qr_config.alphas)
-        return {"loss_function": f"MultiQuantile:alpha={alphas_str}"}
-
-    def get_ranker_objective_kwargs(self, ranking_config=None, y_max=None):
-        """CatBoostRanker loss_function + sensible eval_metric.
-
-        Defaults to ``YetiRankPairwise`` (listwise pairwise вЂ” robust on
-        both graded and binary labels). Override via
-        ``LearningToRankConfig.cb_loss_fn``.
-
-        ``y_max`` is unused by CB (its ranker losses accept both binary
-        and graded labels uniformly).
-        """
-        loss_fn = "YetiRankPairwise"
-        if ranking_config is not None:
-            loss_fn = getattr(ranking_config, "cb_loss_fn", None) or loss_fn
-        return {
-            "loss_function": loss_fn,
-            # CB ranker exposes NDCG / MAP / MRR via PFound-family eval
-            # metrics; use NDCG as the default for early-stopping. Users
-            # can override via hyperparams.
-            "eval_metric": "NDCG",
-        }
-
-
-# Wave 104 (2026-05-21): XGBoostStrategy moved to _strategies_xgboost.py.
-from ._strategies_xgboost import XGBoostStrategy  # noqa: F401, E402
-
-class HGBStrategy(ModelPipelineStrategy):
-    """
-    Strategy for HistGradientBoosting models.
-
-    These models:
-    - Handle NaN values natively
-    - Don't require feature scaling
-    - Support Polars DataFrames natively (numeric + pl.Categorical)
-    - Require category encoding only on the pandas fallback path
-    - Hard limit: categorical cardinality must be <= 255 (max_bins constraint)
-    """
-
-    cache_key = "hgb"
-    requires_scaling = False
-    requires_encoding = True  # pandas fallback path still needs encoding
-    requires_imputation = False
-    supports_polars = True
-    # sklearn HistGradientBoostingClassifier auto-detects multiclass from y dtype
-    # (no library kwarg needed). No native multilabel; uses MultiOutputClassifier.
-    supports_native_multiclass = True
-
-    # HGB max_bins is capped at 255 in sklearn
-    _MAX_CATEGORICAL_CARDINALITY = 255
-
-    def prepare_polars_dataframe(
-        self,
-        df: "pl.DataFrame",
-        cat_features: List[str],
-        category_map: Optional[Dict[str, "pl.Enum"]] = None,
-    ) -> "pl.DataFrame":
-        """Cast categorical columns for HGB compatibility, using leak-free
-        ``pl.Enum`` (not ``pl.Categorical``) for the same reason XGB does:
-        polars 1.x's default global string cache makes every
-        ``pl.Categorical`` Series in the process share one growing
-        dictionary, so the column's physical codes drift across runs.
-        sklearn HGB reads the underlying integer codes directly when
-        the dtype reports as categorical, so cross-run code drift is a
-        latent pickle-reload hazard.
-
-        - Cardinality <= 255: cast to ``pl.Enum`` (HGB auto-detects via from_dtype)
-        - Cardinality > 255: ordinal-encode to ``pl.UInt32`` (treated as continuous)
-
-        ``category_map`` (preferred): a {col -> pl.Enum} dict the caller
-        builds from the union of train+val unique values via
-        ``build_polars_enum_map``. When supplied, train/val/test cast to
-        the SAME Enum so codes are consistent across splits.
-        """
-        import polars as pl
-
-        from .utils import filter_existing
-
-        schema_cats = set(get_polars_cat_columns(df))
-        all_cats = schema_cats | set(cat_features or [])
-        existing = filter_existing(df, all_cats)
-        if not existing:
-            return df
-
-        casts = []
-        # Wave 72 (2026-05-21): track which cols use strict=False (test-side
-        # OOV-tolerant cast) so we can quantify cast-failure rate post-with_columns.
-        _strict_false_cols: list[str] = []
-        for col in existing:
-            n_unique = df[col].n_unique()
-            high_card = n_unique > self._MAX_CATEGORICAL_CARDINALITY
-            if category_map is not None and col in category_map:
-                enum_dt = category_map[col]
-                # category_map is built from train+val UNION (test EXCLUDED, leak-free).
-                # Test rows therefore can carry values absent from the Enum's domain.
-                # Use strict=False so OOV values fall through to null rather than
-                # crash the lazy collect, matching the dict-alignment routine at
-                # core.py:2992 which also passes strict=False on the test split.
-                _strict_false_cols.append(col)
-                if high_card:
-                    casts.append(
-                        pl.col(col).cast(pl.String).cast(enum_dt, strict=False).to_physical().cast(pl.UInt32).alias(col)
-                    )
-                else:
-                    casts.append(pl.col(col).cast(pl.String).cast(enum_dt, strict=False).alias(col))
-                continue
-            # No supplied map: build a per-DF Enum from this frame's own values.
-            try:
-                vals = df[col].drop_nulls().unique().cast(pl.String).to_list()
-            except Exception:
-                vals = []
-            local_enum = pl.Enum(sorted(set(vals))) if vals else None
-            if local_enum is None:
-                continue
-            if high_card:
-                casts.append(
-                    pl.col(col).cast(pl.String).cast(local_enum).to_physical().cast(pl.UInt32).alias(col)
-                )
-            else:
-                casts.append(pl.col(col).cast(pl.String).cast(local_enum).alias(col))
-
-        if casts:
-            # Wave 72 (2026-05-21): pre-cast null counts for strict=False columns;
-            # post-cast delta surfaces silent OOV-nulling.
-            _null_pre = {c: int(df[c].null_count()) for c in _strict_false_cols if c in df.columns}
-            df = df.with_columns(casts)
-            if _null_pre:
-                _null_deltas = {
-                    c: int(df[c].null_count()) - _null_pre[c]
-                    for c in _null_pre
-                }
-                _nonzero = {c: d for c, d in _null_deltas.items() if d > 0}
-                if _nonzero:
-                    import logging as _lg
-                    _lg.getLogger(__name__).info(
-                        "[hgb cat-cast] %d col(s) had OOV nulls cast-failed: %s",
-                        len(_nonzero), _nonzero,
-                    )
-        return df
-
-    def build_polars_enum_map(
-        self,
-        train_df: "pl.DataFrame",
-        val_df: "Optional[pl.DataFrame]",
-        cat_features: List[str],
-    ) -> "Dict[str, pl.Enum]":
-        """Mirror of ``XGBoostStrategy.build_polars_enum_map``: leak-free
-        per-column Enum from train+val UNION (test EXCLUDED). HGB's
-        cardinality split into Enum vs UInt32 happens at
-        ``prepare_polars_dataframe`` time using the same map - the map
-        always carries the FULL value set, the cardinality decision is
-        applied per frame.
-        """
-        import polars as pl
-
-        cat_features = cat_features or []
-        candidate_cols = [
-            name for name, dtype in train_df.schema.items()
-            if dtype in (pl.Utf8, pl.String)
-            or dtype == pl.Categorical
-            or isinstance(dtype, pl.Enum)
-            or name in cat_features
-        ]
-        candidate_cols = [c for c in candidate_cols if c in train_df.columns]
-
-        # 2026-05-08 perf: batch per-column unique extraction into one
-        # collect() per frame (train + val). The previous loop did
-        # ``df[col].unique()`` per cat col -- on c0031 (15 cat cols x
-        # 2 frames = 30 collects per build) that cost ~300ms across
-        # the suite via PyLazyFrame.collect. Batched via implode() it's
-        # 2 collects total per call. Same pattern as session 1 win #2
-        # (get_trainset_features_stats_polars). Falls back to per-col
-        # loop on any error so one bad cast doesn't poison the frame.
-        out: Dict[str, pl.Enum] = {}
-
-        def _batched_unique(df: "pl.DataFrame") -> "Dict[str, list]":
-            cols_present = [c for c in candidate_cols if c in df.columns]
-            if not cols_present:
-                return {}
-            try:
-                lf = df.lazy().select([
-                    pl.col(c).cast(pl.String).drop_nulls().unique().implode().alias(c)
-                    for c in cols_present
-                ])
-                row = lf.collect()
-                return {c: row[c][0].to_list() for c in cols_present}
-            except Exception:
-                d: Dict[str, list] = {}
-                for c in cols_present:
-                    try:
-                        d[c] = df[c].drop_nulls().unique().cast(pl.String).to_list()
-                    except Exception:
-                        d[c] = []
-                return d
-
-        train_levels = _batched_unique(train_df)
-        val_levels = _batched_unique(val_df) if val_df is not None else {}
-        for col in candidate_cols:
-            levels: set = set()
-            levels.update(train_levels.get(col, []))
-            levels.update(val_levels.get(col, []))
-            out[col] = pl.Enum(sorted(levels))
-        return out
-
-
-class NeuralNetStrategy(ModelPipelineStrategy):
-    """
-    Strategy for neural network models (MLP, NGBoost).
-
-    These models:
-    - Cannot handle NaN values - need imputation
-    - Benefit significantly from feature scaling
-    - Require category encoding
-
-    Multi-output dispatch (2026-05-07):
-    - **multiclass**: native via ``F.cross_entropy`` (default loss_fn) +
-      softmax in ``MLPTorchModel.predict_step`` for K>1 outputs. Already
-      works at the model level; the flag below makes the dispatch
-      consistent across strategies.
-    - **multilabel**: native via per-label ``F.binary_cross_entropy_with_logits``
-      + sigmoid output (separate path; see ``get_classif_objective_kwargs``).
-    - **learning_to_rank**: native via RankNet/ListNet pairwise loss in
-      ``mlframe.training.neural.ranker.MLPRanker``.
-    """
-
-    cache_key = "neural"
-    requires_scaling = True
-    requires_encoding = True
-    requires_imputation = True
-    supports_native_multiclass = True
-    supports_native_multilabel = True
-    supports_native_ranking = True
-
-    def get_classif_objective_kwargs(self, target_type, n_classes: int,
-                                      multilabel_config=None) -> dict:
-        """Per-target loss_fn dispatch for the MLP estimator.
-
-        Returned dict is consumed by ``_configure_mlp_params`` (trainer.py)
-        which threads it into ``mlp_kwargs.model_params.loss_fn`` +
-        ``mlp_kwargs.datamodule_params.labels_dtype``. Returns the empty
-        dict for binary (default ``F.cross_entropy`` already correct).
-        """
-        from .configs import TargetTypes
-
-        # Lazy import torch so a non-MLP run doesn't pay for PL/torch import.
-        import torch
-        import torch.nn.functional as F
-
-        if target_type is None or target_type == TargetTypes.BINARY_CLASSIFICATION:
-            return {}  # default cross_entropy is correct for binary
-        if target_type == TargetTypes.MULTICLASS_CLASSIFICATION:
-            # Default ``F.cross_entropy`` + ``int64`` labels already
-            # handle K>2 -- explicit return for symmetry with other strategies.
-            return {"loss_fn": F.cross_entropy, "labels_dtype": torch.int64}
-        if target_type == TargetTypes.MULTILABEL_CLASSIFICATION:
-            # Per-label sigmoid: BCE with logits is numerically stable
-            # and accepts (N, K) float32 labels.
-            return {
-                "loss_fn": F.binary_cross_entropy_with_logits,
-                "labels_dtype": torch.float32,
-                # Predict-time sigmoid signal so MLPTorchModel.predict_step
-                # uses sigmoid (not softmax) for K>1 outputs.
-                "task_type": "multilabel",
-            }
-        return {}
-
-    def get_ranker_objective_kwargs(self, ranking_config=None, y_max=None):
-        """MLPRanker loss_fn dispatch. Default ``ranknet`` (pairwise BCE
-        on score differences); alternative ``listnet`` (listwise softmax
-        cross-entropy). Both accept binary or graded relevance.
-
-        ``y_max`` unused -- both losses handle the full label range.
-        ``ranking_config.lgb_objective`` doesn't apply to MLP; MLPRanker
-        consumes loss_fn directly via the ``loss_fn`` key.
-        """
-        loss_fn = "ranknet"
-        if ranking_config is not None:
-            # Optional override via a dedicated MLP key. Keeps the per-
-            # library config clean (cb_loss_fn / xgb_objective / lgb_objective
-            # for those three; mlp_loss_fn for MLP).
-            loss_fn = getattr(ranking_config, "mlp_loss_fn", None) or loss_fn
-        return {"loss_fn": loss_fn}
-
-
-class LinearModelStrategy(ModelPipelineStrategy):
-    """
-    Strategy for linear models (Linear, Ridge, Lasso, ElasticNet, etc.).
-
-    These models:
-    - Cannot handle NaN values - need imputation
-    - Require feature scaling for proper regularization
-    - Require category encoding
-
-    Multi-output dispatch:
-
-    - **multiclass**: ``LogisticRegression`` auto-detects K since
-      sklearn 1.5; ``multi_class`` kwarg removed in 1.8 (defaults to
-      multinomial when liblinear isn't the solver). ``RidgeClassifier``
-      / ``SGDClassifier`` use OvR by default. Strategy-level flag = True.
-    - **multilabel**: known sklearn quirk that ``RidgeClassifier`` /
-      ``RidgeClassifierCV`` accept 2-D y natively (treats as multi-output
-      ridge regression + threshold; ``predict`` returns ``(N, K)``).
-      However, the metric-reporter pipeline assumes per-class probability
-      output (N, K) AND breaks on RidgeClassifier's lack of
-      ``predict_proba``. Until the eval path is generalised, all linear
-      multilabel goes through ``MultiOutputClassifier`` wrap (correct
-      but suboptimal -- one extra fit per label). Tracked as known
-      limitation; wrapper path is correct.
-    """
-
-    cache_key = "linear"
-    requires_scaling = True
-    requires_encoding = True
-    requires_imputation = True
-    # sklearn LogisticRegression supports multiclass natively (auto since
-    # 1.5; ``multi_class`` kwarg removed in 1.8).
-    supports_native_multiclass = True
-
-
-class RecurrentModelStrategy(ModelPipelineStrategy):
-    """
-    Strategy for recurrent models (LSTM, GRU, RNN, Transformer).
-
-    These models:
-    - Process sequences internally (handled by RecurrentDataModule)
-    - In HYBRID mode, tabular features require preprocessing
-    - Need imputation and scaling for tabular features
-    - Require category encoding for tabular features
-
-    Multi-output dispatch (2026-05-07):
-    - **multiclass**: native via ``num_classes>1`` + CrossEntropyLoss
-      + softmax in ``predict_step``. Already wired at the model level
-      (RecurrentLightningModule); the flag below makes the dispatch
-      consistent across strategies.
-    - **multilabel**: native via ``task_type='multilabel'`` ->
-      BCEWithLogitsLoss + sigmoid output. Output layer stays at K units,
-      activation switches at predict time.
-    - **learning_to_rank**: NOT native -- group-aware sequence batching
-      (one query's docs per batch, where each doc has its own sequence)
-      is non-trivial for recurrent architectures. Deferred; suite
-      filters out 'recurrent' models when target_type=LEARNING_TO_RANK.
-    """
-
-    cache_key = "recurrent"
-    requires_scaling = True
-    requires_encoding = True
-    requires_imputation = True
-    supports_native_multiclass = True
-    supports_native_multilabel = True
-    # supports_native_ranking stays False -- group-batching for sequences
-    # would require a custom sampler that yields one query's sequences
-    # per batch; non-trivial integration with RecurrentDataModule.
-
-    def get_classif_objective_kwargs(self, target_type, n_classes: int,
-                                      multilabel_config=None) -> dict:
-        """Per-target task_type for ``RecurrentLightningModule``.
-
-        Returns a dict with the ``task_type`` kwarg consumed by the
-        Lightning module to switch loss + activation. For multiclass
-        the default (None / 'multiclass') already uses CrossEntropy +
-        softmax -- empty return suffices.
-        """
-        from .configs import TargetTypes
-
-        if target_type == TargetTypes.MULTILABEL_CLASSIFICATION:
-            return {"task_type": "multilabel"}
-        # binary / multiclass / None -> defaults are correct
-        return {}
+from ._strategies_tree_cb import TreeModelStrategy, CatBoostStrategy  # noqa: E402, F401
+from ._strategies_xgboost import XGBoostStrategy  # noqa: E402, F401
+from ._strategies_hgb import HGBStrategy  # noqa: E402, F401
+from ._strategies_neural import (  # noqa: E402, F401
+    NeuralNetStrategy,
+    LinearModelStrategy,
+    RecurrentModelStrategy,
+)
 
 
 # =============================================================================
@@ -735,204 +286,15 @@ def _resolve_model_spec(
     return key, entry, strat
 
 
-# CACHE-P1-2: get_cache_key removed. The helper was exported in __all__ but
-# carried no internal callers - PipelineCache (below) does its own cache-key
-# composition via ``get_strategy(model_name).cache_key`` directly. Tests that
-# exercised it were removed in the same change. External callers that still
-# reference ``strategies.get_cache_key`` should switch to
-# ``get_strategy(model_name).cache_key`` (same value, fewer indirections).
-
-
-# =============================================================================
-# Pipeline Cache Helper
-# =============================================================================
-
-
-_DEFAULT_PIPELINE_CACHE_BYTES_LIMIT = 2_000_000_000
-
-
-def _resolve_pipeline_cache_budget() -> int:
-    """Decide the PipelineCache byte budget for this process.
-
-    Priority:
-      1. ``MLFRAME_PIPELINE_CACHE_BYTES_LIMIT`` env var (operator override).
-      2. Dynamic: ``available_ram - 8 GB safety reserve``, clamped to
-         ``[2 GB, 64 GB]``. On a 128 GB box the previous hardcoded 2 GB
-         default evicted every entry on every SET (entry sizes ~2.5 GB
-         each) -- cache became net-negative overhead with 0 hits.
-      3. Fallback ``_DEFAULT_PIPELINE_CACHE_BYTES_LIMIT`` if psutil is
-         unavailable or raises.
-    """
-    env_raw = os.environ.get("MLFRAME_PIPELINE_CACHE_BYTES_LIMIT")
-    if env_raw:
-        try:
-            return int(env_raw)
-        except (TypeError, ValueError):
-            pass
-    try:
-        import psutil as _psutil
-        available = int(_psutil.virtual_memory().available)
-        reserve = 8 * 1024 * 1024 * 1024
-        budget = max(2 * 1024 * 1024 * 1024, available - reserve)
-        budget = min(budget, 64 * 1024 * 1024 * 1024)
-        return int(budget)
-    except Exception:
-        return _DEFAULT_PIPELINE_CACHE_BYTES_LIMIT
-
-
-def _estimate_slot_nbytes(slot: Any) -> int:
-    """Best-effort byte-size estimate for a cached frame / array slot.
-
-    Returns 0 for None. Recognises pandas DataFrame (``memory_usage(deep=False).sum()``), polars DataFrame (``estimated_size()``), numpy arrays (``nbytes``), and falls back to ``sys.getsizeof`` for anything else. ``deep=False`` on pandas avoids walking object-dtype columns (which can be 10-100x slower than the buffer-only sum) -- the cache-size signal is needed on the hot insert path and the precision loss on object columns is acceptable for an LRU gate.
-    """
-    if slot is None:
-        return 0
-    try:
-        nbytes_attr = getattr(slot, "nbytes", None)
-        if isinstance(nbytes_attr, int):
-            return nbytes_attr
-    except Exception:
-        pass
-    try:
-        import pandas as _pd
-        if isinstance(slot, _pd.DataFrame):
-            return int(slot.memory_usage(deep=False).sum())
-        if isinstance(slot, _pd.Series):
-            return int(slot.memory_usage(deep=False))
-    except Exception:
-        pass
-    try:
-        import polars as _pl
-        if isinstance(slot, _pl.DataFrame):
-            return int(slot.estimated_size())
-    except Exception:
-        pass
-    try:
-        return int(sys.getsizeof(slot))
-    except Exception:
-        return 0
-
-
-def _estimate_entry_nbytes(entry: Tuple[Any, Any, Any]) -> int:
-    return sum(_estimate_slot_nbytes(s) for s in entry)
-
-
-class PipelineCache:
-    """Bounded LRU cache for transformed DataFrames.
-
-    Different model types that require the same preprocessing can share cached DataFrames, improving efficiency when training multiple models.
-
-    Size discipline (CLAUDE.md "Caching and batching: use both, but never assume a frame fits in RAM"): the cache enforces a byte-budget (default 2 GB; override via ``MLFRAME_PIPELINE_CACHE_BYTES_LIMIT`` env var). On insert overflow, least-recently-used entries are evicted until under the cap; each ``get`` promotes the touched key to most-recently-used. Per-entry size is estimated via ``_estimate_slot_nbytes`` (pandas ``memory_usage``, polars ``estimated_size``, numpy ``nbytes``, ``sys.getsizeof`` fallback) so the cap reflects actual buffer occupancy, not container overhead.
-
-    Not thread-safe; designed for sequential use within a single training run.
-    """
-
-    def __init__(self, verbose: bool = True, bytes_limit: Optional[int] = None):
-        """Construct a pre-pipeline cache.
-
-        ``verbose=True`` is the new default: HIT/MISS lines are emitted at ``logger.info`` and routinely needed when triaging "why-did-this-suite-re-fit" tickets. The lines are throttled by the per-call HIT vs MISS branch (one log per get) and add no measurable overhead vs the dict lookup itself, so the cost of leaving them on by default is negligible against the diagnostic value of having them already on when the operator wants them. Pass ``verbose=False`` to silence in tight unit-test loops.
-
-        ``bytes_limit=None`` (default) reads ``MLFRAME_PIPELINE_CACHE_BYTES_LIMIT`` from env, falling back to 2_000_000_000 (2 GB). Pass an explicit int to override per-instance (useful in tests).
-        """
-        # OrderedDict so ``move_to_end`` (LRU promotion on get) and ``popitem(last=False)`` (LRU eviction on overflow) are explicit. Plain dict happens to preserve insertion order in CPython 3.7+ but the LRU contract demands the explicit type.
-        self._cache: "OrderedDict[str, Tuple[Any, Any, Any]]" = OrderedDict()
-        self._entry_sizes: Dict[str, int] = {}
-        self._total_bytes: int = 0
-        self.n_hits: int = 0
-        self.n_misses: int = 0
-        self.n_evicted: int = 0
-        self.verbose: bool = bool(verbose)
-        if bytes_limit is None:
-            bytes_limit = _resolve_pipeline_cache_budget()
-        self._bytes_limit: int = int(bytes_limit)
-
-    def get(self, cache_key: str) -> Optional[Tuple[Any, Any, Any]]:
-        """Get cached DataFrames for a cache key; promote to MRU on hit."""
-        val = self._cache.get(cache_key)
-        if val is None:
-            self.n_misses += 1
-            if self.verbose:
-                logger.info("PipelineCache MISS key=%s (hits=%d misses=%d size=%d)", cache_key, self.n_hits, self.n_misses, len(self._cache))
-        else:
-            # LRU promotion: the just-accessed key moves to the end of the OrderedDict, so the front always contains the genuinely least-recently-used candidates for the next eviction.
-            self._cache.move_to_end(cache_key)
-            self.n_hits += 1
-            if self.verbose:
-                logger.info("PipelineCache HIT  key=%s (hits=%d misses=%d size=%d)", cache_key, self.n_hits, self.n_misses, len(self._cache))
-        return val
-
-    def set(self, cache_key: str, train_df: Any, val_df: Any, test_df: Any) -> None:
-        """Cache transformed DataFrames; evict LRU entries if the byte budget is exceeded.
-
-        The actively-inserted key is NEVER evicted (an oversized single entry stays in cache; eviction stops at ``len(self._cache) == 1`` even if still over budget) -- pinning the freshly-set key preserves the suite's progress; the operator can raise ``MLFRAME_PIPELINE_CACHE_BYTES_LIMIT`` to accommodate.
-        """
-        entry = (train_df, val_df, test_df)
-        # Replace-in-place semantics: if the key already exists, subtract its old size first so the total accounting stays consistent.
-        if cache_key in self._cache:
-            self._total_bytes -= self._entry_sizes.get(cache_key, 0)
-        entry_size = _estimate_entry_nbytes(entry)
-        self._cache[cache_key] = entry
-        self._cache.move_to_end(cache_key)
-        self._entry_sizes[cache_key] = entry_size
-        self._total_bytes += entry_size
-        if self.verbose:
-            logger.info("PipelineCache SET  key=%s size=%d total=%d/%d (size=%d)", cache_key, entry_size, self._total_bytes, self._bytes_limit, len(self._cache))
-        self._evict_until_under_limit(active_key=cache_key)
-
-    def _evict_until_under_limit(self, *, active_key: Optional[str]) -> None:
-        """LRU-evict entries until total bytes <= limit; never evict ``active_key`` (the just-inserted entry stays pinned even if a single oversized entry exceeds the cap on its own).
-
-        Re-checks current available RAM on every call: if free memory has
-        dropped since init (other processes loaded), the effective limit
-        tightens dynamically so the cache never pushes the system into
-        swap. Operator-set ``MLFRAME_PIPELINE_CACHE_BYTES_LIMIT`` is
-        respected as an upper bound.
-        """
-        try:
-            self._bytes_limit = min(self._bytes_limit, _resolve_pipeline_cache_budget())
-        except Exception:
-            pass
-        if self._total_bytes <= self._bytes_limit:
-            return
-        evicted_count = 0
-        bytes_freed = 0
-        # Iterate over a snapshot of keys in LRU-first order; OrderedDict iteration preserves insertion order so the front is genuinely the LRU.
-        for key in list(self._cache.keys()):
-            if self._total_bytes <= self._bytes_limit:
-                break
-            if key == active_key:
-                continue
-            slot_bytes = self._entry_sizes.pop(key, 0)
-            self._cache.pop(key, None)
-            self._total_bytes -= slot_bytes
-            bytes_freed += slot_bytes
-            evicted_count += 1
-        if evicted_count:
-            self.n_evicted += evicted_count
-            logger.info(
-                "PipelineCache evicted %d entries freeing %d bytes (now %d/%d bytes, %d entries)",
-                evicted_count, bytes_freed, self._total_bytes, self._bytes_limit, len(self._cache),
-            )
-
-    def has(self, cache_key: str) -> bool:
-        """Check if a cache key exists (does NOT promote to MRU)."""
-        return cache_key in self._cache
-
-    def clear(self) -> None:
-        """Clear all cached DataFrames and reset the byte-budget accounting."""
-        self._cache.clear()
-        self._entry_sizes.clear()
-        self._total_bytes = 0
-
-    def cache_size_bytes(self) -> int:
-        """Total estimated byte-size across every cached frame slot, summed at insert time and maintained on get/set/evict.
-
-        Returns the running ``_total_bytes`` accumulator (the LRU eviction policy keeps it bounded under ``_bytes_limit``) so the value reflects actual buffer occupancy as estimated by ``_estimate_slot_nbytes`` (pandas ``memory_usage(deep=False)``, polars ``estimated_size``, numpy ``nbytes``, ``sys.getsizeof`` fallback).
-        """
-        return int(self._total_bytes)
-
-    def __repr__(self) -> str:
-        return f"PipelineCache(keys={len(self._cache)}, hits={self.n_hits}, misses={self.n_misses})"
+# PipelineCache + budget helpers carved into ``_strategies_pipeline_cache``.
+# Imported at module bottom so ``from .strategies import PipelineCache`` still resolves.
+from ._strategies_pipeline_cache import (  # noqa: E402, F401
+    PipelineCache,
+    _resolve_pipeline_cache_budget,
+    _estimate_slot_nbytes,
+    _estimate_entry_nbytes,
+    _DEFAULT_PIPELINE_CACHE_BYTES_LIMIT,
+)
 
 
 __all__ = [
@@ -950,6 +312,5 @@ __all__ = [
     "MODEL_STRATEGIES",
     "get_strategy",
     "_resolve_model_spec",
-    # CACHE-P1-2: ``get_cache_key`` removed (dead helper). See module body.
     "PipelineCache",
 ]
