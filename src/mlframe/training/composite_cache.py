@@ -921,3 +921,22 @@ class DiscoveryCache:
         except OSError:
             pass
         return len(files)
+
+
+def _discovery_cache_bytes_total(cache: DiscoveryCache) -> int:
+    """Best-effort on-disk byte total for a :class:`DiscoveryCache`. Mirrors ``_mrmr_cache_bytes_total`` / ``SuiteArtefactCache._total_bytes_locked`` so callers comparing against ``max_size_mb`` don't inline a per-call directory walk. Counts the .pkl plus its .pkl.sha256 sidecar -- both contribute to the on-disk budget."""
+    total = 0
+    try:
+        with os.scandir(cache.cache_dir) as it:
+            for de in it:
+                if not de.is_file():
+                    continue
+                if not (de.name.endswith(".pkl") or de.name.endswith(".pkl.sha256")):
+                    continue
+                try:
+                    total += de.stat().st_size
+                except OSError:
+                    pass
+    except FileNotFoundError:
+        return 0
+    return total
