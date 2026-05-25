@@ -103,8 +103,10 @@ def _trade_cost(price_t, trades, tc, tc_mode_is_fraction):  # pragma: no cover
 
 @numba.njit(fastmath=FASTMATH, cache=True)
 def compute_area_profits(prices, positions):  # pragma: no cover
-    n = prices.shape[0]
-    profits = np.zeros(n, dtype=prices.dtype)
+    # Output is sized to ``prices.shape[0]`` for backward-compatibility with callers that do ``profits[:-1]``; position-array indexing must use ``positions.shape[0]`` (which is typically ``n_prices - 1`` in the DP caller but may equal ``n_prices`` for direct callers). Using ``n_prices`` as the position-loop bound was a latent OOB under strict Python bounds-checking (visible only under NUMBA_DISABLE_JIT=1 since the JIT relaxes bounds-checks and silently terminated the inner ``while``).
+    n_prices = prices.shape[0]
+    n_pos = positions.shape[0]
+    profits = np.zeros(n_prices, dtype=prices.dtype)
 
     # We will find consecutive runs of the same non-zero position,
     # for each run, compute profit = prices[end+1] - prices[start] (or reverse if short)
@@ -112,10 +114,7 @@ def compute_area_profits(prices, positions):  # pragma: no cover
     # For index i in run, profit[i] = profit of run from prices[i]
 
     start = 0
-    # Outer bound is `n` (not n-1) so the final index is visited. Inner bound `n` lets the run
-    # extend through the last bar. When a run reaches end == n-1, there is no next price —
-    # profit over the open tail is 0 (position never closes within the sample).
-    while start < n:
+    while start < n_pos:
         pos = positions[start]
 
         # If position is zero, no directional profit, profit = 0
@@ -124,53 +123,30 @@ def compute_area_profits(prices, positions):  # pragma: no cover
             start += 1
             continue
 
-        # Find the end of this run (where position changes or reaches n-1)
+        # Find the end of this run (where position changes).
         end = start
-        while end + 1 < n and positions[end + 1] == pos:
+        while end + 1 < n_pos and positions[end + 1] == pos:
             end += 1
 
-        # If the run extends to the final bar, there is no closing price; leave tail profits at 0.
-        if end >= n - 1:
-            # profits already initialized to 0 for [start..end]
+        # If the closing price index (end+1) is past the price array, there is no closing price for this run; leave tail profits at 0.
+        if end + 1 >= n_prices:
             start = end + 1
             continue
 
         # profit on the run is price difference between prices[end+1] and prices[start]
-        price_diff = prices[end + 1] - prices[start]
-
-        # For longs (pos == 1), profit is price_diff
-        # For shorts (pos == -1), profit is reversed: prices[start] - prices[end+1]
-        # But can write uniformly: pos * price_diff
-        run_profit = pos * price_diff  # noqa: F841 -- !TODO! intended for the per-index profit-assign block below but the loop was rewritten to compute profit inline; keep this expression as documentation of the uniform-formula identity (the next loop uses pos * (prices[end+1] - prices[i]) which is mathematically equivalent at i=start).
-
-        # Assign profit for each index in run from i=start..end
-        # profit[i] = profit from prices[i] to prices[end+1] in direction pos
-
-        # So for i in [start..end]:
-        # profit[i] = pos * (prices[end+1] - prices[i])
-
+        # For longs (pos == 1), profit is price_diff; for shorts (pos == -1), it is reversed -- the uniform formula ``pos * (prices[end+1] - prices[i])`` captures both.
         for i in range(start, end + 1):
             profits[i] = pos * (prices[end + 1] - prices[i])
 
-        # For the last price index n-1, there is no next interval, so profits[n-1] = 0 by default
-
         start = end + 1
 
-    # For last index n-1 (no position interval), profit = 0
-    profits[n - 1] = 0.0
+    # Trailing slots (positions exhausted, prices remain) default to 0 -- matches the legacy contract where the last bar has no closing interval.
 
-    # Safe division: ``profits / prices`` previously produced inf/NaN on
-    # any zero-price bar (2026-04-19 round-9 probe finding). Zero prices
-    # appear in synthetic/test data and corrupted feeds. Returning
-    # inf/NaN silently poisons downstream ML features.
-    # Guard: compute ratio only where price > 0; zero-price bars
-    # contribute 0 (no directional profit is meaningful without a
-    # valid denominator).
+    # Safe division: ``profits / prices`` previously produced inf/NaN on any zero-price bar (2026-04-19 round-9 probe finding). Zero prices appear in synthetic/test data and corrupted feeds; returning inf/NaN silently poisons downstream ML features. Guard: compute ratio only where price > 0; zero-price bars contribute 0 (no directional profit is meaningful without a valid denominator).
     out = np.zeros_like(profits)
-    for i in range(n):
+    for i in range(n_prices):
         if prices[i] > 0:
             out[i] = profits[i] / prices[i]
-        # else: out[i] stays 0
     return out
 
 
