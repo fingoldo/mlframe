@@ -385,11 +385,13 @@ def cleanup_memory(request):
         return
 
     is_main_process = os.environ.get('PYTEST_CURRENT_TEST') is not None
+    # [MEM] print is opt-in via MLFRAME_TEST_MEM_LOG=1; default off so CI scrollback isn't filled with one line per heavy-marker test.
+    _mem_log_enabled = os.environ.get("MLFRAME_TEST_MEM_LOG", "").lower() in ("1", "true", "yes")
 
     if psutil is not None:
         process = psutil.Process()
         mem_before = process.memory_info().rss / 1024 / 1024  # MB
-        if is_main_process:
+        if is_main_process and _mem_log_enabled:
             print(f"\n[MEM] Before: {mem_before:.0f} MB")
     else:
         process = None
@@ -449,7 +451,7 @@ def cleanup_memory(request):
 
     if psutil is not None and process is not None:
         mem_after = process.memory_info().rss / 1024 / 1024
-        if is_main_process:
+        if is_main_process and _mem_log_enabled:
             print(f"[MEM] After: {mem_after:.0f} MB (delta: {mem_after - mem_before:+.0f} MB)")
 
 
