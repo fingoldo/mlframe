@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import threading
 from collections import OrderedDict
 from typing import Any
@@ -32,13 +33,56 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+def _read_int_env(name: str, default: int) -> int:
+    """Best-effort int env reader; silently returns ``default`` on bad input so a typo in a shell var cannot crash trainer import."""
+    raw = os.environ.get(name)
+    if not raw:
+        return default
+    try:
+        val = int(raw)
+        if val <= 0:
+            return default
+        return val
+    except (TypeError, ValueError):
+        return default
+
+
 # Cache state. Pre-fix default was 4 which silently evicted on the typical
 # suite (cb + lgb + xgb + mlp + linear = 5 models); bumped to 8 so a
 # standard suite fits without thrashing. Callers needing tighter bounds set
-# TrainingBehaviorConfig.pre_pipeline_cache_max.
+# TrainingBehaviorConfig.pre_pipeline_cache_max; operators can override the
+# global cap via MLFRAME_PRE_PIPELINE_CACHE_MAX (entry count). Byte budget is
+# capped by MLFRAME_PRE_PIPELINE_CACHE_MAX_BYTES; 0 / unset disables the byte
+# gate (count-only eviction). Both are read once at import; reload tests must
+# snapshot per the test-pollution rule.
 _PRE_PIPELINE_CACHE_LOCK = threading.Lock()
 _PRE_PIPELINE_CACHE: "OrderedDict[tuple, tuple]" = OrderedDict()
-_PRE_PIPELINE_CACHE_MAX: int = 8
+_PRE_PIPELINE_CACHE_MAX: int = _read_int_env("MLFRAME_PRE_PIPELINE_CACHE_MAX", 8)
+_PRE_PIPELINE_CACHE_MAX_BYTES: int = _read_int_env("MLFRAME_PRE_PIPELINE_CACHE_MAX_BYTES", 0)
+
+
+def _approx_entry_bytes(entry: tuple) -> int:
+    """Best-effort cache-entry size estimate. Sums nbytes / memory_usage / estimated_size across the train+val carriers; falls back to 0 (skip byte-gate) on any failure so an unfamiliar carrier never blocks caching."""
+    total = 0
+    for obj in entry[:2]:
+        if obj is None:
+            continue
+        try:
+            nb = getattr(obj, "nbytes", None)
+            if nb is not None:
+                total += int(nb)
+                continue
+            mu = getattr(obj, "memory_usage", None)
+            if mu is not None:
+                # pandas DataFrame.memory_usage(deep=False) -- avoid deep walk on 100GB frames per the CLAUDE.md memory rule
+                total += int(mu(deep=False, index=True).sum())
+                continue
+            est = getattr(obj, "estimated_size", None)
+            if callable(est):
+                total += int(est())
+        except Exception:
+            return 0
+    return total
 
 
 class _UncachableSentinel:
@@ -384,12 +428,19 @@ def _pre_pipeline_cache_set(train_df, val_df, pipeline, train_out, val_out, trai
         return
     key = _pre_pipeline_cache_key(train_df, val_df, pipeline, train_target, target_name, sample_weight=sample_weight)
     _cap = int(cache_max) if cache_max is not None else _PRE_PIPELINE_CACHE_MAX
+    _max_bytes = _PRE_PIPELINE_CACHE_MAX_BYTES
     with _PRE_PIPELINE_CACHE_LOCK:
         # Store the pipeline as third element so future hits can transfer fit state.
         _PRE_PIPELINE_CACHE[key] = (train_out, val_out, pipeline)
         _PRE_PIPELINE_CACHE.move_to_end(key)
         while len(_PRE_PIPELINE_CACHE) > _cap:
             _PRE_PIPELINE_CACHE.popitem(last=False)
+        # Byte-budget eviction (LRU): pop until under cap. Skipped silently when budget=0 (default) or sizing helper returns 0 on unknown carriers.
+        if _max_bytes > 0 and len(_PRE_PIPELINE_CACHE) > 1:
+            total = sum(_approx_entry_bytes(v) for v in _PRE_PIPELINE_CACHE.values())
+            while total > _max_bytes and len(_PRE_PIPELINE_CACHE) > 1:
+                _, evicted = _PRE_PIPELINE_CACHE.popitem(last=False)
+                total -= _approx_entry_bytes(evicted)
 
 
 def _pre_pipeline_cache_clear() -> None:
