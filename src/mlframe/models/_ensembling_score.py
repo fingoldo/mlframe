@@ -189,7 +189,11 @@ def score_ensemble(
     # inspected member[0]; member[1] could disagree with no error. Validate up front.
     if level_models_and_predictions:
         def _has_probs(m) -> bool:
-            return any(getattr(m, attr, None) is not None for attr in ("val_probs", "test_probs", "train_probs"))
+            # ``oof_probs`` MUST be inspected too: a member with val_probs=None but oof_probs
+            # populated (rare: trainer stamped OOF but disabled val-metric computation; or
+            # cross_val_predict-only fits) is classifier-like, not regressor-like. Pre-fix the
+            # check skipped oof_probs and mis-classified those members as regression.
+            return any(getattr(m, attr, None) is not None for attr in ("oof_probs", "val_probs", "test_probs", "train_probs"))
 
         _probs_flags = [_has_probs(m) for m in level_models_and_predictions]
         if len(set(_probs_flags)) > 1:
@@ -201,10 +205,12 @@ def score_ensemble(
                 f"{_reg_idx}) members. Split the suite into per-task lists before calling."
             )
 
+    _first = level_models_and_predictions[0]
     if (
-        level_models_and_predictions[0].val_probs is not None
-        or level_models_and_predictions[0].test_probs is not None
-        or level_models_and_predictions[0].train_probs is not None
+        getattr(_first, "oof_probs", None) is not None
+        or _first.val_probs is not None
+        or _first.test_probs is not None
+        or _first.train_probs is not None
     ):
         is_regression = False
     else:
@@ -546,7 +552,19 @@ def score_ensemble(
                     _worse = max(_mae_a, _mae_b)
                     _better = min(_mae_a, _mae_b)
                     if _better > 0.0 and math.isfinite(_worse / _better) and _worse / _better >= float(k2_catastrophic_mae_ratio):
-                        _worse_idx = 0 if _mae_a > _mae_b else 1
+                        # Deterministic tiebreak: when both members are within fp64 noise of each
+                        # other (``_mae_a == _mae_b``), pick the alphabetically-larger tag as the
+                        # "worse" so removal is reproducible regardless of BLAS thread count /
+                        # input ordering. Without this, an exact tie always drops index 1 (silent
+                        # bias toward whichever member happened to be supplied second).
+                        if _mae_a > _mae_b:
+                            _worse_idx = 0
+                        elif _mae_b > _mae_a:
+                            _worse_idx = 1
+                        else:
+                            _tag_a = _ensemble_member_tags[0]
+                            _tag_b = _ensemble_member_tags[1]
+                            _worse_idx = 0 if _tag_a > _tag_b else 1
                         _kept_idx = [1 - _worse_idx]
                         # Capture the dropped tag BEFORE the slicing below overwrites the tag list.
                         _dropped_tag = _ensemble_member_tags[_worse_idx]
@@ -709,20 +727,48 @@ def score_ensemble(
             diversity_corr_warn_threshold,
             _would_drop_msg,
         )
-    # Auto-drop one member from each high-corr pair when the knob is set. Pick the member with the
-    # larger tag-index (later in the suite) so removal is deterministic and stable across runs.
+    # Auto-drop one member from each high-corr pair when the knob is set. The docstring on the
+    # ``auto_drop_diversity_above`` kwarg promises "MEMBER WITH HIGHER MEAN ABSOLUTE GATE-METRIC
+    # (mae from the gate) is dropped, so the surviving member is the one closer to the median".
+    # Pre-fix the implementation picked by ``_ensemble_member_tags.index(...)`` -- purely the
+    # member's POSITION in the suite, with no quality signal. Now use the per-member MAE stamped
+    # by ``compute_member_quality_gate`` earlier when available; the higher-MAE member loses.
+    # When two members have identical MAE (or stats are unavailable), fall back to alphabetical
+    # tag order so the tiebreak is deterministic across runs / BLAS thread counts.
     if _drop_floor is not None and _high_corr_pairs:
         _to_drop_tags: set[str] = set()
+        _gate_per_mae = None
+        try:
+            _gate_per_mae = _gate_stats.get("per_member_mae") if isinstance(_gate_stats, dict) else None
+        except NameError:
+            _gate_per_mae = None
+        # Map tag -> MAE on the pre-gate-drop member list. ``_ensemble_member_tags`` is the
+        # POST-gate tag list (sliced if the gate dropped members), so realign by looking up the
+        # member's current position in the sliced list and using that index into per_member_mae
+        # only when the lists are the same length; otherwise fall back to alphabetical-only.
+        _tag_to_mae: dict[str, float] = {}
+        if _gate_per_mae is not None and len(_gate_per_mae) == len(_ensemble_member_tags):
+            for _i, _t in enumerate(_ensemble_member_tags):
+                try:
+                    _tag_to_mae[_t] = float(_gate_per_mae[_i])
+                except (TypeError, ValueError):
+                    pass
         for _pair in _high_corr_pairs:
             if abs(_pair["corr"]) < float(_drop_floor):
                 continue
             _m1, _m2 = _pair["m1"], _pair["m2"]
             try:
-                _i1 = _ensemble_member_tags.index(_m1)
-                _i2 = _ensemble_member_tags.index(_m2)
+                _ensemble_member_tags.index(_m1)
+                _ensemble_member_tags.index(_m2)
             except ValueError:
                 continue
-            _drop_tag = _m2 if _i2 >= _i1 else _m1
+            _mae1 = _tag_to_mae.get(_m1, float("nan"))
+            _mae2 = _tag_to_mae.get(_m2, float("nan"))
+            # Drop the worse (higher MAE) member; ties (including all-NaN) -> alphabetical drop.
+            if np.isfinite(_mae1) and np.isfinite(_mae2) and _mae1 != _mae2:
+                _drop_tag = _m1 if _mae1 > _mae2 else _m2
+            else:
+                _drop_tag = max(_m1, _m2)
             _to_drop_tags.add(_drop_tag)
         if _to_drop_tags:
             _kept_pairs = [
