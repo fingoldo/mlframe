@@ -237,12 +237,14 @@ class SuiteArtefactCache:
         self._lru_initialised = True
 
     def _total_bytes_locked(self) -> int:
-        # Authoritative byte count from disk; the in-memory LRU only tracks access order.
+        # Authoritative byte count from disk; the in-memory LRU only tracks access order. Counts both .pkl and the .pkl.sha256 sidecar so the budget check reflects the FULL on-disk footprint. Pre-fix this summed only .pkl, leaving the per-entry ~64-byte sidecar unaccounted -- at N=1000 entries that's a 64 KB blind spot and the operator's budget check was systematically optimistic.
         total = 0
         try:
             with os.scandir(self.cache_dir) as it:
                 for de in it:
-                    if not de.is_file() or not de.name.endswith(".pkl"):
+                    if not de.is_file():
+                        continue
+                    if not (de.name.endswith(".pkl") or de.name.endswith(".pkl.sha256")):
                         continue
                     try:
                         total += de.stat().st_size
@@ -253,7 +255,10 @@ class SuiteArtefactCache:
         return total
 
     def _evict_lru_locked(self) -> int:
-        """Evict oldest entries until under both byte + entry caps. Returns count evicted."""
+        """Evict oldest entries until under both byte + entry caps. Returns count evicted.
+
+        Both the .pkl and its .pkl.sha256 sidecar are dropped together and BOTH sizes count against ``total`` -- pre-fix the sidecar removal failure path was a silent ``except OSError: pass`` which would leave an orphan sidecar on disk that no later eviction would ever clean up. ``_total_bytes_locked`` also now counts sidecars so the budget figure is honest.
+        """
         removed = 0
         # Take a snapshot of LRU keys (oldest first; OrderedDict insertion order = touch order).
         keys_ordered = list(self._lru.keys())
@@ -264,23 +269,29 @@ class SuiteArtefactCache:
             if not over_bytes and not over_entries:
                 break
             path = self._path(key)
-            size = self._file_size(path)
+            sidecar = path + ".sha256"
+            pkl_size = self._file_size(path)
+            sidecar_size = self._file_size(sidecar)
             try:
                 os.remove(path)
-                # Drop the sha256 sidecar too so a future put of the same key starts fresh.
-                try:
-                    os.remove(path + ".sha256")
-                except OSError:
-                    pass
-                self._lru.pop(key, None)
-                total -= size
-                removed += 1
             except FileNotFoundError:
-                # Already gone (concurrent process). Treat as a successful eviction.
-                self._lru.pop(key, None)
+                # Already gone (concurrent process / parallel agent). Still try to drop the orphan sidecar below.
+                pkl_size = 0
             except OSError as exc:
                 logger.debug("SuiteArtefactCache: eviction of %s failed: %s", key, exc)
                 break
+            # Drop the sha256 sidecar too so a future put of the same key starts fresh AND so the on-disk footprint actually shrinks (orphan sidecars accumulate at ~64-byte each, ignored by every later eviction sweep).
+            try:
+                os.remove(sidecar)
+            except FileNotFoundError:
+                sidecar_size = 0
+            except OSError as exc:
+                # Surface this -- a permission / lock failure here is the canonical source of the "total_bytes reports under cap but on-disk footprint is larger" symptom.
+                logger.warning("SuiteArtefactCache: failed to drop sidecar %s during eviction: %s", sidecar, exc)
+                sidecar_size = 0
+            self._lru.pop(key, None)
+            total -= (pkl_size + sidecar_size)
+            removed += 1
         return removed
 
     # ----- public API ---------------------------------------------------------

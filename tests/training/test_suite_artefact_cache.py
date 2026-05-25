@@ -193,13 +193,9 @@ def test_cache_rolls_back_oversize_written_blob(tmp_path):
 
 
 def test_cache_evicts_oldest_when_bytes_budget_exceeded(tmp_path):
-    """Bytes-budget eviction triggers when stored .pkl total exceeds bytes_limit.
+    """Bytes-budget eviction triggers when stored .pkl + .pkl.sha256 total exceeds bytes_limit.
 
-    Payload size is sized intentionally: pickle of ``"x" * 1000`` lands at ~1015 bytes,
-    so 30 puts produce ~30 KB on disk against a 4 KB budget -> eviction must drop early
-    entries. The sidecar .sha256 file (~64 bytes) is NOT counted by
-    `_total_bytes_locked` (which only sums .pkl files), so the budget pressure has to
-    come from the pickle payload itself.
+    Payload size is sized intentionally: pickle of ``"x" * 1000`` lands at ~1015 bytes plus a ~104 byte sidecar, so 30 puts produce ~33 KB on disk against a 4 KB budget -> eviction must drop early entries. ``_total_bytes_locked`` now counts BOTH .pkl and .pkl.sha256 so the budget figure reflects the true on-disk footprint (pre-fix it counted only .pkl, leaving the per-entry sidecar unaccounted and silently inflating effective capacity).
     """
     cache = SuiteArtefactCache(cache_dir=str(tmp_path), bytes_limit=4_096)
     payload = "x" * 1000
