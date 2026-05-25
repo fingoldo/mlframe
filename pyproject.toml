@@ -280,7 +280,7 @@ mlframe = ["py.typed"]
 minversion = "7.0"
 testpaths = ["tests"]
 pythonpath = ["src"]
-addopts = "-ra -x -s --no-cov --strict-markers --strict-config --timeout=60 --ignore=legacy --ignore=benchmarks --ignore=profiling"
+addopts = "-ra -x -s --no-cov --strict-markers --strict-config --timeout=60 --instafail --ignore=legacy --ignore=benchmarks --ignore=profiling"
 xfail_strict = true
 doctest_optionflags = "NORMALIZE_WHITESPACE ELLIPSIS"
 markers = [
@@ -293,10 +293,8 @@ markers = [
     "linux_only: skip on non-Linux",
     "fast: fast subset (select with '-m fast'). Every new ML feature ships with a representative subset marked @pytest.mark.fast so the full code path runs in <15s total.",
     "slow_only: only runs when --slow flag is passed",
-    "fast_only: only runs in fast mode",
     "no_xdist: cannot run under pytest-xdist parallelism",
     "requires_xgb: requires xgboost",
-    "requires_lgb: requires lightgbm",
     "requires_cb: requires catboost",
     "requires_torch: requires torch",
     "uses_matplotlib: test produces matplotlib figures; triggers plt.close('all') + gc in cleanup_memory autouse",

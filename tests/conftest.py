@@ -122,7 +122,7 @@ def pytest_addoption(parser):
 def pytest_configure(config):
     if config.getoption("--fast"):
         os.environ[_FAST_ENV] = "1"
-    # Markers ``fast_only`` / ``slow_only`` / ``no_xdist`` are registered in pyproject.toml
+    # Markers ``slow_only`` / ``no_xdist`` are registered in pyproject.toml
     # ``[tool.pytest.ini_options].markers``; double-registering here invites silent description
     # drift (audit D2 P2 #18). The conftest only registers markers that are conftest-private
     # (defined and skipped here) or unique to the option-flag pattern that the marker docs in
