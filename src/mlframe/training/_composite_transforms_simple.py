@@ -299,7 +299,11 @@ def _ratio_fit(
         base_finite = _finite_mask & (base != 0)
     else:
         base_finite = np.isfinite(base) & (base != 0)
-    scale = float(np.median(np.abs(base[base_finite])))
+    # `np.median([])` emits "Mean of empty slice" RuntimeWarning and returns NaN; on NumPy 2.x this may raise outright. Guard so the all-non-finite / all-zero base path is silently safe.
+    if base_finite.any():
+        scale = float(np.median(np.abs(base[base_finite])))
+    else:
+        scale = 0.0
     eps = max(scale * 1e-6, 1e-12) if scale > 0 else 1e-12
     return {"eps": eps}
 
