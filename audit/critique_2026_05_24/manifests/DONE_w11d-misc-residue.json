@@ -1,0 +1,255 @@
+{
+  "agent_slug": "w11d-misc-residue",
+  "started_utc": "2026-05-25T18:50:00Z",
+  "finished_utc": "2026-05-25T19:30:00Z",
+  "scope": "all remaining Wave 11 DEFERRED rows NOT in W11A (monolith carves >1k LOC), W11B (numba CI bugs + cross-package underscore ALLOWLIST), W11C (W10C test deferred residue)",
+  "findings_status": {
+    "A2#4 / S32": {
+      "status": "DONE",
+      "commit": "4a9548ec",
+      "test_file": "tests/feature_engineering/test_regression_w11d_basic_default_methods.py",
+      "notes": "_DEFAULT_DATE_METHODS now copied per-call so callers cannot mutate the module-level singleton; aligns with persisted train/predict replay map invariant in _phase_helpers_fit_pipeline."
+    },
+    "A2#5 / S33": {
+      "status": "DEFERRED",
+      "reason": "Adding year/week/quarter/is_weekend/tz handling to _DEFAULT_DATE_METHODS is a behavior change for standalone callers (feature count silently grows). is_weekend is not a pandas .dt accessor, week_of_year requires .isocalendar().week; non-trivial cross-backend wiring. The suite-side _phase_helpers_fit_pipeline already supports per-FeatureTypesConfig richer methods; the standalone-call default change has higher blast radius than the suite path."
+    },
+    "A2#6 / S34": {
+      "status": "DEFERRED",
+      "reason": "bruteforce.run_pysr_feature_engineering to_pandas + sub-frame fillna broadcast-copy: requires PySR pandas-only constraint dance; >30 LOC fix involving polars-native median impute + byte-size gate. Architectural redesign of the PySR-side data hand-off."
+    },
+    "A2#8 / S36": {
+      "status": "DEFERRED",
+      "reason": "create_aggregated_features recursive subset .copy() refactor: requires view-only iloc indexing across 35-line recursion + idx_mask reuse. >30 LOC behavioral refactor."
+    },
+    "A2#11 / S39": {
+      "status": "DEFERRED",
+      "reason": "bruteforce rename mutating caller frame: requires fresh DataFrame copy after column rename or loud documentation. Same as A2#6 - architectural decision about the bruteforce hand-off contract."
+    },
+    "A2#12 / S40": {
+      "status": "DONE",
+      "commit": "b2d631ea",
+      "test_file": "tests/training/test_regression_w11d_ratio_fit_empty_base.py",
+      "notes": "_ratio_fit now guards np.median on empty array via base_finite.any(); falls through to documented 1e-12 eps floor. Catches NumPy 2.x hard-error path."
+    },
+    "A2#20": {
+      "status": "DEFERRED",
+      "reason": "Composite Transform per-family unit suites (test_composite_transforms_<family>.py for median_residual / quantile_residual / monotonic_residual / ewma_residual / rolling_quantile_ratio / frac_diff / chain_*): >30 LOC test-suite addition across 7+ transform families. Belongs in a dedicated unit-test-coverage wave."
+    },
+    "A2 Low #25": {
+      "status": "REJECTED",
+      "reason": "Re-checked src/mlframe/training/_pipeline_extensions.py:202; the misleading meta-comment cited in the critique is no longer present (replaced with a substantive doc-string about try/except/errors=ignore covers). VERIFIED-ALREADY-FIXED."
+    },
+    "A2 Low #26": {
+      "status": "REJECTED",
+      "reason": "MappingProxyType wrap on _TRANSFORMS_REGISTRY: VERIFIED-ALREADY-FIXED in composite_transforms.py:295 (TRANSFORMS_REGISTRY: Mapping = _MappingProxyType(_TRANSFORMS_REGISTRY))."
+    },
+    "A2 Low #28": {
+      "status": "REJECTED",
+      "reason": "online_refit_* docstring gap: VERIFIED-ALREADY-FIXED in _composite_target_estimator.py lines 85-91; all 4 online_refit_* params documented."
+    },
+    "A2 W2 / W3 / W4 / W5 / W7 (weak-assert cluster)": {
+      "status": "DEFERRED",
+      "reason": "test_tvt_round5_lag_xgb_huber.py / clone-elimination / MLP-divergence / automl: 12+ `assert x is not None` sites across 5 files. Each requires understanding the underlying contract to write a meaningful behavioral assertion; bulk pin-tightening would be padding per feedback_no_padding_parametric_pins. Belongs in a dedicated test-strengthening wave."
+    },
+    "A3#2 / S41": {
+      "status": "DONE",
+      "commit": "9eef57e7",
+      "test_file": "tests/training/test_regression_w11d_ensemble_chooser_test_warn.py",
+      "notes": "Module-top comment promised a WARN at test.* fallback use but code never delivered. WARN now emitted inside the loop at resolution time with the winning flavour name; oof-resolved winners stay silent."
+    },
+    "A3#3 / S42": {
+      "status": "DEFERRED",
+      "reason": "Probability calibration before classifier blend: AP12 calibration policy landed at single-model level (783eae4c W9A pick_best_calibrator) but ensemble-time integration is non-trivial wiring across score_ensemble / compare_ensembles / _rrf_aggregate_probs. >30 LOC architectural change."
+    },
+    "A3#4 / S43": {
+      "status": "DONE",
+      "commit": "395ff949",
+      "test_file": "tests/models/test_regression_w11d_rrf_k1_warn.py",
+      "notes": "_rrf_aggregate_probs K=1 path now emits one-line WARN so production callers stamping AUC/logloss on the raw RRF score (not a calibrated probability) become grep-able in suite logs. Sigmoid auto-transform / hard error deferred as behavior change."
+    },
+    "A5#4 / S51": {
+      "status": "DEFERRED",
+      "reason": "Per-target select_target template rebuild: cross-target memoization is architectural (needs cache key sharing across target loop, downstream invariants for fit_state and predict-side replay). >30 LOC behavioral change."
+    },
+    "A5#5 / S52": {
+      "status": "ARCH-DEFER",
+      "proposal": "audit/critique_2026_05_24/architectural_proposals/A5-discovery-suite-joint-stash.md",
+      "reason": "DiscoveryCache vs SuiteArtefactCache unification (now subsumed by AP15 joint-stash proposal). Observability landed via 65b3dded (W10B); full unification pending user OK."
+    },
+    "A5#7 / S54": {
+      "status": "DONE",
+      "commit": "05386281",
+      "test_file": "tests/training/test_regression_w11d_pre_pipeline_cache_byte_budget.py",
+      "notes": "MLFRAME_PRE_PIPELINE_CACHE_MAX (count cap env override) + MLFRAME_PRE_PIPELINE_CACHE_MAX_BYTES (byte-budget LRU eviction, 0 disables) added. _approx_entry_bytes uses nbytes / memory_usage(deep=False) / estimated_size with fallback to 0 on unfamiliar carriers."
+    },
+    "A5 Low #15": {
+      "status": "REJECTED",
+      "reason": "WeakKeyDictionary doc gap: VERIFIED-ALREADY-FIXED in _phase_train_one_target.py:24-31 (comment block explains the WeakKey-vs-id() recycle hazard pattern)."
+    },
+    "A5 Low #16": {
+      "status": "DEFERRED",
+      "reason": "select_target cross-target memo: same root cause as A5#4/S51; cross-target cache key requires architectural decision."
+    },
+    "A6 Low #39": {
+      "status": "DONE",
+      "commit": "60110565",
+      "test_file": null,
+      "notes": "estimators/custom.py: 4 sites of .values replaced with .to_numpy() (predict path) and .columns.tolist() (col-name path). Pure cosmetic / modern pandas idiom; no behavior change."
+    },
+    "B1 U4-U12 (drift_report / feature_drift_report / models / io / composite_bayesian / phases / lgb_shim / xgb_shim / ranking)": {
+      "status": "DEFERRED",
+      "reason": "9 module-gap unit-test additions; each module needs 5-25 dedicated tests covering happy / edge / error paths. Belongs in a dedicated test-expand wave (W3a scope)."
+    },
+    "B1 U19": {
+      "status": "DEFERRED",
+      "reason": "feature_selection/registry.py Protocol conformance tests: requires Protocol typing inspection plus per-registered-selector conformance check matrix. >30 LOC."
+    },
+    "B1 U21": {
+      "status": "DEFERRED",
+      "reason": "feature_engineering/pysr_operators.py preset tests: covers JuliaOperatorPreset / _make_extra_sympy_mappings across all valid presets. >30 LOC."
+    },
+    "B1 sklearn matrix marker": {
+      "status": "DEFERRED",
+      "reason": "@pytest.mark.sklearn_matrix marker convention + meta-test: needs CI matrix selection wiring + meta-test enforcing marker presence on covered modules."
+    },
+    "B1 CHANGELOG cross-walk": {
+      "status": "DEFERRED",
+      "reason": "Per-fix regression-sensor gap audit: large-scope CHANGELOG x test/regression matrix audit. Out of W11D budget."
+    },
+    "B2#7 (make_simple_* DRY)": {
+      "status": "DEFERRED",
+      "reason": "make_simple_* builder reuse across test files: broad refactor across 50+ tests. >30 LOC."
+    },
+    "B2#8 (RFECV monkey-patch upstream PR)": {
+      "status": "DEFERRED",
+      "reason": "Requires opening upstream PR to sklearn / project external; no in-repo fix lands the change."
+    },
+    "B2#9 (tqdmu monkey-patch upstream PR)": {
+      "status": "DEFERRED",
+      "reason": "Same as B2#8 - requires upstream PR."
+    },
+    "B2#10 ([MEM] log spam)": {
+      "status": "DONE",
+      "commit": "17e9cce9",
+      "test_file": null,
+      "notes": "cleanup_memory [MEM] before/after print now gated behind MLFRAME_TEST_MEM_LOG=1 (default off); preserves the memory debugging path while removing per-test scrollback spam."
+    },
+    "B2 +PYTHONUNBUFFERED": {
+      "status": "DONE",
+      "commit": "e910ff9c",
+      "test_file": null,
+      "notes": "tests/conftest.py now os.environ.setdefault('PYTHONUNBUFFERED', '1'); operator pre-sets still respected. pytest -s actually streams during long runs."
+    },
+    "B2#20 / B2#45 (Windows zstd quirk skip)": {
+      "status": "DEFERRED",
+      "reason": "Untracked Windows zstd-version-conditional skip; needs version-floor detection + tracking issue."
+    },
+    "B2#21 (test_wrappers_default_args layout-conditional skip)": {
+      "status": "DEFERRED",
+      "reason": "Cosmetic; not in W11D budget."
+    },
+    "B2#22 (test_eval_medium_eval version-conditional skips)": {
+      "status": "DEFERRED",
+      "reason": "Cosmetic; not in W11D budget."
+    },
+    "B2#26 (tests/training/conftest.py top-of-file try-imports)": {
+      "status": "DEFERRED",
+      "reason": "flaml / networkx / lightning try-imports at conftest top: cosmetic refactor; not in W11D budget."
+    },
+    "B2#31 (_ann_backend_safely_importable 30-60s JIT)": {
+      "status": "DEFERRED",
+      "reason": "JIT warmup at conftest import time: requires deferring backend probe to first-use site. >30 LOC."
+    },
+    "B2#32 / B2#33 (importorskip DRY in test_post / test_quality)": {
+      "status": "DEFERRED",
+      "reason": "Cosmetic; class-level autouse pattern applied previously to test_pipeline.py (B2#18). Not in W11D budget."
+    },
+    "B2#37 / B2#39 / B2#40 / B2#42 / B2#44 (cosmetic test-infra)": {
+      "status": "DEFERRED",
+      "reason": "Cluster of low-tier test-infra cosmetics (instafail addopts, pytest_plugins root location, _coverage_active dead code, thinc seed-overflow shim, --instafail in addopts). Each is a 1-3 LOC change; bundled defer to keep this manifest focused on correctness wins."
+    },
+    "B2#38 (suppress_convergence_warnings autouse blocks pytest.warns)": {
+      "status": "DEFERRED",
+      "reason": "Autouse catch_warnings + filterwarnings('ignore') interaction with pytest.warns is subtle; pytest.warns nests its own catch_warnings so child filter resets ARE supposed to win, but the audit flag is real for some pytest versions. Safer fix needs a marker-aware suppression OR moving to filterwarnings pyproject section. Defer pending behavior survey."
+    },
+    "C1 monolith carves (W11A scope)": {
+      "status": "OUT-OF-SCOPE",
+      "reason": "Wave 11A (monolith carves >1k LOC). Excluded per W11D task description."
+    },
+    "AP5 nightly findings (mps.py:129, biz_njit_poly_eval skipif)": {
+      "status": "OUT-OF-SCOPE",
+      "reason": "Wave 11B (numba CI bugs). Excluded per W11D task description. Already addressed in commits 290bd967 (mps) + cd6669a6 (biz_njit_poly_eval) by sibling W11B agent."
+    },
+    "AP15 (DiscoveryCache + SuiteArtefactCache joint-stash)": {
+      "status": "ARCH-DEFER",
+      "proposal": "audit/critique_2026_05_24/architectural_proposals/A5-discovery-suite-joint-stash.md",
+      "reason": "Read the W10B-landed proposal (c70c9317). Three options enumerated (do-nothing / DiscoveryCache-on-top / shared backend Protocol). Implementation is a multi-file refactor (composite_cache.py + suite_artefact_cache.py + backend Protocol + 6+ siblings) that changes eviction semantics (cross-cache eviction, filelock LRU sidecar -> mtime-based ordering). DOES NOT implement; awaiting user approval. Recommendation in proposal: Option A (do nothing) for now; Option C (shared backend Protocol) is the safer landing pattern for a future wave."
+    },
+    "D2 Low #20 (test_sklearn_compliance weakest assertion)": {
+      "status": "REJECTED",
+      "reason": "VERIFIED-ALREADY-FIXED at tests/test_sklearn_compliance.py:92; the current assert explicitly notes the prior weak `... or best_iter` boolean trap and asserts type/None membership. Critique referenced the pre-strengthening shape."
+    }
+  },
+  "commits_landed": [
+    {"hash": "4a9548ec", "subject": "fix(fe/basic): copy _DEFAULT_DATE_METHODS so callers cannot mutate the module-level singleton"},
+    {"hash": "b2d631ea", "subject": "fix(composite_transforms): guard _ratio_fit against all-non-finite / all-zero base"},
+    {"hash": "05386281", "subject": "feat(pipeline-cache): MLFRAME_PRE_PIPELINE_CACHE_MAX{,_BYTES} env overrides + byte-budget LRU eviction"},
+    {"hash": "60110565", "subject": "refactor(estimators/custom): replace .values with .to_numpy() and .columns.tolist()"},
+    {"hash": "9eef57e7", "subject": "fix(ensembling): emit promised WARN when winner resolves via test.* fallback"},
+    {"hash": "395ff949", "subject": "fix(ensembling/rrf): emit WARN when K=1 input hits the raw-RRF path"},
+    {"hash": "17e9cce9", "subject": "test(conftest): gate [MEM] cleanup_memory print behind MLFRAME_TEST_MEM_LOG=1"},
+    {"hash": "e910ff9c", "subject": "test(conftest): default PYTHONUNBUFFERED=1 so pytest -s streams output"}
+  ],
+  "test_results": {
+    "green_paths": [
+      "tests/feature_engineering/test_regression_w11d_basic_default_methods.py (3 tests)",
+      "tests/training/test_regression_w11d_ratio_fit_empty_base.py (4 tests)",
+      "tests/training/test_regression_w11d_pre_pipeline_cache_byte_budget.py (4 tests)",
+      "tests/training/test_regression_w11d_ensemble_chooser_test_warn.py (2 tests)",
+      "tests/models/test_regression_w11d_rrf_k1_warn.py (2 tests)"
+    ],
+    "red_paths": []
+  },
+  "blocked": [],
+  "final_verification_corrections": [
+    {
+      "row": "A2 Low #26 (MappingProxyType wrap)",
+      "current_status": "DEFERRED",
+      "actual_status": "DONE",
+      "evidence": "composite_transforms.py:295 TRANSFORMS_REGISTRY: Mapping = _MappingProxyType(_TRANSFORMS_REGISTRY)"
+    },
+    {
+      "row": "A2 Low #28 (online_refit_* docstring gap)",
+      "current_status": "DEFERRED (unindexed Low)",
+      "actual_status": "DONE",
+      "evidence": "_composite_target_estimator.py:85-91 documents all 4 online_refit_* params with default-OFF rationale"
+    },
+    {
+      "row": "A2 Low #25 (try/except/finally misleading comment)",
+      "current_status": "DEFERRED",
+      "actual_status": "DONE",
+      "evidence": "_pipeline_extensions.py:202 comment no longer has the meta-prose flagged by audit; replaced with substantive errors=ignore + nested try doc"
+    },
+    {
+      "row": "A5 Low #15 (WeakKeyDictionary doc gap)",
+      "current_status": "DEFERRED",
+      "actual_status": "DONE",
+      "evidence": "_phase_train_one_target.py:24-31 explains WeakKey vs id() recycle hazard pattern"
+    },
+    {
+      "row": "D2 Low #20 (test_sklearn_compliance weakest assertion)",
+      "current_status": "DEFERRED",
+      "actual_status": "DONE",
+      "evidence": "tests/test_sklearn_compliance.py:92 strengthened assert with explicit comment on prior weak `... or best_iter` boolean trap"
+    }
+  ],
+  "notes": [
+    "Hard budget 90min; total wall ~40min from heartbeat-start to manifest write.",
+    "8 commits landed under standard pre-commit hook flow (no --no-verify). All sensors GREEN.",
+    "AP15 (DiscoveryCache + SuiteArtefactCache joint-stash) read but DEFERRED per W11D task: architectural change requires user OK; recommendation in proposal is Option A (do-nothing) for now.",
+    "Per `feedback_show_all_agent_findings`: every in-scope row gets an explicit disposition (DONE / DEFERRED-with-reason / REJECTED-verified-already-fixed / ARCH-DEFER / OUT-OF-SCOPE).",
+    "Per `feedback_never_hide_low_findings`: Low-tier findings (A6 #39, A2 Low #25/26/28, A5 Low #15, D2 Low #20) all surfaced with rationale.",
+    "5 FINAL_VERIFICATION corrections enumerated under final_verification_corrections; recommend baseline doc update in next consolidation pass."
+  ]
+}
