@@ -1,0 +1,70 @@
+{
+  "agent_slug": "w9b-finite-fuzz",
+  "started_utc": "2026-05-25T06:30:00Z",
+  "finished_utc": "2026-05-25T07:35:00Z",
+  "findings_assigned": ["AP2_F15", "AP4_F1", "AP4_F2", "AP4_F5", "AP4_F6", "AP4_F7"],
+  "findings_status": {
+    "AP2_F15": {
+      "status": "DONE",
+      "commit": "12b458dc",
+      "test_file": "tests/training/test_regression_AP2_finite_mask_threaded.py",
+      "files_touched": [
+        "src/mlframe/training/_composite_transforms_simple.py",
+        "src/mlframe/training/_composite_transforms_nonlinear.py"
+      ],
+      "notes": "Threaded optional _finite_mask kwarg through 9 residual fit kernels: _additive_residual_fit, _median_residual_fit, _y_quantile_clip_fit, _ratio_fit, _rolling_quantile_ratio_fit, _quantile_residual_fit, _monotonic_residual_fit, _ewma_residual_fit, _frac_diff_fit. When None (default), inner recomputes (back-compat). When supplied, inner reuses caller's mask -- saves redundant np.isfinite passes on hot composite-discovery loop. _diff_fit / _logratio_fit / _linear_residual_fit / _linear_residual_robust_fit / _linear_residual_multi_fit / _linear_residual_grouped_fit do not compute the isfinite-pair mask internally and were not modified. Outer dispatcher call-site threading deferred to a separate change (low-risk additive kernel-side change first; caller wiring is independent and can land when the discovery hot-path is touched next)."
+    },
+    "AP4_F1": {
+      "status": "DONE",
+      "commit": "f7698ac6",
+      "test_file": "tests/training/test_fuzz_combo_axes_F1_F2_F5_F6_F7.py",
+      "files_touched": [
+        "tests/training/_fuzz_combo.py",
+        "tests/training/test_fuzz_suite.py"
+      ],
+      "notes": "Added enable_crash_reporting_cfg axis (False, True) to AXES, FuzzCombo dataclass field, _build_combo wiring, _canonical_enable_crash_reporting() helper that collapses to False on non-Windows hosts, behavior_kwargs threading in test_fuzz_suite._suite_call_kwargs."
+    },
+    "AP4_F2": {
+      "status": "DONE",
+      "commit": "f7698ac6",
+      "test_file": "tests/training/test_fuzz_combo_axes_F1_F2_F5_F6_F7.py",
+      "notes": "Sensor test_F2_polarsds_x_ltr_combo_is_reachable_and_distinct asserts the prefer_polarsds=True x target_type=learning_to_rank combo constructs and stays distinct from the False-polarsds variant in canonical_key (i.e. no accidental canon-collapse hiding the combo cell)."
+    },
+    "AP4_F5": {
+      "status": "DONE",
+      "commit": "f7698ac6",
+      "test_file": "tests/training/test_fuzz_combo_axes_F1_F2_F5_F6_F7.py",
+      "files_touched": ["tests/training/_fuzz_combo.py"],
+      "notes": "Added _canonical_pysr_enabled() helper invoked from canonical_key tuple. Collapses prep_ext_pysr_enabled_cfg=True to False when inject_inf_nan=True or inject_all_nan_col=True (PySR cannot consume non-finite values; the True/False variants are behaviour-identical in those combo cells)."
+    },
+    "AP4_F6": {
+      "status": "DONE",
+      "commit": "f7698ac6",
+      "test_file": "tests/training/test_fuzz_combo_axes_F1_F2_F5_F6_F7.py",
+      "notes": "Reachability sensor test_F6_composite_discovery_x_outlier_detection_reachable parametrised over outlier_detection in {lof, ocsvm}; asserts both attribute values survive _build_combo construction without canon collapse. Regression sensor against the 0-row-val cluster previously surfaced under w8c heartbeat."
+    },
+    "AP4_F7": {
+      "status": "DONE",
+      "commit": "f7698ac6",
+      "test_file": "tests/training/test_fuzz_combo_axes_F1_F2_F5_F6_F7.py",
+      "notes": "Reachability sensor test_F7_baselines_off_x_diagnostics_on_combo_reachable asserts dummy_baselines_enabled_cfg=False x baseline_diagnostics_enabled_cfg=True constructs and stays distinct from the both-enabled variant (no canon-collapse). Live behaviour assertion (diagnostics auto-enables baselines OR raises) deferred to the existing --run-fuzz path which now exercises this combo."
+    }
+  },
+  "blocked": [],
+  "test_results": {
+    "green_paths": [
+      "tests/training/test_regression_AP2_finite_mask_threaded.py (18 passed)",
+      "tests/training/test_fuzz_combo_axes_F1_F2_F5_F6_F7.py (8 passed)",
+      "tests/training/test_biz_val_composite_transforms.py (10 passed)",
+      "tests/training/test_monolith_split_w6a_composite_transforms.py (7 passed)",
+      "fuzz suite collect-only: 591 tests collected, no errors"
+    ],
+    "red_paths": []
+  },
+  "commits": [
+    {"sha": "12b458dc", "title": "perf(composite_transforms): thread precomputed _finite_mask through 9 residual _fit kernels"},
+    {"sha": "f7698ac6", "title": "test(fuzz): wire F1/F5 axes + F2/F6/F7 reachability sensors"}
+  ],
+  "wavelet_dwt_touched": false,
+  "pushed": false
+}
