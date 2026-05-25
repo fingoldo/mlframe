@@ -106,6 +106,15 @@ def _choose_ensemble_flavour(ensembles_dict: dict) -> str | None:
             _scored.sort(key=lambda kv: (kv[1], kv[0]))
         else:
             _scored.sort(key=lambda kv: (-kv[1], kv[0]))
+        # The module-top comment promises a "one-time WARN at first use" of the test.* fallback because using the honest test split for model selection biases every subsequent test-set metric optimistic. Surface that WARN so production runs reaching this branch are visible in the suite log.
+        if _split == "test":
+            logger.warning(
+                "[_choose_ensemble_flavour] resolved winner %r via test.%s (oof.* and val.* "
+                "metrics absent). Using test for selection converts it into a model-selection "
+                "surface and biases downstream test-set metrics; stamp OOF on every candidate "
+                "in production callers.",
+                _scored[0][0], _metric,
+            )
         return _scored[0][0]
     _fallback = next(iter(_candidates.keys()))
     logger.warning(
