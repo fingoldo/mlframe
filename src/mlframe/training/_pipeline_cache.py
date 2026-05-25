@@ -183,6 +183,63 @@ def _content_fingerprint_for_cache(arr) -> tuple:
         return _fresh_uncachable()
 
 
+def _full_x_content_hash(arr) -> str:
+    """Full blake2b content hash of an X frame for cache-key disambiguation.
+
+    The 4-row point-sample in ``_content_fingerprint_for_cache`` collides on two distinct X frames whose sampled positions (0, 8, n/2, n-1) happen to coincide -- common when a pre-pipeline transform mutates only the unsampled rows (outlier clip on the middle 90 % of the distribution, masked-row fillna, etc.). The per-target loop would then silently replay the prior target's fit-transform output even though the actual X content drifted.
+
+    Mirrors ``_full_y_content_hash`` (target side) and ``_full_x_content_hash`` (MRMR side) so the X/y guarantees are symmetric. Cost is O(rows*cols) bytes hashed -- a few ms even on a 1M-row frame, well under any cache benefit. Returns ``""`` on conversion failure so the caller can choose to skip the cache rather than serve a wrong replay.
+
+    Object-dtype frames (mixed-type pandas) cannot be hashed deterministically via tobytes; returns ``""`` so those callers fall back to the cheaper point-sample alone -- losing collision resistance but not soundness, because object-dtype hot paths are rare and a cache miss is the safe degradation.
+    """
+    if arr is None:
+        return ""
+    try:
+        if pl is not None and isinstance(arr, pl.DataFrame):
+            try:
+                np_arr = arr.to_numpy()
+            except Exception:
+                return ""
+            col_names = ",".join(str(c) for c in arr.columns)
+        elif pl is not None and isinstance(arr, pl.Series):
+            try:
+                np_arr = arr.to_numpy()
+            except Exception:
+                return ""
+            col_names = str(arr.name) if getattr(arr, "name", None) else ""
+        elif isinstance(arr, (pd.DataFrame, pd.Series)):
+            try:
+                np_arr = arr.to_numpy()
+            except Exception:
+                return ""
+            if isinstance(arr, pd.DataFrame):
+                col_names = ",".join(str(c) for c in arr.columns)
+            else:
+                col_names = str(arr.name) if arr.name is not None else ""
+        elif isinstance(arr, np.ndarray):
+            np_arr = arr
+            col_names = ""
+        else:
+            try:
+                np_arr = np.asarray(arr)
+            except Exception:
+                return ""
+            col_names = ""
+        if not hasattr(np_arr, "shape") or not hasattr(np_arr, "dtype"):
+            return ""
+        if np_arr.dtype == object:
+            return ""
+        buf = np.ascontiguousarray(np_arr).tobytes()
+        h = hashlib.blake2b(buf, digest_size=16)
+        h.update(str(np_arr.shape).encode())
+        h.update(str(np_arr.dtype).encode())
+        if col_names:
+            h.update(col_names.encode())
+        return h.hexdigest()
+    except Exception:
+        return ""
+
+
 def _full_target_content_hash(arr) -> str:
     """Full blake2b content hash of a 1-D / 2-D target-like array.
 
@@ -296,6 +353,8 @@ def _pre_pipeline_cache_key(train_df, val_df, pipeline, train_target=None, targe
         _content_fingerprint_for_cache(val_df),
         _content_fingerprint_for_cache(train_target),
         _full_target_content_hash(train_target),
+        _full_x_content_hash(train_df),
+        _full_x_content_hash(val_df),
         str(target_name) if target_name is not None else "",
         sig,
         _sw_fp,
