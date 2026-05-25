@@ -107,7 +107,7 @@ Per `feedback_show_all_agent_findings` and `feedback_use_all_agent_findings`: ev
 | A4#2 / S44 | P1 | `apply_polars_categorical_fixes` per-cat-col sync `.collect()` | DONE | 138cdf73 (w4a) + `test_regression_S44_polars_fixes_batched.py` |
 | A4#3 / S45 | P1 | `_median_residual_fit` / `_quantile_residual_fit` Python bin loop | DONE | 05688481 (w4b) + `test_regression_S45_median_residual_perf.py` |
 | A4#4 / S46 | P1 | `_ewma_kernel` / `_frac_diff_inverse_kernel` no parallel/dispatcher | DONE | 13326bcd + bc55aba (w4b) + `test_regression_S46_ewma_frac_diff_parallel.py` |
-| A4#5 / +P1 | P1 | `_cached_init_params` weight-loop rebuild | DEFERRED | Not addressed by w4a/w4c |
+| A4#5 / +P1 | P1 | `_cached_init_params` weight-loop rebuild | DONE | 5c6820ea (w4a follow-up `perf(training): hoist per-target invariants out of inner loops` - NGBoost get_params snapshot cached on first use + CB cat/text/embedding filter hoisted out of weight loop) + `tests/training/test_regression_S47_filter_polars_cat_hoisted.py::test_S47_ngb_fallback_snapshot_cached_outside_loop` sensor pins both hoists. Mis-tracked as DEFERRED in initial Wave-9 sweep; verified DONE by w10a-perf-residue audit on 2026-05-25 |
 | A4#6 / S47 | P1 | `_filter_polars_cat_features_by_dtype` invariant over weight loop | DONE | cea8a266 (w4a) + `test_regression_S47_filter_polars_cat_hoisted.py` |
 | A4#7 / S48 | P1 | train-pred cache keyed by `id(comp)` misses shim wrappers | DONE | 09d6899e (w4a) + `test_regression_S48_composite_cache_shim_aware.py` |
 | A4#8 / S49 | P1 | `memory_usage(deep=True)` multi-minute hot point | DONE | 4f3e2cec (w4a) + `test_regression_S49_memory_usage_polars_fastpath.py` |
@@ -466,7 +466,7 @@ Wave 9 commit attribution: 23 commits across 5 sub-waves (W9A 2 commits, W9B 2 c
 7. **A2#8 / S36** recursive subset `.copy()` in create_aggregated_features (P1).
 8. **A2#11 / S39** bruteforce rename mutating caller's frame in place (P1).
 9. **A2#12 / S40** `_ratio_fit` empty-array `np.median` warning pitfall (P1).
-10. **A4#5 / +P1** `_cached_init_params` weight-loop rebuild (P1).
+10. ~~**A4#5 / +P1** `_cached_init_params` weight-loop rebuild~~ (closed; verified DONE in 5c6820ea by w10a-perf-residue audit on 2026-05-25).
 11. **A5#4 / S51** Per-target select_target template rebuild (P1).
 12. **A5#5 / S52** `DiscoveryCache` vs `FeatureCache` parallel disk-cache divergence (P1).
 13. **A5#7 / S54** `_PRE_PIPELINE_CACHE_MAX=8` no byte budget (P1).

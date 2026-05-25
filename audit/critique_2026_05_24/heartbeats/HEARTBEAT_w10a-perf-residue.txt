@@ -1,0 +1,1 @@
+﻿w10a-perf-residue DONE - all A4 P2/Low items verified DONE in prior commits; A4#5 status corrected in FINAL_VERIFICATION; manifest written
