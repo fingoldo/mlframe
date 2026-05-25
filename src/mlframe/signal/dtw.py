@@ -308,21 +308,48 @@ def set_dtw_dispatch_threshold(n_cells: int) -> None:
     _DEFAULT_GPU_MIN_CELLS = int(n_cells)
 
 
+_KERNEL_TUNING_CACHE = None  # populated lazily by _lookup_dtw_threshold
+_KERNEL_TUNING_CACHE_LOAD_FAILED = False  # sticky so we don't re-attempt
+_LOOKUP_DTW_THRESHOLD_MEMO: dict[int, int] = {}
+
+
 def _lookup_dtw_threshold(n_cells: int) -> int:
-    """Consult ``kernel_tuning_cache`` for the per-HW crossover. Mirror
-    of the polyeval / joint_hist_batched dispatcher pattern: cache
-    lookup wins, source-code default is the fallback. Cache key
+    """Consult ``kernel_tuning_cache`` for the per-HW crossover.
+
+    Mirror of the polyeval / joint_hist_batched dispatcher pattern:
+    cache lookup wins, source-code default is the fallback. Cache key
     schema: ``dtw_dispatch`` kernel, region keyed by ``n_cells``;
     region returns ``{"gpu_min_cells": int}``.
+
+    Two-tier memoization (2026-05-25):
+    * Per-call cache lookup was 270 ms hot / ~6 s cold per dispatch.
+      Refined-typewell calls ``dtw_dispatch`` many times per well, so
+      we now load the ``KernelTuningCache`` ONCE at module level and
+      memoize the threshold per (n_cells) key.
+    * Sticky ``_KERNEL_TUNING_CACHE_LOAD_FAILED`` so a missing
+      pyutilz.kernel_tuning_cache module doesn't re-raise on every
+      call.
     """
-    try:
-        from pyutilz.system.kernel_tuning_cache import KernelTuningCache
-        _cache = KernelTuningCache.load_or_create()
-        _entry = _cache.lookup("dtw_dispatch", n_cells=int(n_cells))
-        if _entry and "gpu_min_cells" in _entry:
-            return int(_entry["gpu_min_cells"])
-    except Exception:
-        pass
+    global _KERNEL_TUNING_CACHE, _KERNEL_TUNING_CACHE_LOAD_FAILED
+    memo = _LOOKUP_DTW_THRESHOLD_MEMO.get(int(n_cells))
+    if memo is not None:
+        return memo
+    if _KERNEL_TUNING_CACHE is None and not _KERNEL_TUNING_CACHE_LOAD_FAILED:
+        try:
+            from pyutilz.system.kernel_tuning_cache import KernelTuningCache
+            _KERNEL_TUNING_CACHE = KernelTuningCache.load_or_create()
+        except Exception:
+            _KERNEL_TUNING_CACHE_LOAD_FAILED = True
+    if _KERNEL_TUNING_CACHE is not None:
+        try:
+            _entry = _KERNEL_TUNING_CACHE.lookup("dtw_dispatch", n_cells=int(n_cells))
+            if _entry and "gpu_min_cells" in _entry:
+                result = int(_entry["gpu_min_cells"])
+                _LOOKUP_DTW_THRESHOLD_MEMO[int(n_cells)] = result
+                return result
+        except Exception:
+            pass
+    _LOOKUP_DTW_THRESHOLD_MEMO[int(n_cells)] = _DEFAULT_GPU_MIN_CELLS
     return _DEFAULT_GPU_MIN_CELLS
 
 
