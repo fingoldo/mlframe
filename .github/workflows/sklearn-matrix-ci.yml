@@ -53,12 +53,13 @@ concurrency:
 
 jobs:
   test:
-    name: sklearn ${{ matrix.sklearn-version }} on py${{ matrix.python-version }}
-    runs-on: ubuntu-latest
+    name: sklearn ${{ matrix.sklearn-version }} on py${{ matrix.python-version }} / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest]
         python-version: ["3.11"]
         # Active sklearn versions in production use. Exact pins make
         # breakage attributable to the specific minor.
@@ -67,6 +68,19 @@ jobs:
           - "1.6.1"  # validation changes; LightGBM 4.5+ polars edge
           - "1.7.2"  # current most-installed across user base
           - "1.8.0"  # latest stable
+        include:
+          # Cross-Python: py3.13 catches sklearn-deprecation warnings under the
+          # newest numpy ABI; only the latest sklearn is exercised (older sklearn
+          # versions pre-date py3.13 wheel availability).
+          - os: ubuntu-latest
+            python-version: "3.13"
+            sklearn-version: "1.8.0"
+          # Cross-OS: Windows on py3.11 + the most-installed sklearn catches
+          # filesystem / signal-handling differences that surface in the composite
+          # test suite (e.g. tempfile + joblib pickle on Windows).
+          - os: windows-latest
+            python-version: "3.11"
+            sklearn-version: "1.7.2"
 
     steps:
       - name: Checkout

@@ -438,3 +438,16 @@ disallow_untyped_defs = true
 disallow_incomplete_defs = true
 warn_return_any = true
 no_implicit_optional = true
+
+# Second strict-mode beachhead: ``mlframe.utils.safe_pickle`` (162 LOC) -- shipped post-2026-05 with
+# full annotations + ``from __future__ import annotations``, public surface consumed by the four
+# pickle entry points (predict / inference / FE cache / composite cache) so type drift would cascade
+# straight to the on-disk format. Other utils modules (eda, experiments, misc, text, nan_safe) still
+# use the legacy ``from typing import *`` pattern, incomplete annotations, or numpy-return-any
+# patterns; they remain off strict-mode until dedicated typing passes land them.
+[[tool.mypy.overrides]]
+module = "mlframe.utils.safe_pickle"
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+warn_return_any = true
+no_implicit_optional = true

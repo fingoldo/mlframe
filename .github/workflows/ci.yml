@@ -31,6 +31,11 @@ jobs:
             python-version: "3.11"
           - os: windows-latest
             python-version: "3.13"
+          # macOS arm64 coverage on a single representative Python. Polars + numba JIT paths
+          # differ on Darwin (Accelerate BLAS, libomp linkage, distinct wheels); one row catches
+          # macOS-specific regressions without ballooning the runner-minute budget.
+          - os: macos-latest
+            python-version: "3.11"
 
     steps:
       - uses: actions/checkout@v4
@@ -71,7 +76,7 @@ jobs:
       # On Windows, pytest-cov can hit a PermissionError on .coverage file locks
       # (see project memory `feedback_pytest_no_cov`); drop coverage there.
       - name: Run tests (Linux, with coverage)
-        if: runner.os != 'Windows'
+        if: runner.os == 'Linux'
         env:
           PYTHONUNBUFFERED: "1"
         run: |
@@ -89,6 +94,14 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: |
           pytest -m "not slow and not gpu and not multigpu and not linux_only" --no-cov -n auto -p no:randomly --timeout=300
+
+      # macOS path: skip linux_only markers; no coverage to keep parity with Windows lightweight job.
+      - name: Run tests (macOS, no coverage)
+        if: runner.os == 'macOS'
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: |
+          pytest -m "not slow and not gpu and not multigpu and not linux_only and not windows_only" --no-cov -n auto -p no:randomly --timeout=300
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
