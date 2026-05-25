@@ -438,8 +438,11 @@ def predict_from_models(
                     # Wave 89 (2026-05-21): LGB + XGB cat dtype coercion lifted
                     # to module-level _coerce_cat_dtype_for_lgb_xgb. Same logic,
                     # one call instead of two adjacent ~40-line blocks.
+                    # Thread persisted enum_domains (train-time Enum dictionaries) through so the polars XGB cat-cast lands on pl.Enum (per-Series, no global-string-cache widening). Out-of-domain values cast to null via strict=False (matches training treatment of truly-unseen test categories). Legacy bundles without enum_domains key fall back to pl.Categorical with WARN.
+                    _enum_domains = metadata.get("enum_domains") if isinstance(metadata, dict) else None
                     input_for_model = _coerce_cat_dtype_for_lgb_xgb(
                         input_for_model, model=model, cat_features=_cat_features,
+                        enum_domains=_enum_domains,
                     )
 
                     # Pre-main-pipeline fallback. Models with internal

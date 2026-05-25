@@ -32,10 +32,7 @@ def test_precomputed_union_keeps_rare_val_category_alive():
     # Precomputed union (pre-OD) - this is what fix (b) threads in.
     precomputed = {"cat": ["A", "B", "rare_X"]}
 
-    (train_out, val_out, _,
-     _, _, _,
-     _, _,
-     ) = apply_polars_categorical_fixes(
+    _result = apply_polars_categorical_fixes(
         train_df_polars=train_post,
         val_df_polars=val,
         test_df_polars=None,
@@ -51,6 +48,7 @@ def test_precomputed_union_keeps_rare_val_category_alive():
         verbose=False,
         precomputed_category_union=precomputed,
     )
+    train_out, val_out = _result.train_df_polars, _result.val_df_polars
     # val's 'rare_X' must NOT become null after Enum cast.
     val_cat_col = val_out["cat"]
     null_count = int(val_cat_col.is_null().sum())

@@ -102,14 +102,25 @@ def prepare_df_for_catboost(
         if numeric_exprs:
             df = df.with_columns(numeric_exprs)
 
-        # Categorical features
+        # Categorical features. Two bare ``pl.Categorical`` casts below remain because this helper
+        # has no Enum-domain context (caller path: CB inference / standalone use); warn-once so the
+        # operator notices the global-string-cache widening and threads enum domains via the suite
+        # train path instead (see _phase_polars_fixes.apply_polars_categorical_fixes).
         cat_exprs = []
         for var in tqdmu(cols, desc="Processing categorical features for CatBoost...", leave=False):
             dtype = df[var].dtype
             is_cat = dtype == pl.Categorical or isinstance(dtype, pl.Enum)
             if is_cat:
                 if df[var].is_null().any():
-                    cat_exprs.append(pl.col(var).cast(pl.String).fill_null(na_filler).cast(pl.Categorical))
+                    if isinstance(dtype, pl.Enum):
+                        # Preserve the per-Series Enum domain by re-casting back into the SAME Enum after the str-roundtrip.
+                        _enum_dom = list(dtype.categories.to_list()) if hasattr(dtype.categories, "to_list") else list(dtype.categories)
+                        if na_filler not in _enum_dom:
+                            _enum_dom = _enum_dom + [na_filler]
+                        cat_exprs.append(pl.col(var).cast(pl.String).fill_null(na_filler).cast(pl.Enum(_enum_dom)))
+                    else:
+                        logger.warning("prepare_df_for_catboost: bare pl.Categorical re-cast for null-fill on %r (widens global string cache). Prefer pl.Enum upstream.", var)
+                        cat_exprs.append(pl.col(var).cast(pl.String).fill_null(na_filler).cast(pl.Categorical))
                 if var not in cat_features:
                     if verbose:
                         logging.info("%s appended to cat_features", var)
@@ -120,6 +131,7 @@ def prepare_df_for_catboost(
                     expr = expr.fill_null(na_filler)
                 if ensure_categorical:
                     try:
+                        logger.warning("prepare_df_for_catboost: bare pl.Categorical cast for %r (widens global string cache). Prefer pl.Enum upstream.", var)
                         expr = expr.cast(pl.Categorical)
                     except Exception:
                         logger.warning(f"Could not convert column {var} to categorical.")

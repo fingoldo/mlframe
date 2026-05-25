@@ -691,11 +691,7 @@ def train_mlframe_models_suite(
             group_ids=group_ids,
         )
 
-    (
-        train_df_polars, val_df_polars, test_df_polars,
-        train_df_pd, val_df_pd, test_df_pd,
-        filtered_train_df, filtered_val_df,
-    ) = pr.apply_polars_categorical_fixes(
+    _polars_fixes_result = pr.apply_polars_categorical_fixes(
         train_df_polars=train_df_polars,
         val_df_polars=val_df_polars,
         test_df_polars=test_df_polars,
@@ -710,6 +706,15 @@ def train_mlframe_models_suite(
         was_polars_input=was_polars_input,
         verbose=bool(verbose),
     )
+    (
+        train_df_polars, val_df_polars, test_df_polars,
+        train_df_pd, val_df_pd, test_df_pd,
+        filtered_train_df, filtered_val_df,
+    ) = _polars_fixes_result[:8]
+    # Persist the train+val Enum domain into metadata so predict-time XGB-polars cat-cast lands on pl.Enum (no global string cache widening) and OOV test-only categories cast to null via strict=False -- matches training's "truly unseen test" treatment and prevents silent stale-category accumulation across inference calls.
+    _enum_domains_export = getattr(_polars_fixes_result, "enum_domains", None) or {}
+    if _enum_domains_export:
+        metadata.setdefault("enum_domains", {}).update(_enum_domains_export)
     # Write the filled frames BACK to ctx. ``_train_one_target`` later
     # does ``train_df_polars = ctx.train_df_polars``; without this
     # back-write it would read the pre-fix frames with nulls still in

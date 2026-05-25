@@ -271,8 +271,8 @@ def _combine_probs(
 
 
 
-def _coerce_cat_dtype_for_lgb_xgb(input_for_model, *, model, cat_features):
-    """Cast cat_features to pandas ``category`` (or pl.Categorical for polars XGB).
+def _coerce_cat_dtype_for_lgb_xgb(input_for_model, *, model, cat_features, enum_domains=None):
+    """Cast cat_features to pandas ``category`` (or pl.Enum / pl.Categorical for polars XGB).
 
     Wave 89 (2026-05-21): extracted from the predict.py:1372 mega-try body.
     Combines two adjacent ~40-line blocks (LGB + XGB) that share the same
@@ -333,12 +333,23 @@ def _coerce_cat_dtype_for_lgb_xgb(input_for_model, *, model, cat_features):
     # categorical dtype natively without an explicit cast.
     if _is_xgb:
         _pl_cast_exprs = []
+        _enum_domains = enum_domains or {}
         for _cf in cat_features:
             if _cf not in input_for_model.columns:
                 continue
             _dt = input_for_model.schema.get(_cf)
             if _dt in (pl.String, pl.Utf8) or str(_dt).startswith("LargeString"):
-                _pl_cast_exprs.append(pl.col(_cf).cast(pl.Categorical))
+                _dom = _enum_domains.get(_cf)
+                if _dom:
+                    # Persisted Enum domain from training: out-of-domain values cast to null via strict=False (matches training semantics for "truly unseen" test categories) and avoids widening the polars global string cache.
+                    _pl_cast_exprs.append(pl.col(_cf).cast(pl.Enum(list(_dom)), strict=False))
+                else:
+                    # Legacy bundle without persisted enum_domains: fall back to pl.Categorical with a one-time WARN. Categorical participates in the process-wide string cache that grows monotonically; subsequent inference calls accumulate stale categories. Re-train + re-save the bundle to populate enum_domains.
+                    logger.warning(
+                        "predict_from_models: XGB polars cat-cast for %r falling back to pl.Categorical (no enum_domains in bundle). Widens global string cache; re-train+save to persist enum domain.",
+                        _cf,
+                    )
+                    _pl_cast_exprs.append(pl.col(_cf).cast(pl.Categorical))
         if _pl_cast_exprs:
             try:
                 input_for_model = input_for_model.with_columns(_pl_cast_exprs)
