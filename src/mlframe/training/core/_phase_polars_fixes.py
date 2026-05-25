@@ -33,6 +33,8 @@ class PolarsCategoricalFixesResult(NamedTuple):
     test_df_pd: Any
     filtered_train_df: Any
     filtered_val_df: Any
+    # Mapping of cat_feature -> sorted train+val union (post-OD, with __MISSING__ sentinel if applied). Persisted into model metadata so predict-time cat-cast lands on pl.Enum against the SAME domain (no global string cache widening, OOV values cast to null via strict=False). Empty dict when align_polars_categorical_dicts=False or the polars path didn't run.
+    enum_domains: Optional[Dict[str, List[str]]] = None
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +68,10 @@ def _cast_utf8_cats_to_categorical(
             else:
                 # Last-resort fallback when caller did not thread an enum domain in (e.g. legacy
                 # caller of _cast_utf8_cats_to_categorical without precomputed_category_union).
+                logger.warning(
+                    "Falling back to pl.Categorical cast for column %r -- widens polars global string cache (pl.disable_string_cache() is a no-op in polars 1.x). Supply precomputed_category_union or enable align_polars_categorical_dicts to use pl.Enum.",
+                    c,
+                )
                 exprs.append(pl.col(c).cast(pl.Categorical))
     return df_.with_columns(exprs) if exprs else df_
 
@@ -356,6 +362,16 @@ def apply_polars_categorical_fixes(
             if test_df_polars is not None:
                 test_df_pd = test_df_polars
 
+    # Merge precomputed unions over runtime-built ones so the returned snapshot reflects exactly the Enum domains the cast lands on (precomputed-OD path > train+val union path).
+    _exported_domains: Dict[str, List[str]] = {}
+    for _k, _v in _enum_domains_built.items():
+        _exported_domains[_k] = list(_v)
+    for _k, _v in (precomputed_category_union or {}).items():
+        try:
+            _exported_domains[_k] = sorted(set(_v), key=str)
+        except Exception:
+            _exported_domains[_k] = list(_v)
+
     return PolarsCategoricalFixesResult(
         train_df_polars=train_df_polars,
         val_df_polars=val_df_polars,
@@ -365,4 +381,5 @@ def apply_polars_categorical_fixes(
         test_df_pd=test_df_pd,
         filtered_train_df=filtered_train_df,
         filtered_val_df=filtered_val_df,
+        enum_domains=_exported_domains,
     )
