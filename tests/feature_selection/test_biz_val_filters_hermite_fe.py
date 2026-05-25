@@ -222,6 +222,10 @@ def test_biz_plugin_mi_50x_faster_than_ksg_with_same_optimum():
     )
 
 
+@pytest.mark.skipif(
+    os.environ.get("NUMBA_DISABLE_JIT") == "1",
+    reason="njit perf-floor untestable when JIT is disabled; under NUMBA_DISABLE_JIT=1 the @njit kernel runs as pure Python and is slower than the C-vectorized numpy baseline by design (the coverage profile gates correctness, not perf).",
+)
 def test_biz_njit_poly_eval_3x_faster_than_numpy_at_n2k():
     """njit Hermite eval should be >=3x faster than numpy hermeval at
     n=2000 deg=4. Measured 2026-05-10: 3.7x. Skips if numba not
