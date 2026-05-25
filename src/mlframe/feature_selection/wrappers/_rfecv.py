@@ -194,7 +194,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         importance_getter: Union[str, Callable, None] = None,
         random_state: int = None,
         leave_progressbars: bool = True,
-        verbose: Union[bool, int] = 1,
+        verbose: Union[bool, int] = 0,
         show_plot: bool = False,
         optimizer_plotting: Union[str, None] = None,  # Controls Optimizer plotting: 'No', 'Final', 'OnScoreImprovement', 'Regular'
         cat_features: Union[Sequence, None] = None,

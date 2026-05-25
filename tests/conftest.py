@@ -263,47 +263,6 @@ except (ImportError, OSError, RuntimeError) as exc:  # pragma: no cover
     pass
 
 
-# RFECV defaults to verbose=1 which floods the test log with tqdm progress lines
-# ("RFECV: trying 15F, had 2F with score -1.96, best was 2F ..."). In a test
-# session we want quiet by default; tests that explicitly want to assert on the
-# verbose path can still pass verbose>=1 themselves. Monkey-patches __init__ to
-# only inject verbose=0 when the caller did not specify it.
-#
-# IDEMPOTENCY: a sentinel attribute guards against double-patching. Without it,
-# any code path that re-imports tests/conftest.py (xdist worker bootstrap, or a
-# test file doing ``from tests.conftest import ...``) re-wraps the
-# already-wrapped function, building a recursion chain that blows the stack on
-# the Nth re-import (observed as ``RecursionError: maximum recursion depth
-# exceeded`` cascade across test_metrics + test_estimators on big-iron xdist
-# runs).
-try:
-    from mlframe.feature_selection.wrappers._rfecv import RFECV as _RFECV  # noqa: E402
-    if not getattr(_RFECV.__init__, "_mlframe_test_quieted", False):
-        _orig_rfecv_init = _RFECV.__init__
-
-        def _quiet_rfecv_init(self, *args, **kwargs):
-            kwargs.setdefault("verbose", 0)
-            return _orig_rfecv_init(self, *args, **kwargs)
-
-        # sklearn's clone() / get_params() / BaseEstimator._get_param_names()
-        # introspects ``__init__.__signature__`` and REFUSES the estimator if
-        # it sees ``*args`` / ``**kwargs`` ("scikit-learn estimators should
-        # always specify their parameters in the signature of their
-        # __init__"). Copy the original signature onto the wrapper so the
-        # introspection succeeds; the wrapper still injects ``verbose=0`` at
-        # the kwargs level when the caller omits it.
-        import inspect as _inspect
-        try:
-            _quiet_rfecv_init.__signature__ = _inspect.signature(_orig_rfecv_init)
-        except (TypeError, ValueError):  # pragma: no cover - non-introspectable
-            pass
-        _quiet_rfecv_init.__wrapped__ = _orig_rfecv_init
-        _quiet_rfecv_init._mlframe_test_quieted = True
-        _RFECV.__init__ = _quiet_rfecv_init
-except (ImportError, OSError, RuntimeError):  # pragma: no cover
-    pass
-
-
 # pyutilz.system.tqdmu wraps tqdm.tqdm but does NOT honour any global "disable"
 # env var, so MRMR's per-pair / "getting pairs MIs" / "Interactions order" bars
 # spam the test log unconditionally regardless of any verbose flag we pass.
