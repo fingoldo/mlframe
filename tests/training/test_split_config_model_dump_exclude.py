@@ -32,18 +32,37 @@ _CALLER_SIDE_FIELDS = (
 )
 
 
-def test_phase_helpers_fit_split_excludes_caller_side_fields() -> None:
+def test_phase_helpers_fit_split_uses_signature_derived_filter() -> None:
+    """The model_dump filter MUST be derived from the splitter's signature
+    at runtime, not a hardcoded list. Hardcoded lists drift: prod TVT
+    2026-05-25 surfaced TWO consecutive TypeErrors when caller-side fields
+    were added without exclude updates. The runtime-signature filter
+    catches any future field addition automatically."""
     import mlframe.training.core._phase_helpers_fit_split as ph
     src = Path(ph.__file__).read_text(encoding="utf-8")
-    # Locate the exclude clause via a substring sensor. We don't AST-
-    # parse because the exclude set may be on a single line or split
-    # across lines; the substring test catches the common shapes.
+    assert "inspect.signature(make_train_test_split).parameters" in src, (
+        "phase_helpers_fit_split must inspect the splitter signature at "
+        "runtime to filter the model_dump kwargs; hardcoded exclude lists "
+        "drift out of sync."
+    )
+
+
+def test_phase_helpers_fit_split_filter_drops_all_caller_side_fields() -> None:
+    """End-to-end: simulate the suite filter behaviour and verify each
+    documented caller-side field gets dropped before the splitter call."""
+    import inspect
+    from mlframe.training._preprocessing_configs import TrainingSplitConfig
+    from mlframe.training.splitting import make_train_test_split
+    cfg = TrainingSplitConfig()
+    splitter_kwargs = set(inspect.signature(make_train_test_split).parameters)
+    explicit = {"df", "timestamps", "stratify_y", "groups"}
+    filtered = {k: v for k, v in cfg.model_dump().items()
+                if k in splitter_kwargs and k not in explicit}
     for field in _CALLER_SIDE_FIELDS:
-        assert f'"{field}"' in src or f"'{field}'" in src, (
-            f"TrainingSplitConfig caller-side field {field!r} not "
-            f"excluded in _phase_helpers_fit_split.py. Add it to the "
-            f"exclude={{}} set on the model_dump() call so the "
-            f"splitter doesn't TypeError on the kwarg."
+        assert field not in filtered, (
+            f"Caller-side field {field!r} survived the signature-derived "
+            f"filter; check that make_train_test_split.signature doesn't "
+            f"accept it and TrainingSplitConfig still declares it."
         )
 
 
