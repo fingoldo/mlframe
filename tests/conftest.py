@@ -464,3 +464,46 @@ def suppress_convergence_warnings():
         warnings.filterwarnings("ignore", message=".*lbfgs failed to converge.*")
         warnings.filterwarnings("ignore", message=".*Objective did not converge.*")
         yield
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _purge_stale_test_caches():
+    """Wipe stale pytest / numba on-disk caches older than 7 days so they don't bleed across sessions.
+
+    Empirically observed: stale ``.pytest_cache/v/cache/nodeids`` from a different pytest binary version makes the
+    next session crash at collection ("KeyError: 'lastfailed'") or silently lose stepwise / lf state; stale
+    ``.nbc/`` numba dirs from a pre-fastmath kernel rebuild make the next session run the wrong cached AOT module
+    until manually wiped. Auto-purge anything older than 7 days at session start so the typical week-old artefact
+    doesn't trip the next dev / CI session. Recent caches (under 7 days) stay - that's the active working set.
+
+    Honour ``MLFRAME_KEEP_TEST_CACHES=1`` for the rare debug scenario where the user wants to keep stale caches in
+    place (e.g. bisecting a cache-invalidation bug). Failures during purge are non-fatal: a missing dir / a
+    permission-denied on a single file should not block the session."""
+    if os.environ.get("MLFRAME_KEEP_TEST_CACHES", "").strip() in ("1", "true", "True"):
+        yield
+        return
+    import time
+    from pathlib import Path
+    cutoff = time.time() - 7 * 24 * 3600
+    repo_root = Path(__file__).resolve().parent.parent
+    cache_dirs = (
+        repo_root / ".pytest_cache",
+        repo_root / ".nbc",
+        repo_root / ".numba_cache",
+        repo_root / "__pycache__" / "test_stragglers",
+    )
+    for cache_dir in cache_dirs:
+        if not cache_dir.exists():
+            continue
+        try:
+            mtime = cache_dir.stat().st_mtime
+        except OSError:
+            continue
+        if mtime >= cutoff:
+            continue
+        try:
+            import shutil
+            shutil.rmtree(cache_dir, ignore_errors=True)
+        except Exception:
+            pass
+    yield
