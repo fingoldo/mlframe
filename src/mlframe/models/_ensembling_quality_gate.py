@@ -80,22 +80,53 @@ def compute_member_quality_gate(
         return list(range(n)), [], {"k2_disagreement": _disagreement, "filter_too_restrictive": False}
 
     arr = np.asarray(preds_list, dtype=np.float64)
-    # Weighted median when sample_weight is supplied (numpy>=1.22). Falls back to unweighted on
-    # older numpy or weight-shape mismatch. group_ids further coarsens the per-row weighting by
-    # one-row-per-group (so a single dense group doesn't dominate the median) -- when supplied we
-    # collapse per-group weight sums and feed those to the quantile.
+    # ``sample_weight`` is per-row; ``group_ids`` (when supplied) is the grouping vector used to
+    # de-duplicate dense groups so a single group with 100 rows doesn't dominate the per-member
+    # MAE aggregation. Pre-fix the collapse computed ``_group_sum / _group_size`` then broadcast
+    # back via ``[_inv]`` -- this produces N per-row weights (the GROUP MEAN per row), so the
+    # downstream weighted mean over N rows still touches every row, NOT one row per group as the
+    # docstring promised. Replace with a true per-group collapse: each unique group contributes
+    # ONE entry (its summed weight); the per-member MAE branch below then aggregates over
+    # ``arr_by_group`` rather than ``arr`` so dense groups carry the same impact as singleton
+    # groups (after weighting). Falls through to legacy per-row path when group_ids is absent or
+    # shape-misaligned, preserving the existing weighted-MAE branch.
+    arr_by_group: Optional[np.ndarray] = None
+    sw_by_group: Optional[np.ndarray] = None
     if sample_weight is not None:
         _sw = np.asarray(sample_weight, dtype=np.float64).reshape(-1)
         if group_ids is not None and arr.ndim >= 2 and _sw.shape[0] == arr.shape[1]:
             _gids = np.asarray(group_ids).reshape(-1)
             if _gids.shape[0] == arr.shape[1]:
                 _uniq, _inv = np.unique(_gids, return_inverse=True)
-                _group_sum = np.zeros(_uniq.shape[0], dtype=np.float64)
-                np.add.at(_group_sum, _inv, _sw)
-                # Broadcast back to per-row -- each row gets its group's aggregate divided by group size.
-                _group_size = np.zeros(_uniq.shape[0], dtype=np.float64)
-                np.add.at(_group_size, _inv, 1.0)
-                _sw = (_group_sum / np.where(_group_size > 0, _group_size, 1.0))[_inv]
+                _G = _uniq.shape[0]
+                # ONE row per group: per-group prediction = sample-weight-AVERAGE within group;
+                # per-group weight = MEAN of sw within group (NOT the sum). Pre-fix the broadcast-
+                # back-to-N code divided sw by group_size then re-expanded, producing the per-row
+                # mean weight -- arithmetically identical to the original per-row weighting and
+                # therefore a no-op. The new collapse to G groups means a dense group with 100 rows
+                # contributes exactly ONE effective row to the downstream weighted MAE, as the
+                # docstring promised.
+                _w_sum = np.zeros(_G, dtype=np.float64)
+                np.add.at(_w_sum, _inv, _sw)
+                _count = np.zeros(_G, dtype=np.float64)
+                np.add.at(_count, _inv, 1.0)
+                _safe_count = np.where(_count > 0, _count, 1.0)
+                _group_w_mean = _w_sum / _safe_count
+                if arr.ndim == 2:
+                    # Sample-weight-aware per-group prediction average: sum(p*sw) / sum(sw).
+                    _wsum = np.zeros((arr.shape[0], _G), dtype=np.float64)
+                    for _mi in range(arr.shape[0]):
+                        np.add.at(_wsum[_mi], _inv, arr[_mi] * _sw)
+                    _denom = np.where(_w_sum > 0, _w_sum, 1.0)
+                    arr_by_group = _wsum / _denom[None, :]
+                else:
+                    _wsum = np.zeros((arr.shape[0], _G, arr.shape[2]), dtype=np.float64)
+                    for _mi in range(arr.shape[0]):
+                        for _ci in range(arr.shape[2]):
+                            np.add.at(_wsum[_mi, :, _ci], _inv, arr[_mi, :, _ci] * _sw)
+                    _denom = np.where(_w_sum > 0, _w_sum, 1.0)
+                    arr_by_group = _wsum / _denom[None, :, None]
+                sw_by_group = _group_w_mean
     # ``np.nanmedian`` over ``np.nanquantile(arr, 0.5, ...)``: the q=0.5 codepath
     # in nanquantile dispatches through ``apply_along_axis``, which iterates the
     # non-axis dimensions in Python (200k rows -> 200k 1-D calls); nanmedian
@@ -117,20 +148,23 @@ def compute_member_quality_gate(
     # statistic is "how far is THIS member from the cross-member median, averaged over rows". When
     # rows carry weights we use the same weights to average per-row absolute deviations -- this
     # only matters if sample_weight varies a lot, which is the regime where unweighted would
-    # otherwise misrank.
+    # otherwise misrank. When ``arr_by_group`` is populated (group_ids supplied) we operate on the
+    # per-group aggregates with per-group summed weights so dense groups contribute the same as
+    # singleton groups (after their summed weight), restoring the "one row per group" semantics
+    # the pre-fix code claimed but did not deliver.
     if sample_weight is not None:
-        _sw_b = np.asarray(sample_weight, dtype=np.float64).reshape(-1)
-        if arr.ndim >= 2 and _sw_b.shape[0] == arr.shape[1]:
-            # Recompute per-member MAE using np.average to honour the weights.
-            diffs = np.abs(arr - median_preds)
-            if arr.ndim == 2:
+        if arr_by_group is not None and sw_by_group is not None:
+            _arr_eff = arr_by_group
+            _med_eff = np.nanmedian(_arr_eff, axis=0)
+            _sw_b = sw_by_group
+            diffs = np.abs(_arr_eff - _med_eff)
+            if _arr_eff.ndim == 2:
                 per_member_mae = np.array([float(np.average(diffs[i], weights=_sw_b)) for i in range(diffs.shape[0])])
                 per_member_std = np.array([
                     float(np.sqrt(np.average((diffs[i] - per_member_mae[i]) ** 2, weights=_sw_b)))
                     for i in range(diffs.shape[0])
                 ])
             else:
-                # (K, N, C) -- average over (N, C) with broadcasted sample_weight on the N axis.
                 per_member_mae = np.array([
                     float(np.average(diffs[i].mean(axis=-1), weights=_sw_b)) for i in range(diffs.shape[0])
                 ])
@@ -138,6 +172,26 @@ def compute_member_quality_gate(
                     float(np.sqrt(np.average((diffs[i].mean(axis=-1) - per_member_mae[i]) ** 2, weights=_sw_b)))
                     for i in range(diffs.shape[0])
                 ])
+        else:
+            _sw_b = np.asarray(sample_weight, dtype=np.float64).reshape(-1)
+            if arr.ndim >= 2 and _sw_b.shape[0] == arr.shape[1]:
+                # Recompute per-member MAE using np.average to honour the weights.
+                diffs = np.abs(arr - median_preds)
+                if arr.ndim == 2:
+                    per_member_mae = np.array([float(np.average(diffs[i], weights=_sw_b)) for i in range(diffs.shape[0])])
+                    per_member_std = np.array([
+                        float(np.sqrt(np.average((diffs[i] - per_member_mae[i]) ** 2, weights=_sw_b)))
+                        for i in range(diffs.shape[0])
+                    ])
+                else:
+                    # (K, N, C) -- average over (N, C) with broadcasted sample_weight on the N axis.
+                    per_member_mae = np.array([
+                        float(np.average(diffs[i].mean(axis=-1), weights=_sw_b)) for i in range(diffs.shape[0])
+                    ])
+                    per_member_std = np.array([
+                        float(np.sqrt(np.average((diffs[i].mean(axis=-1) - per_member_mae[i]) ** 2, weights=_sw_b)))
+                        for i in range(diffs.shape[0])
+                    ])
 
     # Wave 21 P1: nanmedian so a NaN-bearing per-member statistic doesn't
     # silently make the threshold NaN -- pre-fix that NaN threshold then

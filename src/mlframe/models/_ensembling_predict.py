@@ -122,19 +122,17 @@ def ensemble_probabilistic_predictions(
         # Disregard whole predictions deviating from the median too much
         # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
-        # compute median preds first (weighted when sample_weight supplied; numpy>=1.22 supports
-        # ``weights=`` on quantile via the ``inverted_cdf`` method, so per-row weighting flows into
-        # the cross-member median used as the outlier-filter anchor)
-        if sample_weight is not None:
-            try:
-                # Weights apply per-row across N (and broadcast over class axis if present);
-                # axis=0 picks the per-cell median across members; the weights vector is
-                # passed via numpy's reduce-axis "weights" kwarg available on >=1.22.
-                median_preds = np.quantile(_preds_arr, 0.5, axis=0)
-            except TypeError:
-                median_preds = np.quantile(_preds_arr, 0.5, axis=0)
-        else:
-            median_preds = np.quantile(_preds_arr, 0.5, axis=0)
+        # Cross-member median used as outlier-filter anchor: take the median along the MEMBER axis
+        # (axis=0 of (M, N, K)). ``sample_weight`` is a per-ROW vector (length N), not a per-member
+        # vector, so applying it directly to ``np.quantile(axis=0)`` is meaningless -- the member
+        # axis is uniformly weighted by construction. Pre-fix the code claimed "weighted via
+        # ``inverted_cdf``" but never passed a ``weights=`` kwarg in either try/except branch, so
+        # the supposed weighting silently degraded to unweighted; the comment was a no-op promise.
+        # If the gate ever needs per-row weighting it must aggregate along axis=1 separately, not
+        # via this anchor. Document the choice here so downstream readers don't re-add the broken
+        # weighted-quantile call. The downstream per-member MAE in ``_per_member_mae_std`` still
+        # weights rows when sample_weight is propagated via ``_ensembling_quality_gate``.
+        median_preds = np.quantile(_preds_arr, 0.5, axis=0)
 
         # Vectorised per-member MAE/STD over (K, N, ...). LOOP-MAE: prior implementation
         # iterated over members in Python; the broadcast formulation eliminates the K-sized
