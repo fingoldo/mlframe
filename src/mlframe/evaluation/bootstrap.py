@@ -223,10 +223,23 @@ def delong_test(
 
     diff = auc_a - auc_b
     var_diff = float(cov[0, 0] + cov[1, 1] - 2.0 * cov[0, 1])
+    # Degenerate but legitimate cases: when ``score_a == score_b`` element-wise (caller
+    # comparing a scorer to itself), both AUCs and both v10/v01 columns are identical, so
+    # var_diff collapses to 0 exactly and diff == 0 exactly. Statistically the null hypothesis
+    # of "no difference" is trivially true -> z = 0, p = 1.0. Treat the zero-variance + zero-diff
+    # case as the limit instead of NaN-ing (which would force every consumer to special-case it).
     if var_diff <= 0 or not np.isfinite(var_diff):
+        if diff == 0.0:
+            return {
+                "auc_a": auc_a,
+                "auc_b": auc_b,
+                "diff": 0.0,
+                "z": 0.0,
+                "p_value": 1.0,
+            }
         logger.warning(
-            "delong_test: variance of AUC difference is %r (degenerate inputs?); returning p=nan.",
-            var_diff,
+            "delong_test: variance of AUC difference is %r with non-zero diff %r; returning p=nan.",
+            var_diff, diff,
         )
         return {
             "auc_a": auc_a,

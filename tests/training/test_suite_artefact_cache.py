@@ -193,19 +193,24 @@ def test_cache_rolls_back_oversize_written_blob(tmp_path):
 
 
 def test_cache_evicts_oldest_when_bytes_budget_exceeded(tmp_path):
-    # 4kB budget; each entry is ~200 bytes after pickle. Write 30 entries -> some evicted.
+    """Bytes-budget eviction triggers when stored .pkl total exceeds bytes_limit.
+
+    Payload size is sized intentionally: pickle of ``"x" * 1000`` lands at ~1015 bytes,
+    so 30 puts produce ~30 KB on disk against a 4 KB budget -> eviction must drop early
+    entries. The sidecar .sha256 file (~64 bytes) is NOT counted by
+    `_total_bytes_locked` (which only sums .pkl files), so the budget pressure has to
+    come from the pickle payload itself.
+    """
     cache = SuiteArtefactCache(cache_dir=str(tmp_path), bytes_limit=4_096)
+    payload = "x" * 1000
     keys = []
     for i in range(30):
         k = SuiteKeyBuilder.build(df_fp=f"fp{i}", config_canonical={"i": i})
         keys.append(k)
-        # ~200-byte string payload after pickle protocol+sidecar.
-        cache.put(k, "x" * 100)
-    # Total bytes stayed at or below budget after eviction sweeps.
+        cache.put(k, payload)
     assert cache.total_bytes() <= 4_096
-    # Some early keys were evicted; some recent keys are still hits.
     early_misses = sum(1 for k in keys[:5] if cache.get(k) is None)
-    recent_hits = sum(1 for k in keys[-5:] if cache.get(k) == "x" * 100)
+    recent_hits = sum(1 for k in keys[-5:] if cache.get(k) == payload)
     assert early_misses >= 1, "expected at least one early entry to be evicted under bytes pressure"
     assert recent_hits >= 1, "expected at least one recent entry to be retained"
 
