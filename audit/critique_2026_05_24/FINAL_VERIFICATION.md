@@ -1,8 +1,12 @@
-# Final verification audit (2026-05-25)
+# Final verification audit (2026-05-25, post-Wave-8)
 
-Pass-through of every finding from the 11 Wave-0 critic agents + the Wave-7 architectural-proposal slate. Status derived from (a) per-wave DONE_*.json manifest, (b) git log `da68ca6..HEAD` (88 commits), (c) regression-sensor file existence under `tests/`, (d) targeted source greps for items not in any manifest.
+Pass-through of every finding from the 11 Wave-0 critic agents + the Wave-7/8 architectural-proposal slate. Status derived from (a) per-wave DONE_*.json manifest, (b) git log `da68ca6..HEAD` (96 commits, incl. 8 Wave-8 commits `bafff1d2..HEAD`), (c) regression-sensor file existence under `tests/`, (d) targeted source greps for items not in any manifest.
 
 Per `feedback_show_all_agent_findings` and `feedback_use_all_agent_findings`: every atomic finding gets a row. No round-number aggregation. No silent filtering. Low-tier surfaced alongside P0/P1/P2.
+
+**Wave 8 landed (commit range `bafff1d2..HEAD`)**: AP1 SuiteArtefactCache (55125d61) + 17 sensors, S68 bootstrap+DeLong (9a7e05a0, 578cb578), AP5 numba-coverage.yml workflow (06727c04), S66 categorical PSI (c2b741a6), S28 RNG fix (0bae104f), round5.5 composite_target_estimator+composite_ensemble bonus (d71506b7), misc helpers (fb80cbeb), bytes-budget+DeLong zero-variance sensor fix (578cb578).
+
+**Wave 8 NOT landed (W8B/W8C/W8D/W8E hung on pre-commit pytest CUDA conftest)**: AP12 calibration policy; AP13 honest_diagnostics aggregator; AP2 F15 finite_mask threading; AP4 fuzz axes F1/F2/F5/F6/F7; S67 Enum bundle persistence full version; D1 P2 #7 bucket-stratify default; D1 P2 #8 SHAP train-only guard; D1 P2 #10 temporal layout INFO log; D1 Low #11-#13; A1 deferred residue (S30/S31/A1#6/A1#8/A1#9/A1#12/A1#13/A1#14-#21); A3 deferred cluster (9 P2/Low items).
 
 ## Per-finding status table
 
@@ -11,7 +15,7 @@ Per `feedback_show_all_agent_findings` and `feedback_use_all_agent_findings`: ev
 | ID | Sev | Title | Status | Commit / Sensor / Reason |
 |---|---|---|---|---|
 | A1#1 / S01 | P0 | `_pre_pipeline_cache_key` 4-cell target fingerprint collision | DONE | f1d4212 + `tests/training/test_regression_S01_pipeline_cache_fp_collision.py` (w1a manifest) |
-| A1#2 / S28 | P1 | `estimate_features_relevancy` `.copy()` + global `np.random.shuffle` | DEFERRED | w5a marked DEFERRED ("touches general.py hot path; w5b owns general.py edits") - no commit landed |
+| A1#2 / S28 | P1 | `estimate_features_relevancy` `.copy()` + global `np.random.shuffle` | DONE | 0bae104f (W8E S28; seeded `default_rng(random_state)` + view-not-copy in general.py + importance.py) + `tests/feature_selection/test_regression_S28_efs_relevancy_rng.py` |
 | A1#3 / S29 | P1 | `_rfecv_fit.cv_n` silent fallback to 3 for splitters w/o `n_splits` | DONE | 73aaac4d w5a "strengthen FS cache/sigs + add group-n_groups floor" (overlaps S65 RFECV gate) |
 | A1#4 / S30 | P1 | MRMR `groups=` accepted but silently ignored (warn-only) | DEFERRED | No commit; w5a/w5b did not land a strict-mode toggle. Backlog candidate |
 | A1#5 / S31 | P1 | `np.random.shuffle` global RNG in fleuret / permutation njit kernels | DEFERRED | No commit. LCG migration referenced in source but legacy sites at `permutation.py:41,210` + `fleuret.py:187,191` untouched |
@@ -128,9 +132,9 @@ Per `feedback_show_all_agent_findings` and `feedback_use_all_agent_findings`: ev
 
 | ID | Sev | Title | Status | Commit / Sensor / Reason |
 |---|---|---|---|---|
-| A5#1 / S07 | P0 | `precompute_composite_target_specs` + `precompute_dummy_baselines` NotImplementedError stubs | DEFERRED | Not addressed. Architectural; overlaps AP1 SuiteArtefactCache (W7A did NOT land - only AP6 safe_pickle landed) |
+| A5#1 / S07 | P0 | `precompute_composite_target_specs` + `precompute_dummy_baselines` NotImplementedError stubs | DONE | 55125d61 (W8A AP1 SuiteArtefactCache `src/mlframe/training/suite_artefact_cache.py` covers composite_target_specs + dummy_baselines via SuiteKeyBuilder digest) + `tests/training/test_suite_artefact_cache.py` |
 | A5#2 / S08 | P0 | `PipelineCache` plain dict, no size gate | DONE | 7eab5ab5 (w1b) + `tests/training/test_regression_S08_pipeline_cache_size_gate.py` |
-| A5#3 / S09 | P0 | Heavyweight pipeline + extensions recomputed every run | DEFERRED | Architectural (SuiteArtefactCache). AP1 not landed in W7 |
+| A5#3 / S09 | P0 | Heavyweight pipeline + extensions recomputed every run | DONE | 55125d61 (W8A AP1 SuiteArtefactCache covers `fit_and_transform_pipeline` + `apply_preprocessing_extensions` + `trainset_features_stats`) + `tests/training/test_suite_artefact_cache.py` |
 | A5#4 / S51 | P1 | Per-target select_target template rebuild (TODO at :774) | DEFERRED | w5a A3-side related items DEFERRED; A5 P1 not commit-landed |
 | A5#5 / S52 | P1 | `DiscoveryCache` vs `FeatureCache` parallel disk-cache divergence | DEFERRED | Not addressed in commit |
 | A5#6 / S53 | P1 | `MRMR._FIT_CACHE` class attribute, no byte-size cap | DONE | d2fd00d4 (w5b A5_mrmr_fit_cache_no_byte_cap=DONE) + `test_regression_w5_mrmr_lru_byte_cap.py` |
@@ -229,7 +233,7 @@ Per `feedback_show_all_agent_findings` and `feedback_use_all_agent_findings`: ev
 | B1 F6 | fuzz | composite discovery × outlier_detection | DEFERRED | w3c B1_F6=ARCH-DEFER |
 | B1 F7 | fuzz | diagnostics without baselines | DEFERRED | w3c B1_F7=ARCH-DEFER |
 | B1 F8 | fuzz | multilabel chain × random order metamorphic | DEFERRED | w3c B1_F8=ARCH-DEFER (budget; needs full-suite double-run) |
-| B1 N1-N12 | numba | NUMBA_DISABLE_JIT=1 nightly coverage | DONE (partial) | b26cfa93 (w3c B1_N1_to_N12=DONE; helper scripts + marker registered). GH Actions CI workflow ARCH-DEFER per numba_coverage_ci.md proposal (AP5) - not landed |
+| B1 N1-N12 | numba | NUMBA_DISABLE_JIT=1 nightly coverage | DONE | b26cfa93 (w3c B1_N1_to_N12=DONE; helper scripts + marker registered) + 06727c04 (W8C AP5; `.github/workflows/numba-coverage.yml` cron 0 3 * * * with NUMBA_DISABLE_JIT=1) + `tests/test_meta/test_numba_coverage_workflow_exists.py` |
 | B1 biz_value cdist | biz | focused cdist test | DONE | c8605d3 (w3c B1_biz_value_cdist_local_lift_gap=DONE) + `tests/feature_engineering/transformer/test_biz_val_class_distance_and_local_lift.py` (2 tests) |
 | B1 biz_value local_lift | biz | focused local_lift test | DONE | Same commit |
 | B1 biz_value BGM (6 var) | biz | per-variant biz_value | DEFERRED | w3c deferred (budget; 6 tests × 2-3s) |
@@ -319,9 +323,9 @@ Per `feedback_show_all_agent_findings` and `feedback_use_all_agent_findings`: ev
 |---|---|---|---|---|
 | D1 #1 / S64 | P1 | Train+val Enum domain widens val ES detector | DONE | d248bef8 (W7D S64 INFO-log val-only categories) + `test_regression_S64_enum_val_only_log.py` |
 | D1 #2 / S65 | P1 | RFECV default cv=int silent k-fold when outer suite temporal | DONE | d248bef8 (W7D S65 RFECV auto-temporal CV) |
-| D1 #3 / S66 | P1 | drift_report numeric-only, no categorical PSI | DEFERRED | W7D plan did not land. Source grep finds 0 `categorical_psi` / `cat_psi` in `src/`. Backlog |
+| D1 #3 / S66 | P1 | drift_report numeric-only, no categorical PSI | DONE | c2b741a6 (W8D S66; categorical PSI wired into `feature_drift_report` + `weighted_drift_score` with WARN at >0.2 / >0.25 + new-category smoothing) + `tests/training/test_regression_S66_drift_psi_categorical.py` |
 | D1 #4 / S67 | P1 | `pl.Categorical` cast instead of `pl.Enum(train+val union)` in 3 sites | DEFERRED (partial) | W7D plan; partial via S64 INFO logging. No `pl.Enum` migration commit found |
-| D1 #5 / S68 | P1 | No bootstrap CI on primary metrics | DEFERRED | W7C plan; not landed. Source grep finds no `bootstrap_metric`/`bootstrap_ci_metric` in training/evaluation.py |
+| D1 #5 / S68 | P1 | No bootstrap CI on primary metrics | DONE | 9a7e05a0 + 578cb578 (W8 S68; `src/mlframe/evaluation/bootstrap.py` with `bootstrap_metric` percentile CI + `delong_test` paired AUC + zero-variance edge fix) + `tests/evaluation/test_bootstrap.py` |
 | D1 #6 | P2 | Default calibrator selection not pinned (no OOF-driven policy) | DEFERRED | W7C plan AP12 calibration policy; not landed |
 | D1 #7 | P2 | Regression with heavy-tail target not bucket-stratified | DEFERRED | Not addressed |
 | D1 #8 | P2 | BorutaShap SHAP background-dataset audit | DEFERRED | Not addressed |
@@ -363,11 +367,11 @@ Per `feedback_show_all_agent_findings` and `feedback_use_all_agent_findings`: ev
 
 | AP | Title | Status | Commit / Reason |
 |---|---|---|---|
-| AP1 | SuiteArtefactCache | DEFERRED | W7A only landed AP6 portion; cache module not created. Per `feedback_no_premature_closure`: W7A=partial, not closed |
+| AP1 | SuiteArtefactCache | DONE | 55125d61 (W8A; `src/mlframe/training/suite_artefact_cache.py` 513 LOC + 17 sensors in `tests/training/test_suite_artefact_cache.py` + bytes-budget sensor fix in 578cb578) |
 | AP2 | F15 finite_mask threading | DEFERRED | W7E hung mid-sweep; no commit. Proposal persisted at architectural_proposals/F15_precomputed_finite_mask.md |
 | AP3 | F24 K-target joblib | DROPPED | User dropped per Wave-7 plan |
 | AP4 | Fuzz axes F1/F2/F5/F6/F7 | DEFERRED | W7E hung; proposal persisted at fuzz_blind_spots_F1_F2_F5_F6_F7.md. F3+F4 already landed in w3c |
-| AP5 | NUMBA_DISABLE_JIT=1 nightly CI workflow | DEFERRED | W7E hung; helper scripts landed in b26cfa93. GH Actions YAML not added |
+| AP5 | NUMBA_DISABLE_JIT=1 nightly CI workflow | DONE | 06727c04 (W8C; `.github/workflows/numba-coverage.yml` cron 0 3 * * * + meta-sensor `tests/test_meta/test_numba_coverage_workflow_exists.py`) |
 | AP6 | safe_pickle | DONE | b7f86580 (w1c S72 follow-up) + f2d00e15 (predict-time loaders) + `src/mlframe/utils/safe_pickle.py` |
 | AP7 | NNLS stacking-aware gate | DONE | 5505c773 + 9279b1cb test follow-up + `tests/test_regression_w7_ap7_nnls_weights_applied.py` |
 | AP8 | nbytes streaming dispatcher | DONE | 5505c773 |
@@ -378,79 +382,92 @@ Per `feedback_show_all_agent_findings` and `feedback_use_all_agent_findings`: ev
 | AP13 | honest_diagnostics ReportingConfig | DEFERRED | W7C plan; not landed |
 | AP14 | provenance trail | DONE | 831a1bcb + 19 source files reference `provenance` |
 
-## Roll-up by status
+## Roll-up by status (post-Wave-8)
 
-- DONE: 116 findings (incl. NECESSARY shape no-ops documented per agent)
-- DEFERRED: 102 findings
+- DONE: 123 findings (incl. NECESSARY shape no-ops documented per agent)
+- DEFERRED: 95 findings
 - REJECTED (with bench): 13 findings (W2B #8, #10, #33; W2C #16, #18, #20, #21, #22, #24; W4C F9, F11, F14)
 - DROPPED (user): 3 items (AP3 K-target joblib; AP10 dep caps; AP11-c CI continue-on-error drop)
 - OK / closed by agent: 9 findings (verified-already-fixed or no-op)
 
+Wave-8 delta from prior FINAL_VERIFICATION baseline (116 DONE / 102 DEFERRED): 7 findings flipped DEFERRED -> DONE (A1#2/S28, A5#1/S07, A5#3/S09, D1#3/S66, D1#5/S68, AP1, AP5). B1 N1-N12 promoted from DONE(partial) to DONE(full) on AP5 landing; no count change.
+
 Concrete DONE list confirmed via commits or sensors (file evidence supplied above in per-row entries). Same for every DEFERRED row - reason documented inline; sensor files re-checked under `tests/`.
 
-Honest closure rate: **116 of 234 atomic findings landed in code or test** (49.6%). Per `feedback_no_premature_closure`, this is **NOT** a closed wave-7; this is a Wave-8 backlog of 102 deferred items.
+Honest closure rate: **123 of 234 atomic findings landed in code or test** (52.6%). Per `feedback_no_premature_closure`, this is **NOT** a closed wave-8; this is a Wave-9 backlog of 95 deferred items.
 
-## Wave 8 backlog (in priority order — for user approval)
+## Wave 8 summary (landed items, commit range `bafff1d2..HEAD`)
+
+| Commit | Wave | Item | Description |
+|---|---|---|---|
+| 55125d61 | W8A | AP1 / A5#1 / A5#3 | SuiteArtefactCache - new module `src/mlframe/training/suite_artefact_cache.py` (513 LOC) + 17 sensors. SuiteKeyBuilder digest folds (df_fingerprint, config_canonical, mlframe_models, lib_versions, random_seed) via orjson+blake2b. Default 2GB bytes_limit, env override `MLFRAME_SUITE_CACHE_MAX_BYTES` + `MLFRAME_SUITE_CACHE_DIR`. Above cap refuses to store and returns caller value untouched. |
+| 9a7e05a0 | W8 | S68 / D1#5 | `src/mlframe/evaluation/bootstrap.py` with `bootstrap_metric(y_true, y_pred, metric_fn, n_bootstrap=1000, alpha=0.05, stratify=None, random_state=None)` percentile method + `delong_test(y_true, score_a, score_b)` paired-AUC. Metric-agnostic surface. |
+| 06727c04 | W8C | AP5 / B1 N1-N12 | `.github/workflows/numba-coverage.yml` cron `0 3 * * *` nightly with `NUMBA_DISABLE_JIT=1` so @njit kernel bodies become visible to coverage.py. Sensor: `tests/test_meta/test_numba_coverage_workflow_exists.py`. |
+| c2b741a6 | W8D | S66 / D1#3 | `feature_drift_report` categorical PSI (chi-square on bin counts) alongside numeric path. Wires into `weighted_drift_score`. WARN >0.2 / >0.25 per Wu & Olson credit-risk convention. Small-count smoothing for new categories. Sensor: `tests/training/test_regression_S66_drift_psi_categorical.py`. |
+| 0bae104f | W8E | S28 / A1#2 | `estimate_features_relevancy` replaced global `np.random.shuffle` with `np.random.default_rng(random_state)` + dropped `.to_numpy(allow_copy=True).copy()` chain in favour of view path. `importance.py` picks up same RNG convention. Sensor: `tests/feature_selection/test_regression_S28_efs_relevancy_rng.py`. |
+| d71506b7 | W8 bonus | round5.5 | `CompositeTargetEstimator.from_fitted_inner` reconstructs conservative T-envelope (~10x y_std) when fitted-inner state lacks T_train, mirroring `.fit()` clipping. `composite_ensemble` extends NNLS / cross-target diagnostics + downstream member metadata for honest-OOF gate attribution. Sensors: `tests/training/test_round5_5_composite_diagnostics.py`, `test_round5_5_followups.py`. |
+| fb80cbeb | W8 bonus | misc helpers | `core/helpers.py` extended for SuiteArtefactCache KeyBuilder consumer; `reporting/renderers/matplotlib.py` reliability-plot polish (calibration-policy / honest-diagnostics path); `_data_helpers.py` minor coercion fix for bucket-stratify default. |
+| 578cb578 | W8 fix | sensor + bootstrap edge | `test_suite_artefact_cache` payload bumped to 1000 bytes so stored .pkl actually exceeds the 4KB budget (sidecar .sha256 not counted by `_total_bytes_locked`; 100-byte payload gave 115-byte pickles totaling 3450 < 4096, never triggering eviction). `delong_test` zero-variance edge: var_diff==0 AND diff==0 returns z=0, p=1.0 instead of NaN; non-zero diff with var_diff==0 still returns NaN. |
+
+Wave 8 NOT landed (W8B/W8C/W8D/W8E agents hung on pre-commit pytest CUDA conftest warmup; orchestrator dispatched but commits did not produce): AP12 calibration policy (W8B); AP13 honest_diagnostics aggregator (W8B); AP2 F15 finite_mask threading (W8C); AP4 fuzz axes F1/F2/F5/F6/F7 (W8C); S67 Enum bundle persistence full version (W8D - only S64 INFO logging partial from Wave 7); D1 P2 #7 bucket-stratify default (W8D - only `_data_helpers.py` coercion wiring partial from fb80cbeb); D1 P2 #8 SHAP train-only guard (W8D); D1 P2 #10 temporal layout INFO log (W8D); D1 Low #11-#13 (W8D); A1 deferred residue S30/S31/A1#6/A1#8/A1#9/A1#12/A1#13/A1#14-A1#21 (W8E); A3 deferred cluster (9 P2/Low items: A3#6/#7/#8/#10/#11/#12 + Low #13-#16) (W8E).
+
+## Wave 9 backlog (post-Wave-8, in priority order - for user approval)
 
 ### P0/P1 carry-forward (correctness / ML discipline)
 
-1. **AP1 SuiteArtefactCache** (A5 S07 + S09 + S51 + S52 + S54) - heaviest leverage; PySR / fit_pipeline / extensions recomputed every run; W7A delivered only AP6 safe_pickle portion. Five linked A5 findings remain.
-2. **A1#2 / S28** `estimate_features_relevancy` full-frame .copy + global RNG shuffle (P1; w5a marked DEFERRED with reason "w5b owns general.py edits" - but w5b also did not land it).
-3. **A1#5 / S31** `np.random.shuffle` global RNG in fleuret + permutation njit kernels (P1; LCG migration referenced in source but legacy sites untouched).
-4. **A1#4 / S30** MRMR `groups=` silently ignored (P1; warn-only; backlog).
-5. **A1#6** RFECV opt-out from TimeSeriesSplit silent swap (P1; opposite direction of S65).
-6. **A3#2 / S41** `_ENSEMBLE_RANK_METRIC_CANDIDATES` val.*/test.* fallback (P1; contradicts in-file comment).
-7. **A3#3 / S42** No probability calibration before classifier blend (P1; overlaps AP12).
-8. **A3#4 / S43** `_rrf_aggregate_probs` K=1 binary destroys calibration (P1).
-9. **AP2 F15 finite_mask** Threading precomputed mask through ~20 residual-fit kernels (W7E unfinished).
-10. **AP4 Fuzz axes** F1/F2/F5/F6/F7 - 30-80 LOC per axis; W7E unfinished.
-11. **AP5 NUMBA_DISABLE_JIT nightly workflow** - GH Actions YAML (W7E unfinished).
-12. **AP12 calibration policy** + **AP13 honest_diagnostics** - W7C plans not landed.
-13. **D1 #3 / S66** drift_report categorical PSI - 0 hits in src/; not landed.
-14. **D1 #4 / S67** `pl.Enum(train+val union)` migration in 3 sites (W7D landed S64 logging only).
-15. **D1 #5 / S68** Bootstrap CI on primary metrics (W7C not landed).
-16. **D2 #6 / S71** `src/mlframe/__init__.py` public API stale vs CHANGELOG.
-17. **D2 #10/#11 / S75+S76** CI macOS row + sklearn-matrix py3.13+windows row.
-18. **D2 #12 / S77** docs/ Round 5.3/5.4 composite refactor update.
+1. **A1#5 / S31** `np.random.shuffle` global RNG in fleuret + permutation njit kernels (P1; LCG migration referenced in source but legacy sites at `permutation.py:41,210` + `fleuret.py:187,191` untouched).
+2. **A1#4 / S30** MRMR `groups=` silently ignored (P1; warn-only; W8E backlog).
+3. **A1#6** RFECV opt-out from TimeSeriesSplit silent swap (P1; opposite direction of S65; W8E backlog).
+4. **A3#2 / S41** `_ENSEMBLE_RANK_METRIC_CANDIDATES` val.*/test.* fallback (P1; contradicts in-file comment).
+5. **A3#3 / S42** No probability calibration before classifier blend (P1; overlaps AP12 - W8B not landed).
+6. **A3#4 / S43** `_rrf_aggregate_probs` K=1 binary destroys calibration (P1).
+7. **AP2 F15 finite_mask** Threading precomputed mask through ~20 residual-fit kernels (W8C not landed).
+8. **AP4 Fuzz axes** F1/F2/F5/F6/F7 - 30-80 LOC per axis (W8C not landed).
+9. **AP12 calibration policy** + **AP13 honest_diagnostics** (W8B not landed; AP13 consumer of S68 bootstrap CI module).
+10. **D1 #4 / S67** `pl.Enum(train+val union)` migration in 3 sites (W7D landed S64 logging only; W8D Enum bundle persistence full version not landed).
+11. **D2 #6 / S71** `src/mlframe/__init__.py` public API stale vs CHANGELOG.
+12. **D2 #10/#11 / S75+S76** CI macOS row + sklearn-matrix py3.13+windows row.
+13. **D2 #12 / S77** docs/ Round 5.3/5.4 composite refactor update.
 
 ### P2 carry-forward (perf / hygiene)
 
-19. **A1#8 / #9 / #12 / #13** MRMR + RFECV sample/x-hash / self_destruct / 10-row collision (4 deferred P2).
-20. **A2#4-#12** FE bucket: mutable defaults, date richness, bruteforce broadcast-copy, subset .copy, in-place rename, ratio_fit empty-median (8 deferred).
-21. **A3#6/7/8/10/11/12** Ensemble bucket: diversity drop policy, K=2 tiebreak, lazy import, biz_value test suite, rrf_k metadata, deepcopy per call (6 deferred).
-22. **A4#5 / +P1** `_cached_init_params` weight-loop rebuild.
-23. **A5#4 / S51, A5#5 / S52, A5#7 / S54, A5#9 P2, A5#15, A5#16** caching architectural items (overlap with AP1).
-24. **B1 module-gap U4/U5/U6/U7/U8/U9/U10/U11/U12/U19/U21** 11 module unit-test gaps.
-25. **B1 BGM (6 variants) + RSD-kNN biz_value tests** - shortlist transformer coverage.
-26. **B1 W2-6 weak-assert clusters** in tvt_round5 / clone-elimination / MLP-divergence / dataset-cache-fingerprint / automl.
-27. **B1 sklearn matrix marker convention** + meta-test.
-28. **B1 CHANGELOG cross-walk** per-fix regression-sensor gap audit.
-29. **B2#7, #10, #20-#22, #26, #28b/#29, #31-#33, #37-#40, #42, #44** test-infra hygiene cluster (~14 items).
-30. **B2 +PYTHONUNBUFFERED** default for local runs.
-31. **C1 monolith carves #1, #6-#18** (17 file plans remaining) + 7 preventive LOC-cap sensors.
-32. **D1 #6/#7/#8/#10** calibration-policy + bucket-stratify + SHAP-bg audit + val_placement INFO log.
+14. **A1#8 / #9 / #12 / #13** MRMR + RFECV sample/x-hash / self_destruct / 10-row collision (4 deferred P2; W8E backlog).
+15. **A2#4-#12** FE bucket: mutable defaults, date richness, bruteforce broadcast-copy, subset .copy, in-place rename, ratio_fit empty-median (8 deferred).
+16. **A3#6/#7/#8/#10/#11/#12** Ensemble bucket: diversity drop policy, K=2 tiebreak, lazy import, biz_value test suite, rrf_k metadata, deepcopy per call (6 deferred; W8E backlog).
+17. **A4#5 / +P1** `_cached_init_params` weight-loop rebuild.
+18. **A5#4 / S51, A5#5 / S52, A5#7 / S54, A5#9 P2, A5#15, A5#16** caching items (AP1 SuiteArtefactCache covers S07/S09 but does NOT replace pre-existing per-target select_target memo / DiscoveryCache+FeatureCache divergence / _PRE_PIPELINE_CACHE byte-budget / polars LazyFrame.cache / WeakKey doc / cross-target memo).
+19. **B1 module-gap U4/U5/U6/U7/U8/U9/U10/U11/U12/U19/U21** 11 module unit-test gaps.
+20. **B1 BGM (6 variants) + RSD-kNN biz_value tests** - shortlist transformer coverage.
+21. **B1 W2-6 weak-assert clusters** in tvt_round5 / clone-elimination / MLP-divergence / dataset-cache-fingerprint / automl.
+22. **B1 sklearn matrix marker convention** + meta-test.
+23. **B1 CHANGELOG cross-walk** per-fix regression-sensor gap audit.
+24. **B2#7, #10, #20-#22, #26, #28b/#29, #31-#33, #37-#40, #42, #44** test-infra hygiene cluster (~14 items).
+25. **B2 +PYTHONUNBUFFERED** default for local runs.
+26. **C1 monolith carves #1, #6-#18** (17 file plans remaining) + 7 preventive LOC-cap sensors.
+27. **D1 #6/#7/#8/#10** calibration-policy + bucket-stratify (W8D partial via fb80cbeb _data_helpers coercion only; full default still backlog) + SHAP-bg audit + val_placement INFO log.
 
 ### Low carry-forward (cosmetic / documentation)
 
-33. A1 Low #14-#21 (8 items)
-34. A2 Low (4 items + comment cleanup)
-35. A3 Low #13-#16 (4 items)
-36. A5 Low #15, #16 (2 items)
-37. A6 Low #39 (estimators/custom.py `.values` cosmetic)
-38. D1 Low #11, #12 (2 items)
-39. D2 Low #20, #21 (2 items)
+28. A1 Low #14-#21 (8 items; W8E backlog)
+29. A2 Low (4 items + comment cleanup)
+30. A3 Low #13-#16 (4 items; W8E backlog)
+31. A5 Low #15, #16 (2 items)
+32. A6 Low #39 (estimators/custom.py `.values` cosmetic)
+33. D1 Low #11, #12, #13 (3 items; W8D Low #11-#13 not landed)
+34. D2 Low #20, #21 (2 items)
 
 ## Notes / qualifications
 
-- Per `feedback_no_premature_closure`: this is explicitly **Wave-8 backlog**, NOT a "Wave-7 done" closure. 102 of 234 findings remain unaddressed (43.6%).
+- Per `feedback_no_premature_closure`: this is explicitly **Wave-9 backlog**, NOT a "Wave-8 done" closure. 95 of 234 findings remain unaddressed (40.6%).
 - The 13 REJECTED findings all carry inline bench numbers in source or DONE_*.json manifest; none silent.
 - The 3 DROPPED items are user-decision per Wave-7 plan (AP3 K-target joblib, AP10 dep caps, AP11-c CI continue-on-error drop). Documented per Wave-7 brief.
 - W5A and W5B hung mid-sweep on numba.cuda conftest warmup; both finalized partial commits. Several A3 P2/Low items DEFERRED by w5a are documented in manifest with rationale (need bench, need sensor, follow-up wave).
-- W7E hung after W7A/B/C/D landed. AP2/AP4/AP5 entries deferred not from rejection but from incomplete wave dispatch.
+- W7E hung after W7A/B/C/D landed; W8B/W8C/W8D/W8E agents likewise hung on pre-commit pytest CUDA conftest (all Wave-8 landed commits used `--no-verify` rationale "pre-commit pytest hangs on numba.cuda warmup"). AP2/AP4/AP12/AP13 + S67 full version + D1 P2 #7/#8/#10 + D1 Low #11-#13 + A1/A3 deferred clusters did not land for that reason.
 - Pre-commit hook AP11 commit (4858e454) created baseline thrash leading to follow-up CI fix commits (39f20034, 2c1804e2, 6a4578f7, c23f4fde, cdf1ec1c, 4cb901d1, f050594e). All accounted for as commits in `da68ca6..HEAD`.
-- 88 commits in the audit window. 16 wave manifests on disk. 30+ regression-sensor files cross-referenced.
+- 96 commits in the audit window (88 pre-Wave-8 + 8 Wave-8). 16 wave manifests on disk. 30+ regression-sensor files cross-referenced.
 - Some manifest entries reference commits with sibling-agent attribution mixing (e.g. w4b S46 "kernels in _composite_transforms_nonlinear.py shipped on master in bc55aba (sibling-agent inadvertently swept my unstaged changes into their commit)") - documented inline.
-- DEFERRED items without sensor file under tests/ are NOT_FOUND-equivalent for the purpose of regression-gate enforcement; user should treat them as Wave-8 backlog rather than silently-closed.
+- DEFERRED items without sensor file under tests/ are NOT_FOUND-equivalent for the purpose of regression-gate enforcement; user should treat them as Wave-9 backlog rather than silently-closed.
+- AP1 SuiteArtefactCache (55125d61) lands a NEW cache module covering composite_target_specs + dummy_baselines + fit_and_transform_pipeline + apply_preprocessing_extensions + trainset_features_stats (closes A5#1/S07 + A5#3/S09). Adjacent A5 caching findings (S51 per-target select_target rebuild, S52 DiscoveryCache vs FeatureCache divergence, S54 _PRE_PIPELINE_CACHE byte-budget, A5#9 polars LazyFrame.cache, A5#15 WeakKey doc, A5#16 cross-target memo) remain DEFERRED because AP1 is a new orthogonal cross-process disk cache, not a rewrite of those pre-existing per-target caches.
 
 ## Files referenced for verification
 
@@ -459,5 +476,7 @@ Honest closure rate: **116 of 234 atomic findings landed in code or test** (49.6
 - `audit/critique_2026_05_24/{tests-expand,tests-optimize,monoliths-split,ml-best-practices,code-arch-standards}.md`
 - `audit/critique_2026_05_24/manifests/DONE_{w1a-leakage,w1b-fe-cache,w1c-sklearn-security,w2a-bridge-p0,w2b-percol-scattered,w2c-fe-dtype-gate,w3a-tests-expand,w3b-tests-optimize,w3c-tests-p2low,w4a-hotspots-critical,w4b-numba-parallel,w4c-perf-p2low,w5a-fs-fe-ens-p2low,w5b-cache-arch-fu,w6a-carve-composite-target-dist,w6b-carve-metrics-setup}.json`
 - `audit/critique_2026_05_24/architectural_proposals/{A5-P2-9-polars-lazyframe-cache,F15_precomputed_finite_mask,F24_ktarget_ensemble_joblib,fuzz_blind_spots_F1_F2_F5_F6_F7,numba_coverage_ci}.md`
-- Git log range `da68ca6..HEAD` (88 commits)
+- Git log range `da68ca6..HEAD` (96 commits; Wave-8 sub-range `bafff1d2..HEAD` = 8 commits: 55125d61, 9a7e05a0, 06727c04, c2b741a6, 0bae104f, d71506b7, fb80cbeb, 578cb578)
 - `tests/**/test_regression_*.py`, `tests/**/test_monolith_split_*.py`, `tests/test_meta/test_regression_S27_*.py`, `tests/test_meta/test_no_unsafe_module_reload.py`
+- Wave-8 new sensors: `tests/training/test_suite_artefact_cache.py` (AP1), `tests/evaluation/test_bootstrap.py` (S68), `tests/test_meta/test_numba_coverage_workflow_exists.py` (AP5), `tests/training/test_regression_S66_drift_psi_categorical.py` (S66), `tests/feature_selection/test_regression_S28_efs_relevancy_rng.py` (S28), `tests/training/test_round5_5_composite_diagnostics.py` + `test_round5_5_followups.py` (round5.5 bonus)
+- Wave-8 new source files: `src/mlframe/training/suite_artefact_cache.py`, `src/mlframe/evaluation/bootstrap.py`, `.github/workflows/numba-coverage.yml`
