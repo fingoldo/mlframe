@@ -33,6 +33,7 @@ from ._ensembling_base import (  # noqa: F401
 from ._ensembling_quality_gate import compute_member_quality_gate
 from ._ensembling_predict import ensemble_probabilistic_predictions
 from ._ensembling_process_method import _process_single_ensemble_method
+from ._ensembling_score_validate import _validate_score_ensemble_inputs
 # ``_build_votenrank_leaderboard_from_results`` lives in ``ensembling.py``
 # (defined after this sibling is loaded), so it can only be imported lazily
 # inside the call site that uses it.
@@ -163,92 +164,16 @@ def score_ensemble(
         Minimum number of samples required to enable parallel processing when n_jobs is None.
     """
 
-    res = {}
     level_models_and_predictions = models_and_predictions
-
-    # SINGLE-MEMBER: short-circuit when only one member is supplied. There is no ensemble to score;
-    # historically the caller filtered K==1 but score_ensemble itself silently iterated every flavour
-    # over a 1-member tensor (the rrf/median/harm reduction is a no-op). Returning a sentinel-only
-    # dict ({"_reason": "single_member"}) signals "no ensemble built" to the caller without raising,
-    # AND lets finalize / metadata distinguish "single-member suite" from "ensemble failed silently"
-    # (Low-9). The sentinel key starts with ``_`` so it is filtered out by the ensemble-iteration
-    # logic in callers that iterate ``res.items()`` for real flavours.
-    if len(level_models_and_predictions) < 2:
-        if verbose and len(level_models_and_predictions) == 1:
-            logger.info("[ensemble] only one member supplied; nothing to ensemble. Returning sentinel result.")
-        if len(level_models_and_predictions) == 1:
-            res["_reason"] = "single_member"
-            res["_n_members"] = 1
-        else:
-            res["_reason"] = "no_members"
-            res["_n_members"] = 0
+    res, is_regression, ensembling_methods, ensure_prob_limits = _validate_score_ensemble_inputs(
+        level_models_and_predictions=level_models_and_predictions,
+        ensembling_methods=ensembling_methods,
+        ensure_prob_limits=ensure_prob_limits,
+        max_ensembling_level=max_ensembling_level,
+        verbose=verbose,
+    )
+    if res:
         return res
-
-    # Uniformity gate: mixing a classifier (probs available) with a regressor (probs == None)
-    # in one ensemble silently miscategorises the suite. The historical dispatch only
-    # inspected member[0]; member[1] could disagree with no error. Validate up front.
-    if level_models_and_predictions:
-        def _has_probs(m) -> bool:
-            # ``oof_probs`` MUST be inspected too: a member with val_probs=None but oof_probs
-            # populated (rare: trainer stamped OOF but disabled val-metric computation; or
-            # cross_val_predict-only fits) is classifier-like, not regressor-like. Pre-fix the
-            # check skipped oof_probs and mis-classified those members as regression.
-            return any(getattr(m, attr, None) is not None for attr in ("oof_probs", "val_probs", "test_probs", "train_probs"))
-
-        _probs_flags = [_has_probs(m) for m in level_models_and_predictions]
-        if len(set(_probs_flags)) > 1:
-            _clf_idx = [i for i, f in enumerate(_probs_flags) if f]
-            _reg_idx = [i for i, f in enumerate(_probs_flags) if not f]
-            raise ValueError(
-                "score_ensemble requires uniform member types: got a mix of classifier-like "
-                f"(probs available, indices {_clf_idx}) and regressor-like (no probs, indices "
-                f"{_reg_idx}) members. Split the suite into per-task lists before calling."
-            )
-
-    _first = level_models_and_predictions[0]
-    if (
-        getattr(_first, "oof_probs", None) is not None
-        or _first.val_probs is not None
-        or _first.test_probs is not None
-        or _first.train_probs is not None
-    ):
-        is_regression = False
-    else:
-        is_regression = True
-        ensure_prob_limits = False
-
-    # RRF is a rank-fusion flavour that only makes sense on classifier
-    # probabilities (where per-row ranks across the n_samples axis encode
-    # "confidence ordering"). For regression there is no analogous per-sample
-    # rank operation, so drop "rrf" silently from the candidate list rather
-    # than fail late inside _process_single_ensemble_method.
-    if is_regression and ensembling_methods:
-        _pre = list(ensembling_methods)
-        ensembling_methods = [m for m in ensembling_methods if m != "rrf"]
-        if verbose and len(ensembling_methods) != len(_pre):
-            logger.info(
-                "[ensemble] target_type=REGRESSION: skipping rrf candidate (rank-fusion only meaningful on classifier probabilities)."
-            )
-
-    # Multi-level stacking requires OOF predictions on EVERY member: the level-2 (and deeper) meta-learner consumes
-    # level-1 ensemble outputs as features, and if any member contributes an in-sample ``train_preds`` row instead of
-    # a ``cross_val_predict`` OOF row the meta-learner sees leaked targets. Fail fast rather than silently fold the
-    # leakage forward. Single-level (``max_ensembling_level == 1``) aggregation tolerates missing OOF by falling back
-    # to ``train_*`` because no downstream meta-learner consumes the train slice in that case. Membership uses
-    # ``isinstance(..., np.ndarray)`` for the same reason as ``_oof_or_train``: MagicMock test doubles fabricate
-    # any attribute on access, so ``is None`` would never fire on a real-world stub.
-    if max_ensembling_level > 1:
-        _oof_attr = "oof_probs" if not is_regression else "oof_preds"
-        _missing_oof = [
-            i for i, m in enumerate(level_models_and_predictions)
-            if not isinstance(getattr(m, _oof_attr, None), np.ndarray)
-        ]
-        if _missing_oof:
-            raise ValueError(
-                f"score_ensemble(max_ensembling_level={max_ensembling_level}) requires {_oof_attr} on every member; "
-                f"members at indices {_missing_oof} are missing OOF. Re-train with oof_n_splits>=2 so cross_val_predict "
-                f"OOFs are stamped on each model, or call with max_ensembling_level=1."
-            )
 
     # Determine sample count for parallelization decision
     first_pred = level_models_and_predictions[0]
@@ -363,7 +288,7 @@ def score_ensemble(
     # 2026-05-11 (user request): TWO tag lists:
     # 1. ``_ensemble_member_tags`` -- full (shim-stripped) class / model names for the per-member quality-gate log line (operators want to see which exact model class was excluded).
     # 2. ``_ensemble_short_tags`` -- collapsed short tags (``cb`` / ``xgb`` / ``lgb`` / ``hgb`` / non-tree class name) for the rebuilt ensemble label after the gate. Without the short-collapse, the rebuilt label reads ``[CatBoostRegressor+XGBRegressor+LGBMRegressor]`` (38 chars) instead of ``[cb+xgb+lgb]`` (12 chars) -- bloated chart titles + breaks the original short-label contract from core.py.
-    from mlframe.training._format import (
+    from mlframe.training import (
         short_model_tag as _short_tag,
         strip_shim_suffix as _strip_shim,
     )
