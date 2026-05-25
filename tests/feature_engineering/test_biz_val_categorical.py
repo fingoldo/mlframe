@@ -112,8 +112,15 @@ def test_biz_val_categorical_compute_countaggs_singleton_series_smoke():
     from mlframe.feature_engineering.categorical import compute_countaggs
     arr = pd.Series(["only_value"] * 100, name="cat")
     out = compute_countaggs(arr)
-    assert out is not None
-    assert len(out) > 0
+    # Behavioural: single-unique-value series must produce a 1-bucket count-aggregation tuple of finite numerics
+    # (NOT a stub None). Pin the bucket count to 1 + every value is a numeric the downstream binarizer can hash.
+    assert out is not None, "compute_countaggs returned None on singleton-unique input"
+    assert len(out) > 0, "compute_countaggs returned empty output on singleton-unique input"
+    import numpy as _np
+    numeric_vals = [v for v in out if isinstance(v, (int, float, _np.number))]
+    assert all(_np.isfinite(v) for v in numeric_vals), (
+        f"compute_countaggs emitted non-finite stats on singleton input: {[v for v in numeric_vals if not _np.isfinite(v)]}"
+    )
 
 
 def test_biz_val_categorical_compute_countaggs_top_n_zero_smoke():

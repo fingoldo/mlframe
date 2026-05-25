@@ -547,8 +547,14 @@ class TestHelpers:
     def test_normalize_timestamps_datetime(self):
         ts = pd.date_range("2024-01-01", periods=10, freq="D")
         out = _normalize_timestamps(ts)
-        assert out is not None
-        assert len(out) == 10
+        # Behavioural: a 10-element pandas datetime range must round-trip to a 10-element numeric-or-datetime
+        # carrier whose ordering still ascends (the canonical post-normalize property the dummy-baseline ACF /
+        # seasonality detector depends on). is_not_None alone passed even if normalize silently scrambled order.
+        assert out is not None, "_normalize_timestamps returned None on a non-None pandas DatetimeIndex"
+        assert len(out) == 10, f"length mismatch: got {len(out)} vs expected 10"
+        arr = np.asarray(out)
+        # Monotonic-non-decreasing (date_range is strictly ascending; allow equality just to be tolerant).
+        assert (arr[1:] >= arr[:-1]).all(), "normalized timestamps lost monotonic ordering"
 
 
 # ---------------------------------------------------------------------

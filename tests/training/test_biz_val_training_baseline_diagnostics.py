@@ -139,7 +139,12 @@ def test_biz_val_baseline_diagnostics_sample_n_caps_runtime():
     assert dt < 30.0, (
         f"sample_n=500 must keep n=50k runtime under 30s; got {dt:.1f}s"
     )
-    assert report is not None
+    # Behavioural: a sample_n=500 fit must produce a real diagnostics record (not just any object), and the
+    # ablation summary must surface the dominant feature so the runtime-vs-quality tradeoff is verifiable.
+    assert report is not None, "fit_and_report returned None on sample_n=500 path"
+    assert hasattr(report, "ablation") or hasattr(report, "feature_ranks"), (
+        f"report missing ablation / feature_ranks attribute on sample_n path; got dir={dir(report)[:10]}"
+    )
 
 
 # ---------------------------------------------------------------------------

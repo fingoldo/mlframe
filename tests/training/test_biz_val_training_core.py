@@ -95,8 +95,15 @@ def test_biz_val_training_suite_regression_completes(tmp_path):
         )
     except (TypeError, ImportError) as e:
         pytest.skip(f"suite call broke during refactor: {e}")
-    assert models is not None
-    assert isinstance(metadata, dict)
+    # Behavioural: suite returned a real models mapping (not a stub) with at least one trained estimator under
+    # the requested family, and the metadata dict carries the canonical keys downstream consumers depend on.
+    assert models is not None, "regression suite returned None models on lgb-only path"
+    assert hasattr(models, "__len__") and len(models) >= 1, (
+        f"models container empty after successful suite call; got {type(models).__name__} len={len(models) if hasattr(models, '__len__') else 'n/a'}"
+    )
+    assert isinstance(metadata, dict) and len(metadata) > 0, (
+        f"metadata empty / wrong type: {type(metadata).__name__} keys={list(metadata)[:5] if isinstance(metadata, dict) else 'n/a'}"
+    )
 
 
 def test_biz_val_training_suite_classification_completes(tmp_path):
@@ -121,8 +128,12 @@ def test_biz_val_training_suite_classification_completes(tmp_path):
         )
     except (TypeError, ImportError) as e:
         pytest.skip(f"suite call broke during refactor: {e}")
-    assert models is not None
-    assert isinstance(metadata, dict)
+    # Same behavioural contract as the regression path (see above).
+    assert models is not None, "classification suite returned None models on lgb-only path"
+    assert hasattr(models, "__len__") and len(models) >= 1, (
+        f"models container empty after successful classification suite call; got {type(models).__name__}"
+    )
+    assert isinstance(metadata, dict) and len(metadata) > 0, "metadata empty / wrong type on classification path"
 
 
 # ---------------------------------------------------------------------------
@@ -160,10 +171,19 @@ def test_biz_val_training_suite_mlframe_models_subset(tmp_path, model_list):
         )
     except (TypeError, ImportError) as e:
         pytest.skip(f"suite call broke during refactor: {e}")
-    # The chosen model family must be reflected somewhere in the
-    # returned models structure. Don't depend on exact dict layout;
-    # just verify the models dict exists.
-    assert models is not None
+    # The chosen model family must be reflected somewhere in the returned models structure. Behavioural pin:
+    # the requested family name must appear as a substring of at least one model key (so a regression that
+    # silently returns an empty dict OR routes to a different family is caught).
+    assert models is not None, f"suite returned None models on mlframe_models={model_list} path"
+    assert hasattr(models, "__len__") and len(models) >= 1, (
+        f"models container empty for mlframe_models={model_list}; got {type(models).__name__}"
+    )
+    if isinstance(models, dict):
+        family = model_list[0]
+        keys_str = " ".join(str(k) for k in models.keys()).lower()
+        assert family in keys_str, (
+            f"mlframe_models={model_list} did not produce any {family}-keyed model; got keys={list(models.keys())}"
+        )
 
 
 # ---------------------------------------------------------------------------

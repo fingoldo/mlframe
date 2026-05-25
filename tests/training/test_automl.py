@@ -136,9 +136,18 @@ class TestTrainAutogluonModel:
             verbose=0,
         )
 
-        assert result is not None
-        assert result.test_probs is not None
-        assert len(result.test_probs) == len(sample_test_df)
+        assert result is not None, "AutoGluon training returned None on test-df-evaluated path"
+        assert result.test_probs is not None, "AutoGluon result.test_probs is None despite test_df supplied"
+        # Behavioural: length matches the test frame AND the probability values are finite numerics in [0, 1] (probs, not log-odds).
+        assert len(result.test_probs) == len(sample_test_df), (
+            f"test_probs length {len(result.test_probs)} != test_df length {len(sample_test_df)}"
+        )
+        import numpy as np
+        probs_arr = np.asarray(result.test_probs)
+        assert np.all(np.isfinite(probs_arr)), "test_probs contain non-finite values"
+        assert (probs_arr.min() >= 0.0) and (probs_arr.max() <= 1.0), (
+            f"test_probs outside [0, 1] range: min={probs_arr.min()}, max={probs_arr.max()}"
+        )
 
 
 class TestTrainAutogluonModelMocked:

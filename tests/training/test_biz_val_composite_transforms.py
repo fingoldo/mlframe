@@ -71,8 +71,12 @@ def test_biz_val_safe_corr_constant_input():
     x = np.ones(200, dtype=np.float64)
     y = np.random.default_rng(42).normal(size=200)
     corr = _safe_corr(x, y)
-    # Should not raise. Value is implementation-specific.
-    assert corr is not None
+    # Behavioural: zero-variance input must return a finite sentinel (0.0 or NaN) per the documented guard, NOT
+    # raise and NOT return inf. ``is not None`` alone passed even when the guard returned a divide-by-zero inf.
+    assert corr is not None, "_safe_corr returned None on zero-variance input"
+    assert np.isnan(corr) or corr == 0.0, (
+        f"_safe_corr on zero-variance input must return NaN or 0.0, got {corr!r}"
+    )
 
 
 # ---------------------------------------------------------------------------
