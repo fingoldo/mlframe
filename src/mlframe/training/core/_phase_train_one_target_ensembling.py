@@ -17,6 +17,13 @@ import logging
 
 from mlframe.models.ensembling import score_ensemble
 
+# Top-level import of ``_choose_ensemble_flavour`` from the new leaf module ``_ensemble_chooser``.
+# Pre-fix this lived in ``_phase_train_one_target`` (parent of this sibling) and had to be
+# in-function imported on every per-target iteration to dodge the import cycle (parent re-exports
+# this sibling at its bottom). The leaf move breaks the cycle so the import resolves once at module
+# load, surfacing any typo / signature drift immediately rather than mid-suite.
+from ._ensemble_chooser import _choose_ensemble_flavour
+
 logger = logging.getLogger("mlframe.training.core._phase_train_one_target")
 
 
@@ -46,11 +53,6 @@ def _finalize_per_target_ensembling(
     Parameters are kwargs-only to keep the long call-site readable and to
     avoid positional-arg drift when callers grow extra context.
     """
-    # Lazy import: parent re-exports this helper at its module bottom, so a
-    # top-level import would form a cycle. Python's module cache makes this
-    # sub-microsecond per call.
-    from ._phase_train_one_target import _choose_ensemble_flavour
-
     if not (ens_models and len(ens_models) > 1):
         return
 
@@ -136,16 +138,24 @@ def _finalize_per_target_ensembling(
                     .setdefault(target_type, {})[cur_target_name] = _chosen
         except Exception as _choose_err:
             logger.warning("ensembles_chosen stamp failed for %s/%s: %s", target_type, cur_target_name, _choose_err)
-        # Persist ``rrf_k`` (and a couple of other replay-critical params) into metadata
-        # so predict-side ``_combine_probs`` replays the exact same blend a non-default-k
-        # train was scored with. Pre-fix predict hard-coded k=60 - a user setting rrf_k=10
-        # at train time silently got k=60 at predict time. The default 60 mirrors
-        # ``score_ensemble``'s default; common_params may override.
-        try:
-            _rrf_k_used = int(common_params.get("rrf_k", 60))
-        except (TypeError, ValueError):
-            _rrf_k_used = 60
-        metadata.setdefault("ensembles_chosen_params", {}) \
-            .setdefault(str(target_type), {})[str(cur_target_name)] = {
-                "rrf_k": _rrf_k_used,
-            }
+        # Persist ``rrf_k`` only when RRF was actually iterated for this target -- otherwise
+        # the metadata stamps a stale-but-default ``rrf_k`` for regression-only suites (where
+        # score_ensemble filters RRF out) which pollutes regression-review diffs without ever
+        # affecting predict (which only reads rrf_k for the rrf flavour). Detection: look at
+        # ``ensembling_methods`` in common_params AND the keys actually emitted into
+        # ``_ensembles`` -- a flavour is in the iteration when it appears in either.
+        _ens_methods_used = common_params.get("ensembling_methods") if isinstance(common_params, dict) else None
+        _rrf_in_iter = False
+        if isinstance(_ens_methods_used, (list, tuple)):
+            _rrf_in_iter = "rrf" in _ens_methods_used
+        if not _rrf_in_iter:
+            _rrf_in_iter = any(isinstance(k, str) and k == "rrf" for k in _ensembles.keys())
+        if _rrf_in_iter:
+            try:
+                _rrf_k_used = int(common_params.get("rrf_k", 60))
+            except (TypeError, ValueError):
+                _rrf_k_used = 60
+            metadata.setdefault("ensembles_chosen_params", {}) \
+                .setdefault(str(target_type), {})[str(cur_target_name)] = {
+                    "rrf_k": _rrf_k_used,
+                }
