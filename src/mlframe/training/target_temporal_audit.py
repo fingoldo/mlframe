@@ -56,130 +56,15 @@ try:
 except ImportError:
     _HAS_POLARS = False
 
-def _import_ruptures():
-    """Lazy import of ``ruptures`` so callers using only the z-score detector
-    never pay the import cost (ruptures pulls in scipy.sparse.linalg + numba
-    extensions; ~150ms cold). ``ImportError`` propagates to the caller; the
-    z-score path is dependency-free and the obvious fallback.
-    """
-    import ruptures as rpt  # type: ignore[import-not-found]
-    return rpt
-
 logger = logging.getLogger(__name__)
 
-
-# Lower / upper datetime sanity bounds for auto-unit detection.
-_AUDIT_DATETIME_LOW_NS = np.int64(0)  # 1970-01-01 in nanoseconds-since-epoch
-_AUDIT_DATETIME_HIGH_NS = np.int64(7258118400_000_000_000)  # 2200-01-01 in ns
-_AUDIT_UNIT_NS_FACTOR: dict[str, int] = {
-    "s":  1_000_000_000,
-    "ms":     1_000_000,
-    "us":         1_000,
-    "ns":             1,
-}
-
-
-def coerce_timestamps_for_audit(
-    arr,
-    *,
-    explicit_unit: str | None = None,
-) -> np.ndarray:
-    """Coerce a numeric timestamp array to numpy datetime64[ns] for audit binning.
-
-    Unit auto-detection (when ``explicit_unit`` is None):
-    - Pure datetime64 input or pd.DatetimeIndex / pd.Series of datetimes: returned as-is.
-    - Numeric input: try each candidate unit in (s, ms, us, ns) in COARSEST-first
-      order. For each, compute resulting timestamp range. Accept the first unit
-      whose entire min..max range lands in [1970-01-01, 2200-01-01]; this gives
-      the audit the widest meaningful time-span for binning. Coarsest-first matters
-      because a value like 1_700_000_000 is legal as ns (=1.7 sec past epoch,
-      degenerate single-bin audit) AND as s (=2023-11-14, useful audit); we want
-      the latter.
-    - If no unit is in-range, log a warning and fall back to ns to preserve
-      pre-existing behaviour.
-
-    ``explicit_unit`` (optional): forces the unit interpretation. Must be one of
-    {'s', 'ms', 'us', 'ns'}.
-
-    Returns a 1-D numpy datetime64[ns] array. Accepts numpy ndarray, list,
-    pd.Series, or any 1-D ``Sequence``-like input.
-    """
-    arr = np.asarray(arr) if not isinstance(arr, np.ndarray) else arr
-
-    if np.issubdtype(arr.dtype, np.datetime64):
-        # Force datetime64[ns] resolution per the docstring contract.
-        # pandas 2.x / numpy 2.x may surface DatetimeIndex.to_numpy() at
-        # us / s units, and the downstream audit kernels view-cast bytes
-        # to int64 expecting ns. Returning the input unit silently shifts
-        # the time-axis by 1000x and lands every row in the 1970 epoch.
-        if arr.dtype != np.dtype("datetime64[ns]"):
-            arr = arr.astype("datetime64[ns]")
-        return arr
-    if not (np.issubdtype(arr.dtype, np.integer) or np.issubdtype(arr.dtype, np.floating)):
-        # Object / string / pd.Timestamp etc. -- let pandas figure it out (string parsing path).
-        # Wave 34 P2 fix (2026-05-20): if the input contains tz-aware
-        # pd.Timestamp entries, ``pd.to_datetime(arr).to_numpy()`` returns
-        # an OBJECT dtype (tz info preserved as Timestamp objects), NOT
-        # the documented ``datetime64[ns]`` invariant. Downstream callers
-        # (recommended_filter_mask at L335, compute_ml_perf_by_time)
-        # silently get a mixed-dtype array; Grouper / comparisons
-        # then behave inconsistently across runs.
-        # Force the documented contract: coerce to UTC-aware via
-        # ``utc=True``, then strip the tz so the resulting numpy view IS
-        # ``datetime64[ns]``. WARN-log when tz info gets dropped so the
-        # operator knows the audit assumes UTC.
-        _coerced = pd.to_datetime(arr, utc=True, errors="coerce")
-        _had_tz = (getattr(_coerced.dtype, "tz", None) is not None)
-        if _had_tz:
-            _coerced = _coerced.tz_convert("UTC").tz_localize(None)
-            import logging as _logging
-            _logging.getLogger(__name__).warning(
-                "coerce_timestamps_for_audit: input contained tz-aware "
-                "Timestamps; converted to UTC then tz-stripped so the "
-                "returned dtype matches the documented datetime64[ns] "
-                "contract. If your data are not UTC-anchored, localise "
-                "BEFORE calling this helper."
-            )
-        return _coerced.to_numpy().astype("datetime64[ns]")
-
-    # pandas 2.0+ ``DatetimeIndex.to_numpy()`` can return ``datetime64[s]`` /
-    # ``[ms]`` / ``[us]`` (preserved resolution) instead of always ``[ns]``.
-    # Downstream ``.view("int64")`` callers (``_normalize_timestamps``) then
-    # read the raw integer in the original unit, not nanoseconds, and
-    # epoch-second values collapse to 1970. Force ``datetime64[ns]`` so the
-    # documented contract holds across pandas versions.
-    def _to_ns(_dti):
-        return _dti.to_numpy().astype("datetime64[ns]")
-
-    if arr.size == 0:
-        return _to_ns(pd.to_datetime(arr, unit=explicit_unit or "ns"))
-
-    if explicit_unit is not None:
-        if explicit_unit not in _AUDIT_UNIT_NS_FACTOR:
-            raise ValueError(
-                f"audit timestamp unit={explicit_unit!r} not in "
-                f"{sorted(_AUDIT_UNIT_NS_FACTOR)!r}"
-            )
-        return _to_ns(pd.to_datetime(arr, unit=explicit_unit))
-
-    # Auto-detect: coarsest-first so degenerate ns-as-seconds reads pick "s" not "ns".
-    _vmin_f = float(np.nanmin(arr))
-    _vmax_f = float(np.nanmax(arr))
-    for _unit in ("s", "ms", "us", "ns"):
-        _ns_factor = _AUDIT_UNIT_NS_FACTOR[_unit]
-        _lo_ns = _vmin_f * _ns_factor
-        _hi_ns = _vmax_f * _ns_factor
-        if _AUDIT_DATETIME_LOW_NS <= _lo_ns and _hi_ns <= _AUDIT_DATETIME_HIGH_NS:
-            return _to_ns(pd.to_datetime(arr, unit=_unit))
-
-    logger.warning(
-        "audit timestamp values (min=%g, max=%g) fall outside [1970-01-01, 2200-01-01] "
-        "under every candidate unit (s/ms/us/ns). Falling back to ns interpretation; "
-        "audit may degenerate to a single bin. Set explicit unit to override.",
-        _vmin_f, _vmax_f,
-    )
-    return _to_ns(pd.to_datetime(arr, unit="ns"))
-
+from ._target_temporal_audit_coerce import (  # noqa: E402
+    _AUDIT_DATETIME_HIGH_NS,
+    _AUDIT_DATETIME_LOW_NS,
+    _AUDIT_UNIT_NS_FACTOR,
+    _import_ruptures,
+    coerce_timestamps_for_audit,
+)
 
 DEFAULT_MIN_BIN_FRACTION_FOR_FILTER: float = 0.5
 """A bin is kept (plotted, used in change-point detection) only if its
@@ -196,9 +81,6 @@ DEFAULT_ZSCORE_WINDOW: int = 7
 Wider windows = smoother baseline, less sensitive to short anomalies.
 7 catches month-long dips on a monthly-binned series."""
 
-DEFAULT_TARGET_BINS_RANGE: tuple[int, int] = (30, 50)
-"""Granularity auto-picker aims for this many non-empty bins."""
-
 DEFAULT_PELT_MODEL: str = "l2"
 """Default cost model for ruptures.Pelt: ``"l2"`` (mean-shift detection
 via squared error). Other choices: ``"l1"`` (median-shift, more
@@ -212,19 +94,19 @@ outlier, not a regime). Raise to 3+ to filter out short transients."""
 
 ChangePointMethod = Literal["pelt", "zscore"]
 
-Granularity = Literal["minute", "hour", "day", "week", "month", "quarter", "year"]
-_GRANULARITY_ORDER: list[Granularity] = [
-    "minute", "hour", "day", "week", "month", "quarter", "year",
-]
-_GRANULARITY_SECONDS: dict[Granularity, float] = {
-    "minute": 60.0,
-    "hour": 3600.0,
-    "day": 86_400.0,
-    "week": 7 * 86_400.0,
-    "month": 30.44 * 86_400.0,
-    "quarter": 91.31 * 86_400.0,
-    "year": 365.25 * 86_400.0,
-}
+from ._target_temporal_audit_aggregate import (  # noqa: E402
+    DEFAULT_TARGET_BINS_RANGE,
+    Granularity,
+    _GRANULARITY_ORDER,
+    _GRANULARITY_SECONDS,
+    _POLARS_BIN_TRUNCATE,
+    _aggregate_by_time_pandas,
+    _aggregate_by_time_polars,
+    _aggregate_by_time_polars_multi,
+    _format_bin_label,
+    _pick_granularity,
+    _polars_rate_expr,
+)
 
 
 @dataclass
@@ -399,241 +281,6 @@ class TemporalAuditResult:
         return mask
 
 
-# -----------------------------------------------------------------------------
-# Granularity picker
-# -----------------------------------------------------------------------------
-
-def _pick_granularity(
-    timestamps: Sequence,
-    target_bins_range: tuple[int, int] = DEFAULT_TARGET_BINS_RANGE,
-) -> Granularity:
-    """Choose a bin width that yields ~30-50 non-empty bins.
-
-    Strategy: pick the smallest granularity whose total span / bin
-    size sits inside ``target_bins_range``. If no granularity fits
-    perfectly, return the one with the count closest to the geometric
-    mean of the range (sqrt(30 * 50) в‰€ 38).
-
-    Accepts ``(min_ts, max_ts)`` as a 2-tuple shortcut: callers with
-    direct polars / numpy / pandas span knowledge can skip the
-    ``pd.to_datetime(pd.Series(...))`` materialisation of the full
-    1M+ timestamp array (which costs ~1s on 1M rows for a probe that
-    only needs the two extremes).
-    """
-    # Fast path: caller pre-computed (min, max). Avoids the O(N)
-    # round-trip through pd.Series for 1M+ row inputs.
-    if isinstance(timestamps, tuple) and len(timestamps) == 2:
-        _t_min, _t_max = timestamps
-        if _t_min is None or _t_max is None:
-            return "month"
-        ts_min = pd.Timestamp(_t_min)
-        ts_max = pd.Timestamp(_t_max)
-        span_seconds = (ts_max - ts_min).total_seconds()
-        if span_seconds <= 0:
-            return "month"
-    else:
-        if len(timestamps) == 0:
-            return "month"
-        ts = pd.Series(coerce_timestamps_for_audit(timestamps))
-        span_seconds = (ts.max() - ts.min()).total_seconds()
-        if span_seconds <= 0:
-            return "month"
-
-    target_geomean = math.sqrt(target_bins_range[0] * target_bins_range[1])
-    best: Granularity | None = None
-    best_score = math.inf
-
-    for g in _GRANULARITY_ORDER:
-        n = span_seconds / _GRANULARITY_SECONDS[g]
-        if target_bins_range[0] <= n <= target_bins_range[1]:
-            return g
-        # Distance (in log space) from the geometric-mean target count
-        score = abs(math.log(n) - math.log(target_geomean)) if n > 0 else math.inf
-        if score < best_score:
-            best_score = score
-            best = g
-
-    return best or "month"
-
-
-# -----------------------------------------------------------------------------
-# Aggregation
-# -----------------------------------------------------------------------------
-
-_POLARS_BIN_TRUNCATE: dict[Granularity, str] = {
-    "minute": "1m",
-    "hour": "1h",
-    "day": "1d",
-    "week": "1w",
-    "month": "1mo",
-    "quarter": "1q",
-    "year": "1y",
-}
-
-
-def _polars_rate_expr(target_col: str, target_type: str, alias: str) -> pl.Expr:
-    """Build a polars aggregation expr for one target's per-bin rate."""
-    if target_type == "binary_classification":
-        # P(y=1): treat null as 0, then mean over (val > 0)
-        return (pl.col(target_col).fill_null(0) > 0).cast(pl.Float64).mean().alias(alias)
-    return pl.col(target_col).cast(pl.Float64).mean().alias(alias)
-
-
-def _aggregate_by_time_polars(
-    df: pl.DataFrame,
-    timestamp_col: str,
-    target_col: str,
-    granularity: Granularity,
-    *,
-    target_type: str,
-) -> pd.DataFrame:
-    """Polars-native group-by-time aggregation, single target. Returns
-    pandas DF for downstream sklearn / matplotlib compatibility."""
-    if not _HAS_POLARS:
-        raise ImportError("polars not installed; pass a pandas df instead.")
-    bin_expr = pl.col(timestamp_col).dt.truncate(_POLARS_BIN_TRUNCATE[granularity])
-    rate_expr = _polars_rate_expr(target_col, target_type, "target_rate")
-
-    from .utils import get_pandas_view_of_polars_df as _get_pandas_view
-    # Arrow-backed split-blocks bridge: ~32x faster than default .to_pandas() on
-    # the per-bin aggregate -- bin counts grow O(n_obs / bin_width) so the saving
-    # scales with input frame size.
-    agg = _get_pandas_view(
-        df.select([timestamp_col, target_col])
-          .with_columns(bin_expr.alias("__bin"))
-          .group_by("__bin")
-          .agg(pl.len().alias("n_obs"), rate_expr)
-          .sort("__bin")
-    )
-    agg = agg.rename(columns={"__bin": "bin_start"})
-    agg["bin_start"] = pd.to_datetime(agg["bin_start"])
-    return agg
-
-
-def _aggregate_by_time_polars_multi(
-    df: pl.DataFrame,
-    timestamp_col: str,
-    target_specs: list[tuple[str, str, str]],
-    granularity: Granularity,
-) -> pd.DataFrame:
-    """Polars multi-target group-by-time aggregation: one pass over the
-    data computes per-bin n_obs and per-target rate columns side-by-side.
-
-    Parameters
-    ----------
-    df : pl.DataFrame
-    timestamp_col : str
-    target_specs : list of (target_col, target_type, alias)
-        ``target_col`` is the source column name in df. ``alias`` is
-        the column name to use for that target's rate in the output
-        (typically ``f"rate__{target_col}"`` or any caller-chosen
-        identifier so multiple targets sharing one source col don't
-        collide).
-    granularity : Granularity
-
-    Returns
-    -------
-    pandas.DataFrame
-        Columns: ``bin_start``, ``n_obs``, plus one rate column per
-        target_spec (named by the spec's ``alias``). Sorted by
-        ``bin_start``. The rate columns can then be sliced per-target
-        by callers without re-running the groupby.
-    """
-    if not _HAS_POLARS:
-        raise ImportError("polars not installed; pass a pandas df instead.")
-    if not target_specs:
-        raise ValueError("target_specs must be non-empty.")
-
-    bin_expr = pl.col(timestamp_col).dt.truncate(_POLARS_BIN_TRUNCATE[granularity])
-    rate_exprs = [
-        _polars_rate_expr(col, ttype, alias)
-        for (col, ttype, alias) in target_specs
-    ]
-    select_cols = [timestamp_col, *{spec[0] for spec in target_specs}]
-
-    from .utils import get_pandas_view_of_polars_df as _get_pandas_view
-    # Arrow-backed split-blocks bridge -- same rationale as the single-target variant
-    # above; multi-target aggregates have wider output columns so the saving
-    # (avoided per-column consolidation copy) compounds.
-    agg = _get_pandas_view(
-        df.select(select_cols)
-          .with_columns(bin_expr.alias("__bin"))
-          .group_by("__bin")
-          .agg(pl.len().alias("n_obs"), *rate_exprs)
-          .sort("__bin")
-    )
-    agg = agg.rename(columns={"__bin": "bin_start"})
-    agg["bin_start"] = pd.to_datetime(agg["bin_start"])
-    return agg
-
-
-def _aggregate_by_time_pandas(
-    df: pd.DataFrame,
-    timestamp_col: str,
-    target_col: str,
-    granularity: Granularity,
-    *,
-    target_type: str,
-) -> pd.DataFrame:
-    """Pandas-side aggregation for non-polars callers / unit tests."""
-    s = df[[timestamp_col, target_col]].copy()
-    s[timestamp_col] = pd.to_datetime(s[timestamp_col])
-    # Period-frequency strings (pandas accepts a different set than
-    # offset aliases вЂ” e.g. "QS" works as an offset but not as a Period
-    # frequency). Use Period for clean bin labels, then materialise.
-    period_freq = {
-        "minute": "min",
-        "hour": "h",
-        "day": "D",
-        "week": "W",
-        "month": "M",
-        "quarter": "Q",
-        "year": "Y",
-    }[granularity]
-    s["__bin"] = s[timestamp_col].dt.to_period(period_freq).dt.to_timestamp()
-
-    if target_type == "binary_classification":
-        # Wave 50 (2026-05-20): the prior `fillna(0) > 0` counted NaN rows as
-        # negatives, deflating reported positive rate per bin. Drop NaN
-        # explicitly so the rate is the honest empirical positive fraction
-        # over non-missing rows; NaN fraction is surfaced separately via n_obs.
-        rate = s.groupby("__bin")[target_col].apply(
-            lambda c: (c.dropna() > 0).mean() if c.notna().any() else float("nan")
-        )
-    else:
-        rate = s.groupby("__bin")[target_col].mean()
-    n_obs = s.groupby("__bin")[target_col].size()
-
-    agg = pd.DataFrame({
-        "bin_start": rate.index,
-        "n_obs": n_obs.values,
-        "target_rate": rate.values,
-    }).sort_values("bin_start").reset_index(drop=True)
-    return agg
-
-
-def _format_bin_label(ts: pd.Timestamp, granularity: Granularity) -> str:
-    fmt = {
-        "minute": "%Y-%m-%d %H:%M",
-        "hour": "%Y-%m-%d %H",
-        "day": "%Y-%m-%d",
-        "week": "%Y-%m-%d (W)",
-        "month": "%Y-%m",
-        "quarter": "%Y-Q%q",
-        "year": "%Y",
-    }[granularity]
-    if granularity == "quarter":
-        return f"{ts.year}-Q{(ts.month - 1) // 3 + 1}"
-    return ts.strftime(fmt)
-
-
-# -----------------------------------------------------------------------------
-# Change-point detection (1-D, generic)
-# -----------------------------------------------------------------------------
-
-
-# Wave 106 (2026-05-21): change-point detection helpers moved to
-# sibling _target_temporal_changepoint.py.
 from ._target_temporal_changepoint import (  # noqa: F401, E402
     find_change_points_pelt,
     find_change_points_zscore,
