@@ -62,7 +62,8 @@ def create_date_features(
     A new frame (same backend as input). The input is never mutated.
     """
     if methods is None:
-        methods = _DEFAULT_DATE_METHODS
+        # Copy so callers (or future internal mutations) cannot corrupt the module-level singleton; downstream replay maps at `_phase_helpers_fit_pipeline.py` rely on stable iteration order.
+        methods = dict(_DEFAULT_DATE_METHODS)
     if len(cols) == 0:
         return df
 
