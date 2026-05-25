@@ -13,6 +13,8 @@ import warnings
 # $_ -notmatch '^ \*\* On entry to D[A-Z]+ parameter' } | Tee-Object``).
 # KMP_WARNINGS does cleanly silence Intel OpenMP runtime chatter, so keep it.
 os.environ.setdefault("KMP_WARNINGS", "off")
+# Stream test output line-by-line: by default Python buffers stdout under non-tty pipes (CI tail commands, IDE log panels, tee). Unbuffered output makes `pytest -s` actually-streaming so long-running tests show progress instead of opaque mid-test silence. Operators forcing buffered mode can pre-set the env var to 0.
+os.environ.setdefault("PYTHONUNBUFFERED", "1")
 
 import pytest
 
