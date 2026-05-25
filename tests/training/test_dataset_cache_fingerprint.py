@@ -116,10 +116,14 @@ class TestSharedFingerprintHelper:
 
         try:
             df.to_numpy = trap  # type: ignore[method-assign]
-            # Should succeed via .row(idx); never touch to_numpy.
             sig = compute_signature(df)
-            assert sig is not None
+            # Behavioural: signature is a non-empty hashable container distinct from None / empty-tuple AND the .row()
+            # fast path was used (to_numpy trap counter stays at 0).
+            assert sig is not None and sig != () and sig != "", f"compute_signature returned a vacuous value: {sig!r}"
             assert called["to_numpy"] == 0
+            # Idempotence: a second call without mutating the frame must return an identical signature.
+            sig_repeat = compute_signature(df)
+            assert sig_repeat == sig, "compute_signature is not idempotent on identical input"
         finally:
             df.to_numpy = real_to_numpy  # type: ignore[method-assign]
 
