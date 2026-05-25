@@ -135,7 +135,9 @@ def _phase_train_val_test_split(
     #   (c) multilabel target (N, K)      -> if iterative-stratification is installed,
     #       pass its ndarray through; otherwise fall back to first-label stratification
     #       as a best-effort over the all-classes-fully-balanced corner case.
-    _MAX_COMPOSITE_CARDINALITY = 200  # caps the (b) regime at ~200 distinct row-tuples
+    # composite_cardinality_cap configurable via TrainingSplitConfig (default 200). sklearn StratifiedShuffleSplit allocates O(n_classes) buckets and requires >=2 samples per class; >200 classes typically means most have <2 rows and the splitter rejects.
+    _MAX_COMPOSITE_CARDINALITY = int(getattr(split_config, "composite_cardinality_cap", 200) or 200)
+    _bucket_stratify_enabled = bool(getattr(split_config, "bucket_stratify", True))
     _stratify_y = None
     if timestamps is None and isinstance(target_by_type, dict):
         _classification_targets = []
@@ -241,9 +243,58 @@ def _phase_train_val_test_split(
                         )
             except Exception:
                 _stratify_y = None
+        # Regression bucket-stratify: when no classification stratify_y was set above AND bucket_stratify is enabled (default True), bin regression targets into deciles (quartiles for n<5000) and stratify on bucket ids. Prevents heavy-tail / multimodal regression from concentrating tail rows in val or test (the same all-one-class hazard classification stratification already prevents). Skipped when a classification path already populated _stratify_y, when timestamps drive a temporal split, or when only a single distinct target value is present.
+        if _stratify_y is None and _bucket_stratify_enabled and timestamps is None:
+            _regression_targets = []
+            for _tt, _named in target_by_type.items():
+                _tt_name = getattr(_tt, "name", str(_tt)).upper()
+                if "REGRESSION" in _tt_name or "QUANTILE" in _tt_name:
+                    if isinstance(_named, dict):
+                        for _tn, _tv in _named.items():
+                            if _tv is not None:
+                                _regression_targets.append(_tv)
+            if _regression_targets:
+                try:
+                    _y_reg = np.asarray(_regression_targets[0]).astype(np.float64)
+                    if _y_reg.ndim == 1 and len(_y_reg) > 0:
+                        _finite = np.isfinite(_y_reg)
+                        if _finite.sum() >= 10:
+                            _n_bins = 10 if _finite.sum() >= 5000 else 4
+                            _quantiles = np.linspace(0.0, 1.0, _n_bins + 1)[1:-1]
+                            _edges = np.unique(np.quantile(_y_reg[_finite], _quantiles))
+                            _buckets = np.digitize(_y_reg, _edges)
+                            _u, _c = np.unique(_buckets, return_counts=True)
+                            if len(_u) >= 2 and _c.min() >= 2:
+                                _stratify_y = _buckets
+                                logger.info(
+                                    "Bucket-stratify: regression target binned into %d quantile buckets (min/median/max bucket count=%d/%d/%d). Prevents heavy-tail rows from concentrating in val or test.",
+                                    len(_u), int(_c.min()), int(np.median(_c)), int(_c.max()),
+                                )
+                            else:
+                                logger.info(
+                                    "Bucket-stratify: regression bucket distribution too sparse for stratification (n_buckets=%d, min_count=%d); fall back to shuffled split.",
+                                    len(_u), int(_c.min()) if len(_c) else 0,
+                                )
+                except Exception as _bucket_err:
+                    logger.warning(
+                        "Bucket-stratify: regression binning failed (%s: %s); shuffled-only splits.",
+                        type(_bucket_err).__name__, _bucket_err,
+                    )
     # Group-aware splitting opt-in: when the extractor produced ``group_ids`` and
     # ``split_config.use_groups`` is set, route through GroupShuffleSplit.
     _groups = group_ids if (split_config.use_groups and group_ids is not None and len(group_ids) > 0) else None
+    # Group + bucket combination: when both groups and a bucket _stratify_y are present and the splitter doesn't natively support both, prefer groups (no per-row group leakage is the stronger invariant) and surface the dropped stratification at INFO so the operator sees the precedence decision.
+    if _groups is not None and _stratify_y is not None:
+        try:
+            from iterstrat.ml_stratifiers import MultilabelStratifiedShuffleSplit  # noqa: F401
+            _has_iterstrat = True
+        except ImportError:
+            _has_iterstrat = False
+        if not _has_iterstrat:
+            logger.info(
+                "Bucket-stratify: groups present AND bucket stratify_y built, but iterative-stratification not installed. Using GroupShuffleSplit (groups precedence) and dropping bucket stratification. pip install iterative-stratification to combine both.",
+            )
+            _stratify_y = None
     with phase("split_data"):
         # ``calib_size`` is a TrainingSplitConfig field for opt-in
         # post-calibration; ``make_train_test_split`` does not accept it
