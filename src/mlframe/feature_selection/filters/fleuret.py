@@ -45,6 +45,7 @@ def get_fleuret_criteria_confidence_parallel(
     entropy_cache: dict = None,
     extra_x_shuffling: bool = True,
     dtype=np.int32,
+    base_seed: int = 0,
 ) -> tuple:
     if parallel_kwargs is None:
         parallel_kwargs = {}
@@ -54,6 +55,8 @@ def get_fleuret_criteria_confidence_parallel(
         workers_pool = Parallel(n_jobs=n_workers, **parallel_kwargs)
 
     gc.collect()
+    # Per-worker seed derivation: outer base_seed * Knuth multiplicative hash + worker index keeps streams independent yet aggregate is reproducible from outer base_seed.
+    _worker_loads = list(distribute_permutations(npermutations=npermutations, n_workers=n_workers))
     res = workers_pool(
         delayed(parallel_fleuret)(
             data=data_copy,
@@ -74,8 +77,9 @@ def get_fleuret_criteria_confidence_parallel(
             entropy_cache=dict(entropy_cache),
             extra_x_shuffling=extra_x_shuffling,
             dtype=dtype,
+            base_seed=int((int(base_seed) * 2654435761 + (_widx + 1)) & 0xFFFFFFFFFFFFFFFF),
         )
-        for worker_npermutations in distribute_permutations(npermutations=npermutations, n_workers=n_workers)
+        for _widx, worker_npermutations in enumerate(_worker_loads)
     )
 
     nchecked = 0
@@ -113,6 +117,7 @@ def parallel_fleuret(
     entropy_cache: dict = None,
     extra_x_shuffling: bool = True,
     dtype=np.int32,
+    base_seed: int = 0,
 ):
     """Joblib worker: rebuild numba.typed.Dict from pickled Python dicts, run the njit core, return a Python dict for the parent's union."""
     data_copy = data.copy()
@@ -146,9 +151,27 @@ def parallel_fleuret(
         entropy_cache=entropy_cache_dict,
         extra_x_shuffling=extra_x_shuffling,
         dtype=dtype,
+        base_seed=np.uint64(base_seed),
     )
 
     return nfailed, i, dict(entropy_cache_dict)
+
+
+@njit(cache=True)
+def _fleuret_shuffle_col_lcg(col: np.ndarray, state: np.uint64) -> np.uint64:
+    """Inline Fisher-Yates over a 1-D column slice using the same LCG schedule as ``permutation.shuffle_arr_lcg``.
+
+    Returns the post-shuffle state so the caller threads it across per-column and per-permutation calls. Replaces ``np.random.shuffle(data_copy[:, idx])`` whose global numpy RNG state is process-wide
+    and races under joblib parallel workers / multi-suite invocations.
+    """
+    n = len(col)
+    for j in range(n - 1, 0, -1):
+        state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
+        k = int(state >> np.uint64(33)) % (j + 1)
+        tmp = col[j]
+        col[j] = col[k]
+        col[k] = tmp
+    return state
 
 
 @njit(cache=True)
@@ -171,24 +194,28 @@ def get_fleuret_criteria_confidence(
     entropy_cache: dict = None,
     extra_x_shuffling: bool = True,
     dtype=np.int32,
+    base_seed: np.uint64 = np.uint64(0),
 ) -> tuple:
     """Sub to njit work with random shuffling as well.
 
     Zero-permutation guard returns ``(0, 0)`` cleanly. The legacy code raised ``UnboundLocalError`` on ``i`` because the for-loop never assigned it.
+
+    ``base_seed`` threads through inline LCG Fisher-Yates so per-permutation column shuffles are reproducible from a single seed; pre-fix code used ``np.random.shuffle`` on the process-global numpy RNG which raced under joblib parallel workers and made two parallel suite calls produce non-deterministic confidence values.
     """
     if npermutations == 0:
         return 0, 0
 
     nfailed = 0
     _i = 0
+    _lcg_state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(1)
     for _i in range(npermutations):
 
         for idx in y:
-            np.random.shuffle(data_copy[:, idx])
+            _lcg_state = np.uint64(_fleuret_shuffle_col_lcg(data_copy[:, idx], _lcg_state))
 
         if extra_x_shuffling:
             for idx in x:
-                np.random.shuffle(data_copy[:, idx])
+                _lcg_state = np.uint64(_fleuret_shuffle_col_lcg(data_copy[:, idx], _lcg_state))
 
         stopped_early, current_gain, k, sink_reasons = evaluate_gain(
             current_gain=LARGE_CONST,

@@ -700,6 +700,9 @@ def screen_predictors(
                                     if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
                                         eval_start = timer()
 
+                                    # Per-candidate base_seed: fold ``random_seed`` (0 when caller passed None) with the current selection-step index so each candidate's permutation stream is
+                                    # deterministic AND independent across steps. Pre-fix code relied on the process-global numpy RNG which raced under joblib parallel workers.
+                                    _fleuret_base_seed = int(((int(random_seed or 0) * 2654435761) + len(selected_vars) + 1) & 0xFFFFFFFFFFFFFFFF)
                                     if n_workers and n_workers > 1 and full_npermutations > NMAX_NONPARALLEL_ITERS:
                                         bootstrapped_gain, confidence, parallel_entropy_cache = get_fleuret_criteria_confidence_parallel(
                                             data_copy=data_copy,
@@ -720,6 +723,7 @@ def screen_predictors(
                                             n_workers=n_workers,
                                             workers_pool=workers_pool,
                                             parallel_kwargs=parallel_kwargs,
+                                            base_seed=_fleuret_base_seed,
                                         )
                                         for key, value in parallel_entropy_cache.items():
                                             entropy_cache[key] = value
@@ -740,6 +744,7 @@ def screen_predictors(
                                             cached_cond_MIs=cached_cond_MIs,
                                             entropy_cache=entropy_cache,
                                             extra_x_shuffling=extra_x_shuffling,
+                                            base_seed=np.uint64(_fleuret_base_seed),
                                         )
                                         # logger.info(f"nfailed={nfailed}, nchecked={nchecked}")
                                         confidence = 1 - nfailed / nchecked

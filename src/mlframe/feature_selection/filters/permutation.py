@@ -198,16 +198,22 @@ def parallel_mi(
     original_mi: float,
     max_failed: int,
     dtype=np.int32,
+    base_seed: np.uint64 = np.uint64(0),
 ) -> tuple[int, int]:
-    """Worker for the joblib pool used by ``mi_direct``. Returns ``(n_failed, n_checked)`` so the caller can aggregate across pool members. ``npermutations=0`` returns ``(0, 0)`` cleanly."""
+    """Worker for the joblib pool used by ``mi_direct``. Returns ``(n_failed, n_checked)`` so the caller can aggregate across pool members. ``npermutations=0`` returns ``(0, 0)`` cleanly.
+
+    ``base_seed`` threads a per-worker seed through the inline LCG Fisher-Yates so two parallel suite calls with the same seed produce identical ``(nfailed, _i+1)`` output. ``base_seed=0`` keeps the legacy stream
+    deterministic across calls in the same process; parent callers (``mi_direct`` joblib branch) should derive per-worker seeds via Knuth multiplicative hash so the worker streams stay independent.
+    """
     if npermutations == 0:
         return 0, 0
 
     nfailed = 0
     classes_y_safe = np.asarray(classes_y).copy()
     _i = 0
+    _lcg_state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(1)
     for _i in range(npermutations):
-        np.random.shuffle(classes_y_safe)
+        _lcg_state = np.uint64(shuffle_arr_lcg(classes_y_safe, _lcg_state))
         mi = compute_mi_from_classes(
             classes_x=classes_x, freqs_x=freqs_x,
             classes_y=classes_y_safe, freqs_y=freqs_y, dtype=dtype,
@@ -365,6 +371,8 @@ def mi_direct(
             if workers_pool is None:
                 workers_pool = Parallel(n_jobs=n_workers, **parallel_kwargs)
 
+            # Per-worker base_seed derived from outer base_seed via Knuth multiplicative hash + worker index so worker streams stay independent yet reproducible (same outer base_seed -> identical aggregate).
+            _worker_loads = distribute_permutations(npermutations=npermutations, n_workers=n_workers)
             res = workers_pool(
                 delayed(parallel_mi)(
                     classes_x=classes_x,
@@ -375,10 +383,9 @@ def mi_direct(
                     npermutations=worker_npermutations,
                     original_mi=original_mi,
                     max_failed=max_failed,
+                    base_seed=np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(_widx + 1),
                 )
-                for worker_npermutations in distribute_permutations(
-                    npermutations=npermutations, n_workers=n_workers,
-                )
+                for _widx, worker_npermutations in enumerate(_worker_loads)
             )
 
             n_checked = 0
