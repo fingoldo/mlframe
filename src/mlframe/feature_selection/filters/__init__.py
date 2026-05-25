@@ -75,12 +75,15 @@ __all__ = [
     # JIT pre-warm hooks for production process bootstrap.
     "prewarm_fs_numba_cache",
     "prewarm_fs_cupy_kernels",
+    # Kernel-tuning cache accessor (public surface; underscore source remains the implementation).
+    "get_kernel_tuning_cache",
 ]
 
 
 # Pre-warm hooks. Idempotent; call once per process before first MRMR.fit to
 # move ~5-15s of numba+CuPy NVRTC compile out of the timed fit path.
 from ._prewarm import prewarm_fs_numba_cache, prewarm_fs_cupy_kernels  # noqa: E402
+from ._kernel_tuning import get_kernel_tuning_cache  # noqa: E402, F401
 
 
 # Cat-FE re-exports. Imported here (not via the ``_legacy`` star) so that

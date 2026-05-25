@@ -354,9 +354,7 @@ def _prewarm_numba_cache_body():
 
     # Warm feature_selection numba kernels. Without this, the first MRMR.fit call pays ~60s of cumulative JIT compile. Lazy import keeps this module's import cost unchanged.
     try:
-        from mlframe.feature_selection.filters._prewarm import (
-            prewarm_fs_numba_cache,
-        )
+        from mlframe.feature_selection.filters import prewarm_fs_numba_cache
         prewarm_fs_numba_cache()
     except Exception:
         pass

@@ -116,7 +116,7 @@ class FeatureSelectionConfig(BaseConfig):
         if not v:
             return v
         import inspect
-        from mlframe.feature_selection.wrappers._rfecv import RFECV
+        from mlframe.feature_selection.wrappers import RFECV
         # ``cv_n_splits`` is consumed by get_training_configs to construct a CV splitter; not a direct RFECV.__init__ arg.
         valid_keys = (set(inspect.signature(RFECV.__init__).parameters) - {"self"}) | {"cv_n_splits"}
         unknown = sorted(set(v) - valid_keys)

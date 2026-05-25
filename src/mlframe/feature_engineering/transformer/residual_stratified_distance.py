@@ -65,7 +65,7 @@ def _resolve_lgb_device() -> str:
     per LGBMRegressor call.
     """
     try:
-        from mlframe.training._gpu_probe import LGB_GPU_AVAILABLE
+        from mlframe.training import LGB_GPU_AVAILABLE
         return "cuda" if LGB_GPU_AVAILABLE else "cpu"
     except ImportError:
         return "cpu"

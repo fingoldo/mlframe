@@ -254,6 +254,15 @@ _LAZY_IMPORTS = {
 
     # Grid runner
     'run_grid': ('.grid', 'run_grid'),
+
+    # GPU availability probes (public re-exports of ``_gpu_probe`` constants so cross-package consumers do not have to reach into a private module).
+    'CUDA_IS_AVAILABLE': ('._gpu_probe', 'CUDA_IS_AVAILABLE'),
+    'XGB_GPU_AVAILABLE': ('._gpu_probe', 'XGB_GPU_AVAILABLE'),
+    'LGB_GPU_AVAILABLE': ('._gpu_probe', 'LGB_GPU_AVAILABLE'),
+
+    # Model-tag formatting helpers (public surface; underscore source remains the implementation).
+    'short_model_tag': ('._format', 'short_model_tag'),
+    'strip_shim_suffix': ('._format', 'strip_shim_suffix'),
 }
 
 _cache = {}
@@ -398,6 +407,15 @@ __all__ = [
 
     # Grid runner
     'run_grid',
+
+    # GPU availability probes
+    'CUDA_IS_AVAILABLE',
+    'XGB_GPU_AVAILABLE',
+    'LGB_GPU_AVAILABLE',
+
+    # Model-tag formatting helpers
+    'short_model_tag',
+    'strip_shim_suffix',
 ]
 
 

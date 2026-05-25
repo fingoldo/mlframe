@@ -239,7 +239,7 @@ def run_cat_interaction_step(
         # via is_gpu_available() which compiles a kernel and catches the
         # RecursionError-loop that broken nvrtc DLLs trigger inside cupy's
         # _get_softlink retry path.
-        from mlframe.feature_engineering.transformer._utils import is_gpu_available
+        from mlframe.feature_engineering.transformer import is_gpu_available
         if not is_gpu_available():
             raise RuntimeError(
                 "cat-FE: backend='gpu' requested but cupy/CUDA is not usable. "
@@ -249,7 +249,7 @@ def run_cat_interaction_step(
     elif cfg.backend == "auto":
         n_cols_eff = len(candidate_idxs_arr)
         if n_cols_eff >= 200 and n_samples >= 500_000:
-            from mlframe.feature_engineering.transformer._utils import is_gpu_available
+            from mlframe.feature_engineering.transformer import is_gpu_available
             if is_gpu_available():
                 use_gpu = True
             elif verbose:

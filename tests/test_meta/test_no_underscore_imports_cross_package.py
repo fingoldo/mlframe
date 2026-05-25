@@ -6,7 +6,7 @@ Why this matters: deep underscore-imports across packages couple two subsystems 
 
 This sensor walks every file under ``src/mlframe`` and flags ``from mlframe.<pkg_a>.<sub_path>._<module> import ...`` (or ``import mlframe.<pkg_a>.<sub_path>._<module>``) when the importing file lives outside the ``<pkg_a>/<sub_path>/`` sibling cluster. ``_benchmarks/`` and ``_profile_*`` files are treated as test-adjacent and exempt.
 
-An ALLOWLIST pins the 11 pre-existing cross-package underscore imports surfaced when this sensor first ran (2026-05-25; see ``audit/critique_2026_05_24/FINAL_VERIFICATION.md`` Wave-10 backlog). The list is intentionally explicit -- adding a new entry requires a one-line PR update, which surfaces the cross-package coupling at review time. The right cleanup direction is to promote the imported underscore-module's symbol into the owning package's public ``__init__.py`` and switch callers to the public path.
+The ALLOWLIST is empty: the 9 baseline entries surfaced when this sensor first ran (2026-05-25) were promoted into public re-exports in Wave 11b. New entries must NOT be added without first attempting promotion to the owning package's public ``__init__.py``; this list exists as a safety net for genuinely-untreatable cases only.
 """
 
 from __future__ import annotations
@@ -19,22 +19,8 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SRC = REPO_ROOT / "src" / "mlframe"
 
-# Frozen baseline of pre-existing cross-package underscore imports as of 2026-05-25.
-# Each entry is (importer_relpath_posix, imported_module). New entries MUST NOT be added
-# without a corresponding cleanup ticket; the goal is monotone shrinkage as the Wave-10+
-# cleanup lands. Promoting a symbol into a package's public ``__init__.py`` and switching
-# the importer to the public path is the standard cleanup direction.
-ALLOWLIST: set[tuple[str, str]] = {
-    ("src/mlframe/feature_engineering/transformer/residual_stratified_distance.py", "mlframe.training._gpu_probe"),
-    ("src/mlframe/feature_selection/importance.py", "mlframe.metrics._calibration_plot"),
-    ("src/mlframe/feature_selection/filters/_cat_interactions_step.py", "mlframe.feature_engineering.transformer._utils"),
-    ("src/mlframe/feature_selection/wrappers/_rfecv_fit.py", "mlframe.training._ram_helpers"),
-    ("src/mlframe/metrics/_core_numba_warmup.py", "mlframe.feature_selection.filters._prewarm"),
-    ("src/mlframe/models/_ensembling_score.py", "mlframe.training._format"),
-    ("src/mlframe/training/_composite_transforms_nonlinear.py", "mlframe.feature_selection.filters._kernel_tuning"),
-    ("src/mlframe/training/_eval_helpers.py", "mlframe.metrics._calibration_plot"),
-    ("src/mlframe/training/_feature_selection_config.py", "mlframe.feature_selection.wrappers._rfecv"),
-}
+# ALLOWLIST is empty: the 9 baseline entries (2026-05-25 snapshot) were promoted into public re-exports in Wave 11b. Each entry is ``(importer_relpath_posix, imported_module)`` -- add a new tuple here ONLY when promotion is genuinely infeasible (e.g. a cycle that cannot be broken without an architectural refactor); the standard cleanup is to expose the symbol via the owning package's public ``__init__.py``.
+ALLOWLIST: set[tuple[str, str]] = set()
 
 
 def _is_test_adjacent(path: Path) -> bool:

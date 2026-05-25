@@ -301,7 +301,7 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     Optimizer = _ckpt_state["Optimizer"]
 
     # Baseline RSS + best-effort frame footprint so the RAM-aware ``maybe_clean_ram_and_gpu`` short-circuit can decide whether a ``gc.collect()`` is justified each iter. The old "every 5th iter" trigger ran a ~290ms gc.collect even when nothing had accumulated, dominating wall on small problems; the helper only fires when RSS actually grew past a threshold or free RAM gets tight relative to frame size.
-    from mlframe.training._ram_helpers import estimate_df_size_mb as _estimate_df_size_mb, get_process_rss_mb as _get_process_rss_mb, maybe_clean_ram_and_gpu as _maybe_clean_ram_and_gpu
+    from mlframe.training import estimate_df_size_mb as _estimate_df_size_mb, get_process_rss_mb as _get_process_rss_mb, maybe_clean_ram_and_gpu as _maybe_clean_ram_and_gpu
     _ram_baseline_mb = _get_process_rss_mb()
     try:
         _ram_df_size_mb = _estimate_df_size_mb(X)

@@ -241,4 +241,8 @@ __all__ = [
     "compute_stacked_row_attention",
     "compute_target_quantile_attention",
     "positions_within_group",
+    "is_gpu_available",
 ]
+
+# Public re-export so cross-package consumers can avoid reaching into ``transformer._utils``. The underscore-prefixed source remains the implementation; this is the documented public surface.
+from ._utils import is_gpu_available  # noqa: E402, F401

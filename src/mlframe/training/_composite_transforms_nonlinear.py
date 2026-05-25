@@ -608,7 +608,7 @@ def _lookup_ewma_backend(K: int, N: int) -> str:
     if forced:
         return forced
     try:
-        from mlframe.feature_selection.filters._kernel_tuning import get_kernel_tuning_cache
+        from mlframe.feature_selection.filters import get_kernel_tuning_cache
         cache = get_kernel_tuning_cache()
         if cache is not None:
             choice = cache.lookup("ewma_dispatch", K=K, N=N)
@@ -629,7 +629,7 @@ def _lookup_frac_diff_inv_backend(K: int, N: int) -> str:
     if forced:
         return forced
     try:
-        from mlframe.feature_selection.filters._kernel_tuning import get_kernel_tuning_cache
+        from mlframe.feature_selection.filters import get_kernel_tuning_cache
         cache = get_kernel_tuning_cache()
         if cache is not None:
             choice = cache.lookup("frac_diff_inverse_dispatch", K=K, N=N)

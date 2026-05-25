@@ -857,8 +857,8 @@ def run_confidence_analysis(
         # (CI / pytest / headless scripts pin Agg); plt.show() on Agg
         # emits the "FigureCanvasAgg is non-interactive, and thus cannot
         # be shown" UserWarning and renders nothing.
-        from mlframe.metrics._calibration_plot import _show_plots_unless_agg
-        _show_plots_unless_agg()
+        from mlframe.metrics import show_plots_unless_agg
+        show_plots_unless_agg()
     else:
         # Lazy import -- see comment near top of module about cycle.
         from .evaluation import plot_model_feature_importances
