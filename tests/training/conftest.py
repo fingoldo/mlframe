@@ -101,8 +101,17 @@ def _prewarm_numba_once():
     Skip only on the xdist coordinator (PYTEST_XDIST_WORKER absent AND
     PYTEST_XDIST_TESTRUNUID present) where each worker will run this fixture
     itself; otherwise the coordinator would double-warm.
+
+    Skip env: MLFRAME_SKIP_NUMBA_PREWARM=1 disables the prewarm entirely.
+    Used by the pre-commit mlframe-meta-tests hook (meta-tests are AST /
+    config / structure checks that never touch numba kernels) so a CUDA
+    driver init hang in conftest can't block local commits. CI runs leave
+    the env unset so the full prewarm fires there.
     """
     import os
+    if os.environ.get("MLFRAME_SKIP_NUMBA_PREWARM", "").strip() in ("1", "true", "True", "yes"):
+        yield
+        return
     is_xdist_coordinator = (
         os.environ.get("PYTEST_XDIST_TESTRUNUID") is not None
         and not os.environ.get("PYTEST_XDIST_WORKER")

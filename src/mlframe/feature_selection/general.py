@@ -181,7 +181,7 @@ def estimate_features_relevancy(
             ran_out_of_time = delta > max_runtime_mins * 60
             if ran_out_of_time:
                 if verbose:
-                    logger.info(f"max_runtime_mins={max_runtime_mins:_.1f} reached.")
+                    logger.info("max_runtime_mins=%s reached.", f"{max_runtime_mins:_.1f}")
                 break
 
     # ----------------------------------------------------------------------------------------------------------------------------
@@ -230,7 +230,8 @@ def estimate_features_relevancy(
 
         if verbose > 1:
             logger.info(
-                f"Target={target_name}, baseline_mi={baseline_mi:.7f}, baseline_n_passed={passed_baseline.sum():_}, permutation_n_passed={passed_permutation.sum():_}"
+                "Target=%s, baseline_mi=%.7f, baseline_n_passed=%s, permutation_n_passed=%s",
+                target_name, baseline_mi, f"{passed_baseline.sum():_}", f"{passed_permutation.sum():_}",
             )
 
         features_usefulness += (target_features_usefulness >= 2).astype(np.int32)  # both tests must be passed

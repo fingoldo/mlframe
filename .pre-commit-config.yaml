@@ -61,11 +61,13 @@ repos:
     hooks:
       - id: mlframe-meta-tests
         name: "mlframe meta-tests (config / strategy / metric invariants)"
-        # ``-p no:randomly`` disables test-ordering randomization which has
-        # an environment-specific Seed-out-of-range bug on the dev host;
-        # meta-tests must run in deterministic order anyway for snapshot
-        # diff stability.
-        entry: pytest tests/test_meta/ --no-cov -p no:randomly -q -x
+        # Wrapper sets NUMBA_DISABLE_JIT=1 + MLFRAME_SKIP_NUMBA_PREWARM=1
+        # BEFORE pytest imports anything. Meta-tests are AST/config/structure
+        # checks that never execute numba kernels, so the env knobs cost
+        # nothing and avoid a CUDA-driver init hang observed in multi-agent
+        # sessions on CUDA-equipped dev boxes. ``-p no:randomly`` (inside the
+        # wrapper) keeps snapshot diff stable.
+        entry: python scripts/run_meta_tests.py
         language: system
         types: [python]
         pass_filenames: false
