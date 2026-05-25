@@ -167,11 +167,16 @@ def _session_fixture_immutability_sensor():
 def _df_shape_signature(df) -> tuple:
     """Cheap shape+dtypes+column-names tuple used by the session-fixture immutability sensor at teardown.
 
-    Catches gross mutation (rename, dtype flip, row insertion) without the cost of hashing every cell. A test that
-    silently mutates a session-scope fixture would shift one of: ``df.shape``, ``df.columns.tolist()``, or the
-    dtypes tuple."""
+    Catches gross mutation (rename, dtype flip, row insertion) without the cost of hashing every cell. Handles both
+    pandas (``df.columns`` is an Index with ``.tolist()``) and polars (``df.columns`` already a list, ``df.dtypes``
+    a list) without crashing the sensor."""
     try:
-        return (tuple(df.shape), tuple(df.columns.tolist()), tuple(str(t) for t in df.dtypes.tolist()))
+        shape = tuple(df.shape)
+        cols = df.columns
+        cols_tuple = tuple(cols.tolist() if hasattr(cols, "tolist") else list(cols))
+        dtypes = df.dtypes
+        dtypes_iter = dtypes.tolist() if hasattr(dtypes, "tolist") else list(dtypes)
+        return (shape, cols_tuple, tuple(str(t) for t in dtypes_iter))
     except Exception:
         return (None, None, None)
 
@@ -200,15 +205,20 @@ def sample_classification_data():
 
 @pytest.fixture(scope="session")
 def sample_polars_data(sample_regression_data):
-    """Convert sample regression data to a Polars DataFrame; session-scoped."""
+    """Convert sample regression data to a Polars DataFrame; session-scoped. DO NOT MUTATE."""
     df, feature_names, y = sample_regression_data
     pl_df = pl.from_pandas(df)
+    _SESSION_FIXTURE_SHAPES["sample_polars_data"] = _df_shape_signature(pl_df)
+    _SESSION_FIXTURE_REFS["sample_polars_data"] = pl_df
     return pl_df, feature_names, y
 
 
 @pytest.fixture(scope="session")
 def sample_timeseries_data():
-    """Synthetic time-series dataset; session-scoped (deterministic Generator)."""
+    """Synthetic time-series dataset; session-scoped (deterministic Generator). DO NOT MUTATE.
+
+    Tests that need to add / rename / dtype-cast columns must do so on a ``.copy()`` first. Mutating the shared
+    DataFrame silently propagates to every later consumer in the session."""
     rng = np.random.default_rng(42)
     n_samples = 1000
     n_features = 5
@@ -222,6 +232,8 @@ def sample_timeseries_data():
     df['timestamp'] = dates
     df['target'] = y
 
+    _SESSION_FIXTURE_SHAPES["sample_timeseries_data"] = _df_shape_signature(df)
+    _SESSION_FIXTURE_REFS["sample_timeseries_data"] = df
     return df, feature_names, dates, y
 
 
@@ -247,10 +259,10 @@ def temp_models_dir(tmp_path):
 
 @pytest.fixture(scope="session")
 def sample_categorical_data():
-    """High-cardinality categorical-feature regression-style dataset; session-scoped.
+    """High-cardinality categorical-feature regression-style dataset; session-scoped. DO NOT MUTATE.
 
-    Returns (df, feature_names, cat_features, y_continuous). Built via deterministic
-    Generator; no mutation of global numpy RNG state.
+    Returns (df, feature_names, cat_features, y_continuous). Built via deterministic Generator; no mutation of
+    global numpy RNG state.
     """
     rng = np.random.default_rng(42)
     n_samples = 500
@@ -272,13 +284,20 @@ def sample_categorical_data():
     df["target"] = y
     feature_names = list(df.columns[:-1])
     cat_features = ["cat_1", "cat_2", "cat_3"]
+    _SESSION_FIXTURE_SHAPES["sample_categorical_data"] = _df_shape_signature(df)
+    _SESSION_FIXTURE_REFS["sample_categorical_data"] = df
     return df, feature_names, cat_features, y
 
 
 @pytest.fixture(scope="session")
 def sample_categorical_classification_data():
-    """Classification with high-cardinality categoricals; session-scoped via Generator."""
-    return make_categorical_classification_data(n_samples=500, n_numeric=5, seed=42)
+    """Classification with high-cardinality categoricals; session-scoped via Generator. DO NOT MUTATE."""
+    tup = make_categorical_classification_data(n_samples=500, n_numeric=5, seed=42)
+    # Tuple of (df, feature_names, cat_features, y) per the synthetic builder.
+    df = tup[0]
+    _SESSION_FIXTURE_SHAPES["sample_categorical_classification_data"] = _df_shape_signature(df)
+    _SESSION_FIXTURE_REFS["sample_categorical_classification_data"] = df
+    return tup
 
 
 # ================================================================================================
@@ -287,14 +306,22 @@ def sample_categorical_classification_data():
 
 @pytest.fixture(scope="session")
 def sample_large_regression_data():
-    """Larger regression dataset for SGD convergence; session-scoped."""
-    return make_simple_regression_data(n_samples=2000, n_features=10, seed=42)
+    """Larger regression dataset for SGD convergence; session-scoped. DO NOT MUTATE."""
+    tup = make_simple_regression_data(n_samples=2000, n_features=10, seed=42)
+    df = tup[0]
+    _SESSION_FIXTURE_SHAPES["sample_large_regression_data"] = _df_shape_signature(df)
+    _SESSION_FIXTURE_REFS["sample_large_regression_data"] = df
+    return tup
 
 
 @pytest.fixture(scope="session")
 def sample_outlier_data():
-    """Regression with 10% outliers for RANSAC and Huber tests; session-scoped."""
-    return make_outlier_regression_data(n_samples=500, n_features=10, seed=42)
+    """Regression with 10% outliers for RANSAC and Huber tests; session-scoped. DO NOT MUTATE."""
+    tup = make_outlier_regression_data(n_samples=500, n_features=10, seed=42)
+    df = tup[0]
+    _SESSION_FIXTURE_SHAPES["sample_outlier_data"] = _df_shape_signature(df)
+    _SESSION_FIXTURE_REFS["sample_outlier_data"] = df
+    return tup
 
 
 # ================================================================================================
@@ -402,12 +429,13 @@ def cpu_only_hyperparams(fast_iterations):
 
 @pytest.fixture(scope="session")
 def trained_suite_regression(sample_regression_data, common_init_params, fast_iterations):
-    """One trained suite per session for regression target.
+    """One trained suite per session for regression target. DO NOT MUTATE.
 
-    Heavy fixture: runs `train_mlframe_models_suite` once with a tiny iteration
-    budget so that downstream behaviour tests that only need to inspect the
-    returned suite object (e.g. attribute presence, metric dict shape) can
-    consume it without re-training.
+    Heavy fixture: runs `train_mlframe_models_suite` once with a tiny iteration budget so that downstream behaviour
+    tests that only need to inspect the returned suite object (e.g. attribute presence, metric dict shape) can
+    consume it without re-training. Tests that need to add / overwrite suite attributes (``suite.metric_dict[...]
+    = ...``) must work on a deep-copy first; mutating in place silently corrupts the fixture for every later
+    consumer in the same session.
     """
     from mlframe.training.core import train_mlframe_models_suite
     from .shared import SimpleFeaturesAndTargetsExtractor
