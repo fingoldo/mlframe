@@ -1,0 +1,114 @@
+{
+  "agent_slug": "w12b-preventive-carves",
+  "started_utc": "2026-05-25T00:00:00Z",
+  "finished_utc": "2026-05-25T00:00:00Z",
+  "summary": "Preventive carves of 900-1000 LOC monoliths to keep parents under the <1000 LOC soft cap and below the 750 budget per carve plan.",
+  "files": {
+    "src/mlframe/training/target_temporal_audit.py": {
+      "status": "DONE",
+      "pre_loc": 949,
+      "post_loc": 596,
+      "siblings_created": [
+        "src/mlframe/training/_target_temporal_audit_coerce.py",
+        "src/mlframe/training/_target_temporal_audit_aggregate.py"
+      ],
+      "sibling_count": 2,
+      "pattern": "multi-function sibling re-export",
+      "sensor": "tests/training/test_monolith_split_w12b_target_temporal_audit.py",
+      "sensor_passed": true,
+      "commit": "44adf1ff"
+    },
+    "src/mlframe/training/baseline_diagnostics.py": {
+      "status": "DONE",
+      "pre_loc": 942,
+      "post_loc": 507,
+      "siblings_created": [
+        "src/mlframe/training/_baseline_diagnostics_quick_model.py",
+        "src/mlframe/training/_baseline_diagnostics_ablation.py",
+        "src/mlframe/training/_baseline_diagnostics_init_score.py",
+        "src/mlframe/training/_baseline_diagnostics_recommend.py"
+      ],
+      "sibling_count": 4,
+      "pattern": "single-class method-rebinding (W10E)",
+      "sensor": "tests/training/test_monolith_split_w12b_baseline_diagnostics.py",
+      "sensor_passed": true,
+      "commit": "fde4e938"
+    },
+    "src/mlframe/training/composite_discovery.py": {
+      "status": "DONE",
+      "pre_loc": 878,
+      "post_loc": 469,
+      "siblings_created": [
+        "src/mlframe/training/_composite_discovery_filter.py",
+        "src/mlframe/training/_composite_discovery_stacked.py"
+      ],
+      "sibling_count": 2,
+      "pattern": "single-class method-rebinding (W10E); extended existing W6/W10 carve",
+      "sensor": "tests/training/test_monolith_split_w12b_composite_discovery.py",
+      "sensor_passed": true,
+      "commit": "c752a69d"
+    },
+    "src/mlframe/training/core/_phase_train_one_target.py": {
+      "status": "DONE",
+      "pre_loc": 783,
+      "post_loc": 481,
+      "siblings_created": [
+        "src/mlframe/training/core/_phase_train_one_target_dataset_cache.py"
+      ],
+      "sibling_count": 1,
+      "pattern": "multi-function sibling re-export (dataset-cache + polars-release cluster)",
+      "sensor": "tests/training/test_monolith_split_w12b_phase_train_one_target.py",
+      "sensor_passed": true,
+      "commit": "d2a1a514"
+    },
+    "src/mlframe/training/core/_phase_train_one_target_body.py": {
+      "status": "DEFERRED",
+      "pre_loc": 933,
+      "post_loc": 933,
+      "siblings_created": [],
+      "sibling_count": 0,
+      "pattern": "n/a",
+      "deferral_reason": "Single-function monolith (878-LOC _train_one_target) with no nested function defs and dense local-state sharing across phases. A behavioural carve requires extracting phases into helpers that pass 20+ args (CodeStateBundle pattern), which is a non-trivial behaviour-preserving refactor outside the scope of a preventive carve. Recommendation: dedicated PR with byte-identical-output verification on a fuzz fixture before any phase extraction.",
+      "sensor": null,
+      "sensor_passed": null,
+      "commit": null
+    },
+    "src/mlframe/training/core/_main_train_suite.py": {
+      "status": "DEFERRED",
+      "pre_loc": 921,
+      "post_loc": 921,
+      "siblings_created": [],
+      "sibling_count": 0,
+      "pattern": "n/a",
+      "deferral_reason": "Single-function monolith (829-LOC train_mlframe_models_suite) with no nested function defs. Same risk profile as _phase_train_one_target_body. Recommendation: dedicated PR sequenced after _phase_train_one_target_body carve since they share the per-target loop structure; behavioural-equivalence test must run the full fuzz suite pre/post.",
+      "sensor": null,
+      "sensor_passed": null,
+      "commit": null
+    }
+  },
+  "totals": {
+    "files_assigned": 6,
+    "files_done": 4,
+    "files_deferred": 2,
+    "files_blocked": 0,
+    "siblings_created_total": 9,
+    "sensor_tests_passed_total": 16,
+    "commits": [
+      "44adf1ff",
+      "fde4e938",
+      "c752a69d",
+      "d2a1a514"
+    ]
+  },
+  "test_results": {
+    "green_paths": [
+      "tests/training/test_monolith_split_w12b_target_temporal_audit.py (4/4)",
+      "tests/training/test_monolith_split_w12b_baseline_diagnostics.py (4/4)",
+      "tests/training/test_monolith_split_w12b_composite_discovery.py (4/4)",
+      "tests/training/test_monolith_split_w12b_phase_train_one_target.py (4/4)"
+    ],
+    "red_paths": []
+  },
+  "wavelet_dwt_touched": false,
+  "pushed": false
+}
