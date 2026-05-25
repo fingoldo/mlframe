@@ -109,6 +109,16 @@ def _resolve_cv_and_val_cv(
                             _is_time_series = True
             except ImportError:
                 pass
+        # Respect explicit cv_shuffle=True: the auto-swap to TimeSeriesSplit voids the user's explicit shuffle request silently. Treat ``cv_shuffle=True`` as an opt-out from temporal auto-detect and
+        # WARN so the caller knows their explicit choice took precedence (and that the temporal-leakage guarantee is consequently their responsibility, not the auto-detector's).
+        if _is_time_series and cv_shuffle:
+            logger.warning(
+                "RFECV: explicit cv_shuffle=True overrides temporal auto-detect; "
+                "TimeSeriesSplit will NOT be substituted. This voids the time-ordering "
+                "guarantee on polars-datetime / DatetimeIndex / timestamps-hint input; "
+                "pass cv=TimeSeriesSplit(...) explicitly if you want temporal folds.",
+            )
+            _is_time_series = False
         if _is_time_series:
             cv = TimeSeriesSplit(n_splits=cv)
             if verbose:
