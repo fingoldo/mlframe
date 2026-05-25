@@ -24,7 +24,6 @@ Re-exports below preserve every historical
 """
 from __future__ import annotations
 
-import copy
 import logging
 from typing import Any, Optional
 
@@ -152,14 +151,22 @@ def compare_ensembles(
             UserWarning,
             stacklevel=2,
         )
+    # Shallow-inner copy: ``copy.deepcopy(ens_perf.metrics)`` materialised every nested object
+    # (per-feature importance ndarrays, fairness / robustness sub-dicts) only to drop three top-level
+    # keys per split right after. On a 6-flavour x 5-split suite with ``feature_importances``
+    # holding (n_features,) float arrays this is 10-100 MB allocated then immediately discarded;
+    # multi-target suites multiply that. Per CLAUDE.md "Frames can be 100+ GB" guidance, avoid
+    # deepcopy where a one-pass dict-comprehension achieves identical "drop these keys" semantics
+    # without mutating the caller's input. Only the OUTER metrics dict + per-split dicts are
+    # shallow-cloned; the remaining values (scalars, small lists) are aliased -- safe because no
+    # downstream code mutates them.
+    _DROP_KEYS = ("feature_importances", "fairness_report", "robustness_report")
     items = []
     for ens_name, ens_perf in ensembles.items():
-        perf = copy.deepcopy(ens_perf.metrics)
-        for set_name, set_perf in perf.items():
-            if set_perf:
-                for col in "feature_importances fairness_report robustness_report".split():
-                    if col in set_perf:
-                        del set_perf[col]
+        perf = {
+            k: ({kk: vv for kk, vv in v.items() if kk not in _DROP_KEYS} if v else v)
+            for k, v in ens_perf.metrics.items()
+        }
         ser = pd.json_normalize(perf).iloc[0, :]
         ser.name = ens_name
         items.append(ser)

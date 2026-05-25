@@ -850,54 +850,127 @@ def compute_high_correlation_pairs(
             arrays = [np.asarray(p, dtype=np.float64).ravel() for p in cand]
             split_used = attr
             break
+    # When no preds attribute is available, fall back to probs. For multiclass (C>=3) we compute
+    # per-class correlation matrices and AVERAGE the off-diagonal pair entries across classes --
+    # the pre-fix flatten-then-Pearson interleaved per-row class entries into a single long vector
+    # and computed Pearson over that, which mixes intra-row class structure with inter-row variation
+    # and is not a meaningful diversity measure. Binary (C==2) collapses to a 1-column proxy because
+    # the two columns are perfectly linearly dependent (sum to 1); the per-class average over the
+    # two redundant columns equals the single-column Pearson by construction.
+    probs_arrays: list[np.ndarray] = []
     if not arrays:
         for attr in ("val_probs", "test_probs", "train_probs"):
             cand = [getattr(m, attr, None) for m in members]
             if all(p is not None for p in cand):
-                # DIVERSITY-LAST-COL: flatten the full per-class matrix instead of collapsing to
-                # the last column. The previous "[:, -1]" reduction discarded inter-class
-                # diversity signal entirely for multiclass; flattening preserves it. Binary
-                # behaviour is unchanged because the two columns are linearly dependent (sum=1)
-                # so concatenating them gives the same correlation magnitudes.
-                arrays = []
-                for p in cand:
-                    arr = np.asarray(p, dtype=np.float64)
-                    arrays.append(arr.ravel())
+                probs_arrays = [np.asarray(p, dtype=np.float64) for p in cand]
                 split_used = attr
                 break
-    if not arrays:
-        return pairs, None
-    if not all(a.size == arrays[0].size and a.size >= 2 for a in arrays):
-        return pairs, split_used
-    # DIV-1-COL: replace O(K^2) python pair loop with a single np.corrcoef call on the stacked
-    # (K, N) matrix. Rows-with-any-non-finite are masked once; constant-column members (std==0)
-    # produce NaN entries in the correlation matrix which we skip. Bench in
-    # `_benchmarks/bench_diversity_corr.py` -- for K>=8 numpy beats the loop ~50x; for K>50 / N>1M
-    # the cupy path takes over.
-    M_stack = np.vstack(arrays)  # (K, N)
+    if arrays:
+        if not all(a.size == arrays[0].size and a.size >= 2 for a in arrays):
+            return pairs, split_used
+        M_stack = np.vstack(arrays)  # (K, N)
+        corr_matrix = _pairwise_corr_or_nan(M_stack)
+        if corr_matrix is None:
+            return pairs, split_used
+        K_use = corr_matrix.shape[0]
+        idx_use = np.arange(K_use)
+        return _emit_pairs_above_threshold(corr_matrix, idx_use, member_tags, threshold, split_used)
+    if probs_arrays:
+        # All probs arrays must share (N, C) (or (N,) which we promote to (N, 1)).
+        norm = []
+        for a in probs_arrays:
+            if a.ndim == 1:
+                a = a.reshape(-1, 1)
+            norm.append(a)
+        probs_arrays = norm
+        if not all(a.shape == probs_arrays[0].shape and a.shape[0] >= 2 for a in probs_arrays):
+            return pairs, split_used
+        K_members = len(probs_arrays)
+        n_classes = probs_arrays[0].shape[1]
+        if n_classes == 1:
+            # Single-column / binary-as-1D path: stack as (K, N) and reuse the standard corr.
+            M_stack = np.vstack([a.ravel() for a in probs_arrays])
+            corr_matrix = _pairwise_corr_or_nan(M_stack)
+            if corr_matrix is None:
+                return pairs, split_used
+            return _emit_pairs_above_threshold(corr_matrix, np.arange(corr_matrix.shape[0]), member_tags, threshold, split_used)
+        # Multiclass per-class correlation, then average the off-diagonal entries across classes.
+        per_class_corrs: list[np.ndarray] = []
+        for _ci in range(n_classes):
+            M_stack_ci = np.vstack([a[:, _ci] for a in probs_arrays])
+            corr_ci = _pairwise_corr_or_nan(M_stack_ci, return_full_shape=True, original_k=K_members)
+            if corr_ci is not None:
+                per_class_corrs.append(corr_ci)
+        if not per_class_corrs:
+            return pairs, split_used
+        stack_corrs = np.stack(per_class_corrs, axis=0)
+        with np.errstate(invalid="ignore"):
+            avg_corr = np.nanmean(stack_corrs, axis=0)
+        return _emit_pairs_above_threshold(avg_corr, np.arange(K_members), member_tags, threshold, split_used)
+    return pairs, split_used
+
+
+def _pairwise_corr_or_nan(M_stack: np.ndarray, *, return_full_shape: bool = False, original_k: Optional[int] = None) -> Optional[np.ndarray]:
+    """Compute the (K, K) Pearson corr matrix of a stacked (K, N) array.
+
+    Masks NaN-bearing columns and constant-row members (std==0). Returns ``None`` when fewer than
+    2 finite columns OR fewer than 2 non-constant members remain. When ``return_full_shape=True``
+    AND ``original_k`` is supplied, returns a (original_k, original_k) matrix with NaN-padded rows
+    for skipped members; callers averaging across classes can then ``np.nanmean`` over per-class
+    matrices of the same shape.
+    """
     K = M_stack.shape[0]
     finite_cols = np.all(np.isfinite(M_stack), axis=0)
     if int(finite_cols.sum()) < 2:
-        return pairs, split_used
+        if return_full_shape and original_k is not None:
+            return np.full((original_k, original_k), np.nan, dtype=np.float64)
+        return None
     M_finite = M_stack[:, finite_cols]
     stds = M_finite.std(axis=1)
     nonconst = stds > 0
     if int(nonconst.sum()) < 2:
-        return pairs, split_used
+        if return_full_shape and original_k is not None:
+            return np.full((original_k, original_k), np.nan, dtype=np.float64)
+        return None
     M_use = M_finite[nonconst]
     K_use = M_use.shape[0]
     idx_use = np.flatnonzero(nonconst)
-    corr_matrix = _stacked_corrcoef(M_use)
+    corr_used = _stacked_corrcoef(M_use)
+    if return_full_shape and original_k is not None:
+        out = np.full((original_k, original_k), np.nan, dtype=np.float64)
+        for ii in range(K_use):
+            for jj in range(K_use):
+                out[idx_use[ii], idx_use[jj]] = corr_used[ii, jj]
+        return out
+    # When return_full_shape=False the caller expects an indexed-by-use matrix and will iterate
+    # via idx_use externally; we return the dense submatrix and let the caller pass idx_use to
+    # ``_emit_pairs_above_threshold``.
+    # We need to expose idx_use to the caller; pack the corr_used into a full (K, K) NaN-padded
+    # matrix so the iteration sites stay symmetric.
+    out = np.full((K, K), np.nan, dtype=np.float64)
     for ii in range(K_use):
-        for jj in range(ii + 1, K_use):
+        for jj in range(K_use):
+            out[idx_use[ii], idx_use[jj]] = corr_used[ii, jj]
+    return out
+
+
+def _emit_pairs_above_threshold(
+    corr_matrix: np.ndarray,
+    idx_use: np.ndarray,
+    member_tags: Sequence[str],
+    threshold: float,
+    split_used: Optional[str],
+) -> tuple[list[dict], Optional[str]]:
+    pairs: list[dict] = []
+    K = corr_matrix.shape[0]
+    for ii in range(K):
+        for jj in range(ii + 1, K):
             corr = float(corr_matrix[ii, jj])
             if not np.isfinite(corr):
                 continue
             if abs(corr) > threshold:
-                i = int(idx_use[ii])
-                j = int(idx_use[jj])
-                m1 = member_tags[i] if i < len(member_tags) else f"member_{i}"
-                m2 = member_tags[j] if j < len(member_tags) else f"member_{j}"
+                m1 = member_tags[ii] if ii < len(member_tags) else f"member_{ii}"
+                m2 = member_tags[jj] if jj < len(member_tags) else f"member_{jj}"
                 pairs.append({"m1": m1, "m2": m2, "corr": corr})
     return pairs, split_used
 
