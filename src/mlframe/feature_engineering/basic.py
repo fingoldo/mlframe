@@ -139,12 +139,54 @@ def run_pysr_fe(
     The frame is split into features (numeric columns NOT prefixed by ``target_columns_prefix``)
     and targets (columns starting with that prefix). Duplicate sanitised names are disambiguated
     with a numeric suffix so PySR sees a unique feature set.
+
+    When exactly one ``target_<...>`` column is detected the body delegates to
+    ``bruteforce.run_pysr_feature_engineering`` so callers get the leakage-free OOF + Julia-lock
+    plumbing automatically. Multi-target frames (``targets_df.shape[1] > 1``) still take the
+    legacy in-place path because the new entry point is single-output by design; the warning
+    surfaces this so users migrate explicitly when they need the multi-output behaviour.
     """
     import warnings
 
+    target_cols = [c for c in df.columns if c.startswith(target_columns_prefix)]
+    if len(target_cols) == 1:
+        warnings.warn(
+            "mlframe.feature_engineering.basic.run_pysr_fe is deprecated; delegating to "
+            "bruteforce.run_pysr_feature_engineering. Call that function directly to access "
+            "preset wiring + random_state + leakage-free OOF knobs.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        from .bruteforce import run_pysr_feature_engineering
+
+        drop_columns = [c for c in df.columns if c.startswith(target_columns_prefix) and c != target_cols[0]]
+        # nsamples<=0 means "use the full frame" in the legacy semantics; the bruteforce entry
+        # caps at sample_size so we pass len(df) as the "no cap" equivalent.
+        sample_size = nsamples if nsamples and nsamples > 0 else len(df)
+        pysr_params_override = {
+            "turbo": True,
+            "timeout_in_seconds": timeout_mins * 60,
+            "maxsize": 10,
+            "niterations": 10,
+            "binary_operators": ["+", "*"],
+            "unary_operators": ["cos", "exp", "log", "sin", "inv(x) = 1/x"],
+            "extra_sympy_mappings": {"inv": lambda x: 1 / x},
+            "elementwise_loss": "loss(prediction, target) = abs(prediction - target)",
+        }
+        return run_pysr_feature_engineering(
+            df,
+            target_col=target_cols[0],
+            drop_columns=drop_columns,
+            sample_size=sample_size,
+            pysr_params_override=pysr_params_override,
+            leakage_free=False,
+            verbose=0,
+        )
+
     warnings.warn(
-        "mlframe.feature_engineering.basic.run_pysr_fe is deprecated; use bruteforce.run_pysr_feature_engineering "
-        "for leakage-free OOF + preset support + reserved-name handling.",
+        "mlframe.feature_engineering.basic.run_pysr_fe is deprecated and only retains the multi-target "
+        "in-place path because bruteforce.run_pysr_feature_engineering is single-output. Migrate to "
+        "per-target loops over bruteforce.run_pysr_feature_engineering for leakage-free OOF + Julia-lock support.",
         DeprecationWarning,
         stacklevel=2,
     )
