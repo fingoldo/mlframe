@@ -1,0 +1,80 @@
+{
+  "agent_slug": "w13c-misc-cleanup",
+  "retroactive": true,
+  "retroactive_authored_by": "w14b-residue-cleanup",
+  "retroactive_reason": "Orchestrator landed W13C commit (b4bbc62c) without manifest after OOM cut the W13C agent mid-sweep. This manifest reconstructs status from commit log and Wave-13 backlog scope (B2#37-42 cosmetic + A2 W3 hermite quantitative floor).",
+  "started_utc": "2026-05-26T~start",
+  "finished_utc": "2026-05-26T~partial",
+  "findings_assigned": [
+    "B2#37 pytest-randomly local-vs-CI mismatch (documentation)",
+    "B2#38 suppress_convergence_warnings autouse",
+    "B2#39 pytest_plugins root startup cost",
+    "B2#40 _coverage_active dead code Windows",
+    "B2#41 stale pytest-benchmark / unused markers",
+    "B2#42 thinc seed-overflow shim upstream link",
+    "A2 W3 hermite_fe biz_value quantitative floor",
+    "FS test contract strengthening (selector_registry, wrappers_default_args)"
+  ],
+  "findings_status": {
+    "B2_37_pytest_randomly_doc_comment": {
+      "status": "DONE",
+      "commit": "b4bbc62c",
+      "source": "pyproject.toml dev-deps comment",
+      "notes": "Expanded pytest-randomly dev-deps comment to document the deliberate local-vs-CI behavior: local runs exercise random order (state-leak surfacing) but CI disables via -p no:randomly (deterministic flake triage). Source-of-truth comment so the local/CI mismatch (W11D documented gap) is visible at the dep declaration."
+    },
+    "B2_38_suppress_convergence_warnings_autouse": {
+      "status": "DEFERRED",
+      "reason": "Architectural change requires audit of every test importing pytest.warns(ConvergenceWarning); deferred to dedicated wave (per W12D triage)."
+    },
+    "B2_39_pytest_plugins_at_root": {
+      "status": "DEFERRED",
+      "reason": "Cosmetic ~50-100ms startup cost; not in critical path (per W12D triage)."
+    },
+    "B2_40_coverage_active_dead_code_windows": {
+      "status": "DEFERRED",
+      "reason": "Documentation gap; track for CLAUDE.md coverage strategy section (per W12D triage)."
+    },
+    "B2_41_stale_pytest_benchmark_markers": {
+      "status": "NOT-REACHED",
+      "reason": "OOM cut agent before B2#41 audit. Tracked for W14B follow-up."
+    },
+    "B2_42_thinc_seed_overflow_shim_link": {
+      "status": "NOT-REACHED",
+      "reason": "OOM cut agent before B2#42 upstream-issue link addition. Tracked for W14B follow-up."
+    },
+    "A2_W3_hermite_quantitative_floor": {
+      "status": "NOT-REACHED",
+      "reason": "OOM cut agent before A2 W3 strengthening pass. Tracked for W14B follow-up. Currently weak assert; W11B cd6669a6 added skipif under NUMBA_DISABLE_JIT=1 but quantitative floor still directional."
+    },
+    "FS_selector_registry_contract_strengthening": {
+      "status": "DONE",
+      "commit": "b4bbc62c",
+      "source": "tests/feature_selection/test_selector_registry.py (+28 LOC)",
+      "notes": "Strengthened registry contract assertions surfacing during W13C cluster review (incidental improvement). Pure test-strengthening, no source change."
+    },
+    "FS_wrappers_default_args_refinement": {
+      "status": "DONE",
+      "commit": "b4bbc62c",
+      "source": "tests/feature_selection/test_wrappers_default_args.py (small diff)",
+      "notes": "Minor refinement to default-args contract test. Pure test-side."
+    }
+  },
+  "residue_for_w14": {
+    "B2_41_pytest_benchmark_marker_audit": "DROP unused @pytest.mark.benchmark registration OR wire-in to existing bench files",
+    "B2_42_thinc_seed_overflow_link": "Add upstream thinc issue link to conftest shim comment",
+    "A2_W3_hermite_quantitative_floor": "Find tests/feature_selection/test_biz_val_filters_hermite_fe.py (or equivalent) and pin explicit quantitative win threshold (e.g. AUC delta vs baseline)"
+  },
+  "blocked": [
+    "OOM during pytest verification - cut agent before B2#41, B2#42, A2 W3."
+  ],
+  "test_results": {
+    "green_paths": [
+      "tests/feature_selection/test_selector_registry.py (verified pre-OOM)",
+      "tests/feature_selection/test_wrappers_default_args.py (verified pre-OOM)"
+    ],
+    "red_paths": []
+  },
+  "commits": [
+    "b4bbc62c chore(w13c-misc): pyproject randomly comment + FS test small improvements"
+  ]
+}

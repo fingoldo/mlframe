@@ -1,0 +1,59 @@
+{
+  "agent_slug": "w13a-dataclass-carves",
+  "retroactive": true,
+  "retroactive_authored_by": "w14b-residue-cleanup",
+  "retroactive_reason": "Orchestrator landed W13A commits without manifests after OOM cut the W13A agent mid-sweep. This manifest reconstructs status from commit log (35d9c921, 5c356f6b) and Wave-13 backlog scope.",
+  "started_utc": "2026-05-26T~start",
+  "finished_utc": "2026-05-26T~partial",
+  "findings_assigned": [
+    "C1#6 deeper carve of _rfecv_fit.py (OuterLoopState dataclass)",
+    "C1 prev #2 deeper carve of _ensembling_score.py (EnsembleScoreState dataclass)",
+    "_phase_train_one_target_body single-function monolith (CodeStateBundle dataclass)",
+    "_main_train_suite single-function monolith (CodeStateBundle dataclass)"
+  ],
+  "findings_status": {
+    "C1_6_rfecv_outer_loop_carve": {
+      "status": "DONE",
+      "commit": "35d9c921",
+      "source": "src/mlframe/feature_selection/wrappers/_rfecv_fit.py + new sibling _rfecv_fit_outer_loop.py",
+      "notes": "Outer while-loop body extracted to sibling via OuterLoopState dataclass. _rfecv_fit.py 536 -> 315 LOC (target <400 MET). New sibling _rfecv_fit_outer_loop.py (341 LOC) holds OuterLoopState with ~12 mutable locals + 6 break conditions. Parent fit() shrinks to dispatching through state setup/init/loop/finalize. Behavioural-equivalence sensor was deferred by OOM; orchestrator confirmed via post-commit RFECV biz_value suite that fit-path behaviour stable."
+    },
+    "C1_prev_2_ensembling_score_carve": {
+      "status": "DEFERRED",
+      "reason": "OOM cut agent before EnsembleScoreState dataclass refactor; remains at 709 LOC (W12A intermediate). Requires streaming vs materialised dispatcher refactor as foundation. Tracked for next dedicated wave."
+    },
+    "phase_train_one_target_body_carve": {
+      "status": "DEFERRED",
+      "reason": "OOM cut agent before CodeStateBundle dataclass design. 933 LOC single-function monolith requires structured state extraction. Tracked for next dedicated wave."
+    },
+    "main_train_suite_carve": {
+      "status": "DEFERRED",
+      "reason": "OOM cut agent before CodeStateBundle dataclass design. 921 LOC single-function monolith. Tracked alongside _phase_train_one_target_body (shared CodeStateBundle design)."
+    }
+  },
+  "incidental_fixes": {
+    "phase_recurrent_silent_drop_diagnostic": {
+      "status": "DONE",
+      "commit": "5c356f6b",
+      "source": "src/mlframe/training/core/_phase_recurrent.py",
+      "notes": "Surfaced during W13A audit of recurrent ensemble member-drop patterns. Pre-fix: _safe_predict_recurrent returned None silently on either empty array OR any non-finite entry (silent correctness bug class per feedback_silent_correctness_bug_classes). Now: distinct WARN for each case carrying shape/length/n_nan + likely-causes hint (too-few epochs, NaN gradients, feature_scaler column mismatch). Sensor coverage was OOM-deferred; tracked as W14 follow-up if needed."
+    }
+  },
+  "blocked": [
+    "OOM during pytest verification - cut behavioural-equivalence sensor for OuterLoopState carve. Orchestrator landed commit without sensor; sensor is W14 follow-up if RFECV biz_value flags drift."
+  ],
+  "test_results": {
+    "green_paths": [
+      "RFECV biz_value suite (orchestrator post-commit verification)"
+    ],
+    "red_paths": [],
+    "deferred_sensors": [
+      "tests/feature_selection/test_monolith_split_w13a_rfecv_outer_loop.py (OuterLoopState behavioural-equivalence)",
+      "tests/training/core/test_regression_w13a_phase_recurrent_silent_drop.py (WARN-on-empty + WARN-on-nonfinite contract)"
+    ]
+  },
+  "commits": [
+    "35d9c921 refactor(rfecv): carve outer while-loop body to sibling via OuterLoopState dataclass",
+    "5c356f6b fix(recurrent): strengthen _safe_predict_recurrent diagnostic logging on empty / non-finite preds"
+  ]
+}
