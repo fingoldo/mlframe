@@ -172,29 +172,40 @@ def test_biz_val_training_suite_mlframe_models_subset(tmp_path, model_list):
     except (TypeError, ImportError) as e:
         pytest.skip(f"suite call broke during refactor: {e}")
     # The chosen model family must be reflected somewhere in the returned models structure. Behavioural pin:
-    # the requested family name must appear as a substring of at least one model key (so a regression that
-    # silently returns an empty dict OR routes to a different family is caught). The suite-level return
-    # nests as ``{TargetTypes.<X>: {model_name: [...], ...}, ...}`` — collect all string-rendered keys
-    # across every level so the family-name substring check is robust to the wrapper layer.
+    # the requested family name must appear as a substring of any KEY (target_type / target_name) OR any
+    # MODEL OBJECT's class name (the leaf level is a list of model objects, not a dict). The suite-level
+    # return nests as ``{TargetTypes.<X>: {target_name: [model_obj_1, model_obj_2, ...], ...}, ...}``.
     assert models is not None, f"suite returned None models on mlframe_models={model_list} path"
     assert hasattr(models, "__len__") and len(models) >= 1, (
         f"models container empty for mlframe_models={model_list}; got {type(models).__name__}"
     )
     if isinstance(models, dict):
         family = model_list[0]
-        all_keys: list[str] = []
+        haystacks: list[str] = []
 
         def _collect(d):
             if isinstance(d, dict):
                 for k, v in d.items():
-                    all_keys.append(str(k))
+                    haystacks.append(str(k))
                     _collect(v)
+            elif isinstance(d, (list, tuple)):
+                for item in d:
+                    _collect(item)
+            else:
+                # Leaf model object — capture its class name, module, and any
+                # ``model_name`` / ``name`` attribute the suite stamps on it.
+                haystacks.append(type(d).__name__)
+                haystacks.append(getattr(type(d), "__module__", "") or "")
+                for attr in ("model_name", "name", "estimator_type"):
+                    val = getattr(d, attr, None)
+                    if isinstance(val, str):
+                        haystacks.append(val)
 
         _collect(models)
-        keys_str = " ".join(all_keys).lower()
+        keys_str = " ".join(haystacks).lower()
         assert family in keys_str, (
-            f"mlframe_models={model_list} did not produce any {family}-keyed model; "
-            f"got nested keys={all_keys}"
+            f"mlframe_models={model_list} did not produce any {family}-related model; "
+            f"haystacks={haystacks}"
         )
 
 
