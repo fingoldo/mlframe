@@ -288,6 +288,85 @@ def _build_cross_target_ensemble_for_target(
                 )
             except (TypeError, IndexError):
                 _group_ids_for_oof = None
+
+        # 2026-05-26 OOF pre-screen optimisation: the dummy-floor gate
+        # at the BOTTOM of this function frequently drops 60-70% of
+        # components (observed in prod: 14/21 dropped). Pre-fix, all
+        # 21 components were OOF-refit (~10 min/MLP, ~5 min/booster),
+        # then 14 immediately discarded -- ~30-50 minutes of pure
+        # waste per target. Pre-screen now uses Phase-4-trained
+        # models' predict() on the external_val frame (cheap; no
+        # refit) to compute a LEAKY val_RMSE estimate -- leaks only
+        # through early-stopping signal, not full training -- and
+        # drops components whose leaky RMSE clears the dummy floor
+        # with a generous safety margin. Final dummy-floor gate STILL
+        # runs after OOF on the honest refit RMSE, so this is a
+        # speed-up only; correctness contract unchanged.
+        _PRESCREEN_SAFETY = 1.5  # leaky RMSE * 1.5 must still clear floor
+        if (_ext_X is not None and _ext_y is not None
+                and len(_components) >= 4):
+            try:
+                _raw_dbl_pre = (
+                    metadata.get("dummy_baselines", {})
+                    .get(str(_tt_e), {})
+                    .get(str(_orig_tname), {})
+                )
+                _data_pre = _raw_dbl_pre.get("data", {}) if isinstance(_raw_dbl_pre, dict) else {}
+                _strongest_pre = _raw_dbl_pre.get("strongest") if isinstance(_raw_dbl_pre, dict) else None
+                _pm_pre = _raw_dbl_pre.get("primary_metric") if isinstance(_raw_dbl_pre, dict) else None
+                _dummy_floor_for_prescreen = None
+                if _strongest_pre and _pm_pre and _strongest_pre in _data_pre:
+                    _v = _data_pre[_strongest_pre].get(_pm_pre)
+                    if _v is not None and np.isfinite(float(_v)):
+                        _dummy_floor_for_prescreen = float(_v)
+                if _dummy_floor_for_prescreen is not None:
+                    _keep_mask = []
+                    _dropped_pre: list[str] = []
+                    _ext_y_arr_np = np.asarray(_ext_y, dtype=np.float64)
+                    for _comp, _name in zip(_components, _component_names):
+                        try:
+                            _p = np.asarray(
+                                _comp.predict(_ext_X), dtype=np.float64,
+                            ).reshape(-1)
+                            _finite = np.isfinite(_p) & np.isfinite(_ext_y_arr_np)
+                            if _finite.sum() < 10:
+                                _keep_mask.append(True)
+                                continue
+                            _r = _p[_finite] - _ext_y_arr_np[_finite]
+                            _leaky_rmse = float(np.sqrt(np.mean(_r * _r)))
+                            if (_leaky_rmse / _PRESCREEN_SAFETY
+                                    > _dummy_floor_for_prescreen):
+                                _keep_mask.append(False)
+                                _dropped_pre.append(
+                                    f"{_name}(leakyRMSE={_leaky_rmse:.4g})"
+                                )
+                            else:
+                                _keep_mask.append(True)
+                        except Exception:
+                            _keep_mask.append(True)  # err on the safe side
+                    if _dropped_pre and sum(_keep_mask) >= 2:
+                        _kept = [i for i, k in enumerate(_keep_mask) if k]
+                        logger.warning(
+                            "[CompositeCrossTargetEnsemble] target='%s' "
+                            "OOF pre-screen dropped %d/%d component(s) "
+                            "whose leaky val_RMSE / %.1f > dummy floor "
+                            "%.4g. Dropped: %s. Saves ~%d minute(s) of "
+                            "refit time.",
+                            _orig_tname, len(_dropped_pre),
+                            len(_components), _PRESCREEN_SAFETY,
+                            _dummy_floor_for_prescreen, _dropped_pre,
+                            len(_dropped_pre) * 5,  # ~5 min/component
+                        )
+                        _components = [_components[i] for i in _kept]
+                        _component_names = [_component_names[i] for i in _kept]
+                        _component_specs = [_component_specs[i] for i in _kept]
+            except Exception as _prescreen_err:
+                logger.warning(
+                    "[CompositeCrossTargetEnsemble] OOF pre-screen "
+                    "failed (non-fatal): %s. Continuing with full OOF "
+                    "refit.", _prescreen_err,
+                )
+
         try:
             _oof_pred_matrix, _oof_y_holdout, _surviving = (
                 compute_oof_holdout_predictions(
