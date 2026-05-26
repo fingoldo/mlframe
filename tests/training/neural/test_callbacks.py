@@ -399,7 +399,9 @@ class TestBestEpochModelCheckpoint:
 
         mock_module = Mock()
 
-        with patch('mlframe.training.neural.base.logger.warning') as mock_warn:
+        # See test_initialization_logs_message: BestEpochModelCheckpoint lives
+        # in sibling _base_callbacks.py post-carve; patch that module's logger.
+        with patch('mlframe.training.neural._base_callbacks.logger.warning') as mock_warn:
             callback.on_validation_end(mock_trainer, mock_module)
 
         # Should issue warning via logger
