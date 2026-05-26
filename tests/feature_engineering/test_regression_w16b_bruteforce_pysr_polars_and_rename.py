@@ -224,7 +224,7 @@ def test_pysr_polars_native_support_documented():
 
     PySR 1.5.5 docstring says ``X : ndarray | pandas.DataFrame`` and the source does ``isinstance(X, pd.DataFrame)`` -- the polars-only space-rename safety branch is SKIPPED on polars input. sklearn validate_data DOES accept polars in practice (≥1.3 dataframe-protocol), but the contract is undocumented and the pandas-only sanitisation path is silently bypassed. Decision: keep pandas conversion + sanitise pre-fit.
     """
-    import json
+    import orjson
     manifest_path = os.path.join(
         os.path.dirname(__file__), "..", "..", "audit", "critique_2026_05_24",
         "manifests", "DONE_w16b-bruteforce-pysr-polars.json",
@@ -232,8 +232,8 @@ def test_pysr_polars_native_support_documented():
     manifest_path = os.path.normpath(manifest_path)
     assert os.path.exists(manifest_path), f"Wave 16B manifest missing: {manifest_path}"
 
-    with open(manifest_path, "r", encoding="utf-8") as fh:
-        manifest = json.load(fh)
+    with open(manifest_path, "rb") as fh:
+        manifest = orjson.loads(fh.read())
 
     assert "pysr_polars_native" in manifest, "manifest must record pysr_polars_native: bool"
     assert isinstance(manifest["pysr_polars_native"], bool)

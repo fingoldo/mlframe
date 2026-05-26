@@ -17,7 +17,7 @@ base) already exist in the older ``test_composite_*`` files.
 """
 from __future__ import annotations
 
-import json
+import orjson
 from typing import Any, Mapping
 
 import numpy as np
@@ -128,8 +128,8 @@ def test_transform_fit_returns_json_serializable_dict(name: str):
             return [_coerce(x) for x in o]
         return o
 
-    encoded = json.dumps(_coerce(params), sort_keys=True)
-    decoded = json.loads(encoded)
+    encoded = orjson.dumps(_coerce(params), option=orjson.OPT_SORT_KEYS)
+    decoded = orjson.loads(encoded)
     assert isinstance(decoded, dict)
     assert set(decoded) == set(params)
 

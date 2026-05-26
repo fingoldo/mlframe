@@ -9,7 +9,7 @@ file pins:
 """
 from __future__ import annotations
 
-import json
+import orjson
 import logging
 from types import SimpleNamespace
 
@@ -79,7 +79,7 @@ def test_clean_partial_strip_subset():
 
 def _write_sidecar(bundle_path: str, payload: dict) -> str:
     sidecar = _meta_sidecar_path(bundle_path)
-    data = json.dumps(payload, sort_keys=True).encode("utf-8")
+    data = orjson.dumps(payload, option=orjson.OPT_SORT_KEYS)
     atomic_write_bytes(sidecar, lambda f: f.write(data), fsync=False)
     return sidecar
 

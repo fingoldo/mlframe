@@ -5,7 +5,7 @@ Closes the W10 task that asks for a structured JSON bench-report alongside the A
 NUMBA_DISABLE_JIT=1 coverage XML is consumable by reviewers without manual XML parsing."""
 from __future__ import annotations
 
-import json
+import orjson
 import subprocess
 import sys
 import textwrap
@@ -104,7 +104,7 @@ def test_numba_coverage_report_emits_per_module_delta(tmp_path: Path, tmp_src_ro
         timeout=30,
     )
     assert proc.returncode == 0, f"script failed: stdout={proc.stdout!r}, stderr={proc.stderr!r}"
-    payload = json.loads(out_json.read_text(encoding="utf-8"))
+    payload = orjson.loads(out_json.read_bytes())
 
     assert payload["schema_version"] == 1
     assert payload["summary"]["modules"] == 1
@@ -141,7 +141,7 @@ def test_numba_coverage_report_stdout_when_no_out_arg(tmp_path: Path, tmp_src_ro
         timeout=30,
     )
     assert proc.returncode == 0
-    payload = json.loads(proc.stdout)
+    payload = orjson.loads(proc.stdout)
     assert payload["summary"]["modules"] == 1
     assert payload["rows"][0]["statements_covered_baseline"] is None
     assert payload["rows"][0]["delta_lines"] is None
