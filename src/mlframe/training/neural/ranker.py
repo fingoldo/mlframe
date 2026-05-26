@@ -82,10 +82,12 @@ class GroupBatchSampler(Sampler):
         seed: int = 0,
         queries_per_batch: int = 1,
     ):
-        # Wave 56 (2026-05-20): forward to torch Sampler base. Currently passing
-        # data_source=None is a no-op (newer torch silently accepts it); explicit
-        # super call reserves the hook for future torch state.
-        super().__init__(data_source=None)
+        # Forward to torch Sampler base. Newer torch (2.x) ``Sampler.__init__``
+        # is the bare object inheritance (no ``data_source`` kwarg) -- passing
+        # ``data_source=None`` falls through to ``object.__init__(data_source=None)``
+        # which raises ``TypeError: takes exactly one argument``. Older torch
+        # accepted the kwarg as a no-op; the bare call is correct under both.
+        super().__init__()
         self.group_ids = np.asarray(group_ids)
         self.relevance = np.asarray(relevance)
         self.shuffle = shuffle
