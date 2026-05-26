@@ -101,10 +101,17 @@ calibration = [
 # Neural-network training stack (PyTorch + Lightning).
 # `lightning` is the canonical post-2.0 distribution name; the older
 # `pytorch-lightning` alias is a thin re-export package.
+# `captum` powers the native NN feature-importance path
+# (``_captum_integrated_gradients_importance`` in evaluation.py);
+# 2026-05-26 bench matched permutation recall@10=1.00 with a ~5x
+# speedup on the 500-feature scenario. Optional within the neural
+# extras: when absent ``get_model_feature_importances`` falls back
+# to permutation (which is always available via sklearn).
 neural = [
     "torch>=2.0",
     "lightning>=2.0",
     "pytorch-lightning>=2.0",
+    "captum>=0.7",
 ]
 
 # AutoML + hyperparameter optimization.

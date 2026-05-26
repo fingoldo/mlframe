@@ -256,12 +256,134 @@ def _permutation_feature_importances(
     return np.asarray(result.importances_mean, dtype=np.float64)
 
 
+# Captum IntegratedGradients sample cap. Bench (profiling/bench_mlp_fi_methods.py)
+# at n_samples=500 + n_steps=20 matched permutation recall@10=1.00 across the
+# 5k/200, 2k/500, 1k/50 scenarios with ~5x speedup on the 500-feature case
+# (0.835s vs 5.020s) and ~0.4-0.8x on small ones (overhead-dominated). The
+# 500-row cap keeps the per-attribute backward-pass cost bounded on 4M-row
+# test splits without losing accuracy (IG converges by row sub-sampling +
+# averaging absolute attributions).
+_CAPTUM_IG_N_SAMPLES: int = 500
+_CAPTUM_IG_N_STEPS: int = 20
+
+
+def _torch_module_from_model(model: Any):
+    """Locate the ``torch.nn.Module`` core inside a sklearn / Lightning /
+    pipeline wrapper. Returns the module or None when not a torch model.
+    """
+    try:
+        import torch.nn as nn
+    except Exception:
+        return None
+    seen: set[int] = set()
+    cur = model
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        if isinstance(cur, nn.Module):
+            return cur
+        # Lightning regressor stashes the trained net on ``network``.
+        for attr in ("network", "module", "model_", "net"):
+            inner = getattr(cur, attr, None)
+            if isinstance(inner, nn.Module):
+                return inner
+        # Walk the standard wrapper chain.
+        nxt = None
+        for attr in ("regressor_", "regressor", "estimator_", "base_estimator_"):
+            inner = getattr(cur, attr, None)
+            if inner is not None and id(inner) not in seen:
+                nxt = inner
+                break
+        if nxt is None and isinstance(cur, Pipeline):
+            if cur.steps:
+                nxt = cur.steps[-1][1]
+        cur = nxt
+    return None
+
+
+def _first_layer_weight_importance(net) -> Optional[np.ndarray]:
+    """Ultra-fast ``|W1|.sum(axis=hidden)`` proxy. NO X/y, NO predict
+    calls. Reliable only when no feature-mixing layer precedes the
+    first ``nn.Linear``; BatchNorm / LayerNorm / Dropout in front are
+    fine (they don't mix features).
+
+    Bench (2026-05-26 profiling/bench_mlp_fi_methods.py): ~10000x faster
+    than permutation, but recall@10 of true informative features
+    dropped to 0.40 on the 5k/200 scenario -- BN gamma/beta
+    parameters effectively re-weight features and absorb signal from
+    the raw |W| view. Useful as a CHEAP HINT (e.g. for a quick
+    pre-screen) but NOT as a primary FI source. Wired behind opt-in
+    flag.
+    """
+    try:
+        import torch.nn as nn
+    except Exception:
+        return None
+    if isinstance(net, nn.Sequential):
+        layers = list(net.children())
+    else:
+        layers = list(net.modules())
+    for layer in layers:
+        if isinstance(layer, (nn.BatchNorm1d, nn.LayerNorm, nn.Dropout, nn.Identity)):
+            continue
+        if isinstance(layer, nn.Linear):
+            return layer.weight.detach().abs().cpu().numpy().sum(axis=0).astype(np.float64)
+        if hasattr(layer, "weight"):
+            return None  # an unrecognised feature-mixing layer is in front
+    return None
+
+
+def _captum_integrated_gradients_importance(
+    net, X: np.ndarray | pd.DataFrame,
+    *,
+    n_samples: int = _CAPTUM_IG_N_SAMPLES,
+    n_steps: int = _CAPTUM_IG_N_STEPS,
+    random_state: int = 0,
+) -> Optional[np.ndarray]:
+    """IntegratedGradients attribution averaged over a row subsample.
+
+    Returns per-input absolute attribution. Bench matched permutation
+    recall@10=1.00 on synthetic with known ground truth (200, 500, 50
+    feature scenarios). Requires the model to be a single torch
+    Module that accepts the raw feature tensor (Lightning regressors
+    expose this via ``.network``).
+    """
+    try:
+        import torch
+        from captum.attr import IntegratedGradients
+    except Exception:
+        return None
+    try:
+        X_arr = X.to_numpy() if isinstance(X, pd.DataFrame) else np.asarray(X)
+    except Exception:
+        return None
+    if X_arr.ndim != 2 or X_arr.shape[0] == 0:
+        return None
+    n = X_arr.shape[0]
+    if n > n_samples:
+        rng = np.random.default_rng(random_state)
+        idx = rng.choice(n, size=n_samples, replace=False)
+        X_sub = X_arr[idx]
+    else:
+        X_sub = X_arr
+    net.eval()
+    try:
+        ig = IntegratedGradients(net)
+        X_t = torch.as_tensor(np.asarray(X_sub), dtype=torch.float32)
+        baseline = torch.zeros_like(X_t)
+        attrs = ig.attribute(X_t, baselines=baseline, n_steps=n_steps)
+    except Exception as exc:
+        logger.warning("captum IntegratedGradients failed (%s); skipping.", exc)
+        return None
+    return attrs.detach().abs().mean(axis=0).cpu().numpy().astype(np.float64)
+
+
 def get_model_feature_importances(
     model: Any,
     columns: Sequence[str],
     return_df: bool = False,
     X: np.ndarray | pd.DataFrame | None = None,
     y: np.ndarray | pd.Series | None = None,
+    nn_fi_method: str = "auto",
 ) -> Optional[Union[np.ndarray, pd.DataFrame]]:
     """
     Extract feature importances from a trained model.
@@ -304,20 +426,41 @@ def get_model_feature_importances(
         or None when no source is available.
     """
     inner = _unwrap_estimator_chain(model)
+    feature_importances: Optional[np.ndarray] = None
     if hasattr(inner, "feature_importances_"):
         feature_importances = np.asarray(inner.feature_importances_)
     elif hasattr(inner, "coef_"):
         coef = np.asarray(inner.coef_)
-        if coef.ndim == 1:
-            feature_importances = coef
-        else:
-            feature_importances = coef[-1, :]
-    elif X is not None and y is not None:
-        feature_importances = _permutation_feature_importances(model, X, y)
+        feature_importances = coef if coef.ndim == 1 else coef[-1, :]
     else:
-        feature_importances = None
+        # Non-native source: try the NN-specific paths first when the
+        # model is a torch Module wrapper. ``nn_fi_method``:
+        #   * "auto"        -> Captum IG if available, else permutation.
+        #   * "captum"      -> Captum IG only; None if unavailable.
+        #   * "first_layer" -> ``|W1|.sum(axis=hidden)`` proxy
+        #                     (ultra-fast but recall@10 only 40-90% on
+        #                     bench; opt-in for quick-screen mode).
+        #   * "permutation" -> Force the sklearn permutation fallback.
+        net = _torch_module_from_model(model)
+        if nn_fi_method == "first_layer" and net is not None:
+            feature_importances = _first_layer_weight_importance(net)
+        elif nn_fi_method in ("auto", "captum") and net is not None and X is not None:
+            feature_importances = _captum_integrated_gradients_importance(net, X)
+            if feature_importances is None and nn_fi_method == "auto" and y is not None:
+                feature_importances = _permutation_feature_importances(model, X, y)
+        elif X is not None and y is not None:
+            feature_importances = _permutation_feature_importances(model, X, y)
 
     if feature_importances is not None:
+        feature_importances = np.asarray(feature_importances, dtype=np.float64)
+        # Length mismatch -> the proxy applied to the wrong layer
+        # (e.g. an embedding-prefixed net). Don't return mis-sized FI.
+        if columns is not None and len(columns) > 0 and feature_importances.size != len(columns):
+            logger.warning(
+                "FI length mismatch: %d values vs %d columns; skipping.",
+                feature_importances.size, len(columns),
+            )
+            return None
         if return_df:
             feature_importances = pd.DataFrame({"feature": columns, "importance": feature_importances})
 
@@ -336,6 +479,7 @@ def plot_model_feature_importances(
     max_zero_fi_to_plot: int = 4,
     X: np.ndarray | pd.DataFrame | None = None,
     y: np.ndarray | pd.Series | None = None,
+    nn_fi_method: str = "auto",
 ) -> Optional[np.ndarray]:
     """
     Plot feature importances for a trained model.
@@ -366,7 +510,9 @@ def plot_model_feature_importances(
     np.ndarray or None
         Feature importances array, or None if extraction failed.
     """
-    feature_importances = get_model_feature_importances(model=model, columns=columns, X=X, y=y)
+    feature_importances = get_model_feature_importances(
+        model=model, columns=columns, X=X, y=y, nn_fi_method=nn_fi_method,
+    )
 
     if feature_importances is not None:
         try:
