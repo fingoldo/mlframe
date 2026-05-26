@@ -153,13 +153,52 @@ def _auto_base(
     y_screen = y_train[sample_idx]
 
     x_matrix = self._build_feature_matrix(df, usable_features, train_idx_screen)
+    # Drop columns with ZERO observed values in the screening sample
+    # BEFORE the all-row finite-mask. A single fully-NaN column made
+    # the AND-mask return zero rows (prod TVT 2026-05-26: 'auto-base:
+    # only 0 finite rows in screening sample') AND every downstream
+    # sklearn.SimpleImputer call sprayed UserWarnings about feature
+    # index N. Per-column NaN tolerance: keep features with at least
+    # ``_AUTO_BASE_MIN_FRACTION_FINITE`` non-NaN cells in the
+    # screening sample; impute the rest per-column with the column
+    # mean before the all-row finite mask.
+    _MIN_FRAC_FINITE = 0.10  # at least 10% non-NaN cells
+    _col_finite_frac = np.isfinite(x_matrix).mean(axis=0)
+    _keep_cols = _col_finite_frac >= _MIN_FRAC_FINITE
+    if not _keep_cols.all():
+        _dropped = [
+            usable_features[i] for i, k in enumerate(_keep_cols.tolist())
+            if not k
+        ]
+        logger.info(
+            "[CompositeTargetDiscovery] auto-base: dropping %d feature(s) "
+            "with <%.0f%% finite cells in screening sample: %s",
+            len(_dropped), _MIN_FRAC_FINITE * 100, _dropped[:10],
+        )
+        x_matrix = x_matrix[:, _keep_cols]
+        usable_features = [
+            f for f, k in zip(usable_features, _keep_cols.tolist()) if k
+        ]
     finite = np.isfinite(y_screen) & np.all(np.isfinite(x_matrix), axis=1)
     if finite.sum() < 50:
-        logger.warning(
-            "[CompositeTargetDiscovery] auto-base: only %d finite rows in "
-            "screening sample; falling back to feature-list order.", int(finite.sum()),
-        )
-        return list(usable_features)[: self.config.auto_base_top_k]
+        # Even after the per-column drop, the all-row finite mask can
+        # still be too tight when many features have sparse but
+        # non-zero NaN density. Impute remaining NaNs with per-column
+        # mean and proceed (correlation-quality features survive; truly
+        # bad columns were already dropped above).
+        _col_means = np.nanmean(x_matrix, axis=0)
+        _col_means = np.where(np.isfinite(_col_means), _col_means, 0.0)
+        _nan_mask = ~np.isfinite(x_matrix)
+        if _nan_mask.any():
+            x_matrix = np.where(_nan_mask, _col_means[None, :], x_matrix)
+        finite = np.isfinite(y_screen) & np.all(np.isfinite(x_matrix), axis=1)
+        if finite.sum() < 50:
+            logger.warning(
+                "[CompositeTargetDiscovery] auto-base: only %d finite rows "
+                "even after per-column NaN drop + mean impute; falling back "
+                "to feature-list order.", int(finite.sum()),
+            )
+            return list(usable_features)[: self.config.auto_base_top_k]
     # Per-feature MI honours config.mi_estimator: bin-based when
     # the screening pipeline opted for the fast estimator. Hoist the
     # y-binning out of the per-feature loop -- y is fixed across all

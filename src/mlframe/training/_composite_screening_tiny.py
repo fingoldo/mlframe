@@ -76,6 +76,18 @@ def _silence_tiny_model_output():
             message=".*feature names.*",
             category=UserWarning,
         )
+        # sklearn SimpleImputer warns about features with zero observed
+        # values per call (no-op pass-through for that column). Fires on
+        # every CV fold * every candidate spec in tiny-rerank -> dozens
+        # to hundreds of identical warning lines per discovery run.
+        # Squelching at this scope so the log stays readable; the actual
+        # remediation (drop fully-NaN columns) lives in the auto-base
+        # per-column NaN gate (2026-05-26 fix).
+        warnings.filterwarnings(
+            "ignore",
+            message=".*Skipping features without any observed values.*",
+            category=UserWarning,
+        )
         warnings.filterwarnings("ignore", category=ConvergenceWarning)
         warnings.filterwarnings("ignore", category=RuntimeWarning)
         try:
