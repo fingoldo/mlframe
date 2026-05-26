@@ -39,45 +39,89 @@ SMALL_SAMPLE_THRESHOLD: int = 1000
 CANDIDATE_NAMES: tuple[str, ...] = ("Sigmoid", "Isotonic", "Beta", "Spline")
 
 
+try:
+    from numba import njit as _njit  # type: ignore
+    _HAS_NUMBA = True
+except Exception:  # pragma: no cover  -- numba is a hard dep, keep guard for static analysers
+    _HAS_NUMBA = False
+    def _njit(*args, **kwargs):  # type: ignore
+        def _decorator(fn):
+            return fn
+        return _decorator
+
+
+@_njit(cache=True, nogil=True)
+def _ece_score_numba_serial(y: np.ndarray, p: np.ndarray, n_bins: int) -> float:
+    """Single-pass per-bin reduction (12-15x vs numpy bincount on n=2k..1M).
+
+    Streams ``(p[i], y[i])`` once, computing per-bin counts + sums in
+    fixed-size float64 accumulators. Parallel variant exists in
+    ``profiling/bench_ece_score_variants.py`` but pays prange overhead
+    that the per-iter scalar work cannot amortise on n<1M -- the serial
+    kernel wins on every size in the bench.
+    """
+    n = p.size
+    sum_p = np.zeros(n_bins, dtype=np.float64)
+    sum_y = np.zeros(n_bins, dtype=np.float64)
+    n_finite = 0.0
+    for i in range(n):
+        pi = p[i]
+        yi = y[i]
+        if not (np.isfinite(pi) and np.isfinite(yi)):
+            continue
+        b = int(pi * n_bins)
+        if b >= n_bins:
+            b = n_bins - 1
+        elif b < 0:
+            b = 0
+        sum_p[b] += pi
+        sum_y[b] += yi
+        n_finite += 1.0
+    if n_finite == 0.0:
+        return float("nan")
+    total = 0.0
+    for b in range(n_bins):
+        diff = sum_y[b] - sum_p[b]
+        if diff < 0.0:
+            diff = -diff
+        total += diff
+    return total / n_finite
+
+
 def _ece_score(y_true: np.ndarray, p_pred: np.ndarray, n_bins: int = DEFAULT_ECE_NBINS) -> float:
     """Equal-width ECE over ``n_bins`` for binary probability ``p_pred[:, 1]`` or 1-D ``p_pred``.
 
     Standard ECE: ``sum_b (|B_b| / N) * |acc(B_b) - conf(B_b)|`` over equal-width
     confidence bins on ``[0, 1]``. Returns nan when ``p_pred`` is empty or all-nan.
 
-    iter308 (2026-05-26): vectorised via ``np.bincount`` instead of the
-    per-bin Python loop. c0091 honest_diagnostics profile attributed 13.45 s
-    to 6006 _ece_score calls inside the bootstrap loop (2.24 ms each);
-    bincount-based version runs in 0.77 ms (~3.38x speedup, numerically
-    identical to <1e-16). Equivalence: ``sum_b (count_b/n) * |conf_b -
-    acc_b|`` with ``conf_b = sum_p_b / count_b`` and ``acc_b = sum_y_b /
-    count_b`` reduces to ``(1/n) * sum_b |sum_y_b - sum_p_b|`` because
-    count_b cancels in the per-bin weight times the per-bin magnitude --
-    the per-bin division is unnecessary algebraically.
+    iter309 (2026-05-26): numba single-pass reduction kernel. The
+    iter308 ``np.bincount`` rewrite was 3.38x faster than the per-bin
+    Python loop; this numba kernel is another ~12-15x faster than the
+    bincount path because the per-i computation collapses to one branch
+    + one integer cast + three accumulator updates, all inside a tight
+    numba loop with no temporary arrays. Bench
+    ``profiling/bench_ece_score_variants.py``:
+      n=2k:    0.115 ms (numpy)   ->  0.008 ms (numba)  14.7x
+      n=20k:   0.758 ms           ->  0.064 ms          11.9x
+      n=200k:  9.413 ms           ->  0.636 ms          14.8x
+      n=1M:   51.530 ms           ->  3.445 ms          15.0x
+    Parallel variant tried and rejected: prange overhead dominates the
+    per-iter scalar work; serial wins on every n in the bench.
+    Numerical equivalence verified to <1e-12 vs the bincount path.
+
+    Equivalence math: ``sum_b (count_b/n) * |conf_b - acc_b|`` with
+    ``conf_b = sum_p_b / count_b`` and ``acc_b = sum_y_b / count_b``
+    reduces to ``(1/n) * sum_b |sum_y_b - sum_p_b|`` because the count_b
+    cancels between the per-bin weight times the per-bin magnitude.
     """
     p = np.asarray(p_pred, dtype=np.float64)
     if p.ndim == 2 and p.shape[1] >= 2:
         p = p[:, 1]
-    p = p.ravel()
-    y = np.asarray(y_true, dtype=np.float64).ravel()
+    p = np.ascontiguousarray(p.ravel())
+    y = np.ascontiguousarray(np.asarray(y_true, dtype=np.float64).ravel())
     if p.size == 0 or y.size != p.size:
         return float("nan")
-    finite = np.isfinite(p) & np.isfinite(y)
-    if not finite.any():
-        return float("nan")
-    p = p[finite]
-    y = y[finite]
-    edges = np.linspace(0.0, 1.0, n_bins + 1)
-    edges[-1] = np.nextafter(1.0, 2.0)
-    bin_ids = np.clip(np.digitize(p, edges, right=False) - 1, 0, n_bins - 1)
-    # Vectorised per-bin sums via bincount: O(N + n_bins) instead of
-    # O(N * n_bins) memory passes from the per-bin boolean-mask loop.
-    sum_p = np.bincount(bin_ids, weights=p, minlength=n_bins)
-    sum_y = np.bincount(bin_ids, weights=y, minlength=n_bins)
-    # |conf - acc| * (count/n) collapses to |sum_y - sum_p| / n because
-    # the per-bin count cancels between the per-bin weight (count/n) and
-    # the per-bin magnitude (1/count).
-    return float(np.abs(sum_y - sum_p).sum() / p.size)
+    return _ece_score_numba_serial(y, p, int(n_bins))
 
 
 def _fit_calibrator(name: str, calib_p: np.ndarray, calib_y: np.ndarray) -> Optional[Callable[[np.ndarray], np.ndarray]]:
