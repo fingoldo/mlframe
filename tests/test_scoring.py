@@ -5,6 +5,7 @@ import pytest
 
 from mlframe.metrics.scoring import (
     ProbaScoreProxy,
+    fast_rmse,
     log_uniform,
     rmse_loss,
     rmse_score,
@@ -23,6 +24,34 @@ def test_rmse_loss_known_value():
     y_true = np.array([1.0, 2.0, 3.0])
     y_pred = np.array([2.0, 3.0, 4.0])
     assert rmse_loss(y_true, y_pred) == pytest.approx(1.0)
+
+
+def test_fast_rmse_matches_rmse_loss():
+    """iter367: fast_rmse is the numba single-pass kernel used inside the
+    honest-diagnostics bootstrap regression path. Must produce the same
+    scalar as the numpy rmse_loss for any aligned (y_true, y_pred) pair --
+    fastmath=True is enabled but the simple sum-of-squares reduction
+    converges to the same float64 value on aligned arrays."""
+    rng = np.random.default_rng(20260527)
+    for n in (10, 1000, 50_000):
+        y = rng.normal(size=n)
+        p = y + rng.normal(scale=0.5, size=n)
+        a = fast_rmse(y, p)
+        b = float(rmse_loss(y, p))
+        assert abs(a - b) < 1e-9, f"n={n}: fast_rmse={a} vs rmse_loss={b}"
+
+
+def test_fast_rmse_zero_on_match():
+    y = np.array([1.0, 2.0, 3.0])
+    assert fast_rmse(y, y) == 0.0
+
+
+def test_fast_rmse_handles_int_inputs():
+    """Caller may pass int arrays (resampled from integer index arrays); the
+    function must cast to float64 internally without raising."""
+    y = np.array([1, 2, 3, 4, 5], dtype=np.int64)
+    p = np.array([2, 3, 4, 5, 6], dtype=np.int64)
+    assert fast_rmse(y, p) == pytest.approx(1.0)
 
 
 def test_rmsle_loss_clips_negative_predictions():

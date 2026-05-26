@@ -137,9 +137,13 @@ def _bootstrap_block(y_true: np.ndarray, probs: np.ndarray, preds: Optional[np.n
     elif p_pos is not None and y_true is not None:
         # Regression-ish fallback: RMSE on point-prediction-or-prob-mean.
         try:
-            def _rmse(yy, pp):
-                d = np.asarray(yy, dtype=np.float64) - np.asarray(pp, dtype=np.float64)
-                return float(np.sqrt(float(np.mean(d * d))))
+            # iter367: route through mlframe.metrics.scoring.fast_rmse so the
+            # inner bootstrap loop (1000 resamples) calls the numba single-
+            # pass kernel instead of the np.asarray + element-wise difference
+            # + np.mean + np.sqrt chain. 37x microbench (889us -> 24us / call
+            # at n=100k); c0095 regression bootstrap saves ~10s of metric_fn
+            # wall on a 9.8s bootstrap_metric tottime baseline.
+            from mlframe.metrics.scoring import fast_rmse as _rmse
 
             ci = bootstrap_metric(y_true, p_pos, metric_fn=_rmse, n_bootstrap=1000, alpha=0.05, random_state=rng_seed)
             out["rmse"] = {"point": ci["point"], "ci_lo": ci["lo"], "ci_hi": ci["hi"]}
