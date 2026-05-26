@@ -54,190 +54,14 @@ from ._phase_train_one_target_schema import (
     _clone_model_with_sticky_flags,
     _resolve_weight_schemas_and_warn_val_placement,
 )
+from ._phase_train_one_target_mlp_helpers import (
+    _apply_mlp_extreme_ar_output_activation,
+    _apply_mlp_extreme_ar_weight_decay_bump,
+    _drop_columns_for_mlp,
+    _identify_per_group_columns,
+)
 
 logger = logging.getLogger("mlframe.training.core._phase_train_one_target")
-
-
-# Module-level compiled regex cache for the per-well-aggregate column
-# detector (Fix 2, 2026-05-26). Pattern is supplied via
-# ``behavior_config.mlp_drop_per_well_constants_pattern``; cached keyed
-# on the pattern string so a per-run config swap recompiles, but the
-# common case (single pattern across all targets) recompiles zero times.
-import re as _re_for_per_well
-_PER_WELL_PATTERN_CACHE: dict[str, "_re_for_per_well.Pattern[str]"] = {}
-
-
-def _get_per_well_pattern(pattern: str) -> "_re_for_per_well.Pattern[str]":
-    cached = _PER_WELL_PATTERN_CACHE.get(pattern)
-    if cached is None:
-        cached = _re_for_per_well.compile(pattern, _re_for_per_well.IGNORECASE)
-        _PER_WELL_PATTERN_CACHE[pattern] = cached
-    return cached
-
-
-def _identify_per_well_columns(columns, pattern: str) -> list[str]:
-    """Return the subset of ``columns`` matching the per-well-aggregate
-    regex. Used by the MLP extreme-AR protection to strip group-level
-    constants that extrapolate on unseen groups."""
-    if not columns or not pattern:
-        return []
-    rx = _get_per_well_pattern(pattern)
-    return [c for c in columns if rx.match(str(c))]
-
-
-def _drop_columns_for_mlp(df, cols_to_drop):
-    """Polars / pandas-agnostic helper that returns a NEW frame with the
-    given columns dropped. ``None`` -> ``None``. Missing columns are
-    silently ignored (safe in cross-tier reuse)."""
-    if df is None or not cols_to_drop:
-        return df
-    # Avoid ``if columns:`` -- pandas Index raises on bool(). Iterate
-    # directly: list(Index) yields the column names regardless of type.
-    _cols_attr = getattr(df, "columns", None)
-    if _cols_attr is None:
-        return df
-    _have = set(list(_cols_attr))
-    _drop = [c for c in cols_to_drop if c in _have]
-    if not _drop:
-        return df
-    try:
-        # Polars DataFrame
-        if pl is not None and isinstance(df, pl.DataFrame):
-            return df.drop(_drop)
-        # pandas DataFrame
-        return df.drop(columns=_drop)
-    except Exception:
-        return df
-
-
-def _apply_mlp_extreme_ar_weight_decay_bump(
-    model, factor: float, base_weight_decay: float,
-) -> bool:
-    """Walk the MLP estimator nesting (TTR / pipeline / metamodel) to
-    find ``model_params`` on the inner ``PytorchLightningEstimator`` and
-    bump ``optimizer_kwargs["weight_decay"]`` by ``factor`` (against
-    ``base_weight_decay`` when no prior decay was set). Forces AdamW
-    when the prior optimizer was plain Adam (Adam ignores weight_decay).
-
-    Returns True if the bump was applied (i.e. an inner Lightning estimator
-    was found and its model_params mutated), False otherwise.
-    """
-    # Walk known wrappers: TTR (.regressor), sklearn Pipeline (.named_steps),
-    # generic metamodel wrappers (.estimator / .base_estimator).
-    candidates = []
-    visited = set()
-
-    def _enqueue(obj):
-        if obj is None or id(obj) in visited:
-            return
-        visited.add(id(obj))
-        candidates.append(obj)
-
-    _enqueue(model)
-    found_inner = None
-    while candidates:
-        cur = candidates.pop(0)
-        if hasattr(cur, "model_params") and hasattr(cur, "network_params"):
-            found_inner = cur
-            break
-        # TTR
-        if hasattr(cur, "regressor"):
-            _enqueue(getattr(cur, "regressor"))
-        # Pipeline
-        if hasattr(cur, "named_steps"):
-            for step in cur.named_steps.values():
-                _enqueue(step)
-        # Generic estimator wrappers
-        for attr in ("estimator", "base_estimator", "estimator_", "regressor_"):
-            if hasattr(cur, attr):
-                _enqueue(getattr(cur, attr))
-
-    if found_inner is None:
-        return False
-
-    # Mutate in-place. The caller (per-weight loop) holds a freshly
-    # cloned model so this does NOT leak into other weight schemas.
-    try:
-        import torch as _torch
-        mp = dict(found_inner.model_params)
-        ok = dict(mp.get("optimizer_kwargs", {}) or {})
-        prior_decay = float(ok.get("weight_decay", 0.0) or 0.0)
-        # Bump: if user had no prior decay, multiply BASE instead of 0.
-        new_decay = (prior_decay if prior_decay > 0 else base_weight_decay) * factor
-        ok["weight_decay"] = new_decay
-        mp["optimizer_kwargs"] = ok
-        # Adam ignores weight_decay -> swap to AdamW.
-        cur_opt = mp.get("optimizer", None)
-        if cur_opt is _torch.optim.Adam:
-            mp["optimizer"] = _torch.optim.AdamW
-        found_inner.model_params = mp
-        logger.info(
-            "MLP extreme-AR + group-aware: weight_decay bumped %g -> %g "
-            "(factor=%g, base=%g); optimizer=%s.",
-            prior_decay, new_decay, factor, base_weight_decay,
-            getattr(mp.get("optimizer"), "__name__", str(mp.get("optimizer"))),
-        )
-        return True
-    except Exception as _bump_err:
-        logger.warning(
-            "MLP extreme-AR weight_decay bump failed (%s); leaving "
-            "optimizer kwargs unchanged.", _bump_err,
-        )
-        return False
-
-
-def _apply_mlp_extreme_ar_output_activation(model) -> bool:
-    """Walk the MLP estimator nesting and set ``network_params['output_activation']
-    = 'tanh_train_range'``. Bounds the regression head to ~6 sigma around
-    the y-train midpoint (Fix 1, 2026-05-26).
-
-    Returns True if applied, False otherwise.
-    """
-    candidates = []
-    visited = set()
-
-    def _enqueue(obj):
-        if obj is None or id(obj) in visited:
-            return
-        visited.add(id(obj))
-        candidates.append(obj)
-
-    _enqueue(model)
-    found_inner = None
-    while candidates:
-        cur = candidates.pop(0)
-        if hasattr(cur, "network_params") and isinstance(getattr(cur, "network_params"), dict):
-            found_inner = cur
-            break
-        if hasattr(cur, "regressor"):
-            _enqueue(getattr(cur, "regressor"))
-        if hasattr(cur, "named_steps"):
-            for step in cur.named_steps.values():
-                _enqueue(step)
-        for attr in ("estimator", "base_estimator", "estimator_", "regressor_"):
-            if hasattr(cur, attr):
-                _enqueue(getattr(cur, attr))
-
-    if found_inner is None:
-        return False
-    try:
-        np_dict = dict(found_inner.network_params)
-        # Respect explicit user override.
-        if np_dict.get("output_activation") not in (None, "linear"):
-            return False
-        np_dict["output_activation"] = "tanh_train_range"
-        found_inner.network_params = np_dict
-        logger.info(
-            "MLP extreme-AR + group-aware: output_activation='tanh_train_range' "
-            "enabled; scale/center auto-derived from y_train at fit time.",
-        )
-        return True
-    except Exception as _act_err:
-        logger.warning(
-            "MLP extreme-AR output_activation set failed (%s); leaving unchanged.",
-            _act_err,
-        )
-        return False
 
 
 def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_values):
@@ -418,13 +242,13 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             # cannot learn a transferable residual: the target is fully
             # explained by the lag, and the MLP's nearly-linear decision
             # surface extrapolates catastrophically on unseen-group test
-            # rows (TVT prod 2026-05-24: pred_std=58 vs target_std=645,
-            # R2=-286, predictions a constant 569 vs target_mean 11497).
+            # rows (observed in prod: very small pred_std vs target_std,
+            # strongly negative R2, predictions near-constant vs target_mean).
             # The ensemble's quality gate catches it, but the wasted
-            # 2.7 min train + 126 MB save dump is pure cost. Skip MLP
+            # train time + multi-MB save dump is pure cost. Skip MLP
             # in this regime; lag_predict + Ridge carry the AR signal.
             # Extreme-AR + group-aware MLP trigger predicate (shared by
-            # 3 protections: skip / drop per-well aggregate cols /
+            # 3 protections: skip / drop per-group aggregate cols /
             # bump weight_decay 100x). Computed once per (target, model)
             # so the three protections agree on whether to fire.
             _mlp_extreme_ar_fired = False
@@ -734,8 +558,8 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                     if tier_pandas.get("test_df") is not None:
                         current_common_params["test_df"] = tier_pandas["test_df"]
 
-                # Fix 2 (2026-05-26): drop per-well aggregate columns from
-                # the MLP's view of X. Pattern matches ``well_*_(mean|std|min|max)``.
+                # Drop per-group aggregate columns from the MLP's view of X.
+                # Pattern matches ``group_*_(mean|std|min|max)`` by default.
                 # Only the MLP sees the trimmed feature set; tree models in
                 # the suite get the original columns. Gated on the knob +
                 # the extreme-AR + group-aware trigger predicate (computed
@@ -744,34 +568,34 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 # extra columns the network wasn't trained on.
                 if (
                     mlframe_model_name == "mlp"
-                    and bool(getattr(behavior_config, "mlp_drop_per_well_constants", True))
+                    and bool(getattr(behavior_config, "mlp_drop_per_group_constants", False))
                 ):
                     _drop_pattern = str(getattr(
                         behavior_config,
-                        "mlp_drop_per_well_constants_pattern",
-                        r"^well_.*_(mean|std|min|max)$",
+                        "mlp_drop_per_group_constants_pattern",
+                        r"^group_.*_(mean|std|min|max)$",
                     ))
                     _train_df_now = current_common_params.get("train_df")
                     _cols_now = list(getattr(_train_df_now, "columns", []) or []) if _train_df_now is not None else []
-                    _per_well_cols = _identify_per_well_columns(_cols_now, _drop_pattern)
-                    if _per_well_cols:
+                    _per_group_cols = _identify_per_group_columns(_cols_now, _drop_pattern)
+                    if _per_group_cols:
                         logger.info(
-                            "MLP per-well-aggregate column drop fired for target='%s': "
+                            "MLP per-group-aggregate column drop fired for target='%s': "
                             "dropping %d columns matching %r (e.g. %s). Tree models "
                             "still see them; only MLP gets the trimmed feature set.",
-                            cur_target_name, len(_per_well_cols), _drop_pattern,
-                            _per_well_cols[:3],
+                            cur_target_name, len(_per_group_cols), _drop_pattern,
+                            _per_group_cols[:3],
                         )
                         current_common_params["train_df"] = _drop_columns_for_mlp(
-                            current_common_params.get("train_df"), _per_well_cols,
+                            current_common_params.get("train_df"), _per_group_cols,
                         )
                         if current_common_params.get("val_df") is not None:
                             current_common_params["val_df"] = _drop_columns_for_mlp(
-                                current_common_params.get("val_df"), _per_well_cols,
+                                current_common_params.get("val_df"), _per_group_cols,
                             )
                         if current_common_params.get("test_df") is not None:
                             current_common_params["test_df"] = _drop_columns_for_mlp(
-                                current_common_params.get("test_df"), _per_well_cols,
+                                current_common_params.get("test_df"), _per_group_cols,
                             )
                 if getattr(behavior_config, "model_file_hash_suffix", True):
                     model_file_name += f"__sch_{_schema_hash}"

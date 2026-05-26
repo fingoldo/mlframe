@@ -112,7 +112,7 @@ def _bench(label, fn, n_iter=5):
 def bench_paired_bootstrap():
     """D2 paired-bootstrap on (strongest, runner-up) — n-gated to <2000.
 
-    Representative n: 100-1500 (real well-log val/test shapes hit
+    Representative n: 100-1500 (real-world val/test shapes hit
     bootstrap_ci_threshold cutoff at exactly 2000)."""
     print("\n=== _paired_bootstrap_vs_runner_up (D2, gated n<2000) ===")
     rng = np.random.default_rng(0)
@@ -227,16 +227,16 @@ def bench_augment_helper():
         train = pd.DataFrame({"x": rng.normal(size=n_post_od).astype("float32")})
         val = pd.DataFrame({"x": rng.normal(size=n_va).astype("float32")})
         test = pd.DataFrame({"x": rng.normal(size=n_va).astype("float32")})
-        # 1 dropped col — well_id-like high-card string
+        # 1 dropped col - group_id-like high-card string
         n_groups = 600
-        well_id_train = np.array([f"w_{i % n_groups:04d}" for i in range(n)], dtype=object)
-        well_id_val = np.array([f"w_{i % n_groups:04d}" for i in range(n_va)], dtype=object)
-        well_id_test = np.array([f"w_{i % n_groups:04d}" for i in range(n_va)], dtype=object)
+        group_id_train = np.array([f"g_{i % n_groups:04d}" for i in range(n)], dtype=object)
+        group_id_val = np.array([f"g_{i % n_groups:04d}" for i in range(n_va)], dtype=object)
+        group_id_test = np.array([f"g_{i % n_groups:04d}" for i in range(n_va)], dtype=object)
         dropped = {
-            "well_id": {
-                "train": well_id_train,
-                "val": well_id_val,
-                "test": well_id_test,
+            "group_id": {
+                "train": group_id_train,
+                "val": group_id_val,
+                "test": group_id_test,
             }
         }
         _bench(

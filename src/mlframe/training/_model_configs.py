@@ -568,31 +568,32 @@ class TrainingBehaviorConfig(BaseConfig):
     # address:
     #   * Residual-target MLP (train on y - alpha*lag, predict residual).
     #   * Output activation bounding (tanh-scaled to train target range).
-    #   * Drop per-well aggregate features from MLP input set
-    #     (group-level features extrapolate on unseen wells).
+    #   * Drop per-group aggregate features from MLP input set
+    #     (group-level features extrapolate on unseen groups).
     mlp_extreme_ar_group_aware_skip: bool = False
     mlp_extreme_ar_threshold: float = 0.99
 
-    # Drop per-well / per-group AGGREGATE features from the MLP's view of
-    # X (Fix 2, 2026-05-26). Pattern matches columns like
-    # ``well_TVT_pre_PS_mean`` / ``well_GR_std`` / ``well_*_(mean|std|min|max)``:
+    # Drop per-group AGGREGATE features from the MLP's view of
+    # X. Pattern matches columns like
+    # ``group_<feature>_mean`` / ``group_<feature>_std`` / ``group_*_(mean|std|min|max)``:
     # these encode the train-only group mean of some other feature and
     # are CONSTANT within a group. On an unseen-group test row the
-    # value is necessarily extrapolated (the test well never appears
+    # value is necessarily extrapolated (the test group never appears
     # in the train aggregate) and the MLP, which composes to a near-
     # affine map on whitened inputs, picks up the resulting train-vs-
     # test direction as the dominant signal -> catastrophic rank
-    # inversion on unseen wells (TVT 2026-05-26 prod incident).
+    # inversion on unseen groups.
     # TREE models still see these features (they handle the OOD
     # categorical signal via leaves, not via affine slope). Only the
-    # MLP fit-path drops them. Default True: the failure mode is
-    # consistent enough across prod incidents to make the conservative
-    # default. Disable for benchmarking via False.
-    mlp_drop_per_well_constants: bool = True
+    # MLP fit-path drops them. Default False (opt-in): enable when the
+    # calling project ships per-group aggregate columns matching the
+    # pattern; benign no-op otherwise.
+    mlp_drop_per_group_constants: bool = False
     # Regex pattern. Match is case-INSENSITIVE on column names. Default
-    # captures the prod ``well_*_<reducer>`` naming; tweak for other
-    # group-aggregate conventions (e.g. ``rig_.*_(mean|std)``).
-    mlp_drop_per_well_constants_pattern: str = r"^well_.*_(mean|std|min|max)$"
+    # captures a generic ``group_*_<reducer>`` naming; tweak for the
+    # calling project's aggregate convention (e.g. ``well_.*_(mean|std)``
+    # or ``rig_.*_(mean|std)``).
+    mlp_drop_per_group_constants_pattern: str = r"^group_.*_(mean|std|min|max)$"
 
     # L2 weight-decay auto-bump for MLP on extreme-AR + group-aware
     # regimes (Fix 3, 2026-05-26). When the trigger fires

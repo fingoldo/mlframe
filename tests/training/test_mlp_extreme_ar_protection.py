@@ -259,62 +259,62 @@ class TestMlpOutputActivationBoundedBehavior:
 # ---------------------------------------------------------------------
 
 
-class TestMlpDropPerWellConstantsKnob:
-    def test_default_is_True(self) -> None:
+class TestMlpDropPerGroupConstantsKnob:
+    def test_default_is_False(self) -> None:
         from mlframe.training._model_configs import TrainingBehaviorConfig
         cfg = TrainingBehaviorConfig()
-        assert cfg.mlp_drop_per_well_constants is True
+        assert cfg.mlp_drop_per_group_constants is False
 
     def test_default_pattern(self) -> None:
         from mlframe.training._model_configs import TrainingBehaviorConfig
         cfg = TrainingBehaviorConfig()
-        assert cfg.mlp_drop_per_well_constants_pattern == r"^well_.*_(mean|std|min|max)$"
+        assert cfg.mlp_drop_per_group_constants_pattern == r"^group_.*_(mean|std|min|max)$"
 
     def test_knob_overridable(self) -> None:
         from mlframe.training._model_configs import TrainingBehaviorConfig
         cfg = TrainingBehaviorConfig(
-            mlp_drop_per_well_constants=False,
-            mlp_drop_per_well_constants_pattern=r"^rig_.*_(mean|std)$",
+            mlp_drop_per_group_constants=True,
+            mlp_drop_per_group_constants_pattern=r"^rig_.*_(mean|std)$",
         )
-        assert cfg.mlp_drop_per_well_constants is False
-        assert cfg.mlp_drop_per_well_constants_pattern == r"^rig_.*_(mean|std)$"
+        assert cfg.mlp_drop_per_group_constants is True
+        assert cfg.mlp_drop_per_group_constants_pattern == r"^rig_.*_(mean|std)$"
 
 
-class TestMlpDropPerWellHelpers:
-    """Behavior of the per-well detector + drop helpers."""
+class TestMlpDropPerGroupHelpers:
+    """Behavior of the per-group detector + drop helpers."""
 
-    def test_identify_per_well_columns_matches_expected(self) -> None:
+    def test_identify_per_group_columns_matches_expected(self) -> None:
         from mlframe.training.core._phase_train_one_target_body import (
-            _identify_per_well_columns,
+            _identify_per_group_columns,
         )
         cols = [
-            "well_TVT_pre_PS_mean",  # match
-            "well_GR_std",            # match
-            "well_TVD_min",           # match
-            "well_PS_max",            # match
-            "TVT_pre_PS",             # no leading 'well_' prefix
-            "depth_m",                # plain feature
-            "well_id",                # no trailing reducer
-            "WELL_TVT_MEAN",          # case-insensitive match
+            "group_a_mean",  # match
+            "group_b_std",   # match
+            "group_c_min",   # match
+            "group_d_max",   # match
+            "feature_x",     # no leading 'group_' prefix
+            "depth_m",       # plain feature
+            "group_id",      # no trailing reducer
+            "GROUP_A_MEAN",  # case-insensitive match
         ]
-        dropped = _identify_per_well_columns(
-            cols, r"^well_.*_(mean|std|min|max)$",
+        dropped = _identify_per_group_columns(
+            cols, r"^group_.*_(mean|std|min|max)$",
         )
-        assert "well_TVT_pre_PS_mean" in dropped
-        assert "well_GR_std" in dropped
-        assert "well_TVD_min" in dropped
-        assert "well_PS_max" in dropped
-        assert "WELL_TVT_MEAN" in dropped  # case-insensitive
-        assert "TVT_pre_PS" not in dropped
+        assert "group_a_mean" in dropped
+        assert "group_b_std" in dropped
+        assert "group_c_min" in dropped
+        assert "group_d_max" in dropped
+        assert "GROUP_A_MEAN" in dropped  # case-insensitive
+        assert "feature_x" not in dropped
         assert "depth_m" not in dropped
-        assert "well_id" not in dropped
+        assert "group_id" not in dropped
 
-    def test_identify_per_well_columns_empty_cols(self) -> None:
+    def test_identify_per_group_columns_empty_cols(self) -> None:
         from mlframe.training.core._phase_train_one_target_body import (
-            _identify_per_well_columns,
+            _identify_per_group_columns,
         )
-        assert _identify_per_well_columns([], r"^well_.*_(mean|std|min|max)$") == []
-        assert _identify_per_well_columns(None, r"^well_.*_(mean|std|min|max)$") == []
+        assert _identify_per_group_columns([], r"^group_.*_(mean|std|min|max)$") == []
+        assert _identify_per_group_columns(None, r"^group_.*_(mean|std|min|max)$") == []
 
     def test_drop_columns_for_mlp_pandas(self) -> None:
         import pandas as pd
@@ -322,14 +322,14 @@ class TestMlpDropPerWellHelpers:
             _drop_columns_for_mlp,
         )
         df = pd.DataFrame({
-            "well_TVT_mean": [1.0, 2.0, 3.0],
+            "group_a_mean": [1.0, 2.0, 3.0],
             "depth_m": [100.0, 200.0, 300.0],
-            "well_GR_std": [0.1, 0.2, 0.3],
+            "group_b_std": [0.1, 0.2, 0.3],
         })
-        out = _drop_columns_for_mlp(df, ["well_TVT_mean", "well_GR_std"])
+        out = _drop_columns_for_mlp(df, ["group_a_mean", "group_b_std"])
         assert list(out.columns) == ["depth_m"]
         # Original frame must not be mutated (return-new-frame contract).
-        assert "well_TVT_mean" in df.columns
+        assert "group_a_mean" in df.columns
 
     def test_drop_columns_for_mlp_polars(self) -> None:
         try:
@@ -341,18 +341,18 @@ class TestMlpDropPerWellHelpers:
             _drop_columns_for_mlp,
         )
         df = pl.DataFrame({
-            "well_TVT_mean": [1.0, 2.0, 3.0],
+            "group_a_mean": [1.0, 2.0, 3.0],
             "depth_m": [100.0, 200.0, 300.0],
-            "well_GR_std": [0.1, 0.2, 0.3],
+            "group_b_std": [0.1, 0.2, 0.3],
         })
-        out = _drop_columns_for_mlp(df, ["well_TVT_mean", "well_GR_std"])
+        out = _drop_columns_for_mlp(df, ["group_a_mean", "group_b_std"])
         assert out.columns == ["depth_m"]
 
     def test_drop_columns_for_mlp_none_passthrough(self) -> None:
         from mlframe.training.core._phase_train_one_target_body import (
             _drop_columns_for_mlp,
         )
-        assert _drop_columns_for_mlp(None, ["well_TVT_mean"]) is None
+        assert _drop_columns_for_mlp(None, ["group_a_mean"]) is None
 
     def test_drop_columns_for_mlp_missing_cols_no_error(self) -> None:
         import pandas as pd
@@ -361,7 +361,7 @@ class TestMlpDropPerWellHelpers:
         )
         df = pd.DataFrame({"depth_m": [1.0, 2.0]})
         # Asking to drop a non-existent column must be a no-op, not error.
-        out = _drop_columns_for_mlp(df, ["well_NOT_THERE_mean"])
+        out = _drop_columns_for_mlp(df, ["group_NOT_THERE_mean"])
         assert list(out.columns) == ["depth_m"]
 
 
@@ -495,16 +495,16 @@ class TestMlpOutputActivationApplier:
 
 
 class TestPhaseBodySourceIntegrity:
-    """Source-grep sensors for the per-well drop + weight_decay bump
+    """Source-grep sensors for the per-group drop + weight_decay bump
     wiring in ``_phase_train_one_target_body``."""
 
-    def test_phase_body_wires_per_well_drop(self) -> None:
+    def test_phase_body_wires_per_group_drop(self) -> None:
         from mlframe.training.core import _phase_train_one_target_body as body
         src = Path(body.__file__).read_text(encoding="utf-8")
-        assert "_identify_per_well_columns" in src
+        assert "_identify_per_group_columns" in src
         assert "_drop_columns_for_mlp" in src
         # Wiring point: gated on the knob.
-        assert "mlp_drop_per_well_constants" in src
+        assert "mlp_drop_per_group_constants" in src
 
     def test_phase_body_wires_weight_decay_bump(self) -> None:
         from mlframe.training.core import _phase_train_one_target_body as body
