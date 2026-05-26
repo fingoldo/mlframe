@@ -7,13 +7,6 @@ Run tests:
 """
 
 import pytest
-
-# Optional dep: pytorch-lightning. Callback classes here are Lightning
-# subclasses, so importing the suite without Lightning would fail at
-# collection time. Guard at module top so the file safely skips on
-# sklearn-matrix CI shards that don't install the neural extras.
-pytest.importorskip("lightning")
-
 import torch
 import torch.nn as nn
 from unittest.mock import Mock, MagicMock, patch

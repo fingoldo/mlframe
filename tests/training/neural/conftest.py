@@ -8,12 +8,17 @@ after some sibling has flipped a global flag). Reset before every neural test.
 
 Module-level `pytest.importorskip("torch")` skips the entire neural test cluster
 when torch is not installed; individual test files can rely on torch being
-available without re-asserting.
+available without re-asserting. ``lightning`` is also a hard requirement -- the
+``mlframe.training.neural`` package's top-level symbols (callbacks, MLP
+estimators) subclass Lightning classes, so importing the module without
+Lightning installed raises at collection time. Skip the entire neural test
+cluster on shards (e.g. sklearn-matrix) that don't install the neural extras.
 """
 
 import pytest
 
 torch = pytest.importorskip("torch")
+pytest.importorskip("lightning")
 
 
 @pytest.fixture(autouse=True)
