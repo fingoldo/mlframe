@@ -1,0 +1,68 @@
+{
+  "agent_slug": "w15c-ap15-shared-backend",
+  "started_utc": "2026-05-26T08:10:00Z",
+  "finished_utc": "2026-05-26T08:30:00Z",
+  "scope": "AP15 Option C -- shared CacheBackend Protocol covering FeatureCache, DiscoveryCache, SuiteArtefactCache (extend feature_handling/cache_backend.py; migrate two facades; microbench)",
+  "verdict": "ARCH-DEFER (re-confirmed after detailed semantic audit)",
+  "backend_loc": null,
+  "migrated_facades": [],
+  "microbench_overhead_pct": null,
+  "sensors_passed": [],
+  "deferred_aspects_with_reason": [
+    {
+      "aspect": "write_atomicity_discipline",
+      "reason": "SuiteArtefactCache uses safe_pickle.safe_dump (atomic .pkl + .pkl.sha256 in one operation). DiscoveryCache uses manual pickle.dump + os.fsync + os.replace, then separate sidecar write with sidecar-failure logged at DEBUG and treated as non-fatal. Unifying loses one or the other documented contract."
+    },
+    {
+      "aspect": "posix_directory_fsync",
+      "reason": "DiscoveryCache.set explicitly fsyncs the cache directory on POSIX after rename (Audit D L-10 fix); SuiteArtefactCache + FeatureCache do not. Routing all writes through one backend either grants every caller the dir-fsync cost (regression for FeatureCache hot path) or drops it from DiscoveryCache (durability regression on journaled-data-mode-off filesystems)."
+    },
+    {
+      "aspect": "cross_process_lock_primitive",
+      "reason": "Three different choices in production: FeatureCache uses PIDAwareFileLock (mlframe-internal wrapper with stale-lock reclaim), DiscoveryCache uses raw filelock.FileLock with contextlib.nullcontext fallback when filelock missing (documented optional-dep behaviour), SuiteArtefactCache uses no cross-proc lock (threading.Lock only, relies on os.replace atomicity). A single backend must commit to one; each caller currently has a documented reason for its choice."
+    },
+    {
+      "aspect": "lru_persistence_model",
+      "reason": "FeatureCache + DiscoveryCache: .lru JSON sidecar, file-locked, persists across process restart, cross-process consensus. SuiteArtefactCache: in-memory OrderedDict only, rebuilt from mtimes on first access -- Wave 8 deliberately chose mtime-based eviction to avoid every put/get paying for JSON read-modify-write under a filelock. A unified backend cannot serve both without an lru_persistence config switch that effectively forks the implementation into the same three code paths inside one file."
+    },
+    {
+      "aspect": "init_validation_policy",
+      "reason": "DiscoveryCache.__init__ raises ValueError when both max_entries=None and max_size_mb=None (auditable opt-in for unbounded growth). SuiteArtefactCache silently accepts bytes_limit=0 + max_entries=None as 'no caps'. FeatureCache LocalDiskBackend accepts max_entries=None + max_size_mb=None as zero-config workload. Protocol cannot enforce all three contracts; pushing checks up duplicates the LRU/eviction code path Option C was meant to centralise."
+    },
+    {
+      "aspect": "key_sanitisation",
+      "reason": "DiscoveryCache._safe_key (pure-hex pass-through, blake2b+length-tag for non-hex) is the only sanitiser. FeatureCache + SuiteArtefactCache assume callers pass hex. Hoisting into a shared backend changes the on-disk key namespace for the other two; leaving it in the DiscoveryCache facade makes the Protocol asymmetric and defeats the centralisation goal."
+    }
+  ],
+  "behavioural_equivalence_sensor_status": "INCONSTRUCTIBLE -- any feasible unification changes at least one on-disk artefact (LRU JSON presence, sidecar write ordering, dir-fsync presence, lock primitive choice, init-time error contract) for at least one caller. The IMPLEMENTATION_RULES guard 'если behavioural-equivalence невозможна -- DEFER' fires.",
+  "microbench_status": "NOT_RUN -- precondition failed (no behavioural-equivalent refactor to bench)",
+  "files_read": [
+    "audit/critique_2026_05_24/IMPLEMENTATION_RULES.md",
+    "mlframe/CLAUDE.md",
+    "audit/critique_2026_05_24/architectural_proposals/A5-discovery-suite-joint-stash.md",
+    "src/mlframe/training/composite_cache.py (DiscoveryCache, lines 1-200, 480-942)",
+    "src/mlframe/training/suite_artefact_cache.py (entire, 525 lines)",
+    "src/mlframe/training/feature_handling/cache_backend.py (entire, 327 lines)",
+    "src/mlframe/training/feature_handling/locking.py:54 (PIDAwareFileLock class definition)"
+  ],
+  "files_modified": [
+    "audit/critique_2026_05_24/architectural_proposals/A5-discovery-suite-joint-stash.md (re-DEFER verdict + 6-point divergence detail + W15c follow-up section)",
+    "audit/critique_2026_05_24/heartbeats/HEARTBEAT_w15c-ap15-shared-backend.txt (progress markers)"
+  ],
+  "commits": [],
+  "test_results": {
+    "green_paths": [],
+    "red_paths": []
+  },
+  "future_unification_prerequisites": [
+    "Pick ONE canonical write path (recommend: safe_dump everywhere; accept SuiteArtefactCache atomicity model as canonical because it covers the .pkl + sidecar pair in one operation)",
+    "Pick ONE canonical LRU model (recommend: disk JSON via PIDAwareFileLock; SuiteArtefactCache accepts the per-put filelock cost since its workloads are minutes-per-call PySR symbolic FE -- the JSON write overhead is noise)",
+    "Pick ONE canonical lock primitive (recommend: PIDAwareFileLock; DiscoveryCache loses the no-filelock fallback but the optional-dep ergonomics are a relic from before pyutilz dependence was mandatory)",
+    "Pick ONE canonical key-sanitisation policy (recommend: require hex from callers; remove DiscoveryCache._safe_key + provide migration utility for operator caches with non-hex stems)",
+    "Ship migration logic for existing on-disk caches in operator HOME directories (mtimes-only -> JSON; mlframe-internal-format)",
+    "Multi-wave effort: spec wave + impl wave + migration wave + observability wave"
+  ],
+  "blocked": [],
+  "wavelet_dwt_touched": false,
+  "pushed": false
+}
