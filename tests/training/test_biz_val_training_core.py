@@ -196,10 +196,25 @@ def test_biz_val_training_suite_mlframe_models_subset(tmp_path, model_list):
                 # ``model_name`` / ``name`` attribute the suite stamps on it.
                 haystacks.append(type(d).__name__)
                 haystacks.append(getattr(type(d), "__module__", "") or "")
-                for attr in ("model_name", "name", "estimator_type"):
+                for attr in (
+                    "model_name", "name", "estimator_type",
+                    "mlframe_model_name", "family", "model_type",
+                ):
                     val = getattr(d, attr, None)
                     if isinstance(val, str):
                         haystacks.append(val)
+                # ``SimpleNamespace`` wrappers stash everything in ``__dict__``.
+                # Pick up every string field so the family name (e.g. stored as
+                # ``model_name="lgb"`` inside the namespace) is captured.
+                _ns_dict = getattr(d, "__dict__", None)
+                if isinstance(_ns_dict, dict):
+                    for k, v in _ns_dict.items():
+                        if isinstance(v, str):
+                            haystacks.append(v)
+                        # Capture the class name of any nested model object too
+                        # (e.g. ``namespace.model = LGBMRegressor(...)``).
+                        elif v is not None and not isinstance(v, (int, float, bool, list, tuple, dict)):
+                            haystacks.append(type(v).__name__)
 
         _collect(models)
         keys_str = " ".join(haystacks).lower()
