@@ -162,6 +162,12 @@ def score_ensemble(
     # The MEMBER WITH HIGHER MEAN ABSOLUTE GATE-METRIC (mae from the gate) is dropped, so the
     # surviving member is the one closer to the median.
     auto_drop_diversity_above: Optional[float] = None,
+    # W16D / A3#3: when True, the simple-ensembling blends (arithm / harm / quad / qube / geo / median) consume
+    # AP12-calibrated probs stamped by ``post_calibrate_model`` (``member.calibrated_val_probs`` /
+    # ``calibrated_test_probs``) when available, falling back transparently to raw probs on members without the
+    # stamp. RRF is rank-based and is bypassed (scale-invariant). Default True per user directive 2026-05-25.
+    # Set False to restore the legacy raw-probs blend behaviour.
+    use_ap12_calibrated_probs: bool = True,
     **kwargs,
 ):
     """Compares different ensembling methods for a list of models.
@@ -410,6 +416,7 @@ def score_ensemble(
             sample_weight=sample_weight,
             rrf_k=rrf_k,
             precomputed_weights=_nnls_weights_for_blend,
+            use_ap12_calibrated_probs=use_ap12_calibrated_probs,
         )
 
         if len(ensembling_methods) > 1 and effective_n_jobs > 1:

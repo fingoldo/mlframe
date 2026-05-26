@@ -125,42 +125,155 @@ from ._reporting import (  # noqa: E402,F401
 logger = logging.getLogger(__name__)
 
 
+# Permutation-importance fallback caps. Used when the inner estimator has
+# neither ``feature_importances_`` nor ``coef_`` (PyTorch-Lightning MLP,
+# Keras nets, sklearn pipelines wrapping such regressors). We cap the
+# subsample size and the number of shuffles per feature so the cost stays
+# bounded on a 4M-row TVT regression with 200+ features (worst case
+# ~PERM_N_SAMPLES * len(columns) * PERM_N_REPEATS predict calls).
+_PERM_FI_MAX_SAMPLES: int = 5000
+_PERM_FI_N_REPEATS: int = 3
+_PERM_FI_RANDOM_STATE: int = 0
+
+
+def _unwrap_estimator_chain(model: Any) -> Any:
+    """Walk standard sklearn / mlframe wrappers to the inner estimator.
+
+    Handles ``Pipeline`` (final step), ``TransformedTargetRegressor``
+    (``.regressor_`` / ``.regressor``), and meta-estimator attributes
+    (``estimator_``, ``base_estimator_``). Stops as soon as we hit
+    something that exposes a native FI / coef attribute -- the caller's
+    permutation fallback uses ``model`` as-is so unwrapping past a
+    PyTorch regressor would break the predict signature.
+    """
+    seen = set()
+    cur = model
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        if hasattr(cur, "feature_importances_") or hasattr(cur, "coef_"):
+            return cur
+        if isinstance(cur, Pipeline):
+            if not cur.steps:
+                return cur
+            cur = cur.steps[-1][1]
+            continue
+        for attr in ("regressor_", "regressor", "estimator_", "base_estimator_", "best_estimator_"):
+            nxt = getattr(cur, attr, None)
+            if nxt is not None and id(nxt) not in seen:
+                cur = nxt
+                break
+        else:
+            return cur
+    return cur
+
+
+def _permutation_feature_importances(
+    model: Any,
+    X: np.ndarray | pd.DataFrame,
+    y: np.ndarray | pd.Series,
+    *,
+    n_repeats: int = _PERM_FI_N_REPEATS,
+    max_samples: int = _PERM_FI_MAX_SAMPLES,
+    random_state: int = _PERM_FI_RANDOM_STATE,
+) -> Optional[np.ndarray]:
+    """Permutation importance for estimators without native FI / coef.
+
+    Falls back to ``sklearn.inspection.permutation_importance`` on a
+    capped row sample. Returns ``None`` if the model can't predict on
+    the supplied X (wrong column set, optional dep missing) so the
+    caller logs + omits the chart rather than crashing the whole
+    report.
+    """
+    try:
+        from sklearn.inspection import permutation_importance
+    except Exception:
+        logger.warning("permutation_importance unavailable; skipping FI for non-native estimator.")
+        return None
+    try:
+        X_arr = X.to_numpy() if isinstance(X, pd.DataFrame) else np.asarray(X)
+        y_arr = y.to_numpy() if isinstance(y, pd.Series) else np.asarray(y)
+    except Exception:
+        return None
+    if X_arr.ndim != 2 or X_arr.shape[0] == 0 or X_arr.shape[0] != y_arr.shape[0]:
+        return None
+    n = X_arr.shape[0]
+    if n > max_samples:
+        rng = np.random.default_rng(random_state)
+        idx = rng.choice(n, size=max_samples, replace=False)
+        X_sub = X_arr[idx]
+        y_sub = y_arr[idx]
+    else:
+        X_sub = X_arr
+        y_sub = y_arr
+    try:
+        result = permutation_importance(
+            model, X_sub, y_sub,
+            n_repeats=n_repeats, random_state=random_state, n_jobs=1,
+        )
+    except Exception as exc:
+        logger.warning("permutation_importance failed (%s); skipping FI.", exc)
+        return None
+    return np.asarray(result.importances_mean, dtype=np.float64)
+
+
 def get_model_feature_importances(
     model: Any,
     columns: Sequence[str],
     return_df: bool = False,
+    X: np.ndarray | pd.DataFrame | None = None,
+    y: np.ndarray | pd.Series | None = None,
 ) -> Optional[Union[np.ndarray, pd.DataFrame]]:
     """
     Extract feature importances from a trained model.
 
-    Supports models with `feature_importances_` attribute (tree-based models)
-    or `coef_` attribute (linear models). For Pipeline objects, extracts
-    importances from the final estimator.
+    Native FI sources, in precedence:
+      1. ``feature_importances_`` (tree-based: CatBoost / XGBoost / LightGBM / sklearn).
+      2. ``coef_`` (linear / ridge / lasso).
+      3. Permutation importance (sklearn ``permutation_importance``) when
+         the inner estimator exposes neither attribute -- e.g.
+         ``PytorchLightningRegressor`` / Keras nets / any custom
+         predict-only wrapper. Requires ``X`` + ``y`` from the caller.
+
+    Walks through ``Pipeline``, ``TransformedTargetRegressor``, and the
+    common meta-estimator attribute chain (``regressor_`` /
+    ``estimator_`` / ``base_estimator_`` / ``best_estimator_``) to find
+    the innermost FI-bearing estimator. If none of them carry FI, the
+    OUTER model is used for permutation (so the full predict pipeline,
+    including target standardisation, is respected).
 
     Parameters
     ----------
     model : Any
-        Trained model with feature_importances_ or coef_ attribute.
+        Trained model (possibly wrapped). The permutation fallback
+        always calls ``predict`` on the OUTER model.
     columns : Sequence[str]
         Feature column names.
     return_df : bool, default=False
         If True, return a DataFrame with feature names and importances.
+    X, y : array-like, optional
+        Required for permutation-importance fallback. Pass the test (or
+        validation) feature matrix + target. When omitted, the
+        fallback is skipped and ``None`` is returned for non-native
+        estimators.
 
     Returns
     -------
     np.ndarray, pd.DataFrame, or None
-        Feature importances array, DataFrame (if return_df=True), or None
-        if the model doesn't have importances.
+        Feature importances array (signed for ``coef_``, non-negative
+        for tree FI / permutation), or DataFrame (if return_df=True),
+        or None when no source is available.
     """
-    if isinstance(model, Pipeline):
-        model = model.steps[-1][1]
-    if hasattr(model, "feature_importances_"):
-        feature_importances = model.feature_importances_
-    elif hasattr(model, "coef_"):
-        if model.coef_.ndim == 1:
-            feature_importances = model.coef_
+    inner = _unwrap_estimator_chain(model)
+    if hasattr(inner, "feature_importances_"):
+        feature_importances = np.asarray(inner.feature_importances_)
+    elif hasattr(inner, "coef_"):
+        coef = np.asarray(inner.coef_)
+        if coef.ndim == 1:
+            feature_importances = coef
         else:
-            feature_importances = model.coef_[-1, :]
+            feature_importances = coef[-1, :]
+    elif X is not None and y is not None:
+        feature_importances = _permutation_feature_importances(model, X, y)
     else:
         feature_importances = None
 
@@ -181,6 +294,8 @@ def plot_model_feature_importances(
     show_plots: bool = True,
     plot_file: str = "",
     max_zero_fi_to_plot: int = 4,
+    X: np.ndarray | pd.DataFrame | None = None,
+    y: np.ndarray | pd.Series | None = None,
 ) -> Optional[np.ndarray]:
     """
     Plot feature importances for a trained model.
@@ -211,7 +326,7 @@ def plot_model_feature_importances(
     np.ndarray or None
         Feature importances array, or None if extraction failed.
     """
-    feature_importances = get_model_feature_importances(model=model, columns=columns)
+    feature_importances = get_model_feature_importances(model=model, columns=columns, X=X, y=y)
 
     if feature_importances is not None:
         try:
@@ -402,6 +517,18 @@ def post_calibrate_model(
             model, calibrator, _target_type,
             classes_=getattr(model, "classes_", None),
         )
+        # Stamp calibrated probs onto the underlying model so downstream consumers (ensembling blend via
+        # use_ap12_calibrated_probs, honest diagnostics, dashboards) can consume the AP12-calibrated surface
+        # without re-running the calibrator. RRF is rank-based and intentionally bypasses this on the read side.
+        try:
+            setattr(model, "calibrated_val_probs", meta_val_probs)
+            setattr(model, "calibrated_test_probs", meta_test_probs)
+            setattr(wrapped_model, "calibrated_val_probs", meta_val_probs)
+            setattr(wrapped_model, "calibrated_test_probs", meta_test_probs)
+        except (AttributeError, TypeError):
+            # Slot-only / read-only model objects (rare) just skip the stamp; the ensembling
+            # read-side falls back to raw .<split>_probs without crashing.
+            pass
         # Copy val_preds/test_preds forward -- they're caller-provided and
         # decoupled from the probability calibration.
         return (
@@ -538,6 +665,16 @@ def post_calibrate_model(
         show_fi=False,
         custom_ice_metric=configs.integral_calibration_error,
     )
+
+    # Stamp calibrated probs onto the underlying model so downstream consumers (ensembling blend via
+    # use_ap12_calibrated_probs, honest diagnostics, dashboards) can read the AP12-calibrated surface. The
+    # ensembling read-side falls back to raw probs when the attribute is absent; RRF is rank-based and is
+    # intentionally bypassed on the consume side (scale-invariant).
+    try:
+        setattr(model, "calibrated_val_probs", meta_val_probs)
+        setattr(model, "calibrated_test_probs", meta_test_probs)
+    except (AttributeError, TypeError):
+        pass
 
     # The full test slice gets a single "TEST fixed" report -- the historical "fixed [calib_set_size:]" / "fixed lucky
     # [:calib_set_size]" two-bucket reporting reflected the old behaviour where the calibrator was fit on the first

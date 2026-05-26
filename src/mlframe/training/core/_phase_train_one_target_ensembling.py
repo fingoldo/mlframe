@@ -92,6 +92,12 @@ def _finalize_per_target_ensembling(
     _ens_kwargs = dict(common_params or {})
     _ens_kwargs.pop("group_ids", None)
     _ens_kwargs.pop("sample_weight", None)
+    # W16D / A3#3: surface ``TrainingBehaviorConfig.use_ap12_calibrated_probs_in_ensemble`` as the
+    # explicit ``use_ap12_calibrated_probs`` kwarg on ``score_ensemble``. Default True so the suite
+    # default benefits from AP12-calibrated probs in arithm / harm / quad / qube / geo / median blends;
+    # opt-out by setting False on the behavior config. RRF is rank-based and ignores the knob.
+    _use_ap12_cal = bool(getattr(behavior_config, "use_ap12_calibrated_probs_in_ensemble", True))
+    _ens_kwargs.pop("use_ap12_calibrated_probs", None)
     _ensembles = score_ensemble(
         models_and_predictions=ens_models,
         ensemble_name=f"{pre_pipeline_name}{_members_label} ",
@@ -99,6 +105,7 @@ def _finalize_per_target_ensembling(
         uncertainty_quantile=_conf_q,
         group_ids=getattr(ctx, "group_ids", None),
         sample_weight=_ens_sample_weight,
+        use_ap12_calibrated_probs=_use_ap12_cal,
         **_ens_kwargs,
     )
     # Persist the ensemble outputs so finalize_suite can serialise them and downstream

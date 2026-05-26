@@ -519,6 +519,9 @@ class TrainingBehaviorConfig(BaseConfig):
     report_residual_audit: bool = True
     confidence_ensemble_quantile: float = 0.1
 
+    # When True (default), the simple-ensembling blends (arithm / harm / quad / qube / geo / median) consume AP12-calibrated probs stamped by ``post_calibrate_model`` (``member.calibrated_val_probs`` / ``calibrated_test_probs``) instead of raw ``member.val_probs`` / ``test_probs``. This dampens the heterogeneous-scale dominance bug flagged by ensembling-critique A3#3 (well-calibrated tree probs in [0.1, 0.9] dominated by raw sigmoid in [0.005, 0.01] under arithmetic mean). When False, every blend uses raw probs (legacy pre-W16D behaviour). RRF is rank-based and is unaffected either way (scale-invariant). Members without the AP12 stamp transparently fall back to raw probs -- the knob never raises on missing calibration.
+    use_ap12_calibrated_probs_in_ensemble: bool = True
+
     # Pre-pipeline LRU bound. Default 4 covers the common Linear+MLP+RFECV+catboost suite without thrashing; long-running services with bigger model rosters can bump this without monkey-patching the module global.
     pre_pipeline_cache_max: int = 4
 

@@ -20,6 +20,33 @@ from ._ensembling_predict import ensemble_probabilistic_predictions
 logger = logging.getLogger("mlframe.models.ensembling")
 
 
+def _select_member_probs(member, split: str, use_calibrated: bool) -> Optional[np.ndarray]:
+    """Return AP12-calibrated probs when available + opt-in, else raw probs.
+
+    AP12 ``post_calibrate_model`` stamps ``.calibrated_<split>_probs`` on the
+    inner model object when ``CalibrationConfig.policy_auto_pick=True`` (Wave 9
+    / 13 / 16). When opt-out OR no AP12 stamp on the member, falls back to raw
+    ``.<split>_probs``. The RRF flavour is rank-based and intentionally bypasses
+    this helper (scale-invariant by design).
+
+    Lookup order on the member: ``calibrated_<split>_probs`` direct attribute,
+    then ``<inner_model>.calibrated_<split>_probs``, then raw ``<split>_probs``.
+    SimpleNamespace members carried by the suite expose the raw split arrays at
+    top level and may also expose the calibrated mirror after post-calibration
+    propagates the stamp.
+    """
+    if use_calibrated:
+        cal_attr = f"calibrated_{split}_probs"
+        cal = getattr(member, cal_attr, None)
+        if cal is None:
+            inner = getattr(member, "model", None)
+            if inner is not None:
+                cal = getattr(inner, cal_attr, None)
+        if isinstance(cal, np.ndarray):
+            return cal
+    return getattr(member, f"{split}_probs", None)
+
+
 def _process_single_ensemble_method(
     ensemble_method: str,
     level_models_and_predictions: Sequence,
@@ -53,6 +80,7 @@ def _process_single_ensemble_method(
     sample_weight: Optional[np.ndarray] = None,
     rrf_k: int = 60,
     precomputed_weights: Optional[np.ndarray] = None,
+    use_ap12_calibrated_probs: bool = True,
 ) -> tuple:
     """Process a single ensemble method. Returns (method_name, results, conf_results, next_level_pred)."""
     # E1.1 opt-out: these lazy imports break a circular dep with mlframe.training.
@@ -87,9 +115,16 @@ def _process_single_ensemble_method(
             return None
         return _pcw_full[np.asarray(mask, dtype=bool)]
 
+    # RRF is rank-based and scale-invariant by construction (per ``rrf_ensemble`` docstring at
+    # _ensembling_base.py:493). Calibrating before rank fusion is a no-op on rank order and a small loss on the
+    # bottom-of-ladder discrimination because isotonic / Platt compress the tails; force the raw-probs read for
+    # RRF regardless of the knob so the historical RRF semantics are preserved bit-for-bit.
+    _use_cal = use_ap12_calibrated_probs and ensemble_method != "rrf"
+
     if not is_regression:
-        _val_mask = [el.val_probs is not None for el in level_models_and_predictions]
-        _val_preds = [el.val_probs for el in level_models_and_predictions if el.val_probs is not None]
+        _val_probs_list = [_select_member_probs(el, "val", _use_cal) for el in level_models_and_predictions]
+        _val_mask = [p is not None for p in _val_probs_list]
+        _val_preds = [p for p in _val_probs_list if p is not None]
         predictions = iter(_val_preds)
     else:
         _val_mask = [el.val_preds is not None for el in level_models_and_predictions]
@@ -114,8 +149,9 @@ def _process_single_ensemble_method(
 
     # 2026-05-13: same ``None``-guard for test_preds / test_probs.
     if not is_regression:
-        _test_mask = [el.test_probs is not None for el in level_models_and_predictions]
-        _test_preds = [el.test_probs for el in level_models_and_predictions if el.test_probs is not None]
+        _test_probs_list = [_select_member_probs(el, "test", _use_cal) for el in level_models_and_predictions]
+        _test_mask = [p is not None for p in _test_probs_list]
+        _test_preds = [p for p in _test_probs_list if p is not None]
         predictions = iter(_test_preds)
     else:
         _test_mask = [el.test_preds is not None for el in level_models_and_predictions]
@@ -145,17 +181,29 @@ def _process_single_ensemble_method(
     # ``_fallback_used`` collects member indices where the OOF attribute was absent and we silently consumed ``train_*``. Surfaced as a single WARN below so operators can audit suites running with cross_val_predict disabled -- pre-fix shape was completely silent and the level-1 "train" branch of every ensemble flavour got evaluated on leaked rows.
     _fallback_used: list[int] = []
 
-    def _oof_or_train(el, oof_attr, train_attr, _idx):
+    def _oof_or_train(el, oof_attr, train_attr, _idx, _prefer_calibrated: bool = False):
+        # Prefer AP12-calibrated OOF / train probs when the knob is on; transparent fall-through to raw when the
+        # stamp is missing (legacy / opt-out callers). OOF is the calibrator's fit source so most members will not
+        # carry calibrated_oof_probs -- that's expected; the lookup is a no-op for them.
+        if _prefer_calibrated:
+            _cal_oof = getattr(el, f"calibrated_{oof_attr}", None)
+            if isinstance(_cal_oof, np.ndarray):
+                return _cal_oof
         _oof = getattr(el, oof_attr, None)
         if isinstance(_oof, np.ndarray):
             return _oof
+        if _prefer_calibrated:
+            _cal_train = getattr(el, f"calibrated_{train_attr}", None)
+            if isinstance(_cal_train, np.ndarray):
+                _fallback_used.append(_idx)
+                return _cal_train
         _train = getattr(el, train_attr, None)
         if isinstance(_train, np.ndarray):
             _fallback_used.append(_idx)
         return _train
 
     if not is_regression:
-        predictions = [_oof_or_train(el, "oof_probs", "train_probs", _i) for _i, el in enumerate(level_models_and_predictions)]
+        predictions = [_oof_or_train(el, "oof_probs", "train_probs", _i, _prefer_calibrated=_use_cal) for _i, el in enumerate(level_models_and_predictions)]
     elif (_oof_or_train(level_models_and_predictions[0], "oof_preds", "train_preds", 0) is not None):
         # Re-walk so every member's fallback decision is recorded (probe call above counts index 0 only if it fell back; clear and re-probe symmetrically across all members).
         _fallback_used.clear()
