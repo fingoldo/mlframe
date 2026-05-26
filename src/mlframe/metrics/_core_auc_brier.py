@@ -13,6 +13,26 @@ import polars as pl
 from ._numba_params import NUMBA_NJIT_PARAMS, _PARALLEL_REDUCTION_THRESHOLD
 
 
+import os as _os
+
+
+# iter338 (2026-05-27): central dispatcher for ``argsort(y_score)[::-1]``
+# in metric kernels. Default UNSTABLE (numpy quicksort) -- 2-3x faster than
+# stable sort and numerically identical on continuous-valued ML predictions
+# (the dominant case; exact ties are essentially impossible on float64
+# probabilities from MLP / boosters / linear models). Pathological tie-
+# heavy inputs (binned predictions, dummy classifiers, calibrators that
+# bucket-snap probabilities) opt back via env var
+# ``MLFRAME_METRICS_STABLE_SORT=1``. Bench c0083 / c0091 honest_diagnostics
+# bootstrap loop: 2.25x (n=200k) to 2.75x (n=20k); deviations from the
+# stable variant under 1e-12 on Gaussian / uniform predictions.
+def _argsort_desc_for_metrics(y_score: np.ndarray) -> np.ndarray:
+    """Descending argsort used by every metric kernel; stable-opt-in via env."""
+    if _os.environ.get("MLFRAME_METRICS_STABLE_SORT") == "1":
+        return np.argsort(y_score, kind="stable")[::-1]
+    return np.argsort(y_score)[::-1]
+
+
 def fast_roc_auc_unstable(y_true: np.ndarray, y_score: np.ndarray) -> float:
     """ROC AUC variant using unstable (quicksort) argsort -- 2-3x faster.
 
@@ -89,7 +109,7 @@ def fast_roc_auc(y_true: np.ndarray, y_score: np.ndarray, **kwargs) -> float:
         y_score = y_score.to_numpy()
     if y_score.ndim == 2:
         y_score = y_score[:, -1]
-    desc_score_indices = np.argsort(y_score, kind="stable")[::-1]  # Wave 57: stable sort for reproducibility on tied scores
+    desc_score_indices = _argsort_desc_for_metrics(y_score)  # iter338: dispatcher (unstable default, MLFRAME_METRICS_STABLE_SORT=1 to opt back)
     return fast_numba_auc_nonw(y_true=y_true, y_score=y_score, desc_score_indices=desc_score_indices)
 
 
@@ -128,7 +148,7 @@ def fast_aucs(y_true: np.ndarray, y_score: np.ndarray) -> tuple[float, float]:
         y_score = y_score.to_numpy()
     if y_score.ndim == 2:
         y_score = y_score[:, -1]
-    desc_score_indices = np.argsort(y_score, kind="stable")[::-1]  # Wave 57: stable sort for reproducibility on tied scores
+    desc_score_indices = _argsort_desc_for_metrics(y_score)  # iter338: dispatcher (unstable default, MLFRAME_METRICS_STABLE_SORT=1 to opt back)
     return fast_numba_aucs(y_true=y_true, y_score=y_score, desc_score_indices=desc_score_indices)
 
 

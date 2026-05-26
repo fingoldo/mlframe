@@ -27,6 +27,8 @@ from ._numba_params import NUMBA_NJIT_PARAMS
 # circular import: ``core`` re-exports the symbols below at the bottom of
 # its module, so we must not import core eagerly.
 
+from ._core_auc_brier import _argsort_desc_for_metrics  # iter338 dispatcher
+
 
 def fast_aucs_per_group(y_true: np.ndarray, y_score: np.ndarray, group_ids: np.ndarray) -> Tuple[float, float, Dict[int, Tuple[float, float]]]:
     """
@@ -42,7 +44,7 @@ def fast_aucs_per_group(y_true: np.ndarray, y_score: np.ndarray, group_ids: np.n
         y_score = y_score[:, -1]
 
     # Overall AUCs
-    desc_score_indices = np.argsort(y_score, kind="stable")[::-1]  # stable sort for reproducibility on tied scores
+    desc_score_indices = _argsort_desc_for_metrics(y_score)  # iter338 dispatcher
     overall_roc_auc, overall_pr_auc = _fast_numba_aucs(y_true, y_score, desc_score_indices)
 
     # Per-group AUCs
@@ -55,7 +57,7 @@ def fast_aucs_per_group(y_true: np.ndarray, y_score: np.ndarray, group_ids: np.n
         group_y_score = y_score[group_mask]
 
         if len(group_y_true) > 1:  # Need at least 2 samples
-            group_desc_indices = np.argsort(group_y_score, kind="stable")[::-1]  # stable sort
+            group_desc_indices = _argsort_desc_for_metrics(group_y_score)  # iter338 dispatcher
             roc_auc, pr_auc = _fast_numba_aucs(group_y_true, group_y_score, group_desc_indices)
             group_aucs[int(group_id)] = (roc_auc, pr_auc)
         else:
@@ -82,7 +84,7 @@ def fast_aucs_per_group_optimized(y_true: np.ndarray, y_score: np.ndarray, group
         y_score = y_score[:, -1]
 
     # Overall AUCs
-    desc_score_indices = np.argsort(y_score, kind="stable")[::-1]  # stable sort for reproducibility on tied scores
+    desc_score_indices = _argsort_desc_for_metrics(y_score)  # iter338 dispatcher
     overall_roc_auc, overall_pr_auc = _fast_numba_aucs(y_true, y_score, desc_score_indices)
 
     # By group very efficiently
