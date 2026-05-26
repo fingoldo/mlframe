@@ -733,14 +733,42 @@ class PytorchLightningEstimator(BaseEstimator):
                 trainer_params.get("accelerator"), _msg,
             )
             try:
-                # Move the model to CPU and rebuild the trainer. Lightning's
-                # predict() requires the model device to match the
-                # trainer's accelerator; we move BEFORE building the
-                # CPU trainer so the device-mismatch path doesn't fire.
+                # iter333 (2026-05-27) follow-up to iter293: the original
+                # CPU fallback re-raised because the CUDA context was still
+                # dirty when the CPU trainer touched a still-on-GPU tensor
+                # via the model / datamodule reference graph. Explicitly:
+                #   1. Move the model to CPU (sub-modules + buffers).
+                #   2. Empty the CUDA cache (releases tensor memory).
+                #   3. Synchronise to flush any pending GPU ops so the next
+                #      torch op doesn't replay the failed kernel.
+                #   4. Build a fresh CPU-only Trainer.
                 try:
                     self.model.to("cpu")
+                    if hasattr(self.model, "_orig_mod"):
+                        self.model._orig_mod.to("cpu")
                 except Exception:
                     pass  # best-effort: model may already be on CPU
+                # Reset CUDA state best-effort. ``empty_cache`` is a no-op
+                # when CUDA isn't initialised; ``synchronize`` only fires
+                # when CUDA is available. ``ipc_collect`` releases inter-
+                # process tensor references on Windows where mmap can hold
+                # GPU memory alive across the failed predict.
+                try:
+                    if torch.cuda.is_available():
+                        try:
+                            torch.cuda.synchronize()
+                        except Exception:
+                            pass
+                        try:
+                            torch.cuda.empty_cache()
+                        except Exception:
+                            pass
+                        try:
+                            torch.cuda.ipc_collect()
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
                 _cpu_params = {
                     "accelerator": "cpu",
                     "devices": 1,
@@ -756,7 +784,10 @@ class PytorchLightningEstimator(BaseEstimator):
             except Exception as e_cpu:
                 logger.error(
                     "CPU fallback after CUDA prediction failure ALSO failed: %s. "
-                    "Original CUDA error: %s",
+                    "Original CUDA error: %s. The CUDA context is likely "
+                    "permanently invalidated for this process -- a fresh "
+                    "process restart will be needed to recover GPU "
+                    "acceleration.",
                     e_cpu, e,
                 )
                 raise
