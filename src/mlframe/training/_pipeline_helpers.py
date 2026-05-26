@@ -464,7 +464,7 @@ def _apply_pre_pipeline_transforms(
         # PER-TARGET loop runs Linear then MLP back-to-back, both build
         # ``SimpleImputer + StandardScaler``; without this short-circuit we
         # re-fit the identical arithmetic on the same train_df (~46s linear
-        # + ~18s mlp on the 4M-row TVT log). Only fires on the fresh
+        # + ~18s mlp on a 4M-row prod log). Only fires on the fresh
         # fit-transform path (the other branches are already cheap).
         # Capture the INPUT content fingerprints BEFORE any rebind so the cache
         # populate path keys on the original (caller-owned) df contents. The

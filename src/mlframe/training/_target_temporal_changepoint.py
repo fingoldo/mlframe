@@ -9,13 +9,12 @@ Pre-split header (kept for context):
 
 Temporal target audit вЂ” detect P(y) shifts over time, find change points.
 
-The user's production drift incident (Upwork jobs-hired forward-mode
-training) revealed that:
+A real-world drift incident (a job-board scraping pipeline running in
+forward mode) revealed that:
 
 - The target rate isn't constant over time. The historical period was
-  positive-only (selection-biased) at ~98%; a 4-month window in
-  2021-2022 had unbiased ~40% rate; the recent month (full uid scrape)
-  is unbiased ~40% again.
+  positive-only (selection-biased) at ~98%; a several-month window
+  had an unbiased ~40% rate; the most recent month is unbiased ~40% again.
 - Without a per-bin time-series view of the target, this regime change
   is invisible вЂ” the operator sees the AGGREGATE rate (74%) and
   thinks they have a balanced classification problem when in fact

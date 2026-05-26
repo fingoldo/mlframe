@@ -153,7 +153,7 @@ def sort_df_by_time_column(df: Any, time_column: str, *, ascending: bool = True)
 #
 # Discovery doesn't currently know how to pick a ``group_column`` for the grouped residual transform -- callers configure it manually. This helper scans the dataframe and recommends column candidates that look like group keys (categorical, moderate cardinality, balanced sizes).
 #
-# Recommended ranges (calibrated against the TVT well_id pattern):
+# Recommended ranges (calibrated against a typical group_id pattern):
 # - ``min_unique`` (default 3): below this is too few groups for J-S shrinkage to help.
 # - ``max_unique`` (default 500): above this is too granular -- per-group fits over-fit on tiny groups.
 # - ``min_size_ratio`` (default 0.01): smallest group must hold at least 1% of rows so the per-group OLS has enough data. Floors at min_size_ratio * n_rows.

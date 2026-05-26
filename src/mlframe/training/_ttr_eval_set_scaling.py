@@ -34,7 +34,7 @@ class _TTRWithEvalSetScaling(TransformedTargetRegressor):
             y_arr_2d = y_arr
         # Stash y_train statistics for the defensive predict-time clip.
         # MLP / Identity-Linear regressors can extrapolate catastrophically
-        # on unseen-group test rows (TVT 2026-05-26: predictions in
+        # on unseen-group test rows (observed in prod: predictions in
         # [-50k, +250k] for target in [10500, 12800], MaxError=781354).
         # Clipping in y-space at [y_train_min - 3*std, y_train_max + 3*std]
         # bounds the damage to "wrong by a few sigma" instead of "wrong by
@@ -99,7 +99,7 @@ class _TTRWithEvalSetScaling(TransformedTargetRegressor):
         check. If the inner regressor is an Identity-MLP / unbounded
         linear model and the test rows are OOD, T_hat can land at e.g.
         -17 sigma and inverse_transform faithfully maps that to a
-        completely wrong y_hat (prod TVT 2026-05-22 incident).
+        completely wrong y_hat (observed in a prod incident).
 
         Detect the -17 sigma signal IN SCALED SPACE before
         ``inverse_transform`` obscures it. WARN-log on |T_hat|.max() > 10
@@ -133,7 +133,7 @@ class _TTRWithEvalSetScaling(TransformedTargetRegressor):
                         "unbounded-output downstream model (Identity-MLP, "
                         "plain LinearRegression) extrapolating on test "
                         "rows whose feature distribution differs from "
-                        "train (prod TVT 2026-05-22).",
+                        "train (observed in prod).",
                         type(self.regressor_).__name__, _abs_max,
                     )
         except Exception as _sensor_err:

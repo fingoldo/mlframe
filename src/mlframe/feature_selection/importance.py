@@ -136,7 +136,7 @@ def plot_feature_importance(
     columns : Sequence
         Feature names; ``len(columns)`` may be 0 (uses integer index).
     kind : str
-        Display label (e.g. ``"XGBRegressor TVT"``). Goes into the
+        Display label (e.g. ``"XGBRegressor y"``). Goes into the
         plot title AND the text log line.
     n : int, default 10
         Number of bars to plot. Top-N positive AND bottom-N negative

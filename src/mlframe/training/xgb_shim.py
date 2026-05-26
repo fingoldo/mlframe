@@ -125,16 +125,15 @@ def _signature_of(X) -> tuple:
 # instance attrs) so OOF refits and per-target re-fits on identical
 # data reuse the C++ DMatrix instead of rebuilding from scratch.
 #
-# Production TVT 2026-05-23: the CompositeCrossTargetEnsemble OOF refit
+# Observed in prod: the CompositeCrossTargetEnsemble OOF refit
 # helper calls ``clone(inner)`` per component, each clone has an empty
 # instance cache, so QuantileDMatrix was rebuilt 4 times (20+s wasted
-# per ensemble round). Round-4 added the content-fingerprint key but
-# kept the cache instance-local; round-6 (this commit) moves it module-
-# level so the fingerprint actually delivers reuse across clones.
+# per ensemble round). Cache is now module-level so the fingerprint
+# actually delivers reuse across clones.
 #
 # Why an ``OrderedDict`` with LRU eviction (cap=8): each entry holds
 # a QuantileDMatrix carrying ~200-500 MB of C++ memory on the 4M-row
-# TVT scale. 8 entries is enough to keep train + val for 4 targets
+# large-data scale. 8 entries is enough to keep train + val for 4 targets
 # (raw + 3 composites) hot WITHOUT pinning the entire booster training
 # memory budget. Eviction order is access-driven (``move_to_end`` on
 # hit) so the most-recently-used train matrix never gets dropped.

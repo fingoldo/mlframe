@@ -356,7 +356,7 @@ class FeatureImportanceConfig(BaseConfig):
     show_plots: bool = True
     # 2026-05-12 (user request): cap zero-FI bars so the chart stays
     # compact when most features were pruned by the model (eg an XGB on a
-    # residual target where ``TVT_prev=0.99`` and everything else is 0).
+    # residual target where ``lag_feature=0.99`` and everything else is 0).
     # Shows AT MOST this many bars with |FI| ~ 0 in the magnitude-ranked
     # plot; non-zero bars always render in full.
     max_zero_fi_to_plot: int = 4

@@ -89,7 +89,7 @@ def _predict_unclipped(self, X: Any) -> tuple[np.ndarray, int, dict[str, Any]]:
     ).reshape(-1)
 
     # T-scale clip BEFORE inverse. Heavy-tail composite targets
-    # (TVT-addres-TVT_prev 2026-05-24 on XGB) can blow predictions
+    # (observed in prod on XGB) can blow predictions
     # 30x outside the T-train envelope; the post-inverse y-clip
     # only catches what falls outside the y-train range, missing
     # the wildly-extrapolated middle. T-clip here bounds the

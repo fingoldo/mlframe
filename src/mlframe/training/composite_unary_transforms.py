@@ -1,8 +1,8 @@
 """Unary y-only composite transforms + chain meta-transform (Packs J + K).
 
-The existing ``composite_transforms.py`` registry contains 11 BIVARIATE transforms - every one takes ``(y, base) -> T`` where ``base`` is a dominant feature column (``TVT_prev``, ``Y``, ...). For heavy-tailed targets where the dominant feature has been already absorbed by a bivariate composite (e.g. ``TVT-linres-TVT_prev``) the remaining residual T is still skewed / leptokurtic; a unary y-only transform on T (or on raw y) can compress the tails further.
+The existing ``composite_transforms.py`` registry contains 11 BIVARIATE transforms - every one takes ``(y, base) -> T`` where ``base`` is a dominant feature column (e.g. a lag feature). For heavy-tailed targets where the dominant feature has been already absorbed by a bivariate composite (e.g. ``y-linres-lag1``) the remaining residual T is still skewed / leptokurtic; a unary y-only transform on T (or on raw y) can compress the tails further.
 
-Production motivator (2026-05-17 TVT): composite-CB on ``TVT-linres-TVT_prev`` reported ``excess_kurt=+2.40`` on the residual; ``Pack H`` recommends MAE for the inner loss, but a unary ``cbrt`` / ``yeo_johnson`` applied to the residual would compress tails further and let RMSE-trained inners produce stable predictions.
+Production motivator: composite-CB on ``y-linres-lag1`` reported ``excess_kurt=+2.40`` on the residual; ``Pack H`` recommends MAE for the inner loss, but a unary ``cbrt`` / ``yeo_johnson`` applied to the residual would compress tails further and let RMSE-trained inners produce stable predictions.
 
 This module ships:
 
@@ -325,7 +325,7 @@ def quantile_normal_y_domain(y: np.ndarray, params: Dict[str, Any] | None = None
 # ----------------------------------------------------------------------
 # chain_bivariate_then_unary -- compose a (y, base) -> T1 bivariate with a T1 -> T2 unary.
 # ----------------------------------------------------------------------
-# This is Pack K's atom: take a SURVIVING bivariate composite spec (e.g. ``linear_residual`` on TVT_prev) and stack one of the unary transforms above on top. The model learns the doubly-transformed target; at predict time the inverse runs unary first, then bivariate.
+# This is Pack K's atom: take a SURVIVING bivariate composite spec (e.g. ``linear_residual`` on a lag base) and stack one of the unary transforms above on top. The model learns the doubly-transformed target; at predict time the inverse runs unary first, then bivariate.
 
 UnaryFns = Tuple[
     Callable[[np.ndarray], Dict[str, Any]],

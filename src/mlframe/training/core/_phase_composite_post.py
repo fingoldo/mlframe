@@ -180,8 +180,8 @@ def run_composite_post_processing(
     # silently bypasses the dummy-floor gate + lag_predict injection,
     # leaving the suite shipping a simple-arithmetic ensemble of the raw
     # models -- which is provably WORSE than the best single component
-    # when 3 of 4 boosters are above the lag-predict floor (TVT prod
-    # 2026-05-24: EnsARITHM TEST=12.45 vs Ridge alone 11.63 vs
+    # when 3 of 4 boosters are above the lag-predict floor (observed
+    # in prod: EnsARITHM TEST=12.45 vs Ridge alone 11.63 vs
     # lag_predict 11.58). Synthesise a per-target empty-spec entry for
     # every regression target with at least one trained model so the
     # below loop runs, lag_predict is injected, and the OOF + dummy-

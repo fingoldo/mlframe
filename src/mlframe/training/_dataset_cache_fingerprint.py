@@ -15,7 +15,7 @@ the booster-native dataset object (``QuantileDMatrix`` / ``Dataset`` /
   produce fresh frames; the suite-level pipeline-cache hits but the
   shim cache misses).
 
-Result on prod TVT 2026-05-23: ~20 s of QuantileDMatrix rebuild per
+Observed in prod: ~20 s of QuantileDMatrix rebuild per
 target × 4 targets = ~80 s wasted in one ensemble run alone, plus
 hidden cross-target CB Pool / LGB Dataset rebuilds.
 
@@ -75,7 +75,7 @@ def _canonicalise_row(row_values: Any) -> tuple:
     Python tuple. Same logical values from pandas vs polars vs numpy
     MUST produce equal output; otherwise the module-level cache
     misses across the booster shims even though X is the same logical
-    frame (TVT prod 2026-05-23: pl-vs-pd dtype-handling asymmetry
+    frame (observed in prod: pl-vs-pd dtype-handling asymmetry
     silently invalidated the XGB DMatrix cache across composite
     targets, costing ~60 s per ensemble run).
     """

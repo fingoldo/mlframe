@@ -8,7 +8,7 @@ the fact:
    binary). Sets the baseline that every later improvement is measured
    against.
 2. Sequential ablation: drop top-K features by feature_importances_,
-   retrain, measure delta. Identifies dominant features (the ``TVT_prev``
+   retrain, measure delta. Identifies dominant features (the lag-feature
    case in the original motivation: one lag feature contributing >20%
    of headline metric).
 3. ``init_score`` baseline (regression only): refits the quick model

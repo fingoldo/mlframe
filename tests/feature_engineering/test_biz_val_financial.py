@@ -233,5 +233,9 @@ def test_biz_val_financial_hurst_scales_with_size(n_samples):
     arr = rng.normal(size=n_samples)
     result = compute_hurst_exponent(arr, min_window=5,
                                         max_window=n_samples // 4)
-    # Must return something tuple-shaped.
-    assert result is not None
+    # Must return tuple/scalar with a finite Hurst exponent in (0, 1); random-walk-like series should yield H near 0.5.
+    H = result[0] if isinstance(result, tuple) else result
+    assert H is not None, f"compute_hurst_exponent returned None on n_samples={n_samples}"
+    H_f = float(H)
+    assert np.isfinite(H_f), f"non-finite Hurst H={H_f!r} on n_samples={n_samples}"
+    assert 0.0 < H_f < 1.0, f"H={H_f:.3f} outside theoretical (0,1) range on n_samples={n_samples}"

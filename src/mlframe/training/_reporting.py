@@ -488,11 +488,11 @@ def report_regression_model_perf(
         R2 = fast_r2_score(targets_arr, preds_arr)
         RMSE = fast_root_mean_squared_error(targets_arr, preds_arr)
 
-    # Prediction-collapse sensor (2026-05-21). A regression model that
+    # Prediction-collapse sensor. A regression model that
     # outputs predictions with std << target std AND simultaneously
     # produces R^2 < 0 is collapsed -- it's emitting a near-constant
-    # value irrespective of input. Most common cause observed
-    # 2026-05-21 (TVT MLP catastrophe): the MLP defaults LayerNorm-on-
+    # value irrespective of input. Most common cause observed in prod
+    # (MLP catastrophe): the MLP defaults LayerNorm-on-
     # input True for tabular features that the upstream pre-pipeline
     # has already z-scored. LN_in then double-normalises per-row,
     # destroying cross-row absolute-scale signal; with a short time
@@ -521,7 +521,7 @@ def report_regression_model_perf(
             # Linear-extrapolation branch: an Identity-MLP / unbounded
             # linear model on a group-aware test split can blow predictions
             # far past target range while STD stays moderate (so the
-            # std-collapse gate above misses). Prod TVT 2026-05-22 had
+            # std-collapse gate above misses). A prod run had
             # pred_std=10 vs y_std=645 but R^2=-326 with |pred-y|.max()
             # = 13058 (20 sigma off). Trip when R^2 < -1.0 AND the worst
             # prediction lands more than 5 sigma off the corresponding target.
@@ -591,7 +591,7 @@ def report_regression_model_perf(
                     "For Identity-MLP / linear-stack: set nlayers=1 or pick a "
                     "real nonlinearity (nn.ReLU / nn.GELU); the stacked-Linear "
                     "footgun catastrophically extrapolates on unseen-groups "
-                    "test splits (prod TVT 2026-05-22). For MLP+LN_in: try "
+                    "test splits (observed in prod). For MLP+LN_in: try "
                     "``mlp_kwargs={'network_params': {'use_layernorm': False}}``. "
                     "For tree boosters: check fit_params learning_rate / n_estimators."
                     if _is_neural_stack

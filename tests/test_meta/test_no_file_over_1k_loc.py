@@ -23,17 +23,7 @@ LOC_LIMIT = 1000
 # Empty by design -- every mlframe .py file MUST stay <= 1000 LOC after Wave 10.
 # Add a path here only if there's a documented, time-boxed reason and the PR
 # carries an explicit FIXME for the next carve wave.
-LOC_BUDGET_EXEMPT: set[str] = {
-    # Wave 14A landed 2/3 deep dataclass carves; _phase_train_one_target_body
-    # deferred because the remaining ~880-LOC body is the deeply-nested
-    # ``pre_pipeline -> mlframe_model -> weight_schema`` triple loop with
-    # 25+ closure-captured locals. A safe carve requires the OneTargetBodyState
-    # dataclass + a multi-target synthetic suite as the byte-identical
-    # equivalence witness. Scheduled for the Wave 15 prep pass. File grew
-    # from 933 to 1069 LOC during Wave 14 because parallel agent W14B added
-    # ~250 LOC of MLP extreme-AR helpers; net Wave 14A delta is -121 LOC.
-    "src/mlframe/training/core/_phase_train_one_target_body.py",
-}
+LOC_BUDGET_EXEMPT: set[str] = set()
 
 
 def _src_root() -> Path:

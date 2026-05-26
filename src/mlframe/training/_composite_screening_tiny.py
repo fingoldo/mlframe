@@ -32,7 +32,7 @@ import pandas as pd
 # under joblib threading + n_jobs > 1: two folds simultaneously executing
 # ``from .composite_estimator import _y_train_clip_bounds`` could see a partially-loaded
 # composite_estimator module on Python's import dance, leaving the local name unbound for
-# the second thread. Symptom in production log (TVT 2026-05-21): 4x
+# the second thread. Symptom observed in a prod log: 4x
 # ``composite_screening: tiny-model CV fold failed (name '_y_train_clip_bounds' is not defined)``
 # warnings -- the lazy import silently raised NameError, the outer ``except Exception`` swallowed
 # it, and the fold returned NaN. Sibling ``composite_screening.py`` already imports at module
@@ -178,7 +178,7 @@ def _build_tiny_model(family: str, *, n_estimators: int, num_leaves: int,
         from sklearn.pipeline import Pipeline
         from sklearn.impute import SimpleImputer
         # Wrap Ridge in a SimpleImputer pipeline because Ridge raises on
-        # NaN inputs (prod TVT 2026-05-23: tens of thousands of warnings
+        # NaN inputs (observed in prod: tens of thousands of warnings
         # spammed per discovery run when ``tiny_screening_families``
         # included "linear" alongside "lightgbm" -- LGBM handles NaN
         # natively, Ridge doesn't). Mean-imputing the screening matrix
@@ -349,8 +349,8 @@ def _tiny_cv_rmse_raw_y(
     # outer ``except Exception`` in ``_one_fold`` swallows every failure into a
     # NaN result, and downstream ``np.nanmean`` silently shifts the screening
     # RMSE toward the surviving folds. Without this WARN the operator never
-    # sees that effective fold count dropped (the TVT-2026-05-21 prod log had
-    # 4 silent NaN-folds before P0 #1 fixed the lazy-import race).
+    # sees that effective fold count dropped (a prod log had
+    # 4 silent NaN-folds before the lazy-import race was fixed).
     _nan_fold_count = sum(1 for r, _ in fold_results if not math.isfinite(r))
     if _nan_fold_count > 0:
         logger.warning(
@@ -567,7 +567,7 @@ def _tiny_cv_rmse_y_scale(
     2. K-fold split on the train rows. With ``time_aware=True`` the split
        is a sklearn ``TimeSeriesSplit`` -- past-only train / future
        holdout for each fold -- which matches the production ordering
-       for autoregressive bases (``TVT_prev``, lag features). Random
+       for autoregressive bases (lag features). Random
        K-fold on a lag base leaks future->past and over-rates the spec.
     3. For each fold: fit tiny model on T_train_fold, predict T_hat
        on the held-out fold, apply transform.inverse to recover

@@ -123,8 +123,8 @@ def generate_mlp(
             ``torch.nn.Identity`` or ``None`` with ``nlayers>=2`` is the
             "linear MLP" footgun -- collapses to a single affine map with
             3x redundant parameterisation, bad optimisation, and known
-            catastrophic OOD extrapolation under covariate shift (prod
-            TVT 2026-05-22: R^2=-326). Pick ``nlayers=1`` with Identity
+            catastrophic OOD extrapolation under covariate shift (observed
+            in prod: R^2=-326). Pick ``nlayers=1`` with Identity
             for honest linear, or pick a real nonlinearity for a
             nonlinear MLP. A WARN fires if the footgun config is detected.
         weights_init_fcn: Weight initialization function
@@ -189,7 +189,7 @@ def generate_mlp(
     # redundantly-parameterised matrices: bad optimisation landscape,
     # weight_decay applied per-matrix instead of per-effective-coef,
     # and CATASTROPHIC OOD extrapolation under covariate shift
-    # (production TVT 2026-05-22: 25->32->16->1 Identity-MLP went to
+    # (observed in prod: 25->32->16->1 Identity-MLP went to
     # ~-17 sigma on the test split, R^2=-326 while Ridge nailed R^2=1.00
     # on the same data). For a truly linear regressor, ``nlayers=1``
     # gives an honest single Linear -> Identity which is well-conditioned
@@ -207,7 +207,7 @@ def generate_mlp(
             "expressivity (any composition of linear maps is linear), "
             "but they DO degrade optimisation and catastrophically "
             "amplify OOD-extrapolation on unseen-groups test splits "
-            "(prod TVT 2026-05-22: Identity-MLP R^2=-326 vs Ridge R^2=1.00 "
+            "(observed in prod: Identity-MLP R^2=-326 vs Ridge R^2=1.00 "
             "on identical data). Pick one: set nlayers=1 for an honest "
             "linear model, OR pick a real nonlinearity (nn.ReLU, nn.GELU, "
             "nn.LeakyReLU) for an actual nonlinear function.",

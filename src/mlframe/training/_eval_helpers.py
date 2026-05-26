@@ -371,7 +371,7 @@ def _append_split_rate_suffix(model_name: str, *, split_name: str, target) -> st
             return model_name
         _tag = mttr_match.group(1)  # "MTTR" or "MTRESID"
         train_val = mttr_match.group(2)
-        # Adaptive format -- 2 d.p. for typical magnitudes (MTV/MTTS for raw TVT ~ 11556), more decimals for tiny magnitudes (composite residual MTV ~ -1.17). The split-suffix carries the same tag prefix as train so composite shows ``MTRESID/MRV=...``, mirroring the existing BTTR/BTV / MTTR/MTV pattern.
+        # Adaptive format -- 2 d.p. for typical magnitudes (MTV/MTTS for raw targets in the thousands), more decimals for tiny magnitudes (composite residual MTV ~ -1.17). The split-suffix carries the same tag prefix as train so composite shows ``MTRESID/MRV=...``, mirroring the existing BTTR/BTV / MTTR/MTV pattern.
         from ._format import format_metric as _fmt
 
         # Split-suffix: keep the trailing letter pair as-is (BTTR -> BTV, MTTR -> MTV); for MTRESID use MR* (MRV / MRTS) to stay under 8 chars on chart titles.

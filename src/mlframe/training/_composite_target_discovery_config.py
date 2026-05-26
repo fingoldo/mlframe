@@ -20,7 +20,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     Discovery looks for transformations of the target ``y`` of the form
     ``T = f(y, base)`` such that the model trained on ``T`` (and a
     feature set excluding ``base``) generalises better than the model
-    trained on raw ``y``. Typical case: ``y = TVT`` with ``base = TVT_prev``
+    trained on raw ``y``. Typical case: ``y = target`` with ``base = lag1``
     where the autoregressive lag dominates feature importance.
 
     All fitted parameters (alpha/beta for linear_residual, MAD bounds
@@ -216,7 +216,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # MI screening. Sample to keep the diagnostic under one minute on
     # 4M-row datasets; mi_sample_n=None uses full train.
     #
-    # 2026-05-18 default lowered 200_000 -> 100_000: TVT log analysis
+    # Default lowered 200_000 -> 100_000: prod log analysis
     # showed 5.3 min discovery dominated by 200k MI compute. Halving to
     # 100k gives ~2x speedup with adequate sample size for typical
     # regression / balanced-binary scenarios.
@@ -240,13 +240,13 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # 3 bases the max candidate count is ~19; 32 is "keep them all".
     top_k_after_mi: int = 32
     # Pre-filter threshold for ``mi_gain = MI(T, X_no_base) - MI(y, X_no_base)``.
-    # Defaults walked +0.01 -> -0.5 -> -10.0 across the same TVT
+    # Defaults walked +0.01 -> -0.5 -> -10.0 across a real
     # regression incident: pure-lag composite ``T = y - y_prev = noise``
     # has ``MI(T, X_no_base) ~ 0`` while ``MI(y, X_no_base)`` can be
     # large (0.5-1.5 for AR-1 datasets where lag explains nearly
     # everything), so ``mi_gain`` is structurally very negative for
     # the correct composite. -0.5 left the MLP-saving composite still
-    # below the gate on TVT (mi_y > 0.5). -10.0 effectively disables
+    # below the gate (mi_y > 0.5). -10.0 effectively disables
     # the MI pre-filter; broken composites (e.g. logratio on negative
     # y) are still caught by the transform's own ``domain_check`` and
     # ``is_degenerate`` flag earlier in the pipeline. The downstream
@@ -361,7 +361,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     #   linear / neural models (Ridge proxy). A composite useful only
     #   for one of the two still survives via the union aggregation.
     #   The 2x screening compute is the price for model-mix safety
-    #   (prod TVT 2026-05-22: single-LGBM proxy rejected the only
+    #   (observed in prod: single-LGBM proxy rejected the only
     #   composite that would have saved the downstream Identity-MLP).
     tiny_screening_models: str = "per_family"  # "single_lgbm" | "per_family"
     tiny_screening_families: Tuple[str, ...] = ("lightgbm", "linear")
@@ -383,7 +383,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     #
     # Default flipped True -> False because the gate uses a tiny
     # LGBM as a model-agnostic proxy, and that proxy LIES for
-    # downstream linear models. The TVT incident: the pure-lag
+    # downstream linear models. The pure-lag incident:
     # composite ``y - alpha*lag_y`` has residual T = noise, so any
     # downstream model trained on T predicts T_hat ~ 0 and the
     # composite estimator returns y_hat = lag_y -- essentially
@@ -433,7 +433,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # Default 0.0 (DISABLED). The current gate flips (eps_mi_gain=-10.0,
     # require_beats_raw_baseline=False, top_k_after_mi=32) + the
     # ``additive_residual`` transform already produce the AR-diff spec
-    # organically on TVT-style data; this flag is an explicit insurance
+    # organically on AR-style data; this flag is an explicit insurance
     # for paranoid configurations where a user re-enables the gates.
     # Enable by setting > 0.0 (typical threshold 50.0 to match
     # ``hint_strength_threshold_pct``). Full implementation pending
@@ -447,8 +447,8 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # CV-RMSE. The gate then compares median composite vs median raw,
     # which is more stable than the mean. Compute scales linearly.
     #
-    # Default flipped 1 -> 3 (2026-05-18): production TVT run showed
-    # the previously-winning ``linres-TVT_prev`` spec getting displaced
+    # Default 3 (raised from 1): a prod run showed
+    # the previously-winning ``linres-lag1`` spec getting displaced
     # by ``monres-Y`` chain variants because the single-seed rerank
     # had high variance; with n_seed_repeats=3 the rerank picks the
     # spec that wins on the MEDIAN of 3 splits instead of one unlucky
@@ -576,16 +576,16 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # Block columns whose Pearson |corr(base, y)| exceeds this threshold.
     # Intent: catch literal copies / trivial linear transforms of y
     # (e.g. ``y_renamed = y``, ``y_scaled = y / 1000``). NOT intended
-    # to catch autoregressive lag features such as ``TVT_prev`` --
+    # to catch autoregressive lag features such as ``y_prev`` --
     # those legitimately reach corr ~ 0.999 on slow-moving series due
     # to autocorrelation, and they are exactly the kind of dominant
     # feature composite-target discovery exists to handle.
     #
     # The primary defence against target-encoding leakage is the regex
     # patterns above (``forbidden_base_patterns``); the corr threshold
-    # is just a backstop. Default raised from 0.999 to 0.99999 in
-    # 2026-05-10 after observing it filtered out legitimate
-    # ``TVT_prev`` (lag-1) on a real production run.
+    # is just a backstop. Default raised from 0.999 to 0.99999
+    # after observing it filtered out a legitimate
+    # ``y_prev`` (lag-1) on a real production run.
     forbidden_base_corr_threshold: float = 0.99999
 
     # Block constant or near-constant base columns (zero variance ->
@@ -668,7 +668,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # auto-base ranking, drop a candidate base if its absolute Pearson
     # correlation against any already-kept candidate exceeds this
     # threshold on the screening sample. Stops near-duplicate lag
-    # variants (``TVT_prev``, ``TVT_prev_lag2``, ``TVT_smooth_3``) from
+    # variants (``y_prev``, ``y_prev_lag2``, ``y_smooth_3``) from
     # all surviving into Phase B and inflating ensemble correlation.
     # Set to 1.0 to disable.
     auto_base_dedup_corr_threshold: float = 0.95
@@ -779,7 +779,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     #   FULL train slice, predict on the suite's val frame. Skips the
     #   train-tail carving entirely. Eliminates the train-tail-vs-test
     #   distribution mismatch that biased NNLS on group-aware splits
-    #   of strong-AR targets (TVT prod 2026-05-23: train-tail
+    #   of strong-AR targets (observed in prod: train-tail
     #   lag_predict RMSE 15.18 vs test 11.58; NNLS underweighted the
     #   dominant zero-parameter baseline because it looked bad on the
     #   train-tail slice that the stacker minimised against). Val is
@@ -826,8 +826,8 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # OOF RMSE > raw target's strongest-dummy RMSE x (1 + tolerance).
     # A trained model that loses to a parameter-free dummy on the
     # honest holdout cannot improve the ensemble; keeping it dilutes
-    # NNLS weight and harms test performance. TVT prod 2026-05-23
-    # surfaced this as the load-bearing failure mode: composite-target
+    # NNLS weight and harms test performance. Prod observed
+    # this as the load-bearing failure mode: composite-target
     # models on residual T overfit on group-aware splits (pred_std up
     # to 5x target_std, R2 down to -22 on test), but NNLS still gave
     # them positive weight. With the gate the pool reduces to
@@ -846,7 +846,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # the residual T = y - alpha * lag has near-zero signal on unseen
     # groups; any trained model on T overfits per-group patterns and
     # produces predictions worse than the trivial median(T) dummy on
-    # the test split (TVT prod 2026-05-23: 3 composite specs shipped,
+    # the test split (observed in prod: 3 composite specs shipped,
     # all 9 trained models on residuals failed dummy gate with R2 <0,
     # ~10 min of wall-time wasted per target). Set
     # ``extreme_ar_group_aware_skip = False`` to force discovery to
@@ -861,7 +861,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # + AR(1) failsafe never run on raw-only targets. The suite then
     # ships a simple-arithmetic ensemble of raw models that is worse
     # than the best single component when 3-of-4 boosters are above the
-    # lag floor (TVT prod 2026-05-24: EnsARITHM TEST=12.45 vs Ridge
+    # lag floor (observed in prod: EnsARITHM TEST=12.45 vs Ridge
     # alone 11.63, lag_predict 11.58). With this knob the OOF gate sees
     # Ridge alone and prefers it, or falls back to lag_predict if the
     # AR-failsafe tolerance is met. Disable to revert to the legacy

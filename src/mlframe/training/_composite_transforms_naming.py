@@ -19,9 +19,9 @@ if TYPE_CHECKING:
 
 # Short-name aliases for composite-target naming. Used in
 # ``compose_target_name`` to keep displayed target names compact;
-# previously composites were named ``TVT__linear_residual__TVT_prev``
+# previously composites were named ``y__linear_residual__lag1``
 # which read ugly in logs / report headings / dict keys. The dash
-# separator + short aliases give us e.g. ``TVT-linres-TVT_prev``.
+# separator + short aliases give us e.g. ``y-linres-lag1``.
 #
 # Order: declared transforms only -- if a transform is missing from
 # this map we fall back to the full name in ``compose_target_name`` so
@@ -65,10 +65,10 @@ def compose_target_name(target_col: str, transform_name: str, base: str) -> str:
     name on day one instead of silent collision).
 
     Examples:
-        compose_target_name('TVT', 'linear_residual', 'TVT_prev')
-            -> 'TVT-linres-TVT_prev'
-        compose_target_name('TVT', 'monotonic_residual', 'Y')
-            -> 'TVT-monres-Y'
+        compose_target_name('y', 'linear_residual', 'lag1')
+            -> 'y-linres-lag1'
+        compose_target_name('y', 'monotonic_residual', 'base')
+            -> 'y-monres-base'
     """
     short = TRANSFORM_NAME_SHORT.get(transform_name, transform_name)
     return f"{target_col}-{short}-{base}"

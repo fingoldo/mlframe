@@ -298,11 +298,10 @@ def _phase_train_val_test_split(
     with phase("split_data"):
         # Dynamically derive the kwargs the splitter accepts by inspecting
         # its signature, then drop any TrainingSplitConfig field not in
-        # that set. Static exclude lists drift: prod TVT 2026-05-25
-        # surfaced TWO consecutive TypeErrors (composite_cardinality_cap
+        # that set. Static exclude lists drift: observed in prod two
+        # consecutive TypeErrors (composite_cardinality_cap
         # then bucket_stratify) because new caller-side fields shipped
-        # without exclude updates. Caller-side fields documented as of
-        # 2026-05-25:
+        # without exclude updates. Caller-side fields documented:
         #   use_groups -- derives _groups upstream
         #   calib_size -- downstream post-train carve
         #   composite_cardinality_cap -- bucket-stratify gate (line ~139)

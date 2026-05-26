@@ -37,10 +37,10 @@ class CompositeProvenance:
     selection trail months later when the original DS has moved on
     and stakeholders ask "what does this number mean".
 
-    Why this exists. Without provenance, ``TVT__linear_residual__TVT_prev``
+    Why this exists. Without provenance, ``y__linear_residual__lag1``
     is an opaque key. With provenance, the same key reads as
     "predicts residual after subtracting fitted alpha=0.952 of the
-    previous-period TVT_prev value (R^2_train = 0.91), selected
+    previous-period lag1 value (R^2_train = 0.91), selected
     because removing the linear contribution exposed a residual MI
     of 0.165 against the remaining features".
 

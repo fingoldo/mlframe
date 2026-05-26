@@ -389,7 +389,7 @@ def _build_configs_from_params(
     # otherwise breaks the splat with TypeError. Recognised fields
     # below are routed into the config objects; everything else
     # is silently dropped so the splat survives future additions.
-    # 2026-05-25 prod TVT: ``honest_estimator_diagnostics`` (added
+    # Observed in prod: ``honest_estimator_diagnostics`` (added
     # to ReportingConfig but never plumbed here) raised TypeError
     # at process_model.
     honest_estimator_diagnostics=None,
@@ -624,11 +624,11 @@ def _configure_mlp_params(
         # independent batches, but it is WRONG for tabular regression: LN
         # normalises per-row across features, destroying the inter-row
         # absolute-scale signal that strong-linear / additive targets rely
-        # on. Observed 2026-05-21 (TVT regression, 4M rows, y near-perfect
-        # auto-regressive in TVT_prev): LN_in + 5-epoch time budget +
+        # on. Observed in prod (4M-row regression, y near-perfect
+        # auto-regressive in a lag feature): LN_in + 5-epoch time budget +
         # group split collapsed MLP to a tight pred cluster (std ~0.17 *
         # y_std), test R^2 = -4.75 vs Ridge R^2 = 1.00 on identical data.
-        # Synthetic-bench 2026-05-21 confirmed: LN_in off -> test R^2 =
+        # Synthetic-bench confirmed: LN_in off -> test R^2 =
         # 0.99 (matches Ridge); LN_in on -> 0.95 baseline that under
         # specific stress patterns collapses entirely. Pre-pipeline
         # already applies StandardScaler per-feature; further per-row

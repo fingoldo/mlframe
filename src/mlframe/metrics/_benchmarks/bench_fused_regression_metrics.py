@@ -147,7 +147,7 @@ def fused_regression_metrics(y_true, y_pred, parallel_threshold: int = 200_000):
     ``fast_root_mean_squared_error`` / ``fast_max_error`` /
     ``fast_r2_score``; the centred SS_tot stays stable for arbitrary y
     magnitudes (the naive 1-pass identity ``sum_y_sq - n*y_mean^2``
-    catastrophically cancelled on the 2026-05-22 TVT-shape data with
+    catastrophically cancelled on large-magnitude target data with
     y_mean=11500, y_std=645).
     """
     yt = np.ascontiguousarray(np.asarray(y_true), dtype=np.float64)

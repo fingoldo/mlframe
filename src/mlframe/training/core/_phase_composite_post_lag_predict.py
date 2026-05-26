@@ -12,7 +12,7 @@ import numpy as np
 class _LagPredictDeployableModel:
     """Wraps the ``lag_predict`` dummy baseline as a deployable model.
 
-    Production TVT 2026-05-23: lag_predict beat every trained component
+    Observed in prod: lag_predict beat every trained component
     on TEST RMSE (11.58 vs ensemble's 12.73). The dummy was visible in
     the dummy-baselines table but invisible to CT_ENSEMBLE's component
     pool -- final delivery used the worse stacker output. This wrapper

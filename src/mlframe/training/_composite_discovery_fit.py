@@ -303,7 +303,7 @@ def fit(
         # signal -- e.g. ``monotonic_residual`` on a base where the
         # fitted PCHIP knots are essentially flat. Discovery then
         # spends 5+ minutes training models that produce IDENTICAL
-        # predictions to raw-y (production TVT-monres-Y log). The
+        # predictions to raw-y (observed in prod on a monres spec). The
         # transform's ``fit`` flags this via ``is_degenerate=True``
         # on the returned params dict; reject the spec here.
         if isinstance(fitted_params, dict) and fitted_params.get("is_degenerate"):
@@ -324,8 +324,8 @@ def fit(
         # pass -- i.e. the transform IS plain ``linear_residual``.
         # The fit stamps ``is_redundant_with_linres=True`` to signal
         # this; we skip the evaluation to avoid duplicate MI compute
-        # + duplicate downstream rerank+training. Observed 2026-05-21
-        # TVT log: ``linres-Y`` and ``linresR-Y`` produced identical
+        # + duplicate downstream rerank+training. Observed in a prod log:
+        # ``linres-Y`` and ``linresR-Y`` produced identical
         # RMSE=21.5433 — 100% wasted compute on the duplicate.
         if (transform_name == "linear_residual_robust"
                 and isinstance(fitted_params, dict)
@@ -345,7 +345,7 @@ def fit(
         # LOWER bound (transform explains <5% of y variance -- T ~= y).
         # The OPPOSITE pathology also exists: transform absorbs SO
         # much of y that the residual T is at or below the noise
-        # floor (production TVT-logr-TVT_prev 2026-05-23: y_std=644,
+        # floor (observed in prod on a logr spec: y_std=644,
         # T_std=0.001 -- ratio 644000:1). Even a tiny fitting error
         # on T compounds via inverse_transform into significant
         # y-scale error, AND downstream models train on essentially

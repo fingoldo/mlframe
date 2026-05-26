@@ -93,7 +93,7 @@ def _apply_loss_recommendation_in_place(
 ) -> None:
     """Mutate ``models_params`` in place so CB / LGB / XGB inner estimators use a robust loss when ``target_values`` is heavy-tailed.
 
-    Hooks the ``recommend_boosting_regression_loss`` helper (Pack H) onto the per-target loop: after ``select_target`` returns the per-backend templates, override their ``loss_function`` / ``objective`` based on excess-kurtosis of the target. Production motivator: composite ``TVT-linres-TVT_prev`` had excess_kurt=+2.40 (Laplace-like) but CB / LGB / XGB defaulted to RMSE objective and early-stopped at iter=4-10 -- the RMSE gradient collapses near zero on Laplace residuals.
+    Hooks the ``recommend_boosting_regression_loss`` helper (Pack H) onto the per-target loop: after ``select_target`` returns the per-backend templates, override their ``loss_function`` / ``objective`` based on excess-kurtosis of the target. Production motivator: a composite ``y-linres-lag1`` had excess_kurt=+2.40 (Laplace-like) but CB / LGB / XGB defaulted to RMSE objective and early-stopped at iter=4-10 -- the RMSE gradient collapses near zero on Laplace residuals.
 
     Backends:
     - CatBoost: ``set_params(loss_function='MAE' | 'Huber:delta=1.345')``.
@@ -133,7 +133,7 @@ def _apply_loss_recommendation_in_place(
         "xgb": ("objective", rec.get("xgb")),
     }
     # Align eval_metric to the chosen objective so early-stopping
-    # tracks the surface the optimiser is actually descending. Production TVT:
+    # tracks the surface the optimiser is actually descending. Observed in prod:
     # raw target (low-kurt -> RMSE objective) was early-stopping at
     # iter=147 (CB) / 76 (LGB) on a 5000-iter cap because the SUITE DEFAULT
     # ``def_regr_metric="MAE"`` left eval_metric pinned to MAE while objective
@@ -151,8 +151,8 @@ def _apply_loss_recommendation_in_place(
                 # match the loss exactly so ES tracks the same surface
                 # the optimiser descends. Prior code returned MAE which
                 # has a constant-magnitude gradient and stops ES at iter=1
-                # on small-residual composite targets (TVT-addres-TVT_prev
-                # 2026-05-24: CB pred [-25,+5] for T in [-45,+45], R2=-0.41).
+                # on small-residual composite targets (observed in prod:
+                # CB pred [-25,+5] for T in [-45,+45], R2=-0.41).
                 return ("eval_metric", _value)
         elif _backend == "lgb":
             if _value == "regression":
@@ -389,7 +389,7 @@ def _compute_pipeline_cache_key(
     _feats_suffix = f"_feats{hashlib.blake2b(_feats_repr.encode(), digest_size=8).hexdigest()}"
     # Canonical dtype suffix that's POLARS / PANDAS AGNOSTIC.
     # Pre-fix: only polars frames got the ``_dt`` suffix, pandas frames
-    # got nothing. Production TVT log: same logical (CB, tier, feats)
+    # got nothing. Observed in prod: same logical (CB, tier, feats)
     # cached under TWO different keys -- one with _dt suffix (polars
     # call) and one without (pandas call after polars->pandas
     # conversion). Result: cache MISS on the second call even though

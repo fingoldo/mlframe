@@ -20,7 +20,7 @@ in any "feature drift -> auto-action" coupling:
    the model NEVER receives. Drift on a dropped feature is observationally
    uninteresting.
 
-So the actionable layer in the TVT-2026-05-21 protection stack is the K=2
+So the actionable layer in the protection stack is the K=2
 ensemble catastrophic-dropout (target-aware, measures actual MAE
 divergence after training). This sensor is COMPLEMENTARY: it stamps
 per-feature drift stats into metadata for post-mortem correlation
@@ -120,7 +120,7 @@ Grounded empirically by the 2026-05-22 sweep stack:
 A. ``profiling/bench_mlp_robustness_sweep.py`` (1,440 sklearn-MLP trials,
    LINEAR DGP). Baseline sklearn defaults (alpha=1e-4, hidden=(100,),
    activation=relu) suffered mean MLP_excess_harm = 6.455 R^2 at
-   drift_z=10 (catastrophic, matches the TVT-2026-05-21 prod-log
+   drift_z=10 (catastrophic, matches a prod-log
    collapse). Identity-activation configs reduce harm by ~10000x.
 
 B. ``profiling/bench_mlp_robustness_sweep_nonlinear.py`` (3,520 trials
@@ -311,7 +311,7 @@ def translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
                 # layer stack that mathematically collapses but
                 # is redundantly parameterised, optimises poorly,
                 # and catastrophically OOD-extrapolates under
-                # covariate shift (prod TVT 2026-05-22: 25->32->16->1
+                # covariate shift (observed in prod: 25->32->16->1
                 # Identity stack went to ~-17 sigma on test split,
                 # R^2=-326 while Ridge R^2=1.00 on the same data).
                 out["network_params"]["activation_function"] = torch.nn.Identity

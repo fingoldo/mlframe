@@ -1,6 +1,6 @@
 """Windows-aware MLP runtime defaults: DataLoader workers, AMP precision, predict batch_size.
 
-Pulled out of ``helpers.py`` so the decision logic is unit-testable in isolation without spinning up Lightning. The 2026-05-11 TVT run showed the production MLP getting only ~6 epochs in 30 min because the DataLoader was single-threaded (``num_workers=0``), the GPU sat idle waiting for data, and precision was FP32 on an Ampere-class card that supports bf16-mixed at ~2x throughput. The previous defaults were chosen for **Windows + spawn-based multiprocessing safety** -- a regression we MUST preserve. Hence: Linux/Mac auto-raises workers, Windows stays at 0 unless the caller explicitly opts in.
+Pulled out of ``helpers.py`` so the decision logic is unit-testable in isolation without spinning up Lightning. A prod run observed the MLP getting only ~6 epochs in 30 min because the DataLoader was single-threaded (``num_workers=0``), the GPU sat idle waiting for data, and precision was FP32 on an Ampere-class card that supports bf16-mixed at ~2x throughput. The previous defaults were chosen for **Windows + spawn-based multiprocessing safety** -- a regression we MUST preserve. Hence: Linux/Mac auto-raises workers, Windows stays at 0 unless the caller explicitly opts in.
 
 Public surface
 --------------
@@ -144,9 +144,9 @@ def resolve_mlp_dataloader_defaults(
 # expose bf16 only via software emulation, which is SLOWER than fp32 -- so we
 # keep them on "32-true". Mixed-precision fp16 is excluded as a default
 # because gradient scaling pitfalls are still a foot-gun on tabular MLPs
-# where targets can be 5-decimal-precision numbers (see TVT regression where
-# the small targets after StandardScaler are exactly the float16-underflow
-# zone). bf16 has the same exponent range as fp32, no scaling needed.
+# where targets can be 5-decimal-precision numbers (small targets after
+# StandardScaler land in the float16-underflow zone). bf16 has the same
+# exponent range as fp32, no scaling needed.
 _BF16_MIN_CC_MAJOR: int = 8
 
 
@@ -251,7 +251,7 @@ def resolve_mlp_precision_default(
 # The previous default was 64 -- a Lightning legacy that makes sense for
 # image-segmentation memory budgets but is catastrophic for tabular inference:
 # 4M-row predict at batch=64 is 64K mini-batches, each paying full DataLoader
-# setup + per-batch GPU sync overhead. The 2026-05-11 TVT run logged "Using
+# setup + per-batch GPU sync overhead. A prior prod run logged "Using
 # batch_size=64 for prediction" on every call and incurred minutes of
 # overhead on top of microseconds of actual MLP compute.
 #
@@ -299,7 +299,7 @@ _TRAIN_DTYPE_BYTES: int = 4
 
 # Module-level cache of the first successful memory probe. ``psutil.virtual_memory().available``
 # fluctuates BETWEEN calls within the same suite run (PyTorch tensors not yet GC'd,
-# Lightning state, intermediate dataloaders) -- prod TVT 2026-05-23 hit 64x variance in
+# Lightning state, intermediate dataloaders) -- prod observed 64x variance in
 # resolved batch_size (65536 -> 1024 across 8 MLP trainings on identical data shape).
 # Cache the FIRST probe so all subsequent auto-batch resolutions in one process share a
 # stable memory budget. Set ``MLFRAME_FORCE_REPROBE=1`` to bypass.

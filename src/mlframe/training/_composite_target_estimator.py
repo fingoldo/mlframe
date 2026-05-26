@@ -508,7 +508,7 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         X_valid = self._subset_rows(X, valid)
         # For grouped transforms, the group_column is metadata for the
         # transform (per-row alpha lookup) and is commonly non-numeric
-        # (e.g. well_id strings). Tree models like LightGBM reject object
+        # (e.g. group_id strings). Tree models like LightGBM reject object
         # dtypes outright; the user-friendly behaviour is to drop the column
         # from X_valid before passing to the inner so the wrapper hides this
         # plumbing entirely.
@@ -572,8 +572,8 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
             y_train_median = 0.0
 
         # T-scale clip bounds. Inner predict() can blow out far past the
-        # T-train envelope on heavy-tail residual targets (TVT-addres-TVT_prev
-        # 2026-05-24: XGB reg:pseudohubererror with un-calibrated
+        # T-train envelope on heavy-tail residual targets (observed in prod:
+        # XGB reg:pseudohubererror with un-calibrated
         # huber_slope=1.0 produced T_hat in [-50, +340] for T_train in
         # [-50, +50]; the additive inverse then pushed y_hat 340 above
         # the train envelope and the y-clip only catches the part outside

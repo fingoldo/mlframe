@@ -94,9 +94,9 @@ def _get_l1_ratio(config: LinearModelConfig) -> float:
 _LINEAR_DEFAULT_RIDGE_ALPHA: float = 1e-3
 """Tiny ridge regularisation routed through ``model_type="linear"``.
 
-Production failure mode (2026-05-17 TVT run, target=TVT-monres-Y): unregularised
+Production failure mode (observed on a real run): unregularised
 ``LinearRegression`` on 25 features with documented multicollinearity
-(``Z~=TVT_prev`` |corr|=0.974, ``GR_lag_*`` near-duplicates, etc.) produced
+(near-duplicate lag features, |corr| ~ 0.974, etc.) produced
 test MAE=20_191 on a target with mean=-858 std=644 -- 40x worse than a
 constant-mean predictor. sklearn's ``LinearRegression`` uses SVD pseudo-inverse
 which is rank-stable in float64 but operates on float32 columns in this suite
@@ -170,7 +170,7 @@ def _build_ransac_regressor(config: LinearModelConfig) -> BaseEstimator:
     can't extrapolate unboundedly on unseen-distribution test data.
     Plain LinearRegression has no such bound; on group-aware splits
     this can produce wildly off predictions identical to the
-    Identity-MLP failure mode (prod TVT 2026-05-22).
+    Identity-MLP failure mode (observed in prod).
     """
     return RANSACRegressor(
         estimator=Ridge(alpha=getattr(config, "alpha", 1.0) or 1.0),

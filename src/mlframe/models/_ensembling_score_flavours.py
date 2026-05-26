@@ -36,7 +36,7 @@ def build_member_tag_lists(
             _ensemble_member_tags.append(_strip_shim(str(_name_attr)))
         else:
             _ensemble_member_tags.append(_strip_shim(type(_model_obj).__name__))
-        # F2 fix (2026-05-11): short-tag ALWAYS derived from the underlying CLASS, not from ``model_name`` which carries augmentations like ``"TVT MTTR=11497.66"`` that would defeat the startswith() prefix checks (``startswith("CatBoost")`` etc.).
+        # short-tag ALWAYS derived from the underlying CLASS, not from ``model_name`` which carries augmentations like ``"target MTTR=11497.66"`` that would defeat the startswith() prefix checks (``startswith("CatBoost")`` etc.).
         _ensemble_short_tags.append(_short_tag(_model_obj))
     return _ensemble_member_tags, _ensemble_short_tags
 
@@ -153,7 +153,7 @@ def filter_sign_sensitive_flavours(
 
     I2 (2026-05-11): for regression, harmonic mean = N / sum(1/p) and geometric mean = exp(mean(log p)) both diverge / are undefined on signals that cross zero. Symptom seen in the prod log: ``EnsHARM ... RMSE=178.84 MaxError=55206`` and ``RMSE=1299.55 MaxError=920165`` on composite residuals which cluster around zero by construction.
 
-    2026-05-12 (user feedback): also gate-out QUAD (quadratic mean = sqrt(mean(p^2))) on sign-changing targets. Squaring loses the sign of the input by construction, so QUAD ALWAYS emits non-negative predictions -- catastrophic for a target spanning both signs (the prod chart for ``EnsQUAD ... TVT__monotonic_residual__Y`` showed R2=-9.97 with all predictions in [0, 2000] vs true values in [-2200, 500]). QUBE (cube root) is sign-preserving so it stays in.
+    Also gate-out QUAD (quadratic mean = sqrt(mean(p^2))) on sign-changing targets. Squaring loses the sign of the input by construction, so QUAD ALWAYS emits non-negative predictions -- catastrophic for a target spanning both signs (observed in a prod chart for ``EnsQUAD ... target__monotonic_residual__Y``: R2=-9.97 with all predictions in [0, 2000] vs true values in [-2200, 500]). QUBE (cube root) is sign-preserving so it stays in.
     """
     if not (is_regression and ensembling_methods):
         return ensembling_methods

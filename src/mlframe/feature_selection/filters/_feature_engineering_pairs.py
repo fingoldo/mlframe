@@ -35,10 +35,10 @@ from pyutilz.system import tqdmu
 # also doesn't break.
 _TIMES_SPENT_LOCK = threading.Lock()
 
-# CRITICAL #2 (2026-05-21): the hoisted shared buffer at
+# CRITICAL: the hoisted shared buffer at
 # ``check_prospective_fe_pairs`` allocates ``(n, max_n_combs * len(binary))``
 # float32. With n=4M and the medium preset that's ~17.6 GiB -- production
-# MRMR crashed with numpy.core._exceptions._ArrayMemoryError on a TVT run.
+# MRMR crashed with numpy.core._exceptions._ArrayMemoryError on a real run.
 # The hoist landed in Wave Pack G (commit 068acdd) under small-n benchmarks
 # and never measured peak RAM on million-row data.
 #

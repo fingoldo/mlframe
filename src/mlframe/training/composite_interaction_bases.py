@@ -14,7 +14,7 @@ import pandas as pd
 #
 # Takes a small set of candidate base column NAMES + their numpy arrays and produces synthetic base columns by pairwise combination under the specified binary operations. Output names follow the convention ``<a>__<op>__<b>`` (mirroring the composite-target naming convention) so they're distinguishable from raw bases in downstream metadata. Synthetic bases are then fed into the standard linear_residual / ratio / etc transforms as inputs.
 #
-# Use case (multiplicative physics): when y is governed by ``y ~= TVT_prev * porosity``, single-base linear-residual on TVT_prev leaves the porosity interaction in T. Feeding the synthetic ``TVT_prev__mul__porosity`` column as a base lets linear_residual capture the interaction directly.
+# Use case (multiplicative physics): when y is governed by ``y ~= lag_feature * porosity``, single-base linear-residual on lag_feature leaves the porosity interaction in T. Feeding the synthetic ``lag_feature__mul__porosity`` column as a base lets linear_residual capture the interaction directly.
 #
 # Safety:
 # - Division by near-zero: replace base values with |b2| < eps with sign(b2) * eps (eps derived from train scale of b2). The downstream consumer should domain-check on the synthetic column anyway.

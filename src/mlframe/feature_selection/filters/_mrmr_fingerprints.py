@@ -127,9 +127,9 @@ from .screen import postprocess_candidates, screen_predictors
 logger = logging.getLogger(__name__)
 
 
-# 2026-05-18 #2: cross-target identity cache for MRMR.fit. Production
-# TVT log showed MRMR running 88 min on the SAME X for two composite
-# targets (TVT raw + TVT-monres-Y) -- both calls returned identity
+# Cross-target identity cache for MRMR.fit. A prod log showed
+# MRMR running 88 min on the SAME X for two composite targets
+# (raw y + a monotonic-residual variant) -- both calls returned identity
 # (no features dropped, no engineered features added). The second
 # 88 min was pure loss because the result was already determined by
 # the first call. With ``mrmr_skip_when_prior_was_identity=True``,

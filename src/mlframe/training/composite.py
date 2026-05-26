@@ -13,7 +13,7 @@ Concept. A composite target is a transform ``T = f(y, base)`` such
 that the model learns ``T`` from features ``X`` (typically excluding
 the dominant feature ``base``), and a wrapper applies ``f^{-1}`` at
 predict time to recover ``y`` in the original scale. The structural
-example: ``y = TVT`` and ``base = TVT_prev``, where the autoregressive
+example: ``y = target`` and ``base = lag_feature``, where the autoregressive
 lag is captured natively by the transform and the model is forced to
 explain the remaining residual.
 

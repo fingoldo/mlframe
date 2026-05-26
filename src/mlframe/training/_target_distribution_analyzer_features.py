@@ -97,7 +97,7 @@ def _normalise_X(
     column dtypes (Float32 / Int64 / Boolean / String) are preserved -- a
     naive ``np.asarray(polars_df)`` collapses everything to object dtype
     and downstream ``is_numeric_dtype`` checks misclassify every column as
-    categorical. TVT 2026-05-21 reproduction: the suite called the analyzer
+    categorical. Reproduced in prod: the suite called the analyzer
     after _phase_train_val_test_split but BEFORE _phase_fit_pipeline (train_df
     still polars), and the analyzer logged
     ``high_cardinality_categorical(n=25)`` for 25 Float32 numeric features.
@@ -165,12 +165,12 @@ def _normalise_X(
             numeric_cols.append(str(c))
         else:
             categorical_cols.append(str(c))
-    # E3.2 (2026-05-21): post-conversion sanity check. If the dataframe has any
+    # Post-conversion sanity check. If the dataframe has any
     # numeric columns but ALL of them were classified as categorical (or vice
     # versa), the input shape almost certainly broke the duck-typing dispatch
     # above (e.g. a future input form we forgot to handle landed in
     # np.asarray with object dtype). Loud-fail rather than silent
-    # misclassification (the TVT-2026-05-21 P0 #3 prod symptom was exactly
+    # misclassification (the prod symptom was exactly
     # this -- 25 Float32 columns reported as ``high_cardinality_categorical``;
     # a defensive assertion would have caught it at the analyzer call site
     # before the rest of the suite ran).

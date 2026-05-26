@@ -196,7 +196,7 @@ class PytorchLightningEstimator(BaseEstimator):
         #     uniformly so the same fit-call works across boosters and MLP).
         # Without this normalisation, the OOF refit path indexes ``eval_set[1]``
         # below and raises IndexError on the 1-element list -> MLP component
-        # silently dropped from CT_ENSEMBLE for every target (TVT prod 2026-05-23).
+        # silently dropped from CT_ENSEMBLE for every target (observed in prod).
         if isinstance(eval_set, list) and eval_set and isinstance(eval_set[0], tuple):
             eval_set = eval_set[0]
         has_validation = eval_set[0] is not None

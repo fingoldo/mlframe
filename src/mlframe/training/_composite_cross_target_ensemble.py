@@ -387,7 +387,7 @@ class CompositeCrossTargetEnsemble:
         """Build an ensemble weighted by *gain over a naive baseline*.
 
         The gain-over-naive convention defends against the trivial
-        "raw model with TVT_prev as a feature" beating the naive
+        "raw model with a lag feature" beating the naive
         ``predict y = base`` baseline by a tiny margin: that model's
         absolute RMSE is small (good), but its *gain* over the naive
         baseline is also small, so it gets a sensible weight rather

@@ -4,7 +4,7 @@ Vectorised replacements for the canonical "scipy.stats.spearmanr in a
 Python loop" pattern that dominates per-row CV-style computations
 (rolling correlation over N windows, per-row cross-correlation, etc.).
 
-A wellbore-geology contest profile (2026-05-24) attributed 54% of total
+A real-world profile attributed 54% of total
 feature-build time to ``spearmanr`` called 19K times in a Python loop;
 this module's ``spearmanr_batched`` runs the same workload in seconds
 via either a numpy-vectorised rank+Pearson reduction or a numba

@@ -4,7 +4,7 @@ Single-source dispatch for the recurring "is this pandas / polars-DataFrame /
 polars-LazyFrame / polars-Series / numpy / object that exposes ``to_pandas`` /
 something else" pattern that appears in 14+ ad-hoc sites across the analyzer /
 calibration / reporting / evaluation / FE blocks. Each site duck-typed
-independently and missed a different edge case (TVT-2026-05-21 prod log: the
+independently and missed a different edge case (observed in a prod log: the
 mini-HPT analyzer treated 25 Float32 polars columns as ``high_cardinality_
 categorical`` because its ``isinstance(X, pd.DataFrame)`` check missed polars
 and ``np.asarray(X)`` produced an object-dtype array).

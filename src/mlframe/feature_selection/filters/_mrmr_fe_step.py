@@ -535,9 +535,9 @@ def _run_fe_step(
             # processed", which is name-agnostic.
             checked_pairs.add(raw_vars_pair)
 
-        # 2026-05-18: surface WHY FE added 0 features when the operator
-        # configured it explicitly. Production TVT log showed 88 min of
-        # Hermite Optuna yielding 0 engineered cols with no visible
+        # Surface WHY FE added 0 features when the operator configured it
+        # explicitly. A prod log showed 88 min of Hermite Optuna yielding
+        # 0 engineered cols with no visible
         # explanation (kept 25 cols, returned 25, dedup at downstream
         # marked MRMR identity-equivalent). The summary below explains:
         # n_pairs_considered: how many (a, b) pairs were screened

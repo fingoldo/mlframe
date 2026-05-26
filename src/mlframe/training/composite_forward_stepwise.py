@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 #
 # Given a base set of candidate columns and a target y, greedily ADD bases one at a time as long as the marginal RMSE reduction from a joint OLS fit exceeds ``min_marginal_rmse_gain`` (relative; default 2%). Caller seeds with one or more anchor bases (typically the single-base ``linear_residual`` winner from discovery); the helper returns the upgraded base list + per-step diagnostics so the caller can inspect what was added and why.
 #
-# Use case: after Discovery returns a single-base ``linear_residual__TVT_prev`` spec, the user can call this helper to find additional bases (Y / X / depth / etc.) that contribute orthogonal signal. The upgraded base list feeds into ``CompositeTargetEstimator(transform_name="linear_residual_multi", base_columns=upgraded_bases)`` for production training.
+# Use case: after Discovery returns a single-base ``linear_residual__lag_feature`` spec, the user can call this helper to find additional bases that contribute orthogonal signal. The upgraded base list feeds into ``CompositeTargetEstimator(transform_name="linear_residual_multi", base_columns=upgraded_bases)`` for production training.
 #
 # Not auto-integrated into Discovery.fit(): the forward-stepwise pass adds K * (n_candidates - K) extra CV-RMSE evaluations on top of the existing pipeline (e.g. on 4M rows / 25 candidate bases, 60-100 extra fits = 2-5 min). Standalone helper ships now; auto-integration is opt-in.
 # ----------------------------------------------------------------------

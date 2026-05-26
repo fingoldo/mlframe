@@ -487,8 +487,8 @@ def _monotonic_residual_fit(
     # fraction of y's variance. ``var_explained = 1 - var(T) / var(y)``.
     # When < ``_MONOTONIC_DEGENERACY_RATIO`` the spline is noise / a
     # near-constant fit -- downstream models on T produce SAME
-    # predictions as on raw y (production TVT-monres-Y log: CB/XGB/LGB
-    # MAE identical to raw). Surface the degeneracy so discovery can
+    # predictions as on raw y (observed in prod: CB/XGB/LGB
+    # MAE identical to raw on a monres-Y spec). Surface the degeneracy so discovery can
     # drop the spec early instead of paying for full training that
     # produces no win.
     _y_var = float(np.var(y_clean)) if y_clean.size > 1 else 0.0

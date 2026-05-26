@@ -551,7 +551,7 @@ def save_mlframe_model(
     #
     # 2026-05-21: also strips the Lightning bloat attrs. LightningModule._trainer
     # and PytorchLightningEstimator.prediction_datamodule both hold DataLoader
-    # references that carry the whole training dataset. On 4M-row TVT regression
+    # references that carry the whole training dataset. On 4M-row regression
     # this inflated MLP dumps to 311 MB for a network with 14k parameters.
     # Neither is needed for inference. Previously each walk ran independently
     # (2x recursion / seen-set churn for ~2400 mixed entries on c0024 / 1k LTR);
@@ -660,11 +660,11 @@ def save_mlframe_model(
         # (CB / XGB / LGB / MLP / Linear) post-zstd should typically
         # land at <50 MB even on million-row training. Anything above
         # the threshold below is almost always an unstripped DataLoader /
-        # trainer / optimizer state OR a forgotten OOF blob -- the
-        # TVT 2026-05-21 production MLP dump was 311 MB because
+        # trainer / optimizer state OR a forgotten OOF blob -- one
+        # observed prod MLP dump was 311 MB because
         # ``LightningModule._trainer`` + ``prediction_datamodule`` held
-        # refs to the 4M-row training frame (cleaned up in this same
-        # commit; the strip step nullifies them during pickle).
+        # refs to the 4M-row training frame (the strip step now nullifies
+        # them during pickle).
         # Emit a HARD WARNING so operators see oversized dumps in their
         # run log instead of having to ``ls -lh`` the artefact dir.
         _SIZE_SUSPICIOUS_MB = 50.0

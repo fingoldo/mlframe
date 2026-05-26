@@ -99,7 +99,7 @@ def _lag1_autocorr_grouped(y: np.ndarray, group_ids: np.ndarray, min_group_size:
     """Per-group lag-1 autocorr aggregated across groups via Fisher-z + reverse.
 
     For data where rows have a natural sequence WITHIN each group but not across
-    groups (the classic wellbore-MD / per-customer-time-series / per-subject-EEG
+    groups (the classic per-customer-time-series / per-subject-EEG / per-asset-depth
     layout), naive ``_lag1_autocorr`` measures cross-group transitions as if they
     were temporal -- spurious low/zero AR. Instead, compute lag-1 autocorr for
     every group independently and aggregate via Fisher-z transformation (atanh)
@@ -109,7 +109,7 @@ def _lag1_autocorr_grouped(y: np.ndarray, group_ids: np.ndarray, min_group_size:
     dominated by ONE huge group when group sizes are skewed (one 100k-row well +
     999 tiny ones -> the AR signal from the big well buries the others). Fisher
     z aggregates per-group correlations as DISTINCT samples, faithfully
-    reflecting "AR is present within most groups". The 2026-05-21 critique-agent
+    reflecting "AR is present within most groups". A critique-agent
     flagged the original size-weighted form for exactly this skew sensitivity.
 
     Groups smaller than ``min_group_size`` rows are skipped (with a stamp in the
@@ -148,7 +148,7 @@ def _check_within_group_ordering(group_ids: np.ndarray, n_check: int = 1024) -> 
     True for plausibly-ordered data.
 
     The per-group AR detector assumes rows within a group are in their natural
-    sequence (e.g. MD-sorted for wellbore). If rows were shuffled randomly
+    sequence (e.g. depth/time-sorted). If rows were shuffled randomly
     AFTER the FTE step, within-group autocorr drops to ~0 even when the
     underlying signal is strongly AR -- a false-negative the operator never
     sees. This check surfaces the assumption violation.

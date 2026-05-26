@@ -51,7 +51,7 @@ def _run_target_distribution_analyzer(
         from .._target_distribution_analyzer import analyze_target_distribution
         from ..configs import TargetTypes as _TT
 
-        # Pick a representative target: prefer regression (the TVT-2026-05-21
+        # Pick a representative target: prefer regression (the typical
         # scenario class), fall back to the first available type. ``target_by_type``
         # maps TargetTypes -> dict[target_name -> array-like]. Skip empty buckets.
         _picked_target = None
@@ -84,11 +84,11 @@ def _run_target_distribution_analyzer(
             # supplied (the suite carries them as ``timestamps`` after
             # _phase_load_and_preprocess). Also AUTO-DETECT common time-axis
             # column names when the caller didn't explicitly pass timestamps.
-            # Wellbore data uses MD/depth as the sequence axis; log / event data
-            # uses timestamp/date/time. Without auto-detection the AR detector
-            # skips entirely on such data unless the caller remembers to set
-            # timestamps_column -- which the TVT prod log demonstrated is easy
-            # to forget (the per-group AR fallback now catches it via group_ids,
+            # Some domains use a depth/position column as the sequence axis;
+            # log / event data uses timestamp/date/time. Without auto-detection
+            # the AR detector skips entirely on such data unless the caller
+            # remembers to set timestamps_column -- easy to forget in practice
+            # (the per-group AR fallback now catches it via group_ids,
             # but auto-detected has_time_axis fires the GLOBAL detector first
             # and provides additional diagnostics).
             _TIME_AXIS_HINT_NAMES = ("timestamp", "date", "time", "datetime", "md", "depth")

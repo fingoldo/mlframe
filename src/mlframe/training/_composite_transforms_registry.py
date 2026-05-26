@@ -353,7 +353,7 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
     # ------------------------------------------------------------------
     # Pack J: unary y-only transforms. ``requires_base=False`` tells the
     # wrapper to skip base-column extraction. Composite-target name has
-    # no ``base`` segment (e.g. ``TVT-cbrtY``) since there is no base.
+    # no ``base`` segment (e.g. ``y-cbrtY``) since there is no base.
     # ------------------------------------------------------------------
     "cbrt_y": Transform(
         name="cbrt_y",
@@ -432,7 +432,7 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
             "Chain: T1 = y - alpha*base - beta (linear_residual, OLS-fitted alpha+beta), then "
             "T2 = sign(T1) * |T1|^(1/3) (signed cube root). Inverse runs cbrt^-1 then "
             "y = T1 + alpha*base + beta. Targets heavy-tailed residual on top of a "
-            "single-base linear regression -- the production TVT-linres-TVT_prev case "
+            "single-base linear regression -- a real heavy-residual case "
             "with excess_kurt=+2.40."
         ),
     ),

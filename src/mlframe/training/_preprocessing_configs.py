@@ -158,12 +158,12 @@ class TrainingSplitConfig(BaseConfig):
     val_placement: Literal["forward", "backward"] = "forward"
 
     # When True (default), if the FeaturesAndTargetsExtractor produced
-    # ``group_ids`` (e.g. ``SimpleFeaturesAndTargetsExtractor(group_field="well_id")``),
+    # ``group_ids`` (e.g. ``SimpleFeaturesAndTargetsExtractor(group_field="group_id")``),
     # the splitter routes through ``GroupShuffleSplit`` so that no group
-    # straddles train/val/test. Critical for non-IID data: wells, users,
+    # straddles train/val/test. Critical for non-IID data: groups, users,
     # patients, sessions. Without it, an unlucky shuffle leaks rows from
-    # the same well into both train and val -- the model memorises the
-    # well rather than the underlying signal, val metric inflates, and
+    # the same group into both train and val -- the model memorises the
+    # group rather than the underlying signal, val metric inflates, and
     # the gap between val and held-out test (let alone production) is
     # the kind of silent failure that gets caught only after deploy.
     # Set to False to ignore an existing ``group_ids`` and fall back to

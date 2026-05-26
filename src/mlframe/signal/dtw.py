@@ -22,7 +22,7 @@ maps the first horizontal row to the first matched typewell row).
 All backends use a Sakoe-Chiba band of half-width ``window`` and
 squared-Euclidean cost. The CPU backend additionally supports
 ``psi`` relaxation; the GPU backends currently do not (we get away
-with this because the wellbore caller anchors the start via a
+with this because the calling project anchors the start via a
 preceding z-norm cross-correlation -- making the path nearly-
 forced at the boundaries anyway).
 """
@@ -63,8 +63,8 @@ def dtw_cpu(
     ``(distance, path)``.
 
     ``psi`` relaxes ``psi`` cells at each boundary; when 0 the path
-    must start at (0, 0) and end at (n-1, m-1). The wellbore caller
-    typically uses ``psi=20`` for soft start/end alignment.
+    must start at (0, 0) and end at (n-1, m-1). A typical caller
+    uses ``psi=20`` for soft start/end alignment.
     """
     from dtaidistance import dtw
     x64 = np.ascontiguousarray(x, dtype=np.float64)
@@ -369,7 +369,7 @@ def dtw_dispatch(
          unavailable).
       2. ``backend=...`` kwarg: same forced-selection semantics.
       3. ``psi > 0``: forced CPU (GPU backends do not honour boundary
-         relaxation; the wellbore caller uses ``psi=20`` for soft
+         relaxation; typical callers use ``psi=20`` for soft
          start/end alignment).
       4. Auto: if cupy is available AND ``len(x) * len(y)`` exceeds
          the per-HW threshold (consulted via ``kernel_tuning_cache``,

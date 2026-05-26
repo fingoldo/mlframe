@@ -108,7 +108,7 @@ class ValLossDivergenceCallback(Callback):
                 "initial baseline %.4g (>%.0fx threshold). The model is "
                 "actively diverging on validation -- expect the loaded "
                 "best checkpoint to be a near-dummy / collapsed fit "
-                "(production TVT 2026-05-23 Identity-MLP-on-group-OOD: "
+                "(observed in prod: Identity-MLP on group-OOD: "
                 "val_loss climbed to ~1.1 from initial ~0.04 in <20 epochs "
                 "before stopping at a noise-floor checkpoint). Pick a "
                 "real nonlinearity, drop ``use_layernorm`` on already-"

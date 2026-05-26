@@ -72,7 +72,7 @@ def analyze_target_distribution(
         "regression" / "classification" / "auto" (heuristic from dtype + uniques).
     has_time_axis
         Whether row order encodes a temporal sequence. When True, lag-1
-        autocorrelation is meaningful (TVT-2026-05-21 scenario). When False
+        autocorrelation is meaningful (the typical AR-prod scenario). When False
         the AR detector is skipped to avoid spurious "strong AR" hits on
         randomly shuffled rows.
 
@@ -170,12 +170,13 @@ def analyze_target_distribution(
 
         # Strong AR. Global lag-1 autocorr is meaningful when row order encodes
         # time across the whole dataset. For group-ordered data (rows ordered
-        # within each group but not across groups -- wellbore MD / per-customer
-        # time series / per-subject EEG), a per-group autocorr aggregated by
-        # group size is the right metric: global lag-1 looks low because the
-        # group boundaries inject discontinuities, but within each group there
-        # IS a strong AR signal. The TVT-2026-05-21 prod log had MD-sorted
-        # rows within 771 wells; global lag-1 wasn't measured (the suite
+        # within each group but not across groups -- per-customer
+        # time series / per-subject EEG / depth-sorted per-asset logs), a per-group
+        # autocorr aggregated by group size is the right metric: global lag-1
+        # looks low because the group boundaries inject discontinuities, but
+        # within each group there IS a strong AR signal. A prod log had
+        # depth-sorted rows within hundreds of groups; global lag-1 wasn't
+        # measured (the suite
         # didn't pass timestamps so has_time_axis=False), and the MLP
         # use_layernorm recommendation never fired. The per-group branch below
         # gives the analyzer access to that signal even when the suite caller
@@ -199,8 +200,8 @@ def analyze_target_distribution(
                 # E5 (2026-05-21) ordering-check addition: warn when within-group
                 # sequence is destroyed by post-FTE shuffling. The per-group AR
                 # detector assumes rows of the same group are contiguous AND in
-                # their natural order (MD-sorted for wellbore, time-ordered for
-                # per-customer logs). When the suite caller shuffles BEFORE
+                # their natural order (depth- or time-ordered for sequence-style
+                # data; per-customer time logs). When the suite caller shuffles BEFORE
                 # passing to analyze_target_distribution, the within-group
                 # autocorr drops to ~0 and the detector silently false-negatives
                 # the same prod-relevant pathology it exists to catch.
@@ -220,7 +221,7 @@ def analyze_target_distribution(
                 diagnostics["lag1_autocorr_per_group"] = ar
         if math.isfinite(ar) and abs(ar) > _STRONG_AR_PEARSON_LAG1:
             pathologies.append(f"strong_AR_target(lag1_corr={ar:.3f}, source={ar_source})")
-            # TVT-2026-05-21 root cause: MLP with per-row layernorm collapses
+            # Real prod root cause: MLP with per-row layernorm collapses
             # under strong AR because the layer destroys inter-row absolute-
             # scale signal that AR depends on. Force layernorm OFF.
             knob_overrides.setdefault("mlp_kwargs", {})
@@ -247,7 +248,7 @@ def analyze_target_distribution(
                     # that the group label encodes). The strong-AR detector above already turns
                     # LayerNorm off when has_time_axis is True OR per-group AR fires; this branch
                     # closes the third path (group-clustered target where AR is weak but the
-                    # absolute group level dominates -- e.g. wellbore TVT, customer LTV by tenure).
+                    # absolute group level dominates -- e.g. group-level target magnitude, customer LTV by tenure).
                     knob_overrides.setdefault("mlp_kwargs", {}).setdefault("network_params", {})["use_layernorm"] = False
                     _stamp_prov("mlp_kwargs", "network_params.use_layernorm", False, "clustered_target")
 

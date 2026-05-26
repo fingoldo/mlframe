@@ -34,7 +34,7 @@ def _filter_features(
     reason + value) so :meth:`fit` can surface them in the report and so
     callers can audit false positives -- the corr filter in particular is
     prone to misfiring on legitimate autoregressive lag features such as
-    ``TVT_prev``.
+    a ``y_prev`` column.
     """
     # First pass: cheap-fail filters (name patterns, type, finite count,
     # near-constant). Build a list of survivors + their train-row arrays so the

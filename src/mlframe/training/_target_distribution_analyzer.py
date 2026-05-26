@@ -7,13 +7,13 @@ distributions BEFORE training and tunes defaults accordingly.
 
 Scope (first pass)
 ------------------
-This analyzer covers the failure modes the 2026-05-21 TVT regression incident
+This analyzer covers the failure modes a real regression incident
 surfaced + the closest synthetic siblings:
 
 Regression targets
 - Heavy-tail (high excess kurtosis): suggest robust regressor loss
 - Multi-modal (>= 2 well-separated peaks): warn (LR/MLP single-mode bias)
-- Strong AR (lag-1 autocorr > 0.7): the TVT-2026-05-21 root cause for the
+- Strong AR (lag-1 autocorr > 0.7): a real root cause for the
   R^2=-4.75 MLP collapse -- suggest use_layernorm=False for MLP since
   per-row LayerNorm destroys inter-row absolute-scale signal under strong AR
 - Clustered target (within-group std << between-group std when group_ids

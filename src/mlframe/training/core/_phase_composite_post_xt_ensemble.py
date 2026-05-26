@@ -68,7 +68,7 @@ def _build_cross_target_ensemble_for_target(
             PrePipelinePredictShim(_inner, _pp, _name)
         )
         _component_names.append(_name)
-    # Inject lag_predict dummy baseline as a free component for the cross-target ensemble pool. On strongly auto-regressive targets (TVT-style, lag1_corr ~0.999 within groups) the dumbest ``y_hat = lag_target_value`` baseline often beats every trained model on RMSE; honest-OOF gate naturally selects it when it dominates. NO trainable parameters; cost is one column read.
+    # Inject lag_predict dummy baseline as a free component for the cross-target ensemble pool. On strongly auto-regressive targets (lag1_corr ~0.999 within groups) the dumbest ``y_hat = lag_target_value`` baseline often beats every trained model on RMSE; honest-OOF gate naturally selects it when it dominates. NO trainable parameters; cost is one column read.
     try:
         _dbl_for_target = (
             metadata.get("dummy_baselines", {})

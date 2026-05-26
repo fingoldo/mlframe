@@ -32,7 +32,7 @@ class CompositeSpec:
 
     # Canonical composite name. Format:
     # ``{target_col}-{TRANSFORM_NAME_SHORT[transform_name]}-{base_column}``
-    # e.g. ``"TVT-linres-TVT_prev"``. Built via
+    # e.g. ``"y-linres-lag1"``. Built via
     # ``composite_transforms.compose_target_name``. The legacy
     # double-underscore format ``"{target}__{transform}__{base}"`` is
     # still recognised by ``is_composite_target_name`` for pickle

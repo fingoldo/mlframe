@@ -71,7 +71,7 @@ def _tiny_model_rerank(
     # OOF distribution the production split will evaluate. Random
     # KFold on a group-aware production split rates per-group memorisers
     # high; production then catches that as catastrophic test failure
-    # (TVT prod 2026-05-23: 3 composite specs promoted by random-KFold
+    # (observed in prod: 3 composite specs promoted by random-KFold
     # rerank, all 9 trained models failed dummy-floor on group-aware
     # test). ``train_idx`` from the discovery entry point is
     # ``np.arange(N_filtered_train)`` so ``sample_idx == train_idx_screen``.
@@ -104,7 +104,7 @@ def _tiny_model_rerank(
     )
 
     # Per-spec CV-RMSE per family. When K specs share a base
-    # (the typical case: auto-base picks one TVT_prev-style
+    # (the typical case: auto-base picks one lag-style
     # dominant feature, all K transforms operate on it), the
     # per-base ``x_remaining`` matrix and ``base_screen`` array
     # are recomputable from the same inputs. Cache them by base
@@ -155,7 +155,7 @@ def _tiny_model_rerank(
         transform = get_transform(spec.transform_name)
         # Auto-detect monotone base (lag features, timestamps) and switch
         # this spec's tiny-CV to TimeSeriesSplit. Random K-fold on a lag
-        # base leaks future->past, over-rating ``linres-TVT_prev``-style
+        # base leaks future->past, over-rating ``linres-lag1``-style
         # specs.
         base_t_aware = bool(_is_monotone_nondecreasing(base_screen_local))
         fam_rmses: dict[str, float] = {}
@@ -490,9 +490,9 @@ def _tiny_model_rerank(
         # ablation delta%. When the top hint feature's drop balloons
         # ablation RMSE by more than the configured fraction, the raw
         # model is essentially auto-regressive on that one feature --
-        # composite discovery in this regime is wasted compute (production
-        # TVT log: top_ablation_delta%=3209% on TVT_prev meant the raw
-        # model literally IS ``y ~ TVT_prev``; 15.6 min of discovery
+        # composite discovery in this regime is wasted compute (observed
+        # in prod: top_ablation_delta%=3209% on the lag feature meant the raw
+        # model literally IS ``y ~ lag``; 15.6 min of discovery
         # produced 1 spec that scored identically to raw).
         _ablation_skip_pct = float(getattr(
             self.config, "composite_skip_when_ablation_delta_pct", 0.0,

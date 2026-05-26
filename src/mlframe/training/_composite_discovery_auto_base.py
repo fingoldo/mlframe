@@ -51,7 +51,7 @@ def _auto_base(
     remaining feature set predicts the residual perfectly --
     which inverts the ranking versus what we want. Pairwise
     MI(y, x) directly measures "how much information about y
-    does this single feature carry" and surfaces ``TVT_prev`` at
+    does this single feature carry" and surfaces a lag feature at
     top-1 on the canonical autoregressive case.
 
     The forbidden-base + ptp + corr filters elsewhere already
@@ -97,7 +97,7 @@ def _auto_base(
     # R10c bug #5 fix: adaptive hint cap. Previous fixed cap of
     # ``max(1, top_k // 2)`` was too aggressive when BD ablation
     # confidently identified the dominant base (e.g. delta% > 100%
-    # for the top-1 feature on production TVT). Now: if the user
+    # for the top-1 feature in a prod incident). Now: if the user
     # supplied a hint AND we have ablation strengths in metadata,
     # check the strength signal. Strong hint (top-1 delta_pct >
     # ``hint_strength_threshold_pct``, default 50%) -> use FULL
@@ -106,7 +106,7 @@ def _auto_base(
     #
     # Rationale: BD ablation directly measures "drop feature -> RMSE
     # delta%" which is a high-quality signal. When it screams +501%
-    # for TVT_prev (real production case), trust it; don't dilute
+    # for a lag feature (real production case), trust it; don't dilute
     # with MI-leaders that may be lower-quality features.
     strong_hint_threshold = float(getattr(
         self.config, "hint_strength_threshold_pct", 50.0,
@@ -155,7 +155,7 @@ def _auto_base(
     x_matrix = self._build_feature_matrix(df, usable_features, train_idx_screen)
     # Drop columns with ZERO observed values in the screening sample
     # BEFORE the all-row finite-mask. A single fully-NaN column made
-    # the AND-mask return zero rows (prod TVT 2026-05-26: 'auto-base:
+    # the AND-mask return zero rows (observed in prod: 'auto-base:
     # only 0 finite rows in screening sample') AND every downstream
     # sklearn.SimpleImputer call sprayed UserWarnings about feature
     # index N. Per-column NaN tolerance: keep features with at least
@@ -444,7 +444,7 @@ def _auto_base(
     # tail doesn't include null-failed candidates.
     ranked = [(m, c) for m, c in ranked if math.isfinite(m)]
     # Cross-base correlation dedup. Two highly-correlated bases
-    # (typical: ``TVT_prev``, ``TVT_prev_lag2``, ``TVT_smooth_3``)
+    # (typical: ``y_prev``, ``y_prev_lag2``, ``y_smooth_3``)
     # produce near-identical composites that waste Phase B compute
     # AND inflate ensemble correlation, hurting cross-target
     # diversity. After ranking, drop a candidate if its absolute
@@ -462,7 +462,7 @@ def _auto_base(
         dedup_dropped: list[tuple[str, str, float]] = []
         # R10c bug #2 fix: hint features are IMMUNE from dedup.
         # Otherwise on geological data with high feature
-        # cross-correlation (e.g. Z ~ TVT_prev at |corr|=0.974),
+        # cross-correlation (e.g. Z ~ y_prev at |corr|=0.974),
         # the lower-MI hint candidate gets dropped against a
         # higher-MI non-hint one, then later re-injected by the
         # hint-merge step with a poisoned score from the demoter.

@@ -555,7 +555,7 @@ def get_training_configs(
             min_epochs=1,
             max_epochs=iterations,
             # 2h cap (raised from a prior 30-min default that cut a 4M-row
-            # TVT regression at ~6 epochs). The caller-side
+            # regression at ~6 epochs). The caller-side
             # ``early_stopping_rounds`` (default 100 epochs of no val
             # improvement) still terminates well before this on healthy
             # training. Override via
@@ -596,13 +596,13 @@ def get_training_configs(
         loss_fn = F.cross_entropy
         labels_dtype = torch.int64
 
-        # Defaults: Adam + LR=3e-3 (chosen after a TVT-failure root cause
+        # Defaults: Adam + LR=3e-3 (chosen after a prod-failure root cause
         # analysis; was previously AdamW + LR=1e-3).
         #
         # Why Adam (not AdamW): AdamW's built-in weight_decay=0.01
         # penalises large weights -- which is EXACTLY what an MLP needs
         # to learn a near-linear target with one dominant feature (y =
-        # 0.95 * TVT_prev + small_residual requires a weight of ~0.95
+        # 0.95 * lag_feature + small_residual requires a weight of ~0.95
         # on the dominant input). Weight decay shrinks that weight every
         # step, fighting the loss. Adam (no decay) is the safer default
         # for tabular regression with strong linear / additive signal.
@@ -611,7 +611,7 @@ def get_training_configs(
         #
         # Why LR=3e-3 (not 1e-3): with the new zero-dropout architecture,
         # gradient flow is unobstructed; the larger LR converges in ~1/3
-        # the epochs without overshoot. On the 2-hour TVT run with
+        # the epochs without overshoot. On a 2-hour prod run with
         # LR=1e-3 + dropout=0.15, MLP plateaued at val_MSE=0.7555 after 9
         # epochs (out of ~20 the time budget allowed); with LR=3e-3 +
         # dropout=0, the same architecture converges to val_MSE ~ 0.15

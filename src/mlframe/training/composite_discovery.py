@@ -170,7 +170,7 @@ class CompositeTargetDiscovery:
             yield spec.name, t
 
     # Per-cluster composite (REJECTED -- explicit user decision 2026-05-18):
-    # Original proposal: when dataset has 50+ entities (well_id / customer_id /
+    # Original proposal: when dataset has 50+ entities (group_id / customer_id /
     # segment) with >= 200 rows each, discovery COULD run per-cluster + global
     # fallback via ``linear_residual_grouped``. User judged this premature:
     # "10-15 values per cluster too few for stable per-cluster discovery".

@@ -206,8 +206,8 @@ def _linear_residual_robust_fit(
     the first pass — the transform is mathematically equivalent to
     plain ``linear_residual``. We stamp ``is_redundant_with_linres=True``
     on the returned dict so composite discovery can skip the duplicate
-    evaluation (observed 2026-05-21 TVT log: TVT-linres-Y and
-    TVT-linresR-Y produced identical RMSE=21.5433 because no outliers
+    evaluation (observed in a prod log: y-linres-Y and
+    y-linresR-Y produced identical RMSE=21.5433 because no outliers
     were trimmed -- pure duplicate compute).
     """
     # Lazy import of parent-resident helpers: ``.predict`` re-imports

@@ -168,10 +168,10 @@ def run_composite_target_discovery(
     # groups; every trained model on T overfits per-group patterns
     # and produces predictions worse than the trivial median(T)
     # dummy in y-scale on the test split. Discovery + training of
-    # such specs is pure waste (TVT prod 2026-05-23: 3 composite
-    # specs shipped, all 9 trained models on residuals failed
+    # such specs is pure waste (observed in prod: 3 composite
+    # specs shipped, all trained models on residuals failed
     # dummy-floor gate with R2<0 and pred_std 3-5x target_std,
-    # ~10 min wall-time per target wasted).
+    # multi-minute wall-time per target wasted).
     _extreme_ar_skip = bool(getattr(
         composite_target_discovery_config,
         "extreme_ar_group_aware_skip", True,
@@ -454,7 +454,7 @@ def run_composite_target_discovery(
                     # is group-aware, the tiny-CV rerank must use
                     # GroupKFold or it ranks specs by a metric that
                     # doesn't reflect the production OOF distribution
-                    # (TVT prod 2026-05-23: random KFold tiny-rerank
+                    # (observed in prod: random KFold tiny-rerank
                     # promoted 3 composite specs whose trained models
                     # all failed dummy-floor gate on group-aware test).
                     # Slice group_ids to filtered_train rows so the

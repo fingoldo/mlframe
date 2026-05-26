@@ -1,6 +1,6 @@
 """Auto-pick a robust regression loss for heavy-tailed targets.
 
-Pack H. Production failure mode (2026-05-17 TVT-linres-TVT_prev): the composite residual had ``excess_kurt = +2.40`` (Laplace-like) but the inner CatBoost / XGBoost / LightGBM were trained with the default RMSE objective. RMSE on Laplace-distributed residuals collapses the gradient near zero (outliers dominate), the model gives up at iter=4-10, and the composite gain over raw is left on the table.
+Pack H. Production failure mode: a composite residual (e.g. ``y-linres-lag1``) had ``excess_kurt = +2.40`` (Laplace-like) but the inner CatBoost / XGBoost / LightGBM were trained with the default RMSE objective. RMSE on Laplace-distributed residuals collapses the gradient near zero (outliers dominate), the model gives up at iter=4-10, and the composite gain over raw is left on the table.
 
 The fix is policy: when the target distribution moments indicate Laplace / Student-t / contaminated tails, switch the inner boosting objective to L1 (Laplace MLE) or Huber. This module exposes the policy as a pure function that takes a 1-D target array and returns a per-backend recommendation:
 
@@ -15,7 +15,7 @@ Thresholds. The cutoffs come from the empirical excess-kurtosis ladder verified 
   contaminated). Huber where supported (LightGBM ``huber``, CatBoost
   ``Huber:delta=1.345``); XGBoost falls back to ``reg:pseudohubererror``.
 
-Note (round-5 2026-05-23): the previous (1.5, 10] MAE band was collapsed into the single Huber band above. Pure L1 / MAE was triggering the "MAE-gradient-is-noise" pathology on production TVT residuals (kurt=6.37 -> CB es_best_iter=1, LGB es_best_iter=5) -- the constant-magnitude sign-gradient stops the boosting iteration almost immediately. Huber's bounded-influence loss retains a useful gradient on small residuals AND attenuates outlier influence. Operators who explicitly want the Laplace MLE call with ``target_quantile=0.5``.
+Note: the previous (1.5, 10] MAE band was collapsed into the single Huber band above. Pure L1 / MAE was triggering the "MAE-gradient-is-noise" pathology on heavy-kurtosis residuals (kurt=6.37 -> CB es_best_iter=1, LGB es_best_iter=5) -- the constant-magnitude sign-gradient stops the boosting iteration almost immediately. Huber's bounded-influence loss retains a useful gradient on small residuals AND attenuates outlier influence. Operators who explicitly want the Laplace MLE call with ``target_quantile=0.5``.
 
 If the target is too small to estimate moments reliably (``n_finite < 30``) the recommendation is conservative (RMSE, the standard default).
 """
@@ -30,14 +30,14 @@ _EXCESS_KURT_HEAVY: float = 1.5
 """Threshold above which Gaussian assumptions break and a robust loss
 (Huber by default; L1 reachable via ``prefer_l1_above_kurt``) wins.
 
-History (TVT-rerun saga):
-* Pre-2026-05-22: 1.5 -> pure L1/MAE.
-* 2026-05-23 (round 3): raised 1.5 -> 3.0 because the MAE gradient on
-  near-zero residuals (production TVT composite ``excess_kurt=6.37``)
+History:
+* Originally: 1.5 -> pure L1/MAE.
+* Round 3: raised 1.5 -> 3.0 because the MAE gradient on
+  near-zero residuals (heavy-kurt composite, ``excess_kurt=6.37``)
   is just ``sign(noise)`` -- constant magnitude noise; CatBoost early-
   stopped at iter=1. New Huber band on ``excess_kurt in (1.5, 3.0]``.
-* 2026-05-23 (round 5, this fix): collapsed the (3.0, 10.0] MAE band
-  too. The TVT residuals at kurt=6.37 STILL hit L1 with the previous
+* Round 5 (this fix): collapsed the (3.0, 10.0] MAE band
+  too. The kurt=6.37 residuals STILL hit L1 with the previous
   ladder and CB/LGB STILL underfit (es_best_iter=1 / 5). Pure L1 is
   rare in practice; Huber dominates on the full kurt > 1.5 range with
   bounded-influence loss that retains a useful gradient on small
@@ -149,7 +149,7 @@ def recommend_boosting_regression_loss(
         # ``huber`` and CB ``Huber:delta=1.345`` are documented to
         # operate in MAD units. XGB ``reg:pseudohubererror`` takes
         # ``huber_slope`` in RAW residual units; defaulting to 1.0 on a
-        # T-scale residual with std~13 (TVT-addres composite 2026-05-24)
+        # T-scale residual with std~13 (observed in a heavy-residual composite)
         # means slope < 10% of std -> pseudo-Huber is quadratic over
         # essentially every realistic residual -> tree splits chase
         # heavy-tail outliers -> pred range blows from |T|<=50 to +340.

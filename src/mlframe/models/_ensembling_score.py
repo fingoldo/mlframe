@@ -129,8 +129,8 @@ def score_ensemble(
     coarse_gate_max_std_relative: float = 5.0,
     # K2-CATASTROPHIC-DROPOUT: when K == 2, the peer-median gate is symmetric
     # (both members are equidistant from (a+b)/2 by construction), so the
-    # legacy K=2 branch returned kept-all unconditionally. TVT-2026-05-21 had
-    # Ridge MAE=7.89 alongside MLP MAE=11442 (ratio = 1450x); the ensemble
+    # legacy K=2 branch returned kept-all unconditionally. Observed prod failure
+    # had Ridge MAE=7.89 alongside MLP MAE=11442 (ratio = 1450x); the ensemble
     # arithm-mean was MAE=5720 -- half-broken. When true target is available
     # for the gate-source split, this NEW gate compares per-member MAE-to-target
     # directly and drops the obvious catastrophic outlier (ratio >= threshold).

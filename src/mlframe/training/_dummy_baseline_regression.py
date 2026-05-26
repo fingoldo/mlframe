@@ -74,12 +74,12 @@ def _compute_regression_baselines(
         val_preds[q_label] = np.full(n_val, c)
         test_preds[q_label] = np.full(n_test, c)
 
-    # 2026-05-23: lag-predict baseline. For strongly auto-regressive
-    # targets (TVT-style data where lag1_corr ~ 0.999 within groups),
+    # Lag-predict baseline. For strongly auto-regressive
+    # targets (lag1_corr ~ 0.999 within groups),
     # the dumbest possible prediction -- ``y_hat = lag_target_value``
     # in the same row -- can dramatically outperform mean / median
-    # baselines AND sometimes the user's trained models. Production
-    # TVT 2026-05-23: BaselineDiagnostics measured init_score(TVT_prev)
+    # baselines AND sometimes the user's trained models. Observed
+    # in prod: BaselineDiagnostics measured init_score(lag1)
     # RMSE=8.06 vs Ridge raw RMSE=11.63 -- a 31% improvement available
     # for free, but the framework never reported it as a baseline.
     #

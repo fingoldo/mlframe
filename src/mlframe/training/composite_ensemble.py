@@ -191,11 +191,11 @@ def _maybe_pass_sample_weight(
     Avoids hard-coding which inner estimators support sample_weight (CatBoost / LGB /
     sklearn all do; some custom shims may not).
 
-    ``eval_set`` plumbed 2026-05-23 to fix the OOF-refit silent-drop pathology
-    (production TVT 2026-05-23: LGBM clones with ``early_stopping_rounds`` callback
+    ``eval_set`` plumbed to fix the OOF-refit silent-drop pathology
+    (observed in prod: LGBM clones with ``early_stopping_rounds`` callback
     attached but no eval data raised ``"For early stopping, at least one dataset
     and eval metric is required for evaluation"`` and were dropped from the
-    cross-target ensemble -- ensemble RMSE 12.82 worse than dummy 11.58).
+    cross-target ensemble -- ensemble RMSE worse than dummy).
 
     Falls back to the plain call on TypeError so missing-kwarg shims keep working.
     """
@@ -241,9 +241,9 @@ def _carve_inner_eval_split(
 
     When ``group_ids`` is supplied, carves whole groups into the eval
     slice (no group spans both fit and eval). Required for honest OOF on
-    group-aware splits: rows from the same well/user/session in both fit
+    group-aware splits: rows from the same group/user/session in both fit
     and eval make early-stopping see same-group leakage, model
-    under-stops, OOF RMSE artificially degrades (TVT prod 2026-05-24:
+    under-stops, OOF RMSE artificially degrades (observed in prod:
     val_RMSE 10.64 from direct fit vs honest-OOF 13.34 from group-blind
     carve, +25% degradation that wrongly triggered the AR1 failsafe).
 
@@ -538,7 +538,7 @@ def compute_oof_holdout_predictions(
       on the caller-provided external frame (the suite's val split).
       Eliminates the train-tail-vs-test distribution mismatch that
       biases NNLS weights on group-aware splits of strong-AR targets
-      (TVT prod 2026-05-23: train-tail lag_predict RMSE 15.18 vs test
+      (observed in prod: train-tail lag_predict RMSE 15.18 vs test
       11.58 - NNLS underweights the dominant baseline because it
       looks bad on the train-tail). Caller is responsible for
       providing the parallel base columns via
