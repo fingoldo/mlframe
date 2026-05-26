@@ -7,12 +7,10 @@ resolves transparently.
 """
 from __future__ import annotations
 
-
 import logging
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 logger = logging.getLogger(__name__)
-
-from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -45,16 +43,9 @@ from ..configs import (
 from pathlib import Path as _P  # PATHLIB-IMPORT-PER-CALL: hoist to module scope (was paid per suite call)
 from ..extractors import FeaturesAndTargetsExtractor
 from ..feature_handling.fingerprint import reset_session as reset_fh_session
-from ..helpers import (
-    TrainMlframeSuitePrecomputed,
-    get_trainset_features_stats,
-    get_trainset_features_stats_polars,
-)
+from ..helpers import TrainMlframeSuitePrecomputed
 from ..phases import phase, reset_phase_registry
-from ..utils import (
-    log_phase,
-    log_ram_usage,
-)
+from ..utils import log_phase
 
 from .utils import (
     _ensure_logging_visible,
@@ -70,7 +61,6 @@ from .utils import (
     _phase_pandas_conversion_and_cat_prep,
     _phase_train_val_test_split,
 )
-from ._training_context import TrainingContext
 # CODE-P1-8: single consolidated import for all per-phase entry points (was 8 separate ``from
 # ._phase_X import Y`` lines). Call e.g. ``pr.apply_polars_categorical_fixes(...)``.
 from . import _phase_runners as pr
@@ -78,6 +68,18 @@ from . import _phase_runners as pr
 
 from ._misc_helpers import _bulk_setattr_to_ctx, _split_preds_probs, _prep_polars_df  # noqa: F401
 from ._main_train_suite_target_distribution import _run_target_distribution_analyzer
+from ._main_train_suite_phases import (
+    apply_module_global_patches,
+    apply_polars_cat_fixes_and_back_write_ctx,
+    check_precomputed_fingerprint,
+    compute_or_fetch_trainset_features_stats,
+    export_votenrank_leaderboards,
+    maybe_apply_composite_target_specs_precomputed,
+    maybe_apply_dummy_baselines_precomputed,
+    run_recurrent_finalize_and_composite_post,
+    validate_suite_inputs,
+    warn_on_empty_target_by_type,
+)
 
 
 # Module-level handles for the prelude patch functions. They're populated
@@ -209,22 +211,8 @@ def train_mlframe_models_suite(
     if verbose:
         _ensure_logging_visible()
 
-    # Apply the third-party patches the suite relies on
-    # (LGBMModel.feature_names_in_ setter; dataset-build logging) lazily
-    # at suite entry. Previously these ran as import-time side effects
-    # of ``mlframe.training``; now bare imports leave joblib / lightgbm
-    # / catboost / xgboost untouched.
-    # The two functions are looked up on this module so test code can
-    # monkeypatch them in-place to observe call ordering.
-    global apply_loky_cpu_count_override, apply_third_party_patches_once
-    if apply_loky_cpu_count_override is None:
-        from .. import apply_loky_cpu_count_override as _apply_loky
-        apply_loky_cpu_count_override = _apply_loky
-    if apply_third_party_patches_once is None:
-        from .._model_factories import apply_third_party_patches_once as _apply_patches
-        apply_third_party_patches_once = _apply_patches
-    apply_loky_cpu_count_override()
-    apply_third_party_patches_once()
+    import sys as _sys
+    apply_module_global_patches(_sys.modules[__name__])
 
     # Module-global registry; not safe to invoke concurrent training suites from the same process.
     reset_phase_registry()
@@ -235,28 +223,7 @@ def train_mlframe_models_suite(
     # each suite starts from a fresh FH cache namespace.
     reset_fh_session()
 
-    # Wave 29 P2 fix (2026-05-20): pre-fix rejected ``pathlib.Path`` with
-    # a confusing "must be ... path string" message. Path is a natural
-    # caller idiom (yaml config + Path / Click + Path); coerce to str
-    # at the boundary so the downstream parquet-read path stays unchanged.
-    import os as _os_for_pathlike
-    if isinstance(df, _os_for_pathlike.PathLike):
-        df = str(df)
-    if not isinstance(df, (pd.DataFrame, pl.DataFrame, str)):
-        raise TypeError(f"df must be pandas DataFrame, polars DataFrame, or path string / PathLike, " f"got {type(df).__name__}")
-    if isinstance(df, str) and not df.lower().endswith(".parquet"):
-        raise ValueError(f"File path must be a .parquet file, got: {df}")
-
-    if target_name is None or not isinstance(target_name, str):
-        raise TypeError(f"target_name must be a non-empty string, got {type(target_name).__name__}")
-    if not target_name.strip():
-        raise ValueError("target_name cannot be empty or whitespace-only")
-    if model_name is None or not isinstance(model_name, str):
-        raise TypeError(f"model_name must be a non-empty string, got {type(model_name).__name__}")
-    if not model_name.strip():
-        raise ValueError("model_name cannot be empty or whitespace-only")
-    if features_and_targets_extractor is None:
-        raise ValueError("features_and_targets_extractor is required")
+    df = validate_suite_inputs(df, target_name, model_name, features_and_targets_extractor)
 
     ctx = pr.setup_configuration(
         preprocessing_config=preprocessing_config,
@@ -332,22 +299,7 @@ def train_mlframe_models_suite(
     _phase_load_and_preprocess(ctx, features_and_targets_extractor=features_and_targets_extractor)
     df = ctx.df
     target_by_type = ctx.target_by_type
-    # Empty target_by_type means the extractor returned no targets - usually a
-    # caller-side mis-configuration (e.g. SimpleFeaturesAndTargetsExtractor with
-    # classification_exact_values set but classification_targets omitted, since
-    # build_targets gates the exact-values branch on classification_targets
-    # being truthy). Pre-fix this short-circuited silently to (empty_models, metadata)
-    # making such misconfigurations look like a fast successful run; loud WARN
-    # surfaces them at suite entry instead.
-    if not target_by_type:
-        logger.warning(
-            "train_mlframe_models_suite: features_and_targets_extractor produced an "
-            "empty target_by_type. No models will be trained. Check the extractor's "
-            "configuration - common cause is passing classification_exact_values / "
-            "classification_thresholds without classification_targets=[...] (the "
-            "default SimpleFeaturesAndTargetsExtractor.build_targets gates those "
-            "branches on classification_targets being truthy)."
-        )
+    warn_on_empty_target_by_type(target_by_type)
     group_ids_raw = ctx.group_ids_raw
     group_ids = ctx.group_ids
     timestamps = ctx.timestamps
@@ -534,50 +486,14 @@ def train_mlframe_models_suite(
     # PRECOMP-NO-FP-CHECK: when the caller stamped ``train_df_fingerprint`` on the bundle, verify it
     # matches the live train frame. A mismatch (caller passed a bundle from a different run) is a
     # silent label-leak vector -- we WARN-and-recompute rather than trust the precomputed stats.
-    _precomp_fp_ok = True
-    if (
-        precomputed is not None
-        and precomputed.train_df_fingerprint
-        and train_df is not None
-    ):
-        try:
-            from ..feature_handling.fingerprint import fingerprint_df as _fp
-            _live_fp = _fp(train_df).short()
-            _bundle_fp = str(precomputed.train_df_fingerprint)
-            if _bundle_fp not in (_live_fp, _live_fp[:len(_bundle_fp)]):
-                logger.warning(
-                    "precomputed.train_df_fingerprint (%s) does not match live train_df fingerprint (%s); "
-                    "ignoring the precomputed bundle and recomputing inline.",
-                    _bundle_fp, _live_fp,
-                )
-                _precomp_fp_ok = False
-        except Exception as _fp_err:
-            logger.debug("precompute fingerprint cross-check skipped (%s)", _fp_err)
-    # Truthy gate (not "is not None"): empty dicts/Series must NOT silently disable the inline compute -- the
-    # ``precompute_*`` stubs historically returned ``{}`` and at-call callers occasionally pass through partial
-    # bundles from disk.
-    if _precomp_fp_ok and precomputed is not None and precomputed.trainset_features_stats:
-        if verbose:
-            logger.info("Using caller-supplied trainset_features_stats (precomputed bundle); skipping inline compute.")
-        trainset_features_stats = precomputed.trainset_features_stats
-    elif isinstance(train_df, pl.DataFrame):
-        if verbose:
-            logger.info("Computing trainset_features_stats on Polars...")
-        with phase("trainset_features_stats", backend="polars"):
-            trainset_features_stats = get_trainset_features_stats_polars(train_df)
-    elif isinstance(train_df_polars_pre, pl.DataFrame):
-        # Polars fastpath fallback: when the live ``train_df`` has been pandas-converted upstream (a non-native preprocessor forced the conversion) but
-        # the pre-conversion polars original is still pinned, prefer the polars backend. The pandas ``get_trainset_features_stats`` iterates cat columns
-        # in pure Python (one ``.unique()`` collect per col) while the polars backend batches them via a single ``.collect()`` with ``implode()``.
-        if verbose:
-            logger.info("Computing trainset_features_stats on Polars (using train_df_polars_pre; live train_df is pandas)...")
-        with phase("trainset_features_stats", backend="polars"):
-            trainset_features_stats = get_trainset_features_stats_polars(train_df_polars_pre)
-    else:
-        if verbose:
-            logger.info("Computing trainset_features_stats on pandas...")
-        with phase("trainset_features_stats", backend="pandas"):
-            trainset_features_stats = get_trainset_features_stats(train_df)
+    _precomp_fp_ok = check_precomputed_fingerprint(precomputed, train_df)
+    trainset_features_stats = compute_or_fetch_trainset_features_stats(
+        _precomp_fp_ok=_precomp_fp_ok,
+        precomputed=precomputed,
+        train_df=train_df,
+        train_df_polars_pre=train_df_polars_pre,
+        verbose=verbose,
+    )
 
     (
         train_df_pd, val_df_pd, test_df_pd,
@@ -654,23 +570,12 @@ def train_mlframe_models_suite(
             _discovery_cache_dir = str(_P(data_dir) / ".discovery_cache")
     except Exception:
         _discovery_cache_dir = None
-    # Opt-in fast path: caller-supplied composite_target_specs bypasses the discovery phase entirely.
-    # Pre-seed metadata so downstream readers (per-target dummy-baseline inversion, predict-time
-    # composite inverse transforms) find the specs in their usual location. target_by_type is left
-    # unchanged because the caller-supplied specs imply the augmented targets already live in it.
-    # Truthy gate (not "is not None"): an empty composite spec dict carries zero discovered targets, which is
-    # indistinguishable from "discovery skipped"; if we let it through, the suite would silently lose every
-    # composite target. The stub helpers used to return {} -- truthy gate is the defensive fix.
-    if _precomp_fp_ok and precomputed is not None and precomputed.composite_target_specs:
-        if verbose:
-            logger.info("Using caller-supplied composite_target_specs (precomputed bundle); skipping discovery.")
-        # Deep-copy so a downstream phase that ever appends to metadata['composite_target_specs']
-        # doesn't mutate the caller's precomputed bundle. Pre-fix this was a shared reference;
-        # a notebook calling the suite once per fold while reusing the same precomputed bundle
-        # would see call N's late-arrived spec stamped INTO the bundle and resurface in call N+1.
-        import copy as _copy
-        metadata["composite_target_specs"] = _copy.deepcopy(precomputed.composite_target_specs)
-    else:
+    if not maybe_apply_composite_target_specs_precomputed(
+        _precomp_fp_ok=_precomp_fp_ok,
+        precomputed=precomputed,
+        metadata=metadata,
+        verbose=verbose,
+    ):
         target_by_type, metadata = pr.run_composite_target_discovery(
             composite_target_discovery_config=composite_target_discovery_config,
             target_by_type=target_by_type,
@@ -691,7 +596,13 @@ def train_mlframe_models_suite(
             group_ids=group_ids,
         )
 
-    _polars_fixes_result = pr.apply_polars_categorical_fixes(
+    (
+        train_df_polars, val_df_polars, test_df_polars,
+        train_df_pd, val_df_pd, test_df_pd,
+        filtered_train_df, filtered_val_df,
+    ) = apply_polars_cat_fixes_and_back_write_ctx(
+        pr_module=pr,
+        ctx=ctx,
         train_df_polars=train_df_polars,
         val_df_polars=val_df_polars,
         test_df_polars=test_df_polars,
@@ -701,70 +612,22 @@ def train_mlframe_models_suite(
         filtered_train_df=filtered_train_df,
         filtered_val_df=filtered_val_df,
         cat_features=cat_features,
-        align_polars_categorical_dicts=behavior_config.align_polars_categorical_dicts,
+        behavior_config=behavior_config,
         defer_pandas_conv=defer_pandas_conv,
         was_polars_input=was_polars_input,
-        verbose=bool(verbose),
+        metadata=metadata,
+        verbose=verbose,
+        _bulk_setattr_to_ctx=_bulk_setattr_to_ctx,
     )
-    (
-        train_df_polars, val_df_polars, test_df_polars,
-        train_df_pd, val_df_pd, test_df_pd,
-        filtered_train_df, filtered_val_df,
-    ) = _polars_fixes_result[:8]
-    # Persist the train+val Enum domain into metadata so predict-time XGB-polars cat-cast lands on pl.Enum (no global string cache widening) and OOV test-only categories cast to null via strict=False -- matches training's "truly unseen test" treatment and prevents silent stale-category accumulation across inference calls.
-    _enum_domains_export = getattr(_polars_fixes_result, "enum_domains", None) or {}
-    if _enum_domains_export:
-        metadata.setdefault("enum_domains", {}).update(_enum_domains_export)
-    # Write the filled frames BACK to ctx. ``_train_one_target`` later
-    # does ``train_df_polars = ctx.train_df_polars``; without this
-    # back-write it would read the pre-fix frames with nulls still in
-    # cat columns, causing CB Arrow Pool to crash with 'Data with nulls
-    # is not supported for categorical columns'. Covered by
-    # test_sensor_polars_utf8_nullable_cat_fills_before_cb +
-    # test_sensor_enum_null_fill_reaches_lazy_pandas_conversion.
-    _bulk_setattr_to_ctx(ctx, (
-        "train_df_polars", "val_df_polars", "test_df_polars",
-        "train_df_pd", "val_df_pd", "test_df_pd",
-        "filtered_train_df", "filtered_val_df",
-    ), locals())
 
-    # Opt-in fast path: caller-supplied dummy_baselines bypasses the per-target dummy compute.
-    # Pre-seed metadata so downstream summary / verdict consumers find the payload in its usual
-    # location, then shallow-copy dummy_baselines_config with enabled=False so the per-target
-    # ``run_dummy_baselines`` short-circuits (its first guard checks ``config.enabled``).
-    # Truthy gate (not "is not None"): empty dummy_baselines would silently disable every per-target compute --
-    # callers must supply real values; "I passed it but it's empty" must fall through to inline compute.
-    if _precomp_fp_ok and precomputed is not None and precomputed.dummy_baselines:
-        if verbose:
-            logger.info("Using caller-supplied dummy_baselines (precomputed bundle); skipping per-target compute.")
-        # Deep-copy: same cross-suite alias hazard as composite_target_specs above. Caller's
-        # bundle stays immutable across multiple suite calls reusing the same precomputed object.
-        import copy as _copy_db
-        metadata["dummy_baselines"] = _copy_db.deepcopy(precomputed.dummy_baselines)
-        try:
-            dummy_baselines_config = dummy_baselines_config.model_copy(update={"enabled": False})
-        except AttributeError:
-            # Defensive: when the config slot is plain dict / SimpleNamespace fall back to attribute set.
-            # Narrow except: only the failures that mean "not a pydantic / not attr-settable" object.
-            # A pydantic v2 frozen model raises ValidationError on attribute set; treat the same.
-            try:
-                dummy_baselines_config.enabled = False
-            except (AttributeError, TypeError) as _set_err:
-                # Pre-fix this swallowed bare Exception (including ValidationError on frozen pydantic
-                # models). enabled stayed True, run_dummy_baselines would re-compute from scratch and
-                # OVERWRITE metadata["dummy_baselines"] -- silently discarding the caller-supplied
-                # precomputed payload that the user supplied via the precomputed bundle. Raise so
-                # the caller knows the precompute fast-path isn't usable for their config type
-                # rather than silently re-running and corrupting the precomputed result.
-                raise RuntimeError(
-                    f"dummy_baselines_config of type {type(dummy_baselines_config).__name__} "
-                    f"is neither pydantic-copyable (no .model_copy) nor attr-settable "
-                    f"(.enabled = False raised {type(_set_err).__name__}: {_set_err}). "
-                    f"The precompute fast-path can't disable downstream re-compute, which "
-                    f"would silently overwrite your precomputed dummy_baselines. Pass a "
-                    f"pydantic DummyBaselinesConfig or a writable dataclass / SimpleNamespace."
-                ) from _set_err
-        ctx.dummy_baselines_config = dummy_baselines_config
+    dummy_baselines_config = maybe_apply_dummy_baselines_precomputed(
+        _precomp_fp_ok=_precomp_fp_ok,
+        precomputed=precomputed,
+        metadata=metadata,
+        dummy_baselines_config=dummy_baselines_config,
+        ctx=ctx,
+        verbose=verbose,
+    )
 
     # Save metadata early so partial training runs leave already-trained models usable.
     _finalize_and_save_metadata(ctx)
@@ -788,84 +651,22 @@ def train_mlframe_models_suite(
         for cur_target_name, cur_target_values in tqdmu_lazy_start(targets.items(), desc="target"):
             pr._train_one_target(ctx, target_type, targets, cur_target_name, cur_target_values)
 
-    # VOTENRANK-DISCONNECT (post-loop): collect any per-target ``_leaderboard`` payloads that
-    # ``score_ensemble`` parked on the ensemble result dicts and surface them under a single
-    # ``metadata["votenrank_leaderboard"]`` key. CSV export lands under
-    # ``output_config.data_dir/.leaderboard.csv`` when data_dir is set. The wire is read-only on
-    # ``ctx.ensembles`` so it can't reach back into the per-target loop and is safe to skip when
-    # F2 has not emitted any leaderboard yet (forward-compat with older score_ensemble builds).
-    try:
-        _leaderboards = {}
-        for _tt, _by_name in (ctx.ensembles or {}).items():
-            for _tname, _ens_dict in (_by_name or {}).items():
-                if not isinstance(_ens_dict, dict):
-                    continue
-                _lb = _ens_dict.get("_leaderboard")
-                if _lb is None:
-                    continue
-                _leaderboards.setdefault(str(_tt), {})[_tname] = _lb
-        if _leaderboards:
-            ctx.metadata["votenrank_leaderboard"] = _leaderboards
-            if data_dir:
-                _csv_path = _P(data_dir) / ".leaderboard.csv"
-                try:
-                    # Concatenate per-(type, target) frames with two index columns so a reader can
-                    # filter back to one slice. Honour pl.DataFrame vs pd.DataFrame via .write_csv /
-                    # .to_csv duck typing; mixed cases concat after a unified to_pandas hop.
-                    import pandas as _pd
-                    _frames = []
-                    for _tt_s, _by_name in _leaderboards.items():
-                        for _tname, _lb in _by_name.items():
-                            if isinstance(_lb, pl.DataFrame):
-                                # Route through Arrow split-blocks bridge (~32x vs default to_pandas, preserves Enum/Categorical/datetime dtypes); the prior pl->CSV->pandas re-read densified all dtypes to string.
-                                from ..utils import get_pandas_view_of_polars_df as _get_pandas_view
-                                _frame = _get_pandas_view(_lb)
-                            elif isinstance(_lb, _pd.DataFrame):
-                                _frame = _lb
-                            else:
-                                _frame = _pd.DataFrame(_lb)
-                            _frame.insert(0, "target_type", _tt_s)
-                            _frame.insert(1, "target_name", _tname)
-                            _frames.append(_frame)
-                    if _frames:
-                        _all_lb = _pd.concat(_frames, ignore_index=True)
-                        _all_lb.to_csv(_csv_path, index=False)
-                        if verbose:
-                            logger.info("votenrank leaderboard exported: %s (%d rows)", _csv_path, len(_all_lb))
-                except Exception as _csv_err:
-                    logger.warning("votenrank leaderboard CSV export failed: %s", _csv_err)
-    except Exception as _vn_err:
-        logger.warning("votenrank leaderboard wiring failed: %s", _vn_err)
+    export_votenrank_leaderboards(ctx=ctx, data_dir=data_dir, verbose=verbose)
 
-    models = ctx.models
-    metadata = ctx.metadata
+    # Reads consumed by ``run_recurrent_finalize_and_composite_post`` only. The historical block
+    # also mirrored ``ctx.{train,val,test}_df_polars`` / pipeline / defer_pandas_conv / baseline_rss_mb
+    # / ``*_size_bytes_cached`` / trainset_features_stats / slug_to_original_target_{type,name} into
+    # locals; none of those locals were read after this point so they were dead in the pre-carve body.
     _non_neural_train_times = ctx._non_neural_train_times
-    train_df_polars = ctx.train_df_polars
-    val_df_polars = ctx.val_df_polars
-    test_df_polars = ctx.test_df_polars
     train_df_pd = ctx.train_df_pd
     val_df_pd = ctx.val_df_pd
     test_df_pd = ctx.test_df_pd
     filtered_train_df = ctx.filtered_train_df
     filtered_val_df = ctx.filtered_val_df
-    pipeline = ctx.pipeline
-    defer_pandas_conv = ctx.defer_pandas_conv
-    baseline_rss_mb = ctx.baseline_rss_mb
-    train_df_size_bytes_cached = ctx.train_df_size_bytes_cached
-    val_df_size_bytes_cached = ctx.val_df_size_bytes_cached
-    trainset_features_stats = ctx.trainset_features_stats
-    slug_to_original_target_type = ctx.slug_to_original_target_type
-    slug_to_original_target_name = ctx.slug_to_original_target_name
 
-    # CODE-P1-12: read recurrent_models from ctx (not the closed-over function param) so any
-    # mid-flow mutation of ctx.recurrent_models propagates correctly to train_recurrent_models.
-    # ctx is threaded through so train_recurrent_models can rerun score_ensemble with the recurrent member
-    # entries appended (otherwise the recurrent models silently bypass the ensemble that already ran for the
-    # same target during _train_one_target). test_df_pd added for the same reason - the helper needs all
-    # three splits to compute per-member preds for the rerun.
-    models = pr.train_recurrent_models(
-        models=models,
-        recurrent_models=ctx.recurrent_models,
+    models, metadata = run_recurrent_finalize_and_composite_post(
+        ctx=ctx,
+        pr_module=pr,
         recurrent_config=recurrent_config,
         train_sequences=train_sequences,
         val_sequences=val_sequences,
@@ -880,38 +681,15 @@ def train_mlframe_models_suite(
         test_idx=test_idx,
         _non_neural_train_times=_non_neural_train_times,
         model_name=model_name,
-        verbose=bool(verbose),
-        ctx=ctx,
-    )
-    ctx.models = models
-
-    if verbose:
-        log_phase(f"Training suite completed for {model_name}, {sum(len(v) for targets in models.values() for v in targets.values())} models.")
-        log_ram_usage()
-
-    metadata = pr.finalize_suite(ctx)
-
-    models, metadata = pr.run_composite_post_processing(
-        models=models,
-        metadata=metadata,
-        target_by_type=target_by_type,
-        composite_target_discovery_config=composite_target_discovery_config,
         target_name=target_name,
-        model_name=model_name,
+        composite_target_discovery_config=composite_target_discovery_config,
         filtered_train_df=filtered_train_df,
         filtered_val_df=filtered_val_df,
-        test_df_pd=test_df_pd,
         filtered_train_idx=filtered_train_idx,
         filtered_val_idx=filtered_val_idx,
-        test_idx=test_idx,
-        train_df_pd=train_df_pd,
-        val_df_pd=val_df_pd,
-        train_idx=train_idx,
-        val_idx=val_idx,
         dummy_baselines_config=dummy_baselines_config,
         reporting_config=reporting_config,
-        plot_file=None,
-        verbose=bool(verbose),
+        verbose=verbose,
     )
     # ``_dropped_high_card_data`` is bound unconditionally above (post-auto-detect tuple
     # unpacking); the previous try/except guarded against a NameError that can no longer
