@@ -291,9 +291,15 @@ class TestBestEpochModelCheckpoint:
                 filename='best'
             )
 
-    @patch('mlframe.training.neural.base.logger')
+    @patch('mlframe.training.neural._base_callbacks.logger')
     def test_initialization_logs_message(self, mock_logger):
-        """Test that initialization logs a message."""
+        """Test that initialization logs a message.
+
+        ``BestEpochModelCheckpoint`` was carved out of ``base.py`` into
+        sibling ``_base_callbacks.py`` (each module owns its own logger),
+        so patch the sibling's logger -- patching base.py's no longer
+        intercepts the init-time log line.
+        """
         callback = BestEpochModelCheckpoint(
             monitor='val_loss',
             mode='min',
