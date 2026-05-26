@@ -675,6 +675,61 @@ AXES: dict[str, tuple[Any, ...]] = {
     "multilabel_chain_seeds_cfg": (None, "explicit"),
     # F1 (fuzz_blind_spots_F1_F2_F5_F6_F7) -- enable_crash_reporting is a suite-level kwarg consumed directly by train_mlframe_models_suite. Canonicalises to False on non-Windows hosts (crash_reporting is a Windows-specific Faulthandler dump hook there).
     "enable_crash_reporting_cfg": (False, True),
+    # =====================================================================
+    # 2026-05-26 iter291 -- new-functionality coverage (258 commits over the
+    # last 2 days landed substantive new features; the axes below pull each
+    # config-flag-flippable surface into fuzz space so the new code paths
+    # get cross-axis interaction coverage.
+    # =====================================================================
+    # TrainingSplitConfig.bucket_stratify (default flipped True 2026-05-25):
+    # regression-target stratified split into quantile buckets. False
+    # exercises the legacy random-split path that the new default replaced.
+    # Canonicalised to True for non-regression primaries (no-op gate).
+    "bucket_stratify_cfg": (True, False),
+    # TrainingSplitConfig.composite_cardinality_cap (default 200): caps the
+    # cardinality of group keys / strata used by the split. Pinning to a
+    # tight value (50) forces the cap to actually bite on combos with
+    # high-cardinality cat columns; the default (200) leaves headroom.
+    "composite_cardinality_cap_cfg": (200, 50),
+    # ReportingConfig.honest_estimator_diagnostics (default True 2026-05-25):
+    # post-fit honest-diagnostics aggregator (target-distribution mismatch,
+    # train-val drift, leakage probe summary). False skips the entire pass
+    # so the aggregator overhead is fuzzed alongside its enabled-default.
+    "honest_estimator_diagnostics_cfg": (True, False),
+    # CompositeTargetDiscoveryConfig.cross_target_ensemble_strategy
+    # (default "nnls_stack" per _composite_target_discovery_config.py:641):
+    # how the per-composite-component predictions are combined. Untested
+    # combinations through fuzz: "mean" (uniform avg), "oof_weighted"
+    # (gain-over-baseline weighting), "linear_stack" (OLS). Canon collapses
+    # to "nnls_stack" when composite_discovery_enabled_cfg is False.
+    "cross_target_ensemble_strategy_cfg": (
+        "nnls_stack", "mean", "oof_weighted", "linear_stack",
+    ),
+    # feature_engineering.basic.add_cyclical_date_features: 2026-05-25 added
+    # Kaggle-style cyclical sin/cos transforms (period 7/12/24/31/365). When
+    # True the runner threads ``add_cyclical_date_features=True`` so the
+    # date-decomposition produces 2K cols (sin+cos per period) on top of the
+    # legacy day/weekday/month integer cols. Canon collapses to False when
+    # with_datetime_col is False (no datetime column to transform).
+    "add_cyclical_date_features_cfg": (False, True),
+    # feature_engineering.basic extended-date features (Kaggle-style: quarter,
+    # day_of_year, week_of_year, is_weekend, is_month_start, etc.). Same
+    # canonicalisation as add_cyclical_date_features_cfg.
+    "add_extended_date_features_cfg": (False, True),
+    # NNLS stacking-aware blend (AP7+AP8 2026-05-25): when False the simple-
+    # blend path uses uniform weights; when True (default) NNLS weights from
+    # the stacking surrogate drive the simple-blend mix too. Untested False
+    # path matters because it's the fallback when NNLS solver fails. Canon
+    # collapses to True when use_ensembles is False.
+    "use_nnls_weights_in_blends_cfg": (True, False),
+    # Generic prediction-envelope clip phase (4e579b4d 2026-05-26): controls
+    # the ``MLFRAME_DISABLE_PREDICTION_ENVELOPE_CLIP`` env var. Default ON
+    # (env unset). False sets env=1 for the suite run, exercising the
+    # unclamped path so future regression-collapse incidents surface in
+    # fuzz. Canon collapses to True for non-regression primaries (clip is
+    # regression-only). When clip is False, the suite is allowed to emit
+    # extreme out-of-envelope predictions; tests must still pass.
+    "enable_prediction_envelope_clip_cfg": (True, False),
 }
 
 
@@ -973,6 +1028,17 @@ class FuzzCombo:
     multilabel_chain_seeds_cfg: "str | None" = None
     # F1 -- enable_crash_reporting (suite-level kwarg; Windows-only meaningful).
     enable_crash_reporting_cfg: bool = False
+    # 2026-05-26 iter291 new-functionality axes (post-2-day commit wave).
+    # Defaults match the post-fix library defaults so existing pinned sensor
+    # combos + archived ``_fuzz_results.jsonl`` rows keep deserialising.
+    bucket_stratify_cfg: bool = True
+    composite_cardinality_cap_cfg: int = 200
+    honest_estimator_diagnostics_cfg: bool = True
+    cross_target_ensemble_strategy_cfg: str = "nnls_stack"
+    add_cyclical_date_features_cfg: bool = False
+    add_extended_date_features_cfg: bool = False
+    use_nnls_weights_in_blends_cfg: bool = True
+    enable_prediction_envelope_clip_cfg: bool = True
 
     def canonical_key(self) -> tuple:
         """Hashable tuple used for dedup. Canonicalizes semantically
@@ -1492,6 +1558,48 @@ class FuzzCombo:
             self._canonical_pysr_enabled(),
             # F1 -- enable_crash_reporting is a Windows-only Faulthandler dump hook; on non-Windows hosts the True variant is a no-op so collapse to False. On Windows the axis stays meaningful.
             self._canonical_enable_crash_reporting(),
+            # 2026-05-26 iter291 -- new-functionality canons.
+            # bucket_stratify is a regression-target split-time toggle. For
+            # non-regression primaries it's a no-op gate, so collapse to the
+            # default True so the dedup pass coalesces identical-behaviour
+            # combos. Note: multi-target combos with a regression primary
+            # keep the axis live (the split applies to the primary).
+            (self.bucket_stratify_cfg if self.target_type == "regression" else True),
+            # composite_cardinality_cap is meaningful only when bucket_stratify
+            # is True AND there is a cat column whose cardinality could exceed
+            # the cap (n_rows tier 200k routinely produces high-card splits).
+            # Canonicalise to the default 200 otherwise so the cap variant
+            # collapses cleanly.
+            (
+                self.composite_cardinality_cap_cfg
+                if (self.target_type == "regression" and self.bucket_stratify_cfg
+                    and (self.cat_feature_count > 0 or self.n_rows >= 50_000))
+                else 200
+            ),
+            # honest_estimator_diagnostics is a reporting-side aggregator; always
+            # meaningful regardless of target type (the per-target aggregator
+            # walks every produced (target, model) pair).
+            self.honest_estimator_diagnostics_cfg,
+            # cross_target_ensemble_strategy only meaningful when composite
+            # discovery is on AND target is regression. Canon to "nnls_stack"
+            # default otherwise.
+            (
+                self.cross_target_ensemble_strategy_cfg
+                if (self.composite_discovery_enabled_cfg
+                    and self.target_type == "regression")
+                else "nnls_stack"
+            ),
+            # cyclical / extended date features only meaningful when a datetime
+            # column is present. Canon to False otherwise (the feature engine
+            # has no datetime to consume).
+            (self.add_cyclical_date_features_cfg if self.with_datetime_col else False),
+            (self.add_extended_date_features_cfg if self.with_datetime_col else False),
+            # NNLS weights in blends only meaningful when ensembling is on.
+            (self.use_nnls_weights_in_blends_cfg if self.use_ensembles else True),
+            # Prediction-envelope clip is regression-only. Canon to True
+            # (the post-fix default) for non-regression primaries so the
+            # False variant doesn't waste pairwise budget on no-op gates.
+            (self.enable_prediction_envelope_clip_cfg if self.target_type == "regression" else True),
         )
 
     def _canonical_recurrent_model(self) -> "str | None":
