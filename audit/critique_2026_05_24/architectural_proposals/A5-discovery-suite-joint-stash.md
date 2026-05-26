@@ -55,7 +55,9 @@ If Wave 11+ wants to unify, **Option C** (shared backend Protocol) is the safer 
 
 ## Status
 
-ARCH-DEFER (re-confirmed Wave 15c after detailed semantic audit).
+**RESOLVED — Option A (zero-action)**, user decision 2026-05-26.
+
+Rationale: Wave 15c agent's detailed semantic audit of all three caches (FeatureCache + DiscoveryCache + SuiteArtefactCache) surfaced six concrete behavioural divergences (write atomicity discipline, POSIX directory fsync, cross-process lock primitive choice, LRU persistence model, validation policy at construction, key sanitisation pre-processing) that cannot be reconciled into a single Protocol without changing on-disk behaviour for at least one existing caller. The unification cost (six behavioural shifts + Protocol leakage) exceeds the benefit (~150 LOC dedup of well-tested sha256/byte-counting logic). The shared discipline (sha256, atomic writes, 2 GB ceiling) is enforced by code review + the bare-pickle meta-test, NOT by a shared backend. The three caches remain intentionally parallel; future drift between them is the lower-cost failure mode vs forcing a leaky abstraction now. See W15c manifest `audit/critique_2026_05_24/manifests/DONE_w15c-ap15-shared-backend.json` for the full investigation trail.
 
 ## Wave 15c follow-up: Option C re-evaluated, re-DEFERRED
 
