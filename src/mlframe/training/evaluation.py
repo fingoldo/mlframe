@@ -615,7 +615,7 @@ def plot_model_feature_importances(
     model: Any,
     columns: Sequence[str],
     model_name: Optional[str] = None,
-    num_factors: int = 10,
+    num_factors: int = 15,
     figsize: Tuple[int, int] = DEFAULT_FI_FIGSIZE,
     positive_fi_only: bool = False,
     show_plots: bool = True,

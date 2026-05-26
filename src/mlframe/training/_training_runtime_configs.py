@@ -343,11 +343,15 @@ class FeatureImportanceConfig(BaseConfig):
     ``mlframe.training.evaluation.plot_model_feature_importances``.
     """
 
-    # 2026-05-12: default 40 -> 10. Plots/log lines become readable on
-    # the common feature counts (10-50) without horizontal scroll, and
-    # the user can still bump it via FeatureImportanceConfig(num_factors=...)
-    # when they want a wider view.
-    num_factors: int = 10
+    # History:
+    # * 2026-05-12: default 40 -> 10. Plots/log lines became readable on
+    #   the common feature counts (10-50) without horizontal scroll.
+    # * 2026-05-26 (user request): 10 -> 15. After shipping ~33 new TVT
+    #   features per the brainstorm rollout, the top-10 view truncates
+    #   informative tail features; 15 keeps the chart compact while
+    #   surfacing the next band of signals. Override via
+    #   ``FeatureImportanceConfig(num_factors=N)``.
+    num_factors: int = 15
     # 2026-05-13 (user request): default figsize reduced to half the
     # 3-panel regression diagnostic chart (DEFAULT_FIGSIZE=(15, 5)). The
     # previous unified (15, 5) FI plot still dominated suite reports.

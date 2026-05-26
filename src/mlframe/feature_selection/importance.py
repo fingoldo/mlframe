@@ -97,8 +97,12 @@ def _format_top_fi_for_log(
     return "\n".join(parts)
 
 
-_FI_PLOT_DEFAULT_N: int = 10
-_FI_LOG_DEFAULT_TOP_N: int = 10
+# 2026-05-26 (user request): bumped from 10 to 15 after the 33-new-
+# features rollout pushed the informative tail past the top-10 cut.
+# Override via FeatureImportanceConfig(num_factors=N) or via the
+# log_top_n / n kwargs.
+_FI_PLOT_DEFAULT_N: int = 15
+_FI_LOG_DEFAULT_TOP_N: int = 15
 # 2026-05-12 (user request): cap how many bars-with-FI~0 the chart shows.
 # Tree models on a residual target often pin 1-2 features near 1.0 and zero
 # everything else; rendering 23 invisible bars wastes vertical real-estate.
