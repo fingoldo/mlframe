@@ -154,6 +154,7 @@ def report_model_perf(
     ltr_panels: str | None = None,
     quantile_panels: str | None = None,
     quantile_alphas: Sequence[float] | None = None,
+    y_train_envelope_stats: Any = None,
 ) -> tuple[np.ndarray, np.ndarray | None]:
     """
     Generate a unified performance report for both classifiers and regressors.
@@ -287,8 +288,22 @@ def report_model_perf(
             # report can pick the plotly DSL path. Probabilistic path
             # uses plot_outputs differently (multi_target_panels at L277);
             # regression's only consumer is the residual-diagnostics chart.
+            #
+            # Decompose ``y_train_envelope_stats`` (computed once per
+            # (model, target) in the trainer) into the three legacy
+            # kwargs so the prediction-envelope clip uses the TRAIN
+            # bound (k=3 sigma) instead of the per-split eval-fallback
+            # bound (k=10 sigma). Composite-target wrap pass attaches
+            # its own y-scale stats; degenerate train targets pass
+            # None and the reporter falls back to eval-derived bounds.
+            _ytmin = _ytmax = _ytstd = None
+            if y_train_envelope_stats is not None:
+                _ytmin = getattr(y_train_envelope_stats, "y_min", None)
+                _ytmax = getattr(y_train_envelope_stats, "y_max", None)
+                _ytstd = getattr(y_train_envelope_stats, "y_std", None)
             preds, probs = report_regression_model_perf(
                 **common_params, plot_outputs=plot_outputs, plot_dpi=plot_dpi,
+                y_train_min=_ytmin, y_train_max=_ytmax, y_train_std=_ytstd,
             )
 
     # Render multiclass / multilabel / LTR panel

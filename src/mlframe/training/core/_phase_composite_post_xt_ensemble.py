@@ -648,6 +648,17 @@ def _build_cross_target_ensemble_for_target(
             # ``or []`` on a pandas Index raises ``The truth value of a Index is ambiguous``; explicit None+len check keeps both pandas Index and plain lists safe.
             _cols_attr = getattr(filtered_train_df, "columns", None)
             _ens_columns = list(_cols_attr) if _cols_attr is not None and len(_cols_attr) > 0 else []
+            # Compute train envelope once so val + test ensemble reports
+            # share the same TRAIN-bound prediction clip (k=3 sigma)
+            # rather than each fallback-deriving a different eval bound.
+            _ens_train_envelope = None
+            try:
+                _ens_y_train = _ens_y_arr[filtered_train_idx] if filtered_train_idx is not None else None
+                if _ens_y_train is not None and len(_ens_y_train) > 0:
+                    from .._prediction_envelope_clip import compute_train_envelope_stats
+                    _ens_train_envelope = compute_train_envelope_stats(_ens_y_train)
+            except Exception:
+                _ens_train_envelope = None
             _ens_common = dict(
                 columns=_ens_columns,
                 df=None, model=None,
@@ -656,6 +667,7 @@ def _build_cross_target_ensemble_for_target(
                 plot_dpi=getattr(reporting_config, "plot_dpi", None),
                 show_fi=False,
                 target_type=str(_tt_e),
+                y_train_envelope_stats=_ens_train_envelope,
             )
             for _split_name, _report_title, _split_idx, _split_df in (
                 ("val", "VAL (CT_ENSEMBLE) ", filtered_val_idx, filtered_val_df),

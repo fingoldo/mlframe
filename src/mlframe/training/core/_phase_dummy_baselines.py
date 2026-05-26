@@ -177,6 +177,19 @@ def run_dummy_baselines(
                 # ``X or []`` triggers pd.Index.__bool__ which raises ValueError; use an
                 # explicit None/empty check instead. Was: ``getattr(..., "columns", []) or []``.
                 _columns_attr = getattr(filtered_train_df, "columns", None)
+                # Train envelope stats so the dummy report's val/test
+                # charts share the same prediction-clip bound as the
+                # real-model reports (constant-predictor dummies never
+                # exceed the train bound by construction; the wiring
+                # is mostly for consistency + non-dummy callsites that
+                # forward through the same helper).
+                _dummy_envelope_stats = None
+                if current_train_target is not None:
+                    try:
+                        from .._prediction_envelope_clip import compute_train_envelope_stats
+                        _dummy_envelope_stats = compute_train_envelope_stats(current_train_target)
+                    except Exception:
+                        _dummy_envelope_stats = None
                 _common = dict(
                     columns=list(_columns_attr) if _columns_attr is not None else [],
                     df=None, model=None,
@@ -185,6 +198,7 @@ def run_dummy_baselines(
                     plot_dpi=getattr(reporting_config, "plot_dpi", None),
                     show_fi=False,
                     target_type=str(target_type),
+                    y_train_envelope_stats=_dummy_envelope_stats,
                 )
                 if _strongest_val_raw is not None and current_val_target is not None:
                     _vp, _vpr = _split_preds_probs(_strongest_val_raw)

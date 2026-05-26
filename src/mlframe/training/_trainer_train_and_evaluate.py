@@ -587,6 +587,27 @@ def train_and_evaluate_model(
         if verbose:
             logger.info("Computing model's performance...")
 
+        # Compute train-target envelope stats ONCE per (model, target) and
+        # forward to every split's metrics call so the prediction-envelope
+        # clip (in ``report_regression_model_perf``) gets the TRAIN bound
+        # rather than falling back to the per-split eval bound (which is
+        # a defensive net but not the conceptually correct domain).
+        # ``train_target`` here is the y-scale target for this model;
+        # for composite-target estimators (CompositeTargetEstimator) the
+        # inner T-scale bound is computed by the wrapper itself, the
+        # outer y-scale report sees y_train and gets the right bound.
+        _y_train_envelope_stats = None
+        if train_target is not None:
+            try:
+                from ._prediction_envelope_clip import compute_train_envelope_stats
+                _y_train_envelope_stats = compute_train_envelope_stats(train_target)
+            except Exception as _env_err:
+                logger.debug(
+                    "Could not compute train envelope stats: %s. Per-split "
+                    "eval-fallback envelope still applies in the reporter.",
+                    _env_err,
+                )
+
         common_metrics_params = dict(
             model=model,
             model_type_name=model_type_name,
@@ -619,6 +640,11 @@ def train_and_evaluate_model(
             # render_multi_target_panels so regression+group_ids doesn't
             # incorrectly render LTR/multilabel/multiclass panels.
             target_type=getattr(data, "target_type", None),
+            # Forwarded to ``report_regression_model_perf`` so the
+            # prediction-envelope clip uses the TRAIN bound. None for
+            # classification / degenerate train targets; the reporter
+            # auto-falls back to the per-split eval envelope in that case.
+            y_train_envelope_stats=_y_train_envelope_stats,
         )
 
         has_val = (val_idx is not None and len(val_idx) > 0) or val_df is not None

@@ -171,3 +171,43 @@ class TestReportingIntegration:
         src = Path(rep.__file__).read_text(encoding="utf-8")
         # The clip block must be gated on the three kwargs being non-None.
         assert "if (y_train_min is not None and y_train_max is not None" in src
+
+    def test_train_envelope_stats_threaded_through_unified_entry(self) -> None:
+        """2026-05-26: ``report_model_perf`` accepts a single
+        ``y_train_envelope_stats`` object (computed once by the
+        trainer) and decomposes it into the three legacy kwargs when
+        forwarding to ``report_regression_model_perf``. End-to-end
+        replaces the prior 16+ -callsite y_train_min/max/std threading
+        that nobody ever wired."""
+        import inspect
+        from mlframe.training._reporting import report_model_perf
+        sig = inspect.signature(report_model_perf)
+        assert "y_train_envelope_stats" in sig.parameters
+
+    def test_split_metrics_helper_forwards_envelope_stats(self) -> None:
+        """Trainer-side ``_compute_split_metrics`` is the per-split
+        bridge between the training loop and the reporter; it must
+        forward the envelope stats so val + test get the same TRAIN
+        bound."""
+        import inspect
+        from mlframe.training._eval_helpers import _compute_split_metrics
+        sig = inspect.signature(_compute_split_metrics)
+        assert "y_train_envelope_stats" in sig.parameters
+
+    def test_train_bound_uses_k3_eval_fallback_uses_k10(self) -> None:
+        """Behaviour: when the train envelope is supplied, the clip
+        uses k=3 sigma (tighter, conceptually correct). When ONLY
+        eval targets are available, k=10 (defensive). Bounds must
+        differ accordingly so train-stats actually do work."""
+        from mlframe.training._prediction_envelope_clip import (
+            TrainEnvelopeStats, clip_predictions_to_train_envelope,
+        )
+        stats = TrainEnvelopeStats(y_min=10.0, y_max=20.0, y_std=2.0)
+        # Train k=3 -> [10 - 6, 20 + 6] = [4, 26]
+        preds = np.array([3.0, 15.0, 27.0])
+        train_clip = clip_predictions_to_train_envelope(preds, stats, k_sigma=3.0)
+        assert train_clip[0] == pytest.approx(4.0)
+        assert train_clip[2] == pytest.approx(26.0)
+        # Eval k=10 -> [10 - 20, 20 + 20] = [-10, 40]
+        eval_clip = clip_predictions_to_train_envelope(preds, stats, k_sigma=10.0)
+        np.testing.assert_allclose(eval_clip, preds)
