@@ -533,6 +533,14 @@ def get_training_configs(
         _lgb_obj = _classif_objective_kwargs("lightgbm", _resolved_tt, n_classes)
         if _lgb_obj:
             LGB_GENERAL_PARAMS.update(_lgb_obj)
+            # The setdefault("metric", _LGB_METRIC_NAME) above stamps the
+            # REGRESSION metric (e.g. "l2" for RMSE) before this classification
+            # branch runs. LGB rejects multiclass objective + regression metric
+            # at fit time ("Multiclass objective and metrics don't match"), so
+            # override the metric to align with the multiclass objective.
+            # Mirror the XGB pattern at line 295 (XGB_GENERAL_CLASSIF["eval_metric"] = "mlogloss").
+            if _lgb_obj.get("objective") == "multiclass":
+                LGB_GENERAL_PARAMS["metric"] = "multi_logloss"
             LGB_GENERAL_PARAMS["_mlframe_target_type"] = str(_resolved_tt.value)
 
     NGB_GENERAL_PARAMS = dict(
