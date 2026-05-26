@@ -12,11 +12,11 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
-from sklearn.datasets import make_classification, make_regression
 from sklearn.linear_model import LogisticRegression, Ridge
 from sklearn.model_selection import StratifiedKFold, KFold, cross_val_score
 
 from mlframe.feature_selection.wrappers import RFECV
+from tests.training.synthetic import make_sklearn_classification_df
 
 
 # ----------------------------------------------------------------------------
@@ -46,14 +46,13 @@ def test_recovers_informative_features_clf():
     """On a well-conditioned problem with 8 informative + 40 noise features,
     a strong-enough estimator should recover at least 75% of the informative
     set. This was the test that the previous suite skipped at recall>=0.2."""
-    X, y = make_classification(
+    X_df, y, _ = make_sklearn_classification_df(
         n_samples=1000, n_features=48, n_informative=8,
-        n_redundant=0, n_repeated=0, n_classes=2,
-        n_clusters_per_class=1, class_sep=2.0, random_state=0,
+        n_redundant=0, n_classes=2,
+        n_clusters_per_class=1, class_sep=2.0, seed=0,
         shuffle=False,  # keep informative cols at indices [0..n_informative)
     )
-    cols = [f"f{i}" for i in range(X.shape[1])]
-    X_df = pd.DataFrame(X, columns=cols)
+    cols = list(X_df.columns)
     informative_idx = set(range(8))
 
     rfecv = RFECV(
@@ -88,14 +87,13 @@ def test_score_lift_vs_all_features():
     well-regularised LogisticRegression(C=1.0), which handles noise via L2 -
     so dropping noise yielded no lift. Use C=1e6 (effectively unregularised)
     to expose the bias-variance tradeoff."""
-    X, y = make_classification(
+    X_df, y, _ = make_sklearn_classification_df(
         n_samples=300, n_features=80, n_informative=5,
-        n_redundant=0, n_repeated=0, n_classes=2,
-        n_clusters_per_class=1, class_sep=1.0, random_state=1,
+        n_redundant=0, n_classes=2,
+        n_clusters_per_class=1, class_sep=1.0, seed=1,
         shuffle=False,
     )
-    cols = [f"f{i}" for i in range(X.shape[1])]
-    X_df = pd.DataFrame(X, columns=cols)
+    cols = list(X_df.columns)
 
     cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=1)
     # C=1e6 effectively disables L2 so noise features actually hurt.
@@ -179,12 +177,11 @@ def test_collinear_features_get_deduplicated():
 def test_feature_cost_shifts_to_fewer_features():
     """A non-zero feature_cost should result in n_features_ <= n_features_(cost=0)
     on the same problem and seed."""
-    X, y = make_classification(
+    X_df, y, _ = make_sklearn_classification_df(
         n_samples=400, n_features=20, n_informative=4,
-        n_redundant=0, n_repeated=0, n_classes=2,
-        n_clusters_per_class=1, class_sep=1.5, random_state=2,
+        n_redundant=0, n_classes=2,
+        n_clusters_per_class=1, class_sep=1.5, seed=2,
     )
-    X_df = pd.DataFrame(X, columns=[f"f{i}" for i in range(X.shape[1])])
 
     common_kwargs = dict(
         estimator=LogisticRegression(max_iter=400, random_state=0),
@@ -220,12 +217,11 @@ def test_stable_selection_across_seeds():
     """Pairwise Jaccard of selected supports across 3 random seeds must be
     >= 0.5 on a well-conditioned problem. Lower indicates the selector is
     excessively variance-driven, not signal-driven."""
-    X, y = make_classification(
+    X_df, y, _ = make_sklearn_classification_df(
         n_samples=600, n_features=20, n_informative=5,
-        n_redundant=0, n_repeated=0, n_classes=2,
-        n_clusters_per_class=1, class_sep=2.0, random_state=42,
+        n_redundant=0, n_classes=2,
+        n_clusters_per_class=1, class_sep=2.0, seed=42,
     )
-    X_df = pd.DataFrame(X, columns=[f"f{i}" for i in range(X.shape[1])])
 
     supports: list[set[int]] = []
     for seed in (0, 1, 2):
