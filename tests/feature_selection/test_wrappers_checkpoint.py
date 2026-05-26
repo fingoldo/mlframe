@@ -19,20 +19,20 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
-from sklearn.datasets import make_classification
 from sklearn.linear_model import LogisticRegression
 
 from mlframe.feature_selection.wrappers import RFECV
+from tests.training.synthetic import make_sklearn_classification_df
 
 
 @pytest.fixture(scope="module")
 def small_problem():
-    X, y = make_classification(
+    X_df, y, _ = make_sklearn_classification_df(
         n_samples=200, n_features=8, n_informative=4,
         n_redundant=0, n_classes=2, n_clusters_per_class=1,
-        random_state=0, shuffle=False, class_sep=2.0,
+        shuffle=False, class_sep=2.0, seed=0,
     )
-    return pd.DataFrame(X, columns=[f"f{i}" for i in range(8)]), y
+    return X_df, y
 
 
 def _make_selector(checkpoint_path=None, max_refits=8, random_state=0):

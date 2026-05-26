@@ -127,6 +127,12 @@ def make_sklearn_classification_df(
     the raw ndarray can still pull ``X_df.to_numpy()``. Kwargs mirror the sklearn names so existing call sites
     migrate by signature renaming only. The ``column_prefix`` knob keeps the pre-existing ``f0..fN`` / ``feature_0..N``
     naming conventions intact.
+
+    Default-kwargs divergence vs sklearn (verify before migrating asserting-on-seed-specific-values tests):
+    ``n_clusters_per_class=1`` here (sklearn default is 2) and ``class_sep=1.0`` here (matches sklearn). Sites that
+    were relying on sklearn's ``n_clusters_per_class=2`` default produce different (X, y) under the builder default
+    and must pass ``n_clusters_per_class=2`` explicitly. Symptom: tests asserting per-feature behaviour (knockoff W
+    signs, MI floors, recall on informative features) flip from pass to fail post-migration.
     """
     from sklearn.datasets import make_classification
 

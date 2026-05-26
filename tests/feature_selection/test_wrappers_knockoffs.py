@@ -5,9 +5,10 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
-from sklearn.datasets import make_classification
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
+
+from tests.training.synthetic import make_sklearn_classification_df
 
 from mlframe.feature_selection.wrappers import (
     RFECV,
@@ -95,11 +96,10 @@ class TestK2_KnockoffImportance:
             - significantly positive for informative features
             - near 0 for noise features
         """
-        X, y = make_classification(
+        Xdf, y, _ = make_sklearn_classification_df(
             n_samples=500, n_features=12, n_informative=4,
-            n_redundant=0, random_state=0, shuffle=False, class_sep=2.5,
+            n_redundant=0, n_clusters_per_class=2, shuffle=False, class_sep=2.5, seed=0,
         )
-        Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(12)])
         W = knockoff_importance(
             model_factory=lambda: LogisticRegression(max_iter=400, random_state=0),
             X=Xdf, y=y, random_state=0,
@@ -141,11 +141,10 @@ class TestK3_MultiEstimatorMinAggregation:
         """
         # Use a problem where 2 features clearly aren't enough:
         # noisy class_sep + redundant features force MBH to need more.
-        X, y = make_classification(
+        Xdf, y, _ = make_sklearn_classification_df(
             n_samples=400, n_features=12, n_informative=6,
-            n_redundant=0, random_state=0, shuffle=False, class_sep=1.0,  # noisy
+            n_redundant=0, n_clusters_per_class=2, shuffle=False, class_sep=1.0, seed=0,  # noisy
         )
-        Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(12)])
         rfecv = RFECV(
             estimators=[
                 LogisticRegression(max_iter=400, random_state=0),
@@ -175,11 +174,10 @@ class TestK4_PlateauRule:
         2-3 features (recall=0.42). With 'auto' (= 'one_se_max' for multi-
         estimator) it should pick a much larger N within 1 SE of best mean,
         recovering the informative features."""
-        X, y = make_classification(
+        Xdf, y, _ = make_sklearn_classification_df(
             n_samples=600, n_features=40, n_informative=8,
-            n_redundant=0, random_state=0, shuffle=False, class_sep=2.0,
+            n_redundant=0, n_clusters_per_class=2, shuffle=False, class_sep=2.0, seed=0,
         )
-        Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(40)])
         rfecv = RFECV(
             estimators=[
                 LogisticRegression(max_iter=400, random_state=0),
@@ -219,11 +217,10 @@ class TestK4_PlateauRule:
     def test_explicit_argmax_preserves_legacy_behaviour(self):
         """When user explicitly opts into 'argmax', they get the legacy
         plateau-vulnerable behaviour."""
-        X, y = make_classification(
-            n_samples=300, n_features=10, n_informative=4, random_state=0,
-            shuffle=False, class_sep=2.0,
+        Xdf, y, _ = make_sklearn_classification_df(
+            n_samples=300, n_features=10, n_informative=4,
+            n_clusters_per_class=2, shuffle=False, class_sep=2.0, seed=0,
         )
-        Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(10)])
         rfecv = RFECV(
             estimator=LogisticRegression(max_iter=200, random_state=0),
             cv=3, max_refits=4, verbose=0, random_state=0,
@@ -235,11 +232,10 @@ class TestK4_PlateauRule:
     def test_one_se_min_picks_smallest_in_band(self):
         """one_se_min should pick the SMALLEST N in the SE band (parsimonious,
         sklearn-canonical 1-SE rule)."""
-        X, y = make_classification(
-            n_samples=400, n_features=15, n_informative=5, random_state=0,
-            shuffle=False, class_sep=2.0,
+        Xdf, y, _ = make_sklearn_classification_df(
+            n_samples=400, n_features=15, n_informative=5,
+            n_clusters_per_class=2, shuffle=False, class_sep=2.0, seed=0,
         )
-        Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(15)])
         # Compare one_se_min vs one_se_max on the same fitted state -
         # one_se_min should be <= one_se_max.
         rfecv_min = RFECV(
