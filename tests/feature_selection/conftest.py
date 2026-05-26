@@ -138,26 +138,9 @@ def pytest_collection_modifyitems(config, items):
 
 @pytest.fixture
 def simple_classification_data():
-    """Generate simple classification data with known informative features. Uses a local
-    Generator instead of np.random.seed(42) so the global RNG state is not mutated across
-    fixtures / sibling tests (would otherwise hide flakiness)."""
-    rng = np.random.default_rng(42)
-    n_samples = 200
-    n_informative = 5
-    n_noise = 15
-
-    X_informative = rng.standard_normal(size=(n_samples, n_informative))
-    y = (X_informative[:, 0] + X_informative[:, 1] - X_informative[:, 2] > 0).astype(int)
-
-    X_noise = rng.standard_normal(size=(n_samples, n_noise))
-    X = np.hstack([X_informative, X_noise])
-
-    feature_names = [f'informative_{i}' for i in range(n_informative)] + \
-                   [f'noise_{i}' for i in range(n_noise)]
-
-    X_df = pd.DataFrame(X, columns=feature_names)
-
-    return X_df, y, list(range(n_informative))
+    """Generate simple classification data with known informative features. Delegates to the centralized ``make_informative_noise_classification`` builder in ``tests/training/synthetic.py`` so seed handling + feature naming match the project-wide convention."""
+    from tests.training.synthetic import make_informative_noise_classification
+    return make_informative_noise_classification(n_samples=200, n_informative=5, n_noise=15, seed=42)
 
 
 @pytest.fixture
@@ -228,7 +211,7 @@ def multiclass_data():
 
 @pytest.fixture
 def high_dimensional_data():
-    """Generate high-dimensional data (p > n). Local RNG (no global mutation)."""
+    """Generate high-dimensional data (p > n). Local RNG (no global mutation). Kept inline rather than migrated to ``make_informative_noise_classification`` because the legacy signal uses x0+x1 only (n_informative=2 score) while reporting informative_indices=range(3); the centralized builder couples score-arity to n_informative, so a drop-in migration would silently change y for existing consumers."""
     rng = np.random.default_rng(42)
     n_samples = 50
     n_informative = 3
