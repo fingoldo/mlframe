@@ -349,6 +349,18 @@ class _RankerDataset(Dataset):
         # leaving this attribute as None falls back to the in-loss runtime cache
         # (tuple(rel.tolist()) key) which needs a per-call GPU->CPU sync.
         self._pair_idx_by_query: dict[bytes, tuple] | None = None
+        # iter357 (2026-05-26): per-query precomputed batch tuple keyed by the
+        # same indices_key as ``_pair_idx_by_query``. Each entry is the EXACT
+        # return value of ``__getitems__`` for that query -- either a 4-tuple
+        # (X_slice, y_slice, i_idx, j_idx) for queries with informative pairs
+        # or a 2-tuple (X_slice, y_slice) for queries without. Indices yielded
+        # by GroupBatchSampler in queries_per_batch=1 mode repeat verbatim
+        # across epochs, so caching the (X, y) slices once shifts ~28k * (2 x
+        # tensor-index + as_tensor + dict.get) into a single dict lookup. On
+        # c0079 1M-row LTR profile, __getitems__ tottime drops 19s -> ~2s.
+        # OPT-7 multi-query mode skips this cache; its batch key is a packed
+        # multi-query union that doesn't repeat exactly across epochs.
+        self._batch_by_query: dict[tuple, tuple] | None = None
         # OPT-7 (2026-05-23): optional reference to the active batch sampler so
         # ``__getitems__`` can read multi-query batch partition info to compose
         # offset-corrected concatenated pair tensors. Set via
@@ -374,8 +386,10 @@ class _RankerDataset(Dataset):
         compares -- no allocation per call.
         """
         cache: dict[tuple, tuple] = {}
+        batch_cache: dict[tuple, tuple] = {}
         for indices in query_slices:
-            rel = self.y[torch.as_tensor(indices, dtype=torch.long)]
+            idx_tensor = torch.as_tensor(indices, dtype=torch.long)
+            rel = self.y[idx_tensor]
             if rel.dim() > 1:
                 # Multilabel y -> sum across labels matches what GBS uses to
                 # decide query inclusion. Not used by ranknet directly.
@@ -388,14 +402,23 @@ class _RankerDataset(Dataset):
             # = tuple(indices)`` hash-matches identically; .tolist() returns
             # Python ints from numpy int64 via the C buffer protocol.
             key = tuple(indices.tolist())
+            # iter357: pre-build X slice once per query. Same fancy-indexing
+            # copy that __getitems__ would do every batch, but amortised
+            # across all epochs (~10x on 10-epoch fits).
+            x_slice = self.X[idx_tensor]
             if i_idx.numel() == 0:
                 # No informative pair; the loss returns 0 without needing
                 # pair indices. Mark with sentinel so __getitems__ can skip
                 # the runtime cache build for these too.
                 cache[key] = (None, None)
+                batch_cache[key] = (x_slice, rel)
                 continue
-            cache[key] = (i_idx.to(torch.long), j_idx.to(torch.long))
+            i_long = i_idx.to(torch.long)
+            j_long = j_idx.to(torch.long)
+            cache[key] = (i_long, j_long)
+            batch_cache[key] = (x_slice, rel, i_long, j_long)
         self._pair_idx_by_query = cache
+        self._batch_by_query = batch_cache
 
     def __len__(self) -> int:
         return self.X.shape[0]
@@ -411,18 +434,39 @@ class _RankerDataset(Dataset):
         # collate (microbench 2026-05-20, batch=11x32 floats). The matching
         # `_ranker_passthrough_collate` below unwraps the 1-element list so
         # the DataLoader doesn't re-stack an already-stacked batch.
+        # iter357: legacy queries_per_batch=1 hot path -- check the precomputed
+        # batch cache FIRST so the torch.as_tensor(indices, ...) + X[idx] +
+        # y[idx] work is skipped entirely on hits. On c0079 1M-row LTR the
+        # cache hits 100% of batches (indices repeat exactly across epochs),
+        # collapsing __getitems__ to a single dict.get + indices->tuple.
+        # ``tuple(indices)`` is ~4.5x faster than
+        # ``np.asarray(indices, dtype=np.int64).tobytes()`` at the typical
+        # ~10-row query shape (0.26us vs 1.17us / call) and matches the key
+        # built by install_pair_index_cache via ``tuple(indices.tolist())``.
+        if (
+            self._batch_by_query is not None
+            and not torch.is_tensor(indices)
+        ):
+            indices_key = tuple(indices)
+            cached_batch = self._batch_by_query.get(indices_key)
+            if cached_batch is not None:
+                # OPT-7 multi-query path falls through; that path uses
+                # _sampler._batch_partition which is keyed by a packed
+                # multi-query union, not present in _batch_by_query.
+                if (
+                    self._sampler is None
+                    or self._sampler.queries_per_batch <= 1
+                ):
+                    return [cached_batch]
+        else:
+            indices_key = None
         if torch.is_tensor(indices):
             idx = indices
             indices_key = None  # tensor input rare; fall through to in-loss cache
         else:
             idx = torch.as_tensor(indices, dtype=torch.long)
-            # ``tuple(indices)`` is ~4.5x faster than
-            # ``np.asarray(indices, dtype=np.int64).tobytes()`` at the typical
-            # ~10-row query shape (0.26us vs 1.17us per __getitems__ call;
-            # ~500ms saved on a 540k-call fit). Both produce hashable keys with
-            # the same identity semantics for row-index lists from
-            # GroupBatchSampler.
-            indices_key = tuple(indices)
+            if indices_key is None:
+                indices_key = tuple(indices)
         # OPT-7 (2026-05-23): multi-query batch -- sampler stamped a
         # partition table when it yielded this batch. Compose per-query
         # pair tensors into one offset-corrected concat by adding each
@@ -895,6 +939,18 @@ class MLPRanker(BaseEstimator, RegressorMixin):
             train_dataloaders=train_loader,
             val_dataloaders=val_loader,
         )
+        # iter357: the per-query batch caches built by install_pair_index_cache
+        # are only useful during fit. Lightning's Trainer retains a reference
+        # to train_ds via the DataLoader; without explicit cleanup those
+        # ~18k pair tensors + X-slice tensors get joblib.dump'd downstream
+        # (+114s on c0079 1M-row LTR profile). Nulling the dict releases the
+        # tensors for GC and reduces the pickled MLPRanker to its essential
+        # state (network weights + hparams).
+        train_ds._pair_idx_by_query = None
+        train_ds._batch_by_query = None
+        if val_loader is not None:
+            val_ds._pair_idx_by_query = None
+            val_ds._batch_by_query = None
         self.trainer_ = trainer
         self.n_features_in_ = n_features
         return self

@@ -129,6 +129,38 @@ def test_mlp_ranker_fit_uses_fastpath_end_to_end():
     assert np.all(np.isfinite(pred))
 
 
+def test_batch_cache_returns_identical_tuple_across_calls():
+    """iter357: install_pair_index_cache must pre-build (X_slice, y_slice,
+    i_idx, j_idx) so __getitems__ reduces to a single dict lookup. Calling
+    __getitems__ twice with the same indices must return the SAME tuple
+    object (identity), not just equal tensors -- this is what proves the
+    cache path is hit and the per-batch X[idx]/y[idx] work is skipped."""
+    from mlframe.training.neural.ranker import _RankerDataset, GroupBatchSampler
+
+    rng = np.random.default_rng(20260526)
+    X = rng.standard_normal((40, 3)).astype(np.float32)
+    y = np.array([0, 1, 2, 0, 1, 2, 0, 1, 2, 0] * 4, dtype=np.float32)
+    group_ids = np.repeat(np.arange(4), 10)
+    sampler = GroupBatchSampler(group_ids=group_ids, relevance=y, shuffle=False)
+    ds = _RankerDataset(X, y)
+    ds.install_pair_index_cache(sampler._query_slices)
+    assert ds._batch_by_query is not None
+    assert len(ds._batch_by_query) == len(sampler._query_slices)
+
+    indices = list(sampler._query_slices[0])
+    batch_1 = ds.__getitems__(indices)
+    batch_2 = ds.__getitems__(indices)
+    # Identity check: same tuple object returned from the cache.
+    assert batch_1[0] is batch_2[0], (
+        "batch cache miss: __getitems__ returned a fresh tuple instead of "
+        "the cached one"
+    )
+    # Sanity: contents match what the legacy non-cached path produces.
+    idx_tensor = torch.as_tensor(indices, dtype=torch.long)
+    assert torch.equal(batch_1[0][0], ds.X[idx_tensor])
+    assert torch.equal(batch_1[0][1], ds.y[idx_tensor])
+
+
 def test_multilabel_y_skips_cache_installation():
     from mlframe.training.neural.ranker import _RankerDataset
 
