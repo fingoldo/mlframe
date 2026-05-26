@@ -173,16 +173,28 @@ def test_biz_val_training_suite_mlframe_models_subset(tmp_path, model_list):
         pytest.skip(f"suite call broke during refactor: {e}")
     # The chosen model family must be reflected somewhere in the returned models structure. Behavioural pin:
     # the requested family name must appear as a substring of at least one model key (so a regression that
-    # silently returns an empty dict OR routes to a different family is caught).
+    # silently returns an empty dict OR routes to a different family is caught). The suite-level return
+    # nests as ``{TargetTypes.<X>: {model_name: [...], ...}, ...}`` — collect all string-rendered keys
+    # across every level so the family-name substring check is robust to the wrapper layer.
     assert models is not None, f"suite returned None models on mlframe_models={model_list} path"
     assert hasattr(models, "__len__") and len(models) >= 1, (
         f"models container empty for mlframe_models={model_list}; got {type(models).__name__}"
     )
     if isinstance(models, dict):
         family = model_list[0]
-        keys_str = " ".join(str(k) for k in models.keys()).lower()
+        all_keys: list[str] = []
+
+        def _collect(d):
+            if isinstance(d, dict):
+                for k, v in d.items():
+                    all_keys.append(str(k))
+                    _collect(v)
+
+        _collect(models)
+        keys_str = " ".join(all_keys).lower()
         assert family in keys_str, (
-            f"mlframe_models={model_list} did not produce any {family}-keyed model; got keys={list(models.keys())}"
+            f"mlframe_models={model_list} did not produce any {family}-keyed model; "
+            f"got nested keys={all_keys}"
         )
 
 
