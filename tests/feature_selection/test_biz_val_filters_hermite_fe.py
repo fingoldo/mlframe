@@ -563,9 +563,12 @@ def test_biz_bin_function_discovery_picks_atan2_on_angular():
         baseline_uplift_threshold=0.0,
     )
     assert res is not None
-    # The optimizer should pick atan2 (or arctan-like proxy) over
-    # add/sub/mul. We allow any of the angular-aware bin-funcs.
+    # The optimizer should pick atan2 (or arctan-like proxy) over add/sub/mul. We allow any of the angular-aware bin-funcs.
     assert res.bin_func_name in ("atan2", "div"), (
         f"Bin-function discovery should pick angular function "
         f"on atan2 target; got bf={res.bin_func_name}, mi={res.mi:.4f}"
+    )
+    # Quantitative win floor: an angular-aware bin-func on the arctan2 threshold target must capture meaningful signal, not just "pick the right family but emit garbage". A silent regression where atan2/div is chosen but the polynomial coefficients are mis-fit collapses MI to <=0.10; the structural check above passes but the feature is useless. Measured locally with the canonical CMA-ES + warm-start path: MI ~= 0.25-0.35 on this synthetic; 0.15 floor leaves wide margin for shared-runner noise while still tripping a real regression.
+    assert res.mi >= 0.15, (
+        f"Angular bin-func should yield MI>=0.15 on arctan2 target; got mi={res.mi:.4f}, bf={res.bin_func_name}. Structural family-pick is correct but quantitative signal is missing - likely a coefficient-fit regression."
     )
