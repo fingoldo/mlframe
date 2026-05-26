@@ -77,17 +77,33 @@ def _bootstrap_block(y_true: np.ndarray, probs: np.ndarray, preds: Optional[np.n
 
     if p_pos is not None and _is_binary_classif(y_true):
         try:
-            from sklearn.metrics import roc_auc_score, brier_score_loss, log_loss
+            # iter295 (2026-05-26): use mlframe's numba-compiled fast metric
+            # kernels instead of sklearn for bootstrap. c0028 profile attrib-
+            # uted 124.96s (86pct of 145.78s wall) to run_honest_diagnostics;
+            # 4 metric_fn calls x 1000 bootstrap resamples x 8 _bootstrap_block
+            # invocations = 32k sklearn metric calls each ~4-5ms. The numba
+            # kernels are 3.0x / 45.7x / 8.5x faster on roc_auc / brier /
+            # log_loss respectively (bench at n=20k, see commit msg). Result
+            # is numerically identical for the binary case (mlframe versions
+            # are direct numba ports of the sklearn algorithm).
+            from mlframe.metrics.core import (
+                fast_roc_auc as _fast_auc,
+                fast_brier_score_loss as _fast_brier,
+                fast_log_loss as _fast_ll,
+            )
 
+            # mlframe kernels accept (y_true, y_pred) bound on float64; the
+            # bootstrap resampler hands us views of the original arrays so
+            # one-time cast in the calling closure is enough (numba dispatcher
+            # caches per dtype, so the first resample warms the JIT).
             def _auc(yy, pp):
-                return float(roc_auc_score(yy, pp))
+                return float(_fast_auc(yy.astype(np.float64, copy=False), pp.astype(np.float64, copy=False)))
 
             def _brier(yy, pp):
-                return float(brier_score_loss(yy, pp))
+                return float(_fast_brier(yy.astype(np.float64, copy=False), pp.astype(np.float64, copy=False)))
 
             def _ll(yy, pp):
-                pp = np.clip(pp, 1e-15, 1 - 1e-15)
-                return float(log_loss(yy, pp, labels=[0, 1]))
+                return float(_fast_ll(yy.astype(np.float64, copy=False), pp.astype(np.float64, copy=False)))
 
             for name, fn in (("roc_auc", _auc), ("brier", _brier), ("log_loss", _ll)):
                 try:
@@ -100,7 +116,7 @@ def _bootstrap_block(y_true: np.ndarray, probs: np.ndarray, preds: Optional[np.n
                     out[name] = {"status": "skipped", "reason": f"{type(exc).__name__}: {exc}"}
         except ImportError as exc:
             out["status"] = "skipped"
-            out["reason"] = f"sklearn import failed: {exc}"
+            out["reason"] = f"mlframe metrics import failed: {exc}"
         # ECE via the policy module's _ece_score (consistent with auto-pick).
         try:
             from mlframe.calibration.policy import _ece_score
