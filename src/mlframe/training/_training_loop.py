@@ -688,7 +688,118 @@ def _train_model_with_fallback(
         except (AttributeError, TypeError, ValueError):
             logger.warning("Could not get best iteration", exc_info=True)
 
+    # Loss-fallback retry on degenerate early stopping (2026-05-26).
+    # Heavy-kurt targets get Huber via ``_apply_loss_recommendation_-
+    # in_place``; on EXTREME-kurt (observed +42.67 in prod) the
+    # Huber gradient ``delta * sign(residual)`` collapses to ~ 0 when
+    # most rows have residual ~ 0, ES fires at iter=0/1, model returns
+    # the constant train-mean. Detect + refit with the RMSE-family
+    # default. Logic carved into ``_maybe_refit_on_degenerate_best_iter``
+    # for focused unit testing.
+    if model is not None and best_iter is not None:
+        _new_best_iter = _maybe_refit_on_degenerate_best_iter(
+            model_obj=model_obj,
+            model_type_name=model_type_name,
+            best_iter=best_iter,
+            train_df=train_df,
+            train_target=train_target,
+            fit_params=fit_params,
+            logger_=logger,
+        )
+        if _new_best_iter is not None:
+            best_iter = _new_best_iter
+
     return model, best_iter
+
+
+_MIN_BEST_ITER_HEALTHY: int = 3
+"""Below this we consider the booster to have failed to learn (constant
+prediction, ES at iter=0/1)."""
+
+_BOOSTING_FAMILIES: tuple[str, ...] = ("CatBoost", "LGB", "XGB")
+
+# Per-backend RMSE-family fallback (the most stable training surface).
+_RMSE_FALLBACK: dict[str, tuple[str, str, str, str]] = {
+    "CatBoost": ("loss_function", "RMSE", "eval_metric", "RMSE"),
+    "LGB": ("objective", "regression", "metric", "l2"),
+    "XGB": ("objective", "reg:squarederror", "eval_metric", "rmse"),
+}
+
+# Lowercase substrings that indicate the current loss is a robust /
+# non-default surface (Huber / MAE / L1 / quantile). Only models
+# currently on such a loss are refit candidates -- a legitimate
+# iter=2 convergence under RMSE is left alone.
+_NON_DEFAULT_LOSS_TOKENS: tuple[str, ...] = (
+    "huber", "mae", "absoluteerror", "_l1", "pseudohuber", "quantile",
+)
+
+
+def _maybe_refit_on_degenerate_best_iter(
+    *,
+    model_obj: Any,
+    model_type_name: str,
+    best_iter: int,
+    train_df: Any,
+    train_target: Any,
+    fit_params: dict[str, Any],
+    logger_: logging.Logger,
+) -> int | None:
+    """Detect degenerate ES + refit booster with RMSE-family default.
+
+    Returns the post-refit ``best_iteration`` when a refit happened,
+    else ``None`` (callers keep their original best_iter). The
+    in-place ``set_params`` + ``fit`` is the same lifecycle the trainer
+    used for the first fit so downstream code (predict, save) is
+    transparent.
+    """
+    if best_iter >= _MIN_BEST_ITER_HEALTHY:
+        return None
+    _backend_prefix = next(
+        (p for p in _BOOSTING_FAMILIES if model_type_name.startswith(p)),
+        None,
+    )
+    if _backend_prefix is None:
+        return None
+    _fallback = _RMSE_FALLBACK.get(_backend_prefix)
+    if _fallback is None:
+        return None
+    _loss_key, _loss_val, _metric_key, _metric_val = _fallback
+    try:
+        _cur_params = model_obj.get_params() if hasattr(model_obj, "get_params") else {}
+    except Exception:
+        _cur_params = {}
+    _cur_loss = str(_cur_params.get(_loss_key, "")).lower()
+    if not any(tok in _cur_loss for tok in _NON_DEFAULT_LOSS_TOKENS):
+        return None
+    logger_.warning(
+        "[loss-fallback] %s training degenerate (best_iter=%d < %d) under "
+        "loss=%r. Refitting with %s=%r + %s=%r. Heavy-kurt targets can "
+        "collapse the Huber/L1 gradient; RMSE is the stable training "
+        "surface even if less robust to outliers downstream.",
+        model_type_name, int(best_iter), _MIN_BEST_ITER_HEALTHY,
+        _cur_loss, _loss_key, _loss_val, _metric_key, _metric_val,
+    )
+    try:
+        model_obj.set_params(**{_loss_key: _loss_val, _metric_key: _metric_val})
+        model_obj.fit(train_df, train_target, **fit_params)
+    except (ValueError, TypeError) as _refit_err:
+        logger_.warning(
+            "[loss-fallback] %s refit with RMSE rejected: %s. Keeping the "
+            "degenerate fit; downstream charts will show the truth "
+            "(R^2 < 0, near-constant pred).",
+            model_type_name, _refit_err,
+        )
+        return None
+    try:
+        _new_best_iter = get_model_best_iter(model_obj)
+    except (AttributeError, TypeError, ValueError):
+        _new_best_iter = None
+    logger_.warning(
+        "[loss-fallback] %s refit complete: best_iter %d -> %s.",
+        model_type_name, int(best_iter),
+        str(_new_best_iter) if _new_best_iter is not None else "?",
+    )
+    return _new_best_iter
 
 
 
