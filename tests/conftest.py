@@ -217,6 +217,14 @@ def fast_mode() -> bool:
 # BEFORE any pytest hook fires — so by the time pytest-randomly
 # resolves its entry points via ``e.load()``, ``thinc.util.fix_random_seed``
 # is already our wrapper.
+#
+# Upstream status (audit checkpoint 2026-05-26): no issue filed against thinc
+# (explosion/thinc) for the missing ``% 2**32`` clamp in ``fix_random_seed``;
+# this shim remains the in-repo workaround. Drop the shim once upstream's
+# ``fix_random_seed`` accepts arbitrary 64-bit seeds without raising (verify
+# by removing this block and running the suite with ``--randomly-seed=large``
+# values; if no ``ValueError: Seed must be between 0 and 2**32 - 1`` cascades,
+# the upstream fix has landed).
 try:
     import thinc.util as _thinc_util  # noqa: E402
     _thinc_original_fix = _thinc_util.fix_random_seed
