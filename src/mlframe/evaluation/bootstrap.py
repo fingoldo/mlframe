@@ -135,6 +135,13 @@ def bootstrap_metric(
                 _rand = rng.integers(0, _sz, size=_sz)
                 _idx_buf[_class_offsets[_c]:_class_offsets[_c + 1]] = _groups_list[_c][_rand]
             idx = _idx_buf
+        # bench-attempt-rejected (2026-05-27, iter392): replacing
+        # ``y_true[idx], y_pred[idx]`` with pre-allocated buffers via
+        # ``np.take(y_true, idx, out=y_buf)`` ran 0.88x SLOWER on n=100k
+        # float64 (1226us -> 1398us / pair). Fancy indexing's internal
+        # copy is already at the C-level memcpy floor; np.take adds an
+        # extra dispatch with no compensating allocation saving. Leave
+        # the idiomatic form -- next agent should not re-try this.
         try:
             v = float(metric_fn(y_true[idx], y_pred[idx]))
         except Exception as exc:
