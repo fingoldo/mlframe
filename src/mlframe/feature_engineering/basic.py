@@ -5,11 +5,12 @@ from __future__ import annotations
 
 __all__ = [
     "create_date_features",
+    "add_cyclical_date_features",
     "run_pysr_fe",
 ]
 
 import logging
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -31,9 +32,140 @@ _NP_TO_PL_DTYPE: Dict[type, pl.DataType] = {
     np.uint16: pl.UInt16,
     np.uint32: pl.UInt32,
     np.uint64: pl.UInt64,
+    np.bool_: pl.Boolean,
+    bool: pl.Boolean,
 }
 
-_DEFAULT_DATE_METHODS: Dict[str, type] = {"day": np.int8, "weekday": np.int8, "month": np.int8}
+# Method-name -> (pandas accessor, polars accessor) alias map. Lets callers use the same
+# stable name ("week_of_year", "day_of_year") across backends; we route to whichever native
+# accessor each library exposes. ``None`` on the polars side means "needs a custom expression"
+# and is handled in the polars branch below.
+_DATE_METHOD_ALIASES: Dict[str, Tuple[str, Optional[str]]] = {
+    "year": ("year", "year"),
+    "month": ("month", "month"),
+    "day": ("day", "day"),
+    "weekday": ("weekday", "weekday"),
+    "hour": ("hour", "hour"),
+    "minute": ("minute", "minute"),
+    "second": ("second", "second"),
+    "quarter": ("quarter", "quarter"),
+    "week_of_year": ("isocalendar", "week"),
+    "day_of_year": ("dayofyear", "ordinal_day"),
+    "is_weekend": (None, None),
+}
+
+# Kaggle-style extended default: year (int32 to avoid 2128 overflow), the legacy day/weekday/month
+# trio (int8), plus quarter / week_of_year / is_weekend / day_of_year for multi-scale seasonality.
+# See ``docs/date_features_kaggle_research.md`` for the rationale.
+_DEFAULT_DATE_METHODS: Dict[str, type] = {
+    "year": np.int32,
+    "quarter": np.int8,
+    "month": np.int8,
+    "week_of_year": np.int8,
+    "day": np.int8,
+    "day_of_year": np.int16,
+    "weekday": np.int8,
+    "is_weekend": np.bool_,
+}
+
+# Default periods for ``add_cyclical_date_features``. ``day`` here is day-of-month (period 31);
+# ``day_of_year`` is the finer-grained annual cycle (period 365.25).
+_DEFAULT_CYCLICAL_PERIODS: Tuple[Tuple[str, float], ...] = (
+    ("hour", 24.0),
+    ("day", 31.0),
+    ("weekday", 7.0),
+    ("month", 12.0),
+    ("day_of_year", 365.25),
+)
+
+
+def _collect_pandas_tz(series: pd.Series) -> str:
+    """Return a tz tag for a pandas datetime series: ``str(tz)`` or ``"naive"``.
+
+    Used to detect mixed-tz columns at the FE boundary. Non-datetime columns return ``"naive"``
+    so the caller's downstream type-check (the existing ``.dt`` access) still surfaces the
+    real type error.
+    """
+    tz = getattr(series.dtype, "tz", None)
+    if tz is None:
+        return "naive"
+    return str(tz)
+
+
+def _collect_polars_tz(df: pl.DataFrame, col: str) -> str:
+    """Return a tz tag for a polars datetime column: ``str(tz)`` or ``"naive"``."""
+    dtype = df.schema.get(col)
+    tz = getattr(dtype, "time_zone", None)
+    if tz is None:
+        return "naive"
+    return str(tz)
+
+
+def _warn_on_mixed_tz(df: Union[pd.DataFrame, pl.DataFrame], cols: List[str]) -> None:
+    """Warn (do NOT raise / convert) when ``cols`` span multiple timezones.
+
+    Multi-tz columns silently produce nonsense ``hour`` / ``weekday`` features because the same
+    instant maps to different local-times across rows. We surface the concrete tz list so the
+    caller can normalise upstream; we never auto-convert (caller may legitimately want both).
+    """
+    if len(cols) < 2:
+        return
+    is_pandas = isinstance(df, pd.DataFrame)
+    tzs = []
+    for c in cols:
+        if c not in df.columns:
+            continue
+        if is_pandas:
+            tzs.append((c, _collect_pandas_tz(df[c])))
+        else:
+            tzs.append((c, _collect_polars_tz(df, c)))
+    unique_tzs = sorted({t for _, t in tzs})
+    if len(unique_tzs) > 1:
+        col_tz_pairs = ", ".join(f"{c}={t}" for c, t in tzs)
+        logger.warning(
+            "create_date_features: columns span multiple timezones (%s); extracted hour/weekday/day fields will be inconsistent across rows. "
+            "Observed tz list: %s. Normalise to a single tz upstream (e.g. convert all to UTC) before calling.",
+            col_tz_pairs,
+            unique_tzs,
+        )
+
+
+def _resolve_pandas_method(series_dt, method: str, dtype) -> pd.Series:
+    """Resolve a logical method name against the pandas .dt accessor and cast.
+
+    Handles the alias map (``week_of_year`` -> ``isocalendar().week``, ``day_of_year`` ->
+    ``dayofyear``, ``is_weekend`` -> ``weekday >= 5``) and falls back to ``getattr`` for any
+    accessor name we haven't aliased.
+    """
+    if method == "is_weekend":
+        return (series_dt.weekday >= 5).astype(dtype)
+    if method == "week_of_year":
+        return series_dt.isocalendar().week.astype(dtype)
+    pd_name = _DATE_METHOD_ALIASES.get(method, (method, None))[0]
+    if pd_name is None or not hasattr(series_dt, pd_name):
+        if not hasattr(series_dt, method):
+            raise ValueError(f"Unknown pandas .dt accessor: {method!r}")
+        pd_name = method
+    return getattr(series_dt, pd_name).astype(dtype)
+
+
+def _resolve_polars_expr(col: str, method: str, pl_dtype: pl.DataType) -> pl.Expr:
+    """Resolve a logical method name into a polars expression and cast.
+
+    Mirrors ``_resolve_pandas_method`` for the polars branch; subtracts 1 from ``weekday`` so
+    both backends agree on Mon=0..Sun=6.
+    """
+    col_dt = pl.col(col).dt
+    if method == "is_weekend":
+        return ((col_dt.weekday() - 1) >= 5).cast(pl_dtype).alias(col + "_" + method)
+    if method == "weekday":
+        return (col_dt.weekday() - 1).cast(pl_dtype).alias(col + "_" + method)
+    pl_name = _DATE_METHOD_ALIASES.get(method, (None, method))[1]
+    if pl_name is None or not hasattr(col_dt, pl_name):
+        if not hasattr(col_dt, method):
+            raise ValueError(f"Unknown polars .dt accessor: {method!r}")
+        pl_name = method
+    return getattr(col_dt, pl_name)().cast(pl_dtype).alias(col + "_" + method)
 
 
 def create_date_features(
@@ -41,8 +173,10 @@ def create_date_features(
     cols: List[str],
     delete_original_cols: bool = True,
     methods: Optional[Dict[str, type]] = None,
+    add_cyclical: bool = True,
+    cyclical_periods: Optional[Sequence[Tuple[str, float]]] = None,
 ) -> Union[pd.DataFrame, pl.DataFrame]:
-    """Decompose datetime columns into integer date parts (day, weekday, month, ...).
+    """Decompose datetime columns into integer date parts (year, day, weekday, month, ...).
 
     Parameters
     ----------
@@ -53,16 +187,33 @@ def create_date_features(
     delete_original_cols
         Drop the source datetime columns after decomposition.
     methods
-        Mapping of ``dt`` accessor name to target numpy integer dtype. Defaults to
-        ``{"day": int8, "weekday": int8, "month": int8}``. Weekday is normalised to
-        pandas convention (Mon=0 .. Sun=6) in both backends.
+        Mapping of logical accessor name to target numpy dtype. Defaults to a Kaggle-style
+        extended set: ``year`` (int32), ``quarter`` (int8), ``month`` (int8), ``week_of_year``
+        (int8), ``day`` (int8), ``day_of_year`` (int16), ``weekday`` (int8), ``is_weekend``
+        (bool). Weekday is normalised to pandas convention (Mon=0 .. Sun=6) in both backends.
+        Custom callers may pass any subset of the recognised aliases (see
+        ``_DATE_METHOD_ALIASES``) or any native pandas / polars ``.dt`` accessor name.
+    add_cyclical
+        If True (default), also emit sin/cos pairs for each ``(period_name, period)`` in
+        ``cyclical_periods`` (defaults to hour/day/weekday/month/day_of_year). Each pair is
+        float32, normalised to [-1, 1]. Trees ignore the redundancy; linear / kNN / NN
+        learners need the cyclical encoding to model the Dec->Jan adjacency. See
+        ``add_cyclical_date_features`` for the same functionality as a standalone helper.
+    cyclical_periods
+        Iterable of ``(period_name, period_value)`` tuples consumed only when
+        ``add_cyclical=True``. ``period_name`` must be a recognised method alias.
 
     Returns
     -------
     A new frame (same backend as input). The input is never mutated.
+
+    Notes
+    -----
+    Multi-timezone columns trigger a single WARNING listing every observed tz (including the
+    tz-naive bucket). The function never auto-converts -- the caller must normalise upstream
+    (e.g. tz-convert all to UTC at ingest) if the intended semantics is "same instant".
     """
     if methods is None:
-        # Copy so callers (or future internal mutations) cannot corrupt the module-level singleton; downstream replay maps at `_phase_helpers_fit_pipeline.py` rely on stable iteration order.
         methods = dict(_DEFAULT_DATE_METHODS)
     if len(cols) == 0:
         return df
@@ -74,9 +225,8 @@ def create_date_features(
     if not (is_pandas or is_polars):
         raise ValueError("df must be pandas or polars DataFrame")
 
-    # If a derived name (e.g. `date_year`) already exists, with_columns/assign would silently
-    # overwrite the caller's feature. Warn once and let the function proceed - raising would
-    # regress legitimate re-runs on the same frame.
+    _warn_on_mixed_tz(df, cols)
+
     existing_cols = set(df.columns)
     derived_names = [f"{col}_{method}" for col in cols for method in methods.keys()]
     clashes = [n for n in derived_names if n in existing_cols]
@@ -89,17 +239,11 @@ def create_date_features(
         )
 
     if is_pandas:
-        # Previously mutated the caller's frame in place; the polars branch returned a new frame.
-        # Shallow-copy so both branches return a new frame.
         df = df.copy(deep=False)
         for col in cols:
             obj = df[col].dt
             for method, dtype in methods.items():
-                if not hasattr(obj, method):
-                    raise ValueError(f"Unknown pandas .dt accessor: {method!r}")
-                df[col + "_" + method] = getattr(obj, method).astype(dtype)
-        if delete_original_cols:
-            df = df.drop(columns=cols)
+                df[col + "_" + method] = _resolve_pandas_method(obj, method, dtype)
     else:
         all_exprs = []
         for col in cols:
@@ -109,16 +253,117 @@ def create_date_features(
                     raise ValueError(
                         f"Unsupported dtype {np_dtype} for polars; supported: {list(_NP_TO_PL_DTYPE.keys())}"
                     )
-
-                if method == "weekday":
-                    # polars dt.weekday() returns 1..7 (Mon..Sun); subtract 1 to match pandas 0..6.
-                    e = (pl.col(col).dt.weekday() - 1).cast(pl_dtype).alias(col + "_" + method)
-                else:
-                    e = getattr(pl.col(col).dt, method)().cast(pl_dtype).alias(col + "_" + method)
-
-                all_exprs.append(e)
+                all_exprs.append(_resolve_polars_expr(col, method, pl_dtype))
         df = df.with_columns(all_exprs)
 
+    # ``add_cyclical`` MUST run before ``delete_original_cols`` drops the source datetimes -- the cyclical helper reads ``df[col].dt`` directly off the source column rather than recomputing from the just-emitted integer fields.
+    if add_cyclical:
+        df = add_cyclical_date_features(
+            df, cols=cols, periods=cyclical_periods,
+            delete_original_cols=False,
+        )
+
+    if delete_original_cols:
+        if is_pandas:
+            df = df.drop(columns=cols)
+        else:
+            df = df.drop(cols)
+
+    return df
+
+
+def add_cyclical_date_features(
+    df: Union[pd.DataFrame, pl.DataFrame],
+    cols: List[str],
+    periods: Optional[Sequence[Tuple[str, float]]] = None,
+    delete_original_cols: bool = False,
+) -> Union[pd.DataFrame, pl.DataFrame]:
+    """Append Kaggle-style sin/cos cyclical encodings of date components.
+
+    For each ``(period_name, period)`` pair and each source column ``c``, emits
+    ``<c>_<period_name>_sin`` and ``<c>_<period_name>_cos`` as float32. The pair captures
+    the wrap-around adjacency that integer encoding loses (e.g. ``month=12`` is adjacent to
+    ``month=1``); essential for linear models and NN blenders, harmless for trees.
+
+    Parameters
+    ----------
+    df
+        pandas or polars frame containing the datetime columns.
+    cols
+        Datetime column names to derive cyclical features from. The source columns are read
+        directly (the function does NOT depend on ``create_date_features`` having been called
+        first).
+    periods
+        Iterable of ``(period_name, period_value)`` tuples. Defaults to
+        ``(("hour", 24), ("day", 31), ("weekday", 7), ("month", 12), ("day_of_year", 365.25))``.
+        ``period_name`` must be a recognised method alias (see ``_DATE_METHOD_ALIASES``).
+    delete_original_cols
+        Drop the source datetime columns after extraction. Defaults to ``False`` because
+        callers typically chain this after ``create_date_features`` and want to preserve the
+        integer fields too.
+
+    Returns
+    -------
+    A new frame (same backend as input) with the sin/cos pair columns appended.
+
+    Notes
+    -----
+    * Output dtype is float32 (sufficient precision for [-1, 1] values, halves memory vs
+      float64).
+    * ``sin^2 + cos^2 == 1`` to within float32 precision; useful invariant for tests.
+    * Multi-tz columns trigger the same WARN as ``create_date_features``.
+    """
+    if len(cols) == 0:
+        return df
+    if periods is None:
+        periods = _DEFAULT_CYCLICAL_PERIODS
+
+    is_pandas = isinstance(df, pd.DataFrame)
+    is_polars = isinstance(df, pl.DataFrame)
+    if not (is_pandas or is_polars):
+        raise ValueError("df must be pandas or polars DataFrame")
+
+    _warn_on_mixed_tz(df, cols)
+
+    for period_name, _ in periods:
+        if period_name not in _DATE_METHOD_ALIASES:
+            raise ValueError(
+                f"Unknown cyclical period name: {period_name!r}. Recognised names: {sorted(_DATE_METHOD_ALIASES.keys())}"
+            )
+
+    two_pi = float(2.0 * np.pi)
+
+    if is_pandas:
+        df = df.copy(deep=False)
+        for col in cols:
+            obj = df[col].dt
+            for period_name, period_value in periods:
+                base = _resolve_pandas_method(obj, period_name, np.float64).to_numpy()
+                angle = (two_pi * base / float(period_value)).astype(np.float64)
+                df[f"{col}_{period_name}_sin"] = np.sin(angle).astype(np.float32)
+                df[f"{col}_{period_name}_cos"] = np.cos(angle).astype(np.float32)
+        if delete_original_cols:
+            df = df.drop(columns=cols)
+    else:
+        all_exprs = []
+        for col in cols:
+            col_dt = pl.col(col).dt
+            for period_name, period_value in periods:
+                if period_name == "is_weekend":
+                    raise ValueError(
+                        "is_weekend is a binary indicator, not periodic; cyclical encoding is meaningless. Drop it from `periods`."
+                    )
+                if period_name == "weekday":
+                    base_expr = (col_dt.weekday() - 1).cast(pl.Float64)
+                else:
+                    pl_name = _DATE_METHOD_ALIASES.get(period_name, (None, period_name))[1]
+                    if pl_name is None or not hasattr(col_dt, pl_name):
+                        raise ValueError(f"Unknown polars .dt accessor for period {period_name!r}")
+                    base_expr = getattr(col_dt, pl_name)().cast(pl.Float64)
+                angle_expr = (base_expr * two_pi / float(period_value))
+                all_exprs.append(angle_expr.sin().cast(pl.Float32).alias(f"{col}_{period_name}_sin"))
+                all_exprs.append(angle_expr.cos().cast(pl.Float32).alias(f"{col}_{period_name}_cos"))
+        df = df.with_columns(all_exprs)
         if delete_original_cols:
             df = df.drop(cols)
 
@@ -160,8 +405,6 @@ def run_pysr_fe(
         from .bruteforce import run_pysr_feature_engineering
 
         drop_columns = [c for c in df.columns if c.startswith(target_columns_prefix) and c != target_cols[0]]
-        # nsamples<=0 means "use the full frame" in the legacy semantics; the bruteforce entry
-        # caps at sample_size so we pass len(df) as the "no cap" equivalent.
         sample_size = nsamples if nsamples and nsamples > 0 else len(df)
         pysr_params_override = {
             "turbo": True,
@@ -219,7 +462,6 @@ def run_pysr_fe(
         used.add(candidate)
         rename_map[col] = candidate
 
-    # nsamples<=0 means "use the full frame"; nsamples>0 caps the row count.
     tmp_df = df.head(nsamples) if nsamples and nsamples > 0 else df
     expr = cs.numeric() - cs.starts_with(target_columns_prefix)
     if fill_nans:

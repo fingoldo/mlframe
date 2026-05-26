@@ -25,7 +25,11 @@ def _frame() -> pd.DataFrame:
 
 
 def test_default_methods_singleton_keys_pinned():
-    assert set(_DEFAULT_DATE_METHODS.keys()) == {"day", "weekday", "month"}
+    # Extended (2026-05-26) to the Kaggle-style default set; sensor still pins the exact key set so
+    # an accidental future regression to fewer / different defaults is caught.
+    assert set(_DEFAULT_DATE_METHODS.keys()) == {
+        "year", "quarter", "month", "week_of_year", "day", "day_of_year", "weekday", "is_weekend",
+    }
 
 
 def test_call_does_not_share_singleton_with_caller():
