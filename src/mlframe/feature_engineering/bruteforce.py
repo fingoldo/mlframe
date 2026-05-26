@@ -10,6 +10,7 @@ __all__ = [
 ]
 
 import logging
+import os
 import textwrap
 import threading
 import warnings
@@ -22,6 +23,9 @@ import polars as pl
 from pyutilz.system import clean_ram
 
 logger = logging.getLogger(__name__)
+
+# Refuse PySR runs whose sampled frame would exceed this many bytes after polars-side imputation. PySR routes the full ndarray through sklearn ``check_array``, which densifies once on the Python side and once again inside Julia -- on 100+ GB frames the doubled materialisation is the actual OOM trigger. Override via ``MLFRAME_PYSR_INPUT_BYTES_LIMIT``.
+_DEFAULT_PYSR_INPUT_BYTES_LIMIT = 2_000_000_000
 
 # Module-level lock serialises Julia access across concurrent joblib workers. PySR spawns Julia subprocesses that contend for the same .julia/ precompile cache and shared memory; the lock keeps them sequential per-process.
 #
@@ -138,30 +142,41 @@ def run_pysr_feature_engineering(
     if reserved_names is None:
         reserved_names = ["im"]
 
+    _bytes_limit = int(os.environ.get("MLFRAME_PYSR_INPUT_BYTES_LIMIT", _DEFAULT_PYSR_INPUT_BYTES_LIMIT))
+
     if isinstance(df, pl.DataFrame):
         import polars.selectors as cs
         n = min(sample_size, len(df))
         sampled = df.sample(n, seed=random_state) if random_state is not None else df.sample(n)
-        # Zero-fill ONLY numeric columns; previously a blanket .fill_null(0) ran before non-numeric
-        # columns were dropped, which raises on polars 1.x for Utf8 / Datetime / Duration dtypes.
-        # Wave 50 (2026-05-20): use per-column median instead of 0 so NaN rows aren't
-        # silently collapsed onto real-0 rows in PySR's candidate-score ranking. Median
-        # is robust to outliers and preserves the column's central tendency.
+        # Polars-side per-column median imputation: keeps the fill inside the Arrow buffer so the downstream ``to_pandas()`` allocates exactly once. Numeric-only because non-numeric columns (Utf8 / Datetime / Duration) hit the dtype-mismatch path on polars 1.x and would either be dropped or encoded downstream anyway. Median (not 0) preserves central tendency so PySR's candidate-score ranking does not silently collapse NaN rows onto real-0 rows.
+        #
+        # ``drop_nans()`` BEFORE ``median()`` is required: polars 1.x ``Series.median()`` includes NaN in the sort order, so on [1,2,3,4,NaN,6,7,8,9,10] it returns 6.5 (mid-pair of the 10-element sort) instead of 6.0 (median of the 9 finite values). Verified on polars 1.x 2026-05-26.
         sampled = sampled.with_columns([
-            cs.numeric().fill_nan(cs.numeric().median()).fill_null(cs.numeric().median())
+            cs.numeric().fill_nan(cs.numeric().drop_nans().median()).fill_null(cs.numeric().drop_nans().median())
         ])
+        sampled_bytes = sampled.estimated_size()
+        if sampled_bytes > _bytes_limit:
+            raise ValueError(
+                f"PySR input frame is {sampled_bytes:,} bytes after sampling -- exceeds the {_bytes_limit:,}-byte limit. "
+                "PySR's sklearn check_array + Julia bridge densify the frame twice, so the in-process peak is ~2x this. "
+                "Either lower sample_size, drop columns before calling, or raise MLFRAME_PYSR_INPUT_BYTES_LIMIT."
+            )
         # bench-attempt-rejected (2026-05-24): use_pyarrow_extension_array=True measured 3.0x SLOWER on the downstream PySR path (10.2 ms vs 3.4 ms at N=10k D=50,
         # default-to-pandas+sklearn.check_array end-to-end). PySR routes through sklearn check_array which densifies pyarrow-backed dtypes back to float64 ndarrays;
         # the extra Arrow->numpy round-trip dominates. Stick with bare to_pandas() here.
         tmp_df = sampled.to_pandas()
     elif isinstance(df, pd.DataFrame):
         n = min(sample_size, len(df))
+        # ``df.sample`` returns a fresh frame with its own block manager, but pandas may still share the underlying ndarray block for unchanged columns. The downstream rename + cat-cast steps then mutate the caller's block via shared references. Materialise once here (BlockManager copy on construction) so the rest of the function operates on an isolated frame.
         tmp_df = df.sample(n, random_state=random_state)
-        # Zero-fill ONLY numeric columns; ``.fillna(0)`` on a Categorical with a NaN raises
-        # ``Cannot setitem on a Categorical with a new category (0)`` because ``0`` is not a
-        # listed category. Categoricals get dropped or encoded downstream anyway, so we leave
-        # their NaNs alone here.
-        # Wave 50 (2026-05-20): use per-column median for the same reason as the polars branch.
+        sampled_bytes = int(tmp_df.memory_usage(deep=False).sum())
+        if sampled_bytes > _bytes_limit:
+            raise ValueError(
+                f"PySR input frame is {sampled_bytes:,} bytes after sampling -- exceeds the {_bytes_limit:,}-byte limit. "
+                "PySR's sklearn check_array + Julia bridge densify the frame twice, so the in-process peak is ~2x this. "
+                "Either lower sample_size, drop columns before calling, or raise MLFRAME_PYSR_INPUT_BYTES_LIMIT."
+            )
+        # Pandas-side per-column median imputation on numeric columns only. ``.fillna(0)`` on a Categorical with a NaN would raise ``Cannot setitem on a Categorical with a new category (0)``; categoricals get dropped or encoded downstream anyway, so leave their NaNs alone here.
         numeric_cols = tmp_df.select_dtypes(include=[np.number]).columns
         if len(numeric_cols):
             tmp_df[numeric_cols] = tmp_df[numeric_cols].fillna(tmp_df[numeric_cols].median())
@@ -170,12 +185,8 @@ def run_pysr_feature_engineering(
 
     clean_ram()
 
-    # Wave 54 (2026-05-20): detect renaming collisions ("col-x" and "col=x" both
-    # become "col_x"); pandas DataFrame with dupe columns then silently collapses
-    # to one when read via any dict-comprehension over .columns. Suffix collisions
-    # with _2, _3, ... so each column retains a unique identity.
+    # Sanitise PySR-reserved characters ("-", "=") into "_" and suffix collisions ("col-x" and "col=x" both map to "col_x") with _2, _3, ... so each renamed column retains a unique identity; pandas with dupe columns silently collapses to one when read via dict-comprehension over .columns.
     _renamed = [col.replace("-", "_").replace("=", "_") for col in tmp_df.columns]
-    from collections import Counter as _Counter
     _seen: dict = {}
     _final_names: list = []
     for _name in _renamed:
@@ -185,7 +196,11 @@ def run_pysr_feature_engineering(
         else:
             _seen[_name] = 1
             _final_names.append(_name)
-    tmp_df.columns = _final_names
+    # Build a fresh BlockManager via dict-of-Series so the renamed frame owns its column Index AND its block storage. ``tmp_df.columns = _final_names`` would reassign the column Index but leave the underlying blocks aliased to the caller's frame (when caller passed a view like ``df.head(N)``); later ``tmp_df[col] = ...astype("category")`` mutations would then broadcast-copy through the shared block manager and corrupt the caller's frame. The dict-of-Series construction with ``copy=False`` keeps the ndarrays themselves zero-copy but rebinds them under a brand-new BlockManager that is no longer aliased to the caller.
+    tmp_df = pd.DataFrame(
+        {new_name: tmp_df[old_name] for old_name, new_name in zip(list(tmp_df.columns), _final_names)},
+        copy=False,
+    )
     tmp_df.rename(
         columns={col: reserved_prefix + col for col in reserved_names if col in tmp_df.columns},
         inplace=True,
