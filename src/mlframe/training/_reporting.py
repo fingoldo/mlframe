@@ -332,11 +332,19 @@ def report_model_perf(
         ):
             # Lazy import: _reporting <- evaluation <- _reporting cycle (see comment at top of file).
             from .evaluation import plot_model_feature_importances
+            # Thread df + targets through to power the permutation-FI
+            # fallback for estimators without native ``feature_importances_``
+            # / ``coef_`` (PyTorch-Lightning MLP, Keras nets, custom predict-
+            # only wrappers). When the inner exposes a native source the
+            # permutation path is skipped automatically.
+            _fi_X = df[list(columns)] if (df is not None and columns is not None and len(columns) > 0) else None
             feature_importances = plot_model_feature_importances(
                 model=model,
                 columns=columns,
                 model_name=(report_title + " " + model_name + f" [{nfeatures}{get_human_readable_set_size(len(preds))} rows]").strip(),
                 plot_file=plot_file + "_fiplot.png" if plot_file else "",
+                X=_fi_X,
+                y=targets,
                 **fi_kwargs,
             )
         if metrics is not None:

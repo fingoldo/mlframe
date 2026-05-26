@@ -206,6 +206,87 @@ class TestGetModelFeatureImportances:
         assert len(importances) == len(columns)
 
 
+class TestPermutationFallbackAndNestedUnwrap:
+    """2026-05-26: estimators without native FI / coef (PyTorch MLP,
+    Keras nets, custom predict-only wrappers) get a permutation-FI
+    fallback. TransformedTargetRegressor / nested pipelines get
+    unwrapped to find the native FI source when available."""
+
+    def _custom_predict_only_regressor(self, n_features):
+        """Tiny stand-in for ``PytorchLightningRegressor`` -- exposes
+        ``predict`` only, no ``feature_importances_`` / ``coef_``."""
+        class _PredictOnly:
+            def __init__(self, n):
+                self.n = n
+                rng = np.random.default_rng(0)
+                self._w = rng.standard_normal(n)
+            def fit(self, X, y):
+                return self
+            def predict(self, X):
+                X = np.asarray(X)
+                return X @ self._w
+        return _PredictOnly(n_features)
+
+    def test_no_fi_no_xy_returns_none_back_compat(self):
+        """Legacy contract: estimator without native FI + no X/y -> None."""
+        model = self._custom_predict_only_regressor(4)
+        importances = get_model_feature_importances(model, [f"f{i}" for i in range(4)])
+        assert importances is None
+
+    def test_permutation_fallback_runs_when_xy_supplied(self):
+        n = 200
+        rng = np.random.default_rng(1)
+        X = rng.standard_normal((n, 4))
+        model = self._custom_predict_only_regressor(4)
+        y = model.predict(X) + 0.01 * rng.standard_normal(n)
+        importances = get_model_feature_importances(
+            model, [f"f{i}" for i in range(4)], X=X, y=y,
+        )
+        assert importances is not None
+        assert importances.shape == (4,)
+        # Permutation importances should be non-trivial for the true features.
+        assert np.any(importances > 0)
+
+    def test_transformed_target_regressor_unwraps_to_ridge(self, trained_regressor):
+        """``TransformedTargetRegressor.regressor_`` carries the inner
+        ridge's ``coef_`` -- unwrap chain must find it."""
+        from sklearn.compose import TransformedTargetRegressor
+        from sklearn.preprocessing import StandardScaler
+        model, df, y, columns = trained_regressor
+        ttr = TransformedTargetRegressor(
+            regressor=type(model)(),
+            transformer=StandardScaler(),
+        )
+        ttr.fit(df.values, np.asarray(y))
+        importances = get_model_feature_importances(ttr, columns)
+        assert importances is not None
+        assert len(importances) == len(columns)
+
+    def test_pipeline_then_ttr_double_wrap_unwraps(self, trained_regressor):
+        """Pipeline -> final step TTR -> regressor_ unwrap chain."""
+        from sklearn.compose import TransformedTargetRegressor
+        from sklearn.preprocessing import StandardScaler
+        model, df, y, columns = trained_regressor
+        ttr = TransformedTargetRegressor(
+            regressor=type(model)(),
+            transformer=StandardScaler(),
+        )
+        pipe = Pipeline([("scaler", StandardScaler()), ("ttr", ttr)])
+        pipe.fit(df.values, np.asarray(y))
+        importances = get_model_feature_importances(pipe, columns)
+        assert importances is not None
+        assert len(importances) == len(columns)
+
+    def test_permutation_skipped_when_native_fi_present(self, trained_tree_regressor):
+        """Native FI must dominate; passing X/y MUST NOT trigger the
+        permutation fallback (which is much slower and would shadow the
+        cheaper tree FI)."""
+        model, df, y, columns = trained_tree_regressor
+        native = get_model_feature_importances(model, columns)
+        with_xy = get_model_feature_importances(model, columns, X=df, y=y)
+        np.testing.assert_array_equal(native, with_xy)
+
+
 # =============================================================================
 # Tests for report_regression_model_perf
 # =============================================================================

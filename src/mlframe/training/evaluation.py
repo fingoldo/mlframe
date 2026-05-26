@@ -205,9 +205,35 @@ def _permutation_feature_importances(
     else:
         X_sub = X_arr
         y_sub = y_arr
+    # Adaptive scorer: PyTorch-Lightning / Keras / custom predict-only
+    # wrappers usually lack a sklearn-style ``.score(X, y)`` method, so
+    # ``permutation_importance`` would raise "estimator does not have a
+    # 'score' method". Supplying an explicit callable that dispatches
+    # to r2_score (regression) or accuracy_score (classification) based
+    # on predict's dtype keeps both paths working without the caller
+    # threading a task hint.
+    def _adaptive_scorer(estimator, X, y):
+        try:
+            preds = estimator.predict(X)
+        except Exception:
+            return -np.inf
+        preds_arr = np.asarray(preds)
+        y_arr_local = np.asarray(y)
+        if preds_arr.dtype.kind == "f" and y_arr_local.dtype.kind in {"f", "i", "u"}:
+            from sklearn.metrics import r2_score
+            try:
+                return float(r2_score(y_arr_local, preds_arr))
+            except Exception:
+                return -np.inf
+        from sklearn.metrics import accuracy_score
+        try:
+            return float(accuracy_score(y_arr_local, preds_arr))
+        except Exception:
+            return -np.inf
     try:
         result = permutation_importance(
             model, X_sub, y_sub,
+            scoring=_adaptive_scorer,
             n_repeats=n_repeats, random_state=random_state, n_jobs=1,
         )
     except Exception as exc:

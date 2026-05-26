@@ -618,7 +618,21 @@ def _configure_mlp_params(
         weights_init_fcn=partial(nn.init.kaiming_normal_, nonlinearity="leaky_relu", a=0.01),
         dropout_prob=0.0,
         inputs_dropout_prob=0.0,
-        use_batchnorm=False,
+        # 2026-05-26: ``use_batchnorm=True`` is the suite default.
+        # Prior default (False) + LeakyReLU + Declining 128->64->32->16
+        # + Adam + kaiming-normal init produced saturated inner pre-
+        # activations on a 4.1M-row, 206-feature TVT regression: with
+        # ``output_activation='tanh_train_range'`` firing under the
+        # extreme-AR gate, the inner net's unbounded outputs got hard-
+        # capped to +-1 in standardised space and the destandardised
+        # predictions clustered at the rails [y_mid - scale, y_mid +
+        # scale] (R^2 = -30.84 vs Ridge R^2 = 1.00 on identical data).
+        # BatchNorm normalises per-FEATURE across the batch -- exactly
+        # the axis that LN destroys (LN is per-row across features and
+        # was correctly disabled below). BN keeps inner pre-activations
+        # in a usable range and prevents the saturation. Users may opt
+        # out via ``mlp_kwargs["network_params"]["use_batchnorm"]=False``.
+        use_batchnorm=True,
         # Wave 2026-05-21: ``use_layernorm=False`` for the suite default.
         # ``generate_mlp`` defaults LN_in to True for transformer-style row-
         # independent batches, but it is WRONG for tabular regression: LN
@@ -635,6 +649,18 @@ def _configure_mlp_params(
         # LayerNorm is double-norm noise. Users who really need LN can
         # opt in via ``mlp_kwargs["network_params"]["use_layernorm"]=True``.
         use_layernorm=False,
+        # 2026-05-26: output bounded by default. The tanh_train_range
+        # output activation hard-caps the regression head to
+        # ``[(y_min+y_max)/2 - ((y_max-y_min)/2 + 3*y_std),
+        #   (y_min+y_max)/2 + ((y_max-y_min)/2 + 3*y_std)]``. scale +
+        # center are auto-derived from y_train in
+        # ``neural.base._fit_inner_network`` when caller leaves them
+        # unset, so this is a zero-config default. Previously only the
+        # extreme-AR gate enabled this; making it the default closes
+        # the failure mode at the source for ALL regression runs
+        # (envelope-clip remains as a downstream defence). Users may
+        # opt out via ``mlp_kwargs["network_params"]["output_activation"]="linear"``.
+        output_activation="tanh_train_range",
     )
     if mlp_kwargs:
         mlp_network_params.update(mlp_kwargs.get("network_params", {}))
