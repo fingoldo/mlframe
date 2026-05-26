@@ -118,3 +118,30 @@ def test_C3_composite_discovery_x_outlier_x_imbalance_reachable(od, imb):
     assert combo.composite_discovery_enabled_cfg is True
     assert combo.outlier_detection == od
     assert combo.imbalance_ratio == imb
+
+
+# ---------------------------------------------------------------------------
+# iter373: LTR + no native ranker = unrunnable combo filter
+# ---------------------------------------------------------------------------
+
+
+def test_iter373_no_ltr_combos_without_native_ranker():
+    """iter373 regression: enumerator must never emit LTR combos whose model
+    subset has zero native rankers (cb/xgb/lgb/mlp). Pre-fix the random pick
+    surfaced c0120_0a4f6506 with models=('linear',) target=LTR which crashed
+    at fit-time with NotImplementedError. The filter rejects such subsets
+    in all three enumeration phases (initial powerset, pairwise greedy,
+    random fill)."""
+    from tests.training._fuzz_combo import (
+        _LTR_NATIVE_RANKERS, enumerate_combos,
+    )
+    combos = enumerate_combos(target=150, master_seed=20260422)
+    unrunnable = [
+        c for c in combos
+        if c.target_type == "learning_to_rank"
+        and not any(m in _LTR_NATIVE_RANKERS for m in c.models)
+    ]
+    assert not unrunnable, (
+        f"enumerator emitted {len(unrunnable)} LTR combos with no native ranker: "
+        f"{[c.short_id() for c in unrunnable[:5]]}"
+    )

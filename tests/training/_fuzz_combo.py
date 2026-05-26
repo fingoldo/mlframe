@@ -2360,6 +2360,27 @@ def _powerset_nonempty(items: tuple[str, ...]) -> list[tuple[str, ...]]:
     return out
 
 
+# iter373 (2026-05-27): set of model flavours that ship a native ranker
+# implementation. Used to reject fuzz combos where target_type=LTR is paired
+# with a subset that contains NO ranker (e.g. ``models=('linear',)`` or
+# ``models=('hgb',)``) -- the runtime raises NotImplementedError on those.
+# c0120 was such a combo, surfaced 2026-05-27 by the random-pick /loop;
+# without the filter the enumerator emits ~5 unrunnable combos per 150 (any
+# LTR subset that happens to be hgb / linear / sklearn only).
+_LTR_NATIVE_RANKERS: frozenset[str] = frozenset({"cb", "xgb", "lgb", "mlp"})
+
+
+def _combo_is_runnable(models: tuple[str, ...], target_type: str) -> bool:
+    """Cheap structural check: does this (models, target_type) pair have a
+    chance of completing training? Returns False for LTR combos whose model
+    subset contains NO native ranker flavour. Other target types are always
+    runnable from this axis-pair perspective (other axes do their own
+    canonicalisation downstream)."""
+    if target_type == "learning_to_rank":
+        return any(m in _LTR_NATIVE_RANKERS for m in models)
+    return True
+
+
 def _sample_axes(rng: random.Random) -> dict[str, Any]:
     return {name: rng.choice(values) for name, values in AXES.items()}
 
@@ -3036,6 +3057,18 @@ def enumerate_combos(
     # Phase A — model subsets
     for subset in _powerset_nonempty(model_universe):
         axes = _sample_axes(rng)
+        # iter373: skip unrunnable LTR-without-ranker combos before they hit
+        # training and crash with NotImplementedError. Pull a fresh axes
+        # sample only if the FIRST pick happened to pair this subset with
+        # LTR; that way the enumerator doesn't deterministically lose its
+        # LTR slot for hgb-only / linear-only model subsets.
+        for _retry in range(20):
+            if _combo_is_runnable(subset, axes["target_type"]):
+                break
+            axes = _sample_axes(rng)
+        else:
+            # 20 resamples couldn't land on a runnable target_type; skip.
+            continue
         combo = _build_combo(subset, axes, len(combos))
         key = combo.canonical_key()
         if key in seen:
@@ -3058,6 +3091,8 @@ def enumerate_combos(
         for _ in range(50):
             subset = rng.choice(_powerset_nonempty(model_universe))
             axes = _sample_axes(rng)
+            if not _combo_is_runnable(subset, axes["target_type"]):
+                continue
             candidate = _build_combo(subset, axes, len(combos))
             if candidate.canonical_key() in seen:
                 continue
@@ -3077,6 +3112,8 @@ def enumerate_combos(
     while len(combos) < target:
         subset = rng.choice(_powerset_nonempty(model_universe))
         axes = _sample_axes(rng)
+        if not _combo_is_runnable(subset, axes["target_type"]):
+            continue
         candidate = _build_combo(subset, axes, len(combos))
         key = candidate.canonical_key()
         if key in seen:
@@ -3172,9 +3209,15 @@ def enumerate_combos_3way(
     seen: set[tuple] = set()
     combos: list[FuzzCombo] = []
 
-    # Phase A — model subsets
+    # Phase A — model subsets (iter373: skip LTR-without-ranker)
     for subset in _powerset_nonempty(model_universe):
         axes = _sample_axes(rng)
+        for _retry in range(20):
+            if _combo_is_runnable(subset, axes["target_type"]):
+                break
+            axes = _sample_axes(rng)
+        else:
+            continue
         combo = _build_combo(subset, axes, len(combos))
         key = combo.canonical_key()
         if key in seen:
@@ -3197,6 +3240,8 @@ def enumerate_combos_3way(
         for _ in range(80):
             subset = rng.choice(_powerset_nonempty(model_universe))
             axes = _sample_axes(rng)
+            if not _combo_is_runnable(subset, axes["target_type"]):
+                continue
             candidate = _build_combo(subset, axes, len(combos))
             if candidate.canonical_key() in seen:
                 continue
@@ -3216,6 +3261,8 @@ def enumerate_combos_3way(
     while len(combos) < target:
         subset = rng.choice(_powerset_nonempty(model_universe))
         axes = _sample_axes(rng)
+        if not _combo_is_runnable(subset, axes["target_type"]):
+            continue
         candidate = _build_combo(subset, axes, len(combos))
         key = candidate.canonical_key()
         if key in seen:
