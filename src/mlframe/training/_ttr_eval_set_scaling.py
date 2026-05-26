@@ -32,6 +32,35 @@ class _TTRWithEvalSetScaling(TransformedTargetRegressor):
             y_arr_2d = y_arr.reshape(-1, 1)
         else:
             y_arr_2d = y_arr
+        # Stash y_train statistics for the defensive predict-time clip.
+        # MLP / Identity-Linear regressors can extrapolate catastrophically
+        # on unseen-group test rows (TVT 2026-05-26: predictions in
+        # [-50k, +250k] for target in [10500, 12800], MaxError=781354).
+        # Clipping in y-space at [y_train_min - 3*std, y_train_max + 3*std]
+        # bounds the damage to "wrong by a few sigma" instead of "wrong by
+        # 1000 sigma". Set via env var
+        # MLFRAME_TTR_DISABLE_PREDICT_CLIP=1 to disable for benchmarking.
+        try:
+            _y_finite = y_arr[np.isfinite(y_arr)]
+            if _y_finite.size > 10:
+                _y_mean = float(_y_finite.mean())
+                _y_std = float(_y_finite.std())
+                _y_min = float(_y_finite.min())
+                _y_max = float(_y_finite.max())
+                self._y_train_clip_low_ = _y_min - 3.0 * _y_std
+                self._y_train_clip_high_ = _y_max + 3.0 * _y_std
+                self._y_train_mean_ = _y_mean
+                self._y_train_std_ = _y_std
+            else:
+                self._y_train_clip_low_ = float("-inf")
+                self._y_train_clip_high_ = float("+inf")
+                self._y_train_mean_ = 0.0
+                self._y_train_std_ = 0.0
+        except Exception:
+            self._y_train_clip_low_ = float("-inf")
+            self._y_train_clip_high_ = float("+inf")
+            self._y_train_mean_ = 0.0
+            self._y_train_std_ = 0.0
         self.transformer_ = _clone(self.transformer) if self.transformer is not None else None
         if self.transformer_ is not None:
             self.transformer_.fit(y_arr_2d)
@@ -121,4 +150,37 @@ class _TTRWithEvalSetScaling(TransformedTargetRegressor):
             pred_trans = self.transformer_.inverse_transform(t_hat_np)
         if pred_trans.ndim == 2 and pred_trans.shape[1] == 1:
             pred_trans = pred_trans.squeeze(axis=1)
+        # Defensive y-space clip. MLP / Identity-Linear regressors can
+        # produce wildly extrapolated predictions on group-aware splits
+        # with extreme-AR targets; the sensor above WARNs but the y_hat
+        # itself was still passed through unchanged. Clipping at
+        # [y_train_min - 3*std, y_train_max + 3*std] bounds the damage
+        # without distorting in-distribution predictions (3 sigma above
+        # observed train range is well past any honest extrapolation
+        # boundary). Opt out via MLFRAME_TTR_DISABLE_PREDICT_CLIP=1.
+        _clip_low = getattr(self, "_y_train_clip_low_", float("-inf"))
+        _clip_high = getattr(self, "_y_train_clip_high_", float("+inf"))
+        if np.isfinite(_clip_low) or np.isfinite(_clip_high):
+            import os as _os
+            if not _os.environ.get("MLFRAME_TTR_DISABLE_PREDICT_CLIP"):
+                try:
+                    _arr = np.asarray(pred_trans, dtype=np.float64)
+                    _n_low = int(np.sum(_arr < _clip_low))
+                    _n_high = int(np.sum(_arr > _clip_high))
+                    if _n_low or _n_high:
+                        logger.warning(
+                            "[ttr-predict-clip] %s emitted %d row(s) "
+                            "below %.4g and %d row(s) above %.4g (target "
+                            "train range expanded by 3 sigma). Clipping. "
+                            "Disable via MLFRAME_TTR_DISABLE_PREDICT_CLIP=1.",
+                            type(self.regressor_).__name__,
+                            _n_low, _clip_low, _n_high, _clip_high,
+                        )
+                        pred_trans = np.clip(_arr, _clip_low, _clip_high)
+                        if pred_trans.shape == _arr.shape and t_hat_np.ndim == 1:
+                            pred_trans = pred_trans.reshape(-1)
+                except Exception as _clip_err:
+                    logger.debug(
+                        "ttr-predict-clip failed (non-fatal): %s", _clip_err,
+                    )
         return pred_trans

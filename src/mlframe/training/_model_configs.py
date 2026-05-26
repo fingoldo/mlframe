@@ -550,15 +550,26 @@ class TrainingBehaviorConfig(BaseConfig):
     target_temporal_audit_save_plot: bool = True
     """Save the time-series chart to the per-target charts folder."""
 
-    # Extreme-AR + group-aware MLP skip. When the target's per-group
-    # lag1 autocorrelation is at or above ``mlp_extreme_ar_threshold``
-    # AND the split is group-aware (test groups unseen at training),
-    # the MLP fit is skipped: its near-linear surface extrapolates
-    # catastrophically on unseen groups (TVT prod 2026-05-24:
-    # pred_std=58 vs target_std=645, R2=-286 on test). The ensemble
-    # quality gate would drop the predictions anyway, so the train
-    # is pure cost. Default OFF (MLP trains) -- user-facing knob, no
-    # silent skip without an explicit opt-in. Set True to enable.
+    # Extreme-AR + group-aware MLP skip. When set, skips the MLP fit
+    # on targets where lag1_corr >= mlp_extreme_ar_threshold AND the
+    # split is group-aware. Default FALSE: turning off MLP is a poor
+    # solution; the user has asked the framework to make the MLP
+    # ACTUALLY WORK on this regime, not silently skip. The defensive
+    # protections that DO ship by default (and bound the damage when
+    # MLP is allowed to train):
+    #   * ``_TTRWithEvalSetScaling.predict`` clips inverse-transformed
+    #     y_hat to [y_train_min - 3*std, y_train_max + 3*std]. Bounds
+    #     the catastrophic blow-up; the model still learns badly but
+    #     predictions stay within ~3 sigma of train range.
+    #   * Ensemble dummy-floor gate drops MLP from the blend if its
+    #     OOF RMSE exceeds the strongest dummy. So even a bad MLP
+    #     doesn't poison the final ensemble RMSE.
+    # Substantive fix paths (see ticket TBD) that this knob does NOT
+    # address:
+    #   * Residual-target MLP (train on y - alpha*lag, predict residual).
+    #   * Output activation bounding (tanh-scaled to train target range).
+    #   * Drop per-well aggregate features from MLP input set
+    #     (group-level features extrapolate on unseen wells).
     mlp_extreme_ar_group_aware_skip: bool = False
     mlp_extreme_ar_threshold: float = 0.99
 
