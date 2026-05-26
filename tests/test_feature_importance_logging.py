@@ -132,6 +132,77 @@ class TestTopNTextLog:
 # ----------------------------------------------------------------------
 
 
+class TestInlineDisplayDoesNotLeakFigures:
+    """2026-05-26 Jupyter double-render fix.
+
+    The pre-fix behaviour left every displayed figure alive in
+    matplotlib's pyplot registry under the assumption that closing
+    would lose the inline render. In reality
+    ``IPython.display.display(fig)`` serialises the figure into the
+    kernel's display channel synchronously, so subsequent
+    ``plt.close(fig)`` only frees the matplotlib backing. Without the
+    close, the inline backend's end-of-cell auto-flush re-renders the
+    leaked figures, producing the "толпа FI графиков" wave the user
+    observed after a long composite-ensemble pipeline.
+
+    Regression coverage: simulate the Jupyter detection branch
+    (``__IPYTHON__`` builtin set + ``IPython.display`` available),
+    fire ``plot_feature_importance``, and assert the post-render
+    matplotlib figure manager is empty for any figure handle the
+    function created.
+    """
+
+    def test_jupyter_inline_does_not_leak_figs_into_registry(self) -> None:
+        import builtins
+        import sys
+        import matplotlib.pyplot as plt
+        # Patch __IPYTHON__ in builtins (the detection condition).
+        had_ipy = hasattr(builtins, "__IPYTHON__")
+        prior = getattr(builtins, "__IPYTHON__", None)
+        builtins.__IPYTHON__ = True
+
+        # If IPython is not installed in the test env, the fallback
+        # path runs (no kernel-display) -- skip the assertion in that
+        # case; the bug only manifests when IPython.display actually
+        # renders.
+        try:
+            from IPython.display import display  # noqa: F401
+        except Exception:
+            if not had_ipy:
+                del builtins.__IPYTHON__
+            else:
+                builtins.__IPYTHON__ = prior
+            pytest.skip("IPython not available -- bug only manifests inside kernel")
+
+        try:
+            plt.close("all")
+            initial = plt.get_fignums()
+            assert initial == [], "test setup: pyplot must start clean"
+
+            fi = np.array([0.5, 0.3, 0.2, 0.1])
+            columns = ["a", "b", "c", "d"]
+            plot_feature_importance(
+                feature_importances=fi, columns=columns,
+                kind="DOUBLE_RENDER", show_plots=True, plot_file="",
+            )
+
+            # Post-render: every figure created during the call must
+            # be closed (not just hidden). Leaked figures cause the
+            # double-render bug.
+            after = plt.get_fignums()
+            assert after == [], (
+                f"plot_feature_importance leaked {len(after)} figure(s) "
+                f"into pyplot registry; Jupyter end-of-cell auto-flush "
+                f"would re-render them, causing the double-render wave."
+            )
+        finally:
+            if not had_ipy:
+                del builtins.__IPYTHON__
+            else:
+                builtins.__IPYTHON__ = prior
+            plt.close("all")
+
+
 class TestInlineDisplayPath:
     def test_no_jupyter_falls_through_to_plt_show(self, monkeypatch) -> None:
         """Outside a Jupyter / IPython kernel, the function falls

@@ -278,11 +278,13 @@ def plot_feature_importance(
                 _in_kernel = bool(__IPYTHON__)  # type: ignore[name-defined]  # noqa: F821
             except NameError:
                 _in_kernel = False
+            _displayed_inline = False
             if _in_kernel:
                 try:
                     from IPython.display import display as _ipy_display
                     for _fig in figs:
                         _ipy_display(_fig)
+                    _displayed_inline = True
                 except Exception:
                     # Fall back to plt.show on any import / display error.
                     from mlframe.metrics import show_plots_unless_agg
@@ -290,13 +292,34 @@ def plot_feature_importance(
             else:
                 from mlframe.metrics import show_plots_unless_agg
                 show_plots_unless_agg()
+            # 2026-05-26 Jupyter double-render fix: after
+            # ``IPython.display.display(fig)`` the kernel has already
+            # serialised the figure to PNG / SVG and shipped it to the
+            # display channel; the matplotlib backing is now independent.
+            # If we LEAVE the figure alive in matplotlib's pyplot
+            # registry, the inline backend's end-of-cell auto-flush
+            # picks it up and renders it AGAIN, producing the "толпа
+            # FI графиков" wave after the composite-ensemble phase
+            # finishes its async pipeline. Closing here drops the
+            # registry reference without affecting the already-
+            # displayed inline image. Out-of-kernel path is handled
+            # by the unified ``_close_unless_interactive`` below.
+            if _displayed_inline:
+                for _fig in figs:
+                    try:
+                        plt.close(_fig)
+                    except Exception:
+                        pass
         # Close ALL figs (top + bottom) unless inside an IPython /
-        # Jupyter kernel where the inline display already rendered
-        # them. Previously only the last-assigned fig was closed in
-        # the ``not show_plots`` branch (top-FI leaked whenever the
-        # bottom branch also fired) AND the ``show_plots=True`` path
-        # never closed anything (suite-default leak per fit). 2026-
-        # 05-09 leak fix; helper unifies the detection across modules.
+        # Jupyter kernel where the inline display has ALREADY captured
+        # the rendered figure to the display channel. Previously only
+        # the last-assigned fig was closed in the ``not show_plots``
+        # branch (top-FI leaked whenever the bottom branch also fired)
+        # AND the ``show_plots=True`` path never closed anything --
+        # the explicit ``plt.close`` above now covers the Jupyter
+        # branch, so this helper is the safety net for the no-show
+        # path. 2026-05-09 leak fix; helper unifies the detection
+        # across modules.
         from mlframe.metrics.core import _close_unless_interactive
         _close_unless_interactive(figs, was_shown=show_plots)
 

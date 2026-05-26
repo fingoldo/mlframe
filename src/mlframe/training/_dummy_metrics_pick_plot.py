@@ -537,6 +537,13 @@ def plot_best_dummy_baseline_overlay(
             try:
                 from IPython.display import display as _ipy_display
                 _ipy_display(fig)
+                # Close right after inline display: IPython has already
+                # serialised the figure to the kernel display channel,
+                # so the pyplot-registry reference is dead weight.
+                # Leaving it alive causes the inline backend's end-of-
+                # cell auto-flush to re-render the figure (the "толпа
+                # графиков" double-render seen 2026-05-26).
+                _plt.close(fig)
             except Exception:
                 _plt.ion()
                 _plt.show()
