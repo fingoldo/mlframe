@@ -614,8 +614,23 @@ def _configure_mlp_params(
         min_layer_neurons=16,
         neurons_by_layer_arch=_arch_cls.Declining,
         consec_layers_neurons_ratio=2.0,
-        activation_function=torch.nn.LeakyReLU,
-        weights_init_fcn=partial(nn.init.kaiming_normal_, nonlinearity="leaky_relu", a=0.01),
+        # 2026-05-27 (user request): LeakyReLU -> Tanh on the
+        # extreme-AR / group-aware-split regime. LeakyReLU is unbounded
+        # above, so on the unseen-group test split the inner pre-
+        # activations explode -> destandardised predictions cluster
+        # far outside the y_train envelope -> envelope-clip kicks in
+        # but the chart still shows R^2 < 0. Tanh is BOUNDED [-1, +1],
+        # so even on extreme extrapolation rows the post-activation
+        # cannot blow up -- the saturation degrades gradient flow but
+        # caps the prediction magnitude before destandardisation. The
+        # output bound (``tanh_train_range``) on the last layer then
+        # adds a SECOND bound on the y-scale; in combination, the MLP
+        # produces predictions that stay within ~y_train_range +- 3*y_std
+        # even under feature-distribution shift. Users may revert to
+        # LeakyReLU via ``mlp_kwargs["network_params"]["activation_function"]
+        # = torch.nn.LeakyReLU``.
+        activation_function=torch.nn.Tanh,
+        weights_init_fcn=partial(nn.init.xavier_normal_, gain=1.0),
         dropout_prob=0.0,
         inputs_dropout_prob=0.0,
         # 2026-05-26: ``use_batchnorm=True`` is the suite default.

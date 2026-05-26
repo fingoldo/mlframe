@@ -471,13 +471,21 @@ def report_regression_model_perf(
         # caller emitting the MTRESID tag with a non-canonical target
         # column (custom user composite) still hits the skip path.
         # Override via env MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS=1.
-        from ._composite_transforms_naming import is_composite_target_name
+        # 2026-05-27 (user bug report): the prior detector
+        # ``_has_mtresid_token OR is_composite_target_name(token)`` was
+        # over-broad. ``is_composite_target_name`` matches the COMPOSITE
+        # TARGET NAME (e.g. ``TVT-spline-TVT_prev``) which appears in
+        # BOTH T-scale charts (model_name contains MTRESID=) AND
+        # y-scale wrap-pass charts (model_name contains MTTR=).
+        # Combining the two predicates with OR accidentally skipped the
+        # y-scale charts too -- exactly the charts the operator wants
+        # to see for prediction-quality assessment on composite targets.
+        #
+        # Fix: only the MTRESID label-substring marks a T-scale chart.
+        # The composite-target-name token by itself is NOT a T-scale
+        # marker (y-scale charts have it too).
         _model_name_str = str(model_name)
-        _has_mtresid_token = "MTRESID" in _model_name_str
-        _has_composite_target_token = any(
-            is_composite_target_name(tok) for tok in _model_name_str.split()
-        )
-        _is_t_scale_composite_chart = _has_mtresid_token or _has_composite_target_token
+        _is_t_scale_composite_chart = "MTRESID" in _model_name_str
         if _is_t_scale_composite_chart and not os.environ.get(
             "MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS",
         ):
@@ -644,14 +652,13 @@ def report_regression_model_perf(
         # from on-disk logs.
         from ._format import format_metric as _fmt
         # Annotate composite-target reports as T-scale. Composite targets carry ``MTRESID=`` in the model_name (stamped by ``select_target``); this indicates the printed metrics live on the RESIDUAL scale, not the raw y-scale. The wrap pass separately emits y-scale numbers via ``[CompositeTargetEstimator] ... y-scale metrics:`` so the operator can compare apples-to-apples with raw-target reports.
-        # Same robust detector as the chart-skip gate above: prefer the
-        # ``is_composite_target_name`` parse of the embedded target name
-        # over a brittle ``MTRESID=`` substring check.
-        from ._composite_transforms_naming import is_composite_target_name
-        _is_t_scale_composite = (
-            "MTRESID" in model_name
-            or any(is_composite_target_name(tok) for tok in str(model_name).split())
-        )
+        # 2026-05-27 (user bug report): same fix as the chart-skip gate
+        # above -- only ``MTRESID`` token marks a T-scale chart. The
+        # composite-target-NAME token is present on y-scale charts too;
+        # the prior ``is_composite_target_name`` predicate was wrong
+        # here and skipped legitimate y-scale prediction-quality
+        # reports.
+        _is_t_scale_composite = "MTRESID" in model_name
         _scale_note = (
             "  (T-scale residual; y-scale metrics in "
             "[CompositeTargetEstimator] log line)"
