@@ -72,10 +72,17 @@ from tests.conftest import IS_FAST_MODE, is_fast_mode  # noqa: F401, E402
 
 
 def _coverage_active() -> bool:
-    """True iff coverage.py is currently tracing this process. Used to skip tests that spawn threads via joblib.Parallel /
-    multiprocessing.dummy - those interact badly with coverage's sys.settrace on Windows (RuntimeError: can't start new
-    thread + AttributeError: 'DummyProcess' has no 'terminate') and break the coverage run. Tests still pass in standard
-    pytest invocations; only the coverage-measurement path skips them."""
+    """True iff coverage.py is currently tracing this process. Used to skip tests that spawn threads via
+    joblib.Parallel / multiprocessing.dummy -- those interact badly with coverage's sys.settrace on Windows
+    (RuntimeError: can't start new thread + AttributeError: 'DummyProcess' has no 'terminate') and break the
+    coverage run. Tests still pass in standard pytest invocations; only the coverage-measurement path skips them.
+
+    B2#40 note: this probe ALWAYS returns False in the default suite invocation because ``addopts = "--no-cov"``
+    in pyproject globally disables coverage. The probe is intentionally retained because the NIGHTLY numba-coverage
+    workflow (``.github/workflows/numba-coverage.yml``) explicitly enables coverage via ``--cov`` after force-
+    disabling numba JIT, and in THAT path the joblib + DummyProcess interactions surface. Callers in this
+    conftest gate joblib-Parallel tests behind ``COVERAGE_ACTIVE`` so the coverage run stays green.
+    """
     try:
         import coverage as _cov
         return _cov.Coverage.current() is not None

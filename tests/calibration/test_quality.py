@@ -6,12 +6,16 @@ import pytest
 
 np = pytest.importorskip("numpy")
 
+# B2#33 DRY: pre-fix every test body re-importorskip'd the same (properscoring + matplotlib) pair (7 sites = 14
+# probes). Module-level skip via pytest.importorskip collects both contracts once at module import; if either dep
+# is absent the whole file deselects with a single skip reason rather than re-skipping per test.
+pytest.importorskip("properscoring")
+pytest.importorskip("matplotlib")
+
 
 @pytest.mark.fast
 def test_import_quality_module():
     """Calibration quality module imports cleanly with public callables present."""
-    pytest.importorskip("properscoring")
-    pytest.importorskip("matplotlib")
     from mlframe.calibration import quality as q
 
     for name in (
@@ -27,8 +31,6 @@ def test_import_quality_module():
 @pytest.mark.fast
 def test_msd_uniform_pit_below_quarter():
     """Mean squared deviation of (near-)uniform PIT values stays below the 0.25 worst case."""
-    pytest.importorskip("properscoring")
-    pytest.importorskip("matplotlib")
     from mlframe.calibration.quality import mean_squared_deviation
 
     rng = np.random.default_rng(0)
@@ -41,8 +43,6 @@ def test_msd_uniform_pit_below_quarter():
 @pytest.mark.fast
 def test_ks_statistic_uniform_small():
     """KS stat against uniform CDF on a uniform sample stays small."""
-    pytest.importorskip("properscoring")
-    pytest.importorskip("matplotlib")
     from mlframe.calibration.quality import kolmogorov_smirnov_statistic
 
     rng = np.random.default_rng(1)

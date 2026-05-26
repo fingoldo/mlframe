@@ -18,6 +18,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+# B1 sklearn matrix marker convention -- this file runs in the multi-sklearn-version CI matrix.
+pytestmark = pytest.mark.sklearn_matrix
+
+
 from mlframe.training.composite import (
     CompositeCrossTargetEnsemble,
     derive_seeds,

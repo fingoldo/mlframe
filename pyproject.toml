@@ -300,6 +300,7 @@ markers = [
     "uses_matplotlib: test produces matplotlib figures; triggers plt.close('all') + gc in cleanup_memory autouse",
     "uses_torch: test allocates GPU/CPU torch tensors; triggers torch.cuda.empty_cache in cleanup_memory autouse",
     "numba_disabled: include in the NUMBA_DISABLE_JIT=1 nightly coverage run; tests run 10-100x slower under no-JIT, see scripts/run_numba_coverage.{sh,ps1}",
+    "sklearn_matrix: include in the multi-sklearn-version CI matrix (.github/workflows/sklearn-matrix.yml); tests pin scikit-learn surface contracts across the supported version range (1.5-1.8) and must NOT depend on private internals. See tests/test_meta/test_sklearn_matrix_marker_invariants.py for the convention.",
 ]
 filterwarnings = [
     "error::DeprecationWarning:mlframe",

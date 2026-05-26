@@ -31,6 +31,10 @@ import pickle
 import numpy as np
 import pandas as pd
 import pytest
+
+# B1 sklearn matrix marker convention -- this file runs in the multi-sklearn-version CI matrix.
+pytestmark = pytest.mark.sklearn_matrix
+
 import polars as pl
 
 # Optional dependency: most wrapper integration tests need LightGBM.

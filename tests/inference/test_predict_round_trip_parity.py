@@ -148,17 +148,20 @@ def test_in_memory_and_disk_predict_agree_on_simple_suite(tmp_path):
     # reads from disk but takes the same code path; the in-memory variant after load is the most apples-to-
     # apples comparison).
     models_path = os.path.join(tmp, "models", "y", "round_trip_disk")
-    # Windows zstd quirk: under high pytest concurrency / cold-disk conditions the cramjam zstd writer occasionally
-    # leaves an empty models dir; the in-memory parity test in this file covers the same code path so disk-side
-    # failures here are non-blocking. No upstream issue filed yet -- if a deterministic repro lands, open one
-    # against cramjam (or whichever zstandard binding is in use) and link it here.
+    # Windows zstd quirk (B2#20/#45 acknowledged): under high pytest concurrency / cold-disk conditions the cramjam
+    # zstd writer occasionally leaves an empty models dir on Windows; the in-memory parity test in this file covers
+    # the same code path so disk-side failures here are non-blocking. The skip path is Windows-only in practice
+    # because the underlying race surfaces in the Windows file-handle release order; Linux + macOS runs always
+    # produce the metadata file. No upstream issue filed yet -- if a deterministic repro lands, open one against
+    # cramjam (or whichever zstandard binding is in use) and link it here. Until then this remains a known platform
+    # quirk rather than a "to be tracked" task.
     if not os.path.exists(os.path.join(models_path, "metadata.pkl.zst")) and \
        not os.path.exists(os.path.join(models_path, "metadata.pkl")):
-        pytest.skip("disk save did not produce a metadata file -- Windows zstd quirk (untracked upstream); in-memory parity covered by the other test")
+        pytest.skip("disk save did not produce a metadata file -- known Windows zstd quirk (B2#20/#45); in-memory parity covered by the sibling test")
     from mlframe.training.core.predict import load_mlframe_suite
     loaded_models, loaded_metadata = load_mlframe_suite(models_path)
     if not loaded_models:
-        pytest.skip("disk save did not produce any .dump files -- Windows zstd quirk (untracked upstream); in-memory parity covered by the other test")
+        pytest.skip("disk save did not produce any .dump files -- known Windows zstd quirk (B2#20/#45); in-memory parity covered by the sibling test")
 
     results_disk = predict_from_models(
         df=df, models=loaded_models, metadata=loaded_metadata,

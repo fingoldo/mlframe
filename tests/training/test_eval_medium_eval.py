@@ -308,20 +308,18 @@ def test_baseline_diagnostics_outer_try_does_not_swallow_keyboard_interrupt(monk
     monkeypatch.setattr(baseline_diagnostics, "_to_1d_numpy", _ki)
 
     bd_cls = baseline_diagnostics.BaselineDiagnostics
-    # Newer versions require a config argument; build a real one so
-    # ``self.config.enabled`` doesn't fire AttributeError before the patched
-    # _to_1d_numpy is reached.
-    try:
-        instance = bd_cls()
-    except TypeError:
-        try:
-            from mlframe.training.configs import BaselineDiagnosticsConfig
-            instance = bd_cls(BaselineDiagnosticsConfig())
-        except Exception:
-            pytest.skip("Cannot construct BaselineDiagnostics for this version")
+    # B2#22: the constructor signature stabilised at ``__init__(self, config: Any)`` in mlframe at the same point
+    # that ``fit_and_report`` became the canonical fit entry. The version-conditional pytest.skip fallbacks have
+    # been replaced with direct asserts: a mismatch on EITHER the constructor or ``fit_and_report`` is now a real
+    # mlframe API regression that should fail loudly rather than skip silently. The companion compat-import via
+    # ``BaselineDiagnosticsConfig`` is kept inline.
+    from mlframe.training.configs import BaselineDiagnosticsConfig
+    instance = bd_cls(BaselineDiagnosticsConfig())
     fit_method = getattr(instance, "fit_and_report", None)
-    if fit_method is None:
-        pytest.skip("fit_and_report not present on this BaselineDiagnostics version")
+    assert fit_method is not None, (
+        "BaselineDiagnostics.fit_and_report has gone missing -- mlframe API regression, not a third-party version drift; "
+        "investigate baseline_diagnostics.py rather than silently skipping."
+    )
     with pytest.raises(KeyboardInterrupt):
         fit_method(dummy_df, dummy_target, feature_cols, target_type, target_name)
 

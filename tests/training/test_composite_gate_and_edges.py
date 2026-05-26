@@ -31,6 +31,10 @@ import pandas as pd
 import polars as pl
 import pytest
 
+# B1 sklearn matrix marker convention -- this file runs in the multi-sklearn-version CI matrix.
+pytestmark = pytest.mark.sklearn_matrix
+
+
 from mlframe.training.composite import CompositeTargetDiscovery
 from mlframe.training.configs import CompositeTargetDiscoveryConfig
 

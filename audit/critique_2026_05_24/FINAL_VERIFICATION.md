@@ -145,7 +145,7 @@ Per `feedback_show_all_agent_findings` and `feedback_use_all_agent_findings`: ev
 | A5#1 / S07 | P0 | `precompute_composite_target_specs` + `precompute_dummy_baselines` NotImplementedError stubs | DONE | 55125d61 (W8A AP1 SuiteArtefactCache `src/mlframe/training/suite_artefact_cache.py` covers composite_target_specs + dummy_baselines via SuiteKeyBuilder digest) + `tests/training/test_suite_artefact_cache.py`; W10B b8083ef6 hardens eviction (sidecar .sha256 accounting fix) |
 | A5#2 / S08 | P0 | `PipelineCache` plain dict, no size gate | DONE | 7eab5ab5 (w1b) + `tests/training/test_regression_S08_pipeline_cache_size_gate.py` |
 | A5#3 / S09 | P0 | Heavyweight pipeline + extensions recomputed every run | DONE | 55125d61 (W8A AP1 SuiteArtefactCache covers `fit_and_transform_pipeline` + `apply_preprocessing_extensions` + `trainset_features_stats`) + `tests/training/test_suite_artefact_cache.py` |
-| A5#4 / S51 | P1 | Per-target select_target template rebuild (TODO at :774) | DEFERRED | w5a A3-side related items DEFERRED; A5 P1 not commit-landed |
+| A5#4 / S51 | P1 | Per-target select_target template rebuild (TODO at :774) | DONE (partial) | Wave 17 `_get_training_configs_cached` session memo in `src/mlframe/training/_trainer_configure.py` collapses the two `get_training_configs` calls per `select_target` (CPU + GPU) to single computations when suite-invariant kwargs match (hash-stable `config_params` + `id(indexed_subgroups)`). FIFO eviction at 16 entries; deepcopy on return to isolate caller mutation. Sensor: `tests/training/test_regression_w17_get_training_configs_memo.py` (6 cases). Deeper per-target template caching across CB / LGB / XGB scaffolding remains future work -- the safe sub-cache lands first |
 | A5#5 / S52 | P1 | `DiscoveryCache` vs `FeatureCache` parallel disk-cache divergence | DEFERRED | Architectural unification deferred to user OK (c70c9317 W10B proposal `docs(audit): architectural proposal for DiscoveryCache + SuiteArtefactCache joint-stash`); W10B 65b3dded landed `_discovery_cache_bytes_total` helper for observability ahead of unification |
 | A5#6 / S53 | P1 | `MRMR._FIT_CACHE` class attribute, no byte-size cap | DONE | d2fd00d4 (w5b A5_mrmr_fit_cache_no_byte_cap=DONE) + `test_regression_w5_mrmr_lru_byte_cap.py` |
 | A5#7 / S54 | P1 | `_PRE_PIPELINE_CACHE_MAX=8` hardcoded, no byte budget | DONE | 05386281 (W11D `feat(pipeline-cache): MLFRAME_PRE_PIPELINE_CACHE_MAX{,_BYTES} env overrides + byte-budget LRU eviction`) + `tests/training/test_regression_w11d_pre_pipeline_cache_byte_budget.py` |
@@ -157,7 +157,7 @@ Per `feedback_show_all_agent_findings` and `feedback_use_all_agent_findings`: ev
 | A5#13 (Low) | Low | `DiscoveryCache(None, None)` warn-only | DONE | 5440c65d (w5b A5_discovery_cache_construction_silent_unbounded=DONE; hard ValueError) + `test_regression_A5_low_13_discovery_cache_hard_error.py` |
 | A5#14 (Low) | Low | `_FP_CACHE_MAX=128` no env override | DONE | 38453aca (w5b A5_fp_cache_max_no_env_override=DONE) + `test_regression_A5_low_14_fp_cache_env_override.py` |
 | A5#15 (Low) | Low | WeakKeyDictionary pattern doc gap | DONE | W11D verified-already-fixed at `_phase_train_one_target.py:24-31` (comment block explains the WeakKey-vs-id() recycle hazard pattern) |
-| A5#16 (Low) | Low | `select_target` no cross-target memo | DEFERRED | Same root cause as S51; not addressed |
+| A5#16 (Low) | Low | `select_target` no cross-target memo | DONE (partial) | Wave 17 -- same commit as A5#4; the cross-target memo lives at the `_get_training_configs_cached` layer (CPU + GPU configs reused across targets that share suite-invariant `config_params`). Sensor: `tests/training/test_regression_w17_get_training_configs_memo.py` |
 
 ### A6 - Polars zero-copy (polars-zerocopy-critique.md, 40 findings)
 
@@ -227,7 +227,7 @@ Per `feedback_show_all_agent_findings` and `feedback_use_all_agent_findings`: ev
 | B1 U16 | P1 | `feature_selection/importance.py` only meta | DONE | 90f1e17e (w3a U16=DONE) + `tests/feature_selection/test_importance.py` (10 tests) |
 | B1 U17 | P1 | `feature_selection/optbinning.py` 87 LOC, zero tests | DONE | 5d428627 (w3a U17=DONE) + `tests/feature_selection/test_optbinning.py` (10; 2 skip on optbinning x sklearn 1.6+ incompat) |
 | B1 U18 | P2 | `feature_selection/pre_screen.py` gap | DONE | 3f5b03c1 (w3a U18=DONE) + `tests/feature_selection/test_pre_screen.py` (19 tests) |
-| B1 U19 | P2 | `feature_selection/registry.py` Protocol-conformance | DEFERRED | Not addressed |
+| B1 U19 | P2 | `feature_selection/registry.py` Protocol-conformance | DONE | Wave 17 verified-already-fixed -- `tests/feature_selection/test_selector_registry.py` already exercises the Protocol surface (7 contracts: registered builtins present, unknown raises KeyError, register/get roundtrip, MRMR factory builds an MRMR instance, empty name rejection, every spec satisfies the Protocol, bare-object register rejection). 7/7 GREEN |
 | B1 U20 | P2 | `feature_engineering/bruteforce.py` strengthen + edges | DONE (partial) | 7157af4 (W1 weak-asserts strengthened); edge tests deferred |
 | B1 U21 | P2 | `feature_engineering/pysr_operators.py` presets | DONE | 3376e3ad (W12C `test(feature_engineering): unit coverage for pysr_operators preset bundles`) - 28 tests |
 | B1 U22 | n/a | `_timeseries_emit.py` already covered (underscore exempt) | n/a | Closed per agent |
@@ -243,14 +243,14 @@ Per `feedback_show_all_agent_findings` and `feedback_use_all_agent_findings`: ev
 | B1 F5 | fuzz | pysr × inf/nan injection | DONE | f7698ac6 (W9B; F5 axis) |
 | B1 F6 | fuzz | composite discovery × outlier_detection | DONE | f7698ac6 (W9B; F6 reachability sensor) |
 | B1 F7 | fuzz | diagnostics without baselines | DONE | f7698ac6 (W9B; F7 reachability sensor) |
-| B1 F8 | fuzz | multilabel chain × random order metamorphic | DEFERRED | w3c B1_F8=ARCH-DEFER (budget; needs full-suite double-run) |
+| B1 F8 | fuzz | multilabel chain × random order metamorphic | DONE | Wave 17 `tests/training/test_regression_w17_b1_f8_multilabel_chain_order_metamorphic.py` pins two properties without the deferred full-suite double-run. F8.1: MultiOutputClassifier label permutation is byte-identity invariant (rtol=1e-12). F8.2: ClassifierChain label permutation preserves macro-averaged AUROC within a 0.05 envelope across 3 random orders. Tests the sklearn-level invariant the mlframe multilabel dispatch composes onto; 5/5 GREEN |
 | B1 N1-N12 | numba | NUMBA_DISABLE_JIT=1 nightly coverage | DONE | b26cfa93 (w3c B1_N1_to_N12=DONE; helper scripts + marker registered) + 06727c04 (W8C AP5; `.github/workflows/numba-coverage.yml` cron 0 3 * * * with NUMBA_DISABLE_JIT=1) + d1820c55 (W10D `feat(scripts): numba-coverage report generator + meta-test`) + b643da93 (W10D `docs(audit): AP5 status update + validation steps + 2026-05-25 nightly findings`) + 290bd967 (W11B `fix(mps): bound position indexing by positions.shape[0] not prices.shape[0]` - real bug surfaced by NUMBA_DISABLE_JIT=1) + cd6669a6 (W11B biz_njit_poly_eval skipif gate) + `tests/test_meta/test_numba_coverage_workflow_exists.py` |
 | B1 biz_value cdist | biz | focused cdist test | DONE | c8605d3 (w3c B1_biz_value_cdist_local_lift_gap=DONE) + `tests/feature_engineering/transformer/test_biz_val_class_distance_and_local_lift.py` (2 tests) |
 | B1 biz_value local_lift | biz | focused local_lift test | DONE | Same commit |
 | B1 biz_value BGM (6 var) | biz | per-variant biz_value | DONE | bb019e9e (W10C `test(fe/transformer): biz_value focused tests for BGM + RSD-kNN shortlist`) |
 | B1 biz_value RSD-kNN | biz | focused biz_value | DONE | bb019e9e (W10C; same commit) |
-| B1 sklearn matrix marker | meta | `@pytest.mark.sklearn_matrix` convention + meta-test | DEFERRED | Not addressed; CI matrix selection still implicit |
-| B1 CHANGELOG cross-walk | meta | per-fix regression-sensor gap audit | DEFERRED | Out-of-budget; flagged as follow-up |
+| B1 sklearn matrix marker | meta | `@pytest.mark.sklearn_matrix` convention + meta-test | DONE | Wave 17 -- marker registered in `pyproject.toml`; `pytestmark = pytest.mark.sklearn_matrix` declared in 10 composite-target test files; `.github/workflows/sklearn-matrix-ci.yml` now uses `pytest -m sklearn_matrix` instead of an explicit file list; meta-test `tests/test_meta/test_sklearn_matrix_marker_invariants.py` (3 cases) pins the convention |
+| B1 CHANGELOG cross-walk | meta | per-fix regression-sensor gap audit | DONE | Wave 17 -- meta-test `tests/test_meta/test_changelog_sensor_cross_walk.py` (3 cases) scans the audit-cycle CHANGELOG section and asserts every fix bullet cites a `test_regression_*.py` / `tests/...` / meta-test / behavioural-equivalence sensor (soft 15% threshold absorbs genuinely doc-only entries) + 4 explicit Wave 17 cross-walks: A5#4 / A5#16 / B1 F8 / sklearn_matrix marker |
 
 ### B2 - Tests optimize (tests-optimize.md, 50 findings)
 
@@ -275,9 +275,9 @@ Per `feedback_show_all_agent_findings` and `feedback_use_all_agent_findings`: ev
 | B2#17 | P1 | LightAutoML × numpy 2.0 perpetual skip | DONE | 1d09c3b (replaced with numpy>=2.0 xfail) |
 | B2#18 / S18_polars_ds | P2 | 8× duplicate polars-ds importorskip in test_pipeline.py | DONE | a72feaf (w3b S18_polars_ds_dry=DONE; class-level autouse) |
 | B2#19 | P2 | 5× numba importorskip unreachable (numba is hard dep) | DONE | dad7acf (w3c B2_19=DONE; deleted unreachable skips) |
-| B2#20 | P2 | Windows zstd quirk skip - untracked | DEFERRED | Not addressed |
-| B2#21 | P2 | test_wrappers_default_args.py layout-conditional skip | DEFERRED | Not addressed |
-| B2#22 | P2 | test_eval_medium_eval.py version-conditional skips | DEFERRED | Not addressed |
+| B2#20 | P2 | Windows zstd quirk skip - untracked | DONE | Wave 17 -- `tests/inference/test_predict_round_trip_parity.py` skip messages now read "known Windows zstd quirk (B2#20/#45)" with context comment in-line; quirk is acknowledged as a Windows-only race in the cramjam zstd writer file-handle release order; in-memory parity sensor covers the same code path |
+| B2#21 | P2 | test_wrappers_default_args.py layout-conditional skip | DONE | Wave 17 verified-already-fixed -- the `pytest.skip` was already replaced with `assert test_path.exists()` so a sibling rename / move surfaces immediately rather than masking the scan |
+| B2#22 | P2 | test_eval_medium_eval.py version-conditional skips | DONE | Wave 17 -- the two pytest.skip fallbacks ("Cannot construct BaselineDiagnostics for this version" / "fit_and_report not present") removed; constructor stabilised at `__init__(self, config: Any)` and `fit_and_report` is the canonical entry. Absence now hard-asserts as a mlframe API regression |
 | B2#23 | P2 | tests/perf/conftest.py collect_ignore_glob | OK | Correct as-is |
 | B2#24 / dead-markers | P2 | unused registered markers cluster | DONE | ebac7a3 (w3c B2_24_dead_markers_wire_in=DONE; wired requires_xgb / requires_torch / requires_cb / uses_torch / integration on 4 files) + a479c1b3 (W12D drops fast_only / requires_lgb dead markers); D2#4/S69 closed in full |
 | B2#25 | P2 | tests/conftest.py 472 LOC mixed responsibilities | OK | Under threshold; flagged for future |
@@ -286,21 +286,21 @@ Per `feedback_show_all_agent_findings` and `feedback_use_all_agent_findings`: ev
 | B2#28 / S59 | P2 | 16 session-scope mutable fixtures | DONE | 53d62fb8 (W10C `test(training): extend session-fixture immutability sensor to remaining mutable fixtures`) extends prior partial sensor coverage to remaining fixtures |
 | B2#29 | P2 | trained_suite_regression / _binary same mutable risk | DONE | 53d62fb8 (W10C; same commit extends sensor to sibling fixtures) |
 | B2#30 | P2 | xdist marker computed at import | OK | Documented; acceptable |
-| B2#31 | P2 | `_ann_backend_safely_importable` 30-60s JIT at conftest import | DEFERRED | Not addressed |
-| B2#32 | P2 | `test_post.py` 6× function-body importorskips | DEFERRED | Cosmetic; not addressed |
-| B2#33 | P2 | `test_quality.py` 7× importorskips DRY | DEFERRED | Cosmetic; not addressed |
+| B2#31 | P2 | `_ann_backend_safely_importable` 30-60s JIT at conftest import | DONE | Wave 17 -- probe deferred from module-import time into `pytest_collection_modifyitems` and gated on actual collection of any `row_attention` test. Result memoised via `_ANN_PROBE_CACHE` so the cost is paid at most once per session and ONLY when needed. Targeted runs outside the transformer subpackage no longer pay the pynndescent JIT cost |
+| B2#32 | P2 | `test_post.py` 6× function-body importorskips | DONE | Wave 17 -- 6-importorskip block (netcal / pycalib / ml_insights / betacal / venn_abers / calibration) collapsed to a single `_require_optional_calib_deps()` helper called per test |
+| B2#33 | P2 | `test_quality.py` 7× importorskips DRY | DONE | Wave 17 -- the 7-repeat properscoring + matplotlib importorskip pair hoisted to module level so the whole file deselects with a single skip reason when either dep is absent |
 | B2#34 | P2 | `test_ranker_object_cat_encode_l26.py` good doc example | OK | Keep as canonical |
 | B2#35 | P2 | `test_eval_medium_eval.py:431` good doc example | OK | Same |
 | B2#36 | Low | `-x` in addopts | OK | Intentional |
 | B2#37 | Low | `-p no:randomly` mismatch local vs CI | DEFERRED | Not addressed |
-| B2#38 | Low | `suppress_convergence_warnings` autouse blocks `pytest.warns` | DEFERRED | Not addressed |
-| B2#39 | Low | `pytest_plugins = ["tests.training.synthetic"]` at root | DEFERRED | Not addressed |
-| B2#40 | Low | `_coverage_active` dead code on Windows | DEFERRED | Doc gap; not addressed |
+| B2#38 | Low | `suppress_convergence_warnings` autouse blocks `pytest.warns` | DONE | Wave 17 -- autouse fixture now bypasses the filter when the calling test carries `@pytest.mark.expects_convergence_warning`, restoring `pytest.warns(ConvergenceWarning)`. Marker registered in `pytest_configure` |
+| B2#39 | Low | `pytest_plugins = ["tests.training.synthetic"]` at root | OK | Wave 17 verified -- `pytest_plugins` IS at the root conftest (`tests/conftest.py:25`), which is the location pytest deprecation rules permit. The "deprecation" applies only to NON-rootdir conftest.py declarations; this one is intentional and correct |
+| B2#40 | Low | `_coverage_active` dead code on Windows | DONE | Wave 17 -- inline note in `tests/feature_selection/conftest.py` documents the intentional retention for the nightly numba-coverage workflow path; under default `--no-cov` the probe returns False but the gate is needed when `.github/workflows/numba-coverage.yml` enables `--cov` (joblib + DummyProcess interactions surface there) |
 | B2#41 | Low | tests/test_meta/conftest.py addoption swallow | OK | Intentional |
 | B2#42 | Low | thinc seed-overflow shim 45 LOC | DONE | 41cde1f1 (W14B `docs(conftest/thinc): document upstream status of seed-overflow shim`); shim comment block now documents no upstream explosion/thinc issue filed as of 2026-05-26 + records the operational test for detecting when upstream fix lands. Per `feedback_pr_body_fact_check` no fabricated URL |
 | B2#43 | Low | metamorphic test "no val metric ... not applicable" skips | OK | Genuine non-applicability per agent |
 | B2#44 | Low | `--instafail` not in addopts | DONE | a479c1b3 (W12D `test(infra): enable --instafail addopts; drop dead fast_only / requires_lgb markers`); pytest-instafail flushes failure output on first failure rather than at session end |
-| B2#45 | Low | Windows zstd quirk (dup #20) | DEFERRED | Not addressed |
+| B2#45 | Low | Windows zstd quirk (dup #20) | DONE | Wave 17 -- duplicate of B2#20, same skip-message + in-line comment update; see B2#20 row |
 | B2 +PYTHONUNBUFFERED | P2 | Missing `PYTHONUNBUFFERED=1` default | DONE | e910ff9c (W11D `test(conftest): default PYTHONUNBUFFERED=1 so pytest -s streams output`); operator pre-sets still respected via setdefault |
 | B2 xfail audit | meta | `B2_xfail_without_owner_audit` | DONE | (w3c B2_xfail=DONE-CONFIRMED-CLEAN; only 2 xfails, both with reasons) |
 

@@ -11,6 +11,20 @@ import pytest
 post = pytest.importorskip("mlframe.calibration.post")
 
 
+# B2#32 DRY: the 6 optional calibration libs were re-importorskip'd in every test body. Hoisting to a single
+# module-scope tuple + a tiny helper keeps the skip reason readable and removes the 18+ redundant import probes
+# that ran at fit time on every test.
+_OPTIONAL_CALIB_DEPS = ("netcal", "pycalib", "ml_insights", "betacal", "venn_abers", "calibration")
+
+
+def _require_optional_calib_deps():
+    """Skip the calling test when ANY of the heavy optional calibration backends is missing. ``calibration`` is the
+    ``verified_calibration`` alias -- the package is imported as ``calibration`` even though it ships on PyPI under
+    the ``verified-calibration`` name."""
+    for mod in _OPTIONAL_CALIB_DEPS:
+        pytest.importorskip(mod)
+
+
 @pytest.fixture
 def tiny_binary():
     """Tiny well-separated binary task with deterministic RNG."""
@@ -40,12 +54,7 @@ def test_get_postcalibrators_returns_nonempty_list(tiny_binary):
     ml_insights / betacal / venn_abers) -- they are lazy-imported inside the
     function so the module loads but the call raises ModuleNotFoundError.
     """
-    pytest.importorskip("netcal")
-    pytest.importorskip("pycalib")
-    pytest.importorskip("ml_insights")
-    pytest.importorskip("betacal")
-    pytest.importorskip("venn_abers")
-    pytest.importorskip("calibration")  # verified_calibration alias
+    _require_optional_calib_deps()
 
     probs, y = tiny_binary
     cals = post.get_postcalibrators(calib_target=y, num_bins=5)

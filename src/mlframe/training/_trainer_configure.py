@@ -132,6 +132,87 @@ except (ImportError, OSError):
 
 logger = logging.getLogger("mlframe.training.trainer")
 
+
+# A5#4/#16 session-level memo for ``get_training_configs``. The function is called
+# twice per ``select_target`` invocation (CPU + GPU), and ``select_target`` runs
+# once per (target, pre_pipeline, model) in the suite -- ten targets x three
+# pre_pipelines x five models = 300 calls to ``get_training_configs`` per suite.
+# Most of those calls share identical ``config_params`` content because the
+# suite-level ``hyperparams_config.model_dump()`` is computed once and never
+# changes between targets; only ``subgroups`` may differ when per-target OD
+# filtering changes ``train_idx`` / ``val_idx``.
+#
+# The cache is capped via FIFO eviction at 16 entries to bound memory; in
+# practice 2-4 entries cover the canonical suite (CPU + GPU x at most a few
+# distinct ``subgroups`` shapes). Falls through to a direct call when the
+# kwargs contain unhashable values (callable scorers, large polars-categorical
+# dicts) so the contract stays "memo when safe; direct otherwise".
+_GTC_CACHE_MAX = 16
+_GTC_CACHE: "dict[tuple, Any]" = {}
+
+
+def _hashable_or_none(v: Any):
+    """Return ``v`` when it is hash-stable across calls (suitable for a dict key),
+    else ``None`` to signal the cache should bail out for this call.
+
+    Hash-stable: built-in immutables, tuples of hash-stable items, frozensets,
+    and ``type`` objects. ``id(v)`` is intentionally NOT used as a fallback --
+    two structurally-identical ``indexed_subgroups`` dicts built on different
+    calls would have different ``id()`` and defeat the memo on every call.
+    """
+    if v is None or isinstance(v, (bool, int, float, str, bytes)):
+        return v
+    if isinstance(v, type):
+        return v
+    if isinstance(v, tuple):
+        out = tuple(_hashable_or_none(x) for x in v)
+        return None if any(x is None and v[i] is not None for i, x in enumerate(out)) else out
+    if isinstance(v, frozenset):
+        return v
+    return None
+
+
+def _get_training_configs_cached(**kwargs):
+    """Memoised wrapper for ``get_training_configs``. Falls through to a direct
+    call when the kwargs contain any value that ``_hashable_or_none`` cannot
+    safely hash (callable scorers, dicts, polars Series). The cache returns a
+    ``copy.deepcopy`` so callers can mutate the returned SimpleNamespace
+    without poisoning sibling-target entries.
+    """
+    from .trainer import get_training_configs
+    items: list[tuple[str, Any]] = []
+    cacheable = True
+    for k in sorted(kwargs.keys()):
+        v = kwargs[k]
+        if k == "subgroups":
+            # ``indexed_subgroups`` is a dict-of-arrays per fairness recipe; key on
+            # ``id()`` here because within the suite loop the same dict object is
+            # reused across ``has_gpu`` flag toggles and across same-target sibling
+            # ``get_training_configs`` calls, so ``id()`` is stable enough for the
+            # 2-call CPU+GPU pair. ``None`` (default) stays a hash-stable sentinel.
+            items.append((k, None if v is None else id(v)))
+            continue
+        hv = _hashable_or_none(v)
+        if hv is None and v is not None:
+            cacheable = False
+            break
+        items.append((k, hv))
+    if not cacheable:
+        return get_training_configs(**kwargs)
+    key = tuple(items)
+    hit = _GTC_CACHE.get(key)
+    if hit is not None:
+        return copy.deepcopy(hit)
+    res = get_training_configs(**kwargs)
+    if len(_GTC_CACHE) >= _GTC_CACHE_MAX:
+        # FIFO eviction (Python dict insertion order). Cheap; the cache is small
+        # so an LRU dance via OrderedDict would add complexity without measurable
+        # gain at maxsize=16.
+        _GTC_CACHE.pop(next(iter(_GTC_CACHE)))
+    _GTC_CACHE[key] = copy.deepcopy(res)
+    return res
+
+
 def configure_training_params(
     df: pd.DataFrame = None,
     train_df: pd.DataFrame = None,
@@ -333,11 +414,13 @@ def configure_training_params(
         indexed_subgroups = None
 
     # Per-section timers. Three candidate hot-spots: get_training_configs (called twice - CPU + GPU), get_df_memory_consumption(deep=False), and the GPU probe (cached nvidia-smi subprocess). The timers below localise the spend so the operator can see the breakdown without instrumenting by hand.
+    #
+    # A5#4/#16 partial memo: ``_get_training_configs_cached`` is a thin session-cache wrapper around ``get_training_configs`` keyed on the suite-invariant kwargs (``has_gpu``, the ``config_params`` content hash, and the ``indexed_subgroups`` identity). Across a multi-target suite, ``config_params`` is derived from ``hyperparams_config.model_dump()`` once and never changes per target, so the second-target call hits the cache and skips the CB / LGB / XGB defaults assembly. Memoization is a no-op when the kwargs contain unhashable values (callable scorers, polars-categorical dicts) -- the wrapper falls through to a direct call in that case.
     _t0_cfg = timer()
-    cpu_configs = get_training_configs(has_gpu=False, subgroups=indexed_subgroups, **config_params)
+    cpu_configs = _get_training_configs_cached(has_gpu=False, subgroups=indexed_subgroups, **config_params)
     _t_cpu_cfg = timer() - _t0_cfg
     _t0_cfg = timer()
-    gpu_configs = get_training_configs(has_gpu=None, subgroups=indexed_subgroups, **config_params)
+    gpu_configs = _get_training_configs_cached(has_gpu=None, subgroups=indexed_subgroups, **config_params)
     _t_gpu_cfg = timer() - _t0_cfg
 
     # Prefer caller-supplied size (typically computed on the Polars frame

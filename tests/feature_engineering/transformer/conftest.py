@@ -20,23 +20,34 @@ import pytest
 from sklearn.model_selection import KFold
 
 
-# Direct in-process try-import. pynndescent is pure-Python+numba so the only failure mode is ImportError (no segfault possible). The cost of the first import
-# is dominated by numba JIT (~30-60s) which is paid here once and then warm-cached for the rest of the session.
+# Direct in-process try-import. pynndescent is pure-Python+numba so the only failure mode is ImportError (no segfault possible).
+# The cost of the first import is dominated by numba JIT (~30-60s) which is paid here once and then warm-cached for the rest of
+# the session.
+#
+# B2#31 lazy probe: the check is deferred from module-import time into ``pytest_collection_modifyitems`` so collections that
+# DO NOT include any ``row_attention``-named test files (e.g. a targeted ``pytest tests/training/test_X.py`` run that still
+# imports this conftest because pytest walks the dir tree) skip the heavy pynndescent import entirely. Cached after the first
+# probe via the module-level ``_ANN_PROBE_CACHE`` so the cost is paid at most once per session and only when needed.
+_ANN_PROBE_CACHE: "dict[str, bool]" = {}
+
+
 def _ann_backend_safely_importable() -> bool:
-    """Return True iff ``pynndescent`` imports cleanly in the current process."""
-    try:
-        import pynndescent  # noqa: F401
-        return True
-    except ImportError:
-        return False
-
-
-_ANN_OK = _ann_backend_safely_importable()
+    """Return True iff ``pynndescent`` imports cleanly in the current process. Memoised."""
+    if "ok" not in _ANN_PROBE_CACHE:
+        try:
+            import pynndescent  # noqa: F401
+            _ANN_PROBE_CACHE["ok"] = True
+        except ImportError:
+            _ANN_PROBE_CACHE["ok"] = False
+    return _ANN_PROBE_CACHE["ok"]
 
 
 def pytest_collection_modifyitems(config, items):
-    """Skip any test that comes from a file with 'row_attention' in its name when the ANN backend is unavailable."""
-    if _ANN_OK:
+    """Skip any test that comes from a file with 'row_attention' in its name when the ANN backend is unavailable. The
+    pynndescent probe fires only when at least one ``row_attention`` test was actually collected -- runs that don't
+    touch this directory's row-attention suite skip the import entirely."""
+    needs_probe = any("row_attention" in str(item.fspath).replace("\\", "/") for item in items)
+    if not needs_probe or _ann_backend_safely_importable():
         return
     skip_marker = pytest.mark.skip(reason="pynndescent (default ANN backend) not importable; install via `pip install pynndescent>=0.5` or `pip install 'mlframe[transformer_ann]'`.")
     for item in items:

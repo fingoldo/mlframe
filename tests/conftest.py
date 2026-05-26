@@ -137,6 +137,13 @@ def pytest_configure(config):
         "datasets, multi-boosting); deselected unless --run-biz-transformer "
         "is passed.",
     )
+    # B2#38 marker: opts a test OUT of the ``suppress_convergence_warnings`` autouse filter so
+    # ``pytest.warns(ConvergenceWarning)`` can catch the warning instead of having it pre-filtered.
+    config.addinivalue_line(
+        "markers",
+        "expects_convergence_warning: opt out of the ``suppress_convergence_warnings`` autouse filter; "
+        "use when a test asserts the warning via ``pytest.warns(ConvergenceWarning)``.",
+    )
 
 
 def pytest_collection_modifyitems(config, items):
@@ -466,10 +473,18 @@ def cleanup_memory(request):
 
 
 @pytest.fixture(autouse=True)
-def suppress_convergence_warnings():
-    """Suppress convergence warnings during tests."""
+def suppress_convergence_warnings(request):
+    """Suppress sklearn ConvergenceWarning + the lbfgs / "Objective did not converge" pair during tests.
+
+    B2#38 opt-out: tests that need to assert the warning via ``pytest.warns(ConvergenceWarning)`` must carry the
+    ``@pytest.mark.expects_convergence_warning`` marker so this filter is bypassed. The marker is registered in
+    ``pytest_configure`` below; absent the marker the catch-all filter applies (default behaviour).
+    """
     from sklearn.exceptions import ConvergenceWarning
 
+    if request.node.get_closest_marker("expects_convergence_warning") is not None:
+        yield
+        return
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=ConvergenceWarning)
         warnings.filterwarnings("ignore", message=".*ConvergenceWarning.*")

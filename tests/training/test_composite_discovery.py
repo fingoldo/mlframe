@@ -34,6 +34,10 @@ import pandas as pd
 import polars as pl
 import pytest
 
+# B1 sklearn matrix marker convention -- this file runs in the multi-sklearn-version CI matrix.
+pytestmark = pytest.mark.sklearn_matrix
+
+
 # sklearn is a hard dep of mlframe; LightGBM only needed for downstream
 # integration tests, not for discovery itself. Discovery uses only
 # sklearn.feature_selection.mutual_info_regression.

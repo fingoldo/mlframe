@@ -126,20 +126,15 @@ jobs:
           python -c "import mlframe; print('mlframe', mlframe.__version__)"
 
       - name: Composite-target test sweep
+        # Selection by ``-m sklearn_matrix`` instead of an explicit file list -- each
+        # composite-target test file carries ``pytestmark = pytest.mark.sklearn_matrix``
+        # at module level. The meta-test
+        # ``tests/test_meta/test_sklearn_matrix_marker_invariants.py`` pins the
+        # convention so new composite_*.py files cannot silently miss the matrix.
         env:
           PYTHONUNBUFFERED: "1"
         run: |
-          pytest \
-            tests/training/test_composite.py \
-            tests/training/test_composite_polish.py \
-            tests/training/test_composite_polish_refinement.py \
-            tests/training/test_composite_provenance.py \
-            tests/training/test_composite_perf.py \
-            tests/training/test_composite_business_value_locks.py \
-            tests/training/test_composite_discovery.py \
-            tests/training/test_composite_gate_and_edges.py \
-            tests/training/test_composite_ensemble.py \
-            tests/training/test_composite_x_feature_selection.py \
+          pytest tests/training/ -m sklearn_matrix \
             --no-cov \
             -p no:randomly \
             --timeout=120 \
