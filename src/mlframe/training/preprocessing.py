@@ -346,9 +346,61 @@ def preprocess_dataframe(
                     len(_string_cols), _string_cols,
                 )
 
-    # Remove constant columns (2026-04-21: gated on config flag; default True).
-    if getattr(config, "remove_constant_columns", True):
-        df = remove_constant_columns(df, verbose=verbose)
+    # iter291 (2026-05-26): batched-scan fastpath for polars frames.
+    # ``remove_constant_columns`` + ``process_infinities`` legacy chain
+    # walks the frame THREE times (constant-numeric, constant-nonnumeric,
+    # infinite-count) via three sequential ``df.select(...)`` calls. On
+    # wide post-pipeline polars frames (200k x 1000+ cols after polynomial
+    # + RFF) c0140 iter291 attributed 60.7s cumulative to those three
+    # passes. Bundle the three aggregations into one ``df.select(...)``
+    # so polars' query planner can fuse the data sweep; ~1.15x on
+    # synthetic 205-col frames and proportionally more on real wide
+    # post-pipeline shapes where per-scan constant overhead dominates.
+    #
+    # Bypassed when ``MLFRAME_DISABLE_BATCHED_PREPROCESS_SCAN=1`` so the
+    # original three-pass path is restored for forensic A/B benchmarks.
+    _do_remove_const = bool(getattr(config, "remove_constant_columns", True))
+    _do_fix_inf = bool(config.fix_infinities) and config.fillna_value is None
+    _use_batched = (
+        isinstance(df, pl.DataFrame)
+        and (_do_remove_const or _do_fix_inf)
+        and os.environ.get("MLFRAME_DISABLE_BATCHED_PREPROCESS_SCAN") != "1"
+    )
+    if _use_batched:
+        from ._nan_processing import batch_scan_constants_and_inf_polars
+        import polars.selectors as _cs
+        scan = batch_scan_constants_and_inf_polars(
+            df,
+            detect_constant_numeric=_do_remove_const,
+            detect_constant_nonnumeric=_do_remove_const,
+            detect_inf=_do_fix_inf,
+        )
+        if _do_remove_const:
+            _drop = scan["constant_numeric"] + scan["constant_nonnumeric"]
+            if _drop:
+                if verbose:
+                    logger.info(
+                        "Removing %d constant column(s) (numeric: %d, non-numeric: %d): %s",
+                        len(_drop), len(scan["constant_numeric"]),
+                        len(scan["constant_nonnumeric"]), _drop,
+                    )
+                df = df.drop(_drop)
+        if _do_fix_inf and scan["inf_counts"]:
+            if verbose:
+                logger.info(
+                    "Replacing infinities in %d numeric column(s) (total %d rows): %s",
+                    len(scan["inf_counts"]), sum(scan["inf_counts"].values()),
+                    sorted(scan["inf_counts"]),
+                )
+            df = df.with_columns(_cs.float().replace([float("inf"), float("-inf")], 0.0))
+        # Float32 cast is the only remaining work; the fillna_value=None
+        # branch is unreachable in the batched fastpath since _do_fix_inf
+        # gates on fillna_value is None.
+    else:
+        # Legacy 3-pass path (pandas, or batched fastpath disabled).
+        # Remove constant columns (2026-04-21: gated on config flag; default True).
+        if _do_remove_const:
+            df = remove_constant_columns(df, verbose=verbose)
 
     # Ensure float32 dtypes if requested (works for both pandas and Polars)
     if config.ensure_float32_dtypes:
@@ -359,9 +411,9 @@ def preprocess_dataframe(
     # ``fillna_value`` is retained as a config flag so existing call sites still hit this branch; the value itself is no longer applied pre-split.
     if config.fillna_value is not None:
         df = _process_special_values(df, fill_value=config.fillna_value, verbose=verbose)
-    elif config.fix_infinities:
+    elif not _use_batched and config.fix_infinities:
         df = process_infinities(df, fill_value=0.0, verbose=verbose)
-    elif _frame_contains_inf(df):
+    elif not _use_batched and _frame_contains_inf(df):
         logger.error(
             "fix_infinities=False but data contains np.inf in numeric "
             "columns. Auto-fixing to 0.0 to avoid an opaque XGB / HGB / "

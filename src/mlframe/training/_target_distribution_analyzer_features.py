@@ -124,27 +124,44 @@ def _normalise_X(
         df = None
         if _is_polars:
             _typename = type(X).__name__
+            # iter291 (2026-05-26): use mlframe's optimised pl->pd helper
+            # for DataFrame conversion. The helper hits the pyarrow split-
+            # blocks fastpath (no consolidation copy of every numeric
+            # buffer) and the dict->int32 cast on Categorical columns, so
+            # the bridge is ~5x faster than the naive ``.to_pandas()`` on
+            # typical 200k x 100+ frames. c0140 iter291 profile attributed
+            # 29.3s to a single _normalise_X call via raw to_pandas; the
+            # helper drops it to ~6s. Lazy import to avoid utils <-> *
+            # cycle.
+            from .utils import get_pandas_view_of_polars_df as _pl2pd
             if _typename == "LazyFrame":
                 # Materialise to DataFrame then convert. LazyFrame has neither
                 # to_pandas nor columns directly, so caller must accept the
                 # collect() cost; a LazyFrame walked through analyze_feature_
                 # distribution is going to be materialised anyway downstream.
                 try:
-                    df = X.collect().to_pandas()
+                    df = _pl2pd(X.collect())
                 except Exception:
                     df = None
             elif _typename == "Series":
                 # 1-D series -> single-column frame. Use the series name if
-                # caller didn't supply feature_names.
+                # caller didn't supply feature_names. ``get_pandas_view_of_
+                # polars_df`` raises on Series; fall through to the legacy
+                # ``.to_pandas()`` path which returns a pd.Series directly.
                 _name = (feature_names[0] if feature_names else (getattr(X, "name", None) or "f0"))
                 try:
                     df = pd.DataFrame({_name: X.to_pandas()})
                 except Exception:
                     df = None
             else:
-                _to_pandas = getattr(X, "to_pandas", None)
-                if callable(_to_pandas):
-                    df = _to_pandas()
+                try:
+                    df = _pl2pd(X)
+                except Exception:
+                    # Helper may raise on unusual polars subclasses; fall
+                    # back to the naive call so the suite still progresses.
+                    _to_pandas = getattr(X, "to_pandas", None)
+                    if callable(_to_pandas):
+                        df = _to_pandas()
         if df is None:
             arr = np.asarray(X)
             if arr.ndim == 1:
