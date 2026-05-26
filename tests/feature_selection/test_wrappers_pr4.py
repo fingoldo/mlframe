@@ -8,9 +8,10 @@ import logging
 import numpy as np
 import pandas as pd
 import pytest
-from sklearn.datasets import make_classification, make_regression
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.linear_model import LinearRegression, LogisticRegression, Ridge
+
+from tests.training.synthetic import make_sklearn_classification_df
 
 # Lazy imports — RFECV pulls in heavy training modules that OOM
 # during collection when loaded alongside filters/* tests.
@@ -198,11 +199,10 @@ class TestT5_BootstrapCI:
 # ----------------------------------------------------------------------------
 class TestT6_StabilitySelection:
     def test_stability_selection_recovers_informative_features(self):
-        X, y = make_classification(
+        Xdf, y, _ = make_sklearn_classification_df(
             n_samples=400, n_features=30, n_informative=5,
-            n_redundant=0, random_state=0, shuffle=False, class_sep=2.0,
+            n_redundant=0, n_clusters_per_class=2, shuffle=False, class_sep=2.0, seed=0,
         )
-        Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(30)])
         rfecv = _rfecv(
             estimator=LogisticRegression(max_iter=400, random_state=0),
             stability_selection=True,
@@ -220,10 +220,9 @@ class TestT6_StabilitySelection:
         )
 
     def test_stability_selection_freq_attribute_populated(self):
-        X, y = make_classification(
-            n_samples=200, n_features=10, n_informative=3, random_state=0,
+        Xdf, y, _ = make_sklearn_classification_df(
+            n_samples=200, n_features=10, n_informative=3, n_clusters_per_class=2, seed=0,
         )
-        Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(10)])
         rfecv = _rfecv(
             estimator=LogisticRegression(max_iter=200, random_state=0),
             stability_selection=True,
@@ -238,10 +237,9 @@ class TestT6_StabilitySelection:
 
     def test_stability_threshold_controls_strictness(self):
         """Higher threshold -> fewer selected (or equal)."""
-        X, y = make_classification(
-            n_samples=200, n_features=15, n_informative=4, random_state=0,
+        Xdf, y, _ = make_sklearn_classification_df(
+            n_samples=200, n_features=15, n_informative=4, n_clusters_per_class=2, seed=0,
         )
-        Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(15)])
         common = dict(
             estimator=LogisticRegression(max_iter=200, random_state=0),
             stability_selection=True,
@@ -264,11 +262,10 @@ class TestT6_StabilitySelection:
 class TestT7_MultiEstimator:
     def test_estimators_list_increases_fi_runs(self):
         """With M estimators we get M FI runs per fold (vs 1 with singular)."""
-        X, y = make_classification(
-            n_samples=200, n_features=10, n_informative=4, random_state=0,
-            shuffle=False, class_sep=2.0,
+        Xdf, y, _ = make_sklearn_classification_df(
+            n_samples=200, n_features=10, n_informative=4,
+            n_clusters_per_class=2, shuffle=False, class_sep=2.0, seed=0,
         )
-        Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(10)])
         # Singular path: should get cv * n_iter runs in feature_importances_
         r_one = _rfecv(
             estimator=LogisticRegression(max_iter=200, random_state=0),
@@ -297,11 +294,10 @@ class TestT7_MultiEstimator:
         # Larger n + more refits so MBH has room to converge; multi-estimator
         # paths intrinsically have more variance per probe (mean across
         # heterogeneous models) so we need a slightly easier setup.
-        X, y = make_classification(
+        Xdf, y, _ = make_sklearn_classification_df(
             n_samples=800, n_features=15, n_informative=5,
-            n_redundant=0, random_state=0, shuffle=False, class_sep=2.5,
+            n_redundant=0, n_clusters_per_class=2, shuffle=False, class_sep=2.5, seed=0,
         )
-        Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(15)])
         rfecv = _rfecv(
             estimators=[
                 LogisticRegression(max_iter=400, random_state=0),
@@ -316,8 +312,7 @@ class TestT7_MultiEstimator:
 
     def test_estimators_takes_precedence_over_estimator(self):
         """When both estimator= and estimators= are passed, estimators wins."""
-        X, y = make_classification(n_samples=120, n_features=6, n_informative=3, random_state=0)
-        Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(6)])
+        Xdf, y, _ = make_sklearn_classification_df(n_samples=120, n_features=6, n_informative=3, n_clusters_per_class=2, seed=0)
         rfecv = _rfecv(
             estimator=LogisticRegression(max_iter=200, random_state=0),  # ignored
             estimators=[
@@ -336,11 +331,10 @@ class TestT7_MultiEstimator:
 # ----------------------------------------------------------------------------
 class TestT8_StabilityPlusMultiEstimator:
     def test_combined_path(self):
-        X, y = make_classification(
+        Xdf, y, _ = make_sklearn_classification_df(
             n_samples=500, n_features=25, n_informative=6,
-            n_redundant=0, random_state=0, shuffle=False, class_sep=2.0,
+            n_redundant=0, n_clusters_per_class=2, shuffle=False, class_sep=2.0, seed=0,
         )
-        Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(25)])
         rfecv = _rfecv(
             estimator=None,
             estimators=[
