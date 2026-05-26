@@ -43,7 +43,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import NamedTuple, Optional
+from typing import Any, NamedTuple, Optional
 
 import numpy as np
 
@@ -67,7 +67,7 @@ class TrainEnvelopeStats(NamedTuple):
     y_std: float
 
 
-def compute_train_envelope_stats(y_train) -> Optional[TrainEnvelopeStats]:
+def compute_train_envelope_stats(y_train: Any) -> Optional[TrainEnvelopeStats]:
     """Reduce ``y_train`` to (min, max, std) skipping non-finite rows.
 
     Returns ``None`` when y_train is degenerate (too few finite rows,
@@ -93,7 +93,7 @@ def compute_train_envelope_stats(y_train) -> Optional[TrainEnvelopeStats]:
 
 
 def clip_predictions_to_train_envelope(
-    preds,
+    preds: Any,
     stats: Optional[TrainEnvelopeStats],
     *,
     k_sigma: float = 3.0,
