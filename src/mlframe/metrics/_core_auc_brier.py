@@ -17,6 +17,22 @@ def fast_roc_auc(y_true: np.ndarray, y_score: np.ndarray, **kwargs) -> float:
     """Compute ROC AUC efficiently using numba.
 
     Note: np.argsort needs to stay out of njitted func.
+
+    bench-attempt-rejected (2026-05-26, c0091 iter316): tried folding the
+    ``np.argsort(kind="stable")`` into the numba kernel via
+    ``np.argsort(kind="mergesort")`` (numba's only stable sort). Bench
+    ``profiling/bench_fast_roc_auc_argsort_inside.py``::
+
+        n=2000   current=0.13 ms  proposed=0.12 ms  speedup=1.05x
+        n=20000  current=1.79 ms  proposed=1.80 ms  speedup=1.00x
+        n=200000 current=26.3 ms  proposed=29.5 ms  speedup=0.89x
+        n=1M     current=156 ms   proposed=190 ms   speedup=0.82x
+
+    Numpy's stable sort C implementation is 11-22pct faster than numba's
+    mergesort on n>=200k, where the bootstrap loop spends most of its
+    time. Per-call Python ``_wrapfunc`` overhead exists but is dwarfed
+    by the sort itself, so removing it does not move the needle. Numpy
+    argsort stays outside.
     """
     # **kwargs absorbs sklearn's unexpected params. Explicitly reject sample_weight rather than silently ignoring it.
     if "sample_weight" in kwargs and kwargs["sample_weight"] is not None:
