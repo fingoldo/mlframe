@@ -106,7 +106,13 @@ def test_trainer_cache_load_preserves_traceback() -> None:
 
 
 def test_flat_metric_compute_uses_logger_exception() -> None:
+    # MLPTorchModel (and its _compute_metric body) was carved out of
+    # neural/flat.py into sibling neural/_flat_torch_module.py; check both
+    # files so the sensor remains valid after the monolith split.
     src = _read("training/neural/flat.py")
+    sibling = MLFRAME_ROOT / "training/neural/_flat_torch_module.py"
+    if sibling.exists():
+        src += sibling.read_text(encoding="utf-8")
     assert 'logger.error(f"Failed to compute metric {prefix}_{metric.name}: {e}")' not in src
     assert 'logger.exception("Failed to compute metric %s_%s", prefix, metric.name)' in src
 

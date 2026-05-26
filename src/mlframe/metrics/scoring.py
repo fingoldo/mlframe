@@ -38,7 +38,7 @@ def _fast_rmse_kernel(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     return (s / n) ** 0.5
 
 
-def fast_rmse(y_true, y_pred) -> float:
+def fast_rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """Numba single-pass RMSE. ~37x faster than np.sqrt(np.mean((y - p)**2))
     on n=100k float64 (889us -> 24us). Used by the honest-diagnostics
     bootstrap regression path where the inner loop calls RMSE 1000x per

@@ -94,6 +94,10 @@ class TestN3_ParallelEquivalence:
             f"seq={list(seq.get_feature_names_out())} par={list(par.get_feature_names_out())}"
         )
 
+    @pytest.mark.skipif(
+        sys.platform == "darwin",
+        reason="macOS GitHub-hosted runner: joblib.Parallel(n_jobs=-1) inside RFECV crashes gw2 worker (verified 2026-05-27 run 26473751742). Same libomp + numba concurrent-JIT class as the sibling test_n_jobs_2 Darwin skip. Linux + Windows cover the n_jobs=-1 contract.",
+    )
     def test_n_jobs_negative_one_resolves_to_cpu_count(self, small_clf_data):
         # n_jobs=-1 should resolve to all cores; ensure it doesn't crash.
         X, y = small_clf_data
