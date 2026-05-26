@@ -10,6 +10,8 @@ N6 design: ``importance_getter='permutation'`` uses sklearn.inspection;
 """
 from __future__ import annotations
 
+import sys
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -70,6 +72,10 @@ class TestN3_ParallelEquivalence:
     @pytest.mark.skipif(
         COVERAGE_ACTIVE,
         reason="joblib.Parallel + coverage's sys.settrace deadlocks Windows thread spawn (RuntimeError + DummyProcess.terminate AttributeError). Test is correct - skip only when measuring coverage; runs under standard pytest.",
+    )
+    @pytest.mark.skipif(
+        sys.platform == "darwin",
+        reason="macOS GitHub-hosted runner: joblib.Parallel(n_jobs=2) inside RFECV crashes gw2 worker (verified 2026-05-26 run 26463488829). Same libomp + numba concurrent-JIT class as the existing prewarm + MRMR Darwin skips. Linux + Windows cover the parallel-equivalence contract.",
     )
     def test_n_jobs_2_matches_n_jobs_1_for_single_thread_estimator(self, small_clf_data):
         X, y = small_clf_data

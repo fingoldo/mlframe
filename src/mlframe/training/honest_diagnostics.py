@@ -92,8 +92,8 @@ def _bootstrap_block(y_true: np.ndarray, probs: np.ndarray, preds: Optional[np.n
             # identical when scores are float64 continuous (the dominant
             # case from real ML model outputs); see kernel docstring for
             # the rationale and when to use the stable variant instead.
-            from mlframe.metrics._core_auc_brier import fast_roc_auc_unstable as _fast_auc
             from mlframe.metrics.core import (
+                fast_roc_auc_unstable as _fast_auc,
                 fast_brier_score_loss as _fast_brier,
                 fast_log_loss as _fast_ll,
             )

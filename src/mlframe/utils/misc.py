@@ -107,4 +107,8 @@ def check_cpu_flag(flag: str = "avx2") -> bool:
     import cpuinfo
 
     info = cpuinfo.get_cpu_info()
-    return flag in info["flags"]
+    # macOS / ARM builds of py-cpuinfo can omit the "flags" key entirely
+    # (x86 feature flags are not the right abstraction on Apple Silicon or
+    # macOS hosts where cpuinfo cannot read /proc/cpuinfo). Treat a missing
+    # flag list as "feature not present" rather than raising KeyError.
+    return flag in info.get("flags", [])
