@@ -372,6 +372,23 @@ def analyze_feature_distribution(
             diagnostics["redundant_feature_pairs"] = [
                 {"a": a, "b": b, "corr": c} for a, b, c in pairs[:50]  # cap log to top 50
             ]
+            # Explicit top-10 listing so the operator can spot
+            # surprising correlations directly in the run log without
+            # digging into metadata. Pairs are already sorted by
+            # descending |corr| in _pairwise_redundant_features.
+            # 2026-05-26 user request: high pair count (203) is a
+            # diagnostic, not a perf problem; surfacing the strongest
+            # pairs makes it actionable (e.g. flag a same-signal-
+            # twice mistake in feature engineering).
+            _top10 = pairs[:10]
+            _top10_str = ", ".join(
+                f"{a}~={b}(|r|={c:.3f})" for a, b, c in _top10
+            )
+            logger.info(
+                "[feature_distribution_analyzer] top-%d redundant pairs "
+                "(|corr|>=%.2f): %s",
+                len(_top10), redundant_corr_threshold, _top10_str,
+            )
             for a, b, c in pairs:
                 _add_warning(a, f"redundant_with({b}, corr={c:.3f})")
                 _add_warning(b, f"redundant_with({a}, corr={c:.3f})")
