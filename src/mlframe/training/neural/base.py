@@ -689,6 +689,77 @@ class PytorchLightningEstimator(BaseEstimator):
                 model=self.model,
                 datamodule=datamodule,
             )
+        except RuntimeError as e:
+            # iter293 (2026-05-26): defensive CPU fallback on CUDA runtime
+            # errors. Concurrent CUDA usage by another process on the same
+            # GPU (or a CUDA context invalidated by an earlier in-process
+            # failure) makes the predict trainer hit ``illegal memory
+            # access`` / ``out of memory`` / ``device-side assert`` even
+            # when the model and data were fine at fit time. Pre-fix the
+            # exception propagated and the whole suite died; that masks
+            # genuine training results behind a transient CUDA-context
+            # problem. Retry exactly once on CPU so the suite still
+            # delivers a usable prediction set + surfaces the underlying
+            # CUDA issue as a WARNING.
+            #
+            # Filter is narrow: only RuntimeError messages containing
+            # ``CUDA`` or one of the known CUDA-runtime fingerprints get
+            # retried. Other RuntimeError variants (shape mismatch,
+            # dataloader misconfig) re-raise immediately.
+            _msg = str(e)
+            _cuda_fingerprints = (
+                "CUDA",
+                "cuda runtime error",
+                "illegal memory access",
+                "device-side assert",
+                "out of memory",
+                "CUBLAS_STATUS_",
+                "CUDNN_STATUS_",
+            )
+            _is_cuda = (
+                trainer_params.get("accelerator") in ("cuda", "gpu", "auto")
+                and any(fp in _msg for fp in _cuda_fingerprints)
+            )
+            if not _is_cuda:
+                logger.error(f"Prediction failed: {e}")
+                raise
+            logger.warning(
+                "Prediction on accelerator=%r failed with CUDA-side error "
+                "(%s); retrying on CPU. Common cause: another process "
+                "holds the GPU or the in-process CUDA context was "
+                "invalidated by an earlier failure. The CPU fallback "
+                "produces equivalent numeric results but loses GPU "
+                "acceleration for this single predict.",
+                trainer_params.get("accelerator"), _msg,
+            )
+            try:
+                # Move the model to CPU and rebuild the trainer. Lightning's
+                # predict() requires the model device to match the
+                # trainer's accelerator; we move BEFORE building the
+                # CPU trainer so the device-mismatch path doesn't fire.
+                try:
+                    self.model.to("cpu")
+                except Exception:
+                    pass  # best-effort: model may already be on CPU
+                _cpu_params = {
+                    "accelerator": "cpu",
+                    "devices": 1,
+                    "logger": False,
+                    "enable_checkpointing": False,
+                    "enable_progress_bar": False,
+                }
+                cpu_trainer = L.Trainer(**_cpu_params)
+                predictions = cpu_trainer.predict(
+                    model=self.model,
+                    datamodule=datamodule,
+                )
+            except Exception as e_cpu:
+                logger.error(
+                    "CPU fallback after CUDA prediction failure ALSO failed: %s. "
+                    "Original CUDA error: %s",
+                    e_cpu, e,
+                )
+                raise
         except Exception as e:
             logger.error(f"Prediction failed: {e}")
             raise
