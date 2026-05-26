@@ -782,15 +782,70 @@ class PytorchLightningEstimator(BaseEstimator):
                     datamodule=datamodule,
                 )
             except Exception as e_cpu:
-                logger.error(
-                    "CPU fallback after CUDA prediction failure ALSO failed: %s. "
-                    "Original CUDA error: %s. The CUDA context is likely "
-                    "permanently invalidated for this process -- a fresh "
-                    "process restart will be needed to recover GPU "
-                    "acceleration.",
-                    e_cpu, e,
-                )
-                raise
+                # iter341 (2026-05-27): if CPU fallback also fails, the
+                # CUDA context is permanently invalidated (verified on
+                # real concurrent-GPU contention 2026-05-27 c0014). To
+                # let the suite progress without GPU acceleration for
+                # the remainder of this process, hard-disable CUDA at
+                # the torch module level so subsequent estimators do
+                # not even try CUDA. The next predict / fit call then
+                # falls through to CPU naturally instead of hitting
+                # the same dirty-context error.
+                try:
+                    _cuda_msg = str(e_cpu)
+                    _is_still_cuda = any(
+                        fp in _cuda_msg for fp in _cuda_fingerprints
+                    )
+                except Exception:
+                    _is_still_cuda = False
+                if _is_still_cuda:
+                    logger.error(
+                        "CPU fallback after CUDA prediction failure ALSO failed "
+                        "with a CUDA-side error: %s. The CUDA context is "
+                        "permanently invalidated for this process. Disabling "
+                        "CUDA at the torch module level so subsequent "
+                        "estimators skip GPU and run on CPU; GPU acceleration "
+                        "will resume on the next process restart. Original "
+                        "CUDA error: %s",
+                        e_cpu, e,
+                    )
+                    try:
+                        # Hide CUDA from torch for the remainder of this
+                        # process. The env var only helps if torch hasn't
+                        # imported yet; the monkey-patch on
+                        # torch.cuda.is_available is the load-bearing piece.
+                        os.environ["CUDA_VISIBLE_DEVICES"] = ""
+                        torch.cuda.is_available = lambda: False
+                    except Exception:
+                        pass
+                    # Retry one more time on CPU now that CUDA is hidden.
+                    try:
+                        _cpu_params2 = {
+                            "accelerator": "cpu",
+                            "devices": 1,
+                            "logger": False,
+                            "enable_checkpointing": False,
+                            "enable_progress_bar": False,
+                        }
+                        cpu_trainer2 = L.Trainer(**_cpu_params2)
+                        predictions = cpu_trainer2.predict(
+                            model=self.model,
+                            datamodule=datamodule,
+                        )
+                    except Exception as e_cpu2:
+                        logger.error(
+                            "Even with CUDA hidden the predict failed: %s. "
+                            "Re-raising original CUDA error.",
+                            e_cpu2,
+                        )
+                        raise
+                else:
+                    logger.error(
+                        "CPU fallback after CUDA prediction failure ALSO failed "
+                        "with a non-CUDA error: %s. Original CUDA error: %s",
+                        e_cpu, e,
+                    )
+                    raise
         except Exception as e:
             logger.error(f"Prediction failed: {e}")
             raise
