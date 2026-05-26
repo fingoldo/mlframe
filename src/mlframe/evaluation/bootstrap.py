@@ -107,7 +107,14 @@ def bootstrap_metric(
             idx = rng.integers(0, n, size=n)
         else:
             # Per-class resample preserves the original class frequencies.
-            parts = [rng.choice(grp_idx, size=grp_idx.shape[0], replace=True) for grp_idx in groups.values()]
+            # iter312 (2026-05-26): use rng.integers + index instead of
+            # rng.choice(replace=True). c0091/c0141 profile showed the
+            # listcomp at ~180us per call x 24000 calls = ~4.3s wall.
+            # rng.integers(0, len(grp), size=len(grp)) + grp[idx] runs
+            # 1.72x faster on n_class=10k (0.153ms -> 0.089ms) -- same
+            # statistical semantics (uniform with-replacement resample),
+            # rng.choice just has extra options-dispatch overhead.
+            parts = [grp_idx[rng.integers(0, grp_idx.shape[0], size=grp_idx.shape[0])] for grp_idx in groups.values()]
             idx = np.concatenate(parts) if parts else np.empty(0, dtype=np.int64)
         try:
             v = float(metric_fn(y_true[idx], y_pred[idx]))
