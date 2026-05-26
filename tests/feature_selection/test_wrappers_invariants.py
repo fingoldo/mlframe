@@ -68,25 +68,30 @@ class TestEvalFoldClosureCapture:
     """
 
     def _find_eval_fold(self) -> ast.FunctionDef:
-        """Locate the ``_eval_fold`` FunctionDef inside ``RFECV.fit`` by AST-walking ``_rfecv.py``
-        and any sibling helper module the fit-body was split into (post-monolith-split)."""
+        """Locate the ``_eval_fold`` FunctionDef inside ``RFECV.fit`` by AST-walking every sibling
+        ``_rfecv*.py`` helper the fit-body was split into (post-monolith-split). Excludes the
+        ``_eval_fold_body`` top-level helper -- only the closure-shaped ``def _eval_fold(...)``
+        defined inside the outer-loop matters for the default-arg B023 contract."""
         import pathlib
         import mlframe.feature_selection.wrappers._rfecv as mod_rfecv
         _dir = pathlib.Path(mod_rfecv.__file__).resolve().parent
-        for _name in ("_rfecv.py", "_rfecv_fit.py"):
-            _p = _dir / _name
-            if not _p.exists():
-                continue
+        for _p in sorted(_dir.glob("_rfecv*.py")):
             with open(_p, encoding="utf-8") as f:
                 tree = ast.parse(f.read())
             for node in ast.walk(tree):
                 if isinstance(node, ast.FunctionDef) and node.name == "_eval_fold":
                     return node
-        pytest.fail("could not locate _eval_fold FunctionDef in _rfecv.py or _rfecv_fit.py")
+        pytest.fail("could not locate _eval_fold FunctionDef in any _rfecv*.py sibling")
+
+    @staticmethod
+    def _normalize_param(name: str) -> str:
+        """Strip the leading underscore the post-split convention uses to mark default-arg
+        capture params (``_current_features`` <- outer ``current_features``)."""
+        return name.lstrip("_")
 
     def test_eval_fold_signature_uses_default_arg_capture(self):
         fn = self._find_eval_fold()
-        param_names = [a.arg for a in fn.args.args]
+        param_names = [self._normalize_param(a.arg) for a in fn.args.args]
         # We don't assert positional order beyond presence; pytest can adapt if a wrapping layer renames positional args.
         assert "current_features" in param_names, "B023 fix lost: current_features must be a parameter, not a free var"
         assert "scores" in param_names, "B023 fix lost: scores must be a parameter, not a free var"
@@ -96,17 +101,20 @@ class TestEvalFoldClosureCapture:
         ``None``); that's what gives the def-time binding."""
         fn = self._find_eval_fold()
         defaults = fn.args.defaults
-        param_names = [a.arg for a in fn.args.args]
+        raw_param_names = [a.arg for a in fn.args.args]
         # Defaults align right-to-left with params: the last len(defaults) params receive them.
         n = len(defaults)
-        defaulted = dict(zip(param_names[-n:], defaults))
-        assert "current_features" in defaulted, "current_features must have a default-arg value"
-        assert "scores" in defaulted, "scores must have a default-arg value"
-        # Each default expression must be the matching outer-scope Name(...).
-        for pname in ("current_features", "scores"):
-            d = defaulted[pname]
-            assert isinstance(d, ast.Name) and d.id == pname, (
-                f"{pname} default must reference outer-scope Name({pname!r}); got {ast.dump(d)}"
+        defaulted = dict(zip(raw_param_names[-n:], defaults))
+        # Normalize: a default-arg-capture param may be either ``current_features`` (legacy) or
+        # ``_current_features`` (post-split convention to differentiate from the outer-scope name).
+        normalized = {self._normalize_param(k): (k, v) for k, v in defaulted.items()}
+        assert "current_features" in normalized, "current_features (or _current_features) must have a default-arg value"
+        assert "scores" in normalized, "scores (or _scores) must have a default-arg value"
+        # Each default expression must reference the outer-scope ``Name(<normalized>)`` -- that's the def-time binding.
+        for outer_name in ("current_features", "scores"):
+            _, d = normalized[outer_name]
+            assert isinstance(d, ast.Name) and d.id == outer_name, (
+                f"default-arg for {outer_name} must reference outer-scope Name({outer_name!r}); got {ast.dump(d)}"
             )
 
 
