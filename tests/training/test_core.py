@@ -17,6 +17,17 @@ from mlframe.training.core import train_mlframe_models_suite
 from mlframe.training.configs import TargetTypes
 from .shared import SimpleFeaturesAndTargetsExtractor
 
+try:
+    from tests.conftest import fast_subset
+except ImportError:  # pragma: no cover
+    def fast_subset(values, **_):
+        return list(values)
+
+
+# In --fast mode, the model-name sweep collapses to ``ridge`` (smallest, fastest fit).
+_MODEL_NAMES_FAST = fast_subset(["ridge", "xgb", "cb", "lgb", "mlp"], representative="ridge")
+_TREE_MODEL_NAMES_FAST = fast_subset(["hgb", "cb", "xgb"], representative="cb")
+
 # Deterministic RNG (single seed per module).
 _W53_RNG = __import__('numpy').random.default_rng(0)
 
@@ -1591,7 +1602,7 @@ class TestCustomMetrics:
 class TestSampleWeights:
     """Tests for sample weight functionality via extractor's get_sample_weights()."""
 
-    @pytest.mark.parametrize("model_name", ["ridge", "xgb", "cb", "lgb", "mlp"])
+    @pytest.mark.parametrize("model_name", _MODEL_NAMES_FAST)
     def test_sample_weight_with_custom_weights(self, model_name, temp_data_dir, common_init_params):
         """Test that models are trained with custom sample weights."""
         from .shared import TimestampedFeaturesExtractor
@@ -1637,7 +1648,7 @@ class TestSampleWeights:
         model_list = models[TargetTypes.REGRESSION]["target"]
         assert len(model_list) == 1
 
-    @pytest.mark.parametrize("model_name", ["ridge", "xgb", "cb", "lgb", "mlp"])
+    @pytest.mark.parametrize("model_name", _MODEL_NAMES_FAST)
     def test_multiple_weight_schemas(self, model_name, temp_data_dir, common_init_params):
         """Test custom extractor returning multiple weight schemas."""
         from .shared import TimestampedFeaturesExtractor
@@ -3152,7 +3163,7 @@ class TestPolarsNativeFastpath:
                 f"CatBoost received {df_type} instead of Polars DataFrame with sample weights"
             )
 
-    @pytest.mark.parametrize("model_name", ["hgb", "cb", "xgb"])
+    @pytest.mark.parametrize("model_name", _TREE_MODEL_NAMES_FAST)
     def test_polars_fastpath_regression_target(
         self, model_name, temp_data_dir, common_init_params, monkeypatch
     ):

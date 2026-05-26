@@ -18,6 +18,20 @@ import pytest
 
 warnings.filterwarnings("ignore")
 
+try:
+    from tests.conftest import fast_subset
+except ImportError:  # pragma: no cover
+    def fast_subset(values, **_):
+        return list(values)
+
+
+# --fast collapses the basis sweep to a single representative per axis. ``hermite``
+# is the historical default; ``fourier`` is the smallest extra-bases family.
+_POLY_BASES_FAST = fast_subset(["hermite", "legendre", "chebyshev", "laguerre"], representative="hermite")
+_EXTRA_BASES_FAST = fast_subset(["fourier", "rbf", "sigmoid", "pade"], representative="fourier")
+_DEGREES_FAST = fast_subset([1, 2, 3, 4], representative=2)
+
+
 from mlframe.feature_selection.filters import hermite_fe as hfe
 from mlframe.feature_selection.filters.hermite_fe import (
     HermiteResult,
@@ -218,7 +232,7 @@ def test_poly_njit_handles_zero_and_single_coef(njit_fn):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("basis", ["hermite", "legendre", "chebyshev", "laguerre"])
+@pytest.mark.parametrize("basis", _POLY_BASES_FAST)
 def test_polyeval_dispatch_matches_njit_for_small_n(basis):
     rng = np.random.default_rng(5)
     x = rng.uniform(-0.9, 0.9, size=300).astype(np.float64)
@@ -326,7 +340,7 @@ def test_atan2_and_log_abs_signed_finite():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("degree", [1, 2, 3, 4])
+@pytest.mark.parametrize("degree", _DEGREES_FAST)
 def test_canonical_seeds_shape_and_count(degree):
     seeds = _canonical_seeds("hermite", degree)
     # At least the identity P_1 seed for degree >= 1.
@@ -633,7 +647,7 @@ def test_run_cma_search_direction_only():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("basis", ["hermite", "legendre", "chebyshev", "laguerre"])
+@pytest.mark.parametrize("basis", _POLY_BASES_FAST)
 def test_optimise_hermite_pair_each_polynomial_basis(basis):
     x_a, x_b, y = _xor_pair(n=200) if basis == "hermite" else _uniform_pair(n=200)
     if basis == "laguerre":
@@ -658,7 +672,7 @@ def test_optimise_hermite_pair_each_polynomial_basis(basis):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("basis", ["fourier", "rbf", "sigmoid", "pade"])
+@pytest.mark.parametrize("basis", _EXTRA_BASES_FAST)
 def test_optimise_hermite_pair_extra_bases(basis):
     """Each extra basis triggers the eval_njit (fourier/pade) or eval_njit_factory (rbf/sigmoid) path."""
     if basis == "fourier":

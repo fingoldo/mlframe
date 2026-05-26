@@ -36,6 +36,18 @@ from mlframe.training.feature_handling import (
     should_apply_svd,
 )
 
+try:
+    from tests.conftest import fast_subset
+except ImportError:  # pragma: no cover
+    def fast_subset(values, **_):
+        return list(values)
+
+
+# --fast collapses the routing matrix to one representative per arm. ``cb`` is the
+# canonical sparse-aware booster; ``mlp`` is the canonical dense-only neural model.
+_SPARSE_AWARE_FAST = fast_subset(["cb", "xgb", "lgb", "linear", "ridge", "sgd"], representative="cb")
+_DENSE_ONLY_FAST = fast_subset(["hgb", "rf", "ngb", "mlp", "recurrent", "tabnet"], representative="mlp")
+
 
 # =====================================================================
 # 1. Routing table
@@ -43,12 +55,12 @@ from mlframe.training.feature_handling import (
 
 
 class TestRouting:
-    @pytest.mark.parametrize("kind", ["cb", "xgb", "lgb", "linear", "ridge", "sgd"])
+    @pytest.mark.parametrize("kind", _SPARSE_AWARE_FAST)
     def test_sparse_aware_models(self, kind):
         assert accepts_sparse(kind) is True
         assert is_dense_only(kind) is False
 
-    @pytest.mark.parametrize("kind", ["hgb", "rf", "ngb", "mlp", "recurrent", "tabnet"])
+    @pytest.mark.parametrize("kind", _DENSE_ONLY_FAST)
     def test_dense_only_models(self, kind):
         assert accepts_sparse(kind) is False
         assert is_dense_only(kind) is True

@@ -57,7 +57,16 @@ except Exception as exc:  # pragma: no cover
     )
 
 
-SEEDS = [42, 7, 99]
+try:
+    from tests.conftest import fast_subset
+except ImportError:  # pragma: no cover
+    def fast_subset(values, **_):
+        return list(values)
+
+
+# --fast collapses the seed sweep to one canonical seed -- each transformer is still exercised end-to-end, only the
+# stochastic-coverage axis is reduced.
+SEEDS = fast_subset([42, 7, 99], representative=42)
 
 
 # ---------------------------------------------------------------------------
@@ -146,7 +155,7 @@ def test_polynomial_degree_lifts_xor(seed):
 
 
 @pytest.mark.parametrize("seed", SEEDS)
-@pytest.mark.parametrize("variant", ["RBFSampler", "Nystroem"])
+@pytest.mark.parametrize("variant", fast_subset(["RBFSampler", "Nystroem"], representative="RBFSampler"))
 def test_nonlinear_features_lift_on_circles(seed, variant):
     X, y = _circles_dataset(seed)
     X_tr, X_te, y_tr, y_te = _split(X, y, seed)
@@ -185,7 +194,7 @@ def test_chi2_samplers_reject_negative_inputs(variant):
 
 
 @pytest.mark.parametrize("seed", SEEDS)
-@pytest.mark.parametrize("reducer", ["PCA", "TruncatedSVD"])
+@pytest.mark.parametrize("reducer", fast_subset(["PCA", "TruncatedSVD"], representative="PCA"))
 def test_pca_like_dim_reducer_preserves_auroc(seed, reducer):
     X, y = _rank_r_wide_dataset(seed)
     X_tr, X_te, y_tr, y_te = _split(X, y, seed)
@@ -244,8 +253,11 @@ def test_lda_dim_reducer_supervised(seed):
 
 @pytest.mark.parametrize(
     "reducer",
-    ["KernelPCA", "FastICA", "Isomap",
-     "GaussianRandomProjection", "SparseRandomProjection", "BernoulliRBM"],
+    fast_subset(
+        ["KernelPCA", "FastICA", "Isomap",
+         "GaussianRandomProjection", "SparseRandomProjection", "BernoulliRBM"],
+        representative="KernelPCA",
+    ),
 )
 def test_dim_reducer_variants_smoke_and_shape(reducer):
     X, y = _rank_r_wide_dataset(seed=42, n=500, p=60, rank=8)

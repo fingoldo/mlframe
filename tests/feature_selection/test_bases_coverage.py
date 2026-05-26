@@ -29,6 +29,18 @@ from mlframe.feature_selection.filters.bases import (
     _sigmoid_eval_kernel_njit,
 )
 
+try:
+    from tests.conftest import fast_subset
+except ImportError:  # pragma: no cover
+    def fast_subset(values, **_):
+        return list(values)
+
+
+# In --fast mode, the basis sweep collapses to one canonical family per test.
+# ``fourier`` is the smallest, most-stable kernel and is the historical default.
+_FAMILIES_FAST = fast_subset(["fourier", "rbf", "sigmoid", "pade"], representative="fourier")
+_DEGREES_FAST = fast_subset([1, 2, 3, 5, 9], representative=3)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -264,8 +276,8 @@ class TestCoefSize:
 # ---------------------------------------------------------------------------
 
 class TestCanonicalSeedsShape:
-    @pytest.mark.parametrize("family", ["fourier", "rbf", "sigmoid", "pade"])
-    @pytest.mark.parametrize("degree", [1, 2, 3, 5, 9])
+    @pytest.mark.parametrize("family", _FAMILIES_FAST)
+    @pytest.mark.parametrize("degree", _DEGREES_FAST)
     def test_seeds_match_coef_size(self, family: str, degree: int):
         b = EXTRA_BASES[family]
         K = b["coef_size_func"](degree)
@@ -394,7 +406,7 @@ class TestFourierKernel:
 
 class TestApplyMatchesFit:
     @pytest.mark.fast
-    @pytest.mark.parametrize("family", ["fourier", "rbf", "sigmoid", "pade"])
+    @pytest.mark.parametrize("family", _FAMILIES_FAST)
     def test_apply_matches_fit_z(self, family: str):
         b = EXTRA_BASES[family]
         rng = np.random.default_rng(seed=42)
@@ -467,7 +479,7 @@ class TestComposition:
 # ---------------------------------------------------------------------------
 
 class TestRegistryContract:
-    @pytest.mark.parametrize("family", ["fourier", "rbf", "sigmoid", "pade"])
+    @pytest.mark.parametrize("family", _FAMILIES_FAST)
     def test_required_keys(self, family: str):
         b = EXTRA_BASES[family]
         # Common keys.

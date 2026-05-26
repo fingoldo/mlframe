@@ -16,6 +16,12 @@ from mlframe.feature_engineering.pysr_operators import (
     get_preset_kwargs,
 )
 
+try:
+    from tests.conftest import fast_subset
+except ImportError:  # pragma: no cover
+    def fast_subset(values, **_):
+        return list(values)
+
 
 _REQUIRED_KEYS = {
     "binary_operators",
@@ -25,15 +31,20 @@ _REQUIRED_KEYS = {
     "extra_sympy_mappings",
 }
 
+# In --fast mode the contract suite collapses to a single representative preset
+# (``standard`` if present, else the first registered). Each individual contract
+# is still exercised end-to-end -- only the preset axis is collapsed.
+_PRESETS_FAST = fast_subset(VALID_PRESETS, representative="standard")
 
-@pytest.mark.parametrize("preset", VALID_PRESETS)
+
+@pytest.mark.parametrize("preset", _PRESETS_FAST)
 def test_preset_returns_documented_keys(preset):
     out = get_preset_kwargs(preset)
     missing = _REQUIRED_KEYS - set(out.keys())
     assert not missing, f"preset {preset!r} missing keys: {missing}"
 
 
-@pytest.mark.parametrize("preset", VALID_PRESETS)
+@pytest.mark.parametrize("preset", _PRESETS_FAST)
 def test_preset_binary_and_unary_lists_non_empty(preset):
     out = get_preset_kwargs(preset)
     assert isinstance(out["binary_operators"], list)
@@ -42,7 +53,7 @@ def test_preset_binary_and_unary_lists_non_empty(preset):
     assert len(out["unary_operators"]) >= 2
 
 
-@pytest.mark.parametrize("preset", VALID_PRESETS)
+@pytest.mark.parametrize("preset", _PRESETS_FAST)
 def test_preset_unary_operators_are_strings(preset):
     # PySR contract: each unary entry is either the operator name (for
     # built-ins like "tanh", "square", "sin") or the full Julia signature
@@ -52,14 +63,14 @@ def test_preset_unary_operators_are_strings(preset):
         assert isinstance(op, str), f"unary op {op!r} not a string in preset {preset!r}"
 
 
-@pytest.mark.parametrize("preset", VALID_PRESETS)
+@pytest.mark.parametrize("preset", _PRESETS_FAST)
 def test_preset_binary_operators_are_strings(preset):
     out = get_preset_kwargs(preset)
     for op in out["binary_operators"]:
         assert isinstance(op, str), f"binary op {op!r} not a string in preset {preset!r}"
 
 
-@pytest.mark.parametrize("preset", VALID_PRESETS)
+@pytest.mark.parametrize("preset", _PRESETS_FAST)
 def test_preset_complexity_dict_has_positive_int_weights(preset):
     out = get_preset_kwargs(preset)
     weights = out["complexity_of_operators"]
@@ -71,7 +82,7 @@ def test_preset_complexity_dict_has_positive_int_weights(preset):
         assert v >= 1
 
 
-@pytest.mark.parametrize("preset", VALID_PRESETS)
+@pytest.mark.parametrize("preset", _PRESETS_FAST)
 def test_preset_nested_constraints_is_nested_dict(preset):
     out = get_preset_kwargs(preset)
     nc = out["nested_constraints"]
@@ -86,7 +97,7 @@ def test_preset_nested_constraints_is_nested_dict(preset):
             assert depth >= 0
 
 
-@pytest.mark.parametrize("preset", VALID_PRESETS)
+@pytest.mark.parametrize("preset", _PRESETS_FAST)
 def test_preset_extra_sympy_mappings_callables(preset):
     out = get_preset_kwargs(preset)
     mappings = out["extra_sympy_mappings"]
