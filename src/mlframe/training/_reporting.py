@@ -446,6 +446,34 @@ def report_regression_model_perf(
     # sklearn at production size.
     targets_arr = np.asarray(targets)
     preds_arr = np.asarray(preds)
+    # Generic prediction-envelope clip. Bounds preds to a 3-sigma
+    # window around the train target range BEFORE metrics + chart.
+    # Applies to ALL regression models, not just MLP. Linear / Ridge /
+    # Lasso can extrapolate just as catastrophically as unbounded MLPs
+    # on group-aware splits with strong-AR / heavy-tail targets (Ridge
+    # 2026-05-26 hit MaxError=1.4M on a composite Yeo-Johnson target).
+    # Stats supplied via y_train_{min,max,std} kwargs by the suite-side
+    # caller; when missing (legacy calls / tests), the clip is a no-op.
+    # Composite-target wrap-pass already clips inside
+    # CompositeTargetEstimator; this generic clip catches the
+    # raw-target path + any composite wrapper that produced a value
+    # outside the envelope by miscalibration.
+    if (y_train_min is not None and y_train_max is not None
+            and y_train_std is not None and y_train_std > 0):
+        from ._prediction_envelope_clip import (
+            TrainEnvelopeStats,
+            clip_predictions_to_train_envelope,
+        )
+        _env_stats = TrainEnvelopeStats(
+            y_min=float(y_train_min),
+            y_max=float(y_train_max),
+            y_std=float(y_train_std),
+        )
+        preds_arr = clip_predictions_to_train_envelope(
+            preds_arr, _env_stats,
+            model_label=str(model_name) if model_name else "<unknown>",
+            split_label=str(report_title) if report_title else "<unknown>",
+        )
     if targets_arr.ndim > 1 and targets_arr.shape[1] > 1:
         # WARN-loud when this multioutput path
         # fires. Multilabel classification SHOULD route to
