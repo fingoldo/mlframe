@@ -47,6 +47,16 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
+      - name: Install libomp (macOS LightGBM OpenMP runtime)
+        # LightGBM's macOS wheel links against ``@rpath/libomp.dylib``. The
+        # GitHub-hosted macos-latest runner does not ship libomp by default;
+        # ``import lightgbm`` fails at collection time with ``OSError:
+        # Library not loaded: @rpath/libomp.dylib``. Homebrew's libomp
+        # package provides the dylib and the linker can resolve it via the
+        # rpath set by the wheel.
+        if: runner.os == 'macOS'
+        run: brew install libomp
+
       - name: Clone & install pyutilz (sibling dependency)
         # pyutilz has unconditional top-level imports of optional libraries
         # in several submodules. Install the narrow subset of extras that
