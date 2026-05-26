@@ -11,9 +11,11 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
-from sklearn.datasets import make_classification, make_regression
+from sklearn.datasets import make_regression
 from sklearn.linear_model import LinearRegression, LogisticRegression, Ridge
 from sklearn.model_selection import TimeSeriesSplit, KFold, StratifiedKFold
+
+from tests.training.synthetic import make_sklearn_classification_df
 
 # Lazy import — RFECV pulls in heavy training modules that OOM
 # during collection when loaded alongside filters/* tests.
@@ -142,11 +144,10 @@ class TestCvAutoDetect:
 # ----------------------------------------------------------------------------
 class TestCvResultsDataFrame:
     def test_property_returns_dataframe(self):
-        X, y = make_classification(
+        Xdf, y, _ = make_sklearn_classification_df(
             n_samples=100, n_features=5, n_informative=2,
-            n_redundant=0, random_state=0, shuffle=False, class_sep=2.0,
+            n_redundant=0, seed=0, shuffle=False, class_sep=2.0,
         )
-        Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(5)])
         rfecv = _rfecv(
             estimator=LogisticRegression(max_iter=200, random_state=0),
             cv=3, max_refits=4, verbose=0, random_state=0,
@@ -156,11 +157,10 @@ class TestCvResultsDataFrame:
         assert set(["nfeatures", "cv_mean_perf", "cv_std_perf"]).issubset(df.columns)
 
     def test_columns_match_dict_keys(self):
-        X, y = make_classification(
+        Xdf, y, _ = make_sklearn_classification_df(
             n_samples=100, n_features=5, n_informative=2,
-            n_redundant=0, random_state=0, shuffle=False, class_sep=2.0,
+            n_redundant=0, seed=0, shuffle=False, class_sep=2.0,
         )
-        Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(5)])
         rfecv = _rfecv(
             estimator=LogisticRegression(max_iter=200, random_state=0),
             cv=3, max_refits=4, verbose=0, random_state=0,
@@ -177,11 +177,10 @@ class TestCvResultsDataFrame:
 
     def test_dict_access_still_works(self):
         """Backward-compat: cv_results_['nfeatures'] keeps returning the list."""
-        X, y = make_classification(
+        Xdf, y, _ = make_sklearn_classification_df(
             n_samples=100, n_features=5, n_informative=2,
-            n_redundant=0, random_state=0, shuffle=False, class_sep=2.0,
+            n_redundant=0, seed=0, shuffle=False, class_sep=2.0,
         )
-        Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(5)])
         rfecv = _rfecv(
             estimator=LogisticRegression(max_iter=200, random_state=0),
             cv=3, max_refits=4, verbose=0, random_state=0,
@@ -197,11 +196,10 @@ class TestCvResultsDataFrame:
 class TestSffsSwap:
     def test_default_disabled(self):
         """swap_top_k=0 (default) must NOT call _sffs_swap_pass."""
-        X, y = make_classification(
+        Xdf, y, _ = make_sklearn_classification_df(
             n_samples=120, n_features=8, n_informative=3,
-            n_redundant=0, random_state=0, shuffle=False, class_sep=2.0,
+            n_redundant=0, seed=0, shuffle=False, class_sep=2.0,
         )
-        Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(8)])
         rfecv = _rfecv(
             estimator=LogisticRegression(max_iter=200, random_state=0),
             cv=3, max_refits=4, verbose=0, random_state=0,
@@ -216,11 +214,10 @@ class TestSffsSwap:
         baseline so the early-stop path doesn't bypass the swap pass.
         """
         import logging
-        X, y = make_classification(
+        Xdf, y, _ = make_sklearn_classification_df(
             n_samples=400, n_features=8, n_informative=5,
-            n_redundant=0, random_state=0, shuffle=False, class_sep=3.0,
+            n_redundant=0, seed=0, shuffle=False, class_sep=3.0,
         )
-        Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(8)])
         rfecv = _rfecv(
             estimator=LogisticRegression(max_iter=300, random_state=0),
             cv=3, max_refits=6, verbose=1, random_state=0,
@@ -238,11 +235,10 @@ class TestSffsSwap:
         """The swap pass should never make the best CV score worse than
         what the main loop found - swaps are accepted only on strict
         improvement."""
-        X, y = make_classification(
+        Xdf, y, _ = make_sklearn_classification_df(
             n_samples=400, n_features=8, n_informative=5,
-            n_redundant=0, random_state=0, shuffle=False, class_sep=3.0,
+            n_redundant=0, seed=0, shuffle=False, class_sep=3.0,
         )
-        Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(8)])
         baseline = _rfecv(
             estimator=LogisticRegression(max_iter=300, random_state=0),
             cv=3, max_refits=6, verbose=0, random_state=0,

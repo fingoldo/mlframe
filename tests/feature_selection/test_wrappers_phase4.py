@@ -5,21 +5,22 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
-from sklearn.datasets import make_classification, make_regression
+from sklearn.datasets import make_regression
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.model_selection import StratifiedKFold
 
 from mlframe.feature_selection.wrappers import RFECV
+from tests.training.synthetic import make_sklearn_classification_df
 
 
 @pytest.fixture(scope="module")
 def small_clf_data():
-    X, y = make_classification(
+    Xdf, y, _ = make_sklearn_classification_df(
         n_samples=300, n_features=15, n_informative=5,
         n_redundant=0, n_classes=2, n_clusters_per_class=1,
-        random_state=0, shuffle=False, class_sep=2.0,
+        class_sep=2.0, shuffle=False, seed=0,
     )
-    return pd.DataFrame(X, columns=[f"f{i}" for i in range(15)]), y
+    return Xdf, y
 
 
 @pytest.fixture(scope="module")

@@ -13,7 +13,6 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
-from sklearn.datasets import make_classification
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 
@@ -21,6 +20,7 @@ from mlframe.feature_selection.wrappers import (
     RFECV,
     get_feature_importances,
 )
+from tests.training.synthetic import make_sklearn_classification_df
 from .conftest import COVERAGE_ACTIVE
 from mlframe.feature_selection.wrappers._helpers import (
     _detect_multithreaded,
@@ -30,12 +30,12 @@ from mlframe.feature_selection.wrappers._helpers import (
 
 @pytest.fixture(scope="module")
 def small_clf_data():
-    X, y = make_classification(
+    Xdf, y, _ = make_sklearn_classification_df(
         n_samples=200, n_features=10, n_informative=4,
         n_redundant=0, n_classes=2, n_clusters_per_class=1,
-        random_state=0, shuffle=False, class_sep=2.0,
+        class_sep=2.0, shuffle=False, seed=0,
     )
-    return pd.DataFrame(X, columns=[f"f{i}" for i in range(10)]), y
+    return Xdf, y
 
 
 # ----------------------------------------------------------------------------
@@ -135,12 +135,10 @@ class TestN3_AutoFallback:
 # ----------------------------------------------------------------------------
 class TestN6_PermutationImportance:
     def test_permutation_returns_per_feature_dict(self):
-        X, y = make_classification(
-            n_samples=120, n_features=6, n_informative=3, random_state=0,
+        Xdf, y, cols = make_sklearn_classification_df(
+            n_samples=120, n_features=6, n_informative=3, seed=0,
             n_redundant=0, shuffle=False, class_sep=2.0,
         )
-        cols = [f"f{i}" for i in range(6)]
-        Xdf = pd.DataFrame(X, columns=cols)
         model = LogisticRegression(max_iter=200, random_state=0).fit(Xdf, y)
         result = get_feature_importances(
             model=model,
@@ -259,12 +257,10 @@ class TestLeaderboard_LazyMajorityGraph:
 class TestPhase7_ConditionalPermutationImportance:
     def test_cpi_returns_per_feature_dict(self):
         """Basic shape contract: one importance per feature, informative > noise."""
-        X, y = make_classification(
-            n_samples=200, n_features=6, n_informative=3, random_state=0,
+        Xdf, y, cols = make_sklearn_classification_df(
+            n_samples=200, n_features=6, n_informative=3, seed=0,
             n_redundant=0, shuffle=False, class_sep=2.0,
         )
-        cols = [f"f{i}" for i in range(6)]
-        Xdf = pd.DataFrame(X, columns=cols)
         model = RandomForestClassifier(n_estimators=30, random_state=0).fit(Xdf, y)
         result = get_feature_importances(
             model=model,
@@ -427,12 +423,11 @@ class TestPhase7_ConditionalPermutationImportance:
     def test_cpi_via_rfecv_end_to_end(self):
         """Smoke-test: RFECV(importance_getter='conditional_permutation') must
         complete without error and select at least one feature."""
-        X, y = make_classification(
+        Xdf, y, _ = make_sklearn_classification_df(
             n_samples=200, n_features=8, n_informative=3,
             n_redundant=0, n_classes=2, n_clusters_per_class=1,
-            random_state=0, shuffle=False, class_sep=2.0,
+            class_sep=2.0, shuffle=False, seed=0,
         )
-        Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(8)])
         rfecv = RFECV(
             estimator=LogisticRegression(max_iter=200, random_state=0),
             cv=3,
