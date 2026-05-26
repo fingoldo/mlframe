@@ -436,6 +436,48 @@ def get_pandas_view_of_polars_df(
     if pl is None or not isinstance(df, (pl.DataFrame, pl.Series)):
         raise TypeError(f"Input must be a Polars DataFrame or Series, got {type(df).__name__}")
 
+    # iter354 (2026-05-27) size-aware dispatcher: the pyarrow-Table +
+    # per-column-cast path below is 9.5x faster than ``df.to_pandas()`` for
+    # numeric-heavy frames (200k x 30 float64: 13.3ms -> 1.4ms) but 2.4x
+    # SLOWER for SMALL frames dominated by polars Categorical / Enum
+    # columns (200k x 15 cat + 10 num: 20.4ms -> 49.7ms). The slow path is
+    # the per-column ``pa.compute.cast`` chain that narrows uint32 dict
+    # indices to int32 for pyarrow's to_pandas (still refuses uint32 dict
+    # indices on pyarrow 21).
+    #
+    # CRITICAL size constraint: on LARGE frames (multi-GB / 100 GB
+    # production loads) the helper's ``split_blocks=True`` path is the
+    # whole reason it exists -- it gives zero-copy numpy views over
+    # numeric Arrow buffers instead of consolidating them into fresh
+    # numpy blocks. ``df.to_pandas()`` consolidates and copies every
+    # numeric buffer, blowing memory + wall time on big workloads
+    # (the original 9M x 70 numeric frame went 30s vs 0.95s, ~32x).
+    #
+    # Dispatch policy:
+    #   * Force HELPER for any frame above ~50 MB (size proxy: rows *
+    #     cols * 8). On big frames the per-column dict cast amortises and
+    #     the zero-copy numeric path dominates. This is also exactly the
+    #     regime where ``df.to_pandas()`` would OOM the operator.
+    #   * Force RAW ``df.to_pandas()`` only for SMALL Categorical-heavy
+    #     frames where the cast overhead bites and there's no numeric
+    #     buffer to keep zero-copy.
+    #   * Override via env var for forensic A/B benchmarks.
+    if isinstance(df, pl.DataFrame) and os.environ.get("MLFRAME_FORCE_HELPER_PD_VIEW") != "1":
+        _n_rows = df.shape[0]
+        _n_cols = df.shape[1]
+        _size_bytes_proxy = _n_rows * _n_cols * 8
+        _LARGE_FRAME_BYTES = 50 * 1024 * 1024  # 50 MB
+        _dict_cols = sum(
+            1
+            for dt in df.schema.values()
+            if dt == pl.Categorical or (hasattr(pl, "Enum") and isinstance(dt, pl.Enum))
+        )
+        # Small + many-dict frames take the raw path; everything else
+        # (including all production-scale frames) takes the helper for
+        # zero-copy numeric safety.
+        if _size_bytes_proxy < _LARGE_FRAME_BYTES and _dict_cols >= 5:
+            return df.to_pandas()
+
     import pyarrow as pa
 
     # Capture timing + RAM around the conversion. Long conversions (multi-GB
