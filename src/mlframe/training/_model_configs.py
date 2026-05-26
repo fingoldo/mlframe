@@ -573,6 +573,42 @@ class TrainingBehaviorConfig(BaseConfig):
     mlp_extreme_ar_group_aware_skip: bool = False
     mlp_extreme_ar_threshold: float = 0.99
 
+    # Drop per-well / per-group AGGREGATE features from the MLP's view of
+    # X (Fix 2, 2026-05-26). Pattern matches columns like
+    # ``well_TVT_pre_PS_mean`` / ``well_GR_std`` / ``well_*_(mean|std|min|max)``:
+    # these encode the train-only group mean of some other feature and
+    # are CONSTANT within a group. On an unseen-group test row the
+    # value is necessarily extrapolated (the test well never appears
+    # in the train aggregate) and the MLP, which composes to a near-
+    # affine map on whitened inputs, picks up the resulting train-vs-
+    # test direction as the dominant signal -> catastrophic rank
+    # inversion on unseen wells (TVT 2026-05-26 prod incident).
+    # TREE models still see these features (they handle the OOD
+    # categorical signal via leaves, not via affine slope). Only the
+    # MLP fit-path drops them. Default True: the failure mode is
+    # consistent enough across prod incidents to make the conservative
+    # default. Disable for benchmarking via False.
+    mlp_drop_per_well_constants: bool = True
+    # Regex pattern. Match is case-INSENSITIVE on column names. Default
+    # captures the prod ``well_*_<reducer>`` naming; tweak for other
+    # group-aggregate conventions (e.g. ``rig_.*_(mean|std)``).
+    mlp_drop_per_well_constants_pattern: str = r"^well_.*_(mean|std|min|max)$"
+
+    # L2 weight-decay auto-bump for MLP on extreme-AR + group-aware
+    # regimes (Fix 3, 2026-05-26). When the trigger fires
+    # (lag1_corr_per_group >= mlp_extreme_ar_threshold AND the active
+    # split sets ``prefer_group_aware=True``), multiply the MLP
+    # optimizer's ``weight_decay`` by this factor. AdamW is forced ON
+    # (Adam ignores weight_decay) and weight_decay defaults are bumped
+    # from 0.0 -> base * factor. Heavier L2 bounds the effective slope
+    # of the MLP's affine composition, capping extrapolation magnitude
+    # on unseen-group test rows.
+    mlp_extreme_ar_weight_decay_factor: float = 100.0
+    # Base weight_decay when bumping. The default (1e-4) * factor=100
+    # produces 1e-2 -- the upper end of "moderate" L2 for tabular
+    # MLPs. Override for very high-noise regimes.
+    mlp_extreme_ar_weight_decay_base: float = 1e-4
+
 
 class MultilabelDispatchConfig(BaseConfig):
     """Configuration for multilabel-classification dispatch.

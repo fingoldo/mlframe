@@ -284,9 +284,60 @@ class PytorchLightningEstimator(BaseEstimator):
             self.network = None
             self.model = None  # also reset the LightningModule wrapper
 
+        # Compute output_activation_scale / center from the y the MLP sees
+        # at fit-time (Fix 1, 2026-05-26). When the wrapping TTR z-scores y,
+        # the MLP sees scaled y and the tanh window lives in scaled space;
+        # TTR.inverse_transform unwinds it correctly. Only applied for
+        # regression (num_classes==1) with output_activation set; left
+        # untouched for classification and the linear default.
+        _net_params = dict(self.network_params)
+        _out_act = _net_params.get("output_activation", "linear")
+        if (
+            _out_act == "tanh_train_range"
+            and num_classes == 1
+            and _net_params.get("output_activation_scale") is None
+            and _net_params.get("output_activation_center") is None
+        ):
+            try:
+                _y_arr = np.asarray(
+                    y.values if isinstance(y, pd.Series) else y,
+                    dtype=np.float64,
+                ).reshape(-1)
+                _y_finite = _y_arr[np.isfinite(_y_arr)]
+                if _y_finite.size > 1:
+                    _ymin = float(_y_finite.min())
+                    _ymax = float(_y_finite.max())
+                    _ystd = float(_y_finite.std())
+                    # scale = (max-min)/2 + 3*std; ~6-sigma half-window
+                    # around the train midpoint. center = (min+max)/2.
+                    _net_params["output_activation_scale"] = (_ymax - _ymin) / 2.0 + 3.0 * _ystd
+                    _net_params["output_activation_center"] = (_ymin + _ymax) / 2.0
+                    logger.info(
+                        "MLP output_activation='tanh_train_range' "
+                        "auto-derived from y_train: scale=%.4g, center=%.4g "
+                        "(y_min=%.4g, y_max=%.4g, y_std=%.4g).",
+                        _net_params["output_activation_scale"],
+                        _net_params["output_activation_center"],
+                        _ymin, _ymax, _ystd,
+                    )
+                else:
+                    logger.warning(
+                        "MLP output_activation='tanh_train_range' requested "
+                        "but y_train has <=1 finite value; falling back to "
+                        "'linear' for this fit.",
+                    )
+                    _net_params["output_activation"] = "linear"
+            except Exception as _oa_err:
+                logger.warning(
+                    "MLP output_activation='tanh_train_range' y_train "
+                    "derivation failed (%s); falling back to 'linear'.",
+                    _oa_err,
+                )
+                _net_params["output_activation"] = "linear"
+
         # getattr handles freshly cloned models that don't have network attribute yet
         if getattr(self, 'network', None) is None:
-            self.network = generate_mlp(num_features=X.shape[1], num_classes=num_classes, **self.network_params)
+            self.network = generate_mlp(num_features=X.shape[1], num_classes=num_classes, **_net_params)
 
         if num_classes > 1:
             metric_name = "ICE"

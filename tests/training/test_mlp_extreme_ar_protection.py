@@ -157,3 +157,363 @@ class TestSourceIntegrity:
         assert "_y_train_clip_low_" in src
         assert "_y_train_clip_high_" in src
         assert "MLFRAME_TTR_DISABLE_PREDICT_CLIP" in src
+
+
+# ---------------------------------------------------------------------
+# FIX 1: bounded output activation (tanh_train_range)
+# ---------------------------------------------------------------------
+
+
+class TestMlpOutputActivationKnob:
+    """Knob existence + default = ``linear`` (no behaviour change)."""
+
+    def test_generate_mlp_accepts_output_activation_kwarg(self) -> None:
+        import inspect
+        from mlframe.training.neural.flat import generate_mlp
+        sig = inspect.signature(generate_mlp)
+        assert "output_activation" in sig.parameters
+        assert "output_activation_scale" in sig.parameters
+        assert "output_activation_center" in sig.parameters
+        # Default must stay 'linear' for back-compat with every existing
+        # generate_mlp caller (suite, ranker, fuzz combos).
+        assert sig.parameters["output_activation"].default == "linear"
+
+    def test_default_linear_omits_bounded_head(self) -> None:
+        from mlframe.training.neural.flat import (
+            generate_mlp, _BoundedTanhOutput,
+        )
+        model = generate_mlp(num_features=8, num_classes=1, nlayers=2, verbose=0)
+        for m in model.modules():
+            assert not isinstance(m, _BoundedTanhOutput), (
+                "default output_activation='linear' must NOT append "
+                "_BoundedTanhOutput to the head."
+            )
+
+    def test_unknown_output_activation_raises(self) -> None:
+        import pytest
+        from mlframe.training.neural.flat import generate_mlp
+        with pytest.raises(ValueError, match="Unknown output_activation"):
+            generate_mlp(
+                num_features=8, num_classes=1, nlayers=2, verbose=0,
+                output_activation="sigmoid_unknown_mode",
+            )
+
+    def test_tanh_train_range_requires_scale_and_center(self) -> None:
+        import pytest
+        from mlframe.training.neural.flat import generate_mlp
+        with pytest.raises(ValueError, match="output_activation='tanh_train_range'"):
+            generate_mlp(
+                num_features=8, num_classes=1, nlayers=2, verbose=0,
+                output_activation="tanh_train_range",
+            )
+
+
+class TestMlpOutputActivationBoundedBehavior:
+    """Behaviour: with tanh_train_range, outputs are HARD-CAPPED to
+    ``[center - scale, center + scale]`` regardless of input magnitude."""
+
+    def test_bounded_output_caps_at_window(self) -> None:
+        import numpy as np
+        import torch
+        from mlframe.training.neural.flat import (
+            generate_mlp, _BoundedTanhOutput,
+        )
+        scale = 5.0
+        center = 10.0
+        model = generate_mlp(
+            num_features=4, num_classes=1, nlayers=2, verbose=0,
+            output_activation="tanh_train_range",
+            output_activation_scale=scale,
+            output_activation_center=center,
+        )
+        # Last module should be the bounded head.
+        last = list(model.modules())[-1]
+        assert isinstance(last, _BoundedTanhOutput)
+        # Inject extreme-magnitude input (well past anything realistic);
+        # the bounded head should clamp to [5, 15] regardless.
+        rng = np.random.default_rng(42)
+        X = torch.tensor(rng.normal(0, 1000, (32, 4)).astype(np.float32))
+        with torch.no_grad():
+            out = model(X).numpy().reshape(-1)
+        assert out.min() >= center - scale - 1e-5
+        assert out.max() <= center + scale + 1e-5
+
+    def test_bounded_head_buffers_are_not_trainable(self) -> None:
+        from mlframe.training.neural.flat import _BoundedTanhOutput
+        head = _BoundedTanhOutput(scale=3.0, center=11.0)
+        # Buffers MUST NOT be trainable parameters (no gradients).
+        assert "scale" in dict(head.named_buffers())
+        assert "center" in dict(head.named_buffers())
+        assert "scale" not in dict(head.named_parameters())
+        assert "center" not in dict(head.named_parameters())
+
+    def test_source_integrity_bounded_head_present(self) -> None:
+        from mlframe.training.neural import flat as flat_mod
+        src = Path(flat_mod.__file__).read_text(encoding="utf-8")
+        assert "class _BoundedTanhOutput" in src
+        assert "tanh_train_range" in src
+
+
+# ---------------------------------------------------------------------
+# FIX 2: drop per-well aggregate columns from MLP input
+# ---------------------------------------------------------------------
+
+
+class TestMlpDropPerWellConstantsKnob:
+    def test_default_is_True(self) -> None:
+        from mlframe.training._model_configs import TrainingBehaviorConfig
+        cfg = TrainingBehaviorConfig()
+        assert cfg.mlp_drop_per_well_constants is True
+
+    def test_default_pattern(self) -> None:
+        from mlframe.training._model_configs import TrainingBehaviorConfig
+        cfg = TrainingBehaviorConfig()
+        assert cfg.mlp_drop_per_well_constants_pattern == r"^well_.*_(mean|std|min|max)$"
+
+    def test_knob_overridable(self) -> None:
+        from mlframe.training._model_configs import TrainingBehaviorConfig
+        cfg = TrainingBehaviorConfig(
+            mlp_drop_per_well_constants=False,
+            mlp_drop_per_well_constants_pattern=r"^rig_.*_(mean|std)$",
+        )
+        assert cfg.mlp_drop_per_well_constants is False
+        assert cfg.mlp_drop_per_well_constants_pattern == r"^rig_.*_(mean|std)$"
+
+
+class TestMlpDropPerWellHelpers:
+    """Behavior of the per-well detector + drop helpers."""
+
+    def test_identify_per_well_columns_matches_expected(self) -> None:
+        from mlframe.training.core._phase_train_one_target_body import (
+            _identify_per_well_columns,
+        )
+        cols = [
+            "well_TVT_pre_PS_mean",  # match
+            "well_GR_std",            # match
+            "well_TVD_min",           # match
+            "well_PS_max",            # match
+            "TVT_pre_PS",             # no leading 'well_' prefix
+            "depth_m",                # plain feature
+            "well_id",                # no trailing reducer
+            "WELL_TVT_MEAN",          # case-insensitive match
+        ]
+        dropped = _identify_per_well_columns(
+            cols, r"^well_.*_(mean|std|min|max)$",
+        )
+        assert "well_TVT_pre_PS_mean" in dropped
+        assert "well_GR_std" in dropped
+        assert "well_TVD_min" in dropped
+        assert "well_PS_max" in dropped
+        assert "WELL_TVT_MEAN" in dropped  # case-insensitive
+        assert "TVT_pre_PS" not in dropped
+        assert "depth_m" not in dropped
+        assert "well_id" not in dropped
+
+    def test_identify_per_well_columns_empty_cols(self) -> None:
+        from mlframe.training.core._phase_train_one_target_body import (
+            _identify_per_well_columns,
+        )
+        assert _identify_per_well_columns([], r"^well_.*_(mean|std|min|max)$") == []
+        assert _identify_per_well_columns(None, r"^well_.*_(mean|std|min|max)$") == []
+
+    def test_drop_columns_for_mlp_pandas(self) -> None:
+        import pandas as pd
+        from mlframe.training.core._phase_train_one_target_body import (
+            _drop_columns_for_mlp,
+        )
+        df = pd.DataFrame({
+            "well_TVT_mean": [1.0, 2.0, 3.0],
+            "depth_m": [100.0, 200.0, 300.0],
+            "well_GR_std": [0.1, 0.2, 0.3],
+        })
+        out = _drop_columns_for_mlp(df, ["well_TVT_mean", "well_GR_std"])
+        assert list(out.columns) == ["depth_m"]
+        # Original frame must not be mutated (return-new-frame contract).
+        assert "well_TVT_mean" in df.columns
+
+    def test_drop_columns_for_mlp_polars(self) -> None:
+        try:
+            import polars as pl
+        except ImportError:
+            import pytest
+            pytest.skip("polars not installed")
+        from mlframe.training.core._phase_train_one_target_body import (
+            _drop_columns_for_mlp,
+        )
+        df = pl.DataFrame({
+            "well_TVT_mean": [1.0, 2.0, 3.0],
+            "depth_m": [100.0, 200.0, 300.0],
+            "well_GR_std": [0.1, 0.2, 0.3],
+        })
+        out = _drop_columns_for_mlp(df, ["well_TVT_mean", "well_GR_std"])
+        assert out.columns == ["depth_m"]
+
+    def test_drop_columns_for_mlp_none_passthrough(self) -> None:
+        from mlframe.training.core._phase_train_one_target_body import (
+            _drop_columns_for_mlp,
+        )
+        assert _drop_columns_for_mlp(None, ["well_TVT_mean"]) is None
+
+    def test_drop_columns_for_mlp_missing_cols_no_error(self) -> None:
+        import pandas as pd
+        from mlframe.training.core._phase_train_one_target_body import (
+            _drop_columns_for_mlp,
+        )
+        df = pd.DataFrame({"depth_m": [1.0, 2.0]})
+        # Asking to drop a non-existent column must be a no-op, not error.
+        out = _drop_columns_for_mlp(df, ["well_NOT_THERE_mean"])
+        assert list(out.columns) == ["depth_m"]
+
+
+# ---------------------------------------------------------------------
+# FIX 3: weight_decay auto-bump on extreme-AR + group-aware
+# ---------------------------------------------------------------------
+
+
+class TestMlpWeightDecayBumpKnob:
+    def test_factor_default(self) -> None:
+        from mlframe.training._model_configs import TrainingBehaviorConfig
+        cfg = TrainingBehaviorConfig()
+        assert cfg.mlp_extreme_ar_weight_decay_factor == pytest.approx(100.0)
+
+    def test_base_default(self) -> None:
+        from mlframe.training._model_configs import TrainingBehaviorConfig
+        cfg = TrainingBehaviorConfig()
+        assert cfg.mlp_extreme_ar_weight_decay_base == pytest.approx(1e-4)
+
+    def test_knobs_overridable(self) -> None:
+        from mlframe.training._model_configs import TrainingBehaviorConfig
+        cfg = TrainingBehaviorConfig(
+            mlp_extreme_ar_weight_decay_factor=50.0,
+            mlp_extreme_ar_weight_decay_base=1e-3,
+        )
+        assert cfg.mlp_extreme_ar_weight_decay_factor == pytest.approx(50.0)
+        assert cfg.mlp_extreme_ar_weight_decay_base == pytest.approx(1e-3)
+
+
+class TestMlpWeightDecayBumpBehavior:
+    """Behaviour: the bump helper actually finds the inner estimator,
+    mutates its optimizer_kwargs, AND swaps Adam -> AdamW (Adam ignores
+    weight_decay)."""
+
+    def _build_mock_inner_estimator(self):
+        """Mock object that mimics PytorchLightningEstimator's attrs."""
+        import torch
+        class _MockMLPInner:
+            model_params = {
+                "optimizer": torch.optim.Adam,
+                "optimizer_kwargs": {},
+                "learning_rate": 3e-3,
+            }
+            network_params = {"nlayers": 4}
+        return _MockMLPInner()
+
+    def test_bump_finds_inner_and_mutates(self):
+        import torch
+        from mlframe.training.core._phase_train_one_target_body import (
+            _apply_mlp_extreme_ar_weight_decay_bump,
+        )
+        inner = self._build_mock_inner_estimator()
+        ok = _apply_mlp_extreme_ar_weight_decay_bump(
+            inner, factor=100.0, base_weight_decay=1e-4,
+        )
+        assert ok is True
+        # New weight_decay = base * factor = 1e-4 * 100 = 1e-2
+        assert inner.model_params["optimizer_kwargs"]["weight_decay"] == pytest.approx(1e-2)
+        # Adam swapped to AdamW so weight_decay actually applies.
+        assert inner.model_params["optimizer"] is torch.optim.AdamW
+
+    def test_bump_walks_ttr_wrapper(self):
+        from mlframe.training.core._phase_train_one_target_body import (
+            _apply_mlp_extreme_ar_weight_decay_bump,
+        )
+        inner = self._build_mock_inner_estimator()
+        # Mimic _TTRWithEvalSetScaling structure: outer.regressor -> inner.
+        class _TTRMock:
+            def __init__(self, regressor):
+                self.regressor = regressor
+        wrapper = _TTRMock(regressor=inner)
+        ok = _apply_mlp_extreme_ar_weight_decay_bump(
+            wrapper, factor=100.0, base_weight_decay=1e-4,
+        )
+        assert ok is True
+        assert inner.model_params["optimizer_kwargs"]["weight_decay"] == pytest.approx(1e-2)
+
+    def test_bump_preserves_existing_decay_when_set(self):
+        """User-set weight_decay should be multiplied, not the base."""
+        from mlframe.training.core._phase_train_one_target_body import (
+            _apply_mlp_extreme_ar_weight_decay_bump,
+        )
+        inner = self._build_mock_inner_estimator()
+        inner.model_params["optimizer_kwargs"]["weight_decay"] = 5e-3
+        ok = _apply_mlp_extreme_ar_weight_decay_bump(
+            inner, factor=10.0, base_weight_decay=1e-4,
+        )
+        assert ok is True
+        # 5e-3 * 10 = 5e-2 (the prior decay, not the base)
+        assert inner.model_params["optimizer_kwargs"]["weight_decay"] == pytest.approx(5e-2)
+
+    def test_bump_returns_false_when_no_inner(self):
+        from mlframe.training.core._phase_train_one_target_body import (
+            _apply_mlp_extreme_ar_weight_decay_bump,
+        )
+        # Bare estimator without model_params (e.g. plain sklearn Ridge).
+        class _Ridge:
+            pass
+        ok = _apply_mlp_extreme_ar_weight_decay_bump(
+            _Ridge(), factor=100.0, base_weight_decay=1e-4,
+        )
+        assert ok is False
+
+
+class TestMlpOutputActivationApplier:
+    """Fix 1 applier: sets ``network_params['output_activation']`` on
+    the inner estimator, respecting prior explicit user overrides."""
+
+    def test_applier_sets_tanh_train_range(self):
+        from mlframe.training.core._phase_train_one_target_body import (
+            _apply_mlp_extreme_ar_output_activation,
+        )
+        class _MockMLPInner:
+            network_params = {"nlayers": 4}
+        inner = _MockMLPInner()
+        ok = _apply_mlp_extreme_ar_output_activation(inner)
+        assert ok is True
+        assert inner.network_params["output_activation"] == "tanh_train_range"
+
+    def test_applier_respects_explicit_user_override(self):
+        from mlframe.training.core._phase_train_one_target_body import (
+            _apply_mlp_extreme_ar_output_activation,
+        )
+        class _MockMLPInner:
+            # User explicitly set something non-linear; do not overwrite.
+            network_params = {"nlayers": 4, "output_activation": "some_future_mode"}
+        inner = _MockMLPInner()
+        ok = _apply_mlp_extreme_ar_output_activation(inner)
+        assert ok is False
+        assert inner.network_params["output_activation"] == "some_future_mode"
+
+
+class TestPhaseBodySourceIntegrity:
+    """Source-grep sensors for the per-well drop + weight_decay bump
+    wiring in ``_phase_train_one_target_body``."""
+
+    def test_phase_body_wires_per_well_drop(self) -> None:
+        from mlframe.training.core import _phase_train_one_target_body as body
+        src = Path(body.__file__).read_text(encoding="utf-8")
+        assert "_identify_per_well_columns" in src
+        assert "_drop_columns_for_mlp" in src
+        # Wiring point: gated on the knob.
+        assert "mlp_drop_per_well_constants" in src
+
+    def test_phase_body_wires_weight_decay_bump(self) -> None:
+        from mlframe.training.core import _phase_train_one_target_body as body
+        src = Path(body.__file__).read_text(encoding="utf-8")
+        assert "_apply_mlp_extreme_ar_weight_decay_bump" in src
+        # Trigger gate uses the shared predicate.
+        assert "_mlp_extreme_ar_fired" in src
+
+    def test_phase_body_wires_output_activation(self) -> None:
+        from mlframe.training.core import _phase_train_one_target_body as body
+        src = Path(body.__file__).read_text(encoding="utf-8")
+        assert "_apply_mlp_extreme_ar_output_activation" in src

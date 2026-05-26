@@ -43,6 +43,46 @@ def get_valid_num_groups(num_channels, preferred_num_groups):
     return 1  # Fallback to 1 (LayerNorm-like) if no divisor found
 
 
+class _BoundedTanhOutput(nn.Module):
+    """Bounded-range output head: ``tanh(x) * scale + center``.
+
+    Wraps the last ``nn.Linear`` of a regression MLP to HARD-CAP the
+    output to ``[center - scale, center + scale]``. Composes cleanly with
+    ``_TTRWithEvalSetScaling``: when y is z-scored by the TTR transformer
+    and ``scale``/``center`` are computed on the SCALED y the MLP sees at
+    fit-time, the tanh window is in scaled space and the TTR's
+    ``inverse_transform`` unwinds it back to raw-y space correctly.
+
+    Why this fix is independent of the defensive TTR predict clip
+    (which lives at ``_TTRWithEvalSetScaling.predict``): the TTR clip
+    BOUNDS the damage from runaway predictions; this output activation
+    PREVENTS the MLP's affine-composition from emitting them in the
+    first place. The MLP gradient sees the bound during training and
+    learns parameters that keep activations inside the window; the TTR
+    clip only catches what slips through at inference.
+
+    ``scale`` and ``center`` are registered as non-trainable BUFFERS so
+    they (a) move to the right device with ``.to(device)`` calls,
+    (b) save/load with state_dict, and (c) do not get updated by the
+    optimizer (they are fixed properties of the train target).
+    """
+
+    def __init__(self, scale: float, center: float) -> None:
+        super().__init__()
+        self.register_buffer(
+            "scale", torch.tensor(float(scale), dtype=torch.float32),
+        )
+        self.register_buffer(
+            "center", torch.tensor(float(center), dtype=torch.float32),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return torch.tanh(x) * self.scale + self.center
+
+    def extra_repr(self) -> str:
+        return f"scale={float(self.scale):.4g}, center={float(self.center):.4g}"
+
+
 def generate_mlp(
     num_features: int,
     num_classes: int,
@@ -62,6 +102,9 @@ def generate_mlp(
     layer_norm_kwargs: dict = None,
     batch_norm_kwargs: dict = None,
     group_norm_kwargs: dict = None,
+    output_activation: str = "linear",
+    output_activation_scale: Optional[float] = None,
+    output_activation_center: Optional[float] = None,
     verbose: int = 1,
 ):
     """Generates multilayer perceptron with specific architecture.
@@ -254,6 +297,32 @@ def generate_mlp(
         layers.append(nn.Linear(prev_layer_neurons, num_classes))
         layer_sizes.append(num_classes)
         model_type = "C"
+
+    # Bounded output head (Fix 1, 2026-05-26). Appended ONLY for regression
+    # (``num_classes == 1``) and only when caller passes a non-default
+    # ``output_activation``. ``"linear"`` is the historical no-op default.
+    # ``"tanh_train_range"`` requires ``output_activation_scale`` +
+    # ``output_activation_center`` (computed by the estimator from y_train).
+    # Caps MLP output to ``[center - scale, center + scale]`` -> kills the
+    # affine-composition extrapolation that motivated the TTR predict-clip.
+    if output_activation != "linear" and num_classes == 1:
+        if output_activation == "tanh_train_range":
+            if output_activation_scale is None or output_activation_center is None:
+                raise ValueError(
+                    "output_activation='tanh_train_range' requires both "
+                    "output_activation_scale and output_activation_center "
+                    "to be non-None floats (computed by the caller from "
+                    "y_train range + std)."
+                )
+            layers.append(_BoundedTanhOutput(
+                scale=output_activation_scale,
+                center=output_activation_center,
+            ))
+        else:
+            raise ValueError(
+                f"Unknown output_activation={output_activation!r}; expected "
+                f"one of: 'linear', 'tanh_train_range'."
+            )
 
     model = nn.Sequential(*layers)
 
