@@ -279,6 +279,30 @@ def _cuda_batched_permutation_importance(
       with non-torch preprocessing in front).
     - Loses on tiny n_features / n_repeats (warmup not amortised).
     - Returns None on any error so callers fall back to the CPU path.
+
+    bench-attempt-rejected (2026-05-26, profiling/bench_cuda_perm_-
+    variants.py on GTX 1050 Ti / 4GB): tried three optimisations on
+    top of this kernel, none reliably beat current. Speedups vs
+    current across 6 scenarios:
+      V2 (torch.randperm on device, no CPU rng + H2D for indices):
+         0.65-1.26x; lost in 4/6. Launching one randperm kernel per
+         (feature, repeat) has more overhead than the ~40 KB H2D
+         the optimisation was meant to avoid.
+      V3 (adaptive chunk_size from torch.cuda.mem_get_info):
+         0.89-1.11x; lost or tied in 5/6. On a 4 GB GPU the adaptive
+         number ends up close to 16 anyway; bigger chunks (capped 64)
+         buy almost nothing.
+      V4 (gather: stack k*n_repeats permutations as one matrix and
+         write columns via fancy indexing): 0.63-1.29x; mixed.
+         Wins biggest on the moderate-n_repeats / moderate-n_features
+         band, regresses elsewhere because the per-slot ``arange``
+         allocation overhead exceeds the gather-vs-write win at
+         high n_repeats.
+      V5 (V2 + V3 + V4 combined): also mixed -- the three
+         optimisations do not stack.
+    Conclusion: current ``chunk_size=16`` + CPU rng + per-(feature,
+    repeat) write is the best simple implementation on the bench
+    GPU. Re-bench on different hardware before re-attempting.
     """
     try:
         import torch
