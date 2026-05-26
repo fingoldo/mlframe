@@ -230,12 +230,26 @@ def _permutation_feature_importances(
             return float(accuracy_score(y_arr_local, preds_arr))
         except Exception:
             return -np.inf
+    # Threading backend (NOT loky / multiprocessing):
+    # ``profiling/bench_permutation_fi_nn.py`` (2026-05-26) measured a
+    # ~1.4x median speedup across 6 NN-FI scenarios when
+    # ``permutation_importance`` runs inside ``joblib.parallel_backend
+    # ('threading')`` vs n_jobs=1. The same sweep showed loky/process
+    # backend was 3-4x SLOWER for PyTorch estimators on Windows
+    # (worker spawn ~2s each × cpu_count + per-task model pickle
+    # dominates wall time; n_jobs=-1 with loky on a 200-feature
+    # 5k-row task: 18.2s vs 5.7s baseline). Threading wins because
+    # PyTorch matmul releases the GIL in its C++ kernels and there is
+    # no model / X pickling cost. RSS overhead measured at <50 MB on
+    # the same shape.
     try:
-        result = permutation_importance(
-            model, X_sub, y_sub,
-            scoring=_adaptive_scorer,
-            n_repeats=n_repeats, random_state=random_state, n_jobs=1,
-        )
+        import joblib
+        with joblib.parallel_backend("threading", n_jobs=-1):
+            result = permutation_importance(
+                model, X_sub, y_sub,
+                scoring=_adaptive_scorer,
+                n_repeats=n_repeats, random_state=random_state, n_jobs=-1,
+            )
     except Exception as exc:
         logger.warning("permutation_importance failed (%s); skipping FI.", exc)
         return None
