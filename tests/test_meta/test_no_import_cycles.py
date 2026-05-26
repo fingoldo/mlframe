@@ -42,7 +42,12 @@ _USER_DEFERRED_CYCLES: set[str] = {
     # (see _numerical_constants.py for the canonical pattern). Drained
     # in a follow-up.
     "mlframe.training._extractors_simple → mlframe.training.extractors",
-    "mlframe.training._reporting → mlframe.training._reporting_probabilistic",
+    # _reporting monolith split: 2-node (with _reporting_probabilistic) became
+    # a 3-node SCC after _reporting_regression was carved out in the same way
+    # (both siblings import constants from _reporting at top level; _reporting
+    # re-exports them at its bottom). Same sibling-file pattern as the other
+    # monolith splits in this whitelist.
+    "mlframe.training._reporting → mlframe.training._reporting_probabilistic → mlframe.training._reporting_regression",
     "mlframe.training._composite_target_estimator → mlframe.training.composite_estimator",
     "mlframe.training._strategies_xgboost → mlframe.training.strategies",
     "mlframe.training._target_temporal_audit_from_agg → mlframe.training._target_temporal_changepoint → mlframe.training.target_temporal_audit",
