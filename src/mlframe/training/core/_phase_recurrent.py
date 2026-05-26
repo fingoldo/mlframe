@@ -130,11 +130,30 @@ def _safe_predict_recurrent(
         else:
             preds = model.predict(features=features, sequences=sequences)
         preds = np.asarray(preds)
-        if preds.size == 0 or not np.all(np.isfinite(preds)):
+        if preds.size == 0:
+            logger.warning(
+                "Recurrent predict returned empty array for split=%s (features.shape=%s, "
+                "sequences.len=%s); member dropped for this split.",
+                split,
+                getattr(features, "shape", None) if features is not None else None,
+                len(sequences) if sequences is not None else None,
+            )
+            return None
+        if not np.all(np.isfinite(preds)):
+            _n_nan = int(np.sum(~np.isfinite(preds)))
+            logger.warning(
+                "Recurrent predict returned %d non-finite values out of %d for split=%s; "
+                "member dropped for this split. Likely causes: too-few epochs / NaN gradients / "
+                "feature_scaler column mismatch.",
+                _n_nan, preds.size, split,
+            )
             return None
         return preds
     except Exception as exc:
-        logger.warning("Recurrent predict failed (%s); recurrent member dropped for this split.", exc)
+        logger.warning(
+            "Recurrent predict raised %s on split=%s: %s; member dropped for this split.",
+            type(exc).__name__, split, exc,
+        )
         return None
 
 
