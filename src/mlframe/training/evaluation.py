@@ -256,6 +256,94 @@ def _permutation_feature_importances(
     return np.asarray(result.importances_mean, dtype=np.float64)
 
 
+def _cuda_batched_permutation_importance(
+    net,
+    X: np.ndarray | pd.DataFrame,
+    y: np.ndarray | pd.Series,
+    *,
+    n_repeats: int = _PERM_FI_N_REPEATS,
+    max_samples: int = _PERM_FI_MAX_SAMPLES,
+    chunk_size: int = 16,
+    random_state: int = _PERM_FI_RANDOM_STATE,
+) -> Optional[np.ndarray]:
+    """GPU-batched permutation importance for a torch.nn.Module.
+
+    Strategy: ship X to CUDA once, then for each (feature, repeat)
+    permute column j ON DEVICE, predict on the full chunked batch in
+    one forward pass, decode scores. Bench wins 2-4x over the
+    threading-backend permutation when n_features >= 50 and n_repeats
+    >= 2 (warmup amortisation).
+
+    Constraints / when to skip:
+    - Requires the net to accept the raw feature tensor (skips models
+      with non-torch preprocessing in front).
+    - Loses on tiny n_features / n_repeats (warmup not amortised).
+    - Returns None on any error so callers fall back to the CPU path.
+    """
+    try:
+        import torch
+    except Exception:
+        return None
+    if not torch.cuda.is_available():
+        return None
+    try:
+        X_arr = X.to_numpy() if isinstance(X, pd.DataFrame) else np.asarray(X)
+        y_arr = y.to_numpy() if isinstance(y, pd.Series) else np.asarray(y)
+    except Exception:
+        return None
+    if X_arr.ndim != 2 or X_arr.shape[0] != y_arr.shape[0]:
+        return None
+    n, n_features = X_arr.shape
+    if n > max_samples:
+        rng_sub = np.random.default_rng(random_state)
+        idx_sub = rng_sub.choice(n, size=max_samples, replace=False)
+        X_arr = X_arr[idx_sub]
+        y_arr = y_arr[idx_sub]
+        n = max_samples
+    rng = np.random.default_rng(random_state)
+    device = torch.device("cuda")
+    try:
+        net = net.to(device)
+        net.eval()
+        X_t = torch.as_tensor(np.ascontiguousarray(X_arr), dtype=torch.float32, device=device)
+        with torch.no_grad():
+            baseline_pred = net(X_t).reshape(-1).cpu().numpy().astype(np.float64)
+    except Exception as exc:
+        logger.warning("cuda-batched FI setup failed (%s); falling back.", exc)
+        return None
+    from sklearn.metrics import r2_score
+    baseline_score = float(r2_score(y_arr, baseline_pred))
+    importances = np.zeros(n_features, dtype=np.float64)
+    try:
+        with torch.no_grad():
+            for chunk_start in range(0, n_features, chunk_size):
+                chunk_end = min(chunk_start + chunk_size, n_features)
+                k = chunk_end - chunk_start
+                batched = X_t.repeat(k * n_repeats, 1)
+                for slot, j in enumerate(range(chunk_start, chunk_end)):
+                    for r in range(n_repeats):
+                        offset = (slot * n_repeats + r) * n
+                        perm = torch.as_tensor(rng.permutation(n), dtype=torch.long, device=device)
+                        batched[offset:offset + n, j] = X_t[perm, j]
+                preds = net(batched).reshape(-1).cpu().numpy().astype(np.float64)
+                for slot, j in enumerate(range(chunk_start, chunk_end)):
+                    scores = np.empty(n_repeats, dtype=np.float64)
+                    for r in range(n_repeats):
+                        offset = (slot * n_repeats + r) * n
+                        scores[r] = r2_score(y_arr, preds[offset:offset + n])
+                    importances[j] = baseline_score - scores.mean()
+    except Exception as exc:
+        logger.warning("cuda-batched FI inner loop failed (%s); falling back.", exc)
+        return None
+    finally:
+        try:
+            net.to("cpu")
+            torch.cuda.empty_cache()
+        except Exception:
+            pass
+    return importances
+
+
 # Captum IntegratedGradients sample cap. Bench (profiling/bench_mlp_fi_methods.py)
 # at n_samples=500 + n_steps=20 matched permutation recall@10=1.00 across the
 # 5k/200, 2k/500, 1k/50 scenarios with ~5x speedup on the 500-feature case
@@ -265,6 +353,19 @@ def _permutation_feature_importances(
 # averaging absolute attributions).
 _CAPTUM_IG_N_SAMPLES: int = 500
 _CAPTUM_IG_N_STEPS: int = 20
+
+# CUDA-batched permutation thresholds. Bench (profiling/bench_permutation_fi_nn.py,
+# GTX 1050 Ti, 2026-05-26):
+#   5k x 200 features, n_repeats=10: A=11.43s, D=7.81s (1.46x),
+#                                    F=2.91s (3.93x faster than A)
+#   1k x 200 features, n_repeats=10: A=3.23s,  F=1.44s (2.25x)
+#   2k x 500 features, n_repeats=5:  A=10.23s, F=7.13s (1.43x)
+# CUDA wins biggest with n_repeats >= 3 (warmup cost amortised) and
+# moderate-to-large n_features (per-call overhead matters more than
+# raw matmul). Below ``_CUDA_PERM_MIN_FEATURES`` features the warmup
+# is not amortised and threading wins.
+_CUDA_PERM_MIN_FEATURES: int = 50
+_CUDA_PERM_MIN_REPEATS: int = 2
 
 
 def _torch_module_from_model(model: Any):
@@ -435,18 +536,37 @@ def get_model_feature_importances(
     else:
         # Non-native source: try the NN-specific paths first when the
         # model is a torch Module wrapper. ``nn_fi_method``:
-        #   * "auto"        -> Captum IG if available, else permutation.
-        #   * "captum"      -> Captum IG only; None if unavailable.
-        #   * "first_layer" -> ``|W1|.sum(axis=hidden)`` proxy
-        #                     (ultra-fast but recall@10 only 40-90% on
-        #                     bench; opt-in for quick-screen mode).
-        #   * "permutation" -> Force the sklearn permutation fallback.
+        #   * "auto"            -> Captum IG if available, else permutation.
+        #                          When CUDA + torch model + n_features
+        #                          >= 50, the permutation fallback uses
+        #                          the GPU-batched kernel (~3x speedup).
+        #   * "captum"          -> Captum IG only; None if unavailable.
+        #   * "first_layer"     -> ``|W1|.sum(axis=hidden)`` proxy
+        #                          (ultra-fast but recall@10 only 40-90%
+        #                          on bench; opt-in for quick-screen).
+        #   * "permutation"     -> Force CPU sklearn permutation fallback.
+        #   * "permutation_cuda"-> Force the CUDA-batched kernel
+        #                          (skips when no CUDA / not a torch model).
         net = _torch_module_from_model(model)
         if nn_fi_method == "first_layer" and net is not None:
             feature_importances = _first_layer_weight_importance(net)
         elif nn_fi_method in ("auto", "captum") and net is not None and X is not None:
             feature_importances = _captum_integrated_gradients_importance(net, X)
             if feature_importances is None and nn_fi_method == "auto" and y is not None:
+                # Captum unavailable -> try CUDA-batched permutation when
+                # n_features justifies the warmup amortisation.
+                _n_feats = (
+                    X.shape[1] if hasattr(X, "shape") and len(X.shape) == 2 else None
+                )
+                if (net is not None and _n_feats is not None
+                        and _n_feats >= _CUDA_PERM_MIN_FEATURES):
+                    feature_importances = _cuda_batched_permutation_importance(net, X, y)
+                if feature_importances is None:
+                    feature_importances = _permutation_feature_importances(model, X, y)
+        elif nn_fi_method == "permutation_cuda" and net is not None and X is not None and y is not None:
+            feature_importances = _cuda_batched_permutation_importance(net, X, y)
+            if feature_importances is None:
+                logger.info("CUDA-batched FI unavailable; falling back to threading permutation.")
                 feature_importances = _permutation_feature_importances(model, X, y)
         elif X is not None and y is not None:
             feature_importances = _permutation_feature_importances(model, X, y)

@@ -188,6 +188,56 @@ def _agreement(a: np.ndarray, b: np.ndarray) -> float:
     return float(r)
 
 
+def variant_multi_feature_batched(model, X, y, *, n_repeats: int, chunk_size: int = 16, seed: int = 0):
+    """Multi-feature batched: K features in one predict call.
+
+    Builds a giant (K * n_repeats * n_rows, n_features) batch where
+    for each (feature j in the chunk, repeat r) slot, only column j
+    is permuted (others left intact). One predict call yields scores
+    for K features × n_repeats permutations at once.
+
+    Memory per call: K * n_repeats * n_rows * n_features * dtype.
+    K=16, n_repeats=5, n_rows=5000, n_features=200, float32:
+      16 * 5 * 5000 * 200 * 4 = 320 MB -- bounded by chunk_size.
+
+    Wins over single-feature batched: 1/K fewer predict invocations
+    -> further amortises per-call overhead. Wins biggest when
+    per-call overhead is large relative to per-row matmul cost
+    (small models, GPU launch overhead, distributed batches).
+    """
+    from sklearn.metrics import r2_score
+    rng = np.random.default_rng(seed)
+    n_rows, n_features = X.shape
+    t0 = time.perf_counter()
+    rss0 = _rss_mb()
+
+    baseline_pred = model.predict(X)
+    baseline_score = r2_score(y, baseline_pred)
+    importances = np.zeros(n_features, dtype=np.float64)
+
+    for chunk_start in range(0, n_features, chunk_size):
+        chunk_end = min(chunk_start + chunk_size, n_features)
+        k = chunk_end - chunk_start
+        # Build (k * n_repeats, n_rows, n_features). Each (j, r) slot
+        # has column (chunk_start + j) permuted with a fresh permutation.
+        batched_X = np.tile(X, (k * n_repeats, 1))
+        for slot, j in enumerate(range(chunk_start, chunk_end)):
+            for r in range(n_repeats):
+                offset = (slot * n_repeats + r) * n_rows
+                idx = rng.permutation(n_rows)
+                batched_X[offset:offset + n_rows, j] = X[idx, j]
+        preds = model.predict(batched_X)
+        for slot, j in enumerate(range(chunk_start, chunk_end)):
+            scores = np.empty(n_repeats, dtype=np.float64)
+            for r in range(n_repeats):
+                offset = (slot * n_repeats + r) * n_rows
+                scores[r] = r2_score(y, preds[offset:offset + n_rows])
+            importances[j] = baseline_score - scores.mean()
+
+    rss1 = _rss_mb()
+    return importances, time.perf_counter() - t0, max(rss1 - rss0, 0.0)
+
+
 def variant_thread_pool(model, X, y, *, n_repeats: int, seed: int = 0):
     """Custom permutation loop with joblib threading backend.
 
@@ -229,6 +279,63 @@ def variant_thread_pool(model, X, y, *, n_repeats: int, seed: int = 0):
     return importances, time.perf_counter() - t0, max(rss1 - rss0, 0.0)
 
 
+def variant_cuda_batched(model, X, y, *, n_repeats: int, chunk_size: int = 16, seed: int = 0):
+    """GPU torch variant: model.net on CUDA, batched permutation
+    indices on GPU, single H2D for X, all forward passes on device.
+
+    Requires the model to expose ``.net`` (the torch.nn.Module) and
+    for cuda to be available. Skipped otherwise.
+    """
+    import torch
+    if not torch.cuda.is_available():
+        return None, float("inf"), 0.0
+    net = getattr(model, "net", None)
+    if net is None:
+        return None, float("inf"), 0.0
+    from sklearn.metrics import r2_score
+
+    n_rows, n_features = X.shape
+    device = torch.device("cuda")
+    net = net.to(device)
+    net.eval()
+
+    t0 = time.perf_counter()
+    rss0 = _rss_mb()
+
+    rng = np.random.default_rng(seed)
+    X_t = torch.as_tensor(X, dtype=torch.float32, device=device)
+    y_np = np.asarray(y, dtype=np.float64)
+
+    with torch.no_grad():
+        baseline_pred = net(X_t).reshape(-1).cpu().numpy().astype(np.float64)
+    baseline_score = r2_score(y_np, baseline_pred)
+    importances = np.zeros(n_features, dtype=np.float64)
+
+    with torch.no_grad():
+        for chunk_start in range(0, n_features, chunk_size):
+            chunk_end = min(chunk_start + chunk_size, n_features)
+            k = chunk_end - chunk_start
+            batched = X_t.repeat(k * n_repeats, 1)
+            for slot, j in enumerate(range(chunk_start, chunk_end)):
+                for r in range(n_repeats):
+                    offset = (slot * n_repeats + r) * n_rows
+                    idx = torch.as_tensor(rng.permutation(n_rows), dtype=torch.long, device=device)
+                    batched[offset:offset + n_rows, j] = X_t[idx, j]
+            preds = net(batched).reshape(-1).cpu().numpy().astype(np.float64)
+            for slot, j in enumerate(range(chunk_start, chunk_end)):
+                scores = np.empty(n_repeats, dtype=np.float64)
+                for r in range(n_repeats):
+                    offset = (slot * n_repeats + r) * n_rows
+                    scores[r] = r2_score(y_np, preds[offset:offset + n_rows])
+                importances[j] = baseline_score - scores.mean()
+
+    # Return model to CPU so subsequent variants get a fair baseline.
+    net.to("cpu")
+    torch.cuda.empty_cache()
+    rss1 = _rss_mb()
+    return importances, time.perf_counter() - t0, max(rss1 - rss0, 0.0)
+
+
 def _run_scenario(n_rows: int, n_features: int, n_repeats: int, *, do_njobs: bool = False):
     print(f"\nTask: n_rows={n_rows}, n_features={n_features}, n_repeats={n_repeats}")
     X, y = _make_task(n_rows, n_features)
@@ -254,14 +361,33 @@ def _run_scenario(n_rows: int, n_features: int, n_repeats: int, *, do_njobs: boo
     imp_d, t_d, rss_d = variant_thread_pool(model, X, y, n_repeats=n_repeats)
     print(f"  D) thread-pool n_jobs=-1  : {t_d:7.2f}s  RSS+{rss_d:6.1f}MB   "
           f"speed={t_a/t_d:.2f}x   agree(A)={_agreement(imp_a, imp_d):.4f}")
+
+    gc.collect()
+    imp_e, t_e, rss_e = variant_multi_feature_batched(model, X, y, n_repeats=n_repeats)
+    print(f"  E) multi-feature batched  : {t_e:7.2f}s  RSS+{rss_e:6.1f}MB   "
+          f"speed={t_a/t_e:.2f}x   agree(A)={_agreement(imp_a, imp_e):.4f}")
+
+    gc.collect()
+    imp_f, t_f, rss_f = variant_cuda_batched(model, X, y, n_repeats=n_repeats)
+    if imp_f is not None:
+        print(f"  F) CUDA batched           : {t_f:7.2f}s  RSS+{rss_f:6.1f}MB   "
+              f"speed={t_a/t_f:.2f}x   agree(A)={_agreement(imp_a, imp_f):.4f}")
+    else:
+        print("  F) CUDA batched           : unavailable (no CUDA)")
+
     print(f"  top: A={sorted(np.argsort(imp_a)[-10:].tolist())} "
           f"C={sorted(np.argsort(imp_c)[-10:].tolist())} "
-          f"D={sorted(np.argsort(imp_d)[-10:].tolist())}")
+          f"D={sorted(np.argsort(imp_d)[-10:].tolist())} "
+          f"E={sorted(np.argsort(imp_e)[-10:].tolist())}")
 
 
 def main():
     # Production-shape scenario: TVT-like 206 features, 5k test rows.
-    _run_scenario(n_rows=5000, n_features=200, n_repeats=5, do_njobs=True)
+    # ``do_njobs=False``: variant B (sklearn n_jobs=-1) was already
+    # benched + rejected (3-4x slower on Windows due to torch DLL
+    # pickling per worker + paging-file overflow under concurrent
+    # joblib load). Skipping here so the new C/D/E/F comparison runs.
+    _run_scenario(n_rows=5000, n_features=200, n_repeats=5, do_njobs=False)
 
     # n_repeats sweep -- the larger n_repeats, the more per-call
     # overhead the batched variant amortises.

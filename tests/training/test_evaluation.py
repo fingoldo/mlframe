@@ -383,6 +383,41 @@ class TestNativeNNFeatureImportance:
         assert imp is not None
         assert imp.shape == (20,)
 
+    def test_permutation_cuda_method_skips_gracefully_on_cpu(self):
+        """When CUDA is unavailable, ``nn_fi_method='permutation_cuda'``
+        must NOT crash -- it falls back to threading permutation so
+        the chart still renders."""
+        import torch
+        if torch.cuda.is_available():
+            pytest.skip("CUDA available -- this test exercises the no-CUDA path")
+        model, X, y, columns = self._build_torch_mlp(n_features=20)
+        imp = get_model_feature_importances(
+            model, columns, X=X, y=y, nn_fi_method="permutation_cuda",
+        )
+        # Either CUDA was available + ran, or it fell back -- either
+        # way, an array of the right shape must come back (NOT None).
+        assert imp is not None
+        assert imp.shape == (20,)
+
+    def test_permutation_cuda_method_runs_on_cuda(self):
+        """When CUDA + torch model present, the CUDA path produces a
+        valid per-feature importance vector (bench shows 2-4x speedup
+        but here we only assert correctness)."""
+        import torch
+        if not torch.cuda.is_available():
+            pytest.skip("no CUDA")
+        model, X, y, columns = self._build_torch_mlp(n_features=30)
+        imp = get_model_feature_importances(
+            model, columns, X=X, y=y, nn_fi_method="permutation_cuda",
+        )
+        assert imp is not None
+        assert imp.shape == (30,)
+        # Top-5 by CUDA-batched should still recover most of the
+        # true informative features.
+        top5 = set(np.argsort(imp)[-5:].tolist())
+        true_informative = set(range(5))
+        assert len(top5 & true_informative) >= 3
+
 
 # =============================================================================
 # Tests for report_regression_model_perf
