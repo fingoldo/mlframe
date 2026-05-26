@@ -56,3 +56,31 @@ def test_register_without_name_raises():
     spec = _SimpleSpec(name="", instantiate=lambda: None)
     with pytest.raises(ValueError):
         fs_registry.register(spec)
+
+
+def test_every_builtin_spec_satisfies_protocol():
+    """Each registered spec MUST be a runtime instance of FeatureSelectorSpec. Catches a future drift where a class is
+    registered with a non-matching attribute shape (e.g. missing instantiate, or instantiate is a non-callable)."""
+    from mlframe.feature_selection.registry import FeatureSelectorSpec
+
+    for name in fs_registry.available():
+        spec = fs_registry.get(name)
+        assert isinstance(spec, FeatureSelectorSpec), f"registered spec {name!r} fails FeatureSelectorSpec protocol"
+        assert callable(spec.instantiate), f"{name!r}.instantiate is not callable"
+        assert isinstance(spec.name, str) and spec.name, f"{name!r} has empty or non-str name"
+        # report_extract is optional, but if present MUST be callable
+        if spec.report_extract is not None:
+            assert callable(spec.report_extract), f"{name!r}.report_extract present but not callable"
+
+
+def test_register_rejects_non_protocol_object():
+    """A bare object missing the required attribute set must not slip through ``register``. ``register`` already
+    validates name; this pins that ``getattr`` access on a non-conforming type fails the contract rather than silently
+    storing a broken spec."""
+    class _NoInstantiate:
+        name = "broken_spec"
+
+    with pytest.raises(AttributeError):
+        # Accessing .instantiate must blow up; if a future register() refactor uses getattr with a default and
+        # silently stores None, this test surfaces it.
+        fs_registry.register(_NoInstantiate())  # type: ignore[arg-type]

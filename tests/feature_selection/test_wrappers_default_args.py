@@ -134,8 +134,10 @@ def test_no_per_estimator_importance_getter_workaround_in_main_tests():
     different code path that the auto dispatch correctly does not touch.
     """
     test_path = Path(__file__).parent / "test_wrappers.py"
-    if not test_path.exists():
-        pytest.skip("test_wrappers.py not present in this layout")
+    assert test_path.exists(), (
+        f"test_wrappers.py expected as sibling at {test_path}. Layout-conditional pytest.skip silently rotted "
+        "this scan; assert hard so a rename or move surfaces immediately rather than masking the source file."
+    )
     text = test_path.read_text(encoding="utf-8", errors="replace")
 
     # Pattern 1: ternary that picks importance_getter based on estimator name string
