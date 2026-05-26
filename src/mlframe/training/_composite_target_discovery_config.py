@@ -318,7 +318,7 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     tiny_model_learning_rate: float = 0.1
     tiny_model_cv_folds: int = 3
     tiny_model_sample_n: int = 20_000  # rows used per tiny-model fit
-    top_m_after_tiny: int = 3  # final top-M after Phase B re-rank
+    top_m_after_tiny: int = 10  # final top-M after Phase B re-rank
     tiny_model_n_jobs: int = 1  # >1 = parallelise CV folds via joblib
 
     # 2026-05-20 #10: parallelise the per-spec rerank loop in
