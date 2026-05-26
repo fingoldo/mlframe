@@ -383,6 +383,17 @@ def _build_configs_from_params(
     val_probs=None,
     test_preds=None,
     test_probs=None,
+    # Catch-all for new ReportingConfig fields that flow through
+    # train_eval.py:300 via ``**all_params`` (which expands the
+    # caller's reporting_config). Each new ReportingConfig field
+    # otherwise breaks the splat with TypeError. Recognised fields
+    # below are routed into the config objects; everything else
+    # is silently dropped so the splat survives future additions.
+    # 2026-05-25 prod TVT: ``honest_estimator_diagnostics`` (added
+    # to ReportingConfig but never plumbed here) raised TypeError
+    # at process_model.
+    honest_estimator_diagnostics=None,
+    **_unused_reporting_kwargs,
 ):
     """Build config objects from old-style parameters."""
     merged_drop_columns = list(drop_columns or []) + list(default_drop_columns or [])
@@ -440,7 +451,7 @@ def _build_configs_from_params(
     else:
         fi_cfg = feature_importance_config
 
-    reporting_config = ReportingConfig(
+    _rep_kwargs = dict(
         figsize=figsize,
         print_report=print_report,
         show_perf_chart=show_perf_chart,
@@ -459,6 +470,9 @@ def _build_configs_from_params(
         ltr_panels=ltr_panels,
         quantile_panels=quantile_panels,
     )
+    if honest_estimator_diagnostics is not None:
+        _rep_kwargs["honest_estimator_diagnostics"] = honest_estimator_diagnostics
+    reporting_config = ReportingConfig(**_rep_kwargs)
 
     output_config = OutputConfig(
         plot_file=plot_file or "",
