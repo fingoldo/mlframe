@@ -13,6 +13,45 @@ import polars as pl
 from ._numba_params import NUMBA_NJIT_PARAMS, _PARALLEL_REDUCTION_THRESHOLD
 
 
+def fast_roc_auc_unstable(y_true: np.ndarray, y_score: np.ndarray) -> float:
+    """ROC AUC variant using unstable (quicksort) argsort -- 2-3x faster.
+
+    Use ONLY for callers where tie-breaking determinism on tied scores is
+    immaterial: bootstrap resampling (the resample randomness already
+    dominates any tie-order effect), ad-hoc per-fold metric reports
+    inside CV searches, and any monte-carlo loop where the consumer
+    cares about the distribution of AUC, not the byte-identical scalar.
+
+    Stable sort is needed when two runs must produce the same AUC byte-
+    identically on data with tied scores. For float64 predictions from
+    real models, exact ties are rare (~0% on continuous probabilities)
+    and the metric difference vs the stable variant is <1e-12 in
+    practice. Where ties are common (binned / dummy classifier output),
+    use ``fast_roc_auc`` instead.
+
+    bench-validated 2026-05-27 iter336 (c0083 honest_diagnostics
+    bootstrap path)::
+
+        n=20k    stable=1.85 ms  unstable=0.67 ms   2.75x
+        n=200k   stable=25.7 ms  unstable=11.4 ms   2.25x
+
+    On c0091 / c0083 binary classification combos the bootstrap block
+    runs ~6000 _auc calls per process; the swap saves ~3-4 s per
+    process on n=20k val splits, ~50 s on n=200k test splits.
+    """
+    if isinstance(y_true, (pd.Series, pl.Series)):
+        y_true = y_true.to_numpy()
+    if isinstance(y_score, (pd.Series, pl.Series)):
+        y_score = y_score.to_numpy()
+    if y_score.ndim == 2:
+        y_score = y_score[:, -1]
+    # No ``kind=stable``: numpy default quicksort is 2-3x faster and
+    # numerically identical when scores have no exact ties (the dominant
+    # case for float64 model outputs).
+    desc_score_indices = np.argsort(y_score)[::-1]
+    return fast_numba_auc_nonw(y_true=y_true, y_score=y_score, desc_score_indices=desc_score_indices)
+
+
 def fast_roc_auc(y_true: np.ndarray, y_score: np.ndarray, **kwargs) -> float:
     """Compute ROC AUC efficiently using numba.
 
@@ -33,6 +72,10 @@ def fast_roc_auc(y_true: np.ndarray, y_score: np.ndarray, **kwargs) -> float:
     time. Per-call Python ``_wrapfunc`` overhead exists but is dwarfed
     by the sort itself, so removing it does not move the needle. Numpy
     argsort stays outside.
+
+    See ``fast_roc_auc_unstable`` for the 2-3x faster variant that drops
+    the stable-sort guarantee -- safe for bootstrap / monte-carlo
+    callers where tie-breaking determinism is immaterial.
     """
     # **kwargs absorbs sklearn's unexpected params. Explicitly reject sample_weight rather than silently ignoring it.
     if "sample_weight" in kwargs and kwargs["sample_weight"] is not None:

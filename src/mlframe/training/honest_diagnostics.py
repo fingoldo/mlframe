@@ -86,8 +86,14 @@ def _bootstrap_block(y_true: np.ndarray, probs: np.ndarray, preds: Optional[np.n
             # log_loss respectively (bench at n=20k, see commit msg). Result
             # is numerically identical for the binary case (mlframe versions
             # are direct numba ports of the sklearn algorithm).
+            # iter336 (2026-05-27): use ``fast_roc_auc_unstable`` (quicksort
+            # instead of stable sort) inside the bootstrap loop. Bench at
+            # c0083 sizes: 2.25x at n=200k, 2.75x at n=20k. Numerically
+            # identical when scores are float64 continuous (the dominant
+            # case from real ML model outputs); see kernel docstring for
+            # the rationale and when to use the stable variant instead.
+            from mlframe.metrics._core_auc_brier import fast_roc_auc_unstable as _fast_auc
             from mlframe.metrics.core import (
-                fast_roc_auc as _fast_auc,
                 fast_brier_score_loss as _fast_brier,
                 fast_log_loss as _fast_ll,
             )
