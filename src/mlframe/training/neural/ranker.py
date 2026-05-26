@@ -420,6 +420,27 @@ class _RankerDataset(Dataset):
         self._pair_idx_by_query = cache
         self._batch_by_query = batch_cache
 
+    def install_batch_cache_no_pairs(self, query_slices: list[np.ndarray]) -> None:
+        """iter364: listnet-side counterpart to install_pair_index_cache. The
+        listnet loss doesn't need (i_idx, j_idx) pair tensors -- it only reads
+        batch[1] (relevance) -- so we cache the (X_slice, y_slice) 2-tuple
+        without paying the torch.where(rel_i > rel_j) cost. Cache shape
+        matches the no-pair sentinel branch in install_pair_index_cache so
+        __getitems__ can hit the same fast path. On c0059 1M-row LTR listnet
+        the legacy __getitems__ ran 20.07s tottime / 28140 batches (711us per
+        call doing torch.as_tensor + X[idx] + y[idx]); the cache collapses
+        each batch to a single dict.get + return."""
+        batch_cache: dict[tuple, tuple] = {}
+        for indices in query_slices:
+            idx_tensor = torch.as_tensor(indices, dtype=torch.long)
+            rel = self.y[idx_tensor]
+            if rel.dim() > 1:
+                continue
+            key = tuple(indices.tolist())
+            x_slice = self.X[idx_tensor]
+            batch_cache[key] = (x_slice, rel)
+        self._batch_by_query = batch_cache
+
     def __len__(self) -> int:
         return self.X.shape[0]
 
@@ -877,6 +898,11 @@ class MLPRanker(BaseEstimator, RegressorMixin):
             train_ds.install_pair_index_cache(train_sampler._query_slices)
             if _train_qpb > 1:
                 train_ds.attach_sampler(train_sampler)
+        elif self.loss_fn == "listnet" and y_arr.ndim == 1:
+            # iter364: listnet doesn't need pair indices but still benefits
+            # from the (X_slice, y_slice) batch cache that collapses
+            # __getitems__ to one dict.get per epoch.
+            train_ds.install_batch_cache_no_pairs(train_sampler._query_slices)
         train_loader = DataLoader(
             train_ds,
             batch_sampler=train_sampler,
@@ -899,6 +925,8 @@ class MLPRanker(BaseEstimator, RegressorMixin):
                 val_ds.install_pair_index_cache(val_sampler._query_slices)
                 if _val_qpb > 1:
                     val_ds.attach_sampler(val_sampler)
+            elif self.loss_fn == "listnet" and y_val_arr.ndim == 1:
+                val_ds.install_batch_cache_no_pairs(val_sampler._query_slices)
             if len(val_sampler) > 0:
                 val_loader = DataLoader(
                     val_ds, batch_sampler=val_sampler, num_workers=0,

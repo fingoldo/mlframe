@@ -161,6 +161,38 @@ def test_batch_cache_returns_identical_tuple_across_calls():
     assert torch.equal(batch_1[0][1], ds.y[idx_tensor])
 
 
+def test_listnet_path_caches_batch_without_pair_indices():
+    """iter364 regression: listnet ranker loss doesn't need (i_idx, j_idx)
+    pair tensors, so its installer skips torch.where but still pre-caches
+    the (X_slice, y_slice) 2-tuple keyed by indices. Without this, c0059
+    1M-row listnet LTR ran 20.07s tottime / 28140 batches in __getitems__
+    redoing torch.as_tensor + X[idx] + y[idx] every batch."""
+    from mlframe.training.neural.ranker import _RankerDataset, GroupBatchSampler
+
+    rng = np.random.default_rng(20260527)
+    X = rng.standard_normal((30, 4)).astype(np.float32)
+    y = np.array([0, 1, 2, 0, 1, 2, 0, 1, 2, 0] * 3, dtype=np.float32)
+    group_ids = np.repeat(np.arange(3), 10)
+    sampler = GroupBatchSampler(group_ids=group_ids, relevance=y, shuffle=False)
+    ds = _RankerDataset(X, y)
+    ds.install_batch_cache_no_pairs(sampler._query_slices)
+    assert ds._batch_by_query is not None
+    assert len(ds._batch_by_query) == len(sampler._query_slices)
+    # listnet path does NOT need _pair_idx_by_query; verify it stays None
+    # so __getitems__ doesn't accidentally route through the 4-tuple branch.
+    assert ds._pair_idx_by_query is None
+
+    indices = list(sampler._query_slices[0])
+    batch_1 = ds.__getitems__(indices)
+    batch_2 = ds.__getitems__(indices)
+    # Identity check: cached 2-tuple reused across calls.
+    assert batch_1[0] is batch_2[0]
+    assert len(batch_1[0]) == 2
+    X_b, y_b = batch_1[0]
+    assert X_b.shape == (10, 4)
+    assert y_b.shape == (10,)
+
+
 def test_multilabel_y_skips_cache_installation():
     from mlframe.training.neural.ranker import _RankerDataset
 
