@@ -397,13 +397,17 @@ def create_aggregated_features(
             if subset_var in checked_subsets or subset_var not in window_df:
                 continue
 
+            # Pull the subset column into a numpy view ONCE per ``subset_var``; each value comparison then operates on that view rather than re-aligning a pandas boolean Series. ``to_numpy()`` is a view for numeric dtypes and a one-column decode for Categorical -- either is O(N) once, not O(N*|values|).
+            _subset_vals = window_df[subset_var].to_numpy()
             for subset_var_value in subset_var_values:
-                idx_mask = window_df[subset_var] == subset_var_value
-                subset_df = window_df[idx_mask]
+                # Compute the boolean mask ONCE on the numpy view (was: two pandas-aligned mask evaluations on the direct + complement path). ``np.flatnonzero`` materialises a positional-index array used to drive the single ``.iloc`` slice below, avoiding the pre-fix "copy on the direct path, then maybe copy AGAIN on the complement when ``len(subset_df)<=1``" pattern -- now we know which set to keep BEFORE the BlockManager copy fires.
+                _bm = (_subset_vals == subset_var_value)
+                _pos_idx = np.flatnonzero(_bm)
                 subset_direct = True
-                if len(subset_df) <= 1:
-                    subset_df = window_df[~idx_mask]
+                if len(_pos_idx) <= 1:
+                    _pos_idx = np.flatnonzero(~_bm)
                     subset_direct = False
+                subset_df = window_df.iloc[_pos_idx]
 
                 row_features.append(subset_direct)
                 if dataset_name is None:
