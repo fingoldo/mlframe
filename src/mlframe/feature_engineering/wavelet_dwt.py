@@ -125,7 +125,7 @@ if _HAS_NUMBA:
     # NOTE: the legacy ``_wavedec_numba`` returned a
     # ``numba.typed.List`` of detail arrays. Building/consuming a
     # typed list at the Python/JIT boundary cost ~5-15 ms per call
-    # (wellbore prod profile 2026-05-24 showed mean wavedec wrapper
+    # (observed in production profiles: mean wavedec wrapper
     # latency ~300 ms when called on fresh-signature signals, vs
     # ~1 ms after warmup). The new wavedec() Python loop calls
     # ``_dwt_single_level_numba`` per level directly so no typed
@@ -326,9 +326,9 @@ def wavedec(
     Implementation: Python loop over ``_dwt_single_level_numba`` (one
     JIT call per level). Avoids ``numba.typed.List`` at the boundary
     -- typed-list construction at the Python/JIT seam paid
-    ~5-15 ms per call on cold signatures (wellbore prod 2026-05-24:
-    50 distinct GR signals -> 50 typed-list constructions -> wavelet
-    wrapper mean 300 ms vs 1 ms after warmup). The per-level loop
+    ~5-15 ms per call on cold signatures (observed in production:
+    50 distinct cold-signature signals -> 50 typed-list constructions
+    -> wavelet wrapper mean 300 ms vs 1 ms after warmup). The per-level loop
     pays only the cached @njit dispatch overhead (~30 us each).
     """
     if not _HAS_NUMBA:
