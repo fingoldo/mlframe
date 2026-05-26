@@ -730,6 +730,68 @@ AXES: dict[str, tuple[Any, ...]] = {
     # regression-only). When clip is False, the suite is allowed to emit
     # extreme out-of-envelope predictions; tests must still pass.
     "enable_prediction_envelope_clip_cfg": (True, False),
+    # =====================================================================
+    # 2026-05-27 iter332 -- audit-driven new-functionality coverage. The
+    # explore-agent audit identified ~30 high-value config fields with new
+    # code paths but no fuzz exposure. Top-15 most impactful axes below;
+    # remaining 15 (and ~35 medium-value) defer until budget permits.
+    # =====================================================================
+    # EnsemblingConfig (entire class previously unfuzzed -- no
+    # ``ensembling_config`` kwarg on suite, knobs were env-var-only).
+    # force_legacy toggles the pre-streaming materialised-aggregation path
+    # (allocates (M, N, K) tensors); streaming Welford is the new default.
+    # Canon to False when use_ensembles is off (no ensemble path runs).
+    "ensembling_force_legacy_cfg": (False, True),
+    # quantile_budget_bytes: skip quantile-bucket aggregation when
+    # M*N*K*8 > budget. 500 MB default; tight budget (10 MB) forces the
+    # fallback-with-warn branch. Canon to default when ensembling is off.
+    "ensembling_quantile_budget_bytes_cfg": (500 * 1024 * 1024, 10 * 1024 * 1024),
+    # flag_degenerate_conf_subset: prepend [DEGENERATE] marker when
+    # confidence-filtered subset's class balance collapses; binary-only.
+    "ensembling_flag_degenerate_conf_subset_cfg": (True, False),
+    # MLP extreme-AR + group-aware protection cluster (2026-05-26 fix wave).
+    # ``mlp_extreme_ar_group_aware_skip``: skip MLP entirely when
+    # extreme-AR target detected on group-aware split. False forces MLP
+    # to fit through; True is the new default safety gate.
+    # Canon to default when "mlp" not in models.
+    "mlp_extreme_ar_group_aware_skip_cfg": (False, True),
+    # ``mlp_extreme_ar_threshold``: AR autocorrelation threshold above which
+    # the skip+weight_decay-bump phases fire. (0.99, 0.50) widens the bite.
+    "mlp_extreme_ar_threshold_cfg": (0.99, 0.50),
+    # ``mlp_drop_per_group_constants``: drop per-group aggregate features
+    # before MLP fit. Brand new branch; True exercises the drop sweep.
+    "mlp_drop_per_group_constants_cfg": (False, True),
+    # CompositeTargetDiscoveryConfig new flags (2026-05-25/26).
+    # always_build_ct_ensemble_for_raw: True default ensures CT_ENSEMBLE
+    # gate runs even on raw-only targets; False = legacy regression path.
+    "composite_always_build_ct_ensemble_for_raw_cfg": (True, False),
+    # ct_ensemble_dummy_floor_enabled: drop ensemble components below
+    # strongest-dummy RMSE. False = legacy unfiltered pool.
+    "composite_ct_ensemble_dummy_floor_enabled_cfg": (True, False),
+    # extreme_ar_group_aware_skip on composite discovery side: short-circuit
+    # when AR+group-aware combo would be unstable.
+    "composite_extreme_ar_group_aware_skip_cfg": (True, False),
+    # oof_holdout_source: how the OOF holdout is carved. ``train_tail`` is
+    # the pre-2026-05-25 default; ``external_val`` is the new default that
+    # closes a stacking-leak path.
+    "composite_oof_holdout_source_cfg": ("external_val", "train_tail"),
+    # stacking_aware_gate_enabled: NEW measure-first NNLS gate that
+    # validates the ensemble plan before committing CV resources.
+    "composite_stacking_aware_gate_enabled_cfg": (False, True),
+    # use_baseline_diagnostics_hint: NEW hint-injection path that reuses
+    # BD's quick-model verdicts to seed composite scoring.
+    "composite_use_baseline_diagnostics_hint_cfg": (True, False),
+    # FeatureSelectionConfig pre-screen hardening flags.
+    # pre_screen_unsupervised: gates the unsupervised variance / null-fraction
+    # column-drop sweep that runs before the main FS estimator.
+    "fs_pre_screen_unsupervised_cfg": (True, False),
+    # pre_screen_variance_threshold: drop columns with variance below this.
+    # 0.0 = no drop; 0.01 exercises the drop branch on near-constant cols.
+    "fs_pre_screen_variance_threshold_cfg": (0.0, 0.01),
+    # BaselineDiagnosticsConfig.init_score_top_k: how many top BD models
+    # contribute init scores for downstream boosters. K=1 is the
+    # one-winner branch; K>=2 exercises the OLS-combined branch.
+    "baseline_init_score_top_k_cfg": (1, 2),
 }
 
 
@@ -1039,6 +1101,22 @@ class FuzzCombo:
     add_extended_date_features_cfg: bool = False
     use_nnls_weights_in_blends_cfg: bool = True
     enable_prediction_envelope_clip_cfg: bool = True
+    # 2026-05-27 iter332 audit-driven new-functionality axes.
+    ensembling_force_legacy_cfg: bool = False
+    ensembling_quantile_budget_bytes_cfg: int = 500 * 1024 * 1024
+    ensembling_flag_degenerate_conf_subset_cfg: bool = True
+    mlp_extreme_ar_group_aware_skip_cfg: bool = False
+    mlp_extreme_ar_threshold_cfg: float = 0.99
+    mlp_drop_per_group_constants_cfg: bool = False
+    composite_always_build_ct_ensemble_for_raw_cfg: bool = True
+    composite_ct_ensemble_dummy_floor_enabled_cfg: bool = True
+    composite_extreme_ar_group_aware_skip_cfg: bool = True
+    composite_oof_holdout_source_cfg: str = "external_val"
+    composite_stacking_aware_gate_enabled_cfg: bool = False
+    composite_use_baseline_diagnostics_hint_cfg: bool = True
+    fs_pre_screen_unsupervised_cfg: bool = True
+    fs_pre_screen_variance_threshold_cfg: float = 0.0
+    baseline_init_score_top_k_cfg: int = 1
 
     def canonical_key(self) -> tuple:
         """Hashable tuple used for dedup. Canonicalizes semantically
@@ -1600,6 +1678,69 @@ class FuzzCombo:
             # (the post-fix default) for non-regression primaries so the
             # False variant doesn't waste pairwise budget on no-op gates.
             (self.enable_prediction_envelope_clip_cfg if self.target_type == "regression" else True),
+            # 2026-05-27 iter332 audit-driven canons.
+            # Ensembling knobs only meaningful when use_ensembles is True.
+            (self.ensembling_force_legacy_cfg if self.use_ensembles else False),
+            (self.ensembling_quantile_budget_bytes_cfg if self.use_ensembles else 500 * 1024 * 1024),
+            # flag_degenerate_conf_subset is binary-classification-only;
+            # collapse to default for other target types.
+            (
+                self.ensembling_flag_degenerate_conf_subset_cfg
+                if (self.use_ensembles and self.target_type == "binary_classification")
+                else True
+            ),
+            # MLP knobs only meaningful when MLP is in scope.
+            (self.mlp_extreme_ar_group_aware_skip_cfg if "mlp" in self.models else False),
+            (self.mlp_extreme_ar_threshold_cfg if "mlp" in self.models else 0.99),
+            (self.mlp_drop_per_group_constants_cfg if "mlp" in self.models else False),
+            # Composite-target knobs only meaningful when composite discovery
+            # is enabled AND target is regression (composite is regression-only).
+            (
+                self.composite_always_build_ct_ensemble_for_raw_cfg
+                if (self.composite_discovery_enabled_cfg and self.target_type == "regression")
+                else True
+            ),
+            (
+                self.composite_ct_ensemble_dummy_floor_enabled_cfg
+                if (self.composite_discovery_enabled_cfg and self.target_type == "regression")
+                else True
+            ),
+            (
+                self.composite_extreme_ar_group_aware_skip_cfg
+                if (self.composite_discovery_enabled_cfg and self.target_type == "regression")
+                else True
+            ),
+            (
+                self.composite_oof_holdout_source_cfg
+                if (self.composite_discovery_enabled_cfg and self.target_type == "regression")
+                else "external_val"
+            ),
+            (
+                self.composite_stacking_aware_gate_enabled_cfg
+                if (self.composite_discovery_enabled_cfg and self.target_type == "regression")
+                else False
+            ),
+            (
+                self.composite_use_baseline_diagnostics_hint_cfg
+                if (self.composite_discovery_enabled_cfg and self.target_type == "regression")
+                else True
+            ),
+            # FS pre-screen only meaningful when MRMR / RFECV / Boruta active.
+            (
+                self.fs_pre_screen_unsupervised_cfg
+                if (self.use_mrmr_fs or self.rfecv_estimator_cfg is not None
+                    or self.use_boruta_shap_cfg)
+                else True
+            ),
+            (
+                self.fs_pre_screen_variance_threshold_cfg
+                if (self.use_mrmr_fs or self.rfecv_estimator_cfg is not None
+                    or self.use_boruta_shap_cfg)
+                else 0.0
+            ),
+            # BaselineDiagnostics init_score top_k only meaningful when
+            # baseline_diagnostics is enabled.
+            (self.baseline_init_score_top_k_cfg if self.baseline_diagnostics_enabled_cfg else 1),
         )
 
     def _canonical_recurrent_model(self) -> "str | None":
