@@ -21,6 +21,7 @@ from sklearn.metrics import roc_auc_score  # noqa: F401
 from sklearn.model_selection import TimeSeriesSplit
 
 from ._gpu_probe import CUDA_IS_AVAILABLE, LGB_GPU_AVAILABLE, XGB_GPU_AVAILABLE
+from ._classif_helpers import _classif_objective_kwargs
 from mlframe.metrics.core import (
     ICE,
     compute_probabilistic_multiclass_error,

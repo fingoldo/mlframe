@@ -43,3 +43,25 @@ def test_smoke_parse_catboost_devices_explicit():
     fake_gpus = [{"index": 0, "name": "g0"}, {"index": 1, "name": "g1"}, {"index": 2, "name": "g2"}]
     out = parse_catboost_devices("0:2", all_gpus=fake_gpus)
     assert [g["index"] for g in out] == [0, 2]
+
+
+def test_get_training_configs_runs_for_multiclass(parent_module):
+    """iter361 regression: the carve into _helpers_training_configs.py
+    dropped the ``from ._classif_helpers import _classif_objective_kwargs``
+    import. Binary / regression / LTR combos sidestepped the bug because the
+    ``if _resolved_tt.is_classification and not _resolved_tt.is_binary:``
+    block is skipped; any multiclass / multilabel combo crashed at fit time
+    with ``NameError: name '_classif_objective_kwargs' is not defined``.
+    Reproduced on fuzz combo c0023 (multiclass cb+linear+xgb)."""
+    from mlframe.training.configs import TargetTypes
+    cfg = parent_module.get_training_configs(
+        iterations=10,
+        early_stopping_rounds=0,
+        target_type=TargetTypes.MULTICLASS_CLASSIFICATION,
+        n_classes=3,
+    )
+    assert cfg is not None
+    # The classification branch must have stamped a multiclass objective.
+    xgb_params = cfg.XGB_GENERAL_CLASSIF
+    assert xgb_params.get("objective") == "multi:softprob"
+    assert xgb_params.get("num_class") == 3
