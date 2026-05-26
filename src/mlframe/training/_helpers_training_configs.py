@@ -524,22 +524,39 @@ def get_training_configs(
     # objective" -- on RMSE that's fine, but on MAE / Huber objective
     # the ES surface drifts from CB's. Stamp ``metric`` explicitly so
     # all three boosters track the same surface.
-    _LGB_METRIC_NAME = {
-        "RMSE": "l2", "MAE": "l1", "Huber": "huber",
-        "MAPE": "mape", "MSLE": "rmse",  # LGB has no msle; fall back
-    }.get(def_regr_metric, def_regr_metric.lower())
-    LGB_GENERAL_PARAMS.setdefault("metric", _LGB_METRIC_NAME)
+    #
+    # Stamp the regression metric ONLY when the suite knows the target is
+    # regression (or unspecified -- legacy callers). For known-
+    # classification targets, leave ``metric`` unset and let LightGBM
+    # auto-pick a compatible metric from the inferred objective
+    # (binary_logloss for binary, multi_logloss for multiclass). The bug
+    # this guards against: LightGBM's LGBMClassifier auto-promotes to
+    # ``objective='multiclass'`` based on y's class cardinality at fit
+    # time -- so even if the suite never set MULTICLASS_CLASSIFICATION
+    # explicitly upstream, a 3-class y still triggers the multiclass
+    # path. With a stale regression metric=l2 on the params, the
+    # multiclass fit raises "Multiclass objective and metrics don't
+    # match" before training starts.
+    _is_regression_path = (
+        _resolved_tt is None or not _resolved_tt.is_classification
+    )
+    if _is_regression_path:
+        _LGB_METRIC_NAME = {
+            "RMSE": "l2", "MAE": "l1", "Huber": "huber",
+            "MAPE": "mape", "MSLE": "rmse",  # LGB has no msle; fall back
+        }.get(def_regr_metric, def_regr_metric.lower())
+        LGB_GENERAL_PARAMS.setdefault("metric", _LGB_METRIC_NAME)
     # Target-type-aware objective for LGB (no separate _CLASSIF variant).
     if _resolved_tt.is_classification and not _resolved_tt.is_binary:
         _lgb_obj = _classif_objective_kwargs("lightgbm", _resolved_tt, n_classes)
         if _lgb_obj:
             LGB_GENERAL_PARAMS.update(_lgb_obj)
-            # The setdefault("metric", _LGB_METRIC_NAME) above stamps the
-            # REGRESSION metric (e.g. "l2" for RMSE) before this classification
-            # branch runs. LGB rejects multiclass objective + regression metric
-            # at fit time ("Multiclass objective and metrics don't match"), so
-            # override the metric to align with the multiclass objective.
-            # Mirror the XGB pattern at line 295 (XGB_GENERAL_CLASSIF["eval_metric"] = "mlogloss").
+            # Even though the regression-metric setdefault is now gated to
+            # the regression branch, callers can still pass an explicit
+            # regression-shaped metric in ``lgb_kwargs`` (legacy callers
+            # that hardcoded ``metric="l2"`` before the gate landed). Force
+            # a multiclass-compatible metric in the multiclass path so the
+            # objective <-> metric contract holds regardless of caller history.
             if _lgb_obj.get("objective") == "multiclass":
                 LGB_GENERAL_PARAMS["metric"] = "multi_logloss"
             LGB_GENERAL_PARAMS["_mlframe_target_type"] = str(_resolved_tt.value)
