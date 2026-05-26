@@ -683,9 +683,18 @@ def report_regression_model_perf(
         #   ``plot_residual_diagnostics``.
         n_cols = n_features if n_features is not None else (len(columns) if columns is not None and len(columns) > 0 else 0)
         nfeatures = f"{n_cols:_}F/" if n_cols > 0 else ""
+        # Composite-target reports run on the T-scale residual, not raw
+        # y. Tag the chart title explicitly so the operator can't
+        # confuse a low T-scale RMSE (often ~target_std on a residual
+        # with mean ~0) with a leaderboard-quality y-scale RMSE.
+        # ``MTRESID=`` is stamped into model_name by ``select_target``
+        # when the target is composite; cheap-to-detect signature.
+        _is_t_scale_composite_chart = "MTRESID=" in str(model_name)
+        _scale_tag = " [T-scale residual]" if _is_t_scale_composite_chart else ""
         header_str = (
             report_title + " " + model_name +
             f" [{nfeatures}{get_human_readable_set_size(len(targets))} rows]"
+            + _scale_tag
         )
         from ._format import format_metric as _fmt
         metrics_str = (
@@ -694,6 +703,11 @@ def report_regression_model_perf(
             f" MaxError={_fmt(MaxError, report_ndigits)}"
             f" R2={_fmt(R2, report_ndigits)}"
         )
+        if _is_t_scale_composite_chart:
+            # Make the scale obvious in the metric block too -- a glance
+            # at the chart should not let RMSE=6 on T-space register as
+            # "competitive with leaderboard" when y-scale RMSE may be 100x.
+            metrics_str = f"(T-scale) {metrics_str}"
         # ``title`` retained for the (deprecated) print-report path that still concatenates everything for stdout. Charts use the split.
         title = header_str + "\n " + metrics_str  # noqa: F841 -- see comment above
 
