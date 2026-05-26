@@ -792,6 +792,72 @@ AXES: dict[str, tuple[Any, ...]] = {
     # contribute init scores for downstream boosters. K=1 is the
     # one-winner branch; K>=2 exercises the OLS-combined branch.
     "baseline_init_score_top_k_cfg": (1, 2),
+    # =====================================================================
+    # 2026-05-27 iter350 -- audit batch 2. Remaining ~12 high-value axes
+    # from the audit-agent report.
+    # =====================================================================
+    # TrainingBehaviorConfig.use_ap12_calibrated_probs_in_ensemble (default
+    # True 2026-05-25): route AP12-calibrated probs into simple blends.
+    # False = legacy uncalibrated path. Canon to default when ensembling off.
+    "use_ap12_calibrated_probs_in_ensemble_cfg": (True, False),
+    # TrainingBehaviorConfig.mlp_extreme_ar_weight_decay_factor: when the
+    # extreme-AR + group-aware gate fires, multiply weight_decay by this
+    # factor to dampen the MLP into a safe regime. 100x is the default;
+    # 1.0 = no bump (legacy behaviour pre-2026-05-26). Canon to default
+    # when MLP not in scope OR the AR-skip gate is OFF (already-skipped).
+    "mlp_extreme_ar_weight_decay_factor_cfg": (100.0, 1.0),
+    # TrainingBehaviorConfig.feature_drift_auto_apply_neural_overrides:
+    # 2026-05-26 brand-new override-auto-apply gate. True path entirely
+    # uncovered; toggles whether the drift report's neural recommendations
+    # get auto-applied to subsequent fits.
+    "feature_drift_auto_apply_neural_overrides_cfg": (False, True),
+    # TrainingBehaviorConfig.target_temporal_audit_column: None = phase
+    # disabled (default); "ts_col" exercises the temporal-audit phase
+    # (regime-divergence chart + warn) when the synthetic combo emits a
+    # datetime column. Canon to None when with_datetime_col is False.
+    "target_temporal_audit_column_cfg": (None, "ts_col"),
+    # CompositeTargetDiscoveryConfig.lag_predict_failsafe_tolerance: how
+    # far above the lag-predict floor the discovery survivors must stay.
+    # (0.10, 0.50) covers the 2026-05-25 calibration regime + the pre-fix
+    # loose tolerance that prod logs showed was too permissive.
+    "composite_lag_predict_failsafe_tolerance_cfg": (0.10, 0.50),
+    # CompositeTargetDiscoveryConfig.extreme_ar_threshold: AR detection
+    # threshold for the composite-side extreme-AR skip gate (separate from
+    # the MLP-side gate). (0.99, 0.95) widens the gate's bite.
+    "composite_extreme_ar_threshold_cfg": (0.99, 0.95),
+    # CompositeTargetDiscoveryConfig.ct_ensemble_dummy_floor_tolerance:
+    # slack above the strongest-dummy RMSE that components must beat to
+    # survive the floor. 0.0 = strict floor; 0.10 = 10pct slack.
+    "composite_ct_ensemble_dummy_floor_tolerance_cfg": (0.0, 0.10),
+    # CompositeTargetDiscoveryConfig.oof_holdout_frac: fraction of train
+    # carved out as OOF holdout for stacking. (0.2, 0.0) tests the
+    # pre-2026-05-25 (no-holdout, leak-risk) regime against the new
+    # default.
+    "composite_oof_holdout_frac_cfg": (0.2, 0.0),
+    # CompositeTargetDiscoveryConfig.top_m_after_tiny: how many discovery
+    # specs survive the tiny-model screening pass. Bumped 3 -> 10 on
+    # 2026-05-25; (10, 3) tests both regimes against the ensemble.
+    "composite_top_m_after_tiny_cfg": (10, 3),
+    # PreprocessingExtensionsConfig.tfidf_keep_sparse: True (default)
+    # keeps the per-column TF-IDF output as scipy.sparse; False forces
+    # the legacy ``.toarray()`` path. False blows up RAM but matters
+    # for downstream consumers that can't handle sparse.
+    "prep_ext_tfidf_keep_sparse_cfg": (True, False),
+    # RecurrentConfig.use_attention: True (default) uses attention pooling
+    # vs last-hidden (False); flips encoder semantics. Canon collapsed
+    # when recurrent_model_cfg is None.
+    "recurrent_use_attention_cfg": (True, False),
+    # LearningToRankConfig.xgb_objective: "rank:ndcg" (default) vs
+    # "rank:map"; flips XGBoost ranking head + autodetect fallback path
+    # for y.max() > 1. Canon to default when target_type != LTR.
+    "ltr_xgb_objective_cfg": ("rank:ndcg", "rank:map"),
+    # BaselineDiagnosticsConfig.init_score_apply_to_target_types: which
+    # target families get init-score injection. Default tuple includes
+    # regression; toggling to broaden / narrow exercises the logit-init
+    # branch for binary.
+    "baseline_init_score_apply_target_types_cfg": (
+        "regression_only", "regression_and_binary",
+    ),
 }
 
 
@@ -1117,6 +1183,20 @@ class FuzzCombo:
     fs_pre_screen_unsupervised_cfg: bool = True
     fs_pre_screen_variance_threshold_cfg: float = 0.0
     baseline_init_score_top_k_cfg: int = 1
+    # 2026-05-27 iter350 audit batch 2 axes.
+    use_ap12_calibrated_probs_in_ensemble_cfg: bool = True
+    mlp_extreme_ar_weight_decay_factor_cfg: float = 100.0
+    feature_drift_auto_apply_neural_overrides_cfg: bool = False
+    target_temporal_audit_column_cfg: "str | None" = None
+    composite_lag_predict_failsafe_tolerance_cfg: float = 0.10
+    composite_extreme_ar_threshold_cfg: float = 0.99
+    composite_ct_ensemble_dummy_floor_tolerance_cfg: float = 0.0
+    composite_oof_holdout_frac_cfg: float = 0.2
+    composite_top_m_after_tiny_cfg: int = 10
+    prep_ext_tfidf_keep_sparse_cfg: bool = True
+    recurrent_use_attention_cfg: bool = True
+    ltr_xgb_objective_cfg: str = "rank:ndcg"
+    baseline_init_score_apply_target_types_cfg: str = "regression_only"
 
     def canonical_key(self) -> tuple:
         """Hashable tuple used for dedup. Canonicalizes semantically
@@ -1741,6 +1821,61 @@ class FuzzCombo:
             # BaselineDiagnostics init_score top_k only meaningful when
             # baseline_diagnostics is enabled.
             (self.baseline_init_score_top_k_cfg if self.baseline_diagnostics_enabled_cfg else 1),
+            # 2026-05-27 iter350 audit batch 2 canons.
+            # AP12 calibrated probs in ensemble only meaningful when ensembling on.
+            (self.use_ap12_calibrated_probs_in_ensemble_cfg if self.use_ensembles else True),
+            # MLP weight_decay factor only meaningful when MLP is in scope.
+            (self.mlp_extreme_ar_weight_decay_factor_cfg if "mlp" in self.models else 100.0),
+            # Feature-drift auto-apply only meaningful when feature_drift report runs.
+            self.feature_drift_auto_apply_neural_overrides_cfg,
+            # Temporal audit column only meaningful when a datetime column exists.
+            (self.target_temporal_audit_column_cfg if self.with_datetime_col else None),
+            # Composite knobs only meaningful when composite discovery on AND regression.
+            (
+                self.composite_lag_predict_failsafe_tolerance_cfg
+                if (self.composite_discovery_enabled_cfg and self.target_type == "regression")
+                else 0.10
+            ),
+            (
+                self.composite_extreme_ar_threshold_cfg
+                if (self.composite_discovery_enabled_cfg and self.target_type == "regression")
+                else 0.99
+            ),
+            (
+                self.composite_ct_ensemble_dummy_floor_tolerance_cfg
+                if (self.composite_discovery_enabled_cfg and self.target_type == "regression")
+                else 0.0
+            ),
+            (
+                self.composite_oof_holdout_frac_cfg
+                if (self.composite_discovery_enabled_cfg and self.target_type == "regression")
+                else 0.2
+            ),
+            (
+                self.composite_top_m_after_tiny_cfg
+                if (self.composite_discovery_enabled_cfg and self.target_type == "regression")
+                else 10
+            ),
+            # tfidf_keep_sparse only meaningful when prep_ext has text + tfidf path.
+            (
+                self.prep_ext_tfidf_keep_sparse_cfg
+                if self.text_col_count > 0
+                else True
+            ),
+            # Recurrent use_attention only meaningful when a recurrent model is requested.
+            (self.recurrent_use_attention_cfg if self._canonical_recurrent_model() is not None else True),
+            # LTR xgb_objective only meaningful for LTR + xgb.
+            (
+                self.ltr_xgb_objective_cfg
+                if (self.target_type == "learning_to_rank" and "xgb" in self.models)
+                else "rank:ndcg"
+            ),
+            # BD init_score target types only meaningful when BD enabled.
+            (
+                self.baseline_init_score_apply_target_types_cfg
+                if self.baseline_diagnostics_enabled_cfg
+                else "regression_only"
+            ),
         )
 
     def _canonical_recurrent_model(self) -> "str | None":
