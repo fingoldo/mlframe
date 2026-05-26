@@ -466,21 +466,53 @@ def report_regression_model_perf(
     # CompositeTargetEstimator; this generic clip catches the
     # raw-target path + any composite wrapper that produced a value
     # outside the envelope by miscalibration.
+    # Stats supplied via y_train_{min,max,std} kwargs by the suite-side
+    # caller -- preferred path (train envelope is the conceptually
+    # correct bound). When NOT supplied (16+ legacy callsites that
+    # never wired the threading), fall back to deriving a bound from
+    # ``targets`` (the per-split target). On a group-aware split with
+    # bucket-stratify or StratifiedGroupKFold the eval target
+    # distribution is close to the train one, so the eval bound is a
+    # safe defensive net against catastrophic predictions (Ridge on a
+    # heavy-kurt addres composite hit MaxError=2.14M / R^2=-44M on a
+    # target with y in [-700k, +100k] observed in prod 2026-05-26).
+    # K_FALLBACK=10 is intentionally generous: only truly catastrophic
+    # extrapolations get clipped, normal modelling noise passes
+    # through.
+    _K_FALLBACK_SIGMA = 10.0
+    _env_stats = None
+    _envelope_source = "none"
     if (y_train_min is not None and y_train_max is not None
             and y_train_std is not None and y_train_std > 0):
-        from ._prediction_envelope_clip import (
-            TrainEnvelopeStats,
-            clip_predictions_to_train_envelope,
-        )
+        from ._prediction_envelope_clip import TrainEnvelopeStats
         _env_stats = TrainEnvelopeStats(
             y_min=float(y_train_min),
             y_max=float(y_train_max),
             y_std=float(y_train_std),
         )
+        _envelope_source = "train"
+    elif targets_arr.ndim == 1 and targets_arr.size > 0:
+        _y_eval = targets_arr[np.isfinite(targets_arr)]
+        if _y_eval.size >= 10:
+            _y_std = float(_y_eval.std())
+            if _y_std > 0:
+                from ._prediction_envelope_clip import TrainEnvelopeStats
+                _env_stats = TrainEnvelopeStats(
+                    y_min=float(_y_eval.min()),
+                    y_max=float(_y_eval.max()),
+                    y_std=_y_std,
+                )
+                _envelope_source = "eval-fallback"
+    if _env_stats is not None:
+        from ._prediction_envelope_clip import clip_predictions_to_train_envelope
         preds_arr = clip_predictions_to_train_envelope(
             preds_arr, _env_stats,
+            k_sigma=(3.0 if _envelope_source == "train" else _K_FALLBACK_SIGMA),
             model_label=str(model_name) if model_name else "<unknown>",
-            split_label=str(report_title) if report_title else "<unknown>",
+            split_label=(
+                f"{report_title} [{_envelope_source}]" if report_title
+                else f"<unknown> [{_envelope_source}]"
+            ),
         )
     if targets_arr.ndim > 1 and targets_arr.shape[1] > 1:
         # WARN-loud when this multioutput path
@@ -728,11 +760,27 @@ def report_regression_model_perf(
         # log block which IS comparable to raw-target reports).
         # Default behaviour: skip the chart + per-target log block
         # entirely for composite targets, emit one short line pointing
-        # at the y-scale source. ``MTRESID=`` is stamped into
-        # model_name by ``select_target`` when the target is composite;
-        # cheap-to-detect signature. Override via env
-        # MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS=1 for debugging.
-        _is_t_scale_composite_chart = "MTRESID=" in str(model_name)
+        # at the y-scale source.
+        #
+        # Detection: parse the embedded canonical composite target name
+        # via ``is_composite_target_name`` -- it recognises the
+        # registry-defined ``{target}-{transform_short}-{base}`` form
+        # for every known transform (and the legacy double-underscore
+        # variant). Robust against label-format drift; previously the
+        # gate was a ``"MTRESID="`` substring check that missed the
+        # ``MTRESID/MRTS=...`` combined-label form and let a misleading
+        # T-scale chart (R^2 = -44M observed in prod on a heavy-kurt
+        # addres composite) render. Token-name fallback retained so a
+        # caller emitting the MTRESID tag with a non-canonical target
+        # column (custom user composite) still hits the skip path.
+        # Override via env MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS=1.
+        from ._composite_transforms_naming import is_composite_target_name
+        _model_name_str = str(model_name)
+        _has_mtresid_token = "MTRESID" in _model_name_str
+        _has_composite_target_token = any(
+            is_composite_target_name(tok) for tok in _model_name_str.split()
+        )
+        _is_t_scale_composite_chart = _has_mtresid_token or _has_composite_target_token
         if _is_t_scale_composite_chart and not os.environ.get(
             "MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS",
         ):
@@ -899,7 +947,14 @@ def report_regression_model_perf(
         # from on-disk logs.
         from ._format import format_metric as _fmt
         # Annotate composite-target reports as T-scale. Composite targets carry ``MTRESID=`` in the model_name (stamped by ``select_target``); this indicates the printed metrics live on the RESIDUAL scale, not the raw y-scale. The wrap pass separately emits y-scale numbers via ``[CompositeTargetEstimator] ... y-scale metrics:`` so the operator can compare apples-to-apples with raw-target reports.
-        _is_t_scale_composite = "MTRESID=" in model_name
+        # Same robust detector as the chart-skip gate above: prefer the
+        # ``is_composite_target_name`` parse of the embedded target name
+        # over a brittle ``MTRESID=`` substring check.
+        from ._composite_transforms_naming import is_composite_target_name
+        _is_t_scale_composite = (
+            "MTRESID" in model_name
+            or any(is_composite_target_name(tok) for tok in str(model_name).split())
+        )
         _scale_note = (
             "  (T-scale residual; y-scale metrics in "
             "[CompositeTargetEstimator] log line)"

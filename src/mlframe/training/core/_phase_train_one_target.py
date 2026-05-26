@@ -215,6 +215,43 @@ def _apply_loss_recommendation_in_place(
                         _backend, _param_name, _value, _set_err, _set_err2,
                     )
 
+    # Linear / Ridge / Lasso protection on heavy-kurt regression
+    # targets (2026-05-26): an additive_residual composite ``y-addres-
+    # base`` on a heavy-tail-target run produced excess_kurt=+16.96 /
+    # skew=+2.88 in T-space. Ridge fit with alpha=1e-3 (effectively
+    # OLS) chased the outlier rows and predicted -700k on test rows
+    # against a true T in [-30k, +5k], R^2=-44M. Symmetric to the
+    # boosting protection: when ``recommend_boosting_regression_loss``
+    # picked Huber (i.e. excess_kurt > 1.5 threshold), bump the L2
+    # regulariser on the linear-family models so coefficients can't
+    # blow up to fit the tail. alpha=10 produces predictions strongly
+    # shrunk toward train-mean -- effectively the same robustness as
+    # HuberRegressor without a class swap that downstream isinstance
+    # dispatch would notice.
+    _excess_kurt = float(rec.get("excess_kurt", float("nan")))
+    _cb_recommendation = rec.get("cb")
+    _heavy_kurt_fired = (
+        np.isfinite(_excess_kurt)
+        and _cb_recommendation is not None
+        and str(_cb_recommendation).startswith("Huber")
+    )
+    if _heavy_kurt_fired:
+        _LINEAR_HEAVY_KURT_ALPHA: float = 10.0
+        for _lin_backend in ("linear", "ridge", "lasso", "elasticnet"):
+            _entry = models_params.get(_lin_backend)
+            if not isinstance(_entry, dict):
+                continue
+            _model = _entry.get("model")
+            if _model is None or not hasattr(_model, "set_params"):
+                continue
+            try:
+                _model.set_params(alpha=_LINEAR_HEAVY_KURT_ALPHA)
+                _applied.append(
+                    f"{_lin_backend}:alpha={_LINEAR_HEAVY_KURT_ALPHA}"
+                )
+            except (ValueError, TypeError):
+                continue
+
     if verbose and _applied:
         logger_.info(
             "[auto-loss] target='%s' excess_kurt=%.2f (n_finite=%d) -- %s. Applied: %s.",

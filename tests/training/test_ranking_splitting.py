@@ -72,17 +72,30 @@ class TestGroupShuffleSplit:
         assert not (train_g & val_g)
 
 
-class TestStratifyGroupsMutualExclusion:
-    """``stratify_y`` and ``groups`` together raise -- no group-stratified
-    splitter is wired."""
+class TestStratifyGroupsCombined:
+    """2026-05-26: ``stratify_y`` + ``groups`` are NO LONGER mutually
+    exclusive. ``make_train_test_split`` routes the combination
+    through sklearn's ``StratifiedGroupKFold`` (sklearn >=1.0) so both
+    invariants are honoured -- whole groups stay in one split AND the
+    1-D class / bucket distribution is preserved across splits. The
+    pre-2026-05-26 contract raised ValueError("mutually exclusive");
+    the new contract returns a valid split. Bucket-proportion
+    assertions live in ``test_group_stratified_split.py``."""
 
-    def test_raises_on_both_provided(self, synthetic_grouped_frame):
+    def test_both_provided_returns_valid_split(self, synthetic_grouped_frame):
         df, groups = synthetic_grouped_frame
-        y = np.zeros(len(df))
-        with pytest.raises(ValueError, match="mutually exclusive"):
-            make_train_test_split(
-                df, test_size=0.2, val_size=0.1,
-                groups=groups, stratify_y=y, random_seed=42,
+        # Stratifiable binary target correlated with group id so the
+        # splitter has real work to do.
+        y = ((np.asarray(groups) % 4) == 0).astype(np.int64)
+        train_idx, val_idx, test_idx, *_ = make_train_test_split(
+            df, test_size=0.2, val_size=0.1,
+            groups=groups, stratify_y=y, random_seed=42,
+        )
+        # Group containment: no group spans two slices.
+        g = np.asarray(groups)
+        for a, b in [(train_idx, val_idx), (train_idx, test_idx), (val_idx, test_idx)]:
+            assert not (set(g[a].tolist()) & set(g[b].tolist())), (
+                "stratified-group split must keep every group in exactly one slice"
             )
 
 

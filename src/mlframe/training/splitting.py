@@ -643,13 +643,34 @@ def make_train_test_split(
         # can pre-bucket groups by stratum first).
         all_idx = np.arange(len(df))
 
-        if groups is not None and stratify_y is not None:
-            raise ValueError(
-                "make_train_test_split: groups and stratify_y are mutually "
-                "exclusive in the row-based fallback (no group-stratified "
-                "splitter is wired). Pick one: groups for LTR / "
-                "leave-one-group-out semantics, stratify_y for class-balance."
-            )
+        # ``StratifiedGroupKFold`` (sklearn >=1.0) preserves the class /
+        # bucket distribution of ``stratify_y`` ACROSS splits while keeping
+        # whole groups together. Multilabel + group is only supported via
+        # the optional ``iterative-stratification`` package
+        # (``MultilabelStratifiedGroupKFold``); when the user passes a 2-D
+        # stratify_y + groups without that package we fall back to
+        # ``GroupShuffleSplit`` (groups precedence) and warn.
+        _strat_groups_active = (groups is not None) and (stratify_y is not None)
+        if _strat_groups_active:
+            _strat_arr = np.asarray(stratify_y)
+            if _strat_arr.ndim == 2:
+                try:
+                    from iterstrat.ml_stratifiers import (  # noqa: F401
+                        MultilabelStratifiedGroupKFold,
+                    )
+                    _multilabel_group_strat = True
+                except ImportError:
+                    _multilabel_group_strat = False
+                if not _multilabel_group_strat:
+                    logger.info(
+                        "make_train_test_split: multilabel stratify_y + groups "
+                        "supplied but iterative-stratification not installed. "
+                        "Falling back to GroupShuffleSplit (groups precedence). "
+                        "pip install iterative-stratification to enable "
+                        "MultilabelStratifiedGroupKFold."
+                    )
+                    _strat_groups_active = False
+                    stratify_y = None
 
         if stratify_y is not None and timestamps is not None:
             logger.warning(
@@ -689,7 +710,24 @@ def make_train_test_split(
                 )
 
         if test_size > 0:
-            if _groups_arr is not None:
+            if _groups_arr is not None and _strat_groups_active and _stratify_active is not None and _stratify_active.ndim == 1:
+                # Both constraints simultaneously: stratify by target
+                # bucket / class AND keep whole groups together. sklearn
+                # ``StratifiedGroupKFold`` requires n_splits >= 2; we
+                # derive n_splits from the requested test_size and take
+                # the first fold as test (groups + class proportions
+                # preserved by construction).
+                from sklearn.model_selection import StratifiedGroupKFold
+                _n_splits_test = max(2, int(round(1.0 / max(test_size, 1e-9))))
+                sgkf = StratifiedGroupKFold(
+                    n_splits=_n_splits_test, shuffle=True, random_state=sklearn_seed,
+                )
+                train_idx, test_idx = next(
+                    sgkf.split(all_idx, _stratify_active, groups=_groups_arr),
+                )
+                train_idx = np.asarray(train_idx, dtype=np.intp)
+                test_idx = np.asarray(test_idx, dtype=np.intp)
+            elif _groups_arr is not None:
                 from sklearn.model_selection import GroupShuffleSplit
                 gss_test = GroupShuffleSplit(
                     n_splits=1, test_size=test_size, random_state=sklearn_seed,
@@ -714,7 +752,24 @@ def make_train_test_split(
             train_idx, test_idx = all_idx, np.array([], dtype=np.intp)
 
         if val_size > 0:
-            if _groups_arr is not None:
+            if _groups_arr is not None and _strat_groups_active and _stratify_active is not None and _stratify_active.ndim == 1:
+                # Same StratifiedGroupKFold strategy as the test split,
+                # restricted to the post-test train rows. val_size is
+                # interpreted as a fraction of the REMAINING train pool
+                # (matching the existing GroupShuffleSplit semantics).
+                from sklearn.model_selection import StratifiedGroupKFold
+                _n_splits_val = max(2, int(round(1.0 / max(val_size, 1e-9))))
+                _train_groups = _groups_arr[train_idx]
+                _train_strat = _stratify_active[train_idx]
+                sgkf_val = StratifiedGroupKFold(
+                    n_splits=_n_splits_val, shuffle=True, random_state=sklearn_seed,
+                )
+                _train_local_train, _train_local_val = next(
+                    sgkf_val.split(train_idx, _train_strat, groups=_train_groups),
+                )
+                val_idx = train_idx[_train_local_val]
+                train_idx = train_idx[_train_local_train]
+            elif _groups_arr is not None:
                 from sklearn.model_selection import GroupShuffleSplit
                 gss_val = GroupShuffleSplit(
                     n_splits=1, test_size=val_size, random_state=sklearn_seed,

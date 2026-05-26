@@ -283,18 +283,39 @@ def _phase_train_val_test_split(
     # Group-aware splitting opt-in: when the extractor produced ``group_ids`` and
     # ``split_config.use_groups`` is set, route through GroupShuffleSplit.
     _groups = group_ids if (split_config.use_groups and group_ids is not None and len(group_ids) > 0) else None
-    # Group + bucket combination: when both groups and a bucket _stratify_y are present and the splitter doesn't natively support both, prefer groups (no per-row group leakage is the stronger invariant) and surface the dropped stratification at INFO so the operator sees the precedence decision.
+    # Group + bucket combination: ``make_train_test_split`` now routes
+    # the 1-D case through sklearn's ``StratifiedGroupKFold`` (sklearn
+    # >=1.0) which preserves the class / regression-bucket distribution
+    # while keeping whole groups together -- both invariants honoured by
+    # the same splitter. The 2-D multilabel case still requires
+    # ``MultilabelStratifiedGroupKFold`` from iterative-stratification;
+    # the splitter detects + falls back to GroupShuffleSplit when that
+    # package is absent.
     if _groups is not None and _stratify_y is not None:
-        try:
-            from iterstrat.ml_stratifiers import MultilabelStratifiedShuffleSplit  # noqa: F401
-            _has_iterstrat = True
-        except ImportError:
-            _has_iterstrat = False
-        if not _has_iterstrat:
+        _strat_arr = np.asarray(_stratify_y)
+        if _strat_arr.ndim == 2:
+            try:
+                from iterstrat.ml_stratifiers import (  # noqa: F401
+                    MultilabelStratifiedGroupKFold,
+                )
+                _has_multilabel_iterstrat = True
+            except ImportError:
+                _has_multilabel_iterstrat = False
+            if not _has_multilabel_iterstrat:
+                logger.info(
+                    "Bucket-stratify: 2-D (multilabel) stratify_y + groups; "
+                    "iterative-stratification not installed. Splitter will "
+                    "fall back to GroupShuffleSplit; multilabel proportions "
+                    "across train/val/test not enforced. "
+                    "pip install iterative-stratification to enable.",
+                )
+        else:
             logger.info(
-                "Bucket-stratify: groups present AND bucket stratify_y built, but iterative-stratification not installed. Using GroupShuffleSplit (groups precedence) and dropping bucket stratification. pip install iterative-stratification to combine both.",
+                "Bucket-stratify: groups + 1-D stratify_y; using "
+                "StratifiedGroupKFold (both invariants honoured: whole "
+                "groups stay in one split AND class/bucket proportions "
+                "preserved across train/val/test).",
             )
-            _stratify_y = None
     with phase("split_data"):
         # Dynamically derive the kwargs the splitter accepts by inspecting
         # its signature, then drop any TrainingSplitConfig field not in
