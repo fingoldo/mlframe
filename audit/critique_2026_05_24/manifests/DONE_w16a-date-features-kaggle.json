@@ -1,0 +1,30 @@
+{
+  "agent_slug": "w16a-date-features-kaggle",
+  "findings_assigned": ["A2#5", "S33"],
+  "findings_status": {
+    "A2#5": {
+      "status": "DONE",
+      "commit": "64e5746b",
+      "test_file": "tests/feature_engineering/test_regression_w16a_date_features_extended.py",
+      "research_doc": "docs/date_features_kaggle_research.md",
+      "notes": "Extended _DEFAULT_DATE_METHODS to year (int32) / quarter (int8) / week_of_year (int8) / day_of_year (int16) / is_weekend (bool) on top of legacy day / weekday / month. New add_cyclical_date_features helper emits sin/cos pairs at hour / day / weekday / month / day_of_year periods (float32). create_date_features(..., add_cyclical=True) default. Mixed-tz WARN with concrete tz list (no auto-convert). 18 sensors green."
+    }
+  },
+  "kaggle_research_sources": [
+    "fastai add_datepart (de-facto tabular date FE reference)",
+    "scikit-learn cyclical example",
+    "NVIDIA blog: sin/cos vs RBF vs spline",
+    "skforecast cyclical features",
+    "feature-engine CyclicalFeatures",
+    "M5 winning recipes (Yakovlev / Tunguz threads)"
+  ],
+  "test_results": {
+    "green_paths": [
+      "tests/feature_engineering/test_regression_w16a_date_features_extended.py",
+      "tests/feature_engineering/test_regression_w11d_basic_default_methods.py",
+      "tests/feature_engineering/test_basic.py"
+    ],
+    "red_paths": []
+  },
+  "commits": ["64e5746b"]
+}
