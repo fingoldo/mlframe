@@ -683,13 +683,30 @@ def report_regression_model_perf(
         #   ``plot_residual_diagnostics``.
         n_cols = n_features if n_features is not None else (len(columns) if columns is not None and len(columns) > 0 else 0)
         nfeatures = f"{n_cols:_}F/" if n_cols > 0 else ""
-        # Composite-target reports run on the T-scale residual, not raw
-        # y. Tag the chart title explicitly so the operator can't
-        # confuse a low T-scale RMSE (often ~target_std on a residual
-        # with mean ~0) with a leaderboard-quality y-scale RMSE.
-        # ``MTRESID=`` is stamped into model_name by ``select_target``
-        # when the target is composite; cheap-to-detect signature.
+        # Composite-target reports compute MAE/RMSE/R2 on the T-scale
+        # residual (e.g. T = cbrt(y) - alpha*X for monres-cbrt-X), not
+        # on raw y. The numbers look unrelated to leaderboard quality
+        # and the scatter / residual-hist plots on T-space carry no
+        # useful information for the operator (the y-scale wrap pass
+        # emits its own ``[CompositeTargetEstimator] y-scale metrics``
+        # log block which IS comparable to raw-target reports).
+        # Default behaviour: skip the chart + per-target log block
+        # entirely for composite targets, emit one short line pointing
+        # at the y-scale source. ``MTRESID=`` is stamped into
+        # model_name by ``select_target`` when the target is composite;
+        # cheap-to-detect signature. Override via env
+        # MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS=1 for debugging.
         _is_t_scale_composite_chart = "MTRESID=" in str(model_name)
+        if _is_t_scale_composite_chart and not os.environ.get(
+            "MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS",
+        ):
+            logger.info(
+                "%s %s: T-scale report skipped (composite target). "
+                "y-scale metrics in [CompositeTargetEstimator] / "
+                "[DUMMY_BASELINES] log blocks for this target.",
+                report_title, model_name,
+            )
+            return preds_arr, None
         _scale_tag = " [T-scale residual]" if _is_t_scale_composite_chart else ""
         header_str = (
             report_title + " " + model_name +
