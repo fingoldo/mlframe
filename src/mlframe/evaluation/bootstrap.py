@@ -97,6 +97,22 @@ def bootstrap_metric(
                 f"bootstrap_metric: stratify length {stratify.shape[0]} must match y_true length {n}"
             )
         groups = {int(c): np.flatnonzero(stratify == c) for c in np.unique(stratify)}
+        # iter358 (2026-05-26): pre-extract list+offsets once and reuse a
+        # single idx buffer across all n_bootstrap iters. The listcomp +
+        # np.concatenate version of this loop on c0144 1M-row binary
+        # measured 8.49s tottime / 12000 calls (708us per resample) on
+        # n=100k stratified resamples; the direct buffer writes drop the
+        # per-iter listcomp + concat allocation + Python frame setup. RNG
+        # draw order per iter is unchanged (still rng.integers per class
+        # in dict-iteration order) so bit-identical reproducibility for
+        # the same random_state.
+        _groups_list = list(groups.values())
+        _class_sizes = np.array([g.shape[0] for g in _groups_list], dtype=np.int64)
+        _total_n = int(_class_sizes.sum())
+        _class_offsets = np.empty(_class_sizes.shape[0] + 1, dtype=np.int64)
+        _class_offsets[0] = 0
+        _class_offsets[1:] = np.cumsum(_class_sizes)
+        _idx_buf = np.empty(_total_n, dtype=np.int64)
 
     samples = np.empty(n_bootstrap, dtype=np.float64)
     valid = 0
@@ -114,8 +130,11 @@ def bootstrap_metric(
             # 1.72x faster on n_class=10k (0.153ms -> 0.089ms) -- same
             # statistical semantics (uniform with-replacement resample),
             # rng.choice just has extra options-dispatch overhead.
-            parts = [grp_idx[rng.integers(0, grp_idx.shape[0], size=grp_idx.shape[0])] for grp_idx in groups.values()]
-            idx = np.concatenate(parts) if parts else np.empty(0, dtype=np.int64)
+            for _c in range(_class_sizes.shape[0]):
+                _sz = int(_class_sizes[_c])
+                _rand = rng.integers(0, _sz, size=_sz)
+                _idx_buf[_class_offsets[_c]:_class_offsets[_c + 1]] = _groups_list[_c][_rand]
+            idx = _idx_buf
         try:
             v = float(metric_fn(y_true[idx], y_pred[idx]))
         except Exception as exc:
