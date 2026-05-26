@@ -164,12 +164,19 @@ def recommend_boosting_regression_loss(
         # CB: switch overfit detector from Iter (constant-magnitude
         # gradient stops ES at iter=1 on small-residual composite
         # targets) to IncToDec with a small p-value so tiny absolute
-        # improvements still count as progress. Plus widen od_wait so
-        # CB doesn't bail on a single noisy iter.
+        # improvements still count as progress.
+        # NOTE: CB canonizes ``od_wait`` and ``early_stopping_rounds``
+        # into the SAME parameter group and raises CatBoostError when
+        # both are passed. The base CB params already set
+        # ``early_stopping_rounds`` (from helpers.CB_GENERAL_PARAMS), so
+        # we use that key here -- semantically equivalent to od_wait,
+        # no collision. Pre-fix this dict set ``od_wait`` directly and
+        # blew up with "only one of the parameters od_wait,
+        # early_stopping_rounds should be initialized" on every CB fit.
         cb_extra = {
             "od_type": "IncToDec",
             "od_pval": 1e-5,
-            "od_wait": 100,
+            "early_stopping_rounds": 100,
         }
         return {
             "cb": "Huber:delta=1.345",
@@ -187,7 +194,7 @@ def recommend_boosting_regression_loss(
                 f"gradient informative on small residuals while "
                 f"attenuating outlier influence. XGB huber_slope="
                 f"{xgb_huber_slope:.4g} (MAD-calibrated). CB od_pval=1e-5 "
-                f"+ od_wait=100 (prevent ES at iter=1 on small residuals)."
+                f"+ early_stopping_rounds=100 (prevent ES at iter=1)."
             ),
             "excess_kurt": excess_kurt,
             "n_finite": n_finite,
