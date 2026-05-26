@@ -91,6 +91,40 @@ from ._composite_transforms_nonlinear import (
     _quantile_residual_forward,
     _quantile_residual_inverse,
 )
+from ._composite_transforms_extended import (
+    _asinh_residual_domain,
+    _asinh_residual_fit,
+    _asinh_residual_forward,
+    _asinh_residual_inverse,
+    _centered_ratio_domain,
+    _centered_ratio_fit,
+    _centered_ratio_forward,
+    _centered_ratio_inverse,
+    _geometric_mean_residual_domain,
+    _geometric_mean_residual_fit,
+    _geometric_mean_residual_forward,
+    _geometric_mean_residual_inverse,
+    _pairwise_interaction_residual_domain,
+    _pairwise_interaction_residual_fit,
+    _pairwise_interaction_residual_forward,
+    _pairwise_interaction_residual_inverse,
+    _polynomial_residual_deg2_domain,
+    _polynomial_residual_deg2_fit,
+    _polynomial_residual_deg2_forward,
+    _polynomial_residual_deg2_inverse,
+    _rank_residual_domain,
+    _rank_residual_fit,
+    _rank_residual_forward,
+    _rank_residual_inverse,
+    _reciprocal_residual_domain,
+    _reciprocal_residual_fit,
+    _reciprocal_residual_forward,
+    _reciprocal_residual_inverse,
+    _smoothing_spline_residual_domain,
+    _smoothing_spline_residual_fit,
+    _smoothing_spline_residual_forward,
+    _smoothing_spline_residual_inverse,
+)
 from .composite_unary_transforms import (
     cbrt_y_domain as _cbrt_y_domain_raw,
     cbrt_y_fit as _cbrt_y_fit_raw,
@@ -504,5 +538,138 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
             "leptokurtosis. Lossy on absolute scale; RMSE on T3 cleaner for "
             "boosting inners."
         ),
+    ),
+    # ------------------------------------------------------------------
+    # Pack L (2026-05-26): extended bivariate + multi-base transforms.
+    # Plug specific failure modes observed in production where the
+    # existing core/extended set didn't reach: signed bases for log-like
+    # residuals (``asinh_residual``), expanded ratio domain via learned
+    # shift (``centered_ratio``), curvature beyond OLS line
+    # (``polynomial_residual_deg2``), distribution-free monotone
+    # (``rank_residual``), arbitrary smooth non-monotone
+    # (``smoothing_spline_residual``), multiplicative-jump dynamics
+    # (``reciprocal_residual``), and two multi-base variants
+    # (``geometric_mean_residual``, ``pairwise_interaction_residual``).
+    # ------------------------------------------------------------------
+    "asinh_residual": Transform(
+        name="asinh_residual",
+        forward=_asinh_residual_forward,
+        inverse=_asinh_residual_inverse,
+        fit=_asinh_residual_fit,
+        domain_check=_asinh_residual_domain,
+        description=(
+            "T = arcsinh(y) - alpha*arcsinh(base) - beta with (alpha, beta) "
+            "fitted via OLS on the arcsinh-transformed train pairs. "
+            "Inverse y_hat = sinh(T_hat + alpha*arcsinh(base) + beta). "
+            "Generalises ``logratio`` to signed bases: arcsinh is log-like "
+            "for |base| >> 1 and linear for |base| << 1, defined on all real "
+            "numbers."
+        ),
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+    ),
+    "centered_ratio": Transform(
+        name="centered_ratio",
+        forward=_centered_ratio_forward,
+        inverse=_centered_ratio_inverse,
+        fit=_centered_ratio_fit,
+        domain_check=_centered_ratio_domain,
+        description=(
+            "T = y / (base + c) with ``c`` fitted on train so (base + c) > 0 "
+            "subject to an eps floor. Extension of ``ratio`` to signed bases. "
+            "Inverse y_hat = T_hat * (base + c)."
+        ),
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+    ),
+    "polynomial_residual_deg2": Transform(
+        name="polynomial_residual_deg2",
+        forward=_polynomial_residual_deg2_forward,
+        inverse=_polynomial_residual_deg2_inverse,
+        fit=_polynomial_residual_deg2_fit,
+        domain_check=_polynomial_residual_deg2_domain,
+        description=(
+            "T = y - alpha1*base - alpha2*base^2 - beta with (alpha1, alpha2, beta) "
+            "fitted via ridge-stabilised OLS on the (1, base, base^2) design "
+            "matrix. Adds curvature that ``linear_residual`` leaves in the "
+            "residual. Inverse y_hat = T_hat + alpha1*base + alpha2*base^2 + beta."
+        ),
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+    ),
+    "rank_residual": Transform(
+        name="rank_residual",
+        forward=_rank_residual_forward,
+        inverse=_rank_residual_inverse,
+        fit=_rank_residual_fit,
+        domain_check=_rank_residual_domain,
+        description=(
+            "Distribution-free monotone residual: T = rank(y)/n - alpha*rank(base)/n - beta. "
+            "Forward uses the train-fitted (sorted-y, sorted-base) lookup; "
+            "inverse clips the recovered y-rank to [0, 1] and maps back via "
+            "the train sorted-y table. Heavy-tail targets where Yeo-Johnson "
+            "doesn't fully whiten still respond to rank-space linear residual."
+        ),
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+    ),
+    "smoothing_spline_residual": Transform(
+        name="smoothing_spline_residual",
+        forward=_smoothing_spline_residual_forward,
+        inverse=_smoothing_spline_residual_inverse,
+        fit=_smoothing_spline_residual_fit,
+        domain_check=_smoothing_spline_residual_domain,
+        description=(
+            "T = y - g(base) where g is a scipy ``UnivariateSpline`` fitted on "
+            "deduped train pairs with smoothing factor s = n_unique * std(y) * 1.0. "
+            "Generalises ``monotonic_residual`` to arbitrary smooth "
+            "(non-monotone) dependence. Inverse y_hat = T_hat + g(base). "
+            "Params store knots + ``s`` only; spline is rebuilt on call "
+            "(matches ``monotonic_residual`` pickle convention)."
+        ),
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+    ),
+    "reciprocal_residual": Transform(
+        name="reciprocal_residual",
+        forward=_reciprocal_residual_forward,
+        inverse=_reciprocal_residual_inverse,
+        fit=_reciprocal_residual_fit,
+        domain_check=_reciprocal_residual_domain,
+        description=(
+            "T = 1/y - 1/base with train-scale-derived eps floors guarding "
+            "near-zero divisions. Inverse y_hat = 1 / (T_hat + 1/base). "
+            "Niche but useful when y has multiplicative-jump dynamics or "
+            "reciprocal-scale noise."
+        ),
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+    ),
+    "geometric_mean_residual": Transform(
+        name="geometric_mean_residual",
+        forward=_geometric_mean_residual_forward,
+        inverse=_geometric_mean_residual_inverse,
+        fit=_geometric_mean_residual_fit,
+        domain_check=_geometric_mean_residual_domain,
+        description=(
+            "Multi-base: T = y / geomean(bases) via log-mean-exp on a K-column "
+            "base matrix. Requires every base column > 0 on the row "
+            "(strict positivity). Inverse y_hat = T_hat * geomean(bases). "
+            "Multiplicative multi-base variant of ``ratio``. Not in default "
+            "auto-discovery list (needs multi-base orchestration like "
+            "``linear_residual_multi``)."
+        ),
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+    ),
+    "pairwise_interaction_residual": Transform(
+        name="pairwise_interaction_residual",
+        forward=_pairwise_interaction_residual_forward,
+        inverse=_pairwise_interaction_residual_inverse,
+        fit=_pairwise_interaction_residual_fit,
+        domain_check=_pairwise_interaction_residual_domain,
+        description=(
+            "Multi-base: T = y - alpha*prod(bases) - beta with (alpha, beta) "
+            "fitted via OLS on (1, prod(bases)) train pairs. Bilinear / "
+            "multilinear residual; captures pure interaction term that "
+            "``linear_residual_multi`` (additive) misses. Inverse y_hat = "
+            "T_hat + alpha*prod(bases) + beta. Not in default auto-discovery "
+            "list (needs multi-base orchestration like "
+            "``linear_residual_multi``)."
+        ),
+        tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
     ),
 }

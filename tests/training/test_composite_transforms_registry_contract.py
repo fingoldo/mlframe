@@ -63,6 +63,15 @@ _TRANSFORM_RTOL: dict[str, float] = {
     "chain_monres_cbrt": 0.5,  # composes monotonic_residual + cbrt
     "chain_monres_yj": 0.5,
     "chain_linres_cbrt_qn": 0.5,  # composes 3 stages, includes quantile_normal
+    # Pack L (2026-05-26).
+    "asinh_residual": 1e-9,           # exact OLS in arcsinh space
+    "centered_ratio": 1e-9,           # exact algebra
+    "polynomial_residual_deg2": 1e-9, # exact OLS solve
+    "rank_residual": 1.0,             # ECDF quantize loss like quantile_normal_y
+    "smoothing_spline_residual": 0.5, # smoothing-spline approximation lossy
+    "reciprocal_residual": 1e-6,
+    "geometric_mean_residual": 1e-9,  # exact: y / g * g = y
+    "pairwise_interaction_residual": 1e-9,
 }
 
 

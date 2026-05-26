@@ -53,6 +53,15 @@ TRANSFORM_NAME_SHORT: dict[str, str] = {
     "chain_monres_cbrt": "monresCbrt",
     "chain_monres_yj": "monresYj",
     "chain_linres_cbrt_qn": "linresCbrtQn",
+    # Pack L extended bivariate + multi-base transforms (2026-05-26).
+    "asinh_residual": "asinhr",
+    "centered_ratio": "cratio",
+    "polynomial_residual_deg2": "poly2",
+    "rank_residual": "rankr",
+    "smoothing_spline_residual": "spline",
+    "reciprocal_residual": "recipr",
+    "geometric_mean_residual": "gmean",
+    "pairwise_interaction_residual": "interact",
 }
 
 

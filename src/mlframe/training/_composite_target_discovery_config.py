@@ -93,6 +93,19 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
             # Pack K chain transforms (bivariate residual + unary tail compression).
             "chain_linres_cbrt", "chain_linres_yj",
             "chain_monres_cbrt", "chain_monres_yj",
+            # Pack L bivariate extensions (2026-05-26). Plug specific
+            # failure modes: signed bases (asinh_residual / centered_ratio),
+            # curvature beyond OLS line (polynomial_residual_deg2),
+            # distribution-free monotone (rank_residual), arbitrary smooth
+            # non-monotone dependence (smoothing_spline_residual),
+            # multiplicative-jump dynamics (reciprocal_residual). The two
+            # Pack L multi-base transforms (geometric_mean_residual,
+            # pairwise_interaction_residual) stay out of the default list
+            # because they need multi-base orchestration (same status as
+            # linear_residual_multi pre-OPEN-1).
+            "asinh_residual", "centered_ratio", "polynomial_residual_deg2",
+            "rank_residual", "smoothing_spline_residual",
+            "reciprocal_residual",
         ]
     )
 
