@@ -185,6 +185,39 @@ class TestRefitOnDegenerateBestIter:
         assert new_best is None
         assert not stub.fit_history
 
+    def test_tiny_iterations_budget_no_refit(self):
+        """User explicitly chose ``iterations=2``: best_iter=1 is half
+        the budget, not a degenerate ES. Adaptive threshold must NOT
+        trigger a retry even though best_iter=1 < absolute floor 3."""
+        stub = _StubBooster(
+            loss_param_key="loss_function",
+            initial_loss="Huber:delta=1.345",
+            best_iter_first=1,
+            best_iter_after_refit=120,
+        )
+        # Expose ``iterations=2`` so the adaptive rule computes
+        # max(1, 2*0.05) = 1; min(3, 1) = 1; best_iter=1 not < 1.
+        stub._params["iterations"] = 2
+        new_best = self._call_helper(stub, model_type_name="CatBoostRegressor", best_iter=1)
+        assert new_best is None
+        assert not stub.fit_history, (
+            "must not refit when user explicitly chose a tiny iteration budget"
+        )
+
+    def test_large_budget_with_iter1_refits(self):
+        """User set ``iterations=1000`` and got best_iter=2: adaptive
+        floor = max(1, 50) = 50, min(3, 50) = 3, best_iter=2 < 3 -> refit."""
+        stub = _StubBooster(
+            loss_param_key="loss_function",
+            initial_loss="Huber:delta=1.345",
+            best_iter_first=2,
+            best_iter_after_refit=350,
+        )
+        stub._params["iterations"] = 1000
+        new_best = self._call_helper(stub, model_type_name="CatBoostRegressor", best_iter=2)
+        assert new_best == 350
+        assert stub.fit_history, "large-budget degenerate ES must trigger refit"
+
     def test_refit_failure_returns_none_keeps_first_fit(self):
         """When set_params or fit raises (e.g. backend rejects RMSE on
         this build), the helper returns None and the original
