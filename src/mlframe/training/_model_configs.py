@@ -370,6 +370,19 @@ class ModelHyperparamsConfig(BaseConfig):
     iterations: int = Field(default=700, ge=1)
     early_stopping_rounds: Optional[int] = Field(default=100, ge=1)
     catboost_custom_classif_metrics: Optional[List[str]] = None
+
+    # 2026-05-26: promoted from ``_known_extras`` passthrough to a
+    # first-class field so users see it in IDE auto-complete + docs.
+    # Default "RMSE" matches the competition-canonical metric printed
+    # in chart titles ("MAE=... RMSE=... R2=..."). Applied uniformly
+    # across CB / LGB / XGB regression paths:
+    #   CB:  ``eval_metric=def_regr_metric``                 (native names)
+    #   LGB: ``metric=`` mapped {RMSE->l2, MAE->l1, Huber->huber, ...}
+    #   XGB: ``eval_metric=`` mapped {RMSE->rmse, MAE->mae, Huber->mphe, ...}
+    # Heavy-kurt route via ``_apply_loss_recommendation_in_place``
+    # overrides this for the affected target only.
+    def_regr_metric: str = Field(default="RMSE")
+    def_classif_metric: str = Field(default="AUC")
     # Deprecated: prefer FeatureSelectionConfig.rfecv_kwargs which carries
     # field-level validation against RFECV.__init__. This field remains for
     # backward compatibility with callers that thread rfecv params through

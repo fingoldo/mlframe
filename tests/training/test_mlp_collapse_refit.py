@@ -88,16 +88,20 @@ class TestCollapseDetection:
             n_rows=500,
         )
         result = _call_helper(stub, "PytorchLightningRegressor", train_df=list(range(500)), train_target=y)
-        assert result is True
-        # output_activation flipped to linear.
-        assert stub.network_params["output_activation"] == "linear"
-        # Scale + center cleared so the linear path doesn't inherit them.
-        assert "output_activation_scale" not in stub.network_params
-        assert "output_activation_center" not in stub.network_params
-        # Refit happened.
-        assert len(stub.fit_history) == 1
-        # Network reset (so the next fit rebuilds from scratch).
-        assert stub.network is None
+        # Stub's post_refit_pred is constant -> ratio2 stays 0 < threshold,
+        # so the helper walks the full ladder (3 rungs) and returns False
+        # at the end. Architectural fixes ran (BN enabled, then 1-layer,
+        # then dropout); none recovered a healthy fit.
+        assert result is False
+        # output_activation MUST NOT be stripped -- 2026-05-26 ladder
+        # contract preserves tanh_train_range so the prediction bound
+        # survives even when architectural fixes fail.
+        assert stub.network_params["output_activation"] == "tanh_train_range"
+        # All 3 ladder rungs attempted; each calls fit() once.
+        assert len(stub.fit_history) == 3
+        # Final state restored to original snapshot (last attempted rung
+        # not persisted when the ladder exhausts).
+        assert stub.network_params.get("use_batchnorm", False) is False
 
     def test_healthy_predictions_no_refit(self):
         """pred_std / y_std >= 0.1 -> no collapse, helper is a no-op."""
@@ -116,9 +120,14 @@ class TestCollapseDetection:
         assert stub.network_params["output_activation"] == "tanh_train_range"
         assert not stub.fit_history
 
-    def test_already_linear_no_refit(self):
-        """output_activation='linear' has nowhere to fall back to;
-        helper logs + returns False without touching the model."""
+    def test_already_linear_still_tries_ladder(self):
+        """2026-05-26 ladder contract: even when output_activation is
+        already 'linear', the helper still tries the architectural
+        ladder (BN, 1-layer, dropout). Earlier policy short-circuited
+        and gave up; new policy gives the model architectural fixes
+        regardless of which output activation was configured. The
+        architecture rungs ran but the constant-pred stub returns to
+        baseline so result is False (ladder exhausted)."""
         y = np.random.default_rng(2).standard_normal(500) * 10.0 + 11500.0
         stub = _StubLightning(
             initial_pred_value=11500.0,
@@ -128,7 +137,10 @@ class TestCollapseDetection:
         )
         result = _call_helper(stub, "PytorchLightningRegressor", train_df=list(range(500)), train_target=y)
         assert result is False
-        assert not stub.fit_history
+        # Architectural ladder DID run (3 rungs).
+        assert len(stub.fit_history) == 3
+        # output_activation untouched (was 'linear', stays 'linear').
+        assert stub.network_params["output_activation"] == "linear"
 
     def test_tiny_max_epochs_no_refit(self):
         """User explicitly chose ``max_epochs=2``: a collapsed-looking
@@ -169,9 +181,12 @@ class TestCollapseDetection:
         assert not stub.fit_history
 
     def test_refit_failure_swallowed(self):
-        """When the refit raises (e.g. backend rejects linear output
-        on a classification head), helper returns False; original
-        collapsed model survives so the chart shows the truth."""
+        """When EVERY refit rung raises, helper exhausts the ladder
+        and returns False; the model survives so the chart shows the
+        truth (R^2 likely < 0). With the 2026-05-26 ladder, fit() can
+        be called up to 3 times -- each ladder rung tries to refit;
+        all 3 should raise here, and the helper should still gracefully
+        return False without propagating the exception."""
         y = np.random.default_rng(4).standard_normal(500) * 10.0 + 11500.0
         class _RaisingStub(_StubLightning):
             def fit(self, X, y, **kwargs):

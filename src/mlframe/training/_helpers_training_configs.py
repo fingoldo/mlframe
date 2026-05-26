@@ -39,7 +39,18 @@ def get_training_configs(
     has_gpu: bool = None,
     subgroups: dict = None,
     learning_rate: float = 0.1,
-    def_regr_metric: str = "MAE",
+    # 2026-05-26 (user request): default flipped from "MAE" to "RMSE"
+    # for unified ES surface across CB / LGB / XGB / MLP. RMSE is the
+    # competition-canonical metric (matches sklearn.r2_score's denominator
+    # + the user-visible chart titles "MAE=... RMSE=... R2=..."). When
+    # heavy-kurt is detected, ``_apply_loss_recommendation_in_place``
+    # routes to Huber + matching eval_metric (so the booster doesn't
+    # optimise one surface while ES tracks another). When pre-fix the
+    # default was "MAE", CB / LGB / XGB on a near-Gaussian target
+    # ran objective=RMSE + eval_metric=MAE => ES surface plateaued
+    # earlier than the optimiser was descending => systematic under-
+    # convergence (~iter=147 vs the 5000-iter cap).
+    def_regr_metric: str = "RMSE",
     def_classif_metric: str = "AUC",
     # target_type-aware classifier objective injection. When target_type
     # is BINARY_CLASSIFICATION (default), the existing binary objectives
@@ -236,6 +247,18 @@ def get_training_configs(
         random_seed=random_seed,
     )
     XGB_GENERAL_PARAMS.update(xgb_kwargs)
+    # 2026-05-26 unified ES surface: XGB regression default eval_metric
+    # is "rmse" upstream, but mlframe used to leave it implicit -- ES
+    # then tracked whatever ``objective`` defaulted to. Stamp the
+    # eval_metric explicitly from ``def_regr_metric`` (mapped to xgb
+    # naming) so CB / LGB / XGB all early-stop on the same surface
+    # the user requested. ``_apply_loss_recommendation_in_place``
+    # routes around this when heavy-kurt detection wins.
+    _XGB_METRIC_NAME = {
+        "RMSE": "rmse", "MAE": "mae", "Huber": "mphe",
+        "MSLE": "rmsle", "MAPE": "mape",
+    }.get(def_regr_metric, def_regr_metric.lower())
+    XGB_GENERAL_PARAMS.setdefault("eval_metric", _XGB_METRIC_NAME)
 
     XGB_GENERAL_CLASSIF = XGB_GENERAL_PARAMS.copy()
     XGB_GENERAL_CLASSIF.update({"objective": "binary:logistic", "eval_metric": neg_ovr_roc_auc_score})
@@ -495,6 +518,16 @@ def get_training_configs(
         # histogram_pool_size=16384,
     )
     LGB_GENERAL_PARAMS.update(lgb_kwargs)
+    # 2026-05-26 unified ES surface (companion to the XGB metric stamp):
+    # LGB regression default ``metric`` is unset which means "use
+    # objective" -- on RMSE that's fine, but on MAE / Huber objective
+    # the ES surface drifts from CB's. Stamp ``metric`` explicitly so
+    # all three boosters track the same surface.
+    _LGB_METRIC_NAME = {
+        "RMSE": "l2", "MAE": "l1", "Huber": "huber",
+        "MAPE": "mape", "MSLE": "rmse",  # LGB has no msle; fall back
+    }.get(def_regr_metric, def_regr_metric.lower())
+    LGB_GENERAL_PARAMS.setdefault("metric", _LGB_METRIC_NAME)
     # Target-type-aware objective for LGB (no separate _CLASSIF variant).
     if _resolved_tt.is_classification and not _resolved_tt.is_binary:
         _lgb_obj = _classif_objective_kwargs("lightgbm", _resolved_tt, n_classes)

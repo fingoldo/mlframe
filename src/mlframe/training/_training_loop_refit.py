@@ -250,58 +250,85 @@ def _maybe_refit_on_collapsed_predictions(
     _ratio = _pred_std / _y_std
     if _ratio >= _COLLAPSED_PRED_STD_FRACTION:
         return False
-    # Only swap output_activation if it's currently the bounded variant
-    # (linear default doesn't have anywhere to go; user-chosen non-
-    # linear activations may be intentional).
+
+    # 2026-05-26 LADDER refactor: previous policy stripped the output
+    # bound (``output_activation='tanh_train_range' -> 'linear'``), but
+    # removing the bound trades collapse for catastrophic
+    # extrapolation -- predictions blow far outside y_train range and
+    # the envelope-clip + ensemble dummy-floor have to clean up. The
+    # bound is correct; the saturation is the symptom of an unhealthy
+    # inner network. Try architectural fixes that PRESERVE the bound:
+    #
+    #   1. Enable BatchNorm (the dominant cure for saturated inner
+    #      pre-activations under LeakyReLU + Adam + no normalisation).
+    #   2. Shrink to 1-layer architecture (eliminates the depth-induced
+    #      compounding that pushes pre-activations to the rails).
+    #   3. Last-resort: bump dropout (regularises away the collapsed
+    #      basin).
+    #
+    # Each rung tried in order, stop at the first that produces a
+    # non-collapsed fit. tanh_train_range stays put throughout.
     _net_params = dict(_inner.network_params)
-    _cur_act = str(_net_params.get("output_activation", "linear"))
-    if _cur_act == "linear":
+    _orig_snapshot = dict(_net_params)
+    _ladder: list[tuple[str, dict]] = []
+    if not _net_params.get("use_batchnorm", False):
+        _ladder.append(("enable_batchnorm",
+                        {"use_batchnorm": True}))
+    _ladder.append(("shrink_to_1_layer",
+                    {"use_batchnorm": True, "nlayers": 1}))
+    _ladder.append(("bump_dropout",
+                    {"use_batchnorm": True, "nlayers": 1,
+                     "dropout_prob": 0.15}))
+
+    for _step_idx, (_step_name, _patch) in enumerate(_ladder, start=1):
+        _candidate_params = dict(_orig_snapshot)
+        _candidate_params.update(_patch)
         logger_.warning(
-            "[pred-collapse] %s prediction collapse detected "
-            "(pred_std/y_std=%.4f < %.2f) but output_activation already "
-            "'linear'; no refit knob available. Downstream chart will "
-            "show the truth (near-constant predictions).",
+            "[pred-collapse] %s collapse detected (pred_std/y_std=%.4f < "
+            "%.2f; max_epochs=%s). Ladder step %d/%d: %s "
+            "(patch=%s). Output_activation STAYS 'tanh_train_range' "
+            "to keep the prediction bound; we change ARCHITECTURE.",
             model_type_name, _ratio, _COLLAPSED_PRED_STD_FRACTION,
+            str(_max_epochs) if _max_epochs is not None else "?",
+            _step_idx, len(_ladder), _step_name, _patch,
         )
-        return False
-    logger_.warning(
-        "[pred-collapse] %s prediction collapse detected "
-        "(pred_std/y_std=%.4f < %.2f; max_epochs=%s) under "
-        "output_activation=%r. Refitting with output_activation='linear' "
-        "(removed bound). Tanh_train_range can saturate inner pre-"
-        "activations on extreme-AR / extreme-kurt targets.",
-        model_type_name, _ratio, _COLLAPSED_PRED_STD_FRACTION,
-        str(_max_epochs) if _max_epochs is not None else "?", _cur_act,
-    )
-    _net_params["output_activation"] = "linear"
-    _net_params.pop("output_activation_scale", None)
-    _net_params.pop("output_activation_center", None)
-    try:
-        _inner.network_params = _net_params
-        # Reset the trained network so the next fit rebuilds from scratch.
-        if hasattr(_inner, "network"):
-            try:
-                _inner.network = None
-            except Exception:
-                pass
-        model_obj.fit(train_df, train_target, **fit_params)
-    except Exception as _refit_err:
+        try:
+            _inner.network_params = _candidate_params
+            if hasattr(_inner, "network"):
+                try:
+                    _inner.network = None
+                except Exception:
+                    pass
+            model_obj.fit(train_df, train_target, **fit_params)
+            _preds2 = np.asarray(model.predict(train_df)).reshape(-1)
+            _preds2_fin = _preds2[np.isfinite(_preds2)]
+            _ratio2 = (float(_preds2_fin.std()) / _y_std
+                       if _preds2_fin.size >= 10 else 0.0)
+        except Exception as _refit_err:
+            logger_.warning(
+                "[pred-collapse] %s ladder step %d (%s) refit raised: "
+                "%s. Trying next rung.",
+                model_type_name, _step_idx, _step_name, _refit_err,
+            )
+            continue
         logger_.warning(
-            "[pred-collapse] %s refit with output_activation='linear' "
-            "failed: %s. Keeping the collapsed fit; downstream chart "
-            "will show the truth.",
-            model_type_name, _refit_err,
+            "[pred-collapse] %s ladder step %d (%s) done: pred_std/"
+            "y_std %.4f -> %.4f%s.",
+            model_type_name, _step_idx, _step_name, _ratio, _ratio2,
+            (" (healthy)" if _ratio2 >= _COLLAPSED_PRED_STD_FRACTION
+             else " (still collapsed)"),
         )
-        return False
-    # Sanity-check post-refit prediction spread.
-    try:
-        _preds2 = np.asarray(model.predict(train_df)).reshape(-1)
-        _preds2_finite = _preds2[np.isfinite(_preds2)]
-        _ratio2 = float(_preds2_finite.std()) / _y_std if _preds2_finite.size >= 10 else 0.0
-    except Exception:
-        _ratio2 = 0.0
+        if _ratio2 >= _COLLAPSED_PRED_STD_FRACTION:
+            return True
+
+    # All ladder rungs exhausted; restore the original network_params
+    # so downstream (predict, save, serialise) sees the user-configured
+    # network rather than the last failed-rung mutation.
+    _inner.network_params = _orig_snapshot
     logger_.warning(
-        "[pred-collapse] %s refit complete: pred_std/y_std %.4f -> %.4f.",
-        model_type_name, _ratio, _ratio2,
+        "[pred-collapse] %s ladder exhausted without recovering a "
+        "healthy fit; keeping last attempt. Downstream chart will "
+        "show the truth (R^2 likely < 0).",
+        model_type_name,
     )
-    return True
+    return False
