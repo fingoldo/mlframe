@@ -1,0 +1,157 @@
+{
+  "agent_slug": "w14a-deep-dataclass-carves",
+  "task": "Deep carve of three deferred monoliths via dataclass / phase-grouping / pure-helper extraction; behavioural-equivalence required for all touched paths.",
+  "carves": {
+    "_ensembling_score.py": {
+      "pre_loc": 709,
+      "post_loc": 454,
+      "delta_loc": -255,
+      "target_loc": "<500",
+      "target_met": true,
+      "siblings": [
+        "src/mlframe/models/_ensembling_score_flavours.py"
+      ],
+      "sibling_loc": 466,
+      "sibling_count": 1,
+      "carve_pattern": "seven_pure_helpers_lifted_verbatim",
+      "sensor": "tests/models/test_monolith_split_w14a_ensembling_score.py",
+      "sensor_tests": 8,
+      "sensor_status": "8/8 PASS",
+      "behavioural_eq_passed": true,
+      "behavioural_eq_evidence": "89 ensembling tests across tests/test_ensembling_quality_gate.py + tests/training/test_ensembling_ensembling*.py + tests/training/test_ensembling_composition_metadata.py + tests/training/test_regression_w9e_ensembling_fixes.py + tests/training/test_ensemble_val_only_for_es.py + tests/training/test_member_quality_gate_nanmedian.py + tests/training/test_combine_probs_median_nanmedian.py + tests/models/test_monolith_split_w11a_ensembling_score.py + tests/models/test_monolith_split_w12a_ensembling_score.py + tests/models/test_monolith_split_w14a_ensembling_score.py all GREEN post-carve.",
+      "dataclass_used": false,
+      "dataclass_rationale": "Pure-helper extraction proved sufficient -- the seven sub-bodies have well-defined inputs/outputs and only mutate listed res-dict keys. A state dataclass would have added boilerplate without LOC saving.",
+      "helpers_extracted": [
+        "build_member_tag_lists",
+        "apply_quality_gate_kn",
+        "apply_diversity_drop",
+        "filter_sign_sensitive_flavours",
+        "collapse_to_single_flavour_if_identical",
+        "run_stacking_aware_gate",
+        "maybe_build_votenrank_leaderboard"
+      ],
+      "commit": "fe776600",
+      "notes": "compute_member_quality_gate is injected via a kwarg (default None -> internal import) so existing tests that monkey-patch the parent's module-level binding continue to hit the spy. Parent retains the module-level import (with # noqa: F401 -- monkey-patched by tests) so test_ensemble_val_only_for_es.py::test_member_quality_gate_routes_to_oof_not_val passes."
+    },
+    "_main_train_suite.py": {
+      "pre_loc": 921,
+      "post_loc": 699,
+      "delta_loc": -222,
+      "target_loc": "<700",
+      "target_met": true,
+      "siblings": [
+        "src/mlframe/training/core/_main_train_suite_phases.py"
+      ],
+      "sibling_loc": 473,
+      "sibling_count": 1,
+      "carve_pattern": "ten_phase_helpers_via_ctx_carrier_no_dataclass",
+      "sensor": "tests/training/test_monolith_split_w14a_main_train_suite.py",
+      "sensor_tests": 11,
+      "sensor_status": "11/11 PASS",
+      "behavioural_eq_passed": true,
+      "behavioural_eq_evidence": "33 tests across tests/training/test_train_mlframe_models_suite_error_paths.py + tests/training/test_training_loop_calibration_split.py + tests/training/test_monolith_split_w14a_main_train_suite.py + tests/models/test_monolith_split_w14a_ensembling_score.py all GREEN post-carve.",
+      "dataclass_used": false,
+      "dataclass_rationale": "ctx (TrainingContext) already carries every cross-phase mutable; a MainSuiteState dataclass would have duplicated ctx with no semantic gain. Phase-grouping into pure helpers achieved the <700 budget without it.",
+      "helpers_extracted": [
+        "validate_suite_inputs",
+        "apply_module_global_patches",
+        "warn_on_empty_target_by_type",
+        "check_precomputed_fingerprint",
+        "compute_or_fetch_trainset_features_stats",
+        "maybe_apply_composite_target_specs_precomputed",
+        "maybe_apply_dummy_baselines_precomputed",
+        "apply_polars_cat_fixes_and_back_write_ctx",
+        "run_recurrent_finalize_and_composite_post",
+        "export_votenrank_leaderboards"
+      ],
+      "commit": "4b5e54d7",
+      "notes": "apply_module_global_patches takes ``module`` so the helper can rebind the module-global apply_loky_cpu_count_override / apply_third_party_patches_once on first call -- preserves test monkeypatch surface. Removed dead-locals readback after the post-loop helper extraction (the original ctx -> local mirror of train_df_polars / pipeline / defer_pandas_conv / baseline_rss_mb / *_size_bytes_cached / trainset_features_stats / slug_to_original_target_{type,name} was already unread by the surrounding code; deleting it cost zero behaviour)."
+    },
+    "_phase_train_one_target_body.py": {
+      "pre_loc_per_task_brief": 933,
+      "pre_loc_observed": 1190,
+      "post_loc": 1069,
+      "delta_loc": -121,
+      "target_loc": "<700",
+      "target_met": false,
+      "target_met_reason": "Hit 1069 LOC vs <700 target. The body grew from 933 to 1190 between the task brief and the start of this wave because parallel agent W14B added ~250 LOC of MLP extreme-AR helpers (_apply_mlp_extreme_ar_output_activation, _apply_mlp_extreme_ar_weight_decay_bump, _identify_per_well_columns, _drop_columns_for_mlp, _get_per_well_pattern) at module scope on top of the existing monolith. Three pure helpers were carved safely (-121 LOC); the remaining ~880-LOC function body is the deeply-nested pre_pipeline / mlframe_model / weight_schema loop with 25+ closure-captured locals (orig_pre_pipeline, ens_models, weight_schemas, strategy_by_model, sorted_models, _suite_feature_cache, _per_pp_cache, tier_dfs_cache, tier_enum_map_cache, prepared_frames_cache, prev_tier, _non_neural_train_times, _total_models_in_run, _model_idx_in_run, _break_model_loop, _mlp_extreme_ar_fired / _mlp_ea_lag1, _ngb_fallback_snapshot, _cb_extra_fit_invariant, polars_fastpath_active, prepared_train/val/test, _xgb_category_map, _cat_features, tier_pandas, train_df_transformed / val_df_transformed / test_df_transformed). A safe extraction requires the OneTargetBodyState dataclass refactor planned in the task brief, paired with a comprehensive fuzz fixture (synthetic deterministic train/val/test multi-target run with sample_weights + multiple pre_pipelines + multiple strategies) as the byte-identical behavioural-equivalence witness. Per the original task brief: 'Если behavioural-equivalence НЕ achievable... DEFER carve, manifest reason.' Deferred. Recommendation for next wave: dedicated PR with biz_val fuzz fixture pinned BEFORE any phase extraction; the OneTargetBodyState dataclass should capture pre_pipeline / mlframe_model / weight loop state separately so per-loop extractions can land without dragging the surrounding orchestration.",
+      "siblings": [
+        "src/mlframe/training/core/_phase_train_one_target_schema.py"
+      ],
+      "sibling_loc": 211,
+      "sibling_count": 1,
+      "carve_pattern": "three_pure_helpers_lifted_verbatim",
+      "sensor": "tests/training/test_monolith_split_w14a_phase_train_one_target_body.py",
+      "sensor_tests": 5,
+      "sensor_status": "5/5 PASS",
+      "behavioural_eq_passed": true,
+      "behavioural_eq_evidence": "24 tests across tests/training/test_phase_train_one_target_imports.py + tests/training/test_monolith_split_w12b_phase_train_one_target.py + tests/training/test_monolith_split_w14a_phase_train_one_target_body.py all GREEN post-carve.",
+      "dataclass_used": false,
+      "dataclass_rationale": "OneTargetBodyState was planned but not built; the deepest body remains intact pending the dedicated fuzz-fixture-backed PR.",
+      "helpers_extracted": [
+        "_resolve_weight_schemas_and_warn_val_placement",
+        "_clone_model_with_sticky_flags",
+        "_build_and_record_model_schema"
+      ],
+      "commit": "f7db254c"
+    }
+  },
+  "deviations_from_plan": [
+    {
+      "file": "_phase_train_one_target_body.py",
+      "deviation": "Hit 1069 LOC vs <700 target (-121 vs the -490 implied by 1190 -> 700).",
+      "rationale": "Single-function monolith with no inner function defs and 25+ closure-captured locals shared across the pre_pipeline / mlframe_model / weight_schema nested loops. A behavioural carve requires the OneTargetBodyState dataclass refactor planned in the task brief, plus a fuzz fixture as the byte-identical equivalence witness. Per the original wave-12B / 12A deferral rationale + the task brief's risk-mitigation clause: deferred. Three safe pure-helper extractions landed (-121 LOC)."
+    }
+  ],
+  "behavioural_eq_test_summary": {
+    "ensembling_carve": "89 ensembling tests GREEN",
+    "main_train_suite_carve": "33 main-train-suite-related tests GREEN",
+    "phase_train_one_target_body_carve": "24 phase_train_one_target tests GREEN",
+    "total_green": 146
+  },
+  "totals": {
+    "files_assigned": 3,
+    "files_partially_carved": 1,
+    "files_fully_carved": 2,
+    "files_deferred": 0,
+    "siblings_created_total": 3,
+    "sensors_added_total": 3,
+    "sensor_tests_passed_total": 24,
+    "loc_removed_from_parents_total": 598,
+    "commits_local_master": [
+      "fe776600 refactor(ensembling): carve 7 pure helpers from _ensembling_score.py to siblings + behavioural-equivalence sensor",
+      "4b5e54d7 refactor(training): carve 10 phase helpers from _main_train_suite.py to siblings + behavioural-equivalence sensor",
+      "f7db254c refactor(training): carve 3 helpers from _phase_train_one_target_body.py to sibling + sensor"
+    ]
+  },
+  "test_results": {
+    "green_paths": [
+      "tests/models/test_monolith_split_w14a_ensembling_score.py (8/8)",
+      "tests/training/test_monolith_split_w14a_main_train_suite.py (11/11)",
+      "tests/training/test_monolith_split_w14a_phase_train_one_target_body.py (5/5)",
+      "tests/test_ensembling_quality_gate.py (full)",
+      "tests/training/test_ensembling_ensembling*.py (full)",
+      "tests/training/test_ensembling_composition_metadata.py (full)",
+      "tests/training/test_regression_w9e_ensembling_fixes.py (full)",
+      "tests/training/test_ensemble_val_only_for_es.py (2/2)",
+      "tests/training/test_member_quality_gate_nanmedian.py (full)",
+      "tests/training/test_combine_probs_median_nanmedian.py (full)",
+      "tests/models/test_monolith_split_w11a_ensembling_score.py (full)",
+      "tests/models/test_monolith_split_w12a_ensembling_score.py (7/7)",
+      "tests/training/test_train_mlframe_models_suite_error_paths.py (full)",
+      "tests/training/test_training_loop_calibration_split.py (full)",
+      "tests/training/test_phase_train_one_target_imports.py (full)",
+      "tests/training/test_monolith_split_w12b_phase_train_one_target.py (4/4)"
+    ],
+    "red_paths_unrelated_to_carves": [
+      "tests/training/test_training_overhead_integration_fixes.py::test_fix943_cb_val_pool_reused_on_predict_path_too (pre-existing CB val Pool reuse regression in trainer._predict_with_fallback; my carves do not touch trainer.py or the val-Pool cache machinery -- the failure is module-local and unrelated to _main_train_suite / _ensembling_score / _phase_train_one_target_body carves)"
+    ]
+  },
+  "next_session_recommendations": [
+    "Wave 15 phase_train_one_target_body OneTargetBodyState dataclass carve: target <700 LOC. Required prep: pin a deterministic fuzz fixture (multi-target synthetic regression suite with mixed strategies, mixed pre_pipelines, mixed weight schemas) that captures byte-identical models + metadata as the pre-carve snapshot. Then incrementally lift pre_pipeline / mlframe_model / weight_schema loop bodies into helpers via state dataclass; re-snapshot after each extraction and assert byte-identical via np.testing.assert_allclose(rtol=1e-12, atol=0.0) for floats + np.testing.assert_array_equal for int/bool. Reject any extraction that introduces numerical drift.",
+    "Investigate the test_fix943_cb_val_pool_reused_on_predict_path_too regression separately -- it is in trainer.py / _predict_guards.py / _cb_pool.py and not affected by W14A carves."
+  ],
+  "wavelet_dwt_touched": false,
+  "pushed": false,
+  "wall_minutes_estimate": 145
+}
