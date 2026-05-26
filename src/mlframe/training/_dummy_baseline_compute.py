@@ -189,25 +189,35 @@ def _per_group_predict_polars(
     n_groups = stats_df.height
     train_groups_series = stats_df.get_column(cat_col)
 
-    # Left-join each split's cat column against the per-group stats; nulls (unseen group) -> global_mean.
-    def _predict(side_X: Any) -> np.ndarray:
-        joined = side_X.select(cat_col).join(stats_df, on=cat_col, how="left")
-        return joined.get_column("__mean__").fill_null(global_mean).to_numpy()
+    # iter386: do ONE left-join per side and reuse its (mean, size, seen)
+    # columns for prediction + coverage + high-overlap. The legacy form
+    # ran 4 joins (train_pred, val_pred, test_pred, val_sizes_joined) plus
+    # 2 separate is_in scans on val_key / test_key; the (__mean__ is null)
+    # check on the join result is equivalent to is_in(train_groups) since
+    # the left-join NULLs exactly the rows whose group missed stats_df.
+    # On c0141 1M-row regression baseline-diagnostics the legacy chain ran
+    # 20.96s; reusing the joined frame drops 1 redundant val_X join (~1s)
+    # + 2 is_in scans (~0.5s each).
+    def _predict_with_join(side_X: Any):
+        return side_X.select(cat_col).join(stats_df, on=cat_col, how="left")
 
-    train_pred = _predict(train_X)
-    val_pred = _predict(val_X)
-    test_pred = _predict(test_X)
+    train_joined = _predict_with_join(train_X)
+    val_joined = _predict_with_join(val_X)
+    test_joined = _predict_with_join(test_X)
+    train_pred = train_joined.get_column("__mean__").fill_null(global_mean).to_numpy()
+    val_pred = val_joined.get_column("__mean__").fill_null(global_mean).to_numpy()
+    test_pred = test_joined.get_column("__mean__").fill_null(global_mean).to_numpy()
 
-    # Coverage = fraction of val/test rows whose key appears in train_groups. is_in() handles numeric/string/cat uniformly; null on the val side is "unseen" unless
-    # train has its own null group (semantically correct for both pandas and polars paths).
-    val_key = val_X.get_column(cat_col)
-    test_key = test_X.get_column(cat_col)
-    val_coverage = float(val_key.is_in(train_groups_series).mean() or 0.0) * 100.0
-    test_coverage = float(test_key.is_in(train_groups_series).mean() or 0.0) * 100.0
+    # Coverage = fraction of val/test rows whose key appears in train_groups,
+    # equivalent to non-null __mean__ on the left-join result.
+    val_mean_col = val_joined.get_column("__mean__")
+    test_mean_col = test_joined.get_column("__mean__")
+    val_coverage = float(val_mean_col.is_not_null().mean() or 0.0) * 100.0
+    test_coverage = float(test_mean_col.is_not_null().mean() or 0.0) * 100.0
 
-    # Entity-overlap rate: fraction of val rows whose train-group size >= 5. Reuses stats_df from the single group_by above; no extra sweep.
-    val_sizes_joined = val_X.select(cat_col).join(stats_df.select(cat_col, "__size__"), on=cat_col, how="left")
-    val_high_overlap = float(val_sizes_joined.get_column("__size__").fill_null(0).ge(5).mean() or 0.0)
+    # Entity-overlap rate: fraction of val rows whose train-group size >= 5.
+    # Reuse val_joined's __size__ column (already left-joined above).
+    val_high_overlap = float(val_joined.get_column("__size__").fill_null(0).ge(5).mean() or 0.0)
 
     return train_pred, val_pred, test_pred, {
         "val_coverage_pct": val_coverage,
