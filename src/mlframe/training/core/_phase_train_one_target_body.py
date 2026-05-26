@@ -49,8 +49,195 @@ from ._phase_train_one_target_ensembling import _finalize_per_target_ensembling
 from ._phase_train_one_target_polars_fastpath import _prepare_strategy_inputs
 from ._phase_train_one_target_pre_screen import _maybe_run_unsupervised_pre_screen
 from ._phase_train_one_target_model_setup import _setup_per_target_mlframe_models
+from ._phase_train_one_target_schema import (
+    _build_and_record_model_schema,
+    _clone_model_with_sticky_flags,
+    _resolve_weight_schemas_and_warn_val_placement,
+)
 
 logger = logging.getLogger("mlframe.training.core._phase_train_one_target")
+
+
+# Module-level compiled regex cache for the per-well-aggregate column
+# detector (Fix 2, 2026-05-26). Pattern is supplied via
+# ``behavior_config.mlp_drop_per_well_constants_pattern``; cached keyed
+# on the pattern string so a per-run config swap recompiles, but the
+# common case (single pattern across all targets) recompiles zero times.
+import re as _re_for_per_well
+_PER_WELL_PATTERN_CACHE: dict[str, "_re_for_per_well.Pattern[str]"] = {}
+
+
+def _get_per_well_pattern(pattern: str) -> "_re_for_per_well.Pattern[str]":
+    cached = _PER_WELL_PATTERN_CACHE.get(pattern)
+    if cached is None:
+        cached = _re_for_per_well.compile(pattern, _re_for_per_well.IGNORECASE)
+        _PER_WELL_PATTERN_CACHE[pattern] = cached
+    return cached
+
+
+def _identify_per_well_columns(columns, pattern: str) -> list[str]:
+    """Return the subset of ``columns`` matching the per-well-aggregate
+    regex. Used by the MLP extreme-AR protection to strip group-level
+    constants that extrapolate on unseen groups."""
+    if not columns or not pattern:
+        return []
+    rx = _get_per_well_pattern(pattern)
+    return [c for c in columns if rx.match(str(c))]
+
+
+def _drop_columns_for_mlp(df, cols_to_drop):
+    """Polars / pandas-agnostic helper that returns a NEW frame with the
+    given columns dropped. ``None`` -> ``None``. Missing columns are
+    silently ignored (safe in cross-tier reuse)."""
+    if df is None or not cols_to_drop:
+        return df
+    # Avoid ``if columns:`` -- pandas Index raises on bool(). Iterate
+    # directly: list(Index) yields the column names regardless of type.
+    _cols_attr = getattr(df, "columns", None)
+    if _cols_attr is None:
+        return df
+    _have = set(list(_cols_attr))
+    _drop = [c for c in cols_to_drop if c in _have]
+    if not _drop:
+        return df
+    try:
+        # Polars DataFrame
+        if pl is not None and isinstance(df, pl.DataFrame):
+            return df.drop(_drop)
+        # pandas DataFrame
+        return df.drop(columns=_drop)
+    except Exception:
+        return df
+
+
+def _apply_mlp_extreme_ar_weight_decay_bump(
+    model, factor: float, base_weight_decay: float,
+) -> bool:
+    """Walk the MLP estimator nesting (TTR / pipeline / metamodel) to
+    find ``model_params`` on the inner ``PytorchLightningEstimator`` and
+    bump ``optimizer_kwargs["weight_decay"]`` by ``factor`` (against
+    ``base_weight_decay`` when no prior decay was set). Forces AdamW
+    when the prior optimizer was plain Adam (Adam ignores weight_decay).
+
+    Returns True if the bump was applied (i.e. an inner Lightning estimator
+    was found and its model_params mutated), False otherwise.
+    """
+    # Walk known wrappers: TTR (.regressor), sklearn Pipeline (.named_steps),
+    # generic metamodel wrappers (.estimator / .base_estimator).
+    candidates = []
+    visited = set()
+
+    def _enqueue(obj):
+        if obj is None or id(obj) in visited:
+            return
+        visited.add(id(obj))
+        candidates.append(obj)
+
+    _enqueue(model)
+    found_inner = None
+    while candidates:
+        cur = candidates.pop(0)
+        if hasattr(cur, "model_params") and hasattr(cur, "network_params"):
+            found_inner = cur
+            break
+        # TTR
+        if hasattr(cur, "regressor"):
+            _enqueue(getattr(cur, "regressor"))
+        # Pipeline
+        if hasattr(cur, "named_steps"):
+            for step in cur.named_steps.values():
+                _enqueue(step)
+        # Generic estimator wrappers
+        for attr in ("estimator", "base_estimator", "estimator_", "regressor_"):
+            if hasattr(cur, attr):
+                _enqueue(getattr(cur, attr))
+
+    if found_inner is None:
+        return False
+
+    # Mutate in-place. The caller (per-weight loop) holds a freshly
+    # cloned model so this does NOT leak into other weight schemas.
+    try:
+        import torch as _torch
+        mp = dict(found_inner.model_params)
+        ok = dict(mp.get("optimizer_kwargs", {}) or {})
+        prior_decay = float(ok.get("weight_decay", 0.0) or 0.0)
+        # Bump: if user had no prior decay, multiply BASE instead of 0.
+        new_decay = (prior_decay if prior_decay > 0 else base_weight_decay) * factor
+        ok["weight_decay"] = new_decay
+        mp["optimizer_kwargs"] = ok
+        # Adam ignores weight_decay -> swap to AdamW.
+        cur_opt = mp.get("optimizer", None)
+        if cur_opt is _torch.optim.Adam:
+            mp["optimizer"] = _torch.optim.AdamW
+        found_inner.model_params = mp
+        logger.info(
+            "MLP extreme-AR + group-aware: weight_decay bumped %g -> %g "
+            "(factor=%g, base=%g); optimizer=%s.",
+            prior_decay, new_decay, factor, base_weight_decay,
+            getattr(mp.get("optimizer"), "__name__", str(mp.get("optimizer"))),
+        )
+        return True
+    except Exception as _bump_err:
+        logger.warning(
+            "MLP extreme-AR weight_decay bump failed (%s); leaving "
+            "optimizer kwargs unchanged.", _bump_err,
+        )
+        return False
+
+
+def _apply_mlp_extreme_ar_output_activation(model) -> bool:
+    """Walk the MLP estimator nesting and set ``network_params['output_activation']
+    = 'tanh_train_range'``. Bounds the regression head to ~6 sigma around
+    the y-train midpoint (Fix 1, 2026-05-26).
+
+    Returns True if applied, False otherwise.
+    """
+    candidates = []
+    visited = set()
+
+    def _enqueue(obj):
+        if obj is None or id(obj) in visited:
+            return
+        visited.add(id(obj))
+        candidates.append(obj)
+
+    _enqueue(model)
+    found_inner = None
+    while candidates:
+        cur = candidates.pop(0)
+        if hasattr(cur, "network_params") and isinstance(getattr(cur, "network_params"), dict):
+            found_inner = cur
+            break
+        if hasattr(cur, "regressor"):
+            _enqueue(getattr(cur, "regressor"))
+        if hasattr(cur, "named_steps"):
+            for step in cur.named_steps.values():
+                _enqueue(step)
+        for attr in ("estimator", "base_estimator", "estimator_", "regressor_"):
+            if hasattr(cur, attr):
+                _enqueue(getattr(cur, attr))
+
+    if found_inner is None:
+        return False
+    try:
+        np_dict = dict(found_inner.network_params)
+        # Respect explicit user override.
+        if np_dict.get("output_activation") not in (None, "linear"):
+            return False
+        np_dict["output_activation"] = "tanh_train_range"
+        found_inner.network_params = np_dict
+        logger.info(
+            "MLP extreme-AR + group-aware: output_activation='tanh_train_range' "
+            "enabled; scale/center auto-derived from y_train at fit time.",
+        )
+        return True
+    except Exception as _act_err:
+        logger.warning(
+            "MLP extreme-AR output_activation set failed (%s); leaving unchanged.",
+            _act_err,
+        )
+        return False
 
 
 def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_values):
@@ -179,45 +366,11 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
         ens_models = [] if use_mlframe_ensembles else None
         orig_pre_pipeline = pre_pipeline
 
-        if sample_weights:
-            weight_schemas = sample_weights
-            # SW-LOG-PER-PP-PER-TGT: emit this banner once per suite, not once per (target x
-            # pre_pipeline x weight). The weighting schema is suite-constant; identical lines
-            # repeated K_targets x K_pp times bloat the log without adding info.
-            if not ctx._sw_log_emitted:
-                if "uniform" in sample_weights:
-                    logger.info("Using %d weighting schema(s) from extractor: %s", len(weight_schemas), list(weight_schemas.keys()))
-                else:
-                    logger.info("Using %d weighting schema(s) from extractor: %s. Note: uniform weighting not included.", len(weight_schemas), list(weight_schemas.keys()))
-                ctx._sw_log_emitted = True
-        else:
-            weight_schemas = {"uniform": None}
-            if not ctx._sw_log_emitted:
-                logger.info("No weighting schemas from extractor, defaulting to uniform weighting.")
-                ctx._sw_log_emitted = True
-
-        # Backward val placement + recency weighting cancel each other's drift-proxy intent
-        # (val older than train, training biased to newest rows). Warn so the user picks one.
-        # VAL-PLACE-WARN-PP: gate behind a per-suite latch so the warning fires once, not per PP.
-        _val_placement = getattr(split_config, "val_placement", "forward")
-        if _val_placement == "backward" and not ctx._val_placement_warn_emitted:
-            _non_uniform = [k for k in weight_schemas.keys() if k != "uniform"]
-            if _non_uniform:
-                ctx._val_placement_warn_emitted = True
-                logger.warning(
-                    "  val_placement='backward' is combined with %d non-"
-                    "uniform weighting schema(s) %s. Backward val is "
-                    "designed to approximate DEPLOYMENT error under "
-                    "drift by mirroring the val->train gap against the "
-                    "train->prod gap, while recency-style weights bias "
-                    "training toward the newest rows. Together they "
-                    "optimise 'fit newest, validate on oldest' -- which "
-                    "contradicts the drift-proxy intent of backward. "
-                    "Consider disabling use_recency_weighting on the "
-                    "extractor (runs will fall back to uniform only) "
-                    "or switching back to val_placement='forward'.",
-                    len(_non_uniform), _non_uniform,
-                )
+        weight_schemas = _resolve_weight_schemas_and_warn_val_placement(
+            sample_weights=sample_weights,
+            split_config=split_config,
+            ctx=ctx,
+        )
 
         # Models sorted by feature tier (richest first) so text/embedding columns are dropped once per tier.
         # Strategy lookup keyed by id() because estimators / tuples are not hashable, and identity-distinct
@@ -270,30 +423,44 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             # The ensemble's quality gate catches it, but the wasted
             # 2.7 min train + 126 MB save dump is pure cost. Skip MLP
             # in this regime; lag_predict + Ridge carry the AR signal.
+            # Extreme-AR + group-aware MLP trigger predicate (shared by
+            # 3 protections: skip / drop per-well aggregate cols /
+            # bump weight_decay 100x). Computed once per (target, model)
+            # so the three protections agree on whether to fire.
+            _mlp_extreme_ar_fired = False
+            _mlp_ea_lag1 = None
+            _mlp_ea_thr = 0.99
             if mlframe_model_name == "mlp":
-                _mlp_skip_enabled = bool(getattr(
-                    behavior_config, "mlp_extreme_ar_group_aware_skip", False,
-                ))
-                _ea_thr = float(getattr(
+                _mlp_ea_thr = float(getattr(
                     behavior_config, "mlp_extreme_ar_threshold", 0.99,
                 ))
                 _td_report = metadata.get("target_distribution_report", {}) or {}
                 _td_diag = _td_report.get("diagnostics", {}) or {}
                 _td_knobs = _td_report.get("knob_overrides", {}) or {}
-                _lag1_ar = _td_diag.get("lag1_autocorr_per_group")
+                _mlp_ea_lag1 = _td_diag.get("lag1_autocorr_per_group")
                 _split_overrides = _td_knobs.get("split_config", {}) or {}
                 _group_aware = bool(_split_overrides.get("prefer_group_aware", False))
-                if (_mlp_skip_enabled
-                        and _group_aware
-                        and _lag1_ar is not None
-                        and float(_lag1_ar) >= _ea_thr):
+                _mlp_extreme_ar_fired = bool(
+                    _group_aware
+                    and _mlp_ea_lag1 is not None
+                    and float(_mlp_ea_lag1) >= _mlp_ea_thr
+                )
+
+                # Protection 1 (defensive opt-in): skip MLP entirely when
+                # the operator has flipped ``mlp_extreme_ar_group_aware_skip=True``.
+                # Default OFF; user explicitly wants MLP to train and
+                # rely on protections 2/3 + the TTR predict-clip to bound
+                # damage.
+                if _mlp_extreme_ar_fired and bool(getattr(
+                    behavior_config, "mlp_extreme_ar_group_aware_skip", False,
+                )):
                     logger.warning(
                         "Skipping MLP training for target='%s' (model %d/%d): "
                         "extreme-AR + group-aware skip fired "
                         "(lag1_autocorr_per_group=%.4f >= %.2f). Disable via "
                         "TrainingBehaviorConfig(mlp_extreme_ar_group_aware_skip=False).",
                         cur_target_name, _model_idx_in_run + 1,
-                        _total_models_in_run, float(_lag1_ar), _ea_thr,
+                        _total_models_in_run, float(_mlp_ea_lag1), _mlp_ea_thr,
                     )
                     continue
             _model_idx_in_run += 1
@@ -566,6 +733,46 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                         current_common_params["val_df"] = tier_pandas["val_df"]
                     if tier_pandas.get("test_df") is not None:
                         current_common_params["test_df"] = tier_pandas["test_df"]
+
+                # Fix 2 (2026-05-26): drop per-well aggregate columns from
+                # the MLP's view of X. Pattern matches ``well_*_(mean|std|min|max)``.
+                # Only the MLP sees the trimmed feature set; tree models in
+                # the suite get the original columns. Gated on the knob +
+                # the extreme-AR + group-aware trigger predicate (computed
+                # above for the model-level skip). Drop applies to train /
+                # val / test consistently so the predict path doesn't see
+                # extra columns the network wasn't trained on.
+                if (
+                    mlframe_model_name == "mlp"
+                    and bool(getattr(behavior_config, "mlp_drop_per_well_constants", True))
+                ):
+                    _drop_pattern = str(getattr(
+                        behavior_config,
+                        "mlp_drop_per_well_constants_pattern",
+                        r"^well_.*_(mean|std|min|max)$",
+                    ))
+                    _train_df_now = current_common_params.get("train_df")
+                    _cols_now = list(getattr(_train_df_now, "columns", []) or []) if _train_df_now is not None else []
+                    _per_well_cols = _identify_per_well_columns(_cols_now, _drop_pattern)
+                    if _per_well_cols:
+                        logger.info(
+                            "MLP per-well-aggregate column drop fired for target='%s': "
+                            "dropping %d columns matching %r (e.g. %s). Tree models "
+                            "still see them; only MLP gets the trimmed feature set.",
+                            cur_target_name, len(_per_well_cols), _drop_pattern,
+                            _per_well_cols[:3],
+                        )
+                        current_common_params["train_df"] = _drop_columns_for_mlp(
+                            current_common_params.get("train_df"), _per_well_cols,
+                        )
+                        if current_common_params.get("val_df") is not None:
+                            current_common_params["val_df"] = _drop_columns_for_mlp(
+                                current_common_params.get("val_df"), _per_well_cols,
+                            )
+                        if current_common_params.get("test_df") is not None:
+                            current_common_params["test_df"] = _drop_columns_for_mlp(
+                                current_common_params.get("test_df"), _per_well_cols,
+                            )
                 if getattr(behavior_config, "model_file_hash_suffix", True):
                     model_file_name += f"__sch_{_schema_hash}"
 
@@ -579,39 +786,13 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 # cloning all in-memory entries would alias to the same last-trained sklearn object and
                 # only the .dump snapshots would be correct. Do NOT move clone() outside the loop.
                 original_model = models_params[mlframe_model_name]["model"]
-                try:
-                    cloned_model = clone(original_model)
-                except RuntimeError:
-                    # CatBoost wraps custom eval_metric objects internally; sklearn's identity check fails.
-                    # Direct constructor call with get_params() produces an equivalent unfitted instance.
-                    cloned_model = type(original_model)(**original_model.get_params())
-                except TypeError:
-                    # NGBoost: get_params() exposes attributes the constructor doesn't accept. ``_cached_init_params`` memoizes the inspect.signature
-                    # lookup so the TypeError branch isn't paying ~0.5-1ms per hit -- the cache lives at module scope keyed by ``id(cls)`` because
-                    # ``cls.__init__`` is class-invariant. The constructor-kwargs dict itself (``{k:v for k in sig}``) is invariant across the weight loop
-                    # (only sample_weight differs at fit-time), so cache the filtered dict on first hit and re-splat per iteration.
-                    _cls = type(original_model)
-                    _sig_params = _cached_init_params(_cls)
-                    if _ngb_fallback_snapshot is None:
-                        _raw = original_model.get_params(deep=False)
-                        _ngb_fallback_snapshot = {k: v for k, v in _raw.items() if k in _sig_params}
-                    cloned_model = _cls(**_ngb_fallback_snapshot)
-                # sklearn.clone() strips non-param attributes; re-assert mlframe sticky flags so the
-                # calibration directive and the polars-fastpath-broken marker survive each iteration.
-                if getattr(original_model, "_mlframe_posthoc_calibrate", False):
-                    try:
-                        cloned_model._mlframe_posthoc_calibrate = True
-                    except Exception as _attr_err:
-                        logger.debug("Could not set _mlframe_posthoc_calibrate on clone: %s", _attr_err)
-                if getattr(original_model, "_mlframe_polars_fastpath_broken", False):
-                    try:
-                        cloned_model._mlframe_polars_fastpath_broken = True
-                    except Exception as _attr_err:
-                        logger.debug("Could not set _mlframe_polars_fastpath_broken on clone: %s", _attr_err)
-                # Hand the XGB DMatrix / LGB Dataset reuse caches forward across clone() so the
-                # weight-schema loop (uniform -> recency on the same train_df) reuses the heavy binned
-                # dataset in place via set_label / set_weight instead of rebuilding.
-                _forward_dataset_reuse_cache(original_model, cloned_model)
+                cloned_model, _ngb_fallback_snapshot = _clone_model_with_sticky_flags(
+                    original_model=original_model,
+                    _cached_init_params=_cached_init_params,
+                    _ngb_fallback_snapshot=_ngb_fallback_snapshot,
+                    _forward_dataset_reuse_cache=_forward_dataset_reuse_cache,
+                    logger_obj=logger,
+                )
                 # Isolation copy: each weight iteration installs its own cloned_model and may
                 # patch fit_params (CatBoost text/embedding fastpath); without copying we would
                 # mutate the suite-level models_params template and the next target would inherit
@@ -625,6 +806,27 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 if _cb_extra_fit_invariant and "fit_params" in current_model_params:
                     if _cb_extra_fit_invariant:
                         current_model_params["fit_params"] = {**current_model_params["fit_params"], **_cb_extra_fit_invariant}
+
+                # MLP extreme-AR + group-aware protections (Fix 1 + Fix 3,
+                # 2026-05-26). Trigger predicate ``_mlp_extreme_ar_fired``
+                # is set above (per target, per model). Both modifications
+                # land on the per-weight CLONED model, so other weight
+                # schemas of this target see the same overrides; the
+                # cross-target template is untouched because we mutate
+                # ``current_model_params["model"]`` not ``models_params``.
+                if mlframe_model_name == "mlp" and _mlp_extreme_ar_fired:
+                    # Fix 1: bounded output activation (tanh -> hard cap).
+                    _apply_mlp_extreme_ar_output_activation(cloned_model)
+                    # Fix 3: L2 weight_decay bump by factor (default 100x).
+                    _wd_factor = float(getattr(
+                        behavior_config, "mlp_extreme_ar_weight_decay_factor", 100.0,
+                    ))
+                    _wd_base = float(getattr(
+                        behavior_config, "mlp_extreme_ar_weight_decay_base", 1e-4,
+                    ))
+                    _apply_mlp_extreme_ar_weight_decay_bump(
+                        cloned_model, factor=_wd_factor, base_weight_decay=_wd_base,
+                    )
 
                 # Build process_model kwargs using helper
                 process_model_kwargs = _build_process_model_kwargs(
@@ -744,92 +946,26 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 # block above). Without this the cache would be born and die in a single iteration.
                 _forward_dataset_reuse_cache(cloned_model, original_model, skip_none=True)
 
-                # Persist this model's input-schema fingerprint in metadata so load-time can verify it
-                # against the serving frame. Multi-output extensions (target_type / n_classes /
-                # multilabel_strategy + schema_version) let load_mlframe_suite dispatch correctly;
-                # legacy artifacts without these fields fall back to binary inference.
-                _record = {
-                    "schema_hash": _schema_hash,
-                    "input_schema": _input_schema,
-                    "mlframe_model": mlframe_model_name,
-                    "weight_name": weight_name,
-                    "target_type": str(target_type) if target_type is not None else None,
-                    "schema_version": 2,  # 1=legacy, 2=multi-output-aware
-                }
-                train_y = (
-                    cur_target_values[_train_idx]
-                    if isinstance(cur_target_values, (np.ndarray, pl.Series))
-                    else cur_target_values.iloc[_train_idx]
+                _build_and_record_model_schema(
+                    ctx=ctx,
+                    metadata=metadata,
+                    model_file_name=model_file_name,
+                    mlframe_model_name=mlframe_model_name,
+                    weight_name=weight_name,
+                    target_type=target_type,
+                    strategy=strategy,
+                    cur_target_name=cur_target_name,
+                    cur_target_values=cur_target_values,
+                    _train_idx=_train_idx,
+                    pre_pipeline=pre_pipeline,
+                    pre_pipeline_name=pre_pipeline_name,
+                    train_df_transformed=train_df_transformed,
+                    _schema_hash=_schema_hash,
+                    _input_schema=_input_schema,
+                    _build_feature_selection_report=_build_feature_selection_report,
+                    _selector_params_hash=_selector_params_hash,
+                    _unwrap_selector=_unwrap_selector,
                 )
-                try:
-                    if target_type == _TargetTypes.MULTILABEL_CLASSIFICATION:
-                        _record["n_classes"] = (
-                            int(train_y.shape[1])
-                            if hasattr(train_y, "shape") and train_y.ndim == 2
-                            else None
-                        )
-                        _record["multilabel_strategy"] = "native" if (
-                            hasattr(strategy, "supports_native_multilabel") and strategy.supports_native_multilabel
-                        ) else "wrapper"
-                    elif target_type == _TargetTypes.MULTICLASS_CLASSIFICATION:
-                        _record["n_classes"] = (
-                            int(len(np.unique(np.asarray(train_y))))
-                            if hasattr(train_y, "shape") else None
-                        )
-                        _record["multilabel_strategy"] = None
-                    else:
-                        _record["n_classes"] = None
-                        _record["multilabel_strategy"] = None
-                except Exception as _intro_err:
-                    # Never fail the metadata write because of an introspection error on optional fields.
-                    # Surface as warning since load_mlframe_suite dispatches on n_classes/multilabel_strategy.
-                    logger.warning("n_classes/multilabel_strategy introspection failed for %s: %s", mlframe_model_name, _intro_err)
-
-                # Per-model feature-selection report. ``pre_pipeline`` returned by ``process_model``
-                # is the FITTED selector / pipeline (or None for the ordinary branch). ``train_df_
-                # transformed.columns`` gives the post-FS surviving features for both pandas and
-                # polars frames. The report is always stamped (selector_name=None for ordinary) so
-                # downstream consumers can rely on the key existing.
-                #
-                # Cache the report at (target, pp_name, model_name, selector_params_hash, kept_cols)
-                # because the fitted selector + kept columns are weight-invariant. The prior key used
-                # id(pre_pipeline) which is Python's memory-address; once an object is GC'd its id can
-                # be recycled, so a long-lived ``ctx._fs_report_cache`` could collide on a recycled
-                # address across the per-(target, model) inner loops. ``_selector_params_hash`` is
-                # content-derived and id-stable across recycling.
-                try:
-                    _kept_cols = None
-                    if train_df_transformed is not None and hasattr(train_df_transformed, "columns"):
-                        _kept_cols = list(train_df_transformed.columns)
-                    _fsr_key = (
-                        cur_target_name,
-                        pre_pipeline_name,
-                        mlframe_model_name,
-                        _selector_params_hash(_unwrap_selector(pre_pipeline)),
-                        tuple(_kept_cols) if _kept_cols is not None else None,
-                    )
-                    _fsr_cached = ctx._fs_report_cache.get(_fsr_key)
-                    if _fsr_cached is None:
-                        _fsr_cached = _build_feature_selection_report(
-                            pre_pipeline=pre_pipeline,
-                            pre_pipeline_name=pre_pipeline_name,
-                            fitted_columns_in=None,
-                            kept_columns=_kept_cols,
-                        )
-                        ctx._fs_report_cache[_fsr_key] = _fsr_cached
-                    _record["feature_selection_report"] = _fsr_cached
-                except Exception as _fsr_err:
-                    logger.warning("feature_selection_report build failed for %s: %s", mlframe_model_name, _fsr_err)
-                    _record["feature_selection_report"] = {
-                        "selector_name": None,
-                        "selector_params_hash": None,
-                        "kept_features": None,
-                        "dropped_features": None,
-                        "scores": None,
-                        "reason_per_feature": None,
-                    }
-
-                metadata.setdefault("model_schemas", {})[model_file_name] = _record
 
                 if cached_dfs is None:
                     pipeline_cache.set(cache_key, train_df_transformed, val_df_transformed, test_df_transformed)
