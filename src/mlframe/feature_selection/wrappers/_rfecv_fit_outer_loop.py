@@ -222,7 +222,10 @@ def run_outer_loop_iteration(
         )
         state.nofeatures_score = final_score
         if verbose:
-            logger.info(f"Baseline with 0 features, score={scores_mean:.{ndigits}f} +/- {scores_std:.{ndigits}f} ~ {final_score:.{ndigits}f}")
+            logger.info(
+                "Baseline with 0 features, score=%s +/- %s ~ %s",
+                f"{scores_mean:.{ndigits}f}", f"{scores_std:.{ndigits}f}", f"{final_score:.{ndigits}f}",
+            )
         if top_predictors_search_method == OptimumSearch.ModelBasedHeuristic:
             state.Optimizer.submit_evaluations(candidates=[0], evaluations=[final_score], durations=[None])
 
@@ -242,7 +245,10 @@ def run_outer_loop_iteration(
 
         if verbose:
             logger.info(
-                f"Tried {len(current_features):_} features ({textwrap.shorten(', '.join(map(str, current_features[:40])), 150)}), score={scores_mean:.{ndigits}f} +/- {scores_std:.{ndigits}f} ~ {final_score:.{ndigits}f}"
+                "Tried %s features (%s), score=%s +/- %s ~ %s",
+                f"{len(current_features):_}",
+                textwrap.shorten(', '.join(map(str, current_features[:40])), 150),
+                f"{scores_mean:.{ndigits}f}", f"{scores_std:.{ndigits}f}", f"{final_score:.{ndigits}f}",
             )
 
     state.prev_nfeatures, state.prev_score = len(current_features), final_score
@@ -281,9 +287,11 @@ def run_outer_loop_iteration(
         # If the first explored subset (whatever MBH seeded; default seed = 2 features) is already worse than the dummy at 0 features, there's no point continuing.
         if final_score < state.nofeatures_score:
             logger.info(
-                f"Stopping RFECV early: dummy baseline at 0 features ({state.nofeatures_score:.{ndigits}f}) "
-                f"already beats the first explored subset of {len(current_features)} features "
-                f"({final_score:.{ndigits}f}). The model can't learn anything from this data."
+                "Stopping RFECV early: dummy baseline at 0 features (%s) already beats the first "
+                "explored subset of %d features (%s). The model can't learn anything from this data.",
+                f"{state.nofeatures_score:.{ndigits}f}",
+                len(current_features),
+                f"{final_score:.{ndigits}f}",
             )
             return IterationOutcome.BREAK
 
@@ -292,12 +300,12 @@ def run_outer_loop_iteration(
         state.ran_out_of_time = delta > (max_runtime_mins * 60)
         if state.ran_out_of_time:
             if verbose:
-                logger.info(f"max_runtime_mins={max_runtime_mins:_.1f} reached.")
+                logger.info("max_runtime_mins=%s reached.", f"{max_runtime_mins:_.1f}")
             return IterationOutcome.BREAK
 
     if max_refits and state.nsteps >= max_refits:
         if verbose:
-            logger.info(f"max_refits={max_refits:_} reached.")
+            logger.info("max_refits=%s reached.", f"{max_refits:_}")
         return IterationOutcome.BREAK
 
     if final_score > state.best_score:
@@ -310,7 +318,7 @@ def run_outer_loop_iteration(
 
     if best_desired_score is not None and final_score > best_desired_score:
         if verbose:
-            logger.info(f"best_desired_score {best_desired_score:_.{ndigits}f} reached.")
+            logger.info("best_desired_score %s reached.", f"{best_desired_score:_.{ndigits}f}")
         return IterationOutcome.BREAK
 
     if max_noimproving_iters and state.n_noimproving_iters >= max_noimproving_iters:
