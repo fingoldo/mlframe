@@ -35,25 +35,25 @@ from mlframe.feature_selection.wrappers import RFECV as OurRFECV  # noqa: N811
 def _clf_redundant():
     """Classification with redundant features. RFECV should drop redundancy.
     shuffle=False keeps informative cols at indices [0..n_informative)."""
-    X, y = make_classification(
+    from tests.training.synthetic import make_sklearn_classification_df
+    X_df, y, _ = make_sklearn_classification_df(
         n_samples=400, n_features=20, n_informative=5,
-        n_redundant=10, n_repeated=0, n_classes=2,
-        n_clusters_per_class=1, random_state=0, class_sep=1.5,
-        shuffle=False,
+        n_redundant=10, n_classes=2,
+        n_clusters_per_class=1, class_sep=1.5,
+        shuffle=False, seed=0,
     )
-    cols = [f"f{i}" for i in range(X.shape[1])]
-    return pd.DataFrame(X, columns=cols), y, 5  # informative count
+    return X_df, y, 5  # informative count
 
 def _clf_noisy():
     """Classification with many noise features."""
-    X, y = make_classification(
+    from tests.training.synthetic import make_sklearn_classification_df
+    X_df, y, _ = make_sklearn_classification_df(
         n_samples=300, n_features=25, n_informative=4,
-        n_redundant=0, n_repeated=0, n_classes=2,
-        n_clusters_per_class=1, random_state=1, class_sep=1.5,
-        shuffle=False,
+        n_redundant=0, n_classes=2,
+        n_clusters_per_class=1, class_sep=1.5,
+        shuffle=False, seed=1,
     )
-    cols = [f"f{i}" for i in range(X.shape[1])]
-    return pd.DataFrame(X, columns=cols), y, 4
+    return X_df, y, 4
 
 def _reg_correlated():
     """Regression where target depends on a few features + correlated noise.
