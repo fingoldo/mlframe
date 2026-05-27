@@ -818,7 +818,32 @@ class PytorchLightningEstimator(BaseEstimator):
                         torch.cuda.is_available = lambda: False
                     except Exception:
                         pass
-                    # Retry one more time on CPU now that CUDA is hidden.
+                    # iter420 (2026-05-27): explicitly move self.model
+                    # parameters to CPU BEFORE the retry. Hiding CUDA at
+                    # the module level does NOT relocate tensors that are
+                    # already on the (invalidated) GPU; Lightning's
+                    # accelerator='cpu' then crashes trying to operate
+                    # on GPU-resident weights with a broken context.
+                    # Surfaced on c0005 LTR run 2026-05-27: even after
+                    # iter341's CUDA-hide, the second CPU retry raised
+                    # the same CUDA illegal-memory-access error because
+                    # ``self.model.parameters()`` were still cuda:0
+                    # tensors. ``.to('cpu')`` reads from GPU memory
+                    # which is exactly what's broken -- so do it inside
+                    # try/except and continue regardless; if the move
+                    # itself fails the Trainer call will still raise
+                    # cleanly with the original CUDA error.
+                    try:
+                        self.model.to("cpu")
+                    except Exception as _e_move:
+                        logger.error(
+                            "Failed to move model parameters off the "
+                            "invalidated GPU context (%s); the CPU retry "
+                            "below will likely re-raise the CUDA error.",
+                            _e_move,
+                        )
+                    # Retry one more time on CPU now that CUDA is hidden
+                    # AND model weights are CPU-resident.
                     try:
                         _cpu_params2 = {
                             "accelerator": "cpu",

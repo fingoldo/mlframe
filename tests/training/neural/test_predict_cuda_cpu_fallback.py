@@ -104,6 +104,61 @@ def test_predict_cpu_fallback_on_cuda_runtime_error(caplog, monkeypatch):
     )
 
 
+def test_predict_3rd_tier_cuda_fail_moves_model_to_cpu_before_retry(caplog, monkeypatch):
+    """iter420 regression: when the FIRST CPU fallback ALSO raises a CUDA
+    error (context already invalidated), the recovery path hides CUDA at
+    the torch module level AND moves ``self.model`` to CPU. Pre-fix the
+    third-tier retry left model parameters on the invalidated GPU and
+    Lightning re-raised the same illegal-memory-access. Surfaced on c0005
+    LTR 2026-05-27."""
+    import lightning as L
+    import torch
+
+    invocations = {"count": 0}
+    moved_to_cpu = {"yes": False}
+
+    def _fake_predict(self, *args, **kwargs):
+        invocations["count"] += 1
+        if invocations["count"] in (1, 2):
+            # First call: GPU path. Second call: first CPU retry, which
+            # also fails with CUDA fingerprint (context invalidated).
+            raise RuntimeError(
+                "CUDA error: an illegal memory access was encountered"
+            )
+        # Third call: only succeeds if model is now on CPU.
+        return [torch.zeros(8, 1)]
+
+    np.random.seed(0)
+    X = np.random.randn(32, 4).astype(np.float32)
+    y = np.random.randn(32).astype(np.float32)
+    est = _make_regressor()
+    est.fit(X, y, eval_set=(X, y))
+
+    # Wrap .to so we can observe whether the recovery path moved the model.
+    _orig_to = est.model.to
+    def _spy_to(*a, **kw):
+        if a and a[0] == "cpu":
+            moved_to_cpu["yes"] = True
+        return _orig_to(*a, **kw)
+    monkeypatch.setattr(est.model, "to", _spy_to)
+
+    invocations["count"] = 0
+    monkeypatch.setattr(L.Trainer, "predict", _fake_predict)
+    est.trainer_params = {**est.trainer_params, "accelerator": "cuda"}
+
+    caplog.set_level(logging.ERROR, logger="mlframe.training.neural.base")
+    predictions = est.predict(X)
+
+    assert invocations["count"] == 3, (
+        f"expected 3 predict invocations (cuda fail + CPU fail + CPU retry), "
+        f"got {invocations['count']}"
+    )
+    assert moved_to_cpu["yes"], (
+        "expected self.model.to('cpu') to be called in the 3rd-tier recovery"
+    )
+    assert predictions is not None
+
+
 def test_predict_non_cuda_runtime_error_still_raises(monkeypatch):
     """Narrow filter sanity: a non-CUDA RuntimeError must propagate so
     we don't mask genuine training bugs as transient CUDA faults."""
