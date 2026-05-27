@@ -59,17 +59,20 @@ def test_composite_discovery_disc_df_build_does_not_leak_target_into_caller_pd()
     )
 
 
-def test_composite_discovery_disc_df_build_does_not_share_block_with_caller():
-    """The discovery helper MUST return a frame whose underlying block buffers
-    do NOT alias the caller's frame. ``copy(deep=False) + setitem`` shares the
-    BlockManager and exposes the caller to silent mutation through any future
-    pandas-internal setitem path that promotes a shared block (e.g. dtype-
-    matching multi-column writes); ``.assign(...)`` always constructs a fresh
-    BlockManager so the invariant holds across pandas versions.
+def test_composite_discovery_disc_df_build_does_not_leak_mutation_to_caller():
+    """The discovery helper MUST NOT let a write to its returned frame mutate
+    the caller's ``filtered_train_df``.
 
-    The aliasing check via ``np.shares_memory`` catches the bad pattern
-    deterministically, even on pandas versions where the value-level leak
-    only fires under specific dtype + block layouts.
+    The real invariant is MUTATION ISOLATION, not physical buffer identity.
+    Under pandas Copy-on-Write (default in pandas 3.0 / opt-in in 2.x, active
+    on the prod box 2026-05-27) ``.assign(...)`` returns a frame whose
+    unchanged columns LAZILY SHARE buffers with the source -- ``np.shares_memory``
+    reports True -- yet CoW guarantees any subsequent write triggers a copy, so
+    no mutation ever leaks. A physical ``shares_memory`` assertion therefore
+    fails-but-safe under CoW; assert the behaviour (write isolation) instead, so
+    the test holds whether CoW shares buffers or not. The bad pattern this guards
+    against (``copy(deep=False) + setitem`` promoting a shared block) WOULD leak a
+    value mutation and is caught here.
     """
     n = 200
     filtered_train_df = pd.DataFrame({
@@ -78,16 +81,18 @@ def test_composite_discovery_disc_df_build_does_not_share_block_with_caller():
     })
     y = np.arange(n, dtype=np.float64)
     _disc = _build_disc_df_for_target(filtered_train_df, "target_A", y)
-    # Even if pandas' CoW happens to spare us today on a value-level leak, the
-    # ``copy(deep=False)`` pattern leaves the discovery frame's float64 column
-    # buffer aliased to the caller's frame. ``.assign(...)`` builds a fresh
-    # BlockManager that does NOT alias.
-    for col in ("x0", "x1"):
-        assert not np.shares_memory(
-            filtered_train_df[col].to_numpy(), _disc[col].to_numpy()
-        ), (
-            f"S04: column {col!r} in _disc_df aliases the caller's "
-            f"filtered_train_df. The helper must use ``.assign(...)`` "
-            f"or a fresh-BlockManager constructor (``copy(deep=False)`` "
-            f"shares blocks)."
-        )
+    caller_x0_before = filtered_train_df["x0"].to_numpy().copy()
+    caller_x1_before = filtered_train_df["x1"].to_numpy().copy()
+    # Write through the discovery frame's feature columns. If the helper shared
+    # a writable block with the caller (copy(deep=False)+setitem), this poke
+    # would bleed back; ``.assign`` + CoW isolates it.
+    _disc.loc[:, "x0"] = -1.0
+    _disc.loc[:, "x1"] = -2.0
+    np.testing.assert_array_equal(
+        filtered_train_df["x0"].to_numpy(), caller_x0_before,
+        err_msg="S04: write to _disc['x0'] leaked into caller's filtered_train_df",
+    )
+    np.testing.assert_array_equal(
+        filtered_train_df["x1"].to_numpy(), caller_x1_before,
+        err_msg="S04: write to _disc['x1'] leaked into caller's filtered_train_df",
+    )

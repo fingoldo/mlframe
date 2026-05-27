@@ -74,8 +74,18 @@ def test_slow_marker_skipped_in_fast_subprocess(tmp_path):
     )
     env = {**os.environ, "MLFRAME_FAST": "1"}
     result = subprocess.run(
+        # ``-p no:randomly``: the spawned subprocess inherits whatever
+        # random-seeder plugins are installed in the ambient env. On boxes with
+        # spacy/thinc present, pytest_randomly's reseed hook calls thinc's
+        # ``fix_random_seed`` -> ``numpy.random.seed(seed)`` which raises
+        # ``ValueError: Seed must be between 0 and 2**32 - 1`` on some
+        # numpy/thinc combos (observed prod box 2026-05-27), erroring the demo
+        # tests before they can report pass/skip. This test is about --fast
+        # marker skipping, NOT random ordering, so disable the plugin in the
+        # controlled subprocess to isolate it from that env incompatibility.
         [sys.executable, "-m", "pytest", str(test_file),
-         "-p", "no:cacheprovider", "--no-cov", "-q", "-o", "addopts="],
+         "-p", "no:cacheprovider", "-p", "no:randomly",
+         "--no-cov", "-q", "-o", "addopts="],
         capture_output=True, text=True, cwd=tmp_path, env=env,
     )
     assert "1 passed" in result.stdout and "1 skipped" in result.stdout, result.stdout + result.stderr

@@ -670,14 +670,20 @@ def _auto_detect_feature_types(
             _meta_embed_obj = None
 
         nunique_cols: list = []
-        # pandas 2.3+ surfaces object string columns as
-        # ``pd.StringDtype(na_value=nan)`` whose ``str(dtype)`` reads
-        # ``'<StringDtype(na_value=nan)>'`` -- doesn't start with
-        # "object" / "string" / "category" so the legacy prefix check
-        # silently dropped every high-cardinality text column to the
-        # numeric-only path (skills_text -> text=[], observed big
-        # machine 2026-05-24). Cover the StringDtype variants too.
-        _string_like_dtype_tokens = ("object", "string", "category", "stringdtype")
+        # pandas 2.3+ / 3.0 surface object string columns under several
+        # ``str(dtype)`` spellings that the legacy ("object","string",...)
+        # prefix list missed, silently dropping every high-cardinality
+        # text column to the numeric-only path (skills_text -> text=[]):
+        #   * ``pd.StringDtype(na_value=nan)`` -> ``'<StringDtype(na_value=nan)>'``
+        #     (observed big machine 2026-05-24)
+        #   * ``future.infer_string`` / pandas 3.0 default -> ``'str'``
+        #     (observed big machine 2026-05-27). ``'str'.startswith('string')``
+        #     is False, so a bare ``str`` dtype slipped through.
+        # The ``"str"`` token is a prefix of every string spelling
+        # (str / string / string[python] / StringDtype...), so it
+        # subsumes the old "string"/"stringdtype" tokens; "object" and
+        # "category" stay explicit (they don't start with "str").
+        _string_like_dtype_tokens = ("object", "str", "category")
         for col in _columns:
             if col in user_assigned:
                 continue

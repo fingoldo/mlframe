@@ -32,6 +32,24 @@ from mlframe.training.splitting import make_train_test_split
 _RNG = np.random.default_rng(20260526)
 
 
+@pytest.fixture(autouse=True)
+def _reseed_shared_rng():
+    """Reset the module-level ``_RNG`` to a fixed seed before every test.
+
+    ``_RNG`` is a shared singleton consumed by ``_fake_df`` + the per-test
+    group/label draws. Without this reset the values any given test sees depend
+    on how many ``_RNG`` draws prior tests made -- i.e. on EXECUTION ORDER.
+    Under pytest-randomly (active on the prod box) tests run in shuffled order,
+    so the StratifiedGroupKFold inputs changed and the class-balance assertions
+    drifted past tolerance (observed 2026-05-27). Re-seeding here makes each
+    test's data deterministic regardless of order. (Locally we usually run
+    ``-p no:randomly`` which masked the bug.)
+    """
+    global _RNG
+    _RNG = np.random.default_rng(20260526)
+    yield
+
+
 def _fake_df(n: int, n_features: int = 4) -> pd.DataFrame:
     return pd.DataFrame(
         _RNG.standard_normal((n, n_features)),

@@ -43,7 +43,15 @@ def test_make_categorical_classification_data_has_cat_features():
     df, names, cats, y = make_categorical_classification_data(n_samples=300, n_numeric=4, seed=3)
     assert df.shape == (300, 4 + 3 + 1)
     assert set(cats).issubset(set(df.columns))
-    assert all(df[c].dtype == object for c in cats)
+    # The cat columns are string-typed. pandas reports the dtype as ``object``
+    # by default but as ``str`` / ``string`` under ``future.infer_string`` /
+    # pandas 3.0 (observed on the prod box 2026-05-27). Assert "string-like",
+    # not strictly object, so the builder contract holds across pandas modes.
+    for c in cats:
+        _dt = str(df[c].dtype).lower()
+        assert _dt.startswith(("object", "str", "category")), (
+            f"cat column {c!r} should be string-like; got dtype {df[c].dtype!r}"
+        )
     assert len(y) == 300
 
 

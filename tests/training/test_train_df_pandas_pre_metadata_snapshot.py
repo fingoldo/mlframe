@@ -46,39 +46,40 @@ def test_metadata_dict_snapshot_immune_to_numpy_inplace_mutation():
         "category": pd.Categorical([f"cat_{i % 5}" for i in range(n)]),
     })
 
-    shallow = train_df.copy(deep=False)
     meta = _build_meta_dict(train_df)
 
     pre_unique_text = train_df["skills_text"].nunique()
     pre_score_first = float(train_df["score"].iloc[0])
+    pre_skills_dtype = str(train_df["skills_text"].dtype)
 
-    # In-place numpy poke that escapes the shallow-copy block-manager refcount.
-    # pandas 2.3+ surfaces .to_numpy() / .values as read-only even after
-    # the column is reassigned with a writable numpy array. Use pandas-
-    # native ``.iat`` setitem (bypasses CoW restrictions per-cell) -- the
-    # metadata-snapshot consumer doesn't care HOW the value was mutated,
-    # only that the source frame changed beneath the snapshot.
+    # Mutate the SOURCE frame after the snapshot: an in-place cell poke + a
+    # wholesale dtype-swapping column replacement. The metadata-dict snapshot
+    # baked its values at construction time and must reflect the PRE-mutation
+    # state regardless of how the source frame changes afterwards.
     _score_col_idx = train_df.columns.get_loc("score")
     train_df.iat[0, _score_col_idx] = -9999.0
-    # Replace the object-dtype column wholesale to also confirm dtype-swap escape.
     train_df["skills_text"] = train_df["skills_text"].astype("category").cat.codes
 
-    # Shallow snapshot LEAKS the numpy poke (block-manager is shared).
-    assert shallow["score"].iloc[0] == -9999.0, (
-        "Test premise broken: shallow copy unexpectedly isolated the numpy mutation. "
-        "Update test to use a mutation pattern that escapes block-manager refcount."
-    )
+    # NOTE: we deliberately do NOT assert that the shallow ``copy(deep=False)``
+    # snapshot leaks the mutation. Under pandas Copy-on-Write (default in
+    # pandas 3.0 / opt-in in 2.x, active on the prod box 2026-05-27) a shallow
+    # copy is mutation-isolated, so that "premise" is false there. The contract
+    # under test is the metadata DICT snapshot's immunity, which holds in BOTH
+    # CoW and non-CoW modes because it captures plain values at snapshot time.
 
     # Metadata-dict snapshot survives unscathed.
     assert meta["columns"] == ["skills_text", "score", "category"]
-    assert meta["dtypes"]["skills_text"] == "object"
+    # ``skills_text`` is string-typed: ``object`` by default, ``str`` under
+    # future.infer_string / pandas 3.0. Accept string-like, not strictly object.
+    assert str(meta["dtypes"]["skills_text"]).lower().startswith(("object", "str")), meta["dtypes"]["skills_text"]
     assert meta["dtypes"]["score"] == "float64"
     assert str(meta["dtypes"]["category"]).startswith("category")
     assert meta["n_unique"]["skills_text"] == pre_unique_text
     assert meta["shape"] == (n, 3)
-    # Sanity: the source frame and the shallow snapshot now disagree with the metadata snapshot.
+    # Sanity: the source frame now disagrees with the metadata snapshot
+    # (the mutation landed on the source, the dict snapshot stayed put).
     assert float(train_df["score"].iloc[0]) != pre_score_first
-    assert str(train_df["skills_text"].dtype) != "object"
+    assert str(train_df["skills_text"].dtype) != pre_skills_dtype
 
 
 def test_metadata_dict_snapshot_immune_to_column_add():
