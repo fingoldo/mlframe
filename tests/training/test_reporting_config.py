@@ -238,7 +238,10 @@ class TestOutputConfig:
 class TestFeatureImportanceConfig:
     def test_defaults_match_plot_function_kwargs(self):
         cfg = FeatureImportanceConfig()
-        assert cfg.num_factors == 10
+        # plot_model_feature_importances' num_factors default was bumped
+        # 10 -> 15 (post-33-feature rollout); FeatureImportanceConfig's
+        # default must track the plot-function default it documents.
+        assert cfg.num_factors == 15
         assert cfg.figsize == (7.5, 2.5)
         assert cfg.positive_fi_only is False
         assert cfg.show_plots is True

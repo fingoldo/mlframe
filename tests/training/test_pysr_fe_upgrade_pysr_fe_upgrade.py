@@ -212,14 +212,36 @@ def test_extra_sympy_mappings_cover_every_custom_unary():
 
 
 def test_safe_log_sympy_mapping_handles_zero_without_inf():
-    """safe_log must produce a finite value at x=0 (the whole point of the
-    safe variant). The +1e-9 inside log abs ensures log(0+eps) = log(1e-9),
-    which is finite though large negative.
+    """safe_log must NOT produce a non-finite Python float / sympy zoo at
+    x=0; the sympy mapping must faithfully replicate the Julia training-
+    time semantics ``safe_log(x) = x > 0 ? log(x) : NaN``.
+
+    The earlier draft expected ``log(1e-9) ~= -20.72`` via an
+    ``sp.log(sp.Abs(x) + 1e-9)`` form. That form was chosen for sympy
+    printability but it CHANGED the function PySR fit at train time --
+    predictions on negative / zero inputs then saw a value the model
+    never saw during training. The intentional fix (see pysr_operators
+    module docstring) is the Piecewise form that returns sp.nan at
+    x <= 0; this test now pins THAT behaviour.
     """
+    import math
     import sympy as sp
     from mlframe.feature_engineering.pysr_operators import _make_extra_sympy_mappings
     mappings = _make_extra_sympy_mappings()
     safe_log = mappings["safe_log"]
     x = sp.Symbol("x")
+    # sympy's ``sp.nan`` -> Python float NaN under float().
     val_at_zero = float(safe_log(x).subs(x, 0))
-    assert val_at_zero == pytest.approx(-20.72, abs=0.1)  # log(1e-9) ~= -20.72
+    assert math.isnan(val_at_zero), (
+        f"safe_log(0) must be NaN to match Julia training-time semantics; got {val_at_zero!r}"
+    )
+    # Negative input -> NaN too (same Julia branch).
+    val_at_negative = float(safe_log(x).subs(x, -1))
+    assert math.isnan(val_at_negative), (
+        f"safe_log(-1) must be NaN; got {val_at_negative!r}"
+    )
+    # Positive input -> log(x) finite. log(E) == 1.
+    val_at_positive = float(safe_log(x).subs(x, sp.E))
+    assert val_at_positive == pytest.approx(1.0, abs=1e-9), (
+        f"safe_log(E) must be 1.0; got {val_at_positive!r}"
+    )

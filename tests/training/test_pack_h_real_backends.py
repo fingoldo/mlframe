@@ -123,7 +123,17 @@ class TestPackHRealBackends:
         assert models_params["xgb"]["model"].get_params().get("objective") == "reg:squarederror"
 
     def test_contaminated_target_picks_huber(self) -> None:
-        """Extreme kurtosis (~ contaminated mixture) should pick Huber and the real backends must accept that variant string."""
+        """Moderate-kurt contaminated mixture should pick Huber and the real backends must accept that variant string.
+
+        Production policy is tiered on ``excess_kurt``:
+            * kurt > 1.5  -> Huber
+            * kurt > 20.0 -> REVERTS to RMSE (Huber gradient collapses on
+              extreme tails -- booster ES at iter=0/1)
+        The earlier draft used contamination scale 30.0 which produced
+        kurt~61 and landed in the RMSE band, contradicting this test's
+        intent. Scale 3.0 keeps kurt~5 (squarely in the Huber band) so
+        the assertion exercises the Huber path it claims to.
+        """
         from mlframe.training.core._phase_train_one_target import (
             _apply_loss_recommendation_in_place,
         )
@@ -131,7 +141,7 @@ class TestPackHRealBackends:
         rng = np.random.default_rng(13)
         main = rng.standard_normal(5000)
         idx = rng.choice(5000, size=250, replace=False)
-        main[idx] = rng.standard_normal(250) * 30.0
+        main[idx] = rng.standard_normal(250) * 3.0
 
         models_params = _build_models_params()
         _apply_loss_recommendation_in_place(

@@ -181,13 +181,16 @@ def test_suite_falls_back_to_inline_when_bundle_field_is_none(tmp_path, monkeypa
         get_trainset_features_stats as _real_pd_stats,
     )
     from mlframe.training.core import main as _main_mod
-    # The body of ``train_mlframe_models_suite`` was moved into
-    # ``_main_train_suite`` by a prior monolith split. The runtime call to
-    # ``get_trainset_features_stats`` therefore resolves via that sibling's
-    # module-level import, not via ``main``'s. Patching only ``main`` would
-    # silently no-op. Patch both so the sensor catches regressions on either
-    # module's binding.
-    from mlframe.training.core import _main_train_suite as _main_suite_mod
+    # The body of ``train_mlframe_models_suite`` was moved through
+    # ``_main_train_suite`` -> ``_main_train_suite_phases`` by successive
+    # monolith-split waves. The runtime ``get_trainset_features_stats`` call
+    # lives in ``_main_train_suite_phases`` (function-local lazy import via
+    # ``from ..helpers import get_trainset_features_stats``). Patching only
+    # ``main`` would silently no-op. Patch the source module ``helpers``
+    # too -- the function-local re-imports resolve through that name and
+    # will see the patched function regardless of which carve owns the
+    # caller.
+    from mlframe.training import helpers as _helpers_mod
 
     calls = {"n": 0}
 
@@ -200,7 +203,7 @@ def test_suite_falls_back_to_inline_when_bundle_field_is_none(tmp_path, monkeypa
         raise _InlineStatsRanFromBundleNone()
 
     monkeypatch.setattr(_main_mod, "get_trainset_features_stats", _counting_then_abort)
-    monkeypatch.setattr(_main_suite_mod, "get_trainset_features_stats", _counting_then_abort)
+    monkeypatch.setattr(_helpers_mod, "get_trainset_features_stats", _counting_then_abort)
 
     df = _make_regression_df(n=300, seed=19)
     fte = FTE(target_column="target", regression=True)

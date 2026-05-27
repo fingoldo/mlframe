@@ -19,16 +19,19 @@ import pytest
 
 def _read_main_or_split() -> str:
     """The ``train_mlframe_models_suite`` body was carved out of ``main.py``
-    into ``_main_train_suite.py`` during the monolith-split wave; the
-    deepcopy assignments moved with it. Concat both files so the
-    source-grep boundary check still matches the relocated code."""
+    into ``_main_train_suite.py`` -> further into ``_main_train_suite_phases.py``
+    during successive monolith-split waves; the deepcopy assignments moved
+    with each carve. Concat all known carve siblings so the source-grep
+    boundary check still matches the relocated code regardless of which
+    carve generation owns it."""
     import pathlib
     import mlframe as _mlframe
     _core = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core"
     primary = (_core / "main.py").read_text(encoding="utf-8")
-    sib = _core / "_main_train_suite.py"
-    if sib.exists():
-        primary = primary + "\n" + sib.read_text(encoding="utf-8")
+    for _sibname in ("_main_train_suite.py", "_main_train_suite_phases.py"):
+        sib = _core / _sibname
+        if sib.exists():
+            primary = primary + "\n" + sib.read_text(encoding="utf-8")
     return primary
 
 

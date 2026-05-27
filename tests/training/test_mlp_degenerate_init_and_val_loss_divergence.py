@@ -207,12 +207,21 @@ class TestOutsideTrainYEnvelopeSensorBranch:
     """#2: new branch in ``regression-collapse-sensor`` that fires when
     predictions land > 3 sigma outside [y_train_min, y_train_max]."""
 
-    def test_branch_fires_when_y_train_stats_supplied(self, caplog) -> None:
+    def test_branch_fires_when_y_train_stats_supplied(self, caplog, monkeypatch) -> None:
         from mlframe.training import _reporting
         # report_regression_model_perf was carved out of _reporting.py into
         # sibling _reporting_regression.py during the 1k-LOC monolith split;
         # the logger.warning fires on the sibling's logger now.
         caplog.set_level(logging.WARNING, logger="mlframe.training._reporting_regression")
+        # Disable the prediction-envelope-clip that runs BEFORE the
+        # regression-collapse-sensor. Without this, preds[0]=14000 gets
+        # clipped to (y_train_max + 3*std) = 13100 inside
+        # ``clip_predictions_to_train_envelope``, and the collapse-sensor's
+        # ``_above_hi = (pred_max - y_train_max) / y_train_std`` lands at
+        # exactly 3.0 -- below the ``> 3.0`` trip threshold. The test's
+        # premise is the sensor fires on the unclipped pred, so silence
+        # the clip via its documented kill-switch env var.
+        monkeypatch.setenv("MLFRAME_DISABLE_PREDICTION_ENVELOPE_CLIP", "1")
         # Test rows: in-batch target std=100, mean=11500. Preds: also
         # mean~11500, std~50 (no in-batch collapse signal). BUT preds
         # range goes to 14000 while y_train_max=12500 with y_train_std=200.

@@ -361,12 +361,22 @@ class TestEdgeCaseStress:
     """Stress tests for edge cases."""
 
     def test_very_small_dataset(self, temp_data_dir, common_init_params):
-        """Test with minimum viable dataset size."""
+        """Test with minimum viable dataset size.
+
+        ``train_mlframe_models_suite`` defaults to bucket-stratified
+        train/val/test splitting for regression targets (4 buckets via
+        sklearn's ``StratifiedShuffleSplit``). sklearn refuses the split
+        when ``test_size < n_classes`` (here 4). n=10 gave test_size=1
+        and crashed; bump to n=50 so default 0.1 test_size = 5 >= 4
+        bucket cardinality. Still "very small" -- the stress test floors
+        the suite codepath at the smallest dataset that survives default
+        stratification, which is what "minimum viable" means in practice.
+        """
         np.random.seed(42)
         df = pd.DataFrame({
-            'feature_0': np.random.randn(10),
-            'feature_1': np.random.randn(10),
-            'target': np.random.randn(10),
+            'feature_0': np.random.randn(50),
+            'feature_1': np.random.randn(50),
+            'target': np.random.randn(50),
         })
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
