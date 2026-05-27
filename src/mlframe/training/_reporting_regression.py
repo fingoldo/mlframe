@@ -486,13 +486,22 @@ def report_regression_model_perf(
         # marker (y-scale charts have it too).
         _model_name_str = str(model_name)
         _is_t_scale_composite_chart = "MTRESID" in _model_name_str
+        # 2026-05-27 user pushback: a T-scale chart is useless to the
+        # operator -- they need a y-scale chart for THIS model that's
+        # comparable to raw-target charts. The y-scale chart for
+        # composite models is emitted by ``_phase_composite_wrapping``
+        # after the wrap pass (which has access to the wrapped predict()
+        # returning y-scale + the raw y target). HERE we just skip the
+        # T-scale residual chart (which is the only thing computable
+        # from the data this function sees).
+        # Override via env MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS=1
+        # (kept for debugging the T-scale residual distribution).
         if _is_t_scale_composite_chart and not os.environ.get(
             "MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS",
         ):
             logger.info(
-                "%s %s: T-scale report skipped (composite target). "
-                "y-scale metrics in [CompositeTargetEstimator] / "
-                "[DUMMY_BASELINES] log blocks for this target.",
+                "%s %s: T-scale chart skipped here; y-scale chart for this "
+                "model is emitted by [CompositeTargetEstimator] wrap-pass.",
                 report_title, model_name,
             )
             return preds_arr, None

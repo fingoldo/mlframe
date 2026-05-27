@@ -207,6 +207,12 @@ class ResidualAudit:
     suggested_loss: str                 # e.g. "MSE", "MAE", "Huber"
     rationale: list[str] = field(default_factory=list)
     warnings_: list[str] = field(default_factory=list)
+    # Formal normality test result -- D'Agostino K^2 + Anderson-Darling.
+    # The moment-based heuristic above misses bimodal / asymmetric
+    # distributions whose skew + excess_kurt happen to land inside the
+    # cutoff band; these tests catch them via principled hypothesis
+    # testing instead. None when n < 20.
+    normality_test: dict | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -230,6 +236,7 @@ class ResidualAudit:
             "suggested_loss": self.suggested_loss,
             "rationale": list(self.rationale),
             "warnings": list(self.warnings_),
+            "normality_test": dict(self.normality_test) if self.normality_test else None,
         }
 
 
@@ -266,6 +273,7 @@ def _diagnose(
     pct_outliers_3sigma: float,
     y_true_all_nonneg: bool,
     y_pred_all_nonneg: bool,
+    normality_test: dict | None = None,
 ) -> tuple[str, str, list[str]]:
     """Map diagnostics -> (hypothesis, suggested_loss, rationale lines)."""
     rationale: list[str] = []
@@ -361,12 +369,34 @@ def _diagnose(
 
     # True Gaussian verdict reserved for tight near-Normal:
     # |skew| < 0.3 AND |excess_kurt| < 0.5 AND |hetero| < 0.3.
+    # Final gate: formal normality test (D'Agostino K^2 + Anderson-Darling).
+    # Moment-based heuristics above can return ``True`` for bimodal /
+    # asymmetric distributions whose skew + excess_kurt happen to land
+    # inside the cutoff band (user-reported case: skew=-0.17 kurt=-0.12
+    # with visible asymmetric hist tails -> labelled Gaussian). When the
+    # formal test rejects H0, downgrade the verdict.
+    if normality_test is not None and normality_test.get("reject_normal"):
+        rationale.append(
+            f"moment-based heuristics within Normal band "
+            f"(|skew|={abs_skew:.2f}, excess_kurt={excess_kurt:+.2f}) but "
+            f"formal tests reject H0: {normality_test.get('verdict')}."
+        )
+        return (
+            "Empirically non-Normal (formal test rejects)",
+            "Huber (robust default since formal tests reject Normal; pick delta ~ 1-2 * MAD)",
+            rationale,
+        )
     rationale.append(
         f"residuals look ~Gaussian: |skew|={abs_skew:.2f} (< {SKEW_MODERATE}), "
         f"excess kurt={excess_kurt:+.2f} (within "
         f"+/-{EXCESS_KURT_NEAR_GAUSSIAN}), "
         f"|hetero|={abs_hetero:.2f}. Default MSE / MAE losses are appropriate."
     )
+    if normality_test is not None and np.isfinite(normality_test.get("k2_p", np.nan)):
+        rationale.append(
+            "formal tests do not reject Normal: "
+            f"{normality_test.get('verdict')}."
+        )
     return "Gaussian (well-behaved)", "MSE (default) - diagnostics support the standard regression assumption", rationale
 
 
@@ -513,12 +543,29 @@ def audit_residuals(
     y_true_all_nonneg = bool(y_true.min() >= 0)
     y_pred_all_nonneg = bool(y_pred.min() >= 0)
 
+    # Formal normality test (D'Agostino K^2 + Anderson-Darling) gates the
+    # final "Gaussian (well-behaved)" verdict. The two tests catch
+    # bimodal / asymmetric distributions whose moments happen to land
+    # inside the heuristic cutoff band -- a class of bug the legacy
+    # diagnose path could not detect.
+    normality_test: dict | None = None
+    try:
+        from pyutilz.stats.normality import normality_verdict as _nv
+        normality_test = _nv(residuals)
+    except Exception as _nv_err:
+        logger.debug(
+            "normality_verdict unavailable / failed: %s; "
+            "audit will fall back to moment-cutoff heuristic only.",
+            _nv_err,
+        )
+
     hypothesis, suggested_loss, rationale = _diagnose(
         skew=skew, excess_kurt=excess_kurt,
         hetero_spearman=hetero_spearman,
         pct_outliers_3sigma=pct_outliers_3sigma,
         y_true_all_nonneg=y_true_all_nonneg,
         y_pred_all_nonneg=y_pred_all_nonneg,
+        normality_test=normality_test,
     )
 
     # Edge-case warnings.
@@ -549,6 +596,7 @@ def audit_residuals(
         suggested_loss=suggested_loss,
         rationale=rationale,
         warnings_=warnings,
+        normality_test=normality_test,
     )
 
 

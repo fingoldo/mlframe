@@ -65,6 +65,19 @@ def _read(rel: str) -> str:
             _sib_path = _SRC_ROOT / "core" / sib
             if _sib_path.exists():
                 primary = primary + "\n" + _sib_path.read_text(encoding="utf-8")
+    # Wave 100 monolith split: the cross-target ensemble body that holds
+    # the OOF holdout call moved to ``_phase_composite_post_xt_ensemble.py``.
+    # Sensor markers still pinned to ``_phase_composite_post.py`` need to
+    # see the sibling too.
+    if rel == "core/_phase_composite_post.py":
+        for sib in (
+            "_phase_composite_post_xt_ensemble.py",
+            "_phase_composite_post_lag_predict.py",
+            "_phase_composite_wrapping.py",
+        ):
+            _sib_path = _SRC_ROOT / "core" / sib
+            if _sib_path.exists():
+                primary = primary + "\n" + _sib_path.read_text(encoding="utf-8")
     return primary
 
 

@@ -154,6 +154,9 @@ def run_composite_post_processing(
             test_df_pd=test_df_pd,
             skip_predict=_skip_predict,
             enable_watchdog=_enable_watchdog,
+            target_name=target_name,
+            plot_file=plot_file,
+            reporting_config=reporting_config,
         )
 
     # Cross-target ensemble (opt-in). Stored as a SimpleNamespace under models[type][f"_CT_ENSEMBLE__{original_target}"].

@@ -9,7 +9,7 @@ continue to work.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple  # noqa: F401
 
 import numpy as np
 import pandas as pd
@@ -28,6 +28,80 @@ logger = logging.getLogger(__name__)
 _WATCHDOG_RELATIVE_THRESHOLD = 0.01
 
 
+def _emit_yscale_composite_chart(
+    *,
+    y_target: np.ndarray,
+    y_pred: np.ndarray,
+    inner_entry: Any,
+    composite_name: str,
+    orig_tname: str,
+    target_name: str,
+    plot_file: str | None,
+    reporting_config: Any,
+    rmse_y: float,
+    mae_y: float,
+    r2_y: float,
+) -> None:
+    """Emit a y-scale chart for a composite-target model.
+
+    Called from the wrap pass on the TEST split. The chart's
+    ``targets`` and ``preds`` are both already on the raw y scale
+    (wrapper.predict returns y-scale; y_target is the original raw
+    target sliced to test rows). Model name format mirrors raw-target
+    reports (``MTTR/MTTS``) so the chart sits alongside them.
+    """
+    try:
+        from ..evaluation import report_regression_model_perf
+    except Exception:
+        return
+    if y_target.size == 0 or y_pred.size == 0:
+        return
+    # Derive a chart-friendly model_name. The original entry's
+    # ``model_name`` attribute (if present) carries the inner backend
+    # name; fall back to the inner class name.
+    _outer = getattr(inner_entry, "model", None) or inner_entry
+    _inner_class = type(getattr(_outer, "estimator_", _outer)).__name__
+    _human_inner = _inner_class.replace("Regressor", "").replace("With", " With ")
+    # Compose the MTTR=mean header to match raw-target reports.
+    _mttr = float(np.mean(y_target))
+    _mtts = float(np.std(y_target))
+    chart_model_name = (
+        f"{_inner_class} {target_name} {composite_name} "
+        f"[y-scale wrap-pass] MTTR/MTTS={_mttr:.2f}/{_mtts:.2f}"
+    )
+    # Per-composite plot file (so the chart doesn't overwrite the
+    # raw-target one and shows up as a sibling file alongside it).
+    if plot_file:
+        if "." in plot_file:
+            _stem, _ext = plot_file.rsplit(".", 1)
+            _plot_path = f"{_stem}_yscale_{composite_name}.{_ext}"
+        else:
+            _plot_path = f"{plot_file}_yscale_{composite_name}"
+    else:
+        _plot_path = ""
+    _plot_outputs = getattr(reporting_config, "plot_outputs", None) if reporting_config else None
+    _plot_dpi = getattr(reporting_config, "plot_dpi", None) if reporting_config else None
+    report_regression_model_perf(
+        targets=y_target,
+        preds=y_pred,
+        columns=(),
+        model_name=chart_model_name,
+        model=None,
+        report_title="TEST",
+        print_report=True,
+        show_perf_chart=True,
+        plot_file=_plot_path,
+        plot_outputs=_plot_outputs,
+        plot_dpi=_plot_dpi,
+    )
+    logger.info(
+        "[CompositeTargetEstimator] y-scale chart emitted for "
+        "composite='%s' inner=%s (MAE=%.4g RMSE=%.4g R2=%.4f, "
+        "n_test=%d)",
+        composite_name, _inner_class, mae_y, rmse_y, r2_y, int(y_target.size),
+    )
+
+
 def _run_composite_target_wrapping(
     *,
     models: dict,
@@ -42,6 +116,9 @@ def _run_composite_target_wrapping(
     test_df_pd,
     skip_predict: bool = False,
     enable_watchdog: bool = True,
+    target_name: str | None = None,
+    plot_file: str | None = None,
+    reporting_config: Any = None,
 ) -> dict[tuple, np.ndarray]:
     """Wrap T-scale inner models in CompositeTargetEstimator so predict() returns y-scale; record y-scale RMSE/MAE/R2 per split.
 
@@ -245,6 +322,32 @@ def _run_composite_target_wrapping(
                             "MAE_raw": _mae_raw,
                             "MAE_wrapped": _mae_wrapped,
                         }
+                        # 2026-05-27 user requirement: emit a Y-SCALE
+                        # chart for composite models on the TEST split
+                        # so it is directly comparable to raw-target
+                        # charts (same MTTR/MTTS units, same scatter
+                        # axes). The T-scale residual chart in
+                        # ``_reporting_regression`` is skipped exactly
+                        # to make room for this y-scale chart.
+                        if _split_name == "test" and target_name is not None:
+                            try:
+                                _emit_yscale_composite_chart(
+                                    y_target=_y_split.astype(np.float64)[_finite],
+                                    y_pred=_y_pred[_finite],
+                                    inner_entry=_entry,
+                                    composite_name=_composite_name,
+                                    orig_tname=_orig_tname,
+                                    target_name=target_name,
+                                    plot_file=plot_file,
+                                    reporting_config=reporting_config,
+                                    rmse_y=_rmse_wrapped, mae_y=_mae_wrapped, r2_y=_r2,
+                                )
+                            except Exception as _chart_err:
+                                logger.warning(
+                                    "[CompositeTargetEstimator] y-scale chart "
+                                    "emit failed for composite='%s' (non-fatal): %s",
+                                    _composite_name, _chart_err,
+                                )
                         # HIGH#4 2026-05-18: watchdog short-circuit when caller disabled it.
                         # The check below does an extra wrapper.predict + inner.predict
                         # per (entry, split) so a wide model zoo can pay 10s+ on 4M-row

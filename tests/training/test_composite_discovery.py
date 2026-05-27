@@ -139,6 +139,15 @@ class TestAutoBase:
         # measures what MI screening keeps; the default "hybrid" trims
         # to top_m_after_tiny=3 via Phase B and a different test
         # (TestRawYBaselineGate) covers that path.
+        # 2026-05-27 update: the registry grew to ~20 transforms
+        # (residual-family: polynomial_residual_deg2, chain_linres_cbrt,
+        # chain_linres_yj, smoothing_spline_residual, median_residual,
+        # asinh_residual, additive_residual, ...) which all clear eps
+        # AND beat the legacy 4 (diff / ratio / logratio / linear_residual)
+        # on MI on TVT_prev. With top_k_after_mi=8 the legacy 4 get
+        # displaced -- this is correct behaviour, not a bug. The original
+        # test intent was "discovery surfaces multiple distinct
+        # transforms for a strong base column", which still holds.
         df = _tvt_strong()
         cfg = CompositeTargetDiscoveryConfig(
             enabled=True, screening="mi",
@@ -150,8 +159,18 @@ class TestAutoBase:
                  feature_cols=["TVT_prev", "x1", "x2", "x3"],
                  train_idx=np.arange(1200))
         transforms_kept = {s.transform_name for s in disc.specs_ if s.base_column == "TVT_prev"}
-        # All 4 core transforms should clear eps when base is TVT_prev.
-        assert {"diff", "ratio", "logratio", "linear_residual"}.issubset(transforms_kept)
+        # linear_residual is the canonical baseline transform; it
+        # MUST always clear eps when base is TVT_prev (strong linear signal).
+        assert "linear_residual" in transforms_kept, (
+            f"linear_residual missing from kept transforms: {transforms_kept}"
+        )
+        # And the discovery surfaces at least 4 distinct transforms
+        # (originally the goal was "4 different mappings of y to T",
+        # which the broader registry now satisfies more thoroughly).
+        assert len(transforms_kept) >= 4, (
+            f"discovery returned only {len(transforms_kept)} transforms on "
+            f"strong TVT_prev signal: {transforms_kept}"
+        )
 
     def test_explicit_base_passes_through_filters(self) -> None:
         df = _tvt_strong()
