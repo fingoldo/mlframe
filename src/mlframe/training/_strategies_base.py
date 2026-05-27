@@ -22,6 +22,26 @@ from sklearn.pipeline import Pipeline
 
 logger = logging.getLogger(__name__)
 
+
+def _cast_numeric_to_float32(X):
+    """Down-cast a fully-numeric transformer output to float32.
+
+    SimpleImputer / StandardScaler upcast float32 input to float64 on older
+    sklearn (the mean/var accumulation runs in float64), doubling the memory
+    of the cached transformed frame (a 4.1M x 470 frame is ~7.7 GB in
+    float32, ~15 GB in float64). Appended after the scaler on the numeric
+    (linear) path so the persisted/cached output is float32 regardless of
+    sklearn version. Preserves the pandas/polars container when set_output
+    is active. Idempotent; safe only where every column is numeric (the
+    requires_scaling path, after encoding + imputation)."""
+    import numpy as _np
+    if hasattr(X, "astype"):
+        try:
+            return X.astype(_np.float32)
+        except (TypeError, ValueError):
+            return _np.asarray(X, dtype=_np.float32)
+    return _np.asarray(X, dtype=_np.float32)
+
 # Pre-compiled slug pattern (MEMORY.md: pre-compile regex at module level).
 # Only allow alnum, dash, underscore; everything else collapses to a single "_".
 _SLUG_PATTERN = re.compile(r"[^A-Za-z0-9_-]+")
@@ -359,6 +379,18 @@ class ModelPipelineStrategy(ABC):
         if self.requires_scaling:
             if scaler is not None:
                 steps.append(("scaler", scaler))
+                # Guarantee float32 output: SimpleImputer/StandardScaler
+                # upcast float32 -> float64 on older sklearn, doubling the
+                # cached transformed-frame memory (the prod 4.1M x 470 linear
+                # path sat at 15 GB float64 / RAM 111->128 GB). The cast keeps
+                # the numeric output (and PipelineCache entry) float32.
+                from sklearn.preprocessing import FunctionTransformer
+                steps.append((
+                    "to_float32",
+                    FunctionTransformer(
+                        _cast_numeric_to_float32, feature_names_out="one-to-one",
+                    ),
+                ))
             else:
                 logger.warning(
                     "%s.build_pipeline: requires_scaling=True but scaler is None. Scaling step skipped - Ridge/Lasso/ElasticNet regularisation will be feature-magnitude-dependent. Supply a sklearn.preprocessing.StandardScaler.",
