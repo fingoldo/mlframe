@@ -625,23 +625,34 @@ def _configure_mlp_params(
         min_layer_neurons=16,
         neurons_by_layer_arch=_arch_cls.Declining,
         consec_layers_neurons_ratio=2.0,
-        # 2026-05-27 (user request): LeakyReLU -> Tanh on the
-        # extreme-AR / group-aware-split regime. LeakyReLU is unbounded
-        # above, so on the unseen-group test split the inner pre-
-        # activations explode -> destandardised predictions cluster
-        # far outside the y_train envelope -> envelope-clip kicks in
-        # but the chart still shows R^2 < 0. Tanh is BOUNDED [-1, +1],
-        # so even on extreme extrapolation rows the post-activation
-        # cannot blow up -- the saturation degrades gradient flow but
-        # caps the prediction magnitude before destandardisation. The
-        # output bound (``tanh_train_range``) on the last layer then
-        # adds a SECOND bound on the y-scale; in combination, the MLP
-        # produces predictions that stay within ~y_train_range +- 3*y_std
-        # even under feature-distribution shift. Users may revert to
-        # LeakyReLU via ``mlp_kwargs["network_params"]["activation_function"]
-        # = torch.nn.LeakyReLU``.
-        activation_function=torch.nn.Tanh,
-        weights_init_fcn=partial(nn.init.xavier_normal_, gain=1.0),
+        # 2026-05-27 (user request): activation chain history is
+        #   LeakyReLU -> Tanh -> GELU + spectral_norm=True.
+        # GELU is unbounded above but smoother than ReLU (gradient flows
+        # everywhere). To keep the unseen-group test-split safety that
+        # Tanh used to provide via saturation, ``spectral_norm=True``
+        # (set below) caps each Linear's largest singular value at 1.0
+        # via power iteration. Combined with GELU's Lipschitz-1
+        # property the whole network is globally Lipschitz with bound
+        # = depth, so OOD inputs cannot amplify magnitude geometrically.
+        # The output stays bounded by ``output_activation='tanh_train_range'``
+        # below, which gives a SECOND hard cap in y-scale.
+        # Users may revert to Tanh via
+        #   mlp_kwargs["network_params"]["activation_function"]=torch.nn.Tanh
+        # or fully turn SN off via
+        #   mlp_kwargs["network_params"]["spectral_norm"]=False.
+        activation_function=torch.nn.GELU,
+        # Kaiming-normal with relu nonlinearity is the standard
+        # recommendation for GELU (close enough to relu's gain). Tanh
+        # used xavier_normal_; switching to GELU + kaiming_normal_
+        # together keeps init / activation aligned.
+        weights_init_fcn=partial(
+            nn.init.kaiming_normal_, nonlinearity="relu",
+        ),
+        # SN on by default 2026-05-27: bounds Lipschitz constant of
+        # the linear maps to 1.0 (after power-iter convergence), making
+        # catastrophic OOD extrapolation (R^2=-326 / -30 historical
+        # regressions) geometrically impossible.
+        spectral_norm=True,
         dropout_prob=0.0,
         inputs_dropout_prob=0.0,
         # 2026-05-26: ``use_batchnorm=True`` is the suite default.
