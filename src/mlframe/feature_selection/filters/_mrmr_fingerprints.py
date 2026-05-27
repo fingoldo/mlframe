@@ -460,8 +460,9 @@ def _full_x_content_hash(X) -> str:
         # Object dtype (mixed-type pandas frames) cannot be hashed via tobytes deterministically; skip cache.
         if arr.dtype == object:
             return ""
-        buf = np.ascontiguousarray(arr).tobytes()
-        h = hashlib.blake2b(buf, digest_size=16)
+        # blake2b reads the contiguous array via the buffer protocol directly
+        # (no .tobytes() copy); bit-identical to hashing tobytes() bytes.
+        h = hashlib.blake2b(np.ascontiguousarray(arr), digest_size=16)
         h.update(str(arr.shape).encode())
         h.update(str(arr.dtype).encode())
         # Fold column names (DataFrame-only) so df vs df.rename produce different keys.
@@ -487,9 +488,9 @@ def _full_y_content_hash(y) -> str:
         arr = _target_to_numpy_values(y)
         if not isinstance(arr, np.ndarray):
             arr = np.asarray(arr)
-        # ascontiguousarray covers non-contiguous slices; tobytes itself would copy too but this is explicit.
-        buf = np.ascontiguousarray(arr).tobytes()
-        h = hashlib.blake2b(buf, digest_size=16)
+        # ascontiguousarray covers non-contiguous slices; blake2b then reads its
+        # buffer directly (no .tobytes() copy), bit-identical to hashing the bytes.
+        h = hashlib.blake2b(np.ascontiguousarray(arr), digest_size=16)
         # Fold shape + dtype so reshape-only changes also bust the key.
         h.update(str(arr.shape).encode())
         h.update(str(arr.dtype).encode())

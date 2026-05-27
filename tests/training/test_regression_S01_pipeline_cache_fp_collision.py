@@ -104,3 +104,37 @@ def test_pre_pipeline_cache_key_distinguishes_numpy_targets_with_shared_boundary
         "targets sharing all 10 sampled positions; full-content hash "
         "required."
     )
+
+
+def test_full_target_content_hash_bit_identical_to_tobytes_reference():
+    """``_full_target_content_hash`` hashes the contiguous array via the buffer
+    protocol directly (no ``.tobytes()`` copy). Pin that the digest is
+    bit-identical to the explicit ``blake2b(ascontiguousarray(arr).tobytes())``
+    + shape + dtype reference, across dtypes / shapes / a non-contiguous view, so
+    the copy-elision can never silently drift the cache key.
+    """
+    import hashlib
+    from mlframe.training._pipeline_cache import _full_target_content_hash
+
+    def _reference(np_arr: np.ndarray) -> str:
+        h = hashlib.blake2b(np.ascontiguousarray(np_arr).tobytes(), digest_size=16)
+        h.update(str(np_arr.shape).encode())
+        h.update(str(np_arr.dtype).encode())
+        return h.hexdigest()
+
+    rng = np.random.default_rng(0)
+    cases = [
+        rng.standard_normal(10_000),
+        rng.integers(0, 7, 10_000),
+        rng.standard_normal((3_000, 4)),
+        rng.integers(0, 2, 257).astype(np.int8),
+        rng.standard_normal((1_000, 6))[:, ::2],  # non-contiguous view
+    ]
+    for arr in cases:
+        assert _full_target_content_hash(arr) == _reference(arr), (
+            f"digest drift on shape={arr.shape} dtype={arr.dtype}"
+        )
+    # Content sensitivity is preserved: a single flipped cell changes the digest.
+    a = rng.standard_normal(5_000)
+    b = a.copy(); b[2_500] += 1.0
+    assert _full_target_content_hash(a) != _full_target_content_hash(b)

@@ -360,8 +360,10 @@ def _full_x_content_hash(arr) -> str:
             return ""
         if np_arr.dtype == object:
             return ""
-        buf = np.ascontiguousarray(np_arr).tobytes()
-        h = hashlib.blake2b(buf, digest_size=16)
+        # blake2b reads the contiguous array via the buffer protocol directly;
+        # dropping the .tobytes() materialisation saves an O(nbytes) copy and is
+        # bit-identical (the buffer bytes equal tobytes() for a C-contiguous array).
+        h = hashlib.blake2b(np.ascontiguousarray(np_arr), digest_size=16)
         h.update(str(np_arr.shape).encode())
         h.update(str(np_arr.dtype).encode())
         if col_names:
@@ -397,8 +399,10 @@ def _full_target_content_hash(arr) -> str:
             np_arr = np.asarray(arr)
         if not hasattr(np_arr, "shape") or not hasattr(np_arr, "dtype"):
             return ""
-        buf = np.ascontiguousarray(np_arr).tobytes()
-        h = hashlib.blake2b(buf, digest_size=16)
+        # blake2b reads the contiguous array via the buffer protocol directly;
+        # dropping the .tobytes() materialisation saves an O(nbytes) copy and is
+        # bit-identical (the buffer bytes equal tobytes() for a C-contiguous array).
+        h = hashlib.blake2b(np.ascontiguousarray(np_arr), digest_size=16)
         h.update(str(np_arr.shape).encode())
         h.update(str(np_arr.dtype).encode())
         return h.hexdigest()

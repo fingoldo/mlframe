@@ -256,8 +256,10 @@ def _init_fit_state(
                         digest_size=12,
                     ).hexdigest()
                 else:
+                    # blake2b reads the contiguous array buffer directly (no
+                    # .tobytes() copy); bit-identical to hashing tobytes() bytes.
                     _x_hash = hashlib.blake2b(
-                        np.ascontiguousarray(_x_arr).tobytes(),
+                        np.ascontiguousarray(_x_arr),
                         digest_size=12,
                     ).hexdigest()
         else:
