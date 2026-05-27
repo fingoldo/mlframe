@@ -34,6 +34,44 @@ from .strategies import PANDAS_CATEGORICAL_DTYPES, get_polars_cat_columns
 
 logger = logging.getLogger("mlframe.training.pipeline")
 
+
+def sparse_df_from_spmatrix(spmat, columns, index):
+    """``pd.DataFrame.sparse.from_spmatrix`` with a guaranteed ``0`` fill value.
+
+    pandas 3.0 changed ``DataFrame.sparse.from_spmatrix`` to default the
+    per-column ``SparseDtype`` fill_value to ``nan`` (it was ``0`` through
+    pandas 2.x). The structural-zero entries of a TF-IDF / one-hot CSR then
+    densify to ``NaN`` downstream (``.to_numpy()`` / sklearn's input
+    validation), wiping the signal -- a linear model trained on the result
+    collapses to chance. Reproduced 2026-05-27: the tfidf-lift test scores
+    AUROC 1.0 on pandas 2.3.3 but 0.55 on pandas 3.0.3 with everything else
+    held equal.
+
+    We relabel each column's fill_value to ``0`` by reusing the existing
+    ``sp_values`` / ``sp_index`` backing arrays -- O(nnz), NO densification,
+    so the large-sparse memory guarantee (the reason the sparse path exists:
+    ~40 GB dense vs hundreds of MB sparse at max_features=5000 on 1M rows) is
+    preserved. On pandas 2.x where the fill is already ``0`` this is a no-op.
+    """
+    df = pd.DataFrame.sparse.from_spmatrix(spmat, columns=columns, index=index)
+    _needs_zero_fill = any(
+        isinstance(_dt, pd.SparseDtype) and (pd.isna(_dt.fill_value) or _dt.fill_value != 0)
+        for _dt in df.dtypes
+    )
+    if not _needs_zero_fill:
+        return df
+    from pandas.arrays import SparseArray
+    _zero_sparse = pd.SparseDtype("float64", 0.0)
+    _fixed = {}
+    for _name in df.columns:
+        _arr = df[_name].array
+        _fixed[_name] = SparseArray(
+            _arr.sp_values, sparse_index=_arr.sp_index,
+            fill_value=0.0, dtype=_zero_sparse,
+        )
+    return pd.DataFrame(_fixed, index=df.index)
+
+
 # Thread-count env vars must be set BEFORE Julia/PySR boots; we defer the set until the first
 # ``_apply_pysr_fe`` call so importers who never touch PySR don't get their env mutated.
 
@@ -469,7 +507,7 @@ def apply_preprocessing_extensions(
             keep ``.columns`` and ``.index`` semantics; consumers densify
             implicitly via ``.to_numpy()``."""
             if _keep_sparse:
-                return pd.DataFrame.sparse.from_spmatrix(spmat, columns=columns, index=index)
+                return sparse_df_from_spmatrix(spmat, columns, index)
             return pd.DataFrame(spmat.toarray(), columns=columns, index=index)
 
         for col in usable_cols:
@@ -703,9 +741,8 @@ def apply_preprocessing_extensions(
         col_names = _build_output_column_names(arr.shape[1])
         if _is_sparse:
             if bool(getattr(config, "tfidf_keep_sparse", True)):
-                return pd.DataFrame.sparse.from_spmatrix(
-                    arr, columns=col_names,
-                    index=getattr(template, "index", None),
+                return sparse_df_from_spmatrix(
+                    arr, col_names, getattr(template, "index", None),
                 )
             arr = arr.toarray()
         # bench-attempt-rejected (2026-05-24): dtype/contiguity gate around this constructor (skip if C-contig + dtype-matched) measured 0.06 ms vs 0.06 ms
