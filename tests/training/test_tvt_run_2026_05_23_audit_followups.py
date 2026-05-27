@@ -148,8 +148,12 @@ class TestCollapseSensorGroupOODBranch:
     ``linear-extrapolation``."""
 
     def test_ridge_with_extrapolation_signature_tagged_group_ood(
-            self, caplog) -> None:
+            self, caplog, monkeypatch) -> None:
         from mlframe.training import _reporting
+        # Bypass the envelope-clip so the wildly-out-of-range preds reach the
+        # sensor unclipped; otherwise pred_std collapses to ~0 and the
+        # std-collapse branch trips before group-ood-shift can.
+        monkeypatch.setenv("MLFRAME_DISABLE_PREDICTION_ENVELOPE_CLIP", "1")
         caplog.set_level(logging.WARNING, logger="mlframe.training._reporting")
         targets = 11500 + np.random.default_rng(0).normal(0, 100, 1000)
         preds = -50000 + np.random.default_rng(1).normal(0, 200, 1000)
@@ -164,8 +168,9 @@ class TestCollapseSensorGroupOODBranch:
         ), [r.message for r in caplog.records if "sensor" in r.message]
 
     def test_mlp_with_extrapolation_signature_still_tagged_linear_extrap(
-            self, caplog) -> None:
+            self, caplog, monkeypatch) -> None:
         from mlframe.training import _reporting
+        monkeypatch.setenv("MLFRAME_DISABLE_PREDICTION_ENVELOPE_CLIP", "1")
         caplog.set_level(logging.WARNING, logger="mlframe.training._reporting")
         targets = 11500 + np.random.default_rng(0).normal(0, 100, 1000)
         preds = -50000 + np.random.default_rng(1).normal(0, 200, 1000)

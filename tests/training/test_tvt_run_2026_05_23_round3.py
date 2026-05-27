@@ -117,11 +117,20 @@ class TestLossRecommendationHuberBand:
     def test_high_kurt_now_picks_huber_too(self) -> None:
         """High kurt (~6+) previously picked MAE; round-5 collapses
         into Huber for the same gradient-on-near-zero-residuals reason
-        that bit CB es_best_iter=1 on production TVT composite residual."""
+        that bit CB es_best_iter=1 on production TVT composite residual.
+
+        ``standard_t(df=3)`` was the original choice but it empirically
+        lands at sample kurt > 20 on n=5000 -- which trips the
+        ``_EXCESS_KURT_HUBER_FAILS`` threshold and reverts the
+        recommendation to RMSE (the Huber gradient collapses at
+        excessive kurt; production check added later). df=6 puts the
+        sample reliably in the [1.5, 20] heavy-but-not-extreme band
+        where the Huber recommendation still holds.
+        """
         from mlframe.training.loss_recommendation import recommend_boosting_regression_loss
         rng = np.random.default_rng(0)
         n = 5000
-        y = rng.standard_t(df=3, size=n)  # kurt ~ 6+
+        y = rng.standard_t(df=6, size=n)  # kurt ~ 3 (within [1.5, 20])
         rec = recommend_boosting_regression_loss(y)
         if rec["excess_kurt"] > 1.5:
             assert "Huber" in rec["cb"], rec

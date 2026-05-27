@@ -40,11 +40,20 @@ def _read(rel: str) -> str:
                 primary = primary + "\n" + _sib_path.read_text(encoding="utf-8")
     elif rel.endswith("training/core/main.py"):
         # 2026-05-22 split: ``train_mlframe_models_suite`` body moved to
-        # ``_main_train_suite.py``; append so the source-pattern sensors
-        # for the relocated kwargs / call-site code still match.
-        sibling = repo_root / "src" / "mlframe" / "training" / "core" / "_main_train_suite.py"
-        if sibling.exists():
-            primary = primary + "\n" + sibling.read_text(encoding="utf-8")
+        # ``_main_train_suite.py``. Subsequent splits carved the phase loop
+        # into ``_main_train_suite_phases.py`` and the target-distribution
+        # helpers into ``_main_train_suite_target_distribution.py``. Append
+        # every sibling that exists so source-pattern sensors for relocated
+        # call-sites still match.
+        _core_dir = repo_root / "src" / "mlframe" / "training" / "core"
+        for _sib_name in (
+            "_main_train_suite.py",
+            "_main_train_suite_phases.py",
+            "_main_train_suite_target_distribution.py",
+        ):
+            _sib_path = _core_dir / _sib_name
+            if _sib_path.exists():
+                primary = primary + "\n" + _sib_path.read_text(encoding="utf-8")
     return primary
 
 
@@ -140,18 +149,23 @@ def test_codep18_main_uses_phase_runner_namespace():
     src = _read("training/core/main.py")
     # The consolidated import must be present.
     assert "from . import _phase_runners as pr" in src
-    # And the calls should go through ``pr.``.
+    # And the calls should go through the phase-runner namespace -- either
+    # the module-level ``pr.X(`` alias or the helper-injected ``pr_module.X(``
+    # parameter that the 2026-05-22 phase-split introduced. Both forms route
+    # through ``_phase_runners``; the intent of CODE-P1-8 is preserved.
     for sym in (
-        "pr.setup_configuration(",
-        "pr.run_composite_target_discovery(",
-        "pr.apply_polars_categorical_fixes(",
-        "pr.run_temporal_audit_batch(",
-        "pr._train_one_target(",
-        "pr.train_recurrent_models(",
-        "pr.finalize_suite(",
-        "pr.run_composite_post_processing(",
+        "setup_configuration(",
+        "run_composite_target_discovery(",
+        "apply_polars_categorical_fixes(",
+        "run_temporal_audit_batch(",
+        "_train_one_target(",
+        "train_recurrent_models(",
+        "finalize_suite(",
+        "run_composite_post_processing(",
     ):
-        assert sym in src, f"main.py does not call through {sym}"
+        assert (f"pr.{sym}" in src) or (f"pr_module.{sym}" in src), (
+            f"main.py does not call through pr.{sym} or pr_module.{sym}"
+        )
 
 
 # ---------- CODE-P1-12: recurrent_models read from ctx ----------

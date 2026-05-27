@@ -123,11 +123,19 @@ class TestOptimizeModelColumnsEdgeCases:
 class TestSelectTarget:
     """Lightweight tests for select_target parameter wiring."""
 
+    # Carve note (2026-05-25): ``select_target`` moved to a sibling
+    # ``_train_eval_select_target`` and now LAZILY imports
+    # ``configure_training_params`` from ``.trainer`` per call. Patching only
+    # the train_eval module misses that path -- patch ``trainer`` (the source)
+    # which is what the lazy import resolves to.
+    @patch("mlframe.training.trainer.configure_training_params")
     @patch("mlframe.training.train_eval.configure_training_params")
-    def test_regression_appends_mean_to_model_name(self, mock_configure):
+    def test_regression_appends_mean_to_model_name(self, mock_configure, mock_trainer):
         mock_configure.return_value = ({}, {}, None, None, None, {}, {})
+        mock_trainer.return_value = ({}, {}, None, None, None, {}, {})
         target = np.array([2.0, 4.0, 6.0])
         select_target("mymodel", target, TargetTypes.REGRESSION, pd.DataFrame({"a": [1, 2, 3]}))
-        # configure_training_params should have been called; model_name includes mean
-        call_kwargs = mock_configure.call_args
+        # The lazy import binds to whichever module the stub patched first;
+        # accept either intercept.
+        call_kwargs = mock_configure.call_args or mock_trainer.call_args
         assert call_kwargs is not None

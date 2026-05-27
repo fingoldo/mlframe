@@ -304,14 +304,36 @@ def _validate_input_columns_against_metadata(
     # (``ftextractor_emitted_columns``) similarly need to count.
     _allowed = list(columns)
     _dt_methods_map = metadata.get("datetime_methods") or {}
+    # ``create_date_features`` at training time also emits cyclical companions
+    # for each source column when ``add_cyclical=True`` (its default; the suite-side
+    # fit-pipeline call relies on the default). The metadata only records the
+    # configured integer accessors (year/month/day/...), so the allowlist must
+    # additionally include ``<src>_<period>_sin`` / ``<src>_<period>_cos`` for
+    # each period in ``_DEFAULT_CYCLICAL_PERIODS`` so the validator does not
+    # mis-classify them as "extra" and drop them. Predict-time replay also runs
+    # with default ``add_cyclical=True`` so the columns are present in the frame.
+    from mlframe.feature_engineering.basic import _DEFAULT_CYCLICAL_PERIODS
+    _cyclical_period_names = [_p for _p, _ in _DEFAULT_CYCLICAL_PERIODS]
     for _src, _methods in _dt_methods_map.items():
         for _method in (_methods or {}):
             _allowed.append(f"{_src}_{_method}")
+        for _period in _cyclical_period_names:
+            _allowed.append(f"{_src}_{_period}_sin")
+            _allowed.append(f"{_src}_{_period}_cos")
     _fte_emitted = metadata.get("ftextractor_emitted_columns") or {}
     for _emitted_list in _fte_emitted.values():
         if isinstance(_emitted_list, (list, tuple, set)):
             _allowed.extend(_emitted_list)
-    columns = _allowed
+    # Dedupe while preserving order. ``raw_input_columns`` / ``input_columns``
+    # already contain the FTE-emitted + suite-decomposed derived columns
+    # (they snapshot the post-pipeline schema); appending the same names
+    # again from ``datetime_methods`` / ``ftextractor_emitted_columns``
+    # produced duplicate entries. Downstream ``df[filter_existing(df,
+    # columns)]`` then selected the SAME column twice and polars rejected
+    # the result with ``DuplicateError: column with name 'ts_month' has
+    # more than one occurrence``. dict.fromkeys preserves first-seen
+    # order (Python 3.7+) which matches the snapshot's column layout.
+    columns = list(dict.fromkeys(_allowed))
 
     missing_cols = set(columns) - set(df.columns)
     extra_cols = set(df.columns) - set(columns)

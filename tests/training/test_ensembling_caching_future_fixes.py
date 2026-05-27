@@ -564,7 +564,17 @@ class TestCACHE_P2_5_SeedConstant:
         sig_a = inspect.signature(data_signature)
         sig_b = inspect.signature(make_discovery_cache_key)
         assert sig_a.parameters["random_state"].default == _DISCOVERY_DEFAULT_SEED
-        assert sig_b.parameters["random_state"].default == _DISCOVERY_DEFAULT_SEED
+        # ``make_discovery_cache_key`` exposes two related slots:
+        #   * ``_legacy_random_state_sentinel`` -- the historical 4-arg positional, still
+        #     defaulting to ``_DISCOVERY_DEFAULT_SEED`` so the cache key value is unchanged.
+        #   * ``random_state`` (alias kwarg) -- default ``None`` so the conditional override
+        #     only fires when the caller passes it explicitly; otherwise the prior default
+        #     silently clobbered any positional sentinel.
+        # Verify the constant remains the source-of-truth for the positional slot.
+        assert (
+            sig_b.parameters["_legacy_random_state_sentinel"].default
+            == _DISCOVERY_DEFAULT_SEED
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -111,9 +111,16 @@ class TestRegressionCollapseSensorBranches:
     test groups). The unified label keeps the actionable mitigation set
     (composite-target / tree booster / group-split verification) intact."""
 
-    def test_linear_extrapolation_branch_trips(self, caplog) -> None:
+    def test_linear_extrapolation_branch_trips(self, caplog, monkeypatch) -> None:
         from mlframe.training import _reporting
         caplog.set_level(logging.WARNING, logger="mlframe.training._reporting")
+        # Disable envelope-clip so the sensor sees the raw wildly-out-of-range
+        # predictions instead of the clipped-to-envelope ones. With clipping
+        # enabled the preds collapse to a single value and the std-collapse
+        # branch trips before linear-extrapolation can. The env-var is the
+        # documented opt-out path for callers that want to bench the raw
+        # sensor behaviour.
+        monkeypatch.setenv("MLFRAME_DISABLE_PREDICTION_ENVELOPE_CLIP", "1")
         # Targets centered around 11500 (TVT regime), preds wildly off.
         targets = 11500 + np.random.default_rng(0).normal(0, 100, 1000)
         preds = -50000 + np.random.default_rng(1).normal(0, 200, 1000)

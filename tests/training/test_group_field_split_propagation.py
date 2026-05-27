@@ -63,7 +63,11 @@ class TestGroupFieldEndToEnd:
         train_idx, val_idx, test_idx, *_ = make_train_test_split(
             df=df_out, timestamps=None, stratify_y=None,
             groups=group_ids,
-            **cfg.model_dump(exclude={"use_groups", "calib_size"}),
+            **cfg.model_dump(exclude={
+                "use_groups", "calib_size",
+                # config-only fields consumed in the phase-helper before the splitter
+                "composite_cardinality_cap", "bucket_stratify",
+            }),
         )
 
         # Confirm: no well_id appears in more than one split.
@@ -111,7 +115,11 @@ class TestGroupFieldEndToEnd:
         train_idx, val_idx, test_idx, *_ = make_train_test_split(
             df=df_out, timestamps=None, stratify_y=None,
             groups=_groups,
-            **cfg.model_dump(exclude={"use_groups", "calib_size"}),
+            **cfg.model_dump(exclude={
+                "use_groups", "calib_size",
+                # config-only fields consumed in the phase-helper before the splitter
+                "composite_cardinality_cap", "bucket_stratify",
+            }),
         )
         # With use_groups=False the IID path is used; with 1000 rows
         # across 20 wells, wells very likely leak across splits.

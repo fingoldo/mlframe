@@ -312,6 +312,11 @@ def test_hhus15_showcase_seeded_subsample_reproducible(monkeypatch):
     seeded reconstruction (deterministic per seed, byte-equal).
     """
     import mlframe.training.extractors as _ext
+    # 2026-05-25 monolith split: ``showcase_features_and_targets`` (and its
+    # matplotlib import) moved to ``_extractors_showcase``; the parent module
+    # re-exports the function but does not import ``plt`` itself. Reach into
+    # the sibling for the matplotlib monkey-patches.
+    import mlframe.training._extractors_showcase as _ext_showcase
 
     captured_seeds: list[int] = []
     real_default_rng = np.random.default_rng
@@ -320,16 +325,16 @@ def test_hhus15_showcase_seeded_subsample_reproducible(monkeypatch):
         captured_seeds.append(int(seed))
         return real_default_rng(seed)
 
-    monkeypatch.setattr(_ext.np.random, "default_rng", _capture_rng)
+    monkeypatch.setattr(_ext_showcase.np.random, "default_rng", _capture_rng)
 
     target = np.arange(200_000, dtype=np.float64)
     from mlframe.training.configs import TargetTypes
 
-    monkeypatch.setattr(_ext.plt, "show", lambda *a, **kw: None)
-    monkeypatch.setattr(_ext.plt, "hist", lambda *a, **kw: None)
-    monkeypatch.setattr(_ext.plt, "title", lambda *a, **kw: None)
-    monkeypatch.setattr(_ext.plt, "xlabel", lambda *a, **kw: None)
-    monkeypatch.setattr(_ext.plt, "ylabel", lambda *a, **kw: None)
+    monkeypatch.setattr(_ext_showcase.plt, "show", lambda *a, **kw: None)
+    monkeypatch.setattr(_ext_showcase.plt, "hist", lambda *a, **kw: None)
+    monkeypatch.setattr(_ext_showcase.plt, "title", lambda *a, **kw: None)
+    monkeypatch.setattr(_ext_showcase.plt, "xlabel", lambda *a, **kw: None)
+    monkeypatch.setattr(_ext_showcase.plt, "ylabel", lambda *a, **kw: None)
     # Silence print() in extractors -- polars describe() emits box-
     # drawing chars that cp1251 (Windows) can't encode.
     monkeypatch.setattr("builtins.print", lambda *a, **kw: None)

@@ -39,6 +39,16 @@ def mock_configure(monkeypatch):
         )
 
     monkeypatch.setattr(te, "configure_training_params", _stub)
+    # Carve note (2026-05-25): ``select_target`` moved to a sibling
+    # ``_train_eval_select_target`` and does a LAZY ``from .trainer import
+    # configure_training_params`` per call -- patching only ``te`` no longer
+    # intercepts the call. Patch the upstream module + sibling so the lazy
+    # import resolves to the stub regardless of call order.
+    import mlframe.training.trainer as _trainer
+    import mlframe.training._train_eval_select_target as _select_target_mod
+    monkeypatch.setattr(_trainer, "configure_training_params", _stub)
+    if hasattr(_select_target_mod, "configure_training_params"):
+        monkeypatch.setattr(_select_target_mod, "configure_training_params", _stub)
     return captured
 
 
