@@ -51,8 +51,12 @@ def _make_regressor():
 
 @pytest.mark.fast
 def test_prediction_datamodule_stashed_after_fit():
-    """After fit, self.prediction_datamodule is set so predict reuses it
-    instead of falling through the "No datamodule found" warning branch."""
+    """After fit, the lightweight datamodule SHELL is retained on self
+    so predict can reuse it (no spurious "No datamodule found" WARNING)
+    -- AND the heavy train/val feature/label/sample_weight tensors are
+    nulled INSIDE the datamodule so they don't get pickled into the
+    save() bundle (~1.5 GB on prod-shape 4M x 323 float32 frame).
+    """
     np.random.seed(0)
     X = np.random.randn(64, 4).astype(np.float32)
     y = np.random.randn(64).astype(np.float32)
@@ -60,12 +64,33 @@ def test_prediction_datamodule_stashed_after_fit():
     est = _make_regressor()
     est.fit(X, y, eval_set=(X, y))
 
-    assert hasattr(est, "prediction_datamodule"), "fit() must stash prediction_datamodule on self"
-    assert est.prediction_datamodule is not None
+    # Shell stays (lightweight config + class refs, ~few KB).
+    assert hasattr(est, "prediction_datamodule"), "fit() must stash the datamodule shell"
+    assert est.prediction_datamodule is not None, (
+        "fit-end memory-safety must keep the lightweight datamodule shell "
+        "so predict can reuse it; only the heavy tensors are nulled"
+    )
+    # Heavy tensors inside the shell are nulled.
+    _dm = est.prediction_datamodule
+    for _attr in ("train_features", "train_labels", "train_sample_weight",
+                  "val_features", "val_labels"):
+        if hasattr(_dm, _attr):
+            assert getattr(_dm, _attr) is None, (
+                f"fit-end memory-safety must NULL {_attr} on the datamodule "
+                f"so save() doesn't pickle the train/val tensors"
+            )
+    # The marker tells predict() that the null state is intentional.
+    assert getattr(est, "_datamodule_tensors_dropped", False) is True
 
 
 @pytest.mark.fast
 def test_predict_does_not_warn_about_missing_datamodule(caplog):
+    """predict-after-fit must NOT emit the "No datamodule found" WARNING:
+    the fit-end memory-safety pass nulls the heavy tensors INSIDE the
+    datamodule but keeps the shell, so predict() takes the reuse branch
+    (no temporary-datamodule warning). The WARNING is reserved for the
+    actual user-error path (estimator constructed without fit).
+    """
     np.random.seed(0)
     X = np.random.randn(64, 4).astype(np.float32)
     y = np.random.randn(64).astype(np.float32)

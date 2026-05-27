@@ -71,7 +71,17 @@ def test_suite_skips_redecomposition_of_fte_emitted_datetime_columns():
     # FTE-emitted columns recorded.
     fte_emitted = metadata.get("ftextractor_emitted_columns") or {}
     assert "ts" in fte_emitted, f"FTE did not record ts decomposition: {fte_emitted}"
-    assert set(fte_emitted["ts"]) == {"ts_year", "ts_month"}, fte_emitted["ts"]
+    # ``datetime_features={"year": ..., "month": ...}`` is the USER-CONFIGURED
+    # explicit set; the FTE additionally emits cyclical-encoding companions
+    # (hour_sin / hour_cos / day_sin / day_cos) by default. The test's real
+    # concern is that the user-configured methods MUST be present and the
+    # FTE owns the ``ts`` decomposition (so the suite-side check below
+    # confirms it didn't double-decompose). Use subset, not strict equality.
+    _emitted_for_ts = set(fte_emitted["ts"])
+    assert {"ts_year", "ts_month"}.issubset(_emitted_for_ts), (
+        f"FTE missing user-configured year/month methods on ts; "
+        f"emitted={_emitted_for_ts}"
+    )
 
     # Suite-side ``datetime_methods`` must NOT contain ``ts`` (FTE owned it; suite was supposed to skip).
     suite_dt = metadata.get("datetime_methods") or {}

@@ -83,7 +83,21 @@ def test_group_batch_sampler_calls_super_init() -> None:
     helper_idx = src.find("class GroupBatchSampler")
     assert helper_idx != -1
     snippet = src[helper_idx : helper_idx + 1200]
-    assert "super().__init__(data_source=None)" in snippet
+    # ``super().__init__(data_source=None)`` was the pre-torch-2.x form;
+    # torch 2.x ``Sampler.__init__`` removed the ``data_source`` kwarg
+    # (it falls through to ``object.__init__`` which rejects extra args
+    # with ``TypeError: takes exactly one argument``). The bare
+    # ``super().__init__()`` is the current correct shape and works on
+    # both torch 1.x and 2.x. Accept either form so the sensor stays
+    # valid across the torch upgrade.
+    assert (
+        "super().__init__(data_source=None)" in snippet
+        or "super().__init__()" in snippet
+    ), (
+        "GroupBatchSampler.__init__ must call super().__init__() to forward "
+        "to torch's Sampler base (either bare for torch 2.x or with "
+        "data_source=None for torch 1.x back-compat)"
+    )
 
 
 def test_ranker_dataset_calls_super_init() -> None:

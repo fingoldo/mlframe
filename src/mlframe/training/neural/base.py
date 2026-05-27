@@ -494,21 +494,39 @@ class PytorchLightningEstimator(BaseEstimator):
         # Clean up to avoid pickle issues and free memory
         self.trainer = None
 
-        # Drop the cached training datamodule. It carries the full
-        # train+val feature/label tensors that get serialised into every
-        # save() call -- observed at 1788 MB on disk for a 4M x 323
-        # float32 frame (2026-05-27 TVT regression log). predict() can
-        # always rebuild a fresh datamodule from
-        # ``self.datamodule_params`` + the inference X (the path that
-        # ran previously was just a misguided "silence the create-on-
-        # predict log line" optimisation). Cost: one extra log line
-        # per predict; benefit: -1.5 GB / model bundle on prod-shape
-        # data.
+        # Free the train/val tensors held by the cached datamodule
+        # WITHOUT dropping the datamodule shell itself. The full
+        # train+val feature / label / sample_weight tensors were the
+        # actual save() bloat (1788 MB on disk for a 4M x 323 float32
+        # frame, 2026-05-27 TVT regression log) -- the shell (~few KB
+        # of config + class refs) is fine to pickle. Keeping the shell
+        # lets predict() reuse the configured pre-pipeline /
+        # batch_size / dataloader_params without rebuilding the
+        # datamodule from scratch, AND silences the spurious "No
+        # datamodule found from training" WARNING that fired on every
+        # predict-after-fit when we used to NULL the whole reference.
         # Opt out via env MLFRAME_KEEP_PREDICTION_DATAMODULE=1 for
-        # operators relying on the previous behaviour.
+        # operators relying on the prior whole-stash behaviour.
         import os as _os_drop_dm
         if not _os_drop_dm.environ.get("MLFRAME_KEEP_PREDICTION_DATAMODULE"):
-            self.prediction_datamodule = None
+            _dm = getattr(self, "prediction_datamodule", None)
+            if _dm is not None:
+                for _attr in (
+                    "train_features", "train_labels", "train_sample_weight",
+                    "val_features", "val_labels", "val_sample_weight",
+                ):
+                    if hasattr(_dm, _attr):
+                        setattr(_dm, _attr, None)
+                # ``_train_dataset`` / ``_val_dataset`` -- if the
+                # datamodule materialised PyTorch ``Dataset`` wrappers
+                # (which hold the same tensors via the Dataset's own
+                # attributes), null those too. Predict-path setup
+                # rebuilds them from the predict-side X / y.
+                for _attr in ("_train_dataset", "_val_dataset",
+                              "train_dataset", "val_dataset"):
+                    if hasattr(_dm, _attr):
+                        setattr(_dm, _attr, None)
+            self._datamodule_tensors_dropped = True
 
         return self
 
@@ -602,7 +620,13 @@ class PytorchLightningEstimator(BaseEstimator):
             raise _NFE("Model has not been fitted yet. Call fit() before predict().")
 
         if not hasattr(self, "prediction_datamodule") or self.prediction_datamodule is None:
-            # Create a minimal datamodule for prediction if not available
+            # Reaches here only when the estimator was reconstructed
+            # without ever going through .fit() (e.g. user-constructed
+            # bare estimator, or a load() path that bypasses the sklearn
+            # lifecycle). The post-fit memory-safety pass now only NULLs
+            # the heavy train/val tensors INSIDE the datamodule (see
+            # fit() epilogue), keeping the lightweight shell around so
+            # predict-after-fit no longer reaches this branch at all.
             logger.warning("No datamodule found from training. Creating temporary datamodule for prediction.")
             datamodule = self.datamodule_class(**self.datamodule_params)
         else:
