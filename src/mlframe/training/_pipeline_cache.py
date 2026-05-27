@@ -251,12 +251,18 @@ def _full_x_content_hash(arr) -> str:
         # Cache lives per-process, so the hash key change does not
         # invalidate any persisted state.
         if pl is not None and isinstance(arr, pl.DataFrame):
+            # Guard zero-column polars frames: ``hash_rows`` panics at the
+            # Rust layer with ``pyo3_runtime.PanicException: at least one
+            # key`` -- not a Python ``Exception`` on older pyo3 builds.
+            if arr.width == 0:
+                return ""
             try:
                 row_hashes = arr.hash_rows()
                 # Cast to UInt64 then sum mod 2^64 -- polars sum on UInt64
                 # wraps natively, giving a deterministic 64-bit summary.
                 row_sum = int(row_hashes.sum())
-            except Exception:
+            except BaseException:
+                # BaseException so pyo3 PanicException is contained too.
                 return ""
             col_names = ",".join(str(c) for c in arr.columns)
             h = hashlib.blake2b(digest_size=16)
@@ -283,12 +289,23 @@ def _full_x_content_hash(arr) -> str:
             # c0051 16 hashes saves ~1.9 s). hash_rows() is Rust-side
             # deterministic, identical guarantees to blake2b(tobytes) for
             # cache-key collision resistance.
-            if pl is not None:
+            if pl is not None and arr.shape[1] > 0:
+                # Guard against zero-column frames: polars' ``hash_rows`` panics
+                # at the Rust layer (``pyo3_runtime.PanicException: at least one
+                # key``), which is NOT a Python ``Exception`` subclass on older
+                # pyo3 (inherits ``BaseException``) -- ``except Exception``
+                # below wouldn't catch it on those builds. Skip the polars
+                # fastpath entirely when the frame has no columns (happens on
+                # all-constant-features datasets after the constant-column
+                # filter drops everything; observed via
+                # test_with_all_constant_features 2026-05-27).
                 try:
                     pl_df = pl.from_pandas(arr)
                     row_hashes = pl_df.hash_rows()
                     row_sum = int(row_hashes.sum())
-                except Exception:
+                except BaseException:
+                    # Catch BaseException so pyo3 PanicException is contained
+                    # too. The fallback uses ``arr.to_numpy().tobytes()`` below.
                     pl_df = None
                     row_sum = None
             else:

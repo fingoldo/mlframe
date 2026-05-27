@@ -372,17 +372,22 @@ class TestCompositeIntegration:
         assert len(ens_entries) == 1
         ens_entry = ens_entries[0]
         ens_model = getattr(ens_entry, "model", None)
-        # The suite optionally wraps the ensemble in ``PrePipelinePredictShim``
-        # when the cross-target components needed an Imputer/StandardScaler
-        # pre-pipeline routed through predict. Platform-dependent CMA-ES seed
-        # paths can land on a component shortlist that needs the shim
-        # (observed macOS-only 2026-05-26); both wrapped and bare are valid.
-        # Unwrap one shim level so the isinstance check tests the real type.
+        # Optional ``PrePipelinePredictShim`` wrap when cross-target components
+        # needed an Imputer/StandardScaler pre-pipeline routed through predict;
+        # unwrap one shim level so the isinstance check tests the real inner.
         from mlframe.training.composite_post_shim import PrePipelinePredictShim
         if isinstance(ens_model, PrePipelinePredictShim):
             ens_model = ens_model.model
-        assert isinstance(ens_model, CompositeCrossTargetEnsemble), (
-            f"expected CompositeCrossTargetEnsemble, got {type(ens_model).__name__}"
+        # The honest OOF gate (added 2026-05-27) falls back to the BEST SINGLE
+        # COMPONENT when the ensemble RMSE doesn't beat the best component's
+        # solo RMSE -- this is intentional damage-control, not a regression.
+        # In that fallback, ``ens_model`` is the wrapped CompositeTargetEstimator
+        # of the winning component, NOT the cross-target ensemble. Accept
+        # either: the ensemble class OR the per-component fallback wrapper.
+        from mlframe.training.composite import CompositeTargetEstimator
+        assert isinstance(ens_model, (CompositeCrossTargetEnsemble, CompositeTargetEstimator)), (
+            f"expected CompositeCrossTargetEnsemble (or its honest-gate single-component "
+            f"fallback CompositeTargetEstimator), got {type(ens_model).__name__}"
         )
         # Predict on a sample row.
         sample_X = df.drop(columns=["target"]).iloc[:5]
