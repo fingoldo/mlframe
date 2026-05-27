@@ -144,7 +144,13 @@ def test_automl_auc_fi_use_exc_info() -> None:
 
 
 def test_evaluation_plot_fi_uses_exc_info() -> None:
+    # ``plot_model_feature_importances`` was carved out of training/evaluation.py
+    # into sibling training/_feature_importances.py (1k-LOC monolith split);
+    # check both files so the source sensor remains valid after the split.
     src = _read("training/evaluation.py")
+    sibling = MLFRAME_ROOT / "training/_feature_importances.py"
+    if sibling.exists():
+        src += "\n" + sibling.read_text(encoding="utf-8")
     assert 'logger.warning(f"Could not plot feature importances: {e}.' not in src
     assert 'logger.warning("Could not plot feature importances. Maybe data shape changed within a pipeline?", exc_info=True)' in src
 

@@ -45,13 +45,18 @@ def _read(rel: str) -> str:
 
 
 def test_kick_cpu_count_logs_at_debug_on_failure() -> None:
+    # ``_kick_cpu_count`` was carved out of metrics/core.py into sibling
+    # metrics/_core_numba_warmup.py during a numba-warmup split. Check both
+    # files so the sensor still works after the move.
     src = _read("metrics/core.py")
-    # The bare `except Exception: pass` inside _kick_cpu_count must now log at DEBUG.
     helper_idx = src.find("def _kick_cpu_count")
-    assert helper_idx != -1
+    if helper_idx == -1:
+        src = _read("metrics/_core_numba_warmup.py")
+        helper_idx = src.find("def _kick_cpu_count")
+    assert helper_idx != -1, "def _kick_cpu_count not found in metrics/core.py or metrics/_core_numba_warmup.py"
     snippet = src[helper_idx : helper_idx + 800]
     assert "logger.debug" in snippet, (
-        "metrics/core.py: _kick_cpu_count must surface failures at DEBUG, not silently pass."
+        "_kick_cpu_count must surface failures at DEBUG, not silently pass."
     )
 
 
