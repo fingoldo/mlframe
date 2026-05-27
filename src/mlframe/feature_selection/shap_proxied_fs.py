@@ -373,6 +373,18 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         order = np.argsort(score, kind="stable")
         candidates = [candidates[i] for i in order]
 
+        # Expose the ranked candidate subsets (expanded to feature names) so downstream patterns
+        # (e.g. proposal-generator seeding RFECV/genetic honest search) can consume them.
+        def _cand_names(idx):
+            if unit_to_members is not None:
+                cols = sorted({int(c) for u in idx for c in unit_to_members[int(u)]})
+            else:
+                cols = sorted(int(i) for i in idx)
+            return [str(self.feature_names_in_[i]) for i in cols]
+
+        report["candidates"] = [dict(proxy_loss=float(l), features=_cand_names(c))
+                                for l, c in candidates[: self.top_n]]
+
         # Honest re-validation of the top-N on the disjoint holdout (active-learning variant when the
         # corrector anchors are available, else the static top-N retrain).
         if self.revalidate:
