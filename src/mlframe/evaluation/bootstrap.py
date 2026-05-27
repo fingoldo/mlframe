@@ -128,7 +128,11 @@ def bootstrap_metric(
     first_err: Optional[str] = None
     for _ in range(n_bootstrap):
         if stratify is None:
-            idx = rng.integers(0, n, size=n)
+            # iter464: dtype=np.int64 explicit (same 1.16x shape-validation
+            # shortcut as the stratified path, iter451). The unstratified
+            # path is the regression-bootstrap default (RMSE etc); this
+            # fires n_bootstrap times per metric.
+            idx = rng.integers(0, n, size=n, dtype=np.int64)
         else:
             # Per-class resample preserves the original class frequencies.
             # iter312 (2026-05-26): use rng.integers + index instead of
