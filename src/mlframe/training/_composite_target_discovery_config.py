@@ -161,12 +161,15 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     stacked_residual_aggregation: str = "mean"
 
     # Parallel evaluation of (base, transform) candidates in
-    # CompositeTargetDiscovery.fit via joblib(threading) when > 1. Default 1
-    # because the parallel block covers ~20% of fit time -- _tiny_model_rerank
-    # (Phase B) dominates the tail. Use tiny_rerank_n_jobs > 1 alongside this
-    # for the full Phase A + B speedup. Parallel path is bit-equivalent to
-    # serial (covered by tests/training/test_composite_discovery_parallel.py).
-    discovery_n_jobs: int = 1
+    # CompositeTargetDiscovery.fit via joblib(threading). 0 = auto
+    # (min(len(work_items), cpu_count)); 1 = serial; >1 = explicit.
+    # Phase A is ~20% of fit time (Phase B / _tiny_model_rerank dominates),
+    # but the per-candidate MI work is numpy/numba (GIL-released) so the
+    # threading parallelism is near-free and bit-equivalent to serial
+    # (tests/training/test_composite_discovery_parallel.py). Default 0
+    # (auto) alongside the auto tiny_rerank_n_jobs for full Phase A + B
+    # parallelism out of the box.
+    discovery_n_jobs: int = 0
 
     # Skip the entire composite-target training block when the raw
     # model already dominates the dummy-baseline ceiling. The discovery's
@@ -340,8 +343,12 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # subsample=200k+ configs. Threads share base/x_matrix arrays via
     # ``backend="threading"``; LightGBM and the inner CV release the GIL.
     # Set to 0 = auto (min(len(kept_specs)*len(families), cpu_count)).
-    # Default 1 preserves serial behaviour for back-compat.
-    tiny_rerank_n_jobs: int = 1
+    # Default 0 (auto): Phase B dominates discovery wall-time and the
+    # rerank threads share base/x_matrix arrays (no copy) while LightGBM +
+    # inner CV release the GIL, so threading parallelism is near-free and
+    # bit-equivalent to serial (test_composite_discovery_parallel.py).
+    # Set 1 to force serial.
+    tiny_rerank_n_jobs: int = 0
 
     # Force deterministic mode on the tiny models built INSIDE Phase B
     # (``_build_tiny_model``). When True, injects the well-known

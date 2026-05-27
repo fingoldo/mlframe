@@ -546,7 +546,14 @@ def fit(
     # (transform.fit / transform.forward / _mi_to_target_prebinned
     # / bootstrap MI loop) is numpy / numba which releases the GIL,
     # so threading scales close to linearly up to cpu_count.
-    _n_jobs_disc = int(getattr(self.config, "discovery_n_jobs", 1) or 1)
+    # 0 = auto: cap at the number of work items and cpu_count. 1 = serial.
+    _n_jobs_raw = getattr(self.config, "discovery_n_jobs", 1)
+    _n_jobs_raw = 1 if _n_jobs_raw is None else int(_n_jobs_raw)
+    if _n_jobs_raw == 0:
+        import os as _os
+        _n_jobs_disc = max(1, min(len(_work_items), _os.cpu_count() or 1))
+    else:
+        _n_jobs_disc = max(1, _n_jobs_raw)
     if _n_jobs_disc > 1 and len(_work_items) > 1:
         from joblib import Parallel as _Parallel, delayed as _delayed
         _results = _Parallel(
