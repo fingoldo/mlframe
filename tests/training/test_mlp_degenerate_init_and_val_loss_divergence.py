@@ -209,7 +209,10 @@ class TestOutsideTrainYEnvelopeSensorBranch:
 
     def test_branch_fires_when_y_train_stats_supplied(self, caplog) -> None:
         from mlframe.training import _reporting
-        caplog.set_level(logging.WARNING, logger="mlframe.training._reporting")
+        # report_regression_model_perf was carved out of _reporting.py into
+        # sibling _reporting_regression.py during the 1k-LOC monolith split;
+        # the logger.warning fires on the sibling's logger now.
+        caplog.set_level(logging.WARNING, logger="mlframe.training._reporting_regression")
         # Test rows: in-batch target std=100, mean=11500. Preds: also
         # mean~11500, std~50 (no in-batch collapse signal). BUT preds
         # range goes to 14000 while y_train_max=12500 with y_train_std=200.
@@ -242,7 +245,10 @@ class TestOutsideTrainYEnvelopeSensorBranch:
         """Backward compat: callers that don't pass y_train stats see
         the same behaviour as pre-fix (only in-batch checks fire)."""
         from mlframe.training import _reporting
-        caplog.set_level(logging.WARNING, logger="mlframe.training._reporting")
+        # report_regression_model_perf was carved out of _reporting.py into
+        # sibling _reporting_regression.py during the 1k-LOC monolith split;
+        # the logger.warning fires on the sibling's logger now.
+        caplog.set_level(logging.WARNING, logger="mlframe.training._reporting_regression")
         rng_t = np.random.default_rng(0)
         rng_p = np.random.default_rng(1)
         targets = 11500 + rng_t.normal(0, 100, 1000)

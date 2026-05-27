@@ -35,7 +35,13 @@ def _read_main_or_split() -> str:
 def test_main_py_uses_deepcopy_for_precomputed_composite_specs():
     """Source-level guard: the deepcopy must remain at the assignment site."""
     src = _read_main_or_split()
-    assert "_copy.deepcopy(precomputed.composite_target_specs)" in src, (
+    # The deepcopy import alias was renamed to ``_copy_mod`` after the
+    # _main_train_suite_phases carve; accept either alias so the sensor
+    # stays valid across the rename.
+    assert (
+        "_copy.deepcopy(precomputed.composite_target_specs)" in src
+        or "_copy_mod.deepcopy(precomputed.composite_target_specs)" in src
+    ), (
         "main.py (or _main_train_suite.py sibling) must use deepcopy when "
         "assigning precomputed.composite_target_specs to metadata. Without "
         "this, a downstream phase mutating the metadata slot also mutates "
@@ -46,7 +52,12 @@ def test_main_py_uses_deepcopy_for_precomputed_composite_specs():
 
 def test_main_py_uses_deepcopy_for_precomputed_dummy_baselines():
     src = _read_main_or_split()
-    assert "_copy_db.deepcopy(precomputed.dummy_baselines)" in src, (
+    # Same _copy / _copy_mod / _copy_db alias drift; accept any of the three.
+    assert (
+        "_copy.deepcopy(precomputed.dummy_baselines)" in src
+        or "_copy_mod.deepcopy(precomputed.dummy_baselines)" in src
+        or "_copy_db.deepcopy(precomputed.dummy_baselines)" in src
+    ), (
         "main.py (or _main_train_suite.py sibling) must use deepcopy when "
         "assigning precomputed.dummy_baselines (wave 11 #3)."
     )
