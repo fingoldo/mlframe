@@ -88,6 +88,19 @@ def _permutation_feature_importances(
     caller logs + omits the chart rather than crashing the whole
     report.
     """
+    # 2026-05-27: ensemble aggregator entries (EnsARITHM/HARM/MEDIAN/...)
+    # arrive here with ``model=None`` because the per-member voting
+    # logic doesn't expose a sklearn-style ``predict`` boundary. sklearn
+    # permutation_importance then raises "estimator parameter must be an
+    # object implementing 'fit'. Got None instead." Short-circuit with a
+    # DEBUG-level note (was WARN, which spammed the log 6 times per
+    # target -- once per ensemble flavour).
+    if model is None:
+        logger.debug(
+            "permutation_importance skipped: model is None (ensemble "
+            "aggregator without sklearn-style estimator surface)."
+        )
+        return None
     try:
         from sklearn.inspection import permutation_importance
     except Exception:

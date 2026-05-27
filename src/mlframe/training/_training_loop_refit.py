@@ -118,17 +118,40 @@ def _maybe_refit_on_degenerate_best_iter(
         str(_max_iter) if _max_iter is not None else "?", _adaptive_floor,
         _cur_loss, _loss_key, _loss_val, _metric_key, _metric_val,
     )
+    # CatBoost (and some XGB versions) raise on ``set_params`` after fit
+    # (``CatBoostError: You can't change params of fitted model``). Try
+    # the in-place set_params + fit path FIRST; on any exception that
+    # blocks it, fall back to rebuilding a fresh instance with the
+    # merged params, fitting it, then atomically copying its __dict__
+    # into the original model_obj so the caller's reference stays valid.
+    _new_loss_params = {_loss_key: _loss_val, _metric_key: _metric_val}
+    _refit_path = "set_params"
     try:
-        model_obj.set_params(**{_loss_key: _loss_val, _metric_key: _metric_val})
+        model_obj.set_params(**_new_loss_params)
         model_obj.fit(train_df, train_target, **fit_params)
-    except (ValueError, TypeError) as _refit_err:
-        logger_.warning(
-            "[loss-fallback] %s refit with RMSE rejected: %s. Keeping the "
-            "degenerate fit; downstream charts will show the truth "
-            "(R^2 < 0, near-constant pred).",
-            model_type_name, _refit_err,
-        )
-        return None
+    except Exception as _refit_err:
+        # Rebuild fresh and swap in-place. ``type(model_obj)(**merged)``
+        # creates a new instance with the same backend wrapper class.
+        try:
+            _refit_path = "fresh-instance"
+            _merged_params = dict(_cur_params)
+            _merged_params.update(_new_loss_params)
+            _cls = type(model_obj)
+            _new_model = _cls(**_merged_params)
+            _new_model.fit(train_df, train_target, **fit_params)
+            # Atomic state swap: keeps caller's reference identity stable
+            # so downstream code (predict, save, FI) keeps working.
+            model_obj.__dict__.clear()
+            model_obj.__dict__.update(_new_model.__dict__)
+        except Exception as _rebuild_err:
+            logger_.warning(
+                "[loss-fallback] %s refit rejected on both set_params (%s) "
+                "and fresh-instance (%s) paths. Keeping the degenerate "
+                "fit; downstream charts will show the truth (R^2 < 0, "
+                "near-constant pred).",
+                model_type_name, _refit_err, _rebuild_err,
+            )
+            return None
     try:
         _new_best_iter = get_model_best_iter(model_obj)
     except (AttributeError, TypeError, ValueError):

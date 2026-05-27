@@ -494,6 +494,22 @@ class PytorchLightningEstimator(BaseEstimator):
         # Clean up to avoid pickle issues and free memory
         self.trainer = None
 
+        # Drop the cached training datamodule. It carries the full
+        # train+val feature/label tensors that get serialised into every
+        # save() call -- observed at 1788 MB on disk for a 4M x 323
+        # float32 frame (2026-05-27 TVT regression log). predict() can
+        # always rebuild a fresh datamodule from
+        # ``self.datamodule_params`` + the inference X (the path that
+        # ran previously was just a misguided "silence the create-on-
+        # predict log line" optimisation). Cost: one extra log line
+        # per predict; benefit: -1.5 GB / model bundle on prod-shape
+        # data.
+        # Opt out via env MLFRAME_KEEP_PREDICTION_DATAMODULE=1 for
+        # operators relying on the previous behaviour.
+        import os as _os_drop_dm
+        if not _os_drop_dm.environ.get("MLFRAME_KEEP_PREDICTION_DATAMODULE"):
+            self.prediction_datamodule = None
+
         return self
 
     def fit(self, X, y, sample_weight=None, **fit_params):

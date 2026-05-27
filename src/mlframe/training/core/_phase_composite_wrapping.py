@@ -229,6 +229,59 @@ def _run_composite_target_wrapping(
                     "Pack G watchdog covers correctness for additive transforms.",
                     _composite_name,
                 )
+                # Even when the heavy multi-split metric block is skipped,
+                # emit a SINGLE test-split y-scale chart per composite entry
+                # so the operator gets the chart the user asked for in the
+                # 2026-05-27 bug report. Cost: one wrapper.predict(test_df)
+                # per entry (~0.1s booster, ~5s MLP). Cheap relative to the
+                # full 3-split metric block (~5-15 min).
+                if target_name is not None and test_idx is not None \
+                        and test_df_pd is not None:
+                    _y_full_chart = target_by_type.get(_tt_w, {}).get(_orig_tname)
+                    if _y_full_chart is not None:
+                        _y_arr_chart = np.asarray(_y_full_chart)
+                        for _entry in _entries:
+                            try:
+                                _wrap_chart = getattr(_entry, "model", None) or _entry
+                                _y_split_chart = _y_arr_chart[test_idx]
+                                _y_pred_chart = np.asarray(
+                                    _wrap_chart.predict(test_df_pd),
+                                    dtype=np.float64,
+                                ).reshape(-1)
+                                _finite_chart = (
+                                    np.isfinite(_y_pred_chart)
+                                    & np.isfinite(_y_split_chart)
+                                )
+                                if _finite_chart.sum() == 0:
+                                    continue
+                                _y_t = _y_split_chart[_finite_chart]
+                                _y_p = _y_pred_chart[_finite_chart]
+                                _diff = _y_p - _y_t.astype(np.float64)
+                                _rmse_c = float(np.sqrt(np.mean(_diff * _diff)))
+                                _mae_c = float(np.mean(np.abs(_diff)))
+                                _ss_tot_c = float(np.sum(
+                                    (_y_t - _y_t.mean()) ** 2
+                                ))
+                                _r2_c = (
+                                    1.0 - float(np.sum(_diff * _diff)) / _ss_tot_c
+                                ) if _ss_tot_c > 0 else float("nan")
+                                _emit_yscale_composite_chart(
+                                    y_target=_y_t,
+                                    y_pred=_y_p,
+                                    inner_entry=_entry,
+                                    composite_name=_composite_name,
+                                    orig_tname=_orig_tname,
+                                    target_name=target_name,
+                                    plot_file=plot_file,
+                                    reporting_config=reporting_config,
+                                    rmse_y=_rmse_c, mae_y=_mae_c, r2_y=_r2_c,
+                                )
+                            except Exception as _chart_err:
+                                logger.warning(
+                                    "[CompositeTargetEstimator] y-scale chart "
+                                    "emit failed for composite='%s' (non-fatal): %s",
+                                    _composite_name, _chart_err,
+                                )
                 continue
             _metrics_dict = metadata.setdefault(
                 "composite_target_y_scale_metrics", {},
