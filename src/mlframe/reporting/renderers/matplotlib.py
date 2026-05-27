@@ -14,7 +14,7 @@ import numpy as np
 
 from mlframe.reporting.spec import (
     BarPanelSpec, FigureSpec, HeatmapPanelSpec, HistogramPanelSpec,
-    LinePanelSpec, ScatterPanelSpec, ViolinPanelSpec,
+    LinePanelSpec, NetworkPanelSpec, ScatterPanelSpec, ViolinPanelSpec,
 )
 
 
@@ -113,6 +113,8 @@ class MatplotlibRenderer:
             self._line(ax, panel)
         elif isinstance(panel, ViolinPanelSpec):
             self._violin(ax, panel)
+        elif isinstance(panel, NetworkPanelSpec):
+            self._network(ax, panel, fig)
         else:
             raise TypeError(f"unknown panel type: {type(panel).__name__}")
 
@@ -278,6 +280,72 @@ class MatplotlibRenderer:
         ax.set_title(p.title)
         if p.grid:
             ax.grid(True, alpha=0.3, axis="y")
+
+    def _network(self, ax, p: NetworkPanelSpec, fig) -> None:
+        import matplotlib
+        from matplotlib.cm import ScalarMappable
+        from matplotlib.collections import LineCollection
+        from matplotlib.colors import Normalize
+        from matplotlib.lines import Line2D
+
+        nx_pos = np.column_stack([np.asarray(p.node_x, dtype=float),
+                                  np.asarray(p.node_y, dtype=float)])
+        e_src = np.asarray(p.edge_src, dtype=np.int64)
+        e_dst = np.asarray(p.edge_dst, dtype=np.int64)
+        weights = np.asarray(p.edge_weight, dtype=float)
+
+        # Edges as a single LineCollection: O(E) artists collapse to one draw
+        # call, so thousands of edges stay cheap. Width + color both encode MI.
+        if e_src.size:
+            segments = [[tuple(nx_pos[a]), tuple(nx_pos[b])] for a, b in zip(e_src, e_dst)]
+            wmin, wmax = float(weights.min()), float(weights.max())
+            norm = Normalize(vmin=wmin, vmax=wmax if wmax > wmin else wmin + 1e-9)
+            cmap = matplotlib.colormaps[p.colormap]
+            lo, hi = p.edge_width_range
+            if wmax > wmin:
+                lws = lo + (weights - wmin) / (wmax - wmin) * (hi - lo)
+            else:
+                lws = np.full_like(weights, (lo + hi) / 2.0)
+            lc = LineCollection(segments, linewidths=lws.tolist(),
+                                colors=cmap(norm(weights)), alpha=0.8, zorder=1)
+            ax.add_collection(lc)
+
+            # Arrows for directed edges. Drawn per-edge (annotate has no batch
+            # form); the friend-graph max_nodes guard keeps edge counts modest.
+            directed = p.edge_directed
+            if np.isscalar(directed):
+                directed = np.full(e_src.shape, bool(directed))
+            else:
+                directed = np.asarray(directed, dtype=bool)
+            for a, b, d in zip(e_src, e_dst, directed):
+                if d:
+                    ax.annotate("", xy=tuple(nx_pos[b]), xytext=tuple(nx_pos[a]),
+                                arrowprops=dict(arrowstyle="-|>", color="0.35",
+                                                alpha=0.6, shrinkA=8, shrinkB=8),
+                                zorder=2)
+
+            sm = ScalarMappable(norm=norm, cmap=cmap)
+            sm.set_array([])
+            cbar = fig.colorbar(sm, ax=ax)
+            if p.colorbar_label:
+                cbar.set_label(p.colorbar_label)
+
+        ax.scatter(nx_pos[:, 0], nx_pos[:, 1], s=np.asarray(p.node_size, dtype=float),
+                   c=list(p.node_color), edgecolors="black", linewidths=0.5, zorder=3)
+        for (x, y), label in zip(nx_pos, p.node_label):
+            ax.annotate(label, (x, y), fontsize=7, ha="center", va="center", zorder=4)
+
+        if p.node_legend:
+            handles = [Line2D([0], [0], marker="o", color="w", markerfacecolor=col,
+                              markersize=8, label=lbl) for lbl, col in p.node_legend]
+            ax.legend(handles=handles, loc="best", fontsize=8, framealpha=0.7)
+
+        ax.set_title(p.title)
+        ax.set_xlabel(p.xlabel)
+        ax.set_ylabel(p.ylabel)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.margins(0.12)
 
 
 __all__ = ["MatplotlibRenderer"]

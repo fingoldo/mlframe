@@ -159,6 +159,48 @@ class ViolinPanelSpec:
     grid: bool = True
 
 
+@dataclass(frozen=True)
+class NetworkPanelSpec:
+    """Node-link (graph) panel for feature-relationship diagrams.
+
+    Layout positions are precomputed by the caller (the spec stays pure data,
+    so renderers never depend on a graph-layout library). Nodes and edges are
+    stored as flat parallel arrays so a renderer can emit the whole graph in
+    one or two traces regardless of node count -- the plotly backend batches
+    all edges into a single ``Scattergl`` line trace and all nodes into one
+    ``Scattergl`` marker trace, which scales to the WebGL ~100k-point regime.
+
+    Edge endpoints are integer indices into the node arrays. ``node_size`` uses
+    matplotlib ``scatter(s=...)`` area semantics (points-squared) so both
+    backends size markers identically. Per-node ``node_color`` is a resolved
+    color string (the domain layer maps its classes to colors), keeping the
+    spec backend-agnostic. ``edge_weight`` drives both edge width and edge color
+    through ``colormap``; ``edge_directed`` selects which edges draw an arrow.
+    """
+
+    node_x: np.ndarray
+    node_y: np.ndarray
+    node_size: np.ndarray            # matplotlib area units (pt^2)
+    node_color: Tuple[str, ...]      # one resolved color per node
+    node_label: Tuple[str, ...]
+    edge_src: np.ndarray             # int index into node arrays
+    edge_dst: np.ndarray             # int index into node arrays
+    edge_weight: np.ndarray          # float; drives width + color
+    title: str = ""
+    xlabel: str = ""
+    ylabel: str = ""
+    # Rich per-node hover text (plotly tooltips). When None, ``node_label`` is used.
+    node_hovertext: Optional[Tuple[str, ...]] = None
+    # Per-edge arrow flag (len == edges) or a single bool for all edges.
+    edge_directed: Union[bool, np.ndarray] = False
+    colormap: str = _colors.HEATMAP_GENERIC
+    colorbar_label: Optional[str] = None
+    # Optional (label, color) pairs for a node-class legend (e.g. unique / sink / middling).
+    node_legend: Optional[Tuple[Tuple[str, str], ...]] = None
+    # Edge width range (min, max) in points; weights are linearly mapped into it.
+    edge_width_range: Tuple[float, float] = (0.5, 6.0)
+
+
 # Type alias: union of all panel specs (renderers dispatch on isinstance).
 PanelSpec = Union[
     ScatterPanelSpec,
@@ -167,6 +209,7 @@ PanelSpec = Union[
     BarPanelSpec,
     LinePanelSpec,
     ViolinPanelSpec,
+    NetworkPanelSpec,
     None,  # ``None`` = empty grid cell
 ]
 
@@ -217,6 +260,7 @@ __all__ = [
     "BarPanelSpec",
     "LinePanelSpec",
     "ViolinPanelSpec",
+    "NetworkPanelSpec",
     "PanelSpec",
     "FigureSpec",
 ]

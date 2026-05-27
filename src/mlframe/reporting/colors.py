@@ -59,6 +59,27 @@ def line_color(idx: int) -> str:
     return LINE_PALETTE[idx % len(LINE_PALETTE)]
 
 
+# Feature "friend graph" node classes (mlframe.feature_selection friend_graph):
+# green = unique informative feature, red = suspected redundant sink/aggregator,
+# yellow = middling. Shared here so both renderers and any external dashboard
+# read the same legend colors. ``FRIEND_GRAPH_EDGE_CMAP`` shades edges by the
+# mutual information they carry.
+FRIEND_GRAPH_NODE_COLORS = {
+    "green": "#2ca02c",   # tab:green - unique knowledge
+    "red": "#d62728",     # tab:red - suspected sink / aggregator
+    "yellow": "#e6a700",  # amber - middling
+}
+FRIEND_GRAPH_EDGE_CMAP = "plasma"
+
+
+def friend_graph_node_color(klass: str) -> str:
+    """Resolve a friend-graph node class ('green'/'red'/'yellow') to a hex color.
+
+    Unknown classes fall back to gray so a mis-labelled node is still visible
+    rather than crashing the render."""
+    return FRIEND_GRAPH_NODE_COLORS.get(klass, "#7f7f7f")
+
+
 def auto_text_color(value: float, colormap: str,
                     vmin: float = 0.0, vmax: float = 1.0) -> str:
     """Pick ``"black"`` or ``"white"`` text for an overlay on a
@@ -95,4 +116,5 @@ __all__ = [
     "CALIBRATION", "CONFUSION", "HEATMAP_GENERIC",
     "BAR_PRIMARY", "PERFECT_FIT_LINE", "NORMAL_OVERLAY", "ZERO_LINE",
     "LINE_PALETTE", "line_color", "auto_text_color",
+    "FRIEND_GRAPH_NODE_COLORS", "FRIEND_GRAPH_EDGE_CMAP", "friend_graph_node_color",
 ]
