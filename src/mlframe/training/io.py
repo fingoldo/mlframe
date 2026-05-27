@@ -559,7 +559,39 @@ def save_mlframe_model(
     _compile_swaps: list = []
     _bloat_strips: list = []
     _walk_seen: set = set()
-    _BLOAT_ATTR_NAMES = ("_trainer", "prediction_datamodule")
+    # Name-based strip for the canonical attrs. Broadened beyond the original
+    # ("_trainer", "prediction_datamodule") because a 2.4 GB MLP dump survived
+    # the name-only strip: a Lightning Trainer / DataModule / DataLoader that
+    # carries the whole 4M-row training dataset was held under a DIFFERENT
+    # attr name (e.g. the Lightning ``.trainer`` backref, a retained
+    # ``datamodule`` / ``*_dataloader``). The TYPE-based check below is the
+    # robust catch-all; these names are the cheap fast path.
+    _BLOAT_ATTR_NAMES = (
+        "_trainer", "trainer", "prediction_datamodule", "datamodule",
+        "_datamodule", "train_dataloader", "val_dataloader",
+        "test_dataloader", "predict_dataloader",
+    )
+
+    def _looks_like_training_bloat(v: object) -> bool:
+        """True for objects that carry the training dataset but are never
+        needed for INFERENCE: a Lightning Trainer / *DataModule, or a torch
+        DataLoader / Dataset. Duck-typed by module + class name so io.py does
+        not hard-import torch / lightning. The fitted network weights live on
+        the LightningModule (NOT matched here), so nulling these is safe."""
+        try:
+            cls = type(v)
+            mod = getattr(cls, "__module__", "") or ""
+            name = cls.__name__
+        except Exception:
+            return False
+        if mod.startswith(("lightning", "pytorch_lightning")):
+            # endswith (not ==) so Trainer subclasses / custom DataModules match.
+            if name.endswith("Trainer") or name.endswith("DataModule"):
+                return True
+        if mod.startswith("torch.utils.data"):
+            if name.endswith("DataLoader") or name.endswith("Dataset"):
+                return True
+        return False
 
     def _collect_pre_dump_swaps(obj: object) -> None:
         if id(obj) in _walk_seen:
@@ -578,10 +610,13 @@ def save_mlframe_model(
                 # part of the dumped graph any more.
                 _collect_pre_dump_swaps(_orig)
                 continue
-            # Lightning bloat strip: temp-null _trainer / prediction_datamodule
-            # at the matching attr names. Don't recurse INTO them -- the whole
+            # Lightning bloat strip: temp-null the heavy training-only objects
+            # (by canonical name OR by type) so the 4M-row dataset they hold
+            # never reaches the pickle. Don't recurse INTO them -- the whole
             # subtree is about to be discarded for the pickle pass.
-            if _k in _BLOAT_ATTR_NAMES and _v is not None:
+            if _v is not None and (
+                _k in _BLOAT_ATTR_NAMES or _looks_like_training_bloat(_v)
+            ):
                 _bloat_strips.append((obj, _k, _v))
                 _d[_k] = None
                 continue
