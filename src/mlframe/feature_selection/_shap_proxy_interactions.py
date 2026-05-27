@@ -34,6 +34,13 @@ from mlframe.feature_selection._shap_proxy_objective import proxy_loss, resolve_
 # the numba JIT warmup is not paid on trivial widths. Tunable per-HW via kernel_tuning_cache.
 _INTERACTION_NUMBA_MIN_FEATURES = 8
 
+# Min problem size (rows * P^2 interaction-tensor cells) at which the cupy/CUDA interaction kernel is
+# preferred over numba on a CUDA box. The GPU kernel carries large per-thread local-memory scratch (it
+# spills on small GPUs) so it only pays off once the per-sample tree*cond_feat work amortises the
+# upload + spill; below this we stay on numba (no JIT/launch overhead win). Tunable via
+# kernel_tuning_cache key ``interaction_gpu_min_cells``.
+_INTERACTION_GPU_MIN_CELLS = 3_000 * 40 * 40  # ~4.8M cells (e.g. 3000 rows x P=40)
+
 
 def _interaction_numba_min_features() -> int:
     """Crossover width for routing interactions to the numba kernel, from kernel_tuning_cache if set."""
@@ -48,6 +55,21 @@ def _interaction_numba_min_features() -> int:
     except Exception:
         pass
     return _INTERACTION_NUMBA_MIN_FEATURES
+
+
+def _interaction_gpu_min_cells() -> int:
+    """Min ``n * P^2`` to route the interaction tensor to the GPU kernel, from kernel_tuning_cache if set."""
+    try:
+        from mlframe.feature_selection.filters._kernel_tuning import get_kernel_tuning_cache
+
+        ktc = get_kernel_tuning_cache()
+        if ktc is not None:
+            entry = ktc.lookup("shap_proxy_treeshap")
+            if isinstance(entry, dict) and entry.get("interaction_gpu_min_cells"):
+                return int(entry["interaction_gpu_min_cells"])
+    except Exception:
+        pass
+    return _INTERACTION_GPU_MIN_CELLS
 
 
 def _interaction_tensor_numba(est, X, *, classification):
@@ -68,20 +90,47 @@ def _interaction_tensor_numba(est, X, *, classification):
     return Phi, np.full(n, float(base), dtype=np.float64)
 
 
+def _interaction_tensor_gpu(est, X, *, classification):
+    """cupy/CUDA TreeSHAP interaction tensor for a supported xgboost estimator, else ``None``.
+
+    Same ``(Phi (n,P,P), base (n,))`` contract as ``_interaction_tensor_numba``. Returns ``None`` (so the
+    caller can fall back to numba then shap) if the model is unsupported or the ensemble exceeds the GPU
+    kernel's depth/width scratch caps."""
+    from mlframe.feature_selection._shap_proxy_treeshap import extract_ensemble
+    from mlframe.feature_selection._shap_proxy_treeshap_interactions_gpu import interaction_tensor_gpu
+
+    base_est = _unwrap_estimator(est)
+    ensemble = extract_ensemble(base_est)
+    if ensemble is None:
+        return None
+    Xv = X.values if hasattr(X, "values") else np.asarray(X)
+    Phi, _phi, base = interaction_tensor_gpu(ensemble, Xv)
+    n = Phi.shape[0]
+    return Phi, np.full(n, float(base), dtype=np.float64)
+
+
 def compute_interaction_tensor(model_template, X, y, *, classification, rng=None, backend="auto"):
     """Fit one model on X and return ``(Phi, base)`` where Phi is (n, P, P) SHAP interaction values
     (positive class for binary) and base is the scalar expected value broadcast to (n,).
 
-    ``backend`` ("auto" default) routes between the custom fast numba TreeSHAP interaction kernel (for
-    supported xgboost models on wider proxy widths) and the ``shap`` library (always-correct fallback).
-    ``"shap"`` / ``"treeshap_numba"`` force a path; the numba path falls back to shap for unsupported
-    models. The numba kernel matches ``shap.shap_interaction_values`` to ~1e-4 and is far faster on wide
-    proxies, where the interaction tensor is the search hotspot."""
+    ``backend`` ("auto" default) routes between the cupy/CUDA TreeSHAP interaction kernel (on a CUDA box
+    once the problem is large enough), the custom numba TreeSHAP interaction kernel (for supported
+    xgboost / lightgbm models on wider proxy widths) and the ``shap`` library (always-correct fallback).
+    The GPU and
+    numba kernels match each other to ~machine eps and ``shap.shap_interaction_values`` to ~1e-4; both
+    are far faster on wide proxies, where the interaction tensor is the search hotspot.
+
+    ``"shap"`` / ``"treeshap_numba"`` / ``"treeshap_gpu"`` force a path. The GPU path falls back to numba
+    (depth/width cap, missing cupy or device hiccup); the numba path falls back to shap for unsupported
+    models."""
     rng = np.random.default_rng(0) if rng is None else rng
     est = _fit_one(model_template, X, y, classification, int(rng.integers(0, 2**31 - 1)))
 
+    use_gpu = False
     use_numba = False
-    if backend == "treeshap_numba":
+    if backend == "treeshap_gpu":
+        use_gpu = True
+    elif backend == "treeshap_numba":
         use_numba = True
     elif backend == "auto":
         from mlframe.feature_selection._shap_proxy_treeshap import (
@@ -90,8 +139,30 @@ def compute_interaction_tensor(model_template, X, y, *, classification, rng=None
         base_est = _unwrap_estimator(est)
         supported = is_supported_xgboost(base_est) or is_supported_lightgbm(base_est)
         P = X.shape[1]
-        use_numba = supported and P >= _interaction_numba_min_features()
-    if use_numba:
+        if supported and P >= _interaction_numba_min_features():
+            use_numba = True
+            # Prefer the GPU interaction kernel on a CUDA box once the tensor is large enough that the
+            # per-sample tree*cond-feat work amortises the upload + local-mem spill.
+            try:
+                from mlframe.feature_selection._shap_proxy_treeshap_interactions_gpu import (
+                    gpu_interactions_available)
+
+                if gpu_interactions_available() and X.shape[0] * P * P >= _interaction_gpu_min_cells():
+                    use_gpu = True
+            except Exception:
+                pass
+
+    if use_gpu:
+        try:
+            out = _interaction_tensor_gpu(est, X, classification=classification)
+            if out is not None:
+                return out
+        except Exception:
+            pass  # device/cupy/cap hiccup -> numba then shap (never lose the result)
+        out = _interaction_tensor_numba(est, X, classification=classification)
+        if out is not None:
+            return out
+    elif use_numba:
         out = _interaction_tensor_numba(est, X, classification=classification)
         if out is not None:
             return out
