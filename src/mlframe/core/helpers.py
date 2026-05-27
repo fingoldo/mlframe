@@ -155,6 +155,15 @@ def ensure_no_infinity_pd(df: pd.DataFrame, num_cols_only: bool = True, nans_fil
     on the CLEAN production case (n=1M, no inf) because numpy's
     np.isinf().any() is SIMD-vectorised inside the C kernel. Bench:
     profiling/bench_any_isinf_short_circuit.py.
+
+    bench-attempt-rejected (2026-05-28, c0060): block-vectorising the
+    plain-float columns via one ``df[float_cols].to_numpy()`` + a single
+    ``np.isinf(block).any(axis=0)`` (to cut per-column Python/dtype-check
+    dispatch) is 6.2x SLOWER on a clean 1M x 30 float64 frame (23.8ms ->
+    148ms). pandas is column-major, so the block to_numpy() forces a full
+    transpose+copy into one C-contiguous (n, k) array and the (n, k) bool
+    intermediate, whereas the per-column path reads each column as a cheap
+    contiguous view. Keep the per-column loop.
     """
     # Restrict to float-only columns. Integer + bool can't hold inf, so
     # there's no work to do for them; skipping avoids the extension-dtype
