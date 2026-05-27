@@ -16,6 +16,7 @@ What lives here:
 from __future__ import annotations
 
 import logging
+import math
 import re
 from typing import Any, Optional
 
@@ -41,6 +42,14 @@ if _NUMBA_AVAILABLE:
     from ._dummy_numba_kernels import _numba_macro_log_loss, _numba_micro_log_loss
 
 logger = logging.getLogger(__name__)
+
+# iter431: bind math.isfinite for per-row scalar checks below. np.isfinite
+# on a Python float pays the full numpy dispatcher (~1us / call) while
+# math.isfinite is a C float-only check (~0.13us / call, 7.5x). The
+# baseline-metrics loops iterate alphas/labels/baselines and aggregate
+# across baselines (~50 scalar checks per fit); same dispatcher pattern
+# that iter417 fixed in bootstrap.
+_isfinite = math.isfinite
 
 
 def _compute_metrics_table(
@@ -73,13 +82,13 @@ def _compute_metrics_table(
                     for j, a in enumerate(alphas):
                         v = _safe_metric(mean_pinball_loss, y, p[:, j], alpha=a)
                         row[f"{split_name}_pinball@{a:.3f}"] = v
-                        if np.isfinite(v):
+                        if _isfinite(v):
                             pinball_per_a.append(v if j in non_boundary_idx else float("nan"))
                     if non_boundary_idx:
                         non_boundary_vals = [
                             row[f"{split_name}_pinball@{alphas[j]:.3f}"]
                             for j in non_boundary_idx
-                            if np.isfinite(row.get(f"{split_name}_pinball@{alphas[j]:.3f}", float("nan")))
+                            if _isfinite(row.get(f"{split_name}_pinball@{alphas[j]:.3f}", float("nan")))
                         ]
                         row[f"{split_name}_pinball_mean"] = (
                             float(np.mean(non_boundary_vals)) if non_boundary_vals else float("nan")
@@ -91,8 +100,8 @@ def _compute_metrics_table(
                         row[f"{split_name}_pinball@{a:.3f}"] = float("nan")
                     row[f"{split_name}_pinball_mean"] = float("nan")
             row["failed"] = not (
-                np.isfinite(row.get("val_pinball_mean", float("nan")))
-                or np.isfinite(row.get("test_pinball_mean", float("nan")))
+                _isfinite(row.get("val_pinball_mean", float("nan")))
+                or _isfinite(row.get("test_pinball_mean", float("nan")))
             )
             rows.append(row)
     elif target_type in ("regression", "quantile_regression"):
@@ -118,7 +127,7 @@ def _compute_metrics_table(
                 row["test_RMSE"] = float("nan")
                 row["test_MAE"] = float("nan")
             row["failed"] = not (
-                np.isfinite(row["val_RMSE"]) or np.isfinite(row["test_RMSE"])
+                _isfinite(row["val_RMSE"]) or _isfinite(row["test_RMSE"])
             )
             rows.append(row)
 
@@ -150,8 +159,8 @@ def _compute_metrics_table(
                     auc_key = f"{split_name}_AUC" if target_type == "binary_classification" else f"{split_name}_AUC_macro"
                     row[auc_key] = float("nan")
             row["failed"] = not (
-                np.isfinite(row.get("val_log_loss", float("nan")))
-                or np.isfinite(row.get("test_log_loss", float("nan")))
+                _isfinite(row.get("val_log_loss", float("nan")))
+                or _isfinite(row.get("test_log_loss", float("nan")))
             )
             rows.append(row)
 
@@ -190,7 +199,7 @@ def _compute_metrics_table(
                         for k in range(K):
                             if len(np.unique(y[:, k])) >= 2:
                                 ll = _safe_metric(log_loss, y[:, k], p[:, k], labels=[0, 1])
-                                if np.isfinite(ll):
+                                if _isfinite(ll):
                                     label_lls.append(ll)
                         row[f"{split_name}_log_loss_macro"] = (
                             float(np.mean(label_lls)) if label_lls else float("nan")
@@ -202,7 +211,7 @@ def _compute_metrics_table(
                     row[f"{split_name}_log_loss_macro"] = float("nan")
                     row[f"{split_name}_log_loss_micro"] = float("nan")
             row["failed"] = not (
-                np.isfinite(row["val_log_loss_macro"]) or np.isfinite(row["test_log_loss_macro"])
+                _isfinite(row["val_log_loss_macro"]) or _isfinite(row["test_log_loss_macro"])
             )
             rows.append(row)
 
@@ -235,8 +244,8 @@ def _compute_metrics_table(
                     row[f"{split_name}_MAP@10"] = float("nan")
                     row[f"{split_name}_MRR"] = float("nan")
             row["failed"] = not (
-                np.isfinite(row.get("val_NDCG@10", float("nan")))
-                or np.isfinite(row.get("test_NDCG@10", float("nan")))
+                _isfinite(row.get("val_NDCG@10", float("nan")))
+                or _isfinite(row.get("test_NDCG@10", float("nan")))
             )
             rows.append(row)
 
@@ -559,7 +568,7 @@ def _safe_metric_for_title(report: BaselineReport) -> str:
     try:
         col = report.primary_metric
         val = report.table.loc[report.strongest, col]
-        if isinstance(val, float) and np.isfinite(val):
+        if isinstance(val, float) and _isfinite(val):
             return f"{val:.4g}"
         return "?"
     except Exception:
