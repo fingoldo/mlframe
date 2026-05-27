@@ -178,7 +178,13 @@ def test_neural_base_example_input_uses_exc_info() -> None:
 
 
 def test_neural_flat_compile_fallback_uses_exc_info() -> None:
+    # MLPTorchModel was carved out of neural/flat.py into sibling
+    # neural/_flat_torch_module.py; the torch.compile fallback line moved
+    # with it. Concatenate both so the source sensor still works.
     src = _read("training/neural/flat.py")
+    sibling = MLFRAME_ROOT / "training/neural/_flat_torch_module.py"
+    if sibling.exists():
+        src += "\n" + sibling.read_text(encoding="utf-8")
     assert 'logger.warning(f"Failed to apply torch.compile: {e}. Using uncompiled network.")' not in src
     assert 'logger.warning("Failed to apply torch.compile. Using uncompiled network.", exc_info=True)' in src
 

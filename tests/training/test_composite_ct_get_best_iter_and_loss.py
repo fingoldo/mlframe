@@ -12,7 +12,8 @@ Covers:
   TVT-addres-TVT_prev: pred [-50,+340] for T in [-50,+50]).
 * CB's ``Huber:delta=1.345`` loss is matched by ``eval_metric=Huber:
   delta=1.345`` (was MAE -> constant-magnitude gradient stops ES at
-  iter=1) PLUS ``od_pval=1e-5`` + ``od_wait=100``.
+  iter=1) PLUS ``od_pval=1e-5`` + ``early_stopping_rounds=100`` (the
+  canonicalised ``od_wait`` synonym; passing both raises in CB).
 * ``CompositeTargetEstimator`` clips T-scale predictions to a
   MAD-derived envelope BEFORE applying the inverse, so any backend
   blow-up is bounded at its source.
@@ -131,7 +132,12 @@ class TestCbHuberEvalMatchesLoss:
         cb_extras = rec["cb_extra_params"]
         assert cb_extras["od_type"] == "IncToDec"
         assert cb_extras["od_pval"] == pytest.approx(1e-5)
-        assert cb_extras["od_wait"] == 100
+        # CatBoost canonicalises ``od_wait`` and ``early_stopping_rounds`` into
+        # the same parameter group; passing both raises CatBoostError. The
+        # base CB params already carry ``early_stopping_rounds`` so
+        # recommend_boosting_regression_loss now emits ``early_stopping_rounds``
+        # (semantically equivalent to od_wait, no collision).
+        assert cb_extras["early_stopping_rounds"] == 100
 
     def test_eval_metric_for_cb_huber_returns_huber(self) -> None:
         """The matcher returns the SAME Huber-with-delta string for the
