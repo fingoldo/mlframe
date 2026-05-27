@@ -45,9 +45,27 @@ def _read(rel: str) -> str:
     """
     primary = (_ROOT / rel).read_text(encoding="utf-8")
     if rel == "training/core/main.py":
-        sibling = _ROOT / "training" / "core" / "_main_train_suite.py"
-        if sibling.exists():
-            primary = primary + "\n" + sibling.read_text(encoding="utf-8")
+        # main.py was carved into ``_main_train_suite.py`` (suite entry) plus
+        # ``_main_train_suite_phases.py`` (PathLike coerce / leaderboard phase
+        # / precomputed bundle deepcopy live here).
+        _dir = _ROOT / "training" / "core"
+        for nm in ("_main_train_suite.py", "_main_train_suite_phases.py"):
+            sibling = _dir / nm
+            if sibling.exists():
+                primary = primary + "\n" + sibling.read_text(encoding="utf-8")
+    elif rel == "training/extractors.py":
+        # extractors.py was carved into themed siblings; the
+        # ``classification_exact_values`` tuple/set acceptance lives in
+        # ``_extractors_simple.py``.
+        _dir = _ROOT / "training"
+        for nm in (
+            "_extractors_simple.py",
+            "_extractors_showcase.py",
+            "_extractors_dtype_helpers.py",
+        ):
+            sibling = _dir / nm
+            if sibling.exists():
+                primary = primary + "\n" + sibling.read_text(encoding="utf-8")
     elif rel == "feature_selection/boruta_shap.py":
         # 2026-05-22 split: BorutaShap.fit + .explain moved to sibling.
         sibling = _ROOT / "feature_selection" / "_boruta_shap_fit_explain.py"

@@ -56,13 +56,19 @@ def test_setup_helpers_slug_maps_dict_copy():
     """Slug maps stored on metadata must be dict() copies, not ctx aliases.
     Long-running serving process: each predict's slug-fallback setdefault would
     otherwise mutate the loaded metadata in place -> phantom slugs accumulate
-    across the session."""
+    across the session.
+
+    ``_setup_helpers.py`` was carved into themed siblings; the metadata
+    finaliser that stores the slug maps moved to ``_setup_helpers_metadata.py``.
+    Concat parent + sibling so the source-grep guard survives the split.
+    """
     import pathlib
     import mlframe as _mlframe
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "training" / "core" / "_setup_helpers.py"
-    ).read_text(encoding="utf-8")
+    _core = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core"
+    src = (_core / "_setup_helpers.py").read_text(encoding="utf-8")
+    sib = _core / "_setup_helpers_metadata.py"
+    if sib.exists():
+        src += "\n" + sib.read_text(encoding="utf-8")
     assert "dict(ctx.slug_to_original_target_type)" in src
     assert "dict(ctx.slug_to_original_target_name)" in src
 

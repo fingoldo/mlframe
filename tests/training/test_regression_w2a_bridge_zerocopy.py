@@ -47,9 +47,18 @@ def _mixed_polars_frame_for_dtype_check(n=64):
 
 
 def test_f1_main_train_suite_leaderboard_path_routes_polars_through_bridge():
-    """Source-level sensor: the polars leaderboard branch must call the Arrow bridge, not a pd.DataFrame() / CSV round-trip that would silently densify all dtypes."""
+    """Source-level sensor: the polars leaderboard branch must call the Arrow bridge, not a pd.DataFrame() / CSV round-trip that would silently densify all dtypes.
+
+    ``_main_train_suite.py`` was carved into themed siblings; the
+    leaderboard / VOTENRANK aggregation phase moved to
+    ``_main_train_suite_phases.py``. Concat parent + sibling so the
+    source-grep guard survives the split.
+    """
     from mlframe.training.core import _main_train_suite as mts
     src = _module_source(mts)
+    sib = Path(mts.__file__).parent / "_main_train_suite_phases.py"
+    if sib.exists():
+        src += "\n" + sib.read_text(encoding="utf-8")
     # CSV round-trip is the old pl -> bytes -> pd.read_csv path; it densified every column to whatever pd.read_csv inferred (typically string for datetimes / categoricals).
     assert "pl.DataFrame, _pd.DataFrame)" not in src or "get_pandas_view_of_polars_df" in src, (
         "the leaderboard polars branch must route through get_pandas_view_of_polars_df"
@@ -69,9 +78,25 @@ def test_f15_extractors_head_tail_preserves_enum_dtype_through_bridge():
 
 
 def test_f15_extractors_module_source_routes_head_tail_via_bridge():
-    """Module-level source check: extractors must not call ``head.to_pandas()`` / ``tail.to_pandas()`` bare; both head and tail polars-branch must go through ``get_pandas_view_of_polars_df``."""
+    """Module-level source check: extractors must not call ``head.to_pandas()`` / ``tail.to_pandas()`` bare; both head and tail polars-branch must go through ``get_pandas_view_of_polars_df``.
+
+    ``extractors.py`` was carved into themed siblings
+    (``_extractors_showcase.py`` for the head/tail show-distribution path,
+    plus ``_extractors_simple.py`` / ``_extractors_dtype_helpers.py``).
+    Concat parent + every relevant sibling so source-grep guards survive
+    the split.
+    """
     from mlframe.training import extractors
     src = _module_source(extractors)
+    _dir = Path(extractors.__file__).parent
+    for sib_name in (
+        "_extractors_showcase.py",
+        "_extractors_simple.py",
+        "_extractors_dtype_helpers.py",
+    ):
+        sib = _dir / sib_name
+        if sib.exists():
+            src += "\n" + sib.read_text(encoding="utf-8")
     assert "head = head.to_pandas()" not in src, "F15 regression: extractors head path back to bare .to_pandas()"
     assert "tail = tail.to_pandas()" not in src, "F15 regression: extractors tail path back to bare .to_pandas()"
     # 1 import at top + at least 2 call-sites (head, tail) on the show-distribution path.

@@ -80,10 +80,20 @@ def get_model_best_iter(model: object) -> int | None:
         if isinstance(real_model, Pipeline):
             real_model = real_model.steps[-1][1]
             continue
-        if (hasattr(real_model, "estimator_")
-                and not hasattr(real_model, "best_iteration_")
-                and not hasattr(real_model, "best_iteration")
-                and not hasattr(real_model, "best_epoch")):
+        _has_iter = (
+            hasattr(real_model, "best_iteration_")
+            or hasattr(real_model, "best_iteration")
+            or hasattr(real_model, "best_epoch")
+        )
+        # sklearn TransformedTargetRegressor (and _TTRWithEvalSetScaling
+        # subclass) exposes the inner model via ``.regressor_`` not
+        # ``.estimator_``; without this branch PytorchLightningRegressor's
+        # ``best_epoch`` stays invisible to chart titles when wrapped in
+        # _TTRWithEvalSetScaling and the report header loses @iter=N.
+        if not _has_iter and hasattr(real_model, "regressor_"):
+            real_model = real_model.regressor_
+            continue
+        if not _has_iter and hasattr(real_model, "estimator_"):
             real_model = real_model.estimator_
             continue
         break

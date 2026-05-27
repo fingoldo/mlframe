@@ -201,10 +201,21 @@ def test_dummy_baselines_uses_metric_dispatcher():
 def test_composite_post_uses_metric_dispatcher():
     import pathlib
     import mlframe as _mlframe
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "training" / "core" / "_phase_composite_post.py"
-    ).read_text(encoding="utf-8")
+    # ``_phase_composite_post.py`` was carved into themed siblings
+    # (``_phase_composite_post_summary``, ``_phase_composite_post_lag_predict``,
+    # ``_phase_composite_post_xt_ensemble``); the dispatcher import moved
+    # to the summary sibling. Concat parent + siblings so the source-grep
+    # boundary check survives the split.
+    _core = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core"
+    src = (_core / "_phase_composite_post.py").read_text(encoding="utf-8")
+    for sib_name in (
+        "_phase_composite_post_summary.py",
+        "_phase_composite_post_lag_predict.py",
+        "_phase_composite_post_xt_ensemble.py",
+    ):
+        sib = _core / sib_name
+        if sib.exists():
+            src += "\n" + sib.read_text(encoding="utf-8")
     assert "metric_name_higher_is_better as _mhb" in src, (
         "Wave 20 P0 regression: _phase_composite_post no longer uses the "
         "dispatcher"

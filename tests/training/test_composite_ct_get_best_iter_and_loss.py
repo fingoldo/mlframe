@@ -38,6 +38,24 @@ class TestGetModelBestIterUnwrapsCTE:
             estimator_ = _InnerWithBestIter()
         assert get_model_best_iter(_FakeCTE()) == 137
 
+    def test_unwraps_transformed_target_regressor_regressor_attr(self) -> None:
+        """sklearn TransformedTargetRegressor (parent of _TTRWithEvalSetScaling)
+        exposes the inner via ``.regressor_`` NOT ``.estimator_``; without
+        the .regressor_ unwrap branch, PytorchLightningRegressor's
+        ``best_epoch`` stays invisible behind _TTRWithEvalSetScaling and
+        report headers lose @iter=N. Sensor for the 2026-05-27 fix.
+        """
+        from mlframe.core.helpers import get_model_best_iter
+
+        class _InnerWithBestEpoch:
+            best_epoch = 42
+
+        class _TTRLike:
+            # mimic sklearn TransformedTargetRegressor surface
+            regressor_ = _InnerWithBestEpoch()
+            # NOTE: no estimator_, no best_iteration_, no best_epoch on self
+        assert get_model_best_iter(_TTRLike()) == 42
+
     def test_returns_int_not_None_for_iter_zero(self) -> None:
         """ES on iter=0 is a real outcome on tiny-residual targets.
         Previously ``if best_iter:`` swallowed it as falsy."""

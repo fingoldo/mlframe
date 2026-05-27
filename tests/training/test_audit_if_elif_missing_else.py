@@ -38,7 +38,30 @@ MLFRAME_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe"
 
 
 def _read(rel: str) -> str:
-    return (MLFRAME_ROOT / rel).read_text(encoding="utf-8")
+    """Read a source file under src/mlframe.
+
+    Monolith-split compat: when a parent was carved into themed sibling
+    files (``_extractors_showcase.py`` for the show_target_diagnostics
+    body, ``_pipeline_extensions.py`` for the ``_select_scalable_numeric_columns``
+    body), concat parent + siblings so source-grep sensors still match
+    after the splits.
+    """
+    src = (MLFRAME_ROOT / rel).read_text(encoding="utf-8")
+    if rel == "training/extractors.py":
+        for sib_name in (
+            "_extractors_showcase.py",
+            "_extractors_simple.py",
+            "_extractors_dtype_helpers.py",
+        ):
+            sib = MLFRAME_ROOT / "training" / sib_name
+            if sib.exists():
+                src += "\n" + sib.read_text(encoding="utf-8")
+    elif rel == "training/pipeline.py":
+        for sib_name in ("_pipeline_extensions.py", "_pipeline_fit_transform.py"):
+            sib = MLFRAME_ROOT / "training" / sib_name
+            if sib.exists():
+                src += "\n" + sib.read_text(encoding="utf-8")
+    return src
 
 
 # ---------------------------------------------------------------------------

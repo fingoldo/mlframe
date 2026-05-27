@@ -18,6 +18,26 @@ def _read_phase_body() -> str:
     return p.read_text(encoding="utf-8")
 
 
+def _read_phase_body_with_siblings() -> str:
+    """Concat ``_phase_train_one_target_body.py`` + sibling files for source-grep
+    checks that need code carved out into themed siblings (e.g. the NGBoost
+    fallback snapshot lazy-init now lives in ``_phase_train_one_target_schema.py``).
+    Use the bare-body reader for sensors that depend on line-number ordering.
+    """
+    _core = Path(__file__).resolve().parents[2] / "src" / "mlframe" / "training" / "core"
+    src = (_core / "_phase_train_one_target_body.py").read_text(encoding="utf-8")
+    for sib_name in (
+        "_phase_train_one_target_schema.py",
+        "_phase_train_one_target_helpers.py",
+        "_phase_train_one_target_model_setup.py",
+        "_phase_train_one_target_ensembling.py",
+    ):
+        sib = _core / sib_name
+        if sib.exists():
+            src += "\n" + sib.read_text(encoding="utf-8")
+    return src
+
+
 def test_S47_filter_polars_cat_features_by_dtype_hoisted_above_weight_loop():
     """The ``_filter_polars_cat_features_by_dtype`` call must appear BEFORE the weight loop
     (``for weight_name, weight_values in tqdmu_lazy_start(weight_schemas.items()``). Behavioural
@@ -63,7 +83,7 @@ def test_S47_ngb_fallback_snapshot_cached_outside_loop():
     + dict-comprehension are invariant across weights; the snapshot must be cached once (on first
     use) so subsequent weight iterations splat the cached dict instead of re-paying ``get_params``.
     """
-    src = _read_phase_body()
+    src = _read_phase_body_with_siblings()
     assert "_ngb_fallback_snapshot: dict | None = None" in src, (
         "expected lazy-init _ngb_fallback_snapshot pinned outside the weight loop"
     )

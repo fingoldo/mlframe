@@ -113,10 +113,15 @@ def test_train_eval_select_handles_numpy_bool_false():
     slipped past."""
     import pathlib
     import mlframe as _mlframe
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "training" / "train_eval.py"
-    ).read_text(encoding="utf-8")
+    # ``select_target`` was carved out of ``train_eval.py`` into
+    # ``_train_eval_select_target.py``; the ``idx is False`` -> isinstance
+    # fix lives in the sibling. Concat parent + sibling so the source-grep
+    # guard survives the split.
+    _dir = pathlib.Path(_mlframe.__file__).resolve().parent / "training"
+    src = (_dir / "train_eval.py").read_text(encoding="utf-8")
+    sib = _dir / "_train_eval_select_target.py"
+    if sib.exists():
+        src += "\n" + sib.read_text(encoding="utf-8")
     # Pre-fix shape MUST be gone:
     assert "if idx is None or idx is False or (hasattr(idx, \"__len__\") and len(idx) == 0):" not in src
     # Post-fix isinstance marker:

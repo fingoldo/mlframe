@@ -56,7 +56,13 @@ def test_es_transformed_target_regressor_calls_super_init() -> None:
 
 
 def test_aggregating_validation_callback_calls_super_init() -> None:
+    # ``AggregatingValidationCallback`` was carved out of ``training/neural/base.py``
+    # into ``_base_callbacks.py``; concat parent + sibling so the source-grep
+    # guard survives the split.
     src = _read("training/neural/base.py")
+    sib = MLFRAME_ROOT / "training" / "neural" / "_base_callbacks.py"
+    if sib.exists():
+        src += "\n" + sib.read_text(encoding="utf-8")
     helper_idx = src.find("class AggregatingValidationCallback")
     assert helper_idx != -1
     snippet = src[helper_idx : helper_idx + 800]

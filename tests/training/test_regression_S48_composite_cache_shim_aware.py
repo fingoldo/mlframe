@@ -90,11 +90,20 @@ def test_S48_cache_key_includes_frame_identity_against_id_recycling():
 def test_S48_lookup_in_source_uses_inner_keyed_first_fallback_second():
     """The lookup pattern in _phase_composite_post.py MUST try the inner-keyed cache first
     (the common path) and fall back to ``id(_comp)`` only on miss (defensive for unwrapped
-    components like lag_predict)."""
+    components like lag_predict).
+
+    ``_phase_composite_post.py`` was carved into themed siblings; the
+    cross-target ensemble loop that owns the train-prediction cache
+    landed in ``_phase_composite_post_xt_ensemble.py``. Concat parent +
+    sibling so the source-grep guard survives the split.
+    """
     from pathlib import Path
 
-    src_path = Path(__file__).resolve().parents[2] / "src" / "mlframe" / "training" / "core" / "_phase_composite_post.py"
-    src = src_path.read_text(encoding="utf-8")
+    _core = Path(__file__).resolve().parents[2] / "src" / "mlframe" / "training" / "core"
+    src = (_core / "_phase_composite_post.py").read_text(encoding="utf-8")
+    sib = _core / "_phase_composite_post_xt_ensemble.py"
+    if sib.exists():
+        src += "\n" + sib.read_text(encoding="utf-8")
     # Inner-keyed lookup must be the FIRST attempt; the id(_comp) fallback must come SECOND.
     inner_idx = src.find("_train_pred_cache.get((id(_inner_for_cache),) + _frame_key")
     comp_idx = src.find("_train_pred_cache.get((id(_comp),) + _frame_key")
