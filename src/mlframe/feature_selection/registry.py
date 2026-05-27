@@ -84,6 +84,16 @@ def _instantiate_boruta_shap(**kwargs):
     return BorutaShap(**kwargs)
 
 
+def _instantiate_shap_proxied_fs(**kwargs):
+    # Lazy import: ShapProxiedFS pulls in shap + a tree booster on first fit.
+    from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
+    return ShapProxiedFS(**kwargs)
+
+
 register(_SimpleSpec(name="MRMR", instantiate=_instantiate_mrmr))
 register(_SimpleSpec(name="RFECV", instantiate=_instantiate_rfecv))
 register(_SimpleSpec(name="BorutaShap", instantiate=_instantiate_boruta_shap))
+# Opt-in only: registration does NOT auto-wire ShapProxiedFS into the training suite (each selector
+# is gated behind its own explicit flag in _setup_helpers_pre_pipelines); this just makes it
+# discoverable via registry.get("ShapProxiedFS").
+register(_SimpleSpec(name="ShapProxiedFS", instantiate=_instantiate_shap_proxied_fs))
