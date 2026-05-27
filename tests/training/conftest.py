@@ -196,11 +196,20 @@ def sample_regression_data():
 
 @pytest.fixture(scope="session")
 def sample_classification_data():
-    """Synthetic binary classification dataset; session-scoped. DO NOT MUTATE (see ``sample_regression_data``)."""
-    df, feature_names, y = make_simple_classification_data(n_samples=1000, n_features=10, seed=42)
+    """Synthetic binary classification dataset; session-scoped. DO NOT MUTATE (see ``sample_regression_data``).
+
+    Returns the 4-tuple ``(df, feature_names, cat_features, y)`` directly
+    from the underlying ``make_simple_classification_data`` builder. The
+    ``cat_features`` slot lets consumers thread it through CB / LGB native
+    cat-handling without rebuilding the dataset; consumers that don't
+    need it use ``df, feature_names, _, y = sample_classification_data``.
+    """
+    df, feature_names, cat_features, y = make_simple_classification_data(
+        n_samples=1000, n_features=10, seed=42,
+    )
     _SESSION_FIXTURE_SHAPES["sample_classification_data"] = _df_shape_signature(df)
     _SESSION_FIXTURE_REFS["sample_classification_data"] = df
-    return df, feature_names, y
+    return df, feature_names, cat_features, y
 
 
 @pytest.fixture(scope="session")

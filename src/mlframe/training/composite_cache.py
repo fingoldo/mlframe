@@ -471,11 +471,11 @@ def make_discovery_cache_key(
     target_col: str,
     config_signature: ConfigSignatureV1,
     _legacy_random_state_sentinel: int = _DISCOVERY_DEFAULT_SEED,
-    random_state: int | None = _DISCOVERY_DEFAULT_SEED,
+    random_state: int | None = None,
 ) -> str:
     """Combine the parts of a discovery cache key into a stable hex string. The ``config_signature`` is a ``ConfigSignatureV1`` produced by :func:`compute_config_signature_v1`; a plain ``str`` still works at runtime (``NewType`` is structurally compatible) but type-checkers will warn callers that bypass the factory.
 
-    ``_legacy_random_state_sentinel``: hash-only contributor for back-compat with the historical 4-arg form. The actual seed is already folded into ``df_sig`` (row-sample seeding) and ``config_signature`` (dataclass dump), so this kwarg should NEVER be used as a discriminator by callers. The name advertises this so a future reader cannot misread ``random_state=0`` as the seed in use. ``random_state`` is accepted as an alias for back-compat and routes to the same slot.
+    ``_legacy_random_state_sentinel``: hash-only contributor for back-compat with the historical 4-arg form. The actual seed is already folded into ``df_sig`` (row-sample seeding) and ``config_signature`` (dataclass dump), so this kwarg should NEVER be used as a discriminator by callers. The name advertises this so a future reader cannot misread ``random_state=0`` as the seed in use. ``random_state`` is accepted as an alias for back-compat and routes to the same slot -- pass it explicitly to override the positional. Default ``None`` (NOT ``_DISCOVERY_DEFAULT_SEED``) so the conditional below only fires when the caller actually supplied a kwarg; otherwise the prior default-equal value silently overwrote any positional sentinel the caller passed.
     """
     if random_state is not None:
         _legacy_random_state_sentinel = random_state
