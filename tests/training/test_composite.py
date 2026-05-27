@@ -465,6 +465,13 @@ class TestNumericalSafety:
         # propagate to y_hat and y-clip becomes the sole defence.
         wrapper.fitted_params_["mad_eff"] = 1e9
         wrapper.fitted_params_["soft_cap_k"] = 1.0
+        # The T-scale clip added later (CompositeTargetEstimator.predict
+        # T-clip on the inner output BEFORE inverse) would also catch
+        # the 50.0 stub and pre-empt the y-clip. To isolate the y-clip
+        # specifically -- the test's stated intent -- widen the T-clip
+        # bounds so it becomes a no-op for this stub.
+        wrapper.fitted_params_["t_clip_low"] = float("-inf")
+        wrapper.fitted_params_["t_clip_high"] = float("+inf")
 
         class _StubInner:
             def predict(self, X):

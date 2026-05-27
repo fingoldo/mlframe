@@ -631,13 +631,13 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                     if _cb_extra_fit_invariant:
                         current_model_params["fit_params"] = {**current_model_params["fit_params"], **_cb_extra_fit_invariant}
 
-                # MLP extreme-AR + group-aware protections (Fix 1 + Fix 3,
-                # 2026-05-26). Trigger predicate ``_mlp_extreme_ar_fired``
-                # is set above (per target, per model). Both modifications
-                # land on the per-weight CLONED model, so other weight
-                # schemas of this target see the same overrides; the
-                # cross-target template is untouched because we mutate
-                # ``current_model_params["model"]`` not ``models_params``.
+                # MLP extreme-AR + group-aware protections. Trigger predicate
+                # ``_mlp_extreme_ar_fired`` is set above (per target, per
+                # model). Both modifications land on the per-weight CLONED
+                # model, so other weight schemas of this target see the same
+                # overrides; the cross-target template is untouched because
+                # we mutate ``current_model_params["model"]`` not
+                # ``models_params``.
                 if mlframe_model_name == "mlp" and _mlp_extreme_ar_fired:
                     # Fix 1: bounded output activation (tanh -> hard cap).
                     _apply_mlp_extreme_ar_output_activation(cloned_model)
