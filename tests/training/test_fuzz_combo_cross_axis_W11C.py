@@ -145,3 +145,48 @@ def test_iter373_no_ltr_combos_without_native_ranker():
         f"enumerator emitted {len(unrunnable)} LTR combos with no native ranker: "
         f"{[c.short_id() for c in unrunnable[:5]]}"
     )
+
+
+# ---------------------------------------------------------------------------
+# iter466: MRMR friend-graph + cluster-aggregate axes
+# ---------------------------------------------------------------------------
+
+
+def test_iter466_mrmr_friend_graph_cluster_axes_flow_to_kwargs():
+    """iter466: the recent mrmr.py friend-graph + cluster-aggregate features
+    must be (a) present as fuzz axes, (b) varied across MRMR-on combos, and
+    (c) threaded into the mrmr_kwargs dict the suite passes to the MRMR
+    constructor. Non-MRMR combos canonicalise the 4 axes to their mrmr.py
+    defaults so they don't gain phantom variation."""
+    from tests.training._fuzz_combo import (
+        AXES, enumerate_combos, build_mrmr_kwargs,
+    )
+    for ax in (
+        "mrmr_build_friend_graph_cfg", "mrmr_friend_graph_prune_cfg",
+        "mrmr_cluster_aggregate_enable_cfg", "mrmr_cluster_aggregate_mode_cfg",
+    ):
+        assert ax in AXES, f"missing fuzz axis {ax}"
+
+    combos = enumerate_combos(target=150, master_seed=20260422)
+    mrmr_combos = [c for c in combos if c.use_mrmr_fs]
+    assert mrmr_combos, "expected at least one MRMR-on combo in the suite"
+
+    # kwargs carry all 4 keys (names match the MRMR constructor params).
+    kw = build_mrmr_kwargs(mrmr_combos[0])
+    for k in (
+        "build_friend_graph", "friend_graph_prune",
+        "cluster_aggregate_enable", "cluster_aggregate_mode",
+    ):
+        assert k in kw, f"mrmr_kwargs missing {k}"
+
+    # The mode axis must actually vary across MRMR combos (both augment+replace
+    # reachable) so the dedup pass didn't collapse the new variation away.
+    modes = {c.mrmr_cluster_aggregate_mode_cfg for c in mrmr_combos}
+    assert modes == {"augment", "replace"}, f"mode variation lost: {modes}"
+
+    # Non-MRMR combos must canonicalise prune to its default False (gated on
+    # both use_mrmr_fs AND build_friend_graph) so they can't gain variation.
+    non_mrmr = [c for c in combos if not c.use_mrmr_fs]
+    if non_mrmr:
+        kw_off = build_mrmr_kwargs(non_mrmr[0])
+        assert kw_off is None, "use_mrmr_fs=False must yield None mrmr_kwargs"

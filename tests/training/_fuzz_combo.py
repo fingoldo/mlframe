@@ -592,6 +592,19 @@ AXES: dict[str, tuple[Any, ...]] = {
     "mrmr_fe_adaptive_threshold_relax_cfg": (True, False),
     "mrmr_use_simple_mode_cfg": (False, True),
     "mrmr_identity_cache_include_y_cfg": (True, False),
+    # 2026-05-27 -- MRMR friend-graph + cluster-aggregate features (added in
+    # recent commits to mrmr.py). build_friend_graph builds a node-link
+    # redundancy diagram + classifies features green/red/yellow (diagnostic
+    # by default); friend_graph_prune drops red suspected-sink features from
+    # support_ (CHANGES the selected set). cluster_aggregate_enable builds a
+    # denoised aggregate of correlated "reflection" clusters; mode "augment"
+    # adds the aggregate (keeps members), "replace" substitutes the cluster.
+    # All gated to use_mrmr_fs in canonical_key; prune/mode further gated on
+    # their parent toggle being on.
+    "mrmr_build_friend_graph_cfg": (True, False),
+    "mrmr_friend_graph_prune_cfg": (False, True),
+    "mrmr_cluster_aggregate_enable_cfg": (True, False),
+    "mrmr_cluster_aggregate_mode_cfg": ("augment", "replace"),
     # --- CatFE deep (only when use_mrmr_fs + cat_fe_enable)
     "catfe_fwer_correction_cfg": ("none", "bh_fdr", "bonferroni"),
     "catfe_perm_budget_strategy_cfg": ("bandit_ucb1", "fixed"),
@@ -1092,6 +1105,11 @@ class FuzzCombo:
     mrmr_fe_adaptive_threshold_relax_cfg: bool = True
     mrmr_use_simple_mode_cfg: bool = False
     mrmr_identity_cache_include_y_cfg: bool = True
+    # 2026-05-27 MRMR friend-graph + cluster-aggregate (defaults mirror mrmr.py __init__)
+    mrmr_build_friend_graph_cfg: bool = True
+    mrmr_friend_graph_prune_cfg: bool = False
+    mrmr_cluster_aggregate_enable_cfg: bool = True
+    mrmr_cluster_aggregate_mode_cfg: str = "augment"
     catfe_fwer_correction_cfg: str = "none"
     catfe_perm_budget_strategy_cfg: str = "bandit_ucb1"
     catfe_permutation_null_cfg: str = "joint_independence"
@@ -1876,6 +1894,23 @@ class FuzzCombo:
                 if self.baseline_diagnostics_enabled_cfg
                 else "regression_only"
             ),
+            # 2026-05-27 MRMR friend-graph + cluster-aggregate (recent mrmr.py
+            # features). All collapse to the mrmr.py defaults when MRMR is off
+            # so non-FS combos don't gain phantom variation. friend_graph_prune
+            # only bites when the graph is actually built; cluster_aggregate_mode
+            # only when aggregation is enabled.
+            (self.mrmr_build_friend_graph_cfg if self.use_mrmr_fs else True),
+            (
+                self.mrmr_friend_graph_prune_cfg
+                if (self.use_mrmr_fs and self.mrmr_build_friend_graph_cfg)
+                else False
+            ),
+            (self.mrmr_cluster_aggregate_enable_cfg if self.use_mrmr_fs else True),
+            (
+                self.mrmr_cluster_aggregate_mode_cfg
+                if (self.use_mrmr_fs and self.mrmr_cluster_aggregate_enable_cfg)
+                else "augment"
+            ),
         )
 
     def _canonical_recurrent_model(self) -> "str | None":
@@ -2627,6 +2662,10 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         mrmr_fe_adaptive_threshold_relax_cfg=axes.get("mrmr_fe_adaptive_threshold_relax_cfg", True),
         mrmr_use_simple_mode_cfg=axes.get("mrmr_use_simple_mode_cfg", False),
         mrmr_identity_cache_include_y_cfg=axes.get("mrmr_identity_cache_include_y_cfg", True),
+        mrmr_build_friend_graph_cfg=axes.get("mrmr_build_friend_graph_cfg", True),
+        mrmr_friend_graph_prune_cfg=axes.get("mrmr_friend_graph_prune_cfg", False),
+        mrmr_cluster_aggregate_enable_cfg=axes.get("mrmr_cluster_aggregate_enable_cfg", True),
+        mrmr_cluster_aggregate_mode_cfg=axes.get("mrmr_cluster_aggregate_mode_cfg", "augment"),
         catfe_fwer_correction_cfg=axes.get("catfe_fwer_correction_cfg", "none"),
         catfe_perm_budget_strategy_cfg=axes.get("catfe_perm_budget_strategy_cfg", "bandit_ucb1"),
         catfe_permutation_null_cfg=axes.get("catfe_permutation_null_cfg", "joint_independence"),
@@ -2753,6 +2792,11 @@ def build_mrmr_kwargs_from_flat(
     min_nonzero_confidence: float = 0.9,
     max_consec_unconfirmed: int = 2,
     full_npermutations: int = 2,
+    # 2026-05-27 friend-graph + cluster-aggregate knobs (mrmr.py __init__).
+    build_friend_graph: bool = True,
+    friend_graph_prune: bool = False,
+    cluster_aggregate_enable: bool = True,
+    cluster_aggregate_mode: str = "augment",
 ) -> Optional[Dict[str, Any]]:
     """Build the mrmr_kwargs dict passed to FeatureSelectionConfig.
     Returns None when use_mrmr_fs=False so the FS step is a no-op.
@@ -2784,6 +2828,14 @@ def build_mrmr_kwargs_from_flat(
         "fe_smart_polynom_optimization_steps": fe_smart_polynom_optimization_steps,
         "fe_min_polynom_degree": fe_min_polynom_degree,
         "fe_max_polynom_degree": fe_max_polynom_degree,
+        # Friend-graph + cluster-aggregate knobs flow straight into the MRMR
+        # constructor (same names). Defaults mirror mrmr.py so a combo that
+        # leaves them at the default produces the same MRMR behaviour as
+        # before these axes existed.
+        "build_friend_graph": build_friend_graph,
+        "friend_graph_prune": friend_graph_prune,
+        "cluster_aggregate_enable": cluster_aggregate_enable,
+        "cluster_aggregate_mode": cluster_aggregate_mode,
     }
     # The MRMR subsample knobs default to FE_DEFAULT_SUBSAMPLE_N upstream; only
     # override when the fuzz axis sets a non-zero budget so existing combos
@@ -2830,6 +2882,10 @@ def build_mrmr_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]:
         fe_max_polynom_degree=combo.mrmr_fe_max_polynom_degree_cfg,
         fe_check_pairs_subsample_n=(combo.fe_check_pairs_subsample_n_cfg if _subsample_active else 0),
         fe_smart_polynom_subsample_n=(combo.fe_check_pairs_subsample_n_cfg if _subsample_active else 0),
+        build_friend_graph=combo.mrmr_build_friend_graph_cfg,
+        friend_graph_prune=combo.mrmr_friend_graph_prune_cfg,
+        cluster_aggregate_enable=combo.mrmr_cluster_aggregate_enable_cfg,
+        cluster_aggregate_mode=combo.mrmr_cluster_aggregate_mode_cfg,
     )
 
 
