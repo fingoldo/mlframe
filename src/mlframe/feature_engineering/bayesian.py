@@ -38,8 +38,8 @@ def _pf_single_segment(
 ) -> np.ndarray:
     """Run one PF pass over a 1-D observation sequence.
 
-    Returns ``(n_obs, 3)`` array of (p10, p50, p90) percentile bounds
-    of the posterior at each timestep.
+    Returns ``(n_obs, 5)`` array of (p10, p50, p90, post_mean, neff)
+    summaries at each timestep.
 
     Algorithm: bootstrap PF (Gordon 1993) with systematic resampling.
     State transition is a Gaussian random walk on top of ``prior``
@@ -50,7 +50,7 @@ def _pf_single_segment(
     likelihood update (predict-only step); particles still evolve.
     """
     T = observations.size
-    out = np.full((T, 3), np.nan, dtype=np.float64)
+    out = np.full((T, 5), np.nan, dtype=np.float64)
     if T == 0:
         return out
 
@@ -94,7 +94,7 @@ def _pf_single_segment(
                 particles = particles[idx]
                 weights = np.full(n_particles, 1.0 / n_particles)
 
-        # Posterior summary.
+        # Posterior summary: (p10, p50, p90, post_mean, neff).
         sort_idx = np.argsort(particles)
         sp = particles[sort_idx]
         sw = weights[sort_idx]
@@ -108,6 +108,11 @@ def _pf_single_segment(
         out[t, 0] = sp[i10]
         out[t, 1] = sp[i50]
         out[t, 2] = sp[i90]
+        # Weighted mean is the canonical PF posterior point estimate.
+        out[t, 3] = float(np.sum(particles * weights))
+        # Effective sample size (Liu 1996): 1 / sum(w^2). Diagnoses
+        # particle-degeneracy independent of the resample threshold.
+        out[t, 4] = 1.0 / (float(np.sum(weights ** 2)) + 1e-12)
     return out
 
 
@@ -124,8 +129,9 @@ def particle_filter_posterior(
 ) -> dict:
     """Bootstrap particle filter for 1-D state with Gaussian observation noise.
 
-    Returns dict ``{"p10": ..., "p50": ..., "p90": ...}`` -- the per-
-    row posterior percentile bounds, each shape ``(n,)``.
+    Returns dict ``{"p10", "p50", "p90", "mean", "neff"}`` -- the per-
+    row posterior percentile bounds + weighted mean + effective
+    sample size; each value is a ``(n,)`` array.
 
     Parameters
     ----------
@@ -172,6 +178,8 @@ def particle_filter_posterior(
     out_p10 = np.full(n, np.nan, dtype=np.float64)
     out_p50 = np.full(n, np.nan, dtype=np.float64)
     out_p90 = np.full(n, np.nan, dtype=np.float64)
+    out_mean = np.full(n, np.nan, dtype=np.float64)
+    out_neff = np.full(n, np.nan, dtype=np.float64)
 
     if group_ids is None:
         res = _pf_single_segment(
@@ -185,7 +193,12 @@ def particle_filter_posterior(
         out_p10[:] = res[:, 0]
         out_p50[:] = res[:, 1]
         out_p90[:] = res[:, 2]
-        return {"p10": out_p10, "p50": out_p50, "p90": out_p90}
+        out_mean[:] = res[:, 3]
+        out_neff[:] = res[:, 4]
+        return {
+            "p10": out_p10, "p50": out_p50, "p90": out_p90,
+            "mean": out_mean, "neff": out_neff,
+        }
 
     from .grouped import iter_group_segments
     sort_idx, starts, ends = iter_group_segments(group_ids)
@@ -206,4 +219,9 @@ def particle_filter_posterior(
         out_p10[idx_seg] = res[:, 0]
         out_p50[idx_seg] = res[:, 1]
         out_p90[idx_seg] = res[:, 2]
-    return {"p10": out_p10, "p50": out_p50, "p90": out_p90}
+        out_mean[idx_seg] = res[:, 3]
+        out_neff[idx_seg] = res[:, 4]
+    return {
+        "p10": out_p10, "p50": out_p50, "p90": out_p90,
+        "mean": out_mean, "neff": out_neff,
+    }
