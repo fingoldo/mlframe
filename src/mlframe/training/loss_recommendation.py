@@ -26,6 +26,7 @@ If the target is too small to estimate moments reliably (``n_finite < 30``) the 
 """
 from __future__ import annotations
 
+import math
 from typing import Any, Dict
 
 import numpy as np
@@ -160,7 +161,7 @@ def recommend_boosting_regression_loss(
             "n_finite": n_finite,
         }
 
-    if n_finite < _MIN_SAMPLE_N or not np.isfinite(excess_kurt):
+    if n_finite < _MIN_SAMPLE_N or not math.isfinite(excess_kurt):
         return {
             "cb": "RMSE",
             "lgb": "regression",
