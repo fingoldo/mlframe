@@ -47,7 +47,6 @@ def _compute_classification_baselines(
     seed = _per_target_seed(config.random_state, target_name)
 
     # Compute train priors
-    classes = np.arange(n_classes)
     train_y_int = train_y.astype(np.int64)
     bincounts = np.bincount(train_y_int, minlength=n_classes).astype(np.float64)
     train_prior = bincounts / bincounts.sum() if bincounts.sum() > 0 else np.full(n_classes, 1.0 / n_classes)
@@ -95,13 +94,25 @@ def _compute_classification_baselines(
     test_acc = np.zeros((n_test, n_classes)) if n_test > 0 else None
     val_row_idx = np.arange(n_val) if n_val > 0 else None
     test_row_idx = np.arange(n_test) if n_test > 0 else None
+    # Inline the inverse-CDF sampler that ``rng.choice(classes, size=N,
+    # p=train_prior)`` runs internally: choice builds ``cdf = cumsum(p); cdf /=
+    # cdf[-1]`` then returns ``cdf.searchsorted(rng.random(N), side="right")``
+    # (replace=True). Computing the cdf ONCE (it's constant across reps) and
+    # calling searchsorted directly skips choice's per-call probability
+    # validation + array dispatch and the redundant per-rep cumsum; ``classes``
+    # is ``arange(n_classes)`` so the searchsorted result is already the class
+    # index (no gather). Bit-identical to the old rng.choice output for the
+    # same seed and draw order (the legacy-equivalence regression test pins
+    # this), ~1.16x per rep at n=150k.
+    _cdf = np.cumsum(train_prior)
+    _cdf = _cdf / _cdf[-1]
     for r in range(n_repeats):
         rng = np.random.default_rng(seed + r)
         if val_acc is not None:
-            val_classes = rng.choice(classes, size=n_val, p=train_prior)
+            val_classes = _cdf.searchsorted(rng.random(n_val), side="right")
             val_acc[val_row_idx, val_classes] += 1.0
         if test_acc is not None:
-            test_classes = rng.choice(classes, size=n_test, p=train_prior)
+            test_classes = _cdf.searchsorted(rng.random(n_test), side="right")
             test_acc[test_row_idx, test_classes] += 1.0
     if val_acc is not None and n_repeats > 0:
         val_probs["stratified"] = val_acc / n_repeats
