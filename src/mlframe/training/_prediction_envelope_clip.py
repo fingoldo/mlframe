@@ -42,6 +42,7 @@ TTR predict clip on MLP). Opt out via env
 from __future__ import annotations
 
 import logging
+import math
 import os
 from typing import Any, NamedTuple, Optional
 
@@ -117,7 +118,10 @@ def clip_predictions_to_train_envelope(
         return arr
     low = stats.y_min - k_sigma * stats.y_std
     high = stats.y_max + k_sigma * stats.y_std
-    if not (np.isfinite(low) and np.isfinite(high)):
+    # iter433: math.isfinite on Python floats is 7.5x faster than
+    # np.isfinite for scalars (1us -> 0.13us). low/high are floats
+    # from stats arithmetic; the array-mask uses below still use np.
+    if not (math.isfinite(low) and math.isfinite(high)):
         return arr
     n_low = int(np.sum(arr < low))
     n_high = int(np.sum(arr > high))

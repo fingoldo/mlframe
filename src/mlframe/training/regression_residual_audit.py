@@ -392,7 +392,7 @@ def _diagnose(
         f"+/-{EXCESS_KURT_NEAR_GAUSSIAN}), "
         f"|hetero|={abs_hetero:.2f}. Default MSE / MAE losses are appropriate."
     )
-    if normality_test is not None and np.isfinite(normality_test.get("k2_p", np.nan)):
+    if normality_test is not None and math.isfinite(normality_test.get("k2_p", float("nan"))):
         rationale.append(
             "formal tests do not reject Normal: "
             f"{normality_test.get('verdict')}."
