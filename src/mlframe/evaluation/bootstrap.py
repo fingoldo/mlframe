@@ -21,12 +21,20 @@ Design notes:
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any, Callable, Mapping, Optional, Sequence
 
 import numpy as np
 from scipy import stats
 
 logger = logging.getLogger(__name__)
+
+# iter417: bind math.isfinite for the per-iter scalar check in
+# bootstrap_metric. np.isfinite on a single Python float pays the full
+# numpy dispatcher (~1.0us / call); the C-implemented math.isfinite is
+# 7.5x faster (0.13us / call). On a 12000-iter bootstrap-heavy run that's
+# ~10ms saved per metric, ~125ms across the typical 12-metric run.
+_isfinite = math.isfinite
 
 
 def bootstrap_metric(
@@ -130,6 +138,15 @@ def bootstrap_metric(
             # 1.72x faster on n_class=10k (0.153ms -> 0.089ms) -- same
             # statistical semantics (uniform with-replacement resample),
             # rng.choice just has extra options-dispatch overhead.
+            # bench-attempt-rejected (2026-05-27, iter417): @njit kernel
+            # with per-element np.random.randint inner loop ran 0.31x
+            # (570us -> 1820us / call at n=100k, 2 classes). Numpy's
+            # vectorised rng.integers(0, sz, size=sz) outperforms numba's
+            # per-element randint by ~6x. Don't re-try a numba per-class
+            # rewrite -- the only viable path is batching all classes'
+            # randoms across all bootstrap iters via ONE big rng.integers
+            # call, which conflicts with the bit-identical reproducibility
+            # contract for the unstratified path's RNG draw order.
             for _c in range(_class_sizes.shape[0]):
                 _sz = int(_class_sizes[_c])
                 _rand = rng.integers(0, _sz, size=_sz)
@@ -149,7 +166,7 @@ def bootstrap_metric(
             if first_err is None:
                 first_err = f"{type(exc).__name__}: {exc}"
             continue
-        if not np.isfinite(v):
+        if not _isfinite(v):
             failures += 1
             continue
         samples[valid] = v
