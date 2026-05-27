@@ -528,3 +528,46 @@ def test_anchor_numba_cores_match_python_fallback() -> None:
                 a[mask], b[mask], atol=1e-6, rtol=0,
                 err_msg=f"anchor {key}: numba != python",
             )
+
+
+# =============================================================================
+# grouped.per_group_rank: NaN must stay LOCAL, not poison the whole group
+# =============================================================================
+
+def test_per_group_rank_nan_does_not_poison_group() -> None:
+    """Regression: scipy.rankdata's default nan_policy='propagate' turns a
+    whole group's ranks to NaN on a single missing value -- silently
+    collapsing any rank-based feature over a NaN-bearing column to an
+    all-NaN ('constant') column. per_group_rank must rank only the finite
+    entries and leave NaN positions NaN."""
+    from mlframe.feature_engineering import per_group_rank
+
+    # Two groups; each has one NaN. Finite values must still get real ranks.
+    vals = np.array([3.0, 1.0, np.nan, 2.0,   30.0, np.nan, 10.0, 20.0])
+    grp = np.array([0, 0, 0, 0,   1, 1, 1, 1])
+    pct = per_group_rank(vals, grp, pct=True)
+
+    # NaN positions preserved exactly.
+    np.testing.assert_array_equal(np.isnan(pct), np.isnan(vals))
+    # Group 0 finite {3,1,2} -> ranks/3 = {1.0, 1/3, 2/3}
+    np.testing.assert_allclose(pct[[0, 1, 3]], [1.0, 1 / 3, 2 / 3])
+    # Group 1 finite {30,10,20} -> {1.0, 1/3, 2/3}
+    np.testing.assert_allclose(pct[[4, 6, 7]], [1.0, 1 / 3, 2 / 3])
+
+
+def test_quantile_normalize_per_group_survives_nan_heavy_column() -> None:
+    """A column with scattered NaN across every group (e.g. raw GR with
+    ~2% missing) must yield a VARYING normalized feature, not all-NaN."""
+    from mlframe.feature_engineering.stationarity import quantile_normalize_per_group
+
+    rng = np.random.default_rng(0)
+    n_groups, rpg = 6, 300
+    grp = np.repeat(np.arange(n_groups), rpg)
+    x = rng.normal(60, 15, n_groups * rpg)
+    x[rng.random(x.size) < 0.02] = np.nan  # 2% missing in (almost) every group
+    qn = quantile_normalize_per_group(x, group_ids=grp, to_normal=False)
+
+    finite = qn[np.isfinite(qn)]
+    assert finite.size > 0.9 * x.size, "lost too many cells to NaN poisoning"
+    assert finite.std() > 0.1, f"normalized feature is ~constant (std={finite.std():.3g})"
+    np.testing.assert_array_equal(np.isnan(qn), np.isnan(x))

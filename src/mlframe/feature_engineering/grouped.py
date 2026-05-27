@@ -412,27 +412,38 @@ def per_group_rank(
         raise ValueError(
             f"method={method!r} not in {{'average','min','max','dense','ordinal'}}"
         )
-    values_arr = np.ascontiguousarray(values)
-    out = np.empty(values_arr.size, dtype=np.float64)
+    values_arr = np.ascontiguousarray(values, dtype=np.float64)
+    out = np.full(values_arr.size, np.nan, dtype=np.float64)
     sort_idx, starts, ends = iter_group_segments(group_ids)
     for s, e in zip(starts, ends):
         seg_idx = sort_idx[s:e]
         seg = values_arr[seg_idx]
         if not ascending:
             seg = -seg
-        # rankdata-style; use scipy when available for fidelity,
-        # otherwise fall back to argsort-of-argsort.
+        # Rank only the FINITE entries; NaN/inf stay NaN. scipy.rankdata's
+        # default nan_policy='propagate' otherwise poisons the WHOLE group
+        # to NaN on a single missing value (silent: a rank-based feature
+        # over any NaN-bearing column collapsed to an all-NaN -> "constant"
+        # column, dropped downstream). pct normalises over the finite count
+        # so observed values span (0, 1] regardless of how many are missing.
+        finite = np.isfinite(seg)
+        n_fin = int(finite.sum())
+        if n_fin == 0:
+            continue
+        seg_fin = seg[finite]
         try:
             from scipy.stats import rankdata
-            ranks = rankdata(seg, method=method).astype(np.float64)
+            ranks = rankdata(seg_fin, method=method).astype(np.float64)
         except Exception:
             # average-method fallback
-            order = np.argsort(seg, kind="stable")
-            ranks = np.empty(seg.size, dtype=np.float64)
-            ranks[order] = np.arange(1, seg.size + 1, dtype=np.float64)
+            order = np.argsort(seg_fin, kind="stable")
+            ranks = np.empty(seg_fin.size, dtype=np.float64)
+            ranks[order] = np.arange(1, seg_fin.size + 1, dtype=np.float64)
         if pct:
-            ranks = ranks / seg.size
-        out[seg_idx] = ranks
+            ranks = ranks / n_fin
+        seg_out = np.full(seg.size, np.nan, dtype=np.float64)
+        seg_out[finite] = ranks
+        out[seg_idx] = seg_out
     return out
 
 
