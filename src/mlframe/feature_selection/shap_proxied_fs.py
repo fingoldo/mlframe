@@ -62,6 +62,10 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         spearman_floor: float = 0.6,
         run_importance_ablation: bool = True,
         use_bias_corrector: bool = True,
+        config_jitter: bool = False,
+        uncertainty_penalty: float = 0.0,
+        interaction_aware: bool = False,
+        max_interaction_features: int = 16,
         beam_width: int = 8,
         brute_force_max_features: int = 22,
         use_gpu: bool = False,
@@ -98,6 +102,10 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         self.spearman_floor = spearman_floor
         self.run_importance_ablation = run_importance_ablation
         self.use_bias_corrector = use_bias_corrector
+        self.config_jitter = config_jitter
+        self.uncertainty_penalty = uncertainty_penalty
+        self.interaction_aware = interaction_aware
+        self.max_interaction_features = max_interaction_features
         self.beam_width = beam_width
         self.brute_force_max_features = brute_force_max_features
         self.use_gpu = use_gpu
@@ -249,15 +257,23 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
             X_proxy = X_search
             unit_to_members = None
 
-        # SHAP attribution on the proxy (unit or raw) columns.
-        phi, base, y_phi = compute_shap_matrix(
+        # SHAP attribution on the proxy (unit or raw) columns. Request per-model attribution variance
+        # only when the uncertainty lever is active AND we actually have multiple models to vary.
+        want_var = self.uncertainty_penalty > 0 and self.n_models > 1
+        shap_out = compute_shap_matrix(
             model_template, X_proxy, y_search, classification=self.classification,
             out_of_fold=self.out_of_fold, n_splits=self.n_splits, n_models=self.n_models,
+            config_jitter=self.config_jitter, return_variance=want_var,
             rng=self._rng, tqdm_desc=("shap-oof" if self.tqdm else None))
+        if want_var:
+            phi, base, y_phi, phi_var = shap_out
+        else:
+            phi, base, y_phi, phi_var = (*shap_out, None)
 
         # Importance pre-screen: when the proxy still has more columns than the exact-search budget,
         # keep the top-K by SHAP importance (mean |phi|) so exhaustive-approx stays feasible.
         n_proxy = phi.shape[1]
+        proxy_cols_kept = np.arange(n_proxy)  # proxy(unit) columns behind the current phi columns
         prescreen_top = self.prescreen_top
         if prescreen_top is None and n_proxy > self.brute_force_max_features and self.optimizer in ("auto", "bruteforce", "bruteforce_gpu"):
             prescreen_top = self.brute_force_max_features
@@ -265,7 +281,9 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
             importance = np.abs(phi).mean(axis=0)
             keep = np.sort(np.argsort(-importance)[:prescreen_top])
             phi = np.ascontiguousarray(phi[:, keep])
-            base, y_phi = base, y_phi
+            proxy_cols_kept = keep
+            if phi_var is not None:
+                phi_var = np.ascontiguousarray(phi_var[:, keep])
             if unit_to_members is not None:
                 unit_to_members = [unit_to_members[i] for i in keep]
             else:
@@ -274,6 +292,27 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
 
         optimizer = self._resolve_optimizer(phi.shape[1])
         candidates = self._run_search(optimizer, phi, base, y_phi)
+
+        # Interaction-aware coalition (#5): for interaction-heavy targets the main-effect sum can't
+        # see a pair's joint signal (XOR partners have ~0 main effect). Add candidates ranked by the
+        # SHAP-interaction coalition value and let honest re-validation arbitrate. Bounded to a small
+        # proxy width (post pre-screen); tensor is O(P^2).
+        if self.interaction_aware and phi.shape[1] <= self.max_interaction_features:
+            from mlframe.feature_selection._shap_proxy_interactions import (
+                compute_interaction_tensor, interaction_top_n)
+
+            X_proxy_kept = X_proxy.iloc[:, list(proxy_cols_kept)]
+            Phi, ibase = compute_interaction_tensor(
+                model_template, X_proxy_kept, y_search, classification=self.classification, rng=self._rng)
+            icands = interaction_top_n(
+                Phi, ibase, y_phi, classification=self.classification, metric=self.metric,
+                min_card=self.min_features, max_card=self.max_features, top_n=self.top_n,
+                exhaustive_max=self.max_interaction_features)
+            merged = {tuple(sorted(c)): l for l, c in candidates}
+            for l, c in icands:
+                merged.setdefault(tuple(sorted(c)), l)
+            candidates = sorted(((l, c) for c, l in merged.items()), key=lambda t: t[0])
+            report["interaction_aware"] = dict(applied=True, n_proxy=int(phi.shape[1]), n_interaction_candidates=len(icands))
 
         # min_selected_ratio guard: the proxy degrades for small subsets (the <50% wall). Ratio is in
         # proxy-column space (units/pre-screened columns).
@@ -299,17 +338,28 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
                 n_anchors=self.n_anchors, rng=self._rng, min_card=self.min_features,
                 max_card=self.max_features, spearman_floor=self.spearman_floor, **rv)
 
-        # Bias corrector (#3/#6): re-rank candidates by a calibrator fit on the trust-guard anchors
-        # (honest ~ proxy + cardinality + redundancy), so the expensive top-N retrains focus on the
-        # subsets the corrector predicts are honestly best -- counters the redundancy-driven proxy bias.
+        # Unified candidate re-ranking before the expensive top-N honest retrains: order by the
+        # corrector's predicted honest loss (#3/#6, falls back to raw proxy) PLUS an uncertainty
+        # penalty (#7). Focuses the retrain budget on subsets that are honestly-best AND stable.
+        score = np.array([c[0] for c in candidates], dtype=np.float64)  # raw proxy loss
         if self.use_bias_corrector and self.trust_guard and report.get("trust", {}).get("_corrector_data"):
-            from mlframe.feature_selection._shap_proxy_calibrate import fit_proxy_corrector, rerank_candidates
+            from mlframe.feature_selection._shap_proxy_calibrate import fit_proxy_corrector, subset_redundancy
 
             cd = report["trust"]["_corrector_data"]
             corrector = fit_proxy_corrector(cd["proxy"], cd["honest"], cd["cards"], cd["redund"])
             if not corrector.fallback:
-                candidates = rerank_candidates(corrector, candidates, phi)
+                cards = np.array([len(c[1]) for c in candidates], dtype=np.float64)
+                redund = np.array([subset_redundancy(phi, c[1]) for c in candidates], dtype=np.float64)
+                score = corrector.predict(score, cards, redund)
                 report["bias_corrector"] = dict(applied=True, n_anchors=len(cd["proxy"]))
+        if self.uncertainty_penalty > 0 and phi_var is not None:
+            from mlframe.feature_selection._shap_proxy_objective import subset_uncertainty
+
+            unc = np.array([subset_uncertainty(phi_var, c[1]) for c in candidates], dtype=np.float64)
+            score = score + self.uncertainty_penalty * unc
+            report["uncertainty"] = dict(applied=True, penalty=float(self.uncertainty_penalty))
+        order = np.argsort(score, kind="stable")
+        candidates = [candidates[i] for i in order]
 
         # Honest re-validation of the top-N on the disjoint holdout.
         if self.revalidate:

@@ -113,3 +113,14 @@ def proxy_loss(margin: np.ndarray, y: np.ndarray, metric: str) -> float:
 def subset_loss(phi: np.ndarray, base: np.ndarray, y: np.ndarray, feature_idx, metric: str) -> float:
     """Convenience: coalition margin of a subset then its loss. Used by heuristics / re-validation."""
     return proxy_loss(coalition_margin(phi, base, feature_idx), y, metric)
+
+
+def subset_uncertainty(phi_var: np.ndarray, feature_idx) -> float:
+    """Attribution instability of a subset (lever #7): mean over rows of
+    ``sqrt(sum_{j in S} Var_models(phi_j))``. Subsets whose SHAP attributions are unstable across the
+    config-jittered models get a higher value -> can be penalised so the optimiser prefers subsets the
+    proxy is confident about. Zero when no per-model variance was computed (n_models == 1)."""
+    idx = np.asarray(feature_idx, dtype=np.int64)
+    if phi_var is None or idx.size == 0:
+        return 0.0
+    return float(np.sqrt(phi_var[:, idx].sum(axis=1)).mean())

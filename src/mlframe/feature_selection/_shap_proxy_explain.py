@@ -111,11 +111,21 @@ def _assert_additivity_and_base(phi: np.ndarray, base: float, fold_tag: str = ""
         )
 
 
-def _fit_one(model_template, X, y, classification: bool, seed: Optional[int]):
+_JITTER_DEPTHS = (3, 4, 5, 6)  # cycled across models when config_jitter is on
+
+
+def _fit_one(model_template, X, y, classification: bool, seed: Optional[int], jitter_depth: Optional[int] = None):
     est = clone(model_template)
     if seed is not None and hasattr(est, "random_state"):
         try:
             est.set_params(random_state=seed)
+        except (ValueError, TypeError):
+            pass
+    # Config jitter (#8): vary tree depth across models so averaging is a Monte-Carlo over the
+    # path-order arbitrariness that splits credit between correlated features (not just seed jitter).
+    if jitter_depth is not None and hasattr(est, "max_depth"):
+        try:
+            est.set_params(max_depth=int(jitter_depth))
         except (ValueError, TypeError):
             pass
     est.fit(X, y)
@@ -146,19 +156,20 @@ def compute_shap_matrix(
     out_of_fold: bool = True,
     n_splits: int = 5,
     n_models: int = 1,
+    config_jitter: bool = False,
+    return_variance: bool = False,
     rng: Optional[np.random.Generator] = None,
     tqdm_desc: Optional[str] = None,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+):
     """Compute the per-row SHAP value matrix + per-row base value.
 
-    Returns
-    -------
-    phi : (n, f) float64
-        Per-row SHAP values in margin (classification) / target (regression) space.
-    base : (n,) float64
-        Per-row baseline (the fold's ``expected_value``); constant within a fold.
-    y_aligned : (n,) float64
-        Targets reordered to match the row order of ``phi`` (identity when ``out_of_fold=False``).
+    Returns ``(phi, base, y_aligned)``, or ``(phi, base, y_aligned, phi_var)`` when
+    ``return_variance`` -- where ``phi_var`` (n, f) is the model-to-model attribution variance within
+    each row's fold (lever #7: subsets built from unstable attributions can be penalised). With
+    ``n_models == 1`` the variance is zero. ``config_jitter`` cycles tree depth across the models.
+
+    phi : (n, f) float64 -- per-row SHAP in margin (clf) / target (reg) space.
+    base : (n,) float64 -- per-row baseline (the fold's expected_value), constant within a fold.
     """
     if rng is None:
         rng = np.random.default_rng(0)
@@ -166,18 +177,29 @@ def compute_shap_matrix(
     y = np.asarray(y)
     n, f = X.shape
 
-    if not out_of_fold:
-        phi_acc = np.zeros((n, f), dtype=np.float64)
-        base_acc = 0.0
+    def _models_phi(X_tr, y_tr, X_ex):
+        """Mean phi, mean base, and (model-to-model) phi variance over n_models fits on X_ex."""
+        s = np.zeros((X_ex.shape[0], f), dtype=np.float64)
+        sq = np.zeros((X_ex.shape[0], f), dtype=np.float64)
+        b = 0.0
         for m in range(n_models):
             seed = int(rng.integers(0, 2**31 - 1))
-            est = _fit_one(model_template, X, y, classification, seed)
-            phi, base = _shap_phi_and_base(_unwrap_estimator(est), X)
-            _assert_additivity_and_base(phi, base)
-            phi_acc += phi
-            base_acc += base
-        phi_acc /= n_models
-        base_arr = np.full(n, base_acc / n_models, dtype=np.float64)
+            depth = _JITTER_DEPTHS[m % len(_JITTER_DEPTHS)] if config_jitter else None
+            est = _fit_one(model_template, X_tr, y_tr, classification, seed, jitter_depth=depth)
+            pf, bf = _shap_phi_and_base(_unwrap_estimator(est), X_ex)
+            s += pf
+            sq += pf * pf
+            b += bf
+        mean = s / n_models
+        var = np.clip(sq / n_models - mean * mean, 0.0, None) if return_variance else None
+        return mean, b / n_models, var
+
+    if not out_of_fold:
+        phi_acc, base_val, var = _models_phi(X, y, X)
+        _assert_additivity_and_base(phi_acc, base_val)
+        base_arr = np.full(n, base_val, dtype=np.float64)
+        if return_variance:
+            return phi_acc, base_arr, y.astype(np.float64), var
         return phi_acc, base_arr, y.astype(np.float64)
 
     # Out-of-fold: honest per-row attributions.
@@ -190,6 +212,7 @@ def compute_shap_matrix(
 
     phi = np.zeros((n, f), dtype=np.float64)
     base = np.zeros(n, dtype=np.float64)
+    phi_var = np.zeros((n, f), dtype=np.float64) if return_variance else None
 
     folds = list(split_iter)
     if tqdm_desc:
@@ -198,20 +221,13 @@ def compute_shap_matrix(
         folds = tqdmu(folds, desc=tqdm_desc)
 
     for fold_id, (tr_idx, va_idx) in enumerate(folds):
-        X_tr, y_tr = X.iloc[tr_idx], y[tr_idx]
-        X_va = X.iloc[va_idx]
-        phi_fold = np.zeros((len(va_idx), f), dtype=np.float64)
-        base_fold = 0.0
-        for m in range(n_models):
-            seed = int(rng.integers(0, 2**31 - 1))
-            est = _fit_one(model_template, X_tr, y_tr, classification, seed)
-            pf, bf = _shap_phi_and_base(_unwrap_estimator(est), X_va)
-            phi_fold += pf
-            base_fold += bf
-        phi_fold /= n_models
-        base_fold /= n_models
+        phi_fold, base_fold, var_fold = _models_phi(X.iloc[tr_idx], y[tr_idx], X.iloc[va_idx])
         _assert_additivity_and_base(phi_fold, base_fold, fold_tag=f" fold {fold_id}")
         phi[va_idx] = phi_fold
         base[va_idx] = base_fold
+        if return_variance:
+            phi_var[va_idx] = var_fold
 
+    if return_variance:
+        return phi, base, y.astype(np.float64), phi_var
     return phi, base, y.astype(np.float64)
