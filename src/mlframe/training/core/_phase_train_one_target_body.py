@@ -762,6 +762,15 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                     logger.info("  process_model(%s, w=%s) done -- %s", mlframe_model_name, weight_name, _elapsed_str(t0_model))
                 if not _is_neural and t0_model is not None:
                     _non_neural_train_times.append(timer() - t0_model)
+                # Reclaim this model's transient bloat (float64 pre_pipeline
+                # copies, intermediate frames) before the next model so they
+                # don't stack with the next fit + the PipelineCache toward OOM.
+                # Adaptive: a no-op unless RSS actually grew past the threshold.
+                try:
+                    from ..utils import maybe_clean_ram_adaptive as _mclean
+                    _mclean()
+                except Exception:
+                    pass
 
                 # After the first model trains, if the pre_pipeline is identity-equivalent (kept all
                 # columns) AND the ordinary branch is in the suite, the remaining models would see

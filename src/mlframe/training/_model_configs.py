@@ -628,6 +628,18 @@ class TrainingBehaviorConfig(BaseConfig):
     )
     mlp_extreme_ar_threshold: float = 0.99
 
+    # PipelineCache byte budget as a FRACTION of TOTAL host RAM. The cache
+    # holds transformed train/val/test frames per (imputer, scaler, encoder,
+    # tier) variant (each ~7-10 GB on a 4M x 470 frame); the budget is also
+    # clamped to currently-available RAM minus a 4 GB floor so it never
+    # starves the in-flight model + transform allocations. A fraction of
+    # TOTAL is host-predictable (unlike the old "available - 8 GB" which
+    # drifted up to 64 GB and contributed to an OOM at 174 GB when training
+    # itself used 100 GB+). Exported to MLFRAME_PIPELINE_CACHE_RAM_FRACTION
+    # during config setup; an explicit MLFRAME_PIPELINE_CACHE_BYTES_LIMIT /
+    # MLFRAME_PIPELINE_CACHE_RAM_FRACTION env still wins.
+    pipeline_cache_ram_budget_fraction: float = 0.4
+
     # Drop per-group AGGREGATE features from the MLP's view of
     # X. Pattern matches columns like
     # ``group_<feature>_mean`` / ``group_<feature>_std`` / ``group_*_(mean|std|min|max)``:

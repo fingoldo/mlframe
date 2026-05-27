@@ -17,15 +17,23 @@ logger = logging.getLogger("mlframe.training.strategies")
 _DEFAULT_PIPELINE_CACHE_BYTES_LIMIT = 2_000_000_000
 
 
-def _resolve_pipeline_cache_budget() -> int:
+_DEFAULT_PIPELINE_CACHE_RAM_FRACTION = 0.4
+
+
+def _resolve_pipeline_cache_budget(fraction: Optional[float] = None) -> int:
     """Decide the PipelineCache byte budget for this process.
 
     Priority:
-      1. ``MLFRAME_PIPELINE_CACHE_BYTES_LIMIT`` env var (operator override).
-      2. Dynamic: ``available_ram - 8 GB safety reserve``, clamped to
-         ``[2 GB, 64 GB]``. On a 128 GB box the previous hardcoded 2 GB
-         default evicted every entry on every SET (entry sizes ~2.5 GB
-         each) -- cache became net-negative overhead with 0 hits.
+      1. ``MLFRAME_PIPELINE_CACHE_BYTES_LIMIT`` env var (absolute override).
+      2. A FRACTION of TOTAL host RAM (``fraction`` arg >
+         ``MLFRAME_PIPELINE_CACHE_RAM_FRACTION`` env > 0.4 default), then
+         clamped to currently-available RAM minus a 4 GB floor so the cache
+         never grabs more than is actually free RIGHT NOW (the previous
+         ``available - 8 GB`` model let the cap drift up to 64 GB and, on a
+         box where model training itself consumed 100 GB+, the cache + the
+         in-flight float64 transforms together overran RAM -> OOM at 174 GB).
+         A fraction of TOTAL is predictable per host and tunable via
+         ``train_mlframe_models_suite(pipeline_cache_ram_budget_fraction=...)``.
       3. Fallback ``_DEFAULT_PIPELINE_CACHE_BYTES_LIMIT`` if psutil is
          unavailable or raises.
     """
@@ -35,12 +43,29 @@ def _resolve_pipeline_cache_budget() -> int:
             return int(env_raw)
         except (TypeError, ValueError):
             pass
+    if fraction is None:
+        _frac_env = os.environ.get("MLFRAME_PIPELINE_CACHE_RAM_FRACTION")
+        if _frac_env:
+            try:
+                fraction = float(_frac_env)
+            except (TypeError, ValueError):
+                fraction = None
+    if fraction is None:
+        fraction = _DEFAULT_PIPELINE_CACHE_RAM_FRACTION
+    # Clamp the fraction to a sane band (0 disables caching effectively; >0.9
+    # would starve training).
+    fraction = min(0.9, max(0.0, float(fraction)))
     try:
         import psutil as _psutil
-        available = int(_psutil.virtual_memory().available)
-        reserve = 8 * 1024 * 1024 * 1024
-        budget = max(2 * 1024 * 1024 * 1024, available - reserve)
-        budget = min(budget, 64 * 1024 * 1024 * 1024)
+        vm = _psutil.virtual_memory()
+        total = int(vm.total)
+        available = int(vm.available)
+        floor = 4 * 1024 * 1024 * 1024
+        budget = int(total * fraction)
+        # Never exceed what is free right now (minus a small floor): training
+        # frames + transient transforms must still fit.
+        budget = min(budget, max(0, available - floor))
+        budget = max(2 * 1024 * 1024 * 1024, budget)
         return int(budget)
     except Exception:
         return _DEFAULT_PIPELINE_CACHE_BYTES_LIMIT

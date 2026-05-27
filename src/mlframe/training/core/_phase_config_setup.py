@@ -120,6 +120,16 @@ def setup_configuration(
     behavior_config = _ensure_config(behavior_config, TrainingBehaviorConfig, {})
     reporting_config = _ensure_config(reporting_config, ReportingConfig, {})
 
+    # Publish the PipelineCache RAM-budget fraction to the env the cache
+    # reads (both PipelineCache.__init__ and the eviction re-check resolve
+    # from it, so one source keeps them consistent). An explicit operator env
+    # wins over the config default.
+    _cache_frac = getattr(behavior_config, "pipeline_cache_ram_budget_fraction", None)
+    if _cache_frac is not None and not _os.environ.get(
+        "MLFRAME_PIPELINE_CACHE_RAM_FRACTION"
+    ) and not _os.environ.get("MLFRAME_PIPELINE_CACHE_BYTES_LIMIT"):
+        _os.environ["MLFRAME_PIPELINE_CACHE_RAM_FRACTION"] = str(float(_cache_frac))
+
     # Module-level overrides for residual_audit + inline_display.
     # Pre-fix the leading comment promised "restored after the suite finishes" but no restore
     # call site existed anywhere -- the flag stayed flipped for the rest of the process and
