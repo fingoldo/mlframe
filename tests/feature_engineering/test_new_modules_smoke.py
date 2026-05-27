@@ -379,3 +379,100 @@ def test_higuchi_fd_distinguishes_smooth_vs_noise() -> None:
     h_smooth = higuchi_fd(smooth, kmax=8)
     h_noise = higuchi_fd(noise, kmax=8)
     assert h_smooth < h_noise, f"smooth={h_smooth:.3f} >= noise={h_noise:.3f}"
+
+
+# =============================================================================
+# bayesian.py per-group recursion: serial / parallel backend equivalence
+# =============================================================================
+
+def _grouped_recursion_inputs(n_groups: int, rows_per_group: int, seed: int = 0):
+    rng = np.random.default_rng(seed)
+    N = n_groups * rows_per_group
+    well = np.repeat(np.arange(n_groups), rows_per_group)
+    md = np.tile(np.arange(rows_per_group, dtype=float), n_groups)
+    obs = np.cumsum(rng.normal(0, 0.1, N)) + md * 0.01
+    obs[rng.random(N) < 0.05] = np.nan  # exercise the NaN predict-only branch
+    X = np.column_stack([np.ones(N), md / (md.max() + 1e-9)])
+    return obs, X, well
+
+
+def test_bocpd_serial_parallel_backends_match() -> None:
+    """The prange-over-groups parallel driver must be bit-equivalent to the
+    serial driver (and both to the numpy fallback) on the same input."""
+    import os
+    pytest = __import__("pytest")
+    pytest.importorskip("numba")
+    from mlframe.feature_engineering import bayesian as B
+    if not B._NUMBA_AVAILABLE:
+        pytest.skip("numba unavailable")
+    obs, _X, well = _grouped_recursion_inputs(12, 200)
+
+    os.environ["MLFRAME_FE_RECURSION_BACKEND"] = "serial"
+    try:
+        r_serial = B.bocpd_features(obs, group_ids=well, hazard=1 / 100)
+    finally:
+        del os.environ["MLFRAME_FE_RECURSION_BACKEND"]
+    os.environ["MLFRAME_FE_RECURSION_BACKEND"] = "parallel"
+    try:
+        r_parallel = B.bocpd_features(obs, group_ids=well, hazard=1 / 100)
+    finally:
+        del os.environ["MLFRAME_FE_RECURSION_BACKEND"]
+
+    for key in r_serial:
+        a, b = r_serial[key], r_parallel[key]
+        mask = np.isfinite(a) & np.isfinite(b)
+        np.testing.assert_allclose(a[mask], b[mask], atol=1e-9, rtol=0,
+                                   err_msg=f"bocpd {key} serial != parallel")
+
+
+def test_oblr_serial_parallel_backends_match() -> None:
+    import os
+    pytest = __import__("pytest")
+    pytest.importorskip("numba")
+    from mlframe.feature_engineering import bayesian as B
+    if not B._NUMBA_AVAILABLE:
+        pytest.skip("numba unavailable")
+    obs, X, well = _grouped_recursion_inputs(12, 200)
+
+    os.environ["MLFRAME_FE_RECURSION_BACKEND"] = "serial"
+    try:
+        r_serial = B.online_bayesian_linear_regression(obs, X, group_ids=well)
+    finally:
+        del os.environ["MLFRAME_FE_RECURSION_BACKEND"]
+    os.environ["MLFRAME_FE_RECURSION_BACKEND"] = "parallel"
+    try:
+        r_parallel = B.online_bayesian_linear_regression(obs, X, group_ids=well)
+    finally:
+        del os.environ["MLFRAME_FE_RECURSION_BACKEND"]
+
+    for key in r_serial:
+        a, b = r_serial[key], r_parallel[key]
+        mask = np.isfinite(a) & np.isfinite(b)
+        np.testing.assert_allclose(a[mask], b[mask], atol=1e-9, rtol=0,
+                                   err_msg=f"oblr {key} serial != parallel")
+
+
+def test_recursion_dispatch_routes_by_kernel_and_size() -> None:
+    """fe_bocpd (heavy per-row) goes parallel at modest group counts;
+    fe_oblr (trivial per-row) stays serial at small scale and only flips
+    parallel at higher group/sample counts. Env override always wins."""
+    import os
+    from mlframe.feature_engineering._recursion_dispatch import dispatch_recursion_backend
+
+    # Single group -> always serial (nothing to parallelise).
+    assert dispatch_recursion_backend("fe_bocpd", 100_000, 1) == "serial"
+
+    # BOCPD: parallel from a handful of groups.
+    assert dispatch_recursion_backend("fe_bocpd", 100_000, 64) == "parallel"
+    assert dispatch_recursion_backend("fe_bocpd", 1_000, 2) == "serial"
+
+    # OBLR: serial at tiny scale, parallel once big enough.
+    assert dispatch_recursion_backend("fe_oblr", 3_200, 8) == "serial"
+    assert dispatch_recursion_backend("fe_oblr", 100_000, 64) == "parallel"
+
+    # Env override forces the choice regardless of size.
+    os.environ["MLFRAME_FE_RECURSION_BACKEND"] = "serial"
+    try:
+        assert dispatch_recursion_backend("fe_bocpd", 10_000_000, 10_000) == "serial"
+    finally:
+        del os.environ["MLFRAME_FE_RECURSION_BACKEND"]

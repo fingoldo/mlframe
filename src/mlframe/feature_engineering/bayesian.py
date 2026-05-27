@@ -39,7 +39,13 @@ except Exception:
 
 
 if _NUMBA_AVAILABLE:
-    @_numba.njit(cache=True)
+    # Safe fastmath subset: reassoc/contract/arcp/afn enable FMA + reciprocal
+    # approximation + reassociation, but EXCLUDE nnan/ninf so the explicit
+    # NaN handling (predict-only branch on missing observations) stays
+    # correct. Full fastmath=True sets nnan and silently breaks NaN checks.
+    _FASTMATH = {"reassoc", "contract", "arcp", "afn"}
+
+    @_numba.njit(cache=True, fastmath=_FASTMATH)
     def _bocpd_inner(seg, hazard, mu0, kappa0, alpha0, beta0,
                      out_p_change, out_expected_rl, out_max_rl):
         T = seg.size
@@ -122,7 +128,7 @@ if _NUMBA_AVAILABLE:
             out_max_rl[t] = float(mx_idx)
 
 
-    @_numba.njit(cache=True)
+    @_numba.njit(cache=True, fastmath=_FASTMATH)
     def _oblr_inner(y_arr, X_arr, prior_precision, noise_sigma,
                     out_pred_mean, out_pred_var, out_log_marg):
         n, k = X_arr.shape
@@ -159,6 +165,49 @@ if _NUMBA_AVAILABLE:
                     # Sigma -= outer(K, Sx)
                     for j in range(k):
                         Sigma[i, j] -= Ki * Sx[j]
+
+    # --- group drivers ----------------------------------------------------
+    # The per-segment recursion (_bocpd_inner / _oblr_inner) is inherently
+    # sequential, but groups (e.g. wells / panels) are independent, so the
+    # parallel axis is `prange` ACROSS groups. The serial and parallel
+    # drivers share the same per-segment core; the dispatcher
+    # (_dispatch_recursion_backend) routes between them by group count.
+
+    @_numba.njit(cache=True)
+    def _bocpd_groups_serial(obs_sorted, starts, ends, hazard,
+                             mu0, kappa0, alpha0, beta0,
+                             out_p, out_ex, out_max):
+        for g in range(starts.size):
+            s = starts[g]; e = ends[g]
+            _bocpd_inner(obs_sorted[s:e], hazard, mu0, kappa0, alpha0, beta0,
+                         out_p[s:e], out_ex[s:e], out_max[s:e])
+
+    @_numba.njit(parallel=True, cache=True)
+    def _bocpd_groups_parallel(obs_sorted, starts, ends, hazard,
+                               mu0, kappa0, alpha0, beta0,
+                               out_p, out_ex, out_max):
+        for g in _numba.prange(starts.size):
+            s = starts[g]; e = ends[g]
+            _bocpd_inner(obs_sorted[s:e], hazard, mu0, kappa0, alpha0, beta0,
+                         out_p[s:e], out_ex[s:e], out_max[s:e])
+
+    @_numba.njit(cache=True)
+    def _oblr_groups_serial(y_sorted, X_sorted, starts, ends,
+                            prior_precision, noise_sigma,
+                            out_pm, out_pv, out_lm):
+        for g in range(starts.size):
+            s = starts[g]; e = ends[g]
+            _oblr_inner(y_sorted[s:e], X_sorted[s:e], prior_precision, noise_sigma,
+                        out_pm[s:e], out_pv[s:e], out_lm[s:e])
+
+    @_numba.njit(parallel=True, cache=True)
+    def _oblr_groups_parallel(y_sorted, X_sorted, starts, ends,
+                              prior_precision, noise_sigma,
+                              out_pm, out_pv, out_lm):
+        for g in _numba.prange(starts.size):
+            s = starts[g]; e = ends[g]
+            _oblr_inner(y_sorted[s:e], X_sorted[s:e], prior_precision, noise_sigma,
+                        out_pm[s:e], out_pv[s:e], out_lm[s:e])
 
 
 def _pf_single_segment(
@@ -689,6 +738,26 @@ def bocpd_features(
 
     if group_ids is None:
         _run(np.arange(n))
+    elif _NUMBA_AVAILABLE:
+        # Group-parallel njit path: each group is an independent recursion,
+        # so dispatch serial vs prange-over-groups by group count + size.
+        from .grouped import iter_group_segments
+        from ._recursion_dispatch import dispatch_recursion_backend
+        sort_idx, starts, ends = iter_group_segments(group_ids)
+        obs_sorted = np.ascontiguousarray(obs[sort_idx])
+        p_s = np.empty(n, dtype=np.float64)
+        ex_s = np.empty(n, dtype=np.float64)
+        max_s = np.empty(n, dtype=np.float64)
+        backend = dispatch_recursion_backend("fe_bocpd", n, int(starts.size))
+        if backend == "parallel":
+            _bocpd_groups_parallel(obs_sorted, starts, ends, hazard,
+                                   mu0, kappa0, alpha0, beta0, p_s, ex_s, max_s)
+        else:
+            _bocpd_groups_serial(obs_sorted, starts, ends, hazard,
+                                 mu0, kappa0, alpha0, beta0, p_s, ex_s, max_s)
+        out_p_change[sort_idx] = p_s
+        out_expected_rl[sort_idx] = ex_s
+        out_max_rl[sort_idx] = max_s
     else:
         from .grouped import iter_group_segments
         sort_idx, starts, ends = iter_group_segments(group_ids)
@@ -774,6 +843,25 @@ def online_bayesian_linear_regression(
 
     if group_ids is None:
         _run(np.arange(n))
+    elif _NUMBA_AVAILABLE:
+        from .grouped import iter_group_segments
+        from ._recursion_dispatch import dispatch_recursion_backend
+        sort_idx, starts, ends = iter_group_segments(group_ids)
+        y_sorted = np.ascontiguousarray(y_arr[sort_idx])
+        X_sorted = np.ascontiguousarray(X_arr[sort_idx])
+        pm = np.empty(n, dtype=np.float64)
+        pv = np.empty(n, dtype=np.float64)
+        lm = np.full(n, np.nan, dtype=np.float64)
+        backend = dispatch_recursion_backend("fe_oblr", n, int(starts.size))
+        if backend == "parallel":
+            _oblr_groups_parallel(y_sorted, X_sorted, starts, ends,
+                                  prior_precision, noise_sigma, pm, pv, lm)
+        else:
+            _oblr_groups_serial(y_sorted, X_sorted, starts, ends,
+                                prior_precision, noise_sigma, pm, pv, lm)
+        out_pred_mean[sort_idx] = pm
+        out_pred_var[sort_idx] = pv
+        out_log_marg[sort_idx] = lm
     else:
         from .grouped import iter_group_segments
         sort_idx, starts, ends = iter_group_segments(group_ids)
