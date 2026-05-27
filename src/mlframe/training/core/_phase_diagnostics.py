@@ -46,6 +46,17 @@ def run_per_target_diagnostics(
     # drift on dominant features can be catastrophic). So we always compute
     # FI first, then weight the drift report accordingly.
     _bd_report_dict: dict | None = None
+    # Composite targets (TVT-diff-* / TVT-linres* / residuals) are a TRANSFORM
+    # of the original target: their RMSE/MAE are in the residual/composite
+    # scale, NOT the original-target scale, so emitting them would surface a
+    # number that is not comparable to the raw-target leaderboard (the user
+    # requires every reported metric to be in the ORIGINAL scale). The y-scale
+    # metrics for composites come from the wrap-pass (composite_target_y_scale
+    # _metrics); baseline diagnostics here would only add a misleading
+    # composite-scale figure, and the discovery already evaluated these
+    # candidates on the y-scale. So skip BD entirely for composite targets.
+    from ..composite_transforms import is_composite_target_name as _is_composite
+    _target_is_composite = _is_composite(cur_target_name)
     try:
         # Reuse cached result if composite-discovery already computed one for this pair (~30-60s saved).
         _existing_bd = (
@@ -53,7 +64,16 @@ def run_per_target_diagnostics(
             .get(str(target_type), {})
             .get(cur_target_name)
         )
-        if _existing_bd is not None:
+        if _target_is_composite:
+            logger.info(
+                "[BaselineDiagnostics] target='%s' is a composite target -- "
+                "skipping baseline diagnostics (its raw metrics would be in the "
+                "composite/residual scale, not the original-target scale; "
+                "y-scale metrics are emitted by the composite wrap-pass).",
+                cur_target_name,
+            )
+            _bd_report_dict = None
+        elif _existing_bd is not None:
             logger.info(
                 "[BaselineDiagnostics] target='%s' reusing cached diagnostic "
                 "from composite-discovery precompute (saved ~30-60s).", cur_target_name,
