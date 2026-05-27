@@ -668,32 +668,44 @@ def report_regression_model_perf(
         # here and skipped legitimate y-scale prediction-quality
         # reports.
         _is_t_scale_composite = "MTRESID" in model_name
-        _scale_note = (
-            "  (T-scale residual; y-scale metrics in "
-            "[CompositeTargetEstimator] log line)"
-            if _is_t_scale_composite else ""
-        )
-        # One-line metrics in the log block.
-        # Reuses the SAME ``metrics_str`` formula the chart title carries
-        # (``MAE=... RMSE=... MaxError=... R2=...`` separated by spaces) so
-        # the log line is immediately searchable / regex-friendly and the
-        # chart + log show the same string. Previous layout emitted 4
-        # separate ``MAE: ...`` lines, padding production logs needlessly.
-        _metrics_one_line = (
-            f"MAE={_fmt(MAE, report_ndigits)}"
-            f" RMSE={_fmt(RMSE, report_ndigits)}"
-            f" MaxError={_fmt(MaxError, report_ndigits)}"
-            f" R2={_fmt(R2, report_ndigits)}"
-        )
-        _report_lines = [
-            report_title + " " + model_name + _scale_note,
-            _metrics_one_line,
-        ]
+        # 2026-05-28: a composite target's MAE/RMSE/R2 are in the
+        # residual/composite scale, NOT the original-target scale, so they are
+        # NOT comparable to the raw-target leaderboard. The user requires that
+        # NO composite-scale number ever reaches the log/chart -- only the
+        # original (y) scale. We therefore SUPPRESS the numeric metric line
+        # for composite targets here; the y-scale metrics for the same model
+        # are emitted by the [CompositeTargetEstimator] wrap-pass. (The
+        # T-scale chart is already skipped upstream by the MTRESID gate.)
+        if _is_t_scale_composite:
+            _report_lines = [
+                report_title + " " + model_name,
+                "  (composite/residual scale -- per-model metrics suppressed; "
+                "original y-scale metrics emitted by the "
+                "[CompositeTargetEstimator] wrap-pass)",
+            ]
+        else:
+            # One-line metrics in the log block.
+            # Reuses the SAME ``metrics_str`` formula the chart title carries
+            # (``MAE=... RMSE=... MaxError=... R2=...`` separated by spaces) so
+            # the log line is immediately searchable / regex-friendly and the
+            # chart + log show the same string. Previous layout emitted 4
+            # separate ``MAE: ...`` lines, padding production logs needlessly.
+            _metrics_one_line = (
+                f"MAE={_fmt(MAE, report_ndigits)}"
+                f" RMSE={_fmt(RMSE, report_ndigits)}"
+                f" MaxError={_fmt(MaxError, report_ndigits)}"
+                f" R2={_fmt(R2, report_ndigits)}"
+            )
+            _report_lines = [
+                report_title + " " + model_name,
+                _metrics_one_line,
+            ]
         # Residual-audit VERDICT TEXT is gated on the suite flag.
         # The audit is still computed above (so the chart panels stay
         # populated); only the multi-line text block here is suppressed when
-        # ``behavior_config.report_residual_audit=False``.
-        if _residual_audit is not None and _audit_log_enabled:
+        # ``behavior_config.report_residual_audit=False``. Also suppressed for
+        # composite targets: the audit residuals are on the composite scale.
+        if _residual_audit is not None and _audit_log_enabled and not _is_t_scale_composite:
             from .regression_residual_audit import (
                 format_residual_audit_report as _fmt_residual_audit,
             )
