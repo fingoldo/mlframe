@@ -92,10 +92,16 @@ def test_strategies_xgb_cat_cast_logs_oov_delta() -> None:
 
 
 def test_strategies_hgb_cat_cast_logs_oov_delta() -> None:
-    src = _read("training/strategies.py")
-    assert "[hgb cat-cast] %d col(s) had OOV nulls cast-failed" in src
+    """The hgb cat-cast logging moved into the sibling
+    _strategies_hgb.py during the strategies monolith split; check
+    both the facade and the sibling so the sensor stays valid."""
+    facade = _read("training/strategies.py")
+    sibling = _read("training/_strategies_hgb.py")
+    needle = "[hgb cat-cast] %d col(s) had OOV nulls cast-failed"
+    assert needle in facade or needle in sibling
     # _strict_false_cols list-tracking is the wave-72 wiring.
-    assert "_strict_false_cols: list[str] = []" in src
+    track_needle = "_strict_false_cols: list[str] = []"
+    assert track_needle in facade or track_needle in sibling
 
 
 # ---------------------------------------------------------------------------

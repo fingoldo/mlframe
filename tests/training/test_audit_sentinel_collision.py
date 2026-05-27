@@ -57,8 +57,13 @@ def _read(rel: str) -> str:
 
 
 def test_extractors_classification_target_rejects_nan() -> None:
+    """The classification-target NaN-rejection lives in sibling
+    _extractors_simple.py after the extractors monolith split; concat
+    so the source sensor matches the post-carve layout."""
     src = _read("training/extractors.py")
-    # The fix replaces fillna(0)/fill_null(0) with a NaN-detection raise.
+    _sib = MLFRAME_ROOT / "training" / "_extractors_simple.py"
+    if _sib.exists():
+        src += "\n" + _sib.read_text(encoding="utf-8")
     assert "Classification target" in src
     assert "drop or impute upstream" in src
 
@@ -95,7 +100,13 @@ def test_discretization_nan_filler_supports_raise() -> None:
 
 
 def test_target_temporal_audit_drops_nan_before_rate() -> None:
+    """The per-bin positive-rate lambda moved to sibling
+    _target_temporal_audit_aggregate.py after the audit module split;
+    concat so the source sensor matches the post-carve layout."""
     src = _read("training/target_temporal_audit.py")
+    _sib = MLFRAME_ROOT / "training" / "_target_temporal_audit_aggregate.py"
+    if _sib.exists():
+        src += "\n" + _sib.read_text(encoding="utf-8")
     # Pre-fix lambda was `(c.fillna(0) > 0).mean()` -- gone.
     assert "(c.fillna(0) > 0).mean()" not in src
     # Post-fix is `(c.dropna() > 0).mean()` with a notna gate.
@@ -104,8 +115,15 @@ def test_target_temporal_audit_drops_nan_before_rate() -> None:
 
 def test_bruteforce_fill_uses_median_not_zero() -> None:
     src = _read("feature_engineering/bruteforce.py")
-    # Polars path uses median instead of 0.
-    assert "cs.numeric().fill_nan(cs.numeric().median()).fill_null(cs.numeric().median())" in src
+    # Polars path uses median instead of 0. The current shape wraps the
+    # median inputs in ``.drop_nans()`` so a column that is all-NaN
+    # doesn't poison the median calc (NaN-of-empty would still be NaN
+    # and re-poison the fill). The legacy shape without ``drop_nans``
+    # is also accepted as a fallback for older builds.
+    assert (
+        "cs.numeric().fill_nan(cs.numeric().drop_nans().median()).fill_null(cs.numeric().drop_nans().median())" in src
+        or "cs.numeric().fill_nan(cs.numeric().median()).fill_null(cs.numeric().median())" in src
+    )
     # Pandas path uses median too.
     assert "tmp_df[numeric_cols].fillna(tmp_df[numeric_cols].median())" in src
 

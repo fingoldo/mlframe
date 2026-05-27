@@ -145,18 +145,36 @@ def _has_stable_kind(src: str, base: str, count: int = 1) -> bool:
 
 def test_metrics_core_uses_stable_argsort() -> None:
     # When ``metrics/core.py`` was split into siblings, the sites this sensor
-    # pins moved: per-group AUC scans live in ``_auc_per_group.py``, the
-    # ``-y_p`` argsort lives in the classification-report binning helper in
-    # ``_classification_report.py``. Some sites stayed in ``core.py``
-    # (``fast_roc_auc``, ``fast_aucs``). We concatenate all module sources so
+    # pins moved: ``np.argsort(y_score`` lives in ``_core_auc_brier.py``
+    # (the fast_roc_auc / fast_aucs kernels + the central
+    # ``_argsort_desc_for_metrics`` dispatcher), per-group AUC scans live
+    # in ``_auc_per_group.py``, the ``-y_p`` argsort lives in the
+    # classification-report binning helper in
+    # ``_classification_report.py``. Concatenate all module sources so
     # the count assertions still pin the post-fix totals.
     src = (
         _read("metrics/core.py")
+        + _read("metrics/_core_auc_brier.py")
         + _read("metrics/_auc_per_group.py")
         + _read("metrics/_classification_report.py")
     )
-    # All identical sites must now use a stable sort kind (>=3 total).
-    assert _has_stable_kind(src, "np.argsort(y_score", count=3)
+    # The pre-fix shape was 3 inline ``np.argsort(y_score, kind="stable")``
+    # call-sites; the refactor consolidated them into ONE stable-sort
+    # branch inside ``_argsort_desc_for_metrics`` plus per-callsite uses
+    # of the dispatcher. Accept EITHER shape:
+    #   * 3+ inline stable/mergesort sites (the legacy pattern), OR
+    #   * 1 stable branch inside _argsort_desc_for_metrics + 2+ uses of
+    #     that dispatcher (the post-consolidation pattern).
+    _inline_stable = (
+        src.count('np.argsort(y_score, kind="stable")')
+        + src.count('np.argsort(y_score, kind="mergesort")')
+    )
+    _dispatch_uses = src.count("_argsort_desc_for_metrics")
+    assert _inline_stable >= 3 or (_inline_stable >= 1 and _dispatch_uses >= 2), (
+        f"y_score sort determinism: need either >=3 inline stable argsorts "
+        f"or >=1 stable dispatcher + >=2 dispatcher uses; got inline={_inline_stable}, "
+        f"dispatcher refs={_dispatch_uses}"
+    )
     # group_y_score sites (now split across _auc_per_group.py: one stable,
     # one mergesort variant).
     assert _has_stable_kind(src, "np.argsort(group_y_score", count=1)
@@ -212,7 +230,13 @@ def test_screen_expected_gains_uses_lexsort() -> None:
 
 
 def test_phase_train_ensemble_flavour_uses_secondary_name() -> None:
+    """``_choose_ensemble_flavour`` (where the _scored.sort lives) moved
+    to sibling ``_ensemble_chooser.py``; concat so the source sensor
+    matches the post-carve layout."""
     src = _read("training/core/_phase_train_one_target.py")
+    _sib = MLFRAME_ROOT / "training" / "core" / "_ensemble_chooser.py"
+    if _sib.exists():
+        src += "\n" + _sib.read_text(encoding="utf-8")
     assert "_scored.sort(key=lambda kv: (kv[1], kv[0]))" in src
     assert "_scored.sort(key=lambda kv: (-kv[1], kv[0]))" in src
 

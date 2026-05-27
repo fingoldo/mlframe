@@ -147,7 +147,13 @@ def test_neural_base_mixin_type_is_typeerror() -> None:
 
 
 def test_neural_base_period_type_is_typeerror() -> None:
+    """``PeriodicLearningRateFinder`` lives in sibling _base_callbacks.py
+    after the neural-callback carve; concat so the source sensor still
+    matches."""
     src = _read("training/neural/base.py")
+    _sib = MLFRAME_ROOT / "training" / "neural" / "_base_callbacks.py"
+    if _sib.exists():
+        src += "\n" + _sib.read_text(encoding="utf-8")
     assert (
         'raise TypeError(f"period must be an int' in src
     ), "neural/base.py: PeriodicLearningRateFinder.period type check should raise TypeError"
@@ -176,7 +182,13 @@ def test_neural_flat_validation_uses_typeerror_and_valueerror() -> None:
 
 
 def test_neural_flat_batch_format_is_typeerror() -> None:
+    """``MLPTorchModel`` (where the batch-format dispatch lives) moved to
+    sibling _flat_torch_module.py after the flat-module monolith split;
+    concat so the source sensor still matches."""
     src = _read("training/neural/flat.py")
+    _sib = MLFRAME_ROOT / "training" / "neural" / "_flat_torch_module.py"
+    if _sib.exists():
+        src += "\n" + _sib.read_text(encoding="utf-8")
     assert (
         'raise TypeError(f"Unexpected batch format' in src
     ), "neural/flat.py: batch format dispatch failure should raise TypeError"

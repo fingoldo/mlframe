@@ -73,12 +73,26 @@ def test_rfecv_load_checkpoint_tolerates_missing_file() -> None:
 
 
 def test_pipelines_verify_sidecar_tolerates_missing() -> None:
-    src = _read("estimators/pipelines.py")
+    """The verify_sidecar helper moved out of estimators/pipelines.py into
+    utils/safe_pickle.py and the implementation switched from
+    ``try/except FileNotFoundError`` to a direct ``if not isfile(sidecar)``
+    branch. Functionally equivalent: missing sidecar is tolerated (returns
+    True under MLFRAME_ALLOW_UNVERIFIED_PICKLE=1 env var, False default
+    fail-closed; the test's "tolerate" intent matches the env-opt-in
+    path). Accept either source shape so the sensor stays valid post-move.
+    """
+    facade = _read("estimators/pipelines.py")
+    sibling = _read("utils/safe_pickle.py")
+    src = facade + "\n" + sibling
+    # Old leak-through pattern (silent-true on missing) must still be gone.
     assert "if not os.path.isfile(sidecar):\n        return True" not in src
-    # The handler still returns True for a missing sidecar, but a WARN was
-    # added between ``except`` and ``return`` (wave 84). Pin the two
-    # independent invariants instead of requiring an empty body.
-    assert "except FileNotFoundError:" in src
+    # Post-fix: either the old try/except FileNotFoundError shape OR the
+    # new ``if not isfile(sidecar):`` direct branch with explicit env-var
+    # gate.
+    assert (
+        "except FileNotFoundError:" in src
+        or "if not isfile(sidecar):" in src
+    )
     assert "return True" in src
 
 
@@ -141,11 +155,25 @@ def test_load_save_meta_sidecar_missing_returns_none() -> None:
         assert result is None
 
 
-def test_verify_sidecar_missing_returns_true() -> None:
-    from mlframe.estimators.pipelines import _verify_sidecar
+def test_verify_sidecar_missing_returns_true(monkeypatch) -> None:
+    """``verify_sidecar`` moved from estimators.pipelines to
+    utils.safe_pickle, and the default flipped from silent-true to
+    fail-closed (returns False on missing sidecar) for the RCE-bypass
+    guard. The ``tolerate-missing`` intent this test pins is now the
+    env-opt-in path -- set ``MLFRAME_ALLOW_UNVERIFIED_PICKLE=1`` so the
+    function returns True with a WARN (matching the test's original
+    contract).
+    """
+    monkeypatch.setenv("MLFRAME_ALLOW_UNVERIFIED_PICKLE", "1")
+    try:
+        from mlframe.utils.safe_pickle import verify_sidecar as _verify_sidecar
+    except ImportError:
+        # Back-compat: fall through to the legacy location if the user's
+        # checkout predates the safe_pickle carve.
+        from mlframe.estimators.pipelines import _verify_sidecar  # type: ignore
 
     with tempfile.TemporaryDirectory() as td:
         bundle_path = os.path.join(td, "fake.bin")
         Path(bundle_path).write_bytes(b"dummy")
-        # No sidecar exists -> must return True silently (no verification).
+        # No sidecar exists -> must return True with WARN (env-opt-in path).
         assert _verify_sidecar(bundle_path) is True
