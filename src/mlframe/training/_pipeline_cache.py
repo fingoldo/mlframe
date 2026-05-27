@@ -30,6 +30,20 @@ try:
 except ImportError:
     pl = None  # type: ignore
 
+# polars' ``hash_rows`` panics at the Rust layer on a zero-column frame
+# (``pyo3_runtime.PanicException: at least one key``). That panic class is
+# NOT an ``Exception`` subclass (it inherits ``BaseException`` on the pyo3
+# builds we ship against), so a plain ``except Exception`` misses it. We
+# catch ``(Exception, PanicException)`` explicitly rather than a bare
+# ``except BaseException`` -- the latter also swallows KeyboardInterrupt /
+# SystemExit (flagged by tests/test_meta/test_no_bare_except.py). polars
+# re-exports the class as ``polars.exceptions.PanicException``; fall back to
+# just ``Exception`` if the attribute is absent on an older polars.
+if pl is not None and hasattr(getattr(pl, "exceptions", None), "PanicException"):
+    _HASH_FASTPATH_EXC: tuple = (Exception, pl.exceptions.PanicException)
+else:
+    _HASH_FASTPATH_EXC = (Exception,)
+
 logger = logging.getLogger(__name__)
 
 
@@ -261,8 +275,8 @@ def _full_x_content_hash(arr) -> str:
                 # Cast to UInt64 then sum mod 2^64 -- polars sum on UInt64
                 # wraps natively, giving a deterministic 64-bit summary.
                 row_sum = int(row_hashes.sum())
-            except BaseException:
-                # BaseException so pyo3 PanicException is contained too.
+            except _HASH_FASTPATH_EXC:
+                # Tuple includes pyo3 PanicException (zero-column hash_rows).
                 return ""
             col_names = ",".join(str(c) for c in arr.columns)
             h = hashlib.blake2b(digest_size=16)
@@ -303,9 +317,9 @@ def _full_x_content_hash(arr) -> str:
                     pl_df = pl.from_pandas(arr)
                     row_hashes = pl_df.hash_rows()
                     row_sum = int(row_hashes.sum())
-                except BaseException:
-                    # Catch BaseException so pyo3 PanicException is contained
-                    # too. The fallback uses ``arr.to_numpy().tobytes()`` below.
+                except _HASH_FASTPATH_EXC:
+                    # Tuple includes pyo3 PanicException (zero-column
+                    # hash_rows). Fallback uses ``arr.to_numpy().tobytes()``.
                     pl_df = None
                     row_sum = None
             else:
