@@ -78,6 +78,39 @@ def test_biz_val_cluster_aware_recovers_latent_factors_on_wide_data():
 
 
 @pytest.mark.slow
+def test_biz_val_prefilter_handles_wide_data_and_maps_back_to_original():
+    """Native-importance pre-filter cuts width before the expensive SHAP, recovers the informative
+    features, and exposes support_/selected_features_ in ORIGINAL column space (mapped back through
+    the pre-filter)."""
+    from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
+
+    rng = np.random.default_rng(0)
+    n = 2000
+    inf = rng.normal(size=(n, 6))
+    noise = rng.normal(size=(n, 144))
+    X = pd.DataFrame(np.column_stack([inf, noise]),
+                     columns=[f"inf{i}" for i in range(6)] + [f"noise{i}" for i in range(144)])
+    coefs = [0.9, 0.8, -0.7, 0.6, 0.4, 0.3]
+    y = (sum(coefs[k] * inf[:, k] for k in range(6)) + 0.3 * rng.normal(size=n) > 0).astype(int)
+
+    sel = ShapProxiedFS(classification=True, metric="brier", prefilter_top=25, cluster_features=False,
+                        max_features=8, top_n=15, n_splits=3, n_revalidation_models=1, random_state=0,
+                        verbose=False)
+    sel.fit(X, y)
+    rep = sel.shap_proxy_report_
+    assert rep["prefilter"] == {"kept": 25, "of": 150}
+    # sklearn contract is in ORIGINAL space.
+    assert sel.support_.shape == (150,)
+    assert sel.n_features_in_ == 150
+    informative_kept = {c for c in sel.selected_features_ if c.startswith("inf")}
+    noise_kept = [c for c in sel.selected_features_ if c.startswith("noise")]
+    assert len(informative_kept) >= 5, sorted(informative_kept)
+    assert len(noise_kept) <= 2, noise_kept
+    # transform returns the original-named selected columns.
+    assert list(sel.transform(X).columns) == list(sel.selected_features_)
+
+
+@pytest.mark.slow
 def test_biz_val_cluster_compacts_redundant_members():
     """within_cluster_refine must NOT return all 5 reflections of every selected factor -- it should
     prune to a compact representative set (far fewer than the full member union)."""

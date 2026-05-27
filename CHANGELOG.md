@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-05-28 — ShapProxiedFS: wide-data scaling + algorithmic levers
+
+Extends `ShapProxiedFS` toward tens-of-thousands-of-features problems and adds the improvement levers from the multi-agent review, each fixed by a biz_val test.
+
+- **Correlated-feature clustering** (`_shap_proxy_cluster.py`): cluster features by |correlation| (GPU matmul + numba union-find, blocked path for very wide `f`; ~5000 features in ~0.5s), collapse each cluster to a denoised PC1/weighted representative, run SHAP + search on the UNITS. SHAP-importance pre-screen keeps the top-K units; within-cluster greedy-backward refine prunes redundant members so the output stays compact real columns.
+- **Native-importance pre-filter** (default `prefilter_top=2000`): one model fit -> keep top-K by `feature_importances_`/`|coef_|` BEFORE the expensive OOF-SHAP. Profiling showed clustering only compresses *correlated* features, so independent-noise-heavy wide data still needs this width cut before SHAP (which is the wide-data hotspot). Working columns map back to original indices for the selector contract.
+- **Bias corrector** (#3/#6, `_shap_proxy_calibrate.py`): `honest ~ Ridge(proxy, cardinality, redundancy)` fit on the trust-guard anchors re-ranks candidates (a data-fit, redundancy-dependent calibration of the partial SHAP sums).
+- **Config-jitter SHAP** (#8) + **uncertainty-aware ranking** (#7): depth-jittered model averaging stabilises attributions and yields per-attribution variance; subsets built from unstable attributions are penalised.
+- **Interaction-aware coalition** (#5, `_shap_proxy_interactions.py`): `base + sum_{i,k in S} Phi_ik` from SHAP interaction values, so XOR/multiplicative subsets the main-effect sum can't see rank correctly (opt-in, bounded width).
+- **Active-learning re-validation** (#4): retrain the candidates where the corrector most disagrees with the raw proxy, within a fixed budget.
+- **`preflight(X, y)`** (`_shap_proxy_preflight.py`): cheap run/caution/fallback recommendation from dataset statistics (full-model fit, additive-vs-deep ratio, redundancy, width, balance) -- predicts where the proxy shines before paying the full fit.
+- **Composition patterns** (`_shap_proxy_compose.py`): `proposal_generator` (SHAP-guided seeds for honest wrapper search) and `per_fold_stability_select` (fidelity-weighted cross-fold survival frequency + majority-vote ensemble). Plus a parametric regime synthetic generator (`_benchmarks/_shap_proxy_regime_data.py`) for where-it-shines sweeps.
+- Tests: `test_shap_proxy_cluster`, `test_biz_val_shap_proxy_cluster`, `test_shap_proxy_calibrate`, `test_shap_proxy_uncertainty`, `test_shap_proxy_interactions`, `test_shap_proxy_preflight`, `test_shap_proxy_compose` + active-learning in `test_shap_proxy_revalidate`.
+
 ## 2026-05-27 — ShapProxiedFS: SHAP-coalition-proxy feature selector
 
 New sklearn-style selector `mlframe.feature_selection.shap_proxied_fs.ShapProxiedFS` (registered opt-in in the selector registry; not auto-wired into the training suite). Ranks feature subsets by the SHAP coalition value `base + sum_{j in S} phi_j` of a single model instead of retraining 2^n models, then honestly re-validates the cheap top-N on a disjoint holdout to pick the final subset.

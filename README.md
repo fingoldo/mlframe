@@ -213,6 +213,14 @@ print(report["importance_ablation"]["proxy_wins"])  # beat SHAP-importance-top-k
 X_sel = sel.transform(X)
 ```
 
+For wide data (hundreds-to-tens-of-thousands of features) it scales via a native-importance pre-filter + correlated-feature clustering (GPU correlation matmul -> denoised cluster representatives) + SHAP-importance pre-screen, so the exhaustive-approx search runs on a small set of units; the chosen units are expanded and pruned back to compact real columns. Optional levers (all opt-in): `interaction_aware=True` (SHAP-interaction coalition for XOR/multiplicative signals), `config_jitter`+`uncertainty_penalty` (stabler attributions + penalise unstable subsets), `active_learning=True` (disagreement-driven re-validation), and a bias corrector on by default. `ShapProxiedFS.preflight(X, y)` returns a cheap run/caution/fallback recommendation before a full fit. `_shap_proxy_compose` adds proposal-generator seeding and per-fold stability ensembling.
+
+```python
+sel = ShapProxiedFS(classification=True, cluster_features=True, prefilter_top=2000,
+                    interaction_aware=True, config_jitter=True, uncertainty_penalty=0.3)
+print(ShapProxiedFS.preflight(X, y, classification=True)["recommendation"])  # run / caution / fallback
+```
+
 **Friend-graph post-analysis.** After screening, the `MRMR` estimator builds a "friend graph" of the selected features (node = feature sized by entropy, edge = pairwise mutual information, arrow = asymmetric dependency, color = green/unique / red/suspected-sink / yellow/middling). It flags a "universal soldier" feature - one correlated with many genuine predictors but carrying no unique target information - that greedy mRMR can otherwise promote early and let distract strong models. The graph is exposed on the fitted estimator, summarized into the training suite's `feature_selection_report`, and rendered (interactive plotly HTML + static image) through the reporting backends. Diagnostic by default; pruning is opt-in:
 
 ```python
