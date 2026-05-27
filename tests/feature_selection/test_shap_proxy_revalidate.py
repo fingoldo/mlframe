@@ -59,6 +59,35 @@ def test_trust_guard_high_fidelity_on_clean_proxy(planted):
     assert rep["trustworthy"]
 
 
+def test_active_learning_respects_budget_and_not_worse_than_proxy_top1(planted):
+    from mlframe.feature_selection._shap_proxy_revalidate import _honest_loss, active_learning_revalidate
+
+    X, y, phi, base = planted
+    Xs, ys = X.iloc[:900].reset_index(drop=True), y[:900]
+    Xh, yh = X.iloc[900:].reset_index(drop=True), y[900:]
+
+    # Candidate pool: proxy-best is the true {0,1,2}; several decoys with lower proxy_loss-ranks.
+    candidates = [(0.05, (0, 1, 2)), (0.10, (0, 1)), (0.20, (0, 1, 2, 5)),
+                  (0.30, (4, 5, 6)), (0.40, (3, 4)), (0.50, (5, 6, 7))]
+    # Enough anchors for the corrector to fit (proxy ~ honest with a redundancy wobble).
+    rng = np.random.default_rng(0)
+    cd = dict(proxy=list(rng.uniform(0.1, 0.6, 16)), honest=list(rng.uniform(0.1, 0.6, 16)),
+              cards=list(rng.integers(2, 5, 16).astype(float)), redund=list(rng.uniform(0, 1, 16)))
+
+    budget = 4
+    best_idx, ranked, n_eval = active_learning_revalidate(
+        candidates, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
+        corrector_data=cd, phi=phi, budget=budget, batch=2, n_models=1, rng=np.random.default_rng(1))
+
+    assert n_eval <= budget and n_eval >= 1
+    assert len(ranked) == n_eval
+    # The proxy top-1 is always evaluated early, so the active best is never worse than it.
+    proxy_top1_honest = _honest_loss(LinearRegression(), Xs, ys, Xh, yh, [0, 1, 2], False, "rmse")
+    best_honest = min(d["honest_loss"] for d in ranked)
+    assert best_honest <= proxy_top1_honest + 1e-9
+    assert set(best_idx) <= {0, 1, 2, 3, 4, 5, 6, 7}
+
+
 def test_importance_ablation_runs(planted):
     from mlframe.feature_selection._shap_proxy_revalidate import importance_topk_ablation
 

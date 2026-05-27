@@ -239,6 +239,68 @@ def revalidate_top_n(
     return best_idx, ranked, baseline
 
 
+def active_learning_revalidate(
+    candidates, model_template, X_search, y_search, X_holdout, y_holdout,
+    *, classification, metric=None, corrector_data, phi, budget, batch=4, n_models=1,
+    parsimony_tol=0.02, rng=None, n_jobs=-1, unit_to_members=None,
+):
+    """Disagreement-driven honest re-validation (lever #4).
+
+    Instead of honestly retraining the proxy's static top-N, iterate: fit the bias corrector on the
+    anchors seen so far, pick the ``batch`` un-evaluated candidates where the corrector most disagrees
+    with the raw proxy (the proxy is least trustworthy there), honestly retrain them, fold the results
+    back into the corrector, and repeat until ``budget`` candidates have been evaluated. This spends a
+    fixed retrain budget where it most reduces winner's-curse risk. The proxy's top-1 is always among
+    the first evaluated, so the result is never worse than naive top-1.
+
+    Returns ``(best_idx, ranked, n_evaluated)``.
+    """
+    from mlframe.feature_selection._shap_proxy_calibrate import fit_proxy_corrector, subset_redundancy
+
+    metric = resolve_metric(classification, metric)
+    rng = np.random.default_rng(0) if rng is None else rng
+    cd = {k: list(v) for k, v in corrector_data.items()}  # mutable copy we augment each round
+    proxy_all = np.array([c[0] for c in candidates], dtype=np.float64)
+    idxs = [c[1] for c in candidates]
+    cards_all = np.array([len(i) for i in idxs], dtype=np.float64)
+    redund_all = np.array([subset_redundancy(phi, i) for i in idxs], dtype=np.float64)
+    member_cols = [_expand(i, unit_to_members) for i in idxs]
+
+    honest = {}  # candidate index -> mean honest loss
+    budget = min(budget, len(candidates))
+    while len(honest) < budget:
+        corrector = fit_proxy_corrector(cd["proxy"], cd["honest"], cd["cards"], cd["redund"])
+        pred = corrector.predict(proxy_all, cards_all, redund_all)
+        disagree = np.abs(pred - proxy_all)  # 0 under fallback -> falls back to proxy ordering
+        remaining = [i for i in range(len(candidates)) if i not in honest]
+        remaining.sort(key=lambda i: (-disagree[i], pred[i]))
+        pick = remaining[: max(1, min(batch, budget - len(honest)))]
+        if not pick:
+            break
+        tasks = [(member_cols[i], int(rng.integers(0, 2**31 - 1))) for i in pick for _ in range(n_models)]
+        losses = _parallel_honest_losses(tasks, model_template, X_search, y_search, X_holdout, y_holdout,
+                                         classification, metric, n_jobs)
+        for j, i in enumerate(pick):
+            seg = losses[j * n_models:(j + 1) * n_models]
+            m = float(np.mean(seg))
+            honest[i] = m
+            cd["proxy"].append(float(proxy_all[i]))
+            cd["honest"].append(m)
+            cd["cards"].append(float(cards_all[i]))
+            cd["redund"].append(float(redund_all[i]))
+
+    ranked = [dict(features=tuple(idxs[i]), n_members=len(member_cols[i]), proxy_loss=float(proxy_all[i]),
+                   honest_loss=honest[i], honest_std=0.0, stable_score=honest[i]) for i in honest]
+    ranked.sort(key=lambda d: d["stable_score"])
+    best_idx = ()
+    if ranked:
+        best_score = ranked[0]["stable_score"]
+        thr = best_score + parsimony_tol * abs(best_score)
+        eligible = [d for d in ranked if d["stable_score"] <= thr]
+        best_idx = min(eligible, key=lambda d: (d["n_members"], d["stable_score"]))["features"]
+    return best_idx, ranked, len(honest)
+
+
 def within_cluster_refine(
     member_cols, model_template, X_search, y_search, X_holdout, y_holdout,
     *, classification, metric=None, parsimony_tol=0.02, n_jobs=-1, max_drop_rounds=None,

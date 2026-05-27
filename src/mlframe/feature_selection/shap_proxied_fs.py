@@ -62,6 +62,8 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         spearman_floor: float = 0.6,
         run_importance_ablation: bool = True,
         use_bias_corrector: bool = True,
+        active_learning: bool = False,
+        active_learning_budget: int | None = None,
         config_jitter: bool = False,
         uncertainty_penalty: float = 0.0,
         interaction_aware: bool = False,
@@ -102,6 +104,8 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         self.spearman_floor = spearman_floor
         self.run_importance_ablation = run_importance_ablation
         self.use_bias_corrector = use_bias_corrector
+        self.active_learning = active_learning
+        self.active_learning_budget = active_learning_budget
         self.config_jitter = config_jitter
         self.uncertainty_penalty = uncertainty_penalty
         self.interaction_aware = interaction_aware
@@ -121,6 +125,14 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         self.verbose = verbose
         self.tqdm = tqdm
         self._rng = np.random.default_rng(random_state)
+
+    @staticmethod
+    def preflight(X, y, *, classification: bool = True, **kwargs):
+        """Cheap "will-it-shine?" check BEFORE a full fit: returns a recommendation
+        (run / caution / fallback) + dataset diagnostics + reasons. See ``_shap_proxy_preflight``."""
+        from mlframe.feature_selection._shap_proxy_preflight import preflight as _preflight
+
+        return _preflight(X, y, classification=classification, **kwargs)
 
     # ------------------------------------------------------------------ helpers
     @staticmethod
@@ -361,15 +373,28 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         order = np.argsort(score, kind="stable")
         candidates = [candidates[i] for i in order]
 
-        # Honest re-validation of the top-N on the disjoint holdout.
+        # Honest re-validation of the top-N on the disjoint holdout (active-learning variant when the
+        # corrector anchors are available, else the static top-N retrain).
         if self.revalidate:
-            from mlframe.feature_selection._shap_proxy_revalidate import revalidate_top_n
+            cdata = report.get("trust", {}).get("_corrector_data")
+            if self.active_learning and cdata:
+                from mlframe.feature_selection._shap_proxy_revalidate import active_learning_revalidate
 
-            best_idx, ranked, baseline = revalidate_top_n(
-                candidates, model_template, X_search, y_search, X_hold, y_hold,
-                n_models=self.n_revalidation_models, lambda_stab=self.lambda_stab,
-                parsimony_tol=self.parsimony_tol, rng=self._rng, **rv)
-            report["revalidation"] = dict(ranked=ranked[: self.top_n], random_baseline=baseline)
+                budget = self.active_learning_budget or self.top_n
+                best_idx, ranked, n_eval = active_learning_revalidate(
+                    candidates, model_template, X_search, y_search, X_hold, y_hold,
+                    corrector_data=cdata, phi=phi, budget=budget, n_models=self.n_revalidation_models,
+                    parsimony_tol=self.parsimony_tol, rng=self._rng, **rv)
+                report["revalidation"] = dict(ranked=ranked[: self.top_n],
+                                              active_learning=dict(n_evaluated=n_eval, budget=budget))
+            else:
+                from mlframe.feature_selection._shap_proxy_revalidate import revalidate_top_n
+
+                best_idx, ranked, baseline = revalidate_top_n(
+                    candidates, model_template, X_search, y_search, X_hold, y_hold,
+                    n_models=self.n_revalidation_models, lambda_stab=self.lambda_stab,
+                    parsimony_tol=self.parsimony_tol, rng=self._rng, **rv)
+                report["revalidation"] = dict(ranked=ranked[: self.top_n], random_baseline=baseline)
         else:
             best_idx = tuple(candidates[0][1])
 
