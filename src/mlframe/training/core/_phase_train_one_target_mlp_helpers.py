@@ -187,3 +187,43 @@ def _apply_mlp_extreme_ar_output_activation(model) -> bool:
             _act_err,
         )
         return False
+
+
+def extreme_ar_skip_decision(
+    model_name: str,
+    target_name: str,
+    *,
+    skip_models,
+    skip_enabled: bool,
+    lag1_autocorr_per_group,
+    group_aware: bool,
+    threshold: float = 0.99,
+) -> "tuple[bool, bool]":
+    """Decide whether to SKIP fitting ``model_name`` on ``target_name``.
+
+    Pure / side-effect-free so it is unit-testable without the suite.
+
+    Returns ``(skip, extreme_ar_fired)``:
+      * ``extreme_ar_fired`` -- the RAW-target extreme-AR + group-aware
+        signal (group_aware AND lag1 >= threshold). The MLP uses this for
+        its weight_decay / output-activation protections even when the hard
+        skip is off. Always ``False`` for a composite target (the stored
+        distribution report is the RAW target's; a composite bounds the
+        variance the signal warns about, so it does not apply).
+      * ``skip`` -- True iff the fit should be skipped: the signal fired
+        AND skipping is enabled AND ``model_name`` is in ``skip_models``.
+
+    Composite targets are NEVER skipped: residual/diff/linres targets bound
+    the variance and are exactly where neural nets belong.
+    """
+    from ..composite_transforms import is_composite_target_name
+
+    if is_composite_target_name(target_name):
+        return False, False
+    fired = bool(
+        group_aware
+        and lag1_autocorr_per_group is not None
+        and float(lag1_autocorr_per_group) >= float(threshold)
+    )
+    skip = bool(fired and skip_enabled and model_name in tuple(skip_models))
+    return skip, fired

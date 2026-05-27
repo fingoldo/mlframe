@@ -566,27 +566,66 @@ class TrainingBehaviorConfig(BaseConfig):
     target_temporal_audit_save_plot: bool = True
     """Save the time-series chart to the per-target charts folder."""
 
-    # Extreme-AR + group-aware MLP skip. When set, skips the MLP fit
-    # on targets where lag1_corr >= mlp_extreme_ar_threshold AND the
-    # split is group-aware. Default FALSE: turning off MLP is a poor
-    # solution; the user has asked the framework to make the MLP
-    # ACTUALLY WORK on this regime, not silently skip. The defensive
-    # protections that DO ship by default (and bound the damage when
-    # MLP is allowed to train):
-    #   * ``_TTRWithEvalSetScaling.predict`` clips inverse-transformed
-    #     y_hat to [y_train_min - 3*std, y_train_max + 3*std]. Bounds
-    #     the catastrophic blow-up; the model still learns badly but
-    #     predictions stay within ~3 sigma of train range.
-    #   * Ensemble dummy-floor gate drops MLP from the blend if its
-    #     OOF RMSE exceeds the strongest dummy. So even a bad MLP
-    #     doesn't poison the final ensemble RMSE.
-    # Substantive fix paths (see ticket TBD) that this knob does NOT
-    # address:
-    #   * Residual-target MLP (train on y - alpha*lag, predict residual).
-    #   * Output activation bounding (tanh-scaled to train target range).
-    #   * Drop per-group aggregate features from MLP input set
-    #     (group-level features extrapolate on unseen groups).
-    mlp_extreme_ar_group_aware_skip: bool = False
+    # Extreme-AR + group-aware skip for UNBOUNDED-OUTPUT models. When set,
+    # skips fitting the models listed in ``extreme_ar_group_aware_skip_models``
+    # on targets where lag1_corr >= mlp_extreme_ar_threshold AND the split is
+    # group-aware. Default TRUE.
+    #
+    # Why default ON now: on this regime an unbounded-output model
+    # (MLP / linear) trained on the ABSOLUTE target catastrophically
+    # extrapolates on unseen test groups (observed: MLP TEST R2=-35,
+    # RMSE 3928 vs lag-baseline 13.5; the pre-tanh activations saturate on
+    # shifted-group features so predictions collapse to the train-range
+    # extremes). The model is then ALWAYS dropped by the ensemble quality
+    # gate anyway -- so training it just burns wall-time + RAM + a multi-GB
+    # checkpoint for a result that never reaches the blend. Skipping is the
+    # pragmatic default until a substantive fix lands.
+    #
+    # Criteria for what to gate (``extreme_ar_group_aware_skip_models``):
+    # this is a COST optimisation, gated on EMPIRICAL collapse, NOT on the
+    # architectural "bounded vs unbounded output" distinction (linear models
+    # are unbounded too yet behave fine here -- see below). The real
+    # correctness backstop is the ensemble quality gate, which drops members
+    # by MEASURED performance regardless of model type.
+    #
+    # What collapses on a group-aware split + lag1~1.0 RAW target:
+    #   * NEURAL nets (dense "mlp"/"ngb"; recurrent "lstm"/"gru"/"rnn"/
+    #     "transformer"): a nonlinear body + BatchNorm + a saturating
+    #     (tanh-to-train-range) output head means that under the test-group
+    #     feature-distribution shift the activations saturate and the WHOLE
+    #     prediction distribution collapses bimodally (observed MLP TEST
+    #     R2=-35, pred_std=551% of target). They are also the most expensive
+    #     members (Lightning fit + GB-scale checkpoint). Known-bad + costly
+    #     + always dropped by the gate => skip the fit by default.
+    # What does NOT collapse (so NOT gated):
+    #   * LINEAR family (Ridge/Lasso/...): also unbounded output, but an
+    #     L2-bounded LINEAR map of near-identity AR features just predicts
+    #     ~= lag(target) and degrades GRACEFULLY -- good RMSE (Ridge 13.9 vs
+    #     lag-baseline 13.5), only a few tail rows drift (caught by the
+    #     prediction-envelope clip), and it is frequently useful in the
+    #     blend. Add "linear" to the list only if a run shows it collapsing.
+    #   * TREE boosters (cb/xgb/lgb/hgb): bounded by training leaf values,
+    #     cannot predict outside the train target range at all.
+    # Defaulting to the whole neural family means enabling an RNN/LSTM later
+    # is protected automatically without re-reading this comment.
+    #
+    # IMPORTANT: the skip fires only on the RAW/absolute target. Composite
+    # targets (diff / linres / residual) bound the variance and are exactly
+    # where these models belong -- they are NEVER skipped (the per-target
+    # body guards on is_composite_target_name before applying the skip).
+    #
+    # Backstops that still ship regardless of this skip:
+    #   * ``_TTRWithEvalSetScaling.predict`` / prediction-envelope clip
+    #     bound y_hat to [y_train_min - 3*std, y_train_max + 3*std].
+    #   * Ensemble quality gate drops any member whose MAE exceeds 5x the
+    #     member-median, so a bad model never poisons the final ensemble.
+    # Substantive fix paths (orthogonal to this knob):
+    #   * Residual-target neural net (composite diff/linres bound variance).
+    #   * Drop per-group aggregate features from the neural input set.
+    mlp_extreme_ar_group_aware_skip: bool = True
+    extreme_ar_group_aware_skip_models: tuple = (
+        "mlp", "ngb", "lstm", "gru", "rnn", "transformer",
+    )
     mlp_extreme_ar_threshold: float = 0.99
 
     # Drop per-group AGGREGATE features from the MLP's view of

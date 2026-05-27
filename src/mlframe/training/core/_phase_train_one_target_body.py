@@ -59,6 +59,7 @@ from ._phase_train_one_target_mlp_helpers import (
     _apply_mlp_extreme_ar_weight_decay_bump,
     _drop_columns_for_mlp,
     _identify_per_group_columns,
+    extreme_ar_skip_decision,
 )
 
 logger = logging.getLogger("mlframe.training.core._phase_train_one_target")
@@ -253,38 +254,63 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             # so the three protections agree on whether to fire.
             _mlp_extreme_ar_fired = False
             _mlp_ea_lag1 = None
-            _mlp_ea_thr = 0.99
-            if mlframe_model_name == "mlp":
-                _mlp_ea_thr = float(getattr(
-                    behavior_config, "mlp_extreme_ar_threshold", 0.99,
-                ))
+            _mlp_ea_thr = float(getattr(
+                behavior_config, "mlp_extreme_ar_threshold", 0.99,
+            ))
+            # Target-level extreme-AR + group-aware signal (same for every
+            # model; gate only UNBOUNDED-OUTPUT models on it).
+            #
+            # CRITICAL: the stored ``target_distribution_report`` describes the
+            # RAW/picked target (lag1_corr ~1.0 here), computed ONCE before
+            # composite expansion. It is NOT recomputed per composite target.
+            # Composite targets (``TVT-diff-*`` / ``TVT-linres*`` / residuals)
+            # deliberately REMOVE or BOUND the AR variance -- that is exactly
+            # where an MLP belongs and works. So the skip must fire ONLY on the
+            # raw target, NEVER on a composite. Gating on the raw lag1 for a
+            # composite would wrongly drop the MLP from the one regime it can
+            # actually win.
+            _skip_models = tuple(getattr(
+                behavior_config, "extreme_ar_group_aware_skip_models", ("mlp",),
+            ))
+            # Only read the (raw-target) AR signal when it could matter for
+            # THIS model: a skip candidate, or the MLP (which uses the flag
+            # for its weight_decay / output-activation protections even when
+            # the hard skip is off).
+            if mlframe_model_name in _skip_models or mlframe_model_name == "mlp":
                 _td_report = metadata.get("target_distribution_report", {}) or {}
                 _td_diag = _td_report.get("diagnostics", {}) or {}
                 _td_knobs = _td_report.get("knob_overrides", {}) or {}
-                _mlp_ea_lag1 = _td_diag.get("lag1_autocorr_per_group")
+                _ea_lag1 = _td_diag.get("lag1_autocorr_per_group")
                 _split_overrides = _td_knobs.get("split_config", {}) or {}
                 _group_aware = bool(_split_overrides.get("prefer_group_aware", False))
-                _mlp_extreme_ar_fired = bool(
-                    _group_aware
-                    and _mlp_ea_lag1 is not None
-                    and float(_mlp_ea_lag1) >= _mlp_ea_thr
+                _skip, _extreme_ar_fired = extreme_ar_skip_decision(
+                    mlframe_model_name, cur_target_name,
+                    skip_models=_skip_models,
+                    skip_enabled=bool(getattr(
+                        behavior_config, "mlp_extreme_ar_group_aware_skip", True,
+                    )),
+                    lag1_autocorr_per_group=_ea_lag1,
+                    group_aware=_group_aware,
+                    threshold=_mlp_ea_thr,
                 )
-
-                # Protection 1 (defensive opt-in): skip MLP entirely when
-                # the operator has flipped ``mlp_extreme_ar_group_aware_skip=True``.
-                # Default OFF; user explicitly wants MLP to train and
-                # rely on protections 2/3 + the TTR predict-clip to bound
-                # damage.
-                if _mlp_extreme_ar_fired and bool(getattr(
-                    behavior_config, "mlp_extreme_ar_group_aware_skip", False,
-                )):
+                # MLP-specific flag for downstream protections.
+                if mlframe_model_name == "mlp":
+                    _mlp_extreme_ar_fired = _extreme_ar_fired
+                    _mlp_ea_lag1 = _ea_lag1
+                if _skip:
                     logger.warning(
-                        "Skipping MLP training for target='%s' (model %d/%d): "
+                        "Skipping %s training for raw target='%s' (model %d/%d): "
                         "extreme-AR + group-aware skip fired "
-                        "(lag1_autocorr_per_group=%.4f >= %.2f). Disable via "
-                        "TrainingBehaviorConfig(mlp_extreme_ar_group_aware_skip=False).",
-                        cur_target_name, _model_idx_in_run + 1,
-                        _total_models_in_run, float(_mlp_ea_lag1), _mlp_ea_thr,
+                        "(lag1_autocorr_per_group=%.4f >= %.2f). Neural net "
+                        "collapses on unseen test groups here and is dropped by "
+                        "the ensemble quality gate anyway. NOTE: composite "
+                        "targets are exempt (bounded variance -- neural nets "
+                        "train there). Disable via "
+                        "TrainingBehaviorConfig(mlp_extreme_ar_group_aware_skip=False) "
+                        "or drop %r from extreme_ar_group_aware_skip_models.",
+                        mlframe_model_name, cur_target_name, _model_idx_in_run + 1,
+                        _total_models_in_run, float(_ea_lag1), _mlp_ea_thr,
+                        mlframe_model_name,
                     )
                     continue
             _model_idx_in_run += 1
