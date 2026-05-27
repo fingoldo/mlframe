@@ -36,6 +36,11 @@ from __future__ import annotations
 
 __all__ = [
     "add_anchor_extrapolation_features",
+    "anchor_residual_rmse_features",
+    "anchor_quadratic_extrapolation_features",
+    "anchor_ewm_features",
+    "anchor_density_features",
+    "rows_until_next_anchor",
 ]
 
 from typing import Optional
@@ -185,4 +190,322 @@ def add_anchor_extrapolation_features(
         out["last_anchor_value"][idx_seg] = feats["last_anchor_value"]
         out[f"last_anchor_local_slope_K{K_slope}"][idx_seg] = feats["local_slope"]
         out[f"linear_extrap_pred_K{K_slope}"][idx_seg] = feats["linear_extrap_pred"]
+    return out
+
+
+def _per_group_anchor_loop(
+    label: np.ndarray,
+    is_anchor: np.ndarray,
+    group_ids: Optional[np.ndarray],
+    per_segment_fn,
+) -> dict:
+    """Shared per-group dispatch for the anchor-feature family."""
+    label = np.ascontiguousarray(label, dtype=np.float64)
+    is_anchor = np.ascontiguousarray(is_anchor, dtype=bool)
+    if group_ids is None:
+        return per_segment_fn(label, is_anchor, np.arange(label.size))
+    sort_idx, starts, ends = iter_group_segments(group_ids)
+    out_keys: dict = {}
+    for s, e in zip(starts, ends):
+        idx_seg = sort_idx[s:e]
+        seg_label = label[idx_seg]
+        seg_anchor = is_anchor[idx_seg]
+        seg_out = per_segment_fn(seg_label, seg_anchor, idx_seg)
+        if not out_keys:
+            for k, v in seg_out.items():
+                out_keys[k] = np.full(label.size, np.nan, dtype=np.float64)
+        for k, v in seg_out.items():
+            out_keys[k][idx_seg] = v
+    return out_keys
+
+
+def anchor_residual_rmse_features(
+    label: np.ndarray,
+    is_anchor: np.ndarray,
+    group_ids: Optional[np.ndarray] = None,
+    *,
+    K_slope: int = 10,
+    K_rmse: int = 10,
+) -> dict:
+    """Leave-one-out residual + rolling RMSE of linear-extrap predictions.
+
+    For each anchor ``a_j`` (using only anchors with row < j), compute
+    the linear-extrap residual ``e_j = y_j - (last_val + slope * dr)``.
+    For each row ``i``, emit:
+    * ``anchor_loo_residual`` — residual at the last anchor with
+      ``row <= i`` (carries forward for non-anchor rows)
+    * ``anchor_rmse_K{N}`` — RMSE of last K anchor residuals available
+      at row i (= predictive uncertainty of ``linear_extrap_pred``)
+
+    Use case: HONEST uncertainty estimate for ``linear_extrap_pred``;
+    downstream GBMs can learn "extrapolation is unreliable here" and
+    gate predictions accordingly. Leak-safe by construction.
+    """
+    if K_slope < 2 or K_rmse < 1:
+        raise ValueError(f"K_slope >= 2 and K_rmse >= 1; got {K_slope}, {K_rmse}")
+
+    def _seg(seg_label: np.ndarray, seg_anchor: np.ndarray, _idx: np.ndarray) -> dict:
+        m = seg_label.size
+        anchor_positions: list = []
+        anchor_values: list = []
+        anchor_residuals: list = []  # past LOO residuals
+        last_residual_carry = np.nan
+        residual_out = np.full(m, np.nan, dtype=np.float64)
+        rmse_out = np.full(m, np.nan, dtype=np.float64)
+        for i in range(m):
+            if seg_anchor[i] and np.isfinite(seg_label[i]):
+                # LOO residual at THIS anchor using anchors STRICTLY before.
+                if len(anchor_positions) >= 2:
+                    xs = np.asarray(anchor_positions[-K_slope:], dtype=np.float64)
+                    ys = np.asarray(anchor_values[-K_slope:], dtype=np.float64)
+                    xm = xs.mean()
+                    ym = ys.mean()
+                    num = ((xs - xm) * (ys - ym)).sum()
+                    den = ((xs - xm) ** 2).sum()
+                    slope = num / (den + 1e-12)
+                    last_v = ys[-1]
+                    last_r = xs[-1]
+                    pred = last_v + slope * (i - last_r)
+                    e_j = float(seg_label[i] - pred)
+                    anchor_residuals.append(e_j)
+                    if len(anchor_residuals) > K_rmse:
+                        anchor_residuals.pop(0)
+                    last_residual_carry = e_j
+                anchor_positions.append(i)
+                anchor_values.append(float(seg_label[i]))
+                if len(anchor_positions) > K_slope:
+                    anchor_positions.pop(0)
+                    anchor_values.pop(0)
+            residual_out[i] = last_residual_carry
+            if anchor_residuals:
+                arr_r = np.asarray(anchor_residuals, dtype=np.float64)
+                rmse_out[i] = float(np.sqrt(np.mean(arr_r * arr_r)))
+        return {
+            "anchor_loo_residual": residual_out,
+            f"anchor_rmse_K{K_rmse}": rmse_out,
+        }
+
+    return _per_group_anchor_loop(label, is_anchor, group_ids, _seg)
+
+
+def anchor_quadratic_extrapolation_features(
+    label: np.ndarray,
+    is_anchor: np.ndarray,
+    group_ids: Optional[np.ndarray] = None,
+    *,
+    K_window: int = 10,
+) -> dict:
+    """Quadratic extrapolation from last K anchors.
+
+    Fits ``y = a + b*dx + c*dx^2`` over the last K anchors (using only
+    anchors with row <= current). Emits per row:
+    * ``anchor_acceleration_K{N}`` — 2nd-order coefficient ``c``
+    * ``quadratic_extrap_pred_K{N}`` — predicted ``y`` at current row
+
+    Falls back to linear (c=0) when fewer than 3 anchors are available.
+    Use case: signals with curvature where linear extrap systematically
+    lags inflections (vitals deceleration, geosteering layers with
+    curvature, deceleration of a process). Leak-safe.
+    """
+    if K_window < 3:
+        raise ValueError(f"K_window must be >= 3, got {K_window}")
+
+    def _seg(seg_label: np.ndarray, seg_anchor: np.ndarray, _idx: np.ndarray) -> dict:
+        m = seg_label.size
+        anchor_positions: list = []
+        anchor_values: list = []
+        accel_out = np.full(m, np.nan, dtype=np.float64)
+        quad_out = np.full(m, np.nan, dtype=np.float64)
+        for i in range(m):
+            if seg_anchor[i] and np.isfinite(seg_label[i]):
+                anchor_positions.append(i)
+                anchor_values.append(float(seg_label[i]))
+                if len(anchor_positions) > K_window:
+                    anchor_positions.pop(0)
+                    anchor_values.pop(0)
+            if len(anchor_positions) >= 3:
+                xs = np.asarray(anchor_positions, dtype=np.float64)
+                ys = np.asarray(anchor_values, dtype=np.float64)
+                last_r = xs[-1]
+                # quadratic fit in dx-coordinates (centred at last anchor)
+                dx = xs - last_r
+                X = np.stack([np.ones_like(dx), dx, dx * dx], axis=1)
+                try:
+                    coef, _, _, _ = np.linalg.lstsq(X, ys, rcond=None)
+                    c = float(coef[2])
+                    dx_now = i - last_r
+                    pred = float(coef[0] + coef[1] * dx_now + coef[2] * dx_now * dx_now)
+                    accel_out[i] = c
+                    quad_out[i] = pred
+                except np.linalg.LinAlgError:
+                    pass
+        return {
+            f"anchor_acceleration_K{K_window}": accel_out,
+            f"quadratic_extrap_pred_K{K_window}": quad_out,
+        }
+
+    return _per_group_anchor_loop(label, is_anchor, group_ids, _seg)
+
+
+def anchor_ewm_features(
+    label: np.ndarray,
+    is_anchor: np.ndarray,
+    group_ids: Optional[np.ndarray] = None,
+    *,
+    half_life_rows: float = 30.0,
+) -> dict:
+    """Exponentially-weighted anchor mean + slope (adaptive memory).
+
+    Replaces the fixed-K hyperparameter with a half-life H (in row
+    units): older anchors get weight ``0.5^((i - r_j) / H)``. Emits:
+    * ``ewm_anchor_value_H{H}`` — weighted mean of past anchor values
+    * ``ewm_anchor_slope_H{H}`` — weighted-OLS slope through past anchors
+
+    Use case: panels with mixed regime speeds where K_slope=10 is
+    either too myopic or too laggy. Smooth alternative to the hard
+    window. Leak-safe.
+    """
+    if half_life_rows <= 0:
+        raise ValueError(f"half_life_rows must be > 0, got {half_life_rows}")
+
+    def _seg(seg_label: np.ndarray, seg_anchor: np.ndarray, _idx: np.ndarray) -> dict:
+        m = seg_label.size
+        anchor_positions: list = []
+        anchor_values: list = []
+        ewm_val_out = np.full(m, np.nan, dtype=np.float64)
+        ewm_slope_out = np.full(m, np.nan, dtype=np.float64)
+        for i in range(m):
+            if seg_anchor[i] and np.isfinite(seg_label[i]):
+                anchor_positions.append(i)
+                anchor_values.append(float(seg_label[i]))
+            if not anchor_positions:
+                continue
+            xs = np.asarray(anchor_positions, dtype=np.float64)
+            ys = np.asarray(anchor_values, dtype=np.float64)
+            w = 0.5 ** ((i - xs) / half_life_rows)
+            w_sum = w.sum() + 1e-12
+            w_mean = (ys * w).sum() / w_sum
+            ewm_val_out[i] = float(w_mean)
+            if xs.size >= 2:
+                xm = (xs * w).sum() / w_sum
+                ym = w_mean
+                num = (w * (xs - xm) * (ys - ym)).sum()
+                den = (w * (xs - xm) ** 2).sum()
+                ewm_slope_out[i] = float(num / (den + 1e-12))
+        return {
+            f"ewm_anchor_value_H{int(half_life_rows)}": ewm_val_out,
+            f"ewm_anchor_slope_H{int(half_life_rows)}": ewm_slope_out,
+        }
+
+    return _per_group_anchor_loop(label, is_anchor, group_ids, _seg)
+
+
+def anchor_density_features(
+    is_anchor: np.ndarray,
+    group_ids: Optional[np.ndarray] = None,
+    *,
+    window_rows: int = 100,
+) -> dict:
+    """Trailing-window anchor density + mean inter-anchor gap.
+
+    Emits per row:
+    * ``anchor_count_in_W{W}`` — count of anchors in the trailing W rows
+    * ``anchor_mean_gap_in_W{W}`` — mean gap (in rows) between
+      consecutive anchors inside the window
+
+    Distinguishes "5 anchors clustered 10 rows ago, none since" from
+    "5 anchors evenly spaced over last W rows": same `rows_since_last
+    _anchor` but very different extrapolation reliability. Also a
+    direct proxy for labeling-effort regime.
+    """
+    if window_rows < 2:
+        raise ValueError(f"window_rows must be >= 2, got {window_rows}")
+    is_anchor = np.ascontiguousarray(is_anchor, dtype=bool)
+    n = is_anchor.size
+
+    def _seg(seg_anchor: np.ndarray, idx_seg: np.ndarray) -> tuple:
+        m = seg_anchor.size
+        count_out = np.zeros(m, dtype=np.float64)
+        gap_out = np.full(m, np.nan, dtype=np.float64)
+        recent_positions: list = []  # rolling anchor positions inside window
+        for i in range(m):
+            if seg_anchor[i]:
+                recent_positions.append(i)
+            # Drop positions that fell out of window.
+            while recent_positions and (i - recent_positions[0]) >= window_rows:
+                recent_positions.pop(0)
+            count_out[i] = float(len(recent_positions))
+            if len(recent_positions) >= 2:
+                gaps = np.diff(np.asarray(recent_positions, dtype=np.float64))
+                gap_out[i] = float(gaps.mean())
+        return count_out, gap_out
+
+    if group_ids is None:
+        count, gap = _seg(is_anchor, np.arange(n))
+        return {
+            f"anchor_count_in_W{window_rows}": count,
+            f"anchor_mean_gap_in_W{window_rows}": gap,
+        }
+    sort_idx, starts, ends = iter_group_segments(group_ids)
+    count_out = np.zeros(n, dtype=np.float64)
+    gap_out = np.full(n, np.nan, dtype=np.float64)
+    for s, e in zip(starts, ends):
+        idx_seg = sort_idx[s:e]
+        c, g = _seg(is_anchor[idx_seg], idx_seg)
+        count_out[idx_seg] = c
+        gap_out[idx_seg] = g
+    return {
+        f"anchor_count_in_W{window_rows}": count_out,
+        f"anchor_mean_gap_in_W{window_rows}": gap_out,
+    }
+
+
+def rows_until_next_anchor(
+    is_anchor: np.ndarray,
+    group_ids: Optional[np.ndarray] = None,
+    *,
+    emit_forward_features: bool = False,
+) -> np.ndarray:
+    """FORWARD-LOOKING distance to the NEXT anchor in same group.
+
+    USE ONLY when anchor POSITIONS are knowable at inference time
+    (scheduled checkups, planned PS depths, etc.) -- the anchor VALUE
+    is never emitted, only the row distance to its position.
+
+    Default ``emit_forward_features=False`` returns an all-NaN array
+    so callers cannot accidentally use this without opting in. The
+    suffix ``_FORWARD`` in the OUTPUT column name is REQUIRED in any
+    downstream wrapper that emits this as a DataFrame column.
+
+    Use case: medical (next scheduled visit), geosteering (next
+    planned PS), maintenance (next scheduled inspection). NEVER use
+    when anchor positions themselves come from labels.
+    """
+    is_anchor = np.ascontiguousarray(is_anchor, dtype=bool)
+    n = is_anchor.size
+    out = np.full(n, np.nan, dtype=np.float64)
+    if not emit_forward_features:
+        return out
+
+    def _seg(idx_seg: np.ndarray) -> None:
+        seg = is_anchor[idx_seg]
+        m = seg.size
+        # Walk RIGHT TO LEFT, track rows-until-next-anchor.
+        next_dist = np.iinfo(np.int64).max
+        local = np.full(m, np.nan, dtype=np.float64)
+        for i in range(m - 1, -1, -1):
+            if seg[i]:
+                next_dist = 0
+            elif next_dist != np.iinfo(np.int64).max:
+                next_dist += 1
+            if next_dist != np.iinfo(np.int64).max:
+                local[i] = float(next_dist)
+        out[idx_seg] = local
+
+    if group_ids is None:
+        _seg(np.arange(n))
+    else:
+        sort_idx, starts, ends = iter_group_segments(group_ids)
+        for s, e in zip(starts, ends):
+            _seg(sort_idx[s:e])
     return out

@@ -38,6 +38,11 @@ __all__ = [
     "predictor_top2_mode_gap",
     "predictor_consensus_mean",
     "predictor_disagreement_features",
+    "predictor_weighted_consensus",
+    "predictor_consensus_trimmed_stats",
+    "predictor_outlier_signature",
+    "predictor_max_pairwise_distance",
+    "predictor_quantile_spread",
 ]
 
 from typing import Tuple
@@ -176,6 +181,137 @@ def predictor_top2_mode_gap(
         np.add.at(counts, (np.arange(n), binned[:, j]), 1.0)
     sorted_counts = -np.sort(-counts, axis=1)
     return (sorted_counts[:, 0] - sorted_counts[:, 1]) / float(k)
+
+
+def predictor_weighted_consensus(
+    preds: np.ndarray, weights: np.ndarray,
+) -> tuple:
+    """Weighted mean + weighted variance across predictors.
+
+    ``weights`` shape ``(n_preds,)``; auto-normalised to sum to 1.
+    Use case: when base estimators have unequal OOF-RMSE, weighting
+    by inverse-OOF-RMSE produces a strictly better baseline than the
+    plain ``predictor_consensus_mean``. Pair with the weighted variance
+    for uncertainty estimates that respect predictor quality.
+
+    Returns ``(weighted_mean, weighted_var)`` per row.
+    """
+    arr = _coerce_preds(preds)
+    w = np.asarray(weights, dtype=np.float64).ravel()
+    if w.size != arr.shape[1]:
+        raise ValueError(
+            f"weights len {w.size} != n_preds {arr.shape[1]}"
+        )
+    if (w < 0).any():
+        raise ValueError("weights must be non-negative")
+    w_sum = w.sum()
+    if w_sum <= 0:
+        raise ValueError("weights must sum to > 0")
+    w_norm = w / w_sum
+    mean = (arr * w_norm[None, :]).sum(axis=1)
+    var = ((arr - mean[:, None]) ** 2 * w_norm[None, :]).sum(axis=1)
+    return mean, var
+
+
+def predictor_consensus_trimmed_stats(
+    preds: np.ndarray, trim_frac: float = 0.2,
+) -> tuple:
+    """Trimmed mean + robust scale (MAD * 1.4826) per row.
+
+    Drops ``floor(trim_frac * N)`` from each tail before averaging.
+    The MAD-based scale uses the median absolute deviation around the
+    full-data median (not the trimmed mean), so it's the textbook
+    robust scale estimator complementing the trimmed mean.
+
+    Use case: stacking + uncertainty for ensembles where ONE bad
+    predictor can swing the plain mean. Meta-learner picks up when
+    robust vs plain mean diverge (= "one base went rogue here").
+
+    Returns ``(trimmed_mean, mad_scale)`` per row.
+    """
+    arr = _coerce_preds(preds)
+    n, k = arr.shape
+    if not (0.0 <= trim_frac < 0.5):
+        raise ValueError(f"trim_frac must be in [0, 0.5), got {trim_frac}")
+    n_trim = int(np.floor(trim_frac * k))
+    sorted_arr = np.sort(arr, axis=1)
+    if n_trim > 0 and k - 2 * n_trim > 0:
+        trimmed = sorted_arr[:, n_trim: k - n_trim]
+    else:
+        trimmed = sorted_arr
+    trimmed_mean = trimmed.mean(axis=1)
+    # MAD around the full-row median (not trimmed mean).
+    median = np.median(arr, axis=1)
+    mad = np.median(np.abs(arr - median[:, None]), axis=1)
+    mad_scale = mad * 1.4826
+    return trimmed_mean, mad_scale
+
+
+def predictor_outlier_signature(
+    preds: np.ndarray, k_mad: float = 2.5,
+) -> tuple:
+    """Per-row outlier-count + index of the most-deviating predictor.
+
+    Outlier = predictor whose value deviates from the row's median by
+    more than ``k_mad * MAD``. Returns
+    ``(n_outliers, argmax_dev_idx)``: int count of outlier predictors +
+    the int index ``[0 .. n_preds-1]`` of the SINGLE most-deviating
+    predictor (the latter is a categorical feature the meta-learner
+    can exploit as an interaction signal).
+
+    Use case: tree meta-learners benefit from knowing WHICH base
+    estimator is the dissenter (e.g. "when base_3 disagrees most,
+    trust the LGBM ensemble" is a learnable pattern).
+    """
+    arr = _coerce_preds(preds)
+    median = np.median(arr, axis=1, keepdims=True)
+    dev = np.abs(arr - median)
+    mad = np.median(dev, axis=1, keepdims=True) + 1e-12
+    outlier_mask = dev > (k_mad * mad * 1.4826)
+    n_outliers = outlier_mask.sum(axis=1).astype(np.float64)
+    argmax_dev_idx = np.argmax(dev, axis=1).astype(np.float64)
+    return n_outliers, argmax_dev_idx
+
+
+def predictor_max_pairwise_distance(preds: np.ndarray) -> np.ndarray:
+    """Max ``|pred_i - pred_j|`` across all pairs, per row.
+
+    Worst-case disagreement signal. Cheaper than emitting all pairs
+    (and survives for large N where pair-count explodes). Risk-sensitive
+    applications (medical / credit) need this more than the average
+    disagreement: a unanimous-but-one ensemble with one extreme outlier
+    is structurally different from a uniformly disagreeing ensemble
+    with the same IQR.
+    """
+    arr = _coerce_preds(preds)
+    return arr.max(axis=1) - arr.min(axis=1)
+
+
+def predictor_quantile_spread(
+    preds: np.ndarray, q_low: float = 0.1, q_high: float = 0.9,
+) -> tuple:
+    """Per-row ``(p_low, p_high, spread)`` across predictors.
+
+    Generalises IQR with configurable quantiles. p_low / p_high
+    themselves are useful features (conformal-prediction-like band
+    bounds for the meta-learner), not just the spread.
+
+    Use case: stacking + uncertainty where the level of the prediction
+    band matters (e.g. asymmetric risk: a wide upper-tail band is more
+    concerning than a wide lower-tail band).
+    """
+    if not (0.0 <= q_low < q_high <= 1.0):
+        raise ValueError(f"need 0 <= q_low < q_high <= 1; got {q_low}, {q_high}")
+    arr = _coerce_preds(preds)
+    sorted_arr = np.sort(arr, axis=1)
+    nc = sorted_arr.shape[1]
+    def _q(q):
+        p = q * (nc - 1)
+        fi, ff = int(p), p - int(p)
+        return sorted_arr[:, fi] * (1 - ff) + sorted_arr[:, min(fi + 1, nc - 1)] * ff
+    p_lo = _q(q_low)
+    p_hi = _q(q_high)
+    return p_lo, p_hi, p_hi - p_lo
 
 
 def predictor_disagreement_features(

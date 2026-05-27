@@ -15,6 +15,9 @@ __all__ = [
     "rolling_higuchi_fd",
     "higuchi_fd",
     "dfa_alpha",
+    "multi_scale_hurst",
+    "dfa_alpha2_quadratic",
+    "multifractal_dfa",
 ]
 
 import logging
@@ -402,3 +405,248 @@ def rolling_higuchi_fd(
             f"window_K must be >= kmax*4 ({kmax * 4}) for Higuchi, got {window_K}"
         )
     return _per_group_rolling(values, group_ids, window_K, _rolling_hfd_kernel, window_K, kmax)
+
+
+def multi_scale_hurst(
+    arr: np.ndarray,
+    *,
+    breaks: tuple = (20, 100),
+    min_window: int = 5,
+    windows_log_step: float = 0.25,
+) -> tuple:
+    """Hurst exponent on disjoint scale ranges (short / mid / long).
+
+    Reuses ``precompute_hurst_exponent`` for the R/S ladder, then fits
+    log-log H separately on scale segments ``(min_window, breaks[0])``,
+    ``(breaks[0], breaks[1])``, ``(breaks[1], n-1)``. Returns
+    ``(H_short, H_mid, H_long, c_short, c_mid, c_long)``; NaN where a
+    segment has fewer than 2 ladder rungs.
+
+    Use case: regime detection across multiple time horizons (intraday
+    vs daily vs weekly memory in finance; alpha-vs-gamma in EEG).
+    Single primitive replaces 3 separate `compute_hurst_exponent` calls
+    with disjoint min/max windows.
+    """
+    arr = np.asarray(arr, dtype=np.float64)
+    if arr.size < min_window:
+        return (np.nan,) * 6
+    window_sizes, rs = precompute_hurst_exponent(
+        arr=arr, min_window=min_window, max_window=-1,
+        windows_log_step=windows_log_step, take_diffs=False,
+    )
+    if len(rs) < 2:
+        return (np.nan,) * 6
+    ws = np.asarray(window_sizes, dtype=np.float64)
+    rs_arr = np.asarray(rs, dtype=np.float64)
+    finite = (rs_arr > 0) & (ws > 0)
+    ws = ws[finite]
+    rs_arr = rs_arr[finite]
+    if ws.size < 2:
+        return (np.nan,) * 6
+
+    def _fit(mask: np.ndarray) -> tuple:
+        if mask.sum() < 2:
+            return (np.nan, np.nan)
+        x = np.log10(ws[mask])
+        y = np.log10(rs_arr[mask])
+        X = np.vstack([x, np.ones(x.size)]).T
+        h, c = np.linalg.lstsq(X, y, rcond=None)[0]
+        return (float(h), 10.0 ** float(c))
+
+    mask_short = ws < breaks[0]
+    mask_mid = (ws >= breaks[0]) & (ws < breaks[1])
+    mask_long = ws >= breaks[1]
+    h_s, c_s = _fit(mask_short)
+    h_m, c_m = _fit(mask_mid)
+    h_l, c_l = _fit(mask_long)
+    return (h_s, h_m, h_l, c_s, c_m, c_l)
+
+
+@njit(cache=True, fastmath=True)
+def dfa_alpha2_quadratic(x: np.ndarray) -> float:
+    """DFA-2 (quadratic detrending) alpha exponent on one window.
+
+    Same algorithm as ``dfa_alpha`` but each sub-segment is detrended
+    by a quadratic fit (not linear). DFA-1 misattributes polynomial
+    trends as long-range correlation, inflating alpha; DFA-2 removes
+    that bias. The ratio DFA-2 / DFA-1 is itself a feature that
+    detects whether long-memory is real vs a smooth trend.
+
+    Use case: climate / battery decay / HRV signals with trend +
+    curvature where DFA-1 is biased.
+    """
+    n = x.size
+    if n < 50:
+        return np.nan
+    mu = x.mean()
+    y = np.empty(n)
+    acc = 0.0
+    for i in range(n):
+        acc += x[i] - mu
+        y[i] = acc
+    sizes = np.array([10, 20, 40, 80])
+    sizes = sizes[sizes < n // 2]
+    if sizes.size < 2:
+        return np.nan
+    log_s = np.empty(sizes.size)
+    log_f = np.empty(sizes.size)
+    for k in range(sizes.size):
+        s = sizes[k]
+        m = n // s
+        var_sum = 0.0
+        for j in range(m):
+            seg = y[j * s:(j + 1) * s]
+            t = np.arange(s).astype(np.float64)
+            # Quadratic fit via normal equations.
+            S0 = float(s)
+            S1 = t.sum()
+            S2 = (t * t).sum()
+            S3 = (t * t * t).sum()
+            S4 = (t * t * t * t).sum()
+            Sy = seg.sum()
+            Sty = (t * seg).sum()
+            St2y = (t * t * seg).sum()
+            # Solve [[S0,S1,S2],[S1,S2,S3],[S2,S3,S4]] [a,b,c] = [Sy,Sty,St2y]
+            # via explicit 3x3 inverse (numba can't call linalg.solve robustly).
+            M00 = S0; M01 = S1; M02 = S2
+            M11 = S2; M12 = S3
+            M22 = S4
+            det = (M00 * (M11 * M22 - M12 * M12)
+                   - M01 * (M01 * M22 - M12 * M02)
+                   + M02 * (M01 * M12 - M11 * M02))
+            if abs(det) < 1e-12:
+                continue
+            # Cofactors / adjugate solve
+            inv_det = 1.0 / det
+            c00 = (M11 * M22 - M12 * M12) * inv_det
+            c01 = -(M01 * M22 - M12 * M02) * inv_det
+            c02 = (M01 * M12 - M11 * M02) * inv_det
+            c11 = (M00 * M22 - M02 * M02) * inv_det
+            c12 = -(M00 * M12 - M01 * M02) * inv_det
+            c22 = (M00 * M11 - M01 * M01) * inv_det
+            a = c00 * Sy + c01 * Sty + c02 * St2y
+            b = c01 * Sy + c11 * Sty + c12 * St2y
+            cq = c02 * Sy + c12 * Sty + c22 * St2y
+            # Residuals.
+            resid_sq = 0.0
+            for i in range(s):
+                fit = a + b * t[i] + cq * t[i] * t[i]
+                d = seg[i] - fit
+                resid_sq += d * d
+            var_sum += resid_sq / s
+        f_s = np.sqrt(var_sum / m)
+        log_s[k] = np.log(s)
+        log_f[k] = np.log(f_s + 1e-12)
+    lm = log_s.mean()
+    fm = log_f.mean()
+    num = 0.0
+    den = 0.0
+    for k in range(log_s.size):
+        num += (log_s[k] - lm) * (log_f[k] - fm)
+        den += (log_s[k] - lm) ** 2
+    return num / (den + 1e-12)
+
+
+@njit(cache=True, fastmath=True)
+def multifractal_dfa(
+    x: np.ndarray,
+    q_values: np.ndarray,
+    scales: np.ndarray,
+) -> np.ndarray:
+    """Multifractal DFA: emit H(q) for each q in ``q_values``.
+
+    Standard DFA collapses the H(q) spectrum into one scalar (q=2).
+    Multifractal DFA varies q over [-5, 5] to expose the singularity
+    spectrum. ``q_values`` typically ``[-5, -3, -1, 2, 3, 5]`` (omit
+    q=0 — needs separate log-form handling). Returns shape
+    ``(len(q_values),)`` Hurst exponents.
+
+    Derived features (compute outside this kernel):
+    * ``mfdfa_width = max(H) - min(H)`` — multifractality strength
+    * ``mfdfa_asymmetry = (H_neg_q + H_pos_q - 2*H_q2) / mfdfa_width``
+
+    Use case: finance (vol clustering, regime), turbulence, EEG
+    seizure-onset, HRV classification.
+    """
+    n = x.size
+    out = np.full(q_values.size, np.nan)
+    if n < 50:
+        return out
+    mu = x.mean()
+    y = np.empty(n)
+    acc = 0.0
+    for i in range(n):
+        acc += x[i] - mu
+        y[i] = acc
+    scales_valid = scales[scales < n // 2]
+    if scales_valid.size < 2:
+        return out
+    log_s = np.empty(scales_valid.size)
+    for k in range(scales_valid.size):
+        log_s[k] = np.log(scales_valid[k])
+    # F_q(s) per (q, s)
+    F_qs = np.full((q_values.size, scales_valid.size), np.nan)
+    for ks in range(scales_valid.size):
+        s = scales_valid[ks]
+        m = n // s
+        if m < 1:
+            continue
+        # Variance per sub-segment (linear-detrended).
+        var_per_seg = np.empty(m)
+        for j in range(m):
+            seg = y[j * s:(j + 1) * s]
+            t = np.arange(s).astype(np.float64)
+            tm = t.mean()
+            sm = seg.mean()
+            num = 0.0
+            den = 0.0
+            for i in range(s):
+                num += (t[i] - tm) * (seg[i] - sm)
+                den += (t[i] - tm) ** 2
+            slope = num / (den + 1e-12)
+            intercept = sm - slope * tm
+            resid_sq = 0.0
+            for i in range(s):
+                fit = intercept + slope * t[i]
+                resid_sq += (seg[i] - fit) ** 2
+            var_per_seg[j] = resid_sq / s
+        # F_q(s) = ( mean(var^(q/2)) )^(1/q) for q != 0
+        for kq in range(q_values.size):
+            q = q_values[kq]
+            if abs(q) < 1e-6:
+                continue
+            powered = 0.0
+            for j in range(m):
+                v = var_per_seg[j]
+                if v <= 0:
+                    powered += 0.0
+                else:
+                    powered += v ** (q * 0.5)
+            mean_pow = powered / m
+            F_qs[kq, ks] = (mean_pow + 1e-12) ** (1.0 / q)
+    # Fit H(q) = slope of log F_q(s) vs log s.
+    for kq in range(q_values.size):
+        row = F_qs[kq]
+        finite = 0
+        x_sum = 0.0
+        y_sum = 0.0
+        for ks in range(scales_valid.size):
+            if row[ks] > 0 and not np.isnan(row[ks]):
+                finite += 1
+                x_sum += log_s[ks]
+                y_sum += np.log(row[ks])
+        if finite < 2:
+            continue
+        x_mean = x_sum / finite
+        y_mean = y_sum / finite
+        num = 0.0
+        den = 0.0
+        for ks in range(scales_valid.size):
+            if row[ks] > 0 and not np.isnan(row[ks]):
+                lr = log_s[ks]
+                lf = np.log(row[ks])
+                num += (lr - x_mean) * (lf - y_mean)
+                den += (lr - x_mean) ** 2
+        if den > 0:
+            out[kq] = num / den
+    return out

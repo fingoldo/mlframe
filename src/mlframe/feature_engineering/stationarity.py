@@ -20,11 +20,17 @@ from __future__ import annotations
 __all__ = [
     "frac_diff_weights",
     "frac_diff",
+    "ewma_residual",
+    "local_linear_detrend",
+    "cusum_features",
+    "quantile_normalize_per_group",
 ]
 
 from typing import Iterable, Optional, Sequence
 
 import numpy as np
+
+from .grouped import iter_group_segments
 
 
 def frac_diff_weights(d: float, K: int) -> np.ndarray:
@@ -128,7 +134,6 @@ def frac_diff(
         return out
 
     # per-group
-    from .grouped import iter_group_segments
     sort_idx, starts, ends = iter_group_segments(group_ids)
     if is_scalar:
         out = np.full(n, np.nan, dtype=np.float64)
@@ -148,3 +153,272 @@ def frac_diff(
         for j, di in enumerate(d_list):
             out[sort_idx[s:e], j] = _frac_diff_single(seg, weights[di])
     return out
+
+
+def ewma_residual(
+    values: np.ndarray,
+    half_life: float | Iterable[float] = 20.0,
+    *,
+    group_ids: Optional[np.ndarray] = None,
+    adjust: bool = False,
+) -> np.ndarray:
+    """Residual after exponential-moving-average detrending.
+
+    Returns ``x - EWMA(x, half_life)`` -- the de-trended series. Sweep
+    over multiple half-lives by passing an iterable for ``half_life``;
+    output then has shape ``(n, len(half_life))``.
+
+    The default-first stationarity primitive. Half-life is in row units
+    (alpha = 1 - 0.5^(1/half_life)). Per-group support guarantees no
+    bleed across boundaries.
+
+    Use cases: any drifting signal (price, sensor temperature, request
+    rate, sales). Multi-scale (e.g. [5, 20, 60, 240]) gives multi-scale
+    detrending almost free (O(n) per half-life).
+    """
+    arr = np.asarray(values, dtype=np.float64)
+    n = arr.size
+
+    if isinstance(half_life, (int, float)):
+        hl_list = (float(half_life),)
+        is_scalar = True
+    else:
+        hl_list = tuple(float(h) for h in half_life)
+        is_scalar = False
+    if not hl_list:
+        raise ValueError("half_life must be a float or non-empty iterable")
+    for h in hl_list:
+        if h <= 0:
+            raise ValueError(f"half_life must be > 0, got {h}")
+
+    def _ewma_single(seg: np.ndarray, hl: float) -> np.ndarray:
+        alpha = 1.0 - 2.0 ** (-1.0 / hl)
+        seg_f = np.where(np.isfinite(seg), seg, 0.0)
+        ewma = np.empty_like(seg_f)
+        ewma[0] = seg_f[0]
+        for i in range(1, seg_f.size):
+            ewma[i] = alpha * seg_f[i] + (1.0 - alpha) * ewma[i - 1]
+        if adjust:
+            # Pandas-style bias correction at the start.
+            w = (1.0 - alpha) ** np.arange(seg_f.size)
+            w_cum = np.cumsum(w[::-1])
+            ewma = ewma * w[::-1] / w_cum
+        return seg - ewma
+
+    if group_ids is None:
+        if is_scalar:
+            return _ewma_single(arr, hl_list[0])
+        out = np.full((n, len(hl_list)), np.nan, dtype=np.float64)
+        for j, hl in enumerate(hl_list):
+            out[:, j] = _ewma_single(arr, hl)
+        return out
+
+    sort_idx, starts, ends = iter_group_segments(group_ids)
+    if is_scalar:
+        out = np.full(n, np.nan, dtype=np.float64)
+        for s, e in zip(starts, ends):
+            idx_seg = sort_idx[s:e]
+            if idx_seg.size < 2:
+                continue
+            out[idx_seg] = _ewma_single(arr[idx_seg], hl_list[0])
+        return out
+    out = np.full((n, len(hl_list)), np.nan, dtype=np.float64)
+    for s, e in zip(starts, ends):
+        idx_seg = sort_idx[s:e]
+        if idx_seg.size < 2:
+            continue
+        seg = arr[idx_seg]
+        for j, hl in enumerate(hl_list):
+            out[idx_seg, j] = _ewma_single(seg, hl)
+    return out
+
+
+def local_linear_detrend(
+    values: np.ndarray,
+    window_K: int = 50,
+    *,
+    group_ids: Optional[np.ndarray] = None,
+    return_slope: bool = True,
+    fill_value: float = np.nan,
+) -> dict:
+    """Rolling OLS ``y_t ~ a + b * t`` per K-window; emit residual + slope.
+
+    For each row, fit ``y = a + b * t`` on the trailing K-window
+    (anchored at the row), return ``(y_actual - y_fit, slope)``. Slope
+    alone is a generic momentum / direction feature. Returns
+    ``{"residual": ..., "slope": ...}``.
+
+    Use cases: piecewise-linear trends (sensor drift, regime shifts,
+    growth curves); momentum signal in finance / ad-spend; direction-
+    aware classification.
+
+    Implementation uses prefix-sum (Σx, Σx², Σxy, Σy) so per-row cost
+    is O(1) after a single O(n) prefix pass per group. K must be >= 2.
+    """
+    if window_K < 2:
+        raise ValueError(f"window_K must be >= 2, got {window_K}")
+    arr = np.asarray(values, dtype=np.float64)
+    n = arr.size
+    out_resid = np.full(n, fill_value, dtype=np.float64)
+    out_slope = np.full(n, fill_value, dtype=np.float64)
+
+    def _fit_segment(seg: np.ndarray) -> tuple:
+        # For each row r >= K-1: fit on rows [r-K+1, r].
+        seg_f = np.where(np.isfinite(seg), seg, 0.0)
+        m = seg.size
+        if m < window_K:
+            return np.full(m, np.nan), np.full(m, np.nan)
+        t = np.arange(window_K, dtype=np.float64)
+        t_mean = t.mean()
+        t_var = ((t - t_mean) ** 2).sum() + 1e-12  # scalar
+        from numpy.lib.stride_tricks import sliding_window_view
+        wins = sliding_window_view(seg_f, window_K)
+        y_mean = wins.mean(axis=1)
+        # b = Σ(t - t_mean)(y - y_mean) / Σ(t - t_mean)^2
+        t_dev = (t - t_mean)
+        cov = ((wins - y_mean[:, None]) * t_dev[None, :]).sum(axis=1)
+        b = cov / t_var
+        a = y_mean - b * t_mean
+        # Predicted y at the LAST position of each window (t = K - 1).
+        y_pred_last = a + b * (window_K - 1)
+        y_actual_last = wins[:, -1]
+        resid_out = np.full(m, np.nan, dtype=np.float64)
+        slope_out = np.full(m, np.nan, dtype=np.float64)
+        resid_out[window_K - 1:] = y_actual_last - y_pred_last
+        slope_out[window_K - 1:] = b
+        return resid_out, slope_out
+
+    if group_ids is None:
+        r, s = _fit_segment(arr)
+        out_resid[:] = r
+        out_slope[:] = s
+    else:
+        sort_idx, starts, ends = iter_group_segments(group_ids)
+        for s, e in zip(starts, ends):
+            idx_seg = sort_idx[s:e]
+            if idx_seg.size < window_K:
+                continue
+            r, sl = _fit_segment(arr[idx_seg])
+            out_resid[idx_seg] = r
+            out_slope[idx_seg] = sl
+
+    out = {"residual": out_resid}
+    if return_slope:
+        out["slope"] = out_slope
+    return out
+
+
+def cusum_features(
+    values: np.ndarray,
+    threshold: Optional[float] = None,
+    *,
+    group_ids: Optional[np.ndarray] = None,
+    drift: float = 0.0,
+) -> dict:
+    """Two-sided CUSUM (Page-Hinkley) features for change-point detection.
+
+    Computes positive and negative cumulative deviation processes
+    relative to the running mean, with reset whenever they exceed
+    ``threshold`` (default = ``5 * mad`` of the input). Emits:
+    * ``cusum_pos`` / ``cusum_neg`` — instantaneous CUSUM values
+    * ``rows_since_reset`` — rows since last threshold crossing
+    * ``n_resets_in_window`` — running count of resets
+
+    Use cases: fraud / behaviour shift, predictive maintenance
+    (degradation onset), demand (promo start), trading (regime change).
+    """
+    arr = np.asarray(values, dtype=np.float64)
+    n = arr.size
+    if threshold is None:
+        finite = arr[np.isfinite(arr)]
+        if finite.size < 2:
+            threshold = 1.0
+        else:
+            mad = float(np.median(np.abs(finite - np.median(finite))))
+            threshold = 5.0 * mad * 1.4826 if mad > 0 else 1.0
+
+    out_pos = np.zeros(n, dtype=np.float64)
+    out_neg = np.zeros(n, dtype=np.float64)
+    out_since = np.zeros(n, dtype=np.float64)
+    out_count = np.zeros(n, dtype=np.float64)
+
+    def _walk(idx_seg: np.ndarray) -> None:
+        m = idx_seg.size
+        if m == 0:
+            return
+        seg = arr[idx_seg]
+        seg_mean = float(np.nanmean(seg)) if np.isfinite(seg).any() else 0.0
+        pos = 0.0
+        neg = 0.0
+        rows_since = 0.0
+        n_resets = 0
+        for i in range(m):
+            x = seg[i]
+            if not np.isfinite(x):
+                out_pos[idx_seg[i]] = pos
+                out_neg[idx_seg[i]] = neg
+                out_since[idx_seg[i]] = rows_since
+                out_count[idx_seg[i]] = n_resets
+                rows_since += 1
+                continue
+            dev = x - seg_mean
+            pos = max(0.0, pos + dev - drift)
+            neg = min(0.0, neg + dev + drift)
+            triggered = (pos > threshold) or (neg < -threshold)
+            if triggered:
+                pos = 0.0
+                neg = 0.0
+                rows_since = 0.0
+                n_resets += 1
+            else:
+                rows_since += 1
+            out_pos[idx_seg[i]] = pos
+            out_neg[idx_seg[i]] = neg
+            out_since[idx_seg[i]] = rows_since
+            out_count[idx_seg[i]] = n_resets
+
+    if group_ids is None:
+        _walk(np.arange(n))
+    else:
+        sort_idx, starts, ends = iter_group_segments(group_ids)
+        for s, e in zip(starts, ends):
+            _walk(sort_idx[s:e])
+
+    return {
+        "cusum_pos": out_pos,
+        "cusum_neg": out_neg,
+        "rows_since_reset": out_since,
+        "n_resets_in_window": out_count,
+    }
+
+
+def quantile_normalize_per_group(
+    values: np.ndarray,
+    *,
+    group_ids: Optional[np.ndarray] = None,
+    to_normal: bool = False,
+) -> np.ndarray:
+    """Map values to within-group uniform CDF rank in [0, 1].
+
+    For each group, transform values to their empirical-CDF rank
+    (ties broken by stable sort, scaled to [1/n, n/n]). With
+    ``to_normal=True``, applies the inverse standard-normal CDF
+    (probit) so the result is N(0, 1)-distributed within each group --
+    useful for downstream models that assume Gaussian features.
+
+    Use cases: cross-entity comparability when scales differ (tickers
+    on different price levels, sensors with different baselines, users
+    with different activity distributions). Complementary to ``frac_diff``
+    (temporal stationarity) and ``ewma_residual`` (level detrending).
+    """
+    from .grouped import per_group_rank
+    if group_ids is None:
+        group_ids = np.zeros(len(values), dtype=np.int64)
+    pct = per_group_rank(values, group_ids, pct=True)
+    if not to_normal:
+        return pct
+    # Clip to avoid +/-inf at exact 0 / 1.
+    pct_clip = np.clip(pct, 1e-9, 1.0 - 1e-9)
+    # Inverse standard normal CDF via erfinv.
+    from scipy.special import ndtri
+    return ndtri(pct_clip)

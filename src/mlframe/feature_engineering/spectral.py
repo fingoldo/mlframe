@@ -20,6 +20,12 @@ __all__ = [
     "rolling_spectral_entropy",
     "rolling_dominant_freq_idx",
     "rolling_hf_lf_ratio",
+    "rolling_spectral_centroid",
+    "rolling_spectral_bandwidth",
+    "rolling_spectral_rolloff",
+    "rolling_spectral_flatness",
+    "rolling_spectral_flux",
+    "rolling_periodicity_score",
 ]
 
 from typing import Tuple
@@ -206,3 +212,230 @@ def rolling_hf_lf_ratio(
     ratio = e_hi / (e_lo + 1e-6)
     ratio = np.where(np.isfinite(ratio), ratio, fill_value)
     return np.clip(ratio, clip_range[0], clip_range[1])
+
+
+def _spec_pow(seg_f: np.ndarray, K: int, detrend: bool) -> np.ndarray:
+    """Window into K-stride, optional zero-mean detrend, return |rfft|^2.
+
+    Helper shared by centroid/bandwidth/rolloff/flatness/flux/periodicity.
+    """
+    from numpy.lib.stride_tricks import sliding_window_view
+    wins = sliding_window_view(seg_f, K)
+    if detrend:
+        wins = wins - wins.mean(axis=1, keepdims=True)
+    return np.abs(np.fft.rfft(wins, axis=1)) ** 2, wins
+
+
+def rolling_spectral_centroid(
+    values: np.ndarray,
+    group_ids: np.ndarray,
+    window_K: int = 100,
+    *,
+    detrend: bool = True,
+    fill_value: float = np.nan,
+) -> np.ndarray:
+    """Power-weighted mean bin index per window: ``Sum(k * P_k) / Sum(P_k)``.
+
+    "Where the mass of the spectrum sits": low = LF-dominated, high =
+    HF-dominated. Used in audio brightness / timbre, bearing-wear
+    monitoring (centroid drifts up as raceway pits develop), road-
+    roughness telemetry, EEG alpha-vs-beta shift detection.
+    Almost always shipped together with ``rolling_spectral_bandwidth``.
+    """
+    out = np.full(values.size, fill_value, dtype=np.float64)
+    for sort_idx_seg, _wins, write_idx in per_group_sliding_window(
+        values, group_ids, window_K=window_K,
+    ):
+        seg = values[sort_idx_seg].astype(np.float64)
+        seg_f = np.where(np.isfinite(seg), seg, float(np.nanmean(seg) or 0))
+        spec, _ = _spec_pow(seg_f, window_K, detrend)
+        n_freq = spec.shape[1]
+        k = np.arange(n_freq, dtype=np.float64)
+        denom = spec.sum(axis=1) + 1e-12
+        out[write_idx] = (spec * k[None, :]).sum(axis=1) / denom
+    return out
+
+
+def rolling_spectral_bandwidth(
+    values: np.ndarray,
+    group_ids: np.ndarray,
+    window_K: int = 100,
+    *,
+    detrend: bool = True,
+    fill_value: float = np.nan,
+) -> np.ndarray:
+    """Power-weighted std of bin index around the centroid.
+
+    "How spread the spectral mass is". Pair with ``rolling_spectral_
+    centroid`` for a (location, scale) descriptor of the spectrum as
+    a 1D distribution.
+    """
+    out = np.full(values.size, fill_value, dtype=np.float64)
+    for sort_idx_seg, _wins, write_idx in per_group_sliding_window(
+        values, group_ids, window_K=window_K,
+    ):
+        seg = values[sort_idx_seg].astype(np.float64)
+        seg_f = np.where(np.isfinite(seg), seg, float(np.nanmean(seg) or 0))
+        spec, _ = _spec_pow(seg_f, window_K, detrend)
+        n_freq = spec.shape[1]
+        k = np.arange(n_freq, dtype=np.float64)
+        denom = spec.sum(axis=1) + 1e-12
+        centroid = (spec * k[None, :]).sum(axis=1) / denom
+        # variance about centroid
+        var = (spec * (k[None, :] - centroid[:, None]) ** 2).sum(axis=1) / denom
+        out[write_idx] = np.sqrt(np.clip(var, 0.0, None))
+    return out
+
+
+def rolling_spectral_rolloff(
+    values: np.ndarray,
+    group_ids: np.ndarray,
+    window_K: int = 100,
+    *,
+    percentile: float = 0.85,
+    detrend: bool = True,
+    fill_value: float = np.nan,
+) -> np.ndarray:
+    """Smallest bin k* such that the cumulative power up to k* >= q * total.
+
+    Robust tail descriptor: unlike ``dominant_freq_idx`` it doesn't
+    collapse to a single peak; unlike ``centroid`` it isn't pulled by
+    distant outliers. Cheap CDF lookup per window.
+
+    Use cases: voiced/unvoiced speech, audio fingerprinting, network
+    burstiness, predictive maintenance (rolloff jump = new HF noise
+    source even when total energy unchanged).
+    """
+    if not (0.0 < percentile <= 1.0):
+        raise ValueError(f"percentile must be in (0, 1], got {percentile}")
+    out = np.full(values.size, fill_value, dtype=np.float64)
+    for sort_idx_seg, _wins, write_idx in per_group_sliding_window(
+        values, group_ids, window_K=window_K,
+    ):
+        seg = values[sort_idx_seg].astype(np.float64)
+        seg_f = np.where(np.isfinite(seg), seg, float(np.nanmean(seg) or 0))
+        spec, _ = _spec_pow(seg_f, window_K, detrend)
+        cum = np.cumsum(spec, axis=1)
+        total = cum[:, -1:] + 1e-12
+        targets = percentile * total
+        # First column index where cum >= target per row.
+        idx = (cum >= targets).argmax(axis=1)
+        out[write_idx] = idx.astype(np.float64)
+    return out
+
+
+def rolling_spectral_flatness(
+    values: np.ndarray,
+    group_ids: np.ndarray,
+    window_K: int = 100,
+    *,
+    detrend: bool = True,
+    eps: float = 1e-12,
+    fill_value: float = np.nan,
+) -> np.ndarray:
+    """Wiener entropy: ``geomean(P) / mean(P)``, bounded [0, 1].
+
+    ~0 = pure tone / strong periodicity, ~1 = white-noise-like.
+    Distinct from ``rolling_spectral_entropy`` (unbounded in nats);
+    flatness is a normalised ratio downstream models prefer.
+
+    Use cases: tonal vs noisy regime classifier (engine knock, ECG vs
+    noise, voice-activity), volatility regime compression in finance,
+    audio codec quality.
+    """
+    out = np.full(values.size, fill_value, dtype=np.float64)
+    for sort_idx_seg, _wins, write_idx in per_group_sliding_window(
+        values, group_ids, window_K=window_K,
+    ):
+        seg = values[sort_idx_seg].astype(np.float64)
+        seg_f = np.where(np.isfinite(seg), seg, float(np.nanmean(seg) or 0))
+        spec, _ = _spec_pow(seg_f, window_K, detrend)
+        # Drop DC bin (always 0 after detrend; would give log(0) noise).
+        s = spec[:, 1:] + eps
+        log_g = np.log(s).mean(axis=1)
+        a = s.mean(axis=1)
+        out[write_idx] = np.exp(log_g) / (a + eps)
+    return out
+
+
+def rolling_spectral_flux(
+    values: np.ndarray,
+    group_ids: np.ndarray,
+    window_K: int = 100,
+    *,
+    normalize: bool = True,
+    detrend: bool = True,
+    fill_value: float = np.nan,
+) -> np.ndarray:
+    """L2 distance between consecutive magnitude spectra: ``Sum_k (|F_k|_t - |F_k|_{t-1})^2``.
+
+    Captures *temporal change of the spectrum* — the derivative side
+    that all 4 base spectral features (snapshot statistics) miss.
+    Canonical "is something happening NOW?" feature in audio/sensor
+    pipelines.
+
+    Use cases: audio onset detection (MIR), change-point in vibration
+    monitoring (tool-breakage moment), EEG event detection, regime
+    change in market microstructure.
+
+    ``normalize=True`` divides by the sum of both spectra (cosine-like
+    bound) so flux is comparable across signal amplitude levels.
+    """
+    out = np.full(values.size, fill_value, dtype=np.float64)
+    for sort_idx_seg, _wins, write_idx in per_group_sliding_window(
+        values, group_ids, window_K=window_K,
+    ):
+        seg = values[sort_idx_seg].astype(np.float64)
+        seg_f = np.where(np.isfinite(seg), seg, float(np.nanmean(seg) or 0))
+        spec, _ = _spec_pow(seg_f, window_K, detrend)
+        mag = np.sqrt(spec)
+        # Flux at row r = sum over k of (mag[r, k] - mag[r-1, k])^2.
+        # First row of segment has no previous -> NaN.
+        diff = mag[1:] - mag[:-1]
+        flux = (diff ** 2).sum(axis=1)
+        if normalize:
+            tot = mag[1:].sum(axis=1) + mag[:-1].sum(axis=1) + 1e-12
+            flux = flux / tot
+        # write_idx points to the LAST-position anchor for each window.
+        # First sliding-window row is at write_idx[0]; flux is undefined
+        # there (no previous window). Map flux to write_idx[1:].
+        out[write_idx[1:]] = flux
+    return out
+
+
+def rolling_periodicity_score(
+    values: np.ndarray,
+    group_ids: np.ndarray,
+    window_K: int = 100,
+    *,
+    exclude_lag_zero: bool = True,
+    detrend: bool = True,
+    fill_value: float = np.nan,
+) -> np.ndarray:
+    """Periodicity strength via autocorrelation (Wiener-Khinchin).
+
+    ACF = irfft(|rfft(window)|^2). Score =
+    ``max(ACF[lag>0]) / mean(|ACF[lag>0]|)``. High = strong repeating
+    pattern at SOME lag (no need to know which); low = aperiodic.
+
+    Use cases: rhythmic pattern detection without committing to a
+    fundamental (HRV breathing-rate coupling, motor cycle counting
+    from accelerometer, recurring fault signatures, periodic-vs-
+    aperiodic user behaviour).
+    """
+    out = np.full(values.size, fill_value, dtype=np.float64)
+    for sort_idx_seg, _wins, write_idx in per_group_sliding_window(
+        values, group_ids, window_K=window_K,
+    ):
+        seg = values[sort_idx_seg].astype(np.float64)
+        seg_f = np.where(np.isfinite(seg), seg, float(np.nanmean(seg) or 0))
+        spec, _ = _spec_pow(seg_f, window_K, detrend)
+        acf = np.fft.irfft(spec, n=window_K, axis=1)
+        # Use first half (lags 0 .. K//2) where ACF is meaningful.
+        half = window_K // 2
+        start = 1 if exclude_lag_zero else 0
+        acf_lags = acf[:, start:half + 1]
+        peak = np.abs(acf_lags).max(axis=1)
+        mean_abs = np.abs(acf_lags).mean(axis=1) + 1e-12
+        out[write_idx] = peak / mean_abs
+    return out

@@ -29,6 +29,11 @@ from __future__ import annotations
 __all__ = [
     "knn_aggregate",
     "knn_within_bucket_aggregate",
+    "local_density_features",
+    "inverse_distance_weighted_aggregate",
+    "knn_label_dispersion_features",
+    "radius_aggregate",
+    "knn_gradient_features",
 ]
 
 import logging
@@ -370,3 +375,397 @@ def knn_within_bucket_aggregate(
                 raise ValueError(f"agg_fn={name!r} not supported in bucket mode")
         out_aggs["_nearest_distance"][q_idx] = compact_dist[:, 0]
     return out_aggs
+
+
+def local_density_features(
+    q_coords: np.ndarray,
+    ref_coords: np.ndarray,
+    *,
+    k: int = 10,
+    q_group_ids: Optional[np.ndarray] = None,
+    ref_group_ids: Optional[np.ndarray] = None,
+    leaf_size: int = 40,
+) -> dict:
+    """Distance / density features computed FROM neighbour distances only.
+
+    Returns dict with:
+    * ``dist_to_kth`` — distance to the k-th nearest neighbour
+    * ``dist_median`` — median pairwise distance to k neighbours
+    * ``dist_iqr`` — IQR of distances to k neighbours
+    * ``local_density`` — ``k / (pi * dist_to_kth^d)`` (d-dim ball
+      density estimator)
+
+    Free-lunch outlier signal and a sparse/dense submarket detector
+    — no label dependency. Used in real estate (regime by density),
+    epidemiology (population proxy), panel data (cluster size for
+    hierarchical effects).
+    """
+    try:
+        from sklearn.neighbors import KDTree
+    except Exception as e:
+        raise ImportError("local_density_features requires scikit-learn") from e
+    ref = np.ascontiguousarray(ref_coords, dtype=np.float64)
+    q = np.ascontiguousarray(q_coords, dtype=np.float64)
+    if q.ndim != 2 or ref.ndim != 2 or q.shape[1] != ref.shape[1]:
+        raise ValueError("q_coords / ref_coords must both be 2-D with matching d")
+    d = ref.shape[1]
+    finite_ref = np.isfinite(ref).all(axis=1)
+    ref = ref[finite_ref]
+    if ref_group_ids is not None:
+        ref_group_ids = np.asarray(ref_group_ids)[finite_ref]
+    if ref.shape[0] < k + 1:
+        raise ValueError(f"need >= k+1 ({k+1}) finite refs; got {ref.shape[0]}")
+    tree = KDTree(ref, leaf_size=leaf_size)
+    q_clean = np.where(np.isfinite(q), q, 0.0)
+    q_k = k + 1 if (q_group_ids is not None and ref_group_ids is not None) else k + 1
+    if q_group_ids is not None and ref_group_ids is not None:
+        # overquery to filter same-group
+        q_k = min(ref.shape[0], k * 4 + 1)
+    distances, indices = tree.query(q_clean, k=min(q_k, ref.shape[0]))
+    if q_group_ids is not None and ref_group_ids is not None:
+        q_group_ids = np.asarray(q_group_ids)
+        ref_group_ids = np.asarray(ref_group_ids)
+        same_group = ref_group_ids[indices] == q_group_ids[:, None]
+        sorted_mask = np.where(same_group, np.iinfo(np.int64).max, np.arange(distances.shape[1]))
+        order = np.argsort(sorted_mask, axis=1)
+        keep_idx = order[:, :k]
+        compact_dist = np.take_along_axis(distances, keep_idx, axis=1)
+    else:
+        compact_dist = distances[:, :k]
+
+    dist_to_kth = compact_dist[:, -1]
+    dist_median = np.median(compact_dist, axis=1)
+    q25 = np.quantile(compact_dist, 0.25, axis=1)
+    q75 = np.quantile(compact_dist, 0.75, axis=1)
+    dist_iqr = q75 - q25
+    # d-dim ball volume up to constant: density = k / r^d (drop the
+    # pi/Gamma constant; it's the same for every row -> meaningless to ML).
+    local_density = float(k) / (dist_to_kth ** d + 1e-12)
+    return {
+        "dist_to_kth": dist_to_kth,
+        "dist_median": dist_median,
+        "dist_iqr": dist_iqr,
+        "local_density": local_density,
+    }
+
+
+def inverse_distance_weighted_aggregate(
+    q_coords: np.ndarray,
+    ref_coords: np.ndarray,
+    ref_labels: np.ndarray,
+    *,
+    k: int = 10,
+    power: float = 2.0,
+    q_group_ids: Optional[np.ndarray] = None,
+    ref_group_ids: Optional[np.ndarray] = None,
+) -> dict:
+    """IDW (inverse-distance-weighted) interpolation as a feature.
+
+    Geostat classic; dominates uniform-mean kNN when distance carries
+    decay information. Returns dict with:
+    * ``idw`` — IDW estimate (weights ``1 / dist^power``)
+    * ``idw_loo_residual`` — leave-one-out residual of the closest
+      neighbour (cheap uncertainty surrogate without kriging variance)
+
+    Use cases: weather (temp/precip from station network — IDW is the
+    operational baseline), real estate (price-per-sqft from comps with
+    distance decay), epi (incidence smoothing across reporting units).
+    """
+    try:
+        from sklearn.neighbors import KDTree
+    except Exception as e:
+        raise ImportError("inverse_distance_weighted_aggregate requires scikit-learn") from e
+    ref = np.ascontiguousarray(ref_coords, dtype=np.float64)
+    q = np.ascontiguousarray(q_coords, dtype=np.float64)
+    labels = np.ascontiguousarray(ref_labels, dtype=np.float64)
+    finite_ref = np.isfinite(ref).all(axis=1) & np.isfinite(labels)
+    ref = ref[finite_ref]
+    labels = labels[finite_ref]
+    if ref_group_ids is not None:
+        ref_group_ids = np.asarray(ref_group_ids)[finite_ref]
+    if ref.shape[0] < k + 1:
+        raise ValueError(f"need >= k+1 finite refs; got {ref.shape[0]}")
+    tree = KDTree(ref)
+    q_clean = np.where(np.isfinite(q), q, 0.0)
+    q_k = (k * 4 + 1) if (q_group_ids is not None and ref_group_ids is not None) else (k + 1)
+    distances, indices = tree.query(q_clean, k=min(q_k, ref.shape[0]))
+    if q_group_ids is not None and ref_group_ids is not None:
+        q_group_ids = np.asarray(q_group_ids)
+        ref_group_ids = np.asarray(ref_group_ids)
+        same_group = ref_group_ids[indices] == q_group_ids[:, None]
+        sorted_mask = np.where(same_group, np.iinfo(np.int64).max, np.arange(distances.shape[1]))
+        order = np.argsort(sorted_mask, axis=1)
+        keep_idx = order[:, :k]
+        compact_indices = np.take_along_axis(indices, keep_idx, axis=1)
+        compact_dist = np.take_along_axis(distances, keep_idx, axis=1)
+    else:
+        compact_indices = indices[:, :k]
+        compact_dist = distances[:, :k]
+    weights = 1.0 / (compact_dist ** power + 1e-12)
+    w_sum = weights.sum(axis=1, keepdims=True) + 1e-12
+    weights_norm = weights / w_sum
+    label_arr = labels[compact_indices]
+    idw = (label_arr * weights_norm).sum(axis=1)
+    # Leave-one-out residual: predict from neighbours 1..k-1 (drop the
+    # nearest), compare to the nearest's label.
+    if k >= 2:
+        loo_w = weights[:, 1:]
+        loo_sum = loo_w.sum(axis=1, keepdims=True) + 1e-12
+        loo_pred = (label_arr[:, 1:] * (loo_w / loo_sum)).sum(axis=1)
+        loo_residual = label_arr[:, 0] - loo_pred
+    else:
+        loo_residual = np.full(q.shape[0], np.nan, dtype=np.float64)
+    return {"idw": idw, "idw_loo_residual": loo_residual}
+
+
+def knn_label_dispersion_features(
+    q_coords: np.ndarray,
+    ref_coords: np.ndarray,
+    ref_labels: np.ndarray,
+    *,
+    k: int = 10,
+    task: str = "regression",
+    q_group_ids: Optional[np.ndarray] = None,
+    ref_group_ids: Optional[np.ndarray] = None,
+    n_bins: int = 8,
+) -> dict:
+    """Label-uncertainty signals over the kNN ring.
+
+    Returns dict with:
+    * ``local_label_entropy`` — Shannon entropy of the (binned for
+      regression / class-frequency for classification) neighbour labels.
+    * ``local_disagreement_ratio`` — fraction of neighbours on the
+      opposite side of the GLOBAL median (regression) / fraction of
+      neighbours with NON-majority class (classification).
+    * ``local_majority_share`` — largest fraction in any bin / class.
+
+    Cheap regime detector: stable submarket vs heterogeneous boundary.
+    """
+    if task not in {"regression", "classification"}:
+        raise ValueError(f"task={task!r}")
+    try:
+        from sklearn.neighbors import KDTree
+    except Exception as e:
+        raise ImportError("knn_label_dispersion_features requires scikit-learn") from e
+    ref = np.ascontiguousarray(ref_coords, dtype=np.float64)
+    q = np.ascontiguousarray(q_coords, dtype=np.float64)
+    if task == "regression":
+        labels = np.ascontiguousarray(ref_labels, dtype=np.float64)
+        finite_ref = np.isfinite(ref).all(axis=1) & np.isfinite(labels)
+        global_median = float(np.median(labels[np.isfinite(labels)]))
+    else:
+        labels = np.asarray(ref_labels)
+        finite_ref = np.isfinite(ref).all(axis=1)
+    ref = ref[finite_ref]
+    labels = labels[finite_ref]
+    if ref_group_ids is not None:
+        ref_group_ids = np.asarray(ref_group_ids)[finite_ref]
+    tree = KDTree(ref)
+    q_clean = np.where(np.isfinite(q), q, 0.0)
+    q_k = (k * 4 + 1) if (q_group_ids is not None and ref_group_ids is not None) else (k + 1)
+    distances, indices = tree.query(q_clean, k=min(q_k, ref.shape[0]))
+    if q_group_ids is not None and ref_group_ids is not None:
+        q_group_ids = np.asarray(q_group_ids)
+        ref_group_ids = np.asarray(ref_group_ids)
+        same_group = ref_group_ids[indices] == q_group_ids[:, None]
+        sorted_mask = np.where(same_group, np.iinfo(np.int64).max, np.arange(distances.shape[1]))
+        order = np.argsort(sorted_mask, axis=1)
+        keep_idx = order[:, :k]
+        compact_indices = np.take_along_axis(indices, keep_idx, axis=1)
+    else:
+        compact_indices = indices[:, :k]
+    label_arr = labels[compact_indices]
+
+    n_q = q.shape[0]
+    entropy = np.full(n_q, np.nan, dtype=np.float64)
+    disagreement = np.full(n_q, np.nan, dtype=np.float64)
+    majority_share = np.full(n_q, np.nan, dtype=np.float64)
+
+    if task == "regression":
+        # Quantile-bin globally for stability.
+        finite_lab = labels[np.isfinite(labels)]
+        if finite_lab.size > 0:
+            edges = np.quantile(finite_lab, np.linspace(0, 1, n_bins + 1))
+            edges = np.unique(edges)
+            if edges.size >= 2:
+                # Per-row binned histogram.
+                binned = np.searchsorted(edges[1:-1], label_arr, side="right")
+                # For each row count occurrences.
+                for i in range(n_q):
+                    bc = np.bincount(binned[i], minlength=max(2, edges.size - 1))
+                    p = bc.astype(np.float64) / bc.sum()
+                    p_nz = p[p > 0]
+                    entropy[i] = float(-np.sum(p_nz * np.log(p_nz)))
+                    majority_share[i] = float(p.max())
+                # Disagreement: fraction of neighbour labels on opposite side
+                # of the global median.
+                opp = (label_arr > global_median) != (label_arr[:, :1] > global_median)
+                disagreement = opp.mean(axis=1)
+    else:
+        # Classification: per-row class fraction.
+        for i in range(n_q):
+            row = label_arr[i]
+            uniq, counts = np.unique(row, return_counts=True)
+            p = counts.astype(np.float64) / counts.sum()
+            p_nz = p[p > 0]
+            entropy[i] = float(-np.sum(p_nz * np.log(p_nz)))
+            majority_share[i] = float(p.max())
+            # Disagreement: fraction NOT equal to nearest neighbour's label.
+            disagreement[i] = float((row != row[0]).mean())
+    return {
+        "local_label_entropy": entropy,
+        "local_disagreement_ratio": disagreement,
+        "local_majority_share": majority_share,
+    }
+
+
+def radius_aggregate(
+    q_coords: np.ndarray,
+    ref_coords: np.ndarray,
+    ref_labels: np.ndarray,
+    *,
+    radius: float,
+    min_count: int = 3,
+    q_group_ids: Optional[np.ndarray] = None,
+    ref_group_ids: Optional[np.ndarray] = None,
+) -> dict:
+    """Fixed-radius (not fixed-k) neighbour aggregator.
+
+    Returns dict with:
+    * ``n_within_r`` — count of ref points inside radius
+    * ``mean_within_r`` / ``median_within_r`` — label aggregators (NaN
+      where ``n_within_r < min_count``)
+
+    Use cases: regulatory "comps within X miles", contact-tracing
+    catchment, station-network averaging where station density varies.
+    Distinct from kNN aggregator which masks density variation.
+    """
+    try:
+        from sklearn.neighbors import KDTree
+    except Exception as e:
+        raise ImportError("radius_aggregate requires scikit-learn") from e
+    ref = np.ascontiguousarray(ref_coords, dtype=np.float64)
+    q = np.ascontiguousarray(q_coords, dtype=np.float64)
+    labels = np.ascontiguousarray(ref_labels, dtype=np.float64)
+    finite_ref = np.isfinite(ref).all(axis=1) & np.isfinite(labels)
+    ref = ref[finite_ref]
+    labels = labels[finite_ref]
+    if ref_group_ids is not None:
+        ref_group_ids = np.asarray(ref_group_ids)[finite_ref]
+    if ref.shape[0] == 0:
+        raise ValueError("ref pool is empty after non-finite filtering")
+    tree = KDTree(ref)
+    q_clean = np.where(np.isfinite(q), q, 0.0)
+    idx_per_row = tree.query_radius(q_clean, r=radius)
+    n_q = q.shape[0]
+    n_within = np.zeros(n_q, dtype=np.float64)
+    mean_in = np.full(n_q, np.nan, dtype=np.float64)
+    median_in = np.full(n_q, np.nan, dtype=np.float64)
+    for i, ids in enumerate(idx_per_row):
+        if ids.size == 0:
+            continue
+        if q_group_ids is not None and ref_group_ids is not None:
+            mask = ref_group_ids[ids] != np.asarray(q_group_ids)[i]
+            ids = ids[mask]
+        n_within[i] = float(ids.size)
+        if ids.size >= min_count:
+            lab = labels[ids]
+            mean_in[i] = float(lab.mean())
+            median_in[i] = float(np.median(lab))
+    return {
+        "n_within_r": n_within,
+        "mean_within_r": mean_in,
+        "median_within_r": median_in,
+    }
+
+
+def knn_gradient_features(
+    q_coords: np.ndarray,
+    ref_coords: np.ndarray,
+    ref_labels: np.ndarray,
+    *,
+    k: int = 20,
+    q_group_ids: Optional[np.ndarray] = None,
+    ref_group_ids: Optional[np.ndarray] = None,
+) -> dict:
+    """Local linear gradient via WLS fit on the kNN ring.
+
+    Fit ``label ~ 1 + dx_1 + dx_2 + ... + dx_d`` over the k nearest
+    reference rows (weights ``1 / (dist + eps)``). Emits:
+    * ``grad_norm`` — magnitude of gradient vector
+    * ``grad_axis_0``, ``grad_axis_1``, ... — per-axis slopes
+    * ``wls_residual_std`` — std of fit residuals (local curvature)
+
+    Use cases: real estate price gradient toward CBD/waterfront,
+    weather temperature / pressure gradient (physically meaningful),
+    epi incidence gradient = wavefront velocity proxy.
+    """
+    try:
+        from sklearn.neighbors import KDTree
+    except Exception as e:
+        raise ImportError("knn_gradient_features requires scikit-learn") from e
+    ref = np.ascontiguousarray(ref_coords, dtype=np.float64)
+    q = np.ascontiguousarray(q_coords, dtype=np.float64)
+    labels = np.ascontiguousarray(ref_labels, dtype=np.float64)
+    d = ref.shape[1]
+    finite_ref = np.isfinite(ref).all(axis=1) & np.isfinite(labels)
+    ref = ref[finite_ref]; labels = labels[finite_ref]
+    if ref_group_ids is not None:
+        ref_group_ids = np.asarray(ref_group_ids)[finite_ref]
+    if ref.shape[0] < k + 1:
+        raise ValueError(f"need >= k+1 refs; got {ref.shape[0]}")
+    tree = KDTree(ref)
+    q_clean = np.where(np.isfinite(q), q, 0.0)
+    q_k = (k * 4 + 1) if (q_group_ids is not None and ref_group_ids is not None) else (k + 1)
+    distances, indices = tree.query(q_clean, k=min(q_k, ref.shape[0]))
+    if q_group_ids is not None and ref_group_ids is not None:
+        q_group_ids = np.asarray(q_group_ids)
+        ref_group_ids = np.asarray(ref_group_ids)
+        same_group = ref_group_ids[indices] == q_group_ids[:, None]
+        sorted_mask = np.where(same_group, np.iinfo(np.int64).max, np.arange(distances.shape[1]))
+        order = np.argsort(sorted_mask, axis=1)
+        keep_idx = order[:, :k]
+        compact_indices = np.take_along_axis(indices, keep_idx, axis=1)
+        compact_dist = np.take_along_axis(distances, keep_idx, axis=1)
+    else:
+        compact_indices = indices[:, :k]
+        compact_dist = distances[:, :k]
+
+    n_q = q.shape[0]
+    grads = np.full((n_q, d), np.nan, dtype=np.float64)
+    grad_norm = np.full(n_q, np.nan, dtype=np.float64)
+    resid_std = np.full(n_q, np.nan, dtype=np.float64)
+
+    # Solve weighted normal equations per row. With small k (~20) and
+    # d (~2-3), Python loop is fine.
+    for i in range(n_q):
+        if not np.isfinite(q[i]).all():
+            continue
+        nbrs = compact_indices[i]
+        x_diff = ref[nbrs] - q[i]   # shape (k, d)
+        y = labels[nbrs]            # shape (k,)
+        w = 1.0 / (compact_dist[i] + 1.0)
+        # Design matrix [1, dx_1, ..., dx_d]
+        X = np.concatenate([np.ones((k, 1)), x_diff], axis=1)
+        Xw = X * w[:, None]
+        yw = y * w
+        # Solve normal eq (X^T W X) b = X^T W y
+        XtX = X.T @ Xw
+        Xty = X.T @ yw
+        try:
+            beta = np.linalg.solve(XtX, Xty)
+        except np.linalg.LinAlgError:
+            continue
+        grads[i] = beta[1:]
+        grad_norm[i] = float(np.linalg.norm(beta[1:]))
+        # Residual std (unweighted; gives curvature/heterogeneity proxy)
+        pred = X @ beta
+        resid_std[i] = float(np.std(y - pred, ddof=1)) if k > 1 else 0.0
+
+    out = {
+        "grad_norm": grad_norm,
+        "wls_residual_std": resid_std,
+    }
+    for ax in range(d):
+        out[f"grad_axis_{ax}"] = grads[:, ax]
+    return out

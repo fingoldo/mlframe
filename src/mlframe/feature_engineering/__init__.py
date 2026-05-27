@@ -24,19 +24,37 @@ Submodules:
 from __future__ import annotations
 
 
-from .anchor import add_anchor_extrapolation_features
+from .anchor import (
+    add_anchor_extrapolation_features,
+    anchor_density_features,
+    anchor_ewm_features,
+    anchor_quadratic_extrapolation_features,
+    anchor_residual_rmse_features,
+    rows_until_next_anchor,
+)
 from .basic import create_date_features, run_pysr_fe
-from .bayesian import particle_filter_posterior
+from .bayesian import (
+    bocpd_features,
+    kalman_filter_posterior_1d,
+    kalman_smoother_posterior_1d,
+    online_bayesian_linear_regression,
+    particle_filter_posterior,
+)
 from .bruteforce import run_pysr_feature_engineering
 from .categorical import compute_countaggs, get_countaggs_names
 from .ensemble_features import (
     predictor_consensus_entropy,
     predictor_consensus_mean,
+    predictor_consensus_trimmed_stats,
     predictor_disagreement_features,
     predictor_disagreement_iqr,
     predictor_disagreement_var,
+    predictor_max_pairwise_distance,
+    predictor_outlier_signature,
     predictor_pairwise_abs_diffs,
+    predictor_quantile_spread,
     predictor_top2_mode_gap,
+    predictor_weighted_consensus,
 )
 from .financial import (
     add_fast_rolling_stats,
@@ -45,31 +63,69 @@ from .financial import (
     create_ohlcv_wholemarket_features,
     merge_perticker_and_wholemarket_features,
 )
-from .grouped import iter_group_segments, per_group_apply, per_group_sliding_window
+from .grouped import (
+    iter_group_segments,
+    per_group_apply,
+    per_group_cum_reduce,
+    per_group_nth,
+    per_group_rank,
+    per_group_rolling_reduce,
+    per_group_shift,
+    per_group_sliding_window,
+)
 from .hurst import (
     compute_hurst_exponent,
     compute_hurst_rs,
     dfa_alpha,
+    dfa_alpha2_quadratic,
     higuchi_fd,
+    multi_scale_hurst,
+    multifractal_dfa,
     precompute_hurst_exponent,
     rolling_dfa_alpha,
     rolling_higuchi_fd,
     rolling_hurst,
 )
-from .spatial import knn_aggregate, knn_within_bucket_aggregate
+from .spatial import (
+    inverse_distance_weighted_aggregate,
+    knn_aggregate,
+    knn_gradient_features,
+    knn_label_dispersion_features,
+    knn_within_bucket_aggregate,
+    local_density_features,
+    radius_aggregate,
+)
 from .spectral import (
     rolling_dominant_freq_idx,
     rolling_hf_lf_ratio,
+    rolling_periodicity_score,
     rolling_spectral_band_energies,
+    rolling_spectral_bandwidth,
+    rolling_spectral_centroid,
     rolling_spectral_entropy,
+    rolling_spectral_flatness,
+    rolling_spectral_flux,
+    rolling_spectral_rolloff,
 )
-from .stationarity import frac_diff, frac_diff_weights
+from .stationarity import (
+    cusum_features,
+    ewma_residual,
+    frac_diff,
+    frac_diff_weights,
+    local_linear_detrend,
+    quantile_normalize_per_group,
+)
 from .windowed_shape import (
     rolling_extrema_density,
     rolling_integral_above_baseline,
+    rolling_longest_monotone_run,
     rolling_mean_abs_d2,
     rolling_n_peaks,
     rolling_n_troughs,
+    rolling_quantile_spread,
+    rolling_shannon_entropy_binned,
+    rolling_total_variation,
+    rolling_zero_crossings,
 )
 from .mps import (
     compute_mps_targets,
