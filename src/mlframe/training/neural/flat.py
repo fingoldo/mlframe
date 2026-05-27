@@ -43,6 +43,41 @@ def get_valid_num_groups(num_channels, preferred_num_groups):
     return 1  # Fallback to 1 (LayerNorm-like) if no divisor found
 
 
+class Snake(nn.Module):
+    """Snake activation: ``x + (1/alpha) * sin^2(alpha * x)``.
+
+    Liu et al. 2020 "Neural Networks Fail to Learn Periodic Functions
+    and How to Fix It" (NeurIPS). Useful when the target depends on
+    cyclic / quasi-periodic inputs (azimuth, dogleg severity, formation
+    crossing index) -- ReLU / Tanh / GELU all attenuate periodic
+    signals because they're locally monotonic, Snake preserves them.
+
+    ``alpha`` controls frequency. The default 1.0 reproduces the
+    paper's "snake" curve; opt-in learnable per-channel alpha via
+    ``alpha_learnable=True``.
+
+    Forward shape: identity-preserving (input shape == output shape).
+    """
+
+    def __init__(self, alpha: float = 1.0, alpha_learnable: bool = False) -> None:
+        super().__init__()
+        if alpha_learnable:
+            self.alpha = nn.Parameter(torch.tensor(float(alpha), dtype=torch.float32))
+        else:
+            self.register_buffer(
+                "alpha", torch.tensor(float(alpha), dtype=torch.float32),
+            )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x + (1/alpha) * sin^2(alpha * x) = x + (1 - cos(2*alpha*x)) / (2*alpha)
+        # Latter form is numerically stabler for small alpha.
+        a = self.alpha
+        return x + (1.0 - torch.cos(2.0 * a * x)) / (2.0 * a + 1e-12)
+
+    def extra_repr(self) -> str:
+        return f"alpha={float(self.alpha):.4g}"
+
+
 class _BoundedTanhOutput(nn.Module):
     """Bounded-range output head: ``tanh(x) * scale + center``.
 
@@ -105,6 +140,8 @@ def generate_mlp(
     output_activation: str = "linear",
     output_activation_scale: Optional[float] = None,
     output_activation_center: Optional[float] = None,
+    spectral_norm: bool = False,
+    spectral_norm_n_power_iterations: int = 1,
     verbose: int = 1,
 ):
     """Generates multilayer perceptron with specific architecture.
@@ -217,6 +254,26 @@ def generate_mlp(
             "regression" if num_classes == 1 else "classification",
         )
 
+    # ``spectral_norm`` wrap helper. Bounds the spectral norm
+    # (largest singular value) of each Linear's weight matrix to <= 1
+    # via power iteration. Composes with weight init: SN is applied
+    # AFTER initialisation, so we still get the user's init at t=0
+    # but never see a weight matrix whose Lipschitz constant exceeds 1
+    # at any subsequent step. The downstream effect: every Linear
+    # contracts the input by at most ||x||, the activations (Tanh /
+    # GELU / Mish / Snake) are themselves Lipschitz, and the whole
+    # network is therefore globally Lipschitz with a known bound.
+    # OOD inputs cannot produce output magnitudes more than ~depth
+    # times their input norm -- the catastrophic-extrapolation modes
+    # (R^2=-326, R^2=-30) that motivated the bounded-output and
+    # envelope-clip defences become geometrically impossible.
+    def _maybe_sn(module: nn.Module) -> nn.Module:
+        if not spectral_norm:
+            return module
+        return nn.utils.spectral_norm(
+            module, n_power_iterations=spectral_norm_n_power_iterations,
+        )
+
     layers = []
     layer_sizes = [num_features]  # tracked for verbose logging
 
@@ -270,7 +327,7 @@ def generate_mlp(
             else:
                 cur_layer_neurons = effective_min_neurons
 
-        layers.append(nn.Linear(prev_layer_neurons, cur_layer_neurons))
+        layers.append(_maybe_sn(nn.Linear(prev_layer_neurons, cur_layer_neurons)))
         layer_sizes.append(cur_layer_neurons)
 
         if use_batchnorm:
@@ -290,11 +347,11 @@ def generate_mlp(
         logger.warning("num_classes is None or 0; creating feature extractor (no final layer)")
         model_type = "FE"
     elif num_classes == 1:
-        layers.append(nn.Linear(prev_layer_neurons, 1))
+        layers.append(_maybe_sn(nn.Linear(prev_layer_neurons, 1)))
         layer_sizes.append(1)
         model_type = "R"
     else:
-        layers.append(nn.Linear(prev_layer_neurons, num_classes))
+        layers.append(_maybe_sn(nn.Linear(prev_layer_neurons, num_classes)))
         layer_sizes.append(num_classes)
         model_type = "C"
 
@@ -377,14 +434,16 @@ def generate_mlp(
             init_descr = getattr(_wf, "__name__", type(_wf).__name__)
 
         architecture = "->".join(str(size) for size in layer_sizes)
+        _sn_descr = " SN" if spectral_norm else ""
         logger.info(
             "Network architecture: %s [%s, n=%s, w=%s] arch=%s act=%s "
-            "drop=in:%g/hid:%g norm=%s init=%s",
+            "drop=in:%g/hid:%g norm=%s init=%s%s",
             architecture, model_type,
             format_num(total_neurons), format_num(total_weights),
             arch_descr, act_descr,
             inputs_dropout_prob, dropout_prob,
             norm_descr, init_descr,
+            _sn_descr,
         )
 
     if weights_init_fcn:
