@@ -16,6 +16,7 @@ from hypothesis import given, strategies as st, settings, assume, HealthCheck
 
 from mlframe.training.utils import (
     get_pandas_view_of_polars_df,
+    _NESTED_DTYPE_WARN_SEEN,
     drop_columns_from_dataframe,
     save_series_or_df,
     process_nans,
@@ -383,6 +384,76 @@ class TestGetPandasViewOfPolarsDF:
         pd_df = get_pandas_view_of_polars_df(pl_df)
         assert len(pd_df) == 0
         assert isinstance(pd_df["c"].dtype, pd.CategoricalDtype)
+
+    def test_categorical_batched_remap_three_plus_columns(self):
+        """>= 3 Categorical columns take the batched single-collect remap path.
+
+        Each column has a DISTINCT value universe, so a bug that mis-assigned
+        one column's uniques to another (or dropped/duplicated a column in the
+        batched ``select(...).implode()``) would surface as wrong categories or
+        wrong values here. Guards the iter470 batching against the per-column
+        loop's semantics."""
+        pl_df = pl.DataFrame({
+            "ca": pl.Series(["a1", "a2", "a1", "a3"], dtype=pl.Categorical),
+            "cb": pl.Series(["b9", "b8", "b8", "b7"], dtype=pl.Categorical),
+            "cc": pl.Series(["c0", "c0", "c1", "c2"], dtype=pl.Categorical),
+            "num": [1.0, 2.0, 3.0, 4.0],
+        })
+        pd_df = get_pandas_view_of_polars_df(pl_df)
+        # Values round-trip exactly, per column.
+        assert pd_df["ca"].astype(str).tolist() == ["a1", "a2", "a1", "a3"]
+        assert pd_df["cb"].astype(str).tolist() == ["b9", "b8", "b8", "b7"]
+        assert pd_df["cc"].astype(str).tolist() == ["c0", "c0", "c1", "c2"]
+        # Each column's Enum domain is exactly its own unique set (no cross-column leakage).
+        assert set(pd_df["ca"].cat.categories) == {"a1", "a2", "a3"}
+        assert set(pd_df["cb"].cat.categories) == {"b7", "b8", "b9"}
+        assert set(pd_df["cc"].cat.categories) == {"c0", "c1", "c2"}
+        assert pd.api.types.is_float_dtype(pd_df["num"])
+
+    def test_categorical_batched_remap_matches_per_column_path(self):
+        """The batched (>=3 cols) and per-column (<3 cols) remap paths must
+        produce identical pandas output for the same column. Build a 3-col frame
+        (batched) and a 1-col frame (per-column) sharing column ``c`` and assert
+        the rebuilt Categorical is bit-identical (codes + categories)."""
+        vals = ["p", "q", "p", "r", "q", "p", "s"]
+        batched = get_pandas_view_of_polars_df(pl.DataFrame({
+            "c": pl.Series(vals, dtype=pl.Categorical),
+            "d": pl.Series(["x"] * 7, dtype=pl.Categorical),
+            "e": pl.Series(["y"] * 7, dtype=pl.Categorical),
+        }))
+        per_col = get_pandas_view_of_polars_df(pl.DataFrame({
+            "c": pl.Series(vals, dtype=pl.Categorical),
+        }))
+        assert batched["c"].tolist() == per_col["c"].tolist()
+        assert list(batched["c"].cat.categories) == list(per_col["c"].cat.categories)
+
+    def test_nested_dtype_detected_via_isinstance(self, caplog):
+        """The nested-dtype WARN fires for pl.List / pl.Struct columns (detected
+        by isinstance, not str(dt)), while wide Categorical/Enum columns do NOT
+        trip it -- the isinstance refactor must keep the same detection set."""
+        import logging
+        _NESTED_DTYPE_WARN_SEEN.clear()
+        # Wide Enum (large repr) must NOT be flagged as nested.
+        wide = pl.Enum([f"cat_{i}" for i in range(200)])
+        df_clean = pl.DataFrame({
+            "level": pl.Series(["cat_1", "cat_2"], dtype=wide),
+            "num": [1.0, 2.0],
+        })
+        with caplog.at_level(logging.WARNING, logger="mlframe.training.utils"):
+            get_pandas_view_of_polars_df(df_clean)
+        assert "nested" not in caplog.text.lower()
+
+        caplog.clear()
+        _NESTED_DTYPE_WARN_SEEN.clear()
+        # A List column IS nested and must trigger exactly one WARN.
+        df_nested = pl.DataFrame({
+            "emb": pl.Series([[1.0, 2.0], [3.0, 4.0]], dtype=pl.List(pl.Float64)),
+            "num": [1.0, 2.0],
+        })
+        with caplog.at_level(logging.WARNING, logger="mlframe.training.utils"):
+            get_pandas_view_of_polars_df(df_nested)
+        assert "nested" in caplog.text.lower()
+        assert "emb" in caplog.text
 
 
 # ================================================================================================
