@@ -61,9 +61,17 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         n_anchors: int = 30,
         spearman_floor: float = 0.6,
         run_importance_ablation: bool = True,
+        use_bias_corrector: bool = True,
         beam_width: int = 8,
         brute_force_max_features: int = 22,
         use_gpu: bool = False,
+        cluster_features: bool | str = "auto",
+        cluster_corr_threshold: float = 0.7,
+        cluster_weighting: str = "pca_pc1",
+        cluster_use_gpu: bool | str = "auto",
+        cluster_auto_threshold: int = 40,
+        prescreen_top: int | None = None,
+        within_cluster_refine: bool = True,
         n_jobs: int = -1,
         random_state: int = 0,
         verbose: bool = True,
@@ -89,9 +97,17 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         self.n_anchors = n_anchors
         self.spearman_floor = spearman_floor
         self.run_importance_ablation = run_importance_ablation
+        self.use_bias_corrector = use_bias_corrector
         self.beam_width = beam_width
         self.brute_force_max_features = brute_force_max_features
         self.use_gpu = use_gpu
+        self.cluster_features = cluster_features
+        self.cluster_corr_threshold = cluster_corr_threshold
+        self.cluster_weighting = cluster_weighting
+        self.cluster_use_gpu = cluster_use_gpu
+        self.cluster_auto_threshold = cluster_auto_threshold
+        self.prescreen_top = prescreen_top
+        self.within_cluster_refine = within_cluster_refine
         self.n_jobs = n_jobs
         self.random_state = random_state
         self.verbose = verbose
@@ -212,34 +228,88 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         X_search, y_search = X.iloc[idx_search].reset_index(drop=True), y[idx_search]
         X_hold, y_hold = X.iloc[idx_hold].reset_index(drop=True), y[idx_hold]
 
-        # OOF / in-sample SHAP attribution on the search set.
+        report: dict = {}
+
+        # Optional correlated-feature clustering: collapse to denoised UNITS so SHAP + search run on
+        # hundreds of columns, not tens of thousands. unit_to_members maps proxy(unit) index ->
+        # original feature columns; None means proxy index == feature column (identity).
+        do_cluster = self.cluster_features is True or (
+            self.cluster_features == "auto" and n_features > self.cluster_auto_threshold)
+        if do_cluster:
+            from mlframe.feature_selection._shap_proxy_cluster import (
+                build_unit_matrix, cluster_correlated_features, cluster_summary)
+
+            labels = cluster_correlated_features(
+                X_search.values, threshold=self.cluster_corr_threshold, use_gpu=self.cluster_use_gpu)
+            units, unit_to_members, _kind = build_unit_matrix(
+                X_search.values, labels, weighting=self.cluster_weighting)
+            X_proxy = pd.DataFrame(units, columns=[f"unit{i}" for i in range(units.shape[1])])
+            report["clustering"] = cluster_summary(unit_to_members)
+        else:
+            X_proxy = X_search
+            unit_to_members = None
+
+        # SHAP attribution on the proxy (unit or raw) columns.
         phi, base, y_phi = compute_shap_matrix(
-            model_template, X_search, y_search, classification=self.classification,
+            model_template, X_proxy, y_search, classification=self.classification,
             out_of_fold=self.out_of_fold, n_splits=self.n_splits, n_models=self.n_models,
             rng=self._rng, tqdm_desc=("shap-oof" if self.tqdm else None))
 
-        optimizer = self._resolve_optimizer(n_features)
+        # Importance pre-screen: when the proxy still has more columns than the exact-search budget,
+        # keep the top-K by SHAP importance (mean |phi|) so exhaustive-approx stays feasible.
+        n_proxy = phi.shape[1]
+        prescreen_top = self.prescreen_top
+        if prescreen_top is None and n_proxy > self.brute_force_max_features and self.optimizer in ("auto", "bruteforce", "bruteforce_gpu"):
+            prescreen_top = self.brute_force_max_features
+        if prescreen_top is not None and prescreen_top < n_proxy:
+            importance = np.abs(phi).mean(axis=0)
+            keep = np.sort(np.argsort(-importance)[:prescreen_top])
+            phi = np.ascontiguousarray(phi[:, keep])
+            base, y_phi = base, y_phi
+            if unit_to_members is not None:
+                unit_to_members = [unit_to_members[i] for i in keep]
+            else:
+                unit_to_members = [np.array([int(i)], dtype=np.int64) for i in keep]
+            report["prescreen"] = dict(kept=int(len(keep)), of=int(n_proxy))
+
+        optimizer = self._resolve_optimizer(phi.shape[1])
         candidates = self._run_search(optimizer, phi, base, y_phi)
 
-        # min_selected_ratio guard: the proxy degrades for small subsets (the <50% wall).
+        # min_selected_ratio guard: the proxy degrades for small subsets (the <50% wall). Ratio is in
+        # proxy-column space (units/pre-screened columns).
+        n_proxy_cols = phi.shape[1]
         if self.min_selected_ratio > 0:
-            filtered = [(l, c) for l, c in candidates if len(c) / n_features >= self.min_selected_ratio]
+            filtered = [(l, c) for l, c in candidates if len(c) / n_proxy_cols >= self.min_selected_ratio]
             candidates = filtered or candidates  # never return empty
         if not candidates:
             raise RuntimeError("ShapProxiedFS: search produced no candidate subsets.")
 
-        report: dict = dict(optimizer=optimizer, n_candidates=len(candidates),
-                            proxy_best=dict(features=tuple(candidates[0][1]), proxy_loss=candidates[0][0]))
+        report.update(optimizer=optimizer, n_candidates=len(candidates),
+                      proxy_best=dict(features=tuple(candidates[0][1]), proxy_loss=candidates[0][0]))
 
-        # Proxy-trust diagnostic.
+        rv = dict(classification=self.classification, metric=self.metric, n_jobs=self.n_jobs,
+                  unit_to_members=unit_to_members)
+
+        # Proxy-trust diagnostic (proxy ranks units; honest retrains on member columns).
         if self.trust_guard:
             from mlframe.feature_selection._shap_proxy_revalidate import proxy_trust_guard
 
             report["trust"] = proxy_trust_guard(
                 phi, base, y_phi, model_template, X_search, X_hold, y_hold,
-                classification=self.classification, metric=self.metric, n_anchors=self.n_anchors,
-                rng=self._rng, min_card=self.min_features, max_card=self.max_features,
-                spearman_floor=self.spearman_floor, n_jobs=self.n_jobs)
+                n_anchors=self.n_anchors, rng=self._rng, min_card=self.min_features,
+                max_card=self.max_features, spearman_floor=self.spearman_floor, **rv)
+
+        # Bias corrector (#3/#6): re-rank candidates by a calibrator fit on the trust-guard anchors
+        # (honest ~ proxy + cardinality + redundancy), so the expensive top-N retrains focus on the
+        # subsets the corrector predicts are honestly best -- counters the redundancy-driven proxy bias.
+        if self.use_bias_corrector and self.trust_guard and report.get("trust", {}).get("_corrector_data"):
+            from mlframe.feature_selection._shap_proxy_calibrate import fit_proxy_corrector, rerank_candidates
+
+            cd = report["trust"]["_corrector_data"]
+            corrector = fit_proxy_corrector(cd["proxy"], cd["honest"], cd["cards"], cd["redund"])
+            if not corrector.fallback:
+                candidates = rerank_candidates(corrector, candidates, phi)
+                report["bias_corrector"] = dict(applied=True, n_anchors=len(cd["proxy"]))
 
         # Honest re-validation of the top-N on the disjoint holdout.
         if self.revalidate:
@@ -247,9 +317,8 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
 
             best_idx, ranked, baseline = revalidate_top_n(
                 candidates, model_template, X_search, y_search, X_hold, y_hold,
-                classification=self.classification, metric=self.metric,
                 n_models=self.n_revalidation_models, lambda_stab=self.lambda_stab,
-                parsimony_tol=self.parsimony_tol, rng=self._rng, n_jobs=self.n_jobs)
+                parsimony_tol=self.parsimony_tol, rng=self._rng, **rv)
             report["revalidation"] = dict(ranked=ranked[: self.top_n], random_baseline=baseline)
         else:
             best_idx = tuple(candidates[0][1])
@@ -260,10 +329,25 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
 
             report["importance_ablation"] = importance_topk_ablation(
                 phi, best_idx, model_template, X_search, y_search, X_hold, y_hold,
-                classification=self.classification, metric=self.metric)
+                classification=self.classification, metric=self.metric, unit_to_members=unit_to_members)
+
+        # Expand best proxy subset -> original member columns, then optionally prune redundant members.
+        if unit_to_members is not None:
+            member_cols = sorted({int(c) for u in best_idx for c in unit_to_members[int(u)]})
+        else:
+            member_cols = sorted(int(i) for i in best_idx)
+        if self.within_cluster_refine and unit_to_members is not None and len(member_cols) > 1:
+            from mlframe.feature_selection._shap_proxy_revalidate import within_cluster_refine
+
+            refined = within_cluster_refine(
+                member_cols, model_template, X_search, y_search, X_hold, y_hold,
+                classification=self.classification, metric=self.metric,
+                parsimony_tol=self.parsimony_tol, n_jobs=self.n_jobs)
+            report["within_cluster_refine"] = dict(before=len(member_cols), after=len(refined))
+            member_cols = refined
 
         # Expose sklearn contract: names in INPUT column order.
-        best_set = set(int(i) for i in best_idx)
+        best_set = set(member_cols)
         self.selected_features_ = [c for i, c in enumerate(self.feature_names_in_) if i in best_set]
         self.support_ = np.array([i in best_set for i in range(n_features)], dtype=bool)
         self.shap_proxy_report_ = report
