@@ -375,8 +375,20 @@ def _reset_global_rng_state(request):
     _np.random.seed(0)
     try:
         import torch as _torch
+        # ``torch.manual_seed`` calls ``torch.cuda.manual_seed_all`` internally
+        # when CUDA is built-in. A prior test that exhausted GPU memory or
+        # crashed mid-kernel can leave the CUDA context corrupted -- the next
+        # autouse-fixture reseed then raises ``CUDA error: an illegal memory
+        # access was encountered`` and POISONS every downstream test's setup
+        # phase. The fixture's job is deterministic CPU-side reseed; broaden
+        # the catch so a corrupted CUDA context doesn't cascade into ERROR
+        # for unrelated tests. The CPU seed (``_random.seed`` + ``_np.random.seed``
+        # above) already fired.
         _torch.manual_seed(0)
-    except ImportError:
+    except (ImportError, RuntimeError) as _torch_seed_err:
+        # ImportError: torch not installed (CI shards without neural extras).
+        # RuntimeError: CUDA context corrupted by a prior test -- the CPU
+        # seed branch already ran above; downstream CPU-only tests proceed.
         pass
     yield
 
