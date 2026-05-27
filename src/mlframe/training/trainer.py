@@ -591,11 +591,13 @@ def _configure_mlp_params(
     When ``target_type`` is supplied (multiclass / multilabel), consult ``NeuralNetStrategy.get_classif_objective_kwargs`` for the correct loss_fn + labels_dtype + task_type. Falls back to the legacy ``use_regression`` boolean for back-compat.
 
     ``n_train`` (when known) drives a small-data depth auto-tune: the
-    suite default of nlayers=4 over-fits on <10k-row train splits and
-    extrapolates pathologically on a few-hundred-row test set (regression-
-    collapse-sensor catches this; the synthetic resiliency suite gates it).
-    On small data the network is silently reduced to nlayers=2 unless the
-    caller has set ``mlp_kwargs["network_params"]["nlayers"]`` explicitly.
+    suite default of nlayers=2 (lowered from 4 on 2026-05-27 after the
+    extreme-AR regression run showed deeper nets gain nothing over
+    boosters on tabular targets) already minimises the over-fit /
+    OOD-extrapolation surface on <10k-row train splits, but the
+    auto-tune still drops to nlayers=1 (single hidden layer) on very
+    small data unless the caller has set
+    ``mlp_kwargs["network_params"]["nlayers"]`` explicitly.
     """
     mlp_kwargs = config_params.get("mlp_kwargs", {})
 
@@ -606,10 +608,19 @@ def _configure_mlp_params(
             "(lightning + torchmetrics). Install via "
             "``pip install mlframe[neural]`` or omit ``mlp`` from mlframe_models."
         )
-    # Defaults: nlayers=4 + ratio=2.0 -> 128->64->32->16->1, a classic shallow tabular MLP. Caller can override via ``mlp_kwargs["network_params"]`` when a different topology is needed.
+    # Defaults: nlayers=2 + ratio=2.0 -> 128->64->1, shallow tabular MLP.
+    # 2026-05-27 (user request): cut from nlayers=4 (128->64->32->16->1)
+    # to nlayers=2. Empirically on extreme-AR + group-aware-split regime
+    # (TVT_regression.log) the 4-layer network never closed the gap to
+    # boosters (R^2=-0.16 on test) -- the extra depth added optimisation
+    # difficulty and OOD-extrapolation surface without measurable
+    # accuracy gain. Shallower nets also halve training time and reduce
+    # memory pressure during forward / backward. Callers wanting the
+    # historical 4-layer topology can override via
+    # ``mlp_kwargs["network_params"]["nlayers"]=4``.
     # Zero dropout + no batchnorm: dropout catastrophically kills the MLP on near-linear targets (y ~= 0.95 * x_prev + tiny residual) - four hidden layers of dropout=0.15 destroy ~52% of the signal (0.85^4) on every forward pass and the network cannot find the strong linear mapping. Tabular regression with strong linear / additive signal does not benefit from dropout (none of the big tabular libs - CB / XGB / LGB - use it either). Users with truly noise-dominated data can opt in via ``mlp_kwargs["network_params"]["dropout_prob"]=0.15``.
     mlp_network_params = dict(
-        nlayers=4,
+        nlayers=2,
         first_layer_num_neurons=128,
         min_layer_neurons=16,
         neurons_by_layer_arch=_arch_cls.Declining,
