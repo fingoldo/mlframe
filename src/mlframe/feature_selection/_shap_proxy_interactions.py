@@ -27,14 +27,78 @@ import numpy as np
 from mlframe.feature_selection._shap_proxy_explain import _unwrap_estimator, _fit_one
 from mlframe.feature_selection._shap_proxy_objective import proxy_loss, resolve_metric
 
+# Min proxy width at which the custom numba interaction kernel is selected over the ``shap`` library.
+# Measured (xgboost regr, 1000 rows, 200 trees): numba beats shap's ``shap_interaction_values`` at
+# every width from P=10 (~1.5x) upward, so the interaction crossover is far LOWER than the main-effect
+# one (the shap interaction call is much heavier than its main-effect call). We keep a small floor so
+# the numba JIT warmup is not paid on trivial widths. Tunable per-HW via kernel_tuning_cache.
+_INTERACTION_NUMBA_MIN_FEATURES = 8
 
-def compute_interaction_tensor(model_template, X, y, *, classification, rng=None):
+
+def _interaction_numba_min_features() -> int:
+    """Crossover width for routing interactions to the numba kernel, from kernel_tuning_cache if set."""
+    try:
+        from mlframe.feature_selection.filters._kernel_tuning import get_kernel_tuning_cache
+
+        ktc = get_kernel_tuning_cache()
+        if ktc is not None:
+            entry = ktc.lookup("shap_proxy_treeshap")
+            if isinstance(entry, dict) and entry.get("interaction_numba_min_features"):
+                return int(entry["interaction_numba_min_features"])
+    except Exception:
+        pass
+    return _INTERACTION_NUMBA_MIN_FEATURES
+
+
+def _interaction_tensor_numba(est, X, *, classification):
+    """Custom numba TreeSHAP interaction tensor for a supported xgboost estimator, else ``None``.
+
+    Returns ``(Phi (n,P,P) float64, base (n,) float64)`` in margin / log-odds space, matching the shap
+    library path's contract; ``None`` if the model is unsupported (caller falls back to ``shap``)."""
+    from mlframe.feature_selection._shap_proxy_treeshap import extract_ensemble
+    from mlframe.feature_selection._shap_proxy_treeshap_interactions import interaction_tensor_numba
+
+    base_est = _unwrap_estimator(est)
+    ensemble = extract_ensemble(base_est)
+    if ensemble is None:
+        return None
+    Xv = X.values if hasattr(X, "values") else np.asarray(X)
+    Phi, _phi, base = interaction_tensor_numba(ensemble, Xv)
+    n = Phi.shape[0]
+    return Phi, np.full(n, float(base), dtype=np.float64)
+
+
+def compute_interaction_tensor(model_template, X, y, *, classification, rng=None, backend="auto"):
     """Fit one model on X and return ``(Phi, base)`` where Phi is (n, P, P) SHAP interaction values
-    (positive class for binary) and base is the scalar expected value broadcast to (n,)."""
-    import shap
+    (positive class for binary) and base is the scalar expected value broadcast to (n,).
 
+    ``backend`` ("auto" default) routes between the custom fast numba TreeSHAP interaction kernel (for
+    supported xgboost models on wider proxy widths) and the ``shap`` library (always-correct fallback).
+    ``"shap"`` / ``"treeshap_numba"`` force a path; the numba path falls back to shap for unsupported
+    models. The numba kernel matches ``shap.shap_interaction_values`` to ~1e-4 and is far faster on wide
+    proxies, where the interaction tensor is the search hotspot."""
     rng = np.random.default_rng(0) if rng is None else rng
     est = _fit_one(model_template, X, y, classification, int(rng.integers(0, 2**31 - 1)))
+
+    use_numba = False
+    if backend == "treeshap_numba":
+        use_numba = True
+    elif backend == "auto":
+        from mlframe.feature_selection._shap_proxy_treeshap import (
+            is_supported_lightgbm, is_supported_xgboost)
+
+        base_est = _unwrap_estimator(est)
+        supported = is_supported_xgboost(base_est) or is_supported_lightgbm(base_est)
+        P = X.shape[1]
+        use_numba = supported and P >= _interaction_numba_min_features()
+    if use_numba:
+        out = _interaction_tensor_numba(est, X, classification=classification)
+        if out is not None:
+            return out
+        # Unsupported despite routing -> fall through to shap.
+
+    import shap
+
     explainer = shap.TreeExplainer(_unwrap_estimator(est), feature_perturbation="tree_path_dependent")
     Phi = explainer.shap_interaction_values(X)
     base = explainer.expected_value

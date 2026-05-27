@@ -22,9 +22,11 @@ Critical correctness invariants discovered while validating against xgboost 3.x:
   * The path-dependent conditional-expectation weight is the node ``cover`` (hessian-weighted sample
     count) ratio child/parent -- exactly what ``tree_path_dependent`` uses.
 
-Scope (v1): xgboost ``XGBRegressor`` / ``XGBClassifier`` (binary), single output, margin space. Other
-model types fall back to the ``shap`` library via the dispatcher. lightgbm + interaction values are
-the documented next slices.
+Scope: xgboost ``XGBRegressor`` / ``XGBClassifier`` (binary) AND lightgbm ``LGBMRegressor`` /
+``LGBMClassifier`` (binary), single output, margin space. Both families map onto the same flat node
+tensors so the kernels are shared unchanged (lightgbm's ``<=`` routing and sample-count cover are
+normalised in its extractor). Other model types fall back to the ``shap`` library via the dispatcher.
+SHAP *interaction* values have their own shared-tensor kernel in ``_shap_proxy_treeshap_interactions``.
 """
 
 from __future__ import annotations
@@ -408,6 +410,96 @@ def treeshap_phi_base_numba(ensemble: TreeEnsemble, X: np.ndarray) -> tuple[np.n
     return phi, float(ensemble.base_offset)
 
 
+def _extract_lightgbm_ensemble(booster, n_features: int) -> TreeEnsemble:
+    """Parse a lightgbm booster's ``dump_model`` JSON into the SAME flat per-node tensors as xgboost.
+
+    Two structural differences from xgboost are normalised here so the UNMODIFIED numba/cupy kernels
+    apply unchanged:
+      * LightGBM routes ``x <= threshold -> left``; the kernel routes ``x < threshold -> left``. We
+        convert each threshold via ``nextafter(t, +inf)`` so ``x < nextafter(t)`` iff ``x <= t`` in the
+        float32 routing dtype the kernel uses (verified exact: see the parity test).
+      * The path-dependent cover is the node sample count (``internal_count`` / ``leaf_count``), the
+        lightgbm analogue of xgboost's hessian-weighted ``cover``.
+    LightGBM folds its ``boost_from_average`` initial score into the first tree's leaves, so the base
+    offset is just the cover-weighted ensemble expectation (no separate intercept term) -- matching
+    ``shap``'s ``expected_value`` to machine precision (see the additivity test)."""
+    md = booster.dump_model()
+    cl, cr, cd, feat, thr, val, cover = [], [], [], [], [], [], []
+    tree_roots = []
+    max_depth = 0
+
+    for tinfo in md["tree_info"]:
+        root = tinfo["tree_structure"]
+        base = len(cl)
+        tree_roots.append(base)
+        # DFS pre-order: parent emitted before children so global ids increase down the tree (the
+        # invariant ``_ensemble_expected_value`` relies on). Collect nodes, assigning each a global id.
+        flat = []
+
+        def _collect(node, depth):
+            nonlocal max_depth
+            max_depth = max(max_depth, depth)
+            node["_gid"] = base + len(flat)
+            flat.append(node)
+            if "left_child" in node:
+                _collect(node["left_child"], depth + 1)
+                _collect(node["right_child"], depth + 1)
+
+        _collect(root, 0)
+        for node in flat:
+            if "leaf_value" in node:
+                cl.append(_NO_CHILD)
+                cr.append(_NO_CHILD)
+                cd.append(_NO_CHILD)
+                feat.append(-1)
+                thr.append(0.0)
+                val.append(float(node["leaf_value"]))
+                cover.append(float(node.get("leaf_count", 1.0)))
+            else:
+                lc = node["left_child"]["_gid"]
+                rc = node["right_child"]["_gid"]
+                cl.append(lc)
+                cr.append(rc)
+                feat.append(int(node["split_feature"]))
+                # Convert ``x <= t`` to the kernel's ``x < t'`` via nextafter (float32 routing dtype).
+                t = np.float32(float(node["threshold"]))
+                thr_le = float(np.nextafter(t, np.float32(np.inf)))
+                thr.append(thr_le)
+                # NaN routing depends on lightgbm's ``missing_type``: only "NaN" honours ``default_left``;
+                # "None"/"Zero" treat a missing value AS 0.0 (and route it by the threshold) -- so we bake
+                # that by pointing children_default at whichever child 0.0 routes to (the kernel always
+                # sends NaN to children_default, so this reproduces lightgbm's "NaN as 0" semantics).
+                missing_type = str(node.get("missing_type", "None"))
+                if missing_type == "NaN":
+                    cd.append(lc if node.get("default_left", True) else rc)
+                else:
+                    cd.append(lc if (0.0 < thr_le) else rc)
+                val.append(0.0)
+                cover.append(float(node.get("internal_count", 1.0)))
+
+    children_left = np.asarray(cl, dtype=np.int32)
+    children_right = np.asarray(cr, dtype=np.int32)
+    values = np.asarray(val, dtype=np.float64)
+    node_sample_weight = np.asarray(cover, dtype=np.float64)
+    tree_roots_arr = np.asarray(tree_roots, dtype=np.int32)
+    base_offset = _ensemble_expected_value(
+        children_left, children_right, values, node_sample_weight, tree_roots_arr)
+
+    return TreeEnsemble(
+        children_left=children_left,
+        children_right=children_right,
+        children_default=np.asarray(cd, dtype=np.int32),
+        features=np.asarray(feat, dtype=np.int32),
+        thresholds=np.asarray(thr, dtype=np.float32),
+        values=values,
+        node_sample_weight=node_sample_weight,
+        tree_roots=tree_roots_arr,
+        max_depth=int(max_depth),
+        base_offset=float(base_offset),
+        n_features=int(n_features),
+    )
+
+
 def is_supported_xgboost(estimator) -> bool:
     """True for a fitted xgboost regressor / binary classifier we can extract a booster from."""
     name = type(estimator).__name__
@@ -430,13 +522,54 @@ def is_supported_xgboost(estimator) -> bool:
     return True
 
 
-def extract_ensemble(estimator) -> Optional[TreeEnsemble]:
-    """Extract the flat ensemble tensors from a supported xgboost estimator, else ``None``."""
-    if not is_supported_xgboost(estimator):
-        return None
-    booster = estimator.get_booster()
+def is_supported_lightgbm(estimator) -> bool:
+    """True for a fitted lightgbm regressor / binary classifier we can extract a booster from.
+
+    Multiclass (``num_tree_per_iteration`` > 1 / ``num_class`` > 1) is out of scope (single-output
+    coalition margin), mirroring the xgboost gate."""
+    name = type(estimator).__name__
+    if name not in ("LGBMRegressor", "LGBMClassifier", "Booster"):
+        return False
+    try:
+        booster = estimator if name == "Booster" else estimator.booster_
+    except Exception:
+        return False
+    if booster is None:
+        return False
+    try:
+        md = booster.dump_model()
+        if int(md.get("num_tree_per_iteration", 1)) > 1 or int(md.get("num_class", 1)) > 1:
+            return False
+    except Exception:
+        return False
+    return True
+
+
+def _lightgbm_booster_and_nfeatures(estimator):
+    booster = estimator if type(estimator).__name__ == "Booster" else estimator.booster_
     try:
         n_features = int(estimator.n_features_in_)
     except Exception:
-        n_features = len(booster.feature_names) if booster.feature_names else 0
-    return _extract_xgboost_ensemble(booster, n_features)
+        try:
+            n_features = int(booster.num_feature())
+        except Exception:
+            n_features = int(booster.dump_model().get("max_feature_idx", 0)) + 1
+    return booster, n_features
+
+
+def extract_ensemble(estimator) -> Optional[TreeEnsemble]:
+    """Extract the flat ensemble tensors from a supported xgboost OR lightgbm estimator, else ``None``.
+
+    Both model families map onto the SAME flat node tensors so the numba/cupy kernels are shared
+    unchanged; lightgbm's ``<=`` routing and sample-count cover are normalised inside its extractor."""
+    if is_supported_xgboost(estimator):
+        booster = estimator.get_booster()
+        try:
+            n_features = int(estimator.n_features_in_)
+        except Exception:
+            n_features = len(booster.feature_names) if booster.feature_names else 0
+        return _extract_xgboost_ensemble(booster, n_features)
+    if is_supported_lightgbm(estimator):
+        booster, n_features = _lightgbm_booster_and_nfeatures(estimator)
+        return _extract_lightgbm_ensemble(booster, n_features)
+    return None

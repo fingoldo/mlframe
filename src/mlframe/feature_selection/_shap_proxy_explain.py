@@ -85,9 +85,9 @@ def _pick_backend(explainer_base, X: pd.DataFrame, backend: str) -> str:
     if backend == "shap":
         return "shap"
     # auto
-    from mlframe.feature_selection._shap_proxy_treeshap import is_supported_xgboost
+    from mlframe.feature_selection._shap_proxy_treeshap import is_supported_lightgbm, is_supported_xgboost
 
-    if not is_supported_xgboost(explainer_base):
+    if not (is_supported_xgboost(explainer_base) or is_supported_lightgbm(explainer_base)):
         return "shap"
     if X.shape[1] < _treeshap_numba_min_features():
         return "shap"  # narrow: shap C-extension already fast, skip JIT warmup
