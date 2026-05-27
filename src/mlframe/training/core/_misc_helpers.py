@@ -128,7 +128,16 @@ def _augment_with_dropped_high_card_cols(
             return frame
         if isinstance(frame, pl.DataFrame):
             return frame.with_columns([pl.Series(c, v) for c, v in extras.items()])
-        return frame.assign(**extras)
+        # Add all extras as ONE block via concat instead of per-column
+        # assign/insert: the latter triggers pandas' "highly fragmented"
+        # PerformanceWarning on wide frames (each insert grows the block
+        # count). drop colliding names first to preserve assign's
+        # overwrite semantics. Fresh frame -> source is not mutated.
+        extra_df = pd.DataFrame(extras, index=frame.index)
+        dup = [c for c in extra_df.columns if c in frame.columns]
+        if dup:
+            frame = frame.drop(columns=dup)
+        return pd.concat([frame, extra_df], axis=1)
 
     return (
         _attach(train_df, train_extras),

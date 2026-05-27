@@ -46,7 +46,17 @@ def _build_disc_df_for_target(filtered_train_df, target_name: str, y_train_align
     Polars ``with_columns`` is naturally immutable and returns a fresh frame, so no special handling is needed there.
     """
     if isinstance(filtered_train_df, pd.DataFrame):
-        return filtered_train_df.assign(**{target_name: y_train_aligned})
+        # concat(axis=1) builds a fresh BlockManager (so the caller's frame
+        # is NOT mutated -- same immutability guarantee as the prior
+        # ``.assign``) while attaching the target as a single consolidated
+        # block. On the wide, upstream-fragmented discovery frame this also
+        # silences pandas' "highly fragmented" PerformanceWarning that
+        # per-column ``.assign``/insert triggers.
+        target_series = pd.Series(
+            y_train_aligned, index=filtered_train_df.index, name=target_name,
+        )
+        cols_wo_target = [c for c in filtered_train_df.columns if c != target_name]
+        return pd.concat([filtered_train_df[cols_wo_target], target_series], axis=1)
     return filtered_train_df.with_columns(pl.Series(target_name, y_train_aligned))
 
 
