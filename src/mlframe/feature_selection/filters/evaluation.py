@@ -356,7 +356,10 @@ def evaluate_candidate(
 
     # Is this candidate any good for target 1-vs-1?
     if X in cached_confident_MIs:  # cached_confident_MIs first -- more reliable (but don't fill them here).
-        direct_gain = cached_confident_MIs[X]
+        # cached_confident_MIs stores (bootstrapped_gain, confidence) tuples (see confirm_candidate); take the gain.
+        # The main loop normally skips this branch (a confirmed candidate lands in added_/failed_candidates), so it
+        # was latent, but assigning the whole tuple to direct_gain crashes the next ``direct_gain > 0`` if ever reached.
+        direct_gain, _ = cached_confident_MIs[X]
     else:
         if X in cached_MIs:
             direct_gain = cached_MIs[X]

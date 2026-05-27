@@ -79,7 +79,7 @@ class EngineeredRecipe:
     # ``coef_a``, ``coef_b``, ``basis``, ``bin_func_name``, ``preprocess_a``,
     # ``preprocess_b``, ``degree_a``, ``degree_b`` in ``extra``. The
     # 88-min Optuna best_res is now reproducible at predict-time.
-    kind: Literal["unary_binary", "factorize", "hermite_pair"]
+    kind: Literal["unary_binary", "factorize", "hermite_pair", "target_encoding", "cluster_aggregate"]
     src_names: tuple[str, ...]
     unary_names: tuple[str, ...] = ()
     binary_name: str = ""
@@ -200,6 +200,8 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         return _apply_target_encoding(recipe, X)
     if recipe.kind == "hermite_pair":
         return _apply_hermite_pair(recipe, X)
+    if recipe.kind == "cluster_aggregate":
+        return _apply_cluster_aggregate(recipe, X)
     raise ValueError(f"Unknown recipe kind: {recipe.kind!r}")
 
 
@@ -287,6 +289,72 @@ def build_hermite_pair_recipe(
             "degree_b": int(hermite_result.degree_b),
         },
     )
+
+
+def build_cluster_aggregate_recipe(
+    *, name: str, src_names: tuple[str, ...], method: str,
+    member_mean: np.ndarray, member_std: np.ndarray, signs: np.ndarray,
+    weights: np.ndarray | None = None, quantization: dict | None = None,
+    diagnostics: dict | None = None,
+) -> EngineeredRecipe:
+    """Frozen recipe for a k-ary cluster aggregate (denoised cluster representative).
+
+    Replay (``_apply_cluster_aggregate``) standardizes each member with the STORED train ``member_mean``
+    / ``member_std``, sign-aligns with ``signs``, then for every linear combiner forms ``Z @ weights``
+    (``mean_z`` -> uniform 1/k, ``mean_inv_var`` -> normalized 1/sigma_hat^2, ``pca_pc1`` -> PC1
+    eigenvector, ``factor_score`` -> Bartlett combiner). ``median`` ignores ``weights``. All ``extra``
+    values are flat ndarray / scalar / str (``_extra_equal`` is not deep)."""
+    extra: dict = {
+        "method": str(method),
+        "member_mean": np.asarray(member_mean, dtype=np.float64).copy(),
+        "member_std": np.asarray(member_std, dtype=np.float64).copy(),
+        "signs": np.asarray(signs, dtype=np.float64).copy(),
+    }
+    if weights is not None:
+        extra["weights"] = np.asarray(weights, dtype=np.float64).copy()
+    for k, v in (diagnostics or {}).items():  # e.g. pca_var_ratio, representative -- scalars/str only
+        extra[k] = v
+    # Build-time guard: _extra_equal compares values shallowly (np.array_equal / !=), so nested
+    # lists/dicts of arrays would break __eq__/pickle round-trip. Keep extra flat.
+    for k, v in extra.items():
+        assert isinstance(v, (np.ndarray, str, int, float, bool)), f"cluster_aggregate extra[{k!r}] must be flat ndarray/scalar/str, got {type(v)}"
+    return EngineeredRecipe(name=name, kind="cluster_aggregate", src_names=tuple(src_names), quantization=quantization, extra=extra)
+
+
+def _apply_cluster_aggregate(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
+    """Replay a cluster-aggregate column: standardize members with stored train stats, sign-align,
+    combine (``Z @ weights`` for linear methods, per-row median for ``median``), then discretize.
+
+    Stateless given the stored ``extra`` -> uses ONLY train-fitted stats (never re-standardizes on the
+    test distribution), so train/test parity holds. Pure numpy -> no lazy import / import-cycle risk."""
+    for key in ("method", "member_mean", "member_std", "signs"):
+        if key not in recipe.extra:
+            raise KeyError(f"cluster_aggregate recipe '{recipe.name}' missing '{key}' in extra. Re-fit to repopulate.")
+    method = recipe.extra["method"]
+    member_mean = np.asarray(recipe.extra["member_mean"], dtype=np.float64)
+    member_std = np.asarray(recipe.extra["member_std"], dtype=np.float64)
+    signs = np.asarray(recipe.extra["signs"], dtype=np.float64)
+    if not (len(recipe.src_names) == len(member_mean) == len(member_std) == len(signs)):
+        raise ValueError(f"cluster_aggregate recipe '{recipe.name}': src_names / stats length mismatch.")
+
+    cols = [np.asarray(_extract_column(X, n), dtype=np.float64) for n in recipe.src_names]
+    M = np.column_stack(cols)  # (n, k)
+    std = np.where(member_std > 0.0, member_std, 1.0)
+    Z = ((M - member_mean) / std) * signs  # standardize with TRAIN stats + sign-align
+
+    if method == "median":
+        out = np.median(Z, axis=1)
+    else:
+        if "weights" not in recipe.extra:
+            raise KeyError(f"cluster_aggregate recipe '{recipe.name}' (method={method!r}) missing 'weights' in extra.")
+        out = Z @ np.asarray(recipe.extra["weights"], dtype=np.float64)
+
+    out = np.nan_to_num(out, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+    if recipe.quantization is not None:
+        from .discretization import discretize_array
+        q = recipe.quantization
+        out = discretize_array(arr=out, n_bins=q["nbins"], method=q["method"], dtype=np.dtype(q["dtype"]))
+    return out
 
 
 def _apply_target_encoding(recipe: EngineeredRecipe, X: Any) -> np.ndarray:

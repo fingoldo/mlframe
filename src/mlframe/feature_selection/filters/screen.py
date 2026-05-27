@@ -175,133 +175,30 @@ def postprocess_candidates(
     verbose: bool = True,
     ndigits: int = 4,
 ):
-    """Post-analysis of prescreened candidates.
+    """Post-analysis of prescreened candidates: build the feature "friend graph".
 
-    1) repeat standard Fleuret screening process. maybe some vars will be removed when taken into account all other candidates.
-    2)
-    3) in the final set, compute for every factor
-        a) MI with every remaining predictor (and 2,3 way subsets)
+    Delegates to :func:`mlframe.feature_selection.filters.friend_graph.build_friend_graph`,
+    which computes per-feature entropy + target relevance, pairwise mutual information
+    between the selected features (graph edges), the asymmetric-dependency arrow direction,
+    and a green/red/yellow classification flagging suspected redundant "sink" features (the
+    ``sum(I(Y;Z|X)) > relevance`` criterion the original design notes described).
 
+    ``y`` is the target column index array (as passed by ``screen_predictors``).
+    Returns the :class:`~mlframe.feature_selection.filters.friend_graph.FriendGraph`.
+    The ``classes_y`` / ``freqs_y`` / ``min_nonzero_confidence`` / ``npermutations`` /
+    ``ensure_target_influence`` / ``interactions_max_order`` parameters are retained for
+    backward compatibility with the historical signature; the plug-in MI estimator the
+    graph uses does not need them.
     """
+    from .friend_graph import build_friend_graph
 
-    """
-    # ---------------------------------------------------------------------------------------------------------------
-    # Repeat standard Fleuret screening process. maybe some vars will be removed when taken into account all other candidates.
-    # ---------------------------------------------------------------------------------------------------------------
-    for cand_idx, X, nexisting in (candidates_pbar := tqdmu(selected_vars, leave=False, desc="Finalizing Candidates")):
-        current_gain, sink_reasons = evaluate_candidate(
-            cand_idx=cand_idx,
-            X=X,
-            y=y,
-            nexisting=nexisting,
-            best_gain=best_gain,
-            factors_data=factors_data,
-            factors_nbins=factors_nbins,
-            factors_names=factors_names,
-            classes_y=classes_y,
-            classes_y_safe=classes_y_safe,
-            freqs_y=freqs_y,
-            use_gpu=use_gpu,
-            freqs_y_safe=freqs_y_safe,
-            partial_gains=partial_gains,
-            baseline_npermutations=baseline_npermutations,
-            mrmr_relevance_algo=mrmr_relevance_algo,
-            mrmr_redundancy_algo=mrmr_redundancy_algo,
-            max_veteranes_interactions_order=max_veteranes_interactions_order,
-            expected_gains=expected_gains,
-            selected_vars=selected_vars,
-            cached_MIs=cached_MIs,
-            cached_confident_MIs=cached_confident_MIs,
-            cached_cond_MIs=cached_cond_MIs,
-            entropy_cache=entropy_cache,
-            verbose=verbose,
-            ndigits=ndigits,
-        )
-    # ---------------------------------------------------------------------------------------------------------------
-    # Make sure with confidence that every candidate is related to the target
-    # ---------------------------------------------------------------------------------------------------------------
-
-    if ensure_target_influence:
-        removed = []
-        for X in tqdmu(selected_vars, desc="Ensuring target influence", leave=False):
-            bootstrapped_mi, confidence = mi_direct(
-                factors_data,
-                x=np.array([X], dtype=np.int64),
-                y=y,
-                factors_nbins=factors_nbins,
-                classes_y=classes_y,
-                freqs_y=freqs_y,
-                classes_y_safe=classes_y_safe,
-                min_nonzero_confidence=min_nonzero_confidence,
-                npermutations=npermutations,
-            )
-            if bootstrapped_mi == 0:
-                if verbose:
-                    print("Factor", X, "not related to target with confidence", confidence)
-                    removed.append(X)
-        selected_vars = [el for el in selected_vars if el not in removed]
-
-    # ---------------------------------------------------------------------------------------------------------------
-    # Repeat Fleuret process as many times as there is candidates left.
-    # This time account for possible interactions (fix bug in the professor's formula).
-    # ---------------------------------------------------------------------------------------------------------------
-    """
-
-    """
-    Compute redundancy stats for every X
-
-    кто связан с каким количеством других факторов, какое количество информации с ними разделяет, в % к своей собственной энтропии.
-    Можно даже спуститься вниз по уровню и посчитать взвешенные суммы тех же метрик для его партнёров.
-    Тем самым можно косвенно определить, какие фичи скорее всего просто сливные бачки, и попробовать их выбросить.  В итоге мы получим:
-
-    ценные фичи, которые ни с кем другим не связаны, кроме мусорных и таргета. они содержат уникальное знание;
-    потенциально мусорные X, которые связаны с множеством других, и шарят очень много общей инфы с другими факторами Z, при том,
-    что эти другие факторы имеют много уникального знания о таргете помимо X: sum(I(Y;Z|X))>e;
-    все остальные "середнячки".
-    """
-
-    """
-    entropies = {}
-    mutualinfos = {}
-
-    for X in tqdmu(selected_vars, desc="Marginal stats", leave=False):
-        _, freqs, _ = merge_vars(factors_data=factors_data, vars_indices=np.array([X], dtype=np.int64), factors_nbins=factors_nbins, var_is_nominal=None, dtype=dtype)
-        factor_entropy = entropy(freqs=freqs)
-        entropies[X] = factor_entropy
-
-    for a, b in tqdmu(combinations(selected_vars, 2), desc="1-way interactions", leave=False):
-        bootstrapped_mi, confidence = mi_direct(
-            factors_data,
-            x=np.array([a], dtype=np.int64),
-            y=np.array([b], dtype=np.int64),
-            factors_nbins=factors_nbins,
-            classes_y=classes_y,
-            freqs_y=freqs_y,
-            classes_y_safe=classes_y_safe,
-            min_nonzero_confidence=min_nonzero_confidence,
-            npermutations=npermutations,
-        )
-        if bootstrapped_mi > 0:
-            mutualinfos[(a, b)] = bootstrapped_mi
-
-    for y in tqdmu(selected_vars, desc="2-way interactions", leave=False):
-        for pair in combinations(set(selected_vars) - set([y]), 2):
-            bootstrapped_mi, confidence = mi_direct(
-                factors_data,
-                x=np.array(pair, dtype=np.int64),
-                y=np.array([y], dtype=np.int64),
-                factors_nbins=factors_nbins,
-                classes_y=classes_y,
-                freqs_y=freqs_y,
-                classes_y_safe=classes_y_safe,
-                min_nonzero_confidence=min_nonzero_confidence,
-                npermutations=npermutations,
-            )
-            if bootstrapped_mi > 0:
-                mutualinfos[(y, pair)] = bootstrapped_mi
-
-    return entropies, mutualinfos
-    """
+    return build_friend_graph(
+        selected_vars=list(selected_vars),
+        factors_data=factors_data,
+        factors_nbins=factors_nbins,
+        target_indices=np.asarray(y, dtype=np.int64),
+        dtype=dtype,
+    )
 
 
 # Re-exports for backwards compatibility (discretisation helpers live in their own module).

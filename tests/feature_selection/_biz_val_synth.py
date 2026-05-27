@@ -178,6 +178,72 @@ def make_heavy_tail_skewed(n: int = 2000, p_noise: int = 5, seed: int = 42):
 # ---------------------------------------------------------------------------
 
 
+def make_latent_reflections(n: int = 4000, loadings=(1.0, 1.0, 1.0, 1.0), noise_sd=(0.7, 0.7, 0.7, 0.7),
+                            n_noise: int = 3, indep_weight: float = 0.4, seed: int = 42,
+                            shared_noise: float = 0.0, distinct_sd: float = 0.0):
+    """Hidden factor ``z`` reflected in several observed columns ``A_i = loadings_i*z + noise_i`` plus an
+    independent signal and pure-noise columns. ``y = sign(z + indep_weight*indep)``.
+
+    Knobs span the biz_val scenario matrix:
+    - homoscedastic equal loadings -> S1 (mean is the MLE / BLUE);
+    - heterogeneous ``loadings`` -> S2 (PCA wins);
+    - heterogeneous ``noise_sd`` -> S3 (inverse-variance / factor-score win);
+    - ``distinct_sd>0`` adds a per-reflection distinct signal delta_i that also drives y -> S4
+      (aggregation destroys delta -> the unidimensionality gate / supervised gate must protect);
+    - ``shared_noise>0`` makes the reflection noise CORRELATED -> S5 (averaging can't denoise -> reject).
+
+    Returns ``(X, y, info)`` with ``info = {"reflections": [0..k-1], "indep": k, "z": z_true}``.
+    """
+    rng = np.random.default_rng(seed)
+    k = len(loadings)
+    z = rng.normal(size=n)
+    eps_shared = rng.normal(size=n)
+    refl_cols = []
+    for i in range(k):
+        eps = noise_sd[i] * ((1.0 - shared_noise) * rng.normal(size=n) + shared_noise * eps_shared)
+        col = loadings[i] * z + eps
+        if distinct_sd > 0:
+            col = col + distinct_sd * rng.normal(size=n)  # delta_i carried into the column
+        refl_cols.append(col)
+    indep = rng.normal(size=n)
+    score = z + indep_weight * indep
+    if distinct_sd > 0:
+        # delta_i also drives y so averaging it away costs predictive info (the dangerous S4 case).
+        score = score + distinct_sd * sum((c - loadings[i] * z) for i, c in enumerate(refl_cols))
+    y = (score > np.median(score)).astype(np.int64)
+    X = np.column_stack(refl_cols + [indep] + [rng.normal(size=n) for _ in range(n_noise)])
+    info = {"reflections": list(range(k)), "indep": k, "z": z}
+    return X, y, info
+
+
+def make_two_latent_groups(n: int = 6000, k1: int = 4, k2: int = 4, noise: float = 0.85,
+                           n_noise: int = 3, seed: int = 42):
+    """TWO independent hidden factors z1, z2, each reflected in its own group of noisy columns, plus a
+    pure-noise group. ``y = sign(z1 + z2 + small noise)`` (both factors drive the target).
+
+    Within-group columns correlate (~``1/(1+noise^2)``); cross-group correlation is ~0; noise columns
+    are independent. A correct clusterer must find exactly TWO clusters (one per latent factor) and
+    NOT merge them or pull in noise. Returns ``(X, y, info)`` with
+    ``info = {"groupA": [..], "groupB": [..], "noise": [..], "z1": .., "z2": ..}``.
+    """
+    rng = np.random.default_rng(seed)
+    z1 = rng.normal(size=n)
+    z2 = rng.normal(size=n)
+    groupA = [z1 + noise * rng.normal(size=n) for _ in range(k1)]
+    groupB = [z2 + noise * rng.normal(size=n) for _ in range(k2)]
+    noise_cols = [rng.normal(size=n) for _ in range(n_noise)]
+    score = z1 + z2 + 0.3 * rng.normal(size=n)
+    y = (score > np.median(score)).astype(np.int64)
+    X = np.column_stack(groupA + groupB + noise_cols)
+    info = {
+        "groupA": list(range(k1)),
+        "groupB": list(range(k1, k1 + k2)),
+        "noise": list(range(k1 + k2, k1 + k2 + n_noise)),
+        "z1": z1, "z2": z2,
+    }
+    return X, y, info
+
+
 def as_df(X: np.ndarray, y: np.ndarray, prefix: str = "x"):
     """Wrap a numpy ``(X, y)`` pair as ``(pd.DataFrame, pd.Series)``.
 

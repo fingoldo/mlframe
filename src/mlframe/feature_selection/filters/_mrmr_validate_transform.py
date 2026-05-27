@@ -34,6 +34,7 @@ def _validate_string_params(self):
         ("mrmr_redundancy_algo", self._VALID_MRMR_REDUNDANCY_ALGOS),
         ("fe_unary_preset", self._VALID_FE_UNARY_PRESETS),
         ("fe_binary_preset", self._VALID_FE_BINARY_PRESETS),
+        ("cluster_aggregate_mode", self._VALID_CLUSTER_AGGREGATE_MODES),
     )
     for _name, _valid in _checks:
         _val = getattr(self, _name, None)
@@ -49,6 +50,15 @@ def _validate_string_params(self):
                 f"MRMR: {_name}={_val!r} is not a recognised value. "
                 f"Valid values: {_valid}."
             )
+    # cluster_aggregate_methods is a sequence; validate each element.
+    _methods = getattr(self, "cluster_aggregate_methods", None)
+    if _methods is not None:
+        for _m in _methods:
+            if _m not in self._VALID_CLUSTER_AGGREGATE_METHODS:
+                raise ValueError(
+                    f"MRMR: cluster_aggregate_methods contains {_m!r}, not a recognised value. "
+                    f"Valid values: {self._VALID_CLUSTER_AGGREGATE_METHODS}."
+                )
 
 # Input validation contract: explicit guards for memory-exhaustion shapes, malformed dtypes,
 # +/-inf values, single-class y, and polars LazyFrame / Expr edge cases. Each guard raises ValueError or warns.

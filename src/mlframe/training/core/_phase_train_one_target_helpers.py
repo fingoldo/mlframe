@@ -161,6 +161,27 @@ def _build_feature_selection_report(
                 _report["reason_per_feature"] = _reasons
         except Exception:
             pass
+
+    # Friend-graph post-analysis summary (MRMR only; absent on other selectors). Compact,
+    # JSON-serializable: per-class counts, suspected-sink / pruned feature names, and per-node
+    # entropy / relevance / redundancy stats. A failed read must never abort the run.
+    try:
+        _fg = getattr(selector, "friend_graph_", None)
+        if _fg is not None and hasattr(_fg, "to_meta"):
+            _report["friend_graph"] = _fg.to_meta()
+    except Exception:
+        pass
+
+    # Clustered-feature aggregation summary (MRMR only). Lists each denoised aggregate built from a
+    # correlated-reflection cluster: its name, chosen combiner method, member features, and the
+    # MI(aggregate;y) vs best-member-MI gain. Already JSON-serializable. Read must never abort the run.
+    try:
+        _ca = getattr(selector, "cluster_aggregate_", None)
+        if _ca:
+            _report["cluster_aggregate"] = _ca
+    except Exception:
+        pass
+
     return _report
 
 

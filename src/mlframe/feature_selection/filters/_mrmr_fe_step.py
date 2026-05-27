@@ -585,6 +585,51 @@ def _run_fe_step(
                     float(fe_min_engineered_mi_prevalence),
                 )
 
+    # Clustered-feature aggregation (opt-in): denoise correlated "reflection" clusters into one
+    # aggregate column (a k-ary engineered recipe). Run once on the first FE step -- it clusters only
+    # raw ``feature_names_in_`` columns, which don't change across FE steps. Guarded so a failure never
+    # aborts fit, mirroring the friend-graph block.
+    if getattr(self, "cluster_aggregate_enable", False) and num_fs_steps == 0:
+        try:
+            from ._cluster_aggregate import run_cluster_aggregate_step
+
+            data, cols, nbins, X, _ca_added, _ca_removed, _ca_indices, _ca_summary = run_cluster_aggregate_step(
+                data=data, cols=cols, nbins=nbins, X=X, target_indices=target_indices,
+                feature_names_in_=list(self.feature_names_in_), categorical_idx=categorical_vars,
+                cached_MIs=cached_MIs, engineered_recipes=engineered_recipes,
+                quantization_nbins=self.quantization_nbins, quantization_method=self.quantization_method,
+                quantization_dtype=self.quantization_dtype,
+                methods=tuple(self.cluster_aggregate_methods),
+                mi_prevalence=self.cluster_aggregate_mi_prevalence,
+                min_member_relevance=self.cluster_aggregate_min_member_relevance,
+                min_cluster_size=self.cluster_aggregate_min_cluster_size,
+                max_cluster_size=self.cluster_aggregate_max_cluster_size,
+                corr_threshold=self.cluster_aggregate_corr_threshold,
+                homogeneity_tau=self.cluster_aggregate_homogeneity_tau,
+                max_candidates=self.cluster_aggregate_max_candidates,
+                mode=self.cluster_aggregate_mode, is_polars_input=_is_polars_input,
+                verbose=verbose, dtype=self.dtype,
+            )
+            n_recommended_features += int(_ca_added)
+            if _ca_indices:
+                # The aggregate already passed the supervised MI gate (beats best member), so select it
+                # directly -- don't rely on a re-screen (with the default fe_max_steps=1 the loop breaks
+                # before re-screening). Remap routes the engineered name into _engineered_recipes_.
+                _sv = list(selected_vars) if not isinstance(selected_vars, list) else selected_vars
+                selected_vars = _sv + [i for i in _ca_indices if i not in _sv]
+            if _ca_removed:  # replace mode: consumed in _fit_impl before the cols->original remap
+                self._cluster_aggregate_removals_ = list(getattr(self, "_cluster_aggregate_removals_", [])) + list(_ca_removed)
+            if _ca_summary:
+                # Fitted summary -> surfaced into meta_info["feature_selection_report"]["cluster_aggregate"].
+                self.cluster_aggregate_ = list(getattr(self, "cluster_aggregate_", []) or []) + _ca_summary
+                logger.info(
+                    "MRMR cluster_aggregate (%s): built %d denoised aggregate(s) from correlated clusters: %s",
+                    self.cluster_aggregate_mode, _ca_added,
+                    [f"{r['name']} (method={r['method']}, k={len(r['members'])}, +MI {r['mi_gain']:.4f})" for r in _ca_summary],
+                )
+        except Exception:
+            logger.warning("cluster_aggregate step failed; continuing without it.", exc_info=True)
+
     return data, cols, nbins, X, selected_vars, n_recommended_features
 
 

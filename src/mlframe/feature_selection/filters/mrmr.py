@@ -171,6 +171,15 @@ class MRMR(BaseEstimator, TransformerMixin):
     support_ : ndarray of shape (n_features,)
         The mask of selected features.
 
+    Notes
+    -----
+    ``cluster_aggregate_enable`` (ON by default; gated so it is a no-op without genuine clusters) turns on clustered-feature aggregation: correlated
+    "reflection" features (noisy copies of a hidden factor ``z``) are combined into one denoised
+    aggregate (``mean_z`` / ``mean_inv_var`` / ``pca_pc1`` / ``factor_score`` / ``median``) that recovers
+    ``z`` better than any single reflection. Adopted only if it beats the best member's MI with the
+    target. Helps capacity-limited / linear downstreams, redundant sensor data, interpretability, and
+    tight feature budgets; for tree/GBM downstreams expect no-harm rather than a lift (trees already
+    average reflections via splits). ``augment`` adds the aggregate; ``replace`` also drops the members.
     """
 
     # Process-wide cache of fitted state, keyed by (content_sig(X), content_sig(y), params_signature). When the
@@ -437,6 +446,60 @@ class MRMR(BaseEstimator, TransformerMixin):
         # ignoring groups would mask a real correctness gap (cross-group leakage in MI estimation on panel / user-session / sliding-window data). Default False keeps the legacy warn behaviour for
         # ad-hoc callers who already know the limitation and want MI computed per-row anyway.
         strict_groups: bool = False,
+        # Friend-graph post-analysis: after screening, render the selected set as a
+        # node-link diagram (node=feature sized by entropy, edge=pairwise MI, arrow=ADC
+        # direction) and classify each feature green (unique) / red (suspected redundant
+        # sink) / yellow (middling). Diagnostic by default; the fitted graph is exposed as
+        # ``self.friend_graph_`` and summarized into the suite's feature_selection_report.
+        build_friend_graph: bool = True,
+        # When True, drop red (suspected-sink) features from ``support_`` after the graph is
+        # built, protecting the neighbor that carries each removed feature's unique target info
+        # so cause and effect are never dropped together. Off by default -- changes the selected set.
+        friend_graph_prune: bool = False,
+        # Guard on the O(k^2) edge pass: above this many selected features the graph keeps
+        # node stats only and skips edges (warns). Raise for large opt-in graphs.
+        friend_graph_max_nodes: int = 200,
+        # Edge kept only when I(X_a; X_b) exceeds this absolute floor (nats).
+        friend_graph_mi_eps: float = 1e-6,
+        # ...and exceeds ``friend_graph_edge_significance`` times the finite-sample MI bias
+        # ``(na-1)(nb-1)/(2n)`` expected under independence -- suppresses spurious edges.
+        friend_graph_edge_significance: float = 3.0,
+        # A feature is a sink candidate when it is connected to at least this many others
+        # (graph degree); it is flagged red only if its neighbors then carry more unique
+        # target info than its own relevance (scaled by ``friend_graph_unique_ratio``).
+        friend_graph_garbage_min_degree: int = 3,
+        friend_graph_unique_ratio: float = 1.0,
+        # A feature is green (unique knowledge) when connected to at most this many others.
+        friend_graph_unique_max_degree: int = 1,
+        # Clustered-feature aggregation: when several correlated "reflection" features are noisy copies
+        # of one hidden factor z, build a DENOISED aggregate (noise ~ sigma^2/k) instead of keeping one
+        # and dropping the rest. ENABLED by default -- discovery is gated (min |corr| + PC1 unidimensionality
+        # + a strict MI gate requiring the aggregate to beat the best single member), so it only fires on
+        # genuine correlated-reflection clusters and is a no-op otherwise. "augment" (default) ADDS the
+        # aggregate while keeping existing features (members additionally drop as redundant only under
+        # use_simple_mode=False); "replace" substitutes the cluster with its aggregate. Helps
+        # capacity-limited/linear downstreams, sensor data, interpretability; for tree/GBM downstreams
+        # expect no-harm (trees already average reflections via splits).
+        cluster_aggregate_enable: bool = True,
+        cluster_aggregate_mode: str = "augment",  # "augment" | "replace"
+        # Aggregator menu (best gated method per cluster is kept): mean_z (default), mean_inv_var
+        # (hetero noise), median (robust), pca_pc1 (hetero loadings), factor_score (Bartlett 1-factor).
+        cluster_aggregate_methods: tuple = ("mean_z",),
+        # Adopt only if MI(aggregate; y) >= this * max member MI (the denoising claim is "strictly
+        # beats the best single member"; also what makes the no-harm cases reject).
+        cluster_aggregate_mi_prevalence: float = 1.0,
+        # Cluster a feature only if its marginal relevance clears this LOW floor (excludes pure noise;
+        # well below the selection threshold so all-weak reflection clusters are still captured).
+        cluster_aggregate_min_member_relevance: float = 0.0,
+        cluster_aggregate_min_cluster_size: int = 3,
+        cluster_aggregate_max_cluster_size: int = 12,
+        # Min |corr| between members (continuous) to count as one reflection cluster.
+        cluster_aggregate_corr_threshold: float = 0.6,
+        # Min PC1 variance fraction for the cluster to be unidimensional (rejects multi-factor /
+        # partial-shared+distinct clusters that averaging would blur).
+        cluster_aggregate_homogeneity_tau: float = 0.6,
+        # O(m^2) cost guard on the relevance-floored candidate pool.
+        cluster_aggregate_max_candidates: int = 200,
         # hidden
         stop_file: str = "stop",
     ):
@@ -489,6 +552,8 @@ class MRMR(BaseEstimator, TransformerMixin):
     _VALID_MRMR_REDUNDANCY_ALGOS = ("fleuret", "pld_max", "pld_mean")
     _VALID_FE_UNARY_PRESETS = ("minimal", "medium", "maximal")
     _VALID_FE_BINARY_PRESETS = ("minimal", "medium", "maximal")
+    _VALID_CLUSTER_AGGREGATE_MODES = ("augment", "replace")
+    _VALID_CLUSTER_AGGREGATE_METHODS = ("mean_z", "mean_inv_var", "median", "pca_pc1", "factor_score")
 
     # ``_validate_string_params`` + ``_validate_inputs`` are implemented
     # in ``_mrmr_validate_transform.py`` and bound onto this class at the
@@ -561,6 +626,28 @@ class MRMR(BaseEstimator, TransformerMixin):
             "_cat_fe_state_": None,
             "_cat_fe_cache_": None,  # streaming cache; None on legacy pickles
             "strict_groups": False,  # added 2026-05-25; legacy pickles default to warn-only behaviour
+            # Friend-graph post-analysis (added 2026-05-27). Legacy pickles refit with the
+            # current defaults; ``friend_graph_`` itself is a fitted attribute, not seeded here.
+            "build_friend_graph": True,
+            "friend_graph_prune": False,
+            "friend_graph_max_nodes": 200,
+            "friend_graph_mi_eps": 1e-6,
+            "friend_graph_edge_significance": 3.0,
+            "friend_graph_garbage_min_degree": 3,
+            "friend_graph_unique_ratio": 1.0,
+            "friend_graph_unique_max_degree": 1,
+            # Clustered-feature aggregation (added 2026-05-27). Off by default; legacy pickles refit
+            # with these defaults.
+            "cluster_aggregate_enable": True,
+            "cluster_aggregate_mode": "augment",
+            "cluster_aggregate_methods": ("mean_z",),
+            "cluster_aggregate_mi_prevalence": 1.0,
+            "cluster_aggregate_min_member_relevance": 0.0,
+            "cluster_aggregate_min_cluster_size": 3,
+            "cluster_aggregate_max_cluster_size": 12,
+            "cluster_aggregate_corr_threshold": 0.6,
+            "cluster_aggregate_homogeneity_tau": 0.6,
+            "cluster_aggregate_max_candidates": 200,
         }
         for k, v in defaults.items():
             state.setdefault(k, v)

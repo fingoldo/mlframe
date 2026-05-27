@@ -1,1 +1,0 @@
-w9d-fs-residue DONE: 15/15 findings closed (7 new code, 5 verified already-fixed, 1 test-only adjustment, 1 perf hoist). All sensors GREEN. Manifest at audit/critique_2026_05_24/manifests/DONE_w9d-fs-residue.json.

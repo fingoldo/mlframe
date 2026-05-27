@@ -111,6 +111,45 @@ def _clone_model_with_sticky_flags(
     return cloned_model, _ngb_fallback_snapshot
 
 
+def _maybe_render_friend_graph(ctx, pre_pipeline, _unwrap_selector, cur_target_name, pre_pipeline_name) -> None:
+    """Render the MRMR friend graph once per (target, pre_pipeline) when charts are enabled.
+
+    Routes through the reporting DSL (``ctx.reporting_config.plot_outputs``) so the same graph
+    is written as interactive plotly HTML and a static image with no bespoke plotting. Guarded
+    end-to-end -- a render failure must never affect training or the metadata write. The
+    per-(target, pp) latch in ``ctx.artifacts`` avoids re-rendering the weight-invariant graph
+    once per (model, weight) inner-loop iteration.
+    """
+    try:
+        selector = _unwrap_selector(pre_pipeline)
+        graph = getattr(selector, "friend_graph_", None)
+        if graph is None or not getattr(graph, "nodes", None):
+            return
+        reporting_config = getattr(ctx, "reporting_config", None)
+        output_config = getattr(ctx, "output_config", None)
+        plot_outputs = getattr(reporting_config, "plot_outputs", None) if reporting_config else None
+        plot_file = getattr(output_config, "plot_file", None) if output_config else None
+        if not plot_outputs or not plot_file:
+            return
+        artifacts = getattr(ctx, "artifacts", None)
+        rendered = artifacts.setdefault("_friend_graph_rendered", set()) if isinstance(artifacts, dict) else None
+        latch_key = (cur_target_name, pre_pipeline_name)
+        if rendered is not None and latch_key in rendered:
+            return
+        import re
+
+        from mlframe.feature_selection.filters.friend_graph import plot_friend_graph
+        _safe = re.sub(r"[^0-9A-Za-z._-]+", "_", f"{cur_target_name}_{pre_pipeline_name}".strip())
+        plot_friend_graph(
+            graph, plot_outputs=plot_outputs, base_path=f"{plot_file}_friend_graph_{_safe}",
+            title=f"Feature friend graph - {cur_target_name} ({str(pre_pipeline_name).strip()})",
+        )
+        if rendered is not None:
+            rendered.add(latch_key)
+    except Exception:
+        logger.warning("friend-graph render skipped for %s/%s", cur_target_name, pre_pipeline_name, exc_info=True)
+
+
 def _build_and_record_model_schema(
     ctx: Any,
     metadata: dict,
@@ -207,5 +246,7 @@ def _build_and_record_model_schema(
             "scores": None,
             "reason_per_feature": None,
         }
+
+    _maybe_render_friend_graph(ctx, pre_pipeline, _unwrap_selector, cur_target_name, pre_pipeline_name)
 
     metadata.setdefault("model_schemas", {})[model_file_name] = _record

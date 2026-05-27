@@ -334,6 +334,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # engineered_recipes (name -> EngineeredRecipe) is initialised unconditionally; the splitter at the bottom
     # of fit() looks it up regardless of fe_max_steps. Stays empty when FE is disabled.
     engineered_recipes: dict = {}
+    # Reset per fit so a re-fit on the same instance doesn't carry stale cluster-aggregate state.
+    self._cluster_aggregate_removals_ = []
+    self.cluster_aggregate_ = []  # fitted summary (per-aggregate records) -> meta_info report
 
     # Cat-FE step (categorical interaction generator). Runs once before the screening loop when
     # ``cat_fe_config.enable=True``; augments data/cols/nbins with ordinal-encoded columns capturing pair
@@ -634,6 +637,65 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         X = X.drop(target_names)  # no-copy lazy op; caller's X untouched
     else:
         X.drop(columns=target_names, inplace=True)  # restores caller's original schema
+
+    # ---------------------------------------------------------------------------------------------------------------
+    # Friend-graph post-analysis (diagnostic; optional pruning). Built here, while ``selected_vars``,
+    # ``data``, ``nbins`` and ``target_indices`` are all still in cols-space, BEFORE the remap below
+    # rebinds ``selected_vars`` to original-frame indices. When pruning is enabled the pruned cols-space
+    # list flows through that same remap into ``support_``. Never allowed to break fit -- guarded.
+    # ---------------------------------------------------------------------------------------------------------------
+    self.friend_graph_ = None
+    # ``len(...)`` not truthiness: by this point ``selected_vars`` may be a numpy array (the empty-screen
+    # FE fallback rebinds it), and ``and <array>`` raises "truth value ... ambiguous". Empty list AND empty
+    # array both give len 0, so the guard reads "build the graph only when something was selected".
+    if getattr(self, "build_friend_graph", False) and len(selected_vars) > 0:
+        try:
+            from .friend_graph import build_friend_graph as _build_fg, prune_by_friend_graph as _prune_fg
+
+            _fg = _build_fg(
+                selected_vars=selected_vars,
+                factors_data=data,
+                factors_nbins=nbins,
+                target_indices=target_indices,
+                feature_names=cols,
+                mi_eps=self.friend_graph_mi_eps,
+                edge_significance=self.friend_graph_edge_significance,
+                garbage_min_degree=self.friend_graph_garbage_min_degree,
+                garbage_unique_ratio=self.friend_graph_unique_ratio,
+                unique_max_degree=self.friend_graph_unique_max_degree,
+                max_nodes=self.friend_graph_max_nodes,
+                seed=self.random_seed,
+            )
+            if self.friend_graph_prune:
+                # Protect cluster-aggregate columns from pruning: they are correlated with all their
+                # members by construction, so the sink classifier could mis-flag them.
+                _ca_protect = [
+                    v for v in selected_vars
+                    if getattr(engineered_recipes.get(cols[v]), "kind", None) == "cluster_aggregate"
+                ]
+                _pruned, _reasons = _prune_fg(_fg, selected_vars, protect_indices=_ca_protect)
+                if _reasons:
+                    if verbose:
+                        logger.info(
+                            "MRMR friend-graph pruned %d suspected-sink feature(s): %s",
+                            len(_fg.pruned), _fg.pruned,
+                        )
+                    selected_vars = _pruned
+            self.friend_graph_ = _fg
+        except Exception as _fg_exc:
+            logger.warning(
+                "MRMR friend-graph post-analysis failed (%s: %s); continuing without it.",
+                type(_fg_exc).__name__, _fg_exc,
+            )
+
+    # Clustered-feature aggregation, replace mode: drop the aggregated cluster MEMBERS from
+    # selected_vars (cols-space) so only the denoised aggregate survives into support_. Idempotent
+    # set-difference (composes with the friend-graph prune above). The aggregate itself is an
+    # engineered name and is routed into _engineered_recipes_ by the remap below.
+    _ca_removed = getattr(self, "_cluster_aggregate_removals_", None)
+    if _ca_removed:
+        _removed_set = set(_ca_removed)
+        selected_vars = [v for v in selected_vars if cols[v] not in _removed_set]
 
     # ---------------------------------------------------------------------------------------------------------------
     # selected_vars: cols-indices -> names -> original-frame indices (categorize_dataset may rearrange cat columns).

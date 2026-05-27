@@ -199,6 +199,35 @@ rfe = RFECVCustom(estimator=LGBMClassifier(), step=0.1, cv=5)
 rfe.fit(X, y)
 ```
 
+**SHAP-proxied feature selection (`ShapProxiedFS`).** Trains one model on all features, computes SHAP values once, then approximates the OOS prediction of a model trained on any feature subset `S` by the coalition value `base + sum_{j in S} phi_j` - so subsets can be *ranked* without retraining (~450x faster per subset than an honest retrain in-repo). The cheap proxy ranking is then honestly re-validated on a disjoint holdout to pick the final subset. Exact numba/CUDA brute force for `n <= ~22`, else beam / greedy / genetic / annealing / gradient ("Schrodinger gates") backends. Ships a proxy-trust guard (measures proxy-vs-honest rank fidelity on your data) and an importance-top-k ablation (verifies it beats plain SHAP importance). Honest about its limit: the proxy under-credits subsets that drop features whose signal correlated survivors could recover (the "<50% coverage" wall), which the trust guard surfaces.
+
+```python
+from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
+
+sel = ShapProxiedFS(classification=True, metric="brier", optimizer="auto")
+sel.fit(X, y)                       # one model + OOF SHAP -> rank subsets -> honest re-validate top-N
+print(sel.selected_features_)       # names, in input-column order
+report = sel.shap_proxy_report_
+print(report["trust"]["spearman"])              # measured proxy fidelity on this data
+print(report["importance_ablation"]["proxy_wins"])  # beat SHAP-importance-top-k?
+X_sel = sel.transform(X)
+```
+
+**Friend-graph post-analysis.** After screening, the `MRMR` estimator builds a "friend graph" of the selected features (node = feature sized by entropy, edge = pairwise mutual information, arrow = asymmetric dependency, color = green/unique / red/suspected-sink / yellow/middling). It flags a "universal soldier" feature - one correlated with many genuine predictors but carrying no unique target information - that greedy mRMR can otherwise promote early and let distract strong models. The graph is exposed on the fitted estimator, summarized into the training suite's `feature_selection_report`, and rendered (interactive plotly HTML + static image) through the reporting backends. Diagnostic by default; pruning is opt-in:
+
+```python
+from mlframe.feature_selection.filters.mrmr import MRMR
+
+sel = MRMR(build_friend_graph=True, friend_graph_prune=False).fit(X, y)
+g = sel.friend_graph_
+print(g.suspected_garbage)          # names of suspected redundant sinks
+print(g.to_meta()["class_counts"])  # {'green': ..., 'red': ..., 'yellow': ...}
+
+# Opt in to actually drop the suspected sinks from support_ (protects the
+# neighbour that carries each removed feature's unique target information):
+pruned = MRMR(friend_graph_prune=True).fit(X, y)
+```
+
 **Time-series and financial feature engineering on Polars.** Windowed aggregation, ACF, Hurst exponent, TA-Lib indicators, market-wide rolling features. Most extraction paths run Polars-native without copying to pandas:
 
 ```python
