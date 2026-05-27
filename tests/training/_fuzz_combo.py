@@ -605,6 +605,23 @@ AXES: dict[str, tuple[Any, ...]] = {
     "mrmr_friend_graph_prune_cfg": (False, True),
     "mrmr_cluster_aggregate_enable_cfg": (True, False),
     "mrmr_cluster_aggregate_mode_cfg": ("augment", "replace"),
+    # 2026-05-28 -- ShapProxiedFS (SHAP-coalition-proxy selector,
+    # feature_selection/shap_proxied_fs.py, registry name "ShapProxiedFS").
+    # Independent FS branch gated by its own enable flag (parallel to MRMR).
+    # optimizer drives _resolve_optimizer/_run_search dispatch ("auto" picks
+    # bruteforce<=22 else beam; "greedy_forward" hits the heuristic path);
+    # revalidate toggles the honest disjoint-holdout retrain of the top-N;
+    # trust_guard toggles the proxy-trust spearman diagnostic + the bias
+    # corrector it feeds; interaction_aware adds the O(P^2) SHAP-interaction
+    # coalition candidates; cluster_features ("auto"/False) toggles correlated
+    # -feature clustering before SHAP. Sub-knobs collapse to ShapProxiedFS
+    # __init__ defaults when use_shap_proxied_fs is off (canonical_key).
+    "use_shap_proxied_fs": (False, True),
+    "shap_proxied_optimizer_cfg": ("auto", "greedy_forward"),
+    "shap_proxied_revalidate_cfg": (True, False),
+    "shap_proxied_trust_guard_cfg": (True, False),
+    "shap_proxied_interaction_aware_cfg": (False, True),
+    "shap_proxied_cluster_features_cfg": ("auto", False),
     # --- CatFE deep (only when use_mrmr_fs + cat_fe_enable)
     "catfe_fwer_correction_cfg": ("none", "bh_fdr", "bonferroni"),
     "catfe_perm_budget_strategy_cfg": ("bandit_ucb1", "fixed"),
@@ -1110,6 +1127,13 @@ class FuzzCombo:
     mrmr_friend_graph_prune_cfg: bool = False
     mrmr_cluster_aggregate_enable_cfg: bool = True
     mrmr_cluster_aggregate_mode_cfg: str = "augment"
+    # 2026-05-28 ShapProxiedFS axes (defaults mirror ShapProxiedFS.__init__)
+    use_shap_proxied_fs: bool = False
+    shap_proxied_optimizer_cfg: str = "auto"
+    shap_proxied_revalidate_cfg: bool = True
+    shap_proxied_trust_guard_cfg: bool = True
+    shap_proxied_interaction_aware_cfg: bool = False
+    shap_proxied_cluster_features_cfg: "bool | str" = "auto"
     catfe_fwer_correction_cfg: str = "none"
     catfe_perm_budget_strategy_cfg: str = "bandit_ucb1"
     catfe_permutation_null_cfg: str = "joint_independence"
@@ -1911,6 +1935,15 @@ class FuzzCombo:
                 if (self.use_mrmr_fs and self.mrmr_cluster_aggregate_enable_cfg)
                 else "augment"
             ),
+            # 2026-05-28 ShapProxiedFS axes. All sub-knobs collapse to the
+            # ShapProxiedFS.__init__ defaults when use_shap_proxied_fs is off so
+            # non-shap-proxied combos don't gain phantom variation.
+            self.use_shap_proxied_fs,
+            (self.shap_proxied_optimizer_cfg if self.use_shap_proxied_fs else "auto"),
+            (self.shap_proxied_revalidate_cfg if self.use_shap_proxied_fs else True),
+            (self.shap_proxied_trust_guard_cfg if self.use_shap_proxied_fs else True),
+            (self.shap_proxied_interaction_aware_cfg if self.use_shap_proxied_fs else False),
+            (self.shap_proxied_cluster_features_cfg if self.use_shap_proxied_fs else "auto"),
         )
 
     def _canonical_recurrent_model(self) -> "str | None":
@@ -2666,6 +2699,12 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         mrmr_friend_graph_prune_cfg=axes.get("mrmr_friend_graph_prune_cfg", False),
         mrmr_cluster_aggregate_enable_cfg=axes.get("mrmr_cluster_aggregate_enable_cfg", True),
         mrmr_cluster_aggregate_mode_cfg=axes.get("mrmr_cluster_aggregate_mode_cfg", "augment"),
+        use_shap_proxied_fs=axes.get("use_shap_proxied_fs", False),
+        shap_proxied_optimizer_cfg=axes.get("shap_proxied_optimizer_cfg", "auto"),
+        shap_proxied_revalidate_cfg=axes.get("shap_proxied_revalidate_cfg", True),
+        shap_proxied_trust_guard_cfg=axes.get("shap_proxied_trust_guard_cfg", True),
+        shap_proxied_interaction_aware_cfg=axes.get("shap_proxied_interaction_aware_cfg", False),
+        shap_proxied_cluster_features_cfg=axes.get("shap_proxied_cluster_features_cfg", "auto"),
         catfe_fwer_correction_cfg=axes.get("catfe_fwer_correction_cfg", "none"),
         catfe_perm_budget_strategy_cfg=axes.get("catfe_perm_budget_strategy_cfg", "bandit_ucb1"),
         catfe_permutation_null_cfg=axes.get("catfe_permutation_null_cfg", "joint_independence"),
@@ -2886,6 +2925,49 @@ def build_mrmr_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]:
         friend_graph_prune=combo.mrmr_friend_graph_prune_cfg,
         cluster_aggregate_enable=combo.mrmr_cluster_aggregate_enable_cfg,
         cluster_aggregate_mode=combo.mrmr_cluster_aggregate_mode_cfg,
+    )
+
+
+def build_shap_proxied_fs_kwargs_from_flat(
+    *,
+    use_shap_proxied_fs: bool,
+    optimizer: str = "auto",
+    revalidate: bool = True,
+    trust_guard: bool = True,
+    interaction_aware: bool = False,
+    cluster_features: "bool | str" = "auto",
+) -> Optional[Dict[str, Any]]:
+    """Build the shap_proxied_fs_kwargs dict passed to
+    ``registry.get("ShapProxiedFS").instantiate(**kwargs)`` (which forwards to
+    ShapProxiedFS.__init__). Returns None when use_shap_proxied_fs=False so the
+    FS step is a no-op (mirrors build_mrmr_kwargs_from_flat).
+
+    Single-edit point: every ShapProxiedFS knob the fuzz harness exercises maps
+    to its exact __init__ parameter name here, so adding a new shap-proxied axis
+    only touches this function (plus the AXES dict + the dataclass field +
+    canonical_key + _build_combo). Param names verified against
+    ShapProxiedFS.__init__ (feature_selection/shap_proxied_fs.py).
+    """
+    if not use_shap_proxied_fs:
+        return None
+    return {
+        "optimizer": optimizer,
+        "revalidate": revalidate,
+        "trust_guard": trust_guard,
+        "interaction_aware": interaction_aware,
+        "cluster_features": cluster_features,
+    }
+
+
+def build_shap_proxied_fs_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]:
+    """FuzzCombo-aware wrapper around build_shap_proxied_fs_kwargs_from_flat."""
+    return build_shap_proxied_fs_kwargs_from_flat(
+        use_shap_proxied_fs=combo.use_shap_proxied_fs,
+        optimizer=combo.shap_proxied_optimizer_cfg,
+        revalidate=combo.shap_proxied_revalidate_cfg,
+        trust_guard=combo.shap_proxied_trust_guard_cfg,
+        interaction_aware=combo.shap_proxied_interaction_aware_cfg,
+        cluster_features=combo.shap_proxied_cluster_features_cfg,
     )
 
 

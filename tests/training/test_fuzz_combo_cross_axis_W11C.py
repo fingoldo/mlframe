@@ -190,3 +190,85 @@ def test_iter466_mrmr_friend_graph_cluster_axes_flow_to_kwargs():
     if non_mrmr:
         kw_off = build_mrmr_kwargs(non_mrmr[0])
         assert kw_off is None, "use_mrmr_fs=False must yield None mrmr_kwargs"
+
+
+# ---------------------------------------------------------------------------
+# ShapProxiedFS axes (SHAP-coalition-proxy selector)
+# ---------------------------------------------------------------------------
+
+
+def test_shap_proxied_fs_axes_flow_to_kwargs():
+    """ShapProxiedFS (feature_selection/shap_proxied_fs.py, registry name
+    "ShapProxiedFS") must be (a) present as fuzz axes, (b) varied across
+    shap-proxied-on combos, and (c) threaded into the kwargs dict the suite
+    would pass to ShapProxiedFS.__init__ (param names match exactly).
+    Shap-proxied-off combos canonicalise the sub-knobs to their
+    ShapProxiedFS.__init__ defaults + yield None kwargs so they gain no
+    phantom variation. Mirrors test_iter466_mrmr_friend_graph_cluster_axes."""
+    from tests.training._fuzz_combo import (
+        AXES, _build_combo, enumerate_combos, build_shap_proxied_fs_kwargs,
+    )
+    for ax in (
+        "use_shap_proxied_fs", "shap_proxied_optimizer_cfg",
+        "shap_proxied_revalidate_cfg", "shap_proxied_trust_guard_cfg",
+        "shap_proxied_interaction_aware_cfg", "shap_proxied_cluster_features_cfg",
+    ):
+        assert ax in AXES, f"missing fuzz axis {ax}"
+
+    combos = enumerate_combos(target=150, master_seed=20260422)
+    shap_combos = [c for c in combos if c.use_shap_proxied_fs]
+    assert shap_combos, "expected at least one ShapProxiedFS-on combo in the suite"
+
+    # kwargs carry all 5 knobs (names match the ShapProxiedFS constructor params).
+    kw = build_shap_proxied_fs_kwargs(shap_combos[0])
+    assert kw is not None
+    for k in (
+        "optimizer", "revalidate", "trust_guard",
+        "interaction_aware", "cluster_features",
+    ):
+        assert k in kw, f"shap_proxied_fs_kwargs missing {k}"
+
+    # An explicitly-enabled combo with non-default sub-knobs threads them through
+    # verbatim (the suite would forward these straight to ShapProxiedFS.__init__).
+    base_axes = {name: values[0] for name, values in AXES.items()}
+    base_axes.update(
+        use_shap_proxied_fs=True,
+        shap_proxied_optimizer_cfg="greedy_forward",
+        shap_proxied_revalidate_cfg=False,
+        shap_proxied_trust_guard_cfg=False,
+        shap_proxied_interaction_aware_cfg=True,
+        shap_proxied_cluster_features_cfg=False,
+    )
+    on = _build_combo(models=("cb",), axes=base_axes, seed=0)
+    kw_on = build_shap_proxied_fs_kwargs(on)
+    assert kw_on == {
+        "optimizer": "greedy_forward",
+        "revalidate": False,
+        "trust_guard": False,
+        "interaction_aware": True,
+        "cluster_features": False,
+    }
+
+    # Shap-proxied-off: sub-knobs collapse to ShapProxiedFS.__init__ defaults in
+    # canonical_key, and the kwargs builder yields None (no-op FS step). Toggling
+    # only the sub-knobs while OFF must NOT change the canonical key.
+    off_a = dict(base_axes)
+    off_a.update(use_shap_proxied_fs=False)
+    off_b = dict(off_a)
+    off_b.update(
+        shap_proxied_optimizer_cfg="auto",
+        shap_proxied_revalidate_cfg=True,
+        shap_proxied_trust_guard_cfg=True,
+        shap_proxied_interaction_aware_cfg=False,
+        shap_proxied_cluster_features_cfg="auto",
+    )
+    combo_off_a = _build_combo(models=("cb",), axes=off_a, seed=0)
+    combo_off_b = _build_combo(models=("cb",), axes=off_b, seed=0)
+    assert build_shap_proxied_fs_kwargs(combo_off_a) is None
+    assert combo_off_a.canonical_key() == combo_off_b.canonical_key(), (
+        "shap-proxied sub-knobs must collapse to defaults when the enable flag is off"
+    )
+
+    # The enable axis must actually vary the canonical key when toggled with the
+    # same sub-knobs (so dedup keeps both branches reachable).
+    assert on.canonical_key() != combo_off_a.canonical_key()
