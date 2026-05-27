@@ -29,6 +29,136 @@ import math
 from typing import Optional
 
 import numpy as np
+from scipy.special import gammaln as _gammaln
+
+try:
+    import numba as _numba
+    _NUMBA_AVAILABLE = True
+except Exception:
+    _NUMBA_AVAILABLE = False
+
+
+if _NUMBA_AVAILABLE:
+    @_numba.njit(cache=True)
+    def _bocpd_inner(seg, hazard, mu0, kappa0, alpha0, beta0,
+                     out_p_change, out_expected_rl, out_max_rl):
+        T = seg.size
+        # Preallocate to max possible run length T+1; track cur_len.
+        mu = np.empty(T + 1, dtype=np.float64); mu[0] = mu0
+        kappa = np.empty(T + 1, dtype=np.float64); kappa[0] = kappa0
+        alpha = np.empty(T + 1, dtype=np.float64); alpha[0] = alpha0
+        beta = np.empty(T + 1, dtype=np.float64); beta[0] = beta0
+        rl_probs = np.empty(T + 1, dtype=np.float64); rl_probs[0] = 1.0
+        log_pred = np.empty(T + 1, dtype=np.float64)
+        cur_len = 1
+        for t in range(T):
+            x = seg[t]
+            if not np.isfinite(x):
+                # Predict-only growth + change-point mass; suff stats unchanged.
+                cp_mass = 0.0
+                for r in range(cur_len):
+                    cp_mass += rl_probs[r] * hazard
+                # shift suff stats right (prepend prior)
+                for r in range(cur_len, 0, -1):
+                    mu[r] = mu[r - 1]; kappa[r] = kappa[r - 1]
+                    alpha[r] = alpha[r - 1]; beta[r] = beta[r - 1]
+                    rl_probs[r] = rl_probs[r - 1] * (1.0 - hazard)
+                mu[0] = mu0; kappa[0] = kappa0
+                alpha[0] = alpha0; beta[0] = beta0
+                rl_probs[0] = cp_mass
+                cur_len += 1
+                total = 0.0
+                for r in range(cur_len):
+                    total += rl_probs[r]
+                inv_t = 1.0 / (total + 1e-300)
+                for r in range(cur_len):
+                    rl_probs[r] *= inv_t
+            else:
+                # Closed-form Student-t log-pdf per run length.
+                log_pred_max = -1e300
+                for r in range(cur_len):
+                    df = 2.0 * alpha[r]
+                    scale_sq = beta[r] * (kappa[r] + 1.0) / (alpha[r] * kappa[r])
+                    half_df = 0.5 * df
+                    z2 = (x - mu[r]) * (x - mu[r]) / scale_sq
+                    lp = (math.lgamma(half_df + 0.5) - math.lgamma(half_df)
+                          - 0.5 * math.log(math.pi * df * scale_sq)
+                          - (half_df + 0.5) * math.log1p(z2 / df))
+                    log_pred[r] = lp
+                    if lp > log_pred_max:
+                        log_pred_max = lp
+                # Posterior over run length.
+                cp = 0.0
+                for r in range(cur_len):
+                    cp += rl_probs[r] * math.exp(log_pred[r] - log_pred_max) * hazard
+                # Update suff stats (right-shift, prepend prior).
+                for r in range(cur_len, 0, -1):
+                    pr = r - 1
+                    mu[r] = (kappa[pr] * mu[pr] + x) / (kappa[pr] + 1.0)
+                    kappa[r] = kappa[pr] + 1.0
+                    alpha[r] = alpha[pr] + 0.5
+                    beta[r] = beta[pr] + 0.5 * kappa[pr] * (x - mu[pr]) * (x - mu[pr]) / (kappa[pr] + 1.0)
+                    rl_probs[r] = rl_probs[pr] * math.exp(log_pred[pr] - log_pred_max) * (1.0 - hazard)
+                mu[0] = mu0; kappa[0] = kappa0
+                alpha[0] = alpha0; beta[0] = beta0
+                rl_probs[0] = cp
+                cur_len += 1
+                total = 0.0
+                for r in range(cur_len):
+                    total += rl_probs[r]
+                inv_t = 1.0 / (total + 1e-300)
+                for r in range(cur_len):
+                    rl_probs[r] *= inv_t
+            # Summaries.
+            ex = 0.0
+            mx_idx = 0
+            mx_val = rl_probs[0]
+            for r in range(cur_len):
+                ex += r * rl_probs[r]
+                if rl_probs[r] > mx_val:
+                    mx_val = rl_probs[r]; mx_idx = r
+            out_p_change[t] = rl_probs[0]
+            out_expected_rl[t] = ex
+            out_max_rl[t] = float(mx_idx)
+
+
+    @_numba.njit(cache=True)
+    def _oblr_inner(y_arr, X_arr, prior_precision, noise_sigma,
+                    out_pred_mean, out_pred_var, out_log_marg):
+        n, k = X_arr.shape
+        mu = np.zeros(k, dtype=np.float64)
+        Sigma = np.eye(k, dtype=np.float64) / prior_precision
+        noise_var = noise_sigma * noise_sigma
+        Sx = np.empty(k, dtype=np.float64)
+        for t in range(n):
+            # Sx = Sigma @ x_t
+            for i in range(k):
+                s = 0.0
+                for j in range(k):
+                    s += Sigma[i, j] * X_arr[t, j]
+                Sx[i] = s
+            pred_mean = 0.0
+            xSx = 0.0
+            for i in range(k):
+                pred_mean += X_arr[t, i] * mu[i]
+                xSx += X_arr[t, i] * Sx[i]
+            pred_var = xSx + noise_var
+            out_pred_mean[t] = pred_mean
+            out_pred_var[t] = pred_var
+            y_t = y_arr[t]
+            if np.isfinite(y_t):
+                out_log_marg[t] = -0.5 * (
+                    math.log(2.0 * math.pi * pred_var)
+                    + (y_t - pred_mean) * (y_t - pred_mean) / pred_var
+                )
+                innovation = y_t - pred_mean
+                inv_pv = 1.0 / pred_var
+                for i in range(k):
+                    Ki = Sx[i] * inv_pv
+                    mu[i] += Ki * innovation
+                    # Sigma -= outer(K, Sx)
+                    for j in range(k):
+                        Sigma[i, j] -= Ki * Sx[j]
 
 
 def _pf_single_segment(
@@ -491,26 +621,33 @@ def bocpd_features(
     out_max_rl = np.full(n, np.nan, dtype=np.float64)
 
     def _run(idx_seg: np.ndarray) -> None:
-        seg = obs[idx_seg]
+        seg = np.ascontiguousarray(obs[idx_seg], dtype=np.float64)
         T = seg.size
         if T == 0:
             return
-        # Cap run length to T (max possible).
-        # Maintain (mu, kappa, alpha, beta) suff stats per run length.
+        if _NUMBA_AVAILABLE:
+            seg_p = np.empty(T, dtype=np.float64)
+            seg_ex = np.empty(T, dtype=np.float64)
+            seg_max = np.empty(T, dtype=np.float64)
+            _bocpd_inner(seg, hazard, mu0, kappa0, alpha0, beta0,
+                         seg_p, seg_ex, seg_max)
+            out_p_change[idx_seg] = seg_p
+            out_expected_rl[idx_seg] = seg_ex
+            out_max_rl[idx_seg] = seg_max
+            return
+        # NumPy fallback (numba unavailable).
         mu = np.array([mu0], dtype=np.float64)
         kappa = np.array([kappa0], dtype=np.float64)
         alpha = np.array([alpha0], dtype=np.float64)
         beta = np.array([beta0], dtype=np.float64)
-        rl_probs = np.array([1.0], dtype=np.float64)  # P(r_0 = 0) = 1
+        rl_probs = np.array([1.0], dtype=np.float64)
         for t in range(T):
             x = float(seg[t])
             if not np.isfinite(x):
-                # Predict-only: propagate growth without update.
                 rl_probs_new = np.concatenate(([0.0], rl_probs * (1.0 - hazard)))
                 rl_probs_new[0] = (rl_probs * hazard).sum()
                 rl_probs_new = rl_probs_new / (rl_probs_new.sum() + 1e-300)
                 rl_probs = rl_probs_new
-                # Suff stats keep same (no observation).
                 mu = np.concatenate(([mu0], mu))
                 kappa = np.concatenate(([kappa0], kappa))
                 alpha = np.concatenate(([alpha0], alpha))
@@ -520,29 +657,21 @@ def bocpd_features(
                 out_expected_rl[idx_seg[t]] = float((rl_idx * rl_probs).sum())
                 out_max_rl[idx_seg[t]] = float(np.argmax(rl_probs))
                 continue
-            # Predictive: Student-t with mean=mu, scale = sqrt(beta * (kappa+1) / (alpha * kappa)), df=2*alpha
-            # Use log-pdf for stability.
             df = 2.0 * alpha
             scale_sq = beta * (kappa + 1.0) / (alpha * kappa)
+            half_df = 0.5 * df
+            z2 = (x - mu) ** 2 / scale_sq
             log_pred = (
-                -0.5 * np.log(np.pi * df * scale_sq)
-                + np.log(np.exp(  # only for ratio form; compute via lgamma
-                    0.0
-                ))  # placeholder; switch to full log-form below
-            )
-            # Use scipy.stats.t.logpdf for accuracy.
-            from scipy.stats import t as _student_t
-            log_pred = _student_t.logpdf(
-                x, df=df, loc=mu, scale=np.sqrt(scale_sq),
+                _gammaln(half_df + 0.5)
+                - _gammaln(half_df)
+                - 0.5 * np.log(np.pi * df * scale_sq)
+                - (half_df + 0.5) * np.log1p(z2 / df)
             )
             pred = np.exp(log_pred - log_pred.max())
-            # Growth probabilities: r_t = r_{t-1} + 1
             growth = rl_probs * pred * (1.0 - hazard)
-            # Change-point probability: r_t = 0
             cp = (rl_probs * pred * hazard).sum()
             rl_probs_new = np.concatenate(([cp], growth))
             rl_probs_new = rl_probs_new / (rl_probs_new.sum() + 1e-300)
-            # Update suff stats: prepend the prior, increment existing.
             mu_new = np.concatenate(([mu0], (kappa * mu + x) / (kappa + 1.0)))
             kappa_new = np.concatenate(([kappa0], kappa + 1.0))
             alpha_new = np.concatenate(([alpha0], alpha + 0.5))
@@ -550,10 +679,8 @@ def bocpd_features(
                 [beta0],
                 beta + 0.5 * (kappa * (x - mu) ** 2) / (kappa + 1.0),
             ))
-            mu = mu_new
-            kappa = kappa_new
-            alpha = alpha_new
-            beta = beta_new
+            mu = mu_new; kappa = kappa_new
+            alpha = alpha_new; beta = beta_new
             rl_probs = rl_probs_new
             out_p_change[idx_seg[t]] = float(rl_probs[0])
             rl_idx = np.arange(rl_probs.size, dtype=np.float64)
@@ -609,32 +736,41 @@ def online_bayesian_linear_regression(
     out_log_marg = np.full(n, np.nan, dtype=np.float64)
 
     def _run(idx_seg: np.ndarray) -> None:
-        # State: posterior over beta is N(mu, Sigma) with precision
-        # matrix Lambda = Sigma^-1.
+        idx = np.ascontiguousarray(idx_seg, dtype=np.int64)
+        if idx.size == 0:
+            return
+        if _NUMBA_AVAILABLE:
+            y_sub = np.ascontiguousarray(y_arr[idx])
+            X_sub = np.ascontiguousarray(X_arr[idx])
+            pm = np.empty(idx.size, dtype=np.float64)
+            pv = np.empty(idx.size, dtype=np.float64)
+            lm = np.full(idx.size, np.nan, dtype=np.float64)
+            _oblr_inner(y_sub, X_sub, prior_precision, noise_sigma, pm, pv, lm)
+            out_pred_mean[idx] = pm
+            out_pred_var[idx] = pv
+            out_log_marg[idx] = lm
+            return
+        # Track covariance Sigma + Sherman-Morrison update: O(k^2) per step.
         mu = np.zeros(k, dtype=np.float64)
-        Lambda = prior_precision * np.eye(k, dtype=np.float64)
+        Sigma = np.eye(k, dtype=np.float64) / prior_precision
         noise_var = noise_sigma ** 2
         for t in idx_seg:
             x_t = X_arr[t]
             y_t = float(y_arr[t])
-            # Predictive: y_t | data ~ N(x^T mu, x^T Sigma x + noise_var)
-            Sigma = np.linalg.solve(Lambda, np.eye(k))
+            Sx = Sigma @ x_t
             pred_mean = float(x_t @ mu)
-            pred_var = float(x_t @ Sigma @ x_t) + noise_var
+            pred_var = float(x_t @ Sx) + noise_var
             out_pred_mean[t] = pred_mean
             out_pred_var[t] = pred_var
             if np.isfinite(y_t):
-                # log marginal lik under N(pred_mean, pred_var)
                 out_log_marg[t] = -0.5 * (
                     math.log(2.0 * math.pi * pred_var)
                     + (y_t - pred_mean) ** 2 / pred_var
                 )
-                # Bayesian update of precision + mean.
-                Lambda_new = Lambda + np.outer(x_t, x_t) / noise_var
-                # mu_new = Lambda_new^-1 (Lambda mu + x_t y_t / noise_var)
-                rhs = Lambda @ mu + x_t * (y_t / noise_var)
-                mu = np.linalg.solve(Lambda_new, rhs)
-                Lambda = Lambda_new
+                innovation = y_t - pred_mean
+                K = Sx / pred_var
+                mu = mu + K * innovation
+                Sigma = Sigma - np.outer(K, Sx)
 
     if group_ids is None:
         _run(np.arange(n))

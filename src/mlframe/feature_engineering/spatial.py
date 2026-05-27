@@ -736,31 +736,34 @@ def knn_gradient_features(
     grad_norm = np.full(n_q, np.nan, dtype=np.float64)
     resid_std = np.full(n_q, np.nan, dtype=np.float64)
 
-    # Solve weighted normal equations per row. With small k (~20) and
-    # d (~2-3), Python loop is fine.
-    for i in range(n_q):
-        if not np.isfinite(q[i]).all():
-            continue
-        nbrs = compact_indices[i]
-        x_diff = ref[nbrs] - q[i]   # shape (k, d)
-        y = labels[nbrs]            # shape (k,)
-        w = 1.0 / (compact_dist[i] + 1.0)
-        # Design matrix [1, dx_1, ..., dx_d]
-        X = np.concatenate([np.ones((k, 1)), x_diff], axis=1)
-        Xw = X * w[:, None]
-        yw = y * w
-        # Solve normal eq (X^T W X) b = X^T W y
-        XtX = X.T @ Xw
-        Xty = X.T @ yw
-        try:
-            beta = np.linalg.solve(XtX, Xty)
-        except np.linalg.LinAlgError:
-            continue
-        grads[i] = beta[1:]
-        grad_norm[i] = float(np.linalg.norm(beta[1:]))
-        # Residual std (unweighted; gives curvature/heterogeneity proxy)
-        pred = X @ beta
-        resid_std[i] = float(np.std(y - pred, ddof=1)) if k > 1 else 0.0
+    # Batched weighted normal equations: build (n_q, k, d+1) design tensor,
+    # batch-solve all queries at once. ~10-50x vs per-row Python loop.
+    valid = np.isfinite(q).all(axis=1)
+    x_diff_all = ref[compact_indices] - q[:, None, :]
+    y_all = labels[compact_indices]
+    w_all = 1.0 / (compact_dist + 1.0)
+    X_all = np.concatenate(
+        [np.ones((n_q, k, 1), dtype=np.float64), x_diff_all], axis=2
+    )
+    Wx = X_all * w_all[..., None]
+    XtX = np.einsum("ijk,ijl->ikl", X_all, Wx)
+    Xty = np.einsum("ijk,ij->ik", X_all, w_all * y_all)[:, :, None]
+    eye = np.eye(d + 1, dtype=np.float64) * 1e-12
+    try:
+        beta_all = np.linalg.solve(XtX + eye, Xty)[:, :, 0]
+    except np.linalg.LinAlgError:
+        beta_all = np.full((n_q, d + 1), np.nan, dtype=np.float64)
+    pred_all = np.einsum("ijk,ik->ij", X_all, beta_all)
+    resid = y_all - pred_all
+    if k > 1:
+        rs = resid.std(axis=1, ddof=1)
+    else:
+        rs = np.zeros(n_q, dtype=np.float64)
+    grads_all = beta_all[:, 1:]
+    gn_all = np.linalg.norm(grads_all, axis=1)
+    grads[valid] = grads_all[valid]
+    grad_norm[valid] = gn_all[valid]
+    resid_std[valid] = rs[valid]
 
     out = {
         "grad_norm": grad_norm,
