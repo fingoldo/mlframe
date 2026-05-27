@@ -43,11 +43,173 @@ __all__ = [
     "rows_until_next_anchor",
 ]
 
+import math
 from typing import Optional
 
 import numpy as np
 
 from .grouped import iter_group_segments
+
+try:
+    import numba as _numba
+    _NUMBA_AVAILABLE = True
+except Exception:
+    _NUMBA_AVAILABLE = False
+
+
+if _NUMBA_AVAILABLE:
+    # numba cores for the per-segment anchor recursions. The Python
+    # versions use growing/shrinking lists (append/pop); these mirror the
+    # exact semantics with preallocated buffers + window indices so a
+    # @njit can compile them. Each writes into pre-sliced output arrays.
+    _ANCHOR_FASTMATH = {"reassoc", "contract", "arcp", "afn"}
+
+    @_numba.njit(cache=True, fastmath=_ANCHOR_FASTMATH)
+    def _anchor_rmse_core(label, is_anchor, K_slope, K_rmse,
+                          residual_out, rmse_out):
+        m = label.size
+        pos = np.empty(m, dtype=np.float64)
+        val = np.empty(m, dtype=np.float64)
+        res = np.empty(m, dtype=np.float64)
+        n_anch = 0
+        n_res = 0
+        last_carry = np.nan
+        for i in range(m):
+            if is_anchor[i] and np.isfinite(label[i]):
+                if n_anch >= 2:
+                    lo = n_anch - K_slope
+                    if lo < 0:
+                        lo = 0
+                    w = n_anch - lo
+                    xm = 0.0; ym = 0.0
+                    for j in range(lo, n_anch):
+                        xm += pos[j]; ym += val[j]
+                    xm /= w; ym /= w
+                    num = 0.0; den = 0.0
+                    for j in range(lo, n_anch):
+                        dx = pos[j] - xm
+                        num += dx * (val[j] - ym)
+                        den += dx * dx
+                    slope = num / (den + 1e-12)
+                    pred = val[n_anch - 1] + slope * (i - pos[n_anch - 1])
+                    e_j = label[i] - pred
+                    res[n_res] = e_j
+                    n_res += 1
+                    last_carry = e_j
+                pos[n_anch] = i
+                val[n_anch] = label[i]
+                n_anch += 1
+            residual_out[i] = last_carry
+            if n_res > 0:
+                lo = n_res - K_rmse
+                if lo < 0:
+                    lo = 0
+                ss = 0.0; cnt = 0
+                for j in range(lo, n_res):
+                    ss += res[j] * res[j]
+                    cnt += 1
+                rmse_out[i] = math.sqrt(ss / cnt)
+
+    @_numba.njit(cache=True, fastmath=_ANCHOR_FASTMATH)
+    def _anchor_quadratic_core(label, is_anchor, K_window, accel_out, quad_out):
+        m = label.size
+        pos = np.empty(m, dtype=np.float64)
+        val = np.empty(m, dtype=np.float64)
+        n_anch = 0
+        for i in range(m):
+            if is_anchor[i] and np.isfinite(label[i]):
+                pos[n_anch] = i
+                val[n_anch] = label[i]
+                n_anch += 1
+            lo = n_anch - K_window
+            if lo < 0:
+                lo = 0
+            cnt = n_anch - lo
+            if cnt >= 3:
+                last_r = pos[n_anch - 1]
+                # Normal equations for y = a + b*dx + c*dx^2 (dx centred on last).
+                s0 = 0.0; s1 = 0.0; s2 = 0.0; s3 = 0.0; s4 = 0.0
+                b0 = 0.0; b1 = 0.0; b2 = 0.0
+                for j in range(lo, n_anch):
+                    dx = pos[j] - last_r
+                    dx2 = dx * dx
+                    yj = val[j]
+                    s0 += 1.0; s1 += dx; s2 += dx2
+                    s3 += dx2 * dx; s4 += dx2 * dx2
+                    b0 += yj; b1 += yj * dx; b2 += yj * dx2
+                # Solve 3x3 [[s0,s1,s2],[s1,s2,s3],[s2,s3,s4]] @ [a,b,c] = [b0,b1,b2]
+                m00 = s0; m01 = s1; m02 = s2
+                m10 = s1; m11 = s2; m12 = s3
+                m20 = s2; m21 = s3; m22 = s4
+                det = (m00 * (m11 * m22 - m12 * m21)
+                       - m01 * (m10 * m22 - m12 * m20)
+                       + m02 * (m10 * m21 - m11 * m20))
+                if abs(det) > 1e-300:
+                    inv_det = 1.0 / det
+                    # Cramer for c (coef[2]) and full solve for prediction.
+                    a = (b0 * (m11 * m22 - m12 * m21)
+                         - m01 * (b1 * m22 - m12 * b2)
+                         + m02 * (b1 * m21 - m11 * b2)) * inv_det
+                    b = (m00 * (b1 * m22 - m12 * b2)
+                         - b0 * (m10 * m22 - m12 * m20)
+                         + m02 * (m10 * b2 - b1 * m20)) * inv_det
+                    c = (m00 * (m11 * b2 - b1 * m21)
+                         - m01 * (m10 * b2 - b1 * m20)
+                         + b0 * (m10 * m21 - m11 * m20)) * inv_det
+                    dx_now = i - last_r
+                    accel_out[i] = c
+                    quad_out[i] = a + b * dx_now + c * dx_now * dx_now
+
+    @_numba.njit(cache=True, fastmath=_ANCHOR_FASTMATH)
+    def _anchor_ewm_core(label, is_anchor, half_life, ewm_val_out, ewm_slope_out):
+        m = label.size
+        pos = np.empty(m, dtype=np.float64)
+        val = np.empty(m, dtype=np.float64)
+        n_anch = 0
+        for i in range(m):
+            if is_anchor[i] and np.isfinite(label[i]):
+                pos[n_anch] = i
+                val[n_anch] = label[i]
+                n_anch += 1
+            if n_anch == 0:
+                continue
+            w_sum = 1e-12
+            wy = 0.0
+            for j in range(n_anch):
+                w = 0.5 ** ((i - pos[j]) / half_life)
+                w_sum += w
+                wy += val[j] * w
+            w_mean = wy / w_sum
+            ewm_val_out[i] = w_mean
+            if n_anch >= 2:
+                xm = 0.0
+                for j in range(n_anch):
+                    w = 0.5 ** ((i - pos[j]) / half_life)
+                    xm += pos[j] * w
+                xm /= w_sum
+                num = 0.0; den = 0.0
+                for j in range(n_anch):
+                    w = 0.5 ** ((i - pos[j]) / half_life)
+                    num += w * (pos[j] - xm) * (val[j] - w_mean)
+                    den += w * (pos[j] - xm) * (pos[j] - xm)
+                ewm_slope_out[i] = num / (den + 1e-12)
+
+    @_numba.njit(cache=True, fastmath=_ANCHOR_FASTMATH)
+    def _anchor_density_core(is_anchor, window_rows, count_out, gap_out):
+        m = is_anchor.size
+        pos = np.empty(m, dtype=np.float64)
+        n_anch = 0
+        head = 0
+        for i in range(m):
+            if is_anchor[i]:
+                pos[n_anch] = i
+                n_anch += 1
+            while head < n_anch and (i - pos[head]) >= window_rows:
+                head += 1
+            cnt = n_anch - head
+            count_out[i] = float(cnt)
+            if cnt >= 2:
+                gap_out[i] = (pos[n_anch - 1] - pos[head]) / (cnt - 1)
 
 
 def _anchor_features_for_segment(
@@ -219,6 +381,32 @@ def _per_group_anchor_loop(
     return out_keys
 
 
+def _run_anchor_numba_2out(label, is_anchor, group_ids, runner, key1, key2):
+    """Per-group dispatch for a 2-output numba anchor core. ``runner`` is a
+    closure ``(seg_label, seg_anchor, out1_slice, out2_slice) -> None`` that
+    invokes the njit core with its captured K / half-life / window params.
+    Groups are independent, so this loops per sorted segment (the heavy work
+    is inside the njit core; the per-segment call overhead is negligible)."""
+    label = np.ascontiguousarray(label, dtype=np.float64)
+    is_anchor = np.ascontiguousarray(is_anchor, dtype=np.bool_)
+    n = label.size
+    o1 = np.full(n, np.nan, dtype=np.float64)
+    o2 = np.full(n, np.nan, dtype=np.float64)
+    if group_ids is None:
+        runner(label, is_anchor, o1, o2)
+        return {key1: o1, key2: o2}
+    sort_idx, starts, ends = iter_group_segments(group_ids)
+    ls = np.ascontiguousarray(label[sort_idx])
+    as_ = np.ascontiguousarray(is_anchor[sort_idx])
+    s1 = np.full(n, np.nan, dtype=np.float64)
+    s2 = np.full(n, np.nan, dtype=np.float64)
+    for s, e in zip(starts, ends):
+        runner(ls[s:e], as_[s:e], s1[s:e], s2[s:e])
+    o1[sort_idx] = s1
+    o2[sort_idx] = s2
+    return {key1: o1, key2: o2}
+
+
 def anchor_residual_rmse_features(
     label: np.ndarray,
     is_anchor: np.ndarray,
@@ -285,6 +473,12 @@ def anchor_residual_rmse_features(
             f"anchor_rmse_K{K_rmse}": rmse_out,
         }
 
+    if _NUMBA_AVAILABLE:
+        return _run_anchor_numba_2out(
+            label, is_anchor, group_ids,
+            lambda lab, anc, o1, o2: _anchor_rmse_core(lab, anc, K_slope, K_rmse, o1, o2),
+            "anchor_loo_residual", f"anchor_rmse_K{K_rmse}",
+        )
     return _per_group_anchor_loop(label, is_anchor, group_ids, _seg)
 
 
@@ -344,6 +538,12 @@ def anchor_quadratic_extrapolation_features(
             f"quadratic_extrap_pred_K{K_window}": quad_out,
         }
 
+    if _NUMBA_AVAILABLE:
+        return _run_anchor_numba_2out(
+            label, is_anchor, group_ids,
+            lambda lab, anc, o1, o2: _anchor_quadratic_core(lab, anc, K_window, o1, o2),
+            f"anchor_acceleration_K{K_window}", f"quadratic_extrap_pred_K{K_window}",
+        )
     return _per_group_anchor_loop(label, is_anchor, group_ids, _seg)
 
 
@@ -397,6 +597,13 @@ def anchor_ewm_features(
             f"ewm_anchor_slope_H{int(half_life_rows)}": ewm_slope_out,
         }
 
+    if _NUMBA_AVAILABLE:
+        return _run_anchor_numba_2out(
+            label, is_anchor, group_ids,
+            lambda lab, anc, o1, o2: _anchor_ewm_core(lab, anc, float(half_life_rows), o1, o2),
+            f"ewm_anchor_value_H{int(half_life_rows)}",
+            f"ewm_anchor_slope_H{int(half_life_rows)}",
+        )
     return _per_group_anchor_loop(label, is_anchor, group_ids, _seg)
 
 
@@ -440,6 +647,14 @@ def anchor_density_features(
                 gap_out[i] = float(gaps.mean())
         return count_out, gap_out
 
+    if _NUMBA_AVAILABLE:
+        # label slot is unused by the density core (count/gap depend only on
+        # anchor POSITIONS); pass is_anchor as the placeholder.
+        return _run_anchor_numba_2out(
+            is_anchor, is_anchor, group_ids,
+            lambda lab, anc, o1, o2: _anchor_density_core(anc, window_rows, o1, o2),
+            f"anchor_count_in_W{window_rows}", f"anchor_mean_gap_in_W{window_rows}",
+        )
     if group_ids is None:
         count, gap = _seg(is_anchor, np.arange(n))
         return {

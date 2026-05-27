@@ -699,6 +699,15 @@ def knn_gradient_features(
     Use cases: real estate price gradient toward CBD/waterfront,
     weather temperature / pressure gradient (physically meaningful),
     epi incidence gradient = wavefront velocity proxy.
+
+    Perf: the WLS solve is fully vectorised (batched einsum + one
+    np.linalg.solve over all queries). After that the cost is the sklearn
+    KDTree build + query, not the linear algebra. A GPU port is NOT added
+    here on purpose: the batched solve is already sub-tenth-of-a-second,
+    GPU KDTree (cuVS) has no Windows wheel, and H2D transfer of the
+    (n_q, k, d+1) design tensor would eat any GPU-linalg win. The spatial
+    kNN family stays CPU; the GPU axis lives in the batched-numerics
+    kernels (joint_hist / mi) where it measurably wins.
     """
     try:
         from sklearn.neighbors import KDTree

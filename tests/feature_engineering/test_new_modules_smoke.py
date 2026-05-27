@@ -476,3 +476,55 @@ def test_recursion_dispatch_routes_by_kernel_and_size() -> None:
         assert dispatch_recursion_backend("fe_bocpd", 10_000_000, 10_000) == "serial"
     finally:
         del os.environ["MLFRAME_FE_RECURSION_BACKEND"]
+
+
+# =============================================================================
+# anchor.py: numba cores match the Python list-based fallback
+# =============================================================================
+
+def _anchor_test_frame(n_wells: int = 10, rows_per_well: int = 250, seed: int = 0):
+    rng = np.random.default_rng(seed)
+    N = n_wells * rows_per_well
+    well = np.repeat(np.arange(n_wells), rows_per_well)
+    md = np.tile(np.arange(rows_per_well, dtype=float), n_wells)
+    label = np.cumsum(rng.normal(0, 0.2, N)) + md * 0.03
+    is_anchor = rng.random(N) < 0.15
+    return label, is_anchor, well
+
+
+def test_anchor_numba_cores_match_python_fallback() -> None:
+    """Every anchor feature's njit core must reproduce the list-based Python
+    reference (positions, residuals, EWM weights, window gaps) exactly."""
+    pytest = __import__("pytest")
+    pytest.importorskip("numba")
+    from mlframe.feature_engineering import anchor as A
+    if not A._NUMBA_AVAILABLE:
+        pytest.skip("numba unavailable")
+    label, is_anchor, well = _anchor_test_frame()
+
+    cases = [
+        lambda: A.anchor_residual_rmse_features(label, is_anchor, well, K_slope=10, K_rmse=10),
+        lambda: A.anchor_quadratic_extrapolation_features(label, is_anchor, well, K_window=10),
+        lambda: A.anchor_ewm_features(label, is_anchor, well, half_life_rows=30.0),
+        lambda: A.anchor_density_features(is_anchor, well, window_rows=100),
+    ]
+    for fn in cases:
+        A._NUMBA_AVAILABLE = True
+        try:
+            out_nb = fn()
+            A._NUMBA_AVAILABLE = False
+            out_py = fn()
+        finally:
+            A._NUMBA_AVAILABLE = True
+        for key in out_py:
+            a, b = out_nb[key], out_py[key]
+            # NaN masks must agree, finite values must match.
+            np.testing.assert_array_equal(
+                np.isfinite(a), np.isfinite(b),
+                err_msg=f"anchor {key}: NaN positions differ numba vs python",
+            )
+            mask = np.isfinite(a) & np.isfinite(b)
+            np.testing.assert_allclose(
+                a[mask], b[mask], atol=1e-6, rtol=0,
+                err_msg=f"anchor {key}: numba != python",
+            )
