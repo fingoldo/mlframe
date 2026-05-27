@@ -41,6 +41,27 @@ _BASE_BLOAT_REL_TOL = 0.25
 # Max allowed relative additivity violation: |base + phi.sum(1) - margin| / (|margin| scale).
 _ADDITIVITY_REL_TOL = 1e-2
 
+# Min column count at which the custom numba TreeSHAP is expected to beat the ``shap`` library. On
+# narrow data the shap C-extension is already fast and the numba JIT warmup is not worth it; the win
+# grows with width (OOF-SHAP on ~2000 features was the profiled hotspot). Routed by ``_pick_backend``;
+# overridable via kernel_tuning_cache so the crossover is tuned per-HW rather than hardcoded.
+_TREESHAP_NUMBA_MIN_FEATURES = 64
+
+
+def _treeshap_numba_min_features() -> int:
+    """Crossover width for routing to the custom numba TreeSHAP, from kernel_tuning_cache if present."""
+    try:
+        from mlframe.feature_selection.filters._kernel_tuning import get_kernel_tuning_cache
+
+        ktc = get_kernel_tuning_cache()
+        if ktc is not None:
+            entry = ktc.lookup("shap_proxy_treeshap")
+            if isinstance(entry, dict) and entry.get("numba_min_features"):
+                return int(entry["numba_min_features"])
+    except Exception:
+        pass
+    return _TREESHAP_NUMBA_MIN_FEATURES
+
 
 def _unwrap_estimator(model):
     """Return the SHAP-explainable base estimator, mirroring BorutaShap._boruta_shap_fit_explain."""
@@ -54,11 +75,66 @@ def _unwrap_estimator(model):
     return model
 
 
-def _shap_phi_and_base(explainer_base, X: pd.DataFrame):
+def _pick_backend(explainer_base, X: pd.DataFrame, backend: str) -> str:
+    """Resolve the SHAP backend. ``"auto"`` picks the FASTEST correct path by model type + width:
+    the custom numba/cupy TreeSHAP for supported xgboost models on wide data, else the ``shap`` lib.
+    Explicit ``"shap"`` / ``"treeshap_numba"`` / ``"treeshap_gpu"`` force a path (latter two require a
+    supported model and raise otherwise)."""
+    if backend in ("treeshap_numba", "treeshap_gpu"):
+        return backend
+    if backend == "shap":
+        return "shap"
+    # auto
+    from mlframe.feature_selection._shap_proxy_treeshap import is_supported_xgboost
+
+    if not is_supported_xgboost(explainer_base):
+        return "shap"
+    if X.shape[1] < _treeshap_numba_min_features():
+        return "shap"  # narrow: shap C-extension already fast, skip JIT warmup
+    try:
+        from mlframe.feature_selection._shap_proxy_treeshap_gpu import gpu_treeshap_available
+
+        if gpu_treeshap_available() and X.shape[0] * X.shape[1] >= 1_000_000:
+            return "treeshap_gpu"
+    except Exception:
+        pass
+    return "treeshap_numba"
+
+
+def _treeshap_phi_and_base(explainer_base, X: pd.DataFrame, use_gpu: bool):
+    """Custom path-dependent TreeSHAP backend (numba fallback / optional cupy). Returns ``(phi, base)``
+    in margin space, or ``None`` if the model is unsupported (caller falls back to the shap library)."""
+    from mlframe.feature_selection._shap_proxy_treeshap import extract_ensemble, treeshap_phi_base_numba
+
+    ensemble = extract_ensemble(explainer_base)
+    if ensemble is None:
+        return None
+    Xv = X.values if isinstance(X, pd.DataFrame) else np.asarray(X)
+    if use_gpu:
+        try:
+            from mlframe.feature_selection._shap_proxy_treeshap_gpu import treeshap_phi_base_gpu
+
+            return treeshap_phi_base_gpu(ensemble, Xv)
+        except Exception as exc:  # device/cupy hiccup -> numba fallback (never lose the result)
+            logger.warning("ShapProxiedFS: GPU TreeSHAP failed (%s); falling back to numba.", exc)
+    return treeshap_phi_base_numba(ensemble, Xv)
+
+
+def _shap_phi_and_base(explainer_base, X: pd.DataFrame, backend: str = "auto"):
     """Extract a single-output (n, f) phi matrix and scalar base from a fitted tree model.
 
     Returns ``(phi, base)`` in margin / log-odds space (classification) or target space (regression).
+    ``backend`` routes to the custom numba/cupy TreeSHAP (fast, wide data) or the ``shap`` library
+    (always-correct fallback); see ``_pick_backend``.
     """
+    resolved = _pick_backend(explainer_base, X, backend)
+    if resolved in ("treeshap_numba", "treeshap_gpu"):
+        out = _treeshap_phi_and_base(explainer_base, X, use_gpu=(resolved == "treeshap_gpu"))
+        if out is not None:
+            phi, base = out
+            return np.asarray(phi, dtype=np.float64), float(base)
+        # Unsupported despite routing -> fall through to shap.
+
     import shap
 
     explainer = shap.TreeExplainer(explainer_base, feature_perturbation="tree_path_dependent")
@@ -160,6 +236,7 @@ def compute_shap_matrix(
     return_variance: bool = False,
     rng: Optional[np.random.Generator] = None,
     tqdm_desc: Optional[str] = None,
+    shap_backend: str = "auto",
 ):
     """Compute the per-row SHAP value matrix + per-row base value.
 
@@ -167,6 +244,9 @@ def compute_shap_matrix(
     ``return_variance`` -- where ``phi_var`` (n, f) is the model-to-model attribution variance within
     each row's fold (lever #7: subsets built from unstable attributions can be penalised). With
     ``n_models == 1`` the variance is zero. ``config_jitter`` cycles tree depth across the models.
+
+    ``shap_backend`` ("auto" default) routes attribution between the custom fast numba/cupy TreeSHAP
+    (wide xgboost data) and the ``shap`` library (always-correct fallback); see ``_pick_backend``.
 
     phi : (n, f) float64 -- per-row SHAP in margin (clf) / target (reg) space.
     base : (n,) float64 -- per-row baseline (the fold's expected_value), constant within a fold.
@@ -186,7 +266,7 @@ def compute_shap_matrix(
             seed = int(rng.integers(0, 2**31 - 1))
             depth = _JITTER_DEPTHS[m % len(_JITTER_DEPTHS)] if config_jitter else None
             est = _fit_one(model_template, X_tr, y_tr, classification, seed, jitter_depth=depth)
-            pf, bf = _shap_phi_and_base(_unwrap_estimator(est), X_ex)
+            pf, bf = _shap_phi_and_base(_unwrap_estimator(est), X_ex, backend=shap_backend)
             s += pf
             sq += pf * pf
             b += bf

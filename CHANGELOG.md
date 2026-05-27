@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-05-28 — ShapProxiedFS: custom fast TreeSHAP backend (wide-data hotspot)
+
+OOF-SHAP was the wide-data hotspot (~96s for 2000 features); the `shap` library `TreeExplainer` is slow per-call and its `GPUTreeExplainer` is broken on our boxes. Adds a faithful, self-contained path-dependent TreeSHAP that the attribution stage routes to by default on wide xgboost data.
+
+- **Custom numba TreeSHAP** (`_shap_proxy_treeshap.py`): Lundberg path-dependent TreeSHAP (Algorithm 2) implemented in numba, sample-parallel via `prange`. Extracts an xgboost booster's trees ONCE into flat per-node tensors (children/feature/threshold/leaf-value/cover) and reuses them across all rows and folds. Iterative explicit-stack DFS (numba recursion miscompiles under `parallel=True`+`cache=True`). Exact additivity `base + phi.sum(1) == model margin` and parity with `shap.TreeExplainer(feature_perturbation="tree_path_dependent")` to ~1e-7. Critical correctness details: feature comparison in float32 (xgboost's internal dtype; float64 misroutes near-threshold rows), `x < split_condition -> yes/left`, NaN follows the `missing` child, cover-ratio path weights, and a logit(base_score) intercept for logistic objectives (base_score is stored in probability space).
+- **Optional cupy/CUDA variant** (`_shap_proxy_treeshap_gpu.py`): one thread per sample, mirrors the numba kernel exactly (matches to machine eps); kept as a distinct version, the numba kernel is the always-available fallback. Lazy double-checked-locked kernel compile + kernel_tuning_cache hook for block size; depth-capped local scratch (falls back to numba beyond the cap).
+- **Dispatcher** (`_shap_proxy_explain.py`): `_pick_backend` defaults to the FASTEST correct path by model type + data size + HW — custom numba on supported wide xgboost (`>= 64` features, tunable via kernel_tuning_cache), cupy on a CUDA box for large `n*f`, and the `shap` library for narrow data or unsupported model types. `compute_shap_matrix` gains a `shap_backend="auto"` knob; default public behaviour is unchanged.
+- **Measured win**: 3.5x at 2000 features / 1500 rows / 200 trees and 2.5x at 2000 features / 3000 rows / 300 trees vs `shap`, growing with width (the numba kernel cost is ~flat in width while `shap` scales with it), at ~1.5e-7 parity.
+- Tests: `test_shap_proxy_treeshap` — additivity + `shap`-parity (clf/reg), NaN routing, GPU-vs-numba parity (device-gated), dispatcher routing + `compute_shap_matrix` backend parity, and a `slow` biz_value speedup gate (>=1.3x on 2000 features).
+- Scope: xgboost regressor / binary classifier, single output, margin space. lightgbm + interaction values are the documented next slices (still served by the `shap` fallback).
+
 ## 2026-05-28 — ShapProxiedFS: wide-data scaling + algorithmic levers
 
 Extends `ShapProxiedFS` toward tens-of-thousands-of-features problems and adds the improvement levers from the multi-agent review, each fixed by a biz_val test.
