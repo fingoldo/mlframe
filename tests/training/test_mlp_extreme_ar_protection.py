@@ -253,6 +253,33 @@ class TestMlpOutputActivationBoundedBehavior:
         assert "class _BoundedTanhOutput" in src
         assert "tanh_train_range" in src
 
+    def test_bounded_head_forward_and_grad_equal_separate_op_reference(self) -> None:
+        """The device-guarded ``addcmul`` fast path (used on CUDA) must produce
+        the SAME forward output and the SAME input gradient as the plain
+        ``tanh(x) * scale + center`` reference. Runs on every available device
+        (CPU always; CUDA when present) so the fusion can never silently change
+        the bounded head's numerics or break autograd's tanh gradient."""
+        import torch
+        from mlframe.training.neural.flat import _BoundedTanhOutput
+
+        devices = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
+        for dev in devices:
+            for shape in [(2048, 1), (256, 8)]:
+                head = _BoundedTanhOutput(scale=2.5, center=-1.0).to(dev)
+                torch.manual_seed(0)
+                x = torch.randn(*shape, device=dev) * 7.0
+
+                xa = x.detach().clone().requires_grad_(True)
+                out = head(xa)                       # path under test (addcmul on CUDA)
+                out.sum().backward()
+
+                xb = x.detach().clone().requires_grad_(True)
+                ref = torch.tanh(xb) * head.scale + head.center
+                ref.sum().backward()
+
+                assert torch.equal(out, ref), f"forward drift on {dev} {shape}"
+                assert torch.equal(xa.grad, xb.grad), f"grad drift on {dev} {shape}"
+
 
 # ---------------------------------------------------------------------
 # FIX 2: drop per-well aggregate columns from MLP input
