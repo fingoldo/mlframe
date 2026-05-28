@@ -72,6 +72,7 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         brute_force_max_features: int = 22,
         use_gpu: bool = False,
         prefilter_top: int | None = 2000,
+        prefilter_method: str = "auto",
         cluster_features: bool | str = "auto",
         cluster_corr_threshold: float = 0.7,
         cluster_weighting: str = "pca_pc1",
@@ -115,6 +116,7 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         self.brute_force_max_features = brute_force_max_features
         self.use_gpu = use_gpu
         self.prefilter_top = prefilter_top
+        self.prefilter_method = prefilter_method
         self.cluster_features = cluster_features
         self.cluster_corr_threshold = cluster_corr_threshold
         self.cluster_weighting = cluster_weighting
@@ -230,8 +232,6 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         import time
         from contextlib import contextmanager
 
-        from sklearn.base import clone
-
         from mlframe.feature_selection._shap_proxy_explain import compute_shap_matrix, make_default_estimator
 
         # Optional per-stage wall-clock instrumentation for the scaling benchmark / profiling. Set
@@ -273,28 +273,24 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
 
         # Cheap native-importance pre-filter BEFORE the expensive OOF-SHAP. SHAP cost scales with the
         # column count, and clustering only compresses CORRELATED features (independent noise stays as
-        # singletons), so on wide data SHAP would otherwise run on ~all columns. One model fit on all
-        # features -> keep the top-K by native feature_importances_ / |coef_|. ``working_cols`` maps the
-        # surviving working columns back to original indices for the final selector output.
+        # singletons), so on wide data SHAP would otherwise run on ~all columns. Rank all features and
+        # keep the top-K; ``working_cols`` maps the surviving working columns back to original indices
+        # for the final selector output. ``prefilter_method`` trades speed against interaction-awareness
+        # (model / univariate / fast_model / gpu_model); "auto" stays quality-safe for moderate widths
+        # and switches to a fast method only for very wide data -- see ``_shap_proxy_prefilter``.
         working_cols = np.arange(n_features)
         if self.prefilter_top is not None and n_features > self.prefilter_top:
-            from mlframe.feature_selection._shap_proxy_explain import _unwrap_estimator
+            from mlframe.feature_selection._shap_proxy_prefilter import prefilter_columns
 
             with _stage("prefilter"):
-                pf = clone(model_template)
-                pf.fit(X_search, y_search)
-                est = _unwrap_estimator(pf)
-                if hasattr(est, "feature_importances_"):
-                    imp = np.asarray(est.feature_importances_, dtype=np.float64)
-                elif hasattr(est, "coef_"):
-                    imp = np.abs(np.asarray(est.coef_, dtype=np.float64)).reshape(-1, n_features).sum(axis=0)
-                else:
-                    imp = None
-                if imp is not None and imp.shape[0] == n_features:
-                    working_cols = np.sort(np.argsort(-imp)[: self.prefilter_top])
+                working_cols, pf_info = prefilter_columns(
+                    model_template, X_search, y_search, method=self.prefilter_method,
+                    prefilter_top=self.prefilter_top, classification=self.classification,
+                    n_features=n_features)
+                if len(working_cols) < n_features:
                     X_search = X_search.iloc[:, working_cols].reset_index(drop=True)
                     X_hold = X_hold.iloc[:, working_cols].reset_index(drop=True)
-                    report["prefilter"] = dict(kept=int(len(working_cols)), of=int(n_features))
+                report["prefilter"] = pf_info
 
         # Optional correlated-feature clustering: collapse to denoised UNITS so SHAP + search run on
         # hundreds of columns, not tens of thousands. unit_to_members maps proxy(unit) index ->

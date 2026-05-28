@@ -114,6 +114,54 @@ def test_biz_val_wide_pipeline_scales_and_recovers_informative():
 
 
 @pytest.mark.slow
+@pytest.mark.timeout(600)  # two wide prefilter fits (model vs fast) dominate; exceeds the 60s default
+def test_biz_val_fast_prefilter_does_not_worsen_recovery_vs_model():
+    """The iteration-4 win: on wide data the native-importance pre-filter (one model fit on ALL columns)
+    is the dominant cost. ``prefilter_method="fast_model"`` (the cheap interaction-aware ranking the
+    ``auto`` default routes to for very wide data) must NOT materially worsen informative recovery vs
+    the faithful full-booster ``"model"`` pre-filter, while being measurably faster. We score recovery
+    on the regime data (informatives + redundant copies + heavy noise) so the planted ground truth is
+    known, and assert (a) fast keeps >= model's informatives minus a 1-feature slack, and (b) the fast
+    pre-filter STAGE is faster. Measured dev run (seed=0, width=2000): model 6/6, fast 6/6; fast
+    prefilter ~5x faster -- floors leave seed headroom."""
+    import time
+
+    from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import make_regime_dataset
+    from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
+
+    n_informative, n_redundant, width = 6, 8, 2000
+    X, y, roles = make_regime_dataset(
+        n_samples=3000, n_informative=n_informative, n_redundant=n_redundant,
+        redundancy_rho=0.9, n_noise=width - n_informative - n_redundant, snr=5.0, task="binary", seed=0)
+    informative = {f"inf{i}" for i in range(n_informative)}
+
+    def _fit(method):
+        sel = ShapProxiedFS(
+            classification=True, metric="brier", optimizer="auto",
+            prefilter_top=300, prefilter_method=method, cluster_features=True, cluster_corr_threshold=0.7,
+            top_n=15, n_splits=3, n_revalidation_models=2, n_anchors=20, random_state=0, verbose=False)
+        sel._stage_timings = {}
+        t0 = time.perf_counter()
+        sel.fit(X, pd.Series(y))
+        total = time.perf_counter() - t0
+        rec = len(informative & set(sel.selected_features_))
+        return rec, sel._stage_timings.get("prefilter", total), sel.shap_proxy_report_["prefilter"]
+
+    rec_model, pf_model_secs, info_model = _fit("model")
+    rec_fast, pf_fast_secs, info_fast = _fit("fast_model")
+
+    assert info_model["method"] == "model" and info_fast["method"] == "fast_model"
+    # Quality: the fast pre-filter recovers within 1 informative of the faithful model pre-filter.
+    assert rec_fast >= rec_model - 1, (
+        f"fast_model prefilter worsened recovery: fast={rec_fast}/{n_informative} vs model={rec_model}/{n_informative}")
+    # And both must still recover most of the planted informatives (sanity floor).
+    assert rec_fast >= 4, f"fast_model recovered too few informatives: {rec_fast}/{n_informative}"
+    # Speed: the fast pre-filter STAGE must be faster than the full-booster one (the whole point).
+    assert pf_fast_secs < pf_model_secs, (
+        f"fast_model prefilter ({pf_fast_secs:.2f}s) not faster than model ({pf_model_secs:.2f}s)")
+
+
+@pytest.mark.slow
 def test_biz_val_regression_recovers_informative():
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
