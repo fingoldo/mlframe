@@ -102,6 +102,117 @@ def _emit_yscale_composite_chart(
     )
 
 
+def emit_per_model_composite_y_scale_test(
+    *,
+    entry: Any,
+    composite_spec: dict,
+    orig_target_name: str,
+    composite_name: str,
+    target_name: str,
+    y_full: np.ndarray,
+    test_idx,
+    test_df_pd,
+    plot_file: str | None = None,
+    reporting_config: Any = None,
+) -> None:
+    """Wrap a freshly-fit composite-target inner model in
+    CompositeTargetEstimator (IDEMPOTENT -- safe to call again at end-of-target)
+    and emit a TEST-split y-scale chart + log a TEST-split y-scale metric line
+    immediately, so composite targets get per-model feedback in the ORIGINAL
+    scale right after each fit instead of only at end-of-target.
+
+    Mutates ``entry.model`` (or ``entry`` itself) to the wrapper, matching
+    what the end-of-target ``_run_composite_target_wrapping`` does. The
+    downstream wrap-pass re-checks idempotency and skips already-wrapped
+    entries for the wrap step; its multi-split metric block still runs for
+    the comprehensive train/val/test table + watchdog. Never raises -- any
+    failure is logged at WARNING and swallowed (training must not crash on
+    a reporting hook).
+    """
+    try:
+        if test_idx is None or test_df_pd is None or y_full is None:
+            return
+        _inner = getattr(entry, "model", None) or entry
+        if _inner is None or not hasattr(_inner, "predict"):
+            return
+        # Idempotent: if already wrapped (e.g. recover_composite_y_scale_metrics
+        # re-entry, or the per-model hook ran already), reuse the wrapper.
+        if isinstance(_inner, CompositeTargetEstimator):
+            _wrapper = _inner
+        else:
+            _extra = tuple(composite_spec.get("extra_base_columns") or ())
+            _base_columns = (
+                (composite_spec["base_column"], *_extra) if _extra else None
+            )
+            _y_full_arr = np.asarray(y_full)
+            # Train rows the wrapper needs for the y-clip envelope: pass the
+            # FULL y (the wrapper sees the same y_train the end-of-target pass
+            # uses, sliced to filtered_train_idx). Here at per-model time we
+            # do not have filtered_train_idx; pass the full y so the clip
+            # envelope is conservative (a superset of the train range). The
+            # end-of-target pass will re-fit the envelope using the precise
+            # train slice via the same CompositeTargetEstimator instance.
+            _wrapper = CompositeTargetEstimator.from_fitted_inner(
+                fitted_inner=_inner,
+                transform_name=composite_spec["transform_name"],
+                base_column=composite_spec["base_column"],
+                base_columns=_base_columns,
+                transform_fitted_params=composite_spec["fitted_params"],
+                y_train=_y_full_arr,
+            )
+            # Mutate the entry so downstream callers (and the end-of-target
+            # wrap-pass idempotency check) see the wrapped form.
+            if hasattr(entry, "model"):
+                try:
+                    entry.model = _wrapper
+                except Exception:
+                    # Read-only attribute -- skip the in-place mutation; the
+                    # end-of-target pass will rebuild the wrapper.
+                    pass
+        _y_arr = np.asarray(y_full)
+        _y_test = _y_arr[test_idx]
+        _y_pred = np.asarray(
+            _wrapper.predict(test_df_pd), dtype=np.float64,
+        ).reshape(-1)
+        _finite = np.isfinite(_y_pred) & np.isfinite(_y_test)
+        if int(_finite.sum()) == 0:
+            return
+        _yt = _y_test.astype(np.float64)[_finite]
+        _yp = _y_pred[_finite]
+        _diff = _yp - _yt
+        _rmse = float(np.sqrt(np.mean(_diff * _diff)))
+        _mae = float(np.mean(np.abs(_diff)))
+        _ss_tot = float(np.sum((_yt - _yt.mean()) ** 2))
+        _r2 = (1.0 - float(np.sum(_diff * _diff)) / _ss_tot) if _ss_tot > 0 else float("nan")
+        # Inner class name for the log line, matching raw-target reports.
+        _inner_for_label = (
+            _wrapper.estimator_ if hasattr(_wrapper, "estimator_") else _inner
+        )
+        _inner_cls = type(_inner_for_label).__name__
+        logger.info(
+            "TEST %s %s %s [y-scale, per-model immediate] "
+            "MAE=%.4f RMSE=%.4f R2=%.4f n=%d",
+            _inner_cls, target_name, composite_name,
+            _mae, _rmse, _r2, int(_finite.sum()),
+        )
+        _emit_yscale_composite_chart(
+            y_target=_yt, y_pred=_yp,
+            inner_entry=entry,
+            composite_name=composite_name,
+            orig_tname=orig_target_name,
+            target_name=target_name,
+            plot_file=plot_file,
+            reporting_config=reporting_config,
+            rmse_y=_rmse, mae_y=_mae, r2_y=_r2,
+        )
+    except Exception as _err:
+        logger.warning(
+            "[CompositeTargetEstimator] per-model y-scale emit failed for "
+            "composite='%s' (non-fatal): %s",
+            composite_name, _err,
+        )
+
+
 def _run_composite_target_wrapping(
     *,
     models: dict,

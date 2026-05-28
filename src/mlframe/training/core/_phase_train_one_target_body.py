@@ -762,6 +762,61 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                     logger.info("  process_model(%s, w=%s) done -- %s", mlframe_model_name, weight_name, _elapsed_str(t0_model))
                 if not _is_neural and t0_model is not None:
                     _non_neural_train_times.append(timer() - t0_model)
+                # Per-model IMMEDIATE y-scale emit for composite targets:
+                # composite per-model reporting is suppressed upstream (the
+                # T-scale chart is skipped and the T-scale metric line emits
+                # no numbers in the original scale). Without this hook the
+                # operator gets no per-model feedback for composites until
+                # the end-of-target wrap-pass. Idempotent + non-fatal: the
+                # end-of-target pass still runs the full train/val/test
+                # metrics block + watchdog on the (now wrapped) entry.
+                try:
+                    from ..composite_transforms import is_composite_target_name as _is_comp
+                    if _is_comp(cur_target_name):
+                        _specs = (
+                            (metadata.get("composite_target_specs") or {})
+                            .get(str(target_type)) or {}
+                        )
+                        _spec_pair = None
+                        for _orig_n, _spec_list in _specs.items():
+                            for _s in (_spec_list or ()):
+                                if isinstance(_s, dict) and _s.get("name") == cur_target_name:
+                                    _spec_pair = (_orig_n, _s)
+                                    break
+                            if _spec_pair is not None:
+                                break
+                        _entries_for_target = (
+                            (ctx.models.get(str(target_type)) or {})
+                            .get(cur_target_name) or []
+                        )
+                        if _spec_pair is not None and _entries_for_target:
+                            _orig_n, _spec = _spec_pair
+                            _y_full = (
+                                (getattr(ctx, "target_by_type", {}) or {})
+                                .get(str(target_type), {})
+                                .get(_orig_n)
+                            )
+                            from ._phase_composite_wrapping import (
+                                emit_per_model_composite_y_scale_test,
+                            )
+                            emit_per_model_composite_y_scale_test(
+                                entry=_entries_for_target[-1],
+                                composite_spec=_spec,
+                                orig_target_name=_orig_n,
+                                composite_name=cur_target_name,
+                                target_name=cur_target_name,
+                                y_full=_y_full,
+                                test_idx=getattr(ctx, "test_idx", None),
+                                test_df_pd=test_df_pd,
+                                plot_file=getattr(ctx, "plot_file", None),
+                                reporting_config=getattr(ctx, "reporting_config", None),
+                            )
+                except Exception as _pmce:
+                    logger.warning(
+                        "per-model composite y-scale emit failed for "
+                        "target=%s model=%s (non-fatal): %s",
+                        cur_target_name, mlframe_model_name, _pmce,
+                    )
                 # Reclaim this model's transient bloat (float64 pre_pipeline
                 # copies, intermediate frames) before the next model so they
                 # don't stack with the next fit + the PipelineCache toward OOM.

@@ -539,6 +539,7 @@ def train_mlframe_models_suite(
     ctx.val_df_polars = val_df_polars
     ctx.train_idx = train_idx
     ctx.val_idx = val_idx
+    ctx.test_idx = test_idx
     ctx.target_by_type = target_by_type
     ctx.outlier_detector = outlier_detector
     ctx.od_val_set = od_val_set
