@@ -441,7 +441,7 @@ def proxy_trust_guard(
     *, classification, metric=None, n_anchors=30, rng=None, min_card=1, max_card=None,
     spearman_floor=0.6, n_jobs=-1, unit_to_members=None, cache=None, n_estimators_cap=None,
     unit_f_scores=None, anchor_uniform_tail_frac=0.2, cardinality_dist="uniform", zipf_alpha=1.0,
-    fidelity_weights=(0.5, 0.5), trustworthy_metric="proxy_fidelity_score",
+    fidelity_weights=(0.6, 0.4), trustworthy_metric="proxy_fidelity_score",
 ):
     """Measure proxy-vs-honest rank fidelity on anchor subsets. Returns a report dict.
 
@@ -458,17 +458,25 @@ def proxy_trust_guard(
     candidates. Leave as ``None`` (default) to preserve legacy absolute-value semantics on the
     corrector training pairs.
 
-    ``fidelity_weights`` (iter16, default ``(0.5, 0.5)``): weights ``(w_spearman, w_recall)`` for the
+    ``fidelity_weights`` (iter17, default ``(0.6, 0.4)``): weights ``(w_spearman, w_recall)`` for the
     composite ``proxy_fidelity_score = w_spearman * spearman + w_recall * recall_at_k``. Both Spearman
     and recall@k live on ``[0, 1]`` for non-degenerate inputs (Spearman is clipped on the gate side
     only; the raw field can be negative on a broken proxy and the gate then correctly trips because
     the composite drops below the floor). The composite is the trust-guard's headline metric; raw
-    ``spearman`` / ``kendall`` / ``recall_at_k`` remain as diagnostic fields. The default weights are
-    deliberately symmetric: Spearman captures whole-ranking fidelity, recall@k captures the top-k
-    overlap that drives downstream candidate ranking, and lever changes (iter14 F-stratified anchors,
-    iter15 Zipf cardinality prior) can lift one while dropping the other. Iter15 measured the case
-    that motivated this change: Zipf at alpha=0.25 dropped spearman 0.969->0.956 but lifted recall@k
-    0.833->1.0, so the composite went 0.901->0.978 -- a real win the raw-Spearman gate had masked.
+    ``spearman`` / ``kendall`` / ``recall_at_k`` remain as diagnostic fields. Iter16 shipped a
+    symmetric (0.5, 0.5) default for lack of evidence; iter17 calibrated the default by correlating
+    each component independently with downstream selector RECOVERY across 5 regimes (additive high-SNR,
+    redundancy-heavy, interaction-heavy, xor-interaction, noise-heavy). Result: ``corr(spearman,
+    recovery_rate) = 0.93`` vs ``corr(recall@k, recovery_rate) = 0.55``. Spearman tracks the proxy's
+    whole-ranking quality which actually predicts whether downstream candidate ranking finds the
+    informatives; recall@k is bounded above (small anchor top-k overlap stays high even on
+    half-broken proxies) and below (the 1-anchor top-k is trivially 1.0), so it lacks the dynamic
+    range to drive the gate. The corr-proportional split (0.629, 0.371) rounds to (0.6, 0.4); the
+    rounded value is the registered default. Iter15 still motivates the composite over raw Spearman:
+    Zipf at alpha=0.25 dropped spearman 0.969->0.956 but lifted recall@k 0.833->1.0, so the composite
+    went 0.901->0.978 -- a real win the raw-Spearman gate had masked. Iter17's (0.6, 0.4) preserves
+    that win (the composite stays above the floor) while letting Spearman dominate the gate decision
+    in the calibration-supported direction.
 
     ``trustworthy_metric`` (iter16, default ``'proxy_fidelity_score'``): which scalar gates the
     ``trustworthy`` boolean. ``'proxy_fidelity_score'`` is the new composite (default). ``'spearman'``

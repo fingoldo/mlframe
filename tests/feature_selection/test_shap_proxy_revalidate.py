@@ -855,10 +855,12 @@ def test_proxy_trust_guard_degrades_to_uniform_on_misaligned_weights():
 
 
 def test_proxy_fidelity_score_is_weighted_composite_of_spearman_and_recall():
-    """Iter16 composite metric: ``proxy_fidelity_score = w_spearman * max(0, spearman) + w_recall *
-    recall_at_k`` with weights normalised to sum to 1. The report MUST expose the composite + the
-    normalised weights + the metric name that gated ``trustworthy`` so downstream consumers can audit
-    the gate decision without recomputing."""
+    """Iter16+iter17 composite metric: ``proxy_fidelity_score = w_spearman * max(0, spearman) +
+    w_recall * recall_at_k`` with weights normalised to sum to 1. The report MUST expose the
+    composite + the normalised weights + the metric name that gated ``trustworthy`` so downstream
+    consumers can audit the gate decision without recomputing. Iter17 calibrated the default to
+    (0.6, 0.4) -- see ``test_iter17_fidelity_weights_default_is_calibrated_value`` for the sentinel
+    that locks the value."""
     from sklearn.linear_model import LinearRegression
     from mlframe.feature_selection._shap_proxy_revalidate import proxy_trust_guard
 
@@ -874,9 +876,9 @@ def test_proxy_fidelity_score_is_weighted_composite_of_spearman_and_recall():
     rep = proxy_trust_guard(phi[:450], base[:450], ys, LinearRegression(), Xs, Xh, yh,
                             classification=False, metric="rmse", n_anchors=10,
                             rng=np.random.default_rng(0))
-    expected = 0.5 * max(0.0, rep["spearman"]) + 0.5 * rep["recall_at_k"]
+    expected = 0.6 * max(0.0, rep["spearman"]) + 0.4 * rep["recall_at_k"]
     assert rep["proxy_fidelity_score"] == pytest.approx(expected, abs=1e-12)
-    assert rep["fidelity_weights"] == (0.5, 0.5)
+    assert rep["fidelity_weights"] == (0.6, 0.4)
     assert rep["trustworthy_metric"] == "proxy_fidelity_score"
 
     # Custom asymmetric weights are normalised to sum-1 + still applied.
@@ -886,6 +888,35 @@ def test_proxy_fidelity_score_is_weighted_composite_of_spearman_and_recall():
     expected2 = 0.75 * max(0.0, rep2["spearman"]) + 0.25 * rep2["recall_at_k"]
     assert rep2["proxy_fidelity_score"] == pytest.approx(expected2, abs=1e-12)
     assert rep2["fidelity_weights"] == (0.75, 0.25)
+
+
+def test_iter17_fidelity_weights_default_is_calibrated_value():
+    """Iter17 regression sentinel: pin the calibrated default ``fidelity_weights=(0.6, 0.4)`` so a
+    future change to the module-level default is deliberate (test must be updated together with the
+    default). Calibrated by ``_benchmarks/calib_iter17_fidelity_weights.py`` against recovery rate
+    across 5 regimes (additive high-SNR, redundancy-heavy, interaction order-2, xor, noise-heavy):
+    corr(spearman, recovery_rate)=0.93 vs corr(recall@k, recovery_rate)=0.55, rounded to (0.6, 0.4).
+
+    Also pins the facade-level default ``ShapProxiedFS.trust_guard_fidelity_weights = (0.6, 0.4)``
+    -- the calibrated value must propagate end-to-end so a user-facing fit picks it up without
+    needing to touch the kwarg."""
+    import inspect
+
+    from mlframe.feature_selection._shap_proxy_revalidate import proxy_trust_guard
+    from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
+
+    sig = inspect.signature(proxy_trust_guard)
+    assert sig.parameters["fidelity_weights"].default == (0.6, 0.4), (
+        f"iter17 calibration default drifted: proxy_trust_guard.fidelity_weights default "
+        f"is {sig.parameters['fidelity_weights'].default!r}, expected (0.6, 0.4)."
+    )
+
+    facade_sig = inspect.signature(ShapProxiedFS.__init__)
+    assert facade_sig.parameters["trust_guard_fidelity_weights"].default == (0.6, 0.4), (
+        f"iter17 calibration default drifted at the facade: "
+        f"ShapProxiedFS.trust_guard_fidelity_weights default is "
+        f"{facade_sig.parameters['trust_guard_fidelity_weights'].default!r}, expected (0.6, 0.4)."
+    )
 
 
 def test_trustworthy_metric_kwarg_switches_gate_to_raw_spearman():
@@ -944,8 +975,8 @@ def test_proxy_fidelity_score_clips_negative_spearman_in_composite():
                             classification=False, metric="rmse", n_anchors=10,
                             rng=np.random.default_rng(0))
     # Composite uses max(0, spearman); negative Spearman must NOT lift the composite above
-    # 0.5 * recall_at_k.
-    assert rep["proxy_fidelity_score"] <= 0.5 * rep["recall_at_k"] + 1e-12
+    # w_recall * recall_at_k (iter17 default w_recall=0.4).
+    assert rep["proxy_fidelity_score"] <= 0.4 * rep["recall_at_k"] + 1e-12
 
 
 def test_fidelity_weights_must_sum_to_positive_value():

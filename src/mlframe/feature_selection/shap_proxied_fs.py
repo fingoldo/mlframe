@@ -88,7 +88,7 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         trust_guard_uniform_tail_frac: float = 0.2,
         trust_guard_cardinality_dist: str = "zipf",
         trust_guard_zipf_alpha: float = 0.25,
-        trust_guard_fidelity_weights: tuple[float, float] = (0.5, 0.5),
+        trust_guard_fidelity_weights: tuple[float, float] = (0.6, 0.4),
         trust_guard_metric: str = "proxy_fidelity_score",
         n_jobs: int = -1,
         random_state: int = 0,
@@ -198,11 +198,18 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         # pre-iter16 behaviour exactly.
         self.trust_guard_cardinality_dist = str(trust_guard_cardinality_dist).lower()
         self.trust_guard_zipf_alpha = float(trust_guard_zipf_alpha)
-        # ``trust_guard_fidelity_weights`` (iter16): weights ``(w_spearman, w_recall)`` for the
+        # ``trust_guard_fidelity_weights`` (iter17): weights ``(w_spearman, w_recall)`` for the
         # composite ``proxy_fidelity_score = w_spearman * spearman + w_recall * recall_at_k`` that
-        # gates the trust-guard's ``trustworthy`` boolean. Default (0.5, 0.5) gives equal weight to
-        # whole-ranking fidelity (Spearman) and top-k overlap (recall@k); the iter15 measurement showed
-        # the levers can move these in opposite directions, so the composite is the honest headline.
+        # gates the trust-guard's ``trustworthy`` boolean. Iter17 default (0.6, 0.4) replaces iter16's
+        # (0.5, 0.5) symmetric default after a 5-regime calibration study (additive high-SNR /
+        # redundancy / interaction order-2 / xor / noise-heavy) measured corr(spearman, recovery_rate)
+        # = 0.93 vs corr(recall@k, recovery_rate) = 0.55. Spearman tracks the proxy's whole-ranking
+        # quality which actually predicts downstream selector recovery; recall@k is bounded above
+        # (small anchor top-k overlap stays high even on half-broken proxies) so it lacks the dynamic
+        # range to drive the gate. Corr-proportional split (0.63, 0.37) rounds to (0.6, 0.4). See
+        # ``_benchmarks/calib_iter17_fidelity_weights.py``. The composite is still the honest headline
+        # because iter15's Zipf alpha=0.25 lever moves spearman + recall in opposite directions; under
+        # (0.6, 0.4) the Zipf-vs-uniform composite stays 0.833 vs 0.802 (Zipf still wins).
         # ``trust_guard_metric`` (iter16, default ``'proxy_fidelity_score'``): which scalar gates the
         # ``trustworthy`` boolean. ``'spearman'`` preserves pre-iter16 backwards-compat semantics for
         # callers that pinned ``spearman_floor`` against the raw Spearman scale.
