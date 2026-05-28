@@ -388,7 +388,9 @@ def test_full_fit_cached_matches_uncached():
 
     # Force the no-cache path by neutering get() so every retrain recomputes.
     real_get = RV.HonestLossCache.get
-    RV.HonestLossCache.get = lambda self, idx, seed: None
+    # *args/**kwargs swallows whichever signature the cache exposes (the production code threads a
+    # template_id namespace on top of (idx, seed) for the capped-refine retrain pool).
+    RV.HonestLossCache.get = lambda self, *a, **kw: None
     try:
         sup_uncached, feats_uncached = _fit()
     finally:
@@ -396,3 +398,127 @@ def test_full_fit_cached_matches_uncached():
 
     assert np.array_equal(sup_cached, sup_uncached)
     assert feats_cached == feats_uncached
+
+
+# ----------------------------------------------------- refine_n_estimators cap
+
+
+def test_try_cap_n_estimators_sets_first_recognised_param_only():
+    """The cap helper hits the first ``n_estimators``-like param the template exposes and stops.
+    Estimators without any such param are left untouched (silent no-op for linear models in tests)."""
+    from sklearn.ensemble import GradientBoostingRegressor
+
+    from mlframe.feature_selection._shap_proxy_revalidate import _try_cap_n_estimators
+
+    # xgboost / sklearn GBM exposes ``n_estimators``.
+    est = GradientBoostingRegressor()
+    assert _try_cap_n_estimators(est, 50) == "n_estimators"
+    assert est.get_params()["n_estimators"] == 50
+
+    # A linear model has none of the recognised params -> silent no-op.
+    lr = LinearRegression()
+    assert _try_cap_n_estimators(lr, 50) is None
+    # No new attribute introduced.
+    assert "n_estimators" not in lr.get_params()
+
+
+def test_within_cluster_refine_cap_namespaces_cache_entries():
+    """The cap puts entries into a distinct cache namespace (template_id != None), so the same
+    ``(cols, seed=None)`` retrain at the FULL template vs the CAPPED template is two cache slots --
+    a final full-template re-eval of the winner CANNOT be served by a capped-template entry."""
+    from sklearn.ensemble import GradientBoostingClassifier
+
+    from mlframe.feature_selection._shap_proxy_revalidate import HonestLossCache, _honest_loss
+
+    rng = np.random.default_rng(0)
+    n, f = 400, 6
+    X = pd.DataFrame(rng.normal(size=(n, f)), columns=[f"x{i}" for i in range(f)])
+    y = (1.2 * X["x0"] - 0.8 * X["x1"] + 0.3 * rng.normal(size=n) > 0).astype(int).to_numpy()
+    Xs, ys = X.iloc[:300].reset_index(drop=True), y[:300]
+    Xh, yh = X.iloc[300:].reset_index(drop=True), y[300:]
+    cache = HonestLossCache()
+    cols = [0, 1, 2]
+    # Full-template entry (no cap, default template_id=None).
+    full = _honest_loss(GradientBoostingClassifier(n_estimators=200, random_state=0),
+                       Xs, ys, Xh, yh, cols, True, "brier", cache=cache)
+    misses_after_full = cache.misses
+    # Cap with template_id -> distinct cache slot, must add a NEW miss (not served by the full entry).
+    capped = _honest_loss(GradientBoostingClassifier(n_estimators=200, random_state=0),
+                         Xs, ys, Xh, yh, cols, True, "brier", cache=cache,
+                         n_estimators_cap=50, template_id=("refine_cap", 50))
+    assert cache.misses == misses_after_full + 1, "capped fit must be a fresh miss, not a cache hit"
+    # And the capped model with fewer trees is a different loss number than the full booster.
+    assert capped != full
+
+    # Calling again at the FULL template still hits the original full-template slot (no new miss).
+    misses_before = cache.misses
+    full2 = _honest_loss(GradientBoostingClassifier(n_estimators=200, random_state=0),
+                        Xs, ys, Xh, yh, cols, True, "brier", cache=cache)
+    assert cache.misses == misses_before  # served from the (cols, None, None) slot
+    assert full2 == full
+
+
+def test_within_cluster_refine_cap_keeps_redundancy_decisions():
+    """With ``refine_n_estimators`` set (capped booster), refine still keeps the unique informatives
+    and drops most redundant duplicates -- the relative ranking is preserved. The CHOSEN subset is the
+    user-visible business value here; exact identity to the uncapped path isn't required (the cap is a
+    speed/quality trade-off), only that the informatives survive and the duplicates collapse.
+
+    Uses a tree booster (the cap is a no-op for the linear model used elsewhere in this file)."""
+    from sklearn.ensemble import GradientBoostingClassifier
+
+    from mlframe.feature_selection._shap_proxy_revalidate import within_cluster_refine
+
+    rng = np.random.default_rng(0)
+    n, f_inf, n_dup, n_noise = 800, 3, 4, 4
+    X = rng.normal(size=(n, f_inf + n_dup + n_noise))
+    # cols 0..2 informative; cols 3..6 are near-duplicates of col 0; cols 7..10 noise.
+    for j in range(n_dup):
+        X[:, f_inf + j] = X[:, 0] + 0.05 * rng.normal(size=n)
+    cols_names = ([f"inf{i}" for i in range(f_inf)] + [f"dup{j}" for j in range(n_dup)]
+                  + [f"noise{i}" for i in range(n_noise)])
+    Xdf = pd.DataFrame(X, columns=cols_names)
+    y = ((1.2 * X[:, 0] + 0.9 * X[:, 1] - 0.7 * X[:, 2] + 0.3 * rng.normal(size=n)) > 0).astype(int)
+    Xs, ys = Xdf.iloc[:600].reset_index(drop=True), y[:600]
+    Xh, yh = Xdf.iloc[600:].reset_index(drop=True), y[600:]
+    cols = list(range(Xdf.shape[1]))
+    member_groups = [[0, 3, 4, 5, 6], [1], [2], [7], [8], [9], [10]]
+
+    refined = within_cluster_refine(
+        cols, GradientBoostingClassifier(n_estimators=200, random_state=0),
+        Xs, ys, Xh, yh, classification=True, metric="brier",
+        parsimony_tol=0.05, n_jobs=1, member_groups=member_groups, min_multi_clusters=1,
+        refine_n_estimators=50)
+    # Refine must keep at least one of the redundancy-cluster members AND the unique informatives.
+    assert any(c in (0, 3, 4, 5, 6) for c in refined), f"missing redundancy-cluster rep: {refined}"
+    assert {1, 2}.issubset(set(refined)), f"refine dropped unique informatives: {refined}"
+    # And it should drop AT LEAST one of the four duplicates (the whole point of within-cluster refine).
+    assert len(set(refined) & {3, 4, 5, 6}) < n_dup, f"refine kept all duplicates: {refined}"
+
+
+def test_shap_proxied_fs_records_honest_loss_full_for_refined_subset():
+    """End-to-end: the report's ``within_cluster_refine`` block exposes a ``honest_loss_full`` measured
+    at the FULL template (uncapped) for the chosen refined subset, so downstream consumers see a value
+    consistent with the surrounding guards' booster size."""
+    pytest = __import__("pytest")
+    pytest.importorskip("xgboost")
+    from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
+
+    rng = np.random.default_rng(0)
+    n, f = 1500, 30
+    Xnp = rng.normal(size=(n, f))
+    Xnp[:, 5] = Xnp[:, 0] + 0.2 * rng.normal(size=n)  # redundancy -> clustering fires
+    X = pd.DataFrame(Xnp, columns=[f"x{i}" for i in range(f)])
+    logit = 1.2 * Xnp[:, 0] + 0.9 * Xnp[:, 1] - 0.7 * Xnp[:, 2]
+    y = pd.Series((logit + 0.3 * rng.normal(size=n) > 0).astype(int))
+
+    sel = ShapProxiedFS(classification=True, metric="brier", optimizer="auto",
+                        cluster_features=True, top_n=12, n_splits=3, n_revalidation_models=2,
+                        n_anchors=15, random_state=0, verbose=False,
+                        refine_n_estimators=50)
+    sel.fit(X, y)
+    ref = sel.shap_proxy_report_.get("within_cluster_refine")
+    assert ref is not None
+    # Refine ran and recorded the full-template loss for the chosen subset.
+    assert "honest_loss_full" in ref
+    assert 0.0 <= ref["honest_loss_full"] <= 1.0  # brier is bounded

@@ -72,11 +72,16 @@ class HonestLossCache:
         self.misses = 0
 
     @staticmethod
-    def _key(idx, seed):
-        return (frozenset(int(c) for c in idx), seed)
+    def _key(idx, seed, template_id=None):
+        # ``template_id`` namespaces cache entries by model-template variant. When refine retrains use
+        # a capped ``n_estimators`` template (cheap ranking-only fits) the resulting losses are NOT
+        # interchangeable with full-template entries from the same ``(cols, seed)`` -- a distinct
+        # ``template_id`` keeps both populations in the same cache without collision, while a final
+        # full-template re-evaluation of the winner still hits the surrounding pipeline's cache entries.
+        return (frozenset(int(c) for c in idx), seed, template_id)
 
-    def get(self, idx, seed):
-        key = self._key(idx, seed)
+    def get(self, idx, seed, template_id=None):
+        key = self._key(idx, seed, template_id)
         with self._lock:
             if key in self._store:
                 self.hits += 1
@@ -84,26 +89,58 @@ class HonestLossCache:
             self.misses += 1
             return None
 
-    def put(self, idx, seed, value):
-        key = self._key(idx, seed)
+    def put(self, idx, seed, value, template_id=None):
+        key = self._key(idx, seed, template_id)
         with self._lock:
             self._store[key] = value
 
 
+_N_ESTIMATORS_PARAMS = ("n_estimators", "iterations", "num_boost_round", "num_iterations")
+
+
+def _try_cap_n_estimators(est, cap):
+    """Set the first ``n_estimators``-like parameter the estimator accepts. Returns the param name set,
+    or ``None`` if the estimator doesn't expose one (in which case ``est`` is left untouched).
+
+    Covers xgboost / lightgbm (``n_estimators``), catboost (``iterations``), and the raw boosting-round
+    aliases. We try ``set_params`` rather than attribute assignment so sklearn clone-and-validate stays
+    honest, and swallow only the narrow ValueError/TypeError sklearn raises for unknown params."""
+    if cap is None:
+        return None
+    valid = getattr(est, "get_params", lambda: {})()
+    for name in _N_ESTIMATORS_PARAMS:
+        if name in valid:
+            try:
+                est.set_params(**{name: int(cap)})
+                return name
+            except (ValueError, TypeError):
+                continue
+    return None
+
+
 def _honest_loss(model_template, X_tr, y_tr, X_ev, y_ev, idx, classification, metric, seed=None,
-                 inner_n_jobs=None, cache=None):
+                 inner_n_jobs=None, cache=None, n_estimators_cap=None, template_id=None):
     """Train ``model_template`` on selected feature columns; return holdout loss (lower=better).
 
-    When ``cache`` (a :class:`HonestLossCache`) is supplied, an identical ``(cols, seed)`` retrain is
-    served from the cache instead of refitting -- the same model on the same data with the same seed
-    is deterministic, so the cached float is numerically identical to a fresh fit."""
+    When ``cache`` (a :class:`HonestLossCache`) is supplied, an identical ``(cols, seed, template_id)``
+    retrain is served from the cache instead of refitting -- the same model on the same data with the
+    same seed is deterministic, so the cached float is numerically identical to a fresh fit.
+
+    ``n_estimators_cap`` reduces the booster's tree count to a cheaper value for ranking-only retrains
+    (refine's per-trial / per-probe fits). The cap is set via ``set_params`` on the standard sklearn
+    name (``n_estimators`` for xgb/lgbm, ``iterations`` for catboost); silently a no-op for templates
+    that don't expose it (a linear model in tests). When the cap is applied, callers should also pass
+    a distinct ``template_id`` so cached values don't collide with full-template entries of the same
+    ``(cols, seed)``."""
     if cache is not None:
-        hit = cache.get(idx, seed)
+        hit = cache.get(idx, seed, template_id)
         if hit is not None:
             return hit
 
     cols = list(idx)
     est = clone(model_template)
+    if n_estimators_cap is not None:
+        _try_cap_n_estimators(est, n_estimators_cap)
     if seed is not None and hasattr(est, "random_state"):
         try:
             est.set_params(random_state=int(seed))
@@ -130,12 +167,12 @@ def _honest_loss(model_template, X_tr, y_tr, X_ev, y_ev, idx, classification, me
         pred = est.predict(X_ev.iloc[:, cols])
         loss = float(mean_absolute_error(y_ev, pred)) if metric == "mae" else float(root_mean_squared_error(y_ev, pred))
     if cache is not None:
-        cache.put(idx, seed, loss)
+        cache.put(idx, seed, loss, template_id)
     return loss
 
 
 def _parallel_honest_losses(tasks, model_template, X_tr, y_tr, X_ev, y_ev, classification, metric, n_jobs,
-                            cache=None):
+                            cache=None, n_estimators_cap=None, template_id=None):
     """Run many independent honest retrains concurrently. xgb/lgbm release the GIL during training,
     so a threading backend shares the (large) DataFrames without per-task pickling; we cap each fit's
     own thread count so the outer pool x inner threads doesn't oversubscribe the cores."""
@@ -151,12 +188,15 @@ def _parallel_honest_losses(tasks, model_template, X_tr, y_tr, X_ev, y_ev, class
     inner = max(1, n_cores // outer)
     if outer == 1:
         return [_honest_loss(model_template, X_tr, y_tr, X_ev, y_ev, idx, classification, metric,
-                             seed=seed, inner_n_jobs=inner, cache=cache) for idx, seed in tasks]
+                             seed=seed, inner_n_jobs=inner, cache=cache,
+                             n_estimators_cap=n_estimators_cap, template_id=template_id)
+                for idx, seed in tasks]
     from joblib import Parallel, delayed
 
     return Parallel(n_jobs=outer, prefer="threads")(
         delayed(_honest_loss)(model_template, X_tr, y_tr, X_ev, y_ev, idx, classification, metric,
-                              seed=seed, inner_n_jobs=inner, cache=cache)
+                              seed=seed, inner_n_jobs=inner, cache=cache,
+                              n_estimators_cap=n_estimators_cap, template_id=template_id)
         for idx, seed in tasks
     )
 
@@ -175,13 +215,22 @@ def _sample_anchor_subsets(n_features, n_anchors, rng, min_card=1, max_card=None
 def proxy_trust_guard(
     phi, base, y_search, model_template, X_search, X_holdout, y_holdout,
     *, classification, metric=None, n_anchors=30, rng=None, min_card=1, max_card=None,
-    spearman_floor=0.6, n_jobs=-1, unit_to_members=None, cache=None,
+    spearman_floor=0.6, n_jobs=-1, unit_to_members=None, cache=None, n_estimators_cap=None,
 ):
     """Measure proxy-vs-honest rank fidelity on anchor subsets. Returns a report dict.
 
     Anchors are sampled in proxy (unit) space; honest losses retrain on the expanded member columns,
     so this measures the most decision-relevant question: does the cheap unit-proxy rank subsets the
-    way honestly-retrained real-feature models do?"""
+    way honestly-retrained real-feature models do?
+
+    ``n_estimators_cap`` reduces the per-anchor booster size; the trust report only consumes RANKS
+    (Spearman / Kendall / recall@k) of anchor losses, so a capped booster gives a fast, faithful
+    fidelity signal. The corrector data (proxy / honest pairs) IS persisted on the report and used by
+    a downstream regression-based bias-corrector that consumes the absolute honest values, so when the
+    cap is enabled the corrector trains on capped values; the corrector's regression learns the
+    proxy->honest_capped mapping, which is still a valid rank-preserving signal for re-ranking
+    candidates. Leave as ``None`` (default) to preserve legacy absolute-value semantics on the
+    corrector training pairs."""
     from scipy.stats import kendalltau, spearmanr
 
     metric = resolve_metric(classification, metric)
@@ -191,10 +240,12 @@ def proxy_trust_guard(
 
     from mlframe.feature_selection._shap_proxy_calibrate import subset_redundancy
 
+    tid = ("trust_cap", int(n_estimators_cap)) if n_estimators_cap is not None else None
     proxy_losses = [proxy_loss(coalition_margin(phi, base, idx), y_search, metric) for idx in anchors]
     honest_losses = _parallel_honest_losses(
         [(_expand(idx, unit_to_members), None) for idx in anchors], model_template, X_search, y_search,
-        X_holdout, y_holdout, classification, metric, n_jobs, cache=cache)
+        X_holdout, y_holdout, classification, metric, n_jobs, cache=cache,
+        n_estimators_cap=n_estimators_cap, template_id=tid)
     cards = np.array([len(a) for a in anchors], dtype=np.float64)
     redunds = np.array([subset_redundancy(phi, a) for a in anchors], dtype=np.float64)
     proxy_losses = np.asarray(proxy_losses)
@@ -358,7 +409,7 @@ def active_learning_revalidate(
 def within_cluster_refine(
     member_cols, model_template, X_search, y_search, X_holdout, y_holdout,
     *, classification, metric=None, parsimony_tol=0.02, n_jobs=-1, max_drop_rounds=None, cache=None,
-    member_groups=None, min_multi_clusters=3,
+    member_groups=None, min_multi_clusters=3, refine_n_estimators=100,
 ):
     """Compact the selected clusters' member columns down to a quality-preserving subset (honest).
 
@@ -397,14 +448,29 @@ def within_cluster_refine(
     When ``member_groups`` is ``None`` (legacy call sites or non-clustering mode), runs the original
     pure greedy-backward over ``member_cols`` -- behavior strictly preserved for backward compatibility.
 
+    ``refine_n_estimators`` caps the booster's tree count for refine's ranking-only probe / trial fits.
+    Refine compares RELATIVE honest losses to decide "is dropping this member within parsimony_tol?";
+    importance / loss ranking stabilises well below the default 300 trees (the empirical rule of thumb
+    is ~100), so the cap cuts each fit's cost ~3x while preserving the drop decisions. After the final
+    compact subset is chosen, that ONE subset is re-evaluated with the FULL ``model_template`` so the
+    user-visible ``honest_loss`` reported downstream stays an apples-to-apples comparison against the
+    other guards (which all use the full template). Set ``refine_n_estimators=None`` to disable the cap
+    (legacy behavior). The cap is silently a no-op for templates without an ``n_estimators``-like param
+    (e.g. a linear model in tests), so all existing behavior-preservation tests stay green.
+
     Returns the refined member-column list.
     """
     metric = resolve_metric(classification, metric)
     current = sorted(set(int(c) for c in member_cols))
     if len(current) <= 1:
         return current
+    # Refine's per-trial fits use a capped n_estimators template (cheap ranking signal); the cap is
+    # tagged via template_id so cached values don't collide with the full-template cache entries
+    # populated elsewhere in the pipeline. ``cap`` is None -> no capping, no namespacing (legacy path).
+    cap = refine_n_estimators
+    tid = ("refine_cap", int(cap)) if cap is not None else None
     base = _honest_loss(model_template, X_search, y_search, X_holdout, y_holdout, current, classification,
-                        metric, cache=cache)
+                        metric, cache=cache, n_estimators_cap=cap, template_id=tid)
     threshold = base + parsimony_tol * abs(base)
 
     # ---- Stage 1: per-cluster collapse (one parallel probe per multi-cluster).
@@ -437,7 +503,7 @@ def within_cluster_refine(
                 probes.append((probe_cols, ci, sorted(drop_set)))
             losses = _parallel_honest_losses(
                 [(p[0], None) for p in probes], model_template, X_search, y_search, X_holdout, y_holdout,
-                classification, metric, n_jobs, cache=cache)
+                classification, metric, n_jobs, cache=cache, n_estimators_cap=cap, template_id=tid)
             # Each probe is evaluated against the ORIGINAL base/threshold (cluster collapses are
             # measured independently, not against each other). Accepted probes' drops accumulate.
             accepted_drops: set[int] = set()
@@ -452,7 +518,7 @@ def within_cluster_refine(
                 if len(collapsed) < len(current):
                     cum_loss = _honest_loss(
                         model_template, X_search, y_search, X_holdout, y_holdout, collapsed, classification,
-                        metric, cache=cache)
+                        metric, cache=cache, n_estimators_cap=cap, template_id=tid)
                     if cum_loss <= threshold:
                         current = collapsed
                         base = min(base, cum_loss)
@@ -497,7 +563,8 @@ def within_cluster_refine(
             break
         trials = [[c for c in current if c != drop] for drop in current]
         losses = _parallel_honest_losses([(t, None) for t in trials], model_template, X_search, y_search,
-                                         X_holdout, y_holdout, classification, metric, n_jobs, cache=cache)
+                                         X_holdout, y_holdout, classification, metric, n_jobs, cache=cache,
+                                         n_estimators_cap=cap, template_id=tid)
         losses_arr = np.asarray(losses, dtype=np.float64)
         cur_threshold = base + parsimony_tol * abs(base)
         best_i = int(np.argmin(losses_arr))
@@ -517,7 +584,7 @@ def within_cluster_refine(
                 if survivors and len(survivors) < len(current) - 1:
                     multi_loss = _honest_loss(
                         model_template, X_search, y_search, X_holdout, y_holdout, survivors, classification,
-                        metric, cache=cache)
+                        metric, cache=cache, n_estimators_cap=cap, template_id=tid)
                     if multi_loss <= cur_threshold:
                         current = survivors
                         base = min(base, float(multi_loss))

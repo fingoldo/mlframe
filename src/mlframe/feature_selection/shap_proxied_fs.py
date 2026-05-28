@@ -80,6 +80,8 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         cluster_auto_threshold: int = 40,
         prescreen_top: int | None = None,
         within_cluster_refine: bool = True,
+        refine_n_estimators: int | None = 100,
+        trust_guard_n_estimators: int | None = 100,
         n_jobs: int = -1,
         random_state: int = 0,
         verbose: bool = True,
@@ -124,6 +126,15 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         self.cluster_auto_threshold = cluster_auto_threshold
         self.prescreen_top = prescreen_top
         self.within_cluster_refine = within_cluster_refine
+        # ``refine_n_estimators`` caps the per-trial booster size inside ``within_cluster_refine``.
+        # Refine compares relative honest losses to decide whether a member-drop respects
+        # ``parsimony_tol``; the ranking stabilises well before the default 300 trees, so capping at
+        # ~100 trees cuts each fit ~3x while keeping the drop decision intact. None disables the cap.
+        self.refine_n_estimators = refine_n_estimators
+        # ``trust_guard_n_estimators`` caps the per-anchor booster size inside ``proxy_trust_guard``.
+        # The trust report only consumes RANKS of anchor losses (Spearman / Kendall / recall@k); a
+        # capped booster gives a faithful fidelity signal at ~3x lower cost. None disables the cap.
+        self.trust_guard_n_estimators = trust_guard_n_estimators
         self.n_jobs = n_jobs
         self.random_state = random_state
         self.verbose = verbose
@@ -405,7 +416,8 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
                 report["trust"] = proxy_trust_guard(
                     phi, base, y_phi, model_template, X_search, X_hold, y_hold,
                     n_anchors=self.n_anchors, rng=self._rng, min_card=self.min_features,
-                    max_card=self.max_features, spearman_floor=self.spearman_floor, **rv)
+                    max_card=self.max_features, spearman_floor=self.spearman_floor,
+                    n_estimators_cap=self.trust_guard_n_estimators, **rv)
 
         # Unified candidate re-ranking before the expensive top-N honest retrains: order by the
         # corrector's predicted honest loss (#3/#6, falls back to raw proxy) PLUS an uncertainty
@@ -484,7 +496,10 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         else:
             member_cols = sorted(int(i) for i in best_idx)
         if self.within_cluster_refine and unit_to_members is not None and len(member_cols) > 1:
-            from mlframe.feature_selection._shap_proxy_revalidate import within_cluster_refine
+            from mlframe.feature_selection._shap_proxy_objective import resolve_metric
+            from mlframe.feature_selection._shap_proxy_revalidate import (
+                _honest_loss, within_cluster_refine,
+            )
 
             with _stage("within_cluster_refine"):
                 # Pass the per-unit member lists so refine can collapse each cluster to a single
@@ -498,8 +513,21 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
                     member_cols, model_template, X_search, y_search, X_hold, y_hold,
                     classification=self.classification, metric=self.metric,
                     parsimony_tol=self.parsimony_tol, n_jobs=self.n_jobs, cache=honest_cache,
-                    member_groups=member_groups)
-                report["within_cluster_refine"] = dict(before=len(member_cols), after=len(refined))
+                    member_groups=member_groups, refine_n_estimators=self.refine_n_estimators)
+                # Final full-template re-evaluation of the ONE chosen subset (uncapped n_estimators).
+                # Refine's ranking trials use a cheaper capped booster (~100 trees) to decide WHICH
+                # members to drop; the user-visible quality bar (and any downstream report consumer)
+                # should see this subset's loss at the SAME booster size the other guards used, so the
+                # values are apples-to-apples. The cache lookup is the full-template namespace (no
+                # template_id), so this hits any prior pipeline retrain of the same subset (e.g. when
+                # refine made no drops, this is a cache hit of the union retrain done elsewhere).
+                refine_info = dict(before=len(member_cols), after=len(refined))
+                if refined:
+                    refine_info["honest_loss_full"] = float(_honest_loss(
+                        model_template, X_search, y_search, X_hold, y_hold, list(refined),
+                        self.classification, resolve_metric(self.classification, self.metric),
+                        cache=honest_cache))
+                report["within_cluster_refine"] = refine_info
                 member_cols = refined
 
         # Expose sklearn contract: map working-space member columns back to ORIGINAL indices (the
