@@ -515,3 +515,35 @@ class TestFeatureDriftAutoActionWireIn:
         rep = compute_feature_distribution_drift(train, val, test)
         assert rep["weighted_drift_score"] is None
         assert rep["recommend_neural_overrides"] is None
+
+
+class TestColValueCounts:
+    """``_col_value_counts`` converts a per-column value_counts to a plain
+    {value: int_count} dict via .tolist()+zip (bulk C int conversion). Pin
+    the exact counts + that values are Python ``int`` so the PSI consumer's
+    arithmetic stays correct and the dict-build optimisation can't regress."""
+
+    def test_pandas_counts_exact_and_python_int(self):
+        from mlframe.training.feature_drift_report import _col_value_counts
+        df = pd.DataFrame({"c": ["a", "a", "b", "c", "c", "c"]})
+        out = _col_value_counts(df, "c")
+        assert out == {"a": 2, "b": 1, "c": 3}
+        assert all(type(v) is int for v in out.values()), "counts must be Python int"
+
+    def test_pandas_keeps_nan_bucket(self):
+        """``value_counts(dropna=False)`` keeps NaN as its own bucket -- a new
+        all-NaN column in serving is exactly the drift PSI must surface."""
+        from mlframe.training.feature_drift_report import _col_value_counts
+        df = pd.DataFrame({"c": [1.0, 1.0, np.nan, 2.0, np.nan]})
+        out = _col_value_counts(df, "c")
+        assert out[1.0] == 2 and out[2.0] == 1
+        nan_counts = [v for k, v in out.items() if isinstance(k, float) and np.isnan(k)]
+        assert nan_counts == [2], "NaN bucket count must be preserved"
+
+    def test_polars_counts_exact_and_python_int(self):
+        pl = pytest.importorskip("polars")
+        from mlframe.training.feature_drift_report import _col_value_counts
+        df = pl.DataFrame({"c": ["x", "y", "y", "z", "z", "z"]})
+        out = _col_value_counts(df, "c")
+        assert out == {"x": 1, "y": 2, "z": 3}
+        assert all(type(v) is int for v in out.values())
