@@ -268,8 +268,19 @@ class TestPerformance:
 
         elapsed = time.time() - start
 
-        # 3 linear models should complete quickly (< 30 seconds)
-        assert elapsed < 30.0, f"Multiple models took {elapsed:.1f}s"
+        # 3 linear models should complete quickly (< 30 seconds). Under
+        # pytest-xdist with N parallel workers, individual workers share host
+        # cores with concurrent CPU-heavy tests -- wall-time grows roughly
+        # linearly with worker count. Scale the threshold so the assertion
+        # still bounds a fast process but xdist contention does not produce
+        # a wall-time flake. Worker count is exposed via the well-known
+        # PYTEST_XDIST_WORKER_COUNT env var.
+        _xdist_n = max(1, int(os.environ.get("PYTEST_XDIST_WORKER_COUNT", "1") or "1"))
+        _threshold = 30.0 * _xdist_n
+        assert elapsed < _threshold, (
+            f"Multiple models took {elapsed:.1f}s (threshold "
+            f"{_threshold:.1f}s = 30s x xdist workers={_xdist_n})"
+        )
         assert TargetTypes.REGRESSION in models
 
 

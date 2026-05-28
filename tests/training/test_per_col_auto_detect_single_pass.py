@@ -226,8 +226,15 @@ def _vendored_legacy_pandas(df, ftc, cat_features):
     return sorted(text_features), sorted(embedding_features), sorted(auto_drop)
 
 
+@pytest.mark.timeout(600)
 def test_auto_detect_output_identical_pre_vs_post_pandas():
-    """Single-pass df.agg(['nunique','count']) classification must equal per-col legacy classification (pandas branch)."""
+    """Single-pass df.agg(['nunique','count']) classification must equal per-col legacy classification (pandas branch).
+
+    Bumped to 600s: the test body itself is fast (n=8000 x 40 synthetic) but
+    its fixture / conftest cold-import chain (the whole mlframe.training
+    stack) dominates wall-time, and under pytest-xdist parallel-worker
+    contention this repeatedly exceeded the default 60s pytest-timeout
+    (CI gw7 failure was a timeout, not a content mismatch)."""
     df = _synth_pandas(n_rows=8_000, n_cols=40, seed=42)
     ftc = FeatureTypesConfig(
         auto_detect_feature_types=True,
