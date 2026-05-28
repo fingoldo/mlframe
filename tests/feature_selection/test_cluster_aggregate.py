@@ -66,6 +66,41 @@ def test_sign_alignment_flips_anticorrelated_member():
         assert np.corrcoef(Z[:, j], Z[:, 0])[0, 1] > 0
 
 
+def test_sign_alignment_matches_corrcoef_reference_incl_constant_column():
+    """The vectorised sign step must produce the SAME ``signs`` as the per-column
+    np.corrcoef reference, including the edge that decides the optimisation's
+    correctness: a CONSTANT (zero-variance) member. corrcoef returns NaN there
+    (not finite -> the reference leaves sign +1); the vectorised form gets a
+    zero covariance numerator -> sign +1. Both must agree, and a positively
+    correlated member must keep +1."""
+    from mlframe.feature_selection.filters._cluster_aggregate import _standardize_align
+
+    rng = np.random.default_rng(7)
+    z = rng.normal(size=2500)
+    M = np.column_stack([
+        z + 0.3 * rng.normal(size=2500),   # ref (col 0)
+        z + 0.3 * rng.normal(size=2500),   # positively correlated -> +1
+        -z + 0.3 * rng.normal(size=2500),  # anti-correlated -> -1
+        np.full(2500, 4.2),                # constant -> NaN corr -> +1
+    ])
+    ref_col = 0
+    _Z, _mean, _std, signs = _standardize_align(M, ref_col)
+
+    # Reference: the original per-column corrcoef-sign rule.
+    mean = M.mean(axis=0); std = M.std(axis=0)
+    Zc = (M - mean) / np.where(std > 0.0, std, 1.0)
+    expected = np.ones(M.shape[1])
+    for j in range(M.shape[1]):
+        if j == ref_col:
+            continue
+        c = np.corrcoef(Zc[:, j], Zc[:, ref_col])[0, 1]
+        if np.isfinite(c) and c < 0:
+            expected[j] = -1.0
+
+    assert np.array_equal(signs, expected)
+    assert signs[1] == 1.0 and signs[2] == -1.0 and signs[3] == 1.0
+
+
 # ---------------------------------------------------------------------------
 # Recipe build / replay round-trip + train-test parity
 # ---------------------------------------------------------------------------
