@@ -181,8 +181,15 @@ def main():
                 verbose=0,
             )
         except Exception as e:
+            # Full stack (no limit). Previously capped at limit=3 which hid
+            # the actual raise site below the suite -> process_model
+            # dispatcher: a c0030_beb1dc9b @200k regression run surfaced
+            # "TypeError: iteration over a 0-d array" with the deepest
+            # visible frame being _phase_train_one_target_body.py:740, i.e.
+            # the call site, not the raiser. Always emit the full chain so
+            # the next profile run is debuggable on its own.
             print(f"!! suite error ({type(e).__name__}): {e}", flush=True)
-            traceback.print_exc(limit=3)
+            traceback.print_exc()
         finally:
             profiler.disable()
 

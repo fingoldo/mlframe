@@ -650,6 +650,21 @@ AXES: dict[str, tuple[Any, ...]] = {
     "shap_proxied_use_bias_corrector_cfg": (True, False),
     "shap_proxied_refine_n_estimators_cfg": (100, None),
     "shap_proxied_trust_guard_n_estimators_cfg": (100, None),
+    # 2026-05-28 -- ShapProxiedFS audit-pass-3 axes (W3). Defaults verified
+    # against ShapProxiedFS.__init__ (feature_selection/shap_proxied_fs.py:69-79).
+    # cluster_weighting drives the per-cluster representative aggregation (pc1
+    # vs. factor-score head); max_interaction_features sets the cap on the
+    # interaction-tensor width used by the interaction_aware branch -- the 64
+    # alternate is required because the default 16 cap may starve the wired
+    # interaction_aware=True combos so the interaction tensor never fires;
+    # prefilter_top caps the prefilter survivor set (None lifts the cap into
+    # the full-feature regime); prefilter_n_estimators caps the prefilter
+    # booster tree count (None disables the cap, matching legacy uncapped
+    # behaviour).
+    "shap_proxied_cluster_weighting_cfg": ("pca_pc1", "factor_score"),
+    "shap_proxied_max_interaction_features_cfg": (16, 64),
+    "shap_proxied_prefilter_top_cfg": (2000, None),
+    "shap_proxied_prefilter_n_estimators_cfg": (100, None),
     # 2026-05-28 audit-pass-2 PART A: 4 LOW-tier coverage-gap axes deferred
     # from coverage_agent W11C wave.
     # ensembling_degenerate_class_ratio: EnsemblingConfig.degenerate_class_ratio
@@ -1229,6 +1244,12 @@ class FuzzCombo:
     shap_proxied_use_bias_corrector_cfg: bool = True
     shap_proxied_refine_n_estimators_cfg: "int | None" = 100
     shap_proxied_trust_guard_n_estimators_cfg: "int | None" = 100
+    # 2026-05-28 ShapProxiedFS audit-pass-3 axes (W3). Defaults mirror
+    # ShapProxiedFS.__init__ (feature_selection/shap_proxied_fs.py:69-79).
+    shap_proxied_cluster_weighting_cfg: str = "pca_pc1"
+    shap_proxied_max_interaction_features_cfg: int = 16
+    shap_proxied_prefilter_top_cfg: "int | None" = 2000
+    shap_proxied_prefilter_n_estimators_cfg: "int | None" = 100
     # 2026-05-28 audit-pass-2 PART A: 4 LOW-tier coverage-gap axes.
     # Defaults mirror EnsemblingConfig / TrainingBehaviorConfig /
     # PreprocessingExtensionsConfig in src/mlframe/training/_model_configs.py
@@ -2086,6 +2107,33 @@ class FuzzCombo:
             (self.shap_proxied_refine_n_estimators_cfg if self.use_shap_proxied_fs else 100),
             (
                 self.shap_proxied_trust_guard_n_estimators_cfg
+                if self.use_shap_proxied_fs
+                else 100
+            ),
+            # 2026-05-28 ShapProxiedFS audit-pass-3 axes (W3). All collapse to
+            # ShapProxiedFS.__init__ defaults when the selector is off so
+            # non-shap combos don't gain phantom variation. cluster_weighting
+            # ALSO depends on cluster_features != False (the literal False
+            # disables clustering entirely, making the weighting head a
+            # no-op); canon to "pca_pc1" there so the toggle doesn't fork
+            # canonical keys it can't actually affect. max_interaction_features
+            # ALSO depends on interaction_aware=True (the cap is consumed only
+            # by the interaction-tensor build); canon to 16 there so the value
+            # doesn't fork canonical keys when interactions are off.
+            (
+                self.shap_proxied_cluster_weighting_cfg
+                if (self.use_shap_proxied_fs
+                    and self.shap_proxied_cluster_features_cfg is not False)
+                else "pca_pc1"
+            ),
+            (
+                self.shap_proxied_max_interaction_features_cfg
+                if (self.use_shap_proxied_fs and self.shap_proxied_interaction_aware_cfg)
+                else 16
+            ),
+            (self.shap_proxied_prefilter_top_cfg if self.use_shap_proxied_fs else 2000),
+            (
+                self.shap_proxied_prefilter_n_estimators_cfg
                 if self.use_shap_proxied_fs
                 else 100
             ),
@@ -2999,6 +3047,19 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         shap_proxied_trust_guard_n_estimators_cfg=axes.get(
             "shap_proxied_trust_guard_n_estimators_cfg", 100
         ),
+        # 2026-05-28 ShapProxiedFS audit-pass-3 axes (W3).
+        shap_proxied_cluster_weighting_cfg=axes.get(
+            "shap_proxied_cluster_weighting_cfg", "pca_pc1"
+        ),
+        shap_proxied_max_interaction_features_cfg=axes.get(
+            "shap_proxied_max_interaction_features_cfg", 16
+        ),
+        shap_proxied_prefilter_top_cfg=axes.get(
+            "shap_proxied_prefilter_top_cfg", 2000
+        ),
+        shap_proxied_prefilter_n_estimators_cfg=axes.get(
+            "shap_proxied_prefilter_n_estimators_cfg", 100
+        ),
         # 2026-05-28 audit-pass-2 PART A coverage-gap axes.
         ensembling_degenerate_class_ratio_cfg=axes.get(
             "ensembling_degenerate_class_ratio_cfg", 0.01
@@ -3271,6 +3332,12 @@ def build_shap_proxied_fs_kwargs_from_flat(
     use_bias_corrector: bool = True,
     refine_n_estimators: "int | None" = 100,
     trust_guard_n_estimators: "int | None" = 100,
+    # 2026-05-28 audit-pass-3 W3 axes. Defaults verified against
+    # ShapProxiedFS.__init__ (feature_selection/shap_proxied_fs.py:69-79).
+    cluster_weighting: str = "pca_pc1",
+    max_interaction_features: int = 16,
+    prefilter_top: "int | None" = 2000,
+    prefilter_n_estimators: "int | None" = 100,
 ) -> Optional[Dict[str, Any]]:
     """Build the shap_proxied_fs_kwargs dict passed to
     ``registry.get("ShapProxiedFS").instantiate(**kwargs)`` (which forwards to
@@ -3304,6 +3371,12 @@ def build_shap_proxied_fs_kwargs_from_flat(
         "use_bias_corrector": use_bias_corrector,
         "refine_n_estimators": refine_n_estimators,
         "trust_guard_n_estimators": trust_guard_n_estimators,
+        # 2026-05-28 audit-pass-3 W3 axes (param names match
+        # ShapProxiedFS.__init__ signature verbatim).
+        "cluster_weighting": cluster_weighting,
+        "max_interaction_features": max_interaction_features,
+        "prefilter_top": prefilter_top,
+        "prefilter_n_estimators": prefilter_n_estimators,
     }
 
 
@@ -3324,6 +3397,10 @@ def build_shap_proxied_fs_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]
         use_bias_corrector=combo.shap_proxied_use_bias_corrector_cfg,
         refine_n_estimators=combo.shap_proxied_refine_n_estimators_cfg,
         trust_guard_n_estimators=combo.shap_proxied_trust_guard_n_estimators_cfg,
+        cluster_weighting=combo.shap_proxied_cluster_weighting_cfg,
+        max_interaction_features=combo.shap_proxied_max_interaction_features_cfg,
+        prefilter_top=combo.shap_proxied_prefilter_top_cfg,
+        prefilter_n_estimators=combo.shap_proxied_prefilter_n_estimators_cfg,
     )
 
 

@@ -217,9 +217,19 @@ def optimize_model_for_storage(
         # and to remain compatible with ensembling code (ensemble_probabilistic_predictions
         # expects 2D arrays via pred.shape[1]).
 
-    # Remove columns if identical to metadata columns
+    # Remove columns if identical to metadata columns.
+    # ``list(model.columns)`` raises ``TypeError: iteration over a 0-d array``
+    # when ``model.columns`` is a 0-d numpy scalar (single-column edge case;
+    # reproduced on c0030_beb1dc9b @200k regression where the MLP path
+    # surfaced this 376s into the fit, aborting the entire suite). Coerce
+    # to a plain list defensively before the equality check.
     if metadata_columns is not None and hasattr(model, "columns") and model.columns is not None:
-        model_columns = list(model.columns) if not isinstance(model.columns, list) else model.columns
+        if isinstance(model.columns, list):
+            model_columns = model.columns
+        elif isinstance(model.columns, np.ndarray) and model.columns.ndim == 0:
+            model_columns = [model.columns.item()]
+        else:
+            model_columns = list(model.columns)
         if model_columns == metadata_columns:
             model.columns = None
 

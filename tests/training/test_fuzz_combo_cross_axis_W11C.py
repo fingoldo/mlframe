@@ -702,3 +702,161 @@ def test_iter502_audit_pass_2_axes_flow_to_kwargs():
     assert c_a1_on.canonical_key() != c_a1_off_a.canonical_key()
     assert c_a3_on.canonical_key() != c_a3_off_a.canonical_key()
     assert c_a4_on.canonical_key() != c_a4_off_a.canonical_key()
+
+
+# ---------------------------------------------------------------------------
+# 2026-05-28 audit-pass-3 W3: 4 ShapProxiedFS deep extension knobs.
+# Mirrors test_iter502_audit_pass_2_axes_flow_to_kwargs.
+# ---------------------------------------------------------------------------
+
+
+def test_iter503_audit_pass_3_axes_flow_to_kwargs():
+    """4 audit-pass-3 W3 fuzz axes must:
+      (a) be present in AXES with >=2 candidate values,
+      (b) be present in the FuzzCombo dataclass with the library default,
+      (c) thread verbatim through build_shap_proxied_fs_kwargs when ON,
+      (d) canonical_key-collapse to defaults when the gating axis is OFF.
+
+    Axes (all source-verified against
+    src/mlframe/feature_selection/shap_proxied_fs.py:69-79):
+      - shap_proxied_cluster_weighting_cfg (ShapProxiedFS.cluster_weighting,
+        default "pca_pc1"; secondary gate on cluster_features != False)
+      - shap_proxied_max_interaction_features_cfg
+        (ShapProxiedFS.max_interaction_features, default 16; secondary gate on
+        interaction_aware=True -- the 64 alternate exercises the
+        interaction-tensor wide-fan branch the default 16 cap would otherwise
+        starve)
+      - shap_proxied_prefilter_top_cfg (ShapProxiedFS.prefilter_top, default
+        2000; None lifts the cap)
+      - shap_proxied_prefilter_n_estimators_cfg
+        (ShapProxiedFS.prefilter_n_estimators, default 100; None disables the
+        booster tree cap)
+    """
+    from tests.training._fuzz_combo import (
+        AXES, _build_combo, enumerate_combos, build_shap_proxied_fs_kwargs,
+    )
+
+    new_axes = (
+        "shap_proxied_cluster_weighting_cfg",
+        "shap_proxied_max_interaction_features_cfg",
+        "shap_proxied_prefilter_top_cfg",
+        "shap_proxied_prefilter_n_estimators_cfg",
+    )
+    # (a) Presence in AXES with >=2 candidates.
+    for ax in new_axes:
+        assert ax in AXES, f"missing fuzz axis {ax}"
+        assert len(AXES[ax]) >= 2, f"axis {ax} must offer at least 2 values"
+
+    # (b) FuzzCombo dataclass defaults match the library defaults.
+    base_axes = {name: values[0] for name, values in AXES.items()}
+    c_default = _build_combo(models=("cb",), axes=base_axes, seed=0)
+    assert c_default.shap_proxied_cluster_weighting_cfg == "pca_pc1"
+    assert c_default.shap_proxied_max_interaction_features_cfg == 16
+    assert c_default.shap_proxied_prefilter_top_cfg == 2000
+    assert c_default.shap_proxied_prefilter_n_estimators_cfg == 100
+
+    # (c) enumerate_combos still reaches 150 combos with the new axes wired.
+    combos = enumerate_combos(target=150, master_seed=20260422)
+    assert len(combos) == 150, f"enumerate_combos lost combos: {len(combos)}"
+
+    # -----------------------------------------------------------------
+    # (c) Threading: 4 W3 axes flow into build_shap_proxied_fs_kwargs verbatim
+    # when use_shap_proxied_fs=True (param names match ShapProxiedFS.__init__).
+    # Keep cluster_features ON and interaction_aware=True so both
+    # secondary-gated axes survive into the kwargs dict.
+    # -----------------------------------------------------------------
+    on_axes = dict(base_axes)
+    on_axes.update(
+        use_shap_proxied_fs=True,
+        shap_proxied_cluster_features_cfg="auto",
+        shap_proxied_interaction_aware_cfg=True,
+        shap_proxied_cluster_weighting_cfg="factor_score",
+        shap_proxied_max_interaction_features_cfg=64,
+        shap_proxied_prefilter_top_cfg=None,
+        shap_proxied_prefilter_n_estimators_cfg=None,
+    )
+    on = _build_combo(models=("cb",), axes=on_axes, seed=0)
+    kw = build_shap_proxied_fs_kwargs(on)
+    assert kw is not None
+    assert kw["cluster_weighting"] == "factor_score"
+    assert kw["max_interaction_features"] == 64
+    assert kw["prefilter_top"] is None
+    assert kw["prefilter_n_estimators"] is None
+
+    # (d) When use_shap_proxied_fs=False, kwargs is None AND canonical_key
+    # collapses all 4 axes to their library defaults.
+    off_a = dict(on_axes); off_a["use_shap_proxied_fs"] = False
+    off_b = dict(off_a)
+    off_b.update(
+        shap_proxied_cluster_weighting_cfg="pca_pc1",
+        shap_proxied_max_interaction_features_cfg=16,
+        shap_proxied_prefilter_top_cfg=2000,
+        shap_proxied_prefilter_n_estimators_cfg=100,
+    )
+    c_off_a = _build_combo(models=("cb",), axes=off_a, seed=0)
+    c_off_b = _build_combo(models=("cb",), axes=off_b, seed=0)
+    assert build_shap_proxied_fs_kwargs(c_off_a) is None
+    assert c_off_a.canonical_key() == c_off_b.canonical_key(), (
+        "W3 ShapProxiedFS axes must collapse when use_shap_proxied_fs is off"
+    )
+
+    # cluster_weighting has a SECONDARY gate on cluster_features != False.
+    # When cluster_features is literal False the weighting head becomes a
+    # no-op and canonical_key must collapse it to "pca_pc1" regardless.
+    cluster_off_a = dict(base_axes)
+    cluster_off_a.update(
+        use_shap_proxied_fs=True,
+        shap_proxied_cluster_features_cfg=False,
+        shap_proxied_cluster_weighting_cfg="factor_score",
+    )
+    cluster_off_b = dict(cluster_off_a)
+    cluster_off_b["shap_proxied_cluster_weighting_cfg"] = "pca_pc1"
+    c_clu_a = _build_combo(models=("cb",), axes=cluster_off_a, seed=0)
+    c_clu_b = _build_combo(models=("cb",), axes=cluster_off_b, seed=0)
+    assert c_clu_a.canonical_key() == c_clu_b.canonical_key(), (
+        "shap_proxied_cluster_weighting_cfg must collapse when cluster_features is literal False"
+    )
+
+    # max_interaction_features has a SECONDARY gate on interaction_aware=True.
+    # When interactions are off the cap is consumed by no code path; canon
+    # must collapse it to 16 regardless of the stored value.
+    inter_off_a = dict(base_axes)
+    inter_off_a.update(
+        use_shap_proxied_fs=True,
+        shap_proxied_interaction_aware_cfg=False,
+        shap_proxied_max_interaction_features_cfg=64,
+    )
+    inter_off_b = dict(inter_off_a)
+    inter_off_b["shap_proxied_max_interaction_features_cfg"] = 16
+    c_int_a = _build_combo(models=("cb",), axes=inter_off_a, seed=0)
+    c_int_b = _build_combo(models=("cb",), axes=inter_off_b, seed=0)
+    assert c_int_a.canonical_key() == c_int_b.canonical_key(), (
+        "shap_proxied_max_interaction_features_cfg must collapse when interaction_aware=False"
+    )
+
+    # When interaction_aware=True the 64 alternate MUST reach kwargs (the
+    # audit's worry: default 16 cap was starving the interaction-aware
+    # combos so the interaction tensor never fired with the wider fan).
+    inter_on_axes = dict(base_axes)
+    inter_on_axes.update(
+        use_shap_proxied_fs=True,
+        shap_proxied_interaction_aware_cfg=True,
+        shap_proxied_max_interaction_features_cfg=64,
+    )
+    c_int_on = _build_combo(models=("cb",), axes=inter_on_axes, seed=0)
+    kw_int_on = build_shap_proxied_fs_kwargs(c_int_on)
+    assert kw_int_on is not None
+    assert kw_int_on["max_interaction_features"] == 64, (
+        "interaction_aware=True must let max_interaction_features=64 reach the kwargs"
+    )
+    assert kw_int_on["interaction_aware"] is True
+
+    # The 64-with-interactions canonical key must differ from the 16-default
+    # canonical key (so the pairwise sampler actually reaches the wide-fan
+    # interaction branch).
+    inter_on_default = dict(inter_on_axes)
+    inter_on_default["shap_proxied_max_interaction_features_cfg"] = 16
+    c_int_def = _build_combo(models=("cb",), axes=inter_on_default, seed=0)
+    assert c_int_on.canonical_key() != c_int_def.canonical_key(), (
+        "max_interaction_features=64 vs 16 must produce distinct canon keys when interactions on"
+    )
