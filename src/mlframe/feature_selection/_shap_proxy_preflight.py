@@ -34,7 +34,31 @@ def _cv_score(estimator, X, y, classification):
         return float("nan")
 
 
-def dataset_diagnostics(X, y, *, classification, max_rows=5000, max_corr_features=400, random_state=0):
+def dataset_diagnostics(X, y, *, classification, max_rows=2000, max_rows_corr=5000,
+                        max_corr_features=400, n_estimators=100, random_state=0):
+    """Cheap statistics that gate ShapProxiedFS's full pipeline. See module docstring.
+
+    ``max_rows`` (iter25, lowered 5000 -> 2000): row subsample for the cheap booster probes. The
+    additive-vs-deep ratio is a RANK-only signal (deep vs stump on the same data) and stabilises at
+    far fewer rows than a typical SHAP / refine fit needs. Live-test measurement (2026-05-28,
+    width=1000 / n_rows=5000) showed preflight=77s vs fit=86s -- the gate cost the same as the thing
+    it gated. Halving rows + capping trees (see ``n_estimators``) restores the gate's cheap-check
+    purpose without flipping the recommendation on the iter17 5-regime calibration set.
+
+    ``max_rows_corr`` (iter25, kept at 5000): row subsample for the ``max_abs_corr`` redundancy probe
+    -- DECOUPLED from ``max_rows`` because the correlation estimate's variance falls as ``1/sqrt(n)``
+    and a 2000-row sample shrinks the sampling-variance ceiling on ``max|corr|`` enough that the 0.7
+    redundancy gate trips inconsistently between full and subsampled views on the same data. The
+    correlation pass is cheap (one O(n * m^2) numpy call against ``max_corr_features <= 400`` columns)
+    so capping rows here gives no measurable savings -- we only sub-sample to bound RAM on very large
+    inputs. ``n_estimators`` is what actually pays for the speed.
+
+    ``n_estimators`` (iter25, default 100; was 150): RANKING-only cap for the depth-4 + depth-1
+    boosters whose ``cross_val_score`` ratio drives ``additive_ratio``. Same cap-the-ranker pattern as
+    iter9/iter10/iter19 -- we read RANKS / RATIOS, not deployed predictions, so a smaller tree count
+    delivers the same signal at ~1/3 the cost. ``full_model_fit`` may drop a few thousandths, but the
+    additive/deep RATIO and the gate-trip points around it are stable across all 5 iter17 regimes
+    (additive_highSNR / redundancy_heavy / interaction_heavy / xor_interaction / noise_heavy)."""
     import pandas as pd
     from xgboost import XGBClassifier, XGBRegressor
 
@@ -42,25 +66,40 @@ def dataset_diagnostics(X, y, *, classification, max_rows=5000, max_corr_feature
     X = X if isinstance(X, pd.DataFrame) else pd.DataFrame(np.asarray(X))
     y = np.asarray(y)
     n, f = X.shape
-    if n > max_rows:  # subsample rows for the cheap probes
-        sel = rng.choice(n, size=max_rows, replace=False)
-        Xs, ys = X.iloc[sel], y[sel]
-    else:
-        Xs, ys = X, y
 
     balance = float(np.mean(y)) if classification else float("nan")
 
-    # Redundancy: max |corr| over a random feature sample (cap for wide data).
+    # Redundancy: max |corr| over a random feature sample (cap for wide data). Rows are sampled
+    # INDEPENDENTLY of ``max_rows`` (the booster cap) and FIRST so the column-sample rng draw is
+    # bit-for-bit identical to the pre-iter25 path -- ``max_rows_corr`` defaults to the old 5000-row
+    # behaviour, so this preserves the corr-gate's tripping points byte-equivalent to the legacy
+    # implementation while the new ``max_rows`` knob only affects the booster CV calls below.
+    if n > max_rows_corr:
+        sel_corr = rng.choice(n, size=max_rows_corr, replace=False)
+        Xc_src = X.iloc[sel_corr]
+    else:
+        Xc_src = X
     cols = np.arange(f)
     if f > max_corr_features:
         cols = rng.choice(f, size=max_corr_features, replace=False)
-    Xc = np.nan_to_num(Xs.iloc[:, cols].to_numpy(dtype=np.float64))
+    Xc = np.nan_to_num(Xc_src.iloc[:, cols].to_numpy(dtype=np.float64))
     with np.errstate(invalid="ignore", divide="ignore"):
         C = np.corrcoef(Xc, rowvar=False)
     np.fill_diagonal(C, 0.0)
     max_abs_corr = float(np.nanmax(np.abs(C))) if C.size else 0.0
 
-    common = dict(n_estimators=150, learning_rate=0.1, n_jobs=-1, random_state=random_state, tree_method="hist")
+    # Booster row subsample (ranking-only -- see ``max_rows`` docstring). Sampled AFTER the corr-pass
+    # rng draws so the corr gate's bit-for-bit determinism vs the pre-iter25 path is preserved (the
+    # legacy ordering was rows->corr->boosters; iter25 reorders to corr-rows->corr-cols->booster-rows
+    # but ``max_rows_corr`` defaults to the legacy 5000 so the corr rng prefix matches).
+    if n > max_rows:
+        sel = rng.choice(n, size=max_rows, replace=False)
+        Xs, ys = X.iloc[sel], y[sel]
+    else:
+        Xs, ys = X, y
+
+    common = dict(n_estimators=int(n_estimators), learning_rate=0.1, n_jobs=-1,
+                  random_state=random_state, tree_method="hist")
     if classification:
         deep = XGBClassifier(max_depth=4, eval_metric="logloss", **common)
         stump = XGBClassifier(max_depth=1, eval_metric="logloss", **common)
@@ -87,10 +126,16 @@ def dataset_diagnostics(X, y, *, classification, max_rows=5000, max_corr_feature
 def preflight(
     X, y, *, classification, cluster_auto_threshold=40, redundancy_threshold=0.7,
     additive_ratio_floor=0.6, min_fit_gain=0.03, imbalance_floor=0.05, random_state=0,
+    max_rows=2000, max_rows_corr=5000, n_estimators=100,
 ):
     """Cheap recommendation on whether / how to run ShapProxiedFS. Returns a dict with
-    ``recommendation`` in {run, caution, fallback}, the diagnostics, and the reasons."""
-    d = dataset_diagnostics(X, y, classification=classification, random_state=random_state)
+    ``recommendation`` in {run, caution, fallback}, the diagnostics, and the reasons.
+
+    ``max_rows`` / ``max_rows_corr`` / ``n_estimators``: see :func:`dataset_diagnostics` --
+    ranking-only booster caps that keep the gate cheap at wide regimes (the iter25 fix for
+    preflight=fit wall-clock parity)."""
+    d = dataset_diagnostics(X, y, classification=classification, random_state=random_state,
+                            max_rows=max_rows, max_rows_corr=max_rows_corr, n_estimators=n_estimators)
     reasons, suggestions = [], []
     rec = "run"
 

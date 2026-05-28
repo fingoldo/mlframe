@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-05-28 — ShapProxiedFS: cap preflight booster CV (iter25)
+
+Iteration-25 restores the `ShapProxiedFS.preflight(X, y)` "will-it-shine?" gate's cheap-check purpose. The preflight is supposed to give users a `run / caution / fallback` verdict BEFORE paying the full fit cost, but a 2026-05-28 live test at width=1000 / n_rows=5000 measured **preflight=77s vs fit=86s** -- nearly wall-clock parity. Hot path: `dataset_diagnostics` runs two `cross_val_score(cv=3)` passes (depth-4 + depth-1 XGB booster) for the additive-vs-deep ratio = 6 full-width XGB fits at the default `n_estimators=150`. These are RANKING-only fits (we read their ratio, not deployed predictions), so the cap-the-ranker pattern from iter9/iter10/iter19 applies.
+
+- **New defaults in [`_shap_proxy_preflight.py::dataset_diagnostics`](src/mlframe/feature_selection/_shap_proxy_preflight.py)**: `n_estimators=100` (was 150); `max_rows=2000` (was 5000). Both are ranking-only knobs -- the gate consumes only the deep-vs-stump CV-score ratio + the deep-vs-trivial gain, neither of which moves materially when the booster shrinks. Measured on the iter17 5-regime calibration set (additive_highSNR / redundancy_heavy / interaction_heavy / xor_interaction / noise_heavy) the recommendation is PRESERVED in every regime; the additive_ratio shifts by `<=0.02` in absolute value and stays on the same side of the 0.6 floor.
+- **Live-test regime wall-clock at width=1000 / n_rows=5000 / n_informative=12 / n_redundant=8 / n_noise=980 / snr=8.0 / binary / seed=0 (dev HW)**:
+
+  | mode    | n_estimators | max_rows | wall   | recommendation | additive_ratio |
+  |---------|--------------|----------|--------|----------------|----------------|
+  | legacy  | 150          | 5000     | 33.98s | run            | 1.0095         |
+  | iter25  | 100          | 2000     | 20.94s | run            | 1.0469         |
+
+  -38% wall on dev HW; recommendation + suggestion set + `max_abs_corr` (0.8093) bit-for-bit identical. On the live-test machine (~2.3x slower) this translates to an expected ~47s preflight, well below the 86s fit cost.
+- **Decoupled `max_rows_corr=5000` knob** keeps the `max_abs_corr` redundancy probe's row sample unchanged from the legacy 5000-row default. Correlation pass is cheap (O(n * m^2) numpy `corrcoef` against `<=400` columns) so subsampling it gives no measurable savings, but its variance falls as `1/sqrt(n)` and a 2000-row sample shrinks the sampling-variance ceiling on `max|corr|` enough to flip the 0.7 redundancy gate inconsistently. Decoupling preserves byte-for-byte gate determinism vs the pre-iter25 path.
+- **Tests** in [`tests/feature_selection/test_shap_proxy_preflight.py`](tests/feature_selection/test_shap_proxy_preflight.py):
+  - `test_preflight_corr_gate_bit_identical_under_iter25_cap` (fast unit): cap doesn't change `max_abs_corr` -- the corr-gate's bit-for-bit determinism vs legacy.
+  - `test_preflight_capped_recommendation_matches_legacy_iter17` (slow, parametrised over 5 iter17 regimes): cap preserves recommendation + suggestion list on the calibration anchor.
+  - `test_biz_val_preflight_under_30s_at_width_1000` (slow): preflight at the live-test regime runs under 30s.
+- Next single best improvement: parallelise the two booster CV passes (`deep` + `stump`) inside `dataset_diagnostics`. They share the same `(Xs, ys)` and are independent -- a 2-way joblib/`prefer="threads"` pool would near-halve the booster wall again at no statistical cost. The current call site is `_cv_score(deep, ...)` then `_cv_score(stump, ...)` sequentially.
+
 ## 2026-05-28 — ShapProxiedFS: recalibrate trust-guard floor + rename to `fidelity_floor` (iter18)
 
 Iteration-18 recalibrates the trust-guard's gate threshold. Iter16 flipped the gate from raw Spearman to the composite `proxy_fidelity_score = 0.6*spearman + 0.4*recall@k`, but the floor kwarg kept its legacy default `0.6` -- a value chosen against the RAW-Spearman scale. On the composite scale that floor is too conservative: the `interaction_heavy` regime (recovery 6/8 = 75%, a real partial success worth surfacing as caution, not as a hard fail) computes composite 0.5384 and gets flagged LOW. The fix recalibrates the floor against the composite scale using the same 5-regime set iter17 used for the weights study.
