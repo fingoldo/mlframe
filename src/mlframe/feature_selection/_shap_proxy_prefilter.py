@@ -51,32 +51,31 @@ PREFILTER_METHODS = ("model", "univariate", "fast_model", "gpu_model", "two_stag
 # for the cheap interaction-aware "fast_model". Below this, the all-columns model fit is affordable and
 # we keep the quality-safe behaviour; above it the fit dominates the wall-clock.
 #
-# Tuned 2026-05-28 from 6000 -> 4000 based on the iter5+iter7 stage-breakdown bench: at 5000 features
-# the "model" prefilter dominates the wall-clock (85s / 47% of a 180s fit on 4000 rows; profiled), and
-# the iter5 prefilter bench measured fast_model at 5k is 5.3x faster on the prefilter stage AND keeps
-# 8/8 planted informatives, matching the "model" recall. End-to-end this drops the 5k fit ~85s -> ~30s
-# on the prefilter, ~3x on the dominant stage, with no measured recovery loss on the regime-data
-# benchmark. 10k continues to use fast_model unchanged (auto already routed wide data above 6000).
+# Tuned 4000 -> 1000 based on the sub-4k prefilter micro-bench (rows=4000, regime dataset,
+# 8 informatives + 12 redundant; same harness iter21 used at widths 2k-6k): "model" prefilter took
+# 7.65s / 9.89s / 13.24s / 19.61s at widths 1000 / 1500 / 2000 / 3000 while "two_stage" took 1.46s /
+# 2.16s / 2.96s / 4.05s with IDENTICAL 8/8 informative recall at every width -- a 4.47-5.25x speedup on
+# the dominant prefilter stage with no measured recovery loss. Two_stage dominates "model" at every
+# sub-4k width tested (no crossover found down to the lowest), so the auto switchover is lowered to the
+# smallest tested width. End-to-end at 2k (the threshold-just-above formerly routed to "model"): 89.7s
+# -> 26.0s = 3.45x with 8/8 -> 8/8 recall parity, so the prefilter win does not wash out downstream.
 # Overridable via kernel_tuning_cache ("shap_proxy_prefilter" -> "auto_fast_width") so the crossover is
-# tuned per-HW. Values below 2000 effectively force fast_model at all widths the user runs (the iter5
-# bench at 2k still showed fast_model at recall=8/8, so even that lower bound is recovery-safe).
-_AUTO_FAST_WIDTH = 4000
+# tuned per-HW. Below ~500 the prefilter is a near-no-op anyway (prefilter_top default is 500).
+_AUTO_FAST_WIDTH = 1000
 # Row count at/above which "gpu_model" actually beats CPU "model" for the all-columns fit (GPU transfer
 # + kernel-launch overhead dominates on small n; the win scales with rows). Overridable via the cache.
 _GPU_MODEL_MIN_ROWS = 20000
 # Width at/above which auto routes to the cheap-stage-A + capped-booster-stage-B "two_stage".
 #
-# Tuned 2026-05-28 from 8000 -> 4000 based on the iter21 prefilter micro-bench (rows=4000, regime
-# dataset, 8 informatives + 12 redundant): "model" prefilter took 24.0s / 30.6s / 37.7s at width
-# 4000 / 5000 / 6000 while "two_stage" took 5.0s / 6.2s / 7.4s with IDENTICAL 8/8 informative recall
-# at every width -- a 4.78x / 4.91x / 5.10x speedup on the dominant prefilter stage with no measured
-# recovery loss. The crossover where two_stage starts winning is at or below the lowest tested width
-# (the speedup was already 4.79x at 2000 features), so the unified threshold matches
-# ``_AUTO_FAST_WIDTH``: anywhere auto routes off the single-shot "model" path, it now routes to
-# "two_stage" (no-GPU case). The legacy "fast_model" tier becomes unreachable from auto routing
-# (still callable via an explicit ``prefilter_method="fast_model"`` argument). Overridable via
-# kernel_tuning_cache key ``shap_proxy_prefilter.two_stage_min_width``.
-_TWO_STAGE_MIN_WIDTH = 4000
+# Lowered 4000 -> 1000 (kept unified with ``_AUTO_FAST_WIDTH``) following the sub-4k micro-bench: at
+# widths 1000 / 1500 / 2000 / 3000 two_stage was 5.25x / 4.59x / 4.47x / 4.84x faster than "model" on
+# the prefilter stage with 8/8 parity recall everywhere. iter21 had only verified the 2k-6k window; the
+# sub-4k sweep showed two_stage still strictly dominates at width=1000 (the lowest tested), so the
+# threshold drops to the smallest measured width. Above this, auto routes off the single-shot "model"
+# path; below it the all-columns model fit is cheap enough (< ~8s at width 1000 on dev HW) that the
+# faithful ranking is kept. Overridable via kernel_tuning_cache key
+# ``shap_proxy_prefilter.two_stage_min_width``.
+_TWO_STAGE_MIN_WIDTH = 1000
 
 
 def _prefilter_tuning() -> dict:
@@ -121,13 +120,14 @@ def resolve_prefilter_method(method: str, *, n_features: int, n_rows: int) -> st
     """Map the user-facing ``prefilter_method`` to a concrete method.
 
     ``"auto"`` (the recommended default) keeps the quality-safe full-booster ``"model"`` ranking for
-    moderate widths (``n_features < _auto_fast_width()``), and for wider data routes to the cheap-funnel
-    ``"two_stage"`` path -- the iter21 micro-bench measured a 4.78-5.10x prefilter-stage speedup with
-    identical 8/8 informative recall vs ``"model"`` at every width from 2k to 6k. If a CUDA device is
-    present AND the row count is large enough for the GPU to win, ``"auto"`` routes the wide-data case
-    to ``"gpu_model"`` instead -- same faithful ranking, just on the GPU. ``"fast_model"`` is reachable
-    only via an explicit method= argument; auto no longer routes through it because two_stage strictly
-    dominates it on the wide-data regime. Explicit methods pass through unchanged.
+    narrow widths (``n_features < _auto_fast_width()`` -- the default crossover is 1000), and for wider
+    data routes to the cheap-funnel ``"two_stage"`` path -- the sub-4k micro-bench measured a 4.47-5.25x
+    prefilter-stage speedup with identical 8/8 informative recall vs ``"model"`` at every width from 1k
+    to 6k (iter21 covered 2k-6k; the sub-4k sweep extended the crossover floor down to 1k). If a CUDA
+    device is present AND the row count is large enough for the GPU to win, ``"auto"`` routes the
+    wide-data case to ``"gpu_model"`` instead -- same faithful ranking, just on the GPU. ``"fast_model"``
+    is reachable only via an explicit method= argument; auto no longer routes through it because
+    two_stage strictly dominates it on the wide-data regime. Explicit methods pass through unchanged.
     """
     if method != "auto":
         if method not in PREFILTER_METHODS:

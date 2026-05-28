@@ -45,7 +45,9 @@ def test_resolve_auto_switches_two_stage_for_wide_when_no_gpu(monkeypatch):
 
     # No CUDA -> auto must pick two_stage at/above auto_fast_width. iter21 unified two_stage_min_width
     # with auto_fast_width based on the prefilter micro-bench (5.10x faster than "model" at width 6000
-    # with identical 8/8 informative recall), so the legacy fast_model auto window is collapsed.
+    # with identical 8/8 informative recall); the sub-4k sweep then lowered the unified threshold to
+    # 1000 (4.47-5.25x speedup with parity recall at every sub-4k width tested), so the legacy
+    # fast_model auto window stays collapsed and starts further down.
     monkeypatch.setattr(PF, "gpu_model_available", lambda: False)
     wide = PF._auto_fast_width()
     assert PF.resolve_prefilter_method("auto", n_features=wide, n_rows=4000) == "two_stage"
