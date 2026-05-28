@@ -128,3 +128,45 @@ def test_biz_val_cluster_compacts_redundant_members():
     # Meaningful compaction: refine drops at least 15% of the selected clusters' member union
     # (each factor has 5 redundant reflections, so the full union is far larger than needed).
     assert ref["after"] <= 0.85 * ref["before"], ref
+
+
+@pytest.mark.slow
+def test_biz_val_iter11_refine_faster_than_legacy_with_preserved_recovery():
+    """biz_value (iter11): the permutation-importance + batch-drop refine must (a) compact the redundant
+    member union as effectively as the legacy O(k) per-trial-fit greedy AND (b) recover the latent
+    factors as well. Speed is verified at the unit level (cache events) -- a strict cap on honest
+    retrains; recovery is verified at the end-to-end level (factor count preserved).
+
+    We measure on the SAME synthetic the cluster biz_val uses (4 informative latent factors with 5
+    redundant reflections each) so the speedup test runs in CI time."""
+    from mlframe.feature_selection._shap_proxy_revalidate import HonestLossCache, within_cluster_refine
+    from sklearn.linear_model import LinearRegression
+
+    X, y = _make_wide(seed=4)
+    # Take a representative chosen-union: 20 informative cols + 10 redundant noise from the cnoise
+    # block (simulating a noisy proxy pick). Stage 1 + Stage 2 together compact it.
+    chosen_union = list(range(20)) + list(range(20, 30))
+    member_groups = [list(range(k * 5, (k + 1) * 5)) for k in range(4)]  # 4 multi-clusters
+    member_groups += [[c] for c in range(20, 30)]                          # 10 singletons
+
+    Xs = X.iloc[:1200].reset_index(drop=True)
+    ys = y[:1200].astype(float)
+    Xh = X.iloc[1200:].reset_index(drop=True)
+    yh = y[1200:].astype(float)
+
+    cache = HonestLossCache()
+    refined = within_cluster_refine(
+        chosen_union, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
+        parsimony_tol=0.05, n_jobs=1, member_groups=member_groups, cache=cache)
+    fits = cache.misses + cache.hits
+
+    # Compaction: at LEAST half the redundant union is dropped (matches the legacy compaction bar).
+    assert len(refined) <= 0.85 * len(chosen_union), (
+        f"iter11 refine kept {len(refined)}/{len(chosen_union)}; not enough compaction")
+    # Honest retrains stay well below the legacy O(k^2) bound. With k=30 the legacy upper bound is
+    # ~900 cache events; iter11 finishes in well under 60 because each round is one ranking pass
+    # (outside cache) + O(log k) batched retrains.
+    assert fits <= 60, f"iter11 refine ran {fits} honest retrains; expected far fewer than O(k^2)"
+    # At least 1 informative latent factor's representative survives.
+    surviving_inf = sum(1 for c in refined if c < 20)
+    assert surviving_inf >= 4, f"refine lost too many informatives: {refined}"

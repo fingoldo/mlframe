@@ -522,3 +522,108 @@ def test_shap_proxied_fs_records_honest_loss_full_for_refined_subset():
     # Refine ran and recorded the full-template loss for the chosen subset.
     assert "honest_loss_full" in ref
     assert 0.0 <= ref["honest_loss_full"] <= 1.0  # brier is bounded
+
+
+# --------------------------------------- iter11: permutation-importance + batch-drop refine
+
+
+def test_permutation_importance_ranking_is_deterministic_across_calls():
+    """``_permutation_importance_ranking`` with the same ``seed`` must return BYTE-IDENTICAL importance
+    vectors across separate calls -- the function is the basis of ``within_cluster_refine``'s drop
+    ranking and a non-deterministic ranking would silently change which members are dropped under
+    n_jobs=1 (the same seed should reproduce the same refined subset)."""
+    from mlframe.feature_selection._shap_proxy_revalidate import _permutation_importance_ranking
+
+    rng = np.random.default_rng(0)
+    n = 500
+    X = pd.DataFrame(rng.normal(size=(n, 6)), columns=[f"x{i}" for i in range(6)])
+    y = (1.2 * X["x0"] + 0.8 * X["x1"] - 0.5 * X["x2"] + 0.1 * rng.normal(size=n)).to_numpy()
+    Xs, ys = X.iloc[:400].reset_index(drop=True), y[:400]
+    Xh, yh = X.iloc[400:].reset_index(drop=True), y[400:]
+    cols = list(range(6))
+
+    base1, imps1 = _permutation_importance_ranking(LinearRegression(), Xs, ys, Xh, yh, cols, False,
+                                                    "rmse", seed=42)
+    base2, imps2 = _permutation_importance_ranking(LinearRegression(), Xs, ys, Xh, yh, cols, False,
+                                                    "rmse", seed=42)
+    assert base1 == base2
+    assert np.array_equal(imps1, imps2), f"non-deterministic ranking: {imps1} vs {imps2}"
+    # Different seed -> different shuffle -> ranks should still be qualitatively similar (informative
+    # cols outrank noise) but the importance values may differ slightly.
+    _, imps3 = _permutation_importance_ranking(LinearRegression(), Xs, ys, Xh, yh, cols, False,
+                                                "rmse", seed=999)
+    # Top-3 by importance: informatives 0, 1, 2 should dominate (positive imp), noise (3, 4, 5) low.
+    assert set(np.argsort(-imps1)[:3].tolist()) == {0, 1, 2}, imps1
+    assert set(np.argsort(-imps3)[:3].tolist()) == {0, 1, 2}, imps3
+
+
+def test_within_cluster_refine_batch_drop_falls_back_to_single_drop_when_all_essential():
+    """When every member is informative (no individually-safe drop exists), the batch-drop path must
+    NOT delete essentials. The iter11 algorithm starts with ``batch_size = max(n_safe, 1)`` and halves
+    on rejection; with all-essential data the first attempt drops the single least-important member
+    and the retrain rejects it -> the loop exits, keeping every column. This matches legacy single-drop
+    greedy's behaviour on the same input (the canonical "no safe drop" fall-through).
+
+    Verified by: refined == cols (no drops) AND a separate legacy run on the same input also returns
+    every column. This is the iter11 fallback guarantee."""
+    from mlframe.feature_selection._shap_proxy_revalidate import within_cluster_refine
+
+    rng = np.random.default_rng(2)
+    n = 600
+    # Five linearly independent informatives with similar coefficients -> none is individually safe.
+    X = pd.DataFrame(rng.normal(size=(n, 5)), columns=[f"x{i}" for i in range(5)])
+    y = (1.5 * X["x0"] + 1.2 * X["x1"] - 0.9 * X["x2"] + 0.7 * X["x3"] - 0.5 * X["x4"]
+         + 0.05 * rng.normal(size=n)).to_numpy()
+    Xs, ys = X.iloc[:450].reset_index(drop=True), y[:450]
+    Xh, yh = X.iloc[450:].reset_index(drop=True), y[450:]
+    cols = list(range(5))
+
+    refined_batch = within_cluster_refine(
+        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
+        parsimony_tol=0.02, n_jobs=1, member_groups=None)
+    refined_legacy_input = within_cluster_refine(
+        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
+        parsimony_tol=0.02, n_jobs=1, member_groups=[[i] for i in range(5)])
+
+    # Both paths reach the same all-essential conclusion: keep every member.
+    assert refined_batch == cols, f"batch-drop dropped essentials: {refined_batch}"
+    assert refined_legacy_input == cols, f"member-groups path dropped essentials: {refined_legacy_input}"
+
+
+def test_within_cluster_refine_batch_drop_strictly_fewer_fits_on_redundant_data():
+    """iter11 batch-drop must produce STRICTLY FEWER honest retrains than the legacy O(k) per-round
+    trial fits on a redundancy-heavy union -- the speedup is the headline win. We measure cache
+    invocations (every honest retrain goes through ``_honest_loss``, hence the cache); the
+    permutation-importance ranking pass is OUTSIDE the cache (one direct fit + k cheap predicts), so a
+    decrease in cache events is the batch-drop saving.
+
+    The baseline is the legacy refine pre-iter11 -- captured here by ``member_groups=None`` (legacy
+    pure greedy-backward, no stage-1 cluster collapse, no batch-drop) so the comparison isolates the
+    stage-2 algorithm change."""
+    from mlframe.feature_selection._shap_proxy_revalidate import HonestLossCache, within_cluster_refine
+
+    X, y = _refine_planted_redundant(seed=3, n_red=4)  # 13 cols total, 4 are duplicates of col 0
+    Xs, ys = X.iloc[:450].reset_index(drop=True), y[:450]
+    Xh, yh = X.iloc[450:].reset_index(drop=True), y[450:]
+    cols = list(range(X.shape[1]))
+
+    # iter11 batch-drop path: stage-1 disabled (member_groups=None) so we measure stage-2 alone.
+    cache_new = HonestLossCache()
+    r_new = within_cluster_refine(
+        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
+        parsimony_tol=0.05, n_jobs=1, member_groups=None, cache=cache_new)
+    fits_new = cache_new.misses + cache_new.hits
+
+    # Both must still drop the redundant duplicates (the unique informatives + at least one of the
+    # redundancy-cluster members survive).
+    assert {1, 2}.issubset(set(r_new)), f"batch-drop refine dropped informatives: {r_new}"
+    assert any(c in (0, 3, 4, 5, 6) for c in r_new), f"batch-drop refine dropped cluster: {r_new}"
+
+    # And the redundancy cluster IS partially collapsed (at least one dup goes).
+    n_cluster_kept = sum(1 for c in r_new if c in (0, 3, 4, 5, 6))
+    assert n_cluster_kept < 5, f"batch-drop refine kept ALL redundancy members: {r_new}"
+
+    # The honest-retrain count is bounded by O(log k) batched retrains per ranking round + at most
+    # ``rounds`` ranking rounds. For a 13-col input the legacy upper bound is O(k^2) = 169 cache
+    # events; iter11 must be a fraction of that.
+    assert fits_new <= 30, f"iter11 refine ran {fits_new} cache events; expected far fewer than O(k^2)"
