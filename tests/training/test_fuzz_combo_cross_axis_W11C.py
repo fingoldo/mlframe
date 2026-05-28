@@ -860,3 +860,50 @@ def test_iter503_audit_pass_3_axes_flow_to_kwargs():
     assert c_int_on.canonical_key() != c_int_def.canonical_key(), (
         "max_interaction_features=64 vs 16 must produce distinct canon keys when interactions on"
     )
+
+
+# ---------------------------------------------------------------------------
+# iter554: short_id() determinism across import-order / env state
+# ---------------------------------------------------------------------------
+
+
+def test_iter554_short_id_independent_of_haflaml_env_state():
+    """FuzzCombo.short_id() must be a pure function of the axis values.
+
+    Prior to the fix, ``_canon_use_flaml_zeroshot(axes[...]) `` was applied at
+    ``from_axes`` resolution time, dropping ``True`` -> ``False`` when the
+    optional ``flaml`` dep was not importable. flaml's import success can
+    flip on transitive sys.path / module-cache state across processes
+    (matplotlib import order observably toggles it on Windows in this repo),
+    which made the same logical combo emit different short_ids across
+    "picker" scripts and ``profile_one_combo.py``. The fix stores the
+    LOGICAL requested value in the FuzzCombo dataclass; the fit-time
+    contract remains the consumer of ``_HAS_FLAML`` for skip / xfail
+    decisions.
+
+    This test pins:
+      (1) Two combos differing ONLY in behavior_use_flaml_zeroshot_cfg
+          have distinct canonical_keys and distinct short_ids regardless
+          of ``_HAS_FLAML`` -- the canon never collapses True -> False.
+      (2) When the requested value is True, the dataclass field is True.
+    """
+    base_axes = {name: values[0] for name, values in AXES.items()}
+    # xgb in models so the canonical_key's flaml gate ("xgb in models or
+    # lgb in models") doesn't short-circuit the axis.
+    axes_false = dict(base_axes, behavior_use_flaml_zeroshot_cfg=False)
+    axes_true = dict(base_axes, behavior_use_flaml_zeroshot_cfg=True)
+
+    c_false = _build_combo(models=("xgb",), axes=axes_false, seed=0)
+    c_true = _build_combo(models=("xgb",), axes=axes_true, seed=0)
+
+    assert c_true.behavior_use_flaml_zeroshot_cfg is True, (
+        "FuzzCombo must store the LOGICAL requested value (True), regardless of _HAS_FLAML env state"
+    )
+    assert c_false.behavior_use_flaml_zeroshot_cfg is False
+
+    assert c_true.canonical_key() != c_false.canonical_key(), (
+        "True and False must produce distinct canonical_keys; canon must NOT collapse to False"
+    )
+    assert c_true.short_id() != c_false.short_id(), (
+        "True and False must produce distinct short_ids; reproducibility across environments"
+    )

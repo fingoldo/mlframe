@@ -3064,13 +3064,20 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         ensembling_degenerate_class_ratio_cfg=axes.get(
             "ensembling_degenerate_class_ratio_cfg", 0.01
         ),
-        # behavior_use_flaml_zeroshot: canon True -> False when flaml is not
-        # importable so combos don't crash at fit-time on environments without
-        # the optional dep. flaml is only used by the zeroshot meta-learner
-        # path; vanilla XGB/LGBM remain the default.
-        behavior_use_flaml_zeroshot_cfg=_canon_use_flaml_zeroshot(
-            axes.get("behavior_use_flaml_zeroshot_cfg", False)
-        ),
+        # behavior_use_flaml_zeroshot: store the LOGICAL requested value so
+        # the canonical_key / short_id are environment-independent. The
+        # _canon_use_flaml_zeroshot env-gating was previously applied here,
+        # but that made FuzzCombo.short_id() depend on whether flaml was
+        # importable at fuzz-combo enumeration time -- and flaml's own
+        # import success can flip based on transitive imports that landed
+        # earlier in the Python process (matplotlib import order surfaced
+        # this on c0001: short_id 906b0add without matplotlib vs c650c3cf
+        # with matplotlib, because flaml import fails / succeeds across
+        # those two states). Keep the requested value here so combo IDs
+        # match across "picker" scripts and profile_one_combo.py regardless
+        # of import order. Tests that need to skip flaml-missing combos
+        # should consult _HAS_FLAML at fit-time and xfail/skip accordingly.
+        behavior_use_flaml_zeroshot_cfg=axes.get("behavior_use_flaml_zeroshot_cfg", False),
         target_temporal_audit_granularity_cfg=axes.get(
             "target_temporal_audit_granularity_cfg", "auto"
         ),
