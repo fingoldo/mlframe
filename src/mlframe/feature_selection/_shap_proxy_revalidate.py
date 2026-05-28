@@ -436,12 +436,16 @@ def _sample_anchor_subsets(n_features, n_anchors, rng, min_card=1, max_card=None
     return [list(a) for a in anchors]
 
 
+_FIDELITY_FLOOR_UNSET = object()
+
+
 def proxy_trust_guard(
     phi, base, y_search, model_template, X_search, X_holdout, y_holdout,
     *, classification, metric=None, n_anchors=30, rng=None, min_card=1, max_card=None,
-    spearman_floor=0.6, n_jobs=-1, unit_to_members=None, cache=None, n_estimators_cap=None,
+    fidelity_floor=0.5, n_jobs=-1, unit_to_members=None, cache=None, n_estimators_cap=None,
     unit_f_scores=None, anchor_uniform_tail_frac=0.2, cardinality_dist="uniform", zipf_alpha=1.0,
     fidelity_weights=(0.6, 0.4), trustworthy_metric="proxy_fidelity_score",
+    spearman_floor=_FIDELITY_FLOOR_UNSET,
 ):
     """Measure proxy-vs-honest rank fidelity on anchor subsets. Returns a report dict.
 
@@ -480,10 +484,32 @@ def proxy_trust_guard(
 
     ``trustworthy_metric`` (iter16, default ``'proxy_fidelity_score'``): which scalar gates the
     ``trustworthy`` boolean. ``'proxy_fidelity_score'`` is the new composite (default). ``'spearman'``
-    preserves pre-iter16 semantics for callers that pinned ``spearman_floor`` against the raw Spearman
-    scale. The floor (``spearman_floor`` kwarg, kept for backwards-compat) is interpreted in the chosen
-    metric's scale: both metrics live on [0, 1] so the same numeric floor (default 0.6) is a sensible
-    starting point either way.
+    preserves pre-iter16 semantics for callers that pinned the floor against the raw Spearman scale.
+
+    ``fidelity_floor`` (iter18, default ``0.5``): below this value the gate trips and ``trustworthy``
+    is ``False``. Interpreted in the chosen ``trustworthy_metric`` scale; both metrics live on [0, 1].
+    Iter18 recalibrated the default from 0.6 to 0.5 after iter17 flipped the gate from raw Spearman to
+    the composite ``proxy_fidelity_score = 0.6*spearman + 0.4*recall@k``: the legacy 0.6 was set
+    against the raw-Spearman scale and is too conservative on the composite scale, flagging the
+    ``interaction_heavy`` regime (recovery 6/8 = 75%, a real partial success) as LOW. The new floor
+    is the lowest composite of any regime that hits ``recovery_rate >= 0.7`` across the same 5-regime
+    bench used for the weights calibration:
+
+      regime              spearman  recall@k  composite  recovery  recovery_rate  gate@0.5
+      additive_highSNR     0.9533    0.8333    0.9053     8/8        1.000          PASS
+      redundancy_heavy     0.8839    0.8333    0.8637     8/8        1.000          PASS
+      interaction_heavy    0.5640    0.5000    0.5384     6/8        0.750          PASS
+      noise_heavy          0.9506    0.8333    0.9036     7/8        0.875          PASS
+      xor_interaction      0.3459    0.6667    0.4742     2/6        0.333          FAIL
+
+    ``recovery_rate >= 0.7`` PASS group min composite = 0.5384 (interaction_heavy); the only regime
+    with ``recovery_rate < 0.5`` (xor) sits at 0.4742. A floor at 0.5 separates the two groups
+    cleanly (0.039 margin to the PASS floor, 0.026 margin above the FAIL ceiling). See
+    ``_benchmarks/calib_iter18_fidelity_floor.py`` for reproducible measurement.
+
+    ``spearman_floor`` (DEPRECATED iter18 alias for ``fidelity_floor``): kept for backwards-compat
+    with callers that hard-coded the iter15 kwarg name. Emits a ``DeprecationWarning`` when supplied.
+    Passing BOTH ``fidelity_floor`` and ``spearman_floor`` raises ``ValueError``.
 
     ``unit_f_scores``: optional length-``phi.shape[1]`` float vector of per-unit marginal-strength
     weights (e.g. ANOVA F-scores aggregated from the prefilter's cached stage-A scores). When supplied,
@@ -506,6 +532,24 @@ def proxy_trust_guard(
     over-compresses to small-k extremes where proxy and honest agree trivially; ``alpha=0`` degenerates
     Zipf to uniform."""
     from scipy.stats import kendalltau, spearmanr
+
+    # iter18: ``spearman_floor`` is a deprecated alias of ``fidelity_floor`` (renamed because the
+    # gate has been the composite ``proxy_fidelity_score`` since iter16; the legacy name was a
+    # misnomer). Resolve here so the rest of the body only deals with ``fidelity_floor``.
+    if spearman_floor is not _FIDELITY_FLOOR_UNSET:
+        import warnings
+        if fidelity_floor != 0.5:
+            # Both supplied -- ambiguous; refuse rather than silently picking one.
+            raise ValueError(
+                "proxy_trust_guard: pass either `fidelity_floor` (new name) or `spearman_floor` "
+                "(deprecated alias), not both.")
+        warnings.warn(
+            "`spearman_floor` is deprecated since iter18; use `fidelity_floor` (same semantics). "
+            "The kwarg name was inherited from the iter15 raw-Spearman gate but the gate has been "
+            "the composite `proxy_fidelity_score` since iter16.",
+            DeprecationWarning, stacklevel=2,
+        )
+        fidelity_floor = spearman_floor
 
     metric = resolve_metric(classification, metric)
     rng = np.random.default_rng(0) if rng is None else rng
@@ -566,9 +610,13 @@ def proxy_trust_guard(
     else:
         raise ValueError(
             f"trustworthy_metric must be 'proxy_fidelity_score' or 'spearman', got {trustworthy_metric!r}")
-    trustworthy = np.isfinite(gate_value) and gate_value >= spearman_floor
+    trustworthy = np.isfinite(gate_value) and gate_value >= fidelity_floor
     report = dict(n_anchors=int(len(proxy_losses)), spearman=sp, kendall=kt,
-                  recall_at_k=recall, k=int(k), spearman_floor=spearman_floor,
+                  recall_at_k=recall, k=int(k),
+                  # iter18: ``fidelity_floor`` is the canonical key for the gate threshold.
+                  # ``spearman_floor`` is kept as a deprecated alias in the report so legacy
+                  # downstream consumers that inspect the dict by the old name don't break.
+                  fidelity_floor=fidelity_floor, spearman_floor=fidelity_floor,
                   # iter16: composite gate (default) -- raw spearman / recall stay above as diagnostics.
                   proxy_fidelity_score=fidelity,
                   fidelity_weights=(w_sp, w_rc),
@@ -591,7 +639,7 @@ def proxy_trust_guard(
             "ShapProxiedFS: proxy fidelity LOW (%s=%.3f < floor=%.2f; spearman=%.3f, recall@%d=%.2f). "
             "The SHAP-coalition proxy may mis-rank subsets on this data; treat the result with caution "
             "(consider a smaller exhaustive honest search or more selected features).",
-            gate_metric_name, gate_value, spearman_floor, sp, int(k), recall,
+            gate_metric_name, gate_value, fidelity_floor, sp, int(k), recall,
         )
     else:
         logger.info(

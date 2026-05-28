@@ -83,7 +83,7 @@ def run_one(regime: dict, time_budget_s: float = 90.0) -> dict:
         classification=False, metric="rmse",
         min_features=2, max_features=8, top_n=5,
         n_models=1, n_splits=3, holdout_size=0.3,
-        trust_guard=True, n_anchors=30, spearman_floor=0.6,
+        trust_guard=True, n_anchors=30, fidelity_floor=0.6,
         revalidate=True, n_revalidation_models=1,
         run_importance_ablation=False,
         use_bias_corrector=True,

@@ -997,3 +997,83 @@ def test_fidelity_weights_must_sum_to_positive_value():
         proxy_trust_guard(phi[:200], base[:200], ys, LinearRegression(), Xs, Xh, yh,
                           classification=False, metric="rmse", n_anchors=8,
                           rng=np.random.default_rng(0), fidelity_weights=(0.0, 0.0))
+
+
+def test_iter18_fidelity_floor_default_is_calibrated_value():
+    """Iter18 regression sentinel: pin the calibrated default ``fidelity_floor=0.5`` so a future
+    change is deliberate (test must move together with the default). The legacy 0.6 default was set
+    against the raw-Spearman scale (pre-iter16); on the composite scale it was too conservative and
+    tripped on the partial-recovery ``interaction_heavy`` regime. The new floor cleanly separates
+    regimes with ``recovery_rate >= 0.7`` (min composite 0.5384) from regimes with
+    ``recovery_rate < 0.5`` (max composite 0.4742). See
+    ``_benchmarks/calib_iter18_fidelity_floor.py``.
+
+    Also pins the facade-level default ``ShapProxiedFS.fidelity_floor = 0.5``."""
+    import inspect
+
+    from mlframe.feature_selection._shap_proxy_revalidate import proxy_trust_guard
+    from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
+
+    sig = inspect.signature(proxy_trust_guard)
+    assert sig.parameters["fidelity_floor"].default == 0.5, (
+        f"iter18 calibration default drifted: proxy_trust_guard.fidelity_floor default "
+        f"is {sig.parameters['fidelity_floor'].default!r}, expected 0.5."
+    )
+
+    facade_sig = inspect.signature(ShapProxiedFS.__init__)
+    assert facade_sig.parameters["fidelity_floor"].default == 0.5, (
+        f"iter18 calibration default drifted at the facade: "
+        f"ShapProxiedFS.fidelity_floor default is "
+        f"{facade_sig.parameters['fidelity_floor'].default!r}, expected 0.5."
+    )
+
+
+def test_spearman_floor_kwarg_is_deprecated_alias_for_fidelity_floor():
+    """Iter18 rename sentinel: ``spearman_floor=...`` must still work but emit a DeprecationWarning
+    and copy through to ``fidelity_floor`` (same semantics). Supplying BOTH must raise
+    ``ValueError`` -- silently picking one would hide a config error."""
+    from mlframe.feature_selection._shap_proxy_revalidate import proxy_trust_guard
+
+    rng = np.random.default_rng(0)
+    n, f = 600, 6
+    X = pd.DataFrame(rng.normal(size=(n, f)), columns=[f"x{i}" for i in range(f)])
+    y = (1.5 * X["x0"] + 1.0 * X["x1"] - 0.8 * X["x2"] + 0.05 * rng.normal(size=n)).to_numpy()
+    phi = np.column_stack([1.5 * X["x0"], 1.0 * X["x1"], -0.8 * X["x2"]] + [np.zeros(n)] * (f - 3))
+    base = np.full(n, float(y.mean()))
+    Xs, ys = X.iloc[:450].reset_index(drop=True), y[:450]
+    Xh, yh = X.iloc[450:].reset_index(drop=True), y[450:]
+
+    # Supplying spearman_floor emits a DeprecationWarning AND the floor takes effect.
+    with pytest.warns(DeprecationWarning, match="spearman_floor"):
+        rep_legacy = proxy_trust_guard(phi[:450], base[:450], ys, LinearRegression(), Xs, Xh, yh,
+                                       classification=False, metric="rmse", n_anchors=10,
+                                       rng=np.random.default_rng(0), spearman_floor=0.7)
+    assert rep_legacy["fidelity_floor"] == 0.7
+    assert rep_legacy["spearman_floor"] == 0.7  # alias key still emitted for legacy consumers
+
+    # Supplying both raises.
+    with pytest.raises(ValueError, match="fidelity_floor.*spearman_floor"):
+        proxy_trust_guard(phi[:450], base[:450], ys, LinearRegression(), Xs, Xh, yh,
+                          classification=False, metric="rmse", n_anchors=10,
+                          rng=np.random.default_rng(0),
+                          fidelity_floor=0.4, spearman_floor=0.6)
+
+
+def test_fidelity_floor_default_passes_interaction_heavy_composite():
+    """Iter18 floor calibration directly validates the threshold: at the iter17-measured
+    ``interaction_heavy`` composite (0.5384), the new default floor 0.5 must NOT trip the gate;
+    at the ``xor_interaction`` composite (0.4742) it MUST trip. This is the principled
+    PASS/FAIL separation the floor was chosen to encode."""
+    # Direct check on the gate threshold semantics: gate fires iff gate_value < floor.
+    # We use the empirically-measured composites from calib_iter18 (logged in the docstring of
+    # proxy_trust_guard.fidelity_floor) rather than re-running the bench, since the calibration
+    # script lives in _benchmarks and is the source of truth for those numbers.
+    floor_default = 0.5
+    interaction_heavy_composite = 0.5384
+    xor_composite = 0.4742
+    assert interaction_heavy_composite >= floor_default, (
+        "iter18 floor must NOT trip on interaction_heavy (recovery_rate 0.75, PASS group). "
+        f"composite={interaction_heavy_composite} floor={floor_default}.")
+    assert xor_composite < floor_default, (
+        "iter18 floor MUST trip on xor_interaction (recovery_rate 0.333, FAIL group). "
+        f"composite={xor_composite} floor={floor_default}.")

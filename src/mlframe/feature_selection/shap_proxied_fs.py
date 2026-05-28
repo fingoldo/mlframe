@@ -59,7 +59,8 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         min_selected_ratio: float = 0.0,
         trust_guard: bool = True,
         n_anchors: int = 30,
-        spearman_floor: float = 0.6,
+        fidelity_floor: float = 0.5,
+        spearman_floor: Optional[float] = None,
         run_importance_ablation: bool = True,
         use_bias_corrector: bool = True,
         active_learning: bool = False,
@@ -113,6 +114,16 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         self.min_selected_ratio = min_selected_ratio
         self.trust_guard = trust_guard
         self.n_anchors = n_anchors
+        # ``fidelity_floor`` (iter18, default 0.5): below this composite the trust-guard fires LOW.
+        # The legacy ``spearman_floor`` kwarg name is preserved as a deprecated alias since iter18 --
+        # supplying it emits a ``DeprecationWarning`` at fit time and copies into ``fidelity_floor``.
+        # The legacy 0.6 default was set against the raw-Spearman scale (pre-iter16); on the composite
+        # scale (iter16+) it is too conservative and trips on the partial-recovery ``interaction_heavy``
+        # regime (recovery 6/8). The new 0.5 default cleanly separates regimes with
+        # ``recovery_rate >= 0.7`` (PASS, min composite 0.5384) from the only failing regime
+        # ``xor_interaction`` (recovery_rate 0.333, composite 0.4742). See
+        # ``_benchmarks/calib_iter18_fidelity_floor.py``.
+        self.fidelity_floor = fidelity_floor
         self.spearman_floor = spearman_floor
         self.run_importance_ablation = run_importance_ablation
         self.use_bias_corrector = use_bias_corrector
@@ -528,11 +539,30 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
                                 unit_f_scores = np.array(
                                     [float(np.mean(f_working[np.asarray(u, dtype=np.int64)]))
                                      for u in unit_to_members], dtype=np.float64)
+            # iter18: resolve fidelity_floor / spearman_floor (deprecated alias). Supplying both
+            # at the facade level is an error; supplying only the legacy name emits a
+            # DeprecationWarning and copies the value through. The default ``spearman_floor=None``
+            # means "user didn't set it"; ``fidelity_floor`` always carries the active value.
+            effective_floor = self.fidelity_floor
+            if self.spearman_floor is not None:
+                import warnings
+                if self.fidelity_floor != 0.5:
+                    raise ValueError(
+                        "ShapProxiedFS: set either `fidelity_floor` (new name) or `spearman_floor` "
+                        "(deprecated alias), not both.")
+                warnings.warn(
+                    "`ShapProxiedFS(spearman_floor=...)` is deprecated since iter18; use "
+                    "`fidelity_floor=...` (same semantics). The kwarg name was inherited from the "
+                    "iter15 raw-Spearman gate but the gate has been the composite "
+                    "`proxy_fidelity_score` since iter16.",
+                    DeprecationWarning, stacklevel=2,
+                )
+                effective_floor = self.spearman_floor
             with _stage("trust_guard"):
                 report["trust"] = proxy_trust_guard(
                     phi, base, y_phi, model_template, X_search, X_hold, y_hold,
                     n_anchors=self.n_anchors, rng=self._rng, min_card=self.min_features,
-                    max_card=self.max_features, spearman_floor=self.spearman_floor,
+                    max_card=self.max_features, fidelity_floor=effective_floor,
                     n_estimators_cap=self.trust_guard_n_estimators,
                     unit_f_scores=unit_f_scores,
                     anchor_uniform_tail_frac=self.trust_guard_uniform_tail_frac,
