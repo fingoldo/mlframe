@@ -183,3 +183,34 @@ def test_create_date_features_no_warn_without_clash(caplog):
         create_date_features(df, ['date'])
     warns = [r for r in caplog.records if r.levelname == "WARNING"]
     assert not warns, f"Clean input must not warn; got: {[r.message for r in warns]}"
+
+
+class TestResolvePandasMethod:
+    """Guards the getattr-once date-field resolver (extracts each pandas .dt
+    field once instead of hasattr-then-getattr extracting it twice)."""
+
+    def _dt(self):
+        return pd.Series(pd.date_range("2021-03-01", periods=300, freq="7h")).dt
+
+    @pytest.mark.parametrize("method", [
+        "hour", "day", "weekday", "month", "day_of_year",
+        "is_weekend", "week_of_year", "year", "quarter",
+    ])
+    def test_resolved_field_matches_direct_accessor(self, method):
+        from mlframe.feature_engineering.basic import _resolve_pandas_method, _DATE_METHOD_ALIASES
+        dt = self._dt()
+        got = _resolve_pandas_method(dt, method, np.float64).to_numpy()
+        # Reference field via the documented alias / special-case semantics.
+        if method == "is_weekend":
+            ref = (dt.weekday >= 5).astype(np.float64).to_numpy()
+        elif method == "week_of_year":
+            ref = dt.isocalendar().week.astype(np.float64).to_numpy()
+        else:
+            pd_name = _DATE_METHOD_ALIASES.get(method, (method, None))[0] or method
+            ref = getattr(dt, pd_name).astype(np.float64).to_numpy()
+        assert np.array_equal(got, ref, equal_nan=True)
+
+    def test_unknown_accessor_raises_valueerror(self):
+        from mlframe.feature_engineering.basic import _resolve_pandas_method
+        with pytest.raises(ValueError, match="Unknown pandas .dt accessor"):
+            _resolve_pandas_method(self._dt(), "not_a_real_field", np.float64)
