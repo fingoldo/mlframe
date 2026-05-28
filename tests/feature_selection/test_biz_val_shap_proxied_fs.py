@@ -45,7 +45,7 @@ def test_biz_val_shap_proxied_fs_recovers_informative_and_beats_baselines():
     sel = ShapProxiedFS(
         classification=True, metric="brier", optimizer="bruteforce",
         max_features=7, top_n=20, n_splits=3, n_revalidation_models=2,
-        random_state=0, verbose=False,
+        random_state=0, verbose=False, n_jobs=1,
     )
     sel.fit(X, pd.Series(y))
     selected = set(sel.selected_features_)
@@ -94,7 +94,7 @@ def test_biz_val_wide_pipeline_scales_and_recovers_informative():
         classification=True, metric="brier", optimizer="auto",
         prefilter_top=400, cluster_features=True, cluster_corr_threshold=0.7,
         top_n=15, n_splits=3, n_revalidation_models=2, n_anchors=20,
-        random_state=0, verbose=False)
+        random_state=0, verbose=False, n_jobs=1)
     sel.fit(X, pd.Series(y))
 
     # Contract integrity at scale: mask length == input width, names map back to original columns.
@@ -139,7 +139,8 @@ def test_biz_val_fast_prefilter_does_not_worsen_recovery_vs_model():
         sel = ShapProxiedFS(
             classification=True, metric="brier", optimizer="auto",
             prefilter_top=300, prefilter_method=method, cluster_features=True, cluster_corr_threshold=0.7,
-            top_n=15, n_splits=3, n_revalidation_models=2, n_anchors=20, random_state=0, verbose=False)
+            top_n=15, n_splits=3, n_revalidation_models=2, n_anchors=20,
+            random_state=0, verbose=False, n_jobs=1)
         sel._stage_timings = {}
         t0 = time.perf_counter()
         sel.fit(X, pd.Series(y))
@@ -175,7 +176,7 @@ def test_biz_val_regression_recovers_informative():
 
     sel = ShapProxiedFS(classification=False, metric="rmse", optimizer="bruteforce",
                         max_features=6, top_n=15, n_splits=3, n_revalidation_models=2,
-                        random_state=0, verbose=False)
+                        random_state=0, verbose=False, n_jobs=1)
     sel.fit(X, y)
     selected = set(sel.selected_features_)
     informative_kept = selected & {f"inf{i}" for i in range(4)}

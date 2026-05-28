@@ -26,7 +26,8 @@ def _fit_small():
     y = (0.9 * inf[:, 0] + 0.8 * inf[:, 1] - 0.7 * inf[:, 2] + 0.3 * rng.normal(size=n) > 0).astype(int)
     sel = ShapProxiedFS(classification=True, metric="brier", optimizer="bruteforce",
                         max_features=4, top_n=10, n_splits=3, n_revalidation_models=1,
-                        trust_guard=False, random_state=0, verbose=False)
+                        trust_guard=False, random_state=0, verbose=False,
+                        n_jobs=1)
     sel.fit(X, y)
     return sel, X, y
 
@@ -76,7 +77,7 @@ def test_polars_input_supported():
     y = (0.9 * inf[:, 0] + 0.8 * inf[:, 1] - 0.6 * inf[:, 2] + 0.3 * rng.normal(size=n) > 0).astype(int)
     sel = ShapProxiedFS(classification=True, metric="brier", optimizer="bruteforce", max_features=4,
                         top_n=8, n_splits=3, n_revalidation_models=1, trust_guard=False,
-                        random_state=0, verbose=False)
+                        random_state=0, verbose=False, n_jobs=1)
     sel.fit(Xpl, pl.Series(y))
     assert sel.n_features_in_ == 5
     out = sel.transform(Xpl)
