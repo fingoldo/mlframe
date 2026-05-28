@@ -674,20 +674,129 @@ def test_stratified_anchor_sampler_overweights_high_f_columns():
 
 
 def test_stratified_anchor_sampler_falls_back_to_uniform_when_weights_none():
-    """When ``weights=None`` the sampler MUST match the legacy uniform sampler bit-for-bit (same RNG
-    state -> same anchor list). This is the safety net: non-two-stage prefilter paths see no F-scores,
-    so the trust guard degrades to legacy behaviour with zero risk of a sampler-induced regression."""
+    """When ``weights=None`` the sampler MUST match the legacy (now ``cardinality_dist='uniform'``)
+    sampler bit-for-bit (same RNG state -> same anchor list). This is the safety net: non-two-stage
+    prefilter paths see no F-scores, so the trust guard degrades to legacy behaviour with zero risk
+    of a sampler-induced regression."""
     from mlframe.feature_selection._shap_proxy_revalidate import _sample_anchor_subsets
 
     n_features = 30
     n_anchors = 50
     rng_a = np.random.default_rng(42)
     rng_b = np.random.default_rng(42)
+    # Both calls explicitly request the uniform cardinality prior so we exercise the legacy code path.
     a_explicit = _sample_anchor_subsets(n_features, n_anchors, rng_a, min_card=2, max_card=6,
-                                        weights=None)
-    # Legacy positional-arg call (no weights kwarg) must give the same sequence.
-    a_legacy = _sample_anchor_subsets(n_features, n_anchors, rng_b, min_card=2, max_card=6)
+                                        weights=None, cardinality_dist="uniform")
+    a_legacy = _sample_anchor_subsets(n_features, n_anchors, rng_b, min_card=2, max_card=6,
+                                      cardinality_dist="uniform")
     assert a_explicit == a_legacy
+
+
+def test_uniform_cardinality_matches_legacy_rngs_bit_for_bit():
+    """The iter15 ``cardinality_dist='uniform'`` opt-out MUST exactly reproduce the pre-iter15
+    sampler: same RNG seed + uniform mode -> same anchor list as a hand-rolled legacy reference that
+    uses the same ``rng.integers(min_card, max_card+1)`` + ``rng.choice(...)`` calls in the same
+    order. Locks the bit-for-bit guarantee that protects callers depending on the legacy spread."""
+    from mlframe.feature_selection._shap_proxy_revalidate import _sample_anchor_subsets
+
+    n_features, n_anchors = 25, 40
+    rng_a = np.random.default_rng(2026)
+    a_uniform = _sample_anchor_subsets(n_features, n_anchors, rng_a, min_card=1, max_card=8,
+                                       cardinality_dist="uniform")
+
+    # Hand-rolled legacy reference: replays the exact pre-iter15 control flow with the same RNG seed.
+    rng_b = np.random.default_rng(2026)
+    expected: set[tuple[int, ...]] = set()
+    guard = 0
+    max_guard = n_anchors * 50
+    while len(expected) < n_anchors and guard < max_guard:
+        guard += 1
+        k = int(rng_b.integers(1, 9))
+        cols = tuple(sorted(rng_b.choice(n_features, size=k, replace=False).tolist()))
+        expected.add(cols)
+    assert set(map(tuple, a_uniform)) == expected
+
+
+def test_zipf_cardinality_prior_is_small_k_heavy():
+    """The iter15 Zipf cardinality prior MUST place more mass on small k than the uniform prior over
+    the same range -- this is the structural premise of the lift. Asserts mean-k under Zipf is
+    materially smaller than mean-k under uniform on a wide range ([1, 50])."""
+    from mlframe.feature_selection._shap_proxy_revalidate import _sample_anchor_subsets
+
+    n_features, n_anchors = 200, 400
+    rng_z = np.random.default_rng(0)
+    rng_u = np.random.default_rng(0)
+    a_zipf = _sample_anchor_subsets(n_features, n_anchors, rng_z, min_card=1, max_card=50,
+                                    cardinality_dist="zipf", zipf_alpha=1.0)
+    a_unif = _sample_anchor_subsets(n_features, n_anchors, rng_u, min_card=1, max_card=50,
+                                    cardinality_dist="uniform")
+    mean_k_zipf = float(np.mean([len(a) for a in a_zipf]))
+    mean_k_unif = float(np.mean([len(a) for a in a_unif]))
+    # Theoretical: uniform mean over [1,50] = 25.5; Zipf-1 mean ~ H50_2 / H50_1 ~= 11.16. Empirical
+    # variance is large at n=400, so use a wide margin: Zipf mean must be < 0.6 * uniform mean.
+    assert mean_k_zipf < 0.6 * mean_k_unif, (
+        f"Zipf prior failed to over-sample small k: mean_k_zipf={mean_k_zipf:.2f} "
+        f"vs mean_k_unif={mean_k_unif:.2f}")
+    # k=1 should dominate the Zipf distribution; over 400 draws, plenty of k=1 anchors should land.
+    n_singletons_zipf = sum(1 for a in a_zipf if len(a) == 1)
+    n_singletons_unif = sum(1 for a in a_unif if len(a) == 1)
+    assert n_singletons_zipf > n_singletons_unif * 2, (
+        f"Zipf prior failed to concentrate on k=1: zipf={n_singletons_zipf} vs uniform={n_singletons_unif}")
+
+
+def test_zipf_alpha_zero_is_uniform_over_k():
+    """``zipf_alpha=0`` MUST degenerate the Zipf prior to a uniform-over-k distribution (P(k) ∝ 1
+    for every k); the mean-k under alpha=0 over a wide range should match the uniform mean within
+    sample noise. This is the tuning safety net: a future caller asking for alpha=0 gets uniform,
+    not a NaN-out."""
+    from mlframe.feature_selection._shap_proxy_revalidate import _zipf_card_probs
+
+    probs = _zipf_card_probs(1, 50, alpha=0.0)
+    # Uniform over 50 entries -> every entry is 1/50.
+    np.testing.assert_allclose(probs, np.full(50, 1.0 / 50.0), atol=1e-12)
+
+
+def test_proxy_trust_guard_records_cardinality_dist():
+    """The trust-guard report MUST expose ``anchor_cardinality_dist`` so downstream consumers can see
+    whether the iter15 Zipf prior was active or the legacy uniform mode was selected. Default after
+    iter15's honest-negative bench is ``'uniform'`` (Zipf regressed Spearman across all alpha values
+    on the iter14 width=6000 regime). Pairs with the long-standing ``anchor_sampling`` field that
+    tracks the F-score stratification mode."""
+    from mlframe.feature_selection._shap_proxy_revalidate import proxy_trust_guard
+
+    rng = np.random.default_rng(0)
+    n, f = 600, 6
+    X = pd.DataFrame(rng.normal(size=(n, f)), columns=[f"x{i}" for i in range(f)])
+    y = (1.5 * X["x0"] + 1.0 * X["x1"] - 0.8 * X["x2"] + 0.1 * rng.normal(size=n)).to_numpy()
+    phi = np.column_stack([1.5 * X["x0"], 1.0 * X["x1"], -0.8 * X["x2"]] + [np.zeros(n)] * (f - 3))
+    base = np.full(n, float(y.mean()))
+    Xs, ys = X.iloc[:450].reset_index(drop=True), y[:450]
+    Xh, yh = X.iloc[450:].reset_index(drop=True), y[450:]
+
+    # Default = uniform after iter15 honest-negative bench.
+    rep_u = proxy_trust_guard(phi[:450], base[:450], ys, LinearRegression(), Xs, Xh, yh,
+                              classification=False, metric="rmse", n_anchors=10,
+                              rng=np.random.default_rng(0))
+    assert rep_u["anchor_cardinality_dist"] == "uniform"
+    assert rep_u["anchor_zipf_alpha"] is None
+
+    # Opt-in Zipf mode records the alpha.
+    rep_z = proxy_trust_guard(phi[:450], base[:450], ys, LinearRegression(), Xs, Xh, yh,
+                              classification=False, metric="rmse", n_anchors=10,
+                              rng=np.random.default_rng(0), cardinality_dist="zipf",
+                              zipf_alpha=1.0)
+    assert rep_z["anchor_cardinality_dist"] == "zipf"
+    assert rep_z["anchor_zipf_alpha"] == 1.0
+
+
+def test_sample_anchor_subsets_rejects_unknown_cardinality_dist():
+    """A typo'd ``cardinality_dist`` MUST raise ValueError -- silent fallback would mask a caller's
+    intent and ship the wrong prior."""
+    from mlframe.feature_selection._shap_proxy_revalidate import _sample_anchor_subsets
+
+    with pytest.raises(ValueError, match="cardinality_dist"):
+        _sample_anchor_subsets(10, 5, np.random.default_rng(0), min_card=1, max_card=5,
+                               cardinality_dist="not-a-real-mode")
 
 
 def test_proxy_trust_guard_records_anchor_sampling_mode():

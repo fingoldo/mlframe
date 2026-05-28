@@ -86,6 +86,8 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         trust_guard_n_estimators: int | None = 100,
         trust_guard_stratified_anchors: bool = False,
         trust_guard_uniform_tail_frac: float = 0.2,
+        trust_guard_cardinality_dist: str = "uniform",
+        trust_guard_zipf_alpha: float = 1.0,
         n_jobs: int = -1,
         random_state: int = 0,
         verbose: bool = True,
@@ -169,6 +171,31 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         # ``patch(get_cached_f_scores -> None)``. Don't enable by default; keep opt-in via this knob.
         self.trust_guard_stratified_anchors = bool(trust_guard_stratified_anchors)
         self.trust_guard_uniform_tail_frac = float(trust_guard_uniform_tail_frac)
+        # ``trust_guard_cardinality_dist`` (iter15): how anchor cardinality ``k`` is drawn over
+        # ``[min_card, max_card]`` inside ``proxy_trust_guard``. ``'uniform'`` (default) is pre-iter15
+        # behaviour. ``'zipf'`` is the opt-in Zipf prior ``P(k) ∝ k^(-zipf_alpha)`` over-sampling
+        # small-k anchors. Hypothesis was that small-k anchors give honest models a wider loss range
+        # to rank (larger Spearman at the same budget) -- but the iter15 bench on the iter14
+        # width=6000 regime (n=3000, 12 informatives, two_stage prefilter -> 400-col cohort, n_anchors
+        # =30) showed Zipf consistently REGRESSED Spearman vs uniform:
+        #
+        #   uniform        spearman=0.9693
+        #   zipf alpha=0.25 spearman=0.9564 (Δ -0.013)
+        #   zipf alpha=0.5  spearman=0.9466 (Δ -0.023)
+        #   zipf alpha=1.0  spearman=0.7860 (Δ -0.183, monotonic with alpha)
+        #
+        # Recovery stayed at 10/12 across all variants; recall@k actually IMPROVED under Zipf (1.0 vs
+        # 0.833). The post-two_stage cohort already concentrates informatives, so small-k samples
+        # land in "all-noise or all-signal" extremes where proxy and honest agree trivially (no
+        # nuance for Spearman to rank), while large-k samples land in the informative-mix middle
+        # where the proxy is actually being asked to rank. Documented honest-negative finding; the
+        # lever stays exposed for callers in other regimes (low-redundancy data, no prefilter, etc.)
+        # where the small-k prior may pay. ``trust_guard_zipf_alpha`` (default 1.0) is the canonical
+        # 1/k Zipf; lower alpha -> flatter prior; alpha=0 -> uniform.
+        # iter15-bench-attempt-rejected (2026-05-28): see above table; Zipf monotonically regresses
+        # Spearman in alpha at width=6000. Don't enable by default; keep opt-in.
+        self.trust_guard_cardinality_dist = str(trust_guard_cardinality_dist).lower()
+        self.trust_guard_zipf_alpha = float(trust_guard_zipf_alpha)
         self.n_jobs = n_jobs
         self.random_state = random_state
         self.verbose = verbose
@@ -488,7 +515,9 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
                     max_card=self.max_features, spearman_floor=self.spearman_floor,
                     n_estimators_cap=self.trust_guard_n_estimators,
                     unit_f_scores=unit_f_scores,
-                    anchor_uniform_tail_frac=self.trust_guard_uniform_tail_frac, **rv)
+                    anchor_uniform_tail_frac=self.trust_guard_uniform_tail_frac,
+                    cardinality_dist=self.trust_guard_cardinality_dist,
+                    zipf_alpha=self.trust_guard_zipf_alpha, **rv)
 
         # Unified candidate re-ranking before the expensive top-N honest retrains: order by the
         # corrector's predicted honest loss (#3/#6, falls back to raw proxy) PLUS an uncertainty

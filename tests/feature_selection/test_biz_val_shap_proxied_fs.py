@@ -343,3 +343,104 @@ def test_stratified_anchors_default_off_preserves_legacy_trust_report():
     # the two_stage prefilter cached the F-score vector.
     assert sel.trust_guard_stratified_anchors is False
     assert sel.shap_proxy_report_["trust"]["anchor_sampling"] == "uniform"
+
+
+def test_zipf_cardinality_default_off_and_recorded_in_trust_report():
+    """The iter15 Zipf cardinality knob MUST default to OFF on a fresh ``ShapProxiedFS`` after the
+    honest-negative bench at width=6000 (Zipf monotonically regressed Spearman in alpha; uniform 0.969
+    vs zipf-alpha-1.0 0.786). Cheap structural sentinel: a future change that accidentally flips the
+    default to 'zipf' will fire here before shipping. The Zipf regression itself is asserted by the
+    slow biz_value test on the iter14 width=6000 regime."""
+    from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import make_regime_dataset
+    from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
+
+    X, y, _ = make_regime_dataset(
+        n_samples=600, n_informative=5, n_redundant=0, n_noise=495, snr=5.0,
+        task="binary", seed=0)
+    sel = ShapProxiedFS(
+        classification=True, metric="brier", optimizer="auto",
+        prefilter_top=150, prefilter_method="two_stage",
+        cluster_features=False, top_n=5, n_splits=3, n_revalidation_models=1, n_anchors=12,
+        random_state=0, verbose=False, n_jobs=1)
+    assert sel.trust_guard_cardinality_dist == "uniform"
+    assert sel.trust_guard_zipf_alpha == 1.0  # value present but inert until knob flips to 'zipf'
+    sel.fit(X, pd.Series(y))
+    assert sel.shap_proxy_report_["trust"]["anchor_cardinality_dist"] == "uniform"
+    assert sel.shap_proxy_report_["trust"]["anchor_zipf_alpha"] is None
+
+
+@pytest.mark.slow
+@pytest.mark.timeout(300)
+def test_biz_val_zipf_cardinality_preserves_recovery_no_catastrophic_spearman_drop_at_6k():
+    """Iter15 trust-guard Zipf cardinality prior, end-to-end on the regime synthetic at width=6000.
+
+    Iter15 honest-negative measurement (seed=0, n=3000, 12 informatives, two_stage prefilter ->
+    400-col cohort, n_anchors=30):
+
+        uniform        spearman=0.969  recovery=10/12  (iter14 baseline)
+        zipf alpha=1.0 spearman=0.786  recovery=10/12  (Δ -0.183)
+        zipf alpha=0.5 spearman=0.947  recovery=10/12  (Δ -0.023)
+        zipf alpha=0.25 spearman=0.956 recovery=10/12  (Δ -0.013)
+
+    The Zipf prior consistently regressed Spearman, monotonically with alpha. Hypothesis (small-k
+    anchors give honest models a wider loss range to rank) was falsified for this regime: the
+    post-two_stage cohort already concentrates informatives, so small-k samples land in
+    "all-noise or all-signal" extremes where proxy and honest agree TRIVIALLY (no nuance for
+    Spearman to rank). The lever stays exposed for callers in other regimes (low-redundancy data,
+    no prefilter) where the small-k prior may pay -- but we LOCK IN the "no catastrophic drop" +
+    "recovery preserved" invariants so regressions are caught early.
+
+    The cardinality prior is orthogonal to the F-score stratification (this test keeps stratified
+    OFF -- the default -- so we measure the cardinality prior in isolation).
+
+    Asserts:
+      (1) the opt-in knob actually flips the cardinality mode
+      (2) recovery under Zipf is no worse than uniform (no recovery regression)
+      (3) Spearman doesn't drop catastrophically (>= uniform - 0.25) -- this is the safety envelope
+          calibrated against the measured alpha=1.0 drop of -0.183 plus headroom for noise. The
+          monotonic-with-alpha regression IS expected; we just don't ship it as the default.
+    """
+    from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import make_regime_dataset
+    from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
+
+    n_informative, n_redundant, width = 12, 0, 6000
+    X, y, _roles = make_regime_dataset(
+        n_samples=3000, n_informative=n_informative, n_redundant=n_redundant,
+        redundancy_rho=0.9, n_noise=width - n_informative - n_redundant, snr=5.0,
+        task="binary", seed=0)
+    informative = {f"inf{i}" for i in range(n_informative)}
+
+    def _fit(cardinality_dist: str):
+        sel = ShapProxiedFS(
+            classification=True, metric="brier", optimizer="auto",
+            prefilter_top=400, prefilter_method="two_stage",
+            cluster_features=True, cluster_corr_threshold=0.7,
+            top_n=15, n_splits=3, n_revalidation_models=2, n_anchors=30,
+            trust_guard_stratified_anchors=False,
+            trust_guard_cardinality_dist=cardinality_dist,
+            random_state=0, verbose=False, n_jobs=1)
+        sel.fit(X, pd.Series(y))
+        rep = sel.shap_proxy_report_
+        spearman = rep["trust"]["spearman"]
+        mode = rep["trust"]["anchor_cardinality_dist"]
+        recovery = len(informative & set(sel.selected_features_))
+        return spearman, mode, recovery
+
+    print(f"\n[iter15 zipf-cardinality biz_val] uniform leg at width={width}", flush=True)
+    sp_u, mode_u, rec_u = _fit("uniform")
+    print(f"[iter15] uniform card: spearman={sp_u:.3f} mode={mode_u} recovery={rec_u}/{n_informative}",
+          flush=True)
+    print(f"[iter15] zipf leg", flush=True)
+    sp_z, mode_z, rec_z = _fit("zipf")
+    print(f"[iter15] zipf card:    spearman={sp_z:.3f} mode={mode_z} recovery={rec_z}/{n_informative}",
+          flush=True)
+
+    assert mode_u == "uniform"
+    assert mode_z == "zipf"
+    assert rec_z >= rec_u, (
+        f"zipf cardinality worsened recovery: zipf={rec_z}/{n_informative} vs uniform={rec_u}/{n_informative}")
+    # Recovery floor: dev measured 10/12; 9 allows 1-feat slack for cross-platform variance.
+    assert rec_z >= 9, f"zipf cardinality recovered too few informatives: {rec_z}/{n_informative}"
+    # Catastrophic-drop guard: dev measured Δ=-0.183 at alpha=1.0; floor at -0.25 leaves headroom.
+    assert sp_z >= sp_u - 0.25, (
+        f"zipf cardinality catastrophically dropped Spearman: uniform={sp_u:.3f} zipf={sp_z:.3f}")

@@ -316,26 +316,66 @@ def _weighted_choice_no_replace(rng, n, k, probs):
     return rng.choice(n, size=k, replace=False, p=probs)
 
 
+def _zipf_card_probs(min_card, max_card, alpha):
+    """Build a length-(max_card-min_card+1) probability vector ``p(k) ∝ k^(-alpha)`` over the closed
+    range ``[min_card, max_card]``. Used by the Zipf cardinality prior in ``_sample_anchor_subsets``.
+
+    Pulled out as a small helper so unit tests can inspect the prior directly (mean k under Zipf is a
+    cheap structural assertion of "small-k-heavy"). ``alpha`` is clamped to ``>=0``; ``alpha=0`` is
+    mathematically uniform in ``k`` (every entry equals ``1/range``). Returns a float64 vector that
+    sums to 1; never NaN/zero for ``min_card>=1`` (we never raise ``0**alpha``)."""
+    alpha = max(0.0, float(alpha))
+    ks = np.arange(int(min_card), int(max_card) + 1, dtype=np.float64)
+    # ``ks`` starts at ``min_card`` which the calling sampler clamps to ``>=1`` (semantics preserved),
+    # so ``ks ** -alpha`` is finite for every entry.
+    w = ks ** (-alpha) if alpha > 0 else np.ones_like(ks)
+    total = w.sum()
+    if not np.isfinite(total) or total <= 0:
+        # Degenerate alpha or empty range -> uniform fallback so callers never crash.
+        return np.full(ks.shape, 1.0 / max(1, ks.size), dtype=np.float64)
+    return w / total
+
+
 def _sample_anchor_subsets(n_features, n_anchors, rng, min_card=1, max_card=None, *,
-                           weights=None, uniform_tail_frac=0.2):
+                           weights=None, uniform_tail_frac=0.2, cardinality_dist="uniform",
+                           zipf_alpha=1.0):
     """Sample distinct anchor subsets of varying cardinality.
 
-    Default (``weights is None``): each anchor draws ``k`` columns uniformly at random, ``k`` itself
-    uniform in ``[min_card, max_card]``. This is the legacy diversity-driven sampler.
+    ``cardinality_dist`` controls how each anchor's column count ``k`` is drawn over
+    ``[min_card, max_card]``:
 
-    Weighted mode (``weights`` supplied, length ``n_features``): each anchor still draws ``k`` uniform-
-    cardinality, but the ``k`` columns are split between a quality-weighted core (``1 - uniform_tail_frac``
-    of ``k``) drawn by softmax(weights) without replacement, and a uniform tail (``uniform_tail_frac``
-    of ``k``) drawn uniformly from the remaining columns. This biases anchors toward high-F columns
-    where proxy-vs-honest fidelity is informative (anchor noise dominates the spread when most cols are
-    pure noise), while the uniform tail keeps coverage of tail-of-distribution cases the F-score under-
-    represents (e.g. pure-interaction informatives with weak marginals).
+      - ``'uniform'`` (default; pre-iter15 behaviour): each ``k`` is drawn uniformly in
+        ``[min_card, max_card]``. Matches the legacy sampler bit-for-bit with identical ``rng`` state.
+        Default after the iter15 honest-negative bench (see below): on the iter14 width=6000 regime
+        (two_stage prefilter -> 400-col cohort) the Zipf prior consistently REGRESSED Spearman across
+        ``alpha`` in {0.25, 0.5, 1.0}, monotonically with alpha (alpha=1.0: -0.183; alpha=0.5: -0.023;
+        alpha=0.25: -0.013). Hypothesis was that small-k anchors give honest models a wider loss range
+        to rank, but at the iter14 regime the post-prefilter cohort already concentrates informatives;
+        small-k samples land in the "all-noise or all-signal" extremes where the proxy and honest
+        agree TRIVIALLY (no nuance for Spearman to rank), while large-k samples land in the
+        interesting informative-mix-vs-noise-mix middle where the proxy is actually being asked to
+        rank. Recall@k DID improve under Zipf (1.0 vs 0.833) and recovery was preserved (10/12 across
+        all alphas) -- so the prior may pay in other regimes (e.g. callers with low-redundancy data or
+        no prefilter). Kept as an opt-in knob for that use case.
+      - ``'zipf'`` (opt-in; iter15): ``P(k) ∝ k^(-zipf_alpha)``. Small-k anchors are FAR more common
+        (k=1..~10 dominate). ``zipf_alpha=1.0`` is the canonical 1/k Zipf; ``alpha=0`` degenerates to
+        uniform-k. Lever is exposed but defaulted OFF after the iter15 honest-negative finding above.
 
-    The uniform-tail fraction is calibrated at 20% so quality-weighted core stays dominant; setting it
-    to 0 gives pure-weighted anchors (loses tail coverage), 1.0 recovers the uniform sampler. Weighted
-    columns whose F-score is -inf (constants) or non-finite get the noise-floor probability via
-    ``_softmax_weights`` so they're never the high-prior tier but stay technically reachable through
-    the uniform tail."""
+    The column-content sampler is independent of ``cardinality_dist``:
+
+      Default column draw (``weights is None``): ``k`` columns chosen uniformly at random without
+      replacement.
+
+      Weighted mode (``weights`` supplied, length ``n_features``): ``k`` columns split between a
+      quality-weighted core (``1 - uniform_tail_frac`` of ``k``) drawn by softmax(weights) without
+      replacement, and a uniform tail (``uniform_tail_frac`` of ``k``) drawn uniformly from the
+      remaining columns. The uniform tail keeps coverage of tail-of-distribution cases the F-score
+      under-represents (e.g. pure-interaction informatives with weak marginals). ``uniform_tail_frac``
+      = 0 -> pure-weighted, 1.0 -> uniform column draw (cardinality prior still applies).
+
+    Weighted columns whose F-score is -inf (constants) or non-finite get the noise-floor probability
+    via ``_softmax_weights`` so they're never the high-prior tier but stay technically reachable
+    through the uniform tail."""
     max_card = n_features if max_card is None else min(max_card, n_features)
     use_weights = weights is not None
     if use_weights:
@@ -345,12 +385,26 @@ def _sample_anchor_subsets(n_features, n_anchors, rng, min_card=1, max_card=None
             use_weights = False
     if use_weights:
         probs_all = _softmax_weights(weights)
+    # Cardinality prior: pre-build the Zipf probs once (cheap, length max_card-min_card+1) so the per-
+    # anchor draw is a single ``rng.choice`` rather than rebuilding weights inside the loop. Uniform
+    # mode keeps the legacy ``rng.integers`` call so the bit-for-bit guarantee versus pre-iter15
+    # behaviour is preserved (same RNG state -> same anchor list).
+    card_mode = str(cardinality_dist).lower()
+    if card_mode not in ("zipf", "uniform"):
+        raise ValueError(
+            f"_sample_anchor_subsets: cardinality_dist must be 'zipf' or 'uniform', got {cardinality_dist!r}")
+    if card_mode == "zipf":
+        card_values = np.arange(int(min_card), int(max_card) + 1, dtype=np.int64)
+        card_probs = _zipf_card_probs(min_card, max_card, zipf_alpha)
     anchors = set()
     guard = 0
     max_guard = n_anchors * 50
     while len(anchors) < n_anchors and guard < max_guard:
         guard += 1
-        k = int(rng.integers(min_card, max_card + 1))
+        if card_mode == "zipf":
+            k = int(rng.choice(card_values, p=card_probs))
+        else:
+            k = int(rng.integers(min_card, max_card + 1))
         if use_weights and k >= 2 and 0.0 < uniform_tail_frac < 1.0:
             n_uniform = max(1, int(round(uniform_tail_frac * k)))
             n_uniform = min(n_uniform, k - 1)  # ensure at least one weighted pick
@@ -386,7 +440,7 @@ def proxy_trust_guard(
     phi, base, y_search, model_template, X_search, X_holdout, y_holdout,
     *, classification, metric=None, n_anchors=30, rng=None, min_card=1, max_card=None,
     spearman_floor=0.6, n_jobs=-1, unit_to_members=None, cache=None, n_estimators_cap=None,
-    unit_f_scores=None, anchor_uniform_tail_frac=0.2,
+    unit_f_scores=None, anchor_uniform_tail_frac=0.2, cardinality_dist="uniform", zipf_alpha=1.0,
 ):
     """Measure proxy-vs-honest rank fidelity on anchor subsets. Returns a report dict.
 
@@ -412,7 +466,16 @@ def proxy_trust_guard(
     spends the same anchor budget on subsets where the proxy is actually being asked to rank
     informative-mix-vs-noise-mix subsets, lifting the measured Spearman without changing the anchor
     count. None (default) keeps the legacy uniform sampler. Non-finite entries (-inf for constant /
-    degenerate columns) sink to the noise-floor probability via the softmax."""
+    degenerate columns) sink to the noise-floor probability via the softmax.
+
+    ``cardinality_dist`` (iter15, default ``'uniform'``): how anchor cardinality ``k`` is drawn over
+    ``[min_card, max_card]``. ``'uniform'`` is pre-iter15 behaviour (uniform-k draw); kept as the
+    default after the iter15 honest-negative bench (Zipf consistently regressed Spearman across alpha
+    in {0.25, 0.5, 1.0} on the iter14 width=6000 regime, monotonically with alpha). ``'zipf'`` is the
+    opt-in iter15 prior ``P(k) ∝ k^(-zipf_alpha)`` (small-k concentration); may pay in other regimes
+    where the prefilter cohort still has a noise tail, but does NOT pay on the post-two_stage
+    width=6000 cohort. ``zipf_alpha`` (default 1.0) tunes how aggressively Zipf concentrates on small
+    k; ``alpha=0`` degenerates Zipf to uniform."""
     from scipy.stats import kendalltau, spearmanr
 
     metric = resolve_metric(classification, metric)
@@ -427,7 +490,8 @@ def proxy_trust_guard(
                 "falling back to uniform anchor sampling.", int(weights.shape[0]), int(f))
             weights = None
     anchors = _sample_anchor_subsets(f, n_anchors, rng, min_card, max_card,
-                                     weights=weights, uniform_tail_frac=anchor_uniform_tail_frac)
+                                     weights=weights, uniform_tail_frac=anchor_uniform_tail_frac,
+                                     cardinality_dist=cardinality_dist, zipf_alpha=zipf_alpha)
 
     from mlframe.feature_selection._shap_proxy_calibrate import subset_redundancy
 
@@ -460,6 +524,10 @@ def proxy_trust_guard(
                   # F-score-aware prior was active without inspecting kwargs.
                   anchor_sampling=("stratified" if weights is not None else "uniform"),
                   anchor_uniform_tail_frac=float(anchor_uniform_tail_frac) if weights is not None else None,
+                  # Cardinality prior: 'zipf' (iter15 default) or 'uniform' (legacy). Recorded so
+                  # downstream diagnostics / bench scripts can see which prior generated the anchors.
+                  anchor_cardinality_dist=str(cardinality_dist).lower(),
+                  anchor_zipf_alpha=float(zipf_alpha) if str(cardinality_dist).lower() == "zipf" else None,
                   # Raw anchor pairs (proxy, honest, cardinality, redundancy) for the bias corrector.
                   _corrector_data=dict(proxy=proxy_losses.tolist(), honest=honest_losses.tolist(),
                                        cards=cards.tolist(), redund=redunds.tolist()))
