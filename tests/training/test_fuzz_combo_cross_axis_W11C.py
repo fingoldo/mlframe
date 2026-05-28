@@ -907,3 +907,228 @@ def test_iter554_short_id_independent_of_haflaml_env_state():
     assert c_true.short_id() != c_false.short_id(), (
         "True and False must produce distinct short_ids; reproducibility across environments"
     )
+
+
+# ---------------------------------------------------------------------------
+# 2026-05-28 audit-pass-4 SAFE-subset (W4): 8 canon-only axes.
+# Mirrors test_iter503_audit_pass_3_axes_flow_to_kwargs but for canon-only
+# axes (no downstream consumer-builder helper) so the assertions cover
+# (a) AXES presence, (b) FuzzCombo dataclass defaults source-verified,
+# (c) enumerate_combos still reaches 150 combos, (d) canon-collapse under
+# each gate. The slice_stable_es_* family is deferred to a separate batch
+# pending the parallel SliceStableESConfig refactor.
+# ---------------------------------------------------------------------------
+
+
+def test_iter556_audit_pass_4_safe_axes_flow_to_kwargs():
+    """8 audit-pass-4 SAFE-subset (W4) fuzz axes must:
+      (a) be present in AXES with >=2 candidate values,
+      (b) be present in the FuzzCombo dataclass with the SOURCE-verified
+          library default (drift corrections from the audit are listed in
+          FUZZ_AXES_W4_IMPL_DONE.json's drift_corrections array),
+      (c) leave enumerate_combos at exactly 150 combos with the new axes wired,
+      (d) canonical_key-collapse under each documented gate.
+
+    Axes (all source-verified pre-edit):
+      - calibration_policy_auto_pick_cfg
+        (CalibrationConfig.policy_auto_pick at calibration/policy.py:464;
+        default True -- audit said False, drift!)
+      - calibration_n_bootstrap_cfg
+        (CalibrationConfig.n_bootstrap at policy.py:467 via DEFAULT_N_BOOTSTRAP;
+        default 1000 -- audit said 200, drift!)
+      - calibration_candidates_cfg
+        (CalibrationConfig.candidates at policy.py:469;
+        default None -- audit said tuple, drift!)
+      - pipeline_cache_ram_budget_fraction_cfg
+        (TrainingBehaviorConfig.pipeline_cache_ram_budget_fraction at
+        _model_configs.py:641; default 0.4 -- matches audit)
+      - reporting_compute_trainset_metrics_cfg
+        (ReportingConfig.compute_trainset_metrics at _reporting_configs.py:96;
+        default False -- audit said True, drift!)
+      - reporting_mase_seasonality_cfg
+        (ReportingConfig.mase_seasonality at _reporting_configs.py:140;
+        default 1 -- audit said None/sequence, drift! it's an int)
+      - recurrent_use_stratified_sampler_cfg
+        (RecurrentConfig.use_stratified_sampler at neural/_recurrent_config.py:90;
+        default True -- audit said False/True, source pins True)
+      - behavior_model_file_hash_suffix_cfg
+        (TrainingBehaviorConfig.model_file_hash_suffix at _model_configs.py:547;
+        default True -- audit said str|None default None, MAJOR drift! it's a bool)
+
+    All 8 axes are canon-only (no downstream consumer-builder helper) --
+    matches the ensembling_degenerate_class_ratio_cfg pattern from W2.
+    """
+    from tests.training._fuzz_combo import (
+        AXES, _build_combo, enumerate_combos,
+    )
+
+    new_axes = (
+        "calibration_policy_auto_pick_cfg",
+        "calibration_n_bootstrap_cfg",
+        "calibration_candidates_cfg",
+        "pipeline_cache_ram_budget_fraction_cfg",
+        "reporting_compute_trainset_metrics_cfg",
+        "reporting_mase_seasonality_cfg",
+        "recurrent_use_stratified_sampler_cfg",
+        "behavior_model_file_hash_suffix_cfg",
+    )
+    # (a) Presence in AXES with >=2 candidates.
+    for ax in new_axes:
+        assert ax in AXES, f"missing fuzz axis {ax}"
+        assert len(AXES[ax]) >= 2, f"axis {ax} must offer at least 2 values"
+
+    # (b) FuzzCombo dataclass defaults match the source-verified library defaults.
+    base_axes = {name: values[0] for name, values in AXES.items()}
+    c_default = _build_combo(models=("cb",), axes=base_axes, seed=0)
+    assert c_default.calibration_policy_auto_pick_cfg is True
+    assert c_default.calibration_n_bootstrap_cfg == 1000
+    assert c_default.calibration_candidates_cfg is None
+    assert c_default.pipeline_cache_ram_budget_fraction_cfg == 0.4
+    assert c_default.reporting_compute_trainset_metrics_cfg is False
+    assert c_default.reporting_mase_seasonality_cfg == 1
+    assert c_default.recurrent_use_stratified_sampler_cfg is True
+    assert c_default.behavior_model_file_hash_suffix_cfg is True
+
+    # (c) enumerate_combos still reaches 150 combos with the new axes wired.
+    combos = enumerate_combos(target=150, master_seed=20260422)
+    assert len(combos) == 150, f"enumerate_combos lost combos: {len(combos)}"
+
+    # -----------------------------------------------------------------
+    # (d) Canon collapse: gating axes drive the per-axis collapse to
+    # source defaults so non-applicable combos don't gain phantom canonical
+    # keys.
+    # -----------------------------------------------------------------
+
+    # Calibration trio: only meaningful on classification targets AND
+    # policy_auto_pick=True (n_bootstrap / candidates collapse on EITHER
+    # condition off). Use regression target_type to confirm the calibration
+    # trio collapses regardless of stored values.
+    reg_axes_a = dict(base_axes)
+    reg_axes_a.update(
+        target_type="regression",
+        calibration_policy_auto_pick_cfg=False,
+        calibration_n_bootstrap_cfg=100,
+        calibration_candidates_cfg=("Sigmoid", "Isotonic"),
+    )
+    reg_axes_b = dict(base_axes)
+    reg_axes_b.update(
+        target_type="regression",
+        calibration_policy_auto_pick_cfg=True,
+        calibration_n_bootstrap_cfg=1000,
+        calibration_candidates_cfg=None,
+    )
+    c_reg_a = _build_combo(models=("cb",), axes=reg_axes_a, seed=0)
+    c_reg_b = _build_combo(models=("cb",), axes=reg_axes_b, seed=0)
+    assert c_reg_a.canonical_key() == c_reg_b.canonical_key(), (
+        "calibration trio must collapse to defaults when target_type=regression"
+    )
+
+    # Classification + policy_auto_pick=False: n_bootstrap + candidates must
+    # collapse to defaults (1000, None) regardless of stored values.
+    cls_off_a = dict(base_axes)
+    cls_off_a.update(
+        target_type="binary_classification",
+        calibration_policy_auto_pick_cfg=False,
+        calibration_n_bootstrap_cfg=100,
+        calibration_candidates_cfg=("Sigmoid", "Isotonic"),
+    )
+    cls_off_b = dict(cls_off_a)
+    cls_off_b.update(
+        calibration_n_bootstrap_cfg=1000,
+        calibration_candidates_cfg=None,
+    )
+    c_cls_off_a = _build_combo(models=("cb",), axes=cls_off_a, seed=0)
+    c_cls_off_b = _build_combo(models=("cb",), axes=cls_off_b, seed=0)
+    assert c_cls_off_a.canonical_key() == c_cls_off_b.canonical_key(), (
+        "n_bootstrap+candidates must collapse when policy_auto_pick=False"
+    )
+
+    # Classification + policy_auto_pick=True: the n_bootstrap + candidates
+    # values now WIDEN the canonical key (the gate is open).
+    cls_on_a = dict(cls_off_a)
+    cls_on_a["calibration_policy_auto_pick_cfg"] = True
+    cls_on_b = dict(cls_on_a)
+    cls_on_b.update(
+        calibration_n_bootstrap_cfg=1000,
+        calibration_candidates_cfg=None,
+    )
+    c_cls_on_a = _build_combo(models=("cb",), axes=cls_on_a, seed=0)
+    c_cls_on_b = _build_combo(models=("cb",), axes=cls_on_b, seed=0)
+    assert c_cls_on_a.canonical_key() != c_cls_on_b.canonical_key(), (
+        "n_bootstrap+candidates must fork the canon key when policy_auto_pick=True"
+    )
+
+    # reporting_mase_seasonality: collapses to default 1 for non-regression.
+    mase_cls_a = dict(base_axes)
+    mase_cls_a.update(
+        target_type="binary_classification",
+        reporting_mase_seasonality_cfg=12,
+    )
+    mase_cls_b = dict(mase_cls_a)
+    mase_cls_b["reporting_mase_seasonality_cfg"] = 1
+    c_mase_cls_a = _build_combo(models=("cb",), axes=mase_cls_a, seed=0)
+    c_mase_cls_b = _build_combo(models=("cb",), axes=mase_cls_b, seed=0)
+    assert c_mase_cls_a.canonical_key() == c_mase_cls_b.canonical_key(), (
+        "mase_seasonality must collapse to 1 for non-regression target_type"
+    )
+
+    # reporting_mase_seasonality: forks the canon key for regression.
+    mase_reg_a = dict(base_axes)
+    mase_reg_a.update(
+        target_type="regression",
+        reporting_mase_seasonality_cfg=12,
+    )
+    mase_reg_b = dict(mase_reg_a)
+    mase_reg_b["reporting_mase_seasonality_cfg"] = 1
+    c_mase_reg_a = _build_combo(models=("cb",), axes=mase_reg_a, seed=0)
+    c_mase_reg_b = _build_combo(models=("cb",), axes=mase_reg_b, seed=0)
+    assert c_mase_reg_a.canonical_key() != c_mase_reg_b.canonical_key(), (
+        "mase_seasonality must fork the canon key for regression"
+    )
+
+    # recurrent_use_stratified_sampler: collapses when no recurrent model.
+    rec_off_a = dict(base_axes)
+    rec_off_a.update(
+        recurrent_model_cfg=None,
+        recurrent_use_stratified_sampler_cfg=False,
+    )
+    rec_off_b = dict(rec_off_a)
+    rec_off_b["recurrent_use_stratified_sampler_cfg"] = True
+    c_rec_off_a = _build_combo(models=("cb",), axes=rec_off_a, seed=0)
+    c_rec_off_b = _build_combo(models=("cb",), axes=rec_off_b, seed=0)
+    assert c_rec_off_a.canonical_key() == c_rec_off_b.canonical_key(), (
+        "use_stratified_sampler must collapse when recurrent_model_cfg=None"
+    )
+
+    # pipeline_cache_ram_budget_fraction and behavior_model_file_hash_suffix
+    # are ungated (always meaningful). Any value flip MUST fork the canon key.
+    rambud_a = dict(base_axes)
+    rambud_a["pipeline_cache_ram_budget_fraction_cfg"] = 0.4
+    rambud_b = dict(base_axes)
+    rambud_b["pipeline_cache_ram_budget_fraction_cfg"] = 0.1
+    c_rambud_a = _build_combo(models=("cb",), axes=rambud_a, seed=0)
+    c_rambud_b = _build_combo(models=("cb",), axes=rambud_b, seed=0)
+    assert c_rambud_a.canonical_key() != c_rambud_b.canonical_key(), (
+        "pipeline_cache_ram_budget_fraction must fork the canon key (ungated)"
+    )
+
+    hashsuf_a = dict(base_axes)
+    hashsuf_a["behavior_model_file_hash_suffix_cfg"] = True
+    hashsuf_b = dict(base_axes)
+    hashsuf_b["behavior_model_file_hash_suffix_cfg"] = False
+    c_hashsuf_a = _build_combo(models=("cb",), axes=hashsuf_a, seed=0)
+    c_hashsuf_b = _build_combo(models=("cb",), axes=hashsuf_b, seed=0)
+    assert c_hashsuf_a.canonical_key() != c_hashsuf_b.canonical_key(), (
+        "behavior_model_file_hash_suffix must fork the canon key (ungated)"
+    )
+
+    # reporting_compute_trainset_metrics is ungated.
+    tsm_a = dict(base_axes)
+    tsm_a["reporting_compute_trainset_metrics_cfg"] = False
+    tsm_b = dict(base_axes)
+    tsm_b["reporting_compute_trainset_metrics_cfg"] = True
+    c_tsm_a = _build_combo(models=("cb",), axes=tsm_a, seed=0)
+    c_tsm_b = _build_combo(models=("cb",), axes=tsm_b, seed=0)
+    assert c_tsm_a.canonical_key() != c_tsm_b.canonical_key(), (
+        "reporting_compute_trainset_metrics must fork the canon key (ungated)"
+    )

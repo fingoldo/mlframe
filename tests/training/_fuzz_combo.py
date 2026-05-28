@@ -987,6 +987,62 @@ AXES: dict[str, tuple[Any, ...]] = {
     "baseline_init_score_apply_target_types_cfg": (
         "regression_only", "regression_and_binary",
     ),
+    # =====================================================================
+    # 2026-05-28 audit-pass-4 SAFE-subset (W4): 8 axes pulled from
+    # D:/Temp/AUDIT_PASS_4_DONE.md (slice_stable_es_* family deferred to a
+    # separate batch pending the SliceStableESConfig refactor).
+    # All defaults source-verified -- drift corrections noted in
+    # FUZZ_AXES_W4_IMPL_DONE.json. Canon-only (no downstream consumer
+    # wiring) following the ensembling_degenerate_class_ratio_cfg pattern
+    # from the W2 batch (48cc7b7e).
+    # =====================================================================
+    # CalibrationConfig.policy_auto_pick (default True at
+    # src/mlframe/calibration/policy.py:464). Auto-pick the best calibrator
+    # by OOF ECE with bootstrap CI tiebreak. Gate: target_type in
+    # {binary_classification, multilabel_classification}.
+    "calibration_policy_auto_pick_cfg": (True, False),
+    # CalibrationConfig.n_bootstrap (default 1000 at policy.py:467 via
+    # DEFAULT_N_BOOTSTRAP=1000). Bootstrap resample count for the OOF
+    # ECE CI. 100 exercises the fast-tiebreak branch with wider CIs.
+    # Gate: classification target AND calibration_policy_auto_pick_cfg=True.
+    "calibration_n_bootstrap_cfg": (1000, 100),
+    # CalibrationConfig.candidates (default None at policy.py:469 -- None
+    # expands to the full CANDIDATE_NAMES=("Sigmoid","Isotonic","Beta","Spline")
+    # palette). Restricted ("Sigmoid","Isotonic") drops the optional-dep
+    # Beta+Spline branch entirely (faster + reproducible on hosts without
+    # betacal / ml_insights). Gate: classification target AND
+    # calibration_policy_auto_pick_cfg=True.
+    "calibration_candidates_cfg": (None, ("Sigmoid", "Isotonic")),
+    # TrainingBehaviorConfig.pipeline_cache_ram_budget_fraction (default 0.4
+    # at _model_configs.py:641). Fraction of TOTAL host RAM used as the
+    # PipelineCache byte budget. 0.1 exercises the heavy-pressure path
+    # where the cache evicts more aggressively. Gate: any (the cache is
+    # always live in the suite).
+    "pipeline_cache_ram_budget_fraction_cfg": (0.4, 0.1),
+    # ReportingConfig.compute_trainset_metrics (default False at
+    # _reporting_configs.py:96). True exercises the per-split train-set
+    # metric computation path (otherwise the train-set metrics block is
+    # silently skipped). Gate: any (every suite emits a report).
+    "reporting_compute_trainset_metrics_cfg": (False, True),
+    # ReportingConfig.mase_seasonality (default 1 at _reporting_configs.py:140;
+    # integer NOT None). Hyndman-Koehler 2006 MASE seasonality used for
+    # naive-MAE scaling; 12 exercises the monthly->yearly seasonal path
+    # vs. the default simple-naive (lag-1). Gate: target_type=="regression"
+    # (MASE is a regression-only metric).
+    "reporting_mase_seasonality_cfg": (1, 12),
+    # RecurrentConfig.use_stratified_sampler (default True at
+    # src/mlframe/training/neural/_recurrent_config.py:90). Weighted
+    # sampling for imbalanced data; False exercises the uniform-sampler
+    # path. Gate: recurrent_model_cfg in ("lstm","gru","transformer","rnn")
+    # AND target_type in classification (stratified sampler is
+    # classification-only).
+    "recurrent_use_stratified_sampler_cfg": (True, False),
+    # TrainingBehaviorConfig.model_file_hash_suffix (default True at
+    # _model_configs.py:547; bool NOT str|None). Append a per-model
+    # input-schema fingerprint to model filenames. False restores the
+    # pre-2026-04-21 naming scheme. Gate: any (the hash-suffix decision
+    # fires on every model save).
+    "behavior_model_file_hash_suffix_cfg": (True, False),
 }
 
 
@@ -1378,6 +1434,27 @@ class FuzzCombo:
     recurrent_use_attention_cfg: bool = True
     ltr_xgb_objective_cfg: str = "rank:ndcg"
     baseline_init_score_apply_target_types_cfg: str = "regression_only"
+    # 2026-05-28 audit-pass-4 SAFE-subset (W4). Defaults source-verified:
+    #   - calibration_policy_auto_pick / n_bootstrap / candidates: mirror
+    #     CalibrationConfig at src/mlframe/calibration/policy.py:464-469.
+    #     (audit said False/200/tuple; source says True/1000/None.)
+    #   - pipeline_cache_ram_budget_fraction: _model_configs.py:641.
+    #   - reporting_compute_trainset_metrics: _reporting_configs.py:96.
+    #     (audit said True; source says False.)
+    #   - reporting_mase_seasonality: _reporting_configs.py:140; int not None.
+    #     (audit said None|sequence; source says int=1.)
+    #   - recurrent_use_stratified_sampler: _recurrent_config.py:90.
+    #     (audit said False or True; source says True.)
+    #   - behavior_model_file_hash_suffix: _model_configs.py:547; bool not str.
+    #     (audit said str|None default None; source says bool=True.)
+    calibration_policy_auto_pick_cfg: bool = True
+    calibration_n_bootstrap_cfg: int = 1000
+    calibration_candidates_cfg: "tuple[str, ...] | None" = None
+    pipeline_cache_ram_budget_fraction_cfg: float = 0.4
+    reporting_compute_trainset_metrics_cfg: bool = False
+    reporting_mase_seasonality_cfg: int = 1
+    recurrent_use_stratified_sampler_cfg: bool = True
+    behavior_model_file_hash_suffix_cfg: bool = True
 
     def canonical_key(self) -> tuple:
         """Hashable tuple used for dedup. Canonicalizes semantically
@@ -2247,6 +2324,62 @@ class FuzzCombo:
                 if self._canonical_recurrent_model() is not None
                 else 128
             ),
+            # 2026-05-28 audit-pass-4 SAFE-subset W4 canons. All collapse to
+            # source defaults when the gating condition is off so non-gated
+            # combos don't gain phantom variation.
+            # CalibrationConfig.policy_auto_pick only meaningful for
+            # classification targets (the calibrator palette is binary-only
+            # in the auto-pick path).
+            (
+                self.calibration_policy_auto_pick_cfg
+                if self.target_type in ("binary_classification",
+                                          "multilabel_classification")
+                else True
+            ),
+            # CalibrationConfig.n_bootstrap consumed only when
+            # policy_auto_pick is on AND target is classification.
+            (
+                self.calibration_n_bootstrap_cfg
+                if (self.target_type in ("binary_classification",
+                                          "multilabel_classification")
+                    and self.calibration_policy_auto_pick_cfg)
+                else 1000
+            ),
+            # CalibrationConfig.candidates: same gate as n_bootstrap.
+            (
+                self.calibration_candidates_cfg
+                if (self.target_type in ("binary_classification",
+                                          "multilabel_classification")
+                    and self.calibration_policy_auto_pick_cfg)
+                else None
+            ),
+            # TrainingBehaviorConfig.pipeline_cache_ram_budget_fraction: the
+            # PipelineCache is always live in the suite, so no secondary gate.
+            self.pipeline_cache_ram_budget_fraction_cfg,
+            # ReportingConfig.compute_trainset_metrics: every suite emits a
+            # report, so no secondary gate.
+            self.reporting_compute_trainset_metrics_cfg,
+            # ReportingConfig.mase_seasonality: MASE is a regression-only
+            # metric (Hyndman-Koehler 2006); canon to library default 1 for
+            # non-regression targets.
+            (
+                self.reporting_mase_seasonality_cfg
+                if self.target_type == "regression"
+                else 1
+            ),
+            # RecurrentConfig.use_stratified_sampler: weighted sampling is
+            # consumed only when a recurrent model is picked AND the target
+            # is classification (stratified sampler is class-balance based).
+            (
+                self.recurrent_use_stratified_sampler_cfg
+                if (self._canonical_recurrent_model() is not None
+                    and self.target_type in ("binary_classification",
+                                               "multilabel_classification"))
+                else True
+            ),
+            # TrainingBehaviorConfig.model_file_hash_suffix: the per-model
+            # hash-suffix decision fires on every model save, so no gate.
+            self.behavior_model_file_hash_suffix_cfg,
         )
 
     def _canonical_recurrent_model(self) -> "str | None":
@@ -3160,6 +3293,23 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         multilabel_chain_seeds_cfg=axes.get("multilabel_chain_seeds_cfg", None),
         # F1 -- enable_crash_reporting suite-level kwarg (Windows-only meaningful).
         enable_crash_reporting_cfg=axes.get("enable_crash_reporting_cfg", False),
+        # 2026-05-28 audit-pass-4 SAFE-subset (W4): 8 axes.
+        calibration_policy_auto_pick_cfg=axes.get("calibration_policy_auto_pick_cfg", True),
+        calibration_n_bootstrap_cfg=axes.get("calibration_n_bootstrap_cfg", 1000),
+        calibration_candidates_cfg=axes.get("calibration_candidates_cfg", None),
+        pipeline_cache_ram_budget_fraction_cfg=axes.get(
+            "pipeline_cache_ram_budget_fraction_cfg", 0.4
+        ),
+        reporting_compute_trainset_metrics_cfg=axes.get(
+            "reporting_compute_trainset_metrics_cfg", False
+        ),
+        reporting_mase_seasonality_cfg=axes.get("reporting_mase_seasonality_cfg", 1),
+        recurrent_use_stratified_sampler_cfg=axes.get(
+            "recurrent_use_stratified_sampler_cfg", True
+        ),
+        behavior_model_file_hash_suffix_cfg=axes.get(
+            "behavior_model_file_hash_suffix_cfg", True
+        ),
     )
 
 
