@@ -41,10 +41,18 @@ PREFILTER_METHODS = ("model", "univariate", "fast_model", "gpu_model")
 
 # Width at/above which the smart "auto" default abandons the faithful full-booster "model" prefilter
 # for the cheap interaction-aware "fast_model". Below this, the all-columns model fit is affordable and
-# we keep the quality-safe behaviour; above it the fit dominates the wall-clock (profiled ~66% at 10k).
+# we keep the quality-safe behaviour; above it the fit dominates the wall-clock.
+#
+# Tuned 2026-05-28 from 6000 -> 4000 based on the iter5+iter7 stage-breakdown bench: at 5000 features
+# the "model" prefilter dominates the wall-clock (85s / 47% of a 180s fit on 4000 rows; profiled), and
+# the iter5 prefilter bench measured fast_model at 5k is 5.3x faster on the prefilter stage AND keeps
+# 8/8 planted informatives, matching the "model" recall. End-to-end this drops the 5k fit ~85s -> ~30s
+# on the prefilter, ~3x on the dominant stage, with no measured recovery loss on the regime-data
+# benchmark. 10k continues to use fast_model unchanged (auto already routed wide data above 6000).
 # Overridable via kernel_tuning_cache ("shap_proxy_prefilter" -> "auto_fast_width") so the crossover is
-# tuned per-HW; the default is conservative (recovery-safe) per the regime-data tradeoff benchmark.
-_AUTO_FAST_WIDTH = 6000
+# tuned per-HW. Values below 2000 effectively force fast_model at all widths the user runs (the iter5
+# bench at 2k still showed fast_model at recall=8/8, so even that lower bound is recovery-safe).
+_AUTO_FAST_WIDTH = 4000
 # Row count at/above which "gpu_model" actually beats CPU "model" for the all-columns fit (GPU transfer
 # + kernel-launch overhead dominates on small n; the win scales with rows). Overridable via the cache.
 _GPU_MODEL_MIN_ROWS = 20000

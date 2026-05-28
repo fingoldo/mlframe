@@ -358,7 +358,7 @@ def active_learning_revalidate(
 def within_cluster_refine(
     member_cols, model_template, X_search, y_search, X_holdout, y_holdout,
     *, classification, metric=None, parsimony_tol=0.02, n_jobs=-1, max_drop_rounds=None, cache=None,
-    member_groups=None,
+    member_groups=None, min_multi_clusters=3,
 ):
     """Compact the selected clusters' member columns down to a quality-preserving subset (honest).
 
@@ -367,7 +367,8 @@ def within_cluster_refine(
     construction (within-cluster correlation >= the clustering threshold). This routine prunes those
     redundant members while the honest holdout loss stays within ``parsimony_tol`` of the best seen.
 
-    Two-stage algorithm (when ``member_groups`` is supplied):
+    Two-stage algorithm (when ``member_groups`` is supplied AND has >= ``min_multi_clusters`` multi-
+    member groups):
 
     1. CLUSTER-AT-A-TIME COLLAPSE. For each MULTI-member cluster, run ONE honest probe of
        "drop all members of this cluster except its first one (the aggregator's reference)", in
@@ -386,6 +387,13 @@ def within_cluster_refine(
     in stage 2 reuse fits from stage 1 (and from the surrounding pipeline: the winner is refit during
     the importance ablation), so the cost is dominated by genuinely new (subset, seed) combinations.
 
+    Low-redundancy fast-path: when fewer than ``min_multi_clusters`` of the supplied ``member_groups``
+    have more than one member, the stage-1 probes (1 per multi-cluster + 1 cumulative verification fit)
+    don't pay back -- on essentially-singleton data stage-1 just adds k+1 fits and routes the same
+    columns into stage 2 unchanged. Skip stage 1 and run legacy single-drop greedy directly. Measured
+    fix for an iter7 regression on low-redundancy (2k-feature clean) datasets where 0..1 multi-cluster
+    groups paid the stage-1 toll for no collapse opportunity.
+
     When ``member_groups`` is ``None`` (legacy call sites or non-clustering mode), runs the original
     pure greedy-backward over ``member_cols`` -- behavior strictly preserved for backward compatibility.
 
@@ -400,7 +408,16 @@ def within_cluster_refine(
     threshold = base + parsimony_tol * abs(base)
 
     # ---- Stage 1: per-cluster collapse (one parallel probe per multi-cluster).
+    # Skip when member_groups is missing OR has too few multi-member groups to pay the stage-1 toll
+    # (k probes + 1 cumulative verify); on low-redundancy data the cluster-collapse never fires and
+    # we just want to fall through to stage 2's legacy single-drop greedy.
+    n_multi_eligible = 0
     if member_groups is not None:
+        current_set_pre = set(current)
+        for g in member_groups:
+            if sum(1 for c in g if int(c) in current_set_pre) > 1:
+                n_multi_eligible += 1
+    if member_groups is not None and n_multi_eligible >= min_multi_clusters:
         current_set = set(current)
         # Normalize: filter member_groups to columns actually in `current`, drop empties / singletons.
         multi: list[list[int]] = []
