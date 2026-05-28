@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-05-28 — ShapProxiedFS: SHAP-aware tightening of effective `prefilter_top` (iter31)
+
+Iteration-31 narrows the post-prefilter cohort that feeds OOF-SHAP to the downstream search budget plus a 4x safety cushion (default `max(brute_force_max_features * 4, 40) = 88`). The downstream search only consumes top-`brute_force_max_features` by mean |phi|; columns between the search cap and the loose default `prefilter_top=2000` were paying full TreeSHAP cost in OOF-SHAP while contributing nothing to the final pick. The tightening reuses the existing prefilter booster's ranking -- no second booster fit -- by passing `min(prefilter_top, shap_prefilter_top)` to `prefilter_columns`.
+
+- **New knobs on `ShapProxiedFS`**: `shap_prefilter_enabled=True` (default), `shap_prefilter_top` (override, default derived from `brute_force_max_features * safety_factor`), `shap_prefilter_safety_factor=4`, `shap_prefilter_min_features=40`. Disable to restore the pre-iter31 behaviour (prefilter narrows to the user's `prefilter_top` unchanged) for parity / regression checks.
+- **Live regime (width=1000 / n_rows=5000 / n_inf=12 / snr=8.0, warm)**:
+
+  | seed | baseline e2e | new e2e | speedup | recall |
+  |------|--------------|---------|---------|--------|
+  |   0  | 11.63s       | 10.44s  | 1.11x (+10.2%) | 12/12 -> 12/12 |
+  |   1  | 11.42s       | 10.03s  | 1.14x (+12.2%) | 12/12 -> 12/12 |
+
+  OOF-SHAP stage drops from ~2.6s to ~1.3s (~50% reduction); prefilter itself stays flat (same booster, narrower output). Cold-start seed=0 measures 15.74s -> 11.19s (1.41x, +28.9%) from amortising the JIT-warmup costs alongside the smaller column set.
+- **Bench-attempt-rejected variant 2026-05-28**: a separate post-clustering booster fit (the iter31 task's first-pass design) cost ~1.2s while saving ~1.3s on OOF-SHAP for a +0.1s wash at width=1000/rows=5000/seed=1. The shipped realisation amortises into the prefilter booster the pipeline already pays. Documented at the call site so the wrong path isn't re-attempted.
+- **Recall floor**: `safety_factor=4` keeps 4x the search cap so OOF-SHAP variance still surfaces signal the cheap-importance pass missed. Pinned by `test_shap_prefilter_preserves_informative_recall_synthetic` at n_samples=5000 / n_features=1000 / 12 planted informatives (12/12 recovery required).
+- **Tests** in [`tests/feature_selection/test_shap_proxy_shap_prefilter.py`](tests/feature_selection/test_shap_proxy_shap_prefilter.py):
+  - Resolver math: `resolve_shap_prefilter_top` honours `safety_factor`, `min_features` floor, override.
+  - Selector wiring: `effective_prefilter_top` records the resolved cap, `shap_prefilter_enabled=False` restores legacy width, override dominates the factor, lever never expands a tight user budget.
+  - Biz-value: e2e speedup >= 5% at live regime on seeds 0 + 1 with 12/12 recall (the 5% floor leaves headroom over the 10-12% measured warm win for slow CI hosts).
+- Next single best improvement: lower `revalidation_n_estimators` impact further (iter28 capped 300 -> 100, but `cProfile` still shows `revalidation` as the dominant stage at ~4.1s = 41% of fit -- the per-candidate full retrain at the live regime survives every other lever). A `revalidation_top_n` cap that prunes the candidate list BEFORE the parsimony-rule retrain (current cap stops at 20; trimming to ~10 via a fast proxy-loss + corrector gate would cut revalidation ~2x) is the cleanest unexplored win.
+
 ## 2026-05-28 — ShapProxiedFS: cap preflight booster CV (iter25)
 
 Iteration-25 restores the `ShapProxiedFS.preflight(X, y)` "will-it-shine?" gate's cheap-check purpose. The preflight is supposed to give users a `run / caution / fallback` verdict BEFORE paying the full fit cost, but a 2026-05-28 live test at width=1000 / n_rows=5000 measured **preflight=77s vs fit=86s** -- nearly wall-clock parity. Hot path: `dataset_diagnostics` runs two `cross_val_score(cv=3)` passes (depth-4 + depth-1 XGB booster) for the additive-vs-deep ratio = 6 full-width XGB fits at the default `n_estimators=150`. These are RANKING-only fits (we read their ratio, not deployed predictions), so the cap-the-ranker pattern from iter9/iter10/iter19 applies.

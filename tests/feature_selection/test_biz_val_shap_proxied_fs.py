@@ -109,8 +109,10 @@ def test_biz_val_wide_pipeline_scales_and_recovers_informative():
     recovered = len(informative & selected)
     assert recovered >= 4, f"wide pipeline recovered too few informatives: {sorted(informative & selected)}"
     # The prefilter itself must not have thrown the informatives away before SHAP ever saw them.
+    # Iter31: the SHAP-aware tightening defaults the effective cap to ``max(22*4, 40) = 88`` so the
+    # prefilter narrows to 88 instead of the user's 400. ``of`` still reflects the input width.
     pf = sel.shap_proxy_report_.get("prefilter")
-    assert pf is not None and pf["kept"] == 400 and pf["of"] == width
+    assert pf is not None and pf["kept"] == 88 and pf["of"] == width
 
 
 @pytest.mark.slow

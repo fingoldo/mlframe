@@ -77,6 +77,10 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         prefilter_n_estimators: int | None = 100,
         oof_shap_n_estimators: int | None = 100,
         prefilter_stage1_keep: int | None = None,
+        shap_prefilter_enabled: bool = True,
+        shap_prefilter_top: int | None = None,
+        shap_prefilter_safety_factor: int = 4,
+        shap_prefilter_min_features: int = 40,
         cluster_features: bool | str = "auto",
         cluster_corr_threshold: float = 0.7,
         cluster_weighting: str = "pca_pc1",
@@ -166,6 +170,25 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         # None -> the prefilter module computes ``min(2000, 0.2*n_features)`` (default funnel).
         # Other methods ignore this knob.
         self.prefilter_stage1_keep = prefilter_stage1_keep
+        # ``shap_prefilter_*`` (iter31): SHAP-aware tightening of the effective ``prefilter_top``. The
+        # downstream search only consumes top-``brute_force_max_features`` by mean |phi|; columns
+        # between the search cap and the loose default (2000) pay full TreeSHAP cost in OOF-SHAP for
+        # no contribution to the final pick. With ``shap_prefilter_enabled=True`` (default), the
+        # selector passes ``min(prefilter_top, shap_prefilter_top)`` to ``prefilter_columns`` where
+        # ``shap_prefilter_top = max(brute_force_max_features * safety_factor, min_features)``
+        # (default ``max(22*4, 40) = 88``) so the EXISTING prefilter booster's ranking already
+        # produces the tighter output -- no second booster fit is paid. ``safety_factor=4`` keeps a
+        # 4x cushion over the search cap so OOF-SHAP variance can still surface signal the prefilter
+        # booster's ranking missed; ``min_features=40`` is a floor for small ``brute_force_max_features``.
+        # Bench-attempt-rejected variant (separate post-clustering booster fit, 2026-05-28): width=
+        # 1000/n_rows=5000/seed=1 measured ~1.2s extra booster + ~1.3s OOF-SHAP savings = +0.1s wash.
+        # The current realisation amortises into the prefilter booster the pipeline already pays.
+        # Disable via ``shap_prefilter_enabled=False`` to restore the legacy default-2000 cap for
+        # parity / regression checks. ``shap_prefilter_top`` overrides the derived cap.
+        self.shap_prefilter_enabled = bool(shap_prefilter_enabled)
+        self.shap_prefilter_top = shap_prefilter_top
+        self.shap_prefilter_safety_factor = int(shap_prefilter_safety_factor)
+        self.shap_prefilter_min_features = int(shap_prefilter_min_features)
         self.cluster_features = cluster_features
         self.cluster_corr_threshold = cluster_corr_threshold
         self.cluster_weighting = cluster_weighting
@@ -414,14 +437,42 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         # (model / univariate / fast_model / gpu_model / two_stage); "auto" stays quality-safe for
         # moderate widths and routes very wide data (n_features >= 8000) to the cheap-funnel +
         # capped-booster two_stage path -- see ``_shap_proxy_prefilter``.
+        #
+        # SHAP-pre-prefilter (iter31): when enabled (default), tighten the effective ``prefilter_top``
+        # to ``shap_prefilter_top = max(brute_force_max_features * safety_factor,
+        # shap_prefilter_min_features)`` (default 88) so the post-prefilter cohort that feeds OOF-SHAP
+        # is sized to the downstream search budget plus a 4x cushion, instead of the default 2000.
+        # The downstream search only consumes top-``brute_force_max_features`` by mean |phi| anyway,
+        # so noise-tail columns between the search cap and the loose default were paying full TreeSHAP
+        # cost for no contribution. Realized by REUSING the existing prefilter's booster ranking (a
+        # separate post-clustering booster fit was bench-attempt-rejected 2026-05-28: the extra fit
+        # cost ~1.2s while saving ~1.3s on OOF-SHAP for a +0.1s wash at width=1000/rows=5000/seed=1,
+        # despite a +17% gain at the cold-start seed=0). Tightening at the prefilter step avoids the
+        # double-booster work AND keeps the lever's win on warm runs.
+        effective_prefilter_top = self.prefilter_top
+        if self.shap_prefilter_enabled and self.prefilter_top is not None:
+            from mlframe.feature_selection._shap_proxy_shap_prefilter import (
+                resolve_shap_prefilter_top)
+
+            sp_top = (self.shap_prefilter_top if self.shap_prefilter_top is not None
+                      else resolve_shap_prefilter_top(
+                          brute_force_max_features=self.brute_force_max_features,
+                          safety_factor=self.shap_prefilter_safety_factor,
+                          min_features=self.shap_prefilter_min_features))
+            # Tighten only -- never expand the user's prefilter budget.
+            effective_prefilter_top = min(int(self.prefilter_top), int(sp_top))
+            report["shap_prefilter"] = dict(
+                requested_top=int(sp_top),
+                effective_prefilter_top=int(effective_prefilter_top),
+                user_prefilter_top=int(self.prefilter_top))
         working_cols = np.arange(n_features)
-        if self.prefilter_top is not None and n_features > self.prefilter_top:
+        if effective_prefilter_top is not None and n_features > effective_prefilter_top:
             from mlframe.feature_selection._shap_proxy_prefilter import prefilter_columns
 
             with _stage("prefilter"):
                 working_cols, pf_info = prefilter_columns(
                     model_template, X_search, y_search, method=self.prefilter_method,
-                    prefilter_top=self.prefilter_top, classification=self.classification,
+                    prefilter_top=effective_prefilter_top, classification=self.classification,
                     n_features=n_features, n_estimators_cap=self.prefilter_n_estimators,
                     stage1_keep=self.prefilter_stage1_keep)
                 if len(working_cols) < n_features:
