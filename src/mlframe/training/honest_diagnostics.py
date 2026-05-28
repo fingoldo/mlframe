@@ -65,7 +65,7 @@ def _is_binary_classif(y: np.ndarray) -> bool:
 
 def _bootstrap_block(y_true: np.ndarray, probs: np.ndarray, preds: Optional[np.ndarray] = None) -> dict[str, Any]:
     """Compute bootstrap CIs for the binary top-line metrics that apply to ``(y_true, probs)``."""
-    from mlframe.evaluation.bootstrap import bootstrap_metric
+    from mlframe.evaluation.bootstrap import bootstrap_metric, bootstrap_metrics
 
     p = probs
     if p is not None and p.ndim == 2 and p.shape[1] >= 2:
@@ -76,6 +76,7 @@ def _bootstrap_block(y_true: np.ndarray, probs: np.ndarray, preds: Optional[np.n
     rng_seed = 0
 
     if p_pos is not None and _is_binary_classif(y_true):
+        metric_fns: dict = {}
         try:
             # iter295 (2026-05-26): use mlframe's numba-compiled fast metric
             # kernels instead of sklearn for bootstrap. c0028 profile attrib-
@@ -111,29 +112,38 @@ def _bootstrap_block(y_true: np.ndarray, probs: np.ndarray, preds: Optional[np.n
             def _ll(yy, pp):
                 return float(_fast_ll(yy.astype(np.float64, copy=False), pp.astype(np.float64, copy=False)))
 
-            for name, fn in (("roc_auc", _auc), ("brier", _brier), ("log_loss", _ll)):
-                try:
-                    ci = bootstrap_metric(
-                        y_true, p_pos, metric_fn=fn,
-                        n_bootstrap=1000, alpha=0.05, stratify=y_true, random_state=rng_seed,
-                    )
-                    out[name] = {"point": ci["point"], "ci_lo": ci["lo"], "ci_hi": ci["hi"]}
-                except Exception as exc:
-                    out[name] = {"status": "skipped", "reason": f"{type(exc).__name__}: {exc}"}
+            metric_fns["roc_auc"] = _auc
+            metric_fns["brier"] = _brier
+            metric_fns["log_loss"] = _ll
         except ImportError as exc:
             out["status"] = "skipped"
             out["reason"] = f"mlframe metrics import failed: {exc}"
         # ECE via the policy module's _ece_score (consistent with auto-pick).
         try:
             from mlframe.calibration.policy import _ece_score
-            ci = bootstrap_metric(
-                y_true, p_pos,
-                metric_fn=lambda yy, pp: _ece_score(yy, pp),
-                n_bootstrap=1000, alpha=0.05, stratify=y_true, random_state=rng_seed,
-            )
-            out["ece"] = {"point": ci["point"], "ci_lo": ci["lo"], "ci_hi": ci["hi"]}
+            metric_fns["ece"] = lambda yy, pp: _ece_score(yy, pp)
         except Exception as exc:
             out["ece"] = {"status": "skipped", "reason": f"{type(exc).__name__}: {exc}"}
+        # Bootstrap roc_auc / brier / log_loss / ece TOGETHER: they share the
+        # same y_true / p_pos / seed / stratify, so one resample loop serves all
+        # of them. The resample generation + ``(y_true[idx], y_pred[idx])`` slice
+        # is the bootstrap's dominant cost; doing it once instead of once per
+        # metric is the win. bootstrap_metrics is bit-identical to the prior
+        # per-metric bootstrap_metric calls for the same random_state (identical
+        # index sequence; a metric raising never advances the RNG).
+        if metric_fns:
+            try:
+                cis = bootstrap_metrics(
+                    y_true, p_pos, metric_fns,
+                    n_bootstrap=1000, alpha=0.05, stratify=y_true, random_state=rng_seed,
+                )
+            except Exception as exc:
+                cis = {name: {"error": f"{type(exc).__name__}: {exc}"} for name in metric_fns}
+            for name, ci in cis.items():
+                if "error" in ci:
+                    out[name] = {"status": "skipped", "reason": ci["error"]}
+                else:
+                    out[name] = {"point": ci["point"], "ci_lo": ci["lo"], "ci_hi": ci["hi"]}
     elif p_pos is not None and y_true is not None:
         # Regression-ish fallback: RMSE on point-prediction-or-prob-mean.
         try:

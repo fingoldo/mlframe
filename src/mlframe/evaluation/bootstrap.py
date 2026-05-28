@@ -202,6 +202,135 @@ def bootstrap_metric(
     return {"point": point, "lo": lo, "hi": hi, "samples": samples}
 
 
+def bootstrap_metrics(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    metric_fns: Mapping[str, Callable[[np.ndarray, np.ndarray], float]],
+    n_bootstrap: int = 1000,
+    alpha: float = 0.05,
+    stratify: Optional[np.ndarray] = None,
+    random_state: Optional[int] = None,
+) -> dict[str, dict]:
+    """Bootstrap percentile CIs for SEVERAL metrics sharing ONE resample loop.
+
+    Equivalent to calling ``bootstrap_metric`` once per metric with the SAME
+    ``random_state``, but each resample's indices and the ``(y_true[idx],
+    y_pred[idx])`` slice are produced ONCE and every metric is evaluated on
+    them, instead of regenerating the resample + redoing the fancy-index copy
+    (the dominant cost) per metric. When honest-diagnostics bootstraps
+    roc_auc / brier / log_loss / ece on the same predictions with one seed,
+    this collapses N resample passes into one.
+
+    Returns ``{name: {"point", "lo", "hi", "samples"}}`` per metric. A metric
+    whose point estimate or every resample fails gets ``{name: {"error": str}}``
+    instead, so one bad metric doesn't sink the others -- mirroring the per-call
+    try/except the caller previously wrapped around each ``bootstrap_metric``.
+
+    Bit-identical to the per-metric ``bootstrap_metric`` results for the same
+    ``random_state``: the index sequence is generated identically, and a metric
+    raising never advances the RNG (which is consumed only to build indices),
+    so metric order does not perturb any other metric's resamples.
+    """
+    y_true = np.asarray(y_true)
+    y_pred = np.asarray(y_pred)
+    n = y_true.shape[0]
+    if n < 2:
+        raise ValueError(f"bootstrap_metrics: need at least 2 samples; got n={n}")
+    if y_pred.shape[0] != n:
+        raise ValueError(
+            f"bootstrap_metrics: y_true ({n}) and y_pred ({y_pred.shape[0]}) row counts diverge"
+        )
+    if not metric_fns:
+        return {}
+
+    # Seed BEFORE the point estimates (which never touch the RNG), so the RNG
+    # state at the resample loop matches a freshly-seeded bootstrap_metric.
+    rng = np.random.default_rng(random_state)
+
+    results: dict[str, dict] = {}
+    points: dict[str, float] = {}
+    active: list = []
+    for name, fn in metric_fns.items():
+        try:
+            points[name] = float(fn(y_true, y_pred))
+            active.append(name)
+        except Exception as exc:
+            results[name] = {"error": f"point metric failed: {type(exc).__name__}: {exc}"}
+    if not active:
+        return results
+
+    if stratify is not None:
+        stratify = np.asarray(stratify).ravel()
+        if stratify.shape[0] != n:
+            raise ValueError(
+                f"bootstrap_metrics: stratify length {stratify.shape[0]} must match y_true length {n}"
+            )
+        groups = {int(c): np.flatnonzero(stratify == c) for c in np.unique(stratify)}
+        _groups_list = list(groups.values())
+        _class_sizes = np.array([g.shape[0] for g in _groups_list], dtype=np.int64)
+        _class_offsets = np.empty(_class_sizes.shape[0] + 1, dtype=np.int64)
+        _class_offsets[0] = 0
+        _class_offsets[1:] = np.cumsum(_class_sizes)
+        _total_n = int(_class_sizes.sum())
+        _idx_buf = np.empty(_total_n, dtype=np.int64)
+
+    samples = {name: np.empty(n_bootstrap, dtype=np.float64) for name in active}
+    valid = {name: 0 for name in active}
+    failures = {name: 0 for name in active}
+    first_err: dict = {name: None for name in active}
+
+    for _ in range(n_bootstrap):
+        # Index generation MUST match bootstrap_metric exactly (same rng calls,
+        # same order) so each metric's samples equal its single-call result.
+        if stratify is None:
+            idx = rng.integers(0, n, size=n, dtype=np.int64)
+        else:
+            for _c in range(_class_sizes.shape[0]):
+                _sz = int(_class_sizes[_c])
+                _rand = rng.integers(0, _sz, size=_sz, dtype=np.int64)
+                _idx_buf[_class_offsets[_c]:_class_offsets[_c + 1]] = _groups_list[_c][_rand]
+            idx = _idx_buf
+        # Slice ONCE; every metric reads the same resampled views.
+        yt = y_true[idx]
+        yp = y_pred[idx]
+        for name in active:
+            try:
+                v = float(metric_fns[name](yt, yp))
+            except Exception as exc:
+                failures[name] += 1
+                if first_err[name] is None:
+                    first_err[name] = f"{type(exc).__name__}: {exc}"
+                continue
+            if not _isfinite(v):
+                failures[name] += 1
+                continue
+            samples[name][valid[name]] = v
+            valid[name] += 1
+
+    lo_pct = (alpha / 2.0) * 100.0
+    hi_pct = (1.0 - alpha / 2.0) * 100.0
+    for name in active:
+        v_n = valid[name]
+        if v_n == 0:
+            results[name] = {
+                "error": f"all {n_bootstrap} resamples failed (first error: {first_err[name]})"
+            }
+            continue
+        s = samples[name][:v_n]
+        if failures[name] > n_bootstrap // 4:
+            logger.warning(
+                "bootstrap_metrics[%s]: %d/%d resamples failed (first: %s); CI over %d surviving samples may be biased.",
+                name, failures[name], n_bootstrap, first_err[name], v_n,
+            )
+        results[name] = {
+            "point": points[name],
+            "lo": float(np.percentile(s, lo_pct)),
+            "hi": float(np.percentile(s, hi_pct)),
+            "samples": s,
+        }
+    return results
+
+
 def delong_test(
     y_true: np.ndarray,
     score_a: np.ndarray,

@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 from sklearn.metrics import roc_auc_score, mean_squared_error
 
-from mlframe.evaluation.bootstrap import bootstrap_metric, delong_test
+from mlframe.evaluation.bootstrap import bootstrap_metric, bootstrap_metrics, delong_test
 
 
 # Every test in this module exercises only synthetic data at n<=4000 with default bootstrap n=200-300; wall-time
@@ -113,6 +113,55 @@ def test_delong_rejects_multiclass():
     score = np.arange(10, dtype=float)
     with pytest.raises(ValueError, match="binary 0/1"):
         delong_test(y, score, score + 1)
+
+
+def _bm_metric_set():
+    auc = lambda yy, pp: float(roc_auc_score(yy, pp))
+    brier = lambda yy, pp: float(np.mean((yy - pp) ** 2))
+    def ll(yy, pp):
+        pc = np.clip(pp, 1e-15, 1 - 1e-15)
+        return float(-np.mean(yy * np.log(pc) + (1 - yy) * np.log(1 - pc)))
+    return {"roc_auc": auc, "brier": brier, "log_loss": ll}
+
+
+@pytest.mark.parametrize("stratified", [True, False])
+def test_bootstrap_metrics_bit_identical_to_per_metric(stratified):
+    """bootstrap_metrics sharing one resample loop must yield per-metric results
+    bit-identical to calling bootstrap_metric once per metric with the same seed
+    (identical index sequence; a metric raising never advances the RNG)."""
+    y, score = _make_binary_auc_data(n=3000, seed=3)
+    p = 1.0 / (1.0 + np.exp(-score))  # squash to [0,1] for brier/log_loss
+    mfns = _bm_metric_set()
+    strat = y if stratified else None
+    shared = bootstrap_metrics(y, p, mfns, n_bootstrap=300, stratify=strat, random_state=4242)
+    for name, fn in mfns.items():
+        single = bootstrap_metric(y, p, metric_fn=fn, n_bootstrap=300, stratify=strat, random_state=4242)
+        assert shared[name]["point"] == single["point"]
+        assert shared[name]["lo"] == single["lo"]
+        assert shared[name]["hi"] == single["hi"]
+        assert np.array_equal(shared[name]["samples"], single["samples"])
+
+
+def test_bootstrap_metrics_isolates_a_failing_metric():
+    """A metric that raises on every resample gets an ``error`` entry; the other
+    metrics still return valid CIs (one bad metric must not sink the batch)."""
+    y, score = _make_binary_auc_data(n=1500, seed=5)
+    p = 1.0 / (1.0 + np.exp(-score))
+    def boom(yy, pp):
+        raise RuntimeError("always fails")
+    res = bootstrap_metrics(
+        y, p, {"good": lambda yy, pp: float(np.mean((yy - pp) ** 2)), "bad": boom},
+        n_bootstrap=200, random_state=7,
+    )
+    assert "error" in res["bad"] and "point" not in res["bad"]
+    assert "error" not in res["good"] and np.isfinite(res["good"]["point"])
+
+
+def test_bootstrap_metrics_empty_and_shape_guard():
+    y, score = _make_binary_auc_data(n=500, seed=6)
+    assert bootstrap_metrics(y, score, {}, n_bootstrap=50) == {}
+    with pytest.raises(ValueError):
+        bootstrap_metrics(np.zeros(10), np.zeros(8), {"m": lambda a, b: 0.0}, n_bootstrap=10)
 
 
 def test_delong_degenerate_returns_nan_p():
