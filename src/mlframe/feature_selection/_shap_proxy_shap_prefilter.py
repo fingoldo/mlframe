@@ -36,4 +36,38 @@ def resolve_shap_prefilter_top(
     return max(int(brute_force_max_features) * int(safety_factor), int(min_features))
 
 
-__all__ = ["resolve_shap_prefilter_top"]
+def resolve_shap_aware_stage1_keep(
+    *, effective_prefilter_top: int, stage1_cushion: int, stage1_floor: int,
+    default_stage1_keep: int,
+) -> int:
+    """Resolve the two_stage prefilter's stage-A survivor count when the SHAP-aware lever is active.
+
+    When ``effective_prefilter_top`` is much smaller than the legacy default (``min(2000,
+    0.2*n_features)``), the stage-B booster's column-budget is dictated by ``effective_prefilter_top``
+    anyway (stage B narrows ``stage1_keep -> effective_prefilter_top`` by importance) -- so keeping
+    stage A at 2000 just makes the stage-B booster fit on 2000 columns when 88 * cushion would
+    suffice. Iter33 measurement at C2 (width=10000, n_rows=5000) attributed 57.6% of fit-wall to the
+    prefilter stage and cProfile pinned 14.8s of that to the stage-B XGBoost ``update`` on a
+    2000-column matrix. With ``effective_prefilter_top=88`` and cushion 8 the stage-A funnel narrows
+    to ``max(200, 88*8) = 704`` and the booster fit shrinks ~2.5-3x.
+
+    Returns ``min(default_stage1_keep, max(stage1_floor, effective_prefilter_top * stage1_cushion))``
+    so the lever is a strict TIGHTENING (never widens beyond the legacy default, never below the
+    floor, never below the eventual output ``effective_prefilter_top``).
+
+    ``stage1_cushion`` (default 8): per-survivor headroom over the eventual stage-B output. 8x is
+    twice the OOF-SHAP-attribution cushion (4x via ``safety_factor``), enough that a marginal-signal
+    informative can clear stage A even if its f_classif rank sits well below the top.
+    ``stage1_floor`` (default 200): absolute lower bound on stage A's survivor count regardless of
+    how small the SHAP cap is. Keeps a generous cohort for stage B's interaction-aware booster on
+    pathological tight ``brute_force_max_features`` configurations.
+    """
+    if effective_prefilter_top is None:
+        return int(default_stage1_keep)
+    tightened = max(int(stage1_floor),
+                    int(effective_prefilter_top) * int(stage1_cushion),
+                    int(effective_prefilter_top))
+    return min(int(default_stage1_keep), tightened)
+
+
+__all__ = ["resolve_shap_prefilter_top", "resolve_shap_aware_stage1_keep"]

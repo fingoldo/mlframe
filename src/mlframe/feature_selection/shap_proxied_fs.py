@@ -81,6 +81,9 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         shap_prefilter_top: int | None = None,
         shap_prefilter_safety_factor: int = 4,
         shap_prefilter_min_features: int = 40,
+        shap_aware_stage1_keep: bool = True,
+        shap_aware_stage1_cushion: int = 8,
+        shap_aware_stage1_floor: int = 200,
         cluster_features: bool | str = "auto",
         cluster_corr_threshold: float = 0.7,
         cluster_weighting: str = "pca_pc1",
@@ -189,6 +192,28 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         self.shap_prefilter_top = shap_prefilter_top
         self.shap_prefilter_safety_factor = int(shap_prefilter_safety_factor)
         self.shap_prefilter_min_features = int(shap_prefilter_min_features)
+        # ``shap_aware_stage1_keep`` (iter33): when the SHAP-aware prefilter cap shrinks
+        # ``effective_prefilter_top`` far below the legacy stage-A default (``min(2000,
+        # 0.2*n_features)``), the two_stage prefilter's stage-B booster fit is the dominant
+        # wall-clock cost (cProfile at C2 width=10000/n_rows=5000 attributed 14.8s of a 30s fit to
+        # xgboost ``update`` on a 2000-column matrix). The eventual stage-B output is
+        # ``effective_prefilter_top`` (e.g. 88) anyway -- keeping stage A at 2000 forces the booster
+        # to score 1900+ columns it will then discard. The lever tightens stage A to
+        # ``max(shap_aware_stage1_floor, effective_prefilter_top * shap_aware_stage1_cushion)``
+        # (default ``max(200, 88*8) = 704``) so the booster fits on ~3x fewer columns at the same
+        # tree budget. ``shap_aware_stage1_cushion=8`` is 2x the OOF-SHAP attribution cushion
+        # (``shap_prefilter_safety_factor=4``); the extra factor of 2 leaves headroom for marginal
+        # informatives whose univariate F-rank sits below the top. ``shap_aware_stage1_floor=200``
+        # is a hard floor that protects pathological tight ``brute_force_max_features`` configs
+        # (e.g. 5 * 8 = 40 would be too aggressive a stage-A funnel). The lever is a strict
+        # tightening: ``min(default_stage1_keep, ...)`` never widens beyond legacy. Gated off via
+        # ``shap_aware_stage1_keep=False`` for parity / regression checks against iter32; ignored
+        # when the user pins ``prefilter_stage1_keep`` explicitly (pinned value always wins) OR
+        # when ``shap_prefilter_enabled=False`` OR when the resolved prefilter method is not
+        # ``two_stage`` (only ``two_stage`` reads ``stage1_keep``).
+        self.shap_aware_stage1_keep = bool(shap_aware_stage1_keep)
+        self.shap_aware_stage1_cushion = int(shap_aware_stage1_cushion)
+        self.shap_aware_stage1_floor = int(shap_aware_stage1_floor)
         self.cluster_features = cluster_features
         self.cluster_corr_threshold = cluster_corr_threshold
         self.cluster_weighting = cluster_weighting
@@ -467,14 +492,44 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
                 user_prefilter_top=int(self.prefilter_top))
         working_cols = np.arange(n_features)
         if effective_prefilter_top is not None and n_features > effective_prefilter_top:
-            from mlframe.feature_selection._shap_proxy_prefilter import prefilter_columns
+            from mlframe.feature_selection._shap_proxy_prefilter import (
+                _default_stage1_keep, prefilter_columns, resolve_prefilter_method)
+
+            # iter33 SHAP-aware stage-A tightening: when ``shap_prefilter`` shrinks
+            # ``effective_prefilter_top`` far below the legacy 2000 default, the two_stage prefilter's
+            # stage-B booster fit on 2000 columns is the dominant wall-clock cost. Pre-resolve the
+            # stage-A survivor count to ``max(floor, effective_prefilter_top * cushion)`` so the
+            # booster fits on ~3x fewer columns at the same tree budget. Two protections:
+            #   1) User-pinned ``prefilter_stage1_keep`` always wins (lever is a default-only tighten).
+            #   2) Lever is gated on (a) ``shap_aware_stage1_keep=True``, (b)
+            #      ``shap_prefilter_enabled=True``, (c) the resolved prefilter method == two_stage
+            #      (only two_stage reads ``stage1_keep``; other paths ignore it).
+            effective_stage1_keep = self.prefilter_stage1_keep
+            if (effective_stage1_keep is None and self.shap_aware_stage1_keep
+                    and self.shap_prefilter_enabled):
+                _resolved = resolve_prefilter_method(
+                    self.prefilter_method, n_features=n_features,
+                    n_rows=int(X_search.shape[0]))
+                if _resolved == "two_stage":
+                    from mlframe.feature_selection._shap_proxy_shap_prefilter import (
+                        resolve_shap_aware_stage1_keep)
+
+                    effective_stage1_keep = resolve_shap_aware_stage1_keep(
+                        effective_prefilter_top=int(effective_prefilter_top),
+                        stage1_cushion=self.shap_aware_stage1_cushion,
+                        stage1_floor=self.shap_aware_stage1_floor,
+                        default_stage1_keep=_default_stage1_keep(n_features))
+                    if "shap_prefilter" in report and isinstance(report["shap_prefilter"], dict):
+                        report["shap_prefilter"]["stage1_keep_tightened"] = int(effective_stage1_keep)
+                        report["shap_prefilter"]["stage1_keep_default"] = int(
+                            _default_stage1_keep(n_features))
 
             with _stage("prefilter"):
                 working_cols, pf_info = prefilter_columns(
                     model_template, X_search, y_search, method=self.prefilter_method,
                     prefilter_top=effective_prefilter_top, classification=self.classification,
                     n_features=n_features, n_estimators_cap=self.prefilter_n_estimators,
-                    stage1_keep=self.prefilter_stage1_keep)
+                    stage1_keep=effective_stage1_keep)
                 if len(working_cols) < n_features:
                     X_search = X_search.iloc[:, working_cols].reset_index(drop=True)
                     X_hold = X_hold.iloc[:, working_cols].reset_index(drop=True)
