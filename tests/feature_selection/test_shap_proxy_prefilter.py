@@ -40,33 +40,46 @@ def test_resolve_auto_keeps_model_for_moderate_width():
     assert resolve_prefilter_method("auto", n_features=narrow, n_rows=4000) == "model"
 
 
-def test_resolve_auto_switches_fast_for_very_wide_when_no_gpu(monkeypatch):
+def test_resolve_auto_switches_two_stage_for_wide_when_no_gpu(monkeypatch):
     import mlframe.feature_selection._shap_proxy_prefilter as PF
 
-    # No CUDA -> auto must pick fast_model in the mid-wide window (between auto_fast_width and
-    # two_stage_min_width). Above two_stage_min_width the new iter12 routing takes over -- that edge
-    # is covered by test_resolve_auto_routes_two_stage_at_wide_threshold_no_gpu.
+    # No CUDA -> auto must pick two_stage at/above auto_fast_width. iter21 unified two_stage_min_width
+    # with auto_fast_width based on the prefilter micro-bench (5.10x faster than "model" at width 6000
+    # with identical 8/8 informative recall), so the legacy fast_model auto window is collapsed.
     monkeypatch.setattr(PF, "gpu_model_available", lambda: False)
-    mid_wide = (PF._auto_fast_width() + PF._two_stage_min_width()) // 2
-    assert PF._auto_fast_width() <= mid_wide < PF._two_stage_min_width()
-    assert PF.resolve_prefilter_method("auto", n_features=mid_wide, n_rows=4000) == "fast_model"
-    # Even with many rows, no device means no gpu_model in that window.
-    assert PF.resolve_prefilter_method("auto", n_features=mid_wide, n_rows=10 ** 6) == "fast_model"
+    wide = PF._auto_fast_width()
+    assert PF.resolve_prefilter_method("auto", n_features=wide, n_rows=4000) == "two_stage"
+    # Even with many rows, no device means no gpu_model -> still two_stage on the wide side.
+    assert PF.resolve_prefilter_method("auto", n_features=wide, n_rows=10 ** 6) == "two_stage"
 
 
 def test_resolve_auto_routes_gpu_when_device_and_enough_rows(monkeypatch):
     import mlframe.feature_selection._shap_proxy_prefilter as PF
 
     monkeypatch.setattr(PF, "gpu_model_available", lambda: True)
-    # Pick a width in the mid-wide window (>= auto_fast_width, < two_stage_min_width) so the GPU
-    # vs fast_model crossover is decided by row count alone; the two_stage edge (width >= 8000) is
-    # covered by test_resolve_auto_gpu_wins_over_two_stage_when_device_available.
-    mid_wide = (PF._auto_fast_width() + PF._two_stage_min_width()) // 2
-    assert PF._auto_fast_width() <= mid_wide < PF._two_stage_min_width()
+    # Wide-data (>= auto_fast_width): with a CUDA device + enough rows, auto picks gpu_model over
+    # two_stage (full-fidelity ranking on the GPU outranks the cheap funnel on big-n hardware).
+    wide = PF._auto_fast_width()
     big_n = PF._gpu_model_min_rows()
-    assert PF.resolve_prefilter_method("auto", n_features=mid_wide, n_rows=big_n) == "gpu_model"
-    # Too few rows -> GPU transfer overhead not worth it -> fast_model even with a device.
-    assert PF.resolve_prefilter_method("auto", n_features=mid_wide, n_rows=big_n - 1) == "fast_model"
+    assert PF.resolve_prefilter_method("auto", n_features=wide, n_rows=big_n) == "gpu_model"
+    # Too few rows -> GPU transfer overhead not worth it -> two_stage takes over (iter21).
+    assert PF.resolve_prefilter_method("auto", n_features=wide, n_rows=big_n - 1) == "two_stage"
+
+
+def test_resolve_auto_falls_back_to_fast_model_when_two_stage_gated_above_auto_fast(monkeypatch):
+    """Safety-net branch: when a user pushes ``two_stage_min_width`` ABOVE ``auto_fast_width`` via
+    kernel_tuning_cache, the window in between routes to ``"fast_model"`` (still interaction-aware,
+    just slower than two_stage). Defaults unify the two thresholds (iter21) so this branch is dormant
+    on the shipped config but the wiring is exercised here for safety."""
+    import mlframe.feature_selection._shap_proxy_prefilter as PF
+
+    monkeypatch.setattr(PF, "gpu_model_available", lambda: False)
+    afw = PF._auto_fast_width()
+    monkeypatch.setattr(PF, "_two_stage_min_width", lambda: afw + 4000)
+    mid_wide = afw + 1000  # in the dormant window between the two thresholds
+    assert PF.resolve_prefilter_method("auto", n_features=mid_wide, n_rows=4000) == "fast_model"
+    # Above the (raised) two_stage threshold -> two_stage again.
+    assert PF.resolve_prefilter_method("auto", n_features=afw + 5000, n_rows=4000) == "two_stage"
 
 
 # --------------------------------------------------------------------------- ranking correctness
@@ -256,25 +269,26 @@ def test_prefilter_cap_none_is_legacy_uncapped_behaviour():
 
 # ----------------------------------------------------------- two_stage prefilter (iter12)
 def test_resolve_auto_routes_two_stage_at_wide_threshold_no_gpu(monkeypatch):
-    """auto routing edges around ``two_stage_min_width`` when no CUDA is available:
-    - n_features < auto_fast_width -> "model" (legacy)
-    - auto_fast_width <= n_features < two_stage_min_width -> "fast_model" (legacy)
-    - n_features >= two_stage_min_width -> "two_stage" (new path).
+    """auto routing edges around ``two_stage_min_width`` when no CUDA is available (iter21 unified
+    two_stage_min_width with auto_fast_width so the two edges collapse onto one threshold):
+    - n_features < auto_fast_width                    -> "model"      (faithful single-shot fit)
+    - n_features >= auto_fast_width (== tsmw default) -> "two_stage"  (cheap funnel + capped booster).
+    The dormant ``"fast_model"`` fallback for the case where a tuning cache override raises tsmw above
+    afw is covered by ``test_resolve_auto_falls_back_to_fast_model_when_two_stage_gated_above_auto_fast``.
     GPU branch is verified separately to keep this test deterministic."""
     import mlframe.feature_selection._shap_proxy_prefilter as PF
 
     monkeypatch.setattr(PF, "gpu_model_available", lambda: False)
     afw = PF._auto_fast_width()
     tsmw = PF._two_stage_min_width()
-    assert tsmw > afw, "two_stage threshold must be wider than the fast_model crossover by design"
+    assert tsmw <= afw, ("default tsmw must not exceed afw -- iter21 unified them; if you raise tsmw "
+                        "via kernel_tuning_cache, the fast_model fallback test covers that branch.")
 
     # Below auto_fast_width -> "model"
     assert PF.resolve_prefilter_method("auto", n_features=afw - 1, n_rows=4000) == "model"
-    # Between auto_fast_width and two_stage_min_width -> "fast_model"
-    assert PF.resolve_prefilter_method("auto", n_features=tsmw - 1, n_rows=4000) == "fast_model"
-    # At/above two_stage_min_width -> "two_stage"
-    assert PF.resolve_prefilter_method("auto", n_features=tsmw, n_rows=4000) == "two_stage"
-    assert PF.resolve_prefilter_method("auto", n_features=tsmw + 1000, n_rows=4000) == "two_stage"
+    # At/above auto_fast_width -> "two_stage" (default tsmw == afw, so the same width crosses both)
+    assert PF.resolve_prefilter_method("auto", n_features=afw, n_rows=4000) == "two_stage"
+    assert PF.resolve_prefilter_method("auto", n_features=afw + 1000, n_rows=4000) == "two_stage"
 
 
 def test_resolve_auto_gpu_wins_over_two_stage_when_device_available(monkeypatch):

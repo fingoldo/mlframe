@@ -64,11 +64,19 @@ _AUTO_FAST_WIDTH = 4000
 # Row count at/above which "gpu_model" actually beats CPU "model" for the all-columns fit (GPU transfer
 # + kernel-launch overhead dominates on small n; the win scales with rows). Overridable via the cache.
 _GPU_MODEL_MIN_ROWS = 20000
-# Width at/above which auto routes to the cheap-stage-A + capped-booster-stage-B "two_stage". Set above
-# the iter5 fast_model crossover so moderate widths stay on the single-stage path; two_stage shines
-# only when the all-columns booster fit itself is the hotspot (~6k+ in iter11 profiling). Overridable
-# via kernel_tuning_cache key ``shap_proxy_prefilter.two_stage_min_width``.
-_TWO_STAGE_MIN_WIDTH = 8000
+# Width at/above which auto routes to the cheap-stage-A + capped-booster-stage-B "two_stage".
+#
+# Tuned 2026-05-28 from 8000 -> 4000 based on the iter21 prefilter micro-bench (rows=4000, regime
+# dataset, 8 informatives + 12 redundant): "model" prefilter took 24.0s / 30.6s / 37.7s at width
+# 4000 / 5000 / 6000 while "two_stage" took 5.0s / 6.2s / 7.4s with IDENTICAL 8/8 informative recall
+# at every width -- a 4.78x / 4.91x / 5.10x speedup on the dominant prefilter stage with no measured
+# recovery loss. The crossover where two_stage starts winning is at or below the lowest tested width
+# (the speedup was already 4.79x at 2000 features), so the unified threshold matches
+# ``_AUTO_FAST_WIDTH``: anywhere auto routes off the single-shot "model" path, it now routes to
+# "two_stage" (no-GPU case). The legacy "fast_model" tier becomes unreachable from auto routing
+# (still callable via an explicit ``prefilter_method="fast_model"`` argument). Overridable via
+# kernel_tuning_cache key ``shap_proxy_prefilter.two_stage_min_width``.
+_TWO_STAGE_MIN_WIDTH = 4000
 
 
 def _prefilter_tuning() -> dict:
@@ -113,10 +121,13 @@ def resolve_prefilter_method(method: str, *, n_features: int, n_rows: int) -> st
     """Map the user-facing ``prefilter_method`` to a concrete method.
 
     ``"auto"`` (the recommended default) keeps the quality-safe full-booster ``"model"`` ranking for
-    moderate widths, and only for VERY wide data switches to the cheap interaction-aware ``"fast_model"``
-    (the full fit dominates the wall-clock there). If a CUDA device is present AND the row count is large
-    enough for the GPU to win, ``"auto"`` routes the wide-data case to ``"gpu_model"`` instead of
-    ``"fast_model"`` -- same faithful ranking, just on the GPU. Explicit methods pass through unchanged.
+    moderate widths (``n_features < _auto_fast_width()``), and for wider data routes to the cheap-funnel
+    ``"two_stage"`` path -- the iter21 micro-bench measured a 4.78-5.10x prefilter-stage speedup with
+    identical 8/8 informative recall vs ``"model"`` at every width from 2k to 6k. If a CUDA device is
+    present AND the row count is large enough for the GPU to win, ``"auto"`` routes the wide-data case
+    to ``"gpu_model"`` instead -- same faithful ranking, just on the GPU. ``"fast_model"`` is reachable
+    only via an explicit method= argument; auto no longer routes through it because two_stage strictly
+    dominates it on the wide-data regime. Explicit methods pass through unchanged.
     """
     if method != "auto":
         if method not in PREFILTER_METHODS:
@@ -125,10 +136,12 @@ def resolve_prefilter_method(method: str, *, n_features: int, n_rows: int) -> st
         return method
     if n_features < _auto_fast_width():
         return "model"
-    # Very wide: prefer GPU full-fidelity ranking when it actually pays (enough rows + a device); else
-    # at the very-wide tier (>= two_stage_min_width) the cheap-funnel two_stage path beats fast_model
-    # by spending stage A's cost on a vectorised F-score pass and giving stage B a much smaller column
-    # cohort. Below the two-stage threshold, the legacy fast_model crossover applies.
+    # Wider data: prefer GPU full-fidelity ranking when it actually pays (enough rows + a device);
+    # otherwise the cheap-funnel two_stage path is the auto pick (iter21 measured it as a strict win
+    # over both "model" and "fast_model" everywhere two_stage is callable, with identical recovery).
+    # The trailing ``return "fast_model"`` is a safety net for non-default tunings where a user shrinks
+    # ``two_stage_min_width`` below ``auto_fast_width`` via kernel_tuning_cache (then there's still a
+    # window where two_stage is gated off and we want some interaction-aware ranking, not "model").
     if n_rows >= _gpu_model_min_rows() and gpu_model_available():
         return "gpu_model"
     if n_features >= _two_stage_min_width():
