@@ -151,6 +151,54 @@ def test_preflight_capped_recommendation_matches_legacy_iter17(regime):
     assert capped["diagnostics"]["max_abs_corr"] == legacy["diagnostics"]["max_abs_corr"]
 
 
+def test_preflight_parallel_booster_byte_identical_across_calls():
+    """Iter26 parallelises the deep+stump booster CV via joblib(n_jobs=2, prefer='threads') with
+    xgboost's inner ``n_jobs`` capped to ``n_cores // 2`` (mirrors iter4's outer-x-inner pattern).
+
+    Two pins on the new orchestration:
+      (a) two back-to-back calls return byte-identical scores -- the joblib pool doesn't introduce
+          non-determinism even though deep/stump can finish in either order;
+      (b) the booster results match a direct serial reference (same seeds, same hyper-params, same
+          inner ``n_jobs``) -- the joblib wrapper itself is score-neutral.
+    """
+    import os
+    import numpy as np
+    import pandas as pd
+    from sklearn.model_selection import cross_val_score
+    from xgboost import XGBClassifier
+    from mlframe.feature_selection._shap_proxy_preflight import dataset_diagnostics
+
+    rng = np.random.default_rng(0)
+    n = 600
+    nfeat = 25
+    X = pd.DataFrame(rng.normal(size=(n, nfeat)), columns=[f"f{i}" for i in range(nfeat)])
+    y = (X.iloc[:, 0] + 0.5 * X.iloc[:, 1] + 0.3 * rng.normal(size=n) > 0).astype(int).to_numpy()
+
+    a = dataset_diagnostics(X, y, classification=True, random_state=0)
+    b = dataset_diagnostics(X, y, classification=True, random_state=0)
+    # (a) determinism of the parallel path itself.
+    assert a["full_model_fit"] == b["full_model_fit"]
+    assert a["stump_fit"] == b["stump_fit"]
+    assert a["additive_ratio"] == b["additive_ratio"]
+    assert a["max_abs_corr"] == b["max_abs_corr"]
+
+    # (b) match a direct serial xgboost+cross_val_score reference with the exact same inner n_jobs
+    # the parallel path passes to xgb. The orchestration (joblib pool vs sequential) is score-neutral.
+    n_cores = os.cpu_count() or 1
+    inner = max(1, n_cores // 2)
+    common = dict(n_estimators=100, learning_rate=0.1, n_jobs=inner, random_state=0,
+                  tree_method="hist")
+    # Recreate the booster subsample exactly as ``dataset_diagnostics`` does: first the corr-pass
+    # rng draws (none here because n=600 < max_rows_corr=5000 default), then the booster row sample
+    # (none because n=600 < max_rows=2000 default). So Xs/ys == X/y.
+    deep = XGBClassifier(max_depth=4, eval_metric="logloss", **common)
+    stump = XGBClassifier(max_depth=1, eval_metric="logloss", **common)
+    deep_ref = float(np.mean(cross_val_score(deep, X, y, cv=3, scoring="roc_auc")))
+    stump_ref = float(np.mean(cross_val_score(stump, X, y, cv=3, scoring="roc_auc")))
+    assert a["full_model_fit"] == deep_ref, (a["full_model_fit"], deep_ref)
+    assert a["stump_fit"] == stump_ref, (a["stump_fit"], stump_ref)
+
+
 @pytest.mark.slow
 def test_biz_val_preflight_under_30s_at_width_1000():
     """Live-test regime (2026-05-28): preflight at width=1000 / n_rows=5000 must complete under 30s.
