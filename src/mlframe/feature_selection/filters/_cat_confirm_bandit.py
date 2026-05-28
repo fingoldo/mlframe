@@ -72,6 +72,29 @@ def _confirm_pairs_bandit_ucb1(
     active_mask = np.ones(len(selected_idx), dtype=bool)
     pair_cache: list = []  # cached merge results per survivor
 
+    # The single-variable merge of feature ``idx`` depends only on
+    # ``factors_data[:, idx]`` + ``nbins[idx]`` (default current_nclasses=1,
+    # fresh final_classes), so it is identical for every pair that contains
+    # ``idx``. Features recur across the selected pairs, so memoising the
+    # single-var merge by feature index removes the redundant recomputation
+    # (previously 2 single-var merges per pair -> one per UNIQUE feature). The
+    # cached (classes, freqs) arrays are read-only downstream (the shuffle
+    # mutates only a copy of classes_y, never classes_x1/x2), so sharing one
+    # array across pairs is safe. Bit-identical: same merge_vars output, memoised.
+    _single_merge_cache: dict = {}
+
+    def _single_merge(idx: int):
+        cached = _single_merge_cache.get(idx)
+        if cached is None:
+            cls, fq, _ = merge_vars(
+                factors_data=factors_data,
+                vars_indices=np.array([idx], dtype=np.int64),
+                var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
+            )
+            cached = (cls, fq)
+            _single_merge_cache[idx] = cached
+        return cached
+
     for k in selected_idx:
         i = int(pairs_a[k])
         jj = int(pairs_b[k])
@@ -80,16 +103,8 @@ def _confirm_pairs_bandit_ucb1(
             vars_indices=np.array([i, jj], dtype=np.int64),
             var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
         )
-        cls_x1, fq_x1, _ = merge_vars(
-            factors_data=factors_data,
-            vars_indices=np.array([i], dtype=np.int64),
-            var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
-        )
-        cls_x2, fq_x2, _ = merge_vars(
-            factors_data=factors_data,
-            vars_indices=np.array([jj], dtype=np.int64),
-            var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
-        )
+        cls_x1, fq_x1 = _single_merge(i)
+        cls_x2, fq_x2 = _single_merge(jj)
         pair_cache.append((cls_pair, fq_pair, cls_x1, fq_x1, cls_x2, fq_x2))
 
     def _step_pair(j: int, ii_obs: float):
