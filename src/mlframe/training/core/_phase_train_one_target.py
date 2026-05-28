@@ -461,7 +461,31 @@ def _canonical_dtype_pairs(train_df) -> tuple:
     Same on-disk dtype yields the same canonical form across polars / pandas; cache reuse works irrespective of which backend the call site uses.
     """
     if pl is not None and isinstance(train_df, pl.DataFrame):
-        items = [(c, str(train_df.schema[c])) for c in train_df.columns]
+        # Polars Enum / Categorical canonicalise to "c" via isinstance dispatch
+        # BEFORE stringifying: a Polars Enum's ``str(dt)`` materialises the full
+        # ``Enum(categories=['...', '...', ...])`` repr -- multi-KB for hundreds
+        # of categories. The iter470 polars->pandas bridge promotes every
+        # Categorical to Enum with the column's actual category list, so the
+        # bridge-produced frames hit this path every cache-key build. Mapping
+        # Enum to "c" (alongside the existing Categorical -> "c") also restores
+        # the cache-hit semantics: two frames with the same logical column
+        # structure but different category UNIVERSES (different bridge slices
+        # of the same source column) get the same cache key, consistent with
+        # how pandas Categorical / polars Categorical already canonicalise. The
+        # actual category content is disambiguated separately by the content
+        # hashers (``_full_target_content_hash`` etc.) -- the dtype suffix only
+        # needs to distinguish dtype FAMILIES, not category lists.
+        _CAT_LIKE: tuple = tuple(
+            t for t in (pl.Categorical, getattr(pl, "Enum", None)) if t is not None
+        )
+        items = []
+        for c in train_df.columns:
+            dt = train_df.schema[c]
+            if _CAT_LIKE and isinstance(dt, _CAT_LIKE):
+                items.append((c, "c"))
+            else:
+                items.append((c, _canonicalise_dtype(str(dt))))
+        return tuple(items)
     elif hasattr(train_df, "dtypes") and hasattr(train_df, "columns"):
         # pandas
         items = [(c, str(train_df.dtypes[c])) for c in train_df.columns]

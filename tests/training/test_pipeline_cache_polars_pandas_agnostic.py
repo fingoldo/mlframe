@@ -49,6 +49,37 @@ class TestCanonicalDtypePairs:
         df_b = pd.DataFrame({"x": np.array([1.0, 2.0, 3.0], dtype=np.float64)})
         assert _canonical_dtype_pairs(df_a) != _canonical_dtype_pairs(df_b)
 
+    def test_polars_enum_canonicalises_to_c(self) -> None:
+        """Polars Enum is in the same dtype FAMILY as Categorical (both backed by
+        int codes + a dictionary), so it must canonicalise to "c" for cache-key
+        purposes -- not to the full ``Enum(categories=['...', ...])`` repr its
+        ``str()`` produces. Aligns Enum with Categorical, restoring cache-hit
+        semantics across the iter470 polars->pandas bridge which promotes every
+        Categorical column to an Enum with that column's actual category list."""
+        df = pl.DataFrame({"c": pl.Series(["a", "b", "c"], dtype=pl.Enum(["a", "b", "c"]))})
+        pairs = _canonical_dtype_pairs(df)
+        assert pairs == (("c", "c"),)
+
+    def test_polars_enum_and_categorical_canonicalise_to_same(self) -> None:
+        """An Enum column and a Categorical column with identical column NAMES
+        must produce identical canonical pairs (both -> "c"). The category lists
+        are part of data content, not dtype shape, and are hashed separately by
+        the content hashers. Without this, the iter470 bridge -- which produces
+        Enum frames with column-specific category universes -- would cache-miss
+        on what is logically the same preprocessing block."""
+        df_enum = pl.DataFrame({"c": pl.Series(["a", "b"], dtype=pl.Enum(["a", "b"]))})
+        df_cat = pl.DataFrame({"c": pl.Series(["a", "b"], dtype=pl.Categorical)})
+        assert _canonical_dtype_pairs(df_enum) == _canonical_dtype_pairs(df_cat)
+
+    def test_polars_enum_different_categories_canonicalise_same(self) -> None:
+        """Two Enum columns with DIFFERENT category universes but the same
+        column name must produce the same canonical pair. Cache hits across
+        bridge slices (train/val/test) that each Enum'd with their own
+        category subset rely on this."""
+        df_a = pl.DataFrame({"c": pl.Series(["a", "b"], dtype=pl.Enum(["a", "b", "c", "d"]))})
+        df_b = pl.DataFrame({"c": pl.Series(["x", "y"], dtype=pl.Enum(["x", "y", "z"]))})
+        assert _canonical_dtype_pairs(df_a) == _canonical_dtype_pairs(df_b) == (("c", "c"),)
+
 
 class TestPipelineCacheKeyAcrossBackends:
     def test_polars_and_pandas_dt_suffix_matches(self) -> None:
