@@ -53,6 +53,27 @@ def run_dummy_baselines(
         )):
             return metadata
 
+        # Skip dummy-baselines for composite targets: their report is in the
+        # COMPOSITE/residual scale (lag_predict / per_group_mean on a diff /
+        # linres target is residual-scale by construction), and the user
+        # requires every emitted/stored metric to be in the ORIGINAL target
+        # scale. The raw target already has its dummy baseline computed and
+        # stored, so the leaderboard floor for the y-scale metric is already
+        # available. Storing a composite-scale dummy in
+        # ``metadata["dummy_baselines"][type][composite_name]`` would also
+        # mis-rank the suite-end verdict block (model side uses y-scale via
+        # composite_target_y_scale_metrics; mixing scales is incorrect).
+        if is_composite_target_name(cur_target_name):
+            logger.info(
+                "[dummy-baselines] target='%s' is a composite target -- "
+                "skipping dummy baselines (its lag/mean baselines would be "
+                "in the composite/residual scale, not the original-target "
+                "scale; the raw target's dummies already cover the y-scale "
+                "leaderboard floor).",
+                cur_target_name,
+            )
+            return metadata
+
         from ..dummy_baselines import compute_dummy_baselines
 
         _ts_train = (
