@@ -1,5 +1,84 @@
 # Changelog
 
+## 2026-05-28 — ML-metrics audit (Tier 1 + Tier 2) + per-target-type fused single-pass blocks
+
+Closes the metric-coverage gap in `train_mlframe_models_suite` for every target type: binary classification, multiclass, regression, multilabel, learning-to-rank, quantile, and drift. Every well-known ML metric previously missing from per-model val / test reporting is now computed, dispatched, registered, and (where applicable) wired into the chart-title token grammar. Implementation is numba-accelerated with seq / par variants dispatched by `_PARALLEL_REDUCTION_THRESHOLD`; bit-equivalent to sklearn / scipy within fp tolerance.
+
+### Binary classification (Tier 1 + Tier 2)
+
+- New metrics in `mlframe.metrics._classification_extras`: `ks_statistic` (with tie-folding so all-identical scores correctly yield 0 instead of the spurious 0.33 a naive cumulative process produces), `matthews_corrcoef_binary`, `cohen_kappa_binary`, `balanced_accuracy_binary`, `g_mean_binary`, `brier_skill_score`, `gini_from_auc`, `specificity_npv_fpr_fnr`, `f_beta_score`, `spiegelhalter_z` (returns Z + two-sided p-value via complementary error function, no scipy needed), `lift_at_k`, `hosmer_lemeshow_test` (chi-square + p-value + dof; scipy `chi2.sf` for the p-value), `accuracy_ratio` (CAP-derived; algebraically equal to 2\*AUC-1 but exposed by the credit-risk convention name).
+- All wired into the per-class metrics dict at [`_reporting_probabilistic.py`](src/mlframe/training/_reporting_probabilistic.py).
+- Title tokens: KS, MCC, BSS added to `TITLE_METRIC_TOKENS` + `DEFAULT_TITLE_METRICS_TOKENS` + `ReportingConfig._REPORTING_ALLOWED_TITLE_TOKENS`. Gini intentionally NOT a title token (algebraically redundant with ROC_AUC for chart use); available in `metrics` dict under "Gini" for downstream callers.
+
+### Multiclass (Tier 1 + post-loop aggregation)
+
+- New metrics: `top_k_accuracy` (with `k>=K -> NaN` trivial-case guard), `matthews_corrcoef_multiclass` (Gorodkin formula), `ranked_probability_score` (ordinal-aware proper scoring rule; reduces to Brier when K=2).
+- **Post-loop macro / weighted aggregation** in [`_reporting_probabilistic.py`](src/mlframe/training/_reporting_probabilistic.py): when the per-class loop completes, every numeric scalar across per-class blocks is aggregated into `macro_<key>` (equal weight per class) and `weighted_<key>` (weighted by class true-support). NaN-safe: single-class slices (where AUC is undefined) drop from the macro mean cleanly. Skipped on binary (collapses to the positive-class scalar, no new info). Closes the "two multiclass models compared by a single number" gap.
+
+### Regression (Tier 1 + Tier 2)
+
+- New metrics in `mlframe.metrics._regression_extras`: `fast_rmsle` (skip-and-warn on negative inputs), `fast_mape_mean` (distinct from existing `maximum_absolute_percentage_error`), `fast_smape`, `fast_mdape` (outlier-robust median APE), `fast_wmape`, `fast_mase` (with seasonality knob; train-fold naive-MAE baseline), `fast_mean_bias_error`, `fast_cv_rmse`, `fast_nash_sutcliffe` (alias of R^2 under sklearn convention; exposed by name for hydrology / climate reporting), `fast_explained_variance` (sklearn-compatible; differs from R^2 under biased residuals), `fast_huber_loss` (configurable delta), `fast_pearson_corr`, `fast_spearman_corr` (wraps batched-Spearman from `rank_correlation.py`), `fast_kendall_tau` (O(N^2) njit kernel below 5k rows, scipy O(N log N) above), `fast_concordance_index` (= (Kendall tau-b + 1) / 2; survival-modelling convention name).
+- Tier 2 GLM deviances: `fast_poisson_deviance`, `fast_gamma_deviance`, `fast_tweedie_deviance(power=...)` matching sklearn `mean_*_deviance` to fp tolerance. Skip-and-warn for rows outside the distributional support (y_pred<=0 for any power>=1; y<=0 for Gamma).
+- All non-deviance metrics wired into `current_metrics` dict in [`_reporting_regression.py`](src/mlframe/training/_reporting_regression.py); deviances stay opt-in (domain-specific - Poisson on a Gaussian target would NaN-spam the dict).
+- MASE wiring: `mase_naive_mae` + `mase_seasonality` parameters added to `report_regression_model_perf` for callers that precompute the train-fold naive-MAE scale (we don't have the y_train array in the report-side context, only summary stats - the caller MUST compute the scale on train-only data to keep MASE honestly scaled). `ReportingConfig.mase_seasonality` config knob added for surfacing the seasonality into the report metadata.
+- Regression title switches from hardcoded "MAE / RMSE / MaxError / R2" to a token-based template (`ReportingConfig.regression_title_metrics_tokens`); default adds RMSLE / Spearman / MBE alongside the historical 4. Empty fragments (e.g. RMSLE on a signed target) gracefully render to "".
+
+### Multilabel (Tier 1 + per-label AUC)
+
+- New metrics in `mlframe.metrics._multilabel_extras`: `label_ranking_average_precision`, `coverage_error`, `label_ranking_loss` (sklearn-tie convention: ties count as 0.5), `one_error`, `multilabel_f1_macro` / `_micro` / `_weighted` (single-pass kernel for per-label TP/FP/FN). Per-label AUC reductions: `multilabel_auc_per_label` returns K-vector (NaN for single-class columns), `multilabel_auc_macro` and `multilabel_auc_weighted` mirror sklearn `average='macro'` / `'weighted'`.
+- All seven registered via `metrics_registry.register_metric` for `TargetTypes.MULTILABEL_CLASSIFICATION` (`iter_extra_metrics` auto-dispatches in the reporting block).
+
+### Learning-to-rank (Tier 1)
+
+- New metrics in `mlframe.metrics._ranking_extras`: `dcg_at_k` (exponential or linear gain), `expected_reciprocal_rank` (Chapelle et al. 2009 cascade model), `hit_at_k`, `precision_at_k`. All take `(y_true, y_score, group_ids)` and aggregate per-query.
+
+### Quantile / probabilistic forecasting (Tier 2)
+
+- `crps_from_quantiles` in `mlframe.metrics.quantile`: discrete-quantile-grid CRPS via trapezoidal integration of pinball loss over alpha; reduces to Brier for binary with a single-quantile prediction.
+
+### Drift (new module)
+
+- `mlframe.metrics._drift`: `population_stability_index` (banking standard with quantile binning + eps clamp for empty bins), `kl_divergence` (asymmetric), `js_divergence` (symmetric via pooled-sample binning so js(a,b) == js(b,a)), `wasserstein_1d` (CDF-difference integral), `ks_distribution_distance` (two-sample KS). All accept either raw 1-D samples (auto-binned to quantile edges) or pre-binned probability vectors via `pre_binned=True`.
+
+### Fused single-pass blocks (measured speedups on Win11 / 16-thread Ryzen)
+
+- `fast_regression_metrics_block_extended` (2 fused numba passes, 12 metrics: MAE, RMSE, MSE, MaxError, R^2, MBE, MAPE_mean, SMAPE, wMAPE, CV_RMSE, NSE, Pearson, ExplainedVariance):
+  - N=10k: separate 12 calls=0.37ms, fused=0.06ms (**5.80x**)
+  - N=500k: 13.68ms vs 1.75ms (**7.82x**)
+  - N=5M: 121.3ms vs 11.5ms (**10.51x**)
+  - Used in production by [`_reporting_regression.py`](src/mlframe/training/_reporting_regression.py); numerically equivalent to the 12 separate calls within 1e-12.
+- `fast_binary_confusion_metrics_block` (1 confusion-counts pass, 11 metrics: accuracy, balanced_accuracy, MCC, Cohen-kappa, F1, F0.5, F2, precision, recall, specificity, NPV, FPR/FNR, G-mean):
+  - N=10k: 0.39ms vs 0.06ms (**6.56x**)
+  - N=500k: 26.0ms vs 2.94ms (**8.86x**)
+  - N=5M: 239.2ms vs 33.1ms (**7.22x**)
+- `fast_binary_probability_metrics_block` (1 pass, 6 metrics: Brier, log_loss, base_rate, BSS, Spiegelhalter_Z, Spiegelhalter_p):
+  - N=10k: 0.21ms vs 0.11ms (**1.95x**)
+  - N=500k: 6.21ms vs 2.46ms (**2.53x**)
+  - N=5M: 58.8ms vs 20.1ms (**2.93x**)
+  - Speedup is lower because each separate kernel is already a single-pass numba reduction; the win comes only from RAM-walk reuse + amortising 4 dispatch overheads into 1.
+- `fast_multilabel_classification_metrics_block` (2 passes, 12 metrics including F1 macro/micro/weighted, jaccard_macro, hamming, subset_accuracy, per-label precision/recall/f1/jaccard internals):
+  - N=10k K=20: 6.2ms vs 1.5ms (**4.13x**)
+  - N=100k K=20: 62.3ms vs 15.2ms (**4.11x**)
+  - N=1M K=20: 625.7ms vs 164ms (**3.81x**)
+- `fast_multiclass_confusion_metrics_block` (1 pass for K x K confusion matrix + closed-form per-class P/R/F1 + macro/micro/weighted + Gorodkin MCC).
+- Bench script: [`_benchmarks/bench_extended_metric_blocks.py`](src/mlframe/metrics/_benchmarks/bench_extended_metric_blocks.py).
+
+### Registry + reporting wiring
+
+- [`metrics_registry.py`](src/mlframe/training/metrics_registry.py): direction tables (`_KNOWN_METRIC_DIRECTIONS_HIGHER` / `LOWER`) extended for every new metric so `metric_name_higher_is_better()` returns the correct direction for early-stopping / leaderboards / best-iteration picks. Multilabel additions registered through `register_metric` (LRAP, coverage_error, ranking_loss, one_error, F1 macro/micro/weighted, auc_macro, auc_weighted).
+- [`_reporting_probabilistic.py`](src/mlframe/training/_reporting_probabilistic.py): per-class binary dict gains 13 new keys (the full confusion / probability / KS / HL / AR block). Multiclass path gains `macro_*` and `weighted_*` cross-class aggregations.
+- [`_reporting_regression.py`](src/mlframe/training/_reporting_regression.py): switched to `fast_regression_metrics_block_extended` (12-metric fused block); 6 additional sort-based / log-based / parameterised metrics (RMSLE, MdAPE, Spearman, Kendall, ConcordanceIndex, Huber, MASE) computed alongside.
+- [`_reporting_configs.py`](src/mlframe/training/_reporting_configs.py): `regression_title_metrics_tokens` tuple + `mase_seasonality` int knobs added to `ReportingConfig`; default title set updated.
+
+### Tests
+
+- 113 new tests across [`tests/metrics/test_classification_extras.py`](tests/metrics/test_classification_extras.py), [`test_regression_extras.py`](tests/metrics/test_regression_extras.py), [`test_multilabel_extras.py`](tests/metrics/test_multilabel_extras.py), [`test_ranking_drift_extras.py`](tests/metrics/test_ranking_drift_extras.py), [`test_tier2_metrics.py`](tests/metrics/test_tier2_metrics.py), [`test_multiclass_aggregation_and_multilabel_auc.py`](tests/metrics/test_multiclass_aggregation_and_multilabel_auc.py). Each metric pinned against the sklearn or scipy equivalent (`matthews_corrcoef`, `balanced_accuracy_score`, `cohen_kappa_score`, `mean_absolute_percentage_error`, `explained_variance_score`, `r2_score`, `roc_auc_score`, `mean_poisson_deviance`, `mean_gamma_deviance`, `mean_tweedie_deviance`, `coverage_error`, `label_ranking_loss`, `label_ranking_average_precision_score`, `f1_score`, `jaccard_score`, `wasserstein_distance`, `ks_2samp`, `chi2.sf`) where one exists, hand-computed expected when it does not, plus edge cases (empty, single-class, degenerate, parallel-path activation at N>=100k, fused-block equality with individual metrics within 1e-12, JS symmetry via pooled binning, KS tie-folding, MASE constant-train returns NaN, top-k>=K returns NaN, multiclass macro != weighted under skew).
+
+### Docs
+
+- [`README.md`](README.md) `Recent changes` + `mlframe.metrics` module-row updated to reflect the new public API surface.
+- This CHANGELOG entry.
+
 ## 2026-05-28 — ShapProxiedFS: `within_cluster_refine` low-redundancy gate + iter5 fast-prefilter crossover at 5k features
 
 Iteration-8 closes two profile-driven follow-ups identified by re-running `bench_shap_proxy_scaling.py` after iter5 (prefilter cleanup) + iter7 (cluster-aware refine). The post-iter7 stage table at width=5000 / rows=4000 puts the prefilter at 47% (84.8s of a 180.2s fit) and `within_cluster_refine` at 30% (53.6s) — the proportions shifted so the iter5 default crossover no longer routes 5k to the cheap fast booster, and a 1-multi-cluster fixture pays the new stage-1 cluster-collapse overhead for an unhelpful collapse.

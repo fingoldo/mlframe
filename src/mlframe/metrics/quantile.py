@@ -269,6 +269,64 @@ def quantile_summary(
     return out
 
 
+def crps_from_quantiles(
+    y_true: np.ndarray,
+    preds_NK: np.ndarray,
+    alphas: Sequence[float],
+) -> float:
+    """CRPS estimated from a discrete set of predicted quantiles.
+
+    Theoretical identity (Gneiting & Raftery 2007, eq. 4.13):
+        CRPS(F, y) = 2 * integral_0^1 PinballLoss(alpha, y, q(alpha)) d alpha
+    where q(alpha) is the predicted alpha-quantile and PinballLoss is the
+    per-row quantile loss (NOT averaged across rows).
+
+    Numerical evaluation: trapezoidal rule on the supplied ``alphas``.
+    Accuracy improves with denser alpha grids; common deployments use
+    9 quantiles (0.1, 0.2, ..., 0.9), 19 (0.05 step), or 99 (0.01 step).
+
+    Lower is better. Reduces to the Brier score for a Bernoulli target
+    with a single-quantile prediction; for regression with quantile
+    predictions it's the proper-scoring-rule generalisation of pinball.
+
+    Parameters
+    ----------
+    y_true : (N,) array of observed targets.
+    preds_NK : (N, K) array of predicted quantiles, columns aligned with ``alphas``.
+    alphas : K-vector of quantile levels in (0, 1), sorted ascending.
+
+    Returns
+    -------
+    Scalar CRPS averaged across rows.
+    """
+    y = np.asarray(y_true, dtype=np.float64)
+    p = np.asarray(preds_NK, dtype=np.float64)
+    a = np.asarray(alphas, dtype=np.float64)
+    if y.shape[0] == 0 or p.size == 0:
+        return float("nan")
+    if p.ndim != 2:
+        raise ValueError(f"preds_NK must be 2-D (N, K), got shape {p.shape}")
+    if p.shape[0] != y.shape[0]:
+        raise ValueError(
+            f"row count mismatch: y_true={y.shape[0]}, preds_NK={p.shape[0]}",
+        )
+    if a.shape[0] != p.shape[1]:
+        raise ValueError(
+            f"alpha-count mismatch: K={p.shape[1]} cols, len(alphas)={a.shape[0]}",
+        )
+    if not np.all(np.diff(a) > 0):
+        raise ValueError("alphas must be strictly increasing")
+    # Per-alpha mean pinball loss vector (length K).
+    per_alpha = np.empty(a.shape[0], dtype=np.float64)
+    for k in range(a.shape[0]):
+        per_alpha[k] = pinball_loss(y, p[:, k], float(a[k]))
+    # Trapezoidal integration over alpha in [a[0], a[-1]], then scale by 2.
+    # Manual formula (np.trapz removed in NumPy 2; np.trapezoid only exists
+    # from 2.0) keeps the kernel numpy-version-agnostic.
+    integral = float(np.sum((a[1:] - a[:-1]) * (per_alpha[1:] + per_alpha[:-1]) * 0.5))
+    return 2.0 * integral
+
+
 __all__ = [
     "pinball_loss",
     "pinball_loss_per_alpha",
@@ -277,6 +335,7 @@ __all__ = [
     "winkler_score",
     "pit_values",
     "quantile_summary",
+    "crps_from_quantiles",
 ]
 
 

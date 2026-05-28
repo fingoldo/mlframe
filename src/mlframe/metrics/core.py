@@ -111,6 +111,14 @@ from ._multilabel_metrics import (  # noqa: E402,F401
 TITLE_METRIC_TOKENS: frozenset = frozenset({
     "ICE", "BR", "BR_DECOMP", "ECE", "CMAEW",
     "COV", "LL", "ROC_AUC", "PR_AUC", "DENS",
+    # 2026-05-28 audit batch additions. Each has a render_* branch
+    # in ``_calibration_plot.render_title_metric_token``. Adding new
+    # tokens here REQUIRES adding to the renderer; ReportingConfig
+    # validates against this set at config construction time.
+    # GINI intentionally NOT a title token: =2*AUC-1, redundant with
+    # ROC_AUC for a chart-title operator; still computed into metrics
+    # dict (under "Gini") for downstream callers that report on it.
+    "KS", "MCC", "BSS",
 })
 
 
@@ -229,4 +237,94 @@ from ._core_numba_warmup import (  # noqa: F401, E402
     _assert_numba_nogil_active,
     prewarm_numba_cache,
     _prewarm_numba_cache_body,
+)
+
+
+# Additional classification metrics (binary + multiclass) - 2026-05-28
+# audit batch. Re-exported here so historical
+# ``from mlframe.metrics.core import ks_statistic`` style imports resolve
+# at module scope.
+from ._classification_extras import (  # noqa: F401, E402
+    ks_statistic,
+    matthews_corrcoef_binary,
+    cohen_kappa_binary,
+    balanced_accuracy_binary,
+    g_mean_binary,
+    brier_skill_score,
+    gini_from_auc,
+    specificity_npv_fpr_fnr,
+    f_beta_score,
+    spiegelhalter_z,
+    lift_at_k,
+    top_k_accuracy,
+    matthews_corrcoef_multiclass,
+    ranked_probability_score,
+    fast_binary_confusion_metrics_block,
+    fast_binary_probability_metrics_block,
+    fast_multiclass_confusion_metrics_block,
+    # Tier 2 additions:
+    hosmer_lemeshow_test,
+    accuracy_ratio,
+)
+
+
+# Additional regression metrics (RMSLE / MAPE-mean / SMAPE / ...) - 2026-05-28.
+from ._regression_extras import (  # noqa: F401, E402
+    fast_rmsle,
+    fast_mape_mean,
+    fast_smape,
+    fast_mdape,
+    fast_wmape,
+    fast_mase,
+    fast_mean_bias_error,
+    fast_cv_rmse,
+    fast_nash_sutcliffe,
+    fast_explained_variance,
+    fast_huber_loss,
+    fast_pearson_corr,
+    fast_spearman_corr,
+    fast_kendall_tau,
+    fast_concordance_index,
+    fast_regression_metrics_block_extended,
+    # Tier 2 additions:
+    fast_poisson_deviance,
+    fast_gamma_deviance,
+    fast_tweedie_deviance,
+)
+
+
+# Additional multilabel metrics (LRAP / coverage / ranking-loss / one-error
+# / macro+micro+weighted F1) - 2026-05-28.
+from ._multilabel_extras import (  # noqa: F401, E402
+    label_ranking_average_precision,
+    coverage_error,
+    label_ranking_loss,
+    one_error,
+    multilabel_f1_macro,
+    multilabel_f1_micro,
+    multilabel_f1_weighted,
+    fast_multilabel_classification_metrics_block,
+    # 2026-05-28 follow-up: per-label AUC + macro/weighted
+    multilabel_auc_per_label,
+    multilabel_auc_macro,
+    multilabel_auc_weighted,
+)
+
+
+# Additional ranking (LTR) metrics (DCG / ERR / Hit@k / Precision@k) - 2026-05-28.
+from ._ranking_extras import (  # noqa: F401, E402
+    dcg_at_k,
+    expected_reciprocal_rank,
+    hit_at_k,
+    precision_at_k,
+)
+
+
+# Distributional / drift metrics (PSI / KL / JS / Wasserstein / KS) - 2026-05-28.
+from ._drift import (  # noqa: F401, E402
+    population_stability_index,
+    kl_divergence,
+    js_divergence,
+    wasserstein_1d,
+    ks_distribution_distance,
 )

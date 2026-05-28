@@ -474,7 +474,131 @@ def report_probabilistic_model_perf(
             )
             if custom_rice_metric and custom_rice_metric != custom_ice_metric:
                 class_metrics["class_robust_integral_error"] = class_robust_integral_error
+
+            # 2026-05-28 audit: extend per-class metrics with the
+            # confusion-derived and probability-derived blocks. Both
+            # are fused single-pass kernels so the cost is dominated by
+            # ONE walk over (y_true, y_pred) and ONE over (y_true, y_score).
+            # Failures are narrow-catch and warn-loud rather than silently
+            # dropping the new fields.
+            try:
+                from mlframe.metrics.core import (
+                    fast_binary_confusion_metrics_block,
+                    fast_binary_probability_metrics_block,
+                    ks_statistic,
+                    lift_at_k,
+                )
+                # Re-derive the hard prediction from y_score for this
+                # class. The threshold of 0.5 matches the historical
+                # ``fast_calibration_report`` convention used to compute
+                # the existing precision/recall/f1 row above.
+                _y_score_arr = np.asarray(y_score, dtype=np.float64)
+                _y_pred_thr = (_y_score_arr >= 0.5).astype(np.int64)
+                _y_true_arr = np.asarray(y_true).astype(np.int64, copy=False)
+
+                _cm_block = fast_binary_confusion_metrics_block(_y_true_arr, _y_pred_thr)
+                # Avoid name collision: keep historical precision/recall/f1
+                # but stamp the rest of the confusion-derived block.
+                for _k in (
+                    "accuracy", "balanced_accuracy", "MCC", "Cohen_kappa",
+                    "F0_5", "F2", "specificity", "NPV", "FPR", "FNR", "G_mean",
+                ):
+                    class_metrics[_k] = _cm_block[_k]
+
+                _pb_block = fast_binary_probability_metrics_block(_y_true_arr, _y_score_arr)
+                # Brier / log_loss already present above; new bits:
+                class_metrics["base_rate"] = _pb_block["base_rate"]
+                class_metrics["BSS"] = _pb_block["BSS"]
+                class_metrics["Spiegelhalter_Z"] = _pb_block["Spiegelhalter_Z"]
+                class_metrics["Spiegelhalter_p"] = _pb_block["Spiegelhalter_p"]
+
+                # KS + Gini + Lift@10% are not in the confusion/probability
+                # blocks (they need sorted scores OR a closed-form on AUC).
+                class_metrics["KS"] = ks_statistic(_y_true_arr, _y_score_arr)
+                if np.isfinite(roc_auc):
+                    class_metrics["Gini"] = 2.0 * roc_auc - 1.0
+                class_metrics["lift_at_10pct"] = lift_at_k(_y_true_arr, _y_score_arr, k_pct=10.0)
+
+                # Tier 2 additions (2026-05-28): Hosmer-Lemeshow calibration
+                # chi-square + Accuracy Ratio. HL adds an actionable p-value
+                # for "model is miscalibrated" complementing Spiegelhalter Z;
+                # AR is the credit-risk convention name for 2*AUC-1.
+                try:
+                    from mlframe.metrics.core import hosmer_lemeshow_test, accuracy_ratio
+                    hl_chi2, hl_p, hl_dof = hosmer_lemeshow_test(_y_true_arr, _y_score_arr, n_groups=10)
+                    class_metrics["HL_chi2"] = hl_chi2
+                    class_metrics["HL_p"] = hl_p
+                    class_metrics["HL_dof"] = hl_dof
+                    class_metrics["AccuracyRatio"] = accuracy_ratio(_y_true_arr, _y_score_arr)
+                except (ValueError, TypeError) as _hl_err:
+                    logger.debug("Tier 2 calibration extras skipped: %s", _hl_err)
+            except (ValueError, TypeError, FloatingPointError, ZeroDivisionError) as _ext_err:
+                logger.warning(
+                    "extended classification metrics failed for class %s: %s. "
+                    "Continuing with the historical metric set only.",
+                    str_class_name, _ext_err,
+                )
+
             metrics.update({class_id: class_metrics})
+
+    # 2026-05-28 audit batch: post-loop macro / weighted aggregation across
+    # classes. The per-class loop above stamped each class's KS / MCC / F1 /
+    # BSS / HL / AccuracyRatio / ROC_AUC / log_loss / ... but provided no
+    # single scalar to compare two multiclass models. We compute:
+    #   macro_<m>    = mean of class-m across classes (equal weight)
+    #   weighted_<m> = mean weighted by class true-support (prevalence)
+    # for every scalar emitted under per-class dicts. NaN-safe: a class
+    # whose metric is NaN (e.g. AUC on a single-class slice) is dropped
+    # from the macro mean and its support excluded from the weighted denom.
+    # Skipped entirely on binary (single positive class, aggregation
+    # collapses to the per-class value itself - no new information).
+    if metrics is not None and is_multilabel is False and len(classes) > 2:
+        _per_class_blocks = [
+            (cid, metrics[cid]) for cid in metrics
+            if isinstance(cid, (int, np.integer)) and isinstance(metrics[cid], dict)
+        ]
+        if _per_class_blocks:
+            # Class supports for weighted-mean (true positives per class).
+            try:
+                _yt_all = np.asarray(targets).astype(np.int64, copy=False)
+            except (TypeError, ValueError):
+                _yt_all = None
+            _supports = {}
+            if _yt_all is not None and _yt_all.ndim == 1:
+                for cid, _ in _per_class_blocks:
+                    _supports[cid] = int(np.sum(_yt_all == cid))
+            # Aggregate every numeric key shared across per-class blocks.
+            _all_keys = set()
+            for _, blk in _per_class_blocks:
+                for k, v in blk.items():
+                    if isinstance(v, (int, float, np.floating, np.integer)) and not isinstance(v, bool):
+                        _all_keys.add(k)
+            for key in _all_keys:
+                vals = []
+                wts = []
+                for cid, blk in _per_class_blocks:
+                    v = blk.get(key)
+                    if v is None:
+                        continue
+                    try:
+                        fv = float(v)
+                    except (TypeError, ValueError):
+                        continue
+                    if not np.isfinite(fv):
+                        continue
+                    vals.append(fv)
+                    wts.append(_supports.get(cid, 1))
+                if not vals:
+                    metrics[f"macro_{key}"] = float("nan")
+                    metrics[f"weighted_{key}"] = float("nan")
+                    continue
+                arr = np.asarray(vals, dtype=np.float64)
+                w = np.asarray(wts, dtype=np.float64)
+                metrics[f"macro_{key}"] = float(arr.mean())
+                w_total = w.sum()
+                metrics[f"weighted_{key}"] = (
+                    float((arr * w).sum() / w_total) if w_total > 0 else float(arr.mean())
+                )
 
     if print_report and logger.isEnabledFor(logging.INFO):
         # Logger.isEnabledFor gate: when verbose=0 / file handler filters out

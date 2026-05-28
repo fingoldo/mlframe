@@ -33,6 +33,10 @@ from ._training_runtime_configs import FeatureImportanceConfig
 _REPORTING_ALLOWED_TITLE_TOKENS: FrozenSet[str] = frozenset({
     "ICE", "BR", "BR_DECOMP", "ECE", "CMAEW",
     "COV", "LL", "ROC_AUC", "PR_AUC", "DENS",
+    # 2026-05-28 audit batch additions (binary classification title tokens).
+    # Gini deliberately NOT a token: =2*AUC-1, redundant with ROC_AUC for
+    # chart-title use; available in metrics dict as "Gini" anyway.
+    "KS", "MCC", "BSS",
 })
 
 
@@ -106,12 +110,34 @@ class ReportingConfig(BaseConfig):
     show_inline_population_labels: bool = True
 
     # Title-metrics template. Validator parses + populates title_metrics_tokens.
-    title_metrics_template: str = "ICE BR_DECOMP ECE CMAEW LL ROC_AUC PR_AUC"
+    # 2026-05-28 audit: added KS / MCC / BSS to the default per user
+    # preference - the most informative single-number summaries beyond
+    # the calibration / AUC family. Gini is available as a token but
+    # not in default (it's algebraically derivable from ROC_AUC).
+    title_metrics_template: str = "ICE BR_DECOMP ECE CMAEW LL ROC_AUC PR_AUC KS MCC BSS"
     # Populated by the model_validator after title_metrics_template is validated.
     # Stored as a tuple so downstream hot-path code (fast_calibration_report)
     # never has to re-parse the string. Do not set directly - it is overwritten
     # at construction.
     title_metrics_tokens: Tuple[str, ...] = ()
+
+    # 2026-05-28 audit: token-based regression chart title. Default keeps
+    # the historical 4 tokens (MAE/RMSE/MaxError/R2) and adds RMSLE,
+    # Spearman, MBE per user feedback. Empty tokens (e.g. RMSLE on a
+    # signed target) gracefully render as empty fragments.
+    regression_title_metrics_tokens: Tuple[str, ...] = (
+        "MAE", "RMSE", "MaxError", "R2",
+        "RMSLE", "Spearman", "MBE",
+    )
+
+    # 2026-05-28 audit batch: MASE seasonality (Hyndman & Koehler 2006).
+    # The MASE *value* is only computed when the caller plumbs the
+    # precomputed train-fold naive-MAE scale into the regression-report
+    # signature (``mase_naive_mae=``); this knob sets the seasonality the
+    # caller used so it can be stamped alongside the metric.
+    # Common values: 1 (simple naive), 7 (daily->weekly), 12 (monthly->yearly),
+    # 24 (hourly->daily). MUST match the seasonality used by the caller.
+    mase_seasonality: int = 1
 
     # backend x output-format DSL. See ``mlframe.reporting.output.parse_plot_output_dsl`` for grammar.
     #

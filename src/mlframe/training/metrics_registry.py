@@ -161,24 +161,44 @@ _KNOWN_METRIC_DIRECTIONS_HIGHER: frozenset[str] = frozenset({
     # Ranking-quality metrics
     "ndcg", "map", "mrr", "ap", "average_precision", "precision_at_k",
     "recall_at_k", "hit_rate", "hit_at_k",
+    "dcg", "dcg_at_k", "err", "expected_reciprocal_rank",
     # Classification-quality metrics
     "auc", "roc_auc", "pr_auc", "auprc",
     "accuracy", "accuracy_score",
     "f1", "f1_score", "f1_macro", "f1_micro", "f1_weighted",
-    "precision", "precision_macro", "precision_micro",
-    "recall", "recall_macro", "recall_micro", "sensitivity", "specificity",
-    "balanced_accuracy", "matthews_corrcoef", "mcc",
+    "f_beta", "f0_5", "f2",
+    "precision", "precision_macro", "precision_micro", "precision_weighted",
+    "recall", "recall_macro", "recall_micro", "recall_weighted",
+    "sensitivity", "specificity", "tpr", "tnr", "npv",
+    "balanced_accuracy", "matthews_corrcoef", "mcc", "mcc_multiclass",
     "cohen_kappa", "kappa",
-    "subset_accuracy", "jaccard_score_multilabel", "jaccard",
+    "subset_accuracy", "jaccard_score_multilabel", "jaccard", "jaccard_macro",
     "gini",
+    # Binary higher-is-better extras from 2026-05-28 audit batch.
+    "g_mean", "ks", "ks_statistic", "bss", "brier_skill_score",
+    "lift", "lift_at_k",
+    # Top-k accuracy for multiclass
+    "top_k_accuracy", "top1", "top3", "top5",
     # Regression-quality metrics where higher means better
-    "r2", "r2_score", "explained_variance",
+    "r2", "r2_score", "explained_variance", "explainedvariance",
+    "nse", "nash_sutcliffe", "pearson", "spearman", "kendall_tau",
+    "concordance_index", "c_index",
+    # Tier 2 (2026-05-28): Accuracy Ratio = 2*AUC-1
+    "accuracy_ratio", "ar", "cap_ar",
 })
 
 _KNOWN_METRIC_DIRECTIONS_LOWER: frozenset[str] = frozenset({
     # Regression losses
-    "rmse", "mae", "mse", "mape", "smape", "huber_loss",
-    "median_absolute_error", "max_error",
+    "rmse", "mae", "mse", "mape", "mape_mean", "smape", "mdape", "wmape",
+    "huber_loss", "median_absolute_error", "max_error",
+    "rmsle", "mase", "cv_rmse",
+    # Tier 2 GLM deviances (2026-05-28) - all lower-is-better losses
+    "poisson_deviance", "gamma_deviance", "tweedie_deviance",
+    # Tier 2 calibration / probabilistic forecasting
+    "hosmer_lemeshow", "hosmer_lemeshow_chi2", "hl_chi2",
+    "crps", "crps_from_quantiles",
+    # Signed bias / drift losses where 0 is best (use |.| -> lower)
+    "mbe", "mean_bias_error",
     # Probabilistic / calibration losses
     "log_loss", "logloss", "brier", "brier_score", "cross_entropy",
     # Multi-class / multi-label aggregation variants of the probabilistic
@@ -192,14 +212,35 @@ _KNOWN_METRIC_DIRECTIONS_LOWER: frozenset[str] = frozenset({
     "brier_macro", "brier_micro", "brier_weighted",
     "brier_score_macro", "brier_score_micro", "brier_score_weighted",
     "cross_entropy_macro", "cross_entropy_micro", "cross_entropy_weighted",
-    "kl_divergence", "kl", "perplexity",
+    "kl_divergence", "kl", "js_divergence", "js", "wasserstein",
+    "perplexity",
     "ice", "integral_error", "integral_calibration_error",
     "ece", "expected_calibration_error",
+    "rps", "ranked_probability_score",
+    # Drift / distributional - higher value = more drift = worse
+    "psi", "population_stability_index", "ks_distribution_distance",
+    # Calibration test statistics: |Z|=0 means well-calibrated; treat the
+    # raw Z as a distance from 0 -> closer-to-0 better, i.e. lower is
+    # better in absolute value. Callers should report |Z| if they
+    # interpret it as "miscalibration magnitude".
+    "spiegelhalter_z",
     # Multilabel losses
-    "hamming_loss", "hamming",
+    "hamming_loss", "hamming", "coverage_error", "ranking_loss",
+    "label_ranking_loss", "one_error",
+    # Multilabel ranking-quality also: lrap is higher_is_better
+    # (added separately below).
+    # Confusion-derived rates where higher is worse
+    "fpr", "fnr",
     # Quantile losses
     "pinball", "pinball_loss", "quantile_loss",
 })
+
+# Carry-out: LRAP is higher-is-better; ensure it lands in HIGHER bucket
+# even though it's a multilabel-ranking metric (not in the
+# classification-quality cluster above).
+_KNOWN_METRIC_DIRECTIONS_HIGHER = frozenset(
+    _KNOWN_METRIC_DIRECTIONS_HIGHER | {"lrap", "label_ranking_average_precision"}
+)
 
 
 def _canonicalise_metric_name(name: str) -> str:
@@ -304,3 +345,99 @@ def _register_builtin_multilabel():
 
 
 _register_builtin_multilabel()
+
+
+def _register_builtin_multilabel_extras():
+    """Wire the 2026-05-28 multilabel additions through the registry."""
+    from mlframe.metrics.core import (
+        label_ranking_average_precision,
+        coverage_error,
+        label_ranking_loss,
+        one_error,
+        multilabel_f1_macro,
+        multilabel_f1_micro,
+        multilabel_f1_weighted,
+    )
+
+    def _lrap(y_true, probs_NK, preds_NK):
+        return label_ranking_average_precision(y_true, probs_NK)
+
+    def _cov(y_true, probs_NK, preds_NK):
+        return coverage_error(y_true, probs_NK)
+
+    def _rloss(y_true, probs_NK, preds_NK):
+        return label_ranking_loss(y_true, probs_NK)
+
+    def _oneerr(y_true, probs_NK, preds_NK):
+        return one_error(y_true, probs_NK)
+
+    def _f1ma(y_true, probs_NK, preds_NK):
+        return multilabel_f1_macro(y_true, preds_NK)
+
+    def _f1mi(y_true, probs_NK, preds_NK):
+        return multilabel_f1_micro(y_true, preds_NK)
+
+    def _f1w(y_true, probs_NK, preds_NK):
+        return multilabel_f1_weighted(y_true, preds_NK)
+
+    register_metric(
+        TargetTypes.MULTILABEL_CLASSIFICATION, "lrap", _lrap,
+        higher_is_better=True,
+        description="Label Ranking Average Precision: precision at each true label's rank, averaged.",
+    )
+    register_metric(
+        TargetTypes.MULTILABEL_CLASSIFICATION, "coverage_error", _cov,
+        higher_is_better=False,
+        description="Avg rank the model must scan down to cover every true label.",
+    )
+    register_metric(
+        TargetTypes.MULTILABEL_CLASSIFICATION, "ranking_loss", _rloss,
+        higher_is_better=False,
+        description="Avg fraction of incorrectly-ordered (true, false) label pairs per sample.",
+    )
+    register_metric(
+        TargetTypes.MULTILABEL_CLASSIFICATION, "one_error", _oneerr,
+        higher_is_better=False,
+        description="Fraction of samples whose argmax-scored label is not in the true label set.",
+    )
+    register_metric(
+        TargetTypes.MULTILABEL_CLASSIFICATION, "f1_macro", _f1ma,
+        higher_is_better=True,
+        description="Mean per-label F1 (equal weight per label).",
+    )
+    register_metric(
+        TargetTypes.MULTILABEL_CLASSIFICATION, "f1_micro", _f1mi,
+        higher_is_better=True,
+        description="Pooled-counts F1 across labels.",
+    )
+    register_metric(
+        TargetTypes.MULTILABEL_CLASSIFICATION, "f1_weighted", _f1w,
+        higher_is_better=True,
+        description="Per-label F1 weighted by positive-support per label.",
+    )
+
+    # 2026-05-28 follow-up: per-label AUC aggregations.
+    from mlframe.metrics.core import (
+        multilabel_auc_macro,
+        multilabel_auc_weighted,
+    )
+
+    def _auc_ma(y_true, probs_NK, preds_NK):
+        return multilabel_auc_macro(y_true, probs_NK)
+
+    def _auc_wt(y_true, probs_NK, preds_NK):
+        return multilabel_auc_weighted(y_true, probs_NK)
+
+    register_metric(
+        TargetTypes.MULTILABEL_CLASSIFICATION, "auc_macro", _auc_ma,
+        higher_is_better=True,
+        description="Mean per-label ROC AUC (sklearn average='macro').",
+    )
+    register_metric(
+        TargetTypes.MULTILABEL_CLASSIFICATION, "auc_weighted", _auc_wt,
+        higher_is_better=True,
+        description="Per-label ROC AUC weighted by positive support.",
+    )
+
+
+_register_builtin_multilabel_extras()

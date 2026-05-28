@@ -37,7 +37,16 @@ from ._numba_params import NUMBA_NJIT_PARAMS
 logger = logging.getLogger(__name__)
 
 
-DEFAULT_TITLE_METRICS_TOKENS: tuple = ("ICE", "BR_DECOMP", "ECE", "CMAEW", "LL", "ROC_AUC", "PR_AUC")
+# 2026-05-28 audit: added KS / MCC / BSS to the default title set
+# per user feedback - the most informative single-number summaries
+# beyond the existing calibration / AUC family. KS shows score
+# discrimination on imbalanced classes; MCC summarises all 4 cells
+# of the confusion matrix; BSS shows whether the probabilities beat
+# the marginal baseline.
+DEFAULT_TITLE_METRICS_TOKENS: tuple = (
+    "ICE", "BR_DECOMP", "ECE", "CMAEW", "LL",
+    "ROC_AUC", "PR_AUC", "KS", "MCC", "BSS",
+)
 
 
 def render_title_metric_token(
@@ -65,6 +74,12 @@ def render_title_metric_token(
     precision: float,
     recall: float,
     f1: float,
+    # 2026-05-28 audit batch additions. Default to NaN so older
+    # callers (no extras computed) still render the historical
+    # token set without crashing; the new tokens just emit "N/A".
+    ks: float = np.nan,
+    mcc: float = np.nan,
+    bss: float = np.nan,
 ) -> str:
     """Render one calibration-report title fragment for a token.
 
@@ -140,6 +155,20 @@ def render_title_metric_token(
             f"{base}, PR={precision * 100:.{pct_digits}f}%,"
             f"RE={recall * 100:.{pct_digits}f}%,F1={f1 * 100:.{pct_digits}f}%"
         )
+    if token == "KS":
+        if np.isnan(ks):
+            return "KS=N/A"
+        return f"KS={ks:.{ndigits}f}"
+    if token == "MCC":
+        if np.isnan(mcc):
+            return "MCC=N/A"
+        return f"MCC={mcc:.{ndigits}f}"
+    if token == "BSS":
+        # Brier Skill Score - negative means worse than marginal baseline.
+        # Keep the sign in the title (it's information, not noise).
+        if np.isnan(bss):
+            return "BSS=N/A"
+        return f"BSS={bss:.{ndigits}f}"
     return ""
 
 

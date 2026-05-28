@@ -293,7 +293,30 @@ def fast_calibration_report(
     if np.isnan(ll):
         ll = None
 
-    precision, recall, f1 = compute_pr_recall_f1_metrics(y_true=y_true, y_pred=y_pred >= binary_threshold)
+    _y_pred_thr = y_pred >= binary_threshold
+    precision, recall, f1 = compute_pr_recall_f1_metrics(y_true=y_true, y_pred=_y_pred_thr)
+
+    # 2026-05-28 audit batch: compute KS / MCC / BSS / GINI for the new
+    # title tokens. Each is cheap (<3% added wall vs the historical block):
+    # - KS:   one argsort + scan
+    # - MCC:  derived from the same threshold-binned (TP, FP, TN, FN) counts
+    # - BSS:  closed form on (brier_loss, base_rate)
+    # - GINI: 2 * ROC_AUC - 1
+    # All gated by a narrow try-block so degenerate inputs (single-class
+    # row / shape mismatch) emit N/A and the rest of the render survives.
+    ks_val = float("nan")
+    mcc_val = float("nan")
+    bss_val = float("nan")
+    try:
+        from ._classification_extras import (
+            ks_statistic, matthews_corrcoef_binary, brier_skill_score,
+        )
+        _yt_int = np.asarray(y_true).astype(np.int64, copy=False)
+        ks_val = ks_statistic(_yt_int, y_pred)
+        mcc_val = matthews_corrcoef_binary(_yt_int, np.asarray(_y_pred_thr).astype(np.int64, copy=False))
+        bss_val = brier_skill_score(_yt_int, y_pred)
+    except (ValueError, TypeError, FloatingPointError) as _ext_err:
+        logger.debug("title-token extras (KS/MCC/BSS) skipped: %s", _ext_err)
 
     fragments = []
     for token in title_metrics_tokens:
@@ -321,6 +344,7 @@ def fast_calibration_report(
             precision=precision,
             recall=recall,
             f1=f1,
+            ks=ks_val, mcc=mcc_val, bss=bss_val,
         )
         if rendered:
             fragments.append(rendered)

@@ -658,15 +658,23 @@ class TestCalibration:
     # ============================================================
 
     def test_token_set_complete(self):
-        """TITLE_METRIC_TOKENS frozenset is the canonical allowed set."""
+        """TITLE_METRIC_TOKENS frozenset is the canonical allowed set.
+        2026-05-28: KS / MCC / BSS added per audit batch (Gini intentionally
+        excluded from title tokens - algebraically redundant with ROC_AUC)."""
         assert TITLE_METRIC_TOKENS == frozenset({
             "ICE", "BR", "BR_DECOMP", "ECE", "CMAEW",
             "COV", "LL", "ROC_AUC", "PR_AUC", "DENS",
+            "KS", "MCC", "BSS",
         })
 
     def test_default_token_sequence(self):
-        """Default mirrors the calibration report layout - ICE first, BR with decomp, then ECE."""
-        assert DEFAULT_TITLE_METRICS_TOKENS == ("ICE", "BR_DECOMP", "ECE", "CMAEW", "LL", "ROC_AUC", "PR_AUC")
+        """Default mirrors the calibration report layout - ICE first, BR with decomp, then ECE.
+        2026-05-28: KS, MCC, BSS appended per audit batch (single-number
+        summaries beyond the calibration / AUC family)."""
+        assert DEFAULT_TITLE_METRICS_TOKENS == (
+            "ICE", "BR_DECOMP", "ECE", "CMAEW", "LL",
+            "ROC_AUC", "PR_AUC", "KS", "MCC", "BSS",
+        )
 
     def test_render_token_ice(self):
         out = render_title_metric_token(
