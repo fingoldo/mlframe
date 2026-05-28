@@ -99,7 +99,10 @@ def test_biz_val_prefilter_handles_wide_data_and_maps_back_to_original():
     sel.fit(X, y)
     rep = sel.shap_proxy_report_
     # 150 features < the auto-fast width -> the smart default keeps the faithful full-booster "model".
-    assert rep["prefilter"] == {"method": "model", "kept": 25, "of": 150}
+    # Subset check (not equality): the prefilter report carries optional bookkeeping keys
+    # (e.g. n_estimators_cap from iter10, stage1_kept/stage1_of from iter12) that we don't pin here.
+    pref = rep["prefilter"]
+    assert pref["method"] == "model" and pref["kept"] == 25 and pref["of"] == 150, pref
     # sklearn contract is in ORIGINAL space.
     assert sel.support_.shape == (150,)
     assert sel.n_features_in_ == 150
