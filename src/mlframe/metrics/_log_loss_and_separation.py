@@ -31,7 +31,15 @@ from ._numba_params import (
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def _fast_log_loss_binary_seq(y_true: np.ndarray, y_pred: np.ndarray, eps: float = 1e-15) -> float:
     """Sequential numba binary log loss. See ``fast_log_loss_binary``
-    public wrapper for auto seq/par dispatch."""
+    public wrapper for auto seq/par dispatch.
+
+    bench-attempt-rejected (2026-05-28, c0070): fusing the out-of-range scan
+    into the accumulation loop (as the ``_par`` variant below does to trim a
+    prange launch) does NOT reliably help the SEQ variant -- measured 1.31x at
+    n=5k but 0.88x (REGRESSION) at n=50k, 1.03x at n=200k. The seq pass-1 is a
+    branch-only bounds scan that leaves ``y_pred`` cache-warm for pass-2, so
+    there is no launch overhead to amortise and the fused ``bad``-counter form
+    just adds a branch. The par fusion win does not carry over; keep two passes."""
     n = len(y_true)
     if n == 0:
         return 0.0
