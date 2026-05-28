@@ -622,6 +622,54 @@ AXES: dict[str, tuple[Any, ...]] = {
     "shap_proxied_trust_guard_cfg": (True, False),
     "shap_proxied_interaction_aware_cfg": (False, True),
     "shap_proxied_cluster_features_cfg": ("auto", False),
+    # 2026-05-28 -- ShapProxiedFS extension axes (active_learning + prefilter_method).
+    # active_learning gates a separate acquisition loop (active_learning_revalidate)
+    # that bypasses bruteforce/beam/greedy; prefilter_method drives the
+    # _shap_proxy_prefilter dispatch ("auto" picks per HW; "univariate" is the
+    # univariate-score ranking; "fast_model" is the cheap interaction-aware fast
+    # booster). 2026-05-28 NOTE: manifest's suggested "mi"/"spearman" don't exist
+    # in PREFILTER_METHODS = ("model","univariate","fast_model","gpu_model") --
+    # we use real method names so ShapProxiedFS doesn't raise at runtime. Both
+    # axes collapse to ShapProxiedFS __init__ defaults when use_shap_proxied_fs
+    # is off (canonical_key).
+    "shap_proxied_active_learning_cfg": (False, True),
+    "shap_proxied_prefilter_method_cfg": ("auto", "univariate", "fast_model"),
+    # 2026-05-28 -- TextDetectionConfig.text_min_cardinality. Cardinality floor
+    # for the cat-vs-text promotion. Default 300; 50 flips many short-string
+    # cats into the text path (TF-IDF + cat_text_card_threshold interplay).
+    # Gated on enable_feature_handling_config_cfg=True.
+    "fhc_text_min_cardinality_cfg": (300, 50),
+    # 2026-05-28 -- CompositeTargetDiscoveryConfig deep knobs.
+    # auto_skip_on_baseline_optimal: short-circuit when baseline_diagnostics
+    # composite_recommendation=='unlikely_to_help' (entirely separate branch).
+    # mi_n_neighbors: kNN MI k -- only fires when mi_estimator='knn'.
+    # auto_base_null_perms: permutation-MI null test budget (0 disables; 50 is heavy).
+    # multi_base_max_k: forward-stepwise multi-base ceiling (1 disables promotion;
+    # 5 quintuples per-kept-spec OLS refit count).
+    "composite_auto_skip_on_baseline_optimal_cfg": (False, True),
+    "composite_mi_n_neighbors_cfg": (3, 5, 10),
+    "composite_auto_base_null_perms_cfg": (20, 0, 50),
+    "composite_multi_base_max_k_cfg": (3, 1, 5),
+    # 2026-05-28 -- TrainingBehaviorConfig.extreme_ar_group_aware_skip_models.
+    # Which model families get skipped on extreme-AR + group-aware regimes.
+    # "default_neural" = (mlp,ngb,lstm,gru,rnn,transformer); "include_linear"
+    # adds linear; "empty" disables the skip entirely. Gated on
+    # mlp_extreme_ar_group_aware_skip_cfg=True AND 'mlp' in combo.models.
+    "extreme_ar_group_aware_skip_models_cfg": ("default_neural", "include_linear", "empty"),
+    # 2026-05-28 -- FeatureSelectionConfig.pre_screen_null_fraction_threshold.
+    # Sibling of fs_pre_screen_variance_threshold_cfg; 0.5 aggressively drops
+    # half-null columns BEFORE MRMR/RFECV/BorutaShap. Gated on
+    # fs_pre_screen_unsupervised_cfg=True.
+    "fs_pre_screen_null_fraction_threshold_cfg": (0.99, 0.5),
+    # 2026-05-28 -- LinearModelConfig.l1_ratio (ElasticNet mixing param).
+    # 0.0=Ridge, 0.5=ElasticNet (default), 1.0=LASSO. Canonicalised to 0.0
+    # when linear_solver_cfg != 'saga' (sklearn raises l1_ratio>0 with
+    # lbfgs/liblinear). Gated on 'linear' in combo.models.
+    "linear_l1_ratio_cfg": (0.5, 0.0, 1.0),
+    # 2026-05-28 -- RecurrentConfig.hidden_size. RNN hidden-state width.
+    # Library default 128; 32 is the cheap-fit variant. Canon to 128 when
+    # recurrent_model_cfg is None.
+    "recurrent_hidden_size_cfg": (128, 32),
     # --- CatFE deep (only when use_mrmr_fs + cat_fe_enable)
     "catfe_fwer_correction_cfg": ("none", "bh_fdr", "bonferroni"),
     "catfe_perm_budget_strategy_cfg": ("bandit_ucb1", "fixed"),
@@ -1134,6 +1182,24 @@ class FuzzCombo:
     shap_proxied_trust_guard_cfg: bool = True
     shap_proxied_interaction_aware_cfg: bool = False
     shap_proxied_cluster_features_cfg: "bool | str" = "auto"
+    # 2026-05-28 ShapProxiedFS extension axes (defaults mirror ShapProxiedFS.__init__)
+    shap_proxied_active_learning_cfg: bool = False
+    shap_proxied_prefilter_method_cfg: str = "auto"
+    # 2026-05-28 TextDetectionConfig.text_min_cardinality (default 300)
+    fhc_text_min_cardinality_cfg: int = 300
+    # 2026-05-28 CompositeTargetDiscoveryConfig deep knobs (defaults mirror the dataclass)
+    composite_auto_skip_on_baseline_optimal_cfg: bool = False
+    composite_mi_n_neighbors_cfg: int = 3
+    composite_auto_base_null_perms_cfg: int = 20
+    composite_multi_base_max_k_cfg: int = 3
+    # 2026-05-28 TrainingBehaviorConfig.extreme_ar_group_aware_skip_models (enum: default/include_linear/empty)
+    extreme_ar_group_aware_skip_models_cfg: str = "default_neural"
+    # 2026-05-28 FeatureSelectionConfig.pre_screen_null_fraction_threshold (default 0.99)
+    fs_pre_screen_null_fraction_threshold_cfg: float = 0.99
+    # 2026-05-28 LinearModelConfig.l1_ratio (ElasticNet mix; default 0.5 in src)
+    linear_l1_ratio_cfg: float = 0.5
+    # 2026-05-28 RecurrentConfig.hidden_size (library default 128)
+    recurrent_hidden_size_cfg: int = 128
     catfe_fwer_correction_cfg: str = "none"
     catfe_perm_budget_strategy_cfg: str = "bandit_ucb1"
     catfe_permutation_null_cfg: str = "joint_independence"
@@ -1944,6 +2010,85 @@ class FuzzCombo:
             (self.shap_proxied_trust_guard_cfg if self.use_shap_proxied_fs else True),
             (self.shap_proxied_interaction_aware_cfg if self.use_shap_proxied_fs else False),
             (self.shap_proxied_cluster_features_cfg if self.use_shap_proxied_fs else "auto"),
+            # 2026-05-28 ShapProxiedFS extension axes (active_learning +
+            # prefilter_method). Collapse to ShapProxiedFS __init__ defaults
+            # (False / "auto") when use_shap_proxied_fs is off.
+            (self.shap_proxied_active_learning_cfg if self.use_shap_proxied_fs else False),
+            (self.shap_proxied_prefilter_method_cfg if self.use_shap_proxied_fs else "auto"),
+            # 2026-05-28 TextDetectionConfig.text_min_cardinality. Collapse to
+            # library default (300) when FHC is not enabled -- axis is a no-op
+            # when the FHC sub-config never gets built.
+            (self.fhc_text_min_cardinality_cfg if self.enable_feature_handling_config_cfg else 300),
+            # 2026-05-28 CompositeTargetDiscoveryConfig deep knobs. Each collapses
+            # to its library default when composite discovery is off OR the gating
+            # sub-axis is off. composite_auto_skip_on_baseline_optimal_cfg ALSO
+            # requires baseline_diagnostics_enabled_cfg; composite_mi_n_neighbors_cfg
+            # ALSO requires composite_mi_estimator_cfg='knn'.
+            (
+                self.composite_auto_skip_on_baseline_optimal_cfg
+                if (
+                    self.composite_discovery_enabled_cfg
+                    and self.target_type == "regression"
+                    and self.baseline_diagnostics_enabled_cfg
+                )
+                else False
+            ),
+            (
+                self.composite_mi_n_neighbors_cfg
+                if (
+                    self.composite_discovery_enabled_cfg
+                    and self.target_type == "regression"
+                    and self.composite_mi_estimator_cfg == "knn"
+                )
+                else 3
+            ),
+            (
+                self.composite_auto_base_null_perms_cfg
+                if (self.composite_discovery_enabled_cfg and self.target_type == "regression")
+                else 20
+            ),
+            (
+                self.composite_multi_base_max_k_cfg
+                if (self.composite_discovery_enabled_cfg and self.target_type == "regression")
+                else 3
+            ),
+            # 2026-05-28 TrainingBehaviorConfig.extreme_ar_group_aware_skip_models.
+            # Only meaningful when MLP-extreme-AR skip is on AND mlp is in the
+            # combo's models tuple (the skip-list axis only bites then).
+            (
+                self.extreme_ar_group_aware_skip_models_cfg
+                if (self.mlp_extreme_ar_group_aware_skip_cfg and "mlp" in self.models)
+                else "default_neural"
+            ),
+            # 2026-05-28 FeatureSelectionConfig.pre_screen_null_fraction_threshold.
+            # Sibling of fs_pre_screen_variance_threshold_cfg: only fires when
+            # an FS method (MRMR / RFECV / BorutaShap) actually invokes the
+            # pre-screen path. Mirror the existing variance-threshold gating
+            # exactly so the two siblings collapse on the SAME condition.
+            (
+                self.fs_pre_screen_null_fraction_threshold_cfg
+                if (self.use_mrmr_fs or self.rfecv_estimator_cfg is not None
+                    or self.use_boruta_shap_cfg)
+                else 0.99
+            ),
+            # 2026-05-28 LinearModelConfig.l1_ratio. Only meaningful when
+            # 'linear' is in the models AND the solver is 'saga' (sklearn
+            # raises l1_ratio>0 with lbfgs/liblinear). Canon to 0.0 (Ridge-
+            # equivalent) when those conditions don't hold so disabled
+            # combos collapse to a single canonical key.
+            (
+                self.linear_l1_ratio_cfg
+                if ("linear" in self.models and self.linear_solver_cfg == "saga")
+                else 0.0
+            ),
+            # 2026-05-28 RecurrentConfig.hidden_size. Only meaningful when
+            # a canonical recurrent model is picked. Canon to library default
+            # (128) otherwise.
+            (
+                self.recurrent_hidden_size_cfg
+                if self._canonical_recurrent_model() is not None
+                else 128
+            ),
         )
 
     def _canonical_recurrent_model(self) -> "str | None":
@@ -2705,6 +2850,25 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         shap_proxied_trust_guard_cfg=axes.get("shap_proxied_trust_guard_cfg", True),
         shap_proxied_interaction_aware_cfg=axes.get("shap_proxied_interaction_aware_cfg", False),
         shap_proxied_cluster_features_cfg=axes.get("shap_proxied_cluster_features_cfg", "auto"),
+        # 2026-05-28 new fuzz axes (ShapProxiedFS ext, FHC text card, composite deep,
+        # extreme-AR skip list, FS null-frac, linear l1 ratio, recurrent hidden_size).
+        shap_proxied_active_learning_cfg=axes.get("shap_proxied_active_learning_cfg", False),
+        shap_proxied_prefilter_method_cfg=axes.get("shap_proxied_prefilter_method_cfg", "auto"),
+        fhc_text_min_cardinality_cfg=axes.get("fhc_text_min_cardinality_cfg", 300),
+        composite_auto_skip_on_baseline_optimal_cfg=axes.get(
+            "composite_auto_skip_on_baseline_optimal_cfg", False
+        ),
+        composite_mi_n_neighbors_cfg=axes.get("composite_mi_n_neighbors_cfg", 3),
+        composite_auto_base_null_perms_cfg=axes.get("composite_auto_base_null_perms_cfg", 20),
+        composite_multi_base_max_k_cfg=axes.get("composite_multi_base_max_k_cfg", 3),
+        extreme_ar_group_aware_skip_models_cfg=axes.get(
+            "extreme_ar_group_aware_skip_models_cfg", "default_neural"
+        ),
+        fs_pre_screen_null_fraction_threshold_cfg=axes.get(
+            "fs_pre_screen_null_fraction_threshold_cfg", 0.99
+        ),
+        linear_l1_ratio_cfg=axes.get("linear_l1_ratio_cfg", 0.5),
+        recurrent_hidden_size_cfg=axes.get("recurrent_hidden_size_cfg", 128),
         catfe_fwer_correction_cfg=axes.get("catfe_fwer_correction_cfg", "none"),
         catfe_perm_budget_strategy_cfg=axes.get("catfe_perm_budget_strategy_cfg", "bandit_ucb1"),
         catfe_permutation_null_cfg=axes.get("catfe_permutation_null_cfg", "joint_independence"),
@@ -2936,6 +3100,9 @@ def build_shap_proxied_fs_kwargs_from_flat(
     trust_guard: bool = True,
     interaction_aware: bool = False,
     cluster_features: "bool | str" = "auto",
+    # 2026-05-28 ext axes (active_learning + prefilter_method).
+    active_learning: bool = False,
+    prefilter_method: str = "auto",
 ) -> Optional[Dict[str, Any]]:
     """Build the shap_proxied_fs_kwargs dict passed to
     ``registry.get("ShapProxiedFS").instantiate(**kwargs)`` (which forwards to
@@ -2956,6 +3123,11 @@ def build_shap_proxied_fs_kwargs_from_flat(
         "trust_guard": trust_guard,
         "interaction_aware": interaction_aware,
         "cluster_features": cluster_features,
+        # 2026-05-28 ext axes flow straight into the ShapProxiedFS constructor
+        # (same names) -- active_learning toggles the acquisition-loop branch,
+        # prefilter_method drives _shap_proxy_prefilter dispatch.
+        "active_learning": active_learning,
+        "prefilter_method": prefilter_method,
     }
 
 
@@ -2968,6 +3140,8 @@ def build_shap_proxied_fs_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]
         trust_guard=combo.shap_proxied_trust_guard_cfg,
         interaction_aware=combo.shap_proxied_interaction_aware_cfg,
         cluster_features=combo.shap_proxied_cluster_features_cfg,
+        active_learning=combo.shap_proxied_active_learning_cfg,
+        prefilter_method=combo.shap_proxied_prefilter_method_cfg,
     )
 
 
@@ -2986,6 +3160,11 @@ def build_composite_discovery_config_from_flat(
     composite_per_bin_n_bins: int = 0,
     composite_tiny_screening_mode: str = "per_family",
     composite_include_additive_residual: bool = True,
+    # 2026-05-28 deep knobs (4 new axes).
+    auto_skip_on_baseline_optimal: bool = False,
+    mi_n_neighbors: int = 3,
+    auto_base_null_perms: int = 20,
+    multi_base_max_k: int = 3,
 ):
     """Build a CompositeTargetDiscoveryConfig honoring the discovery
     enable + transforms_mode axes + (iter162) nested MI / stacked /
@@ -3021,8 +3200,11 @@ def build_composite_discovery_config_from_flat(
         "enabled": True,
         "base_candidates": "auto",
         "auto_base_top_k": 3,
-        "multi_base_enabled": True,
-        "multi_base_max_k": 2,
+        "multi_base_enabled": (multi_base_max_k > 1),
+        # 2026-05-28 multi_base_max_k axis (was hardcoded 2). When the axis
+        # value is 1 we additionally turn off multi_base_enabled above so the
+        # promotion loop short-circuits cleanly.
+        "multi_base_max_k": multi_base_max_k,
         # iter162 nested knobs.
         "mi_estimator": mi_estimator,
         "mi_nbins": mi_nbins,
@@ -3038,6 +3220,12 @@ def build_composite_discovery_config_from_flat(
         "require_beats_raw_baseline": composite_require_beats_raw_baseline,
         "per_bin_n_bins": composite_per_bin_n_bins,
         "tiny_screening_models": composite_tiny_screening_mode,
+        # 2026-05-28 deep knobs (3 of the 4; multi_base_max_k handled above
+        # because it also gates multi_base_enabled). These names match the
+        # CompositeTargetDiscoveryConfig dataclass fields exactly.
+        "auto_skip_on_baseline_optimal": auto_skip_on_baseline_optimal,
+        "mi_n_neighbors": mi_n_neighbors,
+        "auto_base_null_perms": auto_base_null_perms,
     }
     if composite_tiny_screening_mode == "per_family":
         kw["tiny_screening_families"] = ("lightgbm", "linear")
@@ -3071,6 +3259,11 @@ def build_composite_discovery_config(combo: "FuzzCombo"):
         composite_per_bin_n_bins=combo.composite_per_bin_n_bins_cfg,
         composite_tiny_screening_mode=combo.composite_tiny_screening_mode_cfg,
         composite_include_additive_residual=combo.composite_include_additive_residual_cfg,
+        # 2026-05-28 deep knobs (4 new axes).
+        auto_skip_on_baseline_optimal=combo.composite_auto_skip_on_baseline_optimal_cfg,
+        mi_n_neighbors=combo.composite_mi_n_neighbors_cfg,
+        auto_base_null_perms=combo.composite_auto_base_null_perms_cfg,
+        multi_base_max_k=combo.composite_multi_base_max_k_cfg,
     )
 
 

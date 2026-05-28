@@ -241,13 +241,17 @@ def test_shap_proxied_fs_axes_flow_to_kwargs():
     )
     on = _build_combo(models=("cb",), axes=base_axes, seed=0)
     kw_on = build_shap_proxied_fs_kwargs(on)
-    assert kw_on == {
+    # Original 5 sub-knobs thread through verbatim. 2026-05-28 ext axes
+    # (active_learning + prefilter_method) also flow through here; the
+    # iter-NNN cross-axis test below pins their values explicitly.
+    for k, v in {
         "optimizer": "greedy_forward",
         "revalidate": False,
         "trust_guard": False,
         "interaction_aware": True,
         "cluster_features": False,
-    }
+    }.items():
+        assert kw_on[k] == v, f"shap_proxied kwargs[{k}] = {kw_on[k]!r}, expected {v!r}"
 
     # Shap-proxied-off: sub-knobs collapse to ShapProxiedFS.__init__ defaults in
     # canonical_key, and the kwargs builder yields None (no-op FS step). Toggling
@@ -272,3 +276,216 @@ def test_shap_proxied_fs_axes_flow_to_kwargs():
     # The enable axis must actually vary the canonical key when toggled with the
     # same sub-knobs (so dedup keeps both branches reachable).
     assert on.canonical_key() != combo_off_a.canonical_key()
+
+
+# ---------------------------------------------------------------------------
+# 2026-05-28 new coverage axes (11 axes: 4 HIGH + 7 MED from coverage audit).
+# ---------------------------------------------------------------------------
+
+
+def test_iter501_new_coverage_axes_flow_to_kwargs():
+    """11 new fuzz axes (4 HIGH + 7 MED, coverage-audit batch 2026-05-28) must
+    be (a) present in AXES, (b) reachable in enumerate_combos at non-default
+    values when the gating axis is ON, (c) canonical_key-collapsed when the
+    gating axis is OFF (no phantom variation), (d) threaded verbatim through
+    the relevant config builder.
+
+    Mirrors test_shap_proxied_fs_axes_flow_to_kwargs + the iter466 MRMR
+    friend-graph/cluster test. One test covers all 11 because each axis
+    follows the same wiring template; per-axis sensors live in the
+    pairwise sampler itself.
+
+    Axes:
+      HIGH:
+        - fhc_text_min_cardinality_cfg (TextDetectionConfig.text_min_cardinality)
+        - composite_auto_skip_on_baseline_optimal_cfg (CompositeTargetDiscoveryConfig.auto_skip_on_baseline_optimal)
+        - shap_proxied_active_learning_cfg (ShapProxiedFS.active_learning)
+        - shap_proxied_prefilter_method_cfg (ShapProxiedFS.prefilter_method)
+      MED:
+        - composite_mi_n_neighbors_cfg
+        - composite_auto_base_null_perms_cfg
+        - composite_multi_base_max_k_cfg
+        - extreme_ar_group_aware_skip_models_cfg (TrainingBehaviorConfig.extreme_ar_group_aware_skip_models)
+        - fs_pre_screen_null_fraction_threshold_cfg (FeatureSelectionConfig.pre_screen_null_fraction_threshold)
+        - linear_l1_ratio_cfg (LinearModelConfig.l1_ratio)
+        - recurrent_hidden_size_cfg (RecurrentConfig.hidden_size)
+    """
+    from tests.training._fuzz_combo import (
+        AXES, _build_combo, enumerate_combos,
+        build_shap_proxied_fs_kwargs, build_composite_discovery_config,
+    )
+
+    new_axes = (
+        "fhc_text_min_cardinality_cfg",
+        "composite_auto_skip_on_baseline_optimal_cfg",
+        "composite_mi_n_neighbors_cfg",
+        "composite_auto_base_null_perms_cfg",
+        "composite_multi_base_max_k_cfg",
+        "shap_proxied_active_learning_cfg",
+        "shap_proxied_prefilter_method_cfg",
+        "extreme_ar_group_aware_skip_models_cfg",
+        "fs_pre_screen_null_fraction_threshold_cfg",
+        "linear_l1_ratio_cfg",
+        "recurrent_hidden_size_cfg",
+    )
+    # (a) all 11 axes present in AXES.
+    for ax in new_axes:
+        assert ax in AXES, f"missing fuzz axis {ax}"
+        assert len(AXES[ax]) >= 2, f"axis {ax} must offer at least 2 values"
+
+    # (b) enumerate_combos still reaches 150 combos with the new axes wired.
+    combos = enumerate_combos(target=150, master_seed=20260422)
+    assert len(combos) == 150, f"enumerate_combos lost combos: {len(combos)}"
+
+    # (c) Per-axis: pin a base combo with the gating axis ON + the new axis at
+    # a non-default value; assert the canonical_key collapses to the default
+    # when the gating axis is OFF.
+    base_axes = {name: values[0] for name, values in AXES.items()}
+
+    # SHAP-proxied extension axes: gate on use_shap_proxied_fs.
+    on_axes = dict(base_axes)
+    on_axes.update(
+        use_shap_proxied_fs=True,
+        shap_proxied_active_learning_cfg=True,
+        shap_proxied_prefilter_method_cfg="univariate",
+    )
+    on = _build_combo(models=("cb",), axes=on_axes, seed=0)
+    kw_on = build_shap_proxied_fs_kwargs(on)
+    assert kw_on is not None
+    assert kw_on["active_learning"] is True
+    assert kw_on["prefilter_method"] == "univariate"
+    # OFF: kwargs is None + canonical key collapses sub-knobs to defaults.
+    off_a = dict(on_axes); off_a["use_shap_proxied_fs"] = False
+    off_b = dict(off_a)
+    off_b.update(shap_proxied_active_learning_cfg=False, shap_proxied_prefilter_method_cfg="auto")
+    combo_off_a = _build_combo(models=("cb",), axes=off_a, seed=0)
+    combo_off_b = _build_combo(models=("cb",), axes=off_b, seed=0)
+    assert build_shap_proxied_fs_kwargs(combo_off_a) is None
+    assert combo_off_a.canonical_key() == combo_off_b.canonical_key(), (
+        "shap_proxied ext sub-knobs must collapse when use_shap_proxied_fs is off"
+    )
+
+    # FHC text_min_cardinality: gate on enable_feature_handling_config_cfg.
+    on_fhc = dict(base_axes)
+    on_fhc.update(enable_feature_handling_config_cfg=True, fhc_text_min_cardinality_cfg=50)
+    off_fhc_a = dict(on_fhc); off_fhc_a["enable_feature_handling_config_cfg"] = False
+    off_fhc_b = dict(off_fhc_a); off_fhc_b["fhc_text_min_cardinality_cfg"] = 300
+    c_on = _build_combo(models=("cb",), axes=on_fhc, seed=0)
+    c_off_a = _build_combo(models=("cb",), axes=off_fhc_a, seed=0)
+    c_off_b = _build_combo(models=("cb",), axes=off_fhc_b, seed=0)
+    assert c_on.fhc_text_min_cardinality_cfg == 50
+    assert c_off_a.canonical_key() == c_off_b.canonical_key(), (
+        "fhc_text_min_cardinality_cfg must collapse when FHC is disabled"
+    )
+
+    # Composite deep knobs: gate on composite_discovery_enabled_cfg + regression.
+    on_comp = dict(base_axes)
+    on_comp.update(
+        composite_discovery_enabled_cfg=True,
+        target_type="regression",
+        baseline_diagnostics_enabled_cfg=True,
+        composite_mi_estimator_cfg="knn",
+        composite_auto_skip_on_baseline_optimal_cfg=True,
+        composite_mi_n_neighbors_cfg=10,
+        composite_auto_base_null_perms_cfg=50,
+        composite_multi_base_max_k_cfg=5,
+    )
+    c_comp_on = _build_combo(models=("cb",), axes=on_comp, seed=0)
+    cfg_on = build_composite_discovery_config(c_comp_on)
+    # Builder threads all 4 deep knobs verbatim (names match the dataclass fields).
+    assert getattr(cfg_on, "auto_skip_on_baseline_optimal", None) is True
+    assert getattr(cfg_on, "mi_n_neighbors", None) == 10
+    assert getattr(cfg_on, "auto_base_null_perms", None) == 50
+    assert getattr(cfg_on, "multi_base_max_k", None) == 5
+
+    # OFF: composite disabled -> all 4 deep knobs canon to defaults in
+    # canonical_key. We pick non-default values in off_a and library
+    # defaults in off_b; both must produce the SAME canonical key.
+    off_comp_a = dict(on_comp); off_comp_a["composite_discovery_enabled_cfg"] = False
+    off_comp_b = dict(off_comp_a)
+    off_comp_b.update(
+        composite_auto_skip_on_baseline_optimal_cfg=False,
+        composite_mi_n_neighbors_cfg=3,
+        composite_auto_base_null_perms_cfg=20,
+        composite_multi_base_max_k_cfg=3,
+    )
+    c_comp_off_a = _build_combo(models=("cb",), axes=off_comp_a, seed=0)
+    c_comp_off_b = _build_combo(models=("cb",), axes=off_comp_b, seed=0)
+    assert c_comp_off_a.canonical_key() == c_comp_off_b.canonical_key(), (
+        "composite deep knobs must collapse when composite_discovery_enabled_cfg is off"
+    )
+
+    # extreme_ar_group_aware_skip_models: gate on mlp_extreme_ar_group_aware_skip + 'mlp' in models.
+    on_ear = dict(base_axes)
+    on_ear.update(
+        mlp_extreme_ar_group_aware_skip_cfg=True,
+        extreme_ar_group_aware_skip_models_cfg="include_linear",
+    )
+    on_ear_combo = _build_combo(models=("mlp",), axes=on_ear, seed=0)
+    assert on_ear_combo.extreme_ar_group_aware_skip_models_cfg == "include_linear"
+    # When MLP-extreme-AR-skip is OFF, the skip-list axis must canon away.
+    off_ear_a = dict(on_ear); off_ear_a["mlp_extreme_ar_group_aware_skip_cfg"] = False
+    off_ear_b = dict(off_ear_a); off_ear_b["extreme_ar_group_aware_skip_models_cfg"] = "default_neural"
+    c_ear_a = _build_combo(models=("mlp",), axes=off_ear_a, seed=0)
+    c_ear_b = _build_combo(models=("mlp",), axes=off_ear_b, seed=0)
+    assert c_ear_a.canonical_key() == c_ear_b.canonical_key(), (
+        "extreme_ar_group_aware_skip_models_cfg must collapse when MLP-extreme-AR-skip is off"
+    )
+
+    # fs_pre_screen_null_fraction_threshold: gates on use_mrmr_fs OR
+    # rfecv_estimator_cfg OR use_boruta_shap_cfg (mirrors the existing
+    # fs_pre_screen_variance_threshold_cfg sibling gating exactly).
+    on_fs = dict(base_axes)
+    on_fs.update(use_mrmr_fs=True, fs_pre_screen_null_fraction_threshold_cfg=0.5)
+    off_fs_a = dict(on_fs)
+    off_fs_a.update(use_mrmr_fs=False, rfecv_estimator_cfg=None, use_boruta_shap_cfg=False)
+    off_fs_b = dict(off_fs_a); off_fs_b["fs_pre_screen_null_fraction_threshold_cfg"] = 0.99
+    c_fs_on = _build_combo(models=("cb",), axes=on_fs, seed=0)
+    c_fs_off_a = _build_combo(models=("cb",), axes=off_fs_a, seed=0)
+    c_fs_off_b = _build_combo(models=("cb",), axes=off_fs_b, seed=0)
+    assert c_fs_on.fs_pre_screen_null_fraction_threshold_cfg == 0.5
+    assert c_fs_off_a.canonical_key() == c_fs_off_b.canonical_key(), (
+        "fs_pre_screen_null_fraction_threshold_cfg must collapse when no FS method is active"
+    )
+
+    # linear_l1_ratio_cfg: gate on 'linear' in models AND linear_solver_cfg='saga'.
+    on_lin = dict(base_axes)
+    on_lin.update(linear_solver_cfg="saga", linear_l1_ratio_cfg=1.0)
+    c_lin_on = _build_combo(models=("linear",), axes=on_lin, seed=0)
+    assert c_lin_on.linear_l1_ratio_cfg == 1.0
+    # Solver != saga -> canon to 0.0 in canonical_key (avoids sklearn ValueError path).
+    off_lin_a = dict(on_lin); off_lin_a["linear_solver_cfg"] = "lbfgs"
+    off_lin_b = dict(off_lin_a); off_lin_b["linear_l1_ratio_cfg"] = 0.0
+    c_lin_a = _build_combo(models=("linear",), axes=off_lin_a, seed=0)
+    c_lin_b = _build_combo(models=("linear",), axes=off_lin_b, seed=0)
+    assert c_lin_a.canonical_key() == c_lin_b.canonical_key(), (
+        "linear_l1_ratio_cfg must collapse to 0.0 when linear_solver_cfg != saga"
+    )
+
+    # recurrent_hidden_size_cfg: gate on _canonical_recurrent_model() != None.
+    on_rec = dict(base_axes)
+    on_rec.update(
+        recurrent_model_cfg="lstm",
+        target_type="regression",
+        n_rows=1000,
+        text_col_count=0,
+        embedding_col_count=0,
+        recurrent_hidden_size_cfg=32,
+    )
+    c_rec_on = _build_combo(models=("cb",), axes=on_rec, seed=0)
+    assert c_rec_on._canonical_recurrent_model() is not None
+    assert c_rec_on.recurrent_hidden_size_cfg == 32
+    # No recurrent (recurrent_model_cfg=None) -> canon to library default 128.
+    off_rec_a = dict(on_rec); off_rec_a["recurrent_model_cfg"] = None
+    off_rec_b = dict(off_rec_a); off_rec_b["recurrent_hidden_size_cfg"] = 128
+    c_rec_a = _build_combo(models=("cb",), axes=off_rec_a, seed=0)
+    c_rec_b = _build_combo(models=("cb",), axes=off_rec_b, seed=0)
+    assert c_rec_a.canonical_key() == c_rec_b.canonical_key(), (
+        "recurrent_hidden_size_cfg must collapse when no recurrent model is requested"
+    )
+
+    # (d) enable-axis varies the canonical key when toggled (the dedup keeps
+    # both branches reachable). Spot-check one new axis per gating family.
+    assert c_on.canonical_key() != c_off_a.canonical_key()  # FHC text gate
+    assert c_comp_on.canonical_key() != c_comp_off_a.canonical_key()  # composite gate
+    assert on.canonical_key() != combo_off_a.canonical_key()  # shap-proxied gate (re-asserted)

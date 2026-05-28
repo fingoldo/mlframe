@@ -278,6 +278,20 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
         # field may live on different config in older trees. Drop via
         # TrainingBehaviorConfig.model_fields filter below.
         "confidence_ensemble_quantile": combo.confidence_ensemble_quantile_cfg,
+        # 2026-05-28 extreme_ar_group_aware_skip_models axis -- which model
+        # families get skipped on extreme-AR + group-aware regimes. Mapped
+        # from the enum axis ("default_neural"/"include_linear"/"empty")
+        # into the tuple shape TrainingBehaviorConfig expects. Defensive
+        # filter below drops the key when the field doesn't exist.
+        "extreme_ar_group_aware_skip_models": (
+            ("mlp", "ngb", "lstm", "gru", "rnn", "transformer")
+            if combo.extreme_ar_group_aware_skip_models_cfg == "default_neural"
+            else (
+                ("mlp", "ngb", "lstm", "gru", "rnn", "transformer", "linear")
+                if combo.extreme_ar_group_aware_skip_models_cfg == "include_linear"
+                else ()  # "empty" -> no skip
+            )
+        ),
     }
     # Defensive filter: drop any behavior key that's not a model_fields entry.
     behavior_kwargs = _safe_cfg_kwargs(TrainingBehaviorConfig, **behavior_kwargs)
@@ -473,7 +487,12 @@ def _recurrent_config_for_combo(combo: FuzzCombo):
     return RecurrentConfig(
         input_mode=_input_mode,
         rnn_type=rnn_type,
-        hidden_size=16,
+        # 2026-05-28 recurrent_hidden_size_cfg axis. Library defaults to 128;
+        # the fuzz suite clamps to small values for wall-time. Map: 128 -> 16
+        # (the prior hardcoded "wide" path), 32 -> 8 (the "narrow" variant).
+        # Both reach the same RNN parameter-count branch; the canonical_key
+        # still distinguishes the axis values so dedup is preserved.
+        hidden_size=(16 if combo.recurrent_hidden_size_cfg >= 128 else 8),
         num_layers=1,
         bidirectional=False,
         use_attention=False,
@@ -1011,10 +1030,19 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
     _linear_cfg = None
     if "linear" in combo.models:
         from mlframe.training.configs import LinearModelConfig
-        _linear_cfg = LinearModelConfig(
+        # 2026-05-28 LinearModelConfig.l1_ratio (ElasticNet mix). Only honoured by
+        # the saga solver; lbfgs/liblinear raise on l1_ratio != 0. Mirror the
+        # canonical_key gating in FuzzCombo so the LinearModelConfig instance
+        # the suite consumes never hits sklearn's solver-mismatch ValueError.
+        _l1_ratio = (
+            combo.linear_l1_ratio_cfg if combo.linear_solver_cfg == "saga" else 0.0
+        )
+        _linear_cfg = LinearModelConfig(**_safe_cfg_kwargs(
+            LinearModelConfig,
             alpha=combo.linear_alpha_cfg,
             solver=combo.linear_solver_cfg,
-        )
+            l1_ratio=_l1_ratio,
+        ))
     # P0-3 feature_handling_config: instantiate with nested sub-config
     # overrides per the iter162 deep-kwargs audit. Each sub-config field
     # falls back to library defaults when not on the axis OR when import
@@ -1054,6 +1082,8 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
                 text_min_mean_tokens=combo.fhc_text_min_mean_tokens_cfg,
                 text_min_unique_ratio=combo.fhc_text_min_unique_ratio_cfg,
                 respect_explicit_categorical_dtype=combo.fhc_text_respect_explicit_cat_dtype_cfg,
+                # 2026-05-28 text_min_cardinality axis -- cat-vs-text promotion floor.
+                text_min_cardinality=combo.fhc_text_min_cardinality_cfg,
             ))
             _repro = ReproConfig(**_safe_cfg_kwargs(
                 ReproConfig,
@@ -1210,6 +1240,13 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
                     rfecv_n_features_selection_rule=combo.rfecv_n_features_selection_rule_cfg,
                     rfecv_stability_selection=combo.rfecv_stability_selection_cfg,
                     rfecv_leakage_action=combo.rfecv_leakage_action_cfg,
+                    # 2026-05-28 pre_screen_null_fraction_threshold axis -- the
+                    # null-fraction sibling of the existing variance threshold
+                    # axis. Gated on fs_pre_screen_unsupervised_cfg in
+                    # canonical_key; thread the value through unconditionally
+                    # here (the suite already builds the FS config only when
+                    # the pre-screen branch fires).
+                    pre_screen_null_fraction_threshold=combo.fs_pre_screen_null_fraction_threshold_cfg,
                 ),
             ),
             # save_charts=False / show_perf_chart=False / show_fi=False:
