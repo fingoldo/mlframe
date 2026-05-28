@@ -23,6 +23,9 @@ import logging
 import numpy as np
 import pandas as pd
 from sklearn.base import clone
+from sklearn.metrics import (
+    brier_score_loss, log_loss, mean_absolute_error, roc_auc_score, root_mean_squared_error,
+)
 
 from mlframe.feature_selection._shap_proxy_objective import coalition_margin, proxy_loss, resolve_metric
 
@@ -98,10 +101,6 @@ def _honest_loss(model_template, X_tr, y_tr, X_ev, y_ev, idx, classification, me
         hit = cache.get(idx, seed)
         if hit is not None:
             return hit
-
-    from sklearn.metrics import (
-        brier_score_loss, log_loss, mean_absolute_error, roc_auc_score, root_mean_squared_error,
-    )
 
     cols = list(idx)
     est = clone(model_template)

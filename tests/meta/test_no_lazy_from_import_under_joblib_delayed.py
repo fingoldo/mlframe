@@ -112,6 +112,7 @@ def _scan_module(path: pathlib.Path) -> list[tuple[str, int, str]]:
     return out
 
 
+@pytest.mark.timeout(300)
 def test_no_lazy_from_imports_inside_joblib_delayed_callees():
     """Walk src/mlframe; flag any ``from X import name`` inside a function
     dispatched via ``delayed(...)``. Opt out per-line with
