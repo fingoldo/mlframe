@@ -5,6 +5,19 @@ informative count, redundancy (correlated copies) and its strength, interaction 
 SNR, class balance, nonlinearity. Ground-truth feature roles are returned so a benchmark can compute
 regret-against-oracle (informatives + one representative per redundancy cluster), not just relative
 metrics. Used by the where-it-shines sweep and the self-improvement loop's benchmarks.
+
+Caveat (finite-sample noise-pool effect, iter23 recall investigation 2026-05-28):
+Informative coefficients are ``np.linspace(1.0, 0.4, n_informative)`` -- the weakest informatives
+sit near coef ~0.4. With ``n_samples`` modest (~2000) and ``n_noise`` large (e.g. ~7000), random
+spurious correlations in the noise pool can empirically match or exceed the weakest informatives'
+signal-to-noise ratio in any given sample, even at SNR=5.0. Width=7000 / n_rows=2000 / seed sweep
+shows NON-DETERMINISTIC drop of weaker informatives (e.g. seed=0 drops inf4+inf6, seed=1 drops
+inf5, seed=2 drops inf1+inf5+inf6); the dropped set is not coef-monotone (seed=2 dropped inf1 with
+coef 0.91 while inf7 with coef 0.4 survived). This is a synthetic-data finite-sample limitation,
+NOT a ShapProxiedFS pipeline bias. To benchmark recall at width>=5000 honestly, raise ``n_samples``
+(>=5000 recommended) or use ``snr>=8`` so the informatives stay separable from random noise-pool
+correlations. Recall comparisons at fixed ``n_samples=2000`` across widths 3k -> 7k mix algorithm
+behaviour with synthetic-data variance.
 """
 
 from __future__ import annotations

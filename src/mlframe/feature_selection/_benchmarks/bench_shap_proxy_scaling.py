@@ -43,7 +43,15 @@ _STAGE_ORDER = (
 
 def make_wide(n_features: int, *, n_rows: int = 4000, n_informative: int = 8, n_redundant: int = 12,
               seed: int = 0):
-    """Wide regime dataset: a few informatives + correlated redundant copies + the rest noise."""
+    """Wide regime dataset: a few informatives + correlated redundant copies + the rest noise.
+
+    Recall caveat at width>=5000 / n_rows<=2000 (iter23): the dropped-informative set is
+    NON-DETERMINISTIC across seeds and NOT coef-monotone (seed sweep at width=7000, n_rows=2000
+    showed dropped inf indices varying by seed, with strong-coef informatives sometimes dropping
+    while weaker ones survive). This is a finite-sample noise-pool artifact from
+    ``make_regime_dataset`` (linspace 1.0->0.4 coefs + Gaussian noise) -- raise ``n_rows`` to
+    >=5000 or ``snr`` to >=8 before reading recall numbers at the high-width end as algorithmic.
+    """
     from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import make_regime_dataset
 
     n_noise = max(0, n_features - n_informative - n_redundant)
