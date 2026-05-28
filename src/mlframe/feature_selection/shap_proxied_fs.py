@@ -74,6 +74,7 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         prefilter_top: int | None = 2000,
         prefilter_method: str = "auto",
         prefilter_n_estimators: int | None = 100,
+        prefilter_stage1_keep: int | None = None,
         cluster_features: bool | str = "auto",
         cluster_corr_threshold: float = 0.7,
         cluster_weighting: str = "pca_pc1",
@@ -129,6 +130,10 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         # ``min(current, cap)`` so it can never INCREASE fast_model's tree count. ``univariate`` is
         # a no-op. ``None`` disables the cap (legacy uncapped behaviour).
         self.prefilter_n_estimators = prefilter_n_estimators
+        # ``prefilter_stage1_keep`` overrides the two_stage prefilter's stage-A survivor count.
+        # None -> the prefilter module computes ``min(2000, 0.2*n_features)`` (default funnel).
+        # Other methods ignore this knob.
+        self.prefilter_stage1_keep = prefilter_stage1_keep
         self.cluster_features = cluster_features
         self.cluster_corr_threshold = cluster_corr_threshold
         self.cluster_weighting = cluster_weighting
@@ -297,8 +302,9 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         # singletons), so on wide data SHAP would otherwise run on ~all columns. Rank all features and
         # keep the top-K; ``working_cols`` maps the surviving working columns back to original indices
         # for the final selector output. ``prefilter_method`` trades speed against interaction-awareness
-        # (model / univariate / fast_model / gpu_model); "auto" stays quality-safe for moderate widths
-        # and switches to a fast method only for very wide data -- see ``_shap_proxy_prefilter``.
+        # (model / univariate / fast_model / gpu_model / two_stage); "auto" stays quality-safe for
+        # moderate widths and routes very wide data (n_features >= 8000) to the cheap-funnel +
+        # capped-booster two_stage path -- see ``_shap_proxy_prefilter``.
         working_cols = np.arange(n_features)
         if self.prefilter_top is not None and n_features > self.prefilter_top:
             from mlframe.feature_selection._shap_proxy_prefilter import prefilter_columns
@@ -307,7 +313,8 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
                 working_cols, pf_info = prefilter_columns(
                     model_template, X_search, y_search, method=self.prefilter_method,
                     prefilter_top=self.prefilter_top, classification=self.classification,
-                    n_features=n_features, n_estimators_cap=self.prefilter_n_estimators)
+                    n_features=n_features, n_estimators_cap=self.prefilter_n_estimators,
+                    stage1_keep=self.prefilter_stage1_keep)
                 if len(working_cols) < n_features:
                     X_search = X_search.iloc[:, working_cols].reset_index(drop=True)
                     X_hold = X_hold.iloc[:, working_cols].reset_index(drop=True)

@@ -173,3 +173,69 @@ def test_biz_val_iter11_refine_faster_than_legacy_with_preserved_recovery():
     # At least 1 informative latent factor's representative survives.
     surviving_inf = sum(1 for c in refined if c < 20)
     assert surviving_inf >= 4, f"refine lost too many informatives: {refined}"
+
+
+@pytest.mark.slow
+@pytest.mark.timeout(300)
+def test_biz_val_two_stage_prefilter_recovery_matches_single_stage_at_6k():
+    """biz_value (iter12): on a wide-data (6k features, 3k rows) main-effect synthetic, the new
+    ``two_stage`` prefilter recovers planted informatives at least as well as the single-stage
+    ``"model"`` path (1-feature slack for sample-noise) and prints stage A/B timings so the funnel
+    win is visible. Measured on dev HW the single-stage all-columns booster takes ~44s and two_stage
+    drops to ~9s with the same 12/12 recovery (4.8x speedup); we don't pin the timings here, only the
+    recovery contract. Width is held at 6k (not 10k) so a single run fits the slow-bucket budget."""
+    import time as _time
+
+    from mlframe.feature_selection._shap_proxy_explain import make_default_estimator
+    from mlframe.feature_selection._shap_proxy_prefilter import prefilter_columns
+
+    rng = np.random.default_rng(0)
+    n, width, n_inf = 3000, 6000, 12
+    print(f"[biz_val two_stage] building synthetic n={n} width={width} n_inf={n_inf}", flush=True)
+    inf = rng.normal(size=(n, n_inf)).astype(np.float32)
+    noise = rng.normal(size=(n, width - n_inf)).astype(np.float32)
+    X = pd.DataFrame(np.column_stack([inf, noise]),
+                     columns=[f"inf{i}" for i in range(n_inf)]
+                     + [f"noise{i}" for i in range(width - n_inf)])
+    coefs = np.linspace(1.5, 0.5, n_inf)
+    logit = (inf * coefs).sum(axis=1)
+    y = (logit + 0.3 * rng.standard_normal(n).astype(np.float32) > 0).astype(np.float64)
+    informative = set(range(n_inf))
+    print(f"[biz_val two_stage] target balance={float(y.mean()):.3f}", flush=True)
+
+    template_single = make_default_estimator(classification=True, random_state=0, n_estimators=300)
+    print("[biz_val two_stage] running single-stage 'model' prefilter", flush=True)
+    t0 = _time.perf_counter()
+    working_single, _info_single = prefilter_columns(
+        template_single, X, y, method="model", prefilter_top=200, classification=True,
+        n_features=X.shape[1], n_estimators_cap=100)
+    t_single = _time.perf_counter() - t0
+    rec_single = len(informative & set(map(int, working_single)))
+    print(f"[biz_val two_stage] single-stage: {t_single:.1f}s recovery={rec_single}/{n_inf}",
+          flush=True)
+
+    template_two = make_default_estimator(classification=True, random_state=0, n_estimators=300)
+    print("[biz_val two_stage] running 'two_stage' prefilter", flush=True)
+    t0 = _time.perf_counter()
+    working_two, info_two = prefilter_columns(
+        template_two, X, y, method="two_stage", prefilter_top=200, classification=True,
+        n_features=X.shape[1], n_estimators_cap=100)
+    t_two = _time.perf_counter() - t0
+    rec_two = len(informative & set(map(int, working_two)))
+    print(f"[biz_val two_stage] two_stage: {t_two:.1f}s total | "
+          f"stage_A={info_two['stage_a_seconds']:.1f}s "
+          f"({info_two['stage1_kept']}/{info_two['stage1_of']}) "
+          f"stage_B={info_two['stage_b_seconds']:.1f}s "
+          f"({info_two['kept']}/{info_two['stage1_kept']}) "
+          f"recovery={rec_two}/{n_inf}", flush=True)
+
+    # Recovery contract: two_stage stays within 1 of single-stage (statistical slack on a noisy
+    # 6k * 3k fixture); measured 12/12 == 12/12 in the dev run, so the bar carries headroom.
+    assert rec_two >= rec_single - 1, (
+        f"two_stage recovery {rec_two}/{n_inf} below single-stage {rec_single}/{n_inf} - 1 slack")
+    # working_cols stays in ORIGINAL positional space + honors prefilter_top + sorted + unique.
+    assert info_two["kept"] == 200 and info_two["of"] == 6000
+    assert list(working_two) == sorted(set(int(c) for c in working_two))
+    assert int(working_two.min()) >= 0 and int(working_two.max()) < 6000
+    # Stage A funnel actually fired (we passed wide enough data that the default keeps 1200 / 6000).
+    assert info_two["stage1_kept"] < info_two["stage1_of"], info_two

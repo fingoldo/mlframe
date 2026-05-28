@@ -43,23 +43,30 @@ def test_resolve_auto_keeps_model_for_moderate_width():
 def test_resolve_auto_switches_fast_for_very_wide_when_no_gpu(monkeypatch):
     import mlframe.feature_selection._shap_proxy_prefilter as PF
 
-    # No CUDA -> very-wide auto must pick the cheap interaction-aware fast_model (never model).
+    # No CUDA -> auto must pick fast_model in the mid-wide window (between auto_fast_width and
+    # two_stage_min_width). Above two_stage_min_width the new iter12 routing takes over -- that edge
+    # is covered by test_resolve_auto_routes_two_stage_at_wide_threshold_no_gpu.
     monkeypatch.setattr(PF, "gpu_model_available", lambda: False)
-    wide = PF._auto_fast_width() + 5000
-    assert PF.resolve_prefilter_method("auto", n_features=wide, n_rows=4000) == "fast_model"
-    # Even with many rows, no device means no gpu_model.
-    assert PF.resolve_prefilter_method("auto", n_features=wide, n_rows=10 ** 6) == "fast_model"
+    mid_wide = (PF._auto_fast_width() + PF._two_stage_min_width()) // 2
+    assert PF._auto_fast_width() <= mid_wide < PF._two_stage_min_width()
+    assert PF.resolve_prefilter_method("auto", n_features=mid_wide, n_rows=4000) == "fast_model"
+    # Even with many rows, no device means no gpu_model in that window.
+    assert PF.resolve_prefilter_method("auto", n_features=mid_wide, n_rows=10 ** 6) == "fast_model"
 
 
 def test_resolve_auto_routes_gpu_when_device_and_enough_rows(monkeypatch):
     import mlframe.feature_selection._shap_proxy_prefilter as PF
 
     monkeypatch.setattr(PF, "gpu_model_available", lambda: True)
-    wide = PF._auto_fast_width() + 5000
+    # Pick a width in the mid-wide window (>= auto_fast_width, < two_stage_min_width) so the GPU
+    # vs fast_model crossover is decided by row count alone; the two_stage edge (width >= 8000) is
+    # covered by test_resolve_auto_gpu_wins_over_two_stage_when_device_available.
+    mid_wide = (PF._auto_fast_width() + PF._two_stage_min_width()) // 2
+    assert PF._auto_fast_width() <= mid_wide < PF._two_stage_min_width()
     big_n = PF._gpu_model_min_rows()
-    assert PF.resolve_prefilter_method("auto", n_features=wide, n_rows=big_n) == "gpu_model"
+    assert PF.resolve_prefilter_method("auto", n_features=mid_wide, n_rows=big_n) == "gpu_model"
     # Too few rows -> GPU transfer overhead not worth it -> fast_model even with a device.
-    assert PF.resolve_prefilter_method("auto", n_features=wide, n_rows=big_n - 1) == "fast_model"
+    assert PF.resolve_prefilter_method("auto", n_features=mid_wide, n_rows=big_n - 1) == "fast_model"
 
 
 # --------------------------------------------------------------------------- ranking correctness
@@ -245,6 +252,119 @@ def test_prefilter_cap_none_is_legacy_uncapped_behaviour():
         model, X, y.astype(np.float64), method="model", prefilter_top=30,
         classification=True, n_features=X.shape[1], n_estimators_cap=None)
     assert info["n_estimators_cap"] is None
+
+
+# ----------------------------------------------------------- two_stage prefilter (iter12)
+def test_resolve_auto_routes_two_stage_at_wide_threshold_no_gpu(monkeypatch):
+    """auto routing edges around ``two_stage_min_width`` when no CUDA is available:
+    - n_features < auto_fast_width -> "model" (legacy)
+    - auto_fast_width <= n_features < two_stage_min_width -> "fast_model" (legacy)
+    - n_features >= two_stage_min_width -> "two_stage" (new path).
+    GPU branch is verified separately to keep this test deterministic."""
+    import mlframe.feature_selection._shap_proxy_prefilter as PF
+
+    monkeypatch.setattr(PF, "gpu_model_available", lambda: False)
+    afw = PF._auto_fast_width()
+    tsmw = PF._two_stage_min_width()
+    assert tsmw > afw, "two_stage threshold must be wider than the fast_model crossover by design"
+
+    # Below auto_fast_width -> "model"
+    assert PF.resolve_prefilter_method("auto", n_features=afw - 1, n_rows=4000) == "model"
+    # Between auto_fast_width and two_stage_min_width -> "fast_model"
+    assert PF.resolve_prefilter_method("auto", n_features=tsmw - 1, n_rows=4000) == "fast_model"
+    # At/above two_stage_min_width -> "two_stage"
+    assert PF.resolve_prefilter_method("auto", n_features=tsmw, n_rows=4000) == "two_stage"
+    assert PF.resolve_prefilter_method("auto", n_features=tsmw + 1000, n_rows=4000) == "two_stage"
+
+
+def test_resolve_auto_gpu_wins_over_two_stage_when_device_available(monkeypatch):
+    """When the row count clears the GPU crossover AND a CUDA device is enumerable, gpu_model
+    outranks two_stage (faithful full ranking on the GPU beats the funnel on big-n hardware)."""
+    import mlframe.feature_selection._shap_proxy_prefilter as PF
+
+    monkeypatch.setattr(PF, "gpu_model_available", lambda: True)
+    wide = PF._two_stage_min_width() + 5000
+    big_n = PF._gpu_model_min_rows()
+    assert PF.resolve_prefilter_method("auto", n_features=wide, n_rows=big_n) == "gpu_model"
+    # Below GPU min rows -> two_stage (not fast_model) because the width clears the two-stage threshold.
+    assert PF.resolve_prefilter_method("auto", n_features=wide, n_rows=big_n - 1) == "two_stage"
+
+
+def test_two_stage_returns_original_indices_and_honors_prefilter_top():
+    """``working_cols`` must be in ORIGINAL positional space (mapped back through stage A's keep set);
+    the kept count is ``min(prefilter_top, stage1_keep)`` and ``stage1_kept`` reflects stage A's funnel."""
+    from mlframe.feature_selection._shap_proxy_explain import make_default_estimator
+    from mlframe.feature_selection._shap_proxy_prefilter import prefilter_columns
+
+    # Width 600 - tiny, fast enough for the unit suite (not exercising the >=8000 auto threshold but
+    # we call two_stage EXPLICITLY here so routing is bypassed; the contract test is independent of width).
+    X, y = _wide_xy(seed=2, width=600, n_informative=5)
+    model = make_default_estimator(classification=True, random_state=0, n_estimators=120)
+    working_cols, info = prefilter_columns(
+        model, X, y.astype(np.float64), method="two_stage", prefilter_top=50,
+        classification=True, n_features=X.shape[1], n_estimators_cap=80, stage1_keep=200)
+
+    # sorted, in range, mapped to ORIGINAL positional indices.
+    assert working_cols.ndim == 1 and len(working_cols) == info["kept"] == 50
+    assert list(working_cols) == sorted(set(int(c) for c in working_cols))
+    assert working_cols.min() >= 0 and working_cols.max() < X.shape[1]
+    # Stage A bookkeeping surfaced for the report.
+    assert info["method"] == "two_stage"
+    assert info["of"] == X.shape[1]
+    assert info["stage1_kept"] == 200 and info["stage1_of"] == X.shape[1]
+    assert info["stage_a_seconds"] >= 0.0 and info["stage_b_seconds"] >= 0.0
+    assert info["n_estimators_cap"] == 80
+    # All 5 informatives (original indices 0..4) survive on a main-effect target with planted signal.
+    kept = set(int(c) for c in working_cols)
+    assert set(range(5)) <= kept, f"lost informatives, kept head={sorted(kept)[:8]}"
+
+
+def test_two_stage_stage1_keep_defaults_to_min_2000_or_20pct(monkeypatch):
+    """When ``stage1_keep`` is None, the prefilter computes ``min(2000, 0.2*n_features)``. Probe the
+    info dict for both regimes (0.2 cap binds vs the 2000 ceiling binds)."""
+    from mlframe.feature_selection._shap_proxy_explain import make_default_estimator
+    from mlframe.feature_selection._shap_proxy_prefilter import prefilter_columns, _default_stage1_keep
+
+    # Direct unit on the helper -- avoids paying for a stage-B fit on huge widths.
+    assert _default_stage1_keep(100) == 20       # 0.2 binds (20 < 2000)
+    assert _default_stage1_keep(8000) == 1600    # 0.2 binds (1600 < 2000)
+    assert _default_stage1_keep(20000) == 2000   # 2000 ceiling binds (4000 > 2000)
+    assert _default_stage1_keep(0) == 1          # degenerate guard
+
+    # End-to-end at small width: default kicks in, recorded in info.
+    X, y = _wide_xy(seed=3, width=300, n_informative=4)
+    model = make_default_estimator(classification=True, random_state=0, n_estimators=80)
+    _, info = prefilter_columns(
+        model, X, y.astype(np.float64), method="two_stage", prefilter_top=25,
+        classification=True, n_features=X.shape[1], n_estimators_cap=80, stage1_keep=None)
+    assert info["stage1_kept"] == _default_stage1_keep(X.shape[1])
+
+
+def test_two_stage_recovery_matches_single_stage_on_main_effect_target():
+    """Recovery contract: on a main-effect-driven target (the regime where two_stage's stage A is
+    sound) the two-stage funnel recovers at least as many planted informatives as the single-stage
+    ``"model"`` path. Both methods are run on the SAME small fixture; this is the unit-level
+    recovery guard. The 6k biz_value test exercises the same property under the production regime."""
+    from mlframe.feature_selection._shap_proxy_explain import make_default_estimator
+    from mlframe.feature_selection._shap_proxy_prefilter import prefilter_columns
+
+    X, y = _wide_xy(seed=4, width=400, n_informative=5)
+    model_a = make_default_estimator(classification=True, random_state=0, n_estimators=120)
+    model_b = make_default_estimator(classification=True, random_state=0, n_estimators=120)
+    keep = 40
+    informative = set(range(5))
+
+    single, _ = prefilter_columns(
+        model_a, X, y.astype(np.float64), method="model", prefilter_top=keep,
+        classification=True, n_features=X.shape[1], n_estimators_cap=80)
+    two_stage, _ = prefilter_columns(
+        model_b, X, y.astype(np.float64), method="two_stage", prefilter_top=keep,
+        classification=True, n_features=X.shape[1], n_estimators_cap=80, stage1_keep=120)
+    rec_single = len(informative & set(map(int, single)))
+    rec_two = len(informative & set(map(int, two_stage)))
+    # 1-feature slack: same contract as the biz_value test.
+    assert rec_two >= rec_single - 1, (
+        f"two_stage recovery {rec_two}/5 < single-stage {rec_single}/5 - 1 slack")
 
 
 def test_prefilter_cap_does_not_increase_fast_model_budget():

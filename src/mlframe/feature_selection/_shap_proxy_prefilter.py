@@ -6,7 +6,7 @@ the surviving column count, and clustering only compresses CORRELATED features, 
 stays as singletons). Profiling at width=10k attributed ~66% of the fit to a single XGBoost fit on all
 columns just to read ``feature_importances_``.
 
-Four ranking methods trade speed against interaction-awareness; the dispatcher picks a quality-safe
+Five ranking methods trade speed against interaction-awareness; the dispatcher picks a quality-safe
 default for moderate widths and a fast one only for very wide data (see ``resolve_prefilter_method``):
 
   - ``"model"``  : the original full booster fit on all columns -> ``feature_importances_`` / ``|coef_|``.
@@ -21,6 +21,13 @@ default for moderate widths and a fast one only for very wide data (see ``resolv
                    fit runs on the GPU; the win scales with row count. Gated via kernel_tuning_cache so
                    the CPU<->GPU crossover row count is tuned per-HW rather than hardcoded; falls back to
                    the CPU ``"model"`` path when no device / xgboost-GPU build is available.
+  - ``"two_stage"``  : stage A runs cheap O(n*f) ANOVA F-scores on ALL columns and keeps the top
+                   ``prefilter_stage1_keep`` survivors; stage B runs the iter10-capped booster on JUST
+                   the survivors and produces the final ``prefilter_top``. The all-columns booster fit
+                   (the dominant cost) shrinks proportionally to the stage-A reduction, while the
+                   interaction-aware ranking is preserved on the surviving cohort. Recovery vs the
+                   single-stage ``"model"`` path is preserved as long as the planted informatives clear
+                   stage A (true on any non-pure-XOR target).
 
 All methods return ``working_cols``: a SORTED int array of the kept ORIGINAL column indices (length
 <= ``prefilter_top``). The selector restricts its working frame to these and maps final picks back to
@@ -30,6 +37,7 @@ original indices via ``working_cols``, so the sklearn ``support_`` stays in orig
 from __future__ import annotations
 
 import logging
+import time
 from typing import Optional
 
 import numpy as np
@@ -37,7 +45,7 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-PREFILTER_METHODS = ("model", "univariate", "fast_model", "gpu_model")
+PREFILTER_METHODS = ("model", "univariate", "fast_model", "gpu_model", "two_stage")
 
 # Width at/above which the smart "auto" default abandons the faithful full-booster "model" prefilter
 # for the cheap interaction-aware "fast_model". Below this, the all-columns model fit is affordable and
@@ -56,6 +64,11 @@ _AUTO_FAST_WIDTH = 4000
 # Row count at/above which "gpu_model" actually beats CPU "model" for the all-columns fit (GPU transfer
 # + kernel-launch overhead dominates on small n; the win scales with rows). Overridable via the cache.
 _GPU_MODEL_MIN_ROWS = 20000
+# Width at/above which auto routes to the cheap-stage-A + capped-booster-stage-B "two_stage". Set above
+# the iter5 fast_model crossover so moderate widths stay on the single-stage path; two_stage shines
+# only when the all-columns booster fit itself is the hotspot (~6k+ in iter11 profiling). Overridable
+# via kernel_tuning_cache key ``shap_proxy_prefilter.two_stage_min_width``.
+_TWO_STAGE_MIN_WIDTH = 8000
 
 
 def _prefilter_tuning() -> dict:
@@ -82,6 +95,20 @@ def _gpu_model_min_rows() -> int:
     return int(_prefilter_tuning().get("gpu_model_min_rows", _GPU_MODEL_MIN_ROWS))
 
 
+def _two_stage_min_width() -> int:
+    return int(_prefilter_tuning().get("two_stage_min_width", _TWO_STAGE_MIN_WIDTH))
+
+
+def _default_stage1_keep(n_features: int) -> int:
+    """Default stage-A survivor count when the caller doesn't override: ``min(2000, 0.2*n_features)``.
+
+    The 0.2 lower bound keeps a generous funnel (small fraction of interaction-only features can survive
+    on stage A even with weak marginals), the 2000 ceiling keeps stage-B cost bounded at very wide data
+    (a 2k-column booster fit is well below the iter11 prefilter wall-clock budget). Always at least 1
+    (degenerate widths)."""
+    return max(1, min(2000, int(0.2 * n_features)))
+
+
 def resolve_prefilter_method(method: str, *, n_features: int, n_rows: int) -> str:
     """Map the user-facing ``prefilter_method`` to a concrete method.
 
@@ -99,9 +126,13 @@ def resolve_prefilter_method(method: str, *, n_features: int, n_rows: int) -> st
     if n_features < _auto_fast_width():
         return "model"
     # Very wide: prefer GPU full-fidelity ranking when it actually pays (enough rows + a device); else
-    # the cheap interaction-aware fast booster.
+    # at the very-wide tier (>= two_stage_min_width) the cheap-funnel two_stage path beats fast_model
+    # by spending stage A's cost on a vectorised F-score pass and giving stage B a much smaller column
+    # cohort. Below the two-stage threshold, the legacy fast_model crossover applies.
     if n_rows >= _gpu_model_min_rows() and gpu_model_available():
         return "gpu_model"
+    if n_features >= _two_stage_min_width():
+        return "two_stage"
     return "fast_model"
 
 
@@ -242,6 +273,86 @@ def _rank_gpu_model(model_template, X, y, *, n_features: int, n_estimators_cap=N
     return _importances_from_fitted(_unwrap_estimator(pf), n_features)
 
 
+def _rank_two_stage(
+    model_template,
+    X,
+    y,
+    *,
+    n_features: int,
+    classification: bool,
+    prefilter_top: int,
+    stage1_keep: int,
+    n_estimators_cap=None,
+):
+    """Cheap-funnel + capped-booster ranking.
+
+    Stage A: vectorised O(n*f) ANOVA F-score on ALL columns -> keep top ``stage1_keep`` original indices
+    (positional). Stage B: fit the iter10-capped booster on JUST those survivors and rank by native
+    importances -> keep top ``prefilter_top`` survivor indices, mapped back to ORIGINAL positional indices.
+
+    Returns ``(working_cols, info)`` (NOT a length-n_features importance vector) because the two-stage
+    path doesn't need to expose per-original-column importances to the caller -- it already produces the
+    final working_cols. ``info`` carries both stages' kept/of counts and timings so the report records
+    the funnel ratio that earned the speedup.
+
+    Recovery argument: stage A misses pure-interaction-only features (XOR-style partners with ~0
+    marginal). Stage B's booster is interaction-aware ON its restricted cohort, so once a partner
+    survives stage A its companion is recovered there. For the wide-data regime where two_stage routes
+    (n_features >= 8000) ANY mainstream target carries enough marginal signal on its informatives that
+    they clear stage A with massive headroom -- the only failure mode is constructed pure-XOR, where
+    even the legacy ``"fast_model"`` ranking is unreliable.
+
+    Falls back to the legacy ``"model"`` path on any stage-B no-importance return (preserves the original
+    fall-through contract from ``prefilter_columns``)."""
+    t0 = time.perf_counter()
+    scores = _rank_univariate(X, y, classification=classification)
+    stage1_keep = max(1, min(stage1_keep, n_features))
+    stage1_cols = _topk(scores, stage1_keep)
+    stage_a_dt = time.perf_counter() - t0
+    logger.info(
+        "ShapProxiedFS prefilter two_stage: stage A done in %.1fs, kept %d/%d",
+        stage_a_dt, int(len(stage1_cols)), int(n_features))
+    print(f"ShapProxiedFS prefilter two_stage: stage A done in {stage_a_dt:.1f}s, "
+          f"kept {len(stage1_cols)}/{n_features}", flush=True)
+
+    # Stage B: fit a capped booster on the survivors only and rank by native importances.
+    Xv = X.values if isinstance(X, pd.DataFrame) else np.asarray(X)
+    X_stage1 = Xv[:, stage1_cols]
+    if isinstance(X, pd.DataFrame):
+        cols_stage1 = X.columns[stage1_cols]
+        X_stage1 = pd.DataFrame(X_stage1, columns=cols_stage1, index=X.index)
+    t1 = time.perf_counter()
+    stage_b_imp = _rank_model(model_template, X_stage1, y,
+                              n_features=int(len(stage1_cols)),
+                              n_estimators_cap=n_estimators_cap)
+    stage_b_dt = time.perf_counter() - t1
+    if stage_b_imp is None:
+        # No-importance fallthrough on stage B -> degrade to the stage-A cohort as-is (still better
+        # than the identity full-frame fallback because we already shed the noise tail by F-score).
+        logger.warning("ShapProxiedFS prefilter two_stage: stage B returned no importances; "
+                       "falling back to the stage-A survivors as working_cols.")
+        working_cols = np.sort(stage1_cols)
+        return working_cols, dict(
+            method="two_stage", kept=int(len(working_cols)), of=int(n_features),
+            stage1_kept=int(len(stage1_cols)), stage1_of=int(n_features),
+            stage_a_seconds=float(stage_a_dt), stage_b_seconds=float(stage_b_dt),
+            skipped="stage_b_no_importance")
+    keep_b = min(prefilter_top, int(len(stage1_cols)))
+    local_top = _topk(stage_b_imp, keep_b)
+    # Map back to ORIGINAL indices via stage1_cols (positional), then sort for the canonical contract.
+    working_cols = np.sort(stage1_cols[local_top])
+    logger.info(
+        "ShapProxiedFS prefilter two_stage: stage B done in %.1fs, kept %d/%d",
+        stage_b_dt, int(len(working_cols)), int(len(stage1_cols)))
+    print(f"ShapProxiedFS prefilter two_stage: stage B done in {stage_b_dt:.1f}s, "
+          f"kept {len(working_cols)}/{len(stage1_cols)}", flush=True)
+    return working_cols, dict(
+        method="two_stage", kept=int(len(working_cols)), of=int(n_features),
+        stage1_kept=int(len(stage1_cols)), stage1_of=int(n_features),
+        stage_a_seconds=float(stage_a_dt), stage_b_seconds=float(stage_b_dt),
+        n_estimators_cap=n_estimators_cap)
+
+
 def _rank_univariate(X, y, *, classification: bool):
     """Vectorised O(n*f) per-feature ANOVA F-score (sklearn ``f_classif`` / ``f_regression``). Cheap
     single pass; marginal-signal only (misses pure-interaction features). NaN F-scores (constant
@@ -267,6 +378,7 @@ def prefilter_columns(
     classification: bool,
     n_features: int,
     n_estimators_cap: Optional[int] = 100,
+    stage1_keep: Optional[int] = None,
 ) -> tuple[np.ndarray, dict]:
     """Rank all columns by ``method`` and return ``(working_cols, info)``.
 
@@ -277,15 +389,24 @@ def prefilter_columns(
     report dict: ``dict(method=<resolved>, kept=K, of=n_features, n_estimators_cap=<cap or None>)``.
 
     ``n_estimators_cap`` (default 100) reduces the cloned ranking booster's tree count for the
-    ``"model"``, ``"fast_model"`` and ``"gpu_model"`` methods. The prefilter consumes ONLY the
-    ranking of native importances (never an absolute loss number reported to a user), and importance
-    attribution stabilises well below the default 300 trees -- so this is the same "cap-the-ranker"
-    pattern that iter9 applied to within-cluster refine and the trust guard. ``"fast_model"`` already
-    sets a reduced budget (template / 4) and clamps to ``min(current, cap)`` so the cap can never
-    accidentally INCREASE its tree count. ``"univariate"`` is a no-op (no booster). Set
-    ``n_estimators_cap=None`` to disable the cap (legacy uncapped behaviour).
+    ``"model"``, ``"fast_model"``, ``"gpu_model"`` AND the stage-B booster inside ``"two_stage"``. The
+    prefilter consumes ONLY the ranking of native importances (never an absolute loss number reported
+    to a user), and importance attribution stabilises well below the default 300 trees -- so this is
+    the same "cap-the-ranker" pattern that iter9 applied to within-cluster refine and the trust guard.
+    ``"fast_model"`` already sets a reduced budget (template / 4) and clamps to ``min(current, cap)``
+    so the cap can never accidentally INCREASE its tree count. ``"univariate"`` is a no-op (no booster).
+    Set ``n_estimators_cap=None`` to disable the cap (legacy uncapped behaviour).
+
+    ``stage1_keep`` (two_stage only): stage-A survivor count. Defaults to ``min(2000, 0.2*n_features)``
+    via ``_default_stage1_keep`` when None; ignored by every other method.
     """
     resolved = resolve_prefilter_method(method, n_features=n_features, n_rows=int(X.shape[0]))
+    if resolved == "two_stage":
+        # two_stage returns working_cols + info directly (no single length-n_features importance vector).
+        s1 = stage1_keep if stage1_keep is not None else _default_stage1_keep(n_features)
+        return _rank_two_stage(model_template, X, y, n_features=n_features,
+                               classification=classification, prefilter_top=prefilter_top,
+                               stage1_keep=s1, n_estimators_cap=n_estimators_cap)
     if resolved == "univariate":
         importance = _rank_univariate(X, y, classification=classification)
         applied_cap = None  # univariate has no booster -> cap is meaningfully N/A in the report
@@ -316,4 +437,6 @@ __all__ = [
     "resolve_prefilter_method",
     "gpu_model_available",
     "prefilter_columns",
+    "_default_stage1_keep",
+    "_two_stage_min_width",
 ]
