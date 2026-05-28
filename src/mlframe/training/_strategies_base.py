@@ -42,6 +42,50 @@ def _cast_numeric_to_float32(X):
             return _np.asarray(X, dtype=_np.float32)
     return _np.asarray(X, dtype=_np.float32)
 
+
+from sklearn.base import BaseEstimator, TransformerMixin
+
+
+class _Float32CastTransformer(TransformerMixin, BaseEstimator):
+    """Minimal sklearn-compatible transformer that casts numeric input to
+    float32. We used to wrap ``_cast_numeric_to_float32`` in a
+    ``FunctionTransformer(feature_names_out="one-to-one")``, but sklearn
+    1.8 resolves ``feature_names_out`` at TRANSFORM time on the test split
+    and raises ``TypeError: iteration over a 0-d array`` when the input is
+    a numpy array (no ``.columns`` attribute). Going direct sidesteps the
+    feature-names-out machinery entirely while keeping pickle / clone /
+    sklearn-tags semantics intact via BaseEstimator+TransformerMixin."""
+
+    def fit(self, X, y=None):  # noqa: ARG002 -- sklearn signature
+        # Stamp the standard fitted attributes so ``check_is_fitted`` succeeds
+        # AND sklearn's pipeline name-tracker (which calls
+        # ``get_feature_names_out(input_features=None)`` on each step in turn,
+        # passing the prior step's output names back in) gets back a non-empty
+        # name vector that matches the data width.
+        import numpy as _np
+        if hasattr(X, "columns"):
+            self.feature_names_in_ = _np.asarray(list(X.columns))
+        _shape = getattr(X, "shape", None)
+        if _shape is not None and len(_shape) >= 2:
+            self.n_features_in_ = int(_shape[1])
+        return self
+
+    def transform(self, X):
+        return _cast_numeric_to_float32(X)
+
+    def fit_transform(self, X, y=None):  # noqa: ARG002
+        self.fit(X)
+        return _cast_numeric_to_float32(X)
+
+    def get_feature_names_out(self, input_features=None):
+        import numpy as _np
+        if input_features is not None:
+            return _np.asarray(input_features)
+        if hasattr(self, "feature_names_in_"):
+            return self.feature_names_in_
+        n = getattr(self, "n_features_in_", 0)
+        return _np.asarray([f"x{i}" for i in range(n)])
+
 # Pre-compiled slug pattern (MEMORY.md: pre-compile regex at module level).
 # Only allow alnum, dash, underscore; everything else collapses to a single "_".
 _SLUG_PATTERN = re.compile(r"[^A-Za-z0-9_-]+")
@@ -384,13 +428,11 @@ class ModelPipelineStrategy(ABC):
                 # cached transformed-frame memory (the prod 4.1M x 470 linear
                 # path sat at 15 GB float64 / RAM 111->128 GB). The cast keeps
                 # the numeric output (and PipelineCache entry) float32.
-                from sklearn.preprocessing import FunctionTransformer
-                steps.append((
-                    "to_float32",
-                    FunctionTransformer(
-                        _cast_numeric_to_float32, feature_names_out="one-to-one",
-                    ),
-                ))
+                # Uses a tiny custom transformer (not FunctionTransformer)
+                # because sklearn 1.8's feature_names_out="one-to-one"
+                # validator crashes on numpy 0-d at transform-time on the
+                # test split (TypeError: iteration over a 0-d array).
+                steps.append(("to_float32", _Float32CastTransformer()))
             else:
                 logger.warning(
                     "%s.build_pipeline: requires_scaling=True but scaler is None. Scaling step skipped - Ridge/Lasso/ElasticNet regularisation will be feature-magnitude-dependent. Supply a sklearn.preprocessing.StandardScaler.",
