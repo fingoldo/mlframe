@@ -93,6 +93,23 @@ def fast_roc_auc(y_true: np.ndarray, y_score: np.ndarray, **kwargs) -> float:
     by the sort itself, so removing it does not move the needle. Numpy
     argsort stays outside.
 
+    bench-attempt-rejected (2026-05-28, c0027_90010291 iter552): tried
+    folding numba's default (quicksort) argsort into the AUC kernel with
+    a reverse-iteration walk. Numba's quicksort is markedly slower than
+    numpy's C-optimised quicksort even with the Python<->numba dispatch
+    saved::
+
+        n=5k     numpy+kern=0.13 ms  numba fused=0.39 ms  0.34x
+        n=20k    numpy+kern=0.58 ms  numba fused=1.84 ms  0.32x
+        n=50k    numpy+kern=1.66 ms  numba fused=7.60 ms  0.22x
+        n=200k   numpy+kern=20.5 ms  numba fused=44.3 ms  0.46x
+
+    Conclusion: numpy argsort is at the algorithmic floor for this kernel.
+    The c0027 honest_diagnostics bootstrap argsort (5.1s tottime / 6419
+    calls / ~800us per call at the resampled ~50k bootstrap size) is the
+    floor cost on this code path. Documented so the next agent does not
+    re-attempt a third sort-fusion variant.
+
     See ``fast_roc_auc_unstable`` for the 2-3x faster variant that drops
     the stable-sort guarantee -- safe for bootstrap / monte-carlo
     callers where tie-breaking determinism is immaterial.
