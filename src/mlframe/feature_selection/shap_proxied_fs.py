@@ -227,9 +227,28 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
 
     # ------------------------------------------------------------------ fit
     def fit(self, X, y):
+        import time
+        from contextlib import contextmanager
+
         from sklearn.base import clone
 
         from mlframe.feature_selection._shap_proxy_explain import compute_shap_matrix, make_default_estimator
+
+        # Optional per-stage wall-clock instrumentation for the scaling benchmark / profiling. Set
+        # ``self._stage_timings`` to a dict before calling fit and each stage's seconds land in it; a
+        # no-op otherwise (zero overhead beyond a dict lookup), so production fits are unaffected.
+        _timings = getattr(self, "_stage_timings", None)
+
+        @contextmanager
+        def _stage(name):
+            if _timings is None:
+                yield
+                return
+            t0 = time.perf_counter()
+            try:
+                yield
+            finally:
+                _timings[name] = _timings.get(name, 0.0) + (time.perf_counter() - t0)
 
         X = self._to_pandas(X).reset_index(drop=True)
         X.columns = [str(c) for c in X.columns]
@@ -261,20 +280,21 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         if self.prefilter_top is not None and n_features > self.prefilter_top:
             from mlframe.feature_selection._shap_proxy_explain import _unwrap_estimator
 
-            pf = clone(model_template)
-            pf.fit(X_search, y_search)
-            est = _unwrap_estimator(pf)
-            if hasattr(est, "feature_importances_"):
-                imp = np.asarray(est.feature_importances_, dtype=np.float64)
-            elif hasattr(est, "coef_"):
-                imp = np.abs(np.asarray(est.coef_, dtype=np.float64)).reshape(-1, n_features).sum(axis=0)
-            else:
-                imp = None
-            if imp is not None and imp.shape[0] == n_features:
-                working_cols = np.sort(np.argsort(-imp)[: self.prefilter_top])
-                X_search = X_search.iloc[:, working_cols].reset_index(drop=True)
-                X_hold = X_hold.iloc[:, working_cols].reset_index(drop=True)
-                report["prefilter"] = dict(kept=int(len(working_cols)), of=int(n_features))
+            with _stage("prefilter"):
+                pf = clone(model_template)
+                pf.fit(X_search, y_search)
+                est = _unwrap_estimator(pf)
+                if hasattr(est, "feature_importances_"):
+                    imp = np.asarray(est.feature_importances_, dtype=np.float64)
+                elif hasattr(est, "coef_"):
+                    imp = np.abs(np.asarray(est.coef_, dtype=np.float64)).reshape(-1, n_features).sum(axis=0)
+                else:
+                    imp = None
+                if imp is not None and imp.shape[0] == n_features:
+                    working_cols = np.sort(np.argsort(-imp)[: self.prefilter_top])
+                    X_search = X_search.iloc[:, working_cols].reset_index(drop=True)
+                    X_hold = X_hold.iloc[:, working_cols].reset_index(drop=True)
+                    report["prefilter"] = dict(kept=int(len(working_cols)), of=int(n_features))
 
         # Optional correlated-feature clustering: collapse to denoised UNITS so SHAP + search run on
         # hundreds of columns, not tens of thousands. unit_to_members maps proxy(unit) index ->
@@ -285,12 +305,13 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
             from mlframe.feature_selection._shap_proxy_cluster import (
                 build_unit_matrix, cluster_correlated_features, cluster_summary)
 
-            labels = cluster_correlated_features(
-                X_search.values, threshold=self.cluster_corr_threshold, use_gpu=self.cluster_use_gpu)
-            units, unit_to_members, _kind = build_unit_matrix(
-                X_search.values, labels, weighting=self.cluster_weighting)
-            X_proxy = pd.DataFrame(units, columns=[f"unit{i}" for i in range(units.shape[1])])
-            report["clustering"] = cluster_summary(unit_to_members)
+            with _stage("clustering"):
+                labels = cluster_correlated_features(
+                    X_search.values, threshold=self.cluster_corr_threshold, use_gpu=self.cluster_use_gpu)
+                units, unit_to_members, _kind = build_unit_matrix(
+                    X_search.values, labels, weighting=self.cluster_weighting)
+                X_proxy = pd.DataFrame(units, columns=[f"unit{i}" for i in range(units.shape[1])])
+                report["clustering"] = cluster_summary(unit_to_members)
         else:
             X_proxy = X_search
             unit_to_members = None
@@ -298,11 +319,12 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         # SHAP attribution on the proxy (unit or raw) columns. Request per-model attribution variance
         # only when the uncertainty lever is active AND we actually have multiple models to vary.
         want_var = self.uncertainty_penalty > 0 and self.n_models > 1
-        shap_out = compute_shap_matrix(
-            model_template, X_proxy, y_search, classification=self.classification,
-            out_of_fold=self.out_of_fold, n_splits=self.n_splits, n_models=self.n_models,
-            config_jitter=self.config_jitter, return_variance=want_var,
-            rng=self._rng, tqdm_desc=("shap-oof" if self.tqdm else None))
+        with _stage("oof_shap"):
+            shap_out = compute_shap_matrix(
+                model_template, X_proxy, y_search, classification=self.classification,
+                out_of_fold=self.out_of_fold, n_splits=self.n_splits, n_models=self.n_models,
+                config_jitter=self.config_jitter, return_variance=want_var,
+                rng=self._rng, tqdm_desc=("shap-oof" if self.tqdm else None), n_jobs=self.n_jobs)
         if want_var:
             phi, base, y_phi, phi_var = shap_out
         else:
@@ -316,20 +338,22 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         if prescreen_top is None and n_proxy > self.brute_force_max_features and self.optimizer in ("auto", "bruteforce", "bruteforce_gpu"):
             prescreen_top = self.brute_force_max_features
         if prescreen_top is not None and prescreen_top < n_proxy:
-            importance = np.abs(phi).mean(axis=0)
-            keep = np.sort(np.argsort(-importance)[:prescreen_top])
-            phi = np.ascontiguousarray(phi[:, keep])
-            proxy_cols_kept = keep
-            if phi_var is not None:
-                phi_var = np.ascontiguousarray(phi_var[:, keep])
-            if unit_to_members is not None:
-                unit_to_members = [unit_to_members[i] for i in keep]
-            else:
-                unit_to_members = [np.array([int(i)], dtype=np.int64) for i in keep]
-            report["prescreen"] = dict(kept=int(len(keep)), of=int(n_proxy))
+            with _stage("prescreen"):
+                importance = np.abs(phi).mean(axis=0)
+                keep = np.sort(np.argsort(-importance)[:prescreen_top])
+                phi = np.ascontiguousarray(phi[:, keep])
+                proxy_cols_kept = keep
+                if phi_var is not None:
+                    phi_var = np.ascontiguousarray(phi_var[:, keep])
+                if unit_to_members is not None:
+                    unit_to_members = [unit_to_members[i] for i in keep]
+                else:
+                    unit_to_members = [np.array([int(i)], dtype=np.int64) for i in keep]
+                report["prescreen"] = dict(kept=int(len(keep)), of=int(n_proxy))
 
         optimizer = self._resolve_optimizer(phi.shape[1])
-        candidates = self._run_search(optimizer, phi, base, y_phi)
+        with _stage("search"):
+            candidates = self._run_search(optimizer, phi, base, y_phi)
 
         # Interaction-aware coalition (#5): for interaction-heavy targets the main-effect sum can't
         # see a pair's joint signal (XOR partners have ~0 main effect). Add candidates ranked by the
@@ -364,17 +388,28 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         report.update(optimizer=optimizer, n_candidates=len(candidates),
                       proxy_best=dict(features=tuple(candidates[0][1]), proxy_loss=candidates[0][0]))
 
+        # One honest-retrain memo shared across trust guard, re-validation, ablation, and within-cluster
+        # refine: within this fit the train/holdout split + model + metric are fixed, so a retrain's
+        # loss is determined by the (column subset, seed). seed=None fits (trust anchors, ablation,
+        # refine) frequently repeat the SAME large subset (e.g. the chosen winner is retrained in BOTH
+        # the ablation and as refine's starting base) -- the cache returns those identical floats
+        # without a duplicate fit. Random-seeded re-validation fits get distinct seeds, never wrongly
+        # merged. Numerically identical to the uncached path (deterministic model on fixed data).
+        from mlframe.feature_selection._shap_proxy_revalidate import HonestLossCache
+
+        honest_cache = HonestLossCache()
         rv = dict(classification=self.classification, metric=self.metric, n_jobs=self.n_jobs,
-                  unit_to_members=unit_to_members)
+                  unit_to_members=unit_to_members, cache=honest_cache)
 
         # Proxy-trust diagnostic (proxy ranks units; honest retrains on member columns).
         if self.trust_guard:
             from mlframe.feature_selection._shap_proxy_revalidate import proxy_trust_guard
 
-            report["trust"] = proxy_trust_guard(
-                phi, base, y_phi, model_template, X_search, X_hold, y_hold,
-                n_anchors=self.n_anchors, rng=self._rng, min_card=self.min_features,
-                max_card=self.max_features, spearman_floor=self.spearman_floor, **rv)
+            with _stage("trust_guard"):
+                report["trust"] = proxy_trust_guard(
+                    phi, base, y_phi, model_template, X_search, X_hold, y_hold,
+                    n_anchors=self.n_anchors, rng=self._rng, min_card=self.min_features,
+                    max_card=self.max_features, spearman_floor=self.spearman_floor, **rv)
 
         # Unified candidate re-ranking before the expensive top-N honest retrains: order by the
         # corrector's predicted honest loss (#3/#6, falls back to raw proxy) PLUS an uncertainty
@@ -415,24 +450,25 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         # corrector anchors are available, else the static top-N retrain).
         if self.revalidate:
             cdata = report.get("trust", {}).get("_corrector_data")
-            if self.active_learning and cdata:
-                from mlframe.feature_selection._shap_proxy_revalidate import active_learning_revalidate
+            with _stage("revalidation"):
+                if self.active_learning and cdata:
+                    from mlframe.feature_selection._shap_proxy_revalidate import active_learning_revalidate
 
-                budget = self.active_learning_budget or self.top_n
-                best_idx, ranked, n_eval = active_learning_revalidate(
-                    candidates, model_template, X_search, y_search, X_hold, y_hold,
-                    corrector_data=cdata, phi=phi, budget=budget, n_models=self.n_revalidation_models,
-                    parsimony_tol=self.parsimony_tol, rng=self._rng, **rv)
-                report["revalidation"] = dict(ranked=ranked[: self.top_n],
-                                              active_learning=dict(n_evaluated=n_eval, budget=budget))
-            else:
-                from mlframe.feature_selection._shap_proxy_revalidate import revalidate_top_n
+                    budget = self.active_learning_budget or self.top_n
+                    best_idx, ranked, n_eval = active_learning_revalidate(
+                        candidates, model_template, X_search, y_search, X_hold, y_hold,
+                        corrector_data=cdata, phi=phi, budget=budget, n_models=self.n_revalidation_models,
+                        parsimony_tol=self.parsimony_tol, rng=self._rng, **rv)
+                    report["revalidation"] = dict(ranked=ranked[: self.top_n],
+                                                  active_learning=dict(n_evaluated=n_eval, budget=budget))
+                else:
+                    from mlframe.feature_selection._shap_proxy_revalidate import revalidate_top_n
 
-                best_idx, ranked, baseline = revalidate_top_n(
-                    candidates, model_template, X_search, y_search, X_hold, y_hold,
-                    n_models=self.n_revalidation_models, lambda_stab=self.lambda_stab,
-                    parsimony_tol=self.parsimony_tol, rng=self._rng, **rv)
-                report["revalidation"] = dict(ranked=ranked[: self.top_n], random_baseline=baseline)
+                    best_idx, ranked, baseline = revalidate_top_n(
+                        candidates, model_template, X_search, y_search, X_hold, y_hold,
+                        n_models=self.n_revalidation_models, lambda_stab=self.lambda_stab,
+                        parsimony_tol=self.parsimony_tol, rng=self._rng, **rv)
+                    report["revalidation"] = dict(ranked=ranked[: self.top_n], random_baseline=baseline)
         else:
             best_idx = tuple(candidates[0][1])
 
@@ -440,9 +476,11 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         if self.run_importance_ablation and best_idx:
             from mlframe.feature_selection._shap_proxy_revalidate import importance_topk_ablation
 
-            report["importance_ablation"] = importance_topk_ablation(
-                phi, best_idx, model_template, X_search, y_search, X_hold, y_hold,
-                classification=self.classification, metric=self.metric, unit_to_members=unit_to_members)
+            with _stage("importance_ablation"):
+                report["importance_ablation"] = importance_topk_ablation(
+                    phi, best_idx, model_template, X_search, y_search, X_hold, y_hold,
+                    classification=self.classification, metric=self.metric, unit_to_members=unit_to_members,
+                    cache=honest_cache)
 
         # Expand best proxy subset -> original member columns, then optionally prune redundant members.
         if unit_to_members is not None:
@@ -452,12 +490,13 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         if self.within_cluster_refine and unit_to_members is not None and len(member_cols) > 1:
             from mlframe.feature_selection._shap_proxy_revalidate import within_cluster_refine
 
-            refined = within_cluster_refine(
-                member_cols, model_template, X_search, y_search, X_hold, y_hold,
-                classification=self.classification, metric=self.metric,
-                parsimony_tol=self.parsimony_tol, n_jobs=self.n_jobs)
-            report["within_cluster_refine"] = dict(before=len(member_cols), after=len(refined))
-            member_cols = refined
+            with _stage("within_cluster_refine"):
+                refined = within_cluster_refine(
+                    member_cols, model_template, X_search, y_search, X_hold, y_hold,
+                    classification=self.classification, metric=self.metric,
+                    parsimony_tol=self.parsimony_tol, n_jobs=self.n_jobs, cache=honest_cache)
+                report["within_cluster_refine"] = dict(before=len(member_cols), after=len(refined))
+                member_cols = refined
 
         # Expose sklearn contract: map working-space member columns back to ORIGINAL indices (the
         # pre-filter may have restricted the working set), names in INPUT column order.

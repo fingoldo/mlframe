@@ -190,7 +190,8 @@ def _assert_additivity_and_base(phi: np.ndarray, base: float, fold_tag: str = ""
 _JITTER_DEPTHS = (3, 4, 5, 6)  # cycled across models when config_jitter is on
 
 
-def _fit_one(model_template, X, y, classification: bool, seed: Optional[int], jitter_depth: Optional[int] = None):
+def _fit_one(model_template, X, y, classification: bool, seed: Optional[int], jitter_depth: Optional[int] = None,
+             inner_n_jobs: Optional[int] = None):
     est = clone(model_template)
     if seed is not None and hasattr(est, "random_state"):
         try:
@@ -202,6 +203,12 @@ def _fit_one(model_template, X, y, classification: bool, seed: Optional[int], ji
     if jitter_depth is not None and hasattr(est, "max_depth"):
         try:
             est.set_params(max_depth=int(jitter_depth))
+        except (ValueError, TypeError):
+            pass
+    # Cap per-fit threads when several folds train concurrently (avoid outer x inner oversubscription).
+    if inner_n_jobs is not None and hasattr(est, "n_jobs"):
+        try:
+            est.set_params(n_jobs=int(inner_n_jobs))
         except (ValueError, TypeError):
             pass
     est.fit(X, y)
@@ -237,6 +244,7 @@ def compute_shap_matrix(
     rng: Optional[np.random.Generator] = None,
     tqdm_desc: Optional[str] = None,
     shap_backend: str = "auto",
+    n_jobs: int = 1,
 ):
     """Compute the per-row SHAP value matrix + per-row base value.
 
@@ -248,6 +256,13 @@ def compute_shap_matrix(
     ``shap_backend`` ("auto" default) routes attribution between the custom fast numba/cupy TreeSHAP
     (wide xgboost data) and the ``shap`` library (always-correct fallback); see ``_pick_backend``.
 
+    ``n_jobs`` runs the independent out-of-fold folds concurrently (threading backend: xgb/lgbm release
+    the GIL during fit, and SHAP attribution is C/numba). Seeds are pre-drawn in fold order, so the
+    result is byte-identical to the serial path regardless of which fold finishes first. ``1`` (default)
+    keeps the serial path; the selector passes its own ``n_jobs`` so wide-data fits parallelize the
+    OOF-SHAP stage. Each fold's own fit threads are capped so outer-folds x inner-threads don't
+    oversubscribe the cores.
+
     phi : (n, f) float64 -- per-row SHAP in margin (clf) / target (reg) space.
     base : (n,) float64 -- per-row baseline (the fold's expected_value), constant within a fold.
     """
@@ -257,15 +272,20 @@ def compute_shap_matrix(
     y = np.asarray(y)
     n, f = X.shape
 
-    def _models_phi(X_tr, y_tr, X_ex):
-        """Mean phi, mean base, and (model-to-model) phi variance over n_models fits on X_ex."""
+    def _models_phi(X_tr, y_tr, X_ex, seeds, inner_n_jobs=None):
+        """Mean phi, mean base, and (model-to-model) phi variance over n_models fits on X_ex.
+
+        ``seeds`` is the pre-drawn list of model seeds (one per model). Passing them in -- instead of
+        drawing from ``rng`` inside the loop -- decouples the per-fold work from RNG draw ORDER, so the
+        out-of-fold loop can run folds concurrently and still produce the byte-identical result a serial
+        run would (the seed each fold sees is fixed regardless of which fold finishes first)."""
         s = np.zeros((X_ex.shape[0], f), dtype=np.float64)
         sq = np.zeros((X_ex.shape[0], f), dtype=np.float64)
         b = 0.0
         for m in range(n_models):
-            seed = int(rng.integers(0, 2**31 - 1))
             depth = _JITTER_DEPTHS[m % len(_JITTER_DEPTHS)] if config_jitter else None
-            est = _fit_one(model_template, X_tr, y_tr, classification, seed, jitter_depth=depth)
+            est = _fit_one(model_template, X_tr, y_tr, classification, seeds[m], jitter_depth=depth,
+                           inner_n_jobs=inner_n_jobs)
             pf, bf = _shap_phi_and_base(_unwrap_estimator(est), X_ex, backend=shap_backend)
             s += pf
             sq += pf * pf
@@ -275,7 +295,8 @@ def compute_shap_matrix(
         return mean, b / n_models, var
 
     if not out_of_fold:
-        phi_acc, base_val, var = _models_phi(X, y, X)
+        seeds = [int(rng.integers(0, 2**31 - 1)) for _ in range(n_models)]
+        phi_acc, base_val, var = _models_phi(X, y, X, seeds)
         _assert_additivity_and_base(phi_acc, base_val)
         base_arr = np.full(n, base_val, dtype=np.float64)
         if return_variance:
@@ -295,18 +316,44 @@ def compute_shap_matrix(
     phi_var = np.zeros((n, f), dtype=np.float64) if return_variance else None
 
     folds = list(split_iter)
-    if tqdm_desc:
-        from pyutilz.system import tqdmu
+    # Pre-draw every fold's model seeds in fold order BEFORE any fit, so concurrent folds yield the
+    # byte-identical result the serial loop would (the RNG is consumed in fold order regardless of
+    # which fold's thread runs first).
+    fold_seeds = [[int(rng.integers(0, 2**31 - 1)) for _ in range(n_models)] for _ in folds]
 
-        folds = tqdmu(folds, desc=tqdm_desc)
+    import os
 
-    for fold_id, (tr_idx, va_idx) in enumerate(folds):
-        phi_fold, base_fold, var_fold = _models_phi(X.iloc[tr_idx], y[tr_idx], X.iloc[va_idx])
-        _assert_additivity_and_base(phi_fold, base_fold, fold_tag=f" fold {fold_id}")
-        phi[va_idx] = phi_fold
-        base[va_idx] = base_fold
+    n_cores = os.cpu_count() or 1
+    outer = 1
+    if n_jobs not in (None, 0, 1) and len(folds) > 1:
+        outer = n_cores if n_jobs == -1 else int(n_jobs)
+        outer = max(1, min(outer, len(folds), n_cores))
+    inner = max(1, n_cores // outer) if outer > 1 else None
+
+    def _one_fold(fold_id, tr_idx, va_idx):
+        pf, bf, vf = _models_phi(X.iloc[tr_idx], y[tr_idx], X.iloc[va_idx], fold_seeds[fold_id],
+                                 inner_n_jobs=inner)
+        _assert_additivity_and_base(pf, bf, fold_tag=f" fold {fold_id}")
+        return va_idx, pf, bf, vf
+
+    if outer > 1:
+        from joblib import Parallel, delayed
+
+        fold_results = Parallel(n_jobs=outer, prefer="threads")(
+            delayed(_one_fold)(fid, tr, va) for fid, (tr, va) in enumerate(folds))
+    else:
+        iter_folds = folds
+        if tqdm_desc:
+            from pyutilz.system import tqdmu
+
+            iter_folds = tqdmu(folds, desc=tqdm_desc)
+        fold_results = [_one_fold(fid, tr, va) for fid, (tr, va) in enumerate(iter_folds)]
+
+    for va_idx, pf, bf, vf in fold_results:
+        phi[va_idx] = pf
+        base[va_idx] = bf
         if return_variance:
-            phi_var[va_idx] = var_fold
+            phi_var[va_idx] = vf
 
     if return_variance:
         return phi, base, y.astype(np.float64), phi_var

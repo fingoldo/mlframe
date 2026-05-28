@@ -99,3 +99,79 @@ def test_importance_ablation_runs(planted):
     assert out["proxy_features"] == (0, 1, 2)
     assert "proxy_honest_loss" in out and "importance_honest_loss" in out
     assert isinstance(out["proxy_wins"], bool)
+
+
+# --------------------------------------------------------------------- HonestLossCache (dedup)
+
+
+def test_honest_loss_cache_returns_identical_to_uncached(planted):
+    """A cached retrain must equal a fresh fit on the SAME (subset, seed): same model, same data,
+    same seed is deterministic, so the cached float is numerically identical."""
+    from mlframe.feature_selection._shap_proxy_revalidate import HonestLossCache, _honest_loss
+
+    X, y, phi, base = planted
+    Xs, ys = X.iloc[:900].reset_index(drop=True), y[:900]
+    Xh, yh = X.iloc[900:].reset_index(drop=True), y[900:]
+    cols = [0, 1, 2, 5]
+
+    uncached = _honest_loss(LinearRegression(), Xs, ys, Xh, yh, cols, False, "rmse", seed=7)
+    cache = HonestLossCache()
+    first = _honest_loss(LinearRegression(), Xs, ys, Xh, yh, cols, False, "rmse", seed=7, cache=cache)
+    second = _honest_loss(LinearRegression(), Xs, ys, Xh, yh, cols, False, "rmse", seed=7, cache=cache)
+    assert first == uncached  # first call (miss) matches the uncached fit
+    assert second == first    # second call (hit) returns the byte-identical cached value
+    assert cache.misses == 1 and cache.hits == 1
+
+
+def test_honest_loss_cache_key_is_order_independent_and_seed_separated(planted):
+    """Column permutations of one subset share a cache slot (order-independent key); the SAME subset
+    with a DIFFERENT seed is a distinct slot (so seed-jittered re-validation fits are never merged)."""
+    from mlframe.feature_selection._shap_proxy_revalidate import HonestLossCache, _honest_loss
+
+    X, y, phi, base = planted
+    Xs, ys = X.iloc[:900].reset_index(drop=True), y[:900]
+    Xh, yh = X.iloc[900:].reset_index(drop=True), y[900:]
+    cache = HonestLossCache()
+
+    a = _honest_loss(LinearRegression(), Xs, ys, Xh, yh, [0, 1, 2], False, "rmse", seed=3, cache=cache)
+    b = _honest_loss(LinearRegression(), Xs, ys, Xh, yh, [2, 0, 1], False, "rmse", seed=3, cache=cache)
+    assert a == b and cache.hits == 1  # permuted columns -> cache hit, identical loss
+    # Different seed -> a fresh fit, not served from the [0,1,2]/seed=3 slot.
+    before_misses = cache.misses
+    _honest_loss(LinearRegression(), Xs, ys, Xh, yh, [0, 1, 2], False, "rmse", seed=99, cache=cache)
+    assert cache.misses == before_misses + 1
+
+
+def test_full_fit_cached_matches_uncached():
+    """End-to-end: the selector's support_ + selected_features_ are identical whether the honest-loss
+    cache serves duplicates or every retrain is recomputed (the cache changes only wall-clock)."""
+    from mlframe.feature_selection import _shap_proxy_revalidate as RV
+    from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
+
+    rng = np.random.default_rng(0)
+    n, f = 1500, 30
+    Xnp = rng.normal(size=(n, f))
+    Xnp[:, 5] = Xnp[:, 0] + 0.2 * rng.normal(size=n)  # a correlated redundant copy -> exercises clustering
+    X = pd.DataFrame(Xnp, columns=[f"x{i}" for i in range(f)])
+    logit = 1.2 * Xnp[:, 0] + 0.9 * Xnp[:, 1] - 0.7 * Xnp[:, 2]
+    y = pd.Series((logit + 0.3 * rng.normal(size=n) > 0).astype(int))
+
+    def _fit():
+        sel = ShapProxiedFS(classification=True, metric="brier", optimizer="auto",
+                            cluster_features=True, top_n=12, n_splits=3, n_revalidation_models=2,
+                            n_anchors=15, random_state=0, verbose=False)
+        sel.fit(X, y)
+        return sel.support_.copy(), list(sel.selected_features_)
+
+    sup_cached, feats_cached = _fit()
+
+    # Force the no-cache path by neutering get() so every retrain recomputes.
+    real_get = RV.HonestLossCache.get
+    RV.HonestLossCache.get = lambda self, idx, seed: None
+    try:
+        sup_uncached, feats_uncached = _fit()
+    finally:
+        RV.HonestLossCache.get = real_get
+
+    assert np.array_equal(sup_cached, sup_uncached)
+    assert feats_cached == feats_uncached

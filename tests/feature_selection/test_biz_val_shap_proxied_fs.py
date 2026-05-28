@@ -73,6 +73,47 @@ def test_biz_val_shap_proxied_fs_recovers_informative_and_beats_baselines():
 
 
 @pytest.mark.slow
+@pytest.mark.timeout(600)  # one wide (3000-col) prefilter model fit dominates; exceeds the 60s default
+def test_biz_val_wide_pipeline_scales_and_recovers_informative():
+    """The user's real regime is tens of thousands of features. This is the same end-to-end pipeline
+    (prefilter -> cluster -> OOF-SHAP -> pre-screen -> search -> trust guard -> honest re-validation ->
+    within-cluster refine) at a CI-affordable width (3000 features: a few informatives + correlated
+    redundant copies + thousands of independent noise columns). Asserts it completes and the planted
+    informative features survive the prefilter + selection -- i.e. the wide-data path stays correct,
+    not just the narrow one. Marked slow (one wide prefilter fit dominates the wall-clock)."""
+    from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import make_regime_dataset
+    from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
+
+    n_informative, n_redundant, width = 6, 8, 3000
+    X, y, roles = make_regime_dataset(
+        n_samples=3000, n_informative=n_informative, n_redundant=n_redundant,
+        redundancy_rho=0.9, n_noise=width - n_informative - n_redundant, snr=5.0, task="binary", seed=0)
+    assert X.shape[1] == width
+
+    sel = ShapProxiedFS(
+        classification=True, metric="brier", optimizer="auto",
+        prefilter_top=400, cluster_features=True, cluster_corr_threshold=0.7,
+        top_n=15, n_splits=3, n_revalidation_models=2, n_anchors=20,
+        random_state=0, verbose=False)
+    sel.fit(X, pd.Series(y))
+
+    # Contract integrity at scale: mask length == input width, names map back to original columns.
+    assert sel.support_.shape == (width,)
+    assert len(sel.selected_features_) == int(sel.support_.sum())
+    assert set(sel.selected_features_) <= set(X.columns)
+
+    informative = {f"inf{i}" for i in range(n_informative)}
+    selected = set(sel.selected_features_)
+    # The wide pipeline must recover most of the planted informatives despite the noise flood
+    # (measured 6/6 at this width; floor 4 leaves prefilter/clustering/seed headroom).
+    recovered = len(informative & selected)
+    assert recovered >= 4, f"wide pipeline recovered too few informatives: {sorted(informative & selected)}"
+    # The prefilter itself must not have thrown the informatives away before SHAP ever saw them.
+    pf = sel.shap_proxy_report_.get("prefilter")
+    assert pf is not None and pf["kept"] == 400 and pf["of"] == width
+
+
+@pytest.mark.slow
 def test_biz_val_regression_recovers_informative():
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 

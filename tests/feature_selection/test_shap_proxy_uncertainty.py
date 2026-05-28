@@ -52,6 +52,31 @@ def test_config_jitter_returns_nonneg_variance():
     assert phi_var.sum() > 0.0  # depth-jittered models genuinely disagree -> non-zero variance
 
 
+def test_oof_shap_parallel_folds_match_serial():
+    """Parallelising the out-of-fold model fits must be byte-identical to the serial path: seeds are
+    pre-drawn in fold order, so each fold sees the SAME seed regardless of which thread finishes first.
+    A correctness guard for the wide-data OOF-SHAP speedup."""
+    import pandas as pd
+
+    from mlframe.feature_selection._shap_proxy_explain import compute_shap_matrix, make_default_estimator
+
+    rng = np.random.default_rng(0)
+    n, f = 1500, 80  # >= treeshap numba crossover so the parallelised fold path is exercised
+    Xnp = rng.normal(size=(n, f))
+    X = pd.DataFrame(Xnp, columns=[f"f{i}" for i in range(f)])
+    y = (1.0 * Xnp[:, 0] + 0.8 * Xnp[:, 1] - 0.6 * Xnp[:, 2] + 0.3 * rng.normal(size=n) > 0).astype(int)
+    model = make_default_estimator(classification=True, random_state=0)
+
+    serial = compute_shap_matrix(model, X, y, classification=True, out_of_fold=True, n_splits=4,
+                                 rng=np.random.default_rng(0), n_jobs=1)
+    parallel = compute_shap_matrix(model, X, y, classification=True, out_of_fold=True, n_splits=4,
+                                   rng=np.random.default_rng(0), n_jobs=-1)
+    phi_s, base_s, _ = serial
+    phi_p, base_p, _ = parallel
+    assert np.array_equal(phi_s, phi_p), f"phi differs by up to {np.abs(phi_s - phi_p).max()}"
+    assert np.array_equal(base_s, base_p)
+
+
 @pytest.mark.slow
 def test_biz_val_config_jitter_stabilizes_importance_ranking():
     """Averaging over depth-jittered models should make the SHAP-importance ranking at least as stable
