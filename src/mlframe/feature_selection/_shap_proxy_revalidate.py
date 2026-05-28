@@ -675,6 +675,22 @@ def revalidate_top_n(
     via ``template_id=('reval_cap', cap)`` so cached entries don't collide with full-template entries
     from elsewhere in the pipeline. ``None`` (default for the standalone function) disables the cap
     (legacy 300-tree behaviour). The selector facade passes ``revalidation_n_estimators=100`` by default.
+
+    bench-attempt-rejected (iter32, 2026-05-29): bias-corrector-predicted-loss CULL gate
+    (``corrector`` + ``phi`` + ``max_candidates`` kwargs that sorted top_n candidates by the
+    trust-guard corrector's predicted honest loss and culled to ``max_candidates=10`` BEFORE the
+    honest retrain loop). Live regime (width=1000, n_rows=5000, snr=8, top_n=20 -> 10): warm
+    same-process seed=1 baseline reval=2.61s vs gated reval=2.55s (+2.3%), e2e 8.29s -> 8.27s
+    (+0.2%); seed=0 reval 2.95s -> 2.88s (+2.4%); seed=0 e2e 12.58s -> 9.93s (+21%) is dominated
+    by within-run prefilter variance (3.71s vs 1.56s in same comparison, NOT gate-attributable).
+    cProfile ``xgboost.update`` ncalls=1600 in BOTH baseline and gated -- the actual training-round
+    count is the same: the joblib-threading pool at -1 already absorbed the 60-fit batch (per
+    iter29 ``time.sleep`` ~5.0s = parallel productive wait), so dropping 30 of those 60 fits leaves
+    the same wall because the pool was never the bottleneck. iter28's
+    ``revalidation_n_estimators=100`` cap already extracted the per-fit win; further cuts here are
+    sub-threshold. Lever does not pay at the current ``n_revalidation_models=3`` + parallel-joblib
+    operating point; revisit only if a future iter raises models-per-candidate or serialises the
+    retrain loop.
     """
     metric = resolve_metric(classification, metric)
     rng = np.random.default_rng(0) if rng is None else rng
