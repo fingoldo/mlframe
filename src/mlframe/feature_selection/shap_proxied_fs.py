@@ -86,8 +86,10 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         trust_guard_n_estimators: int | None = 100,
         trust_guard_stratified_anchors: bool = False,
         trust_guard_uniform_tail_frac: float = 0.2,
-        trust_guard_cardinality_dist: str = "uniform",
-        trust_guard_zipf_alpha: float = 1.0,
+        trust_guard_cardinality_dist: str = "zipf",
+        trust_guard_zipf_alpha: float = 0.25,
+        trust_guard_fidelity_weights: tuple[float, float] = (0.5, 0.5),
+        trust_guard_metric: str = "proxy_fidelity_score",
         n_jobs: int = -1,
         random_state: int = 0,
         verbose: bool = True,
@@ -166,36 +168,47 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         # surviving cohort that the trust-guard MUST weight away from). ``trust_guard_uniform_tail_frac``
         # controls the fraction of each anchor that is uniform-sampled for tail-of-distribution
         # coverage (default 20%; 0 = pure-weighted, 1 = legacy uniform).
-        # iter14-bench-attempt-rejected (2026-05-28): width=6000 regime synthetic, n=3000, two_stage
-        # prefilter -> stratified spearman 0.877 vs uniform 0.969 (Δ -0.092). Same fit twice via
-        # ``patch(get_cached_f_scores -> None)``. Don't enable by default; keep opt-in via this knob.
+        # iter14-bench-attempt-rejected (2026-05-28, re-confirmed under iter16 composite):
+        # width=6000 regime synthetic, n=3000. Iter14 raw Spearman: stratified 0.877 vs uniform 0.969
+        # (Δ -0.092). Iter16 composite (0.5*spearman + 0.5*recall@k): stratified 0.6974 vs uniform
+        # 0.7791 (Δ -0.082). Combined F-stratified + Zipf alpha=0.25 composite 0.7889 still loses to
+        # plain Zipf alpha=0.25 composite 0.8335. Lever still does not pay at this regime even under
+        # the recall-aware metric; remain opt-in for callers whose prefilter is noise-heavy.
         self.trust_guard_stratified_anchors = bool(trust_guard_stratified_anchors)
         self.trust_guard_uniform_tail_frac = float(trust_guard_uniform_tail_frac)
-        # ``trust_guard_cardinality_dist`` (iter15): how anchor cardinality ``k`` is drawn over
-        # ``[min_card, max_card]`` inside ``proxy_trust_guard``. ``'uniform'`` (default) is pre-iter15
-        # behaviour. ``'zipf'`` is the opt-in Zipf prior ``P(k) ∝ k^(-zipf_alpha)`` over-sampling
-        # small-k anchors. Hypothesis was that small-k anchors give honest models a wider loss range
-        # to rank (larger Spearman at the same budget) -- but the iter15 bench on the iter14
-        # width=6000 regime (n=3000, 12 informatives, two_stage prefilter -> 400-col cohort, n_anchors
-        # =30) showed Zipf consistently REGRESSED Spearman vs uniform:
+        # ``trust_guard_cardinality_dist`` (iter15+iter16): how anchor cardinality ``k`` is drawn
+        # over ``[min_card, max_card]`` inside ``proxy_trust_guard``. ``'zipf'`` (iter16 default after
+        # composite-fidelity re-evaluation) over-samples small-k anchors via ``P(k) ∝ k^(-zipf_alpha)``;
+        # ``'uniform'`` is the pre-iter15 flat draw. Iter15 originally shipped Zipf as opt-in because
+        # raw Spearman regressed monotonically with alpha; iter16 introduced ``proxy_fidelity_score =
+        # 0.5*spearman + 0.5*recall_at_k`` as the trust-guard's headline metric and re-ran the bench:
+        # Zipf alpha=0.25 lifts recall@k from 0.667 to 0.833 enough to beat uniform on composite even
+        # though raw Spearman dips. The width=6000 regime (n=3000, 12 informatives, 400-col cohort,
+        # n_anchors=30) reproduced as:
         #
-        #   uniform        spearman=0.9693
-        #   zipf alpha=0.25 spearman=0.9564 (Δ -0.013)
-        #   zipf alpha=0.5  spearman=0.9466 (Δ -0.023)
-        #   zipf alpha=1.0  spearman=0.7860 (Δ -0.183, monotonic with alpha)
+        #   uniform                spearman=0.8914 recall@k=0.667 composite=0.7791
+        #   zipf alpha=0.25        spearman=0.8336 recall@k=0.833 composite=0.8335 (+0.0544)
+        #   zipf alpha=0.5         spearman=0.7766 recall@k=0.500 composite=0.6383
+        #   zipf alpha=1.0         spearman=0.4692 recall@k=0.500 composite=0.4846 (TRIPS GATE)
         #
-        # Recovery stayed at 10/12 across all variants; recall@k actually IMPROVED under Zipf (1.0 vs
-        # 0.833). The post-two_stage cohort already concentrates informatives, so small-k samples
-        # land in "all-noise or all-signal" extremes where proxy and honest agree trivially (no
-        # nuance for Spearman to rank), while large-k samples land in the informative-mix middle
-        # where the proxy is actually being asked to rank. Documented honest-negative finding; the
-        # lever stays exposed for callers in other regimes (low-redundancy data, no prefilter, etc.)
-        # where the small-k prior may pay. ``trust_guard_zipf_alpha`` (default 1.0) is the canonical
-        # 1/k Zipf; lower alpha -> flatter prior; alpha=0 -> uniform.
-        # iter15-bench-attempt-rejected (2026-05-28): see above table; Zipf monotonically regresses
-        # Spearman in alpha at width=6000. Don't enable by default; keep opt-in.
+        # Recovery 12/12 preserved across all variants. Zipf alpha=0.25 is the composite sweet spot
+        # and is now the default. ``trust_guard_zipf_alpha`` defaults to 0.25 (was 1.0 in iter15);
+        # alpha=0 degenerates Zipf to uniform; higher alpha overcompresses to small-k extremes where
+        # proxy and honest agree trivially. Set ``trust_guard_cardinality_dist='uniform'`` to recover
+        # pre-iter16 behaviour exactly.
         self.trust_guard_cardinality_dist = str(trust_guard_cardinality_dist).lower()
         self.trust_guard_zipf_alpha = float(trust_guard_zipf_alpha)
+        # ``trust_guard_fidelity_weights`` (iter16): weights ``(w_spearman, w_recall)`` for the
+        # composite ``proxy_fidelity_score = w_spearman * spearman + w_recall * recall_at_k`` that
+        # gates the trust-guard's ``trustworthy`` boolean. Default (0.5, 0.5) gives equal weight to
+        # whole-ranking fidelity (Spearman) and top-k overlap (recall@k); the iter15 measurement showed
+        # the levers can move these in opposite directions, so the composite is the honest headline.
+        # ``trust_guard_metric`` (iter16, default ``'proxy_fidelity_score'``): which scalar gates the
+        # ``trustworthy`` boolean. ``'spearman'`` preserves pre-iter16 backwards-compat semantics for
+        # callers that pinned ``spearman_floor`` against the raw Spearman scale.
+        self.trust_guard_fidelity_weights = (float(trust_guard_fidelity_weights[0]),
+                                              float(trust_guard_fidelity_weights[1]))
+        self.trust_guard_metric = str(trust_guard_metric).lower()
         self.n_jobs = n_jobs
         self.random_state = random_state
         self.verbose = verbose
@@ -517,7 +530,9 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
                     unit_f_scores=unit_f_scores,
                     anchor_uniform_tail_frac=self.trust_guard_uniform_tail_frac,
                     cardinality_dist=self.trust_guard_cardinality_dist,
-                    zipf_alpha=self.trust_guard_zipf_alpha, **rv)
+                    zipf_alpha=self.trust_guard_zipf_alpha,
+                    fidelity_weights=self.trust_guard_fidelity_weights,
+                    trustworthy_metric=self.trust_guard_metric, **rv)
 
         # Unified candidate re-ranking before the expensive top-N honest retrains: order by the
         # corrector's predicted honest loss (#3/#6, falls back to raw proxy) PLUS an uncertainty

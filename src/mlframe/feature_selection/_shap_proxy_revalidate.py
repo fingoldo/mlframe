@@ -441,6 +441,7 @@ def proxy_trust_guard(
     *, classification, metric=None, n_anchors=30, rng=None, min_card=1, max_card=None,
     spearman_floor=0.6, n_jobs=-1, unit_to_members=None, cache=None, n_estimators_cap=None,
     unit_f_scores=None, anchor_uniform_tail_frac=0.2, cardinality_dist="uniform", zipf_alpha=1.0,
+    fidelity_weights=(0.5, 0.5), trustworthy_metric="proxy_fidelity_score",
 ):
     """Measure proxy-vs-honest rank fidelity on anchor subsets. Returns a report dict.
 
@@ -457,6 +458,25 @@ def proxy_trust_guard(
     candidates. Leave as ``None`` (default) to preserve legacy absolute-value semantics on the
     corrector training pairs.
 
+    ``fidelity_weights`` (iter16, default ``(0.5, 0.5)``): weights ``(w_spearman, w_recall)`` for the
+    composite ``proxy_fidelity_score = w_spearman * spearman + w_recall * recall_at_k``. Both Spearman
+    and recall@k live on ``[0, 1]`` for non-degenerate inputs (Spearman is clipped on the gate side
+    only; the raw field can be negative on a broken proxy and the gate then correctly trips because
+    the composite drops below the floor). The composite is the trust-guard's headline metric; raw
+    ``spearman`` / ``kendall`` / ``recall_at_k`` remain as diagnostic fields. The default weights are
+    deliberately symmetric: Spearman captures whole-ranking fidelity, recall@k captures the top-k
+    overlap that drives downstream candidate ranking, and lever changes (iter14 F-stratified anchors,
+    iter15 Zipf cardinality prior) can lift one while dropping the other. Iter15 measured the case
+    that motivated this change: Zipf at alpha=0.25 dropped spearman 0.969->0.956 but lifted recall@k
+    0.833->1.0, so the composite went 0.901->0.978 -- a real win the raw-Spearman gate had masked.
+
+    ``trustworthy_metric`` (iter16, default ``'proxy_fidelity_score'``): which scalar gates the
+    ``trustworthy`` boolean. ``'proxy_fidelity_score'`` is the new composite (default). ``'spearman'``
+    preserves pre-iter16 semantics for callers that pinned ``spearman_floor`` against the raw Spearman
+    scale. The floor (``spearman_floor`` kwarg, kept for backwards-compat) is interpreted in the chosen
+    metric's scale: both metrics live on [0, 1] so the same numeric floor (default 0.6) is a sensible
+    starting point either way.
+
     ``unit_f_scores``: optional length-``phi.shape[1]`` float vector of per-unit marginal-strength
     weights (e.g. ANOVA F-scores aggregated from the prefilter's cached stage-A scores). When supplied,
     anchor columns are drawn by softmax(unit_f_scores) instead of uniform-at-random, with a small
@@ -468,14 +488,15 @@ def proxy_trust_guard(
     count. None (default) keeps the legacy uniform sampler. Non-finite entries (-inf for constant /
     degenerate columns) sink to the noise-floor probability via the softmax.
 
-    ``cardinality_dist`` (iter15, default ``'uniform'``): how anchor cardinality ``k`` is drawn over
-    ``[min_card, max_card]``. ``'uniform'`` is pre-iter15 behaviour (uniform-k draw); kept as the
-    default after the iter15 honest-negative bench (Zipf consistently regressed Spearman across alpha
-    in {0.25, 0.5, 1.0} on the iter14 width=6000 regime, monotonically with alpha). ``'zipf'`` is the
-    opt-in iter15 prior ``P(k) ∝ k^(-zipf_alpha)`` (small-k concentration); may pay in other regimes
-    where the prefilter cohort still has a noise tail, but does NOT pay on the post-two_stage
-    width=6000 cohort. ``zipf_alpha`` (default 1.0) tunes how aggressively Zipf concentrates on small
-    k; ``alpha=0`` degenerates Zipf to uniform."""
+    ``cardinality_dist`` (iter15+iter16): how anchor cardinality ``k`` is drawn over
+    ``[min_card, max_card]``. The MODULE-LEVEL default of this kwarg is still ``'uniform'`` (so direct
+    callers of ``proxy_trust_guard`` get legacy behaviour); the FACADE-LEVEL default
+    (``ShapProxiedFS.trust_guard_cardinality_dist``) is ``'zipf'`` with ``zipf_alpha=0.25`` after the
+    iter16 composite-fidelity re-evaluation showed Zipf alpha=0.25 lifts ``proxy_fidelity_score`` from
+    0.779 to 0.834 on the iter14 width=6000 regime (raw Spearman dips 0.891->0.834 but recall@k jumps
+    0.667->0.833). ``'zipf'`` uses ``P(k) ∝ k^(-zipf_alpha)`` (small-k concentration). Higher alpha
+    over-compresses to small-k extremes where proxy and honest agree trivially; ``alpha=0`` degenerates
+    Zipf to uniform."""
     from scipy.stats import kendalltau, spearmanr
 
     metric = resolve_metric(classification, metric)
@@ -516,9 +537,35 @@ def proxy_trust_guard(
     honest_best = set(np.argsort(honest_losses)[:k].tolist())
     recall = len(proxy_best & honest_best) / k if k else float("nan")
 
-    trustworthy = np.isfinite(sp) and sp >= spearman_floor
+    # Composite fidelity: weighted convex combination of Spearman and recall@k. Both live on [0, 1]
+    # for non-degenerate inputs; Spearman is clipped to [0, 1] for the composite so a broken-proxy
+    # negative Spearman doesn't get "credited" by a high recall@k (the recall@k of a 1-anchor top-k
+    # is trivially 1.0). The raw spearman field is kept unchanged for diagnostics.
+    w_sp, w_rc = float(fidelity_weights[0]), float(fidelity_weights[1])
+    total = w_sp + w_rc
+    if total <= 0:
+        raise ValueError(f"fidelity_weights must sum to a positive value, got {fidelity_weights!r}")
+    w_sp, w_rc = w_sp / total, w_rc / total
+    sp_pos = max(0.0, sp) if np.isfinite(sp) else 0.0
+    rc_pos = recall if np.isfinite(recall) else 0.0
+    fidelity = float(w_sp * sp_pos + w_rc * rc_pos)
+    gate_metric_name = str(trustworthy_metric).lower()
+    if gate_metric_name == "spearman":
+        gate_value = sp
+    elif gate_metric_name in ("proxy_fidelity_score", "fidelity", "composite"):
+        gate_metric_name = "proxy_fidelity_score"
+        gate_value = fidelity
+    else:
+        raise ValueError(
+            f"trustworthy_metric must be 'proxy_fidelity_score' or 'spearman', got {trustworthy_metric!r}")
+    trustworthy = np.isfinite(gate_value) and gate_value >= spearman_floor
     report = dict(n_anchors=int(len(proxy_losses)), spearman=sp, kendall=kt,
-                  recall_at_k=recall, k=int(k), spearman_floor=spearman_floor, trustworthy=bool(trustworthy),
+                  recall_at_k=recall, k=int(k), spearman_floor=spearman_floor,
+                  # iter16: composite gate (default) -- raw spearman / recall stay above as diagnostics.
+                  proxy_fidelity_score=fidelity,
+                  fidelity_weights=(w_sp, w_rc),
+                  trustworthy_metric=gate_metric_name,
+                  trustworthy=bool(trustworthy),
                   # Anchor sampling mode: 'stratified' when F-score weights were supplied + applied,
                   # else 'uniform' (legacy). Diagnostic so downstream consumers can see when the
                   # F-score-aware prior was active without inspecting kwargs.
@@ -533,14 +580,16 @@ def proxy_trust_guard(
                                        cards=cards.tolist(), redund=redunds.tolist()))
     if not trustworthy:
         logger.warning(
-            "ShapProxiedFS: proxy fidelity LOW (spearman=%.3f < floor=%.2f, recall@%d=%.2f). "
+            "ShapProxiedFS: proxy fidelity LOW (%s=%.3f < floor=%.2f; spearman=%.3f, recall@%d=%.2f). "
             "The SHAP-coalition proxy may mis-rank subsets on this data; treat the result with caution "
             "(consider a smaller exhaustive honest search or more selected features).",
-            sp, spearman_floor, int(k), recall,
+            gate_metric_name, gate_value, spearman_floor, sp, int(k), recall,
         )
     else:
-        logger.info("ShapProxiedFS: proxy fidelity OK (spearman=%.3f, kendall=%.3f, recall@%d=%.2f).",
-                    sp, kt, int(k), recall)
+        logger.info(
+            "ShapProxiedFS: proxy fidelity OK (%s=%.3f; spearman=%.3f, kendall=%.3f, recall@%d=%.2f).",
+            gate_metric_name, gate_value, sp, kt, int(k), recall,
+        )
     return report
 
 

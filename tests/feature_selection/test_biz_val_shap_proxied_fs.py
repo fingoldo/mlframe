@@ -345,12 +345,13 @@ def test_stratified_anchors_default_off_preserves_legacy_trust_report():
     assert sel.shap_proxy_report_["trust"]["anchor_sampling"] == "uniform"
 
 
-def test_zipf_cardinality_default_off_and_recorded_in_trust_report():
-    """The iter15 Zipf cardinality knob MUST default to OFF on a fresh ``ShapProxiedFS`` after the
-    honest-negative bench at width=6000 (Zipf monotonically regressed Spearman in alpha; uniform 0.969
-    vs zipf-alpha-1.0 0.786). Cheap structural sentinel: a future change that accidentally flips the
-    default to 'zipf' will fire here before shipping. The Zipf regression itself is asserted by the
-    slow biz_value test on the iter14 width=6000 regime."""
+def test_zipf_cardinality_default_on_and_recorded_in_trust_report():
+    """The iter16 default of ``trust_guard_cardinality_dist`` is ``'zipf'`` with
+    ``trust_guard_zipf_alpha=0.25`` after re-evaluation under the composite ``proxy_fidelity_score``
+    metric (raw Spearman dropped, but recall@k lifted enough that the composite gained +0.054). This
+    structural sentinel locks in the post-iter16 default so a future regression that silently flips
+    back to 'uniform' will fire here before shipping. Reverse direction of the iter15 sentinel; the
+    Zipf vs uniform comparison itself is asserted by the slow biz_value test on the width=6000 regime."""
     from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import make_regime_dataset
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
@@ -362,11 +363,11 @@ def test_zipf_cardinality_default_off_and_recorded_in_trust_report():
         prefilter_top=150, prefilter_method="two_stage",
         cluster_features=False, top_n=5, n_splits=3, n_revalidation_models=1, n_anchors=12,
         random_state=0, verbose=False, n_jobs=1)
-    assert sel.trust_guard_cardinality_dist == "uniform"
-    assert sel.trust_guard_zipf_alpha == 1.0  # value present but inert until knob flips to 'zipf'
+    assert sel.trust_guard_cardinality_dist == "zipf"
+    assert sel.trust_guard_zipf_alpha == 0.25  # iter16 composite sweet spot
     sel.fit(X, pd.Series(y))
-    assert sel.shap_proxy_report_["trust"]["anchor_cardinality_dist"] == "uniform"
-    assert sel.shap_proxy_report_["trust"]["anchor_zipf_alpha"] is None
+    assert sel.shap_proxy_report_["trust"]["anchor_cardinality_dist"] == "zipf"
+    assert sel.shap_proxy_report_["trust"]["anchor_zipf_alpha"] == 0.25
 
 
 @pytest.mark.slow

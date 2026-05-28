@@ -852,3 +852,117 @@ def test_proxy_trust_guard_degrades_to_uniform_on_misaligned_weights():
                             classification=False, metric="rmse", n_anchors=10,
                             rng=np.random.default_rng(0), unit_f_scores=bad_weights)
     assert rep["anchor_sampling"] == "uniform"
+
+
+def test_proxy_fidelity_score_is_weighted_composite_of_spearman_and_recall():
+    """Iter16 composite metric: ``proxy_fidelity_score = w_spearman * max(0, spearman) + w_recall *
+    recall_at_k`` with weights normalised to sum to 1. The report MUST expose the composite + the
+    normalised weights + the metric name that gated ``trustworthy`` so downstream consumers can audit
+    the gate decision without recomputing."""
+    from sklearn.linear_model import LinearRegression
+    from mlframe.feature_selection._shap_proxy_revalidate import proxy_trust_guard
+
+    rng = np.random.default_rng(0)
+    n, f = 600, 6
+    X = pd.DataFrame(rng.normal(size=(n, f)), columns=[f"x{i}" for i in range(f)])
+    y = (1.5 * X["x0"] + 1.0 * X["x1"] - 0.8 * X["x2"] + 0.05 * rng.normal(size=n)).to_numpy()
+    phi = np.column_stack([1.5 * X["x0"], 1.0 * X["x1"], -0.8 * X["x2"]] + [np.zeros(n)] * (f - 3))
+    base = np.full(n, float(y.mean()))
+    Xs, ys = X.iloc[:450].reset_index(drop=True), y[:450]
+    Xh, yh = X.iloc[450:].reset_index(drop=True), y[450:]
+
+    rep = proxy_trust_guard(phi[:450], base[:450], ys, LinearRegression(), Xs, Xh, yh,
+                            classification=False, metric="rmse", n_anchors=10,
+                            rng=np.random.default_rng(0))
+    expected = 0.5 * max(0.0, rep["spearman"]) + 0.5 * rep["recall_at_k"]
+    assert rep["proxy_fidelity_score"] == pytest.approx(expected, abs=1e-12)
+    assert rep["fidelity_weights"] == (0.5, 0.5)
+    assert rep["trustworthy_metric"] == "proxy_fidelity_score"
+
+    # Custom asymmetric weights are normalised to sum-1 + still applied.
+    rep2 = proxy_trust_guard(phi[:450], base[:450], ys, LinearRegression(), Xs, Xh, yh,
+                             classification=False, metric="rmse", n_anchors=10,
+                             rng=np.random.default_rng(0), fidelity_weights=(3.0, 1.0))
+    expected2 = 0.75 * max(0.0, rep2["spearman"]) + 0.25 * rep2["recall_at_k"]
+    assert rep2["proxy_fidelity_score"] == pytest.approx(expected2, abs=1e-12)
+    assert rep2["fidelity_weights"] == (0.75, 0.25)
+
+
+def test_trustworthy_metric_kwarg_switches_gate_to_raw_spearman():
+    """``trustworthy_metric='spearman'`` MUST preserve pre-iter16 backwards-compat semantics: gate
+    fires against the raw Spearman scale, not the composite. The raw ``spearman`` field stays
+    unchanged across the two modes (it's a diagnostic, not the gate input). Unknown values raise."""
+    from sklearn.linear_model import LinearRegression
+    from mlframe.feature_selection._shap_proxy_revalidate import proxy_trust_guard
+
+    rng = np.random.default_rng(0)
+    n, f = 600, 6
+    X = pd.DataFrame(rng.normal(size=(n, f)), columns=[f"x{i}" for i in range(f)])
+    y = (1.5 * X["x0"] + 1.0 * X["x1"] - 0.8 * X["x2"] + 0.05 * rng.normal(size=n)).to_numpy()
+    phi = np.column_stack([1.5 * X["x0"], 1.0 * X["x1"], -0.8 * X["x2"]] + [np.zeros(n)] * (f - 3))
+    base = np.full(n, float(y.mean()))
+    Xs, ys = X.iloc[:450].reset_index(drop=True), y[:450]
+    Xh, yh = X.iloc[450:].reset_index(drop=True), y[450:]
+
+    rep_default = proxy_trust_guard(phi[:450], base[:450], ys, LinearRegression(), Xs, Xh, yh,
+                                    classification=False, metric="rmse", n_anchors=10,
+                                    rng=np.random.default_rng(0))
+    rep_legacy = proxy_trust_guard(phi[:450], base[:450], ys, LinearRegression(), Xs, Xh, yh,
+                                   classification=False, metric="rmse", n_anchors=10,
+                                   rng=np.random.default_rng(0), trustworthy_metric="spearman")
+    assert rep_default["trustworthy_metric"] == "proxy_fidelity_score"
+    assert rep_legacy["trustworthy_metric"] == "spearman"
+    # Same anchors -> same raw fields; only the gate input differs.
+    assert rep_default["spearman"] == rep_legacy["spearman"]
+    assert rep_default["recall_at_k"] == rep_legacy["recall_at_k"]
+
+    # Unknown metric name MUST raise.
+    with pytest.raises(ValueError, match="trustworthy_metric"):
+        proxy_trust_guard(phi[:450], base[:450], ys, LinearRegression(), Xs, Xh, yh,
+                          classification=False, metric="rmse", n_anchors=10,
+                          rng=np.random.default_rng(0), trustworthy_metric="not-a-metric")
+
+
+def test_proxy_fidelity_score_clips_negative_spearman_in_composite():
+    """A broken-proxy negative Spearman MUST clip to 0 inside the composite so a trivially-high
+    recall@k (1-anchor top-k of 1.0) cannot mask it. The raw ``spearman`` field still records the
+    negative value for diagnostics."""
+    from mlframe.feature_selection._shap_proxy_revalidate import proxy_trust_guard
+    from sklearn.linear_model import LinearRegression
+    # Synthesise an anti-aligned phi (phi[:, j] = -coef_j * x_j) so the SHAP proxy systematically
+    # ranks subsets in the WRONG direction; Spearman with honest losses will be strongly negative.
+    rng = np.random.default_rng(0)
+    n, f = 600, 6
+    X = pd.DataFrame(rng.normal(size=(n, f)), columns=[f"x{i}" for i in range(f)])
+    y = (1.5 * X["x0"] + 1.0 * X["x1"] - 0.8 * X["x2"] + 0.05 * rng.normal(size=n)).to_numpy()
+    phi = np.column_stack([-1.5 * X["x0"], -1.0 * X["x1"], 0.8 * X["x2"]] + [np.zeros(n)] * (f - 3))
+    base = np.full(n, float(y.mean()))
+    Xs, ys = X.iloc[:450].reset_index(drop=True), y[:450]
+    Xh, yh = X.iloc[450:].reset_index(drop=True), y[450:]
+
+    rep = proxy_trust_guard(phi[:450], base[:450], ys, LinearRegression(), Xs, Xh, yh,
+                            classification=False, metric="rmse", n_anchors=10,
+                            rng=np.random.default_rng(0))
+    # Composite uses max(0, spearman); negative Spearman must NOT lift the composite above
+    # 0.5 * recall_at_k.
+    assert rep["proxy_fidelity_score"] <= 0.5 * rep["recall_at_k"] + 1e-12
+
+
+def test_fidelity_weights_must_sum_to_positive_value():
+    """``fidelity_weights`` summing to zero or negative MUST raise -- silent re-normalisation to a
+    division-by-zero would propagate NaN into the gate and trip every downstream consumer."""
+    from mlframe.feature_selection._shap_proxy_revalidate import proxy_trust_guard
+    from sklearn.linear_model import LinearRegression
+
+    rng = np.random.default_rng(0)
+    n, f = 300, 4
+    X = pd.DataFrame(rng.normal(size=(n, f)), columns=[f"x{i}" for i in range(f)])
+    y = (1.0 * X["x0"] + 0.05 * rng.normal(size=n)).to_numpy()
+    phi = np.column_stack([1.0 * X["x0"]] + [np.zeros(n)] * (f - 1))
+    base = np.full(n, float(y.mean()))
+    Xs, ys = X.iloc[:200].reset_index(drop=True), y[:200]
+    Xh, yh = X.iloc[200:].reset_index(drop=True), y[200:]
+    with pytest.raises(ValueError, match="fidelity_weights"):
+        proxy_trust_guard(phi[:200], base[:200], ys, LinearRegression(), Xs, Xh, yh,
+                          classification=False, metric="rmse", n_anchors=8,
+                          rng=np.random.default_rng(0), fidelity_weights=(0.0, 0.0))
