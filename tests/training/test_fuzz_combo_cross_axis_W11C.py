@@ -489,3 +489,216 @@ def test_iter501_new_coverage_axes_flow_to_kwargs():
     assert c_on.canonical_key() != c_off_a.canonical_key()  # FHC text gate
     assert c_comp_on.canonical_key() != c_comp_off_a.canonical_key()  # composite gate
     assert on.canonical_key() != combo_off_a.canonical_key()  # shap-proxied gate (re-asserted)
+
+
+# ---------------------------------------------------------------------------
+# 2026-05-28 audit-pass-2: 10 deeper axes (4 PART-A coverage gaps + 6 ShapProxiedFS
+# deep extension knobs). Mirrors test_iter501_new_coverage_axes_flow_to_kwargs.
+# ---------------------------------------------------------------------------
+
+
+def test_iter502_audit_pass_2_axes_flow_to_kwargs():
+    """10 audit-pass-2 fuzz axes must:
+      (a) be present in AXES with >=2 candidate values,
+      (b) be present in the FuzzCombo dataclass with the library default,
+      (c) thread verbatim through their downstream consumer when ON,
+      (d) canonical_key-collapse to defaults when the gating axis is OFF
+          (no phantom variation in pairwise dedup).
+
+    Axes (all from D:/Temp/AUDIT_PASS_2_DONE.md):
+      PART A (4 LOW-tier coverage-gap axes, deferred from W11C wave):
+        - ensembling_degenerate_class_ratio_cfg (EnsemblingConfig.degenerate_class_ratio)
+        - behavior_use_flaml_zeroshot_cfg (TrainingBehaviorConfig.use_flaml_zeroshot)
+        - target_temporal_audit_granularity_cfg (TrainingBehaviorConfig.target_temporal_audit_granularity)
+        - prep_ext_dim_n_components_cfg (PreprocessingExtensionsConfig.dim_n_components)
+      PART B (6 ShapProxiedFS deep extension knobs):
+        - shap_proxied_config_jitter_cfg (ShapProxiedFS.config_jitter)
+        - shap_proxied_uncertainty_penalty_cfg (ShapProxiedFS.uncertainty_penalty)
+        - shap_proxied_within_cluster_refine_cfg (ShapProxiedFS.within_cluster_refine)
+        - shap_proxied_use_bias_corrector_cfg (ShapProxiedFS.use_bias_corrector)
+        - shap_proxied_refine_n_estimators_cfg (ShapProxiedFS.refine_n_estimators)
+        - shap_proxied_trust_guard_n_estimators_cfg (ShapProxiedFS.trust_guard_n_estimators)
+    """
+    from tests.training._fuzz_combo import (
+        AXES, _build_combo, enumerate_combos, build_shap_proxied_fs_kwargs,
+    )
+
+    new_axes = (
+        # PART A
+        "ensembling_degenerate_class_ratio_cfg",
+        "behavior_use_flaml_zeroshot_cfg",
+        "target_temporal_audit_granularity_cfg",
+        "prep_ext_dim_n_components_cfg",
+        # PART B
+        "shap_proxied_config_jitter_cfg",
+        "shap_proxied_uncertainty_penalty_cfg",
+        "shap_proxied_within_cluster_refine_cfg",
+        "shap_proxied_use_bias_corrector_cfg",
+        "shap_proxied_refine_n_estimators_cfg",
+        "shap_proxied_trust_guard_n_estimators_cfg",
+    )
+    # (a) Presence in AXES with >=2 candidates.
+    for ax in new_axes:
+        assert ax in AXES, f"missing fuzz axis {ax}"
+        assert len(AXES[ax]) >= 2, f"axis {ax} must offer at least 2 values"
+
+    # (b) FuzzCombo dataclass defaults match the library defaults.
+    base_axes = {name: values[0] for name, values in AXES.items()}
+    c_default = _build_combo(models=("cb",), axes=base_axes, seed=0)
+    assert c_default.ensembling_degenerate_class_ratio_cfg == 0.01
+    assert c_default.behavior_use_flaml_zeroshot_cfg is False
+    assert c_default.target_temporal_audit_granularity_cfg == "auto"
+    assert c_default.prep_ext_dim_n_components_cfg == 50
+    assert c_default.shap_proxied_config_jitter_cfg is False
+    assert c_default.shap_proxied_uncertainty_penalty_cfg == 0.0
+    assert c_default.shap_proxied_within_cluster_refine_cfg is True
+    assert c_default.shap_proxied_use_bias_corrector_cfg is True
+    assert c_default.shap_proxied_refine_n_estimators_cfg == 100
+    assert c_default.shap_proxied_trust_guard_n_estimators_cfg == 100
+
+    # (c) enumerate_combos still reaches 150 combos with the new axes wired.
+    combos = enumerate_combos(target=150, master_seed=20260422)
+    assert len(combos) == 150, f"enumerate_combos lost combos: {len(combos)}"
+
+    # -----------------------------------------------------------------
+    # PART B: 6 ShapProxiedFS deep knobs thread into build_shap_proxied_fs_kwargs
+    # verbatim when use_shap_proxied_fs=True (param names match ShapProxiedFS.__init__).
+    # -----------------------------------------------------------------
+    on_axes_b = dict(base_axes)
+    on_axes_b.update(
+        use_shap_proxied_fs=True,
+        shap_proxied_cluster_features_cfg="auto",  # keep cluster on so within_cluster_refine survives
+        shap_proxied_config_jitter_cfg=True,
+        shap_proxied_uncertainty_penalty_cfg=0.5,
+        shap_proxied_within_cluster_refine_cfg=False,
+        shap_proxied_use_bias_corrector_cfg=False,
+        shap_proxied_refine_n_estimators_cfg=None,
+        shap_proxied_trust_guard_n_estimators_cfg=None,
+    )
+    on_b = _build_combo(models=("cb",), axes=on_axes_b, seed=0)
+    kw_b = build_shap_proxied_fs_kwargs(on_b)
+    assert kw_b is not None
+    assert kw_b["config_jitter"] is True
+    assert kw_b["uncertainty_penalty"] == 0.5
+    assert kw_b["within_cluster_refine"] is False
+    assert kw_b["use_bias_corrector"] is False
+    assert kw_b["refine_n_estimators"] is None
+    assert kw_b["trust_guard_n_estimators"] is None
+
+    # OFF: kwargs is None, canonical_key collapses sub-knobs to defaults.
+    off_b_a = dict(on_axes_b); off_b_a["use_shap_proxied_fs"] = False
+    off_b_b = dict(off_b_a)
+    off_b_b.update(
+        shap_proxied_config_jitter_cfg=False,
+        shap_proxied_uncertainty_penalty_cfg=0.0,
+        shap_proxied_within_cluster_refine_cfg=True,
+        shap_proxied_use_bias_corrector_cfg=True,
+        shap_proxied_refine_n_estimators_cfg=100,
+        shap_proxied_trust_guard_n_estimators_cfg=100,
+    )
+    combo_off_b_a = _build_combo(models=("cb",), axes=off_b_a, seed=0)
+    combo_off_b_b = _build_combo(models=("cb",), axes=off_b_b, seed=0)
+    assert build_shap_proxied_fs_kwargs(combo_off_b_a) is None
+    assert combo_off_b_a.canonical_key() == combo_off_b_b.canonical_key(), (
+        "ShapProxiedFS deep knobs must collapse when use_shap_proxied_fs is off"
+    )
+
+    # within_cluster_refine has a SECONDARY gate on cluster_features != False.
+    # When cluster_features is literally False the refine flag becomes a no-op
+    # and canonical_key must collapse it to the True default regardless.
+    cluster_off_a = dict(base_axes)
+    cluster_off_a.update(
+        use_shap_proxied_fs=True,
+        shap_proxied_cluster_features_cfg=False,
+        shap_proxied_within_cluster_refine_cfg=False,
+    )
+    cluster_off_b = dict(cluster_off_a)
+    cluster_off_b["shap_proxied_within_cluster_refine_cfg"] = True
+    c_clu_a = _build_combo(models=("cb",), axes=cluster_off_a, seed=0)
+    c_clu_b = _build_combo(models=("cb",), axes=cluster_off_b, seed=0)
+    assert c_clu_a.canonical_key() == c_clu_b.canonical_key(), (
+        "shap_proxied_within_cluster_refine_cfg must collapse when cluster_features is literal False"
+    )
+
+    # -----------------------------------------------------------------
+    # PART A: 4 coverage-gap axes canon-collapse when their gates are off.
+    # -----------------------------------------------------------------
+
+    # A1. ensembling_degenerate_class_ratio_cfg: gate on use_ensembles AND
+    # target_type in (binary/multilabel)_classification.
+    on_a1 = dict(base_axes)
+    on_a1.update(
+        use_ensembles=True,
+        target_type="binary_classification",
+        ensembling_degenerate_class_ratio_cfg=0.05,
+    )
+    c_a1_on = _build_combo(models=("cb",), axes=on_a1, seed=0)
+    assert c_a1_on.ensembling_degenerate_class_ratio_cfg == 0.05
+    # Regression -> canon to default 0.01 (degenerate-subset gate is binary-only).
+    off_a1_a = dict(on_a1); off_a1_a["target_type"] = "regression"
+    off_a1_b = dict(off_a1_a); off_a1_b["ensembling_degenerate_class_ratio_cfg"] = 0.01
+    c_a1_off_a = _build_combo(models=("cb",), axes=off_a1_a, seed=0)
+    c_a1_off_b = _build_combo(models=("cb",), axes=off_a1_b, seed=0)
+    assert c_a1_off_a.canonical_key() == c_a1_off_b.canonical_key(), (
+        "ensembling_degenerate_class_ratio_cfg must collapse for non-classification targets"
+    )
+
+    # A2. behavior_use_flaml_zeroshot_cfg: gate on xgb OR lgb in models.
+    # NOTE: the from_axes canon also drops True->False when `flaml` is not
+    # importable, so on systems without flaml the axis collapses to False
+    # at construction time -- the canon test below only fires when flaml IS
+    # present. Use the as-constructed value so the test is environment-agnostic.
+    on_a2 = dict(base_axes)
+    on_a2.update(behavior_use_flaml_zeroshot_cfg=True)
+    c_a2_xgb = _build_combo(models=("xgb",), axes=on_a2, seed=0)
+    c_a2_cb = _build_combo(models=("cb",), axes=on_a2, seed=0)
+    # When neither xgb nor lgb is in models, canon to False regardless of
+    # the requested value -> distinct canonical key only when flaml is present
+    # AND the request reaches the dataclass intact.
+    if c_a2_xgb.behavior_use_flaml_zeroshot_cfg is True:
+        assert c_a2_xgb.canonical_key() != c_a2_cb.canonical_key(), (
+            "behavior_use_flaml_zeroshot_cfg must surface in canon when xgb is in scope (flaml present)"
+        )
+
+    # A3. target_temporal_audit_granularity_cfg: gate on with_datetime_col=True
+    # AND target_temporal_audit_column_cfg='ts_col'.
+    on_a3 = dict(base_axes)
+    on_a3.update(
+        with_datetime_col=True,
+        target_temporal_audit_column_cfg="ts_col",
+        target_temporal_audit_granularity_cfg="day",
+    )
+    c_a3_on = _build_combo(models=("cb",), axes=on_a3, seed=0)
+    assert c_a3_on.target_temporal_audit_granularity_cfg == "day"
+    # No datetime column -> canon away.
+    off_a3_a = dict(on_a3); off_a3_a["with_datetime_col"] = False
+    off_a3_b = dict(off_a3_a); off_a3_b["target_temporal_audit_granularity_cfg"] = "auto"
+    c_a3_off_a = _build_combo(models=("cb",), axes=off_a3_a, seed=0)
+    c_a3_off_b = _build_combo(models=("cb",), axes=off_a3_b, seed=0)
+    assert c_a3_off_a.canonical_key() == c_a3_off_b.canonical_key(), (
+        "target_temporal_audit_granularity_cfg must collapse when no datetime column"
+    )
+
+    # A4. prep_ext_dim_n_components_cfg: gate on prep_ext_dim_reducer_cfg in (PCA, TruncatedSVD).
+    on_a4 = dict(base_axes)
+    on_a4.update(
+        prep_ext_dim_reducer_cfg="PCA",
+        prep_ext_dim_n_components_cfg=10,
+    )
+    c_a4_on = _build_combo(models=("cb",), axes=on_a4, seed=0)
+    assert c_a4_on.prep_ext_dim_n_components_cfg == 10
+    # No dim_reducer -> canon to default 50.
+    off_a4_a = dict(on_a4); off_a4_a["prep_ext_dim_reducer_cfg"] = None
+    off_a4_b = dict(off_a4_a); off_a4_b["prep_ext_dim_n_components_cfg"] = 50
+    c_a4_off_a = _build_combo(models=("cb",), axes=off_a4_a, seed=0)
+    c_a4_off_b = _build_combo(models=("cb",), axes=off_a4_b, seed=0)
+    assert c_a4_off_a.canonical_key() == c_a4_off_b.canonical_key(), (
+        "prep_ext_dim_n_components_cfg must collapse when no dim_reducer is picked"
+    )
+
+    # (d) Each PART-A gate ALSO produces distinct canonical keys when the gate
+    # is on with a non-default value vs. the canonical default branch -- so the
+    # pairwise sampler reaches both branches.
+    assert c_a1_on.canonical_key() != c_a1_off_a.canonical_key()
+    assert c_a3_on.canonical_key() != c_a3_off_a.canonical_key()
+    assert c_a4_on.canonical_key() != c_a4_off_a.canonical_key()

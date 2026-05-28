@@ -292,6 +292,15 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
                 else ()  # "empty" -> no skip
             )
         ),
+        # 2026-05-28 audit-pass-2 PART A: TrainingBehaviorConfig.use_flaml_zeroshot
+        # picks flaml_zeroshot.{XGB,LGBM}{Classifier,Regressor} vs vanilla. The
+        # from_axes canon in _fuzz_combo already drops True->False when `flaml`
+        # is unimportable so this is always a safe assignment.
+        "use_flaml_zeroshot": combo.behavior_use_flaml_zeroshot_cfg,
+        # 2026-05-28 audit-pass-2 PART A: TrainingBehaviorConfig.target_temporal_audit_granularity
+        # drives _phase_temporal_audit bin freq dispatch. Mirrors the existing
+        # target_temporal_audit_column wiring elsewhere in the suite.
+        "target_temporal_audit_granularity": combo.target_temporal_audit_granularity_cfg,
     }
     # Defensive filter: drop any behavior key that's not a model_fields entry.
     behavior_kwargs = _safe_cfg_kwargs(TrainingBehaviorConfig, **behavior_kwargs)
@@ -526,12 +535,24 @@ def _maybe_preprocessing_extensions(combo: FuzzCombo, config_cls):
     # and kbins are mutually exclusive; we only set kbins so that's safe.
     # polynomial_degree must be >= 2 when set (validator); kbins must be
     # >= 2. The axis values already satisfy both.
+    # 2026-05-28 audit-pass-2 PART A: PreprocessingExtensionsConfig.dim_n_components
+    # is only meaningful when a dim_reducer is actually picked (PCA/TruncatedSVD).
+    # Forward via _safe_cfg_kwargs so the call still works on older trees that
+    # don't expose the field. Pre-iter500 canonical_key already collapses the
+    # axis to its default (50) when dim_red is None, so kwargs split is
+    # idempotent across cohorts.
+    dim_components_kwargs: dict = {}
+    if dim_red is not None:
+        dim_components_kwargs = _safe_cfg_kwargs(
+            config_cls, dim_n_components=combo.prep_ext_dim_n_components_cfg,
+        )
     return config_cls(
         scaler=scaler,
         kbins=kbins,
         polynomial_degree=poly_deg,
         dim_reducer=dim_red,
         nonlinear_features=nonlin,
+        **dim_components_kwargs,
     )
 
 

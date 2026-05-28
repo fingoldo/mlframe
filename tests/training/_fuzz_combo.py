@@ -634,6 +634,42 @@ AXES: dict[str, tuple[Any, ...]] = {
     # is off (canonical_key).
     "shap_proxied_active_learning_cfg": (False, True),
     "shap_proxied_prefilter_method_cfg": ("auto", "univariate", "fast_model"),
+    # 2026-05-28 -- ShapProxiedFS deeper extension axes (B1-B6 from audit pass 2).
+    # All gate on use_shap_proxied_fs=True and collapse to ShapProxiedFS.__init__
+    # defaults (verified against feature_selection/shap_proxied_fs.py:41-89).
+    # config_jitter exercises the config-jitter SHAP branch (commit 20d8fa86);
+    # uncertainty_penalty rewires the ranking objective (commit 20d8fa86);
+    # within_cluster_refine False is the regression-comparison surface (commit
+    # 8bd5b6d3); use_bias_corrector False disables the bias-corrected ranking
+    # head (commit 0072b9f1); refine_n_estimators / trust_guard_n_estimators
+    # None lifts the 100-tree booster cap added in commit bef1a9b4 (uncapped
+    # full-depth booster vs. fast-fit cap branch).
+    "shap_proxied_config_jitter_cfg": (False, True),
+    "shap_proxied_uncertainty_penalty_cfg": (0.0, 0.5),
+    "shap_proxied_within_cluster_refine_cfg": (True, False),
+    "shap_proxied_use_bias_corrector_cfg": (True, False),
+    "shap_proxied_refine_n_estimators_cfg": (100, None),
+    "shap_proxied_trust_guard_n_estimators_cfg": (100, None),
+    # 2026-05-28 audit-pass-2 PART A: 4 LOW-tier coverage-gap axes deferred
+    # from coverage_agent W11C wave.
+    # ensembling_degenerate_class_ratio: EnsemblingConfig.degenerate_class_ratio
+    # (default 0.01 at _model_configs.py:981); 0.05 widens the degenerate-subset
+    # gate. Gated on use_ensembles AND classification target.
+    "ensembling_degenerate_class_ratio_cfg": (0.01, 0.05),
+    # behavior_use_flaml_zeroshot: TrainingBehaviorConfig.use_flaml_zeroshot
+    # (default False at _model_configs.py:485). True picks flaml_zeroshot
+    # XGB/LGBM classes vs. vanilla. Gated on xgb/lgb in models AND a working
+    # flaml install (from_axes canonises True -> False if flaml is missing).
+    "behavior_use_flaml_zeroshot_cfg": (False, True),
+    # target_temporal_audit_granularity: TrainingBehaviorConfig.target_temporal_audit_granularity
+    # (default "auto" at _model_configs.py:561). Drives _phase_temporal_audit
+    # bin freq. Gated on target_temporal_audit_column_cfg == 'ts_col'.
+    "target_temporal_audit_granularity_cfg": ("auto", "day", "month"),
+    # prep_ext_dim_n_components: PreprocessingExtensionsConfig.dim_n_components
+    # (default 50 at _preprocessing_configs.py:340). 10 / 100 magnify the
+    # dim-reducer code path already covered by prep_ext_dim_reducer_cfg.
+    # Gated on prep_ext_dim_reducer_cfg in (PCA, TruncatedSVD).
+    "prep_ext_dim_n_components_cfg": (50, 10, 100),
     # 2026-05-28 -- TextDetectionConfig.text_min_cardinality. Cardinality floor
     # for the cat-vs-text promotion. Default 300; 50 flips many short-string
     # cats into the text path (TF-IDF + cat_text_card_threshold interplay).
@@ -1185,6 +1221,22 @@ class FuzzCombo:
     # 2026-05-28 ShapProxiedFS extension axes (defaults mirror ShapProxiedFS.__init__)
     shap_proxied_active_learning_cfg: bool = False
     shap_proxied_prefilter_method_cfg: str = "auto"
+    # 2026-05-28 ShapProxiedFS deeper extension axes (B1-B6 audit-pass-2).
+    # Defaults verified against feature_selection/shap_proxied_fs.py:41-89.
+    shap_proxied_config_jitter_cfg: bool = False
+    shap_proxied_uncertainty_penalty_cfg: float = 0.0
+    shap_proxied_within_cluster_refine_cfg: bool = True
+    shap_proxied_use_bias_corrector_cfg: bool = True
+    shap_proxied_refine_n_estimators_cfg: "int | None" = 100
+    shap_proxied_trust_guard_n_estimators_cfg: "int | None" = 100
+    # 2026-05-28 audit-pass-2 PART A: 4 LOW-tier coverage-gap axes.
+    # Defaults mirror EnsemblingConfig / TrainingBehaviorConfig /
+    # PreprocessingExtensionsConfig in src/mlframe/training/_model_configs.py
+    # + _preprocessing_configs.py.
+    ensembling_degenerate_class_ratio_cfg: float = 0.01
+    behavior_use_flaml_zeroshot_cfg: bool = False
+    target_temporal_audit_granularity_cfg: str = "auto"
+    prep_ext_dim_n_components_cfg: int = 50
     # 2026-05-28 TextDetectionConfig.text_min_cardinality (default 300)
     fhc_text_min_cardinality_cfg: int = 300
     # 2026-05-28 CompositeTargetDiscoveryConfig deep knobs (defaults mirror the dataclass)
@@ -2015,6 +2067,64 @@ class FuzzCombo:
             # (False / "auto") when use_shap_proxied_fs is off.
             (self.shap_proxied_active_learning_cfg if self.use_shap_proxied_fs else False),
             (self.shap_proxied_prefilter_method_cfg if self.use_shap_proxied_fs else "auto"),
+            # 2026-05-28 ShapProxiedFS deeper extension axes (B1-B6 audit-pass-2).
+            # All collapse to ShapProxiedFS.__init__ defaults when the selector
+            # is off so non-shap combos don't gain phantom variation.
+            (self.shap_proxied_config_jitter_cfg if self.use_shap_proxied_fs else False),
+            (self.shap_proxied_uncertainty_penalty_cfg if self.use_shap_proxied_fs else 0.0),
+            # within_cluster_refine ALSO depends on cluster_features being on
+            # (literal False switches off the cluster pass entirely, so the
+            # refine flag becomes a no-op); canon True there so the toggle
+            # doesn't fork canonical keys it can't actually affect.
+            (
+                self.shap_proxied_within_cluster_refine_cfg
+                if (self.use_shap_proxied_fs
+                    and self.shap_proxied_cluster_features_cfg is not False)
+                else True
+            ),
+            (self.shap_proxied_use_bias_corrector_cfg if self.use_shap_proxied_fs else True),
+            (self.shap_proxied_refine_n_estimators_cfg if self.use_shap_proxied_fs else 100),
+            (
+                self.shap_proxied_trust_guard_n_estimators_cfg
+                if self.use_shap_proxied_fs
+                else 100
+            ),
+            # 2026-05-28 audit-pass-2 PART A canons.
+            # EnsemblingConfig.degenerate_class_ratio only meaningful on
+            # classification + ensembling (the degenerate-subset gate is
+            # binary/multilabel-only); mirror the existing
+            # flag_degenerate_conf_subset_cfg gating.
+            (
+                self.ensembling_degenerate_class_ratio_cfg
+                if (self.use_ensembles
+                    and self.target_type in ("binary_classification",
+                                              "multilabel_classification"))
+                else 0.01
+            ),
+            # use_flaml_zeroshot only meaningful when xgb or lgb is in scope
+            # (it picks flaml_zeroshot.{XGB,LGBM}{Classifier,Regressor}).
+            # Canon to False when neither is in models.
+            (
+                self.behavior_use_flaml_zeroshot_cfg
+                if ("xgb" in self.models or "lgb" in self.models)
+                else False
+            ),
+            # target_temporal_audit_granularity only meaningful when the
+            # temporal-audit phase actually runs (target_temporal_audit_column
+            # resolved to a real datetime via with_datetime_col gating).
+            (
+                self.target_temporal_audit_granularity_cfg
+                if (self.with_datetime_col
+                    and self.target_temporal_audit_column_cfg == "ts_col")
+                else "auto"
+            ),
+            # PreprocessingExtensionsConfig.dim_n_components only meaningful
+            # when a dim-reducer is actually picked (PCA or TruncatedSVD).
+            (
+                self.prep_ext_dim_n_components_cfg
+                if self.prep_ext_dim_reducer_cfg in ("PCA", "TruncatedSVD")
+                else 50
+            ),
             # 2026-05-28 TextDetectionConfig.text_min_cardinality. Collapse to
             # library default (300) when FHC is not enabled -- axis is a no-op
             # when the FHC sub-config never gets built.
@@ -2583,6 +2693,26 @@ def _powerset_nonempty(items: tuple[str, ...]) -> list[tuple[str, ...]]:
 _LTR_NATIVE_RANKERS: frozenset[str] = frozenset({"cb", "xgb", "lgb", "mlp"})
 
 
+# 2026-05-28 audit-pass-2 PART A: behavior_use_flaml_zeroshot needs an optional
+# dep (`flaml`). Probe once at import time; canon True -> False if the dep is
+# missing so the fuzz harness doesn't propose a combo that crashes at fit-time
+# on environments without it (CI matrix without `flaml`). Cached as a module
+# constant so each _build_combo call is cheap.
+try:  # pragma: no cover -- import-time probe, behaviour is identical either way
+    import importlib
+
+    importlib.import_module("flaml")
+    _HAS_FLAML = True
+except Exception:
+    _HAS_FLAML = False
+
+
+def _canon_use_flaml_zeroshot(requested: bool) -> bool:
+    """Canon for behavior_use_flaml_zeroshot_cfg: drop True to False when the
+    `flaml` optional dep is not importable so generated combos stay runnable."""
+    return bool(requested) if _HAS_FLAML else False
+
+
 def _combo_is_runnable(models: tuple[str, ...], target_type: str) -> bool:
     """Cheap structural check: does this (models, target_type) pair have a
     chance of completing training? Returns False for LTR combos whose model
@@ -2854,6 +2984,36 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         # extreme-AR skip list, FS null-frac, linear l1 ratio, recurrent hidden_size).
         shap_proxied_active_learning_cfg=axes.get("shap_proxied_active_learning_cfg", False),
         shap_proxied_prefilter_method_cfg=axes.get("shap_proxied_prefilter_method_cfg", "auto"),
+        # 2026-05-28 audit-pass-2 B1-B6: ShapProxiedFS deeper extension axes.
+        shap_proxied_config_jitter_cfg=axes.get("shap_proxied_config_jitter_cfg", False),
+        shap_proxied_uncertainty_penalty_cfg=axes.get("shap_proxied_uncertainty_penalty_cfg", 0.0),
+        shap_proxied_within_cluster_refine_cfg=axes.get(
+            "shap_proxied_within_cluster_refine_cfg", True
+        ),
+        shap_proxied_use_bias_corrector_cfg=axes.get(
+            "shap_proxied_use_bias_corrector_cfg", True
+        ),
+        shap_proxied_refine_n_estimators_cfg=axes.get(
+            "shap_proxied_refine_n_estimators_cfg", 100
+        ),
+        shap_proxied_trust_guard_n_estimators_cfg=axes.get(
+            "shap_proxied_trust_guard_n_estimators_cfg", 100
+        ),
+        # 2026-05-28 audit-pass-2 PART A coverage-gap axes.
+        ensembling_degenerate_class_ratio_cfg=axes.get(
+            "ensembling_degenerate_class_ratio_cfg", 0.01
+        ),
+        # behavior_use_flaml_zeroshot: canon True -> False when flaml is not
+        # importable so combos don't crash at fit-time on environments without
+        # the optional dep. flaml is only used by the zeroshot meta-learner
+        # path; vanilla XGB/LGBM remain the default.
+        behavior_use_flaml_zeroshot_cfg=_canon_use_flaml_zeroshot(
+            axes.get("behavior_use_flaml_zeroshot_cfg", False)
+        ),
+        target_temporal_audit_granularity_cfg=axes.get(
+            "target_temporal_audit_granularity_cfg", "auto"
+        ),
+        prep_ext_dim_n_components_cfg=axes.get("prep_ext_dim_n_components_cfg", 50),
         fhc_text_min_cardinality_cfg=axes.get("fhc_text_min_cardinality_cfg", 300),
         composite_auto_skip_on_baseline_optimal_cfg=axes.get(
             "composite_auto_skip_on_baseline_optimal_cfg", False
@@ -3103,6 +3263,14 @@ def build_shap_proxied_fs_kwargs_from_flat(
     # 2026-05-28 ext axes (active_learning + prefilter_method).
     active_learning: bool = False,
     prefilter_method: str = "auto",
+    # 2026-05-28 audit-pass-2 B1-B6 deeper extension axes. Defaults verified
+    # against ShapProxiedFS.__init__ (feature_selection/shap_proxied_fs.py:41-89).
+    config_jitter: bool = False,
+    uncertainty_penalty: float = 0.0,
+    within_cluster_refine: bool = True,
+    use_bias_corrector: bool = True,
+    refine_n_estimators: "int | None" = 100,
+    trust_guard_n_estimators: "int | None" = 100,
 ) -> Optional[Dict[str, Any]]:
     """Build the shap_proxied_fs_kwargs dict passed to
     ``registry.get("ShapProxiedFS").instantiate(**kwargs)`` (which forwards to
@@ -3128,6 +3296,14 @@ def build_shap_proxied_fs_kwargs_from_flat(
         # prefilter_method drives _shap_proxy_prefilter dispatch.
         "active_learning": active_learning,
         "prefilter_method": prefilter_method,
+        # 2026-05-28 audit-pass-2 B1-B6 deeper axes (param names match the
+        # ShapProxiedFS.__init__ signature verbatim).
+        "config_jitter": config_jitter,
+        "uncertainty_penalty": uncertainty_penalty,
+        "within_cluster_refine": within_cluster_refine,
+        "use_bias_corrector": use_bias_corrector,
+        "refine_n_estimators": refine_n_estimators,
+        "trust_guard_n_estimators": trust_guard_n_estimators,
     }
 
 
@@ -3142,6 +3318,12 @@ def build_shap_proxied_fs_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]
         cluster_features=combo.shap_proxied_cluster_features_cfg,
         active_learning=combo.shap_proxied_active_learning_cfg,
         prefilter_method=combo.shap_proxied_prefilter_method_cfg,
+        config_jitter=combo.shap_proxied_config_jitter_cfg,
+        uncertainty_penalty=combo.shap_proxied_uncertainty_penalty_cfg,
+        within_cluster_refine=combo.shap_proxied_within_cluster_refine_cfg,
+        use_bias_corrector=combo.shap_proxied_use_bias_corrector_cfg,
+        refine_n_estimators=combo.shap_proxied_refine_n_estimators_cfg,
+        trust_guard_n_estimators=combo.shap_proxied_trust_guard_n_estimators_cfg,
     )
 
 
@@ -3887,13 +4069,20 @@ def build_frame_for_combo(combo: FuzzCombo):
     ]
     text_cols: dict[str, list] = {}
     if want_text:
+        # Vectorised token-row build. The naive per-row loop builds n separate
+        # Python lists of 3 ints + n " ".join calls -> ~n * (3 * 28B int + 1 list
+        # header + 3 dict lookups) overhead, which OOMed on c0028 at n=200k under
+        # concurrent profiler memory pressure (iter536 MemoryError at the
+        # ``rows.append(" ".join(...))`` site). Numpy fancy-indexing into a
+        # str-array gives the same per-cell strings without ever allocating the
+        # Python-int idx-list, and the ``map(" ".join, words)`` builds the joined
+        # strings as a streaming iterator the list constructor materialises in
+        # one shot.
+        vocab_arr = np.asarray(text_vocab)
         for i in range(_eff_text_col_count):
-            rows = []
-            for _ in range(n):
-                # 3 tokens per row, order randomized → non-trivial TF-IDF
-                idxs = rng.integers(0, len(text_vocab), size=3)
-                rows.append(" ".join(text_vocab[j] for j in idxs))
-            text_cols[f"text_{i}"] = rows
+            idxs_arr = rng.integers(0, len(text_vocab), size=(n, 3))
+            words = vocab_arr[idxs_arr]  # (n, 3) np.str_ — single buffer
+            text_cols[f"text_{i}"] = list(map(" ".join, words))
 
     # Embedding columns: only Polars inputs support detection via
     # ``pl.List(pl.Float32)``; pandas has no robust native analog the
