@@ -89,6 +89,7 @@ def report_regression_model_perf(
     # so the test/val MASE is honestly scaled against the train baseline.
     mase_naive_mae: float | None = None,
     mase_seasonality: int | None = None,
+    reporting_config: Any = None,
 ) -> tuple[np.ndarray, None]:
     """
     Generate a detailed performance report for regression models.
@@ -619,19 +620,15 @@ def report_regression_model_perf(
         )
         _reg_tokens = DEFAULT_REGRESSION_TITLE_TOKENS
         try:
-            _cfg_tokens = getattr(reporting_config, "regression_title_metrics_tokens", None)  # noqa: F821
+            _cfg_tokens = getattr(reporting_config, "regression_title_metrics_tokens", None)
             if _cfg_tokens:
                 _reg_tokens = tuple(_cfg_tokens)
-        except (AttributeError, TypeError, NameError):
-            # ``reporting_config`` is NOT in this function's scope (it is not a
-            # parameter and not threaded by report_model_perf at the call
-            # site). The bare reference raised NameError on every regression
-            # report path -- killed a 29-minute prod run with no metrics
-            # emitted. The legacy ``(AttributeError, TypeError)`` only handles
-            # the case where the config IS in scope but missing the attribute;
-            # add NameError so the default-token path is reached when the
-            # config is not threaded at all. Proper fix: thread
-            # ``reporting_config`` as a parameter from report_model_perf.
+        except (AttributeError, TypeError):
+            # reporting_config is now a real parameter (threaded through
+            # _trainer_train_and_evaluate -> _compute_split_metrics ->
+            # report_model_perf -> here). It may still be None when a caller
+            # constructs the regression reporter directly without the full
+            # suite context; the try/except keeps that path harmless.
             pass
 
         def _render_regression_token(token: str) -> str:

@@ -220,6 +220,10 @@ def run_dummy_baselines(
                     show_fi=False,
                     target_type=str(target_type),
                     y_train_envelope_stats=_dummy_envelope_stats,
+                    # Threaded so report_regression_model_perf can read
+                    # regression_title_metrics_tokens; before this the dummy
+                    # report path raised NameError on every regression run.
+                    reporting_config=reporting_config,
                 )
                 if _strongest_val_raw is not None and current_val_target is not None:
                     _vp, _vpr = _split_preds_probs(_strongest_val_raw)

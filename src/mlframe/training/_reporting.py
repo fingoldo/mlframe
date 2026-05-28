@@ -155,6 +155,7 @@ def report_model_perf(
     quantile_panels: str | None = None,
     quantile_alphas: Sequence[float] | None = None,
     y_train_envelope_stats: Any = None,
+    reporting_config: Any = None,
 ) -> tuple[np.ndarray, np.ndarray | None]:
     """
     Generate a unified performance report for both classifiers and regressors.
@@ -304,6 +305,7 @@ def report_model_perf(
             preds, probs = report_regression_model_perf(
                 **common_params, plot_outputs=plot_outputs, plot_dpi=plot_dpi,
                 y_train_min=_ytmin, y_train_max=_ytmax, y_train_std=_ytstd,
+                reporting_config=reporting_config,
             )
 
     # Render multiclass / multilabel / LTR panel

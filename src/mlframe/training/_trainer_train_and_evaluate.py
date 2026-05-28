@@ -443,7 +443,76 @@ def train_and_evaluate_model(
         if isinstance(val_target, pl.Series):
             val_target = val_target.to_numpy()
 
-        _setup_eval_set(model_type_name, fit_params, val_df, val_target, callback_params, model_obj, model_category)
+        # Slice-stable ES integration (opt-in; ``control.slice_stable_es`` is None for legacy path).
+        # When enabled we build per-shard eval-sets from the val frame, inject the slice-aggregator
+        # knobs into ``callback_params`` so the UniversalCallback aggregates positionally, and
+        # strip the booster's native early_stopping_rounds so it doesn't race the callback.
+        # HGB/NGB use a single (X_val, y_val) pair (``value_format='separate'``); when slice-ES
+        # is configured for these we fall back to the legacy single-val path per ``on_unsupported``.
+        extra_eval_sets = None
+        _slice_cfg = getattr(control, "slice_stable_es", None)
+        if _slice_cfg is not None and getattr(_slice_cfg, "enabled", False):
+            from ._slice_helpers import build_slice_eval_sets
+            _supports_multi_eval = model_category in {"cb", "lgb", "xgb"}
+            _policy = getattr(_slice_cfg, "on_unsupported", "posthoc")
+            if _supports_multi_eval:
+                try:
+                    val_target_arr = val_target.values if hasattr(val_target, "values") else val_target
+                    _sw_val = sample_weight[val_idx] if (sample_weight is not None and val_idx is not None) else None
+                    _grp_val = group_ids[val_idx] if (group_ids is not None and val_idx is not None) else None
+                    extra_eval_sets = build_slice_eval_sets(
+                        val_df, val_target_arr,
+                        source=getattr(_slice_cfg, "source", "random"),
+                        k=int(getattr(_slice_cfg, "k", 5)),
+                        min_rows_per_shard=int(getattr(_slice_cfg, "min_rows_per_shard", 100)),
+                        random_state=int(getattr(_slice_cfg, "random_state", 42)),
+                        sample_weight=_sw_val,
+                        group_ids=_grp_val,
+                    )
+                    if extra_eval_sets:
+                        callback_params = dict(callback_params or {})
+                        callback_params.update({
+                            "slice_k": len(extra_eval_sets),
+                            "slice_aggregate_mode": getattr(_slice_cfg, "aggregate", "t_lcb"),
+                            "slice_aggregate_alpha": float(getattr(_slice_cfg, "alpha", 1.0)),
+                            "slice_aggregate_confidence": float(getattr(_slice_cfg, "confidence", 0.9)),
+                            "slice_aggregate_quantile_level": float(getattr(_slice_cfg, "quantile_level", 0.9)),
+                            "slice_correlation_inflation": float(getattr(_slice_cfg, "correlation_inflation", 1.5)),
+                            "slice_min_delta_in_se": getattr(_slice_cfg, "min_delta_in_se", None),
+                            "slice_persist_history": bool(getattr(_slice_cfg, "pareto_plot_enabled", True))
+                                                     or bool(getattr(_slice_cfg, "pareto_best_iter_selection", False))
+                                                     or bool(getattr(_slice_cfg, "pareto_persist_shard_history", False)),
+                        })
+                        if model_obj is not None:
+                            try:
+                                if "early_stopping_rounds" in model_obj.get_params():
+                                    model_obj.set_params(early_stopping_rounds=None)
+                            except Exception:
+                                pass  # not every estimator exposes set_params for this key
+                except Exception as _slice_err:
+                    logger.warning(
+                        "slice-stable ES wiring failed for %s (%s); falling back to single-val path",
+                        model_type_name, _slice_err,
+                    )
+                    extra_eval_sets = None
+            else:
+                if _policy == "raise":
+                    raise ValueError(
+                        f"slice-stable ES not supported for model_category={model_category!r}; "
+                        f"set TrainingConfig.slice_stable_es.on_unsupported='posthoc' or 'skip'"
+                    )
+                if verbose:
+                    logger.info(
+                        "slice-stable ES skipped for model_category=%s (uses separate X_val/y_val kwargs); "
+                        "on_unsupported=%s",
+                        model_category, _policy,
+                    )
+        _setup_eval_set(
+            model_type_name, fit_params, val_df, val_target, callback_params, model_obj, model_category,
+            extra_eval_sets=extra_eval_sets,
+            sample_weight_val=sample_weight[val_idx] if (sample_weight is not None and val_idx is not None) else None,
+            group_ids_val=group_ids[val_idx] if (group_ids is not None and val_idx is not None) else None,
+        )
         _maybe_clean_ram()
     else:
         _disable_xgboost_early_stopping_if_needed(model_type_name, model_obj)
@@ -609,6 +678,12 @@ def train_and_evaluate_model(
                 )
 
         common_metrics_params = dict(
+            # ReportingConfig is forwarded so report_regression_model_perf
+            # can read overrides like regression_title_metrics_tokens; before
+            # this wiring the function referenced ``reporting_config`` as a
+            # free variable and the custom config was silently ignored
+            # (the try/except just fell back to defaults via NameError).
+            reporting_config=reporting,
             model=model,
             model_type_name=model_type_name,
             model_name=model_name,

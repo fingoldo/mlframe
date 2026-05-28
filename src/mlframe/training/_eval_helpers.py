@@ -434,6 +434,7 @@ def _compute_split_metrics(
     quantile_alphas: tuple[float, ...] | None = None,
     target_type: str | None = None,
     y_train_envelope_stats: Any = None,
+    reporting_config: Any = None,
 ):
     """Unified metrics computation for train/val/test splits."""
     # Derive columns from df if available (for feature importance)
@@ -512,6 +513,7 @@ def _compute_split_metrics(
         quantile_alphas=quantile_alphas,
         target_type=target_type,
         y_train_envelope_stats=y_train_envelope_stats,
+        reporting_config=reporting_config,
     )
     return preds, probs, columns
 
