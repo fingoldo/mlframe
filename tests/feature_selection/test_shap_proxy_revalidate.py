@@ -142,6 +142,115 @@ def test_honest_loss_cache_key_is_order_independent_and_seed_separated(planted):
     assert cache.misses == before_misses + 1
 
 
+# ----------------------------------------------------- within_cluster_refine (multi-drop)
+
+
+def _refine_planted_redundant(n=600, n_red=4, seed=0):
+    """Plant a few informatives + n_red near-duplicate copies of x0 + noise. Col 0 AND cols 3..3+n_red
+    form one redundancy cluster; a correct refine must collapse them to a single representative."""
+    rng = np.random.default_rng(seed)
+    n_noise = 6
+    X = rng.normal(size=(n, 3 + n_red + n_noise))
+    for j in range(n_red):
+        X[:, 3 + j] = X[:, 0] + 0.05 * rng.normal(size=n)  # near-duplicates of col 0
+    cols = ([f"inf{i}" for i in range(3)]
+            + [f"dup{j}" for j in range(n_red)]
+            + [f"noise{i}" for i in range(n_noise)])
+    Xdf = pd.DataFrame(X, columns=cols)
+    y = (1.2 * X[:, 0] + 0.9 * X[:, 1] - 0.7 * X[:, 2] + 0.3 * rng.normal(size=n)).astype(np.float64)
+    return Xdf, y
+
+
+def _refine_planted_groups():
+    """``member_groups`` for the planted-redundant fixture: cols 0 + 3..6 form ONE multi-cluster
+    (the redundancy cluster), cols 1, 2, 7..12 are singletons."""
+    return [[0, 3, 4, 5, 6], [1], [2], [7], [8], [9], [10], [11], [12]]
+
+
+def test_within_cluster_refine_collapses_redundant_in_fewer_fits():
+    """Multi-drop refine should make FEWER honest fits than the legacy per-round single-drop on a
+    selected union with a redundant cluster (the win we ship). Same final loss within tol.
+
+    Fit count is measured via a fresh ``HonestLossCache`` per call -- ``misses + hits`` equals every
+    invocation of ``_honest_loss`` along the refine path (the inner cache is consulted on every fit)."""
+    from mlframe.feature_selection._shap_proxy_revalidate import HonestLossCache, within_cluster_refine
+
+    X, y = _refine_planted_redundant(seed=0)
+    n_search = 450
+    Xs, ys = X.iloc[:n_search].reset_index(drop=True), y[:n_search]
+    Xh, yh = X.iloc[n_search:].reset_index(drop=True), y[n_search:]
+    member_cols = list(range(X.shape[1]))  # the chosen union: every column, incl. 4 redundant dups
+    member_groups = _refine_planted_groups()
+
+    cache_multi = HonestLossCache()
+    refined = within_cluster_refine(
+        member_cols, LinearRegression(), Xs, ys, Xh, yh, classification=False,
+        metric="rmse", parsimony_tol=0.05, n_jobs=1, member_groups=member_groups, cache=cache_multi)
+    n_multi = cache_multi.misses + cache_multi.hits
+
+    cache_legacy = HonestLossCache()
+    refined_legacy = within_cluster_refine(
+        member_cols, LinearRegression(), Xs, ys, Xh, yh, classification=False,
+        metric="rmse", parsimony_tol=0.05, n_jobs=1, member_groups=None, cache=cache_legacy)
+    n_legacy = cache_legacy.misses + cache_legacy.hits
+
+    # Cluster collapse + stage-2 multi-drop probes strictly reduce the fit count.
+    assert n_multi < n_legacy, f"cluster-aware fits {n_multi} not < legacy {n_legacy}"
+    # Refine must keep at least one member of the redundancy cluster (col 0 OR a dup) plus inf1, inf2.
+    redundancy_cluster_kept = sum(1 for c in refined if c in (0, 3, 4, 5, 6))
+    assert redundancy_cluster_kept >= 1, "refine must keep at least one redundancy-cluster member"
+    assert {1, 2}.issubset(set(refined)), "refine must keep the unique informatives inf1, inf2"
+    # Legacy must also keep at least one redundancy-cluster member.
+    assert sum(1 for c in refined_legacy if c in (0, 3, 4, 5, 6)) >= 1
+
+
+def test_within_cluster_refine_equivalent_to_legacy_when_no_safe_multi_drop():
+    """When every member is informative (no safe drop), multi-drop refine must produce the SAME
+    output as legacy (no behavior change for the non-redundant case). The early-exit "no single drop
+    helps" branch fires before multi-drop, preserving identity."""
+    from mlframe.feature_selection._shap_proxy_revalidate import within_cluster_refine
+
+    rng = np.random.default_rng(1)
+    n = 600
+    X = pd.DataFrame(rng.normal(size=(n, 5)), columns=[f"x{i}" for i in range(5)])
+    y = (1.5 * X["x0"] + 1.2 * X["x1"] - 0.9 * X["x2"] + 0.7 * X["x3"] - 0.5 * X["x4"]
+         + 0.1 * rng.normal(size=n)).to_numpy()
+    Xs, ys = X.iloc[:450].reset_index(drop=True), y[:450]
+    Xh, yh = X.iloc[450:].reset_index(drop=True), y[450:]
+    cols = list(range(5))
+    refined_legacy = within_cluster_refine(
+        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
+        parsimony_tol=0.02, n_jobs=1, member_groups=None)
+    refined_multi = within_cluster_refine(
+        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
+        parsimony_tol=0.02, n_jobs=1, member_groups=[[i] for i in range(5)])
+    assert refined_legacy == refined_multi
+
+
+def test_within_cluster_refine_engages_shared_cache():
+    """When a HonestLossCache is supplied, refine's single-drop trials must consult it; the second
+    invocation on the same inputs returns identical output with all-but-zero new fits."""
+    from mlframe.feature_selection._shap_proxy_revalidate import HonestLossCache, within_cluster_refine
+
+    X, y = _refine_planted_redundant(seed=2)
+    Xs, ys = X.iloc[:450].reset_index(drop=True), y[:450]
+    Xh, yh = X.iloc[450:].reset_index(drop=True), y[450:]
+    cols = list(range(X.shape[1]))
+    groups = _refine_planted_groups()
+    cache = HonestLossCache()
+    r1 = within_cluster_refine(
+        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
+        parsimony_tol=0.05, n_jobs=1, member_groups=groups, cache=cache)
+    misses_1 = cache.misses
+    r2 = within_cluster_refine(
+        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
+        parsimony_tol=0.05, n_jobs=1, member_groups=groups, cache=cache)
+    # Same result; second pass adds zero new fits (every (subset, seed=None) is cached from the first).
+    assert r1 == r2
+    assert cache.misses == misses_1, f"second refine added {cache.misses - misses_1} new fits; expected 0"
+    assert cache.hits > 0
+
+
 def test_full_fit_cached_matches_uncached():
     """End-to-end: the selector's support_ + selected_features_ are identical whether the honest-loss
     cache serves duplicates or every retrain is recomputed (the cache changes only wall-clock)."""

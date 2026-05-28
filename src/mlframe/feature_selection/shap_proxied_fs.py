@@ -487,10 +487,18 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
             from mlframe.feature_selection._shap_proxy_revalidate import within_cluster_refine
 
             with _stage("within_cluster_refine"):
+                # Pass the per-unit member lists so refine can collapse each cluster to a single
+                # representative in ONE parallel batch (O(sum k_c) trials) instead of legacy
+                # O(k^2) greedy drops. unit_to_members is in proxy-unit space; each chosen unit
+                # contributes one group of member columns.
+                member_groups = [
+                    [int(c) for c in unit_to_members[int(u)]] for u in best_idx
+                ]
                 refined = within_cluster_refine(
                     member_cols, model_template, X_search, y_search, X_hold, y_hold,
                     classification=self.classification, metric=self.metric,
-                    parsimony_tol=self.parsimony_tol, n_jobs=self.n_jobs, cache=honest_cache)
+                    parsimony_tol=self.parsimony_tol, n_jobs=self.n_jobs, cache=honest_cache,
+                    member_groups=member_groups)
                 report["within_cluster_refine"] = dict(before=len(member_cols), after=len(refined))
                 member_cols = refined
 
