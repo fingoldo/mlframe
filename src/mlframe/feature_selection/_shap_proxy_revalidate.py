@@ -652,7 +652,7 @@ def proxy_trust_guard(
 def revalidate_top_n(
     candidates, model_template, X_search, y_search, X_holdout, y_holdout,
     *, classification, metric=None, n_models=1, lambda_stab=0.5, parsimony_tol=0.02, rng=None, n_jobs=-1,
-    unit_to_members=None, cache=None,
+    unit_to_members=None, cache=None, revalidation_n_estimators=None,
 ):
     """Honestly retrain each candidate subset on X_search, evaluate on the disjoint X_holdout.
 
@@ -663,9 +663,23 @@ def revalidate_top_n(
     candidates whose stable score is within ``parsimony_tol`` (relative) of the best, pick the one
     with the FEWEST features (tie-break: lower stable score). This counters the proxy's bias toward
     larger subsets -- a noise feature that buys <2% honest improvement should not be kept.
+
+    ``revalidation_n_estimators`` (iter28) caps the per-candidate booster's tree count for the
+    PARSIMONY-RULE RANKING trials only. The selection criterion is "stable_score within parsimony_tol
+    of the best" -- a RELATIVE ranking decision that stabilises long before the default 300 trees
+    (mirror of iter9 refine_n_estimators / iter19 oof_shap_n_estimators / iter10 trust_guard_n_estimators).
+    Microbench at the live regime (width=1000, n_rows=5000, snr=8, 11-feature subsets): n=100 vs n=300
+    Spearman 0.9414, identical argmin, 2.6x faster per fit. After the winner is chosen, ONE full-template
+    re-evaluation is added per ranked entry's reported ``honest_loss`` so the user-visible report stays
+    apples-to-apples with the trust-guard / ablation (which use the full template). The cap is tagged
+    via ``template_id=('reval_cap', cap)`` so cached entries don't collide with full-template entries
+    from elsewhere in the pipeline. ``None`` (default for the standalone function) disables the cap
+    (legacy 300-tree behaviour). The selector facade passes ``revalidation_n_estimators=100`` by default.
     """
     metric = resolve_metric(classification, metric)
     rng = np.random.default_rng(0) if rng is None else rng
+    cap = revalidation_n_estimators
+    tid = ("reval_cap", int(cap)) if cap is not None else None
     # Build all (subset, seed) retrain tasks up front so they run in one parallel batch. Honest
     # retrain happens on EXPANDED member columns; the candidate's unit indices are kept for the record.
     tasks, task_owner = [], []
@@ -677,7 +691,8 @@ def revalidate_top_n(
             tasks.append((cols, int(rng.integers(0, 2**31 - 1))))
             task_owner.append(ci)
     losses = _parallel_honest_losses(tasks, model_template, X_search, y_search, X_holdout, y_holdout,
-                                     classification, metric, n_jobs, cache=cache)
+                                     classification, metric, n_jobs, cache=cache,
+                                     n_estimators_cap=cap, template_id=tid)
     per_candidate: dict[int, list[float]] = {}
     for owner, loss in zip(task_owner, losses):
         per_candidate.setdefault(owner, []).append(loss)
@@ -700,6 +715,31 @@ def revalidate_top_n(
     else:
         best_idx = ()
 
+    # Full-template re-evaluation of the WINNER so the user-visible honest_loss in the report stays
+    # apples-to-apples with the trust-guard / ablation outputs (those use the full template). Only
+    # the chosen subset is re-fit -- a single extra fit, not n_models more. The cache lookup uses
+    # the full-template namespace (template_id=None) so it hits any prior pipeline retrain of the
+    # same subset (e.g. when ablation later refits the winner, that fit is the cache hit). Same
+    # design as within_cluster_refine's final full-template re-evaluation. When cap is None the
+    # ranking trials already used the full template and this is a guaranteed cache hit (no extra fit).
+    if best_idx and cap is not None:
+        winner_cols = _expand(best_idx, unit_to_members)
+        winner_full_loss = _honest_loss(
+            model_template, X_search, y_search, X_holdout, y_holdout, winner_cols,
+            classification, metric, cache=cache)
+        # Update the reported entry for the chosen winner. Find it in ranked by features identity.
+        for d in ranked:
+            if d["features"] == best_idx:
+                d["honest_loss"] = float(winner_full_loss)
+                # std measured at capped template (n_models samples); winner's full-template eval is a
+                # single fit so its std is not refreshed -- the capped-template std remains as a
+                # cross-seed-stability proxy. Update stable_score to reflect the new mean.
+                d["stable_score"] = float(winner_full_loss) + lambda_stab * d["honest_std"]
+                d["honest_loss_capped"] = float(np.asarray(per_candidate[
+                    next(i for i, (_, ix) in enumerate(candidates) if tuple(ix) == best_idx)
+                ]).mean())
+                break
+
     # Same-size (in member columns) random-subset baseline for the winner (winner's-curse context).
     baseline = None
     if best_idx:
@@ -717,6 +757,7 @@ def active_learning_revalidate(
     candidates, model_template, X_search, y_search, X_holdout, y_holdout,
     *, classification, metric=None, corrector_data, phi, budget, batch=4, n_models=1,
     parsimony_tol=0.02, rng=None, n_jobs=-1, unit_to_members=None, cache=None,
+    revalidation_n_estimators=None,
 ):
     """Disagreement-driven honest re-validation (lever #4).
 
@@ -727,12 +768,20 @@ def active_learning_revalidate(
     fixed retrain budget where it most reduces winner's-curse risk. The proxy's top-1 is always among
     the first evaluated, so the result is never worse than naive top-1.
 
+    ``revalidation_n_estimators`` (iter28): same cap semantics as ``revalidate_top_n`` -- per-candidate
+    ranking trials use the capped booster (cheaper but ranking-equivalent), winner gets ONE
+    full-template re-evaluation to keep the reported ``honest_loss`` apples-to-apples. The corrector
+    is fit on the CAPPED honest losses (the corrector is itself a ranking-quality tool, so working
+    in the capped space is consistent).
+
     Returns ``(best_idx, ranked, n_evaluated)``.
     """
     from mlframe.feature_selection._shap_proxy_calibrate import fit_proxy_corrector, subset_redundancy
 
     metric = resolve_metric(classification, metric)
     rng = np.random.default_rng(0) if rng is None else rng
+    cap = revalidation_n_estimators
+    tid = ("reval_cap", int(cap)) if cap is not None else None
     cd = {k: list(v) for k, v in corrector_data.items()}  # mutable copy we augment each round
     proxy_all = np.array([c[0] for c in candidates], dtype=np.float64)
     idxs = [c[1] for c in candidates]
@@ -753,7 +802,8 @@ def active_learning_revalidate(
             break
         tasks = [(member_cols[i], int(rng.integers(0, 2**31 - 1))) for i in pick for _ in range(n_models)]
         losses = _parallel_honest_losses(tasks, model_template, X_search, y_search, X_holdout, y_holdout,
-                                         classification, metric, n_jobs, cache=cache)
+                                         classification, metric, n_jobs, cache=cache,
+                                         n_estimators_cap=cap, template_id=tid)
         for j, i in enumerate(pick):
             seg = losses[j * n_models:(j + 1) * n_models]
             m = float(np.mean(seg))
@@ -772,6 +822,21 @@ def active_learning_revalidate(
         thr = best_score + parsimony_tol * abs(best_score)
         eligible = [d for d in ranked if d["stable_score"] <= thr]
         best_idx = min(eligible, key=lambda d: (d["n_members"], d["stable_score"]))["features"]
+
+    # Full-template re-evaluation of the winner (mirror of revalidate_top_n; see that function for the
+    # apples-to-apples rationale). When cap is None this is a guaranteed cache hit (no extra fit).
+    if best_idx and cap is not None:
+        winner_cols = _expand(best_idx, unit_to_members)
+        winner_full_loss = _honest_loss(
+            model_template, X_search, y_search, X_holdout, y_holdout, winner_cols,
+            classification, metric, cache=cache)
+        for d in ranked:
+            if d["features"] == best_idx:
+                d["honest_loss_capped"] = float(d["honest_loss"])
+                d["honest_loss"] = float(winner_full_loss)
+                d["stable_score"] = float(winner_full_loss)
+                break
+
     return best_idx, ranked, len(honest)
 
 

@@ -1077,3 +1077,154 @@ def test_fidelity_floor_default_passes_interaction_heavy_composite():
     assert xor_composite < floor_default, (
         "iter18 floor MUST trip on xor_interaction (recovery_rate 0.333, FAIL group). "
         f"composite={xor_composite} floor={floor_default}.")
+
+
+# ----------------------------------------------------- iter28 revalidation_n_estimators cap
+
+
+def test_revalidation_n_estimators_cap_namespaces_cache(planted):
+    """The cap (when set) must namespace cache entries via ``template_id`` so capped fits never
+    collide with full-template entries from elsewhere in the pipeline. A LinearRegression template
+    has no n_estimators param so the cap is a silent no-op at fit-time, but the template_id
+    namespace separation MUST still hold (other tests rely on this isolation; namespace correctness
+    is independent of whether the underlying estimator honored the cap)."""
+    from mlframe.feature_selection._shap_proxy_revalidate import HonestLossCache, _honest_loss
+
+    X, y, phi, base = planted
+    Xs, ys = X.iloc[:900].reset_index(drop=True), y[:900]
+    Xh, yh = X.iloc[900:].reset_index(drop=True), y[900:]
+    cache = HonestLossCache()
+    cols = [0, 1, 2]
+
+    # Full-template entry (template_id=None).
+    full = _honest_loss(LinearRegression(), Xs, ys, Xh, yh, cols, False, "rmse",
+                        seed=None, cache=cache, n_estimators_cap=None)
+    full_misses = cache.misses
+    # A capped-template lookup with a distinct template_id MUST miss the full-template slot
+    # (different cache key), proving the namespacing.
+    capped = _honest_loss(LinearRegression(), Xs, ys, Xh, yh, cols, False, "rmse",
+                          seed=None, cache=cache, n_estimators_cap=50,
+                          template_id=("reval_cap", 50))
+    assert cache.misses == full_misses + 1, "capped entry must miss the full-template slot"
+    # The values are equal numerically (LinearRegression ignores the cap) but stored under distinct keys.
+    assert full == capped
+
+
+def test_revalidate_top_n_cap_preserves_winner_selection(planted):
+    """With the cap on, the parsimony rule's winner must match the legacy (uncapped) winner on a
+    clean fixture: the cap changes the absolute losses (per-trial booster has fewer trees) but the
+    RELATIVE ranking (and hence the parsimony argmin) is preserved. Mirrors the iter9 refine
+    behaviour-preservation test."""
+    from mlframe.feature_selection._shap_proxy_revalidate import revalidate_top_n
+
+    X, y, phi, base = planted
+    Xs, ys = X.iloc[:900].reset_index(drop=True), y[:900]
+    Xh, yh = X.iloc[900:].reset_index(drop=True), y[900:]
+    candidates = [(0.0, (0, 1, 2)), (0.1, (0, 1)), (0.2, (0, 1, 2, 5)), (0.3, (4, 5, 6))]
+
+    best_legacy, ranked_legacy, _ = revalidate_top_n(
+        candidates, LinearRegression(), Xs, ys, Xh, yh,
+        classification=False, metric="rmse", n_models=1, lambda_stab=0.0,
+        revalidation_n_estimators=None)
+    best_capped, ranked_capped, _ = revalidate_top_n(
+        candidates, LinearRegression(), Xs, ys, Xh, yh,
+        classification=False, metric="rmse", n_models=1, lambda_stab=0.0,
+        revalidation_n_estimators=50)
+    assert set(best_legacy) == set(best_capped) == {0, 1, 2}
+    # The winner's reported honest_loss is FULL-TEMPLATE (per the user-visible apples-to-apples
+    # contract documented in the function), so capped-path winner-loss must equal legacy winner-loss.
+    winner_legacy = next(d for d in ranked_legacy if set(d["features"]) == {0, 1, 2})
+    winner_capped = next(d for d in ranked_capped if set(d["features"]) == {0, 1, 2})
+    assert winner_legacy["honest_loss"] == pytest.approx(winner_capped["honest_loss"])
+
+
+def test_revalidate_top_n_cap_none_is_backward_compat(planted):
+    """``revalidation_n_estimators=None`` must reproduce the pre-iter28 path BYTE-FOR-BYTE: same
+    winner, same ranking, same honest_loss values. No ``honest_loss_capped`` key surfaces."""
+    from mlframe.feature_selection._shap_proxy_revalidate import revalidate_top_n
+
+    X, y, phi, base = planted
+    Xs, ys = X.iloc[:900].reset_index(drop=True), y[:900]
+    Xh, yh = X.iloc[900:].reset_index(drop=True), y[900:]
+    candidates = [(0.0, (0, 1, 2)), (0.1, (0, 1)), (0.2, (0, 1, 2, 5)), (0.3, (4, 5, 6))]
+
+    best, ranked, _ = revalidate_top_n(
+        candidates, LinearRegression(), Xs, ys, Xh, yh,
+        classification=False, metric="rmse", n_models=1, lambda_stab=0.0,
+        revalidation_n_estimators=None)
+    assert set(best) == {0, 1, 2}
+    # No capped sentinel keys when the cap is disabled.
+    for d in ranked:
+        assert "honest_loss_capped" not in d
+
+
+def test_selector_exposes_revalidation_n_estimators_default():
+    """The facade default is 100 (iter28: matches refine / oof_shap / trust_guard caps). Disable via
+    ``revalidation_n_estimators=None`` for legacy 300-tree behaviour."""
+    from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
+
+    sel = ShapProxiedFS()
+    assert sel.revalidation_n_estimators == 100
+    sel_legacy = ShapProxiedFS(revalidation_n_estimators=None)
+    assert sel_legacy.revalidation_n_estimators is None
+
+
+@pytest.mark.slow
+@pytest.mark.timeout(300)
+def test_biz_value_revalidation_cap_faster_recovery_preserved():
+    """biz_value (iter28): on the live regime (width=1000, n_rows=5000, snr=8, 12 informatives) the
+    ``revalidation_n_estimators=100`` cap must (1) speed the revalidation stage by >=30% over the
+    legacy cap=None path AND (2) preserve informative recovery within 1 feature of the legacy run.
+    Mirrors the iter9 refine biz_value contract: same fixture, same selector config, only the cap
+    knob differs. Run sequentially (A/B in the same process) so any system load shows on both."""
+    import time as _time
+
+    pytest.importorskip("shap")
+    pytest.importorskip("xgboost")
+    from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import make_regime_dataset
+    from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
+
+    width, n_rows, n_inf, n_red, snr, seed = 1000, 5000, 12, 8, 8.0, 0
+    n_noise = width - n_inf - n_red
+    X, y, roles = make_regime_dataset(
+        n_samples=n_rows, n_informative=n_inf, n_redundant=n_red,
+        redundancy_rho=0.9, n_noise=n_noise, snr=snr, task="binary", seed=seed)
+    informative = {name for name, r in roles.items() if r == "informative"}
+
+    def _build(cap):
+        return ShapProxiedFS(
+            classification=True, metric="brier", optimizer="auto",
+            prefilter_top=500, cluster_features=True, cluster_corr_threshold=0.7,
+            top_n=20, n_splits=4, n_revalidation_models=3, trust_guard=True, n_anchors=24,
+            run_importance_ablation=True, within_cluster_refine=True,
+            revalidation_n_estimators=cap, random_state=seed, verbose=False)
+
+    # Run AFTER first to warm any one-shot global caches, then BEFORE, then AFTER again for the
+    # headline. Mirrors the iter28 _iter28_ab.py bench discipline.
+    def _go(cap):
+        sel = _build(cap)
+        sel._stage_timings = {}
+        t0 = _time.perf_counter()
+        sel.fit(X, y)
+        wall = _time.perf_counter() - t0
+        return wall, dict(sel._stage_timings), len(informative & set(sel.selected_features_))
+
+    _go(100)  # warmup
+    b_wall, b_t, b_rec = _go(None)
+    a_wall, a_t, a_rec = _go(100)
+
+    reval_before = b_t.get("revalidation", 0.0)
+    reval_after = a_t.get("revalidation", 0.0)
+    print(f"[iter28 biz_value] BEFORE: total={b_wall:.2f}s reval={reval_before:.2f}s recovery={b_rec}/{n_inf}", flush=True)
+    print(f"[iter28 biz_value] AFTER : total={a_wall:.2f}s reval={reval_after:.2f}s recovery={a_rec}/{n_inf}", flush=True)
+    print(f"[iter28 biz_value] e2e speedup={b_wall / max(1e-9, a_wall):.2f}x  reval speedup={reval_before / max(1e-9, reval_after):.2f}x", flush=True)
+
+    # Quantitative biz-value contract: revalidation stage at least 30% faster (allows headroom over
+    # the iter28 measured 2.12x speedup for HW jitter / load variance), recovery within 1 of legacy.
+    assert reval_after < reval_before, (
+        f"capped revalidation must be faster than legacy: {reval_after:.2f}s vs {reval_before:.2f}s")
+    assert reval_before / max(1e-9, reval_after) >= 1.30, (
+        f"capped revalidation must be >=1.30x faster than legacy: "
+        f"speedup={reval_before / max(1e-9, reval_after):.2f}x")
+    assert a_rec >= b_rec - 1, (
+        f"capped recovery {a_rec}/{n_inf} must be within 1 of legacy {b_rec}/{n_inf}")

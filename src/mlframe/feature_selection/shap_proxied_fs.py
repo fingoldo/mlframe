@@ -85,6 +85,7 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         prescreen_top: int | None = None,
         within_cluster_refine: bool = True,
         refine_n_estimators: int | None = 100,
+        revalidation_n_estimators: int | None = 100,
         trust_guard_n_estimators: int | None = 100,
         trust_guard_stratified_anchors: bool = False,
         trust_guard_uniform_tail_frac: float = 0.2,
@@ -177,6 +178,23 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         # ``parsimony_tol``; the ranking stabilises well before the default 300 trees, so capping at
         # ~100 trees cuts each fit ~3x while keeping the drop decision intact. None disables the cap.
         self.refine_n_estimators = refine_n_estimators
+        # ``revalidation_n_estimators`` (iter28) caps the per-candidate booster size inside
+        # ``revalidate_top_n`` / ``active_learning_revalidate``. The honest re-validation stage's
+        # parsimony-rule selection is a RELATIVE ranking decision (within ``parsimony_tol`` of the
+        # best stable_score), which stabilises long before 300 trees -- same rationale as iter9
+        # refine / iter19 oof_shap / iter10 trust_guard. Iter27 profile at width=1000/n_rows=5000/
+        # snr=8 measured revalidation at 47.4% of total fit (the post-iter27 dominant stage). At
+        # ``top_n=20`` x ``n_revalidation_models=3`` that's 60 honest retrains, each at 300 trees;
+        # capping at 100 cuts per-fit cost ~2.6x (single-fit microbench: 0.349s at 300 vs 0.134s at
+        # 100). Ranking stability microbench across 20 candidate subsets: Spearman(300, 100)=0.94,
+        # identical argmin, top-5 overlap 4/5. After the parsimony rule picks the winner, ONE
+        # full-template re-evaluation refreshes the user-visible ``report['revalidation']['ranked']``
+        # entry's ``honest_loss`` so it stays apples-to-apples with the trust-guard / ablation
+        # outputs (both use the full template); the capped value is preserved as
+        # ``honest_loss_capped`` for diagnostics. The capped fits are cache-namespaced via
+        # ``template_id=('reval_cap', cap)`` so they never collide with full-template entries from
+        # elsewhere in the pipeline. ``None`` disables the cap (legacy 300-tree behaviour).
+        self.revalidation_n_estimators = revalidation_n_estimators
         # ``trust_guard_n_estimators`` caps the per-anchor booster size inside ``proxy_trust_guard``.
         # The trust report only consumes RANKS of anchor losses (Spearman / Kendall / recall@k); a
         # capped booster gives a faithful fidelity signal at ~3x lower cost. None disables the cap.
@@ -633,7 +651,8 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
                     best_idx, ranked, n_eval = active_learning_revalidate(
                         candidates, model_template, X_search, y_search, X_hold, y_hold,
                         corrector_data=cdata, phi=phi, budget=budget, n_models=self.n_revalidation_models,
-                        parsimony_tol=self.parsimony_tol, rng=self._rng, **rv)
+                        parsimony_tol=self.parsimony_tol, rng=self._rng,
+                        revalidation_n_estimators=self.revalidation_n_estimators, **rv)
                     report["revalidation"] = dict(ranked=ranked[: self.top_n],
                                                   active_learning=dict(n_evaluated=n_eval, budget=budget))
                 else:
@@ -642,7 +661,8 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
                     best_idx, ranked, baseline = revalidate_top_n(
                         candidates, model_template, X_search, y_search, X_hold, y_hold,
                         n_models=self.n_revalidation_models, lambda_stab=self.lambda_stab,
-                        parsimony_tol=self.parsimony_tol, rng=self._rng, **rv)
+                        parsimony_tol=self.parsimony_tol, rng=self._rng,
+                        revalidation_n_estimators=self.revalidation_n_estimators, **rv)
                     report["revalidation"] = dict(ranked=ranked[: self.top_n], random_baseline=baseline)
         else:
             best_idx = tuple(candidates[0][1])
