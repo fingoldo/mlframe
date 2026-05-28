@@ -232,7 +232,23 @@ class _RankerDataset(Dataset):
                 # Multilabel y -> sum across labels matches what GBS uses to
                 # decide query inclusion. Not used by ranknet directly.
                 continue
-            i_idx, j_idx = torch.where(rel.unsqueeze(1) > rel.unsqueeze(0))
+            # Binary-relevance Cartesian shortcut for large per-query slices
+            # (>= _BINARY_PAIR_SHORTCUT_MIN_N). Typical fuzz queries are
+            # N=10-15 where torch.where is faster; gating preserves that
+            # path and only opts in for production-scale per-query slices
+            # where the (N, N) mask materialisation dominates.
+            from ._ranker_losses import (  # local import: avoid cycle at module load
+                _BINARY_PAIR_SHORTCUT_MIN_N,
+                _binary_pair_indices,
+            )
+            if rel.numel() >= _BINARY_PAIR_SHORTCUT_MIN_N:
+                binary_pairs = _binary_pair_indices(rel)
+                if binary_pairs is not None:
+                    i_idx, j_idx = binary_pairs
+                else:
+                    i_idx, j_idx = torch.where(rel.unsqueeze(1) > rel.unsqueeze(0))
+            else:
+                i_idx, j_idx = torch.where(rel.unsqueeze(1) > rel.unsqueeze(0))
             # ``tuple(indices.tolist())`` is 6.3x faster than the prior
             # ``tuple(int(v) for v in indices)`` (0.45us vs 2.85us / call at
             # the 10-row query shape; 78ms saved on c0149 32400-call install).
