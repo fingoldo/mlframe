@@ -306,11 +306,14 @@ def test_evaluate_candidate_returns_tuple_with_set(xor_factors):
 def test_evaluate_candidate_cached_confident_short_circuits(xor_factors):
     factors_data, factors_nbins, factors_names = xor_factors
     kwargs = _make_eval_kwargs(factors_data, factors_nbins, factors_names)
-    sentinel = 1.2345
-    kwargs["cached_confident_MIs"] = {(0,): sentinel}
-    # selected_vars empty => current_gain == direct_gain == sentinel.
+    # ``cached_confident_MIs`` stores ``(bootstrapped_gain, confidence)`` tuples
+    # (the producer is ``confirm_candidate`` -- see _confirm_predictor.py:410).
+    # The short-circuit unpacks the tuple and returns ``bootstrapped_gain``.
+    sentinel_gain = 1.2345
+    kwargs["cached_confident_MIs"] = {(0,): (sentinel_gain, 0.95)}
+    # selected_vars empty => current_gain == direct_gain == sentinel_gain.
     current_gain, _ = evaluate_candidate(**kwargs)
-    assert current_gain == pytest.approx(sentinel)
+    assert current_gain == pytest.approx(sentinel_gain)
 
 
 def test_evaluate_candidate_cached_mi_short_circuits(xor_factors):
