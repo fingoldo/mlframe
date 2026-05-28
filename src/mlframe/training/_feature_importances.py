@@ -474,7 +474,39 @@ def get_model_feature_importances(
     elif hasattr(inner, "coef_"):
         coef = np.asarray(inner.coef_)
         feature_importances = coef if coef.ndim == 1 else coef[-1, :]
-    else:
+    elif (
+        # MultiOutputClassifier / MultiOutputRegressor wrap a base estimator
+        # one-per-label; the wrapper exposes ``estimators_`` (the fitted list)
+        # but NOT the aggregate ``feature_importances_`` / ``coef_``.
+        # Without this branch every multilabel CB / XGB / LGB combo falls
+        # through to permutation_importance per (model, split) and pays many
+        # seconds where the child's native FI would aggregate in
+        # milliseconds. c0008 profile (2026-05-28, multilabel cb+hgb @200k):
+        # 35.8 s cumtime / 26 calls of ``_permutation_feature_importances``;
+        # CB-multilabel branches would have aggregated natively. HGB stays
+        # on the permutation path because HGB has no per-feature
+        # ``feature_importances_`` in any sklearn version (use_native_FI is
+        # False for the child too).
+        hasattr(inner, "estimators_")
+        and isinstance(getattr(inner, "estimators_", None), (list, tuple))
+        and len(inner.estimators_) > 0
+    ):
+        per_child: list[np.ndarray] = []
+        for child in inner.estimators_:
+            if hasattr(child, "feature_importances_"):
+                per_child.append(np.asarray(child.feature_importances_))
+            elif hasattr(child, "coef_"):
+                coef = np.asarray(child.coef_)
+                per_child.append(coef if coef.ndim == 1 else coef[-1, :])
+            else:
+                per_child = []
+                break
+        if per_child and all(fi.shape == per_child[0].shape for fi in per_child):
+            # Mean aggregation: every label contributes equally. This loses
+            # per-label structure but matches the global FI semantics the
+            # report expects (one signed-or-unsigned 1-D array sized n_features).
+            feature_importances = np.mean(per_child, axis=0)
+    if feature_importances is None and not hasattr(inner, "feature_importances_") and not hasattr(inner, "coef_"):
         # Non-native source: try the NN-specific paths first when the
         # model is a torch Module wrapper. ``nn_fi_method``:
         #   * "auto"            -> Captum IG if available, else permutation.
