@@ -157,3 +157,136 @@ def test_default_prefilter_method_is_auto():
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     assert ShapProxiedFS().prefilter_method == "auto"
+
+
+# ----------------------------------------------------------- prefilter_n_estimators cap (iter10)
+def test_default_prefilter_n_estimators_cap_is_100():
+    """The facade ships a tree-count cap on the pre-filter's ranking booster (same cap-the-ranker
+    pattern iter9 applied to refine + trust-guard); the default makes the speed win opt-out, not
+    opt-in. ``None`` disables the cap."""
+    from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
+
+    assert ShapProxiedFS().prefilter_n_estimators == 100
+
+
+def test_prefilter_cap_preserves_top_k_jaccard_vs_uncapped():
+    """The cap reduces the ranking booster's tree count to ~100 to cut the prefilter wall-clock by ~3x.
+    Importance attribution stabilises well below the default 300 trees -- so on a signal-bearing
+    top-K slice (K close to the planted informative cardinality, where the importances are not
+    in the noise-tail tie regime) the capped ranking must agree with the uncapped to Jaccard >= 0.95.
+
+    Why measure Jaccard near the signal cardinality, not at the production ``prefilter_top``:
+    once K extends deep into the noise tail the importances are essentially tied (differences are
+    below tree-build noise across ANY seed perturbation), so even the SAME booster run twice with
+    different RNGs would produce sub-0.95 Jaccard there. The decision-relevant quantity is whether
+    the SIGNAL ranks survive the cap -- this is asserted directly via the informative-recovery set.
+
+    Independently checked for ``"model"`` and ``"fast_model"`` so neither method silently degrades."""
+    from mlframe.feature_selection._shap_proxy_explain import make_default_estimator
+    from mlframe.feature_selection._shap_proxy_prefilter import prefilter_columns
+
+    # Clean separable synthetic: enough rows + low noise so the importances escape the tail-tie regime.
+    rng = np.random.default_rng(0)
+    n, width, n_inf = 3000, 200, 8
+    inf = rng.normal(size=(n, n_inf))
+    noise = rng.normal(size=(n, width - n_inf))
+    X = pd.DataFrame(np.column_stack([inf, noise]),
+                     columns=[f"inf{i}" for i in range(n_inf)]
+                     + [f"noise{i}" for i in range(width - n_inf)])
+    coefs = np.array([1.5, 1.4, 1.3, 1.2, 1.1, 1.0, 0.9, 0.8])
+    logit = (inf * coefs).sum(axis=1)
+    y = (logit + 0.05 * rng.normal(size=n) > 0).astype(np.float64)
+
+    # Signal-aware K: the importances above this threshold carry the real ranking signal; beyond it,
+    # the noise tail is rank-degenerate (same booster + different RNG would also disagree).
+    signal_k = n_inf
+    # Larger K used to capture informative-recovery (the prefilter's actual product).
+    prod_k = 60
+
+    for method in ("model", "fast_model"):
+        # Build TWO templates with identical seeds so capped vs uncapped only differ in n_estimators.
+        model_full = make_default_estimator(classification=True, random_state=0, n_estimators=300)
+        model_cap = make_default_estimator(classification=True, random_state=0, n_estimators=300)
+        uncapped, _ = prefilter_columns(
+            model_full, X, y, method=method, prefilter_top=signal_k, classification=True,
+            n_features=X.shape[1], n_estimators_cap=None)
+        capped, info = prefilter_columns(
+            model_cap, X, y, method=method, prefilter_top=signal_k, classification=True,
+            n_features=X.shape[1], n_estimators_cap=100)
+        a, b = set(map(int, uncapped)), set(map(int, capped))
+        jaccard = len(a & b) / len(a | b)
+        assert jaccard >= 0.95, f"{method}: top-{signal_k} Jaccard {jaccard:.3f} < 0.95 (capped vs uncapped)"
+
+        # Production-K view: at the user-facing prefilter_top, the cap MUST keep all informatives
+        # (the prefilter's decision-relevant output -- it doesn't need rank-stability among noise).
+        capped_prod, info_prod = prefilter_columns(
+            make_default_estimator(classification=True, random_state=0, n_estimators=300),
+            X, y, method=method, prefilter_top=prod_k, classification=True,
+            n_features=X.shape[1], n_estimators_cap=100)
+        kept_prod = set(map(int, capped_prod))
+        assert set(range(n_inf)) <= kept_prod, (
+            f"{method}: capped prefilter lost informatives at prod K={prod_k}, "
+            f"got head={sorted(kept_prod)[:12]}")
+        # Info dict surfaces the applied cap so downstream report consumers can see what ran.
+        assert info["n_estimators_cap"] == 100
+        assert info_prod["n_estimators_cap"] == 100
+
+
+def test_prefilter_cap_none_is_legacy_uncapped_behaviour():
+    """``n_estimators_cap=None`` must preserve the legacy path: the cloned ranking booster is fit at
+    the template's own ``n_estimators`` (300 by default). Regression guard so the new knob is a pure
+    extension."""
+    from mlframe.feature_selection._shap_proxy_explain import make_default_estimator
+    from mlframe.feature_selection._shap_proxy_prefilter import prefilter_columns
+
+    X, y = _wide_xy(width=150, n_informative=5)
+    model = make_default_estimator(classification=True, random_state=0, n_estimators=300)
+    _, info = prefilter_columns(
+        model, X, y.astype(np.float64), method="model", prefilter_top=30,
+        classification=True, n_features=X.shape[1], n_estimators_cap=None)
+    assert info["n_estimators_cap"] is None
+
+
+def test_prefilter_cap_does_not_increase_fast_model_budget():
+    """``fast_model`` already reduces the budget (template / 4 with a floor of 50). If the user passes
+    a LARGER cap than fast_model's own reduced budget, the cap must NOT push it back up -- the
+    fast_model path keeps its own (smaller) budget. Enforced via ``min(current, cap)`` in the ranker."""
+    from sklearn.base import clone
+
+    from mlframe.feature_selection._shap_proxy_explain import _unwrap_estimator, make_default_estimator
+    from mlframe.feature_selection._shap_proxy_prefilter import _rank_fast_model
+
+    X, y = _wide_xy(width=120, n_informative=5)
+    # Template default is 300 -> fast_model would set ~75 (300//4). Cap at 200 must NOT raise it.
+    model = make_default_estimator(classification=True, random_state=0, n_estimators=300)
+    # Instrument by inspecting the cloned estimator's n_estimators after fast_model's set_params chain.
+    # Drive _rank_fast_model with a HUGE cap and re-derive the budget it would have used.
+    captured = {}
+
+    def _spy_fit(self, *a, **kw):  # type: ignore[no-redef]
+        captured["n_estimators"] = self.get_params().get("n_estimators")
+        return orig_fit(self, *a, **kw)
+
+    pf = clone(model)
+    orig_fit = type(_unwrap_estimator(pf)).fit
+    # Easier path: call the ranker and just read what got set via a small probe model.
+    import xgboost as xgb
+
+    class _ProbeXGB(xgb.XGBClassifier):
+        n_estimators_seen = None
+
+        def fit(self, X, y, **kw):
+            type(self).n_estimators_seen = int(self.get_params()["n_estimators"])
+            return super().fit(X, y, **kw)
+
+    probe = _ProbeXGB(n_estimators=300, random_state=0, verbosity=0, tree_method="hist")
+    _rank_fast_model(probe, X, y.astype(np.float64), n_features=X.shape[1], n_estimators_cap=200)
+    # fast_model would compute max(50, 300//4) = 75; cap=200 cannot raise it above 75.
+    assert _ProbeXGB.n_estimators_seen == 75, (
+        f"fast_model n_estimators wrongly raised by cap: got {_ProbeXGB.n_estimators_seen}, expected 75")
+
+    # And when the cap is SMALLER than fast_model's own reduced budget, the cap DOES bind.
+    _ProbeXGB.n_estimators_seen = None
+    probe2 = _ProbeXGB(n_estimators=300, random_state=0, verbosity=0, tree_method="hist")
+    _rank_fast_model(probe2, X, y.astype(np.float64), n_features=X.shape[1], n_estimators_cap=40)
+    assert _ProbeXGB.n_estimators_seen == 40

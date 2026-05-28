@@ -163,6 +163,67 @@ def test_biz_val_fast_prefilter_does_not_worsen_recovery_vs_model():
 
 
 @pytest.mark.slow
+@pytest.mark.timeout(900)
+def test_biz_val_prefilter_cap_faster_with_preserved_recovery():
+    """Iter10 win: cap the prefilter's ranking booster (``prefilter_n_estimators``) so the
+    all-columns importance fit costs ~3x less while preserving informative recovery.
+
+    Apples-to-apples comparison at moderate width (CI-affordable) with ``prefilter_method="model"``
+    forced (the cap pays its biggest dividend on the full-booster path; ``auto`` would route to
+    ``fast_model`` here, which already has a reduced budget so the cap is near a no-op there).
+    Assertion floors leave generous seed headroom -- the measured dev run (seed=0, width=3000,
+    rows=2500) shows ~2-3x prefilter speedup with recovery preserved.
+    """
+    import time
+
+    from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import make_regime_dataset
+    from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
+
+    n_informative, n_redundant, width = 6, 8, 3000
+    X, y, _roles = make_regime_dataset(
+        n_samples=2500, n_informative=n_informative, n_redundant=n_redundant,
+        redundancy_rho=0.9, n_noise=width - n_informative - n_redundant, snr=5.0,
+        task="binary", seed=0)
+    informative = {f"inf{i}" for i in range(n_informative)}
+
+    def _fit(cap):
+        sel = ShapProxiedFS(
+            classification=True, metric="brier", optimizer="auto",
+            prefilter_top=300, prefilter_method="model", prefilter_n_estimators=cap,
+            cluster_features=True, cluster_corr_threshold=0.7,
+            top_n=12, n_splits=3, n_revalidation_models=2, n_anchors=15,
+            random_state=0, verbose=False, n_jobs=1)
+        sel._stage_timings = {}
+        t0 = time.perf_counter()
+        sel.fit(X, pd.Series(y))
+        total = time.perf_counter() - t0
+        rec = len(informative & set(sel.selected_features_))
+        return rec, sel._stage_timings.get("prefilter", total), total, sel.shap_proxy_report_["prefilter"]
+
+    rec_uncapped, pf_uncapped, _, info_uncapped = _fit(cap=None)
+    rec_capped, pf_capped, _, info_capped = _fit(cap=100)
+
+    # Cap was actually applied (report carries it).
+    assert info_uncapped["n_estimators_cap"] is None
+    assert info_capped["n_estimators_cap"] == 100
+
+    # Speed: the capped prefilter must be measurably faster than the uncapped one.
+    # (Measured ~2-3x on dev; floor 1.2x leaves Windows-build variance headroom.)
+    assert pf_capped < pf_uncapped, (
+        f"capped prefilter ({pf_capped:.2f}s) not faster than uncapped ({pf_uncapped:.2f}s)")
+    assert pf_capped <= 0.85 * pf_uncapped, (
+        f"capped prefilter speedup too small: {pf_uncapped/pf_capped:.2f}x "
+        f"(uncapped={pf_uncapped:.2f}s vs capped={pf_capped:.2f}s)")
+
+    # Quality: recovery must not be materially worse (within 1 informative).
+    assert rec_capped >= rec_uncapped - 1, (
+        f"cap worsened recovery: capped={rec_capped}/{n_informative} "
+        f"vs uncapped={rec_uncapped}/{n_informative}")
+    # And the capped pipeline must still recover most of the planted informatives (sanity floor).
+    assert rec_capped >= 4, f"capped recovered too few informatives: {rec_capped}/{n_informative}"
+
+
+@pytest.mark.slow
 def test_biz_val_regression_recovers_informative():
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 

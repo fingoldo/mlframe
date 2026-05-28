@@ -131,22 +131,49 @@ def _topk(importance: np.ndarray, k: int) -> np.ndarray:
     return np.sort(np.argsort(-importance, kind="stable")[:k])
 
 
-def _rank_model(model_template, X, y, *, n_features: int):
-    """Full booster fit on all columns -> native importances. The original (faithful) ranking."""
+def _apply_booster_cap(est, cap):
+    """Cap the booster's tree count on a cloned ranking template.
+
+    The prefilter consumes ONLY the ranking of ``feature_importances_``, never an honest loss number
+    a user sees, so reducing the tree count is a pure-speed lever: importance attribution stabilises
+    well below the default 300 trees (empirical rule of thumb ~100). Reuses the iter9 helper from
+    ``_shap_proxy_revalidate`` to set the first recognised booster-size param
+    (``n_estimators`` / ``iterations`` / ``num_boost_round``) without duplicating logic. Silently a
+    no-op for templates without an ``n_estimators``-like param (e.g. a linear model in tests).
+    Returns the param name actually set (or ``None``)."""
+    if cap is None:
+        return None
+    from mlframe.feature_selection._shap_proxy_revalidate import _try_cap_n_estimators
+
+    return _try_cap_n_estimators(est, cap)
+
+
+def _rank_model(model_template, X, y, *, n_features: int, n_estimators_cap=None):
+    """Full booster fit on all columns -> native importances. The original (faithful) ranking.
+
+    When ``n_estimators_cap`` is set the cloned ranking booster's tree count is reduced to the cap
+    BEFORE fitting; importance attribution stabilises well below the default tree count, so this
+    cuts the fit cost roughly in proportion to the cap ratio while preserving the rank order the
+    prefilter consumes (Jaccard >= 0.95 on the top-K vs uncapped, validated by the unit test)."""
     from sklearn.base import clone
 
     from mlframe.feature_selection._shap_proxy_explain import _unwrap_estimator
 
     pf = clone(model_template)
+    _apply_booster_cap(pf, n_estimators_cap)
     pf.fit(X, y)
     return _importances_from_fitted(_unwrap_estimator(pf), n_features)
 
 
-def _rank_fast_model(model_template, X, y, *, n_features: int):
+def _rank_fast_model(model_template, X, y, *, n_features: int, n_estimators_cap=None):
     """Reduced-budget booster (fewer/shallower trees + column subsampling) for a coarse but still
     interaction-aware ranking. Clones the user's template so non-tree estimators degrade gracefully:
     we only set the params the template actually exposes (xgboost/lightgbm/sklearn GBMs all do). The
-    clone carries the template's random_state, so the subsampled fit stays deterministic per call."""
+    clone carries the template's random_state, so the subsampled fit stays deterministic per call.
+
+    When ``n_estimators_cap`` is supplied, the per-cap-also-applied n_estimators is the MIN of
+    fast_model's already-reduced budget (template/4) and the cap, so the cap can never accidentally
+    INCREASE fast_model's tree budget vs its own legacy value."""
     from sklearn.base import clone
 
     from mlframe.feature_selection._shap_proxy_explain import _unwrap_estimator
@@ -158,7 +185,11 @@ def _rank_fast_model(model_template, X, y, *, n_features: int):
     fast = {}
     n_est = getattr(pf, "n_estimators", None)
     if "n_estimators" in valid and isinstance(n_est, (int, np.integer)):
-        fast["n_estimators"] = max(50, int(n_est) // 4)
+        budget = max(50, int(n_est) // 4)
+        if n_estimators_cap is not None:
+            # min() so the cap never increases fast_model's already-reduced budget.
+            budget = min(budget, int(n_estimators_cap))
+        fast["n_estimators"] = budget
     if "max_depth" in valid:
         fast["max_depth"] = 3
     if "colsample_bytree" in valid:
@@ -174,15 +205,19 @@ def _rank_fast_model(model_template, X, y, *, n_features: int):
     return _importances_from_fitted(_unwrap_estimator(pf), n_features)
 
 
-def _rank_gpu_model(model_template, X, y, *, n_features: int):
+def _rank_gpu_model(model_template, X, y, *, n_features: int, n_estimators_cap=None):
     """Full booster ranking with the all-columns fit routed to XGBoost ``device="cuda"``. Same ranking
     as ``model`` (interaction-aware, faithful) but on the GPU. Falls back to the CPU ``model`` path on
-    any device/build error so a wrong route never loses the result."""
+    any device/build error so a wrong route never loses the result.
+
+    Honours ``n_estimators_cap`` the same way as ``_rank_model`` -- ranking only consumes the importance
+    order, so a capped booster preserves the prefilter's product at lower GPU + transfer cost."""
     from sklearn.base import clone
 
     from mlframe.feature_selection._shap_proxy_explain import _unwrap_estimator
 
     pf = clone(model_template)
+    _apply_booster_cap(pf, n_estimators_cap)
     routed = False
     if hasattr(pf, "get_params") and "device" in pf.get_params(deep=False):  # xgboost >= 2.0 sklearn API
         try:
@@ -200,6 +235,7 @@ def _rank_gpu_model(model_template, X, y, *, n_features: int):
         if routed:
             logger.warning("ShapProxiedFS: GPU prefilter fit failed (%s); retrying on CPU.", exc)
             pf = clone(model_template)
+            _apply_booster_cap(pf, n_estimators_cap)
             pf.fit(X, y)
         else:
             raise
@@ -230,6 +266,7 @@ def prefilter_columns(
     prefilter_top: int,
     classification: bool,
     n_features: int,
+    n_estimators_cap: Optional[int] = 100,
 ) -> tuple[np.ndarray, dict]:
     """Rank all columns by ``method`` and return ``(working_cols, info)``.
 
@@ -237,24 +274,41 @@ def prefilter_columns(
     the caller restricts its working frame to these and maps final picks back via ``working_cols``.
     Returns the FULL ``arange(n_features)`` (no-op) when the ranking is unavailable (e.g. a model with
     neither ``feature_importances_`` nor ``coef_``), preserving the original behaviour. ``info`` is the
-    report dict: ``dict(method=<resolved>, kept=K, of=n_features)``.
+    report dict: ``dict(method=<resolved>, kept=K, of=n_features, n_estimators_cap=<cap or None>)``.
+
+    ``n_estimators_cap`` (default 100) reduces the cloned ranking booster's tree count for the
+    ``"model"``, ``"fast_model"`` and ``"gpu_model"`` methods. The prefilter consumes ONLY the
+    ranking of native importances (never an absolute loss number reported to a user), and importance
+    attribution stabilises well below the default 300 trees -- so this is the same "cap-the-ranker"
+    pattern that iter9 applied to within-cluster refine and the trust guard. ``"fast_model"`` already
+    sets a reduced budget (template / 4) and clamps to ``min(current, cap)`` so the cap can never
+    accidentally INCREASE its tree count. ``"univariate"`` is a no-op (no booster). Set
+    ``n_estimators_cap=None`` to disable the cap (legacy uncapped behaviour).
     """
     resolved = resolve_prefilter_method(method, n_features=n_features, n_rows=int(X.shape[0]))
     if resolved == "univariate":
         importance = _rank_univariate(X, y, classification=classification)
+        applied_cap = None  # univariate has no booster -> cap is meaningfully N/A in the report
     elif resolved == "fast_model":
-        importance = _rank_fast_model(model_template, X, y, n_features=n_features)
+        importance = _rank_fast_model(model_template, X, y, n_features=n_features,
+                                      n_estimators_cap=n_estimators_cap)
+        applied_cap = n_estimators_cap
     elif resolved == "gpu_model":
-        importance = _rank_gpu_model(model_template, X, y, n_features=n_features)
+        importance = _rank_gpu_model(model_template, X, y, n_features=n_features,
+                                     n_estimators_cap=n_estimators_cap)
+        applied_cap = n_estimators_cap
     else:  # "model"
-        importance = _rank_model(model_template, X, y, n_features=n_features)
+        importance = _rank_model(model_template, X, y, n_features=n_features,
+                                 n_estimators_cap=n_estimators_cap)
+        applied_cap = n_estimators_cap
 
     if importance is None or importance.shape[0] != n_features:
         # Ranking unavailable -> keep all columns (identity), exactly the pre-existing fall-through.
         return np.arange(n_features), dict(method=resolved, kept=int(n_features), of=int(n_features),
-                                           skipped="no_importance")
+                                           skipped="no_importance", n_estimators_cap=applied_cap)
     working_cols = _topk(importance, prefilter_top)
-    return working_cols, dict(method=resolved, kept=int(len(working_cols)), of=int(n_features))
+    return working_cols, dict(method=resolved, kept=int(len(working_cols)), of=int(n_features),
+                              n_estimators_cap=applied_cap)
 
 
 __all__ = [

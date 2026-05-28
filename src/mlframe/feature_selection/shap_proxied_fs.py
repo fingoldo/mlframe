@@ -73,6 +73,7 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         use_gpu: bool = False,
         prefilter_top: int | None = 2000,
         prefilter_method: str = "auto",
+        prefilter_n_estimators: int | None = 100,
         cluster_features: bool | str = "auto",
         cluster_corr_threshold: float = 0.7,
         cluster_weighting: str = "pca_pc1",
@@ -119,6 +120,15 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         self.use_gpu = use_gpu
         self.prefilter_top = prefilter_top
         self.prefilter_method = prefilter_method
+        # ``prefilter_n_estimators`` caps the cloned ranking booster's tree count inside the
+        # pre-filter ("model" / "fast_model" / "gpu_model"). The pre-filter consumes only the rank
+        # order of ``feature_importances_``, not an absolute loss number a user sees, so reducing
+        # the tree count is a pure-speed lever: importance attribution stabilises well below the
+        # default 300 trees. Same "cap-the-ranker" pattern as iter9's refine / trust-guard caps.
+        # ``fast_model`` already sets a reduced budget (template / 4); the cap clamps via
+        # ``min(current, cap)`` so it can never INCREASE fast_model's tree count. ``univariate`` is
+        # a no-op. ``None`` disables the cap (legacy uncapped behaviour).
+        self.prefilter_n_estimators = prefilter_n_estimators
         self.cluster_features = cluster_features
         self.cluster_corr_threshold = cluster_corr_threshold
         self.cluster_weighting = cluster_weighting
@@ -297,7 +307,7 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
                 working_cols, pf_info = prefilter_columns(
                     model_template, X_search, y_search, method=self.prefilter_method,
                     prefilter_top=self.prefilter_top, classification=self.classification,
-                    n_features=n_features)
+                    n_features=n_features, n_estimators_cap=self.prefilter_n_estimators)
                 if len(working_cols) < n_features:
                     X_search = X_search.iloc[:, working_cols].reset_index(drop=True)
                     X_hold = X_hold.iloc[:, working_cols].reset_index(drop=True)
