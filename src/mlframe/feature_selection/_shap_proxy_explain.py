@@ -190,6 +190,19 @@ def _assert_additivity_and_base(phi: np.ndarray, base: float, fold_tag: str = ""
 _JITTER_DEPTHS = (3, 4, 5, 6)  # cycled across models when config_jitter is on
 
 
+# bench-attempt-rejected (2026-05-28, iter20): converting ``X`` to numpy at the entry of ``_fit_one`` +
+# ``_models_phi`` + ``_honest_loss`` (revalidate.py) to skip XGBoost's ``_assign_dmatrix_features`` +
+# ``from_cstr_to_pystr`` + ``_validate_features`` marshalling. Motivated by iter19's cProfile attributing
+# ~17s of OOF-SHAP wall to that path at width=10000. Measured isolated cold+warm OOF-SHAP on a 4000x400
+# post-cohort frame: baseline cold=11.37s warm=9.11s; numpy-input cold=10.90s warm=9.11s -- 4% cold, 0%
+# warm. End-to-end scaling bench (medians over 4 warm runs at 6k+10k) showed OOF-SHAP within +/-3% and
+# total fit within noise (15-20% Windows run-to-run variance). The cProfile 17s attribution was a
+# JIT/cold-cache artifact, NOT a steady-state marshalling cost. Same lesson as iter6 (4-11% gain on
+# regime synthetic, didn't ship). Do not re-attempt without a NEW data regime (object/categorical-mixed
+# DataFrame where .values triggers a real copy / dtype conversion) -- on float64 single-block frames
+# the .values pass-through is essentially free for both pandas AND XGBoost.
+
+
 def _fit_one(model_template, X, y, classification: bool, seed: Optional[int], jitter_depth: Optional[int] = None,
              inner_n_jobs: Optional[int] = None, n_estimators_cap: Optional[int] = None):
     est = clone(model_template)
