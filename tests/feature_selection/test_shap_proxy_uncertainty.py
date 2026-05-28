@@ -77,6 +77,105 @@ def test_oof_shap_parallel_folds_match_serial():
     assert np.array_equal(base_s, base_p)
 
 
+def test_compute_shap_matrix_n_estimators_cap_is_clamp():
+    """Iter19 unit: ``n_estimators_cap`` clamps the per-fold booster's tree count via
+    ``min(template_n_estimators, cap)``. Behaviour-test by asserting the fitted boosters carry the
+    expected tree count and the produced phi has the right shape -- no implementation-string
+    inspection."""
+    import pandas as pd
+    from unittest.mock import patch
+
+    from mlframe.feature_selection import _shap_proxy_explain
+    from mlframe.feature_selection._shap_proxy_explain import compute_shap_matrix, make_default_estimator
+
+    rng = np.random.default_rng(0)
+    n, f = 800, 24  # narrow path: stays on the shap-lib backend so the test runs fast
+    Xnp = rng.normal(size=(n, f))
+    X = pd.DataFrame(Xnp, columns=[f"f{i}" for i in range(f)])
+    y = (1.0 * Xnp[:, 0] + 0.8 * Xnp[:, 1] - 0.6 * Xnp[:, 2] + 0.3 * rng.normal(size=n) > 0).astype(int)
+    template = make_default_estimator(classification=True, random_state=0, n_estimators=300)
+
+    captured: list[int] = []
+    real_fit_one = _shap_proxy_explain._fit_one
+
+    def _spy_fit_one(model_template, X, y, classification, seed, jitter_depth=None,
+                     inner_n_jobs=None, n_estimators_cap=None):
+        est = real_fit_one(model_template, X, y, classification, seed, jitter_depth=jitter_depth,
+                           inner_n_jobs=inner_n_jobs, n_estimators_cap=n_estimators_cap)
+        captured.append(int(est.get_params()["n_estimators"]))
+        return est
+
+    # cap=100 with template n_estimators=300 -> every fitted booster carries 100 trees.
+    with patch.object(_shap_proxy_explain, "_fit_one", _spy_fit_one):
+        phi, base, _ = compute_shap_matrix(template, X, y, classification=True, out_of_fold=True,
+                                            n_splits=3, rng=np.random.default_rng(0), n_jobs=1,
+                                            n_estimators_cap=100)
+    assert phi.shape == (n, f)
+    assert len(captured) == 3
+    assert all(c == 100 for c in captured), f"cap=100 did not clamp; got {captured}"
+
+    # cap=500 with template n_estimators=300 -> clamp via min(): template wins (300), cap can't INCREASE.
+    captured.clear()
+    with patch.object(_shap_proxy_explain, "_fit_one", _spy_fit_one):
+        compute_shap_matrix(template, X, y, classification=True, out_of_fold=True, n_splits=2,
+                            rng=np.random.default_rng(0), n_jobs=1, n_estimators_cap=500)
+    assert all(c == 300 for c in captured), f"cap=500 should leave 300-tree template untouched; got {captured}"
+
+    # cap=None -> legacy uncapped path (the booster carries the template's n_estimators).
+    captured.clear()
+    with patch.object(_shap_proxy_explain, "_fit_one", _spy_fit_one):
+        compute_shap_matrix(template, X, y, classification=True, out_of_fold=True, n_splits=2,
+                            rng=np.random.default_rng(0), n_jobs=1, n_estimators_cap=None)
+    assert all(c == 300 for c in captured), f"cap=None should leave 300-tree template untouched; got {captured}"
+
+
+def test_facade_oof_shap_n_estimators_default_is_100():
+    """Iter19 unit: facade default ``oof_shap_n_estimators=100`` so a fresh selector ships the
+    cap-the-OOF-ranker behaviour without per-caller opt-in. Regression guard against silent revert."""
+    from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
+
+    sel = ShapProxiedFS()
+    assert sel.oof_shap_n_estimators == 100
+
+
+def test_facade_oof_shap_n_estimators_passes_to_compute_shap_matrix():
+    """Iter19 unit: the facade plumbs its ``oof_shap_n_estimators`` into ``compute_shap_matrix``
+    via the ``n_estimators_cap`` kwarg (and uncapped passes ``None`` when the caller opts out)."""
+    import pandas as pd
+    from unittest.mock import patch
+
+    # The facade lazy-imports ``compute_shap_matrix`` from ``_shap_proxy_explain`` inside ``fit``;
+    # patch it on the SOURCE module so the lazy import picks up the spy.
+    from mlframe.feature_selection import _shap_proxy_explain as explain_module
+    from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
+
+    rng = np.random.default_rng(0)
+    n, f = 600, 12
+    Xnp = rng.normal(size=(n, f))
+    X = pd.DataFrame(Xnp, columns=[f"f{i}" for i in range(f)])
+    y = (1.0 * Xnp[:, 0] + 0.8 * Xnp[:, 1] + 0.3 * rng.normal(size=n) > 0).astype(int)
+
+    real_compute = explain_module.compute_shap_matrix
+    captured: list[object] = []
+
+    def _spy(*args, **kwargs):
+        captured.append(kwargs.get("n_estimators_cap"))
+        return real_compute(*args, **kwargs)
+
+    with patch.object(explain_module, "compute_shap_matrix", _spy):
+        ShapProxiedFS(classification=True, metric="brier", optimizer="bruteforce", max_features=4,
+                      top_n=5, n_splits=3, trust_guard=False, random_state=0, verbose=False,
+                      n_jobs=1).fit(X, y)
+    assert captured == [100], f"facade default should pass cap=100 to compute_shap_matrix; got {captured}"
+
+    captured.clear()
+    with patch.object(explain_module, "compute_shap_matrix", _spy):
+        ShapProxiedFS(classification=True, metric="brier", optimizer="bruteforce", max_features=4,
+                      top_n=5, n_splits=3, trust_guard=False, oof_shap_n_estimators=None,
+                      random_state=0, verbose=False, n_jobs=1).fit(X, y)
+    assert captured == [None], f"oof_shap_n_estimators=None must pass through; got {captured}"
+
+
 @pytest.mark.slow
 def test_biz_val_config_jitter_stabilizes_importance_ranking():
     """Averaging over depth-jittered models should make the SHAP-importance ranking at least as stable

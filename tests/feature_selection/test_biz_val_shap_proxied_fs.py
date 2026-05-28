@@ -445,3 +445,73 @@ def test_biz_val_zipf_cardinality_preserves_recovery_no_catastrophic_spearman_dr
     # Catastrophic-drop guard: dev measured Δ=-0.183 at alpha=1.0; floor at -0.25 leaves headroom.
     assert sp_z >= sp_u - 0.25, (
         f"zipf cardinality catastrophically dropped Spearman: uniform={sp_u:.3f} zipf={sp_z:.3f}")
+
+
+@pytest.mark.slow
+@pytest.mark.timeout(300)
+def test_biz_val_oof_shap_cap_faster_with_preserved_recovery():
+    """Iter19 win: cap the per-fold OOF-SHAP booster (``oof_shap_n_estimators``) so the
+    K-fold model-fit cost (which dominated the OOF-SHAP stage per cProfile at width=10k:
+    xgboost ``update`` 29.6s tottime / 40.4s cumulative out of 43.3s SERIAL OOF-SHAP, i.e.
+    96% of stage) drops near-linearly with the tree count.
+
+    The SHAP attribution + coalition ranking only consume the FITTED model's structural
+    credit-allocation, which stabilises well before the full 300-tree template completes -- same
+    "cap-the-ranker" insight as iter9 (prefilter) / iter10 (trust-guard) / iter12 (refine).
+
+    Measured dev run (seed=0, width=3000, rows=2500):
+        cap=None:  oof_shap ≈ 6-9s,  recovery preserved
+        cap=100:   oof_shap ≈ 2-3s,  recovery preserved (≈2-3x speedup)
+
+    Assertion floors leave seed/HW variance headroom -- the floor is "capped < uncapped AND
+    recovery no worse"; a strict 2x floor would be flaky on slow CI runners.
+    """
+    import time
+
+    from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import make_regime_dataset
+    from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
+
+    n_informative, n_redundant, width = 6, 8, 3000
+    X, y, _roles = make_regime_dataset(
+        n_samples=2500, n_informative=n_informative, n_redundant=n_redundant,
+        redundancy_rho=0.9, n_noise=width - n_informative - n_redundant, snr=5.0,
+        task="binary", seed=0)
+    informative = {f"inf{i}" for i in range(n_informative)}
+
+    def _fit(cap):
+        sel = ShapProxiedFS(
+            classification=True, metric="brier", optimizer="auto",
+            prefilter_top=300, cluster_features=True, cluster_corr_threshold=0.7,
+            top_n=12, n_splits=3, n_revalidation_models=2, n_anchors=15,
+            oof_shap_n_estimators=cap,
+            random_state=0, verbose=False, n_jobs=1)
+        sel._stage_timings = {}
+        t0 = time.perf_counter()
+        sel.fit(X, pd.Series(y))
+        total = time.perf_counter() - t0
+        rec = len(informative & set(sel.selected_features_))
+        return rec, sel._stage_timings.get("oof_shap", total), total
+
+    print("\n[iter19 oof-shap-cap biz_val] uncapped leg", flush=True)
+    rec_uncapped, oof_uncapped, total_uncapped = _fit(cap=None)
+    print(f"[iter19] cap=None:  oof_shap={oof_uncapped:.2f}s total={total_uncapped:.2f}s "
+          f"recovery={rec_uncapped}/{n_informative}", flush=True)
+    print("[iter19 oof-shap-cap biz_val] capped leg", flush=True)
+    rec_capped, oof_capped, total_capped = _fit(cap=100)
+    print(f"[iter19] cap=100:   oof_shap={oof_capped:.2f}s total={total_capped:.2f}s "
+          f"recovery={rec_capped}/{n_informative}", flush=True)
+
+    # Speed floor: capped OOF-SHAP must be measurably faster than uncapped.
+    assert oof_capped < oof_uncapped, (
+        f"capped OOF-SHAP ({oof_capped:.2f}s) not faster than uncapped ({oof_uncapped:.2f}s)")
+    # Stronger floor: at least 1.3x faster (dev measures 2-3x; 1.3 leaves Windows-build variance room).
+    assert oof_capped <= 0.77 * oof_uncapped, (
+        f"capped OOF-SHAP speedup too small: {oof_uncapped/oof_capped:.2f}x "
+        f"(uncapped={oof_uncapped:.2f}s vs capped={oof_capped:.2f}s)")
+
+    # Quality: recovery preserved (within 1 informative slack for cross-platform variance).
+    assert rec_capped >= rec_uncapped - 1, (
+        f"cap worsened recovery: capped={rec_capped}/{n_informative} "
+        f"vs uncapped={rec_uncapped}/{n_informative}")
+    # Sanity floor on absolute recovery (uncapped baseline already recovers most).
+    assert rec_capped >= 4, f"capped recovered too few informatives: {rec_capped}/{n_informative}"

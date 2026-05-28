@@ -191,7 +191,7 @@ _JITTER_DEPTHS = (3, 4, 5, 6)  # cycled across models when config_jitter is on
 
 
 def _fit_one(model_template, X, y, classification: bool, seed: Optional[int], jitter_depth: Optional[int] = None,
-             inner_n_jobs: Optional[int] = None):
+             inner_n_jobs: Optional[int] = None, n_estimators_cap: Optional[int] = None):
     est = clone(model_template)
     if seed is not None and hasattr(est, "random_state"):
         try:
@@ -210,6 +210,29 @@ def _fit_one(model_template, X, y, classification: bool, seed: Optional[int], ji
         try:
             est.set_params(n_jobs=int(inner_n_jobs))
         except (ValueError, TypeError):
+            pass
+    # Cap the booster's tree count (iter19): the SHAP attribution path stabilises on per-feature
+    # credit well before the full template trains -- the proxy consumes the ATTRIBUTION ranking and
+    # the coalition value, both of which are determined by the fitted model's structure, not by how
+    # many late trees the booster gets to add. Capping at ~100 trees mirrors the same "cap-the-ranker"
+    # lever already applied to prefilter / trust-guard / within-cluster-refine (iter9/iter10/iter12).
+    # We never apply via min(current, cap): the cap is a clamp, never an increase. Param dispatched
+    # via the shared ``_try_cap_n_estimators`` helper so xgboost / lightgbm / catboost all work.
+    if n_estimators_cap is not None:
+        try:
+            from mlframe.feature_selection._shap_proxy_revalidate import _try_cap_n_estimators
+
+            current = None
+            for _name in ("n_estimators", "iterations", "num_boost_round", "num_iterations"):
+                try:
+                    current = est.get_params().get(_name)
+                    if current is not None:
+                        break
+                except (AttributeError, TypeError):
+                    continue
+            effective_cap = int(n_estimators_cap) if current is None else min(int(current), int(n_estimators_cap))
+            _try_cap_n_estimators(est, effective_cap)
+        except (ImportError, ValueError, TypeError):
             pass
     est.fit(X, y)
     return est
@@ -245,6 +268,7 @@ def compute_shap_matrix(
     tqdm_desc: Optional[str] = None,
     shap_backend: str = "auto",
     n_jobs: int = 1,
+    n_estimators_cap: Optional[int] = None,
 ):
     """Compute the per-row SHAP value matrix + per-row base value.
 
@@ -262,6 +286,13 @@ def compute_shap_matrix(
     keeps the serial path; the selector passes its own ``n_jobs`` so wide-data fits parallelize the
     OOF-SHAP stage. Each fold's own fit threads are capped so outer-folds x inner-threads don't
     oversubscribe the cores.
+
+    ``n_estimators_cap`` (iter19) clamps the per-fold booster's tree count via ``min(current, cap)``;
+    the SHAP attribution + coalition ranking are determined by the fitted model's structure (per-row
+    marginal credit aggregated over trees), not by how many late-stage refinement trees the booster
+    grows. Capping at ~100 mirrors the same "cap-the-ranker" lever applied to prefilter / trust-guard
+    / refine (iter9-iter12); xgboost training dominates the OOF stage per cProfile (iter19), so
+    fewer trees translate near-linearly to wall-clock. ``None`` disables the cap (legacy behaviour).
 
     phi : (n, f) float64 -- per-row SHAP in margin (clf) / target (reg) space.
     base : (n,) float64 -- per-row baseline (the fold's expected_value), constant within a fold.
@@ -285,7 +316,7 @@ def compute_shap_matrix(
         for m in range(n_models):
             depth = _JITTER_DEPTHS[m % len(_JITTER_DEPTHS)] if config_jitter else None
             est = _fit_one(model_template, X_tr, y_tr, classification, seeds[m], jitter_depth=depth,
-                           inner_n_jobs=inner_n_jobs)
+                           inner_n_jobs=inner_n_jobs, n_estimators_cap=n_estimators_cap)
             pf, bf = _shap_phi_and_base(_unwrap_estimator(est), X_ex, backend=shap_backend)
             s += pf
             sq += pf * pf

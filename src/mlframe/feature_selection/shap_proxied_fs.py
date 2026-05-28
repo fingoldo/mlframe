@@ -75,6 +75,7 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         prefilter_top: int | None = 2000,
         prefilter_method: str = "auto",
         prefilter_n_estimators: int | None = 100,
+        oof_shap_n_estimators: int | None = 100,
         prefilter_stage1_keep: int | None = None,
         cluster_features: bool | str = "auto",
         cluster_corr_threshold: float = 0.7,
@@ -147,6 +148,19 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         # ``min(current, cap)`` so it can never INCREASE fast_model's tree count. ``univariate`` is
         # a no-op. ``None`` disables the cap (legacy uncapped behaviour).
         self.prefilter_n_estimators = prefilter_n_estimators
+        # ``oof_shap_n_estimators`` (iter19) caps the per-fold booster size inside ``compute_shap_matrix``
+        # so the OOF-SHAP stage trains 100-tree models instead of the 300-tree template default. The
+        # proxy consumes the attribution RANKING and the coalition value; both are determined by the
+        # fitted model's structural credit-allocation, which stabilises long before the last refinement
+        # trees. iter4-baseline cProfile @ width=10000 showed OOF-SHAP dominated by xgboost ``update``
+        # (29.6s tottime / 40.4s cum out of 43.3s SERIAL OOF-SHAP -- 96% of stage). Mirror of the
+        # iter9/iter10 ``prefilter_n_estimators`` / ``trust_guard_n_estimators`` / ``refine_n_estimators``
+        # pattern. Same clamp semantics: ``min(current_template_n_estimators, cap)`` so a custom
+        # model whose ``n_estimators`` is already below the cap is left untouched. ``None`` disables
+        # the cap (legacy 300-tree fit). Honest re-validation + trust-guard still use the FULL
+        # template (uncapped) on the final chosen subset, so the user-facing OOF loss reported in
+        # ``report['holdout_loss']`` is unaffected.
+        self.oof_shap_n_estimators = oof_shap_n_estimators
         # ``prefilter_stage1_keep`` overrides the two_stage prefilter's stage-A survivor count.
         # None -> the prefilter module computes ``min(2000, 0.2*n_features)`` (default funnel).
         # Other methods ignore this knob.
@@ -425,7 +439,8 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
                 model_template, X_proxy, y_search, classification=self.classification,
                 out_of_fold=self.out_of_fold, n_splits=self.n_splits, n_models=self.n_models,
                 config_jitter=self.config_jitter, return_variance=want_var,
-                rng=self._rng, tqdm_desc=("shap-oof" if self.tqdm else None), n_jobs=self.n_jobs)
+                rng=self._rng, tqdm_desc=("shap-oof" if self.tqdm else None), n_jobs=self.n_jobs,
+                n_estimators_cap=self.oof_shap_n_estimators)
         if want_var:
             phi, base, y_phi, phi_var = shap_out
         else:
