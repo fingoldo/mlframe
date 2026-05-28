@@ -665,6 +665,22 @@ AXES: dict[str, tuple[Any, ...]] = {
     "shap_proxied_max_interaction_features_cfg": (16, 64),
     "shap_proxied_prefilter_top_cfg": (2000, None),
     "shap_proxied_prefilter_n_estimators_cfg": (100, None),
+    # 2026-05-28 ShapProxiedFS audit-pass-5 axes (W5). 8 trust-guard / fidelity
+    # axes verified against feature_selection/shap_proxied_fs.py:62, 78, 89-94.
+    # All gate on use_shap_proxied_fs=True and canonicalise to ShapProxiedFS
+    # __init__ defaults when off. trust_guard_stratified_anchors + uniform_tail_frac
+    # further require trust_guard=True AND prefilter_method in ("two_stage",
+    # "univariate") to materially activate; uniform_tail_frac additionally only
+    # bites when stratified_anchors=True (anchor-weight presence). zipf_alpha
+    # only meaningful when cardinality_dist=="zipf".
+    "shap_proxied_trust_guard_stratified_anchors_cfg": (False, True),
+    "shap_proxied_trust_guard_uniform_tail_frac_cfg": (0.2, 0.0),
+    "shap_proxied_trust_guard_cardinality_dist_cfg": ("zipf", "uniform"),
+    "shap_proxied_trust_guard_zipf_alpha_cfg": (0.25, 1.0),
+    "shap_proxied_trust_guard_fidelity_weights_cfg": ((0.6, 0.4), (0.5, 0.5)),
+    "shap_proxied_trust_guard_metric_cfg": ("proxy_fidelity_score", "spearman"),
+    "shap_proxied_fidelity_floor_cfg": (0.5, 0.7),
+    "shap_proxied_oof_shap_n_estimators_cfg": (100, None),
     # 2026-05-28 audit-pass-2 PART A: 4 LOW-tier coverage-gap axes deferred
     # from coverage_agent W11C wave.
     # ensembling_degenerate_class_ratio: EnsemblingConfig.degenerate_class_ratio
@@ -1306,6 +1322,16 @@ class FuzzCombo:
     shap_proxied_max_interaction_features_cfg: int = 16
     shap_proxied_prefilter_top_cfg: "int | None" = 2000
     shap_proxied_prefilter_n_estimators_cfg: "int | None" = 100
+    # 2026-05-28 ShapProxiedFS audit-pass-5 axes (W5). Defaults verified against
+    # ShapProxiedFS.__init__ (feature_selection/shap_proxied_fs.py:62, 78, 89-94).
+    shap_proxied_trust_guard_stratified_anchors_cfg: bool = False
+    shap_proxied_trust_guard_uniform_tail_frac_cfg: float = 0.2
+    shap_proxied_trust_guard_cardinality_dist_cfg: str = "zipf"
+    shap_proxied_trust_guard_zipf_alpha_cfg: float = 0.25
+    shap_proxied_trust_guard_fidelity_weights_cfg: "tuple[float, float]" = (0.6, 0.4)
+    shap_proxied_trust_guard_metric_cfg: str = "proxy_fidelity_score"
+    shap_proxied_fidelity_floor_cfg: float = 0.5
+    shap_proxied_oof_shap_n_estimators_cfg: "int | None" = 100
     # 2026-05-28 audit-pass-2 PART A: 4 LOW-tier coverage-gap axes.
     # Defaults mirror EnsemblingConfig / TrainingBehaviorConfig /
     # PreprocessingExtensionsConfig in src/mlframe/training/_model_configs.py
@@ -2211,6 +2237,64 @@ class FuzzCombo:
             (self.shap_proxied_prefilter_top_cfg if self.use_shap_proxied_fs else 2000),
             (
                 self.shap_proxied_prefilter_n_estimators_cfg
+                if self.use_shap_proxied_fs
+                else 100
+            ),
+            # 2026-05-28 ShapProxiedFS audit-pass-5 axes (W5). All collapse to
+            # ShapProxiedFS.__init__ defaults when the selector is off so non-shap
+            # combos don't gain phantom variation. Secondary gates per
+            # AUDIT_PASS_5: stratified_anchors + uniform_tail_frac additionally
+            # require trust_guard=True AND prefilter_method in ("two_stage",
+            # "univariate") to cache an F-score vector (shap_proxied_fs.py:530-
+            # 538); uniform_tail_frac further only matters when stratified_anchors
+            # is on (otherwise no anchor weights to sample uniform-vs-weighted
+            # against); zipf_alpha only matters when cardinality_dist=="zipf"
+            # (alpha is unused for the uniform branch).
+            (
+                self.shap_proxied_trust_guard_stratified_anchors_cfg
+                if (self.use_shap_proxied_fs
+                    and self.shap_proxied_trust_guard_cfg
+                    and self.shap_proxied_prefilter_method_cfg
+                    in ("two_stage", "univariate"))
+                else False
+            ),
+            (
+                self.shap_proxied_trust_guard_uniform_tail_frac_cfg
+                if (self.use_shap_proxied_fs
+                    and self.shap_proxied_trust_guard_cfg
+                    and self.shap_proxied_prefilter_method_cfg
+                    in ("two_stage", "univariate")
+                    and self.shap_proxied_trust_guard_stratified_anchors_cfg)
+                else 0.2
+            ),
+            (
+                self.shap_proxied_trust_guard_cardinality_dist_cfg
+                if self.use_shap_proxied_fs
+                else "zipf"
+            ),
+            (
+                self.shap_proxied_trust_guard_zipf_alpha_cfg
+                if (self.use_shap_proxied_fs
+                    and self.shap_proxied_trust_guard_cardinality_dist_cfg == "zipf")
+                else 0.25
+            ),
+            (
+                self.shap_proxied_trust_guard_fidelity_weights_cfg
+                if self.use_shap_proxied_fs
+                else (0.6, 0.4)
+            ),
+            (
+                self.shap_proxied_trust_guard_metric_cfg
+                if self.use_shap_proxied_fs
+                else "proxy_fidelity_score"
+            ),
+            (
+                self.shap_proxied_fidelity_floor_cfg
+                if self.use_shap_proxied_fs
+                else 0.5
+            ),
+            (
+                self.shap_proxied_oof_shap_n_estimators_cfg
                 if self.use_shap_proxied_fs
                 else 100
             ),
@@ -3193,6 +3277,31 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         shap_proxied_prefilter_n_estimators_cfg=axes.get(
             "shap_proxied_prefilter_n_estimators_cfg", 100
         ),
+        # 2026-05-28 ShapProxiedFS audit-pass-5 axes (W5).
+        shap_proxied_trust_guard_stratified_anchors_cfg=axes.get(
+            "shap_proxied_trust_guard_stratified_anchors_cfg", False
+        ),
+        shap_proxied_trust_guard_uniform_tail_frac_cfg=axes.get(
+            "shap_proxied_trust_guard_uniform_tail_frac_cfg", 0.2
+        ),
+        shap_proxied_trust_guard_cardinality_dist_cfg=axes.get(
+            "shap_proxied_trust_guard_cardinality_dist_cfg", "zipf"
+        ),
+        shap_proxied_trust_guard_zipf_alpha_cfg=axes.get(
+            "shap_proxied_trust_guard_zipf_alpha_cfg", 0.25
+        ),
+        shap_proxied_trust_guard_fidelity_weights_cfg=axes.get(
+            "shap_proxied_trust_guard_fidelity_weights_cfg", (0.6, 0.4)
+        ),
+        shap_proxied_trust_guard_metric_cfg=axes.get(
+            "shap_proxied_trust_guard_metric_cfg", "proxy_fidelity_score"
+        ),
+        shap_proxied_fidelity_floor_cfg=axes.get(
+            "shap_proxied_fidelity_floor_cfg", 0.5
+        ),
+        shap_proxied_oof_shap_n_estimators_cfg=axes.get(
+            "shap_proxied_oof_shap_n_estimators_cfg", 100
+        ),
         # 2026-05-28 audit-pass-2 PART A coverage-gap axes.
         ensembling_degenerate_class_ratio_cfg=axes.get(
             "ensembling_degenerate_class_ratio_cfg", 0.01
@@ -3495,6 +3604,16 @@ def build_shap_proxied_fs_kwargs_from_flat(
     max_interaction_features: int = 16,
     prefilter_top: "int | None" = 2000,
     prefilter_n_estimators: "int | None" = 100,
+    # 2026-05-28 audit-pass-5 W5 axes. Defaults verified against
+    # ShapProxiedFS.__init__ (feature_selection/shap_proxied_fs.py:62, 78, 89-94).
+    trust_guard_stratified_anchors: bool = False,
+    trust_guard_uniform_tail_frac: float = 0.2,
+    trust_guard_cardinality_dist: str = "zipf",
+    trust_guard_zipf_alpha: float = 0.25,
+    trust_guard_fidelity_weights: "tuple[float, float]" = (0.6, 0.4),
+    trust_guard_metric: str = "proxy_fidelity_score",
+    fidelity_floor: float = 0.5,
+    oof_shap_n_estimators: "int | None" = 100,
 ) -> Optional[Dict[str, Any]]:
     """Build the shap_proxied_fs_kwargs dict passed to
     ``registry.get("ShapProxiedFS").instantiate(**kwargs)`` (which forwards to
@@ -3534,6 +3653,16 @@ def build_shap_proxied_fs_kwargs_from_flat(
         "max_interaction_features": max_interaction_features,
         "prefilter_top": prefilter_top,
         "prefilter_n_estimators": prefilter_n_estimators,
+        # 2026-05-28 audit-pass-5 W5 axes (param names match
+        # ShapProxiedFS.__init__ signature verbatim).
+        "trust_guard_stratified_anchors": trust_guard_stratified_anchors,
+        "trust_guard_uniform_tail_frac": trust_guard_uniform_tail_frac,
+        "trust_guard_cardinality_dist": trust_guard_cardinality_dist,
+        "trust_guard_zipf_alpha": trust_guard_zipf_alpha,
+        "trust_guard_fidelity_weights": trust_guard_fidelity_weights,
+        "trust_guard_metric": trust_guard_metric,
+        "fidelity_floor": fidelity_floor,
+        "oof_shap_n_estimators": oof_shap_n_estimators,
     }
 
 
@@ -3558,6 +3687,14 @@ def build_shap_proxied_fs_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]
         max_interaction_features=combo.shap_proxied_max_interaction_features_cfg,
         prefilter_top=combo.shap_proxied_prefilter_top_cfg,
         prefilter_n_estimators=combo.shap_proxied_prefilter_n_estimators_cfg,
+        trust_guard_stratified_anchors=combo.shap_proxied_trust_guard_stratified_anchors_cfg,
+        trust_guard_uniform_tail_frac=combo.shap_proxied_trust_guard_uniform_tail_frac_cfg,
+        trust_guard_cardinality_dist=combo.shap_proxied_trust_guard_cardinality_dist_cfg,
+        trust_guard_zipf_alpha=combo.shap_proxied_trust_guard_zipf_alpha_cfg,
+        trust_guard_fidelity_weights=combo.shap_proxied_trust_guard_fidelity_weights_cfg,
+        trust_guard_metric=combo.shap_proxied_trust_guard_metric_cfg,
+        fidelity_floor=combo.shap_proxied_fidelity_floor_cfg,
+        oof_shap_n_estimators=combo.shap_proxied_oof_shap_n_estimators_cfg,
     )
 
 

@@ -335,6 +335,7 @@ def _build_configs_from_params(
     fit_params=None,
     callback_params=None,
     model_category=None,
+    slice_stable_es=None,
     # Metrics params
     nbins=10,
     custom_ice_metric=None,
@@ -393,6 +394,11 @@ def _build_configs_from_params(
     # to ReportingConfig but never plumbed here) raised TypeError
     # at process_model.
     honest_estimator_diagnostics=None,
+    # 2026-05-28 W5 wiring: ReportingConfig.mase_seasonality
+    # (default 1 at _reporting_configs.py:140). Passed as int|None
+    # here so callers that don't set it leave ReportingConfig at
+    # its source default. Mirrors honest_estimator_diagnostics gate.
+    mase_seasonality=None,
     **_unused_reporting_kwargs,
 ):
     """Build config objects from old-style parameters."""
@@ -432,6 +438,7 @@ def _build_configs_from_params(
         fit_params=fit_params,
         callback_params=callback_params,
         model_category=model_category,
+        slice_stable_es=slice_stable_es,
     )
 
     metrics_config = MetricsConfig(
@@ -472,6 +479,8 @@ def _build_configs_from_params(
     )
     if honest_estimator_diagnostics is not None:
         _rep_kwargs["honest_estimator_diagnostics"] = honest_estimator_diagnostics
+    if mase_seasonality is not None:
+        _rep_kwargs["mase_seasonality"] = int(mase_seasonality)
     reporting_config = ReportingConfig(**_rep_kwargs)
 
     output_config = OutputConfig(

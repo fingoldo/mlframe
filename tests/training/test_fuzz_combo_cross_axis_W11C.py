@@ -1132,3 +1132,134 @@ def test_iter556_audit_pass_4_safe_axes_flow_to_kwargs():
     assert c_tsm_a.canonical_key() != c_tsm_b.canonical_key(), (
         "reporting_compute_trainset_metrics must fork the canon key (ungated)"
     )
+
+
+# ---------------------------------------------------------------------------
+# iter558: audit-pass-5 (W5) ShapProxiedFS trust-guard / fidelity axes
+# ---------------------------------------------------------------------------
+
+
+def test_iter558_audit_pass_5_axes_flow_to_kwargs():
+    """8 audit-pass-5 SAFE-subset (W5) ShapProxiedFS fuzz axes must:
+      (a) be present in AXES with >=2 candidate values,
+      (b) be present in the FuzzCombo dataclass with the SOURCE-verified
+          ShapProxiedFS.__init__ defaults (verified pre-edit against
+          feature_selection/shap_proxied_fs.py:62, 78, 89-94),
+      (c) flow through build_shap_proxied_fs_kwargs into the kwargs dict
+          when use_shap_proxied_fs=True (with the right secondary gate on),
+      (d) canon-collapse correctly under the documented secondary gates:
+            - uniform_tail_frac collapses to 0.2 when stratified_anchors=False
+            - zipf_alpha collapses to 0.25 when cardinality_dist != "zipf"
+
+    Axes (all source-verified pre-edit):
+      - shap_proxied_trust_guard_stratified_anchors_cfg
+        (ShapProxiedFS.trust_guard_stratified_anchors, default False at :89)
+      - shap_proxied_trust_guard_uniform_tail_frac_cfg
+        (ShapProxiedFS.trust_guard_uniform_tail_frac, default 0.2 at :90)
+      - shap_proxied_trust_guard_cardinality_dist_cfg
+        (ShapProxiedFS.trust_guard_cardinality_dist, default "zipf" at :91)
+      - shap_proxied_trust_guard_zipf_alpha_cfg
+        (ShapProxiedFS.trust_guard_zipf_alpha, default 0.25 at :92)
+      - shap_proxied_trust_guard_fidelity_weights_cfg
+        (ShapProxiedFS.trust_guard_fidelity_weights, default (0.6, 0.4) at :93)
+      - shap_proxied_trust_guard_metric_cfg
+        (ShapProxiedFS.trust_guard_metric, default "proxy_fidelity_score" at :94)
+      - shap_proxied_fidelity_floor_cfg
+        (ShapProxiedFS.fidelity_floor, default 0.5 at :62)
+      - shap_proxied_oof_shap_n_estimators_cfg
+        (ShapProxiedFS.oof_shap_n_estimators, default 100 at :78)
+    """
+    from tests.training._fuzz_combo import (
+        AXES, _build_combo, build_shap_proxied_fs_kwargs,
+    )
+
+    new_axes = (
+        "shap_proxied_trust_guard_stratified_anchors_cfg",
+        "shap_proxied_trust_guard_uniform_tail_frac_cfg",
+        "shap_proxied_trust_guard_cardinality_dist_cfg",
+        "shap_proxied_trust_guard_zipf_alpha_cfg",
+        "shap_proxied_trust_guard_fidelity_weights_cfg",
+        "shap_proxied_trust_guard_metric_cfg",
+        "shap_proxied_fidelity_floor_cfg",
+        "shap_proxied_oof_shap_n_estimators_cfg",
+    )
+    # (a) Presence in AXES with >=2 candidates.
+    for ax in new_axes:
+        assert ax in AXES, f"missing fuzz axis {ax}"
+        assert len(AXES[ax]) >= 2, f"axis {ax} must offer at least 2 values"
+
+    # (b) FuzzCombo dataclass defaults match SOURCE defaults verified against
+    # ShapProxiedFS.__init__ (feature_selection/shap_proxied_fs.py).
+    base_axes = {name: values[0] for name, values in AXES.items()}
+    c_default = _build_combo(models=("cb",), axes=base_axes, seed=0)
+    assert c_default.shap_proxied_trust_guard_stratified_anchors_cfg is False
+    assert c_default.shap_proxied_trust_guard_uniform_tail_frac_cfg == 0.2
+    assert c_default.shap_proxied_trust_guard_cardinality_dist_cfg == "zipf"
+    assert c_default.shap_proxied_trust_guard_zipf_alpha_cfg == 0.25
+    assert c_default.shap_proxied_trust_guard_fidelity_weights_cfg == (0.6, 0.4)
+    assert c_default.shap_proxied_trust_guard_metric_cfg == "proxy_fidelity_score"
+    assert c_default.shap_proxied_fidelity_floor_cfg == 0.5
+    assert c_default.shap_proxied_oof_shap_n_estimators_cfg == 100
+
+    # (c) build_shap_proxied_fs_kwargs returns the new kwargs with non-default
+    # values when use_shap_proxied_fs=True (the gates inside the kwargs
+    # builder do not filter; canon-gates only live in canonical_key).
+    on_axes = dict(base_axes)
+    on_axes.update(
+        use_shap_proxied_fs=True,
+        shap_proxied_trust_guard_cfg=True,
+        shap_proxied_prefilter_method_cfg="univariate",
+        shap_proxied_trust_guard_stratified_anchors_cfg=True,
+        shap_proxied_trust_guard_uniform_tail_frac_cfg=0.0,
+        shap_proxied_trust_guard_cardinality_dist_cfg="uniform",
+        shap_proxied_trust_guard_zipf_alpha_cfg=1.0,
+        shap_proxied_trust_guard_fidelity_weights_cfg=(0.5, 0.5),
+        shap_proxied_trust_guard_metric_cfg="spearman",
+        shap_proxied_fidelity_floor_cfg=0.7,
+        shap_proxied_oof_shap_n_estimators_cfg=None,
+    )
+    c_on = _build_combo(models=("cb",), axes=on_axes, seed=0)
+    kw = build_shap_proxied_fs_kwargs(c_on)
+    assert kw is not None, "build_shap_proxied_fs_kwargs must return dict when use_shap_proxied_fs=True"
+    assert kw["trust_guard_stratified_anchors"] is True
+    assert kw["trust_guard_uniform_tail_frac"] == 0.0
+    assert kw["trust_guard_cardinality_dist"] == "uniform"
+    assert kw["trust_guard_zipf_alpha"] == 1.0
+    assert kw["trust_guard_fidelity_weights"] == (0.5, 0.5)
+    assert kw["trust_guard_metric"] == "spearman"
+    assert kw["fidelity_floor"] == 0.7
+    assert kw["oof_shap_n_estimators"] is None
+
+    # (d) Canon-collapse: uniform_tail_frac collapses to 0.2 when
+    # stratified_anchors=False (no anchor weights -> tail_frac is a no-op).
+    utf_a = dict(base_axes)
+    utf_a.update(
+        use_shap_proxied_fs=True,
+        shap_proxied_trust_guard_cfg=True,
+        shap_proxied_prefilter_method_cfg="univariate",
+        shap_proxied_trust_guard_stratified_anchors_cfg=False,
+        shap_proxied_trust_guard_uniform_tail_frac_cfg=0.0,
+    )
+    utf_b = dict(utf_a)
+    utf_b["shap_proxied_trust_guard_uniform_tail_frac_cfg"] = 0.2
+    c_utf_a = _build_combo(models=("cb",), axes=utf_a, seed=0)
+    c_utf_b = _build_combo(models=("cb",), axes=utf_b, seed=0)
+    assert c_utf_a.canonical_key() == c_utf_b.canonical_key(), (
+        "uniform_tail_frac must collapse to 0.2 when stratified_anchors=False"
+    )
+
+    # zipf_alpha collapses to 0.25 when cardinality_dist != "zipf"
+    # (alpha is unused on the uniform branch).
+    za_a = dict(base_axes)
+    za_a.update(
+        use_shap_proxied_fs=True,
+        shap_proxied_trust_guard_cardinality_dist_cfg="uniform",
+        shap_proxied_trust_guard_zipf_alpha_cfg=1.0,
+    )
+    za_b = dict(za_a)
+    za_b["shap_proxied_trust_guard_zipf_alpha_cfg"] = 0.25
+    c_za_a = _build_combo(models=("cb",), axes=za_a, seed=0)
+    c_za_b = _build_combo(models=("cb",), axes=za_b, seed=0)
+    assert c_za_a.canonical_key() == c_za_b.canonical_key(), (
+        "zipf_alpha must collapse to 0.25 when cardinality_dist != 'zipf'"
+    )

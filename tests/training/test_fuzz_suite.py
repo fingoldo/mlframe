@@ -1290,6 +1290,11 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
                     else __import__("json").loads(combo.reporting_matplotlib_rcparams_cfg)
                 ),
                 multiclass_panels=combo.reporting_multiclass_panels_cfg,
+                # 2026-05-28 W5: ReportingConfig.mase_seasonality (int, default
+                # 1 at _reporting_configs.py:140). Thread the fuzz-axis value
+                # through so regression combos exercise the non-default
+                # seasonality on the report-metadata path.
+                mase_seasonality=combo.reporting_mase_seasonality_cfg,
                 # iter170 deep reporting axes -- defensive _safe_cfg_kwargs
                 # absorbs fields that don't exist post-refactor.
                 **_safe_cfg_kwargs(
