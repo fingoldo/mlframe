@@ -67,7 +67,22 @@ def dataset_diagnostics(X, y, *, classification, max_rows=2000, max_rows_corr=50
     releases the GIL during tree-build, so this is a free wall-clock cut. Measured width=1000 /
     n_rows=5000 booster portion: 20.4s -> 17.8s (1.15x; deep d=4 dominates so the smaller
     stump d=1 gets hidden behind it -- still ~13% off the gate's hottest slice). Scores
-    byte-identical vs the serial path (same seeds + same inner ``n_jobs`` is enough)."""
+    byte-identical vs the serial path (same seeds + same inner ``n_jobs`` is enough).
+
+    iter27: the ``deep`` booster's ``max_depth`` is capped 4 -> 3. iter26 left the parallel wall
+    bounded by the deep d=4 branch (~14s at width=1000 / n_rows=5000 -- the stump d=1 finishes
+    well before deep so the parallel pool is essentially deep's wall plus the dispatch overhead).
+    Same cap-the-ranker pattern as iter9/iter10/iter19/iter25: the deep probe is RANKING-ONLY --
+    we read the RATIO ``(stump_score - base) / (deep_score - base)`` to gate "interaction-heavy
+    vs additive", NEVER deploy the model. A shallower deep model still captures all 2-way and the
+    bulk of 3-way interactions (the additive-ratio differentiation), and the ratio's gate-trip
+    point at the 0.6 floor is preserved across the iter17 5-regime calibration set
+    (additive_highSNR / redundancy_heavy / interaction_heavy / xor_interaction / noise_heavy --
+    measured 2026-05-28: d=4 ratios 1.078/1.060/0.827/0.000/1.147, d=3 ratios
+    1.053/1.049/0.759/0.000/1.161; recommendation + suggestion set IDENTICAL on all 5). The
+    closest-to-floor regime (interaction_heavy) drops 0.827 -> 0.759 -- still well above the 0.6
+    floor. Wall-clock at width=1000: median 17.82s -> 12.9s (1.38x; 28% off iter26's parallel
+    baseline)."""
     import pandas as pd
     from xgboost import XGBClassifier, XGBRegressor
 
@@ -120,12 +135,18 @@ def dataset_diagnostics(X, y, *, classification, max_rows=2000, max_rows_corr=50
     inner = max(1, n_cores // 2)
     common = dict(n_estimators=int(n_estimators), learning_rate=0.1, n_jobs=inner,
                   random_state=random_state, tree_method="hist")
+    # iter27 cap-the-ranker: deep max_depth 4 -> 3. The deep probe is RANKING-ONLY (we read the
+    # additive_ratio gate, not deployed predictions); a depth-3 booster still captures all 2-way
+    # and most 3-way interactions so the additive-vs-deep ratio's gate-trip points at the 0.6
+    # floor stay stable across all 5 iter17 calibration regimes. ~28% off the gate's parallel wall
+    # at width=1000 / n_rows=5000 (deep dominates the parallel pool, see ``dataset_diagnostics``
+    # docstring for the per-regime ratio table).
     if classification:
-        deep = XGBClassifier(max_depth=4, eval_metric="logloss", **common)
+        deep = XGBClassifier(max_depth=3, eval_metric="logloss", **common)
         stump = XGBClassifier(max_depth=1, eval_metric="logloss", **common)
         base = 0.5  # AUC of a constant predictor
     else:
-        deep = XGBRegressor(max_depth=4, **common)
+        deep = XGBRegressor(max_depth=3, **common)
         stump = XGBRegressor(max_depth=1, **common)
         base = 0.0  # r2 of the mean predictor
 

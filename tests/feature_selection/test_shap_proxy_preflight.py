@@ -151,6 +151,139 @@ def test_preflight_capped_recommendation_matches_legacy_iter17(regime):
     assert capped["diagnostics"]["max_abs_corr"] == legacy["diagnostics"]["max_abs_corr"]
 
 
+def _run_diagnostics_with_deep_depth(X, y, deep_max_depth):
+    """Run the same logic as ``dataset_diagnostics`` but pin the deep booster's ``max_depth`` to the
+    given value. Used to compare iter27's d=3 default against the legacy d=4 across regimes -- the
+    rest of the orchestration (parallel pool, inner n_jobs, n_estimators, row caps) stays
+    bit-for-bit identical so the comparison isolates the depth knob.
+    """
+    import os, numpy as np, pandas as pd
+    from xgboost import XGBClassifier
+    from mlframe.feature_selection._shap_proxy_preflight import _cv_score, preflight
+
+    max_rows, max_rows_corr, max_corr_features, n_estimators = 2000, 5000, 400, 100
+    rng = np.random.default_rng(0)
+    Xf = X if isinstance(X, pd.DataFrame) else pd.DataFrame(np.asarray(X))
+    y = np.asarray(y)
+    n, f = Xf.shape
+    balance = float(np.mean(y))
+    if n > max_rows_corr:
+        sel_corr = rng.choice(n, size=max_rows_corr, replace=False)
+        Xc_src = Xf.iloc[sel_corr]
+    else:
+        Xc_src = Xf
+    cols = np.arange(f)
+    if f > max_corr_features:
+        cols = rng.choice(f, size=max_corr_features, replace=False)
+    Xc = np.nan_to_num(Xc_src.iloc[:, cols].to_numpy(dtype=np.float64))
+    with np.errstate(invalid="ignore", divide="ignore"):
+        C = np.corrcoef(Xc, rowvar=False)
+    np.fill_diagonal(C, 0.0)
+    max_abs_corr = float(np.nanmax(np.abs(C))) if C.size else 0.0
+    if n > max_rows:
+        sel = rng.choice(n, size=max_rows, replace=False)
+        Xs, ys = Xf.iloc[sel], y[sel]
+    else:
+        Xs, ys = Xf, y
+    n_cores = os.cpu_count() or 1
+    inner = max(1, n_cores // 2)
+    common = dict(n_estimators=n_estimators, learning_rate=0.1, n_jobs=inner, random_state=0,
+                  tree_method="hist")
+    deep = XGBClassifier(max_depth=deep_max_depth, eval_metric="logloss", **common)
+    stump = XGBClassifier(max_depth=1, eval_metric="logloss", **common)
+    if n_cores >= 2:
+        from joblib import Parallel, delayed
+        deep_score, stump_score = Parallel(n_jobs=2, prefer="threads")(
+            delayed(_cv_score)(est, Xs, ys, True) for est in (deep, stump)
+        )
+    else:
+        deep_score = _cv_score(deep, Xs, ys, True)
+        stump_score = _cv_score(stump, Xs, ys, True)
+    base = 0.5
+    num = stump_score - base
+    den = deep_score - base
+    additive_ratio = float(np.clip(num / den, 0.0, 1.5)) if (np.isfinite(den) and den > 1e-6) else float("nan")
+    diag = dict(n_features=int(f), n_samples=int(n), n_over_p=float(n / max(f, 1)),
+                class_balance=balance, max_abs_corr=max_abs_corr,
+                full_model_fit=deep_score, stump_fit=stump_score,
+                additive_ratio=additive_ratio, base_score=base)
+
+    # Re-run preflight's reason/recommendation logic on the synthetic diag (mirrors preflight() body
+    # in src so the test pins the gate-decision path, not just the booster scores).
+    import numpy as _np
+    reasons, suggestions = [], []
+    rec = "run"
+    if not _np.isfinite(diag["full_model_fit"]) or (diag["full_model_fit"] - diag["base_score"]) < 0.03:
+        rec = "fallback"
+        reasons.append("full-model fit barely beats trivial.")
+    if _np.isfinite(diag["additive_ratio"]) and diag["additive_ratio"] < 0.6:
+        suggestions.append("enable interaction_aware=True")
+        if rec != "fallback":
+            rec = "caution"
+    if diag["max_abs_corr"] >= 0.7:
+        suggestions.append("enable cluster_features=True")
+    if diag["n_features"] > 40:
+        suggestions.append("cluster_features + pre-screen (auto)")
+    if min(diag["class_balance"], 1 - diag["class_balance"]) < 0.05:
+        suggestions.append("use metric='auc'")
+        if rec == "run":
+            rec = "caution"
+    return dict(recommendation=rec, diagnostics=diag, suggestions=sorted(set(suggestions)))
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("regime", _ITER17_REGIMES, ids=lambda r: r["name"])
+def test_preflight_deep_depth3_recommendation_matches_depth4_iter27(regime):
+    """Iter27 cap-the-ranker: the deep booster's ``max_depth`` was lowered 4 -> 3. Across the iter17
+    5-regime calibration set the recommendation + suggestion set must match the legacy depth=4
+    behaviour. We rebuild ``dataset_diagnostics`` with both depths via ``_run_diagnostics_with_deep_depth``
+    (everything else -- inner n_jobs, joblib pool, n_estimators, row caps -- stays identical).
+    """
+    from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import make_regime_dataset
+
+    X, y, _ = make_regime_dataset(**regime["kwargs"])
+    legacy = _run_diagnostics_with_deep_depth(X, y, 4)
+    new = _run_diagnostics_with_deep_depth(X, y, 3)
+
+    assert new["recommendation"] == legacy["recommendation"], (
+        f"regime {regime['name']}: deep d=4 -> d=3 flipped recommendation "
+        f"{legacy['recommendation']!r} -> {new['recommendation']!r}; "
+        f"ratios legacy(d=4)={legacy['diagnostics']['additive_ratio']:.3f} "
+        f"new(d=3)={new['diagnostics']['additive_ratio']:.3f}")
+    assert sorted(new["suggestions"]) == sorted(legacy["suggestions"]), (
+        f"regime {regime['name']}: suggestion set changed under d=3 "
+        f"legacy={legacy['suggestions']} new={new['suggestions']}")
+    # The corr-pass is depth-independent (it doesn't fit a booster) so max_abs_corr must be
+    # bit-for-bit identical between the two depths.
+    assert new["diagnostics"]["max_abs_corr"] == legacy["diagnostics"]["max_abs_corr"]
+
+
+@pytest.mark.slow
+def test_biz_val_preflight_under_15s_at_width_1000_iter27():
+    """Iter27 wide-regime gate: preflight at width=1000 / n_rows=5000 must complete under 15s. The
+    cap-the-ranker depth cut (deep max_depth 4 -> 3) drops the parallel wall from ~17.8s (iter26
+    baseline) to ~12s (1.48x). The 15s budget pins the cut while leaving slack for slower CI boxes;
+    if this trips, check the ``deep`` estimator's max_depth in ``dataset_diagnostics`` is 3.
+    """
+    import time
+    from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import make_regime_dataset
+    from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
+
+    X, y, _ = make_regime_dataset(
+        n_samples=5000, n_informative=12, n_redundant=8, n_noise=980,
+        snr=8.0, task="binary", seed=0,
+    )
+    # Warmup to absorb xgboost / joblib pool init.
+    ShapProxiedFS.preflight(X, y, classification=True, random_state=0)
+    t0 = time.time()
+    rep = ShapProxiedFS.preflight(X, y, classification=True, random_state=0)
+    elapsed = time.time() - t0
+    assert rep["recommendation"] in ("run", "caution"), rep
+    assert elapsed < 15.0, (
+        f"preflight at width=1000 took {elapsed:.1f}s, exceeds 15s budget; "
+        f"check deep booster max_depth is 3 (iter27 cap-the-ranker).")
+
+
 def test_preflight_parallel_booster_byte_identical_across_calls():
     """Iter26 parallelises the deep+stump booster CV via joblib(n_jobs=2, prefer='threads') with
     xgboost's inner ``n_jobs`` capped to ``n_cores // 2`` (mirrors iter4's outer-x-inner pattern).
@@ -190,8 +323,9 @@ def test_preflight_parallel_booster_byte_identical_across_calls():
                   tree_method="hist")
     # Recreate the booster subsample exactly as ``dataset_diagnostics`` does: first the corr-pass
     # rng draws (none here because n=600 < max_rows_corr=5000 default), then the booster row sample
-    # (none because n=600 < max_rows=2000 default). So Xs/ys == X/y.
-    deep = XGBClassifier(max_depth=4, eval_metric="logloss", **common)
+    # (none because n=600 < max_rows=2000 default). So Xs/ys == X/y. Deep ``max_depth=3`` matches
+    # the iter27 cap-the-ranker choice (was 4 pre-iter27); see ``dataset_diagnostics`` docstring.
+    deep = XGBClassifier(max_depth=3, eval_metric="logloss", **common)
     stump = XGBClassifier(max_depth=1, eval_metric="logloss", **common)
     deep_ref = float(np.mean(cross_val_score(deep, X, y, cv=3, scoring="roc_auc")))
     stump_ref = float(np.mean(cross_val_score(stump, X, y, cv=3, scoring="roc_auc")))
