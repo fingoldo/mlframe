@@ -410,3 +410,156 @@ def test_prefilter_cap_does_not_increase_fast_model_budget():
     probe2 = _ProbeXGB(n_estimators=300, random_state=0, verbosity=0, tree_method="hist")
     _rank_fast_model(probe2, X, y.astype(np.float64), n_features=X.shape[1], n_estimators_cap=40)
     assert _ProbeXGB.n_estimators_seen == 40
+
+
+# ------------------------- shared stage-A cohort accessors (iter13)
+def test_two_stage_report_exposes_stage1_survivors_and_f_scores():
+    """``two_stage`` must publish two NEW fields on the info dict so downstream stages can read the
+    cheap marginal-strength ranking WITHOUT a second f_classif / f_regression pass:
+
+      * ``stage1_survivors`` : sorted positional indices of the stage-A cohort (a SUPERSET of the
+        final ``working_cols``; length == ``stage1_kept``).
+      * ``stage1_f_scores``  : dense length-n_features ANOVA F-score vector (-inf for constant cols).
+
+    Plus the stable public accessors ``get_cached_f_scores`` / ``get_stage1_survivors`` must read the
+    same data back from the report (the future SHAP-on-stage-A / trust-guard / clustering consumers
+    must not have to dig into the report's internal key names)."""
+    from mlframe.feature_selection._shap_proxy_explain import make_default_estimator
+    from mlframe.feature_selection._shap_proxy_prefilter import (
+        get_cached_f_scores, get_stage1_survivors, prefilter_columns,
+    )
+
+    X, y = _wide_xy(seed=5, width=600, n_informative=5)
+    model = make_default_estimator(classification=True, random_state=0, n_estimators=120)
+    working_cols, info = prefilter_columns(
+        model, X, y.astype(np.float64), method="two_stage", prefilter_top=50,
+        classification=True, n_features=X.shape[1], n_estimators_cap=80, stage1_keep=180)
+
+    # New fields present.
+    assert "stage1_survivors" in info and "stage1_f_scores" in info
+    survivors = info["stage1_survivors"]
+    fscores = info["stage1_f_scores"]
+    # stage1_survivors: sorted, unique, in-range, length matches the funnel count.
+    assert survivors.ndim == 1 and len(survivors) == info["stage1_kept"] == 180
+    assert list(survivors) == sorted(set(int(c) for c in survivors))
+    assert int(survivors.min()) >= 0 and int(survivors.max()) < X.shape[1]
+    # working_cols is a SUBSET of stage1_survivors (stage B narrows further); recovery invariant.
+    assert set(int(c) for c in working_cols) <= set(int(c) for c in survivors), (
+        "working_cols escaped the stage-A cohort")
+    # F-scores: dense length-n_features, finite for non-constant columns, sentinel handled.
+    assert fscores.ndim == 1 and fscores.shape[0] == X.shape[1]
+    assert np.isfinite(fscores).sum() >= X.shape[1] - 5, (
+        "too many non-finite F-scores on a clean synthetic")
+    # The stage-A cohort is precisely the top-stage1_keep by F-score (a contract anchor for any
+    # downstream consumer that wants to RE-rank the stage-A cohort by a different scorer).
+    top_by_f = np.sort(np.argsort(-fscores, kind="stable")[: info["stage1_kept"]])
+    np.testing.assert_array_equal(survivors, top_by_f)
+
+    # Public accessors round-trip the same arrays (no key-name coupling for callers).
+    np.testing.assert_array_equal(get_stage1_survivors(info), survivors)
+    np.testing.assert_array_equal(get_cached_f_scores(info), fscores)
+    # None-tolerant: missing dict / wrong key returns None instead of raising.
+    assert get_cached_f_scores(None) is None
+    assert get_stage1_survivors(None) is None
+    assert get_cached_f_scores({}) is None
+    assert get_stage1_survivors({}) is None
+
+
+def test_univariate_report_exposes_f_scores_for_downstream_reuse():
+    """``univariate`` already computes the same F-score vector as ``two_stage``'s stage A. The two
+    paths must agree on the cached-scores contract so a downstream consumer that reads
+    ``get_cached_f_scores`` does NOT have to special-case the method. ``stage1_survivors`` is
+    two-stage-only by design (univariate has no funnel)."""
+    from mlframe.feature_selection._shap_proxy_explain import make_default_estimator
+    from mlframe.feature_selection._shap_proxy_prefilter import (
+        get_cached_f_scores, get_stage1_survivors, prefilter_columns,
+    )
+
+    X, y = _wide_xy(seed=6, width=400, n_informative=5)
+    model = make_default_estimator(classification=True, random_state=0, n_estimators=80)
+    working_cols, info = prefilter_columns(
+        model, X, y.astype(np.float64), method="univariate", prefilter_top=40,
+        classification=True, n_features=X.shape[1])
+
+    fscores = get_cached_f_scores(info)
+    assert fscores is not None and fscores.shape[0] == X.shape[1]
+    # The kept set is precisely the top-K by F-score (univariate's own ranking).
+    top_by_f = np.sort(np.argsort(-fscores, kind="stable")[: info["kept"]])
+    np.testing.assert_array_equal(working_cols, top_by_f)
+    # univariate has no stage-A funnel -> no stage1_survivors.
+    assert get_stage1_survivors(info) is None
+
+
+def test_biz_value_cached_f_scores_avoid_recomputation():
+    """biz_value (iter13): the cached F-scores from a ``two_stage`` prefilter let downstream stages
+    skip a duplicate ``f_classif`` pass. On a moderately wide synthetic (width=4000, n=2000) this
+    measures the cheap-now win: reading the cached vector is ~100x+ faster than recomputing the same
+    F-scores from scratch. The bound is loose (10x) to absorb dev-HW jitter; the actual gap on the dev
+    machine is much larger because the cache lookup is a dict-get vs sklearn's full O(n*f) scorer."""
+    import time as _time
+    from sklearn.feature_selection import f_classif
+
+    from mlframe.feature_selection._shap_proxy_explain import make_default_estimator
+    from mlframe.feature_selection._shap_proxy_prefilter import (
+        get_cached_f_scores, prefilter_columns,
+    )
+
+    rng = np.random.default_rng(11)
+    n, width, n_inf = 2000, 4000, 8
+    inf = rng.normal(size=(n, n_inf)).astype(np.float32)
+    noise = rng.normal(size=(n, width - n_inf)).astype(np.float32)
+    X = pd.DataFrame(np.column_stack([inf, noise]),
+                     columns=[f"f{i}" for i in range(width)])
+    logit = (inf * np.linspace(1.2, 0.4, n_inf)).sum(axis=1)
+    y = (logit + 0.3 * rng.normal(size=n) > 0).astype(np.float64)
+
+    model = make_default_estimator(classification=True, random_state=0, n_estimators=80)
+    # Run two_stage (the path that caches F-scores) -- inside it sklearn runs f_classif once.
+    _, info = prefilter_columns(
+        model, X, y, method="two_stage", prefilter_top=200, classification=True,
+        n_features=width, n_estimators_cap=80, stage1_keep=800)
+
+    # 1) Cached path: just read the published vector (free).
+    t0 = _time.perf_counter()
+    cached = get_cached_f_scores(info)
+    t_cached = _time.perf_counter() - t0
+    assert cached is not None and cached.shape[0] == width
+
+    # 2) Naive path a downstream stage would have used pre-iter13: recompute f_classif from scratch.
+    Xv = X.values
+    t0 = _time.perf_counter()
+    fresh, _ = f_classif(Xv, y)
+    t_fresh = _time.perf_counter() - t0
+    fresh = np.asarray(fresh, dtype=np.float64)
+    fresh[~np.isfinite(fresh)] = -np.inf
+
+    # Cached vector matches a fresh recomputation (same scorer, same -inf sentinel).
+    np.testing.assert_allclose(cached, fresh, rtol=1e-6, atol=1e-6,
+                               err_msg="cached F-scores diverged from a fresh f_classif call")
+    # Cheap-now win: the cache hit is at least 10x faster than the recomputation. Print the actual
+    # numbers so future iterations can see the win evolve under load (-s captures stdout).
+    print(f"[iter13 f_cache] cached={t_cached*1e3:.3f}ms recompute={t_fresh*1e3:.3f}ms "
+          f"speedup={t_fresh / max(t_cached, 1e-9):.1f}x width={width} n={n}", flush=True)
+    assert t_fresh > t_cached * 10, (
+        f"cached F-score lookup is not measurably faster than recompute: "
+        f"cached={t_cached*1e3:.2f}ms vs recompute={t_fresh*1e3:.2f}ms")
+
+
+@pytest.mark.parametrize("method", ["model", "fast_model"])
+def test_booster_prefilter_methods_do_not_publish_f_scores(method):
+    """``model`` / ``fast_model`` rank by booster ``feature_importances_``, NOT F-scores -- so the
+    cached-scores accessor must return None for them (no silent reuse of stale / absent data).
+    Future "I want marginal strength" consumers fall back to recomputing f_classif themselves when
+    the prefilter took the booster path; the explicit None signals that."""
+    from mlframe.feature_selection._shap_proxy_explain import make_default_estimator
+    from mlframe.feature_selection._shap_proxy_prefilter import (
+        get_cached_f_scores, get_stage1_survivors, prefilter_columns,
+    )
+
+    X, y = _wide_xy(seed=7, width=300, n_informative=5)
+    model = make_default_estimator(classification=True, random_state=0, n_estimators=80)
+    _, info = prefilter_columns(
+        model, X, y.astype(np.float64), method=method, prefilter_top=30,
+        classification=True, n_features=X.shape[1], n_estimators_cap=60)
+    assert get_cached_f_scores(info) is None
+    assert get_stage1_survivors(info) is None

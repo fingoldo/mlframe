@@ -303,7 +303,16 @@ def _rank_two_stage(
     even the legacy ``"fast_model"`` ranking is unreliable.
 
     Falls back to the legacy ``"model"`` path on any stage-B no-importance return (preserves the original
-    fall-through contract from ``prefilter_columns``)."""
+    fall-through contract from ``prefilter_columns``).
+
+    The returned ``info`` dict exposes ``stage1_survivors`` (sorted positional indices of the stage-A
+    cohort) and ``stage1_f_scores`` (length-n_features ANOVA F-score vector) so downstream stages
+    (trust-guard, clustering, refine, future "shared stage-A cohort" routing of OOF-SHAP) can read the
+    cheaper-than-the-prefilter marginal-strength ranking WITHOUT recomputing ``f_classif`` /
+    ``f_regression``. The wider stage-A cohort is a superset of the stage-B prefilter_top output, so
+    callers wanting a wider canvas (e.g. SHAP-on-stage-A) read ``stage1_survivors`` directly; callers
+    wanting marginal-strength scores read ``stage1_f_scores``. -inf entries flag constant / degenerate
+    columns (same sentinel as ``_rank_univariate``)."""
     t0 = time.perf_counter()
     scores = _rank_univariate(X, y, classification=classification)
     stage1_keep = max(1, min(stage1_keep, n_features))
@@ -326,16 +335,25 @@ def _rank_two_stage(
                               n_features=int(len(stage1_cols)),
                               n_estimators_cap=n_estimators_cap)
     stage_b_dt = time.perf_counter() - t1
+    # Stage-A survivors in canonical (sorted) original-positional space -- downstream consumers (trust
+    # guard / clustering / future SHAP-on-stage-A routing) need the SUPERSET cohort + the same
+    # F-score vector so they can re-rank or expand WITHOUT recomputing f_classif / f_regression. The
+    # vector is dense length-n_features (cheap: O(f) floats) so callers can index by original column
+    # index without remapping; -inf flags constant columns (same sentinel as ``_rank_univariate``).
+    stage1_survivors_sorted = np.sort(stage1_cols)
+    stage1_f_scores_arr = np.asarray(scores, dtype=np.float64)
     if stage_b_imp is None:
         # No-importance fallthrough on stage B -> degrade to the stage-A cohort as-is (still better
         # than the identity full-frame fallback because we already shed the noise tail by F-score).
         logger.warning("ShapProxiedFS prefilter two_stage: stage B returned no importances; "
                        "falling back to the stage-A survivors as working_cols.")
-        working_cols = np.sort(stage1_cols)
+        working_cols = stage1_survivors_sorted
         return working_cols, dict(
             method="two_stage", kept=int(len(working_cols)), of=int(n_features),
             stage1_kept=int(len(stage1_cols)), stage1_of=int(n_features),
             stage_a_seconds=float(stage_a_dt), stage_b_seconds=float(stage_b_dt),
+            stage1_survivors=stage1_survivors_sorted,
+            stage1_f_scores=stage1_f_scores_arr,
             skipped="stage_b_no_importance")
     keep_b = min(prefilter_top, int(len(stage1_cols)))
     local_top = _topk(stage_b_imp, keep_b)
@@ -350,6 +368,8 @@ def _rank_two_stage(
         method="two_stage", kept=int(len(working_cols)), of=int(n_features),
         stage1_kept=int(len(stage1_cols)), stage1_of=int(n_features),
         stage_a_seconds=float(stage_a_dt), stage_b_seconds=float(stage_b_dt),
+        stage1_survivors=stage1_survivors_sorted,
+        stage1_f_scores=stage1_f_scores_arr,
         n_estimators_cap=n_estimators_cap)
 
 
@@ -410,6 +430,9 @@ def prefilter_columns(
     if resolved == "univariate":
         importance = _rank_univariate(X, y, classification=classification)
         applied_cap = None  # univariate has no booster -> cap is meaningfully N/A in the report
+        # Surface the F-score vector so downstream stages can re-rank by marginal strength without
+        # paying a second f_classif / f_regression pass; sentinel -inf flags constant columns.
+        _univariate_f_scores = importance
     elif resolved == "fast_model":
         importance = _rank_fast_model(model_template, X, y, n_features=n_features,
                                       n_estimators_cap=n_estimators_cap)
@@ -428,8 +451,51 @@ def prefilter_columns(
         return np.arange(n_features), dict(method=resolved, kept=int(n_features), of=int(n_features),
                                            skipped="no_importance", n_estimators_cap=applied_cap)
     working_cols = _topk(importance, prefilter_top)
-    return working_cols, dict(method=resolved, kept=int(len(working_cols)), of=int(n_features),
-                              n_estimators_cap=applied_cap)
+    info = dict(method=resolved, kept=int(len(working_cols)), of=int(n_features),
+                n_estimators_cap=applied_cap)
+    if resolved == "univariate":
+        # ``univariate`` already has the dense F-score vector in hand -- expose it for the same
+        # downstream consumers that read ``stage1_f_scores`` from the ``two_stage`` path so the two
+        # marginal-strength methods agree on the cached-scores contract.
+        info["stage1_f_scores"] = np.asarray(_univariate_f_scores, dtype=np.float64)
+    return working_cols, info
+
+
+def get_cached_f_scores(prefilter_info: Optional[dict]) -> Optional[np.ndarray]:
+    """Return the dense length-n_features ANOVA F-score vector cached by the ``two_stage`` /
+    ``univariate`` prefilter, or ``None`` when the prefilter did not compute one (``model`` /
+    ``fast_model`` / ``gpu_model`` paths fit a booster instead of running f_classif / f_regression).
+
+    Stable accessor so downstream stages (trust-guard, cluster aggregation, future SHAP-on-stage-A
+    routing) can opportunistically reuse the marginal-strength ranking without recomputing the scorer
+    and without coupling to the report dict's internal key names. -inf entries flag constant /
+    degenerate columns (same sentinel as ``_rank_univariate``). The vector is in ORIGINAL positional
+    space (length n_features), so callers can index by original column index directly.
+
+    Pass ``self.shap_proxy_report_.get("prefilter")`` (the per-fit report dict's prefilter sub-block);
+    None-tolerant on both the outer dict and the missing-key case so a caller doesn't have to guard."""
+    if not isinstance(prefilter_info, dict):
+        return None
+    scores = prefilter_info.get("stage1_f_scores")
+    if scores is None:
+        return None
+    return np.asarray(scores, dtype=np.float64)
+
+
+def get_stage1_survivors(prefilter_info: Optional[dict]) -> Optional[np.ndarray]:
+    """Return the sorted positional indices of the stage-A cohort (the wider funnel surviving the
+    cheap ANOVA F-score pass) cached by the ``two_stage`` prefilter, or ``None`` for non-two-stage
+    paths. The stage-A cohort is a SUPERSET of the final ``prefilter_top`` (stage B narrows from
+    ``stage1_keep`` -> ``prefilter_top``), so callers wanting the wider canvas (e.g. SHAP-on-stage-A,
+    a clustering pass that benefits from the broader correlation graph) read this superset directly.
+
+    Stable accessor mirroring ``get_cached_f_scores``; pass the same per-fit prefilter sub-block."""
+    if not isinstance(prefilter_info, dict):
+        return None
+    survivors = prefilter_info.get("stage1_survivors")
+    if survivors is None:
+        return None
+    return np.asarray(survivors, dtype=np.int64)
 
 
 __all__ = [
@@ -437,6 +503,8 @@ __all__ = [
     "resolve_prefilter_method",
     "gpu_model_available",
     "prefilter_columns",
+    "get_cached_f_scores",
+    "get_stage1_survivors",
     "_default_stage1_keep",
     "_two_stage_min_width",
 ]
