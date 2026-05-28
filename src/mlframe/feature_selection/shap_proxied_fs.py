@@ -84,6 +84,8 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         within_cluster_refine: bool = True,
         refine_n_estimators: int | None = 100,
         trust_guard_n_estimators: int | None = 100,
+        trust_guard_stratified_anchors: bool = False,
+        trust_guard_uniform_tail_frac: float = 0.2,
         n_jobs: int = -1,
         random_state: int = 0,
         verbose: bool = True,
@@ -150,6 +152,23 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         # The trust report only consumes RANKS of anchor losses (Spearman / Kendall / recall@k); a
         # capped booster gives a faithful fidelity signal at ~3x lower cost. None disables the cap.
         self.trust_guard_n_estimators = trust_guard_n_estimators
+        # ``trust_guard_stratified_anchors``: opt-in (default OFF) softmax-by-F-score anchor sampler
+        # for the trust guard. Activates only when the prefilter cached an F-score vector
+        # (``prefilter_method`` in {two_stage, univariate}). Iter14 benchmarked at width=6000 with the
+        # two_stage funnel narrowing to 400 columns: stratified Spearman 0.877 vs uniform 0.969;
+        # recovery preserved at 10/12 both ways. The post-prefilter cohort is already noise-filtered
+        # so concentrating anchors on the F-score tier compresses the spread that drives the Spearman
+        # signal. Lever-doesn't-pay regime documented; left wired as an opt-in for callers whose
+        # prefilter is itself noise-heavy (e.g. ``prefilter_method='univariate'`` on data where
+        # marginal-only ranking misses interaction informatives, leaving a noise tail in the
+        # surviving cohort that the trust-guard MUST weight away from). ``trust_guard_uniform_tail_frac``
+        # controls the fraction of each anchor that is uniform-sampled for tail-of-distribution
+        # coverage (default 20%; 0 = pure-weighted, 1 = legacy uniform).
+        # iter14-bench-attempt-rejected (2026-05-28): width=6000 regime synthetic, n=3000, two_stage
+        # prefilter -> stratified spearman 0.877 vs uniform 0.969 (Δ -0.092). Same fit twice via
+        # ``patch(get_cached_f_scores -> None)``. Don't enable by default; keep opt-in via this knob.
+        self.trust_guard_stratified_anchors = bool(trust_guard_stratified_anchors)
+        self.trust_guard_uniform_tail_frac = float(trust_guard_uniform_tail_frac)
         self.n_jobs = n_jobs
         self.random_state = random_state
         self.verbose = verbose
@@ -429,12 +448,47 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         if self.trust_guard:
             from mlframe.feature_selection._shap_proxy_revalidate import proxy_trust_guard
 
+            # Stratified-anchor prior (opt-in via ``trust_guard_stratified_anchors``): when the
+            # prefilter cached an F-score vector (two_stage / univariate paths), aggregate it into
+            # UNIT space so the trust-guard sampler over-samples quality columns instead of drowning
+            # in the noise tail. F-scores live in ORIGINAL column space (length n_features);
+            # unit_to_members[u] -> WORKING-frame positions (post-prefilter); working_cols maps
+            # working -> original. Per unit, take the MEAN F across its members (proxy for "is this
+            # unit anchored by informative columns?"); singletons reduce to the member's own F.
+            # Falls through to None (uniform sampler) when the prefilter didn't cache F-scores
+            # (model / fast_model / gpu_model paths) OR the opt-in is OFF (the default; see
+            # iter14-bench-attempt-rejected note in ``__init__``: the lever didn't pay at width=6000
+            # because the post-two_stage cohort is already noise-filtered, so concentrating anchors
+            # further compresses the spread the Spearman signal needs). Always-safe: misalignment is
+            # detected inside ``proxy_trust_guard`` and degrades to uniform with a warning.
+            unit_f_scores = None
+            if self.trust_guard_stratified_anchors:
+                from mlframe.feature_selection._shap_proxy_prefilter import get_cached_f_scores
+
+                f_scores_orig = get_cached_f_scores(report.get("prefilter"))
+                if f_scores_orig is not None:
+                    try:
+                        f_working = np.asarray(f_scores_orig, dtype=np.float64)[np.asarray(working_cols)]
+                    except (IndexError, TypeError):
+                        f_working = None
+                    if f_working is not None:
+                        n_units = phi.shape[1]
+                        if unit_to_members is None:
+                            if f_working.shape[0] == n_units:
+                                unit_f_scores = f_working
+                        else:
+                            if all(int(m) < f_working.shape[0] for u in unit_to_members for m in u):
+                                unit_f_scores = np.array(
+                                    [float(np.mean(f_working[np.asarray(u, dtype=np.int64)]))
+                                     for u in unit_to_members], dtype=np.float64)
             with _stage("trust_guard"):
                 report["trust"] = proxy_trust_guard(
                     phi, base, y_phi, model_template, X_search, X_hold, y_hold,
                     n_anchors=self.n_anchors, rng=self._rng, min_card=self.min_features,
                     max_card=self.max_features, spearman_floor=self.spearman_floor,
-                    n_estimators_cap=self.trust_guard_n_estimators, **rv)
+                    n_estimators_cap=self.trust_guard_n_estimators,
+                    unit_f_scores=unit_f_scores,
+                    anchor_uniform_tail_frac=self.trust_guard_uniform_tail_frac, **rv)
 
         # Unified candidate re-ranking before the expensive top-N honest retrains: order by the
         # corrector's predicted honest loss (#3/#6, falls back to raw proxy) PLUS an uncertainty

@@ -271,14 +271,114 @@ def _parallel_honest_losses(tasks, model_template, X_tr, y_tr, X_ev, y_ev, class
     )
 
 
-def _sample_anchor_subsets(n_features, n_anchors, rng, min_card=1, max_card=None):
+def _softmax_weights(scores, temperature=1.0):
+    """Normalise ``scores`` to a length-N probability vector via softmax with a temperature knob.
+
+    ``scores`` is the proxy/unit-space F-score vector (length n_anchor_columns). -inf sentinels for
+    constant/degenerate columns sink to zero probability. NaN/non-finite entries get the minimum
+    finite score so they remain pickable but at the noise floor (never the high-prior tier).
+
+    Returns a length-N float64 vector that sums to 1; falls back to a uniform vector when every entry
+    is non-finite (degenerate input, e.g. all-constant working frame) so callers never crash."""
+    s = np.asarray(scores, dtype=np.float64).copy()
+    finite = np.isfinite(s)
+    if not finite.any():
+        return np.full(s.shape, 1.0 / max(1, s.size), dtype=np.float64)
+    # Replace non-finite entries with the min finite (so they have negligible probability after softmax
+    # but never NaN out the normalisation); subtract the max for numerical stability.
+    s[~finite] = s[finite].min()
+    s = s / max(1e-12, float(temperature))
+    s -= s.max()
+    w = np.exp(s)
+    total = w.sum()
+    if not np.isfinite(total) or total <= 0:
+        return np.full(s.shape, 1.0 / max(1, s.size), dtype=np.float64)
+    return w / total
+
+
+def _weighted_choice_no_replace(rng, n, k, probs):
+    """Sample ``k`` distinct indices from ``range(n)`` without replacement, weighted by ``probs``.
+
+    Uses the Efraimidis-Spirakis exponential-key reservoir trick: key_i = -log(U_i)/p_i, take the k
+    smallest. O(n) per call, correct under WRSwoR weights (numpy's ``rng.choice(..., replace=False)``
+    with ``p=`` already implements this, but we wrap to handle zero-weight rows + degenerate cases
+    without raising)."""
+    probs = np.asarray(probs, dtype=np.float64)
+    if probs.sum() <= 0 or not np.all(np.isfinite(probs)):
+        return rng.choice(n, size=k, replace=False)
+    # Mass might be concentrated on < k entries; expand zero-weight rows to a tiny epsilon so the
+    # sampler can still draw k distinct picks (the leakage is bounded by ``eps * (n-nnz)``).
+    nnz = int((probs > 0).sum())
+    if nnz < k:
+        eps = max(1e-12, probs[probs > 0].min() * 1e-6) if nnz > 0 else 1.0
+        probs = np.where(probs > 0, probs, eps)
+    probs = probs / probs.sum()
+    return rng.choice(n, size=k, replace=False, p=probs)
+
+
+def _sample_anchor_subsets(n_features, n_anchors, rng, min_card=1, max_card=None, *,
+                           weights=None, uniform_tail_frac=0.2):
+    """Sample distinct anchor subsets of varying cardinality.
+
+    Default (``weights is None``): each anchor draws ``k`` columns uniformly at random, ``k`` itself
+    uniform in ``[min_card, max_card]``. This is the legacy diversity-driven sampler.
+
+    Weighted mode (``weights`` supplied, length ``n_features``): each anchor still draws ``k`` uniform-
+    cardinality, but the ``k`` columns are split between a quality-weighted core (``1 - uniform_tail_frac``
+    of ``k``) drawn by softmax(weights) without replacement, and a uniform tail (``uniform_tail_frac``
+    of ``k``) drawn uniformly from the remaining columns. This biases anchors toward high-F columns
+    where proxy-vs-honest fidelity is informative (anchor noise dominates the spread when most cols are
+    pure noise), while the uniform tail keeps coverage of tail-of-distribution cases the F-score under-
+    represents (e.g. pure-interaction informatives with weak marginals).
+
+    The uniform-tail fraction is calibrated at 20% so quality-weighted core stays dominant; setting it
+    to 0 gives pure-weighted anchors (loses tail coverage), 1.0 recovers the uniform sampler. Weighted
+    columns whose F-score is -inf (constants) or non-finite get the noise-floor probability via
+    ``_softmax_weights`` so they're never the high-prior tier but stay technically reachable through
+    the uniform tail."""
     max_card = n_features if max_card is None else min(max_card, n_features)
+    use_weights = weights is not None
+    if use_weights:
+        weights = np.asarray(weights, dtype=np.float64)
+        if weights.shape[0] != n_features:
+            # Defensive: misaligned weights silently degrade to uniform rather than crash the guard.
+            use_weights = False
+    if use_weights:
+        probs_all = _softmax_weights(weights)
     anchors = set()
     guard = 0
-    while len(anchors) < n_anchors and guard < n_anchors * 50:
+    max_guard = n_anchors * 50
+    while len(anchors) < n_anchors and guard < max_guard:
         guard += 1
         k = int(rng.integers(min_card, max_card + 1))
-        anchors.add(tuple(sorted(rng.choice(n_features, size=k, replace=False).tolist())))
+        if use_weights and k >= 2 and 0.0 < uniform_tail_frac < 1.0:
+            n_uniform = max(1, int(round(uniform_tail_frac * k)))
+            n_uniform = min(n_uniform, k - 1)  # ensure at least one weighted pick
+            n_weighted = k - n_uniform
+            weighted_pick = _weighted_choice_no_replace(rng, n_features, n_weighted, probs_all)
+            # Uniform-tail draws from the COMPLEMENT of the weighted picks so the two passes don't
+            # collide (no replacement across the full anchor) and the cardinality is exactly k.
+            mask = np.ones(n_features, dtype=bool)
+            mask[weighted_pick] = False
+            remaining = np.nonzero(mask)[0]
+            if remaining.size < n_uniform:
+                # Pathological: weighted picks already covered all columns. Just take whatever remains.
+                tail_pick = remaining
+                combined = np.concatenate([weighted_pick, tail_pick])
+            else:
+                tail_pick = rng.choice(remaining, size=n_uniform, replace=False)
+                combined = np.concatenate([weighted_pick, tail_pick])
+            cols = tuple(sorted(int(c) for c in combined))
+        elif use_weights:
+            # k == 1 (or uniform_tail_frac at the boundary): single pick by weight (or uniform tail).
+            if k == 1 and uniform_tail_frac < 1.0:
+                pick = _weighted_choice_no_replace(rng, n_features, 1, probs_all)
+            else:
+                pick = rng.choice(n_features, size=k, replace=False)
+            cols = tuple(sorted(int(c) for c in pick))
+        else:
+            cols = tuple(sorted(rng.choice(n_features, size=k, replace=False).tolist()))
+        anchors.add(cols)
     return [list(a) for a in anchors]
 
 
@@ -286,6 +386,7 @@ def proxy_trust_guard(
     phi, base, y_search, model_template, X_search, X_holdout, y_holdout,
     *, classification, metric=None, n_anchors=30, rng=None, min_card=1, max_card=None,
     spearman_floor=0.6, n_jobs=-1, unit_to_members=None, cache=None, n_estimators_cap=None,
+    unit_f_scores=None, anchor_uniform_tail_frac=0.2,
 ):
     """Measure proxy-vs-honest rank fidelity on anchor subsets. Returns a report dict.
 
@@ -300,13 +401,33 @@ def proxy_trust_guard(
     cap is enabled the corrector trains on capped values; the corrector's regression learns the
     proxy->honest_capped mapping, which is still a valid rank-preserving signal for re-ranking
     candidates. Leave as ``None`` (default) to preserve legacy absolute-value semantics on the
-    corrector training pairs."""
+    corrector training pairs.
+
+    ``unit_f_scores``: optional length-``phi.shape[1]`` float vector of per-unit marginal-strength
+    weights (e.g. ANOVA F-scores aggregated from the prefilter's cached stage-A scores). When supplied,
+    anchor columns are drawn by softmax(unit_f_scores) instead of uniform-at-random, with a small
+    uniform tail (``anchor_uniform_tail_frac``, default 20%) for tail-of-distribution coverage. The
+    rationale: on wide data with a heavy noise tail, uniform anchors are dominated by noise columns,
+    so proxy-vs-honest spread reflects sample noise rather than fidelity. Stratifying by F-score
+    spends the same anchor budget on subsets where the proxy is actually being asked to rank
+    informative-mix-vs-noise-mix subsets, lifting the measured Spearman without changing the anchor
+    count. None (default) keeps the legacy uniform sampler. Non-finite entries (-inf for constant /
+    degenerate columns) sink to the noise-floor probability via the softmax."""
     from scipy.stats import kendalltau, spearmanr
 
     metric = resolve_metric(classification, metric)
     rng = np.random.default_rng(0) if rng is None else rng
     f = phi.shape[1]
-    anchors = _sample_anchor_subsets(f, n_anchors, rng, min_card, max_card)
+    weights = None
+    if unit_f_scores is not None:
+        weights = np.asarray(unit_f_scores, dtype=np.float64)
+        if weights.shape[0] != f:
+            logger.warning(
+                "ShapProxiedFS trust-guard: unit_f_scores length %d != phi.shape[1] %d; "
+                "falling back to uniform anchor sampling.", int(weights.shape[0]), int(f))
+            weights = None
+    anchors = _sample_anchor_subsets(f, n_anchors, rng, min_card, max_card,
+                                     weights=weights, uniform_tail_frac=anchor_uniform_tail_frac)
 
     from mlframe.feature_selection._shap_proxy_calibrate import subset_redundancy
 
@@ -334,6 +455,11 @@ def proxy_trust_guard(
     trustworthy = np.isfinite(sp) and sp >= spearman_floor
     report = dict(n_anchors=int(len(proxy_losses)), spearman=sp, kendall=kt,
                   recall_at_k=recall, k=int(k), spearman_floor=spearman_floor, trustworthy=bool(trustworthy),
+                  # Anchor sampling mode: 'stratified' when F-score weights were supplied + applied,
+                  # else 'uniform' (legacy). Diagnostic so downstream consumers can see when the
+                  # F-score-aware prior was active without inspecting kwargs.
+                  anchor_sampling=("stratified" if weights is not None else "uniform"),
+                  anchor_uniform_tail_frac=float(anchor_uniform_tail_frac) if weights is not None else None,
                   # Raw anchor pairs (proxy, honest, cardinality, redundancy) for the bias corrector.
                   _corrector_data=dict(proxy=proxy_losses.tolist(), honest=honest_losses.tolist(),
                                        cards=cards.tolist(), redund=redunds.tolist()))

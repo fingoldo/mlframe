@@ -627,3 +627,119 @@ def test_within_cluster_refine_batch_drop_strictly_fewer_fits_on_redundant_data(
     # ``rounds`` ranking rounds. For a 13-col input the legacy upper bound is O(k^2) = 169 cache
     # events; iter11 must be a fraction of that.
     assert fits_new <= 30, f"iter11 refine ran {fits_new} cache events; expected far fewer than O(k^2)"
+
+
+# ------------------------------------------------ stratified anchor sampler (iter14, F-score prior)
+
+
+def test_stratified_anchor_sampler_overweights_high_f_columns():
+    """The F-score-weighted anchor sampler must pick high-F columns MORE OFTEN than a uniform sampler
+    on a fixture with a clear F-score gradient. We measure the empirical pick frequency over many
+    draws and assert the high-F end of the score gradient is over-represented under weights and not
+    under uniform. The 20% uniform tail is intentional headroom for low-F columns so we don't assert
+    "low-F is never picked"; we assert the HIGH-F end gets >= 1.5x its uniform-baseline frequency."""
+    from mlframe.feature_selection._shap_proxy_revalidate import _sample_anchor_subsets
+
+    n_features = 50
+    n_anchors = 200
+    # Sharp gradient: first 5 columns have far higher F-score than the rest (the "informative" tier).
+    weights = np.zeros(n_features, dtype=np.float64)
+    weights[:5] = 10.0  # strong prior on first 5
+    weights[5:] = 0.0   # uniform across the rest (softmax(0)=1/n on the tail)
+
+    rng_w = np.random.default_rng(0)
+    rng_u = np.random.default_rng(0)
+    # Fix cardinality at 5 so the comparison is cleanly normalised (every anchor draws 5 columns).
+    a_weighted = _sample_anchor_subsets(n_features, n_anchors, rng_w, min_card=5, max_card=5,
+                                        weights=weights, uniform_tail_frac=0.2)
+    a_uniform = _sample_anchor_subsets(n_features, n_anchors, rng_u, min_card=5, max_card=5,
+                                       weights=None)
+    counts_w = np.zeros(n_features, dtype=np.int64)
+    counts_u = np.zeros(n_features, dtype=np.int64)
+    for a in a_weighted:
+        for c in a:
+            counts_w[c] += 1
+    for a in a_uniform:
+        for c in a:
+            counts_u[c] += 1
+
+    # The high-F tier must be picked materially MORE often under weights than under uniform.
+    high_w = counts_w[:5].sum()
+    high_u = counts_u[:5].sum()
+    assert high_w > high_u * 1.5, (
+        f"stratified sampler did not over-weight high-F columns: high_w={high_w} vs high_u={high_u}")
+    # Sanity: every anchor still has exactly 5 distinct columns (no replacement bug).
+    for a in a_weighted:
+        assert len(a) == 5 and len(set(a)) == 5
+
+
+def test_stratified_anchor_sampler_falls_back_to_uniform_when_weights_none():
+    """When ``weights=None`` the sampler MUST match the legacy uniform sampler bit-for-bit (same RNG
+    state -> same anchor list). This is the safety net: non-two-stage prefilter paths see no F-scores,
+    so the trust guard degrades to legacy behaviour with zero risk of a sampler-induced regression."""
+    from mlframe.feature_selection._shap_proxy_revalidate import _sample_anchor_subsets
+
+    n_features = 30
+    n_anchors = 50
+    rng_a = np.random.default_rng(42)
+    rng_b = np.random.default_rng(42)
+    a_explicit = _sample_anchor_subsets(n_features, n_anchors, rng_a, min_card=2, max_card=6,
+                                        weights=None)
+    # Legacy positional-arg call (no weights kwarg) must give the same sequence.
+    a_legacy = _sample_anchor_subsets(n_features, n_anchors, rng_b, min_card=2, max_card=6)
+    assert a_explicit == a_legacy
+
+
+def test_proxy_trust_guard_records_anchor_sampling_mode():
+    """The trust-guard report must expose ``anchor_sampling`` so downstream consumers can see when
+    the F-score prior was active. With ``unit_f_scores=None`` it stays ``'uniform'``; with a vector it
+    flips to ``'stratified'`` AND records the uniform-tail fraction."""
+    from sklearn.linear_model import LinearRegression
+    from mlframe.feature_selection._shap_proxy_revalidate import proxy_trust_guard
+
+    rng = np.random.default_rng(0)
+    n, f = 600, 6
+    X = pd.DataFrame(rng.normal(size=(n, f)), columns=[f"x{i}" for i in range(f)])
+    y = (1.5 * X["x0"] + 1.0 * X["x1"] - 0.8 * X["x2"] + 0.1 * rng.normal(size=n)).to_numpy()
+    phi = np.column_stack([1.5 * X["x0"], 1.0 * X["x1"], -0.8 * X["x2"]] + [np.zeros(n)] * (f - 3))
+    base = np.full(n, float(y.mean()))
+    Xs, ys = X.iloc[:450].reset_index(drop=True), y[:450]
+    Xh, yh = X.iloc[450:].reset_index(drop=True), y[450:]
+
+    rep_u = proxy_trust_guard(phi[:450], base[:450], ys, LinearRegression(), Xs, Xh, yh,
+                              classification=False, metric="rmse", n_anchors=10,
+                              rng=np.random.default_rng(0))
+    assert rep_u["anchor_sampling"] == "uniform"
+    assert rep_u["anchor_uniform_tail_frac"] is None
+
+    # Sharp F-prior on the planted informatives -> stratified mode + tail-frac recorded.
+    f_scores = np.array([100.0, 80.0, 60.0, 0.1, 0.1, 0.1], dtype=np.float64)
+    rep_w = proxy_trust_guard(phi[:450], base[:450], ys, LinearRegression(), Xs, Xh, yh,
+                              classification=False, metric="rmse", n_anchors=10,
+                              rng=np.random.default_rng(0), unit_f_scores=f_scores)
+    assert rep_w["anchor_sampling"] == "stratified"
+    assert rep_w["anchor_uniform_tail_frac"] == 0.2
+
+
+def test_proxy_trust_guard_degrades_to_uniform_on_misaligned_weights():
+    """A wrong-length ``unit_f_scores`` vector must NOT crash the guard; it logs a warning and the
+    report records ``anchor_sampling='uniform'``. Defends the wide-data path where a future caller
+    might pass a vector in original space instead of unit space by accident."""
+    from sklearn.linear_model import LinearRegression
+    from mlframe.feature_selection._shap_proxy_revalidate import proxy_trust_guard
+
+    rng = np.random.default_rng(0)
+    n, f = 600, 6
+    X = pd.DataFrame(rng.normal(size=(n, f)), columns=[f"x{i}" for i in range(f)])
+    y = (1.5 * X["x0"] + 1.0 * X["x1"] + 0.1 * rng.normal(size=n)).to_numpy()
+    phi = np.column_stack([1.5 * X["x0"], 1.0 * X["x1"]] + [np.zeros(n)] * (f - 2))
+    base = np.full(n, float(y.mean()))
+    Xs, ys = X.iloc[:450].reset_index(drop=True), y[:450]
+    Xh, yh = X.iloc[450:].reset_index(drop=True), y[450:]
+
+    # Mismatched length (5 != phi.shape[1]==6) -> safe fallback.
+    bad_weights = np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float64)
+    rep = proxy_trust_guard(phi[:450], base[:450], ys, LinearRegression(), Xs, Xh, yh,
+                            classification=False, metric="rmse", n_anchors=10,
+                            rng=np.random.default_rng(0), unit_f_scores=bad_weights)
+    assert rep["anchor_sampling"] == "uniform"

@@ -244,3 +244,102 @@ def test_biz_val_regression_recovers_informative():
     noise_kept = [c for c in selected if c.startswith("noise")]
     assert len(informative_kept) >= 3
     assert len(noise_kept) <= 2
+
+
+@pytest.mark.slow
+@pytest.mark.timeout(300)
+def test_biz_val_stratified_anchors_preserve_recovery_at_6k_no_catastrophic_spearman_drop():
+    """Iter14 trust-guard stratified-anchor lever, end-to-end on the regime synthetic at width=6000.
+
+    Measured on the iter14 dev bench (seed=0, width=6000, n=3000, 12 informatives, two_stage
+    prefilter -> 400-col cohort):
+
+        uniform:    spearman=0.969  recovery=10/12
+        stratified: spearman=0.877  recovery=10/12
+
+    The lever DOES NOT lift Spearman at this regime: the two_stage prefilter already noise-filters
+    the cohort to ~400 quality-biased columns, so uniform anchors over THOSE columns already mostly
+    sample informative-vs-noise mixes. Concentrating further by softmax(F) compresses the spread
+    that drives the Spearman signal (anchors get closer to each other, ties become noisier). This is
+    why the production knob ``trust_guard_stratified_anchors`` defaults to OFF -- but we LOCK IN the
+    "no catastrophic drop" + "recovery preserved" invariants so regressions are caught.
+
+    Asserts:
+      (1) the opt-in flag actually flips the anchor sampling mode
+      (2) recovery is no worse under stratified than under uniform
+      (3) Spearman doesn't drop catastrophically (>= uniform - 0.20) -- defends the lever's safety
+          envelope: if a future change makes the stratified prior dangerously narrow, the test
+          fails BEFORE a user shipping the opt-in hits it in prod.
+    """
+    from unittest.mock import patch
+
+    from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import make_regime_dataset
+    from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
+
+    n_informative, n_redundant, width = 12, 0, 6000
+    X, y, _roles = make_regime_dataset(
+        n_samples=3000, n_informative=n_informative, n_redundant=n_redundant,
+        redundancy_rho=0.9, n_noise=width - n_informative - n_redundant, snr=5.0,
+        task="binary", seed=0)
+    informative = {f"inf{i}" for i in range(n_informative)}
+
+    def _fit(stratified: bool):
+        sel = ShapProxiedFS(
+            classification=True, metric="brier", optimizer="auto",
+            prefilter_top=400, prefilter_method="two_stage",
+            cluster_features=True, cluster_corr_threshold=0.7,
+            top_n=15, n_splits=3, n_revalidation_models=2, n_anchors=30,
+            trust_guard_stratified_anchors=stratified,
+            random_state=0, verbose=False, n_jobs=1)
+        sel.fit(X, pd.Series(y))
+        rep = sel.shap_proxy_report_
+        spearman = rep["trust"]["spearman"]
+        mode = rep["trust"]["anchor_sampling"]
+        recovery = len(informative & set(sel.selected_features_))
+        return spearman, mode, recovery
+
+    print(f"\n[iter14 stratified-anchor biz_val] uniform leg at width={width}", flush=True)
+    sp_u, mode_u, rec_u = _fit(stratified=False)
+    print(f"[iter14] uniform: spearman={sp_u:.3f} mode={mode_u} recovery={rec_u}/{n_informative}",
+          flush=True)
+    print(f"[iter14] stratified leg", flush=True)
+    sp_s, mode_s, rec_s = _fit(stratified=True)
+    print(f"[iter14] stratified: spearman={sp_s:.3f} mode={mode_s} recovery={rec_s}/{n_informative}",
+          flush=True)
+
+    assert mode_u == "uniform"
+    assert mode_s == "stratified"
+    assert rec_s >= rec_u, (
+        f"stratified worsened recovery: stratified={rec_s}/{n_informative} vs uniform={rec_u}/{n_informative}")
+    # Recovery floor; dev measured 10/12, leave a 1-feature slack for seed/Windows-build variance.
+    assert rec_s >= 9, f"stratified recovered too few informatives: {rec_s}/{n_informative}"
+    # Spearman safety envelope: catastrophic-drop guard. Dev measured 0.877 vs 0.969 (-0.092);
+    # we lock in <= -0.20 absolute as the "won't break the proxy-fidelity report" floor.
+    assert sp_s >= sp_u - 0.20, (
+        f"stratified catastrophically dropped Spearman: uniform={sp_u:.3f} stratified={sp_s:.3f}")
+
+
+def test_stratified_anchors_default_off_preserves_legacy_trust_report():
+    """The iter14 stratified-anchor lever MUST default to OFF: at the iter14 dev bench it did not pay
+    (post-two_stage cohort is already noise-filtered), so we don't ship the regression as the default.
+    This is a fast cheap test that asserts the contract on a small synthetic fit -- if a future change
+    flips the default the report's ``anchor_sampling`` will switch to 'stratified' here and the test
+    fires before it lands in prod. Pairs with the slow 6k biz_val above (which measures the actual
+    Spearman cost) -- this one is the cheap structural sentinel."""
+    from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import make_regime_dataset
+    from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
+
+    # Small enough for the non-slow tier (no @pytest.mark.slow): two_stage prefilter on 500 cols.
+    X, y, _ = make_regime_dataset(
+        n_samples=600, n_informative=5, n_redundant=0, n_noise=495, snr=5.0,
+        task="binary", seed=0)
+    sel = ShapProxiedFS(
+        classification=True, metric="brier", optimizer="auto",
+        prefilter_top=150, prefilter_method="two_stage",
+        cluster_features=False, top_n=5, n_splits=3, n_revalidation_models=1, n_anchors=12,
+        random_state=0, verbose=False, n_jobs=1)
+    sel.fit(X, pd.Series(y))
+    # Default (no kwarg) must keep stratified OFF -> report records uniform sampling even though
+    # the two_stage prefilter cached the F-score vector.
+    assert sel.trust_guard_stratified_anchors is False
+    assert sel.shap_proxy_report_["trust"]["anchor_sampling"] == "uniform"
