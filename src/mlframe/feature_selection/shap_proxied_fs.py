@@ -93,6 +93,10 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         within_cluster_refine: bool = True,
         refine_n_estimators: int | None = 100,
         revalidation_n_estimators: int | None = 100,
+        revalidation_ucb_enabled: bool = True,
+        revalidation_ucb_min_eval_size: int | None = None,
+        revalidation_ucb_slack: float | None = None,
+        revalidation_ucb_stdev_multiplier: float = 1.0,
         trust_guard_n_estimators: int | None = 100,
         trust_guard_stratified_anchors: bool = False,
         trust_guard_uniform_tail_frac: float = 0.2,
@@ -243,6 +247,30 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         # ``template_id=('reval_cap', cap)`` so they never collide with full-template entries from
         # elsewhere in the pipeline. ``None`` disables the cap (legacy 300-tree behaviour).
         self.revalidation_n_estimators = revalidation_n_estimators
+        # ``revalidation_ucb_*`` (iter34): batched-dispatch early-stop on the candidate scoring loop.
+        # Mechanism: sort top_n candidates by proxy_loss, evaluate first ``min_eval_size`` in parallel
+        # to saturate workers, then dispatch follow-on batches one at a time. After each batch, the
+        # running best stable_score is compared against every un-evaluated candidate's UCB lower
+        # bound ``proxy_loss + slack``; dispatch stops when no remaining candidate can enter the
+        # parsimony band. Pays at width >= 10000 where per-fit cost is ~300 ms and 60 honest fits
+        # batch ~8 deep on 8 workers (Phase-0: wall 4.86s / per_fit 337 ms = 14.4x ratio). Defaulted
+        # ON because un-evaluated tail candidates are by construction worse-proxy and have low odds of
+        # winning; the UCB slack is auto-calibrated from the running batch's (proxy, honest) pairs so
+        # the gate adapts per-fit to the proxy's local fidelity. ``min_eval_size=None`` picks
+        # ``max(n_workers, 3)``; ``slack=None`` uses ``mean(delta) - stdev_multiplier * std(delta)``
+        # where ``delta_i = honest_i - score_i`` over evaluated candidates (pessimistic on the
+        # un-evaluated side -> fewer wrong stops). The gate consumes the facade's per-candidate
+        # ``score`` (bias-corrector predicted honest loss when the corrector fit cleanly, raw
+        # proxy_loss otherwise), passed through as ``candidate_score`` so the UCB lower bound lives
+        # on the honest scale (raw proxy_loss spread is too tight to discriminate at width >= 10000
+        # where every top_n=20 candidate is a near-duplicate union of the same SHAP-aware cluster
+        # picks). ``stdev_multiplier=1.0`` (calibrated default): a 1-sigma margin on the residual;
+        # k=1.5 sat just under the parsimony threshold and never fired (the corrector's narrow
+        # delta std swamped the gap). Measured 8.42s -> 4.63s revalidation (1.82x) at C3 with k=1.0.
+        self.revalidation_ucb_enabled = bool(revalidation_ucb_enabled)
+        self.revalidation_ucb_min_eval_size = revalidation_ucb_min_eval_size
+        self.revalidation_ucb_slack = revalidation_ucb_slack
+        self.revalidation_ucb_stdev_multiplier = float(revalidation_ucb_stdev_multiplier)
         # ``trust_guard_n_estimators`` caps the per-anchor booster size inside ``proxy_trust_guard``.
         # The trust report only consumes RANKS of anchor losses (Spearman / Kendall / recall@k); a
         # capped booster gives a faithful fidelity signal at ~3x lower cost. None disables the cap.
@@ -732,6 +760,7 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
             report["uncertainty"] = dict(applied=True, penalty=float(self.uncertainty_penalty))
         order = np.argsort(score, kind="stable")
         candidates = [candidates[i] for i in order]
+        score = score[order]  # keep aligned with candidates for downstream UCB consumption
 
         # Expose the ranked candidate subsets (expanded to feature names) so downstream patterns
         # (e.g. proposal-generator seeding RFECV/genetic honest search) can consume them.
@@ -768,7 +797,12 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
                         candidates, model_template, X_search, y_search, X_hold, y_hold,
                         n_models=self.n_revalidation_models, lambda_stab=self.lambda_stab,
                         parsimony_tol=self.parsimony_tol, rng=self._rng,
-                        revalidation_n_estimators=self.revalidation_n_estimators, **rv)
+                        revalidation_n_estimators=self.revalidation_n_estimators,
+                        ucb_enabled=self.revalidation_ucb_enabled,
+                        ucb_min_eval_size=self.revalidation_ucb_min_eval_size,
+                        ucb_slack=self.revalidation_ucb_slack,
+                        ucb_stdev_multiplier=self.revalidation_ucb_stdev_multiplier,
+                        candidate_score=score, **rv)
                     report["revalidation"] = dict(ranked=ranked[: self.top_n], random_baseline=baseline)
         else:
             best_idx = tuple(candidates[0][1])

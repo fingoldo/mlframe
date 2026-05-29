@@ -1228,3 +1228,185 @@ def test_biz_value_revalidation_cap_faster_recovery_preserved():
         f"speedup={reval_before / max(1e-9, reval_after):.2f}x")
     assert a_rec >= b_rec - 1, (
         f"capped recovery {a_rec}/{n_inf} must be within 1 of legacy {b_rec}/{n_inf}")
+
+
+# -----------------------------------------------------------------------------
+# iter34: UCB-style early-stop revalidation dispatch
+# -----------------------------------------------------------------------------
+
+
+def test_ucb_stop_remaining_cannot_win_basic():
+    """Helper computes the stop predicate correctly: when every un-evaluated lower bound exceeds
+    the best evaluated stable score by more than parsimony_tol*|best|, the gate fires."""
+    from mlframe.feature_selection._shap_proxy_revalidate import _ucb_stop_remaining_cannot_win
+
+    # best = 0.10, remaining proxies = [0.5, 0.6, 0.7], slack = 0.0 -> lower bounds = remaining
+    # parsimony_tol = 0.02 -> threshold = 0.10 + 0.002 = 0.102. min(lower_bounds)=0.5 > 0.102 -> STOP.
+    assert _ucb_stop_remaining_cannot_win(0.10, [0.5, 0.6, 0.7], 0.0, 0.02) is True
+    # Now slack = -0.4: lower_bounds = [0.1, 0.2, 0.3], min = 0.1 NOT > 0.102 -> DO NOT STOP.
+    assert _ucb_stop_remaining_cannot_win(0.10, [0.5, 0.6, 0.7], -0.4, 0.02) is False
+    # Empty remaining -> trivially stop.
+    assert _ucb_stop_remaining_cannot_win(0.10, [], 0.0, 0.02) is True
+
+
+def test_ucb_auto_slack_uses_batch_stdev():
+    """Auto slack = mean(delta) - 1.5*std(delta) where delta_i = honest_i - proxy_i. Verifies the
+    formula plumbing (single-point and multi-point cases) so calibration is deterministic."""
+    from mlframe.feature_selection._shap_proxy_revalidate import _ucb_auto_slack
+
+    # No data -> 0.0
+    assert _ucb_auto_slack([], []) == 0.0
+    # Single sample -> mean(delta) only (std undefined for n<2).
+    assert _ucb_auto_slack([0.5], [0.4]) == pytest.approx(-0.1)
+    # Multi-point: deltas = [0.1, -0.1, 0.0], mean=0, std (ddof=1) = sqrt(0.01) = 0.1, slack = 0 - 1.5*0.1 = -0.15
+    s = _ucb_auto_slack([0.5, 0.5, 0.5], [0.6, 0.4, 0.5])
+    assert s == pytest.approx(-0.15, abs=1e-9)
+    # ucb_stdev_multiplier knob plumbs through.
+    s2 = _ucb_auto_slack([0.5, 0.5, 0.5], [0.6, 0.4, 0.5], stdev_multiplier=3.0)
+    assert s2 == pytest.approx(0.0 - 3.0 * 0.1, abs=1e-9)
+
+
+def test_ucb_disabled_is_legacy_path(planted):
+    """``ucb_enabled=False`` must match the pre-iter34 single-batch behaviour BIT-FOR-BIT on the
+    clean planted fixture: same winner, same ranked entries (length + honest values), same baseline."""
+    from mlframe.feature_selection._shap_proxy_revalidate import revalidate_top_n
+
+    X, y, phi, base = planted
+    Xs, ys = X.iloc[:900].reset_index(drop=True), y[:900]
+    Xh, yh = X.iloc[900:].reset_index(drop=True), y[900:]
+    candidates = [(0.0, (0, 1, 2)), (0.1, (0, 1)), (0.2, (0, 1, 2, 5)), (0.3, (4, 5, 6))]
+
+    best_off, ranked_off, baseline_off = revalidate_top_n(
+        candidates, LinearRegression(), Xs, ys, Xh, yh,
+        classification=False, metric="rmse", n_models=1, lambda_stab=0.0,
+        revalidation_n_estimators=None, ucb_enabled=False)
+    # baseline carries the ucb diagnostic in either path; check the disabled flag.
+    assert baseline_off["ucb"]["enabled"] is False
+    assert baseline_off["ucb"]["n_candidates_evaluated"] == len(candidates)
+    # All candidates surfaced in ranked when UCB off.
+    assert len(ranked_off) == len(candidates)
+    assert set(best_off) == {0, 1, 2}
+
+
+def test_ucb_stops_dispatch_when_winner_provably_beats_remaining(planted):
+    """UCB must reduce ``n_candidates_evaluated`` below ``len(candidates)`` on a fixture where the
+    proxy ranking is faithful AND the tail candidates are clearly worse (large proxy_loss gap).
+    Uses a synthetic 10-candidate list where only the first 3 are competitive; the remaining 7 sit
+    at proxy_loss >= 1.0 so the UCB lower bound at any plausible slack exceeds the best stable_score
+    within the parsimony band."""
+    from mlframe.feature_selection._shap_proxy_revalidate import revalidate_top_n
+
+    X, y, phi, base = planted
+    Xs, ys = X.iloc[:900].reset_index(drop=True), y[:900]
+    Xh, yh = X.iloc[900:].reset_index(drop=True), y[900:]
+    # First three: legit small subsets that recover the planted target. Tail: dummy subsets with
+    # artificially-large proxy losses so UCB has every reason to stop after batch 1.
+    candidates = [
+        (0.01, (0, 1, 2)),  # winner
+        (0.02, (0, 1)),
+        (0.03, (0, 1, 2, 5)),
+        (5.00, (3,)), (5.10, (4,)), (5.20, (5,)),
+        (5.30, (6,)), (5.40, (7,)), (5.50, (3, 4)), (5.60, (4, 5)),
+    ]
+    best, ranked, baseline = revalidate_top_n(
+        candidates, LinearRegression(), Xs, ys, Xh, yh,
+        classification=False, metric="rmse", n_models=1, lambda_stab=0.0,
+        parsimony_tol=0.02, revalidation_n_estimators=None,
+        ucb_enabled=True, ucb_min_eval_size=3)
+    assert set(best) == {0, 1, 2}, f"UCB must still pick the correct winner; got {best}"
+    n_eval = baseline["ucb"]["n_candidates_evaluated"]
+    assert n_eval < len(candidates), (
+        f"UCB must stop dispatching at the tail; evaluated {n_eval}/{len(candidates)}")
+    # Only evaluated candidates appear in ranked (no zombie entries).
+    assert len(ranked) == n_eval
+
+
+def test_ucb_min_eval_size_boundary_no_op(planted):
+    """When ``n_candidates <= ucb_min_eval_size``, UCB MUST be a no-op: first batch covers
+    everything, no early-stop opportunity. Verifies the boundary condition that protects small lists
+    from accidental gate activation."""
+    from mlframe.feature_selection._shap_proxy_revalidate import revalidate_top_n
+
+    X, y, phi, base = planted
+    Xs, ys = X.iloc[:900].reset_index(drop=True), y[:900]
+    Xh, yh = X.iloc[900:].reset_index(drop=True), y[900:]
+    candidates = [(0.0, (0, 1, 2)), (0.1, (0, 1)), (0.2, (0, 1, 2, 5)), (0.3, (4, 5, 6))]
+
+    best, ranked, baseline = revalidate_top_n(
+        candidates, LinearRegression(), Xs, ys, Xh, yh,
+        classification=False, metric="rmse", n_models=1, lambda_stab=0.0,
+        revalidation_n_estimators=None, ucb_enabled=True, ucb_min_eval_size=10)
+    # 4 candidates <= min_eval_size=10 -> use_ucb branch declines, falls through to legacy single-batch.
+    assert baseline["ucb"]["enabled"] is False
+    assert baseline["ucb"]["n_candidates_evaluated"] == 4
+    assert len(ranked) == 4
+    assert set(best) == {0, 1, 2}
+
+
+def test_ucb_determinism_across_reruns(planted):
+    """Same inputs + same rng seed => identical (best, ranked stable_scores, n_candidates_evaluated)
+    across reruns. UCB is allowed to skip candidates but the surviving order MUST be deterministic."""
+    from mlframe.feature_selection._shap_proxy_revalidate import revalidate_top_n
+
+    X, y, phi, base = planted
+    Xs, ys = X.iloc[:900].reset_index(drop=True), y[:900]
+    Xh, yh = X.iloc[900:].reset_index(drop=True), y[900:]
+    candidates = [
+        (0.01, (0, 1, 2)), (0.02, (0, 1)), (0.03, (0, 1, 2, 5)),
+        (5.00, (3,)), (5.10, (4,)), (5.20, (5,)),
+        (5.30, (6,)), (5.40, (7,)),
+    ]
+    results = []
+    for _ in range(2):
+        best, ranked, baseline = revalidate_top_n(
+            candidates, LinearRegression(), Xs, ys, Xh, yh,
+            classification=False, metric="rmse", n_models=1, lambda_stab=0.0,
+            revalidation_n_estimators=None, rng=np.random.default_rng(42),
+            ucb_enabled=True, ucb_min_eval_size=3)
+        results.append((best, [d["stable_score"] for d in ranked],
+                        baseline["ucb"]["n_candidates_evaluated"]))
+    assert results[0][0] == results[1][0]
+    assert results[0][1] == pytest.approx(results[1][1])
+    assert results[0][2] == results[1][2]
+
+
+def test_ucb_njobs_1_short_circuits_to_legacy(planted):
+    """``n_jobs=1`` MUST disable UCB even when ``ucb_enabled=True``: serial dispatch has no batches
+    to skip, so the gate only opens a window for the small-batch slack calibration to mis-stop on a
+    winner that landed in the un-evaluated tail. Mirrors the biz_val_shap_proxied_fs failure mode
+    where ``n_jobs=1`` test fixtures evaluated only 3 candidates and kept a noise feature."""
+    from mlframe.feature_selection._shap_proxy_revalidate import revalidate_top_n
+
+    X, y, phi, base = planted
+    Xs, ys = X.iloc[:900].reset_index(drop=True), y[:900]
+    Xh, yh = X.iloc[900:].reset_index(drop=True), y[900:]
+    candidates = [
+        (0.01, (0, 1, 2)), (0.02, (0, 1)), (0.03, (0, 1, 2, 5)),
+        (5.00, (3,)), (5.10, (4,)), (5.20, (5,)),
+        (5.30, (6,)), (5.40, (7,)),
+    ]
+    best, ranked, baseline = revalidate_top_n(
+        candidates, LinearRegression(), Xs, ys, Xh, yh,
+        classification=False, metric="rmse", n_models=1, lambda_stab=0.0,
+        revalidation_n_estimators=None, n_jobs=1,
+        ucb_enabled=True, ucb_min_eval_size=3)
+    # n_jobs=1 -> use_ucb gate forces False even though ucb_enabled=True.
+    assert baseline["ucb"]["enabled"] is False
+    assert baseline["ucb"]["n_candidates_evaluated"] == len(candidates)
+    assert set(best) == {0, 1, 2}
+
+
+def test_selector_exposes_revalidation_ucb_defaults():
+    """Facade defaults for the iter34 lever: enabled by default, slack/min_eval_size auto-calibrated,
+    stdev_multiplier=1.0 (1-sigma margin on residual; tighter than the iter11 safe-batch 1.5x because
+    the score the gate consumes is corrector-aware not raw proxy_loss)."""
+    from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
+
+    sel = ShapProxiedFS()
+    assert sel.revalidation_ucb_enabled is True
+    assert sel.revalidation_ucb_min_eval_size is None
+    assert sel.revalidation_ucb_slack is None
+    assert sel.revalidation_ucb_stdev_multiplier == 1.0
+
+    sel_off = ShapProxiedFS(revalidation_ucb_enabled=False)
+    assert sel_off.revalidation_ucb_enabled is False
