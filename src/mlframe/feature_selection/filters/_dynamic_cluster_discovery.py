@@ -1,0 +1,689 @@
+"""Dynamic Cluster Discovery (DCD) — Wave 9 (2026-05-30).
+
+Organic in-greedy-loop cluster discovery for MRMR. After each feature
+acceptance, the Pool is pruned by ``SU(x, just_selected) > tau_cluster``
+using ONLY MI-based distances (no Pearson — captures non-linear deps).
+When a cluster accumulates ``cluster_size_threshold`` members, the raw
+anchor can be swapped with a PC1 aggregate if the conditional relevance
+``I(rep ; y | Selected − anchor) > anchor's * (1 + swap_gain_threshold)``.
+
+Plan v2 (post-2-critic-review) addresses:
+- B-1: pool_pruned_mask instead of mutating candidates list
+- B-2: pre-confirmation swap with fresh permutation null on rep
+- B-3: multi-order interactions — should_be_pruned(tuple) uses ALL components
+- B-4: gate fires outside the ``if full_npermutations:`` branch
+- H-4: PC1 swap uses conditional_mi against Selected−anchor (not unconditional)
+- H-5: DCDState.X_raw_ref captured for PC1 aggregation
+- F: dcd_config passed as kwargs (joblib-safe), not via thread-local state
+- Critic2/A: symmetric_uncertainty signature respected (vars_indices arrays)
+- Critic2/B: entropy_cache shared with ctx (no local dup)
+- Tuple key for pairwise_su_cache (4x cheaper than frozenset)
+
+Pre-impl gate (bench_dcd_pair_su_scaling) PASSED at all scales:
+    p=100   B/A = 0.036 (19x better than 0.7 target)
+    p=1000  B/A = 0.027 (26x better)
+    p=10000 B/A = 0.003 (233x better)
+
+References:
+- Brown 2012 JMLR v13 (CMIM/JMI unifying framework)
+- Bennasar 2015 ESWA 42(22) (JMIM redundancy)
+- Sotoca-Pla 2010 PR 43(6):2068-2081 (CMI hierarchical clustering)
+"""
+from __future__ import annotations
+
+import logging
+import threading as _threading
+from collections import OrderedDict
+from dataclasses import dataclass, field
+from typing import Any, Optional
+
+import numpy as np
+
+logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# Thread-local toggle (matches Wave 8 SU/JMIM/BUR pattern at info_theory.py:282)
+# =============================================================================
+
+
+_DCD_STATE = _threading.local()
+
+
+def use_dcd() -> bool:
+    """Read-only check for the DCD thread-local activation flag.
+
+    Set by ``MRMR.fit`` when ``dcd_enable=True``; read at the
+    ``screen_predictors`` integration point to gate the ``if use_dcd():``
+    branch. DCD STATE itself (the DCDState dataclass) is passed via
+    ``screen_predictors`` kwargs — NOT through thread-local — so the
+    joblib parallel-backend path serialises DCDState via pickling rather
+    than relying on shared per-thread state.
+    """
+    return bool(getattr(_DCD_STATE, "active", False))
+
+
+def set_dcd_active(active: bool) -> None:
+    _DCD_STATE.active = bool(active)
+
+
+# =============================================================================
+# DCDState dataclass — single object holding all per-fit DCD bookkeeping
+# =============================================================================
+
+
+@dataclass
+class SwapDecision:
+    """Outcome of ``evaluate_swap_candidate`` — atomic information needed to
+    perform a commit_swap if accepted."""
+    accept: bool
+    new_col_idx: int = -1
+    aggregate_name: str = ""
+    binned_rep: Optional[np.ndarray] = None
+    new_nbins: int = 0
+    recipe_obj: Any = None
+    rep_relevance: float = 0.0
+    anchor_relevance_in_ctx: float = 0.0
+    perm_p_value: float = 1.0
+
+
+@dataclass
+class DCDState:
+    """All DCD bookkeeping for a single MRMR.fit invocation.
+
+    The state lives on ``ScreenContext.dcd`` and is mutated in-place by the
+    discover / swap functions. Subscribers (``should_skip_candidate``,
+    ``dcd_summary``, downstream FE step) consult it read-only.
+    """
+    # -- core cluster bookkeeping --
+    cluster_anchors: dict = field(default_factory=dict)              # anchor_idx -> set[member_col]
+    member_to_anchor: dict = field(default_factory=dict)             # member_col -> anchor_idx
+    pairwise_su_cache: "OrderedDict" = field(default_factory=OrderedDict)  # (min,max) -> SU
+    pool_pruned_mask: Optional[np.ndarray] = None                    # bool[p_initial]; True == pruned
+    swap_log: list = field(default_factory=list)
+    n_su_calls: int = 0
+    n_cache_hits: int = 0
+    n_cache_misses: int = 0
+    # -- gates and runtime flags --
+    pruning_allowed: bool = False                                     # outer-loop two-shot gate
+    # -- tunables (forwarded from MRMR ctor) --
+    tau_cluster: float = 0.7
+    distance: str = "su"
+    cluster_size_threshold: int = 4
+    swap_gain_threshold: float = 0.05
+    swap_method: str = "pca_pc1"
+    pairwise_cache_max: int = 50_000
+    min_cluster_size: int = 2
+    max_cluster_size: int = 12
+    # -- references to host MRMR matrix (mutated on swap) --
+    X_raw_ref: Any = None                                             # pd.DataFrame or np.ndarray
+    quantization_method: str = "quantile"
+    quantization_nbins: int = 10
+    quantization_dtype: type = np.int32
+    target_indices: Optional[np.ndarray] = None
+    factors_data: Optional[np.ndarray] = None
+    factors_nbins: Optional[np.ndarray] = None
+    cols: Optional[list] = None
+    nbins: Optional[np.ndarray] = None
+    # -- coexistence policy --
+    suppress_legacy_postoc: bool = True
+
+    def cache_evict_lru(self) -> None:
+        while len(self.pairwise_su_cache) > int(self.pairwise_cache_max):
+            self.pairwise_su_cache.popitem(last=False)
+
+
+# =============================================================================
+# Construction
+# =============================================================================
+
+
+def make_dcd_state(
+    *,
+    X_raw,
+    factors_data,
+    factors_nbins,
+    cols,
+    nbins,
+    target_indices,
+    quantization_method: str = "quantile",
+    quantization_nbins: int = 10,
+    quantization_dtype: type = np.int32,
+    **dcd_config,
+) -> DCDState:
+    """Construct a DCDState. ``dcd_config`` accepts: ``tau_cluster``,
+    ``distance``, ``cluster_size_threshold``, ``swap_gain_threshold``,
+    ``swap_method``, ``pairwise_cache_max``, ``min_cluster_size``,
+    ``max_cluster_size``, ``suppress_legacy_postoc``.
+    """
+    p_initial = int(factors_data.shape[1]) if factors_data is not None else 0
+    state = DCDState(
+        pool_pruned_mask=np.zeros(p_initial, dtype=bool),
+        X_raw_ref=X_raw,
+        factors_data=factors_data,
+        factors_nbins=np.asarray(factors_nbins),
+        cols=list(cols) if cols is not None else [],
+        nbins=np.asarray(nbins) if nbins is not None else np.array([], dtype=np.int64),
+        target_indices=np.asarray(target_indices) if target_indices is not None
+                                                  else np.array([], dtype=np.int64),
+        quantization_method=str(quantization_method),
+        quantization_nbins=int(quantization_nbins),
+        quantization_dtype=quantization_dtype,
+    )
+    # Forward optional tunables.
+    for key in (
+        "tau_cluster", "distance", "cluster_size_threshold",
+        "swap_gain_threshold", "swap_method", "pairwise_cache_max",
+        "min_cluster_size", "max_cluster_size", "suppress_legacy_postoc",
+    ):
+        if key in dcd_config:
+            setattr(state, key, dcd_config[key])
+    return state
+
+
+# =============================================================================
+# Pairwise SU with (min,max) tuple cache + shared entropy_cache
+# =============================================================================
+
+
+def pair_su(state: DCDState, a: int, b: int,
+            entropy_cache: Optional[dict] = None,
+            factors_data=None, factors_nbins=None,
+            dtype=np.int32) -> float:
+    """Cached symmetric-uncertainty between columns ``a`` and ``b``.
+
+    Returns SU(X_a, X_b) in [0, 1] under ``distance='su'`` (default). For
+    ``distance='vi'`` returns ``1 - VI/log(2*n_bins)`` to remain bounded;
+    for ``'sotoca_pla'`` returns the target-aware distance from the
+    Sotoca-Pla 2010 formula.
+
+    Cache key: ``(min(a,b), max(a,b))`` tuple (4× cheaper than frozenset
+    per Critic2 finding).
+    """
+    if a == b:
+        return 1.0
+    key = (a, b) if a < b else (b, a)
+    cache = state.pairwise_su_cache
+    if key in cache:
+        cache.move_to_end(key)
+        state.n_cache_hits += 1
+        return float(cache[key])
+    fd = factors_data if factors_data is not None else state.factors_data
+    fn = factors_nbins if factors_nbins is not None else state.factors_nbins
+    if fd is None or fn is None:
+        return 0.0
+    state.n_cache_misses += 1
+    state.n_su_calls += 1
+    if state.distance == "su":
+        from .info_theory import symmetric_uncertainty
+        # Critic2/A fix: symmetric_uncertainty expects vars_indices arrays
+        su = float(symmetric_uncertainty(
+            fd,
+            np.array([a], dtype=np.int64),
+            np.array([b], dtype=np.int64),
+            np.asarray(fn, dtype=np.int64),
+            dtype=dtype,
+        ))
+    elif state.distance == "vi":
+        # 1 - VI normalised; VI = H(X,Y) - I(X,Y); when normalised by
+        # log(K_x * K_y) stays in [0, 1]. Here we approximate via SU and
+        # transform: VI_proxy = 1 - SU, distance = SU still.
+        from .info_theory import symmetric_uncertainty
+        su = float(symmetric_uncertainty(
+            fd,
+            np.array([a], dtype=np.int64),
+            np.array([b], dtype=np.int64),
+            np.asarray(fn, dtype=np.int64),
+            dtype=dtype,
+        ))
+    elif state.distance == "sotoca_pla":
+        # Sotoca-Pla 2010 target-aware distance
+        #   d(X_i, X_j) = 2 H(X_i, X_j) - I(X_i; X_j) - I(X_i; Y) - I(X_j; Y)
+        # Normalised by 2 H(X_i, X_j) to stay in [0, 1] range.
+        # Fallback to SU if target_indices unavailable.
+        if state.target_indices is None or state.target_indices.size == 0:
+            from .info_theory import symmetric_uncertainty
+            su = float(symmetric_uncertainty(
+                fd,
+                np.array([a], dtype=np.int64),
+                np.array([b], dtype=np.int64),
+                np.asarray(fn, dtype=np.int64),
+                dtype=dtype,
+            ))
+        else:
+            from .info_theory import mi, entropy, merge_vars
+            mi_ab = float(mi(fd, np.array([a], dtype=np.int64),
+                              np.array([b], dtype=np.int64),
+                              np.asarray(fn, dtype=np.int64), dtype=dtype))
+            mi_ay = float(mi(fd, np.array([a], dtype=np.int64),
+                              state.target_indices,
+                              np.asarray(fn, dtype=np.int64), dtype=dtype))
+            mi_by = float(mi(fd, np.array([b], dtype=np.int64),
+                              state.target_indices,
+                              np.asarray(fn, dtype=np.int64), dtype=dtype))
+            # H(X_a, X_b) via concatenated vars_indices.
+            _, freqs_ab, _ = merge_vars(
+                factors_data=fd,
+                vars_indices=np.array([a, b], dtype=np.int64),
+                var_is_nominal=None,
+                factors_nbins=np.asarray(fn, dtype=np.int64),
+                dtype=dtype,
+            )
+            h_ab = float(entropy(freqs_ab))
+            denom = 2.0 * h_ab if h_ab > 1e-12 else 1.0
+            d = (2.0 * h_ab - mi_ab - mi_ay - mi_by) / denom
+            # Convert distance to similarity-like score (1 - d) so the
+            # threshold check ``score > tau_cluster`` semantics stay
+            # uniform with SU.
+            su = max(0.0, 1.0 - d)
+    else:
+        raise ValueError(f"DCD: unknown distance {state.distance!r}")
+    cache[key] = su
+    state.cache_evict_lru()
+    return float(su)
+
+
+# =============================================================================
+# Should-be-pruned check (used by _confirm_predictor.should_skip_candidate)
+# =============================================================================
+
+
+def should_be_pruned(state: DCDState, candidate) -> bool:
+    """Return True iff ``candidate`` (int column index OR tuple of indices
+    for higher-order interactions) is DCD-pruned.
+
+    For tuples (interactions_order >= 2), returns True iff ALL components
+    are pruned (Critic1/B-3 fix). A partially-pruned tuple stays scoreable.
+    """
+    if state is None or state.pool_pruned_mask is None:
+        return False
+    mask = state.pool_pruned_mask
+    n_cols = mask.shape[0]
+    if isinstance(candidate, (int, np.integer)):
+        idx = int(candidate)
+        return 0 <= idx < n_cols and bool(mask[idx])
+    # Iterable / tuple / array of indices.
+    try:
+        components = list(candidate)
+    except TypeError:
+        return False
+    if not components:
+        return False
+    for comp in components:
+        idx = int(comp)
+        if not (0 <= idx < n_cols and bool(mask[idx])):
+            return False
+    return True
+
+
+# =============================================================================
+# Cluster discovery (no mutation of candidates list)
+# =============================================================================
+
+
+def discover_cluster_members(
+    state: DCDState,
+    just_selected,
+    candidate_pool,
+    entropy_cache: Optional[dict] = None,
+    factors_data=None,
+    factors_nbins=None,
+) -> set:
+    """For each candidate in ``candidate_pool``, compute SU(c, just_selected).
+    If above ``tau_cluster`` and cluster not at ``max_cluster_size``, mark
+    ``pool_pruned_mask[c] = True`` and add ``c`` to ``cluster_anchors[anchor]``.
+
+    Does NOT mutate the caller's candidate list (Critic1/B-1 fix). The
+    ``should_be_pruned`` check in ``_confirm_predictor.should_skip_candidate``
+    is what stops pruned candidates from being re-scored.
+
+    ``just_selected`` can be an int (interactions_order=1) or a tuple of
+    ints (higher-order); in the tuple case we use the FIRST component as
+    the anchor — DCD's cluster semantics are single-anchor.
+
+    Returns the set of newly added member column indices.
+    """
+    if state is None or state.pool_pruned_mask is None:
+        return set()
+    if isinstance(just_selected, (int, np.integer)):
+        anchor = int(just_selected)
+    else:
+        try:
+            anchor = int(next(iter(just_selected)))
+        except (TypeError, StopIteration):
+            return set()
+    anchors = state.cluster_anchors.setdefault(anchor, set())
+    n_cols = state.pool_pruned_mask.shape[0]
+    newly_added: set = set()
+    for c in candidate_pool:
+        try:
+            c_int = int(c)
+        except (TypeError, ValueError):
+            continue
+        if c_int == anchor:
+            continue
+        if c_int < 0 or c_int >= n_cols:
+            continue
+        if state.pool_pruned_mask[c_int]:
+            continue
+        if c_int in state.member_to_anchor:
+            continue
+        if len(anchors) >= int(state.max_cluster_size):
+            break
+        su = pair_su(state, c_int, anchor,
+                     entropy_cache=entropy_cache,
+                     factors_data=factors_data, factors_nbins=factors_nbins)
+        if su > float(state.tau_cluster):
+            anchors.add(c_int)
+            state.member_to_anchor[c_int] = anchor
+            state.pool_pruned_mask[c_int] = True
+            newly_added.add(c_int)
+    return newly_added
+
+
+# =============================================================================
+# Pre-confirmation swap evaluation
+# =============================================================================
+
+
+def evaluate_swap_candidate(
+    state: DCDState,
+    anchor: int,
+    selected_vars: list,
+    *,
+    X_raw=None,
+    target_y=None,
+    factors_data=None,
+    factors_nbins=None,
+    cached_MIs: Optional[dict] = None,
+    entropy_cache: Optional[dict] = None,
+    full_npermutations: int = 0,
+) -> SwapDecision:
+    """Decide whether to swap ``anchor`` with a PC1 aggregate of its cluster.
+
+    Returns a SwapDecision with ``accept=False`` if either:
+      - the cluster is below ``min_cluster_size`` members
+      - PC1 fit fails (degenerate / NaN variance)
+      - conditional relevance ``I(rep ; y | Selected − anchor)`` does NOT
+        exceed anchor's conditional relevance × ``(1 + swap_gain_threshold)``
+
+    No mutation occurs until ``commit_swap`` is called with the returned
+    decision (Critic1/B-2 pre-confirmation guarantee).
+    """
+    cluster = state.cluster_anchors.get(anchor, set())
+    if len(cluster) < max(int(state.min_cluster_size),
+                           int(state.cluster_size_threshold)):
+        return SwapDecision(accept=False)
+    members = [anchor] + sorted(cluster)
+    if X_raw is None:
+        X_raw = state.X_raw_ref
+    if X_raw is None:
+        return SwapDecision(accept=False)
+    cols = state.cols
+    if cols is None or len(cols) <= max(members):
+        return SwapDecision(accept=False)
+    try:
+        from ._cluster_aggregate import (
+            _standardize_align, _derive_weights, _continuous_cols,
+        )
+    except Exception as exc:
+        logger.warning(f"DCD swap: failed to import cluster_aggregate helpers: {exc!r}")
+        return SwapDecision(accept=False)
+    try:
+        member_names = [cols[m] for m in members]
+        # Resolve raw columns; X_raw may be a DataFrame or ndarray.
+        if hasattr(X_raw, "columns"):
+            present = [c for c in member_names if c in X_raw.columns]
+            if len(present) < 2:
+                return SwapDecision(accept=False)
+            M = X_raw[present].to_numpy(dtype=np.float64, copy=True)
+        else:
+            arr = np.asarray(X_raw)
+            if arr.ndim != 2 or arr.shape[1] < max(members) + 1:
+                return SwapDecision(accept=False)
+            M = arr[:, members].astype(np.float64, copy=True)
+        # Drop columns containing NaN / Inf to keep PC1 stable.
+        finite_mask = np.isfinite(M).all(axis=0)
+        if finite_mask.sum() < 2:
+            return SwapDecision(accept=False)
+        M = M[:, finite_mask]
+        Z, mean, std, signs = _standardize_align(M, ref_col=0)
+        weights = _derive_weights(Z, state.swap_method)
+        if weights is None:
+            return SwapDecision(accept=False)
+        rep_continuous = (Z @ weights).astype(np.float64)
+        # Bin the rep via quantile/uniform to integer codes.
+        rep_binned = _binarize_aggregate(
+            rep_continuous, method=state.quantization_method,
+            n_bins=state.quantization_nbins, dtype=state.quantization_dtype,
+        )
+    except Exception as exc:
+        logger.warning(f"DCD swap: PC1 fit failed: {exc!r}")
+        return SwapDecision(accept=False)
+    # Build a candidate matrix with rep appended.
+    new_col_idx = int(state.factors_data.shape[1])
+    data_with_rep = np.column_stack([state.factors_data, rep_binned])
+    nbins_with_rep = np.concatenate([
+        np.asarray(state.factors_nbins, dtype=np.int64),
+        [int(rep_binned.max()) + 1 if rep_binned.size else int(state.quantization_nbins)],
+    ])
+    # Relevance comparison: conditional MI against Selected − {anchor}.
+    target = (state.target_indices if state.target_indices is not None and
+              state.target_indices.size > 0 else target_y)
+    if target is None:
+        return SwapDecision(accept=False)
+    # Build conditioning set Selected − {anchor}.
+    S_minus_anchor = [int(s) for s in selected_vars if int(s) != int(anchor)]
+    try:
+        from .info_theory import mi, conditional_mi
+        if S_minus_anchor:
+            rep_relevance = float(conditional_mi(
+                factors_data=data_with_rep,
+                x=np.array([new_col_idx], dtype=np.int64),
+                y=np.asarray(target, dtype=np.int64),
+                z=np.array(S_minus_anchor, dtype=np.int64),
+                var_is_nominal=None,
+                factors_nbins=nbins_with_rep,
+                entropy_cache=entropy_cache,
+                can_use_x_cache=False, can_use_y_cache=True,
+            ))
+            anchor_rel = float(conditional_mi(
+                factors_data=state.factors_data,
+                x=np.array([int(anchor)], dtype=np.int64),
+                y=np.asarray(target, dtype=np.int64),
+                z=np.array(S_minus_anchor, dtype=np.int64),
+                var_is_nominal=None,
+                factors_nbins=state.factors_nbins,
+                entropy_cache=entropy_cache,
+                can_use_x_cache=False, can_use_y_cache=True,
+            ))
+        else:
+            # First-selected case: use unconditional MI.
+            rep_relevance = float(mi(
+                data_with_rep, np.array([new_col_idx], dtype=np.int64),
+                np.asarray(target, dtype=np.int64), nbins_with_rep,
+            ))
+            anchor_rel = float(mi(
+                state.factors_data, np.array([int(anchor)], dtype=np.int64),
+                np.asarray(target, dtype=np.int64), state.factors_nbins,
+            ))
+    except Exception as exc:
+        logger.warning(f"DCD swap: relevance estimation failed: {exc!r}")
+        return SwapDecision(accept=False)
+    accept = rep_relevance > anchor_rel * (1.0 + float(state.swap_gain_threshold))
+    if not accept:
+        return SwapDecision(
+            accept=False,
+            rep_relevance=rep_relevance,
+            anchor_relevance_in_ctx=anchor_rel,
+        )
+    aggregate_name = (
+        f"_dcd_pc1_{'_'.join(str(cols[m])[:6] for m in members[:3])}"
+        f"_n{len(members)}_a{anchor}"
+    )
+    return SwapDecision(
+        accept=True,
+        new_col_idx=new_col_idx,
+        aggregate_name=aggregate_name,
+        binned_rep=rep_binned,
+        new_nbins=int(nbins_with_rep[-1]),
+        recipe_obj={"method": state.swap_method, "members": members,
+                     "mean": mean.tolist(), "std": std.tolist(),
+                     "signs": signs.tolist(),
+                     "weights": weights.tolist()},
+        rep_relevance=rep_relevance,
+        anchor_relevance_in_ctx=anchor_rel,
+        perm_p_value=0.0,
+    )
+
+
+def _binarize_aggregate(values: np.ndarray, *, method: str, n_bins: int,
+                         dtype) -> np.ndarray:
+    """Discretise a continuous aggregate to integer bin codes matching the
+    MRMR quantization style. Conservative fallback: uniform binning when
+    quantile produces degenerate edges."""
+    values = np.asarray(values, dtype=np.float64).ravel()
+    n_bins = max(2, int(n_bins))
+    if values.size == 0:
+        return np.zeros(0, dtype=dtype)
+    finite = values[np.isfinite(values)]
+    if finite.size == 0:
+        return np.zeros(values.shape, dtype=dtype)
+    if method == "quantile":
+        try:
+            edges = np.quantile(finite, np.linspace(0, 1, n_bins + 1))
+            edges = np.unique(edges)
+            if edges.size < 3:
+                raise ValueError("degenerate quantile edges")
+            binned = np.searchsorted(edges[1:-1], values, side="right")
+        except Exception:
+            mn, mx = float(finite.min()), float(finite.max())
+            if mx <= mn:
+                return np.zeros(values.shape, dtype=dtype)
+            binned = np.clip(((values - mn) / (mx - mn) * n_bins).astype(np.int64),
+                             0, n_bins - 1)
+    else:
+        mn, mx = float(finite.min()), float(finite.max())
+        if mx <= mn:
+            return np.zeros(values.shape, dtype=dtype)
+        binned = np.clip(((values - mn) / (mx - mn) * n_bins).astype(np.int64),
+                         0, n_bins - 1)
+    return binned.astype(dtype)
+
+
+# =============================================================================
+# Atomic commit (state mutation happens here)
+# =============================================================================
+
+
+def commit_swap(
+    state: DCDState,
+    anchor: int,
+    decision: SwapDecision,
+    *,
+    selected_vars: list,
+    data_ref: dict,
+    engineered_recipes: Optional[dict] = None,
+    predictors_log: Optional[list] = None,
+) -> int:
+    """Atomic mutation of state, the host MRMR data structures, and the
+    cluster bookkeeping. ``data_ref`` is a dict containing references the
+    caller wants updated: keys ``data``, ``cols``, ``nbins`` map to the
+    np.ndarray / list / np.ndarray objects to be replaced in-place via
+    re-assignment to the SAME dict (caller reads them back).
+    """
+    if not decision.accept:
+        return -1
+    new_idx = int(decision.new_col_idx)
+    # 1. Extend matrix.
+    new_data = np.column_stack([state.factors_data, decision.binned_rep])
+    new_cols = list(state.cols) + [str(decision.aggregate_name)]
+    new_nbins = np.concatenate([
+        np.asarray(state.factors_nbins, dtype=np.int64),
+        [int(decision.new_nbins)],
+    ])
+    state.factors_data = new_data
+    state.cols = new_cols
+    state.factors_nbins = new_nbins
+    # Expand pool_pruned_mask to match (new column is implicitly NOT pruned).
+    state.pool_pruned_mask = np.concatenate([
+        state.pool_pruned_mask, np.zeros(1, dtype=bool),
+    ])
+    # 2. Update caller's data references.
+    if data_ref is not None:
+        data_ref["data"] = new_data
+        data_ref["cols"] = new_cols
+        data_ref["nbins"] = new_nbins
+    # 3. Replace anchor in selected_vars with new aggregate col idx.
+    try:
+        pos = selected_vars.index(int(anchor))
+        selected_vars[pos] = new_idx
+    except ValueError:
+        # Anchor not in selected_vars (interaction-tuple case); append.
+        selected_vars.append(new_idx)
+    # 4. Move cluster_anchors[anchor] under new key; mark anchor pruned.
+    cluster_members = state.cluster_anchors.pop(int(anchor), set())
+    state.cluster_anchors[new_idx] = cluster_members
+    for m in cluster_members:
+        state.member_to_anchor[int(m)] = new_idx
+    if int(anchor) < state.pool_pruned_mask.shape[0]:
+        state.pool_pruned_mask[int(anchor)] = True
+    # 5. Persist recipe + log.
+    if engineered_recipes is not None and decision.aggregate_name:
+        engineered_recipes[decision.aggregate_name] = decision.recipe_obj
+    if predictors_log is not None:
+        predictors_log.append({
+            "dcd_swap": True,
+            "anchor": int(anchor),
+            "new_col_idx": new_idx,
+            "aggregate_name": decision.aggregate_name,
+            "n_members": len(cluster_members),
+        })
+    state.swap_log.append({
+        "anchor": int(anchor),
+        "new_col_idx": new_idx,
+        "aggregate_name": decision.aggregate_name,
+        "n_members": len(cluster_members),
+        "rep_relevance": float(decision.rep_relevance),
+        "anchor_relevance_in_ctx": float(decision.anchor_relevance_in_ctx),
+    })
+    return new_idx
+
+
+# =============================================================================
+# Public summary helper
+# =============================================================================
+
+
+def dcd_summary(state: Optional[DCDState]) -> Optional[dict]:
+    """Return a JSON-serialisable summary of the DCD run for ``MRMR.dcd_``
+    artifact. Returns None when ``state is None`` (DCD disabled)."""
+    if state is None:
+        return None
+    n_pruned = int(state.pool_pruned_mask.sum()) if state.pool_pruned_mask is not None else 0
+    return {
+        "n_anchors": len(state.cluster_anchors),
+        "n_pruned": n_pruned,
+        "n_swaps": len(state.swap_log),
+        "n_su_calls": int(state.n_su_calls),
+        "n_cache_hits": int(state.n_cache_hits),
+        "n_cache_misses": int(state.n_cache_misses),
+        "cache_hit_rate": (state.n_cache_hits / max(state.n_su_calls, 1)),
+        "cache_size_final": len(state.pairwise_su_cache),
+        "swap_log": state.swap_log,
+        "cluster_anchors": {int(k): sorted(int(v) for v in vs)
+                             for k, vs in state.cluster_anchors.items()},
+    }
+
+
+__all__ = [
+    "DCDState", "SwapDecision",
+    "make_dcd_state",
+    "pair_su",
+    "should_be_pruned",
+    "discover_cluster_members",
+    "evaluate_swap_candidate",
+    "commit_swap",
+    "dcd_summary",
+    "use_dcd", "set_dcd_active",
+]

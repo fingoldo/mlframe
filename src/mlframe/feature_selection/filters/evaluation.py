@@ -54,17 +54,35 @@ def should_skip_candidate(
     selected_interactions_vars: list,
     only_unknown_interactions: bool = True,
     engineered_lineage: dict = None,
+    dcd_state=None,
 ) -> tuple:
     """Decide if current candidate for predictors should be skipped (already accepted, failed, or computed).
 
     ``engineered_lineage``: optional ``{engineered_idx -> frozenset(parent_indices)}`` from the cat-FE step. When set, a k-way candidate is skipped if it
     combines an engineered column with one of its own parents (conditional MI degenerates and confidence gates waste budget). Legacy/numeric path leaves it ``None``.
+
+    ``dcd_state`` (Wave 9): optional ``DCDState`` reference. When provided, a
+    candidate (single index OR k-way tuple) is skipped if its ``pool_pruned_mask``
+    bit is set per ``should_be_pruned`` semantics (Critic1/B-3: tuple of indices
+    skipped iff ALL components pruned). Bit-stable when ``None``.
     """
 
     nexisting = 0
 
     if (cand_idx in failed_candidates) or (cand_idx in added_candidates) or expected_gains[cand_idx]:
         return True, nexisting
+
+    # 2026-05-30 Wave 9 — DCD prune-mask short-circuit (Critic1/B-1 fix:
+    # uses the mask instead of mutating the candidates list).
+    if dcd_state is not None:
+        try:
+            from ._dynamic_cluster_discovery import should_be_pruned as _should_be_pruned
+            target = X if interactions_order > 1 else int(cand_idx)
+            if _should_be_pruned(dcd_state, target):
+                return True, nexisting
+        except Exception:
+            # DCD is best-effort; never break candidate evaluation.
+            pass
 
     if interactions_order > 1:  # disabled for single predictors 'cause Fleuret formula won't detect pairs predictors
 

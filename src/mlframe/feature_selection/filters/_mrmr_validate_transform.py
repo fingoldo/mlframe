@@ -39,7 +39,44 @@ def _validate_string_params(self):
         ("mi_correction", self._VALID_MI_CORRECTIONS),
         ("redundancy_aggregator", self._VALID_REDUNDANCY_AGGREGATORS),
         ("stability_selection_method", self._VALID_STABILITY_SELECTION_METHODS),
+        # 2026-05-30 Wave 9 — DCD distance / swap-method strings.
+        ("dcd_distance", self._VALID_DCD_DISTANCES),
+        ("dcd_swap_method", self._VALID_DCD_SWAP_METHODS),
     )
+    # 2026-05-30 Wave 9 — DCD range checks gated on dcd_enable.
+    if bool(getattr(self, "dcd_enable", False)):
+        _d = getattr(self, "dcd_distance", "su")
+        _tau = float(getattr(self, "dcd_tau_cluster", 0.7))
+        if _d == "su" and not (0.0 < _tau <= 1.0):
+            raise ValueError(
+                f"MRMR: dcd_tau_cluster must be in (0, 1] for "
+                f"distance='su'; got {_tau}."
+            )
+        if _d in ("vi", "sotoca_pla") and _tau <= 0.0:
+            raise ValueError(
+                f"MRMR: dcd_tau_cluster must be > 0 for distance={_d!r}; "
+                f"got {_tau}."
+            )
+        if int(getattr(self, "dcd_cluster_size_threshold", 4)) < 2:
+            raise ValueError(
+                f"MRMR: dcd_cluster_size_threshold must be >= 2; got "
+                f"{self.dcd_cluster_size_threshold}."
+            )
+        if float(getattr(self, "dcd_swap_gain_threshold", 0.05)) < 0.0:
+            raise ValueError(
+                f"MRMR: dcd_swap_gain_threshold must be >= 0; got "
+                f"{self.dcd_swap_gain_threshold}."
+            )
+        if (bool(getattr(self, "dcd_postoc_compose", False)) and
+                bool(getattr(self, "cluster_aggregate_enable", True))):
+            import warnings as _w_dcd
+            _w_dcd.warn(
+                "MRMR: dcd_enable=True AND cluster_aggregate_enable=True AND "
+                "dcd_postoc_compose=True will double-aggregate clusters. The "
+                "post-hoc step will see almost no clusters DCD did not already "
+                "process. Consider dcd_postoc_compose=False (the default).",
+                UserWarning, stacklevel=3,
+            )
     # 2026-05-29 Wave 7: AccuracyWarning for demoted nbins_strategy options.
     _demoted = getattr(self, "_DEMOTED_NBINS_STRATEGIES", ())
     _nbins_strat = getattr(self, "nbins_strategy", None)

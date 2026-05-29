@@ -453,7 +453,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     while True:
         n_recommended_features = 0
         times_spent = defaultdict(float)
-        selected_vars, predictors, any_influencing, entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs, classes_y, classes_y_safe, freqs_y = (
+        selected_vars, predictors, any_influencing, entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs, classes_y, classes_y_safe, freqs_y, _dcd_state = (
             screen_predictors(
                 factors_data=data,
                 y=target_indices,
@@ -507,8 +507,36 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     and self._cat_fe_state_.lineage
                     else None
                 ),
+                # 2026-05-30 Wave 9 — DCD config forward. Built only when
+                # ``dcd_enable=True`` (per Critic1/F: passed as kwargs, NOT
+                # via thread-local, for joblib parallel-backend safety).
+                dcd_config=(
+                    dict(
+                        enable=True,
+                        tau_cluster=self.dcd_tau_cluster,
+                        distance=self.dcd_distance,
+                        cluster_size_threshold=self.dcd_cluster_size_threshold,
+                        swap_gain_threshold=self.dcd_swap_gain_threshold,
+                        swap_method=self.dcd_swap_method,
+                        pairwise_cache_max=self.dcd_pairwise_cache_max,
+                        min_cluster_size=self.dcd_min_cluster_size,
+                        max_cluster_size=self.dcd_max_cluster_size,
+                        X_raw=X,
+                        quantization_method=self.quantization_method,
+                        quantization_nbins=self.quantization_nbins,
+                        quantization_dtype=self.quantization_dtype,
+                    )
+                    if getattr(self, "dcd_enable", False) else None
+                ),
             )
         )
+        # 2026-05-30 Wave 9 — stash DCD summary on the estimator for the
+        # public ``dcd_`` attribute (None when DCD was disabled).
+        try:
+            from ._dynamic_cluster_discovery import dcd_summary as _dcd_summary
+            self.dcd_ = _dcd_summary(_dcd_state)
+        except Exception:
+            self.dcd_ = None
 
         if fe_max_steps == 0 or num_fs_steps >= fe_max_steps:
             break

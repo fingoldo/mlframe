@@ -107,6 +107,9 @@ class ScreenContext:
     entropy_cache: object
     # --- per-interactions-order / per-node mutable state ---
     candidates: list = None
+    # 2026-05-30 Wave 9 — DCD state forwarded into ``should_skip_candidate``
+    # for pool_pruned_mask check. ``None`` preserves legacy bit-stable.
+    dcd_state: object = None
     interactions_order: int = 1
     selected_vars: list = None
     selected_interactions_vars: list = None
@@ -132,6 +135,7 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expec
     selected_vars = ctx.selected_vars
     selected_interactions_vars = ctx.selected_interactions_vars
     engineered_lineage = ctx.engineered_lineage
+    dcd_state = getattr(ctx, "dcd_state", None)  # Wave 9
     reduce_gain_on_subelement_chosen = ctx.reduce_gain_on_subelement_chosen
     n_workers = ctx.n_workers
     use_simple_mode = ctx.use_simple_mode
@@ -179,6 +183,7 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expec
             selected_vars=selected_vars,
             selected_interactions_vars=selected_interactions_vars,
             engineered_lineage=engineered_lineage,
+            dcd_state=dcd_state,
         )
         if skip:
             continue

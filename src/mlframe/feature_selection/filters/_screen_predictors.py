@@ -87,6 +87,13 @@ def screen_predictors(
     # column with one of its own parents (e.g. ``(orig_i, kway(orig_i, orig_j))`` is redundant since the engineered col already contains orig_i's info). Threaded
     # through ``should_skip_candidate``. ``None`` preserves legacy behaviour.
     engineered_lineage: dict = None,
+    # 2026-05-30 Wave 9 — Dynamic Cluster Discovery (DCD) config dict. When
+    # not None, DCD is active for this screen call. Keys: enable, tau_cluster,
+    # distance, cluster_size_threshold, swap_gain_threshold, swap_method,
+    # pairwise_cache_max, min_cluster_size, max_cluster_size, X_raw,
+    # quantization_method, quantization_nbins, quantization_dtype, factors_cols.
+    # None preserves pre-Wave-9 behaviour bit-stable.
+    dcd_config: dict = None,
 ) -> float:
     """Finds best predictors for the target. ``factors_data`` must be an n-by-m array of integers (ordinal encoded).
 
@@ -273,6 +280,41 @@ def screen_predictors(
             value_type=types.float64,
         )
 
+        # 2026-05-30 Wave 9 — Dynamic Cluster Discovery state construction.
+        # Built only when ``dcd_config`` is provided AND ``enable=True``. The
+        # state lives on the screen-local namespace (NOT thread-local) so the
+        # joblib parallel-backend path remains safe per Critic1/F fix.
+        dcd_state = None
+        if dcd_config is not None and dcd_config.get("enable", False):
+            try:
+                from ._dynamic_cluster_discovery import make_dcd_state
+                dcd_state = make_dcd_state(
+                    X_raw=dcd_config.get("X_raw"),
+                    factors_data=factors_data,
+                    factors_nbins=factors_nbins,
+                    cols=list(factors_names) if factors_names is not None else None,
+                    nbins=factors_nbins,
+                    target_indices=np.asarray(y, dtype=np.int64),
+                    quantization_method=dcd_config.get("quantization_method", "quantile"),
+                    quantization_nbins=int(dcd_config.get("quantization_nbins", 10)),
+                    quantization_dtype=dcd_config.get("quantization_dtype", np.int32),
+                    tau_cluster=float(dcd_config.get("tau_cluster", 0.7)),
+                    distance=str(dcd_config.get("distance", "su")),
+                    cluster_size_threshold=int(dcd_config.get("cluster_size_threshold", 4)),
+                    swap_gain_threshold=float(dcd_config.get("swap_gain_threshold", 0.05)),
+                    swap_method=str(dcd_config.get("swap_method", "pca_pc1")),
+                    pairwise_cache_max=int(dcd_config.get("pairwise_cache_max", 50_000)),
+                    min_cluster_size=int(dcd_config.get("min_cluster_size", 2)),
+                    max_cluster_size=int(dcd_config.get("max_cluster_size", 12)),
+                )
+            except Exception as _dcd_init_exc:
+                if verbose:
+                    logger.warning(
+                        "DCD init failed silently; falling back to legacy path: %r",
+                        _dcd_init_exc,
+                    )
+                dcd_state = None
+
         data_copy = factors_data.copy()
 
         classes_y, freqs_y, _ = merge_vars(factors_data=factors_data, vars_indices=y, var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype)
@@ -336,6 +378,7 @@ def screen_predictors(
             use_simple_mode=use_simple_mode,
             extra_x_shuffling=extra_x_shuffling,
             engineered_lineage=engineered_lineage,
+            dcd_state=dcd_state,  # Wave 9 — forward DCD state into confirm context
             n_workers=n_workers,
             workers_pool=workers_pool,
             parallel_kwargs=parallel_kwargs,
@@ -443,6 +486,36 @@ def screen_predictors(
                             selected_vars.append(var)
                             if interactions_order > 1:
                                 selected_interactions_vars.append(var)
+                            # 2026-05-30 Wave 9 — Dynamic Cluster Discovery hook.
+                            # After each accepted predictor, prune the Pool by
+                            # SU(c, var) > tau_cluster. Mutates ``pool_pruned_mask``
+                            # in-place (Critic1/B-1: NO mutation of candidates
+                            # list — uses ``should_skip_candidate``'s mask check).
+                            if dcd_state is not None:
+                                try:
+                                    from ._dynamic_cluster_discovery import (
+                                        discover_cluster_members as _dcd_discover,
+                                    )
+                                    # candidate_pool = surviving non-pruned non-selected indices
+                                    _pool = [
+                                        i for i in range(factors_data.shape[1])
+                                        if i != var
+                                        and not dcd_state.pool_pruned_mask[i]
+                                        and i not in selected_vars
+                                    ]
+                                    _dcd_discover(
+                                        dcd_state, var, _pool,
+                                        entropy_cache=entropy_cache,
+                                        factors_data=factors_data,
+                                        factors_nbins=factors_nbins,
+                                    )
+                                except Exception as _dcd_exc:
+                                    # DCD is best-effort; never break screening on its account.
+                                    if verbose:
+                                        logger.warning(
+                                            "DCD discover step failed silently: %r",
+                                            _dcd_exc,
+                                        )
                     cand_name = get_candidate_name(best_candidate, factors_names=factors_names)
 
                     res = {"name": cand_name, "indices": best_candidate, "gain": best_gain}
@@ -503,7 +576,7 @@ def screen_predictors(
             if key in cached_cond_MIs:
                 additional_knowledge = cached_cond_MIs[key]
         """
-        return selected_vars, predictors, any_influencing, entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs, classes_y, classes_y_safe, freqs_y
+        return selected_vars, predictors, any_influencing, entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs, classes_y, classes_y_safe, freqs_y, dcd_state
     finally:
         # Restore the global numpy RNG state captured at entry. Executes on the
         # happy return AND on any raise inside the try -- pre-fix code only restored on

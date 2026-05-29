@@ -548,7 +548,17 @@ class MRMR(BaseEstimator, TransformerMixin):
         # capacity-limited/linear downstreams, sensor data, interpretability; for tree/GBM downstreams
         # expect no-harm (trees already average reflections via splits).
         cluster_aggregate_enable: bool = True,
-        cluster_aggregate_mode: str = "augment",  # "augment" | "replace"
+        # 2026-05-30 Wave 8 — default flipped from 'augment' to 'replace'.
+        # When a denoised aggregate beats its member MIs (gain threshold per
+        # ``cluster_aggregate_min_gain``), 'replace' drops the raw members from
+        # the final selection AND from candidate consideration so they cannot
+        # be re-picked downstream. This eliminates the duplicate-vote effect
+        # (raw + aggregate both surviving) that the 'augment' mode silently
+        # allowed; per Agent-B critique 2026-05-28, the augment behaviour was
+        # the most common production-confusion point. Set
+        # ``cluster_aggregate_mode='augment'`` to restore pre-Wave-8 behaviour
+        # (raw + aggregate both kept).
+        cluster_aggregate_mode: str = "replace",  # "augment" | "replace"
         # Aggregator menu (best gated method per cluster is kept): mean_z (default), mean_inv_var
         # (hetero noise), median (robust), pca_pc1 (hetero loadings), factor_score (Bartlett 1-factor).
         cluster_aggregate_methods: tuple = ("mean_z",),
@@ -567,6 +577,29 @@ class MRMR(BaseEstimator, TransformerMixin):
         cluster_aggregate_homogeneity_tau: float = 0.6,
         # O(m^2) cost guard on the relevance-floored candidate pool.
         cluster_aggregate_max_candidates: int = 200,
+        # 2026-05-30 Wave 9 — Dynamic Cluster Discovery (DCD).
+        # Organic in-greedy-loop cluster discovery using ONLY MI/SU distances
+        # (no Pearson — captures non-linear deps like XOR). After each
+        # selection, prune the Pool by ``SU(x, just_selected) > tau_cluster``;
+        # when cluster reaches threshold, swap raw anchor with PC1 aggregate if
+        # ``I(rep ; y | Selected − anchor) > anchor_rel * (1 + swap_gain_threshold)``.
+        # Pre-impl gate (bench_dcd_pair_su_scaling) confirmed 0.003× cost vs
+        # full pairwise SU at p=10000. Defaults preserve pre-Wave-9 behaviour
+        # bit-stable (``dcd_enable=False``).
+        dcd_enable: bool = False,
+        dcd_tau_cluster: float = 0.7,
+        dcd_distance: str = "su",
+        dcd_cluster_size_threshold: int = 4,
+        dcd_swap_gain_threshold: float = 0.05,
+        dcd_swap_method: str = "pca_pc1",
+        dcd_pairwise_cache_max: int = 50_000,
+        dcd_min_cluster_size: int = 2,
+        dcd_max_cluster_size: int = 12,
+        # ``dcd_postoc_compose=True`` keeps the post-hoc cluster_aggregate
+        # active alongside DCD. Default False auto-suppresses it (DCD
+        # already processed clusters during screening; running again would
+        # double-aggregate).
+        dcd_postoc_compose: bool = False,
         # hidden
         stop_file: str = "stop",
     ):
@@ -650,6 +683,10 @@ class MRMR(BaseEstimator, TransformerMixin):
     _VALID_FE_BINARY_PRESETS = ("minimal", "medium", "maximal")
     _VALID_CLUSTER_AGGREGATE_MODES = ("augment", "replace")
     _VALID_CLUSTER_AGGREGATE_METHODS = ("mean_z", "mean_inv_var", "median", "pca_pc1", "factor_score")
+    # 2026-05-30 Wave 9 — DCD validation constants. swap_methods alias the
+    # cluster_aggregate methods (Critic2/E fix: no duplicate constant).
+    _VALID_DCD_DISTANCES = ("su", "vi", "sotoca_pla")
+    _VALID_DCD_SWAP_METHODS = ("mean_z", "mean_inv_var", "median", "pca_pc1", "factor_score")
 
     # ``_validate_string_params`` + ``_validate_inputs`` are implemented
     # in ``_mrmr_validate_transform.py`` and bound onto this class at the
@@ -1014,6 +1051,25 @@ class MRMR(BaseEstimator, TransformerMixin):
         _bur_lambda = float(getattr(self, "bur_lambda", 0.0) or 0.0)
         set_jmim_aggregator(_jmim_on)
         set_bur_lambda(_bur_lambda)
+        # 2026-05-30 Wave 9 — activate DCD thread-local. The DCDState dataclass
+        # is constructed inside ``_screen_predictors`` (passed via dcd_config
+        # kwarg) — joblib-safe; the thread-local is only the read-only branch
+        # toggle. Reset in finally.
+        from ._dynamic_cluster_discovery import set_dcd_active as _set_dcd_active
+        _dcd_on = bool(getattr(self, "dcd_enable", False))
+        _set_dcd_active(_dcd_on)
+        # Critic1/H-3 fix: when DCD active and dcd_postoc_compose=False, suppress
+        # the post-hoc cluster_aggregate FE-step (else double-aggregation). Save
+        # and restore the original flag to keep the constructor-arg semantics
+        # bit-stable across fits.
+        _orig_cluster_aggregate_enable = bool(
+            getattr(self, "cluster_aggregate_enable", True)
+        )
+        _dcd_suppress_postoc = _dcd_on and not bool(
+            getattr(self, "dcd_postoc_compose", False)
+        )
+        if _dcd_suppress_postoc:
+            self.cluster_aggregate_enable = False
         try:
             result = self._fit_impl(X, y, groups, **fit_params)
             try:
@@ -1070,6 +1126,17 @@ class MRMR(BaseEstimator, TransformerMixin):
                 pass
             try:
                 set_bur_lambda(0.0)
+            except Exception:
+                pass
+            # 2026-05-30 Wave 9 — reset DCD thread-local and restore
+            # cluster_aggregate_enable to its constructor value (Critic2 fix:
+            # missing reset in v1 plan).
+            try:
+                _set_dcd_active(False)
+            except Exception:
+                pass
+            try:
+                self.cluster_aggregate_enable = _orig_cluster_aggregate_enable
             except Exception:
                 pass
             frame = getattr(self, "_pandas_frame_for_target_cleanup", None)
