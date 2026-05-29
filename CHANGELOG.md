@@ -1,5 +1,56 @@
 # Changelog
 
+## 2026-05-30 — MRMR Wave 8: 10 research-grade opt-in extensions
+
+Lands 10 sibling modules + opt-in MRMR knobs covering Agent A's research
+backlog (A/C/D/E/F sections of docs/MRMR_RESEARCH_2026_05_28.md, except
+A4 QMIFS, A5 Renyi alpha-entropy, B6 KSG, B7 Knuth — already handled by
+Wave 7 or explicitly out-of-scope per user decision).
+
+### New sibling modules under filters/
+
+- `_chao_shen.py` (F13) — Chao-Shen entropy correction (Chao-Shen 2003;
+  Pawluszek-Filipiak 2025). Better small-sample / sparse-contingency bias
+  than Miller-Madow. Exposes ``chao_shen_entropy`` and ``chao_shen_mi``.
+- `_jmim_scorer.py` (A1) — JMIM redundancy aggregator (Bennasar et al. 2015).
+  Replaces Fleuret's CMIM ``min_k I(X_k; Y | Z_j)`` with the joint formulation
+  ``min_j I(X_k, X_j; Y)`` to preserve synergy on multi-collinear groups.
+- `_bur_term.py` (A3) — MRwMR-BUR (Gao 2022). Additive unique-relevance
+  bonus ``I(X_k; Y) - max_j I(X_k; X_j)``.
+- `_relaxmrmr_3d.py` (A2) — RelaxMRMR / FJMI 3-D MI (Vinh et al. 2016).
+  Interaction-information term catching higher-order redundancy / synergy.
+- `_cmi_perm_stop.py` (C8 + C9) — CMI-permutation stop (Yu-Principe 2019)
+  + UAED elbow detector (Llorente 2023).
+- `_conditional_permutation.py` (D10) — Berrett et al. 2020 Conditional
+  Permutation Test. Within-stratum permutation gives valid p-values
+  under arbitrary X-Z confounding (which Besag-Clifford does not).
+- `_stability_cluster.py` (E11 + E12) — Faletto-Bien 2022 Cluster
+  Stability Selection + Shah-Samworth 2013 Complementary Pairs SS.
+- `_pid_decomposition.py` (F14) — Williams-Beer 2010 PID via Ince 2017
+  I_ccs redundancy. Decomposes ``I({X_1, X_2}; Y)`` into unique +
+  redundant + synergistic components; XOR smoke verified
+  (synergy=0.690 ≈ ln(2), unique=0, redundant=0).
+
+### MRMR opt-in knobs
+
+  - ``mi_correction``: ``'none'`` | ``'miller_madow'`` | ``'chao_shen'``.
+  - ``redundancy_aggregator``: ``None`` (Fleuret) | ``'jmim'``.
+  - ``bur_lambda``: weight on MRwMR-BUR unique-relevance bonus.
+  - ``relaxmrmr_alpha``: weight on RelaxMRMR 3-D interaction term.
+  - ``cmi_perm_stop`` / ``cmi_perm_n_permutations`` /
+    ``cmi_perm_alpha``: CMI-permutation stop.
+  - ``uaed_auto_size``: auto-pick ``n_features`` via UAED elbow detector.
+  - ``cpt_test`` / ``cpt_n_permutations``: CPT-based redundancy test.
+  - ``stability_selection_method``: ``'classic'`` | ``'cluster'`` |
+    ``'complementary_pairs'``.
+  - ``stability_selection_corr_threshold``: cluster-mode |Pearson| cutoff.
+  - ``pid_synergy_bonus``: weight on PID synergistic-component bonus.
+
+All defaults preserve pre-Wave-8 behaviour exactly. Internal hot-loop
+dispatch on the new aggregators / stoppers is the next sprint — the
+constructor + validation surface lands here. Standalone module APIs are
+available immediately for ad-hoc / benchmark use.
+
 ## 2026-05-29 — MRMR MI-estimator expansion (Wave 7)
 
 Adds seven new MI estimators behind opt-in flags, six P0 fixes flipping

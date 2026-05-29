@@ -223,6 +223,44 @@ class MRMR(BaseEstimator, TransformerMixin):
         # wired into MRMR.fit().
         nbins_strategy: str = "mdlp",
         nbins_strategy_kwargs: dict = None,
+        # 2026-05-30 Wave 8 — 10 new research-grade opt-in knobs (sibling modules):
+        # F13 Chao-Shen entropy correction (Pawluszek-Filipiak 2025).
+        #   'none' (default) | 'miller_madow' | 'chao_shen'
+        mi_correction: str = "none",
+        # A1 JMIM redundancy aggregator (Bennasar 2015). Alternative to Fleuret CMIM
+        # ``min_k I(X_k; Y | Z_j)``; JMIM uses ``min_j I(X_k, X_j; Y)`` which
+        # preserves synergy that CMIM rejects on multi-collinear groups.
+        #   None (legacy) | 'jmim'
+        redundancy_aggregator: str = None,
+        # A3 MRwMR-BUR unique-relevance bonus (Gao 2022). Additive bonus on the
+        # MRMR score for features whose marginal-y relevance cannot be explained
+        # by any already-selected feature.
+        bur_lambda: float = 0.0,
+        # A2 RelaxMRMR 3-D MI redundancy (Vinh 2016). Adds ``I(X; Z_i; Z_j | Y)``
+        # interaction term. Cost is O(|S|^2) 3-D plug-in MIs per candidate.
+        relaxmrmr_alpha: float = 0.0,
+        # C8 CMI-permutation stopping criterion (Yu & Príncipe 2019). Replaces
+        # the ``min_relevance_gain_frac`` threshold with a permutation null test.
+        cmi_perm_stop: bool = False,
+        cmi_perm_n_permutations: int = 100,
+        cmi_perm_alpha: float = 0.05,
+        # C9 UAED universal elbow detector (Llorente 2023). Auto-pick subset
+        # size from the CMI-gain curve when ``n_features=None``.
+        uaed_auto_size: bool = False,
+        # D10 Conditional Permutation Test (Berrett 2020). Permutes X CONDITIONAL
+        # on Z preserving X|Z; valid p-values under arbitrary confounding.
+        cpt_test: bool = False,
+        cpt_n_permutations: int = 200,
+        # E11 Cluster Stability Selection (Faletto-Bien 2022). Opt-in via
+        # ``stability_selection_method='cluster'``. Default 'classic' is the
+        # existing Meinshausen-Buhlmann + Shah-Samworth Wave-4 path.
+        # E12 Complementary Pairs Stability (Shah-Samworth 2013) accessible
+        # via ``stability_selection_method='complementary_pairs'``.
+        stability_selection_method: str = "classic",
+        stability_selection_corr_threshold: float = 0.8,
+        # F14 PID decomposition (Williams-Beer + Ince I_ccs). When enabled,
+        # synergistic features bypass the standard redundancy gate.
+        pid_synergy_bonus: float = 0.0,
         # 2026-05-28: MI normalization knob to combat the cardinality bias.
         # Raw I(X; Y) is bounded by min(H(X), H(Y)); high-cardinality features
         # (zip codes / hash IDs / 50-bin continuous) get inflated relevance.
@@ -588,6 +626,12 @@ class MRMR(BaseEstimator, TransformerMixin):
         "knuth", "blocks",  # demoted to research-only with AccuracyWarning
         "mdlp", "fayyad_irani", "optimal_joint", "cv",
         "mah", "mah_sci", "sci", "marx",  # Marx 2021 SCI-guided adaptive
+    )
+    # 2026-05-30 Wave 8 opt-in validation sets.
+    _VALID_MI_CORRECTIONS = ("none", "miller_madow", "chao_shen")
+    _VALID_REDUNDANCY_AGGREGATORS = (None, "jmim")
+    _VALID_STABILITY_SELECTION_METHODS = (
+        "classic", "cluster", "complementary_pairs",
     )
     # 2026-05-29: per mega-bench v3 Knuth (MI_mean 0.342, weak on uniform),
     # Bayesian Blocks (MI_mean 0.272, weakest overall), and MAH/SCI

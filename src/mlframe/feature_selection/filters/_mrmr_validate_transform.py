@@ -36,6 +36,9 @@ def _validate_string_params(self):
         ("fe_binary_preset", self._VALID_FE_BINARY_PRESETS),
         ("cluster_aggregate_mode", self._VALID_CLUSTER_AGGREGATE_MODES),
         ("nbins_strategy", self._VALID_NBINS_STRATEGIES),
+        ("mi_correction", self._VALID_MI_CORRECTIONS),
+        ("redundancy_aggregator", self._VALID_REDUNDANCY_AGGREGATORS),
+        ("stability_selection_method", self._VALID_STABILITY_SELECTION_METHODS),
     )
     # 2026-05-29 Wave 7: AccuracyWarning for demoted nbins_strategy options.
     _demoted = getattr(self, "_DEMOTED_NBINS_STRATEGIES", ())
