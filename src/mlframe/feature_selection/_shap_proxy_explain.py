@@ -35,6 +35,51 @@ from sklearn.model_selection import KFold, StratifiedKFold
 
 logger = logging.getLogger(__name__)
 
+
+_SHAP_XGB_PATCHED = False
+
+
+def _maybe_patch_shap_xgb_base_score():
+    """Workaround for shap<=0.51 + xgboost>=2.0 incompatibility.
+
+    XGBoost 2.x / 3.x serialise the booster's ``base_score`` as a JSON array
+    string ``"[0.5]"`` instead of the scalar ``"0.5"`` older XGBoost wrote.
+    shap.explainers._tree.XGBTreeModelLoader.__init__ does
+    ``float(learner_model_param["base_score"])`` directly and crashes with
+    ``ValueError: could not convert string to float: '[5.06E-1]'``. Fixed
+    upstream in shap >=0.52 (PR #3530) but the wheel pinned in this env is
+    0.51; until the upgrade lands we sanitise the value once at first use.
+
+    Idempotent (gated on ``_SHAP_XGB_PATCHED``); no-op if the shap version
+    already handles arrays.
+    """
+    global _SHAP_XGB_PATCHED
+    if _SHAP_XGB_PATCHED:
+        return
+    try:
+        from shap.explainers import _tree as _shap_tree
+    except Exception:
+        _SHAP_XGB_PATCHED = True
+        return
+    import builtins
+    import re
+    _orig_float = builtins.float
+
+    def _safe_float(x):
+        # XGBoost 2.x / 3.x writes the booster's base_score as a JSON array
+        # string ``"[0.5]"`` or ``"[5.06E-1, ...]"``; coerce to the first scalar.
+        # Scalar inputs (the only case the shap module's float() saw before
+        # XGBoost 2.0) keep their original semantics.
+        if isinstance(x, str):
+            m = re.match(r"\s*\[\s*([^,\]]+)", x)
+            if m:
+                return _orig_float(m.group(1))
+        return _orig_float(x)
+
+    _shap_tree.float = _safe_float
+    _SHAP_XGB_PATCHED = True
+
+
 # Relative deviation of expected_value from the empirical mean margin above which we warn about a
 # bloated base value (the CatBoost + interventional quirk). tree_path_dependent stays well under this.
 _BASE_BLOAT_REL_TOL = 0.25
@@ -137,6 +182,7 @@ def _shap_phi_and_base(explainer_base, X: pd.DataFrame, backend: str = "auto"):
 
     import shap
 
+    _maybe_patch_shap_xgb_base_score()
     explainer = shap.TreeExplainer(explainer_base, feature_perturbation="tree_path_dependent")
     phi = explainer.shap_values(X, check_additivity=False)
     base = explainer.expected_value

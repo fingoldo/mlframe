@@ -275,6 +275,38 @@ def test_I_mape_warmup_does_not_emit_zero_y_warning(caplog):
 # J: coerce_to_numpy uses the new allow_copy kwarg first, falling back through
 # zero_copy_only (deprecated alias) so polars 0.20.10+ no longer DeprecationWarns.
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Bonus (post-merge follow-up): shap 0.51 + xgboost 3.x base_score crash.
+# XGBoost 3.x persists base_score as a JSON array string ('[0.5]') that
+# shap.explainers._tree calls float() on; the call raises ValueError. mlframe
+# patches shap's module-level float name with a bracket-aware coercer that
+# scalars-pass-through and arrays-take-first-element.
+# ---------------------------------------------------------------------------
+def test_shap_xgb_base_score_patch_handles_bracketed_array_string():
+    """The narrow patch must:
+    (a) coerce ``"[0.5]"`` and ``"[5.06E-1, 0.0]"`` to a scalar float
+    (b) leave plain scalars (``"0.5"``, ``0.5``) unchanged.
+
+    Exercised in isolation (no real shap call) so the test runs on any host
+    regardless of whether the local xgboost build triggers the array path.
+    """
+    pytest.importorskip("shap")
+    from mlframe.feature_selection._shap_proxy_explain import (
+        _maybe_patch_shap_xgb_base_score, _SHAP_XGB_PATCHED,  # noqa: F401
+    )
+    _maybe_patch_shap_xgb_base_score()
+    from shap.explainers import _tree as _shap_tree
+    coerce = _shap_tree.float
+    assert coerce("[0.5]") == 0.5
+    assert abs(coerce("[5.0666666E-1]") - 0.50666666) < 1e-6
+    # Multi-element array: take the first.
+    assert coerce("[0.7, 0.3]") == 0.7
+    # Scalar pass-through.
+    assert coerce("0.5") == 0.5
+    assert coerce(0.5) == 0.5
+    assert coerce(3) == 3.0
+
+
 def test_J_coerce_to_numpy_does_not_emit_zero_copy_deprecation_warning():
     pl = pytest.importorskip("polars")
     from mlframe.training.utils import coerce_to_numpy
