@@ -101,13 +101,19 @@ def resolve_batch_size(
     return int(candidate)
 
 
-def _coerce_2d_float64(X) -> np.ndarray:
-    """Normalise input to a contiguous float64 ndarray view. Callers pass either DataFrame
-    or ndarray; sklearn's path always upcasts here, and we need float64 for the squared-sum stability."""
+def _coerce_2d_float(X) -> np.ndarray:
+    """Normalise input to a contiguous float32-or-float64 ndarray view.
+
+    Sklearn's f_classif / f_regression pass the input through ``check_X_y`` which
+    keeps native float32/float64 unchanged and only coerces non-float dtypes.
+    We mirror that: native float32 stays float32, float64 stays float64, anything
+    else upcasts to float64. Diverging from sklearn here would silently change the
+    F-statistic by ~1e-4 (single-precision SST cancellation) versus a fresh
+    ``f_classif`` call on the same data — the drop-in contract callers rely on."""
     if hasattr(X, "values"):
         X = X.values
     X = np.ascontiguousarray(X)
-    if X.dtype != np.float64:
+    if X.dtype not in (np.float32, np.float64):
         X = X.astype(np.float64, copy=False)
     if X.ndim != 2:
         raise ValueError(f"expected 2-D array, got shape {X.shape}")
@@ -127,7 +133,7 @@ def f_classif_chunked(
     after the sklearn call. Allocation per batch is ``8 * n_samples * batch_size`` bytes plus K
     boolean masks of length n_samples; the original (n_samples, n_features) is never materialised
     as float64."""
-    X = _coerce_2d_float64(X)
+    X = _coerce_2d_float(X)
     n_samples, n_features = X.shape
     y_arr = np.asarray(y).ravel()
     if y_arr.shape[0] != n_samples:
@@ -137,13 +143,18 @@ def f_classif_chunked(
     classes, counts = np.unique(y_arr, return_counts=True)
     K = int(classes.shape[0])
     N = int(n_samples)
+    # Output is always float64: F-statistic is a scalar ratio whose downstream consumers
+    # (ranking, percentile cuts, caching) treat it as float64; sklearn likewise returns
+    # float64 even when the X input was float32. Per-batch accumulation stays in X.dtype
+    # to bit-match sklearn's safe_sqr/sum chain.
     out = np.empty(n_features, dtype=np.float64)
     if K < 2 or N <= K:
         out.fill(-np.inf)
         return out
 
     masks = [(y_arr == c) for c in classes]  # K boolean masks, K * N bytes, dwarfed by the chunk.
-    n_per_class = counts.astype(np.float64)
+    acc_dtype = X.dtype
+    n_per_class = counts.astype(acc_dtype)
 
     bs = resolve_batch_size(n_features, n_samples, batch_size)
     bs = max(1, min(bs, n_features))
@@ -151,20 +162,23 @@ def f_classif_chunked(
     df_between = float(K - 1)
     df_within = float(N - K)
 
-    eps64 = float(np.finfo(np.float64).eps)
+    eps = float(np.finfo(acc_dtype).eps)
     for start in range(0, n_features, bs):
         stop = min(start + bs, n_features)
         chunk = X[:, start:stop]  # (N, b) view
         b = stop - start
-        sums = np.empty((K, b), dtype=np.float64)
-        sumsq = np.empty((K, b), dtype=np.float64)
+        sums = np.empty((K, b), dtype=acc_dtype)
+        sumsq = np.empty((K, b), dtype=acc_dtype)
         for k, mask in enumerate(masks):
             block = chunk[mask, :]  # (n_k, b)
             sums[k] = block.sum(axis=0)
-            sumsq[k] = np.einsum("ij,ij->j", block, block)
+            # Use (block * block).sum to match sklearn's safe_sqr(a).sum(axis=0) accumulation
+            # order. einsum would route through a BLAS dot that reorders sums and breaks
+            # bit-parity with sklearn under float32.
+            sumsq[k] = (block * block).sum(axis=0)
         grand_sum = sums.sum(axis=0)  # (b,)
         total_sumsq = sumsq.sum(axis=0)  # (b,)
-        correction = grand_sum * grand_sum / N
+        correction = (grand_sum * grand_sum) / acc_dtype.type(N)
         sst = total_sumsq - correction
         ssbn = (sums * sums / n_per_class[:, None]).sum(axis=0) - correction
         sswn = sst - ssbn
@@ -173,15 +187,16 @@ def f_classif_chunked(
         # at a generous multiple of (eps * sumsq * N) to drop columns whose variance is pure FP
         # drift. Without this, the F = 0/0 quotient lands on the per-platform NaN/zero/inf
         # answer rather than the sklearn-NaN-style -inf sentinel.
-        const_mask = sst <= eps64 * np.abs(total_sumsq) * N
+        const_mask = sst <= eps * np.abs(total_sumsq) * N
         with np.errstate(divide="ignore", invalid="ignore"):
             f = (ssbn / df_between) / (sswn / df_within)
-        f = np.where(np.isfinite(f), f, -np.inf)
+        f64 = f.astype(np.float64, copy=False)
+        f64 = np.where(np.isfinite(f64), f64, -np.inf)
         # Negative F values arise only from float cancellation on zero within-group SS;
         # clamp to -inf so they sort with constant columns (sklearn's nan path does the same).
-        f = np.where(f < 0.0, -np.inf, f)
-        f = np.where(const_mask, -np.inf, f)
-        out[start:stop] = f
+        f64 = np.where(f64 < 0.0, -np.inf, f64)
+        f64 = np.where(const_mask, -np.inf, f64)
+        out[start:stop] = f64
     return out
 
 
@@ -196,7 +211,13 @@ def f_regression_chunked(
     Returns a length-``n_features`` float64 vector. -inf for constant columns (zero variance ->
     zero col_norm) and N <= 2 (zero residual df). Allocation per batch is ``8 * n_samples *
     batch_size`` bytes plus 2 length-N working vectors."""
-    X = _coerce_2d_float64(X)
+    # Sklearn's r_regression / f_regression hard-coerce X and y to float64 via
+    # check_X_y(..., dtype=np.float64). Unlike f_classif (which honours float32 input),
+    # the regression path is always float64 inside sklearn, so we mirror that to match
+    # bit-for-bit.
+    X = _coerce_2d_float(X)
+    if X.dtype != np.float64:
+        X = X.astype(np.float64, copy=False)
     n_samples, n_features = X.shape
     y_arr = np.asarray(y, dtype=np.float64).ravel()
     if y_arr.shape[0] != n_samples:

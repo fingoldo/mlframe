@@ -183,5 +183,47 @@ def test_f_classif_input_dtype_upcast(small_classif):
 
     expected, _ = f_classif(X, y)
     got = f_classif_chunked(X32, y, batch_size=8)
-    # f32 inputs: sklearn upcasts internally too; allow a slightly looser tol.
+    # f32 inputs: chunked stays in f32 to mirror sklearn's check_X_y dtype contract;
+    # the diff vs sklearn-on-f64 is the float32 SST cancellation, ~3e-6 here.
     np.testing.assert_allclose(got, expected, rtol=1e-4, atol=1e-6)
+
+
+def test_f_classif_float32_input_matches_sklearn_float32():
+    """Regression for the test_biz_value_cached_f_scores_avoid_recomputation drift: when the
+    caller hands us a float32 X, the chunked path must bit-match sklearn's float32 output
+    so the cached F-scores can be substituted for a fresh ``f_classif(X.values, y)`` call.
+    Pre-iter39 the chunked path silently upcast to float64 and diverged ~4e-4 from sklearn's
+    float32 result, breaking the downstream cache-hit contract."""
+    from sklearn.feature_selection import f_classif
+
+    rng = np.random.default_rng(11)
+    n, width, n_inf = 2000, 4000, 8
+    inf = rng.normal(size=(n, n_inf)).astype(np.float32)
+    noise = rng.normal(size=(n, width - n_inf)).astype(np.float32)
+    X32 = np.column_stack([inf, noise]).astype(np.float32)
+    logit = (inf * np.linspace(1.2, 0.4, n_inf)).sum(axis=1)
+    y = (logit + 0.3 * rng.normal(size=n) > 0).astype(np.float64)
+    expected, _ = f_classif(X32, y)
+    expected = np.asarray(expected, dtype=np.float64)
+    expected[~np.isfinite(expected)] = -np.inf
+    got = f_classif_chunked(X32, y, batch_size=512)
+    # Drop-in parity with sklearn at the same input dtype: must match the cached-vs-fresh
+    # contract from test_biz_value_cached_f_scores_avoid_recomputation (rtol=1e-6, atol=1e-6).
+    np.testing.assert_allclose(got, expected, rtol=1e-6, atol=1e-6)
+
+
+def test_f_classif_float64_input_matches_sklearn_float64():
+    """Companion to test_f_classif_float32_input_matches_sklearn_float32: float64 path must
+    also bit-match (this was the iter37 invariant — chunked is supposed to be sklearn-parity
+    at the input dtype, not silently more accurate)."""
+    from sklearn.feature_selection import f_classif
+
+    rng = np.random.default_rng(13)
+    n, width, n_inf = 1000, 2000, 6
+    inf = rng.normal(size=(n, n_inf)).astype(np.float64)
+    noise = rng.normal(size=(n, width - n_inf)).astype(np.float64)
+    X = np.column_stack([inf, noise])
+    y = (rng.normal(size=n) > 0).astype(np.float64)
+    expected, _ = f_classif(X, y)
+    got = f_classif_chunked(X, y, batch_size=256)
+    np.testing.assert_allclose(got, expected, rtol=1e-10, atol=1e-12)
