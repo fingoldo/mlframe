@@ -57,7 +57,29 @@ def _finalize_fit_results(
     """Run the SFFS swap pass + write the public RFECV result slots."""
     # SFFS swap pass: greedy 1-in / 1-out tweak around the current best.
     # ``_sffs_swap_pass`` does NOT honour fit_params / val_cv / early stopping.
-    if self.swap_top_k and self.swap_top_k > 0 and best_nfeatures > 0:
+    # E2 (Wave 1, 2026-05-28): when val_cv is set AND the estimator actually
+    # uses early stopping (CB / LGB / XGB), the bare cross_val_score used in
+    # _sffs_swap_pass trains to convergence with no ES, so any accepted swap
+    # may be an artifact of letting the swap-in feature overfit relative to
+    # the ES-bounded best subset. Skip swap on those configurations.
+    # Estimators like LR don't use val_cv even when early_stopping_val_nsplits
+    # is set -- the gate must check BOTH the knob AND the estimator type.
+    # Opt-out via self.swap_top_k_allow_no_es=True for benchmarking.
+    _val_cv_knob_set = bool(getattr(self, "early_stopping_val_nsplits", None))
+    try:
+        from mlframe.core.helpers import has_early_stopping_support as _has_es
+        from sklearn.pipeline import Pipeline as _Pipeline
+        _est_type_name = (
+            type(estimator.steps[-1][1]).__name__
+            if isinstance(estimator, _Pipeline) else type(estimator).__name__
+        )
+        _es_active = bool(_has_es(_est_type_name))
+    except Exception:
+        _es_active = False
+    _has_val_cv = _val_cv_knob_set and _es_active
+    _allow_swap_without_es = bool(getattr(self, "swap_top_k_allow_no_es", False))
+    if self.swap_top_k and self.swap_top_k > 0 and best_nfeatures > 0 \
+            and (not _has_val_cv or _allow_swap_without_es):
         try:
             self._sffs_swap_pass(
                 X=X, y=y, estimator=estimator, cv=cv, scoring=scoring,
@@ -78,6 +100,15 @@ def _finalize_fit_results(
         except Exception as _swap_exc:
             if verbose:
                 logger.warning("RFECV: SFFS swap pass failed (%s); continuing.", _swap_exc)
+    elif self.swap_top_k and self.swap_top_k > 0 and _has_val_cv and not _allow_swap_without_es:
+        if verbose:
+            logger.info(
+                "RFECV: swap_top_k=%d skipped because val_cv-driven early "
+                "stopping is active and the swap pass uses bare "
+                "cross_val_score (would compare ES vs non-ES scores). "
+                "Set swap_top_k_allow_no_es=True to override.",
+                self.swap_top_k,
+            )
 
     # Save best result found so far as final.
     self.n_features_in_ = X.shape[1]
@@ -91,6 +122,25 @@ def _finalize_fit_results(
     cv_std_perf = [evaluated_scores_std[n] for n in checked_nfeatures]
     cv_mean_perf = [evaluated_scores_mean[n] for n in checked_nfeatures]
     self.cv_results_ = {"nfeatures": checked_nfeatures, "cv_mean_perf": cv_mean_perf, "cv_std_perf": cv_std_perf}
+
+    # 2026-05-28 sklearn-parity: per-split keys ``split{k}_test_score`` exposing per-fold scores per N.
+    # ``per_fold_scores`` is dict[N -> list of fold scores]; pivot into len(checked_nfeatures)-aligned arrays.
+    _pfs = getattr(self, "_per_fold_scores", None)
+    if _pfs is None:
+        _pfs = {}
+    # Determine the max number of folds across all N (defensive: some N may have fewer folds due to early skips).
+    _max_folds = 0
+    for _scores in _pfs.values():
+        if _scores is not None:
+            _max_folds = max(_max_folds, len(_scores))
+    if _max_folds > 0:
+        for _k in range(_max_folds):
+            _key = f"split{_k}_test_score"
+            _col: list = []
+            for _n in checked_nfeatures:
+                _arr = _pfs.get(_n, [])
+                _col.append(float(_arr[_k]) if (_arr is not None and _k < len(_arr)) else float("nan"))
+            self.cv_results_[_key] = _col
 
     self.select_optimal_nfeatures_(
         checked_nfeatures=checked_nfeatures,

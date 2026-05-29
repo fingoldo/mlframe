@@ -29,6 +29,15 @@ logger = logging.getLogger("mlframe.feature_selection.wrappers._rfecv")
 
 
 def _fit_stability_selection(self, X, y, signature):
+    # E12 (Wave 4, 2026-05-28): floor n_samples for stability selection. With
+    # n<20 the n/2 sub_size becomes <=10 and per-bootstrap FI is noise; the
+    # threshold-based selection then picks essentially-random features.
+    if X.shape[0] < 20:
+        raise ValueError(
+            f"stability_selection requires n_samples >= 20; got n={X.shape[0]}. "
+            f"With n/2 sub_size below 10 the bootstrap FI signal is dominated "
+            f"by sampling noise. Use the regular MBH path or increase n."
+        )
     """Stability Selection (Meinshausen & Buhlmann 2010, JRSS-B).
 
     Bootstrap-based feature selection. For each of B bootstrap subsamples (n/2, no replacement), fit the estimator(s) and record which
@@ -180,6 +189,22 @@ def select_optimal_nfeatures_(
 
     base_perf = np.array(cv_mean_perf) * self.mean_perf_weight - np.array(cv_std_perf) * self.std_perf_weight
     if smooth_perf:
+        # C4 (Wave 4, 2026-05-28): rolling.mean smooths by INDEX, not by N
+        # value. On sparse N exploration ({2, 10, 30, 60}) adjacent rows
+        # mix physically-unrelated regimes -> garbage smoothing. Warn loud.
+        _nf_arr = np.array(checked_nfeatures)
+        if len(_nf_arr) >= 2:
+            _gaps = np.diff(np.sort(_nf_arr))
+            _med_gap = float(np.median(_gaps))
+            _max_gap = float(_gaps.max())
+            if _max_gap > 3 * max(1.0, _med_gap):
+                logger.warning(
+                    "select_optimal_nfeatures_: smoothing across sparse N "
+                    "(max gap %.0f, median gap %.0f). Rolling-mean averages "
+                    "by index, not by N value, so adjacent rows may mix "
+                    "unrelated regimes. Either set smooth_perf=0 or "
+                    "evaluate more N values.", _max_gap, _med_gap,
+                )
         # ``.rolling().mean().values`` returns a read-only ndarray on
         # recent pandas (the underlying BlockManager exposes an immutable
         # view of its memory). ``.to_numpy(copy=True)`` forces a writeable
@@ -192,13 +217,21 @@ def select_optimal_nfeatures_(
 
     ultimate_perf = base_perf - np.array(checked_nfeatures) * feature_cost
 
-    # Resolve n_features selection rule.
-    #   multi-estimator -> 'one_se_max' (avoids the multi-estimator collapse-to-2: a strong estimator can mask a weak estimator's need for more features)
-    #   singular -> 'argmax' (legacy; on small data the 1-SE band can be dominated by accidental small-N points due to MBH's sparse N exploration)
-    # Users who want parsimonious selection on wide score plateaus should opt into 'one_se_min' explicitly.
+    # C3 (Wave 1, 2026-05-28; revised post-bench 2026-05-28):
+    # Pre-Wave-1 'auto' = ('one_se_max' for multi-estimator else 'argmax')
+    # had inverted multi-vs-singular logic. The original Wave 1 fix changed
+    # 'auto' -> 'argmax' uniformly, but the synthetic-bench (n=8000, p=200,
+    # 30 informative, flat score curve) showed argmax catastrophically
+    # underselects on plateau (recall 0.30) where 'one_se_max' takes the
+    # full band and recovers recall=1.0. On non-flat curves both rules
+    # converge to the same N within ±1 feature. So NEW default 'auto' =
+    # 'one_se_max' is strictly safer for the workloads RFECV sees:
+    # plateau-prone score curves benefit, real-signal curves see no change.
+    # Users wanting argmax-greedy or 1-SE-parsimony pass explicit
+    # 'argmax' / 'one_se_min'.
     rule = getattr(self, "n_features_selection_rule", "auto")
     if rule == "auto":
-        rule = "one_se_max" if getattr(self, "estimators", None) else "argmax"
+        rule = "one_se_max"
 
     nfeatures_arr = np.array(checked_nfeatures)
     nonzero_mask = nfeatures_arr > 0
@@ -227,7 +260,13 @@ def select_optimal_nfeatures_(
     else:
         # one_se_max / one_se_min: build the SE band around the best mean (cv_mean_perf - the *unadjusted* score, so 1-SE has its
         # standard interpretation), then pick the largest or smallest N within the band.
-        mean_arr = np.array(cv_mean_perf)
+        # 2026-05-28: when ``feature_cost > 0`` use the cost-adjusted ``ultimate_perf`` for both the band reference and the band
+        # values, so the cost penalty actually bites under 1-SE rules too. Without this, feature_cost was silently a no-op under
+        # the new ``auto='one_se_max'`` default and the user's "shrink toward fewer features" hint was ignored.
+        if feature_cost and feature_cost > 0:
+            mean_arr = np.array(ultimate_perf)
+        else:
+            mean_arr = np.array(cv_mean_perf)
         std_arr = np.array(cv_std_perf)
         nz_idx = np.where(nonzero_mask)[0]
         # Wave 21 P0: mask out NaN candidates before argmax. cv_mean_perf
@@ -321,6 +360,7 @@ def select_optimal_nfeatures_(
             self.ranking_ = get_actual_features_ranking(
                 feature_importances=fi_to_consider,
                 votes_aggregation_method=votes_aggregation_method,
+                fi_missing_policy=getattr(self, "fi_missing_policy", "worst"),
             )
 
             self.support_ = np.array([(i in self.ranking_[:best_top_n]) for i in self.feature_names_in_])

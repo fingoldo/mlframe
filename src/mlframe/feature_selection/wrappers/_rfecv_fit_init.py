@@ -100,6 +100,18 @@ def _init_fit_state(
         raise ValueError(f"y must be array-like; got {type(y).__name__}: {exc}") from exc
     if y_arr.size == 0:
         raise ValueError("y is empty; nothing to fit.")
+    # sklearn parity (2026-05-28): accept bare Python list as y. The downstream signature
+    # tuple uses y.shape; lists don't have .shape, so promote to ndarray now.
+    if not hasattr(y, "shape"):
+        y = y_arr
+    # L6 (Wave 5, 2026-05-28): explicit multi-output guard. Currently RFECV is single-y; users with K targets are best served by
+    # looping selection per-target and OR-aggregating support_. Document this via a clear error rather than silently flattening y.
+    if y_arr.ndim >= 2 and y_arr.shape[-1] > 1:
+        raise NotImplementedError(
+            "RFECV.fit: multi-output y (shape=" + str(y_arr.shape) + ") is not yet "
+            "supported. Loop selection per target column and aggregate "
+            "support_ via union (OR), e.g. ``selected = set().union(*[RFECV(...).fit(X, y[:,k]).get_feature_names_out() for k in range(K)])``."
+        )
     # NaN / Inf in y are silent miscompute traps in sklearn folds.
     if y_arr.dtype.kind in "fc":
         n_nan_y = int(np.isnan(y_arr).sum())
@@ -131,6 +143,17 @@ def _init_fit_state(
                     f"Minority class has {min_class} samples but cv={cv_n}. "
                     f"StratifiedKFold requires at least n_splits samples per "
                     f"class. Reduce cv or oversample the minority class."
+                )
+            # E7 (Wave 4, 2026-05-28): warn when minority just barely meets
+            # n_splits; ROC AUC / log_loss likely to NaN on the all-train-no-test
+            # minority fold split. Hard floor 2*cv_n recommended.
+            if min_class < 2 * cv_n and getattr(self, "verbose", 0):
+                logger.warning(
+                    "RFECV: minority class has %d samples vs cv=%d. With 1-2 "
+                    "minority per fold, the test fold may have 0 minority -> "
+                    "ROC AUC / log_loss NaN on that fold. Increase n or use "
+                    "RepeatedStratifiedKFold to mitigate.",
+                    min_class, cv_n,
                 )
 
     # must_include + must_exclude intersection is a confusing config error.

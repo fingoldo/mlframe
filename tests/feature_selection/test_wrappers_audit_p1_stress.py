@@ -184,6 +184,12 @@ class TestSkipRetrainingYContent:
             estimator=LogisticRegression(max_iter=200, random_state=0),
             cv=3, max_refits=4, verbose=0, leakage_corr_threshold=None,
             skip_retraining_on_same_shape=True,
+            # Force argmax rule so two different targets actually produce different
+            # support_ on this 3-feature toy problem. Under the new default
+            # 'one_se_max' the score curve is flat enough that BOTH y_a and y_b
+            # pick all 3 features (=full support), which would mask the
+            # signature-based refit behaviour the test wants to verify.
+            n_features_selection_rule="argmax",
         )
         rfecv = RFECV(**common)
         rfecv.fit(X, y_a)

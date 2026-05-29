@@ -166,9 +166,18 @@ class TestCvResultsDataFrame:
             cv=3, max_refits=4, verbose=0, random_state=0,
         ).fit(Xdf, y)
         df = rfecv.cv_results_df_
-        # Each column must round-trip with the dict version
+        # Each column must round-trip with the dict version. Use NaN-aware
+        # comparison because the per-split keys (split{k}_test_score) carry NaN
+        # for the N=0 dummy slot (no per-fold scores stored for the baseline).
         for col in df.columns:
-            assert df[col].tolist() == list(rfecv.cv_results_[col]), col
+            a = np.asarray(df[col].tolist())
+            b = np.asarray(list(rfecv.cv_results_[col]))
+            assert a.shape == b.shape, col
+            if a.dtype.kind in "fc" and b.dtype.kind in "fc":
+                # float arrays: equal_nan True
+                assert np.array_equal(a, b, equal_nan=True), col
+            else:
+                assert (a == b).all(), col
 
     def test_property_raises_before_fit(self):
         rfecv = _rfecv(estimator=LogisticRegression())

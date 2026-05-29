@@ -91,8 +91,20 @@ def _resolve_cv_and_val_cv(
             _is_time_series = True
         elif groups is None and isinstance(X, pd.DataFrame):
             _idx = X.index
-            if isinstance(_idx, pd.DatetimeIndex) and _idx.is_monotonic_increasing:
-                _is_time_series = True
+            if isinstance(_idx, pd.DatetimeIndex):
+                # E13 (Wave 4, 2026-05-28): NaT in DatetimeIndex makes
+                # is_monotonic_increasing False; pre-fix silently falls back
+                # to KFold and loses the temporal guarantee. Warn loudly.
+                if _idx.hasnans:
+                    if verbose:
+                        logger.warning(
+                            "RFECV: X.index is a DatetimeIndex with NaT; "
+                            "temporal auto-detect disabled. Drop NaT rows "
+                            "or pass cv=TimeSeriesSplit() explicitly to "
+                            "preserve the time-ordering guarantee.",
+                        )
+                elif _idx.is_monotonic_increasing:
+                    _is_time_series = True
         elif groups is None:
             try:
                 import polars as _pl

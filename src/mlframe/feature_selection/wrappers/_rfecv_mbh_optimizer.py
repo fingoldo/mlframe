@@ -95,18 +95,55 @@ def _build_mbh_optimizer(self, *, original_features, max_refits, top_predictors_
         # Only fill iterations default when the user picked a CatBoost-family surrogate.
         if _model_name in ("CBQ", "CB") and "iterations" not in _user_model_params:
             _user_model_params["iterations"] = 50 if _max_evals_budget <= 100 else 150
+    # S9+S10 (Wave 2, 2026-05-28): richer init design. The legacy single-seed
+    # ``seeded_inputs=[min(2, p)]`` left the surrogate flat for the first ~5
+    # iters (CB / ETR with 1 anchor predicts a constant). Auto-seed K anchors
+    # equidistant across [2, p] so the surrogate sees low+mid+high N quickly.
+    # Adaptive K based on p AND budget: extra seeds cost wall-time on tiny
+    # problems with cheap outer estimators (Ridge bench is 5% slower with K=5
+    # vs K=2 on p=15). Default 'auto':
+    #   p <= 10                              : K = 2 (legacy + 1 anchor)
+    #   10 < p <= 50 OR budget < 30 iters    : K = 3
+    #   p > 50  AND budget >= 30 iters       : K = 5
+    # Override via init_design_size=int (>=1) or None (legacy single seed).
+    _p = len(original_features)
+    _init_size_param = getattr(self, "init_design_size", "auto")
+    if _init_size_param is None:
+        _seeded = [min(2, _p)]
+    else:
+        if _init_size_param == "auto" or _init_size_param == 5 \
+                or not isinstance(_init_size_param, int):
+            # 'auto': scale by p AND by evaluation budget so init-seed cost
+            # stays small relative to user-driven exploration.
+            if _p <= 10:
+                _K = 2
+            elif _p <= 50 or _max_evals_budget < 30:
+                _K = 3
+            else:
+                _K = 5
+        else:
+            _K = max(1, int(_init_size_param))
+        if _K <= 1 or _p <= 2:
+            _seeded = list(range(1, max(2, _p) + 1))[:max(_K, 1)]
+        else:
+            _raw = np.linspace(2, _p, _K)
+            _seeded = sorted(set(int(round(x)) for x in _raw if 1 <= int(round(x)) <= _p))
+            if 2 not in _seeded and _p >= 2:
+                _seeded = [2] + _seeded
+            _seeded = sorted(set(_seeded))[:_K]
+
     _mbh_kwargs = dict(
         search_space=(
-            np.array(np.arange(min(self.max_nfeatures, len(original_features)) + 1).tolist() + [len(original_features)])
+            np.array(np.arange(min(self.max_nfeatures, _p) + 1).tolist() + [_p])
             if self.max_nfeatures
-            else np.arange(len(original_features) + 1)
+            else np.arange(_p + 1)
         ),
         direction=OptimizationDirection.Maximize,
         init_sampling_method=CandidateSamplingMethod.Equidistant,
         init_evaluate_ascending=False,
         init_evaluate_descending=True,
         plotting=plotting_mode,
-        seeded_inputs=[min(2, len(original_features))],
+        seeded_inputs=_seeded,
         model_name=_model_name,
         model_params=_user_model_params,
     )

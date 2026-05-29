@@ -88,8 +88,9 @@ class TestT2_MustExclude:
         assert "c" not in names
         assert "d" not in names
 
-    def test_must_exclude_silently_ignores_missing_columns(self):
-        """must_exclude with a column that doesn't exist must not error."""
+    def test_must_exclude_missing_column_raises_by_default(self):
+        """E15 (Wave 4, 2026-05-28): typos in must_exclude are now an error."""
+        import pytest as _pt
         rng = np.random.default_rng(0)
         X = pd.DataFrame(rng.standard_normal((100, 4)), columns=list("abcd"))
         y = (X["a"] > 0).astype(int).values
@@ -98,8 +99,21 @@ class TestT2_MustExclude:
             cv=3, max_refits=2, verbose=0,
             must_exclude=["nonexistent", "a"],
         )
+        with _pt.raises(ValueError, match="must_exclude"):
+            rfecv.fit(X, y)
+
+    def test_must_exclude_strict_false_silently_ignores(self):
+        """E15: opt-out via must_exclude_strict=False restores legacy."""
+        rng = np.random.default_rng(0)
+        X = pd.DataFrame(rng.standard_normal((100, 4)), columns=list("abcd"))
+        y = (X["a"] > 0).astype(int).values
+        rfecv = _rfecv(
+            estimator=LogisticRegression(max_iter=200, random_state=0),
+            cv=3, max_refits=2, verbose=0,
+            must_exclude=["nonexistent", "a"],
+            must_exclude_strict=False,
+        )
         rfecv.fit(X, y)
-        # 'a' must be excluded; 'nonexistent' silently ignored.
         assert "a" not in list(rfecv.get_feature_names_out())
 
 

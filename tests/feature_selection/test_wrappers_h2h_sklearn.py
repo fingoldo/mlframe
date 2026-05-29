@@ -175,6 +175,11 @@ def test_h2h_subset_size_on_redundant_clf():
         cv=StratifiedKFold(n_splits=3, shuffle=True, random_state=0),
         max_refits=8,
         verbose=0,
+        # Compare against sklearn's argmax-style selector at the same rule.
+        # Default 'one_se_max' is plateau-resistant by design and legitimately
+        # picks the full 1-SE band on flat curves -- which is a DIFFERENT
+        # selection regime than sklearn's exhaustive backward elimination.
+        n_features_selection_rule="argmax",
     )
     ours.fit(X, y)
 

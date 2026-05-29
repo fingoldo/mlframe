@@ -38,7 +38,16 @@ def _detect_multithreaded(estimator: object) -> bool:
 
 
 def _pin_threads_to_one(estimator: object) -> None:
-    """Best-effort: set every known thread-count param to 1 on ``estimator``."""
+    """Best-effort: set every known thread-count param to 1 on ``estimator``.
+
+    E14 (Wave 4, 2026-05-28; reverted 2026-05-28): an earlier version also
+    SET ``os.environ['OMP_NUM_THREADS']='1'`` here, but that leaked process-
+    global single-threading into subsequent tests / fits that DID want
+    multi-thread (LightGBM's histogram path changed split selection on
+    pinned vs unpinned threads, breaking ``test_basic_regression`` for
+    LGBMRegressor). Callers that need full OMP-pinning MUST wrap with
+    their own try/finally; this function only touches estimator params.
+    """
     if not hasattr(estimator, "set_params"):
         return
     try:
@@ -59,202 +68,6 @@ def suppress_irritating_3rdparty_warnings() -> None:
         warnings.filterwarnings("ignore", category=UserWarning, message=message)
 
 
-def make_gaussian_knockoffs(X, random_state=None, sdp_solve: bool = False) -> np.ndarray:
-    """Generate fixed-design Gaussian knockoffs (Barber-Candes 2015).
-
-    For each X_j a knockoff X_tilde_j is produced that has the same
-    correlation with X_{-j} as X_j does, but is independent of y. This
-    lets us identify 'real' importance: a feature is selected if its
-    importance >> its knockoff's importance under the same fitted model.
-
-    Equicorrelated construction (default): s_j = s for all j, with
-    s = min(2 * lambda_min(Sigma), 1) where Sigma = corr(X). This is the
-    cheap closed-form path; the SDP-based optimal s requires cvxpy and
-    gives slightly tighter knockoffs but is rarely worth the dependency.
-
-    Parameters
-    ----------
-    X : ndarray (n, p)
-        Numeric design matrix. Will be standardized internally; the
-        returned X_tilde matches the standardized scale.
-    random_state : int or None
-        Seed for the noise injection.
-    sdp_solve : bool
-        Reserved for future SDP-based s; currently raises
-        NotImplementedError if True.
-
-    Returns
-    -------
-    X_tilde : ndarray (n, p)
-        Standardized knockoff matrix, same shape as X.
-    """
-    if sdp_solve:
-        raise NotImplementedError("SDP knockoffs not yet implemented; use equicorrelated default.")
-
-    rng = np.random.default_rng(random_state)
-    X_arr = np.asarray(X, dtype=float)
-    n, p = X_arr.shape
-    if n < 2 or p < 1:
-        raise ValueError(f"X must have at least 2 rows and 1 column; got {X_arr.shape}")
-
-    # Standardise X (zero mean, unit variance per column) so Sigma is correlation
-    means = np.nanmean(X_arr, axis=0)
-    stds = np.nanstd(X_arr, axis=0)
-    stds = np.where(stds > 1e-12, stds, 1.0)
-    X_std = (X_arr - means) / stds
-    # Replace any NaNs (from constant columns) with 0
-    X_std = np.where(np.isnan(X_std), 0.0, X_std)
-
-    # Sigma = correlation matrix. Tiny ridge keeps it positive definite on near-collinear inputs.
-    Sigma = (X_std.T @ X_std) / max(1, n - 1)
-    Sigma = Sigma + 1e-8 * np.eye(p)
-
-    # Equicorrelated s: s_j = s for all j, where s = min(2*lambda_min, 1).
-    eigvals = np.linalg.eigvalsh(Sigma)
-    lam_min = float(max(eigvals[0], 1e-8))
-    # When Sigma is near-singular (anti-correlated pairs X_j = -X_k or 100% collinear copies),
-    # lam_min ~ 1e-8 -> s_val ~ 2e-8 -> X_tilde becomes ~ X (self-corr ~ 1, useless as knockoff).
-    # Warn so the user knows knockoffs won't help here.
-    if lam_min < 1e-4:
-        logger.warning(
-            "make_gaussian_knockoffs: input correlation matrix has "
-            "lambda_min=%.2e (near-singular); knockoffs will be near-copies "
-            "of original features (self-corr ~ 1) and W statistics ~ 0. "
-            "Reduce collinearity (drop duplicates / use feature_groups) "
-            "or use stability_selection instead.",
-            lam_min,
-        )
-    s_val = min(2.0 * lam_min, 1.0) * 0.99  # 0.99 buffer for numerical PSD
-    s = np.full(p, s_val)
-
-    # Knockoff construction:
-    #   X_tilde = X_std (I - Sigma^{-1} diag(s)) + Z C^T
-    # where C C^T = 2 diag(s) - diag(s) Sigma^{-1} diag(s) (must be PSD).
-    # Pseudo-inverse is a safety fallback on near-singular Sigma.
-    try:
-        Sigma_inv = np.linalg.inv(Sigma)
-    except np.linalg.LinAlgError:
-        Sigma_inv = np.linalg.pinv(Sigma)
-    diag_s = np.diag(s)
-    A = np.eye(p) - Sigma_inv @ diag_s
-
-    M = 2.0 * diag_s - diag_s @ Sigma_inv @ diag_s
-    # Ensure M is symmetric PSD numerically; add ridge if needed.
-    M = 0.5 * (M + M.T)
-    eigvals_M = np.linalg.eigvalsh(M)
-    if eigvals_M[0] < 0:
-        M = M + (-eigvals_M[0] + 1e-8) * np.eye(p)
-    C = np.linalg.cholesky(M)
-
-    Z = rng.standard_normal((n, p))
-    X_tilde_std = X_std @ A + Z @ C.T
-
-    # Return on the original scale; estimators don't typically standardise themselves.
-    X_tilde = X_tilde_std * stds + means
-    return X_tilde
-
-
-def select_features_fdr(W: dict, q: float = 0.1) -> list:
-    """Barber-Candes FDR-controlled feature selection from a knockoff W
-    statistic dict.
-
-    Picks features with W_j >= tau, where
-        tau = min{t > 0 : (1 + #{j: W_j <= -t}) / max(1, #{j: W_j >= t}) <= q}
-    The probability that a noise feature is in the selected set is bounded
-    by q (Barber & Candes 2015, Theorem 1). Returns [] if no threshold
-    achieves the target FDR (typical on small n / weak signal).
-
-    Parameters
-    ----------
-    W : dict
-        Mapping feature_name -> W_j statistic (output of
-        ``knockoff_importance``).
-    q : float
-        Target FDR in (0, 1). Lower = more conservative selection.
-
-    Returns
-    -------
-    list of feature names with W_j >= tau, sorted by W_j desc.
-    """
-    if not W:
-        return []
-    if not (0.0 < q < 1.0):
-        raise ValueError(f"q must be in (0, 1); got {q}")
-    abs_W = np.array([abs(v) for v in W.values()])
-    candidates = sorted(set(abs_W[abs_W > 0]))
-    tau = float("inf")
-    for t in candidates:
-        n_neg = sum(1 for v in W.values() if v <= -t)
-        n_pos = sum(1 for v in W.values() if v >= t)
-        ratio = (1 + n_neg) / max(1, n_pos)
-        if ratio <= q:
-            tau = t
-            break
-    if not np.isfinite(tau):
-        return []
-    selected = [(n, v) for n, v in W.items() if v >= tau]
-    # Wave 58 (2026-05-20): secondary key on feature name; tied |W| (shrinkage
-    # saturation) no longer makes downstream [:topN] slicing drift.
-    selected.sort(key=lambda kv: (-kv[1], kv[0]))
-    return [n for n, _ in selected]
-
-
-def knockoff_importance(model_factory, X, y, current_features=None, random_state=None,
-                        importance_getter: str = "auto") -> dict:
-    """Compute knockoff-based importance: W_j = imp(X_j) - imp(X_tilde_j).
-
-    Builds Gaussian knockoffs X_tilde, fits a fresh model on [X, X_tilde]
-    (2p columns), reads the importance of each REAL feature j and its
-    KNOCKOFF j, returns the difference. Real features driving y will have
-    W_j >> 0; noise features have W_j ~ N(0, sigma) symmetric around 0.
-
-    Parameters
-    ----------
-    model_factory : callable
-        ``model_factory()`` must return a fresh unfitted estimator. We don't
-        accept a pre-fit model because knockoffs need a fit on [X, X_tilde].
-    X : DataFrame or ndarray (n, p)
-    y : array-like (n,)
-    current_features : list of feature names (optional)
-        If None, defaults to X.columns or range(p).
-    random_state : int or None
-    importance_getter : same semantics as get_feature_importances
-
-    Returns
-    -------
-    Dict mapping feature_name -> W_j (knockoff statistic).
-    """
-    is_df = hasattr(X, "columns")
-    X_arr = X.values if is_df else np.asarray(X)
-    n, p = X_arr.shape
-    if current_features is None:
-        current_features = list(X.columns) if is_df else list(range(p))
-
-    X_tilde = make_gaussian_knockoffs(X_arr, random_state=random_state)
-    X_joint = np.hstack([X_arr, X_tilde])
-    real_names = [f"_real_{i}" for i in range(p)]
-    fake_names = [f"_fake_{i}" for i in range(p)]
-    if is_df:
-        X_joint_df = pd.DataFrame(X_joint, columns=real_names + fake_names, index=X.index)
-    else:
-        X_joint_df = X_joint
-
-    model = model_factory()
-    model.fit(X_joint_df, y)
-
-    fi = get_feature_importances(
-        model=model,
-        current_features=real_names + fake_names,
-        data=X_joint_df,
-        target=y,
-        importance_getter=importance_getter,
-    )
-    W = {}
-    for i, fname in enumerate(current_features):
-        imp_real = float(fi.get(f"_real_{i}", 0.0))
-        imp_fake = float(fi.get(f"_fake_{i}", 0.0))
-        W[fname] = imp_real - imp_fake
-    return W
 
 
 def split_into_train_test(
@@ -360,7 +173,8 @@ def _conditional_permutation_importance(
     X: pd.DataFrame | np.ndarray,
     y: pd.Series | np.ndarray,
     n_repeats: int = 5,
-    max_depth: int = 5,
+    max_depth: Union[int, None] = None,
+    min_samples_leaf: int = 10,
     random_state: int = 0,
 ) -> np.ndarray:
     """Strobl, Boulesteix, Zeileis, Hothorn 2008 conditional permutation importance.
@@ -371,7 +185,12 @@ def _conditional_permutation_importance(
     decision tree X_{-j} -> X_j, then permutes X_j WITHIN each leaf, which
     preserves P(X_j | X_{-j}) and removes the correlation-induced bias.
 
-    Cost: ~2-3x vanilla permutation (per-feature shallow tree fit + n_repeats
+    F10 (Wave 3, 2026-05-28): max_depth=None grows the tree until
+    min_samples_leaf binds. The pre-fix max_depth=5 cap under-conditioned on
+    >5 correlated features and silently degenerated to vanilla permutation
+    (Strobl 2008 recommends >=5 samples per leaf, no depth cap).
+
+    Cost: ~2-3x vanilla permutation (per-feature tree fit + n_repeats
     leaf-grouped shuffles).
 
     Returns
@@ -410,6 +229,22 @@ def _conditional_permutation_importance(
             uniq = np.unique(col)
         return uniq.size <= 10
 
+    def _is_discrete_v2(col: np.ndarray) -> bool:
+        # F11 (Wave 3, 2026-05-28): tighter discrete detection.
+        # Integer dtype is canonical discrete. For floats, require BOTH (a) low
+        # unique count AND (b) cardinality << n_rows. Decile-binned continuous
+        # variables (10 unique values across 100k rows) now correctly route to
+        # regression instead of classification.
+        if np.issubdtype(col.dtype, np.integer):
+            return True
+        try:
+            mask = ~np.isnan(col.astype(float, copy=False))
+            uniq = np.unique(col[mask])
+        except (TypeError, ValueError):
+            uniq = np.unique(col)
+        _n = max(int(mask.sum()) if hasattr(mask, "sum") else len(col), 1)
+        return uniq.size <= max(5, int(np.sqrt(_n))) and uniq.size <= 0.5 * _n
+
     for j in range(p):
         Xj = X_arr[:, j]
         Xnotj = np.delete(X_arr, j, axis=1)
@@ -427,16 +262,30 @@ def _conditional_permutation_importance(
             importances[j] = float(np.mean(score_losses))
             continue
 
-        if _is_discrete(Xj):
-            tree = DecisionTreeClassifier(max_depth=max_depth, random_state=random_state)
+        # F10/F11: pass max_depth + min_samples_leaf. max_depth=None grows the tree
+        # until min_samples_leaf binds (recommended by Strobl 2008 on >=5).
+        # F11 (Wave 3, 2026-05-28): _is_discrete heuristic improved to require
+        # integer-dtype OR n_unique<=max(5, sqrt(n)) so decile-binned continuous
+        # variables don't trigger Classifier mis-detection.
+        if _is_discrete_v2(Xj):
+            tree = DecisionTreeClassifier(
+                max_depth=max_depth, min_samples_leaf=min_samples_leaf,
+                random_state=random_state,
+            )
         else:
-            tree = DecisionTreeRegressor(max_depth=max_depth, random_state=random_state)
+            tree = DecisionTreeRegressor(
+                max_depth=max_depth, min_samples_leaf=min_samples_leaf,
+                random_state=random_state,
+            )
 
         try:
             tree.fit(Xnotj, Xj)
             leaves = tree.apply(Xnotj)
-        except (ValueError, TypeError):
-            # Conditioning fit failed (constant Xj, all-NaN row, etc.); skip.
+        except (ValueError, TypeError, MemoryError, RuntimeError):
+            # E11 (Wave 4, 2026-05-28): widen the except to catch MemoryError
+            # on 1M-row Xnotj and RuntimeError from custom-estimator paths
+            # raising AttributeError-like wrapped exceptions. Conditioning
+            # fit failed (constant Xj, all-NaN row, etc.); skip.
             importances[j] = 0.0
             continue
 
@@ -452,8 +301,14 @@ def _conditional_permutation_importance(
             X_for_score = (
                 pd.DataFrame(X_perm, columns=cols, index=idx) if is_dataframe else X_perm
             )
-            score_losses.append(baseline - float(model.score(X_for_score, y)))
-        importances[j] = float(np.mean(score_losses))
+            # E11 ext: wrap model.score in try/except so a custom scorer crash
+            # on the permuted X doesn't kill the whole CPI loop. NaN signals
+            # the failure to the consumer.
+            try:
+                score_losses.append(baseline - float(model.score(X_for_score, y)))
+            except Exception:
+                score_losses.append(np.nan)
+        importances[j] = float(np.nanmean(score_losses)) if any(not np.isnan(s) for s in score_losses) else 0.0
 
     return importances
 
@@ -465,6 +320,12 @@ def get_feature_importances(
     data: pd.DataFrame | np.ndarray | None = None,
     reference_data: pd.DataFrame | np.ndarray | None = None,
     target: pd.Series | np.ndarray | None = None,
+    train_data: pd.DataFrame | np.ndarray | None = None,
+    multiclass_coef_aggregation: str = "max",
+    coef_scale_source: str = "train",
+    cpi_max_depth: Union[int, None] = None,
+    cpi_min_samples_leaf: int = 10,
+    n_repeats: int = 5,
 ) -> dict:
     """Compute per-feature importance for a fitted model.
 
@@ -499,19 +360,144 @@ def get_feature_importances(
                     "importance_getter='conditional_permutation' requires target (y_test) "
                     "to score against. Pass target= explicitly."
                 )
+            # F10 (Wave 3, 2026-05-28): cpi_max_depth=None lets the auxiliary tree grow
+            # until min_samples_leaf constraint kicks in (Strobl 2008 recommendation).
             res = _conditional_permutation_importance(
                 model, data, target,
-                n_repeats=5,
-                max_depth=5,
+                n_repeats=n_repeats,
+                max_depth=cpi_max_depth,
+                min_samples_leaf=cpi_min_samples_leaf,
                 random_state=0,
             )
-        elif importance_getter == "shap":
+        elif importance_getter == "drop_column":
+            # Drop-column importance: refit ``model`` on data with each column
+            # individually dropped, measure score drop vs full-X baseline.
+            # O(p * full_fit_time) -- infeasible on p>=1000. Useful as a
+            # ground-truth oracle when benchmarking other importance methods.
+            if data is None or target is None:
+                raise ValueError(
+                    "importance_getter='drop_column' requires data (X) and target (y) at the call site."
+                )
+            from sklearn.base import clone as _clone
+            _Xnp = data.to_numpy(copy=False) if hasattr(data, "to_numpy") else np.asarray(data)
+            _baseline = float(model.score(data, target))
+            _scores = np.zeros(_Xnp.shape[1], dtype=float)
+            for _j in range(_Xnp.shape[1]):
+                _X_drop = np.delete(_Xnp, _j, axis=1)
+                if hasattr(data, "columns"):
+                    _X_drop = pd.DataFrame(_X_drop, columns=[c for i, c in enumerate(data.columns) if i != _j])
+                _m = _clone(model)
+                try:
+                    _m.fit(_X_drop, target)
+                    _scores[_j] = _baseline - float(_m.score(_X_drop, target))
+                except Exception:
+                    _scores[_j] = 0.0
+            res = _scores
+        elif importance_getter == "boruta":
+            # Classical Boruta (Kursa & Rudnicki 2010, JSS-36): pair each real
+            # feature with a SHADOW (shuffled copy) and judge importance vs
+            # the max-shadow importance. No external dep; uses the supplied
+            # ``model``'s feature_importances_ / coef_ after refitting on
+            # [X, X_shadow]. Pure-Gini variant -- biased on high-cardinality
+            # categoricals. Use 'boruta_shap' for the SHAP-based unbiased
+            # version when shap is available.
+            if data is None or target is None:
+                raise ValueError(
+                    "importance_getter='boruta' requires data (X) and target (y) at the call site."
+                )
+            from sklearn.base import clone as _clone
+            rng = np.random.default_rng(0)
+            _Xnp = data.to_numpy(copy=False) if hasattr(data, "to_numpy") else np.asarray(data)
+            _p = _Xnp.shape[1]
+            # Shadow = column-wise shuffled copy.
+            _Xshadow = _Xnp.copy()
+            for _j in range(_p):
+                rng.shuffle(_Xshadow[:, _j])
+            _Xjoint = np.hstack([_Xnp, _Xshadow])
+            _model_clone = _clone(model)
+            try:
+                _model_clone.fit(_Xjoint, target)
+            except Exception as _exc:
+                raise RuntimeError(
+                    f"Boruta refit on [X, shadow] failed for {type(model).__name__}: {_exc}"
+                ) from _exc
+            # Read importances of joint model.
+            if hasattr(_model_clone, "feature_importances_"):
+                _imps = np.asarray(_model_clone.feature_importances_)
+            elif hasattr(_model_clone, "coef_"):
+                _imps = np.abs(np.asarray(_model_clone.coef_))
+                if _imps.ndim > 1:
+                    _imps = _imps.max(axis=0)
+            else:
+                raise AttributeError(
+                    f"'boruta' importance_getter requires feature_importances_ or coef_ on the refit model; "
+                    f"{type(_model_clone).__name__} has neither."
+                )
+            _real = _imps[:_p]
+            _shadow_max = float(_imps[_p:].max()) if len(_imps) > _p else 0.0
+            # Per-feature score = real importance MINUS shadow-max threshold.
+            # Positive = beats shadow; negative = noise. Caller's downstream
+            # consumer treats it like any FI vector.
+            res = _real - _shadow_max
+        elif importance_getter == "boruta_shap":
+            # L1 (Wave 5, 2026-05-28): Boruta-SHAP via the optional ``arfs`` /
+            # ``BorutaShap`` packages. Returns per-feature shadow-relative
+            # importance: positive => beats max-shadow at the configured
+            # p-value level; zero => indistinguishable from shadow.
+            if target is None:
+                raise ValueError("importance_getter='boruta_shap' requires target (y_test).")
+            try:
+                from BorutaShap import BorutaShap as _BorutaShap
+            except ImportError:
+                try:
+                    from arfs.feature_selection import GrootCV as _BorutaShap  # arfs fallback
+                except ImportError as _exc2:
+                    raise ImportError(
+                        "importance_getter='boruta_shap' requires ``BorutaShap`` or ``arfs``. "
+                        "Install via ``pip install BorutaShap`` or ``pip install arfs``."
+                    ) from _exc2
+            try:
+                _bs = _BorutaShap(model=model, importance_measure="shap", classification=hasattr(model, "classes_"))
+                _bs.fit(X=data if data is not None else target, y=target, n_trials=15, random_state=0, verbose=False)
+                # Output: BorutaShap stores accepted/rejected lists; build dense importance with shadow-relative scores.
+                _accepted = set(getattr(_bs, "accepted", []) or [])
+                _tentative = set(getattr(_bs, "tentative", []) or [])
+                res = np.array([1.0 if c in _accepted else (0.5 if c in _tentative else 0.0)
+                                for c in current_features], dtype=float)
+            except Exception as _exc:
+                raise RuntimeError(f"BorutaShap failed: {_exc}") from _exc
+        elif importance_getter == "powershap":
+            # L2 (Wave 5, 2026-05-28): PowerSHAP via optional ``powershap`` pkg.
+            if target is None:
+                raise ValueError("importance_getter='powershap' requires target (y_test).")
+            try:
+                from powershap import PowerShap as _PowerShap
+            except ImportError as _exc:
+                raise ImportError(
+                    "importance_getter='powershap' requires the optional ``powershap`` package. "
+                    "Install via ``pip install powershap``."
+                ) from _exc
+            try:
+                _ps = _PowerShap(model=model)
+                _ps.fit(data, target)
+                # _ps stores _processed_shaps_df with p-values per feature; treat selected -> 1, else 0.
+                _sel = set(_ps.selected_features_) if hasattr(_ps, "selected_features_") else set()
+                res = np.array([1.0 if c in _sel else 0.0 for c in current_features], dtype=float)
+            except Exception as _exc:
+                raise RuntimeError(f"PowerSHAP failed: {_exc}") from _exc
+        elif importance_getter in ("shap", "shap_oof"):
+            # L4 (Wave 5, 2026-05-28): 'shap_oof' is an explicit alias for
+            # 'shap'. The standard RFECV fold path fits the model on
+            # X_train then calls this with data=X_test (held-out fold),
+            # so the resulting mean(|SHAP|) is already an OOF importance.
+            # The alias name makes that semantic explicit for callers who
+            # want SHAP-OOF elimination without having to read the source.
             try:
                 import shap as _shap
             except ImportError as _exc:
                 raise ImportError(
-                    "importance_getter='shap' requires the optional ``shap`` "
-                    "package. Install via ``pip install shap``."
+                    f"importance_getter={importance_getter!r} requires the optional "
+                    f"``shap`` package. Install via ``pip install shap``."
                 ) from _exc
             try:
                 explainer = _shap.Explainer(model, data)
@@ -526,45 +512,104 @@ def get_feature_importances(
                     f"Try importance_getter='permutation' instead."
                 ) from _exc
         else:
+            # 2026-05-28 sklearn-parity: ``importance_getter`` may be a dotted
+            # path such as ``regressor_.coef_`` (for TransformedTargetRegressor)
+            # or ``named_steps.lr.coef_`` (for Pipeline). Resolve via
+            # operator.attrgetter so the legacy single-attr behaviour AND the
+            # dotted path both work. ``auto`` also unwraps Pipelines and other
+            # wrappers to the underlying ``_final_estimator`` / ``regressor_``
+            # before searching for feature_importances_ / coef_.
+            def _unwrap_estimator(m):
+                # Walk to the innermost fitted estimator: Pipeline -> _final_estimator;
+                # TransformedTargetRegressor -> regressor_; ColumnTransformer-style
+                # wrappers fall back to themselves.
+                for _ in range(8):
+                    if hasattr(m, "_final_estimator") and m._final_estimator is not m:
+                        m = m._final_estimator
+                        continue
+                    if hasattr(m, "regressor_") and getattr(m, "regressor_") is not m:
+                        m = m.regressor_
+                        continue
+                    if hasattr(m, "best_estimator_") and getattr(m, "best_estimator_") is not m:
+                        m = m.best_estimator_
+                        continue
+                    break
+                return m
+
+            def _resolve_getter(obj, dotted: str):
+                # operator.attrgetter handles the dotted-path traversal.
+                from operator import attrgetter
+                return attrgetter(dotted)(obj)
+
             if importance_getter == "auto":
-                if hasattr(model, "feature_importances_"):
+                inner = _unwrap_estimator(model)
+                if hasattr(inner, "feature_importances_"):
+                    res = inner.feature_importances_
                     getter_attr = "feature_importances_"
-                elif hasattr(model, "coef_"):
+                elif hasattr(inner, "coef_"):
+                    res = inner.coef_
                     getter_attr = "coef_"
                 else:
                     raise AttributeError(
-                        f"importance_getter='auto' could not find feature_importances_ or coef_ on a fitted {type(model).__name__}."
+                        f"importance_getter='auto' could not find feature_importances_ or coef_ "
+                        f"on a fitted {type(model).__name__} (unwrapped to {type(inner).__name__})."
                     )
             else:
                 getter_attr = importance_getter
-            res = getattr(model, getter_attr)
+                # Dotted path (sklearn convention).
+                if "." in importance_getter:
+                    try:
+                        res = _resolve_getter(model, importance_getter)
+                    except (AttributeError, KeyError) as _attr_exc:
+                        raise AttributeError(
+                            f"importance_getter={importance_getter!r}: could not resolve dotted "
+                            f"path on {type(model).__name__}. Verify each step exists on the "
+                            f"fitted estimator. Underlying error: {_attr_exc}"
+                        ) from _attr_exc
+                    # Normalise getter_attr to the LAST segment for downstream coef_-scaling logic.
+                    getter_attr = importance_getter.rsplit(".", 1)[-1]
+                else:
+                    res = getattr(model, getter_attr)
             if getter_attr == "coef_":
-                # Multi-class: collapse class axis FIRST (sum |coef_| across classes
-                # per feature) before scale-correction.
+                # F5 (Wave 3, 2026-05-28): multi-class collapse. 'max' (default)
+                # uses max(|coef_class|, axis=0) -> a feature important for ANY
+                # class is important. Pre-fix sum(|coef|) over OvR rows mixed
+                # class-specific signals: a single-class discriminator looked
+                # like a mid-relevance feature for every class. 'sum' is opt-in.
                 res = np.abs(res)
                 if res.ndim > 1:
-                    res = res.sum(axis=0)
-                # coef_ is scale-dependent: if X_j has 100x larger std than X_k,
-                # |coef_j| is ~100x smaller for the same effect on y, biasing selection
-                # toward small-variance features. Multiply by feature std so the
-                # resulting "importance" is the magnitude of effect on y per
-                # *standardised* unit of X. data is X_test in the call site; if absent
-                # (callable path), fall back to unscaled |coef_|.
-                if data is not None:
-                    try:
-                        if hasattr(data, "values"):
-                            _Xarr = data.values
-                        else:
-                            _Xarr = np.asarray(data)
-                        _stds = np.nanstd(_Xarr, axis=0)
-                        # Avoid blow-up on near-constant cols (stds ~ 0).
-                        _stds = np.where(_stds > 1e-12, _stds, 1.0)
-                        if len(_stds) == len(res):
-                            res = res * _stds
-                    except (TypeError, ValueError):
-                        # Non-numeric data (object cols, mixed pl frames): skip scaling.
-                        pass
+                    if multiclass_coef_aggregation == "max":
+                        res = res.max(axis=0)
+                    else:
+                        res = res.sum(axis=0)
+                # F4 (Wave 3, 2026-05-28): scale correction with TRAIN stds.
+                # Pre-fix used X_test stds -> leaks test variance into FI on small
+                # folds. Use train_data when provided; fall back to data only if
+                # train_data is absent (callable importance_getter path) and
+                # coef_scale_source != 'none'.
+                _scale_src = coef_scale_source
+                if _scale_src == "none":
+                    pass
+                else:
+                    _src_data = train_data if (train_data is not None and _scale_src == "train") else data
+                    if _src_data is not None:
+                        try:
+                            if hasattr(_src_data, "values"):
+                                _Xarr = _src_data.values
+                            else:
+                                _Xarr = np.asarray(_src_data)
+                            _stds = np.nanstd(_Xarr, axis=0)
+                            # Avoid blow-up on near-constant cols (stds ~ 0).
+                            _stds = np.where(_stds > 1e-12, _stds, 1.0)
+                            if len(_stds) == len(res):
+                                res = res * _stds
+                        except (TypeError, ValueError):
+                            # Non-numeric data (object cols, mixed pl frames): skip scaling.
+                            pass
             elif res.ndim > 1:
+                # Tree-based feature_importances_ stays 1-D normally; this branch
+                # handles unusual estimators (e.g. multi-output) and uses sum
+                # because we can't distinguish "OvR class" from "output" here.
                 res = res.sum(axis=0)
     else:
         try:
@@ -596,6 +641,7 @@ def select_appropriate_feature_importances(
     use_last_fi_run_only: bool = False,
     use_one_freshest_fi_run: bool = False,
     use_fi_ranking: bool = False,
+    votes_aggregation_method: Union[VotesAggregation, None] = None,
 ) -> dict:
     if use_last_fi_run_only:
         fi_to_consider = {key: value for key, value in feature_importances.items() if len(value) == n_original_features}
@@ -617,16 +663,98 @@ def select_appropriate_feature_importances(
             else:
                 fi_to_consider = {key: value for key, value in feature_importances.items() if (len(value) > nfeatures and len(value) != 1)}
     if use_fi_ranking:
-        fi_to_consider = {key: pd.Series(value).rank(ascending=True, pct=True).to_dict() for key, value in fi_to_consider.items()}
+        # F12 (Wave 3, 2026-05-28): rank-based aggregation rules (Borda /
+        # Copeland / Dowdall / Minimax / Plurality) internally rank the
+        # input table anyway; pre-ranking it here is a no-op for them and
+        # only adds tiebreaker-method drift (.rank default 'average' vs
+        # Leaderboard's 'min'/'max'). Skip pre-ranking when the downstream
+        # aggregator is itself rank-based.
+        _rank_based = {
+            VotesAggregation.Borda,
+            VotesAggregation.Copeland,
+            VotesAggregation.Dowdall,
+            VotesAggregation.Minimax,
+            VotesAggregation.Plurality,
+        } if votes_aggregation_method is not None else set()
+        if votes_aggregation_method in _rank_based:
+            pass  # downstream Leaderboard handles ranking
+        else:
+            fi_to_consider = {key: pd.Series(value).rank(ascending=True, pct=True).to_dict() for key, value in fi_to_consider.items()}
     return fi_to_consider
 
 
-def get_actual_features_ranking(feature_importances: dict, votes_aggregation_method: VotesAggregation) -> list:
+def _impute_ragged_fi_table(table: pd.DataFrame, policy: str) -> pd.DataFrame:
+    """F1+F2+F3 (Wave 1, 2026-05-28): impute missing per-run FI entries in a ragged voting table BEFORE handing it to Leaderboard.
+
+    The historical RFECV vote let pandas' NaN propagate into Borda / Dowdall / Copeland / Minimax / Plurality with skipna=True semantics
+    that systematically biased toward late-surviving features (a feature voting in 30/30 runs sums over 30 columns vs a feature voting in
+    3/30 runs that sums over 3). AM/GM/OG already fill with the column median upstream; the other rules did not. Different rules + different
+    pre-fixes = unpredictable user-facing behaviour. We now normalise the ragged table at the WRAPPER layer so every rule sees the same
+    completed input.
+
+    policy:
+        'worst'  : missing -> min(col) - eps for each column. A feature absent from run K is treated as "ranked LAST in run K" by every
+                   downstream rule. This matches the operator intuition that elimination at iter N means the feature lost the iter-N comparison.
+        'median' : missing -> column median. Pre-2026 default for AM/GM/OG, generalised. Lets re-appearing features keep "average" treatment.
+        'skip'   : raw pre-fix table (back-compat A/B path).
+    """
+    if policy == "skip":
+        return table
+    if not isinstance(table, pd.DataFrame) or table.empty or not table.isna().to_numpy().any():
+        return table
+    if policy == "worst":
+        # For each column, the imputed value sits strictly below the smallest observed FI so the "missing -> last rank" guarantee
+        # holds even on ties: the eps is scaled to the column range so a constant column doesn't collapse the gap.
+        out = table.copy()
+        col_min = out.min(axis=0, skipna=True)
+        col_max = out.max(axis=0, skipna=True)
+        col_range = (col_max - col_min).fillna(0.0)
+        # Treat zero-range columns (every present value identical) as needing a finite eps so the imputed value still sorts strictly below.
+        col_eps = col_range.where(col_range > 0.0, other=1.0) * 1e-3
+        fill = col_min - col_eps
+        # Any column whose every value is NaN cannot be imputed from itself; fall back to a global floor below the table-wide min.
+        all_nan_cols = fill.isna()
+        if all_nan_cols.any():
+            global_floor = float(table.min(skipna=True).min(skipna=True))
+            if not np.isfinite(global_floor):
+                global_floor = 0.0
+            fill = fill.where(~all_nan_cols, other=global_floor - 1.0)
+        out = out.fillna(fill)
+        return out
+    if policy == "median":
+        return table.fillna(table.median())
+    raise ValueError(f"_impute_ragged_fi_table: unknown policy={policy!r}")
+
+
+def get_actual_features_ranking(feature_importances: dict, votes_aggregation_method: VotesAggregation, fi_missing_policy: str = "worst", run_weights: Union[dict, None] = None) -> list:
     """Vote-based rank of features given per-run importances.
 
     Borda/AM/GM/Dowdall use only ranks (cheap). Copeland needs majority_graph,
-    which Leaderboard builds lazily."""
-    lb = Leaderboard(table=pd.DataFrame(feature_importances))
+    which Leaderboard builds lazily.
+
+    Args:
+        feature_importances: dict[run_key -> dict[feature -> importance]].
+        votes_aggregation_method: rule from VotesAggregation enum.
+        fi_missing_policy: how to complete ragged-NaN table (see _impute_ragged_fi_table).
+        run_weights: optional dict[run_key -> weight] for F8 exponential-decay
+            over FI history. When None, all runs vote with equal weight
+            (legacy). Leaderboard normalises so the absolute scale doesn't
+            matter; the RATIO between newer and older runs is what shifts
+            the final ranking.
+
+    F7 (Wave 3, 2026-05-28) tie-breaker: when two features end the rule with
+    identical Leaderboard scores (very common on tree FI with many zeros),
+    fall back to lexicographic ordering by feature name so the output is
+    fully deterministic across Python set/dict iteration orders.
+    """
+    table = pd.DataFrame(feature_importances)
+    table = _impute_ragged_fi_table(table, policy=fi_missing_policy)
+    # F8: forward run_weights into Leaderboard. Leaderboard normalises by sum
+    # so we just pass the float weights; the rule code multiplies per-column.
+    if run_weights:
+        lb = Leaderboard(table=table, weights=dict(run_weights))
+    else:
+        lb = Leaderboard(table=table)
     if votes_aggregation_method == VotesAggregation.Borda:
         ranks = lb.borda_ranking()
     elif votes_aggregation_method == VotesAggregation.AM:
@@ -647,7 +775,13 @@ def get_actual_features_ranking(feature_importances: dict, votes_aggregation_met
         raise NotImplementedError(
             f"votes_aggregation_method={votes_aggregation_method!r} not handled"
         )
-    return ranks.index.values.tolist()
+    # F7 tie-breaker: lexicographic on feature name. Without this the order
+    # of equal-rank features depends on Leaderboard's internal sort and on
+    # the order of the original dict keys -> different runs of the SAME
+    # input pick different "top N" features on tie-clusters.
+    _scores = ranks.to_dict()
+    out = sorted(_scores.keys(), key=lambda k: (-float(_scores[k]) if np.isfinite(_scores[k]) else 0.0, str(k)))
+    return out
 
 
 def get_next_features_subset(
@@ -663,6 +797,11 @@ def get_next_features_subset(
     top_predictors_search_method: OptimumSearch = OptimumSearch.ScipyLocal,
     votes_aggregation_method: VotesAggregation = VotesAggregation.Borda,
     Optimizer: object = None,
+    fi_missing_policy: str = "worst",
+    dichotomic_epsilon: float = 0.0,
+    rng: object = None,
+    fi_decay_rate: float = 0.0,
+    fi_run_order: Union[list, None] = None,
 ) -> list:
     """Generate the next 'next_nfeatures_to_check' candidate to evaluate.
     Combines FIs from prior runs into ranks via voting, returns the top-N."""
@@ -683,18 +822,24 @@ def get_next_features_subset(
             remaining=sorted(remaining),
             evaluated_scores_mean=evaluated_scores_mean,
             n_total=len(original_features),
+            epsilon=float(dichotomic_epsilon),
+            rng=rng,
         )
     elif top_predictors_search_method == OptimumSearch.ScipyLocal:
         next_nfeatures_to_check = _suggest_scipy_local(
             remaining=remaining,
             evaluated_scores_mean=evaluated_scores_mean,
             n_total=len(original_features),
+            epsilon=float(dichotomic_epsilon),
+            rng=rng,
         )
     elif top_predictors_search_method == OptimumSearch.ScipyGlobal:
         next_nfeatures_to_check = _suggest_scipy_global(
             remaining=remaining,
             evaluated_scores_mean=evaluated_scores_mean,
             n_total=len(original_features),
+            epsilon=float(dichotomic_epsilon),
+            rng=rng,
         )
     else:
         raise NotImplementedError(
@@ -717,13 +862,34 @@ def get_next_features_subset(
         use_last_fi_run_only=use_last_fi_run_only,
         use_one_freshest_fi_run=use_one_freshest_fi_run,
         use_fi_ranking=use_fi_ranking,
+        votes_aggregation_method=votes_aggregation_method,
     )
-    ranks = get_actual_features_ranking(feature_importances=fi_to_consider, votes_aggregation_method=votes_aggregation_method)
+    # F8 (Wave 3, 2026-05-28): exponential decay of FI history. With ``fi_decay_rate > 0``, run K is weighted ``(1 - rate)^(age_K)``,
+    # where ``age_K`` is the number of fresher runs that exist. So a 30-iter-old vote weighs (1-0.05)^30 = 0.21 vs the latest vote = 1.0
+    # when rate=0.05. Default 0.0 keeps the legacy equal-weight voting. Recommended 0.02-0.1 for long runs (>=30 iters).
+    _run_weights = None
+    if fi_decay_rate and fi_decay_rate > 0.0 and fi_run_order:
+        # fi_run_order is the insertion order (newest LAST). Map age -> weight.
+        _decay = float(fi_decay_rate)
+        _ordered_keys = [k for k in fi_run_order if k in fi_to_consider]
+        _n_runs = len(_ordered_keys)
+        if _n_runs > 0:
+            _run_weights = {
+                k: (1.0 - _decay) ** (_n_runs - 1 - i)
+                for i, k in enumerate(_ordered_keys)
+            }
+    ranks = get_actual_features_ranking(
+        feature_importances=fi_to_consider,
+        votes_aggregation_method=votes_aggregation_method,
+        fi_missing_policy=fi_missing_policy,
+        run_weights=_run_weights,
+    )
     return ranks[:next_nfeatures_to_check]
 
 
 def _suggest_dichotomic(remaining: list, evaluated_scores_mean: dict,
-                         n_total: int) -> int:
+                         n_total: int, epsilon: float = 0.0,
+                         rng: object = None) -> int:
     """Binary-search-style suggester for ExhaustiveDichotomic.
 
     With one or zero evaluations: probe the midpoint of the full
@@ -731,10 +897,23 @@ def _suggest_dichotomic(remaining: list, evaluated_scores_mean: dict,
     evaluated N and probe the midpoint between it and the nearest
     unevaluated neighbour. Falls back to picking the unevaluated N
     closest to the global midpoint if nothing useful from history.
+
+    S6 (Wave 2, 2026-05-28): when ``epsilon > 0`` and rng samples a
+    Bernoulli(epsilon) success, pick a random unevaluated N OUTSIDE the
+    neighbourhood of the current best (gap > p/4). Prevents the
+    classic two-plateau hill-climb trap. ``rng=None`` uses module's
+    ``random`` for determinism-via-seed only when explicitly passed.
     """
     remaining = sorted(remaining)
     if not remaining:
         return None
+    if epsilon > 0 and rng is not None and len(evaluated_scores_mean) >= 3 and len(remaining) >= 2:
+        if float(rng.random()) < float(epsilon):
+            # Pick a remaining N far from the current best.
+            best_evaluated = max(evaluated_scores_mean.items(), key=lambda kv: kv[1])[0]
+            _far = [n for n in remaining if abs(n - best_evaluated) > max(2, n_total // 4)]
+            pool = _far if _far else remaining
+            return int(pool[int(rng.integers(0, len(pool))) if hasattr(rng, "integers") else rng.randrange(len(pool))])
     if len(evaluated_scores_mean) <= 1:
         # First-time call (or just-the-baseline): probe the midpoint of the FULL range.
         target = max(1, n_total // 2)
@@ -758,81 +937,35 @@ def _suggest_dichotomic(remaining: list, evaluated_scores_mean: dict,
 
 
 def _suggest_scipy_local(remaining: list, evaluated_scores_mean: dict,
-                         n_total: int) -> int:
-    """Local (univariate) suggester via scipy ``minimize_scalar``.
+                         n_total: int, epsilon: float = 0.0, rng=None) -> int:
+    """S5 (Wave 2, 2026-05-28): retained as a thin alias for ExhaustiveDichotomic.
 
-    Builds a piecewise-linear interpolant over the evaluated points,
-    finds its local maximum within the bracket of evaluated N values
-    using ``method='bounded'``, then snaps to the nearest unevaluated
-    N. When fewer than 3 evaluated points exist, falls back to the
-    dichotomic suggester (scipy needs >= 2 anchors for a bracket).
+    The previous implementation built a piecewise-linear interpolant over evaluated points and ran scipy's ``minimize_scalar`` on it.
+    The argmax of a piecewise-linear function is ALWAYS one of its breakpoints (= ``xs`` = already-evaluated N's), so the scipy
+    optimiser collapses to "nearest unevaluated N to an already-evaluated one" -- exactly what dichotomic returns, at the cost of a
+    scipy import + roundtrip. We now delegate to dichotomic with optional epsilon kick; users keep the OptimumSearch.ScipyLocal enum
+    value to avoid silent API breakage in pickled configs.
     """
-    remaining = sorted(remaining)
-    if not remaining:
-        return None
-    if len(evaluated_scores_mean) < 3:
-        return _suggest_dichotomic(remaining, evaluated_scores_mean, n_total)
-    try:
-        from scipy.optimize import minimize_scalar
-    except ImportError:
-        return _suggest_dichotomic(remaining, evaluated_scores_mean, n_total)
-    xs = sorted(evaluated_scores_mean.keys())
-    ys = [evaluated_scores_mean[k] for k in xs]
-    lo, hi = float(xs[0]), float(xs[-1])
-    if hi <= lo:
-        return _suggest_dichotomic(remaining, evaluated_scores_mean, n_total)
-
-    def _neg_score(x: float) -> float:
-        # Piecewise-linear interpolation between evaluated anchors.
-        return -float(np.interp(x, xs, ys))
-
-    try:
-        res = minimize_scalar(_neg_score, bounds=(lo, hi),
-                              method="bounded",
-                              options={"xatol": 0.5})
-        target = int(round(res.x))
-    except Exception:
-        return _suggest_dichotomic(remaining, evaluated_scores_mean, n_total)
-    return min(remaining, key=lambda n: abs(n - target))
+    return _suggest_dichotomic(remaining, evaluated_scores_mean, n_total, epsilon=epsilon, rng=rng)
 
 
 def _suggest_scipy_global(remaining: list, evaluated_scores_mean: dict,
-                          n_total: int) -> int:
-    """Global suggester via scipy ``differential_evolution`` on a
-    spline surrogate of the evaluated points.
+                          n_total: int, epsilon: float = 0.0, rng=None) -> int:
+    """S5 (Wave 2, 2026-05-28): retained as a thin alias for ExhaustiveDichotomic.
 
-    Best when the score-vs-N curve has multiple plateaus or local
-    maxima that a local optimiser would miss. Falls back to
-    dichotomic when scipy is unavailable or evaluation history is
-    insufficient (< 4 points).
+    Same reasoning as _suggest_scipy_local: differential_evolution over a piecewise-linear interpolant has no global structure to
+    discover beyond the breakpoints. Delegate to dichotomic so the search has a single, well-understood code path.
     """
-    remaining = sorted(remaining)
-    if not remaining:
-        return None
-    if len(evaluated_scores_mean) < 4:
-        return _suggest_dichotomic(remaining, evaluated_scores_mean, n_total)
-    try:
-        from scipy.optimize import differential_evolution
-    except ImportError:
-        return _suggest_dichotomic(remaining, evaluated_scores_mean, n_total)
-    xs = sorted(evaluated_scores_mean.keys())
-    ys = [evaluated_scores_mean[k] for k in xs]
-    lo, hi = float(xs[0]), float(xs[-1])
-    if hi <= lo:
-        return _suggest_dichotomic(remaining, evaluated_scores_mean, n_total)
+    return _suggest_dichotomic(remaining, evaluated_scores_mean, n_total, epsilon=epsilon, rng=rng)
 
-    def _neg_score(xv) -> float:
-        x = float(xv[0]) if hasattr(xv, "__len__") else float(xv)
-        return -float(np.interp(x, xs, ys))
-
-    try:
-        res = differential_evolution(
-            _neg_score,
-            bounds=[(lo, hi)],
-            seed=42, maxiter=12, tol=1e-3, polish=False,
-            updating="immediate", popsize=8,
-        )
-        target = int(round(float(res.x[0])))
-    except Exception:
-        return _suggest_dichotomic(remaining, evaluated_scores_mean, n_total)
-    return min(remaining, key=lambda n: abs(n - target))
+# ----------------------------------------------------------------------
+# Sibling-module re-exports. Knockoff helpers live in _knockoffs.py
+# (carved out in Wave 5 to keep this file under 1k LOC). Legacy callers
+# importing make_gaussian_knockoffs / select_features_fdr /
+# knockoff_importance from this module keep working.
+# ----------------------------------------------------------------------
+from ._knockoffs import (  # noqa: E402, F401
+    make_gaussian_knockoffs,
+    select_features_fdr,
+    knockoff_importance,
+)

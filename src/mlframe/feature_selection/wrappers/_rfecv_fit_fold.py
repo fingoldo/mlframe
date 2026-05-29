@@ -238,10 +238,19 @@ def _eval_fold_body(
         _est_scores.append(_score)
 
         # FI is computed on the actual fit_features.
+        # F4/F5/F10/F11 (Wave 3, 2026-05-28): pass through the rescale-source
+        # and aggregation knobs so coef_ uses train-side stds (not test) and
+        # multiclass collapses via max (not sum); CPI uses min_samples_leaf
+        # instead of a fixed depth cap.
         _fi_full = get_feature_importances(
             model=_fitted, current_features=fit_features,
             data=X_test, reference_data=X_val, target=y_test,
+            train_data=X_train,
             importance_getter=importance_getter,
+            multiclass_coef_aggregation=getattr(self, "multiclass_coef_aggregation", "max"),
+            coef_scale_source=getattr(self, "coef_scale_source", "train"),
+            cpi_max_depth=getattr(self, "cpi_max_depth", None),
+            cpi_min_samples_leaf=int(getattr(self, "cpi_min_samples_leaf", 10)),
         )
         if must_include_resolved:
             must_set = set(must_include_resolved)
@@ -251,7 +260,13 @@ def _eval_fold_body(
 
         _est_suffix = f"_e{_est_idx}" if len(estimators_list) > 1 else ""
         _key = f"{len(current_features)}_{nfold}{_est_suffix}"
-        _est_fi_runs.append((_key, _fi))
+        # F14 (Wave 3, 2026-05-28): if THIS estimator's score on THIS fold was NaN, drop its FI from the voting pool. A failed/degenerate
+        # estimator-fold pair should not contribute to the next-subset rank vote. Keep the score in _est_scores so the across-estimator
+        # aggregation (min) still sees it (and propagates NaN to the score curve, which is the diagnostic signal). Opt-out via
+        # drop_nan_score_fi=False.
+        _drop_nan_fi = getattr(self, "drop_nan_score_fi", True)
+        if not (_drop_nan_fi and isinstance(_score, float) and np.isnan(_score)):
+            _est_fi_runs.append((_key, _fi))
         if keep_estimators:
             fitted_estimators[_key] = _fitted
 

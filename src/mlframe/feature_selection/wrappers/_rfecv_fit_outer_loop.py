@@ -16,7 +16,7 @@ from typing import Any, Optional
 
 import numpy as np
 
-from ._enums import OptimumSearch
+from ._enums import OptimumSearch, VotesAggregation
 from ._helpers import get_next_features_subset, store_averaged_cv_scores
 from ._rfecv_fit_fold import _eval_fold_body
 
@@ -60,6 +60,8 @@ class OuterLoopState:
     fitted_estimators: dict = field(default_factory=dict)
     selected_features_per_nfeatures: dict = field(default_factory=dict)
     dummy_scores: list = field(default_factory=list)
+    # 2026-05-28 sklearn-parity: per-fold scores keyed by N, for cv_results_["splitK_test_score"] schema.
+    per_fold_scores: dict = field(default_factory=dict)  # dict[N -> list[float] of length n_splits]
 
     Optimizer: Any = None
 
@@ -122,6 +124,11 @@ def run_outer_loop_iteration(
     if self.special_feature_indices is not None and len(self.special_feature_indices) > 0:
         current_features = self.special_feature_indices
     else:
+        # F6 (Wave 3): coerce votes_aggregation to Borda when multi-estimator + AM/GM and not allow_unsafe.
+        _vam = votes_aggregation_method
+        if estimators_list and len(estimators_list) > 1 and not getattr(self, "allow_unsafe_aggregation", False):
+            if _vam in (VotesAggregation.AM, VotesAggregation.GM):
+                _vam = VotesAggregation.Borda
         current_features = get_next_features_subset(
             nsteps=state.nsteps,
             original_features=original_features,
@@ -133,8 +140,13 @@ def run_outer_loop_iteration(
             use_one_freshest_fi_run=use_one_freshest_fi_run,
             use_fi_ranking=use_fi_ranking,
             top_predictors_search_method=top_predictors_search_method,
-            votes_aggregation_method=votes_aggregation_method,
+            votes_aggregation_method=_vam,
             Optimizer=state.Optimizer,
+            fi_missing_policy=getattr(self, "fi_missing_policy", "worst"),
+            dichotomic_epsilon=float(getattr(self, "dichotomic_epsilon", 0.0)),
+            rng=getattr(self, "_rng", None),
+            fi_decay_rate=float(getattr(self, "fi_decay_rate", 0.0)),
+            fi_run_order=list(state.feature_importances.keys()),
         )
 
     if current_features is None or len(current_features) == 0:
@@ -160,6 +172,16 @@ def run_outer_loop_iteration(
     for _nfold, (_tr_idx, _te_idx) in enumerate(splitter):
         _fold_seed = int(self._rng.integers(0, 2**31 - 1))
         _fold_args.append((_nfold, _tr_idx, _te_idx, _fold_seed))
+
+    # F9 (Wave 1, 2026-05-28): snapshot FI keys BEFORE the fold loop so we
+    # can roll the just-added runs back if store_averaged_cv_scores rejects
+    # the new subset at this N as worse than the previously-stored one.
+    # Without rollback, the loser-subset's FI runs remain in
+    # ``state.feature_importances`` forever and contaminate voting -- a
+    # contemporary RFECV vote sums a mix of winning-subset and
+    # losing-subset importances at the same N, biasing the next subset pick.
+    # Opt-out via self.keep_loser_subset_fi (default False = new behaviour).
+    _fi_keys_before = set(state.feature_importances.keys())
 
     # ``current_features`` and ``scores`` are passed as default args so they bind at def-time to the current outer-iter values; this is safe because the closure is created fresh each outer iter and consumed within that iter (sequentially or via joblib.Parallel).
     def _eval_fold(nfold, train_index, test_index, fold_seed, _current_features=current_features, _scores=scores):
@@ -226,7 +248,15 @@ def run_outer_loop_iteration(
                 "Baseline with 0 features, score=%s +/- %s ~ %s",
                 f"{scores_mean:.{ndigits}f}", f"{scores_std:.{ndigits}f}", f"{final_score:.{ndigits}f}",
             )
-        if top_predictors_search_method == OptimumSearch.ModelBasedHeuristic:
+        # C2 (Wave 1, 2026-05-28): NEW default does NOT submit the N=0 dummy
+        # to the MBH surrogate. On imbalanced accuracy/F1 the prior-strategy
+        # DummyClassifier scores close to the model and the surrogate's
+        # score-vs-N curve gets anchored at the steep (0, dummy) point,
+        # steering the optimizer toward small N. The dummy stays in
+        # cv_results_ for reporting but does NOT influence acquisition.
+        # Opt-in old behaviour via self.submit_dummy_to_optimizer=True.
+        if top_predictors_search_method == OptimumSearch.ModelBasedHeuristic \
+                and getattr(self, "submit_dummy_to_optimizer", False):
             state.Optimizer.submit_evaluations(candidates=[0], evaluations=[final_score], durations=[None])
 
     scores_mean, scores_std, final_score, was_stored = store_averaged_cv_scores(
@@ -239,9 +269,39 @@ def run_outer_loop_iteration(
     # Only commit selected_features when this run actually won at its N.
     if was_stored:
         state.selected_features_per_nfeatures[len(current_features)] = current_features
+        # Per-fold scores for cv_results_["splitK_test_score"] schema.
+        state.per_fold_scores[len(current_features)] = list(scores)
+    else:
+        # F9 rollback: this iter's FI got added to state.feature_importances inside
+        # _eval_fold_body; if the subset lost the gate it must not poison voting.
+        if not getattr(self, "keep_loser_subset_fi", False):
+            _new_fi_keys = set(state.feature_importances.keys()) - _fi_keys_before
+            for _k in _new_fi_keys:
+                state.feature_importances.pop(_k, None)
 
     if top_predictors_search_method == OptimumSearch.ModelBasedHeuristic:
-        state.Optimizer.submit_evaluations(candidates=[len(current_features)], evaluations=[final_score], durations=[None])
+        # S8 (Wave 2, 2026-05-28): align optimizer target with the 1-SE
+        # rule semantics in select_optimal_nfeatures_, which threshold on
+        # RAW cv_mean_perf. The optimizer used to maximise
+        # final_score = mean*w_mean - std*w_std - feature_cost*N
+        # (a UCB-of-noise scalar). Post-processing then picked 1-SE on
+        # the raw mean -> two criteria that can disagree, especially when
+        # the user keeps default std_perf_weight=0.1 and feature_cost=0.0
+        # but switches the rule.
+        # Default: optimizer maximises ``scores_mean`` (consistent with
+        # both 'argmax' (after multiplying by mean_perf_weight=1 default)
+        # and 'one_se_*' (raw mean threshold)). Opt-out via
+        # ``optimizer_target='final_score'`` (legacy).
+        _target_name = getattr(self, "optimizer_target", "mean")
+        if _target_name == "mean":
+            _target_value = scores_mean
+        elif _target_name == "final_score":
+            _target_value = final_score
+        else:
+            raise ValueError(
+                f"optimizer_target must be 'mean' or 'final_score'; got {_target_name!r}"
+            )
+        state.Optimizer.submit_evaluations(candidates=[len(current_features)], evaluations=[_target_value], durations=[None])
 
         if verbose:
             logger.info(
@@ -314,7 +374,14 @@ def run_outer_loop_iteration(
         state.best_nfeatures = len(current_features)
         state.n_noimproving_iters = 0
     else:
-        state.n_noimproving_iters += 1
+        # C8 (Wave 4, 2026-05-28): only increment the no-improve counter when
+        # the OPTIMIZER actually proposed something it hadn't seen before
+        # (was_stored=True or new N). MBH revisits of the same N with a worse
+        # subset (was_stored=False) used to spike the counter and trip
+        # max_noimproving_iters prematurely. Opt-out via
+        # noimprove_counts_revisit=True.
+        if was_stored or getattr(self, "noimprove_counts_revisit", False):
+            state.n_noimproving_iters += 1
 
     if best_desired_score is not None and final_score > best_desired_score:
         if verbose:
@@ -325,6 +392,31 @@ def run_outer_loop_iteration(
         if verbose:
             logger.info("Max # of noimproved iters reached: %s", state.n_noimproving_iters)
         return IterationOutcome.BREAK
+
+    # S7 (Wave 2, 2026-05-28): tolerance-based convergence. ``n_noimproving_iters``
+    # resets on ANY new-best even when the improvement is CV noise (e.g. 1e-6
+    # bump). On noisy scoring the counter rarely hits max_noimproving_iters
+    # and budget is spent grinding the plateau. tol+tol_window break-condition:
+    # "stop when max(last K scores) - min(last K) < tol * |best_score|".
+    # Default tol=None disables the check (legacy behaviour).
+    _tol = getattr(self, "convergence_tol", None)
+    if _tol is not None and _tol > 0 and not np.isnan(final_score):
+        _tol_window = max(2, int(getattr(self, "convergence_tol_window", 10)))
+        if not hasattr(state, "_recent_finals"):
+            state._recent_finals = []
+        state._recent_finals.append(final_score)
+        if len(state._recent_finals) > _tol_window:
+            state._recent_finals = state._recent_finals[-_tol_window:]
+        if len(state._recent_finals) >= _tol_window:
+            _spread = max(state._recent_finals) - min(state._recent_finals)
+            _scale = max(abs(state.best_score), 1e-12) if state.best_score != -np.inf else 1.0
+            if _spread < float(_tol) * _scale:
+                if verbose:
+                    logger.info(
+                        "convergence_tol reached: spread %.6f < tol*|best| (%.6g * %.6f); stopping.",
+                        _spread, _tol, _scale,
+                    )
+                return IterationOutcome.BREAK
 
     # Abort early if every iter so far produced a NaN final_score. The most common cause is a custom scorer returning NaN on every fold (e.g. ROC AUC on single-class CV folds). Without this, the noimproving counter would consume max_noimproving_iters worth of useless CV fits. Detect 5 consecutive NaN iters and bail.
     if np.isnan(final_score):

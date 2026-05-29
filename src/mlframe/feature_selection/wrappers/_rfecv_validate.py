@@ -74,10 +74,24 @@ def _sanitize_X_inputs(self, X, y):
     # Drop zero-variance / all-null columns BEFORE recording ``feature_names_in_``. Otherwise a constant column can land in support_ and
     # downstream pipeline steps that silently drop it (e.g. SimpleImputer with keep_empty_features=False) cause transform-time column-set
     # drift. Vectorised across ALL dtypes via DataFrame.nunique() so constant categorical / string / bool columns are also caught.
+    # E6 (Wave 4, 2026-05-28): also treat numeric columns with variance < 1e-12 as zero-variance (e.g. constant floats with numerical
+    # noise around the same value, or near-constant categorical encodings). Pre-fix used strict nunique<=1 only and missed these.
     if isinstance(X, pd.DataFrame) and X.shape[1] > 0:
         try:
             nunique = X.nunique(dropna=True)
             degenerate = nunique[nunique <= 1].index.tolist()
+            # Add near-zero-variance numeric columns.
+            from pandas.api.types import is_numeric_dtype as _is_num
+            for _c in X.columns:
+                if _c in degenerate:
+                    continue
+                if _is_num(X[_c]):
+                    try:
+                        _v = float(np.nanvar(X[_c].to_numpy(dtype=float, na_value=np.nan)))
+                    except (TypeError, ValueError):
+                        continue
+                    if _v < 1e-12:
+                        degenerate.append(_c)
         except TypeError:
             # Fallback for exotic dtypes that nunique() can't hash.
             degenerate = []
@@ -151,8 +165,50 @@ def _sanitize_X_inputs(self, X, y):
                     len(_drop), _drop,
                 )
             X = X.drop(columns=_drop)
+        # E15 (Wave 4, 2026-05-28): must_exclude names that don't appear in X
+        # are usually typos. Raise OR warn loudly so the user can fix; default
+        # is to raise when ``must_exclude_strict=True`` (NEW, default True).
         _missing = [c for c in self.must_exclude if c not in (list(X.columns) + _drop)]
-        # Missing names are silently ignored: the column is already absent so the exclusion goal is satisfied.
+        if _missing:
+            if getattr(self, "must_exclude_strict", True):
+                raise ValueError(
+                    f"RFECV: must_exclude contains {len(_missing)} name(s) not in X: "
+                    f"{_missing[:20]}. Set must_exclude_strict=False to silently ignore."
+                )
+            else:
+                logger.warning(
+                    "RFECV: must_exclude has %d name(s) not in X (silently ignored): %s",
+                    len(_missing), _missing[:20],
+                )
+
+    # E5 (Wave 4, 2026-05-28): warn on high-cardinality integer / int-encoded
+    # columns that look like hashes / IDs. They pass Pearson leak (low corr),
+    # but tree FI inflates them via split-frequency bias. Knockoffs assume
+    # Gaussian and become meaningless. Threshold: numeric dtype AND
+    # nunique > 0.5 * n_rows AND n_rows >= 50.
+    if isinstance(X, pd.DataFrame) and X.shape[0] >= 50 and getattr(self, "verbose", 0):
+        from pandas.api.types import is_numeric_dtype as _is_num
+        _suspicious_hicard: list = []
+        _n = X.shape[0]
+        for _c in X.columns:
+            if not _is_num(X[_c]):
+                continue
+            try:
+                _nu = int(X[_c].nunique(dropna=True))
+            except (TypeError, ValueError):
+                continue
+            if _nu > 0.5 * _n:
+                _suspicious_hicard.append((_c, _nu))
+            if len(_suspicious_hicard) >= 10:
+                break
+        if _suspicious_hicard:
+            logger.warning(
+                "RFECV: %d numeric column(s) have cardinality > 0.5*n (looks "
+                "like ID / hash / unencoded high-card categorical): %s. Tree "
+                "FI will inflate them; knockoffs assume Gaussian and will "
+                "fail on these. Consider must_exclude or target-encoding.",
+                len(_suspicious_hicard), _suspicious_hicard[:10],
+            )
 
     # Target-leakage early warning: Pearson correlation between each numeric feature and y.
     # Common leak shapes: ID columns that encode the target, post-hoc enrichments, target-encoded categoricals computed on the full set.
@@ -192,15 +248,28 @@ def _sanitize_X_inputs(self, X, y):
                 f"list these in must_exclude."
             )
             _action = getattr(self, "leakage_action", "warn")
+            # E1 (Wave 1, 2026-05-28): must_include OVERRIDES leakage exclusion / raise. The pre-fix path dropped a pinned feature
+            # without warning, then _resolve_must_include raised a misleading "must_include contains entries not in X". The user
+            # explicitly asked for these columns; if they leak, surface via warning but keep the column in.
+            _must_include_set = set(self.must_include or [])
+            _pinned_leaky = [(c, corr) for c, corr in _suspicious if c in _must_include_set]
+            _non_pinned_leaky_cols = [c for c, _ in _suspicious if c not in _must_include_set and c in X.columns]
+            if _pinned_leaky:
+                logger.warning(
+                    "RFECV: must_include pins %d leaky column(s) %s (|corr| >= %s); "
+                    "they remain in the fit. Remove from must_include if unintended.",
+                    len(_pinned_leaky), _pinned_leaky[:20], self.leakage_corr_threshold,
+                )
             if _action == "raise":
-                raise ValueError(_msg + " (leakage_action='raise')")
+                if _non_pinned_leaky_cols:
+                    raise ValueError(_msg + " (leakage_action='raise')")
+                # Else: all offenders are pinned; downgrade to warn (handled above) and proceed.
             elif _action == "exclude":
-                _leaky_cols = [c for c, _ in _suspicious if c in X.columns]
-                if _leaky_cols:
+                if _non_pinned_leaky_cols:
                     logger.warning(
                         _msg + " (leakage_action='exclude' - dropping these columns)"
                     )
-                    X = X.drop(columns=_leaky_cols)
+                    X = X.drop(columns=_non_pinned_leaky_cols)
             else:
                 logger.warning(_msg)
 

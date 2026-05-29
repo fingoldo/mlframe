@@ -172,6 +172,15 @@ class MBHOptimizer:
         suggestions_cache_max_age_sec: int = 60 * 60,  # wait 1 hr before allowing repeated suggestions
         greedy_prob: float = 0.03,
         random_state: Union[int, np.random.Generator, None] = None,
+        # S1 (Wave 2, 2026-05-28): collapse duplicate-x rows by max-y / min-y per direction before fitting the surrogate.
+        # RFECV submits the same x (= N) multiple times under different feature subsets; without dedup CB sees conflicting
+        # targets and biases toward most-recent. Default True (NEW). Set False to restore pre-2026-05-28 behaviour.
+        dedup_known_evaluations: bool = True,
+        # S7 (Wave 2, 2026-05-28): tolerance-based convergence in addition to n_noimproving_iters.
+        # When set, break when max(last tol_window scores) - min(...) < tol * abs(best_evaluation). RFECV reads these to
+        # build a richer convergence condition on top of max_noimproving_iters. Default None = legacy (counter-only).
+        convergence_tol: Optional[float] = None,
+        convergence_tol_window: int = 10,
     ):
 
         # ----------------------------------------------------------------------------------------------------------------------------
@@ -424,7 +433,31 @@ class MBHOptimizer:
                         return None
 
                     if not hasattr(self.model, "partial_fit"):
-                        self.model.fit(self.known_candidates.reshape(-1, 1), self.known_evaluations)
+                        # S1 (Wave 2, 2026-05-28): dedup (x, y) by max(y) within each x.
+                        # RFECV legitimately submits multiple scores at the SAME x (= same N)
+                        # when MBH re-explores a count with a different feature subset
+                        # (the FI voting layer can produce a different ranking each iter).
+                        # Without dedup, CatBoost sees conflicting targets at the same x
+                        # and the surrogate biases toward the most-recent score (whose
+                        # subset is NOT guaranteed to be the winning one). For Maximize
+                        # direction, the right collapse is max(y_at_x); for Minimize, min.
+                        # Opt-out via dedup_known_evaluations=False (legacy behaviour).
+                        if getattr(self, "dedup_known_evaluations", True):
+                            _xs = self.known_candidates
+                            _ys = self.known_evaluations
+                            _unique_x, _inv = np.unique(_xs, return_inverse=True)
+                            if len(_unique_x) < len(_xs):
+                                _agg = np.full(len(_unique_x), -np.inf, dtype=_ys.dtype) \
+                                    if self.direction == OptimizationDirection.Maximize \
+                                    else np.full(len(_unique_x), np.inf, dtype=_ys.dtype)
+                                _cmp = np.maximum if self.direction == OptimizationDirection.Maximize else np.minimum
+                                for _i, _y in zip(_inv, _ys):
+                                    _agg[_i] = _cmp(_agg[_i], _y)
+                                self.model.fit(_unique_x.reshape(-1, 1), _agg)
+                            else:
+                                self.model.fit(_xs.reshape(-1, 1), _ys)
+                        else:
+                            self.model.fit(self.known_candidates.reshape(-1, 1), self.known_evaluations)
                     else:
                         n = max(1, len(self.known_candidates) - self.last_retrain_ninputs)
                         self.model.partial_fit(

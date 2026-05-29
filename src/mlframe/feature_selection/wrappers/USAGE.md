@@ -311,6 +311,191 @@ monotonic `pd.DatetimeIndex` AND `groups` is None, RFECV substitutes
 leakage that `KFold` would introduce). Pass `cv=KFold(...)` explicitly
 to override the auto-detect.
 
+## 2026-05-28 Grouped configs (post-audit ergonomics)
+
+After Wave 1-5 the constructor exposes ~50 knobs. Three pydantic-v2 configs
+group them by concern -- matching the canonical mlframe pattern (see
+`mlframe.training._feature_selection_config.FeatureSelectionConfig`).
+
+```python
+from mlframe.feature_selection.wrappers import (
+    RFECV, SearchConfig, FIConfig, RobustnessConfig,
+)
+
+rfecv = RFECV(
+    estimator=lr,
+    search_config=SearchConfig(
+        max_refits=40,
+        convergence_tol=1e-3,
+        init_design_size=7,
+        optimizer_target="mean",
+    ),
+    fi_config=FIConfig(
+        fi_missing_policy="worst",
+        fi_decay_rate=0.05,
+        multiclass_coef_aggregation="max",
+        n_features_selection_rule="one_se_max",
+    ),
+    robustness_config=RobustnessConfig(
+        leakage_corr_threshold=0.9,
+        leakage_action="exclude",
+        prescreen="univariate_ht",
+        must_exclude=["user_id"],
+    ),
+)
+rfecv.fit(X, y)
+```
+
+**Override semantics:** only EXPLICITLY-SET fields of a config (per pydantic
+v2's `model_fields_set`) override matching flat kwargs. A default
+`SearchConfig()` does NOT silently clobber explicit flat values. So mixing
+configs with selective flat overrides is supported:
+
+```python
+# Flat max_refits=100 wins over the config's default; the convergence_tol
+# IS set on the config so it overrides whatever flat default existed.
+RFECV(max_refits=100, search_config=SearchConfig(convergence_tol=1e-4))
+```
+
+Configs are **additive**: every flat kwarg in `RFECV.__init__` is preserved
+verbatim. Use whichever style suits the call site.
+
+## 2026-05-28 audit overhaul (Waves 1-5)
+
+A 5-wave overhaul re-derived nine ML-critical defaults and added five
+literature-track extensions. Defaults changed; opt-out knobs are available
+for every behaviour change. Highlights:
+
+### Voting integrity (Wave 1+3)
+
+```python
+RFECV(
+    estimator=...,
+    fi_missing_policy="worst",   # NEW default. 'median' / 'skip' available.
+    keep_loser_subset_fi=False,  # NEW default rolls back FI of subsets that lost the score gate.
+    fi_decay_rate=0.0,           # 0 = legacy. 0.02-0.1 weighs newer iters more (recommended for >=30 iters).
+    drop_nan_score_fi=True,      # NEW default drops FI from failed estimator-folds.
+)
+```
+
+`fi_missing_policy='worst'` plugs the silent-bias bug where Borda / Dowdall /
+Copeland / Minimax silently rewarded late-surviving features because pandas
+`.rank().sum()` skipna-summed only the present runs. Now every voting rule
+sees a fully-imputed table.
+
+### Search-strategy fixes (Wave 2)
+
+```python
+RFECV(
+    estimator=...,
+    optimizer_target="mean",     # NEW default. 'final_score' = legacy.
+    convergence_tol=None,        # tol+window for plateau-aware break (default off).
+    convergence_tol_window=10,
+    init_design_size="auto",     # NEW default. 'auto' scales seeds by p/budget.
+    dichotomic_epsilon=0.1,      # NEW default 10% random kick.
+)
+```
+
+Internally `MBHOptimizer` deduplicates duplicate-x rows by max-y before
+fitting (S1). `ScipyLocal` / `ScipyGlobal` enums are now thin aliases for
+`ExhaustiveDichotomic` (the scipy roundtrip was theatre on
+piecewise-linear interpolants).
+
+### Coef + multi-class (Wave 3)
+
+```python
+RFECV(
+    estimator=LogisticRegression(),
+    coef_scale_source="train",          # NEW default. 'test' (legacy leaks test-std into FI), 'none'.
+    multiclass_coef_aggregation="max",  # NEW default. 'sum' (legacy) over-mixes class signals.
+)
+```
+
+### CPI improvements (Wave 3)
+
+```python
+RFECV(
+    estimator=...,
+    importance_getter="conditional_permutation",
+    cpi_max_depth=None,            # NEW default (was 5). None lets tree grow to min_samples_leaf.
+    cpi_min_samples_leaf=10,       # NEW default (Strobl 2008 recommendation).
+)
+```
+
+### Robustness (Wave 4)
+
+```python
+RFECV(
+    estimator=...,
+    must_exclude_strict=True,         # NEW default raises on typos in must_exclude.
+    noimprove_counts_revisit=False,   # NEW default: MBH revisits of same N don't tick the counter.
+    swap_top_k_allow_no_es=False,     # swap_top_k auto-disabled with val_cv-driven ES estimators.
+    allow_unsafe_aggregation=False,   # multi-estimator + AM/GM auto-falls-back to Borda.
+)
+```
+
+### Literature extensions (Wave 5)
+
+```python
+# Stability vs N curve (free from existing FI dict)
+curve = rfecv.stability_vs_n_curve_(metric="jaccard")  # {N: stability}
+n = rfecv.n_stability_elbow_()                          # argmax stability*score
+
+# TreeSHAP knockoff W-statistic (Jiang-Cheng-Zhao 2021 KOBT)
+from mlframe.feature_selection.wrappers import knockoff_importance
+W = knockoff_importance(
+    model_factory=lambda: RandomForestClassifier(),
+    X=X, y=y,
+    w_statistic="shap",   # NEW: 'auto'/'shap'/'gain'/'coef'. 'auto' picks shap on trees.
+)
+
+# Boruta-SHAP / PowerSHAP via importance_getter (optional deps)
+RFECV(importance_getter="boruta_shap", ...)   # requires `BorutaShap` or `arfs`
+RFECV(importance_getter="powershap", ...)     # requires `powershap`
+
+# SHAP-OOF elimination (Kaggle-popularised approach). The standard
+# 'shap' getter ALREADY computes mean(|SHAP|) on the held-out fold
+# (X_test) because _eval_fold_body fits on X_train and calls SHAP with
+# data=X_test. The 'shap_oof' alias makes the semantic explicit.
+RFECV(importance_getter="shap_oof", ...)      # == 'shap'; clearer intent
+
+# Univariate hypothesis-test prescreen (Mann-Whitney / Kruskal-Wallis /
+# Kendall tau / chi-squared + Benjamini-Yekutieli FDR). NO external deps;
+# implemented in-tree at _univariate_ht.py with numba-compiled rank /
+# U / H / tau kernels. Drops features that fail per-feature significance
+# vs target BEFORE the MBH outer loop. Note: mRMR / PowerSHAP / Boruta-SHAP
+# additionally consider feature-feature redundancy; this prescreen is
+# univariate-only - use it as a CHEAP first-pass when p>>n.
+RFECV(
+    estimator=...,
+    prescreen="univariate_ht",          # in-tree native implementation
+    prescreen_fdr_level=0.05,           # BY-corrected p-value gate
+    prescreen_top_k=500,                # optional cap on kept features
+)
+
+# Custom callable prescreen
+def my_prescreen(X, y):
+    # return iterable of kept feature names/indices
+    return X.columns[X.var() > 0.1].tolist()
+RFECV(estimator=..., prescreen=my_prescreen)
+
+# Multi-output y is now explicitly rejected with a how-to-loop hint instead
+# of silently picking one column.
+```
+
+### Auto rule change (Wave 1 C3, revised post-bench)
+
+```python
+RFECV(n_features_selection_rule="auto")
+# OLD: auto = 'one_se_max' for multi-estimator else 'argmax' (INVERTED logic - the
+#      'multi-estimator widens the SE band' reasoning made one_se_max over-select).
+# NEW: auto = 'one_se_max' uniformly. On flat curves argmax catastrophically
+#      under-selects (recall 0.30 vs 1.00 on the USAGE.md bench); on real-signal
+#      curves both rules pick the same N within ±1. So the plateau-resistant
+#      default is strictly safer. Pass 'argmax' for greedy / 'one_se_min' for
+#      parsimony explicitly.
+```
+
 ## See also
 
 - `feature_selection/wrappers/TODO.md` — deferred ML improvements
@@ -318,4 +503,4 @@ to override the auto-detect.
 - `feature_selection/_benchmarks/bench_rfecv_vs_sklearn.py` — h2h vs sklearn
 - `feature_selection/_benchmarks/profile_rfecv.py` — cProfile hotspot scan
 - `feature_selection/_benchmarks/profile_new_features.py` — cProfile pass over the newer code paths (CPI, knockoffs, SFFS swap, checkpoint, surrogate auto-tune)
-- `tests/feature_selection/test_wrappers_*.py` — comprehensive test suite
+- `tests/feature_selection/test_wrappers_*.py` — comprehensive test suite (incl. test_wrappers_wave1_fixes through wave5_fixes)

@@ -20,11 +20,15 @@ from ._helpers import (
     suppress_irritating_3rdparty_warnings,
 )
 from ._rfecv import RFECV
+from ._rfecv_configs import SearchConfig, FIConfig, RobustnessConfig
 
 __all__ = [
     "OptimumSearch",
     "VotesAggregation",
     "RFECV",
+    "SearchConfig",
+    "FIConfig",
+    "RobustnessConfig",
     "split_into_train_test",
     "store_averaged_cv_scores",
     "get_feature_importances",

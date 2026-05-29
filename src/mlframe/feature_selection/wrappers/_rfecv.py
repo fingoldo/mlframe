@@ -60,6 +60,7 @@ from mlframe.preprocessing.transforms import pack_val_set_into_fit_params
 from mlframe.metrics.core import compute_probabilistic_multiclass_error
 
 from ._enums import OptimumSearch, VotesAggregation
+from ._rfecv_configs import SearchConfig, FIConfig, RobustnessConfig
 from ._helpers import (
     _detect_multithreaded,
     _pin_threads_to_one,
@@ -165,6 +166,12 @@ class RFECV(BaseEstimator, TransformerMixin):
     def __init__(
         self,
         estimator: Union[BaseEstimator, None] = None,
+        # 2026-05-28: grouped pydantic configs. When passed, their non-None fields override matching flat kwargs.
+        # All flat kwargs are kept for back-compat AND because some power-users want flat call-sites.
+        # See ``_rfecv_configs.py`` and USAGE.md for the canonical mlframe pattern.
+        search_config: "Union[SearchConfig, None]" = None,
+        fi_config: "Union[FIConfig, None]" = None,
+        robustness_config: "Union[RobustnessConfig, None]" = None,
         fit_params: dict = None,
         max_nfeatures: int = None,
         mean_perf_weight: float = 1.0,
@@ -262,6 +269,94 @@ class RFECV(BaseEstimator, TransformerMixin):
         # a right-sized surrogate (ETR n_estimators=20 for budgets up to 30; CB iterations=50 up to 100; CB iterations=150 above).
         # Escape hatch: pass an explicit dict (e.g. ``{"model_name": "CBQ", "model_params": {"iterations": 50}}`` or any other MBHOptimizer kwarg subset) to override.
         optimizer_config: Union[dict, None] = None,
+        # ----- Wave 1 ML-correctness knobs (2026-05-28) -----
+        # F9: when False (NEW default), the FI runs of a re-explored same-N subset that LOSES the best-of-N gate are popped from feature_importances
+        # so they don't contaminate the next voting round. Set True to restore the pre-2026-05-28 behaviour (every explored subset votes equally).
+        keep_loser_subset_fi: bool = False,
+        # F1+F2+F3 missing-entry policy for voting. The historical default left ragged-NaN tables intact, which made Borda/Dowdall/Copeland/Minimax silently
+        # bias toward late-surviving features (a feature present in 30/30 runs sums over 30 columns; a feature eliminated at iter 3, only over 3). Options:
+        #   'worst'  (NEW default): impute missing per-run FI with min(FI)-eps for that run -> features eliminated early get LAST place in those runs
+        #            uniformly across every voting rule. Equivalent to "treated as eliminated" rather than "treated as absent".
+        #   'median': impute with the run's median FI -> features eliminated early get average treatment (older project default for AM/GM/OG via fillna).
+        #   'skip'  : pre-2026-05-28 raw behaviour (ragged NaN). Documented as biased but exposed for back-compat A/B benches.
+        fi_missing_policy: str = "worst",
+        # C2: dummy-baseline-at-N=0 is fed to the MBH surrogate when True. Bench (2026-05-28) showed that on small p (~8) problems
+        # removing this anchor halves the explored-N count -- MBH can't extrapolate to low N without a low-anchor and converges to
+        # even-N only. So the safer default is True until S9 (proper low-N init design) lands in Wave 2. Set False on imbalanced
+        # accuracy/F1 datasets where the dummy ~= model score and the optimizer biases toward small N.
+        submit_dummy_to_optimizer: bool = True,
+        # auto rule rationale rewrite (C3): the legacy 'auto' = ('one_se_max' for multi-estimator else 'argmax') uses INVERTED logic - multi-estimator uses
+        # min(scores) across estimators, which has HIGHER variance, WIDER 1-SE band, and 'one_se_max' over-selects MORE. NEW default: plain 'argmax' for
+        # both single and multi. Users wanting parsimony pass 'one_se_min' explicitly. Kept as: rule resolution moved into one block in
+        # select_optimal_nfeatures_, see that file for the dispatch.
+        # E2 escape hatch: keep swap_top_k active even when val_cv is set (compare ES vs non-ES scores, accepting potential overfit-swaps).
+        swap_top_k_allow_no_es: bool = False,
+        # ----- Wave 2 search-strategy knobs (2026-05-28) -----
+        # S8: what target value to feed the MBH surrogate. 'mean' (NEW default) submits raw cv_mean_perf -> aligned with the 1-SE rule
+        #   semantics in select_optimal_nfeatures_; 'final_score' (legacy) submits mean*w_mean - std*w_std (a UCB-of-noise) which can
+        #   disagree with the post-processing rule when std_perf_weight or feature_cost are non-default.
+        optimizer_target: str = "mean",
+        # S7: tolerance-based convergence. When set, break when max(last K final_scores) - min(...) < tol * |best_score|. None disables.
+        convergence_tol: Union[float, None] = None,
+        convergence_tol_window: int = 10,
+        # S9+S10: richer init design seeding the MBH optimizer with multiple low/mid/high N anchors. None = legacy single seed;
+        # int K = exactly K equidistant anchors; 'auto' (NEW default) scales K by p AND evaluation budget so init-seed wall stays
+        # small relative to user-driven exploration: p<=10 -> K=2, p<=50 OR budget<30 -> K=3, else -> K=5.
+        init_design_size: Union[int, str, None] = "auto",
+        # S6: epsilon random kick for ExhaustiveDichotomic to avoid getting stuck in the first local maximum on multi-modal score-vs-N
+        # curves. Default 0.1 (NEW) sets ~10% iters to pick a random unevaluated N outside the best-known neighbourhood. Set 0.0 to
+        # restore pure dichotomic behaviour.
+        dichotomic_epsilon: float = 0.1,
+        # ----- Wave 3 FI-semantics knobs (2026-05-28) -----
+        # F8: exponential decay of FI history weights. With rate=r>0, a K-iter-old FI run weighs (1-r)^K vs the freshest run = 1.0.
+        # Without decay, voting treats iter-1 FI (on the full feature set) and iter-30 FI (on the narrowed-down survivor set) equally,
+        # even though late-iter FI is generally more reliable (fewer correlated co-features). Recommended 0.02-0.1 for runs >=30 iters.
+        # Default 0.0 = no decay (legacy).
+        fi_decay_rate: float = 0.0,
+        # F5: how to collapse multi-class one-vs-rest |coef_| across classes. 'max' (NEW default) -> a feature important for ANY class is
+        # important; 'sum' (legacy) -> mixes class-specific signals into a noisy aggregate (a 1-class discriminator equals a mid-relevance
+        # feature for every class). 'max' matches what permutation/SHAP would produce; 'sum' is documented for back-compat A/B.
+        multiclass_coef_aggregation: str = "max",
+        # F4: which set to use for coef_ scale correction. 'train' (NEW default) -> stds computed from X_train of the fold (the data the
+        # model was fitted on); 'test' (legacy) -> stds from X_test (leaks test variance into FI). 'none' -> skip the rescale entirely.
+        coef_scale_source: str = "train",
+        # F10: max_depth for the conditional-permutation auxiliary tree. None (NEW default) lets the tree grow until min_samples_leaf
+        # constraint kicks in (more reliable conditioning on high-d feature sets). Integer caps depth at that value (legacy was 5).
+        cpi_max_depth: Union[int, None] = None,
+        # F10: min_samples_leaf for the conditional-permutation auxiliary tree. Default 10 (NEW) follows Strobl 2008 (>=5 recommended).
+        cpi_min_samples_leaf: int = 10,
+        # F6: when False (NEW default), multi-estimator + AM/GM auto-falls-back to Borda. Set True to keep the user's choice for
+        # benchmark / A-B purposes.
+        allow_unsafe_aggregation: bool = False,
+        # F14: when True (NEW default), drop per-fold-per-estimator FI runs whose score was NaN (estimator failed / degenerate fold). Set
+        # False to keep them (legacy contaminates voting with garbage importances from collapsed fits).
+        drop_nan_score_fi: bool = True,
+        # ----- TODO A / Wave 6 prelim (2026-05-28): auto-parameter tuning -----
+        # When True, ``fit`` first computes a DataFingerprint from (X, y) and
+        # picks SearchConfig + FIConfig + RobustnessConfig from a rule-based
+        # table (later: ML classifier trained on synthetic-bench sweep). The
+        # chosen combo is stored in ``self.auto_tune_decision_`` for inspection.
+        # Any flat kwarg or config explicitly passed by the caller is PRESERVED
+        # (auto-tune only fills the unspecified slots).
+        auto_tune: bool = False,
+        # ----- Wave 4 robustness knobs (2026-05-28) -----
+        # E15: when True (NEW default), raise if must_exclude contains names not in X (catches typos). False = silently ignore (legacy).
+        must_exclude_strict: bool = True,
+        # C8: when False (NEW default), the no-improve counter only ticks when the iter actually stored a new best subset. Multi-revisit
+        # of the same N with a worse subset no longer trips max_noimproving_iters prematurely. True = legacy.
+        noimprove_counts_revisit: bool = False,
+        # ----- Wave 5 / L4-L7 (2026-05-28) -----
+        # L7: optional prescreen pass run BEFORE the MBH outer loop. Reduces the universe original_features to a smaller candidate set
+        # so MBH explores a tighter space. Supported values:
+        #   None              (default) : no prescreen
+        #   'univariate_ht'              : in-tree native Mann-Whitney / Kruskal-Wallis / Kendall / chi-squared + BY-FDR
+        #                                  (see _univariate_ht.py; numba-compiled rank/U/H/tau kernels).
+        #   callable(X, y) -> list       : user-supplied prescreen returning the kept feature names/indices
+        prescreen: Union[str, Callable, None] = None,
+        # L7: top-K cap on the prescreen output. None = keep every feature that passes the prescreen's own significance filter.
+        prescreen_top_k: Union[int, None] = None,
+        # L7: relevance p-value FDR-level (Benjamini-Yekutieli). 0.05 is the standard default.
+        prescreen_fdr_level: float = 0.05,
     ):
 
         # checks
@@ -323,7 +418,111 @@ class RFECV(BaseEstimator, TransformerMixin):
                 f"'one_se_min', or 'one_se_max'; got {n_features_selection_rule!r}."
             )
 
+        if fi_missing_policy not in ("worst", "median", "skip"):
+            raise ValueError(
+                f"fi_missing_policy must be 'worst', 'median', or 'skip'; "
+                f"got {fi_missing_policy!r}."
+            )
+
+        if optimizer_target not in ("mean", "final_score"):
+            raise ValueError(
+                f"optimizer_target must be 'mean' or 'final_score'; got {optimizer_target!r}."
+            )
+
+        if not (0.0 <= dichotomic_epsilon <= 1.0):
+            raise ValueError(
+                f"dichotomic_epsilon must be in [0, 1]; got {dichotomic_epsilon}."
+            )
+
+        if not (0.0 <= fi_decay_rate < 1.0):
+            raise ValueError(
+                f"fi_decay_rate must be in [0, 1); got {fi_decay_rate}."
+            )
+
+        if multiclass_coef_aggregation not in ("max", "sum"):
+            raise ValueError(
+                f"multiclass_coef_aggregation must be 'max' or 'sum'; got {multiclass_coef_aggregation!r}."
+            )
+
+        if coef_scale_source not in ("train", "test", "none"):
+            raise ValueError(
+                f"coef_scale_source must be 'train', 'test', or 'none'; got {coef_scale_source!r}."
+            )
+
+        # E9 (Wave 4, 2026-05-28): assert all entries in ``estimators=`` share the
+        # same type-family (classifier vs regressor). Mixing silently picks the
+        # first estimator's family for CV stratification / scoring and the other
+        # estimator crashes mid-fold with cryptic errors.
+        if estimators:
+            from sklearn.base import is_classifier as _is_clf, is_regressor as _is_reg
+            _est_list = list(estimators)
+            if len(_est_list) >= 2:
+                _is_clf_flags = [_is_clf(e) for e in _est_list]
+                _is_reg_flags = [_is_reg(e) for e in _est_list]
+                # Allow estimators that are NEITHER (custom transformers used as importers)
+                # but reject mixing detectable classifier+regressor.
+                if any(_is_clf_flags) and any(_is_reg_flags):
+                    raise ValueError(
+                        "RFECV: estimators=[...] mixes classifier and regressor "
+                        "families. All entries must share type-family for CV "
+                        "stratification + scoring to be consistent. Got: "
+                        f"{[type(e).__name__ for e in _est_list]}"
+                    )
+
+        # F6 (Wave 3, 2026-05-28): multi-estimator + AM/GM is unsafe.
+        # LR coef ~ 0.01..1, RF Gini ~ 0..0.1, CB split-gain ~ thousands -- raw
+        # arithmetic / geometric mean is dominated by the largest-magnitude
+        # estimator (AM) or zeroed by any single zero (GM). Force rank-based
+        # rules (Borda / Copeland) for multi-estimator. User can opt back in
+        # via allow_unsafe_aggregation=True for benchmarks.
+        if estimators and votes_aggregation_method in (VotesAggregation.AM, VotesAggregation.GM):
+            if verbose:
+                logger.warning(
+                    "RFECV: multi-estimator + votes_aggregation_method=%s mixes raw "
+                    "FI values from incomparable scales (LR coef ~ 0.01-1, RF Gini ~ "
+                    "0-0.1, CB split-gain ~ 1000s). Switching to Borda (rank-based). "
+                    "Pass allow_unsafe_aggregation=True to keep the original choice.",
+                    votes_aggregation_method,
+                )
+
+        # E3 (Wave 1, 2026-05-28): feature_groups overlap is silently expanded into a contradictory all-or-nothing rule that grows
+        # the support_ by every group member of every overlapping group whenever ANY shared member is picked. Reject upfront.
+        if feature_groups:
+            _seen: dict = {}
+            for _gname, _gmembers in feature_groups.items():
+                for _m in _gmembers or []:
+                    if _m in _seen:
+                        raise ValueError(
+                            f"feature_groups: column {_m!r} appears in BOTH "
+                            f"group {_seen[_m]!r} and group {_gname!r}. Groups "
+                            f"must be disjoint - the all-or-nothing rule "
+                            f"otherwise expands to the union of every "
+                            f"overlapping group when any shared member is "
+                            f"picked, producing a wider support_ than asked."
+                        )
+                    _seen[_m] = _gname
+
         params = get_parent_func_args()
+        # 2026-05-28: grouped-config merge. When a SearchConfig / FIConfig /
+        # RobustnessConfig is passed, its EXPLICITLY-SET fields (per pydantic
+        # v2's ``model_fields_set``) override the matching flat kwarg before
+        # ``store_params_in_object`` writes them onto ``self``. Default fields
+        # of a config object do NOT clobber explicit flat values, so a caller
+        # who passes ``RFECV(estimator=lr, max_refits=20)`` AND a default
+        # ``SearchConfig()`` keeps max_refits=20.
+        for _cfg in (search_config, fi_config, robustness_config):
+            if _cfg is None:
+                continue
+            _set_fields = getattr(_cfg, "model_fields_set", None)
+            if _set_fields is not None:
+                _dump = {k: getattr(_cfg, k) for k in _set_fields}
+            elif hasattr(_cfg, "model_dump"):
+                _dump = _cfg.model_dump()
+            else:
+                _dump = {k: v for k, v in vars(_cfg).items() if not k.startswith("_")}
+            for _k, _v in _dump.items():
+                if _k in params:
+                    params[_k] = _v
         store_params_in_object(obj=self, params=params)
         self.signature = None
 
@@ -630,12 +829,18 @@ class RFECV(BaseEstimator, TransformerMixin):
         ]
         return float(np.mean(pairs)) if pairs else float("nan")
 
-    def n_features_one_se_(self) -> int:
-        """1-SE rule: smallest N whose CV mean is within one standard error of the best CV mean. Often selected over n_features_ when the
-        operator wants the most parsimonious model that's not statistically distinguishable from the optimum.
+    def n_features_one_se_(self, direction: str = "min") -> int:
+        """1-SE rule. C12 (Wave 4, 2026-05-28): parameterised by ``direction``.
+
+        - 'min' (default, sklearn-canonical): SMALLEST N whose CV mean is within one SE of the best -> most parsimonious within band.
+        - 'max' (plateau-resistant): LARGEST N within band -> retains marginally-informative features.
+        Without this param the helper returned 'min' always while ``select_optimal_nfeatures_`` with ``rule='one_se_max'`` returned
+        the opposite. Direct callers of the helper saw a different N than the picker.
 
         Returns the integer count, or n_features_ as a fallback if cv_results_ is unavailable.
         """
+        if direction not in ("min", "max"):
+            raise ValueError(f"direction must be 'min' or 'max'; got {direction!r}")
         if not hasattr(self, "cv_results_") or not self.cv_results_.get("nfeatures"):
             return getattr(self, "n_features_", 0)
         nfeatures = np.asarray(self.cv_results_["nfeatures"], dtype=int)
@@ -660,11 +865,80 @@ class RFECV(BaseEstimator, TransformerMixin):
             nf, m, s = nf[_finite_mask], m[_finite_mask], s[_finite_mask]
         best_idx = int(np.argmax(m))
         threshold = m[best_idx] - s[best_idx]
-        # Smallest N whose mean >= threshold.
+        # C12: smallest OR largest N whose mean >= threshold based on direction.
         eligible = nf[m >= threshold]
         if len(eligible) == 0:
             return int(nf[best_idx])
-        return int(eligible.min())
+        return int(eligible.min()) if direction == "min" else int(eligible.max())
+
+    def stability_vs_n_curve_(self, metric: str = "jaccard") -> dict:
+        """L5 (Wave 5, 2026-05-28): per-N stability of the top-N FI selection across CV folds.
+
+        Returns a dict mapping ``nfeatures -> mean pairwise stability``. Built from the already-collected per-fold FI dict, so no extra
+        fits are needed. Combined with ``cv_results_['cv_mean_perf']``, the curve gives a graphical view of where stability AND score
+        co-peak (the elbow of stability * score). See ``n_stability_elbow_()``.
+
+        Nogueira & Brown 2018 (JMLR v18/17-514) on stability for FS evaluation.
+        """
+        if not hasattr(self, "feature_importances_") or not hasattr(self, "feature_names_in_"):
+            from sklearn.exceptions import NotFittedError as _NFE
+            raise _NFE("RFECV is not fitted; call fit() first.")
+        result: dict = {}
+        # Bucket FI keys by N.
+        by_n: dict = {}
+        for key, fi in self.feature_importances_.items():
+            try:
+                n = int(str(key).split("_")[0])
+            except (ValueError, IndexError):
+                continue
+            by_n.setdefault(n, []).append(fi)
+        for n, fi_list in by_n.items():
+            if n <= 0 or len(fi_list) < 2:
+                continue
+            tops = []
+            for fi in fi_list:
+                if not fi or len(fi) < n:
+                    continue
+                _top = sorted(fi.keys(), key=lambda k: (-fi[k], str(k)))[:n]
+                tops.append(set(_top))
+            if len(tops) < 2:
+                continue
+            pairs: list = []
+            for i in range(len(tops)):
+                for j in range(i + 1, len(tops)):
+                    inter = len(tops[i] & tops[j])
+                    if metric == "jaccard":
+                        union = len(tops[i] | tops[j])
+                        pairs.append(inter / union if union else 1.0)
+                    elif metric == "dice":
+                        denom = len(tops[i]) + len(tops[j])
+                        pairs.append((2 * inter) / denom if denom else 1.0)
+                    else:
+                        raise ValueError(f"metric must be 'jaccard' or 'dice'; got {metric!r}")
+            if pairs:
+                result[n] = float(np.mean(pairs))
+        return result
+
+    def n_stability_elbow_(self, metric: str = "jaccard") -> int:
+        """L5 (Wave 5, 2026-05-28): pick N at the elbow of ``stability(N) * score(N)``.
+
+        Heuristic alternative to argmax / 1-SE rules: combines selection stability with predictive score on the same N grid; the
+        product peaks where both signals agree. Useful for production-retraining configs where stability matters as much as score.
+
+        Returns the chosen N (int), or ``n_features_`` fallback if no curve was computed.
+        """
+        curve = self.stability_vs_n_curve_(metric=metric)
+        if not curve or not hasattr(self, "cv_results_"):
+            return getattr(self, "n_features_", 0)
+        means = dict(zip(self.cv_results_["nfeatures"], self.cv_results_["cv_mean_perf"]))
+        combined = {}
+        for n, s in curve.items():
+            if n in means and np.isfinite(means[n]):
+                combined[n] = float(s) * float(means[n])
+        if not combined:
+            return getattr(self, "n_features_", 0)
+        # Argmax with tie-breaker on smaller N (parsimony when scores tie).
+        return int(max(combined.items(), key=lambda kv: (kv[1], -kv[0]))[0])
 
     def n_features_bootstrap_ci_(self, n_bootstrap: int = 200, ci: float = 0.9,
                                   random_state: Union[int, None] = None) -> tuple:

@@ -49,7 +49,130 @@ from ._rfecv_fit_outer_loop import (
 logger = logging.getLogger("mlframe.feature_selection.wrappers._rfecv")
 
 
+def _apply_prescreen(self, *, X, y, candidate_features, verbose):
+    """L7 (Wave 5, 2026-05-28): run the configured prescreen and return the filtered candidate-feature list.
+
+    Supported prescreen values:
+      - 'univariate_ht' : in-tree Mann-Whitney / Kruskal-Wallis / Kendall / chi-squared + BY-FDR (numba-compiled).
+      - callable(X, y) -> list : user-supplied prescreen returning the kept feature names/indices.
+    Returns the kept feature names. Falls back to ``candidate_features`` (no-op) on error.
+    """
+    _p = self.prescreen
+    _topk = getattr(self, "prescreen_top_k", None)
+    if callable(_p):
+        try:
+            _kept = list(_p(X[candidate_features] if isinstance(X, pd.DataFrame) else X, y))
+        except Exception as exc:
+            if verbose:
+                logger.warning("Prescreen callable failed (%s); skipping prescreen.", exc)
+            return candidate_features
+        if _topk is not None and len(_kept) > _topk:
+            _kept = _kept[:int(_topk)]
+        return _kept
+    # mRMR pre-screening (TODO from pre-Wave-1 high-priority, 2026-05-28):
+    # use the existing ``mlframe.feature_selection.filters.mrmr.MRMR`` to
+    # pick the top-K features by min-redundancy / max-relevance MI ranking
+    # before the RFECV outer loop. Best when p >> n (e.g. p >= 5000).
+    # Cost: O(p^2) MRMR vs O(p * iter) backward elimination -- net win
+    # when p >= 5000.
+    if isinstance(_p, str) and _p.lower() == "mrmr":
+        try:
+            from mlframe.feature_selection.filters.mrmr import MRMR
+        except ImportError as exc:
+            if verbose:
+                logger.warning("prescreen='mrmr' could not import MRMR (%s); skipping.", exc)
+            return candidate_features
+        try:
+            _Xsub = X[candidate_features] if isinstance(X, pd.DataFrame) else X
+            _topk_arg = int(_topk) if _topk else min(500, len(candidate_features) // 2 or 1)
+            _mrmr = MRMR(
+                full_npermutations=3, cv=3,
+                run_additional_rfecv_minutes=False,
+                random_seed=getattr(self, "random_state", 0) or 0,
+                min_features_fallback=max(1, _topk_arg // 4),
+            )
+            _mrmr.fit(_Xsub, y)
+            _kept = list(_mrmr.get_feature_names_out())
+            if _topk_arg and len(_kept) > _topk_arg:
+                _kept = _kept[:_topk_arg]
+        except Exception as exc:
+            if verbose:
+                logger.warning("mRMR prescreen failed (%s); skipping.", exc)
+            return candidate_features
+        _kept_set = set(_kept)
+        return [c for c in candidate_features if c in _kept_set]
+
+    # L7 native impl (Wave 5, 2026-05-28): in-tree univariate hypothesis-test
+    # relevance scoring with BY-FDR correction. Backend selection per
+    # (feature, target) dtype:
+    #   binary target  + numeric  -> Mann-Whitney U
+    #   multiclass     + numeric  -> Kruskal-Wallis H
+    #   continuous     + numeric  -> Kendall tau-b
+    #   any            + categorical -> Chi-squared independence
+    # Numba-compiled rank / U / H / tau kernels (cache=True). No external
+    # dependencies.
+    if isinstance(_p, str) and _p.lower() == "univariate_ht":
+        if not isinstance(X, pd.DataFrame):
+            if verbose:
+                logger.warning("Prescreen='univariate_ht' needs pandas DataFrame; skipping.")
+            return candidate_features
+        from ._univariate_ht import calculate_relevance_table as _crt
+        try:
+            _Xsub = X[candidate_features]
+            _rel = _crt(_Xsub, np.asarray(y),
+                        fdr_level=float(getattr(self, "prescreen_fdr_level", 0.05)),
+                        ml_task="auto", n_jobs=1)
+            _rel = _rel[_rel["relevant"]].sort_values("p_value", ascending=True)
+            _kept = list(_rel["feature"])
+        except Exception as exc:
+            if verbose:
+                logger.warning("univariate_ht prescreen failed (%s); skipping.", exc)
+            return candidate_features
+        if _topk is not None and len(_kept) > _topk:
+            _kept = _kept[:int(_topk)]
+        _kept_set = set(_kept)
+        return [c for c in candidate_features if c in _kept_set]
+    if verbose:
+        logger.warning("Unknown prescreen=%r; skipping.", _p)
+    return candidate_features
+
+
 def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Series, np.ndarray], groups: Union[pd.Series, np.ndarray] = None, sample_weight: Union[np.ndarray, pd.Series, None] = None, **fit_params):
+    # TODO A (Wave 6 prelim, 2026-05-28): auto-tune. Compute a DataFingerprint
+    # then push the rule-based suggestion into self.<flat-knob> for every
+    # flat kwarg the caller didn't explicitly override. Stored decision lives
+    # in self.auto_tune_decision_ for inspection.
+    if getattr(self, "auto_tune", False) and not getattr(self, "_auto_tune_applied_", False):
+        try:
+            from ._auto_tune import DataFingerprint, suggest_configs, explain_suggestion
+            _fp = DataFingerprint.from_xy(X, y)
+            _sc, _fic, _rc = suggest_configs(_fp)
+            _decision: dict = {"fingerprint": _fp, "explanation": explain_suggestion(_fp)}
+            # For each suggested field, apply IFF the current attribute is at its constructor default.
+            # We approximate "default" by comparing to the SearchConfig / FIConfig / RobustnessConfig
+            # baseline defaults (no kwargs passed).
+            from ._rfecv_configs import SearchConfig as _SC, FIConfig as _FIC, RobustnessConfig as _RC
+            _baselines = (_SC(), _FIC(), _RC())
+            _applied: dict = {}
+            for _cfg, _baseline in zip((_sc, _fic, _rc), _baselines):
+                _set_fields = getattr(_cfg, "model_fields_set", None)
+                if not _set_fields:
+                    continue
+                for _k in _set_fields:
+                    _user_val = getattr(self, _k, None)
+                    _baseline_val = getattr(_baseline, _k, None)
+                    if _user_val == _baseline_val:
+                        # User didn't override this knob; apply the auto-tune suggestion.
+                        setattr(self, _k, getattr(_cfg, _k))
+                        _applied[_k] = getattr(_cfg, _k)
+            _decision["applied"] = _applied
+            self.auto_tune_decision_ = _decision
+            self._auto_tune_applied_ = True
+            if getattr(self, "verbose", 0):
+                logger.info("RFECV auto_tune: %s", _decision["explanation"])
+        except Exception as _exc:
+            logger.warning("auto_tune skipped (%s): %s", type(_exc).__name__, _exc)
+
     X, y, signature, _polars_time_series_hint, _init_skip = _init_fit_state(
         self, X, y, groups, sample_weight,
     )
@@ -144,6 +267,22 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
 
     # must_include partition: the optimiser only sees the complement; pinned features are glued back into support_ at the end.
     original_features, must_include_resolved = _resolve_must_include(self, X=X, original_features=original_features, verbose=verbose)
+
+    # L7 (Wave 5, 2026-05-28): optional prescreen pass. Restricts the MBH search universe to a smaller pre-filtered candidate set so the
+    # outer loop converges faster on high-p data. The prescreen sees the (X[original_features], y) AFTER must_include filtering, so
+    # pinned features always remain in the final support_ regardless of prescreen output.
+    _prescreen = getattr(self, "prescreen", None)
+    if _prescreen is not None and len(original_features) > 0:
+        _kept = _apply_prescreen(
+            self, X=X, y=y, candidate_features=original_features, verbose=verbose,
+        )
+        if len(_kept) > 0 and list(_kept) != list(original_features):
+            if verbose:
+                logger.info(
+                    "RFECV prescreen=%s: %d -> %d features (keeping %d after prescreen).",
+                    _prescreen, len(original_features), len(_kept), len(_kept),
+                )
+            original_features = list(_kept)
 
     cv, val_cv, early_stopping_rounds = _resolve_cv_and_val_cv(
         cv=cv, X=X, y=y, groups=groups, estimator=estimator,
@@ -271,6 +410,9 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
         )
         if outcome is IterationOutcome.BREAK:
             break
+
+    # Stash per-fold scores so finalize can build cv_results_["splitK_test_score"] (sklearn parity).
+    self._per_fold_scores = dict(state.per_fold_scores)
 
     # Truncated SFFS final-pass swap: run K paired swaps on the best subset found - replace each of the K worst-FI kept features with each of the K best-FI dropped features, accept any swap that improves the CV score. Uses sklearn.cross_val_score directly so it does NOT honour fit_params / val_cv / early stopping.
     _finalize_fit_results(

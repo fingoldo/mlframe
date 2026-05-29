@@ -168,12 +168,14 @@ class TestK3_MultiEstimatorMinAggregation:
 # K4: Plateau-aware n_features_selection_rule (auto + one_se_max + one_se_min)
 # ----------------------------------------------------------------------------
 class TestK4_PlateauRule:
-    def test_auto_uses_one_se_max_for_multi_estimator(self):
-        """On the bench problem (n=600, p=40, 8 informative, class_sep=2.0)
-        multi-estimator MBH with default 'argmax' rule used to collapse to
-        2-3 features (recall=0.42). With 'auto' (= 'one_se_max' for multi-
-        estimator) it should pick a much larger N within 1 SE of best mean,
-        recovering the informative features."""
+    def test_one_se_max_recovers_informative_features_on_plateau(self):
+        """C3 (Wave 1, 2026-05-28): the audit found 'auto' = 'one_se_max'
+        for multi-estimator was INVERTED logic - multi-estimator path uses
+        min(scores) across estimators -> WIDER 1-SE band -> one_se_max
+        OVER-SELECTS more. New default = 'argmax' for everyone; users who
+        want plateau-resistant large-N pass 'one_se_max' explicitly. This
+        test now verifies one_se_max explicitly when requested.
+        """
         Xdf, y, _ = make_sklearn_classification_df(
             n_samples=600, n_features=40, n_informative=8,
             n_redundant=0, n_clusters_per_class=2, shuffle=False, class_sep=2.0, seed=0,
@@ -184,21 +186,11 @@ class TestK4_PlateauRule:
                 RandomForestClassifier(n_estimators=20, random_state=0, n_jobs=1),
             ],
             cv=3, max_refits=8, verbose=0, random_state=0,
-            # n_features_selection_rule defaults to 'auto'
+            n_features_selection_rule="one_se_max",  # explicit, no auto magic
         )
         rfecv.fit(Xdf, y)
-        # Behavioural contract: 'auto' must dispatch to 'one_se_max' for
-        # multi-estimator. The N actually selected is data-dependent:
-        # with class_sep=2.0 the score plateau may collapse (cv_std ~ 0)
-        # so the 1-SE band contains only the best-mean N -- in which case
-        # 'one_se_max' legitimately returns argmax. Verify the dispatch
-        # happened (resolved_rule attribute), don't pin a specific N.
-        _resolved = getattr(rfecv, "n_features_selection_rule_resolved_", None)
-        if _resolved is not None:
-            assert _resolved == "one_se_max", (
-                f"'auto' must resolve to 'one_se_max' for multi-estimator; "
-                f"got {_resolved!r}"
-            )
+        # Behavioural contract: explicit 'one_se_max' must pick N within the
+        # 1-SE band of the best mean. We verify by recomputing the band.
         # Recall floor: must beat the pre-fix 0.25 baseline (2 features
         # picked, both informative by luck). Actual recall is data +
         # sklearn-version dependent: with class_sep=2.0 the cv_std

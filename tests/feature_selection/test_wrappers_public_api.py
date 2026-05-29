@@ -23,6 +23,10 @@ PUBLIC_NAMES = [
     "OptimumSearch",
     "VotesAggregation",
     "RFECV",
+    # 2026-05-28: grouped pydantic configs (post-audit ergonomics).
+    "SearchConfig",
+    "FIConfig",
+    "RobustnessConfig",
     "split_into_train_test",
     "store_averaged_cv_scores",
     "get_feature_importances",
