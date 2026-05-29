@@ -1,0 +1,276 @@
+=== n=100000, KFold(10), 10 paired folds per (model, task, config) ===
+Generating data once (regression + drift + classification)...
+  regr      : y mean=-0.494 std=1.424
+  regr_drift: y mean=0.002 std=1.287
+  classif   : pos rate=0.303
+Resumed: 9 rows already in benchmarks\slice_es_100k_kfold10.json
+
+--- REGR | LGB ---  [resume: skipping, already done]
+
+--- REGR | XGB ---  [resume: skipping, already done]
+
+--- REGR | CB ---  [resume: skipping, already done]
+
+--- REGR_DRIFT | LGB ---
+  fold 1/10 done in 5.0s (baseline headline=0.8055)
+  fold 2/10 done in 5.9s (baseline headline=0.8033)
+  fold 3/10 done in 18.9s (baseline headline=0.8056)
+  fold 4/10 done in 5.1s (baseline headline=0.7938)
+  fold 5/10 done in 9.9s (baseline headline=0.8047)
+  fold 6/10 done in 5.3s (baseline headline=0.7842)
+  fold 7/10 done in 23.1s (baseline headline=0.8009)
+  fold 8/10 done in 4.2s (baseline headline=0.8159)
+  fold 9/10 done in 3.5s (baseline headline=0.7942)
+  fold 10/10 done in 2.3s (baseline headline=0.7934)
+
+--- REGR_DRIFT | XGB ---
+  fold 1/10 done in 3.2s (baseline headline=0.7942)
+  fold 2/10 done in 3.4s (baseline headline=0.8002)
+  fold 3/10 done in 3.4s (baseline headline=0.8038)
+  fold 4/10 done in 3.6s (baseline headline=0.7894)
+  fold 5/10 done in 3.2s (baseline headline=0.8052)
+  fold 6/10 done in 3.6s (baseline headline=0.7739)
+  fold 7/10 done in 3.7s (baseline headline=0.7938)
+  fold 8/10 done in 3.4s (baseline headline=0.8117)
+  fold 9/10 done in 3.9s (baseline headline=0.7909)
+  fold 10/10 done in 3.4s (baseline headline=0.7911)
+
+--- REGR_DRIFT | CB ---
+  fold 1/10 done in 32.5s (baseline headline=0.7963)
+  fold 2/10 done in 77.8s (baseline headline=0.7935)
+  fold 3/10 done in 107.9s (baseline headline=0.8074)
+  fold 4/10 done in 78.4s (baseline headline=0.7979)
+  fold 5/10 done in 82.8s (baseline headline=0.7972)
+  fold 6/10 done in 40.5s (baseline headline=0.7801)
+  fold 7/10 done in 21.2s (baseline headline=0.7973)
+  fold 8/10 done in 21.5s (baseline headline=0.8117)
+  fold 9/10 done in 21.1s (baseline headline=0.7900)
+  fold 10/10 done in 20.9s (baseline headline=0.7900)
+
+--- CLASSIF | LGB ---
+  fold 1/10 done in 19.7s (baseline headline=0.9890)
+  fold 2/10 done in 13.4s (baseline headline=0.9871)
+  fold 3/10 done in 13.0s (baseline headline=0.9883)
+  fold 4/10 done in 13.7s (baseline headline=0.9874)
+  fold 5/10 done in 14.3s (baseline headline=0.9874)
+  fold 6/10 done in 13.7s (baseline headline=0.9878)
+  fold 7/10 done in 13.6s (baseline headline=0.9877)
+  fold 8/10 done in 14.9s (baseline headline=0.9886)
+  fold 9/10 done in 16.8s (baseline headline=0.9878)
+  fold 10/10 done in 13.6s (baseline headline=0.9881)
+
+--- CLASSIF | XGB ---
+  fold 1/10 done in 24.3s (baseline headline=0.9886)
+  fold 2/10 done in 24.8s (baseline headline=0.9870)
+  fold 3/10 done in 24.3s (baseline headline=0.9878)
+  fold 4/10 done in 25.1s (baseline headline=0.9867)
+  fold 5/10 done in 24.9s (baseline headline=0.9868)
+  fold 6/10 done in 24.3s (baseline headline=0.9869)
+  fold 7/10 done in 25.1s (baseline headline=0.9871)
+  fold 8/10 done in 24.4s (baseline headline=0.9878)
+  fold 9/10 done in 25.4s (baseline headline=0.9871)
+  fold 10/10 done in 23.7s (baseline headline=0.9876)
+
+--- CLASSIF | CB ---
+  fold 1/10 done in 48.7s (baseline headline=0.9906)
+  fold 2/10 done in 47.9s (baseline headline=0.9892)
+  fold 3/10 done in 45.5s (baseline headline=0.9903)
+  fold 4/10 done in 45.1s (baseline headline=0.9889)
+  fold 5/10 done in 50.4s (baseline headline=0.9897)
+  fold 6/10 done in 49.8s (baseline headline=0.9897)
+  fold 7/10 done in 45.8s (baseline headline=0.9895)
+  fold 8/10 done in 46.3s (baseline headline=0.9903)
+  fold 9/10 done in 50.0s (baseline headline=0.9897)
+  fold 10/10 done in 48.1s (baseline headline=0.9902)
+
+Total wall: 25.3 min
+
+=== SUMMARY (median + paired Wilcoxon one-sided vs baseline; gap as %% improvement) ===
+
+--- REGR ---
+
+  [LGB]
+  metric               baseline              slice_mean              slice_tlcb
+  rmse                   0.5384    gap= +0.12% p=0.250       gap= +0.12% p=0.125   
+  mae                    0.4260    gap= +0.08% p=0.250       gap= +0.08% p=0.125   
+  max_err                3.5171    gap= +0.24% p=0.500       gap= +0.24% p=0.562   
+  r2                     0.8571    gap= +0.00% p=0.250       gap= +0.00% p=0.125   
+  rmsle                  0.2541    gap= -0.06% p=1.000       gap= -0.06% p=1.000   
+  mape                   2.4324    gap= +0.00% p=0.500       gap= +0.00% p=0.250   
+  smape                  0.6437    gap= +0.00% p=0.500       gap= +0.00% p=0.250   
+  mdape                  0.3616    gap= +0.00% p=0.500       gap= +0.00% p=0.750   
+  wmape                  0.3628    gap= +0.13% p=0.250       gap= +0.13% p=0.125   
+  mbe                   -0.0009    gap= +0.00% p=1.000       gap= +0.00% p=0.875   
+  cv_rmse                1.0919    gap= +0.00% p=0.250       gap= -0.00% p=0.125   
+  nash_sutcliffe         0.8571    gap= +0.00% p=0.250       gap= +0.00% p=0.125   
+  explained_var          0.8571    gap= +0.00% p=0.250       gap= +0.00% p=0.125   
+  huber                  0.1414    gap= +0.25% p=0.250       gap= +0.25% p=0.125   
+  pearson_corr           0.9258    gap= +0.00% p=0.250       gap= +0.00% p=0.125   
+  spearman_corr          0.9173    gap= +0.00% p=0.250       gap= +0.00% p=0.188   
+  kendall_tau            0.7519    gap= +0.00% p=0.250       gap= +0.00% p=0.062*  
+  concordance_idx        0.8760    gap= +0.00% p=0.250       gap= +0.00% p=0.062*  
+
+  [XGB]
+  metric               baseline              slice_mean              slice_tlcb
+  rmse                   0.5344    gap= +0.00% p=0.500       gap= +0.04% p=0.172   
+  mae                    0.4223    gap= +0.00% p=0.500       gap= +0.01% p=0.172   
+  max_err                3.4390    gap= +0.00% p=1.000       gap= +0.04% p=0.797   
+  r2                     0.8589    gap= -0.00% p=0.500       gap= -0.00% p=0.172   
+  rmsle                  0.2529    gap= +0.00% p=0.500       gap= -0.10% p=0.453   
+  mape                   2.2602    gap= -0.01% p=1.000       gap= +0.03% p=0.375   
+  smape                  0.6444    gap= +0.00% p=0.250       gap= +0.09% p=0.172   
+  mdape                  0.3610    gap= +0.03% p=0.500       gap= +0.04% p=0.453   
+  wmape                  0.3595    gap= +0.00% p=0.500       gap= -0.00% p=0.172   
+  mbe                    0.0009    gap= +0.47% p=0.750       gap= +0.00% p=0.688   
+  cv_rmse                1.0834    gap= -0.00% p=0.500       gap= +0.00% p=0.172   
+  nash_sutcliffe         0.8589    gap= -0.00% p=0.500       gap= -0.00% p=0.172   
+  explained_var          0.8589    gap= -0.00% p=0.500       gap= -0.00% p=0.172   
+  huber                  0.1389    gap= +0.00% p=0.500       gap= +0.03% p=0.172   
+  pearson_corr           0.9268    gap= -0.00% p=0.500       gap= -0.00% p=0.172   
+  spearman_corr          0.9184    gap= -0.00% p=0.500       gap= -0.00% p=0.172   
+  kendall_tau            0.7541    gap= -0.00% p=0.500       gap= +0.00% p=0.203   
+  concordance_idx        0.8770    gap= -0.00% p=0.500       gap= +0.00% p=0.203   
+
+  [CB]
+  metric               baseline              slice_mean              slice_tlcb
+  rmse                   0.5185    gap= -0.01% p=0.404       gap= -0.01% p=0.404   
+  mae                    0.4103    gap= -0.01% p=0.441       gap= -0.01% p=0.441   
+  max_err                3.4163    gap= -0.35% p=0.670       gap= -0.35% p=0.670   
+  r2                     0.8675    gap= +0.00% p=0.404       gap= +0.00% p=0.404   
+  rmsle                  0.2481    gap= -0.06% p=0.963       gap= -0.06% p=0.963   
+  mape                   2.2854    gap= +0.02% p=0.738       gap= +0.02% p=0.738   
+  smape                  0.6329    gap= -0.01% p=0.519       gap= -0.01% p=0.519   
+  mdape                  0.3521    gap= +0.14% p=0.047**     gap= +0.14% p=0.047** 
+  wmape                  0.3487    gap= +0.01% p=0.441       gap= +0.01% p=0.441   
+  mbe                    0.0013    gap= -5.21% p=0.769       gap= -5.21% p=0.769   
+  cv_rmse                1.0511    gap= +0.03% p=0.404       gap= +0.03% p=0.404   
+  nash_sutcliffe         0.8675    gap= +0.00% p=0.404       gap= +0.00% p=0.404   
+  explained_var          0.8675    gap= +0.00% p=0.404       gap= +0.00% p=0.404   
+  huber                  0.1315    gap= -0.02% p=0.519       gap= -0.02% p=0.519   
+  pearson_corr           0.9314    gap= +0.00% p=0.441       gap= +0.00% p=0.441   
+  spearman_corr          0.9227    gap= +0.00% p=0.295       gap= +0.00% p=0.295   
+  kendall_tau            0.7608    gap= +0.01% p=0.262       gap= +0.01% p=0.262   
+  concordance_idx        0.8804    gap= +0.00% p=0.262       gap= +0.00% p=0.262   
+
+--- REGR_DRIFT ---
+
+  [LGB]
+  metric               baseline              slice_mean              slice_tlcb
+  rmse                   0.8021    gap= +0.00% p=1.000       gap= -0.08% p=1.000   
+  mae                    0.6004    gap= +0.00% p=1.000       gap= -0.42% p=1.000   
+  max_err                6.1602    gap= +0.00% p=1.000       gap= -2.03% p=0.812   
+  r2                     0.6147    gap= +0.00% p=1.000       gap= -0.68% p=1.000   
+  rmsle                  0.3518    gap= +0.00% p=1.000       gap= -1.16% p=1.000   
+  mape                   3.3607    gap= +0.00% p=1.000       gap= -0.92% p=0.875   
+  smape                  0.8972    gap= +0.00% p=1.000       gap= -0.49% p=1.000   
+  mdape                  0.5636    gap= +0.00% p=1.000       gap= -0.28% p=1.000   
+  wmape                  0.5929    gap= +0.00% p=1.000       gap= -0.23% p=1.000   
+  mbe                   -0.0463    gap= +0.00% p=1.000       gap= +0.05% p=0.250   
+  cv_rmse              192.2000    gap= +0.00% p=1.000       gap= -0.11% p=1.000   
+  nash_sutcliffe         0.6147    gap= +0.00% p=1.000       gap= -0.68% p=1.000   
+  explained_var          0.6162    gap= +0.00% p=1.000       gap= -0.71% p=1.000   
+  huber                  0.2722    gap= +0.00% p=1.000       gap= -0.58% p=1.000   
+  pearson_corr           0.7925    gap= +0.00% p=1.000       gap= -0.07% p=1.000   
+  spearman_corr          0.7953    gap= +0.00% p=1.000       gap= -0.10% p=1.000   
+  kendall_tau            0.5753    gap= +0.00% p=1.000       gap= -0.19% p=1.000   
+  concordance_idx        0.7876    gap= +0.00% p=1.000       gap= -0.07% p=1.000   
+
+  [XGB]
+  metric               baseline              slice_mean              slice_tlcb
+  rmse                   0.7940    gap= +0.00% p=1.000       gap= -0.63% p=1.000   
+  mae                    0.5963    gap= +0.00% p=1.000       gap= -0.38% p=1.000   
+  max_err                6.3606    gap= +0.00% p=1.000       gap= +0.00% p=0.500   
+  r2                     0.6192    gap= +0.00% p=1.000       gap= -0.45% p=1.000   
+  rmsle                  0.3553    gap= +0.00% p=1.000       gap= -0.43% p=1.000   
+  mape                   3.2084    gap= +0.00% p=1.000       gap= +0.23% p=0.875   
+  smape                  0.9014    gap= +0.00% p=1.000       gap= -0.34% p=1.000   
+  mdape                  0.5650    gap= +0.00% p=1.000       gap= -0.67% p=1.000   
+  wmape                  0.5870    gap= +0.00% p=1.000       gap= -0.68% p=1.000   
+  mbe                   -0.0457    gap= +0.00% p=1.000       gap= -0.47% p=0.469   
+  cv_rmse              191.1732    gap= +0.00% p=1.000       gap= +0.00% p=1.000   
+  nash_sutcliffe         0.6192    gap= +0.00% p=1.000       gap= -0.45% p=1.000   
+  explained_var          0.6204    gap= +0.00% p=1.000       gap= -0.40% p=1.000   
+  huber                  0.2689    gap= +0.00% p=1.000       gap= -0.73% p=1.000   
+  pearson_corr           0.7954    gap= +0.00% p=1.000       gap= -0.22% p=1.000   
+  spearman_corr          0.7957    gap= +0.00% p=1.000       gap= -0.15% p=1.000   
+  kendall_tau            0.5781    gap= +0.00% p=1.000       gap= -0.90% p=1.000   
+  concordance_idx        0.7890    gap= +0.00% p=1.000       gap= -0.33% p=1.000   
+
+  [CB]
+  metric               baseline              slice_mean              slice_tlcb
+  rmse                   0.7967    gap= +0.00% p=1.000       gap= +0.00% p=1.000   
+  mae                    0.5967    gap= +0.00% p=1.000       gap= +0.00% p=1.000   
+  max_err                6.2850    gap= +0.00% p=1.000       gap= +0.00% p=1.000   
+  r2                     0.6184    gap= +0.00% p=1.000       gap= +0.00% p=1.000   
+  rmsle                  0.3535    gap= +0.00% p=1.000       gap= +0.00% p=1.000   
+  mape                   3.1869    gap= +0.00% p=1.000       gap= +0.00% p=1.000   
+  smape                  0.9045    gap= +0.00% p=1.000       gap= +0.00% p=1.000   
+  mdape                  0.5665    gap= +0.00% p=1.000       gap= +0.00% p=1.000   
+  wmape                  0.5896    gap= +0.00% p=1.000       gap= +0.00% p=1.000   
+  mbe                   -0.0468    gap= +0.00% p=1.000       gap= +0.00% p=1.000   
+  cv_rmse              191.9790    gap= +0.00% p=1.000       gap= +0.00% p=1.000   
+  nash_sutcliffe         0.6184    gap= +0.00% p=1.000       gap= +0.00% p=1.000   
+  explained_var          0.6196    gap= +0.00% p=1.000       gap= +0.00% p=1.000   
+  huber                  0.2700    gap= +0.00% p=1.000       gap= +0.00% p=1.000   
+  pearson_corr           0.7950    gap= +0.00% p=1.000       gap= +0.00% p=1.000   
+  spearman_corr          0.7944    gap= +0.00% p=1.000       gap= +0.00% p=1.000   
+  kendall_tau            0.5734    gap= +0.00% p=1.000       gap= +0.00% p=1.000   
+  concordance_idx        0.7867    gap= +0.00% p=1.000       gap= +0.00% p=1.000   
+
+--- CLASSIF ---
+
+  [LGB]
+  metric               baseline              slice_mean              slice_tlcb
+  roc_auc                0.9878    gap= +0.00% p=0.125       gap= +0.00% p=0.312   
+  gini                   0.9756    gap= +0.00% p=0.125       gap= +0.00% p=0.312   
+  ice                   -0.5037    gap= +0.28% p=0.125       gap= +0.15% p=0.312   
+  log_loss               0.1308    gap= +0.00% p=0.125       gap= +0.00% p=0.312   
+  brier                  0.0407    gap= +0.00% p=0.125       gap= +0.00% p=0.312   
+  ks                     0.8791    gap= +0.00% p=0.625       gap= +0.00% p=0.750   
+  mcc                    0.8615    gap= +0.00% p=0.875       gap= +0.00% p=0.562   
+  cohen_kappa            0.8614    gap= +0.00% p=0.875       gap= +0.00% p=0.562   
+  balanced_acc           0.9281    gap= +0.00% p=0.750       gap= +0.00% p=0.438   
+  g_mean                 0.9274    gap= +0.00% p=0.750       gap= +0.00% p=0.438   
+  brier_skill            0.8076    gap= +0.01% p=0.125       gap= +0.01% p=0.312   
+  f_beta_2               0.8961    gap= +0.00% p=0.500       gap= +0.00% p=0.250   
+  spiegelhalter_z       -3.6077    gap=-10.87% p=1.000       gap=-10.87% p=0.750   
+  hosmer_lemeshow       25.3926    gap= +0.00% p=0.125       gap= -1.94% p=0.312   
+  accuracy_ratio         0.9756    gap= +0.00% p=0.125       gap= +0.00% p=0.312   
+
+  [XGB]
+  metric               baseline              slice_mean              slice_tlcb
+  roc_auc                0.9871    gap= +0.00% p=0.250       gap= +0.00% p=0.250   
+  gini                   0.9742    gap= +0.00% p=0.250       gap= +0.00% p=0.250   
+  ice                   -0.5065    gap= +0.23% p=0.250       gap= +0.23% p=0.250   
+  log_loss               0.1336    gap= +0.00% p=0.250       gap= +0.00% p=0.250   
+  brier                  0.0417    gap= +0.00% p=0.250       gap= +0.00% p=0.250   
+  ks                     0.8760    gap= +0.00% p=0.750       gap= +0.00% p=0.750   
+  mcc                    0.8603    gap= +0.00% p=0.500       gap= +0.00% p=0.500   
+  cohen_kappa            0.8601    gap= +0.00% p=0.500       gap= +0.00% p=0.500   
+  balanced_acc           0.9267    gap= +0.00% p=0.500       gap= +0.00% p=0.500   
+  g_mean                 0.9259    gap= +0.00% p=0.500       gap= +0.00% p=0.500   
+  brier_skill            0.8026    gap= +0.00% p=0.250       gap= +0.00% p=0.250   
+  f_beta_2               0.8944    gap= +0.00% p=0.500       gap= +0.00% p=0.500   
+  spiegelhalter_z       -1.2869    gap= +0.00% p=1.000       gap= +0.00% p=1.000   
+  hosmer_lemeshow       16.7119    gap= +8.48% p=0.250       gap= +8.48% p=0.250   
+  accuracy_ratio         0.9742    gap= +0.00% p=0.250       gap= +0.00% p=0.250   
+
+  [CB]
+  metric               baseline              slice_mean              slice_tlcb
+  roc_auc                0.9897    gap= -0.00% p=0.727       gap= -0.00% p=0.727   
+  gini                   0.9795    gap= -0.00% p=0.727       gap= -0.00% p=0.727   
+  ice                   -0.4903    gap= -0.06% p=0.844       gap= -0.06% p=0.844   
+  log_loss               0.1227    gap= +0.00% p=0.922       gap= +0.00% p=0.922   
+  brier                  0.0372    gap= -0.00% p=0.992       gap= -0.00% p=0.992   
+  ks                     0.8892    gap= +0.01% p=0.461       gap= +0.01% p=0.461   
+  mcc                    0.8766    gap= +0.01% p=0.453       gap= +0.01% p=0.453   
+  cohen_kappa            0.8764    gap= +0.01% p=0.453       gap= +0.01% p=0.453   
+  balanced_acc           0.9351    gap= +0.01% p=0.453       gap= +0.01% p=0.453   
+  g_mean                 0.9345    gap= +0.01% p=0.453       gap= +0.01% p=0.453   
+  brier_skill            0.8242    gap= -0.00% p=0.992       gap= -0.00% p=0.992   
+  f_beta_2               0.9067    gap= +0.03% p=0.453       gap= +0.03% p=0.453   
+  spiegelhalter_z       -7.4129    gap= +0.53% p=0.188       gap= +0.53% p=0.188   
+  hosmer_lemeshow       56.6264    gap= -0.28% p=0.789       gap= -0.28% p=0.789   
+  accuracy_ratio         0.9795    gap= -0.00% p=0.727       gap= -0.00% p=0.727   
+
+JSON: benchmarks\slice_es_100k_kfold10.json

@@ -1,0 +1,186 @@
+[
+  {
+    "name": "HT_tiny_mean_random_k5",
+    "scenario": "heavy_tail_tiny",
+    "slice_kwargs": {
+      "slice_k": 5,
+      "source": "random",
+      "aggregate": "mean"
+    },
+    "n_seeds": 30,
+    "median_baseline": 0.60329,
+    "median_slice": 0.6039,
+    "gap_pct": -0.102,
+    "p_value": 0.4181,
+    "wins": 4,
+    "wall_s": 9.7
+  },
+  {
+    "name": "HT_tiny_tlcb09_random_k5",
+    "scenario": "heavy_tail_tiny",
+    "slice_kwargs": {
+      "slice_k": 5,
+      "source": "random",
+      "aggregate": "t_lcb",
+      "confidence": 0.9,
+      "correlation_inflation": 1.0
+    },
+    "n_seeds": 30,
+    "median_baseline": 0.60329,
+    "median_slice": 0.60823,
+    "gap_pct": -0.819,
+    "p_value": 0.9918,
+    "wins": 7,
+    "wall_s": 9.6
+  },
+  {
+    "name": "HT_tiny_mmad_random_k5",
+    "scenario": "heavy_tail_tiny",
+    "slice_kwargs": {
+      "slice_k": 5,
+      "source": "random",
+      "aggregate": "median_minus_mad"
+    },
+    "n_seeds": 30,
+    "median_baseline": 0.60329,
+    "median_slice": 0.6315,
+    "gap_pct": -4.676,
+    "p_value": 1.0,
+    "wins": 6,
+    "wall_s": 7.2
+  },
+  {
+    "name": "HT_tiny_q60_random_k5",
+    "scenario": "heavy_tail_tiny",
+    "slice_kwargs": {
+      "slice_k": 5,
+      "source": "random",
+      "aggregate": "quantile",
+      "quantile_level": 0.6
+    },
+    "n_seeds": 30,
+    "median_baseline": 0.60329,
+    "median_slice": 0.60879,
+    "gap_pct": -0.912,
+    "p_value": 0.9995,
+    "wins": 6,
+    "wall_s": 8.3
+  },
+  {
+    "name": "HT_temp_mean_k5",
+    "scenario": "heavy_tail_temporal",
+    "slice_kwargs": {
+      "slice_k": 5,
+      "source": "temporal",
+      "aggregate": "mean"
+    },
+    "n_seeds": 30,
+    "median_baseline": 0.3297,
+    "median_slice": 0.3297,
+    "gap_pct": 0.0,
+    "p_value": 0.8122,
+    "wins": 1,
+    "wall_s": 12.9
+  },
+  {
+    "name": "HT_temp_tlcb09_k5",
+    "scenario": "heavy_tail_temporal",
+    "slice_kwargs": {
+      "slice_k": 5,
+      "source": "temporal",
+      "aggregate": "t_lcb",
+      "confidence": 0.9,
+      "correlation_inflation": 1.0
+    },
+    "n_seeds": 30,
+    "median_baseline": 0.3297,
+    "median_slice": 0.3297,
+    "gap_pct": 0.0,
+    "p_value": 0.9384,
+    "wins": 7,
+    "wall_s": 13.5
+  },
+  {
+    "name": "HT_temp_mmad_k5",
+    "scenario": "heavy_tail_temporal",
+    "slice_kwargs": {
+      "slice_k": 5,
+      "source": "temporal",
+      "aggregate": "median_minus_mad"
+    },
+    "n_seeds": 30,
+    "median_baseline": 0.3297,
+    "median_slice": 0.44737,
+    "gap_pct": -35.689,
+    "p_value": 1.0,
+    "wins": 6,
+    "wall_s": 9.3
+  },
+  {
+    "name": "RC_mean_random_k3",
+    "scenario": "rare_class_lgb",
+    "slice_kwargs": {
+      "slice_k": 3,
+      "source": "random",
+      "aggregate": "mean",
+      "k_used": 3
+    },
+    "n_seeds": 30,
+    "median_baseline": 0.09394,
+    "median_slice": 0.09394,
+    "gap_pct": 0.0,
+    "p_value": 1.0,
+    "wins": 0,
+    "wall_s": 6.6
+  },
+  {
+    "name": "RC_tlcb09_random_k3",
+    "scenario": "rare_class_lgb",
+    "slice_kwargs": {
+      "slice_k": 3,
+      "source": "random",
+      "aggregate": "t_lcb",
+      "confidence": 0.9,
+      "k_used": 3
+    },
+    "n_seeds": 30,
+    "median_baseline": 0.09394,
+    "median_slice": 0.09786,
+    "gap_pct": -4.168,
+    "p_value": 0.9928,
+    "wins": 6,
+    "wall_s": 7.5
+  },
+  {
+    "name": "CB_mean_temporal_k5",
+    "scenario": "cb_winning_temporal",
+    "slice_kwargs": {
+      "slice_k": 5,
+      "source": "temporal",
+      "aggregate": "mean"
+    },
+    "n_seeds": 15,
+    "median_baseline": 0.36367,
+    "median_slice": 0.36549,
+    "gap_pct": -0.499,
+    "p_value": 0.9959,
+    "wins": 2,
+    "wall_s": 126.1
+  },
+  {
+    "name": "CB_tlcb09_temporal_k5",
+    "scenario": "cb_winning_temporal",
+    "slice_kwargs": {
+      "slice_k": 5,
+      "source": "temporal",
+      "aggregate": "t_lcb"
+    },
+    "n_seeds": 15,
+    "median_baseline": 0.36367,
+    "median_slice": 0.36549,
+    "gap_pct": -0.499,
+    "p_value": 0.9959,
+    "wins": 2,
+    "wall_s": 110.8
+  }
+]
