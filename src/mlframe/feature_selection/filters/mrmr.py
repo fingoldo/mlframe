@@ -258,6 +258,8 @@ class MRMR(BaseEstimator, TransformerMixin):
         # via ``stability_selection_method='complementary_pairs'``.
         stability_selection_method: str = "classic",
         stability_selection_corr_threshold: float = 0.8,
+        stability_n_bootstrap: int = 50,
+        stability_pi_threshold: float = 0.6,
         # F14 PID decomposition (Williams-Beer + Ince I_ccs). When enabled,
         # synergistic features bypass the standard redundancy gate.
         pid_synergy_bonus: float = 0.0,
@@ -653,6 +655,86 @@ class MRMR(BaseEstimator, TransformerMixin):
     # in ``_mrmr_validate_transform.py`` and bound onto this class at the
     # bottom of this module.
 
+    # 2026-05-30 Wave 8 — opt-in stability-selection outer-loop wrapper.
+    # Routes to Faletto-Bien 2022 Cluster Stability Selection or
+    # Shah-Samworth 2013 Complementary Pairs Stability when
+    # ``stability_selection_method != 'classic'``. The classic path falls
+    # through to the legacy ``self.fit`` body.
+    def _stability_outer_fit(self, X, y, **fit_kwargs):
+        method = getattr(self, "stability_selection_method", "classic")
+        if method == "classic":
+            return None  # fall through to legacy fit
+        from ._stability_cluster import (
+            cluster_stability_selection,
+            complementary_pairs_stability,
+        )
+        import pandas as pd
+        X_arr = X.to_numpy() if hasattr(X, "to_numpy") else np.asarray(X)
+        y_arr = (
+            y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+        ).ravel()
+        feature_names = (
+            list(X.columns) if hasattr(X, "columns")
+            else [f"f{i}" for i in range(X_arr.shape[1])]
+        )
+
+        def _inner_selector(X_sub, y_sub):
+            X_sub_df = pd.DataFrame(X_sub, columns=feature_names)
+            y_sub_s = pd.Series(y_sub, name="y")
+            # Use a fresh sibling instance with classic method to avoid
+            # recursion AND drop bootstrap-incompatible settings.
+            sub = type(self)(
+                **{
+                    **{k: v for k, v in self.get_params().items()
+                       if k not in (
+                           "stability_selection_method",
+                           "stability_selection_corr_threshold",
+                           "uaed_auto_size",
+                           "cmi_perm_stop",
+                       )},
+                    "stability_selection_method": "classic",
+                    "verbose": 0,
+                }
+            )
+            sub.fit(X_sub_df, y_sub_s)
+            if not hasattr(sub, "support_") or sub.support_ is None:
+                return np.asarray([], dtype=np.int64)
+            return np.asarray(sub.support_, dtype=np.int64)
+
+        if method == "cluster":
+            corr_thr = float(
+                getattr(self, "stability_selection_corr_threshold", 0.8)
+            )
+            sel, freq, info = cluster_stability_selection(
+                X_arr, y_arr, _inner_selector,
+                n_bootstrap=int(getattr(self, "stability_n_bootstrap", 50)),
+                pi_threshold=float(
+                    getattr(self, "stability_pi_threshold", 0.6)
+                ),
+                corr_threshold=corr_thr,
+                rng_seed=int(self.random_seed or 0),
+            )
+        elif method == "complementary_pairs":
+            sel, freq, info = complementary_pairs_stability(
+                X_arr, y_arr, _inner_selector,
+                n_pairs=int(getattr(self, "stability_n_bootstrap", 50)),
+                pi_threshold=float(
+                    getattr(self, "stability_pi_threshold", 0.6)
+                ),
+                rng_seed=int(self.random_seed or 0),
+            )
+        else:
+            raise ValueError(f"unknown stability_selection_method={method!r}")
+
+        # Persist the standard MRMR public-API attributes from the chosen set.
+        self.support_ = np.asarray(sel, dtype=np.int64)
+        self.feature_names_in_ = np.asarray(feature_names, dtype=object)
+        self.n_features_in_ = len(feature_names)
+        self.n_features_ = int(self.support_.size)
+        self.stability_freq_ = freq
+        self.stability_info_ = info
+        return self
+
     def _resolve_target_prefix(self) -> str:
         """Stable, seedable prefix for the temporary target columns injected during fit.
 
@@ -838,6 +920,28 @@ class MRMR(BaseEstimator, TransformerMixin):
             )
         self._pandas_frame_for_target_cleanup = None
         self._target_names_for_cleanup = None
+
+        # 2026-05-30 Wave 8 — Stability-selection outer-loop short-circuit.
+        # When ``stability_selection_method`` is 'cluster' or
+        # 'complementary_pairs', delegate to the bootstrap aggregator before
+        # the legacy single-fit body executes.
+        _stab_method = getattr(self, "stability_selection_method", "classic")
+        if _stab_method != "classic":
+            try:
+                _stab_result = self._stability_outer_fit(
+                    X, y, groups=groups, sample_weight=sample_weight,
+                    **fit_params,
+                )
+            except Exception as _exc:
+                warnings.warn(
+                    f"MRMR stability_selection_method={_stab_method!r} outer-loop "
+                    f"raised {type(_exc).__name__}: {_exc}. Falling back to classic fit.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            else:
+                if _stab_result is not None:
+                    return _stab_result
 
         # TODO B (2026-05-28): reject NaN/Inf in y at fit entry, matching the
         # sibling selectors (RFECV / ShapProxiedFS). Pre-fix MRMR let NaN flow

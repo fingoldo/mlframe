@@ -945,4 +945,22 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _byte_cap = _mb_cap * (1024 ** 2)
             while len(MRMR._FIT_CACHE) > 1 and _mrmr_cache_bytes_total() > _byte_cap:
                 MRMR._FIT_CACHE.popitem(last=False)
+    # 2026-05-30 Wave 8 — post-fit UAED auto-size. When enabled, replaces the
+    # configured ``min_features_fallback`` floor with an automatic elbow on
+    # the per-feature MI gain curve. Relevance trace is taken from the
+    # ``mrmr_gains_`` attribute (Wave-7 audit landed this trace in the
+    # standard fit output); if missing, this step no-ops.
+    if getattr(self, "uaed_auto_size", False):
+        try:
+            from ._cmi_perm_stop import uaed_elbow
+            gains = np.asarray(getattr(self, "mrmr_gains_", []), dtype=np.float64)
+            if gains.size >= 3:
+                elbow = int(uaed_elbow(gains))
+                if 0 < elbow < gains.size and hasattr(self, "support_"):
+                    self.support_ = np.asarray(self.support_)[:elbow + 1]
+                    self.n_features_ = int(self.support_.size)
+                    self.uaed_elbow_ = int(elbow)
+        except Exception:
+            # UAED is best-effort post-fit; don't break fit() on internal hiccup.
+            pass
     return self
