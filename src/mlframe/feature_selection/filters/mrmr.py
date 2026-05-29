@@ -207,19 +207,21 @@ class MRMR(BaseEstimator, TransformerMixin):
         quantization_method: str = "quantile",
         quantization_nbins: int = 10,
         quantization_dtype: object = np.int32,
-        # 2026-05-29 Wave 7: per-feature adaptive bin chooser.
-        # ``nbins_strategy``: route the per-column bin chooser through an
-        # adaptive strategy ('auto', 'sturges', 'freedman_diaconis', 'fd',
-        # 'qs', 'knuth', 'blocks', 'mdlp', 'fayyad_irani', 'optimal_joint',
-        # 'cv'). None preserves the legacy fixed-nbins behaviour. Per the
-        # WAVE 1 A/B bench, Knuth-quantile and MDLP-njit are now the
-        # recommended adaptive picks (free MI gain + speed).
+        # 2026-05-29 Wave 7: per-feature adaptive bin chooser. Default
+        # ``'mdlp'`` (Fayyad-Irani 1993, with njit-accelerated kernel) is the
+        # honest combined-ranking winner of the F1 leaderboard
+        # (``|err vs truth| + noise_floor``: MDLP 0.107, Sturges 0.135,
+        # quantile10 0.139, OptimalJoint 0.167, FD 0.175). MDLP is the only
+        # strategy with a TRUE zero no-signal floor, which directly improves
+        # MRMR's relevance gate against false-positive feature picks. Pass
+        # ``nbins_strategy=None`` to restore the pre-2026-05-29 fixed
+        # ``quantization_nbins`` quantile behaviour.
         # The MRMR hot path stays exclusively on the plug-in MI njit kernel
-        # chain (mi_direct / fleuret / permutation) which requires integer
-        # bin codes; alternative MI estimator families (KSG, neural, copula,
-        # aggregators) live in their own modules for ad-hoc / benchmark use
-        # only and are explicitly NOT wired into MRMR.fit().
-        nbins_strategy: str = None,
+        # chain (mi_direct / fleuret / permutation); alternative MI estimator
+        # families (KSG, neural, copula, aggregators) live in their own
+        # modules for ad-hoc / benchmark use only and are explicitly NOT
+        # wired into MRMR.fit().
+        nbins_strategy: str = "mdlp",
         nbins_strategy_kwargs: dict = None,
         # 2026-05-28: MI normalization knob to combat the cardinality bias.
         # Raw I(X; Y) is bounded by min(H(X), H(Y)); high-cardinality features
