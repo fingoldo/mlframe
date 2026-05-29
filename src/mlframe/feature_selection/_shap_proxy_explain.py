@@ -299,6 +299,20 @@ def _fit_one(model_template, X, y, classification: bool, seed: Optional[int], ji
 
 def make_default_estimator(classification: bool, random_state: int = 0, n_estimators: int = 300):
     """Fast tree booster whose SHAP ``tree_path_dependent`` path is exact and well-behaved."""
+    # bench-attempt-rejected (iter51): hypothesised that ``xgboost.core._init`` (QuantileDMatrix._init,
+    # not a module-level init) was reducible via DMatrix sharing or Booster pooling across the ~8-60
+    # per-fit calls inside one selector run. Three options surveyed:
+    #   (A) DMatrix pre-construction: each fit takes a DIFFERENT column subset of X (OOF-SHAP folds,
+    #       revalidation candidates, refine probes) -- no two fits share the same matrix.
+    #   (B) Booster pool: xgboost's Booster.reset (3.0+) frees data caches but does NOT permit
+    #       re-training a fresh booster on different data. No public API for state-reuse.
+    #   (C) Module-level _init: there is none -- core.py:1553 is QuantileDMatrix._init, an instance
+    #       constructor; the work it does (callback registration + C-bridge DMatrix allocation +
+    #       quantile sketch) is intrinsic per-fit cost.
+    # Probe (width=2000, n_rows=3000): _init ncalls=8, tottime=0.332s, percall=42ms; total e2e 25.7s.
+    # At C4 (width=20000, n_rows=10000) the percall scales with data; aggregate tottime ~6s, e2e ~77s,
+    # so eliminating ALL _init would yield <8% e2e speedup and the only paths to reduce ncalls require
+    # either changing the proxy's per-fit column-subset contract or forking xgboost. Honest-negative.
     from xgboost import XGBClassifier, XGBRegressor
 
     params = dict(
