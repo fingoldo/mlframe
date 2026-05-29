@@ -83,3 +83,71 @@ def test_constant_and_independent_columns_are_singletons():
     X = np.column_stack([rng.normal(size=n), np.ones(n), rng.normal(size=n)])  # col1 constant
     labels = cluster_correlated_features(X, threshold=0.7, use_gpu=False)
     assert labels.max() + 1 == 3  # all singletons
+
+
+def test_gpu_min_features_routes_small_f_to_cpu(monkeypatch):
+    """At small ``f`` the dispatcher must skip the GPU dense path (cold cupy/CUDA load costs >10s,
+    CPU GEMM costs <1s) regardless of CUDA availability. Verified by mocking the GPU edge function
+    so the test does not require CUDA: when ``use_gpu='auto'`` and ``f < gpu_min_features``, the
+    GPU function must NOT be invoked. The legacy explicit-on path (``use_gpu=True``) honours the
+    caller and bypasses the size gate -- production callers that already paid the cupy cold-start
+    can force GPU back on through that route."""
+    from mlframe.feature_selection import _shap_proxy_cluster as mod
+
+    calls = {"gpu_dense": 0}
+
+    def _mock_gpu(*a, **kw):
+        calls["gpu_dense"] += 1
+        # Return None to force the dispatcher's fallback path so we don't actually need cupy.
+        return None
+
+    monkeypatch.setattr(mod, "_edges_dense_gpu", _mock_gpu)
+    # Pretend cupy is importable + a GPU is visible so the `gpu = True` branch is taken before
+    # the small-f gate. The gate must then flip gpu back to False at f=20 < gpu_min_features=2000.
+    class _FakeRuntime:
+        @staticmethod
+        def getDeviceCount():
+            return 1
+    class _FakeCuda:
+        runtime = _FakeRuntime()
+    class _FakeCp:
+        cuda = _FakeCuda()
+    import sys
+    monkeypatch.setitem(sys.modules, "cupy", _FakeCp())
+
+    X, *_ = _make_clustered(n=400, n_factors=2, refl=3, n_noise=4, seed=4)
+    assert X.shape[1] == 10  # well below the 2000 default gpu_min_features
+    labels = cluster_correlated_features(X, threshold=0.7, use_gpu="auto", gpu_min_features=2000)
+    assert calls["gpu_dense"] == 0, "small-f path must skip GPU dense (cold cupy is dwarfed by CPU GEMM)"
+    # And the partition must still be CPU-correct (we land in the CPU dense branch).
+    cpu_labels = cluster_correlated_features(X, threshold=0.7, use_gpu=False)
+    assert _partition(labels) == _partition(cpu_labels)
+
+
+def test_gpu_min_features_explicit_true_overrides_gate(monkeypatch):
+    """When the caller passes ``use_gpu=True`` (not 'auto') the size gate must NOT fire -- the user
+    has explicitly asked for GPU and may have a warm cupy process where the size threshold is wrong."""
+    from mlframe.feature_selection import _shap_proxy_cluster as mod
+
+    calls = {"gpu_dense": 0}
+
+    def _mock_gpu(Z, threshold, edge_cap):
+        calls["gpu_dense"] += 1
+        # Return a valid edge tuple to satisfy the downstream union-find call.
+        return np.empty(0, np.int64), np.empty(0, np.int64)
+
+    monkeypatch.setattr(mod, "_edges_dense_gpu", _mock_gpu)
+    class _FakeRuntime:
+        @staticmethod
+        def getDeviceCount():
+            return 1
+    class _FakeCuda:
+        runtime = _FakeRuntime()
+    class _FakeCp:
+        cuda = _FakeCuda()
+    import sys
+    monkeypatch.setitem(sys.modules, "cupy", _FakeCp())
+
+    X, *_ = _make_clustered(n=400, n_factors=2, refl=3, n_noise=4, seed=5)
+    cluster_correlated_features(X, threshold=0.7, use_gpu=True, gpu_min_features=2000)
+    assert calls["gpu_dense"] == 1, "explicit use_gpu=True must still route to GPU even at small f"

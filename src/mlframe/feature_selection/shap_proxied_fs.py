@@ -385,6 +385,14 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         self.verbose = verbose
         self.tqdm = tqdm
         self._rng = np.random.default_rng(random_state)
+        # Column-batch width for the disjoint train/holdout row split. The split copies
+        # `X.values[idx, :]` block-by-block to bound peak transient memory at one batch's worth
+        # of float64 cells (default = 1024 cols x n_rows x 8 bytes ~= 80 MiB at n_rows=10k);
+        # private (not in `__init__` kwargs) because it's an internal memory-shaping knob,
+        # not a quality lever. Override via ``self._split_col_batch = ...`` post-construction
+        # if needed; sklearn `get_params()` ignores underscore-prefixed attrs.
+        self._split_col_batch = 1024
+        self._deferred_holdout = None
 
     def _resolve_revalidation_ucb_stdev_multiplier(self, n_features: int) -> float:
         """Width-dependent default for the revalidation UCB stdev multiplier.
@@ -534,8 +542,38 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         idx_search, idx_hold = train_test_split(
             idx_all, test_size=self.holdout_size, random_state=int(self.random_state),
             shuffle=True, stratify=stratify)
-        X_search, y_search = X.iloc[idx_search].reset_index(drop=True), y[idx_search]
-        X_hold, y_hold = X.iloc[idx_hold].reset_index(drop=True), y[idx_hold]
+        # Wide-frame split with deferred holdout materialisation. At C4 (width=20000, n_rows=10000)
+        # the original frame is 1.49 GiB, the search slice (75% rows) is 1.12 GiB, and the holdout
+        # slice (25% rows) is 381 MiB; the legacy back-to-back
+        # `X.iloc[idx_search].reset_index(drop=True)` + `X.iloc[idx_hold].reset_index(drop=True)`
+        # held all three simultaneously plus reset_index transient buffers and OOM'd on a
+        # 17 GB / 6.4 GB-free host (iter46). The prefilter only needs `X_search`; once it returns
+        # `working_cols` (typically <=704 entries -- effective_prefilter_top is bounded by the
+        # SHAP-prefilter cap), the holdout can be built directly at that narrow column count
+        # (~5 MiB instead of 381 MiB). Keep `X_vals_full` alive (a view into the original block,
+        # zero extra alloc on a single-dtype input) so the deferred holdout materialisation has a
+        # source to slice from. `reset_index(drop=True)` is dropped throughout: downstream consumers
+        # all read via `.values` / `.iloc[:, cols]` / positional row access, none depend on the row
+        # index being 0..n-1 RangeIndex (and `compute_shap_matrix` does its own
+        # `reset_index(drop=True)` on the narrow post-prefilter frame anyway).
+        X_cols = X.columns
+        n_cols = X.shape[1]
+        X_vals_full = X.values  # single-block float64 view on bench / homogeneous input
+        # Build wide X_search via column-batched copy from the parent block. One batch's worth of
+        # transient memory (~80 MiB at default 1024-col batch), not a full extra split copy.
+        X_search_arr = np.empty((idx_search.shape[0], n_cols), dtype=X_vals_full.dtype)
+        col_batch = self._split_col_batch
+        for c0 in range(0, n_cols, col_batch):
+            c1 = min(c0 + col_batch, n_cols)
+            X_search_arr[:, c0:c1] = X_vals_full[idx_search, c0:c1]
+        X_search = pd.DataFrame(X_search_arr, columns=X_cols, copy=False)
+        del X, X_search_arr
+        y_search = y[idx_search]
+        # Defer X_hold materialisation: store the inputs and let the post-prefilter step build it
+        # at the narrow working-column count.
+        self._deferred_holdout = (X_vals_full, idx_hold, X_cols)
+        X_hold = None  # built post-prefilter (or pre-clustering if prefilter is skipped)
+        y_hold = y[idx_hold]
 
         report: dict = {}
 
@@ -617,9 +655,22 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
                     stage1_keep=effective_stage1_keep,
                     univariate_batch_size=self.prefilter_univariate_batch_size)
                 if len(working_cols) < n_features:
-                    X_search = X_search.iloc[:, working_cols].reset_index(drop=True)
-                    X_hold = X_hold.iloc[:, working_cols].reset_index(drop=True)
+                    X_search = X_search.iloc[:, working_cols]
                 report["prefilter"] = pf_info
+        # Materialise X_hold at the narrow post-prefilter column count (or the full width if no
+        # prefilter ran). Deferred from the row-split above so the C4 peak holds X + X_search and
+        # NOT also a wide X_hold; with prefilter on, working_cols is typically <=704 entries so
+        # this slice is ~5 MiB instead of 381 MiB.
+        X_vals_full, idx_hold_saved, X_cols_full = self._deferred_holdout
+        if len(working_cols) < n_features:
+            hold_cols = [X_cols_full[c] for c in working_cols]
+            X_hold = pd.DataFrame(
+                X_vals_full[np.ix_(idx_hold_saved, working_cols)],
+                columns=hold_cols, copy=False)
+        else:
+            X_hold = pd.DataFrame(X_vals_full[idx_hold_saved], columns=X_cols_full, copy=False)
+        self._deferred_holdout = None
+        del X_vals_full, X_cols_full
 
         # Optional correlated-feature clustering: collapse to denoised UNITS so SHAP + search run on
         # hundreds of columns, not tens of thousands. unit_to_members maps proxy(unit) index ->

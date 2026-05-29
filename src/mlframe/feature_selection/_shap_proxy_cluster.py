@@ -130,6 +130,25 @@ def _edges_blocked(Z, threshold, edge_cap, block, use_gpu):
     return np.concatenate(ei_parts), np.concatenate(ej_parts)
 
 
+def _resolve_gpu_min_features(default: int = 2000) -> int:
+    """Smallest feature count at which the GPU dense path is preferred over CPU.
+
+    Below this width the cold cupy/CUDA load + NVRTC kernel compile (~17s on the dev box) dwarfs
+    even a single-threaded CPU `Z.T @ Z` on the bench (~0.3s at f=704/n=10000, ~50ms multithreaded).
+    The blocked CPU path picks up >`max_dense_features`. The threshold is dispatcher-tunable per
+    HW via ``pyutilz.system.kernel_tuning_cache`` (key:
+    ``mlframe.shap_proxied_fs.cluster_corr.gpu_min_features``).
+    """
+    try:
+        from pyutilz.system import kernel_tuning_cache
+
+        value = kernel_tuning_cache.get(
+            "mlframe.shap_proxied_fs.cluster_corr.gpu_min_features", default=default)
+        return int(value)
+    except Exception:
+        return default
+
+
 def cluster_correlated_features(
     X: np.ndarray,
     *,
@@ -138,10 +157,20 @@ def cluster_correlated_features(
     max_dense_features: int = 16000,
     block: int = 2048,
     edge_cap: int = 20_000_000,
+    gpu_min_features: int | None = None,
 ) -> np.ndarray:
     """Label each feature with a cluster id (0..K-1) by single-linkage on |correlation| >= threshold.
 
     Constant columns and features with no above-threshold partner become singleton clusters.
+
+    ``gpu_min_features`` (iter46): below this feature count the dense correlation runs on CPU even
+    when a GPU is available, because the cupy/CUDA cold-start cost (one-time per process, ~17s on
+    the dev box) is far larger than the CPU GEMM at small ``f``. ``None`` consults
+    ``pyutilz.system.kernel_tuning_cache`` (key
+    ``mlframe.shap_proxied_fs.cluster_corr.gpu_min_features``); the default (2000) was calibrated
+    on C4 (f=704 / n=10000 / cold cupy) where CPU dense ran in 0.3s vs the GPU path's 26.7s
+    cumulative. After warm cupy is loaded for the process, the GPU path runs in ~50ms; users who
+    keep cupy hot in the calling process can lower the threshold via the tuning cache.
     """
     X = np.asarray(X, dtype=np.float32)
     X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
@@ -160,6 +189,13 @@ def cluster_correlated_features(
             gpu = False
     if use_gpu is False:
         gpu = False
+    # Small-f opt-out: even when CUDA is present, route the dense path to CPU if the GEMM is
+    # tiny relative to the GPU cold-init cost. Forced GPU (`use_gpu=True` explicit) honours the
+    # caller and skips this check.
+    if gpu and use_gpu == "auto":
+        gmin = gpu_min_features if gpu_min_features is not None else _resolve_gpu_min_features()
+        if f < gmin:
+            gpu = False
 
     edges = None
     if f <= max_dense_features:
