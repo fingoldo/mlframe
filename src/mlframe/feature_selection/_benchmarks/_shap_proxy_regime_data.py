@@ -62,17 +62,35 @@ def make_regime_dataset(
         adj = (g(Z[:, interacting]) * coefs[interacting]).sum(axis=1)
         f_signal = f_signal - (1.0 - interaction_strength) * adj
 
-    # Redundant correlated copies of random informatives.
-    R_cols, R_names_src = [], []
+    # Pre-allocate the full feature matrix and fill role blocks in place.
+    # The wide noise pool at large widths (e.g. C4: 10k rows x 19960 noise cols = 1.49 GiB)
+    # made the prior `[Z, R, N]` + `column_stack` path peak above ~3 GiB; that triggered
+    # OOM on dev boxes sharing memory with Postgres / Memory Compression. Chunked noise fill
+    # caps the transient overhead at one chunk's worth of float64.
+    total_cols = n_informative + n_redundant + n_noise
+    X = np.empty((n_samples, total_cols), dtype=np.float64)
+    X[:, :n_informative] = Z
+
+    R_names_src = []
+    rho_keep = np.sqrt(max(1e-9, 1 - redundancy_rho ** 2))
     for j in range(n_redundant):
         src = int(rng.integers(0, n_informative))
-        copy = redundancy_rho * Z[:, src] + np.sqrt(max(1e-9, 1 - redundancy_rho ** 2)) * rng.standard_normal(n_samples)
-        R_cols.append(copy)
+        X[:, n_informative + j] = redundancy_rho * Z[:, src] + rho_keep * rng.standard_normal(n_samples)
         R_names_src.append(src)
-    R = np.column_stack(R_cols) if R_cols else np.empty((n_samples, 0))
-    N = rng.standard_normal((n_samples, n_noise))
 
-    X = np.column_stack([Z, R, N]) if (R.size or n_noise) else Z
+    noise_start = n_informative + n_redundant
+    if n_noise:
+        # Stream noise into X in column-block chunks to bound peak transient allocation.
+        # Chunk size targets ~64 MiB per scratch buffer regardless of n_samples / n_noise.
+        target_chunk_bytes = 64 * 1024 * 1024
+        bytes_per_col = n_samples * 8
+        chunk_cols = max(1, min(n_noise, target_chunk_bytes // max(bytes_per_col, 1)))
+        col = 0
+        while col < n_noise:
+            this = min(chunk_cols, n_noise - col)
+            X[:, noise_start + col : noise_start + col + this] = rng.standard_normal((n_samples, this))
+            col += this
+
     names = ([f"inf{i}" for i in range(n_informative)]
              + [f"red{i}_of{R_names_src[i]}" for i in range(n_redundant)]
              + [f"noise{i}" for i in range(n_noise)])
