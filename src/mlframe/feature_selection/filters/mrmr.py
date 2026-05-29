@@ -999,7 +999,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # raw conditional_mi (and cached entropy numbers) stay legacy-bit-stable for
         # the default ``mi_normalization='none'`` path. Restored in finally so a
         # crashing _fit_impl can't leak SU mode into subsequent fits.
-        from .info_theory import set_su_normalization
+        from .info_theory import set_su_normalization, set_jmim_aggregator, set_bur_lambda
         _mi_norm = getattr(self, "mi_normalization", "none")
         if _mi_norm not in ("none", "su"):
             raise ValueError(
@@ -1007,6 +1007,13 @@ class MRMR(BaseEstimator, TransformerMixin):
             )
         _prev_su = _mi_norm == "su"
         set_su_normalization(_prev_su)
+        # 2026-05-30 Wave 8 — activate JMIM aggregator + BUR weight thread-locals.
+        # Both default OFF (redundancy_aggregator=None, bur_lambda=0.0) so the
+        # legacy Fleuret path stays bit-stable.
+        _jmim_on = getattr(self, "redundancy_aggregator", None) == "jmim"
+        _bur_lambda = float(getattr(self, "bur_lambda", 0.0) or 0.0)
+        set_jmim_aggregator(_jmim_on)
+        set_bur_lambda(_bur_lambda)
         try:
             result = self._fit_impl(X, y, groups, **fit_params)
             try:
@@ -1054,6 +1061,15 @@ class MRMR(BaseEstimator, TransformerMixin):
             # toggle, but neither is the cache layer they would share).
             try:
                 set_su_normalization(False)
+            except Exception:
+                pass
+            # 2026-05-30 Wave 8 — reset JMIM + BUR thread-locals.
+            try:
+                set_jmim_aggregator(False)
+            except Exception:
+                pass
+            try:
+                set_bur_lambda(0.0)
             except Exception:
                 pass
             frame = getattr(self, "_pandas_frame_for_target_cleanup", None)

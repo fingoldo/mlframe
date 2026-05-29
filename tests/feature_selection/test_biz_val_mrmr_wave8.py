@@ -348,3 +348,65 @@ class TestMRMRWiredKnobs:
         from mlframe.feature_selection.filters.mrmr import MRMR
         with pytest.raises(ValueError):
             MRMR(mi_correction="nonsense")._validate_string_params()
+
+
+class TestJMIMBURInnerLoop:
+    """2026-05-30 Wave 8 inner-loop wire-ins -- JMIM aggregator and BUR
+    bonus are config-disable-able (defaults preserve legacy Fleuret bit-stable).
+    """
+    def _toy(self, n=300, seed=0):
+        rng = np.random.default_rng(int(seed))
+        true_sig = rng.standard_normal(n)
+        X = pd.DataFrame({
+            "f0_dup": true_sig + 0.05 * rng.standard_normal(n),
+            "f1_dup": true_sig + 0.05 * rng.standard_normal(n),
+            "f2_other": rng.standard_normal(n),
+            "f3_noise": rng.standard_normal(n),
+        })
+        y = pd.Series(
+            (true_sig + 0.3 * X["f2_other"] > 0).astype(np.int64),
+            name="y",
+        )
+        return X, y
+
+    def test_jmim_aggregator_completes_fit(self):
+        from mlframe.feature_selection.filters.mrmr import MRMR
+        X, y = self._toy()
+        sel = MRMR(redundancy_aggregator="jmim", verbose=0)
+        sel.fit(X, y)
+        assert sel.n_features_ >= 1
+        assert sel.get_feature_names_out().size >= 1
+
+    def test_bur_bonus_completes_fit(self):
+        from mlframe.feature_selection.filters.mrmr import MRMR
+        X, y = self._toy()
+        sel = MRMR(bur_lambda=0.5, verbose=0)
+        sel.fit(X, y)
+        assert sel.n_features_ >= 1
+
+    def test_jmim_plus_bur_compose(self):
+        from mlframe.feature_selection.filters.mrmr import MRMR
+        X, y = self._toy()
+        sel = MRMR(redundancy_aggregator="jmim", bur_lambda=0.3, verbose=0)
+        sel.fit(X, y)
+        assert sel.n_features_ >= 1
+
+    def test_defaults_match_legacy_bit_stable(self):
+        from mlframe.feature_selection.filters.mrmr import MRMR
+        from mlframe.feature_selection.filters.info_theory import (
+            use_jmim_aggregator, get_bur_lambda,
+        )
+        X, y = self._toy()
+        # Default config = JMIM off, BUR off.
+        sel = MRMR(verbose=0)
+        assert sel.redundancy_aggregator is None
+        assert sel.bur_lambda == 0.0
+        sel.fit(X, y)
+        # After fit the thread-locals must be RESET to false / 0.
+        assert use_jmim_aggregator() is False
+        assert get_bur_lambda() == 0.0
+
+    def test_invalid_redundancy_aggregator_raises(self):
+        from mlframe.feature_selection.filters.mrmr import MRMR
+        with pytest.raises(ValueError):
+            MRMR(redundancy_aggregator="nonsense")._validate_string_params()

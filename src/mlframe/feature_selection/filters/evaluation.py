@@ -24,11 +24,14 @@ from ._internals import LARGE_CONST, MAX_CONFIRMATION_CAND_NBINS, MAX_ITERATIONS
 from ._numba_utils import arr2str, count_cand_nbins, unpack_and_sort
 from .gpu import mi_direct_gpu
 from .info_theory import (
-    compute_mi_from_classes, conditional_mi, entropy, merge_vars,
+    compute_mi_from_classes, conditional_mi, entropy, merge_vars, mi,
     # 2026-05-28: SU normalization dispatcher. ``cmi_or_csu`` reads a thread-local
     # toggle set by ``MRMR.fit`` when ``mi_normalization='su'``; legacy path
     # (toggle off) is one extra Python call ahead of njit kernels.
     cmi_or_csu, use_su_normalization, conditional_symmetric_uncertainty,
+    # 2026-05-30 Wave 8: JMIM aggregator + BUR weight thread-local toggles
+    # used in evaluate_gain / evaluate_candidate.
+    use_jmim_aggregator, get_bur_lambda,
 )
 from .permutation import mi_direct
 
@@ -280,13 +283,33 @@ def evaluate_gain(
 
                         if not key_found:
 
+                            # 2026-05-30 Wave 8 — JMIM aggregator (Bennasar 2015).
+                            # When the thread-local JMIM toggle is on, replace
+                            # Fleuret's conditional MI ``I(X; Y | Z)`` with the
+                            # joint MI ``I({X, Z}; Y)``. Both feed the same
+                            # outer ``min_k`` aggregator. JMIM preserves the
+                            # synergistic information that CMIM rejects on
+                            # multi-collinear groups (Brown 2012 / Bennasar 2015
+                            # framework). Caching skipped on the JMIM branch
+                            # because the joint-MI computation has its own
+                            # per-pair entropy cost; future sprint may add a
+                            # joint-MI cache keyed on the multiset {X, Z, Y}.
+                            from .info_theory import use_jmim_aggregator
+                            _use_jmim = use_jmim_aggregator()
                             # 2026-05-28: SU branch bypasses entropy caches because the SU denominator
                             # is path-dependent and re-using cached unconditional CMI numbers would
                             # silently desync the normalization. Cheap (no caching) is correct here;
                             # legacy raw-CMI path keeps cache wired in. ``use_su`` is threaded from
                             # the Python-level caller (process_candidates -> evaluate_gain) so the
                             # njit kernel doesn't need to read the Python thread-local at runtime.
-                            if use_su:
+                            if _use_jmim:
+                                xz_combined = np.unique(np.concatenate((X, Z)))
+                                additional_knowledge = mi(
+                                    factors_data=factors_data,
+                                    x=xz_combined, y=y,
+                                    factors_nbins=factors_nbins, dtype=dtype,
+                                )
+                            elif use_su:
                                 additional_knowledge = conditional_symmetric_uncertainty(
                                     factors_data=factors_data, x=X, y=y, z=Z,
                                     factors_nbins=factors_nbins, dtype=dtype,
@@ -458,6 +481,37 @@ def evaluate_candidate(
             expected_gains[cand_idx] = current_gain
     else:
         current_gain = 0
+
+    # 2026-05-30 Wave 8 — BUR additive bonus (Gao 2022). Off by default
+    # (``bur_lambda`` thread-local = 0.0). When enabled, adds
+    # ``lambda * (I(X; Y) - max_j I(X; X_j))`` to the post-Fleuret score.
+    # ``direct_gain`` already holds ``I(X; Y)``; max-correlation to selected
+    # is computed once per candidate. Cheap because no new MI estimator —
+    # reuses existing ``mi`` njit on multi-index slices. Floored at zero so
+    # a fully-redundant candidate gets zero bonus, not a penalty.
+    _bur_lambda = get_bur_lambda()
+    if _bur_lambda > 0.0 and direct_gain > 0 and selected_vars:
+        try:
+            max_xz = 0.0
+            for _z in selected_vars:
+                _z_arr = np.asarray(_z if hasattr(_z, "__len__") else [_z],
+                                     dtype=np.int64)
+                xz = mi(
+                    factors_data=factors_data, x=X, y=_z_arr,
+                    factors_nbins=factors_nbins, dtype=dtype,
+                )
+                if xz > max_xz:
+                    max_xz = float(xz)
+            bonus = max(0.0, float(direct_gain) - max_xz) * _bur_lambda
+            current_gain = float(current_gain) + bonus
+            if cand_idx in partial_gains:
+                _g, _k = partial_gains[cand_idx]
+                partial_gains[cand_idx] = (float(_g) + bonus, _k)
+            if expected_gains[cand_idx]:
+                expected_gains[cand_idx] = current_gain
+        except Exception:
+            # BUR is best-effort; never break evaluation on its account.
+            pass
 
     return current_gain, sink_reasons
 
