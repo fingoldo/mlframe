@@ -67,7 +67,8 @@ vl-convert-python
 # Scientific utilities, entropy, and signal analysis tools
 # ================================================================================================
 antropy
-astropy
+# astropy removed 2026-05-28; native Knuth + Bayesian Blocks shipped in feature_selection.filters.discretization.
+# Optional: `pip install mlframe[signal]` still pulls astropy for callers who depend on it directly.
 entropy-estimators
 polars_ds
 polars_talib

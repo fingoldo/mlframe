@@ -66,7 +66,14 @@ dependencies = [
     # and would otherwise raise ImportError on `import mlframe`. Audited via
     # AST top-level scan on 2026-05-15.
     "antropy>=0.1",
-    "astropy>=5.0",
+    # 2026-05-28: astropy removed from CORE deps. Native impls of Bayesian Blocks
+    # (Scargle 2013) and Knuth's rule (Knuth 2006) ship in
+    # feature_selection/filters/discretization.py:histogram(). All consumers
+    # (feature_engineering/numerical.py, _numerical_numba.py,
+    # feature_selection/filters/_mrmr_fingerprints.py) wrap the astropy import
+    # in try/except with np.histogram fallback, so removing astropy from core
+    # only loses the optional astropy-only bin schemes. Listed in [signal]
+    # extras below for callers who want them.
     "category-encoders>=2.6",
     "expiringdict>=1.2",
     "pympler>=1.0",   # used via pyutilz.system; unconditional import in tests/feature_engineering/*

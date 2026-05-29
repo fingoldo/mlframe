@@ -1029,3 +1029,16 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         if not hasattr(self, "support_"):
             raise NotFittedError("ShapProxiedFS.get_support called before fit.")
         return np.where(self.support_)[0] if indices else self.support_
+
+    def get_feature_names_out(self, input_features=None):
+        """TODO C (2026-05-28): sklearn TransformerMixin convention. Returns the
+        selected feature names; pairs with the existing ``get_support`` so both
+        sklearn API surfaces work uniformly with the other mlframe selectors
+        (MRMR has get_feature_names_out, RFECV has both, ShapProxied previously
+        had only get_support). Surfaced by the shared FS contract suite.
+        """
+        from sklearn.exceptions import NotFittedError
+
+        if not hasattr(self, "selected_features_"):
+            raise NotFittedError("ShapProxiedFS.get_feature_names_out called before fit.")
+        return np.asarray(self.selected_features_, dtype=object)
