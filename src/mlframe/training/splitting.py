@@ -256,38 +256,27 @@ def make_train_test_split(
     # ..." summary at the bottom.
     if val_placement != _effective_val_placement:
         # Caller asked for temporal honesty (newest data -> val) but no timestamps were
-        # supplied or val_size=0 forced fallback. Caller-visible: WARNING-level because
-        # the requested semantics is silently lost; INFO would let it disappear in noise.
-        # Operator needs to know to pass timestamps_column / non-zero val_size if they
-        # care about temporal generalization estimates.
-        #
-        # IMPORTANT clarification: if ``groups`` were supplied (e.g. via
-        # SimpleFeaturesAndTargetsExtractor(group_field=...) and
-        # TrainingSplitConfig.use_groups=True), GroupShuffleSplit still
-        # keeps each group entirely on ONE side - no per-row leakage of
-        # a group across val/test. What's lost is only the TEMPORAL
-        # ordering of WHICH groups go to val vs test (assignment is random
-        # instead of by-recency). Without timestamps a true temporal split
-        # is impossible regardless of group_field.
+        # supplied or val_size=0 forced fallback. INFO-level: downgrade is the explicit
+        # fallback for the no-timestamp case, not a configuration error. If group_field
+        # was supplied, GroupShuffleSplit still keeps each group entirely on ONE side
+        # (no per-row group leakage); only the temporal ORDERING of which groups go
+        # where is lost.
         if groups is not None:
             try:
                 _ng = int(np.unique(np.asarray(groups)).shape[0])
             except Exception:
                 _ng = -1
-            _group_clause = (
-                f", but groups (n_groups={_ng}) ARE respected via "
-                f"GroupShuffleSplit - each group stays within ONE split "
-                f"(no per-row group leakage)"
-            )
+            _group_clause = f"; groups (n_groups={_ng}) still kept whole per split"
         else:
             _group_clause = ""
-        logger.warning(
-            "val_placement=%r requested but downgraded to %r (timestamps=%s, val_size=%s). "
-            "Temporal honesty lost - val/test rows are randomly mixed across time%s. "
-            "Pass timestamps_column kwarg with a per-row timestamp Series to enable a true temporal split.",
-            val_placement, _effective_val_placement,
-            "present" if timestamps is not None else "None",
-            val_size, _group_clause,
+        _reason = (
+            "no timestamps_column"
+            if timestamps is None
+            else f"val_size={val_size}"
+        )
+        logger.info(
+            "val_placement=%r downgraded to %r (%s)%s.",
+            val_placement, _effective_val_placement, _reason, _group_clause,
         )
     elif val_placement != "forward":
         logger.info("val_placement=%r (Mazzanti backward layout)", val_placement)

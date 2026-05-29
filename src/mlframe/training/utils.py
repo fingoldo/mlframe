@@ -67,14 +67,19 @@ def coerce_to_numpy(arr, *, allow_none: bool = False):
     # honours its copy=False default with an extra dtype-resolution step.
     if isinstance(arr, pd.Series):
         return arr.values
-    # Fast-path for polars Series: explicit zero_copy_only hint avoids
-    # the materialise-via-Arrow step polars takes when called with no kwargs.
+    # Fast-path for polars Series: explicit allow_copy=True keeps the
+    # Arrow-materialise step available (nullable / chunked Arrow series need
+    # the copy; disallowing it would raise). polars 0.20.10 renamed the kwarg
+    # from zero_copy_only (inverse) to allow_copy (positive); the try/except
+    # cascade covers the rename for older builds.
     if pl is not None and isinstance(arr, pl.Series):
         try:
-            return arr.to_numpy(zero_copy_only=False)
+            return arr.to_numpy(allow_copy=True)
         except TypeError:
-            # Older polars without zero_copy_only kwarg.
-            return arr.to_numpy()
+            try:
+                return arr.to_numpy(zero_copy_only=False)
+            except TypeError:
+                return arr.to_numpy()
     if hasattr(arr, "to_numpy"):
         return arr.to_numpy()
     if hasattr(arr, "values"):

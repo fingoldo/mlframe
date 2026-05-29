@@ -189,7 +189,15 @@ def _prewarm_numba_cache_body():
         _ = brier_score_loss(y_true, y_pred)
         _ = fast_brier_score_loss(y_true, y_pred)
         _ = fast_log_loss(y_true, y_pred)
-        _ = maximum_absolute_percentage_error(y_true, y_pred)
+        # MAPE warmup needs a NON-ZERO y_true vector: the classifier-style {0,1}
+        # array used above would trigger the rate-limited "N of M y_true entries
+        # are zero" warning at import time, scaring users with a 5-of-10-zero
+        # message that has nothing to do with their actual training data. The
+        # numba kernel compiles on dtype, not on values, so any non-zero vector
+        # works.
+        _y_mape = np.array([1.0, 1.0, 2.0, 2.0, 3.0, 3.0, 4.0, 4.0, 5.0, 5.0], dtype=dtype)
+        _p_mape = np.array([1.1, 0.9, 2.2, 1.8, 3.3, 2.7, 4.4, 3.6, 5.5, 4.5], dtype=dtype)
+        _ = maximum_absolute_percentage_error(_y_mape, _p_mape)
         _ = probability_separation_score(y_true, y_pred)
 
         freqs_p, freqs_t, hits = fast_calibration_binning(y_true, y_pred, nbins=10)

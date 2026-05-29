@@ -41,20 +41,29 @@ logger = logging.getLogger(__name__)
 
 
 def _extract_column_array(df: Any, col: str) -> np.ndarray:
-    """Pull a single column out as a 1-D float64 ndarray. Polars / pandas
+    """Pull a single column out as a 1-D float32 ndarray. Polars / pandas
     only -- never materialise a whole-frame conversion.
 
+    float32 halves the memory of the discovery feature-matrix vs the prior
+    float64 default. On a 4M-row x ~500-col frame that's the difference
+    between a 15.9 GB allocation (OOM on hosts running the trainer at ~100
+    GB) and an 8 GB allocation (fits). MI / correlation kernels downstream
+    are noise-bounded by sampling and binning, not by mantissa precision;
+    polynomial-residual / multi-base linear least-squares promote to
+    float64 internally at the per-call site (``_composite_transforms_linear``)
+    where the conditioning actually matters.
+
     Return-value contract: callers MUST treat the result as read-only. When
-    the source column already has float64 dtype the polars/pandas backing
+    the source column already has float32 dtype the polars/pandas backing
     buffer is returned zero-copy; in-place mutation would corrupt the source
     DataFrame. Use ``.copy()`` at the call site if mutation is required."""
     if _is_polars_df(df):
         # Polars Series.to_numpy() already returns an ndarray; the prior
         # np.asarray wrapper allocated a redundant view. copy=False keeps
         # the astype zero-copy when the source dtype already matches.
-        return df.get_column(col).to_numpy().astype(np.float64, copy=False)
+        return df.get_column(col).to_numpy().astype(np.float32, copy=False)
     if isinstance(df, pd.DataFrame):
-        return df[col].to_numpy(dtype=np.float64)
+        return df[col].to_numpy(dtype=np.float32)
     raise TypeError(
         f"CompositeTargetDiscovery: unsupported df type {type(df).__name__}"
     )

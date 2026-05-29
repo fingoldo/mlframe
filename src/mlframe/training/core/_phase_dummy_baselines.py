@@ -225,7 +225,10 @@ def run_dummy_baselines(
                     # report path raised NameError on every regression run.
                     reporting_config=reporting_config,
                 )
-                if _strongest_val_raw is not None and current_val_target is not None:
+                _emit_val = bool(getattr(reporting_config, "compute_valset_metrics", True))
+                _emit_test = bool(getattr(reporting_config, "compute_testset_metrics", True))
+                if (_emit_val and _strongest_val_raw is not None
+                        and current_val_target is not None):
                     _vp, _vpr = _split_preds_probs(_strongest_val_raw)
                     _common_val = dict(_common)
                     if plot_file:
@@ -236,7 +239,8 @@ def run_dummy_baselines(
                         report_title="VAL (DUMMY) ",
                         **_common_val,
                     )
-                if _strongest_test_raw is not None and current_test_target is not None:
+                if (_emit_test and _strongest_test_raw is not None
+                        and current_test_target is not None):
                     _tp, _tpr = _split_preds_probs(_strongest_test_raw)
                     _common_test = dict(_common)
                     if plot_file:

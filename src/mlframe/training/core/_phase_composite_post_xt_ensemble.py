@@ -748,10 +748,14 @@ def _build_cross_target_ensemble_for_target(
                 target_type=str(_tt_e),
                 y_train_envelope_stats=_ens_train_envelope,
             )
-            for _split_name, _report_title, _split_idx, _split_df in (
-                ("val", "VAL (CT_ENSEMBLE) ", filtered_val_idx, filtered_val_df),
-                ("test", "TEST (CT_ENSEMBLE) ", test_idx, test_df_pd),
-            ):
+            _emit_val_ens = bool(getattr(reporting_config, "compute_valset_metrics", True))
+            _emit_test_ens = bool(getattr(reporting_config, "compute_testset_metrics", True))
+            _split_plan = []
+            if _emit_val_ens:
+                _split_plan.append(("val", "VAL (CT_ENSEMBLE) ", filtered_val_idx, filtered_val_df))
+            if _emit_test_ens:
+                _split_plan.append(("test", "TEST (CT_ENSEMBLE) ", test_idx, test_df_pd))
+            for _split_name, _report_title, _split_idx, _split_df in _split_plan:
                 if _split_idx is None or _split_df is None:
                     continue
                 try:
@@ -760,6 +764,29 @@ def _build_cross_target_ensemble_for_target(
                         _ensemble.predict(_split_df),
                         dtype=np.float64,
                     ).reshape(-1)
+                    # Stamp val/test scalar metrics for this ensemble into metadata so the
+                    # suite-end verdict block can compare CT_ENSEMBLE against the dummy floor.
+                    # Without this the verdict only sees the SINGLE best model and falsely
+                    # flags BEST_MODEL_BELOW_DUMMY when the ensemble (stacked on lag_predict)
+                    # is the actual winner on strong-AR targets.
+                    try:
+                        from sklearn.metrics import mean_absolute_error, root_mean_squared_error
+                        _y_arr = np.asarray(_y_split, dtype=np.float64).reshape(-1)
+                        _ens_arr = _ens_preds.reshape(-1)
+                        _ens_scalar_metrics = {
+                            f"{_split_name}_RMSE": float(root_mean_squared_error(_y_arr, _ens_arr)),
+                            f"{_split_name}_MAE": float(mean_absolute_error(_y_arr, _ens_arr)),
+                            "model_name": f"CT_ENSEMBLE[{_ce_strategy}]",
+                        }
+                        metadata.setdefault("cross_target_ensemble_metrics", {}) \
+                            .setdefault(str(_tt_e), {}) \
+                            .setdefault(_orig_tname, {}) \
+                            .update(_ens_scalar_metrics)
+                    except Exception as _metric_err:
+                        logger.debug(
+                            "Could not stamp CT_ENSEMBLE %s metrics for target='%s': %s",
+                            _split_name, _orig_tname, _metric_err,
+                        )
                     _common_split = dict(_ens_common)
                     if plot_file:
                         _common_split["plot_file"] = (

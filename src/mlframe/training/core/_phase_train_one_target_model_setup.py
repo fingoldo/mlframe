@@ -267,8 +267,20 @@ def _setup_per_target_mlframe_models(
             logger.info(_format_temporal_audit_report(_audit))
             if (getattr(behavior_config, "target_temporal_audit_save_plot", True)
                     and plot_file):
-                _plot_path = f"{plot_file}_target_temporal_audit.png"
-                _plot_target_over_time(_audit, save_path=_plot_path)
+                # Route through the multi-backend DSL when reporting_config exposes plot_outputs
+                # (e.g. "plotly[html]+matplotlib[png]") so the temporal-audit chart obeys the
+                # same backend selection as every other suite plot. Falls back to matplotlib-only
+                # PNG when plot_outputs is absent (legacy default).
+                _plot_outputs = getattr(reporting_config, "plot_outputs", None)
+                if _plot_outputs:
+                    _plot_target_over_time(
+                        _audit,
+                        plot_outputs=_plot_outputs,
+                        base_path=f"{plot_file}_target_temporal_audit",
+                    )
+                else:
+                    _plot_path = f"{plot_file}_target_temporal_audit.png"
+                    _plot_target_over_time(_audit, save_path=_plot_path)
             metadata.setdefault("target_temporal_audit", {}) \
                 .setdefault(str(target_type), {})[cur_target_name] = _audit.to_dict()
         except Exception as _audit_err:

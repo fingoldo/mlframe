@@ -138,12 +138,22 @@ def _run_suite_end_dummy_baselines_summary(
                     _comp_name = _s.get("name")
                     if _comp_name:
                         _composite_to_raw[(_tt_str, _comp_name)] = _raw_tname
+        # Cross-target ensemble metrics (stamped by _phase_composite_post_xt_ensemble at the
+        # val/test report site). Keyed by (target_type, original_target_name) -> {split_metric: value, model_name: ...}.
+        # The verdict picker compares this against the single best model and uses whichever wins.
+        _ct_ens_raw = metadata.get("cross_target_ensemble_metrics", {})
+        _cross_target_ensemble_metrics: dict[tuple[str, str], dict[str, float]] = {}
+        for _tt_str, _by_orig in _ct_ens_raw.items():
+            for _orig_tname, _m in _by_orig.items():
+                if isinstance(_m, dict) and _m:
+                    _cross_target_ensemble_metrics[(str(_tt_str), str(_orig_tname))] = _m
         _summary_text = format_suite_end_summary(
             dummy_baselines_metadata=metadata.get("dummy_baselines", {}),
             failures_metadata=metadata.get("dummy_baselines_failures", {}),
             best_model_metrics_by_target=_best_metrics if _best_metrics else None,
             min_lift=dummy_baselines_config.best_model_min_lift,
             composite_to_raw_target_map=_composite_to_raw if _composite_to_raw else None,
+            cross_target_ensemble_metrics=_cross_target_ensemble_metrics or None,
         )
         if _summary_text:
             logger.info(_summary_text)

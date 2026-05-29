@@ -306,6 +306,18 @@ def _release_ctx_polars_frames(
     # future tier transition that re-allocates a polars frame at the same memory address would
     # silently hit a cached entry whose state belonged to the dropped frame.
     _purge_fh_cache_by_df_tokens(ctx, released_df_tokens)
+    # Drop XGB DMatrix / LightGBM Dataset / CatBoost Pool wrappers from the suite-scoped reuse cache.
+    # These wrappers hold binned column tensors that mirror the underlying polars buffers; without
+    # this scrub the polars frames "release" succeeds only in name (frames lose their strong ref but
+    # the buffers stay alive behind the dataset cache). Observed in prod 2026-05-29: 9.4 GB expected
+    # reclaim showed as 0.0 MB delta because every column pointer was still pinned via dataset_reuse_cache.
+    # Also clear the per-target cached pre_pipeline transforms (heavy fitted preprocessing) that pin
+    # column-major arrays of the released frames.
+    artifacts = getattr(ctx, "artifacts", None)
+    if isinstance(artifacts, dict):
+        _reuse_cache = artifacts.get(_DATASET_REUSE_CACHE_KEY)
+        if isinstance(_reuse_cache, dict) and _reuse_cache:
+            _reuse_cache.clear()
     new_baseline = maybe_clean_ram_and_gpu(baseline_rss_mb, df_size_mb, verbose=verbose, reason=reason)
     # Only emit the lingering-refs warning when the expected reclaim is large enough for the
     # actual delta to be measurable above RSS-measurement noise. Windows / Linux RSS reporting

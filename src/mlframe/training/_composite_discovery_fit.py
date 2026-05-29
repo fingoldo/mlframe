@@ -198,23 +198,41 @@ def fit(
     # itself (column extraction, X-without-base matrix, pre-binning,
     # ``mi_y_for_base``) stays serial because it writes
     # ``self._auto_base_pool`` and is cheap relative to MI compute.
+    # Build the full screen-sized feature matrix ONCE across all bases, then
+    # per-base slice out the base column via np.delete. Avoids 10x polars->numpy
+    # column extraction (and 10x prebinning if mi_estimator='bin') on the same
+    # usable_features set. The polars columns themselves don't change between
+    # iterations - only the choice of which one is the "base" does.
+    _usable_features_list = list(usable_features)
+    _col_index = {c: i for i, c in enumerate(_usable_features_list)}
+    _full_x_matrix = self._build_feature_matrix(
+        df, _usable_features_list, train_idx_screen,
+    )
+    _full_x_prebinned = (
+        _prebin_feature_columns(
+            _full_x_matrix, nbins=int(self.config.mi_nbins),
+        )
+        if self.config.mi_estimator == "bin" else None
+    )
+
     _base_contexts: dict[str, dict[str, Any]] = {}
     for base in base_candidates:
         base_train = _extract_column_array(df, base)[train_idx]
         self._auto_base_pool[base] = base_train
         base_screen = base_train[sample_idx]
-        x_remaining = [c for c in usable_features if c != base]
-        if not x_remaining:
-            continue
-        x_remaining_matrix = self._build_feature_matrix(
-            df, x_remaining, train_idx_screen,
-        )
-        _x_prebinned = (
-            _prebin_feature_columns(
-                x_remaining_matrix, nbins=int(self.config.mi_nbins),
+        if base in _col_index:
+            _drop_idx = _col_index[base]
+            x_remaining_matrix = np.delete(_full_x_matrix, _drop_idx, axis=1)
+            _x_prebinned = (
+                np.delete(_full_x_prebinned, _drop_idx, axis=1)
+                if _full_x_prebinned is not None else None
             )
-            if self.config.mi_estimator == "bin" else None
-        )
+        else:
+            # base wasn't in usable_features (rare: explicit base outside the FE pool)
+            x_remaining_matrix = _full_x_matrix
+            _x_prebinned = _full_x_prebinned
+        if x_remaining_matrix.shape[1] == 0:
+            continue
         _mi_kwargs: dict[str, Any] = dict(
             nbins=int(self.config.mi_nbins),
             aggregation=getattr(self.config, "mi_aggregation", "mean"),

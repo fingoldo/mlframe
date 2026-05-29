@@ -27,6 +27,7 @@ def format_suite_end_summary(
     best_model_metrics_by_target: dict[tuple[str, str], dict[str, float]] | None = None,
     min_lift: float = 1.5,
     composite_to_raw_target_map: dict[tuple[str, str], str] | None = None,
+    cross_target_ensemble_metrics: dict[tuple[str, str], dict[str, float]] | None = None,
 ) -> str:
     """Format the cross-target verdict block emitted at suite end (D6).
 
@@ -130,9 +131,24 @@ def format_suite_end_summary(
                                 )
                                 _used_raw_y_dummy = True
 
-            # Best model metric lookup (optional)
+            # Best model metric lookup (optional). Considers BOTH the single best
+            # individual model AND the cross-target ensemble (NNLS-stack etc.), then
+            # picks whichever is stronger on the primary metric. On strong-AR targets
+            # the ensemble often beats every single model by stacking on top of
+            # lag_predict; before this change the verdict ignored the ensemble and
+            # falsely flagged BEST_MODEL_BELOW_DUMMY even when CT_ENSEMBLE clearly
+            # cleared the dummy floor.
             best_model_name = "-"
             model_val: float | None = None
+            from .metrics_registry import metric_name_higher_is_better as _mhb_pick
+            _direction_pick = _mhb_pick(primary_metric)
+            _is_min_for_pick = True if _direction_pick is None else (not _direction_pick)
+            def _better(a: float | None, b: float | None) -> bool:
+                if a is None or not np.isfinite(a):
+                    return False
+                if b is None or not np.isfinite(b):
+                    return True
+                return (a < b) if _is_min_for_pick else (a > b)
             if best_model_metrics_by_target is not None:
                 key = (str(target_type), str(target_name))
                 model_metrics = best_model_metrics_by_target.get(key, {})
@@ -142,6 +158,13 @@ def format_suite_end_summary(
                     # expected to pass model_metrics keyed compatibly.
                     model_val = model_metrics.get(primary_metric)
                     best_model_name = model_metrics.get("model_name", "--")
+            if cross_target_ensemble_metrics is not None:
+                _ens_key = (str(target_type), str(target_name))
+                _ens_m = cross_target_ensemble_metrics.get(_ens_key, {})
+                _ens_val = _ens_m.get(primary_metric) if _ens_m else None
+                if _better(_ens_val, model_val):
+                    model_val = _ens_val
+                    best_model_name = _ens_m.get("model_name", "CT_ENSEMBLE")
 
             # Wave 20 fix: registry dispatcher. The previous substring
             # whitelist missed val_MAPE (MAPE not in 'MAE' substring),
