@@ -13,7 +13,7 @@ What lives here:
 """
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
 
 from pydantic import Field, field_validator, model_validator
 
@@ -37,6 +37,89 @@ from ._composite_target_discovery_config import CompositeTargetDiscoveryConfig
 # docstrings here and would create a circular import (_reporting_configs imports
 # FeatureImportanceConfig from this module). Do NOT add a top-level import for
 # them.
+
+
+class SliceStableESConfig(BaseConfig):
+    """Slice-stable early-stopping settings (opt-in; default disabled after empirical study).
+
+    Replaces the classic "single val, single metric, stop when worse" rule with an aggregate
+    over K shards of the validation set. See ``mlframe.training._slice_helpers`` for shard
+    construction and ``mlframe.training._cv_aggregation.aggregate_fold_scores`` for the
+    aggregator math.
+
+    **Default: enabled=False**. A 27-configuration bench across three waves
+    (``scripts/bench_slice_es_synthetics{,_v2,_v3}.py``) found that only ONE configuration
+    showed a positive gap vs single-val ES (``LGB regression + temporal-K5 + aggregate=mean``,
+    +0.55%, p=0.006), and that win did NOT generalise: CatBoost regression on the same
+    scenario gave -0.50%, the heavy-tail / rare-class / heavy-tail-temporal LGB regimes gave
+    -0.05% to -35.7% catastrophic regressions, and every variance-aware aggregator
+    (``t_lcb`` conf>=0.6, ``quantile``, ``mean_minus_std``, ``median_minus_mad``) lost on
+    every scenario it was tried on. The single positive result is best read as a
+    LGB-specific idiosyncrasy of the ``effective_patience`` auto-bump interacting with the
+    multi-eval-set registration path, not as evidence that the feature delivers value.
+
+    The infrastructure ships intact for two opt-in use cases:
+      1. Operators researching variance-aware ES on workloads where single-val ES is
+         demonstrably unstable (heavy-tail target, n_train << 1000, severely under-regularised
+         booster). Set ``enabled=True`` + a non-default aggregator after running your own
+         per-workload calibration bench.
+      2. Diagnostic per-shard logging + Pareto plot artefact without changing ES decisions:
+         set ``diagnostic_only=True``. The callback registers K eval-sets and logs the
+         per-shard metric trace at every iteration, the Pareto plot fires at finalisation,
+         but the stop decision keeps reading the single full-val metric.
+
+    Strict bit-identical legacy behaviour is the default (``enabled=False``,
+    ``diagnostic_only=False``).
+    """
+
+    enabled: bool = False
+    diagnostic_only: bool = False
+    k: int = 5
+    source: Literal["random", "fairness", "temporal", "both"] = "temporal"
+    mode: Literal["online", "posthoc"] = "online"
+    on_unsupported: Literal["skip", "posthoc", "raise"] = "posthoc"
+
+    # Aggregator choice. ``mean`` is mathematically identical to ``mean(full val)`` over a
+    # K-shard partition, so any difference vs single-val ES comes purely from the
+    # ``effective_patience`` auto-bump. The non-trivial aggregators (``t_lcb``, ``quantile``,
+    # ``mean_minus_std``, ``median_minus_mad``) add a dispersion penalty / quantile read; the
+    # benched LGB / CB / classification scenarios all favoured ``mean`` over them, but they
+    # remain available for operators with calibration data showing the penalty helps on
+    # their specific workload.
+    aggregate: Literal["mean", "t_lcb", "quantile", "mean_minus_std", "median_minus_mad"] = "mean"
+    confidence: float = 0.9
+    quantile_level: float = 0.9
+    alpha: float = 1.0
+    correlation_inflation: float = 1.5  # Nadeau-Bengio dependent-fold variance correction
+
+    # Pareto-aware post-hoc best_iter selection (opt-in). When ``pareto_best_iter_selection``
+    # is True, the final ``best_iter`` is chosen from the (mean, std) Pareto front via
+    # ``select_from_pareto`` with the user's risk knob.
+    pareto_best_iter_selection: bool = False
+    pareto_risk_quantile: float = 0.9
+
+    # Pareto plot artifact (default ON per user). The plot is rendered through the existing
+    # ``mlframe.reporting.renderers.render_and_save`` multi-backend pipeline; paths land in
+    # ``ctx.metadata["slice_stable_es"][target][model]["pareto_plot_paths"]``.
+    pareto_plot_enabled: bool = True
+    pareto_plot_backends: List[str] = Field(default_factory=lambda: ["plotly", "matplotlib"])
+    pareto_plot_formats: Dict[str, List[str]] = Field(
+        default_factory=lambda: {"plotly": ["html"], "matplotlib": ["png"]}
+    )
+    pareto_plot_min_iterations: int = 10
+    pareto_plot_show_alt_quantiles: List[float] = Field(default_factory=lambda: [0.5, 0.7, 0.9, 0.95])
+    pareto_persist_shard_history: bool = False
+
+    # Shard construction guards. ``min_rows_per_shard`` ensures shards have enough mass for
+    # the per-shard metric to be meaningful; smaller val auto-disables the feature.
+    min_rows_per_shard: int = 100
+
+    # Optional knob for users who want ``min_delta`` to scale with the per-iteration std
+    # estimate (a "real" improvement must exceed a fraction of the noise). ``None`` keeps
+    # the classic absolute-delta semantics.
+    min_delta_in_se: Optional[float] = None
+
+    random_state: int = 42
 
 
 class TrainingConfig(BaseConfig):
@@ -125,6 +208,9 @@ class TrainingConfig(BaseConfig):
     # Typed configuration objects
     hyperparams: ModelHyperparamsConfig = Field(default_factory=ModelHyperparamsConfig)
     behavior: TrainingBehaviorConfig = Field(default_factory=TrainingBehaviorConfig)
+
+    # Slice-stable early stopping (opt-in; default disabled keeps current behaviour bit-identical).
+    slice_stable_es: SliceStableESConfig = Field(default_factory=SliceStableESConfig)
 
     # Misc
     verbose: int = 1
@@ -297,6 +383,11 @@ class TrainingControlConfig(BaseConfig):
 
     # Model category for early stopping callback setup (cb, xgb, lgb, etc.)
     model_category: Optional[str] = None
+
+    # Slice-stable early stopping configuration (opt-in; None preserves legacy ES path).
+    # Built and propagated by the suite layer (``train_mlframe_models_suite``) from
+    # ``TrainingConfig.slice_stable_es``; not commonly set by hand.
+    slice_stable_es: Optional[SliceStableESConfig] = None
 
 
 class MetricsConfig(BaseConfig):
