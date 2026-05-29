@@ -76,6 +76,17 @@ _GPU_MODEL_MIN_ROWS = 20000
 # faithful ranking is kept. Overridable via kernel_tuning_cache key
 # ``shap_proxy_prefilter.two_stage_min_width``.
 _TWO_STAGE_MIN_WIDTH = 1000
+# Stage-B (the within-two_stage booster fit on stage-A survivors) GPU dispatch gate. Stage B fits on
+# (n_rows, stage1_keep) and its cost is dominated by n_rows * n_trees * depth -- iter46's C4 profile
+# showed 14.9 s out of 16.9 s xgboost cumulative going to stage-B's CPU update at n_rows=10000 /
+# stage1_keep~704. Above the row threshold the GPU upload + tree-method overhead amortizes; below it
+# the CPU stays. Overridable per HW via kernel_tuning_cache key
+# ``shap_proxy_prefilter.stage_b_gpu_min_rows``.
+_STAGE_B_GPU_MIN_ROWS = 5000
+# Minimum stage-A survivor count below which stage-B stays CPU regardless of row count -- with too few
+# columns the per-tree work is dominated by overhead and the GPU upload doesn't amortize. Override via
+# ``shap_proxy_prefilter.stage_b_gpu_min_features``.
+_STAGE_B_GPU_MIN_FEATURES = 200
 
 
 def _prefilter_tuning() -> dict:
@@ -104,6 +115,14 @@ def _gpu_model_min_rows() -> int:
 
 def _two_stage_min_width() -> int:
     return int(_prefilter_tuning().get("two_stage_min_width", _TWO_STAGE_MIN_WIDTH))
+
+
+def _stage_b_gpu_min_rows() -> int:
+    return int(_prefilter_tuning().get("stage_b_gpu_min_rows", _STAGE_B_GPU_MIN_ROWS))
+
+
+def _stage_b_gpu_min_features() -> int:
+    return int(_prefilter_tuning().get("stage_b_gpu_min_features", _STAGE_B_GPU_MIN_FEATURES))
 
 
 def _default_stage1_keep(n_features: int) -> int:
@@ -149,15 +168,50 @@ def resolve_prefilter_method(method: str, *, n_features: int, n_rows: int) -> st
     return "fast_model"
 
 
+_GPU_MODEL_AVAILABLE_CACHE: Optional[bool] = None
+
+
 def gpu_model_available() -> bool:
-    """True when XGBoost can fit on ``device="cuda"`` (a CUDA device is enumerable). Probed via cupy's
-    runtime (already a soft dep here); falls back to False on any error so callers route to CPU."""
+    """True when XGBoost can ACTUALLY fit on ``device="cuda"`` -- requires BOTH (a) an enumerable CUDA
+    device (via cupy) AND (b) an xgboost binary built with USE_CUDA. The build check matters because
+    pip's default xgboost wheel on some platforms is CPU-only, in which case passing ``device="cuda"``
+    silently downgrades to CPU with only a stderr warning; without the build check, routers would send
+    work to a non-existent GPU path and pay the routing overhead for nothing. Falls back to False on
+    any probe error so callers stay on CPU. Probe result is cached for the process lifetime (the build
+    flag and device topology don't change at runtime); call ``reset_gpu_model_available_cache()`` from
+    tests that need to monkeypatch the underlying probe."""
+    global _GPU_MODEL_AVAILABLE_CACHE
+    if _GPU_MODEL_AVAILABLE_CACHE is not None:
+        return _GPU_MODEL_AVAILABLE_CACHE
     try:
         import cupy as cp
 
-        return cp.cuda.runtime.getDeviceCount() > 0
+        if cp.cuda.runtime.getDeviceCount() <= 0:
+            _GPU_MODEL_AVAILABLE_CACHE = False
+            return False
     except Exception:
+        _GPU_MODEL_AVAILABLE_CACHE = False
         return False
+    try:
+        import xgboost as xgb
+
+        info = xgb.build_info()
+        if not info.get("USE_CUDA", False):
+            _GPU_MODEL_AVAILABLE_CACHE = False
+            return False
+    except Exception:
+        _GPU_MODEL_AVAILABLE_CACHE = False
+        return False
+    _GPU_MODEL_AVAILABLE_CACHE = True
+    return True
+
+
+def reset_gpu_model_available_cache() -> None:
+    """Clear the cached ``gpu_model_available`` probe result. Tests that monkeypatch cupy / xgboost
+    state to simulate different device or build configurations should call this BEFORE asserting the
+    next ``gpu_model_available()`` outcome."""
+    global _GPU_MODEL_AVAILABLE_CACHE
+    _GPU_MODEL_AVAILABLE_CACHE = None
 
 
 def _importances_from_fitted(est, n_features: int) -> Optional[np.ndarray]:
@@ -286,6 +340,21 @@ def _rank_gpu_model(model_template, X, y, *, n_features: int, n_estimators_cap=N
     return _importances_from_fitted(_unwrap_estimator(pf), n_features)
 
 
+def _stage_b_should_route_gpu(*, n_rows: int, n_features_b: int) -> bool:
+    """Gate for routing the two_stage stage-B booster fit to ``device="cuda"``. True iff (a) the
+    xgboost binary has USE_CUDA AND a CUDA device is enumerable (``gpu_model_available``), AND
+    (b) the stage-B problem is BIG enough that GPU upload + tree-method overhead amortizes: at least
+    ``_stage_b_gpu_min_rows()`` rows AND at least ``_stage_b_gpu_min_features()`` stage-A survivors.
+    iter46 attributed 14.9 s / 16.9 s xgboost cumulative to stage-B's CPU update at C4 (n_rows=10000,
+    stage1_keep~704), so n_rows is the dominant driver; the feature floor guards against very-narrow
+    survivor cohorts where the per-tree work doesn't amortize the upload."""
+    if n_rows < _stage_b_gpu_min_rows():
+        return False
+    if n_features_b < _stage_b_gpu_min_features():
+        return False
+    return gpu_model_available()
+
+
 def _rank_two_stage(
     model_template,
     X,
@@ -346,9 +415,20 @@ def _rank_two_stage(
         cols_stage1 = X.columns[stage1_cols]
         X_stage1 = pd.DataFrame(X_stage1, columns=cols_stage1, index=X.index)
     t1 = time.perf_counter()
-    stage_b_imp = _rank_model(model_template, X_stage1, y,
-                              n_features=int(len(stage1_cols)),
-                              n_estimators_cap=n_estimators_cap)
+    # Route stage-B to the GPU when the problem is big enough that upload + kernel-launch overhead
+    # amortizes; on small problems / no GPU build the CPU model path stays faster (and is the only
+    # correct path when the xgboost binary lacks USE_CUDA -- gpu_model_available() guards both).
+    n_features_b = int(len(stage1_cols))
+    stage_b_routed_gpu = _stage_b_should_route_gpu(
+        n_rows=int(Xv.shape[0]), n_features_b=n_features_b)
+    if stage_b_routed_gpu:
+        stage_b_imp = _rank_gpu_model(model_template, X_stage1, y,
+                                      n_features=n_features_b,
+                                      n_estimators_cap=n_estimators_cap)
+    else:
+        stage_b_imp = _rank_model(model_template, X_stage1, y,
+                                  n_features=n_features_b,
+                                  n_estimators_cap=n_estimators_cap)
     stage_b_dt = time.perf_counter() - t1
     # Stage-A survivors in canonical (sorted) original-positional space -- downstream consumers (trust
     # guard / clustering / future SHAP-on-stage-A routing) need the SUPERSET cohort + the same
@@ -367,6 +447,7 @@ def _rank_two_stage(
             method="two_stage", kept=int(len(working_cols)), of=int(n_features),
             stage1_kept=int(len(stage1_cols)), stage1_of=int(n_features),
             stage_a_seconds=float(stage_a_dt), stage_b_seconds=float(stage_b_dt),
+            stage_b_routed_gpu=bool(stage_b_routed_gpu),
             stage1_survivors=stage1_survivors_sorted,
             stage1_f_scores=stage1_f_scores_arr,
             skipped="stage_b_no_importance")
@@ -383,6 +464,7 @@ def _rank_two_stage(
         method="two_stage", kept=int(len(working_cols)), of=int(n_features),
         stage1_kept=int(len(stage1_cols)), stage1_of=int(n_features),
         stage_a_seconds=float(stage_a_dt), stage_b_seconds=float(stage_b_dt),
+        stage_b_routed_gpu=bool(stage_b_routed_gpu),
         stage1_survivors=stage1_survivors_sorted,
         stage1_f_scores=stage1_f_scores_arr,
         n_estimators_cap=n_estimators_cap)
@@ -529,9 +611,13 @@ __all__ = [
     "PREFILTER_METHODS",
     "resolve_prefilter_method",
     "gpu_model_available",
+    "reset_gpu_model_available_cache",
     "prefilter_columns",
     "get_cached_f_scores",
     "get_stage1_survivors",
     "_default_stage1_keep",
     "_two_stage_min_width",
+    "_stage_b_gpu_min_rows",
+    "_stage_b_gpu_min_features",
+    "_stage_b_should_route_gpu",
 ]

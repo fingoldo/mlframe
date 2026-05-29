@@ -579,3 +579,142 @@ def test_booster_prefilter_methods_do_not_publish_f_scores(method):
         classification=True, n_features=X.shape[1], n_estimators_cap=60)
     assert get_cached_f_scores(info) is None
     assert get_stage1_survivors(info) is None
+
+
+# ----------------------------------------------------------- stage-B GPU dispatch (iter47)
+def test_gpu_model_available_requires_xgboost_use_cuda_build(monkeypatch):
+    """An enumerable cupy device is necessary but NOT sufficient: when xgboost was built without
+    USE_CUDA (the default pip wheel on many platforms), passing ``device="cuda"`` silently downgrades
+    to CPU. ``gpu_model_available`` must return False in that case so routers don't drop work onto a
+    non-existent GPU path."""
+    import mlframe.feature_selection._shap_proxy_prefilter as PF
+
+    PF.reset_gpu_model_available_cache()
+
+    # Stub the cupy device probe to succeed and toggle xgboost build_info.
+    class _CudaRT:
+        @staticmethod
+        def getDeviceCount():
+            return 1
+
+    class _FakeCupy:
+        cuda = type("cuda", (), {"runtime": _CudaRT})
+
+    import sys
+    monkeypatch.setitem(sys.modules, "cupy", _FakeCupy)
+
+    import xgboost as xgb
+    orig_build_info = xgb.build_info
+    monkeypatch.setattr(xgb, "build_info", lambda: {**orig_build_info(), "USE_CUDA": False})
+    PF.reset_gpu_model_available_cache()
+    assert PF.gpu_model_available() is False
+
+    monkeypatch.setattr(xgb, "build_info", lambda: {**orig_build_info(), "USE_CUDA": True})
+    PF.reset_gpu_model_available_cache()
+    assert PF.gpu_model_available() is True
+
+
+def test_gpu_model_available_caches_result(monkeypatch):
+    """The probe is per-process invariant (build flag + device topology don't change at runtime), so
+    repeated calls must hit the cache and skip the cupy / xgboost imports after the first call."""
+    import mlframe.feature_selection._shap_proxy_prefilter as PF
+
+    PF.reset_gpu_model_available_cache()
+    # First call materializes the cache; subsequent calls must not re-probe.
+    first = PF.gpu_model_available()
+    calls = {"n": 0}
+
+    def _exploding_build_info():
+        calls["n"] += 1
+        raise RuntimeError("build_info should not be re-called once cached")
+
+    import xgboost as xgb
+    monkeypatch.setattr(xgb, "build_info", _exploding_build_info)
+    # Cache hit: no probe, returns the same answer.
+    assert PF.gpu_model_available() == first
+    assert calls["n"] == 0
+
+
+def test_stage_b_should_route_gpu_gates_on_rows_and_features(monkeypatch):
+    """Gate must require ALL of (a) gpu_model_available True, (b) n_rows >= floor, (c) n_features_b >= floor.
+    Each individual miss leaves the booster on CPU -- the small-problem GPU upload would be slower than
+    the CPU fit, and a missing xgboost-CUDA build makes ``device="cuda"`` a silent no-op."""
+    import mlframe.feature_selection._shap_proxy_prefilter as PF
+
+    monkeypatch.setattr(PF, "gpu_model_available", lambda: True)
+    n_rows_ok = PF._stage_b_gpu_min_rows()
+    n_feat_ok = PF._stage_b_gpu_min_features()
+
+    # All three gates pass.
+    assert PF._stage_b_should_route_gpu(n_rows=n_rows_ok, n_features_b=n_feat_ok) is True
+    # Each gate alone blocks.
+    assert PF._stage_b_should_route_gpu(n_rows=n_rows_ok - 1, n_features_b=n_feat_ok) is False
+    assert PF._stage_b_should_route_gpu(n_rows=n_rows_ok, n_features_b=n_feat_ok - 1) is False
+    # No GPU available -> always False regardless of size.
+    monkeypatch.setattr(PF, "gpu_model_available", lambda: False)
+    assert PF._stage_b_should_route_gpu(n_rows=n_rows_ok * 10, n_features_b=n_feat_ok * 10) is False
+
+
+def test_two_stage_calls_gpu_path_when_gate_fires(monkeypatch):
+    """When the stage-B gate fires, ``_rank_two_stage`` MUST route through ``_rank_gpu_model`` (not
+    ``_rank_model``); when it does not fire, the legacy ``_rank_model`` path is taken. This is the
+    wiring contract -- recovery / ranking parity is covered by the existing two_stage recovery test."""
+    import mlframe.feature_selection._shap_proxy_prefilter as PF
+    from mlframe.feature_selection._shap_proxy_explain import make_default_estimator
+
+    X, y = _wide_xy(seed=11, width=600, n_informative=5)
+    model = make_default_estimator(classification=True, random_state=0, n_estimators=80)
+
+    calls = {"cpu": 0, "gpu": 0}
+    real_cpu = PF._rank_model
+    real_gpu = PF._rank_gpu_model
+
+    def _wrap_cpu(*a, **kw):
+        calls["cpu"] += 1
+        return real_cpu(*a, **kw)
+
+    def _wrap_gpu(*a, **kw):
+        # Substitute the CPU path so the test doesn't need a real GPU build (the wiring contract is
+        # which function gets called, not how it runs). Counts a gpu invocation.
+        calls["gpu"] += 1
+        return real_cpu(*a, **kw)
+
+    monkeypatch.setattr(PF, "_rank_model", _wrap_cpu)
+    monkeypatch.setattr(PF, "_rank_gpu_model", _wrap_gpu)
+
+    # Gate FORCED ON -> stage-B routes to gpu wrapper.
+    monkeypatch.setattr(PF, "_stage_b_should_route_gpu", lambda **_: True)
+    _, info_gpu = PF.prefilter_columns(
+        model, X, y.astype(np.float64), method="two_stage", prefilter_top=30,
+        classification=True, n_features=X.shape[1], n_estimators_cap=40, stage1_keep=120)
+    assert info_gpu["stage_b_routed_gpu"] is True
+    assert calls["gpu"] == 1 and calls["cpu"] == 0
+
+    # Gate FORCED OFF -> stage-B stays on CPU model path.
+    calls["cpu"] = 0
+    calls["gpu"] = 0
+    monkeypatch.setattr(PF, "_stage_b_should_route_gpu", lambda **_: False)
+    _, info_cpu = PF.prefilter_columns(
+        model, X, y.astype(np.float64), method="two_stage", prefilter_top=30,
+        classification=True, n_features=X.shape[1], n_estimators_cap=40, stage1_keep=120)
+    assert info_cpu["stage_b_routed_gpu"] is False
+    assert calls["cpu"] == 1 and calls["gpu"] == 0
+
+
+def test_stage_b_gpu_thresholds_overridable_via_kernel_tuning_cache(monkeypatch):
+    """Both stage-B GPU thresholds (rows + features) must be overridable via the shared
+    ``kernel_tuning_cache`` entry under ``shap_proxy_prefilter``, NOT hardcoded. This is the per-HW
+    tuning contract; the cache lookup is the single point where users override conservative defaults."""
+    import mlframe.feature_selection._shap_proxy_prefilter as PF
+
+    # Override the cheap tuning helper with a synthetic dict; this is the only public hook on the
+    # prefilter side and the same pattern existing tests use (e.g. auto_fast_width override).
+    monkeypatch.setattr(PF, "_prefilter_tuning",
+                        lambda: {"stage_b_gpu_min_rows": 1234, "stage_b_gpu_min_features": 77})
+    assert PF._stage_b_gpu_min_rows() == 1234
+    assert PF._stage_b_gpu_min_features() == 77
+
+    monkeypatch.setattr(PF, "_prefilter_tuning", lambda: {})
+    # Defaults restored when no entry.
+    assert PF._stage_b_gpu_min_rows() == PF._STAGE_B_GPU_MIN_ROWS
+    assert PF._stage_b_gpu_min_features() == PF._STAGE_B_GPU_MIN_FEATURES
