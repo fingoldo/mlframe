@@ -524,6 +524,10 @@ def _setup_eval_set(
     callback_params: dict[str, Any] | None = None,
     model_obj: Any | None = None,
     model_category: str | None = None,
+    extra_eval_sets: list[Any] | None = None,
+    sample_weight_val: np.ndarray | None = None,
+    base_margin_val: np.ndarray | None = None,
+    group_ids_val: np.ndarray | None = None,
 ) -> None:
     """Configure eval_set/validation data for different model types.
 
@@ -547,6 +551,17 @@ def _setup_eval_set(
     model_category : str, optional
         Short model type name (cb, xgb, lgb, etc.). If provided, used directly
         instead of deriving from model_type_name for reliable matching.
+    extra_eval_sets : list of SliceEvalSet, optional
+        Additional per-shard eval-sets to register *after* the full-val eval-set. When provided
+        the booster sees a list ``[full_val, shard_0, ..., shard_K-1]`` and the slice-stable
+        callback can aggregate per-shard metrics positionally. ``None`` keeps the legacy
+        single-val path bit-identical. See ``mlframe.training._slice_helpers.build_slice_eval_sets``.
+    sample_weight_val, base_margin_val, group_ids_val : np.ndarray, optional
+        Per-row attributes for the *full* val. When ``extra_eval_sets`` is given, the function
+        also propagates ``sample_weight_eval_set`` / ``base_margin_eval_set`` / ``eval_qid``
+        (XGB) / ``eval_group`` (LGB) lists in parallel so each registered eval-set has its own
+        aligned arrays. Without ``extra_eval_sets`` these are ignored (the caller is responsible
+        for setting them up in fit_params directly, as before).
     """
     eval_set_configs = {
         "lgb": ("eval_set", "tuple"),
@@ -590,21 +605,81 @@ def _setup_eval_set(
 
     param_name, value_format = eval_set_configs[model_category]
 
-    if value_format == "tuple":
-        fit_params[param_name] = (val_df, val_target)
-    elif value_format == "list_of_tuples":
-        fit_params[param_name] = [(val_df, val_target)]
-    elif value_format == "list_of_tuples_values":
-        fit_params[param_name] = [(val_df.values, val_target.values if hasattr(val_target, "values") else val_target)]
-    elif value_format == "separate":
-        fit_params["X_val"] = val_df
-        fit_params["y_val"] = val_target
-    elif value_format == "separate_Y":
-        fit_params["X_val"] = val_df
-        fit_params["Y_val"] = val_target
+    # Build the eval-set list. Without extra_eval_sets this is the legacy single-tuple/list
+    # exactly as before. With shards we always emit a list-of-tuples so the booster registers
+    # one eval per element; LGB tuple-only path is upgraded to list (LGB accepts both).
+    use_shards = extra_eval_sets is not None and len(extra_eval_sets) > 0
+    if use_shards:
+        eval_list: list[tuple[Any, Any]] = [(val_df, val_target)]
+        for shard in extra_eval_sets:
+            eval_list.append((shard.X, shard.y))
+        if value_format == "list_of_tuples_values":
+            eval_list = [(X.values if hasattr(X, "values") else X,
+                          y.values if hasattr(y, "values") else y) for X, y in eval_list]
+        if value_format in ("tuple", "list_of_tuples", "list_of_tuples_values"):
+            fit_params[param_name] = eval_list
+        elif value_format == "separate":
+            # HGB / NGB only support a single (X_val, y_val) pair. Slice-stable ES is not supported
+            # for these models via the online multi-eval-set path; the caller should route through
+            # ``on_unsupported`` policy (default ``posthoc``). Here we just register the full val.
+            fit_params["X_val"] = val_df
+            fit_params["y_val"] = val_target
+        elif value_format == "separate_Y":
+            fit_params["X_val"] = val_df
+            fit_params["Y_val"] = val_target
+        # Parallel-aligned arrays for boosters that read them via separate kwargs.
+        if model_category in ("xgb", "lgb", "cb"):
+            if sample_weight_val is not None:
+                sw_list = [sample_weight_val]
+                for shard in extra_eval_sets:
+                    sw_list.append(shard.sample_weight if shard.sample_weight is not None else None)
+                fit_params["sample_weight_eval_set"] = sw_list
+            if base_margin_val is not None and model_category == "xgb":
+                bm_list = [base_margin_val]
+                for shard in extra_eval_sets:
+                    bm_list.append(shard.base_margin if shard.base_margin is not None else None)
+                fit_params["base_margin_eval_set"] = bm_list
+            if group_ids_val is not None:
+                grp_list = [group_ids_val]
+                for shard in extra_eval_sets:
+                    grp_list.append(shard.group_ids if shard.group_ids is not None else None)
+                if model_category == "xgb":
+                    fit_params["eval_qid"] = grp_list
+                elif model_category == "lgb":
+                    # LGB takes per-set group SIZES (not ids). Convert each ids vector to run-lengths.
+                    fit_params["eval_group"] = [_groupids_to_sizes(g) for g in grp_list]
+    else:
+        if value_format == "tuple":
+            fit_params[param_name] = (val_df, val_target)
+        elif value_format == "list_of_tuples":
+            fit_params[param_name] = [(val_df, val_target)]
+        elif value_format == "list_of_tuples_values":
+            fit_params[param_name] = [(val_df.values, val_target.values if hasattr(val_target, "values") else val_target)]
+        elif value_format == "separate":
+            fit_params["X_val"] = val_df
+            fit_params["y_val"] = val_target
+        elif value_format == "separate_Y":
+            fit_params["X_val"] = val_df
+            fit_params["Y_val"] = val_target
 
     if callback_params:
         _setup_early_stopping_callback(model_category, fit_params, callback_params, model_obj)
+
+
+def _groupids_to_sizes(group_ids: Any) -> np.ndarray | None:
+    """Convert a per-row qid vector into LGB's per-query group-sizes vector.
+
+    Rows must be already sorted by qid -- the standard ranker contract. Returns ``None``
+    if input is ``None`` (so the caller can leave gaps in the eval_group list).
+    """
+    if group_ids is None:
+        return None
+    arr = np.asarray(group_ids)
+    if arr.size == 0:
+        return np.empty(0, dtype=np.int64)
+    # Run-length encode consecutive equal qids.
+    boundaries = np.concatenate([[0], np.flatnonzero(np.diff(arr)) + 1, [arr.size]])
+    return np.diff(boundaries).astype(np.int64)
 
 
 def _setup_early_stopping_callback(model_category, fit_params, callback_params, model_obj=None):

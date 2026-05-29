@@ -451,7 +451,13 @@ def train_and_evaluate_model(
         # is configured for these we fall back to the legacy single-val path per ``on_unsupported``.
         extra_eval_sets = None
         _slice_cfg = getattr(control, "slice_stable_es", None)
-        if _slice_cfg is not None and getattr(_slice_cfg, "enabled", False):
+        # Slice ES infrastructure activates when either ``enabled`` (drives ES decisions) or
+        # ``diagnostic_only`` (per-shard logging + Pareto plot without changing ES) is set.
+        _slice_active = _slice_cfg is not None and (
+            getattr(_slice_cfg, "enabled", False) or getattr(_slice_cfg, "diagnostic_only", False)
+        )
+        _slice_diag_only = _slice_cfg is not None and getattr(_slice_cfg, "diagnostic_only", False) and not getattr(_slice_cfg, "enabled", False)
+        if _slice_active:
             from ._slice_helpers import build_slice_eval_sets
             _supports_multi_eval = model_category in {"cb", "lgb", "xgb"}
             _policy = getattr(_slice_cfg, "on_unsupported", "posthoc")
@@ -473,7 +479,7 @@ def train_and_evaluate_model(
                         callback_params = dict(callback_params or {})
                         callback_params.update({
                             "slice_k": len(extra_eval_sets),
-                            "slice_aggregate_mode": getattr(_slice_cfg, "aggregate", "t_lcb"),
+                            "slice_aggregate_mode": getattr(_slice_cfg, "aggregate", "mean"),
                             "slice_aggregate_alpha": float(getattr(_slice_cfg, "alpha", 1.0)),
                             "slice_aggregate_confidence": float(getattr(_slice_cfg, "confidence", 0.9)),
                             "slice_aggregate_quantile_level": float(getattr(_slice_cfg, "quantile_level", 0.9)),
@@ -482,8 +488,12 @@ def train_and_evaluate_model(
                             "slice_persist_history": bool(getattr(_slice_cfg, "pareto_plot_enabled", True))
                                                      or bool(getattr(_slice_cfg, "pareto_best_iter_selection", False))
                                                      or bool(getattr(_slice_cfg, "pareto_persist_shard_history", False)),
+                            "slice_diagnostic_only": _slice_diag_only,
                         })
-                        if model_obj is not None:
+                        # Strip native ES rounds only when the slice callback OWNS the stop
+                        # decision (``enabled=True``). In ``diagnostic_only`` mode the booster's
+                        # native ES path stays intact -- slice ES is logging-only here.
+                        if model_obj is not None and not _slice_diag_only:
                             try:
                                 if "early_stopping_rounds" in model_obj.get_params():
                                     model_obj.set_params(early_stopping_rounds=None)
