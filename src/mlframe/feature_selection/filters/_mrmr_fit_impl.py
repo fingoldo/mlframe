@@ -280,23 +280,6 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     else:
         _x_for_cat = X
         _strategy_for_categorize = self.nan_strategy
-    # 2026-05-29 Wave 7: warn when an alternative ``mi_estimator`` is set but
-    # the fit() loop still uses the legacy plug-in njit chain. Users can probe
-    # alternative estimators via ``MRMR.score_pair_mi`` until the next-sprint
-    # refactor plumbs the dispatcher into ``mi_direct`` / fleuret / permutation.
-    _mi_est = getattr(self, "mi_estimator", "plug_in")
-    if _mi_est != "plug_in":
-        import warnings as _w
-        _w.warn(
-            f"MRMR.fit: mi_estimator={_mi_est!r} is requested but the inner "
-            f"njit relevance loop currently routes only through 'plug_in'. "
-            f"The fit() result will reflect plug-in MI; for direct probing of "
-            f"the {_mi_est!r} estimator use MRMR.score_pair_mi(x, y). Full "
-            f"inner-loop wire-in is planned for the next sprint.",
-            UserWarning,
-            stacklevel=2,
-        )
-
     # 2026-05-29 Wave 7: propagate the new ``nbins_strategy`` knob through to
     # categorize_dataset so per-column adaptive bin counts (FD, QS, MDLP, Knuth,
     # OptimalJoint, ...) actually take effect inside fit(). When None,
@@ -310,6 +293,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     _y_for_strategy = None
     if _nbins_strategy is not None and str(_nbins_strategy).lower() in (
         "mdlp", "fayyad_irani", "optimal_joint", "cv",
+        "mah", "mah_sci", "sci", "marx",
     ):
         # Use the first target column as the supervised signal.
         if target_names:

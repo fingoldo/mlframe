@@ -20,7 +20,10 @@ The helper does not call ``y`` on the val rows, so passing the same edges to bot
 """
 from __future__ import annotations
 
+import math
+
 import numpy as np
+from numba import njit
 
 
 def mdlp_bin_edges(
@@ -29,6 +32,8 @@ def mdlp_bin_edges(
     *,
     min_split_size: int = 5,
     max_depth: int = 8,
+    backend: str = "njit",
+    scaled_min_split: bool = False,
 ) -> np.ndarray:
     """Fayyad-Irani MDLP discretisation. Returns sorted bin edges (includes ``-inf`` / ``+inf`` sentinels).
 
@@ -38,22 +43,39 @@ def mdlp_bin_edges(
     3. Apply MDL stopping criterion (Fayyad-Irani 1993): accept split iff ``Gain > log2(N - 1) / N + Delta(A, x, S) / N``.
     4. Recurse on each half.
 
-    Notes
-    -----
-    Pure numpy. ``n=10000, p=20`` -> ~0.1s per column.
+    Args:
+        x: 1-D continuous feature.
+        y: 1-D integer class labels.
+        min_split_size: Absolute floor on samples per child node. Default 5
+            mirrors pre-fix behaviour. Pass via ``scaled_min_split=True`` to
+            additionally scale to ``max(min_split_size, int(0.02 * N))``.
+        max_depth: Recursion cap; MDL stops earlier in practice.
+        backend: ``'python'`` (legacy pure-numpy recursion; ~96 ms / col at n=2000),
+            ``'njit'`` (audit recommendation; ports the candidate-scan +
+            entropy hot loop into ``_mdlp_best_split`` njit kernel - targets
+            10-30x total speedup, recursion bookkeeping stays Python).
+        scaled_min_split: Audit recommendation - lift ``min_split_size`` floor
+            to ``max(5, int(0.02 * N))`` so the constraint scales with N.
+            Default ``False`` preserves the bench baseline.
     """
     x = np.asarray(x).ravel()
     y = np.asarray(y).ravel().astype(np.int64)
     if len(x) != len(y):
         raise ValueError(f"len(x)={len(x)} != len(y)={len(y)}")
+    if scaled_min_split:
+        min_split_size = max(int(min_split_size), int(0.02 * len(x)))
 
     sorter = np.argsort(x)
-    x_sorted = x[sorter]
-    y_sorted = y[sorter]
+    x_sorted = np.ascontiguousarray(x[sorter].astype(np.float64))
+    y_sorted = np.ascontiguousarray(y[sorter])
 
     splits: list[float] = []
-    _mdlp_recurse(x_sorted, y_sorted, splits, depth=0,
-                  min_split_size=min_split_size, max_depth=max_depth)
+    if backend == "njit":
+        _mdlp_recurse_njit(x_sorted, y_sorted, splits, depth=0,
+                           min_split_size=int(min_split_size), max_depth=int(max_depth))
+    else:
+        _mdlp_recurse(x_sorted, y_sorted, splits, depth=0,
+                      min_split_size=int(min_split_size), max_depth=int(max_depth))
     splits.sort()
     edges = np.concatenate([[-np.inf], np.asarray(splits, dtype=np.float64), [np.inf]])
     return edges
@@ -66,6 +88,163 @@ def _entropy_from_labels(y: np.ndarray) -> float:
     _, counts = np.unique(y, return_counts=True)
     p = counts / counts.sum()
     return -(p * np.log(p)).sum()
+
+
+# =============================================================================
+# njit-accelerated hot loop (audit recommendation - 10-30x speedup target)
+# =============================================================================
+
+
+@njit(nogil=True, cache=True)
+def _entropy_from_counts_njit(counts: np.ndarray, n: int) -> float:
+    """Shannon entropy in nats from already-tabulated label counts."""
+    if n <= 0:
+        return 0.0
+    h = 0.0
+    n_f = float(n)
+    for k in range(counts.shape[0]):
+        c = counts[k]
+        if c > 0:
+            p = c / n_f
+            h -= p * math.log(p)
+    return h
+
+
+@njit(nogil=True, cache=True)
+def _mdlp_best_split_njit(x_sorted: np.ndarray, y_sorted: np.ndarray,
+                          n_classes: int, min_split_size: int):
+    """Find Fayyad-Irani best split on already-sorted (x, y).
+
+    Single forward pass over class-boundary candidates using running label
+    counts; entropy at each candidate computed in O(K_y) via cumulative
+    counts. Total cost O(N + |candidates| * K_y) vs Python's O(|candidates| * N * K_y).
+
+    Returns: (best_idx, best_gain, h_full, n_left, n_right). ``best_idx`` is
+    the array index such that the split point is ``(x[idx] + x[idx+1]) / 2``;
+    ``-1`` if no acceptable split found.
+    """
+    n = x_sorted.shape[0]
+    if n < 2 * min_split_size:
+        return -1, -1.0, 0.0, 0, 0
+    counts_total = np.zeros(n_classes, dtype=np.int64)
+    for i in range(n):
+        counts_total[y_sorted[i]] += 1
+    h_full = _entropy_from_counts_njit(counts_total, n)
+    if h_full <= 0.0:
+        return -1, -1.0, h_full, 0, 0
+    # Forward scan: maintain running counts of left side.
+    counts_left = np.zeros(n_classes, dtype=np.int64)
+    counts_right = counts_total.copy()
+    best_gain = -1e300
+    best_idx = -1
+    best_nl = 0
+    best_nr = 0
+    for i in range(n - 1):
+        y_i = y_sorted[i]
+        counts_left[y_i] += 1
+        counts_right[y_i] -= 1
+        n_l = i + 1
+        n_r = n - n_l
+        if n_l < min_split_size or n_r < min_split_size:
+            continue
+        # Candidate split only at class boundaries (Fayyad-Irani 1993 theorem).
+        if y_sorted[i] == y_sorted[i + 1]:
+            continue
+        # Also skip if x values are equal (can't split between identical x).
+        if x_sorted[i] == x_sorted[i + 1]:
+            continue
+        h_l = _entropy_from_counts_njit(counts_left, n_l)
+        h_r = _entropy_from_counts_njit(counts_right, n_r)
+        h_split = (n_l * h_l + n_r * h_r) / n
+        gain = h_full - h_split
+        if gain > best_gain:
+            best_gain = gain
+            best_idx = i
+            best_nl = n_l
+            best_nr = n_r
+    return best_idx, best_gain, h_full, best_nl, best_nr
+
+
+@njit(nogil=True, cache=True)
+def _mdlp_pass_threshold_njit(best_gain: float, h_full: float, n: int,
+                               n_classes_full: int, n_classes_left: int,
+                               n_classes_right: int, h_left: float,
+                               h_right: float) -> bool:
+    """Fayyad-Irani 1993 MDL acceptance test.
+
+    Returns True iff the split's information gain exceeds the MDL threshold.
+    """
+    if n <= 1:
+        return False
+    delta_arg = (3.0 ** n_classes_full) - 2.0
+    if delta_arg <= 0.0:
+        return False
+    log2 = math.log(2.0)
+    delta = (math.log(delta_arg) / log2) - (
+        n_classes_full * h_full - n_classes_left * h_left - n_classes_right * h_right
+    ) / log2
+    threshold = (math.log(float(n - 1)) / log2 + delta) / n
+    return (best_gain / log2) > threshold
+
+
+def _mdlp_recurse_njit(
+    x: np.ndarray,
+    y: np.ndarray,
+    splits: list,
+    depth: int,
+    min_split_size: int,
+    max_depth: int,
+) -> None:
+    """njit-backed MDLP recursion. Same semantics as ``_mdlp_recurse``; just
+    routes the hot loop through ``_mdlp_best_split_njit`` + entropy njit kernels.
+    """
+    n = len(x)
+    if n < 2 * min_split_size or depth >= max_depth:
+        return
+    # Quick purity check using bincount.
+    uniq_y = np.unique(y)
+    n_classes_full = uniq_y.size
+    if n_classes_full <= 1:
+        return
+    # Map y to dense [0, K) for the njit kernel.
+    if uniq_y[0] != 0 or uniq_y[-1] != n_classes_full - 1:
+        y_compact = np.searchsorted(uniq_y, y).astype(np.int64)
+    else:
+        y_compact = y
+    best_idx, best_gain, h_full, n_l, n_r = _mdlp_best_split_njit(
+        x, y_compact, int(n_classes_full), int(min_split_size)
+    )
+    if best_idx < 0 or best_gain <= 0.0:
+        return
+    best_split = 0.5 * (x[best_idx] + x[best_idx + 1])
+    # Compute left/right entropies for the MDL test (njit recompute is cheap).
+    left_mask_idx = best_idx + 1  # x[:left_mask_idx] is left, x[left_mask_idx:] is right
+    y_left = y_compact[:left_mask_idx]
+    y_right = y_compact[left_mask_idx:]
+    uniq_left = np.unique(y_left)
+    uniq_right = np.unique(y_right)
+    n_classes_left = uniq_left.size
+    n_classes_right = uniq_right.size
+    counts_left_dense = np.bincount(y_left, minlength=int(n_classes_full)).astype(np.int64)
+    counts_right_dense = np.bincount(y_right, minlength=int(n_classes_full)).astype(np.int64)
+    h_left = float(_entropy_from_counts_njit(counts_left_dense, int(n_l)))
+    h_right = float(_entropy_from_counts_njit(counts_right_dense, int(n_r)))
+    if not _mdlp_pass_threshold_njit(
+        float(best_gain), float(h_full), int(n),
+        int(n_classes_full), int(n_classes_left), int(n_classes_right),
+        h_left, h_right
+    ):
+        return
+    splits.append(float(best_split))
+    _mdlp_recurse_njit(x[:left_mask_idx], y_compact[:left_mask_idx], splits,
+                      depth + 1, min_split_size, max_depth)
+    _mdlp_recurse_njit(x[left_mask_idx:], y_compact[left_mask_idx:], splits,
+                      depth + 1, min_split_size, max_depth)
+
+
+# =============================================================================
+# Legacy pure-Python recursion (kept for A/B testing the njit port)
+# =============================================================================
 
 
 def _mdlp_recurse(

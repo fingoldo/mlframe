@@ -207,6 +207,31 @@ class MRMR(BaseEstimator, TransformerMixin):
         quantization_method: str = "quantile",
         quantization_nbins: int = 10,
         quantization_dtype: object = np.int32,
+        # 2026-05-29 Wave 7: per-feature adaptive bin chooser.
+        # ``nbins_strategy``: route the per-column bin chooser through an
+        # adaptive strategy ('auto', 'sturges', 'freedman_diaconis', 'fd',
+        # 'qs', 'knuth', 'blocks', 'mdlp', 'fayyad_irani', 'optimal_joint',
+        # 'cv'). None preserves the legacy fixed-nbins behaviour. Per the
+        # WAVE 1 A/B bench, Knuth-quantile and MDLP-njit are now the
+        # recommended adaptive picks (free MI gain + speed).
+        # The MRMR hot path stays exclusively on the plug-in MI njit kernel
+        # chain (mi_direct / fleuret / permutation) which requires integer
+        # bin codes; alternative MI estimator families (KSG, neural, copula,
+        # aggregators) live in their own modules for ad-hoc / benchmark use
+        # only and are explicitly NOT wired into MRMR.fit().
+        nbins_strategy: str = None,
+        nbins_strategy_kwargs: dict = None,
+        # 2026-05-28: MI normalization knob to combat the cardinality bias.
+        # Raw I(X; Y) is bounded by min(H(X), H(Y)); high-cardinality features
+        # (zip codes / hash IDs / 50-bin continuous) get inflated relevance.
+        # Symmetric Uncertainty SU(X,Y) := 2*I/(H(X)+H(Y)) normalises to [0,1]
+        # and removes the bias (Witten-Frank-Hall 2011).
+        #   'none' (default): legacy raw MI scoring (bit-for-bit identical to pre-2026-05-28).
+        #   'su'            : Symmetric Uncertainty on both unconditional + conditional steps.
+        # Default 'none' preserves the regression sentry; flip to 'su' for mixed
+        # cat-cardinality data (different binning per feature / target-encoded
+        # cats at different K). See _info_theory.symmetric_uncertainty.
+        mi_normalization: str = "none",
         # NaN handling at discretization. "separate_bin" (default): assign a
         # dedicated post-max bin for NaN values per column, so MI estimators see
         # them as an honest category. "ffill_bfill": legacy forward/backward
@@ -550,6 +575,29 @@ class MRMR(BaseEstimator, TransformerMixin):
     _VALID_NAN_STRATEGIES = ("separate_bin", "fillna_zero", "ffill_bfill", "propagate", "raise")
     _VALID_MRMR_RELEVANCE_ALGOS = ("fleuret", "pld")
     _VALID_MRMR_REDUNDANCY_ALGOS = ("fleuret", "pld_max", "pld_mean")
+    # 2026-05-29 Wave 7: adaptive per-feature bin-edge chooser.
+    # MRMR's MI computation stays exclusively on the integer-bin plug-in path
+    # (see bench_adaptive_nbins / bench_adaptive_nbins_mega). Alternative MI
+    # estimators (KSG, MINE, InfoNet, MIST, fastMI, aggregators) are
+    # intentionally NOT routed into the MRMR hot loop.
+    _VALID_NBINS_STRATEGIES = (
+        None,
+        "auto", "sturges", "freedman_diaconis", "fd", "qs",
+        "knuth", "blocks",  # demoted to research-only with AccuracyWarning
+        "mdlp", "fayyad_irani", "optimal_joint", "cv",
+        "mah", "mah_sci", "sci", "marx",  # Marx 2021 SCI-guided adaptive
+    )
+    # 2026-05-29: per mega-bench v3 Knuth (MI_mean 0.342, weak on uniform),
+    # Bayesian Blocks (MI_mean 0.272, weakest overall), and MAH/SCI
+    # (MI_mean 0.168, catastrophic on noisy continuous signals due to
+    # over-aggressive SCI-greedy bin merging that collapses to ~2 bins)
+    # are demoted from the recommended option set. They remain selectable
+    # for research / reproduction work but emit an ``AccuracyWarning`` so
+    # downstream callers can opt-in explicitly.
+    _DEMOTED_NBINS_STRATEGIES = (
+        "knuth", "blocks",
+        "mah", "mah_sci", "sci", "marx",
+    )
     _VALID_FE_UNARY_PRESETS = ("minimal", "medium", "maximal")
     _VALID_FE_BINARY_PRESETS = ("minimal", "medium", "maximal")
     _VALID_CLUSTER_AGGREGATE_MODES = ("augment", "replace")
@@ -745,6 +793,23 @@ class MRMR(BaseEstimator, TransformerMixin):
         self._pandas_frame_for_target_cleanup = None
         self._target_names_for_cleanup = None
 
+        # TODO B (2026-05-28): reject NaN/Inf in y at fit entry, matching the
+        # sibling selectors (RFECV / ShapProxiedFS). Pre-fix MRMR let NaN flow
+        # into the MI scorer and silently degraded relevance numbers. The
+        # shared selector-contract test suite caught this asymmetry. Skip the
+        # check on object-dtype y (categorical labels) where np.isnan would
+        # raise; numeric / float / int paths get validated.
+        _y_check = np.asarray(y)
+        if _y_check.dtype.kind in "fc":
+            _n_nan = int(np.isnan(_y_check).sum())
+            _n_inf = int(np.isinf(_y_check).sum())
+            if _n_nan or _n_inf:
+                raise ValueError(
+                    f"MRMR.fit: y contains {_n_nan} NaN and {_n_inf} +/-inf values. "
+                    f"MI estimation silently degrades on NaN; drop or impute these rows "
+                    f"before fitting."
+                )
+
         # 2026-05-18 #2 cross-target identity cache.
         _identity_skip = bool(getattr(self, "mrmr_skip_when_prior_was_identity", False))
         _include_y = bool(getattr(self, "mrmr_identity_cache_include_y", False))
@@ -778,6 +843,20 @@ class MRMR(BaseEstimator, TransformerMixin):
         # caller decides to gate weight-aware MRMR behind FeatureSelectionConfig.use_sample_weights_in_fs.
         self._fit_sample_weight_ = None if sample_weight is None else np.asarray(sample_weight, dtype=np.float64)
         X, y = self._maybe_resample_for_sample_weight(X, y, self._fit_sample_weight_)
+
+        # 2026-05-28: activate thread-local SU normalization when mi_normalization='su'.
+        # The toggle is read by evaluation.py / Fleuret loops at the scoring site so
+        # raw conditional_mi (and cached entropy numbers) stay legacy-bit-stable for
+        # the default ``mi_normalization='none'`` path. Restored in finally so a
+        # crashing _fit_impl can't leak SU mode into subsequent fits.
+        from .info_theory import set_su_normalization
+        _mi_norm = getattr(self, "mi_normalization", "none")
+        if _mi_norm not in ("none", "su"):
+            raise ValueError(
+                f"MRMR.mi_normalization must be 'none' or 'su'; got {_mi_norm!r}."
+            )
+        _prev_su = _mi_norm == "su"
+        set_su_normalization(_prev_su)
         try:
             result = self._fit_impl(X, y, groups, **fit_params)
             try:
@@ -820,6 +899,13 @@ class MRMR(BaseEstimator, TransformerMixin):
                     pass
             return result
         finally:
+            # 2026-05-28: restore SU thread-local to its pre-fit state (always False
+            # outside of a MRMR fit -- nested fits are not supported by the simple
+            # toggle, but neither is the cache layer they would share).
+            try:
+                set_su_normalization(False)
+            except Exception:
+                pass
             frame = getattr(self, "_pandas_frame_for_target_cleanup", None)
             names = getattr(self, "_target_names_for_cleanup", None)
             if frame is not None and names:

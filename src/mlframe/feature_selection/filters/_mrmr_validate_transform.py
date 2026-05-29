@@ -35,9 +35,26 @@ def _validate_string_params(self):
         ("fe_unary_preset", self._VALID_FE_UNARY_PRESETS),
         ("fe_binary_preset", self._VALID_FE_BINARY_PRESETS),
         ("cluster_aggregate_mode", self._VALID_CLUSTER_AGGREGATE_MODES),
-        ("mi_estimator", self._VALID_MI_ESTIMATORS),
         ("nbins_strategy", self._VALID_NBINS_STRATEGIES),
     )
+    # 2026-05-29 Wave 7: AccuracyWarning for demoted nbins_strategy options.
+    _demoted = getattr(self, "_DEMOTED_NBINS_STRATEGIES", ())
+    _nbins_strat = getattr(self, "nbins_strategy", None)
+    if _nbins_strat in _demoted:
+        import warnings as _w
+        _w.warn(
+            f"MRMR: nbins_strategy={_nbins_strat!r} is DEMOTED to research-only. "
+            f"F1-bench honest ranking by ``|err vs truth| + noise_floor`` "
+            f"places these demoted methods last: Knuth (combined 0.213), "
+            f"Bayesian Blocks (0.233), MAH/SCI (0.373, collapses to ~2 bins). "
+            f"Recommended: 'mdlp' (combined 0.107, only TRUE zero noise floor) "
+            f"for balanced production use; 'qs' (signal err 0.093 best, but "
+            f"noise floor 0.123 inflates false positives) when no-signal "
+            f"columns are absent. Opt-out via ``warnings.filterwarnings('ignore', "
+            f"category=UserWarning, module='mlframe.feature_selection.filters')``.",
+            UserWarning,
+            stacklevel=3,
+        )
     for _name, _valid in _checks:
         _val = getattr(self, _name, None)
         if _val is None:

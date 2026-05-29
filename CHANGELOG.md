@@ -1,5 +1,100 @@
 # Changelog
 
+## 2026-05-29 — MRMR MI-estimator expansion (Wave 7)
+
+Adds seven new MI estimators behind opt-in flags, six P0 fixes flipping
+default behaviour where strictly safe, three structural bug patches on
+edge-case distributions, and a unified dispatcher API.
+
+### New files
+- `src/mlframe/feature_selection/filters/_ksg.py` — Mixed-KSG (Gao 2017),
+  KSG-LNC (Gao 2015, NPEET-canonical), `ColumnKNNCache`, cupy GPU fallback.
+- `src/mlframe/feature_selection/filters/_neural_mi.py` — MINE (Belghazi
+  2018, PyTorch + EMA + early-stop), InfoNet (Hu 2024, vendored pre-trained
+  transformer), MIST (Gerasimov 2025, HF `grgera/MIST` + empirical piecewise
+  calibration to nats), MINDE/DPMINE skeletons.
+- `src/mlframe/feature_selection/filters/_fastmi.py` — copula FFT-KDE
+  (Purkayastha-Song 2024) with Silverman + MISE LOO bandwidth.
+- `src/mlframe/feature_selection/filters/_mi_aggregator.py` — median +
+  GENIE-weighted ensemble (Moon 2021).
+- `src/mlframe/feature_selection/filters/_mi_dispatch.py` — unified
+  `score_pair_mi` entry routing to any estimator.
+- `src/mlframe/feature_selection/filters/_adaptive_nbins.py` — QS bin
+  chooser (Gupta 2021), `per_feature_edges` strategy dispatcher.
+- `src/mlframe/feature_selection/filters/_vendored/infonet/` — InfoNet
+  upstream code (MIT, github.com/datou30/InfoNet); 48 MB checkpoint pulled
+  lazily to `~/.cache/mlframe/infonet/`.
+- `src/mlframe/feature_selection/_benchmarks/bench_adaptive_nbins_ab.py`,
+  `bench_adaptive_nbins_mega.py` — A/B + leaderboard benches.
+
+### Default-changing fixes (free wins, identical or strictly-better output)
+- `mdlp_bin_edges(backend=)` defaults to `'njit'` (was `'python'`):
+  **138x speedup** on Fayyad-Irani MDLP, bit-identical output.
+- `_knuth_bin_edges(edge_type=)` defaults to `'quantile'` (was `'uniform'`);
+  `m_max_cap=` defaults to `64` (was `500`): **+0.056 MI mean, -76% rt** on bench.
+- `_knuth_bin_edges` `M_min=2` (was 1): fixes uniform-distribution zero-MI
+  degenerate.
+- `_bayesian_blocks_bin_edges` median-fallback when DP returns 1 block:
+  fixes uniform-distribution zero-MI degenerate.
+- `mixed_ksg_mi` adds tie-breaking jitter (NPEET_LNC convention, intens=1e-10)
+  on columns with ties: fixes discrete_low_card 0.000 -> ~0.50 MI mean.
+
+### Opt-in flags
+- `_plug_in_mi(miller_madow=True)`: Miller-Madow bias correction. FD
+  no-signal floor 0.077 -> 0.010 at -15% signal MI.
+- `_bayesian_blocks_bin_edges(p0=0.10, edge_placement='midpoint',
+  subsample_threshold=1000)`: -94.5% wall-time, +0.006 MI.
+- `mdlp_bin_edges(scaled_min_split=True)`: floor scales `max(5, 0.02*N)`.
+
+### MRMR public API
+- New constructor knob: `nbins_strategy` (default `None`), `nbins_strategy_kwargs`.
+  When set, `categorize_dataset` routes per-column bin chooser through the
+  adaptive strategy ('fd', 'qs', 'knuth', 'mdlp', 'optimal_joint', ...).
+- **Family-2 estimators (KSG / neural / copula / aggregators) are intentionally
+  NOT plumbed into MRMR.** The MRMR hot path stays exclusively on the
+  integer-bin plug-in MI njit kernel chain (mi_direct / fleuret / permutation).
+  Standalone estimator modules (`_ksg`, `_neural_mi`, `_fastmi`,
+  `_mi_aggregator`) remain available for ad-hoc / benchmark use.
+- Sub-sampling guards on Mixed-KSG (`max_input_n=50000`) and MIST
+  (`max_input_n=2000`) prevent stress-bench OOM / O(N^2) blow-ups at million-row
+  inputs.
+
+### Benchmarks
+- A/B bench (10080 fold-method evaluations) validates Wave-1 P0 wins.
+- Mega-bench v3 (5472 fold-evaluations x 19 methods + 3 fixes round): overall
+  MI_mean / no_signal / rt_ms — GENIE 0.481/0.016/9, InfoNet 0.439/0.124/72,
+  Mixed-KSG 0.421/0.012/8, FD_legacy 0.420/0.060/0.4, MDLP 0.395/0.000/7.
+  Per-signal win analysis (by smallest |error vs Monte-Carlo truth| on N=200k):
+  Mixed-KSG wins threshold + xor (the two deterministic signals, Delta -0.018
+  and -0.029); GENIE wins monotone + sin (the two noisy continuous signals,
+  Delta -0.039 and -0.036); InfoNet wins linear (Delta +0.012 but 8x slower
+  than Mixed-KSG); MDLP is the only method with TRUE zero no-signal floor.
+  No single estimator dominates — pick by signal regime: Mixed-KSG for
+  threshold-like / deterministic, GENIE for noisy continuous, MDLP when
+  noise rejection trumps signal accuracy. Full JSON at
+  `D:/Temp/bench_adaptive_nbins_mega_*.json`.
+- **Family-1 (plug-in) honest leaderboard** by combined ``|err vs truth| +
+  noise_floor`` (lower = better): MDLP 0.107 (only TRUE zero noise floor),
+  Sturges 0.135, quantile10 0.139, OptimalJoint 0.167, FD 0.175. QS has the
+  best signal accuracy alone (err=0.093) but worst noise floor (0.123,
+  inflates false-positives on no-signal columns).
+- **Demoted to research-only** (AccuracyWarning at fit time): ``'knuth'``
+  (combined 0.213), ``'blocks'`` (0.233), ``'mah'`` / ``'mah_sci'`` (0.373,
+  collapses to ~2 bins on noisy data). Recommended production picks:
+  ``nbins_strategy='mdlp'`` for balanced accuracy + noise rejection,
+  ``'qs'`` only when no-signal columns are absent.
+- **MAH/SCI** (Marx 2021): refactored ``_mah.py`` to expose ``mah_bin_edges``
+  as a Family-1 nbins_strategy in addition to the direct ``mah_mi`` MI
+  estimator. Bench-validated as research-only per the combined ranking.
+
+### Known limitations
+- MIST over-estimates by 90-200% on binary y even after calibration; ranking
+  signal only.
+- MINE needs N >= 1000 per pair; under-converges on small CV val folds.
+- fastMI Silverman bandwidth over-smooths; use `bandwidth='mise'`.
+- GENIE costs ~23x plug-in wall-time (sums FD + QS + Mixed-KSG).
+- The fit() inner loop is not yet routed through the new dispatcher.
+
 ## 2026-05-28 — ShapProxiedFS: SHAP-aware tightening of effective `prefilter_top` (iter31)
 
 Iteration-31 narrows the post-prefilter cohort that feeds OOF-SHAP to the downstream search budget plus a 4x safety cushion (default `max(brute_force_max_features * 4, 40) = 88`). The downstream search only consumes top-`brute_force_max_features` by mean |phi|; columns between the search cap and the loose default `prefilter_top=2000` were paying full TreeSHAP cost in OOF-SHAP while contributing nothing to the final pick. The tightening reuses the existing prefilter booster's ranking -- no second booster fit -- by passing `min(prefilter_top, shap_prefilter_top)` to `prefilter_columns`.
