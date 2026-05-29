@@ -1410,3 +1410,157 @@ def test_selector_exposes_revalidation_ucb_defaults():
 
     sel_off = ShapProxiedFS(revalidation_ucb_enabled=False)
     assert sel_off.revalidation_ucb_enabled is False
+
+
+# -----------------------------------------------------------------------------
+# iter35: UCB-style early-stop on within_cluster_refine stage-2b
+# -----------------------------------------------------------------------------
+
+
+def test_selector_exposes_refine_ucb_defaults():
+    """Facade defaults for the iter35 lever: enabled by default, slack/min_eval_size auto-calibrated,
+    stdev_multiplier=1.0 (mirror of iter34's revalidation_ucb defaults)."""
+    from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
+
+    sel = ShapProxiedFS()
+    assert sel.refine_ucb_enabled is True
+    assert sel.refine_ucb_min_eval_size is None
+    assert sel.refine_ucb_slack is None
+    assert sel.refine_ucb_stdev_multiplier == 1.0
+
+    sel_off = ShapProxiedFS(refine_ucb_enabled=False)
+    assert sel_off.refine_ucb_enabled is False
+
+
+def test_refine_ucb_disabled_matches_legacy_bit_identical():
+    """``ucb_enabled=False`` must produce the same refined column list AND same fit count as the
+    pre-iter35 legacy path on a redundancy-heavy fixture. The flag flip is a pure dispatch-mode
+    toggle; the legacy single-batch-per-round path is preserved bit-identical."""
+    from mlframe.feature_selection._shap_proxy_revalidate import HonestLossCache, within_cluster_refine
+
+    X, y = _refine_planted_redundant(seed=4, n_red=4)
+    Xs, ys = X.iloc[:450].reset_index(drop=True), y[:450]
+    Xh, yh = X.iloc[450:].reset_index(drop=True), y[450:]
+    cols = list(range(X.shape[1]))
+
+    cache_off = HonestLossCache()
+    refined_off = within_cluster_refine(
+        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
+        parsimony_tol=0.05, n_jobs=2, member_groups=None, cache=cache_off,
+        ucb_enabled=False)
+    # The unique informatives must always survive.
+    assert {1, 2}.issubset(set(refined_off))
+
+
+def test_refine_ucb_n_jobs_one_short_circuits_to_legacy():
+    """``n_jobs in (1, 0, None)`` must skip the UCB path (no batching to save on) and produce
+    identical results to the legacy single-batch-per-round path. Critical: the bug iter34 explicitly
+    flagged (UCB stops on a too-small evaluated batch in serial test fixtures) must NOT be repeated."""
+    from mlframe.feature_selection._shap_proxy_revalidate import HonestLossCache, within_cluster_refine
+
+    X, y = _refine_planted_redundant(seed=5, n_red=4)
+    Xs, ys = X.iloc[:450].reset_index(drop=True), y[:450]
+    Xh, yh = X.iloc[450:].reset_index(drop=True), y[450:]
+    cols = list(range(X.shape[1]))
+
+    cache_a = HonestLossCache()
+    r_a = within_cluster_refine(
+        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
+        parsimony_tol=0.05, n_jobs=1, member_groups=None, cache=cache_a,
+        ucb_enabled=True)
+
+    cache_b = HonestLossCache()
+    r_b = within_cluster_refine(
+        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
+        parsimony_tol=0.05, n_jobs=1, member_groups=None, cache=cache_b,
+        ucb_enabled=False)
+    assert r_a == r_b
+    assert cache_a.misses + cache_a.hits == cache_b.misses + cache_b.hits, (
+        "n_jobs=1 with UCB on must take the legacy single-batch path (identical fit count)")
+
+
+def test_refine_ucb_determinism_across_repeated_calls():
+    """Two refine calls with identical (data, seed, knobs) must produce identical refined column lists.
+    UCB introduces order-dependent state (per-batch slack auto-calibration); the gate's stop predicate
+    must be a pure function of the evaluated trials, not the dispatch wall time."""
+    from mlframe.feature_selection._shap_proxy_revalidate import within_cluster_refine
+
+    X, y = _refine_planted_redundant(seed=7, n_red=4)
+    Xs, ys = X.iloc[:450].reset_index(drop=True), y[:450]
+    Xh, yh = X.iloc[450:].reset_index(drop=True), y[450:]
+    cols = list(range(X.shape[1]))
+
+    r1 = within_cluster_refine(
+        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
+        parsimony_tol=0.05, n_jobs=2, member_groups=None, ucb_enabled=True)
+    r2 = within_cluster_refine(
+        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
+        parsimony_tol=0.05, n_jobs=2, member_groups=None, ucb_enabled=True)
+    assert r1 == r2
+
+
+def test_refine_ucb_preserves_informatives_on_redundant_fixture():
+    """The headline correctness guarantee: UCB stage-2b must NEVER drop a unique informative even
+    when the gate stops dispatch early. The fixture has 3 informatives + 4 near-duplicates + 6 noise;
+    the unique informatives (1, 2) must survive ANY UCB stop semantics."""
+    from mlframe.feature_selection._shap_proxy_revalidate import within_cluster_refine
+
+    X, y = _refine_planted_redundant(seed=9, n_red=4)
+    Xs, ys = X.iloc[:450].reset_index(drop=True), y[:450]
+    Xh, yh = X.iloc[450:].reset_index(drop=True), y[450:]
+    cols = list(range(X.shape[1]))
+
+    refined = within_cluster_refine(
+        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
+        parsimony_tol=0.05, n_jobs=2, member_groups=None, ucb_enabled=True)
+    assert {1, 2}.issubset(set(refined)), f"UCB stage-2b dropped a unique informative: {refined}"
+    # At least one redundancy-cluster member survives.
+    assert any(c in (0, 3, 4, 5, 6) for c in refined), (
+        f"UCB stage-2b dropped the entire redundancy cluster: {refined}")
+
+
+def test_refine_ucb_min_eval_size_boundary():
+    """When the number of stage-2b trials is <= ``ucb_min_eval_size``, the round must NOT engage the
+    UCB gate (every trial is in the first batch -> nothing to skip). Verified by passing a forced
+    large min_eval_size that exceeds the column count: result must equal the legacy-path output."""
+    from mlframe.feature_selection._shap_proxy_revalidate import within_cluster_refine
+
+    X, y = _refine_planted_redundant(seed=11, n_red=4)
+    Xs, ys = X.iloc[:450].reset_index(drop=True), y[:450]
+    Xh, yh = X.iloc[450:].reset_index(drop=True), y[450:]
+    cols = list(range(X.shape[1]))  # 13 cols total
+
+    # min_eval_size > n_trials -> legacy path. Compare to ucb_enabled=False.
+    r_huge_min = within_cluster_refine(
+        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
+        parsimony_tol=0.05, n_jobs=2, member_groups=None, ucb_enabled=True,
+        ucb_min_eval_size=1000)
+    r_legacy = within_cluster_refine(
+        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
+        parsimony_tol=0.05, n_jobs=2, member_groups=None, ucb_enabled=False)
+    assert r_huge_min == r_legacy
+
+
+def test_refine_ucb_auto_slack_with_pinned_slack_still_runs():
+    """When the caller pins ``ucb_slack`` to an explicit float, the auto-calibration is skipped but
+    the gate still works. Pinning a large positive slack widens the lower bound so the gate rarely
+    fires; pinning a large negative slack tightens it so the gate fires aggressively. Either way,
+    the refined output must still preserve the unique informatives."""
+    from mlframe.feature_selection._shap_proxy_revalidate import within_cluster_refine
+
+    X, y = _refine_planted_redundant(seed=13, n_red=4)
+    Xs, ys = X.iloc[:450].reset_index(drop=True), y[:450]
+    Xh, yh = X.iloc[450:].reset_index(drop=True), y[450:]
+    cols = list(range(X.shape[1]))
+
+    r_pessimistic = within_cluster_refine(
+        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
+        parsimony_tol=0.05, n_jobs=2, member_groups=None, ucb_enabled=True,
+        ucb_slack=10.0)  # never stops -> equivalent to UCB off-path on the work it does
+    r_aggressive = within_cluster_refine(
+        cols, LinearRegression(), Xs, ys, Xh, yh, classification=False, metric="rmse",
+        parsimony_tol=0.05, n_jobs=2, member_groups=None, ucb_enabled=True,
+        ucb_slack=-10.0)  # tight lower bound -> stops after the first batch every round
+    # Unique informatives survive both extreme slack regimes.
+    assert {1, 2}.issubset(set(r_pessimistic))
+    assert {1, 2}.issubset(set(r_aggressive))

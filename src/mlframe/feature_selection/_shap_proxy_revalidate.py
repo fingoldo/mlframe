@@ -1051,6 +1051,7 @@ def within_cluster_refine(
     member_cols, model_template, X_search, y_search, X_holdout, y_holdout,
     *, classification, metric=None, parsimony_tol=0.02, n_jobs=-1, max_drop_rounds=None, cache=None,
     member_groups=None, min_multi_clusters=3, refine_n_estimators=100,
+    ucb_enabled=False, ucb_min_eval_size=None, ucb_slack=None, ucb_stdev_multiplier=1.0,
 ):
     """Compact the selected clusters' member columns down to a quality-preserving subset (honest).
 
@@ -1088,6 +1089,19 @@ def within_cluster_refine(
 
     When ``member_groups`` is ``None`` (legacy call sites or non-clustering mode), runs the original
     pure greedy-backward over ``member_cols`` -- behavior strictly preserved for backward compatibility.
+
+    ``ucb_enabled`` (iter35): batched-dispatch early-stop on stage 2b's per-round single-drop greedy.
+    Each round sorts drop trials by ascending stage-2a permutation importance (lowest = safest drop =
+    lowest expected honest loss), dispatches in workers-sized batches, and stops dispatching once no
+    un-evaluated trial can beat the running round leader. The UCB lower bound for an un-evaluated
+    trial is ``importance + slack`` where ``slack`` auto-calibrates from the round's evaluated
+    (importance, honest_loss) pairs via ``mean(delta) - stdev_multiplier * std(delta)``. Mirrors
+    iter34's revalidate_top_n UCB knob design. Falls through to legacy single-batch-per-round when
+    UCB is off OR ``n_jobs in (1, 0, None)`` OR stage-2a's importance prior is missing -- single-job
+    runs (test fixtures) have no batching to save on, so the gate would only risk wrong stops without
+    a wall benefit. The lever pays at width >= 10000 where each honest fit is ~500 ms and ~5
+    stage-2b rounds dispatch ~10 trials each (Phase-0 C3 cProfile: within_cluster_refine 6.14s of
+    which ~5s is stage-2b parallel batches).
 
     ``refine_n_estimators`` caps the booster's tree count for refine's ranking-only probe / trial fits.
     Refine compares RELATIVE honest losses to decide "is dropping this member within parsimony_tol?";
@@ -1184,6 +1198,10 @@ def within_cluster_refine(
                             base = min(base, best_loss)
                             threshold = base + parsimony_tol * abs(base)
 
+    # ``importance_by_col`` (iter35): persist stage-2a's permutation importances so stage-2b can sort
+    # its per-round drop trials in ascending importance order and dispatch UCB-batched. Defaults to
+    # empty -> stage-2b falls back to legacy unsorted single-batch dispatch.
+    importance_by_col: dict[int, float] = {}
     # ---- Stage 2a: ONE permutation-importance + batch-drop pass on the (possibly stage-1-collapsed)
     # working set. This is the iter11 perf win: a single ranking pass (1 fit + k cheap predicts)
     # ranks every member by drop-safety, then we accept the largest batched drop that respects
@@ -1201,6 +1219,10 @@ def within_cluster_refine(
             n_estimators_cap=cap, seed=0)
         base = min(base, float(rank_base))
         cur_threshold = base + parsimony_tol * abs(base)
+        # Persist per-column importance so stage 2b can sort its drop trials by ascending-importance
+        # priors (lowest importance = safest drop = lowest expected honest loss). Used as the UCB
+        # proxy when ``ucb_enabled``; dropped members fall out of the dict naturally on lookup.
+        importance_by_col = {int(current[i]): float(importances[i]) for i in range(len(current))}
         # Sort members ascending by importance (lowest = safest to drop first).
         order = np.argsort(importances, kind="stable")
         sorted_imps = importances[order]
@@ -1260,21 +1282,117 @@ def within_cluster_refine(
     # algorithm naturally stops at the legacy operating point). This is the iter11 fallback the
     # task brief calls for explicitly: when batch-drop's first pass declined to compact further,
     # single-drop greedy takes over for the final polish.
+    #
+    # iter35 UCB-batched dispatch: when ``ucb_enabled`` AND ``n_jobs`` enables threading AND we have a
+    # stage-2a importance prior for the current members, each round sorts trials by ascending
+    # importance (lowest = safest drop = lowest expected honest loss) and dispatches in
+    # workers-sized batches. After each batch, the round leader is compared against every
+    # un-evaluated trial's UCB lower bound (importance + auto-slack). When no remaining trial can
+    # beat the leader -> stop, accept the leader (if within tol) or break the round (if not).
+    # Falls through to legacy single-batch-per-round when UCB is off OR n_jobs in (1, 0, None) OR
+    # no importance prior available (stage 2a skipped).
+    import os as _os_iter35
+
+    n_cores = _os_iter35.cpu_count() or 1
+    if n_jobs in (-1, None, 0):
+        outer_workers = n_cores
+    else:
+        outer_workers = max(1, int(n_jobs))
+    if ucb_min_eval_size is None:
+        ucb_min_eval_size_eff = max(outer_workers, 3)
+    else:
+        ucb_min_eval_size_eff = max(1, int(ucb_min_eval_size))
+    use_ucb_stage2b = (bool(ucb_enabled)
+                      and n_jobs not in (1, 0, None)
+                      and len(importance_by_col) > 0)
+
     rounds = len(current) if max_drop_rounds is None else max_drop_rounds
     for _ in range(rounds):
         if len(current) <= 1:
             break
-        trials = [[c for c in current if c != drop] for drop in current]
-        losses = _parallel_honest_losses([(t, None) for t in trials], model_template, X_search, y_search,
-                                         X_holdout, y_holdout, classification, metric, n_jobs, cache=cache,
-                                         n_estimators_cap=cap, template_id=tid)
-        losses_arr = np.asarray(losses, dtype=np.float64)
         cur_threshold = base + parsimony_tol * abs(base)
-        best_i = int(np.argmin(losses_arr))
-        if losses_arr[best_i] > cur_threshold:
-            break  # no single drop fits within tol -> done
-        current = trials[best_i]
-        base = min(base, float(losses_arr[best_i]))
+
+        # Build (col, importance_prior) pairs. Members not in ``importance_by_col`` (e.g. stage-2a was
+        # skipped on a degenerate path) fall back to importance = +inf so they sort last; the legacy
+        # path also runs them but the UCB path keeps them as last-resort dispatch.
+        col_importance = [(int(c), importance_by_col.get(int(c), float("inf"))) for c in current]
+        if use_ucb_stage2b and len(col_importance) > ucb_min_eval_size_eff:
+            # UCB-batched: sort trials by ascending importance, dispatch in workers-sized batches,
+            # short-circuit when no remaining trial can beat the round leader.
+            sorted_pairs = sorted(enumerate(col_importance), key=lambda kv: (kv[1][1], kv[1][0]))
+            order_local = [kv[0] for kv in sorted_pairs]  # original-index ordering within ``current``
+            # First batch saturates the workers; subsequent batches are workers-sized.
+            evaluated_losses: dict[int, float] = {}  # local-idx -> honest loss
+            best_loss_round = float("inf")
+            best_local_idx = -1
+            stopped_early = False
+            pos = 0
+            n_trials = len(order_local)
+            # ``slack`` calibrates importance -> honest_loss residual on a per-round basis. With <2
+            # evaluated points fall back to slack=mean(delta) (no std term) so the gate still has a
+            # working lower bound; the auto-slack helper handles that fallback.
+            slack_used = 0.0
+            while pos < n_trials:
+                if pos == 0:
+                    step = min(ucb_min_eval_size_eff, n_trials - pos)
+                else:
+                    step = min(max(1, outer_workers), n_trials - pos)
+                batch_local = order_local[pos:pos + step]
+                pos += step
+                tasks = []
+                for li in batch_local:
+                    drop_col = current[li]
+                    survivors = [c for c in current if c != drop_col]
+                    tasks.append((survivors, None))
+                losses_batch = _parallel_honest_losses(
+                    tasks, model_template, X_search, y_search, X_holdout, y_holdout,
+                    classification, metric, n_jobs, cache=cache, n_estimators_cap=cap, template_id=tid)
+                for li, ls in zip(batch_local, losses_batch):
+                    evaluated_losses[li] = float(ls)
+                    if ls < best_loss_round:
+                        best_loss_round = float(ls)
+                        best_local_idx = li
+                if pos >= n_trials:
+                    break
+                # Calibrate slack from evaluated pairs (importance_prior, honest_loss).
+                ev_importance = [col_importance[li][1] for li in evaluated_losses]
+                ev_honest = [evaluated_losses[li] for li in evaluated_losses]
+                if ucb_slack is None:
+                    slack_used = _ucb_auto_slack(ev_importance, ev_honest, ucb_stdev_multiplier)
+                else:
+                    slack_used = float(ucb_slack)
+                remaining_local = order_local[pos:n_trials]
+                remaining_importance = [col_importance[li][1] for li in remaining_local]
+                # Stop when no remaining trial can have a lower honest loss than the round leader.
+                # Use parsimony_tol=0 here: we want strict "remaining cannot beat leader" semantics
+                # because we only need to find the round's minimum, not enter a parsimony band.
+                if _ucb_stop_remaining_cannot_win(
+                    best_loss_round, remaining_importance, slack_used, parsimony_tol=0.0,
+                ):
+                    stopped_early = True
+                    break
+            # Accept the leader if within tol; otherwise round terminates.
+            if best_local_idx < 0 or best_loss_round > cur_threshold:
+                break
+            drop_col = current[best_local_idx]
+            current = [c for c in current if c != drop_col]
+            base = min(base, float(best_loss_round))
+            # The dropped column's importance entry is no longer needed; left in place because the
+            # dict is keyed by column id (the dropped col simply never re-appears in subsequent
+            # ``current`` lookups). Avoids mutating the dict in the inner loop.
+        else:
+            # Legacy single-batch path: ALL k trials in one parallel dispatch per round. Preserved
+            # bit-identical for UCB-off / n_jobs in {1,0,None} / no-prior fallback paths.
+            trials = [[c for c in current if c != drop] for drop in current]
+            losses = _parallel_honest_losses([(t, None) for t in trials], model_template, X_search, y_search,
+                                             X_holdout, y_holdout, classification, metric, n_jobs, cache=cache,
+                                             n_estimators_cap=cap, template_id=tid)
+            losses_arr = np.asarray(losses, dtype=np.float64)
+            best_i = int(np.argmin(losses_arr))
+            if losses_arr[best_i] > cur_threshold:
+                break
+            current = trials[best_i]
+            base = min(base, float(losses_arr[best_i]))
     return current
 
 

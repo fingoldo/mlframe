@@ -92,6 +92,10 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         prescreen_top: int | None = None,
         within_cluster_refine: bool = True,
         refine_n_estimators: int | None = 100,
+        refine_ucb_enabled: bool = True,
+        refine_ucb_min_eval_size: int | None = None,
+        refine_ucb_slack: float | None = None,
+        refine_ucb_stdev_multiplier: float = 1.0,
         revalidation_n_estimators: int | None = 100,
         revalidation_ucb_enabled: bool = True,
         revalidation_ucb_min_eval_size: int | None = None,
@@ -230,6 +234,27 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         # ``parsimony_tol``; the ranking stabilises well before the default 300 trees, so capping at
         # ~100 trees cuts each fit ~3x while keeping the drop decision intact. None disables the cap.
         self.refine_n_estimators = refine_n_estimators
+        # ``refine_ucb_*`` (iter35): batched-dispatch early-stop on within_cluster_refine's stage-2b
+        # single-drop greedy round. Mechanism: each round ranks the k surviving members by ascending
+        # stage-2a permutation importance (lowest importance = safest drop, most likely to produce the
+        # lowest honest loss); trials dispatch in workers-sized batches; after each batch the running
+        # best-loss-this-round is compared against every un-evaluated trial's UCB lower bound
+        # ``importance + slack``. Dispatch stops when no remaining trial can beat the round leader.
+        # The slack auto-calibrates from the round's (importance, honest_loss) pairs:
+        # ``mean(delta) - stdev_multiplier * std(delta)``. The lever pays at width >= 10000 where each
+        # honest fit is ~500 ms and ~5 stage-2b rounds dispatch ~10 trials each (Phase-0 C3 cProfile:
+        # within_cluster_refine 6.14s of which ~5s is stage-2b parallel batches; reval-iter34 attribution
+        # showed the joblib pool batches 2-3 deep at this regime, not 1-deep). Defaulted ON because the
+        # importance ordering is a strong prior (stage 2a measured each member's holdout contribution
+        # under the same model) and the gate only stops when even the most-optimistic remaining lower
+        # bound exceeds the round leader. ``min_eval_size=None`` -> ``max(n_workers, 3)``; ``slack=None``
+        # auto-calibrates per-round. With UCB disabled OR k <= min_eval_size OR ``n_jobs in (1, 0,
+        # None)`` (test fixtures), falls through to the legacy single-batch-per-round path with zero
+        # behaviour change. Mirror of the iter34 reval UCB knob design (same names, same defaults).
+        self.refine_ucb_enabled = bool(refine_ucb_enabled)
+        self.refine_ucb_min_eval_size = refine_ucb_min_eval_size
+        self.refine_ucb_slack = refine_ucb_slack
+        self.refine_ucb_stdev_multiplier = float(refine_ucb_stdev_multiplier)
         # ``revalidation_n_estimators`` (iter28) caps the per-candidate booster size inside
         # ``revalidate_top_n`` / ``active_learning_revalidate``. The honest re-validation stage's
         # parsimony-rule selection is a RELATIVE ranking decision (within ``parsimony_tol`` of the
@@ -840,7 +865,11 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
                     member_cols, model_template, X_search, y_search, X_hold, y_hold,
                     classification=self.classification, metric=self.metric,
                     parsimony_tol=self.parsimony_tol, n_jobs=self.n_jobs, cache=honest_cache,
-                    member_groups=member_groups, refine_n_estimators=self.refine_n_estimators)
+                    member_groups=member_groups, refine_n_estimators=self.refine_n_estimators,
+                    ucb_enabled=self.refine_ucb_enabled,
+                    ucb_min_eval_size=self.refine_ucb_min_eval_size,
+                    ucb_slack=self.refine_ucb_slack,
+                    ucb_stdev_multiplier=self.refine_ucb_stdev_multiplier)
                 # Final full-template re-evaluation of the ONE chosen subset (uncapped n_estimators).
                 # Refine's ranking trials use a cheaper capped booster (~100 trees) to decide WHICH
                 # members to drop; the user-visible quality bar (and any downstream report consumer)
