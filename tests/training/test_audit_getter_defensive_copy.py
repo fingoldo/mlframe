@@ -31,13 +31,19 @@ from typing import Any
 
 def test_neural_get_params_deep_returns_deepcopy_for_trainer_params():
     """Source-level guard: trainer_params + tune_params are now
-    deepcopied when deep=True."""
+    deepcopied when deep=True.
+
+    Reads both ``neural/base.py`` (facade) AND ``neural/_base_sklearn_params.py``
+    (post-split sibling that now owns ``get_params``) so the sensor keeps catching
+    a re-introduced shallow copy regardless of which file the helper lives in.
+    """
     import pathlib
     import mlframe as _mlframe
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "training" / "neural" / "base.py"
-    ).read_text(encoding="utf-8")
+    _neural = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "neural"
+    src = (_neural / "base.py").read_text(encoding="utf-8")
+    sibling = _neural / "_base_sklearn_params.py"
+    if sibling.exists():
+        src += "\n" + sibling.read_text(encoding="utf-8")
     # Pre-fix shape MUST be gone:
     assert '"trainer_params": self.trainer_params,' not in src, (
         "Wave 26 P1 regression: trainer_params returned by reference even "

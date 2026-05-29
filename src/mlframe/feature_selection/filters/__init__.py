@@ -77,6 +77,11 @@ __all__ = [
     "prewarm_fs_cupy_kernels",
     # Kernel-tuning cache accessor (public surface; underscore source remains the implementation).
     "get_kernel_tuning_cache",
+    # Cluster-aggregate helpers (used by sibling _shap_proxy_cluster.py to build
+    # post-clustering aggregate features under the same numerical contract as the
+    # filters._cluster_aggregate path).
+    "derive_cluster_weights",
+    "standardize_align_cluster",
 ]
 
 
@@ -84,6 +89,10 @@ __all__ = [
 # move ~5-15s of numba+CuPy NVRTC compile out of the timed fit path.
 from ._prewarm import prewarm_fs_numba_cache, prewarm_fs_cupy_kernels  # noqa: E402
 from ._kernel_tuning import get_kernel_tuning_cache  # noqa: E402, F401
+from ._cluster_aggregate import (  # noqa: E402, F401
+    _derive_weights as derive_cluster_weights,
+    _standardize_align as standardize_align_cluster,
+)
 
 
 # Cat-FE re-exports. Imported here (not via the ``_legacy`` star) so that

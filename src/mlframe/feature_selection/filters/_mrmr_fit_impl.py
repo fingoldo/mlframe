@@ -280,12 +280,55 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     else:
         _x_for_cat = X
         _strategy_for_categorize = self.nan_strategy
+    # 2026-05-29 Wave 7: warn when an alternative ``mi_estimator`` is set but
+    # the fit() loop still uses the legacy plug-in njit chain. Users can probe
+    # alternative estimators via ``MRMR.score_pair_mi`` until the next-sprint
+    # refactor plumbs the dispatcher into ``mi_direct`` / fleuret / permutation.
+    _mi_est = getattr(self, "mi_estimator", "plug_in")
+    if _mi_est != "plug_in":
+        import warnings as _w
+        _w.warn(
+            f"MRMR.fit: mi_estimator={_mi_est!r} is requested but the inner "
+            f"njit relevance loop currently routes only through 'plug_in'. "
+            f"The fit() result will reflect plug-in MI; for direct probing of "
+            f"the {_mi_est!r} estimator use MRMR.score_pair_mi(x, y). Full "
+            f"inner-loop wire-in is planned for the next sprint.",
+            UserWarning,
+            stacklevel=2,
+        )
+
+    # 2026-05-29 Wave 7: propagate the new ``nbins_strategy`` knob through to
+    # categorize_dataset so per-column adaptive bin counts (FD, QS, MDLP, Knuth,
+    # OptimalJoint, ...) actually take effect inside fit(). When None,
+    # categorize_dataset uses the legacy fixed ``quantization_nbins``.
+    _nbins_strategy = getattr(self, "nbins_strategy", None)
+    _nbins_strategy_kwargs = getattr(self, "nbins_strategy_kwargs", None)
+    # The supervised strategies (mdlp / optimal_joint) need y. Pull the raw
+    # target column from the input frame -- categorize_dataset is called with
+    # _x_for_cat which is a DataFrame; the target column is one of its members
+    # (target injection happens upstream in _mrmr_fit_impl).
+    _y_for_strategy = None
+    if _nbins_strategy is not None and str(_nbins_strategy).lower() in (
+        "mdlp", "fayyad_irani", "optimal_joint", "cv",
+    ):
+        # Use the first target column as the supervised signal.
+        if target_names:
+            try:
+                if hasattr(_x_for_cat, "to_numpy"):
+                    _y_for_strategy = np.asarray(_x_for_cat[target_names[0]])
+                else:
+                    _y_for_strategy = np.asarray(_x_for_cat[target_names[0]])
+            except Exception:
+                _y_for_strategy = None
     data, cols, nbins = categorize_dataset(
         df=_x_for_cat,
         method=self.quantization_method,
         n_bins=self.quantization_nbins,
         dtype=self.quantization_dtype,
         missing_strategy=_strategy_for_categorize,
+        nbins_strategy=_nbins_strategy,
+        nbins_strategy_kwargs=_nbins_strategy_kwargs,
+        y_for_strategy=_y_for_strategy,
     )
     logger.info("categorized.")
 
@@ -743,7 +786,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         if n_unexplored > 0:
             if verbose:
                 logger.info(
-                    f"Running RFECV for {self.run_additional_rfecv_minutes} minute(s) over {n_unexplored:_} feature(s) discarded by MRMR to extract interactions..."
+                    "Running RFECV for %s minute(s) over %s feature(s) discarded by MRMR to extract interactions...",
+                    self.run_additional_rfecv_minutes,
+                    f"{n_unexplored:_}",
                 )
 
             from mlframe.training import get_training_configs

@@ -80,6 +80,7 @@ _USER_DEFERRED_DEAD: dict[str, str] = {
     "TreeModelConfig.lgb_kwargs": "duplicate of ModelHyperparamsConfig.lgb_kwargs (which IS consumed via model_dump splat)",
     "TreeModelConfig.xgb_kwargs": "duplicate of ModelHyperparamsConfig.xgb_kwargs (which IS consumed via model_dump splat)",
     "CompositeTargetDiscoveryConfig.force_inject_diff_on_top_ablation_pct": "ablation-only knob for the diff-injection sensitivity study; not consumed by production discovery path (kept for the bench/audit script to vary)",
+    "SliceStableESConfig.pareto_risk_quantile": "Pareto-aware best_iter selection knob; the slice-stable ES infrastructure shipped without the Pareto-front consumer (referenced only in roadmap docstring at _slice_pareto_plot.py). Kept for the upcoming Pareto-aware selector wave.",
 }
 
 

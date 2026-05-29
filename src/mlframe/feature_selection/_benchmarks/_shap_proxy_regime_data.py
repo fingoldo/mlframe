@@ -63,32 +63,38 @@ def make_regime_dataset(
         f_signal = f_signal - (1.0 - interaction_strength) * adj
 
     # Pre-allocate the full feature matrix and fill role blocks in place.
-    # The wide noise pool at large widths (e.g. C4: 10k rows x 19960 noise cols = 1.49 GiB)
+    # The wide noise pool at large widths (e.g. C4: 10k rows x 19960 noise cols)
     # made the prior `[Z, R, N]` + `column_stack` path peak above ~3 GiB; that triggered
     # OOM on dev boxes sharing memory with Postgres / Memory Compression. Chunked noise fill
-    # caps the transient overhead at one chunk's worth of float64.
+    # caps the transient overhead at one chunk's worth.
+    #
+    # float32 halves the buffer (10000 x 20000 x 4 = 800 MiB vs 1.5 GiB) and
+    # cuts the downstream pd.DataFrame block-manager copy in half too; the
+    # synthetic-data contract only cares about std()~=1 within 5pp tolerance,
+    # which is well above float32 precision. (Pre-fix C4 peak was ~4.3 GiB
+    # with float64; float32 + DataFrame(copy=False) drops it under the 2.5 GiB cap.)
     total_cols = n_informative + n_redundant + n_noise
-    X = np.empty((n_samples, total_cols), dtype=np.float64)
-    X[:, :n_informative] = Z
+    X = np.empty((n_samples, total_cols), dtype=np.float32)
+    X[:, :n_informative] = Z.astype(np.float32, copy=False)
 
     R_names_src = []
     rho_keep = np.sqrt(max(1e-9, 1 - redundancy_rho ** 2))
     for j in range(n_redundant):
         src = int(rng.integers(0, n_informative))
-        X[:, n_informative + j] = redundancy_rho * Z[:, src] + rho_keep * rng.standard_normal(n_samples)
+        X[:, n_informative + j] = (redundancy_rho * Z[:, src] + rho_keep * rng.standard_normal(n_samples)).astype(np.float32, copy=False)
         R_names_src.append(src)
 
     noise_start = n_informative + n_redundant
     if n_noise:
         # Stream noise into X in column-block chunks to bound peak transient allocation.
-        # Chunk size targets ~64 MiB per scratch buffer regardless of n_samples / n_noise.
-        target_chunk_bytes = 64 * 1024 * 1024
-        bytes_per_col = n_samples * 8
+        # Chunk size targets ~32 MiB per scratch buffer regardless of n_samples / n_noise.
+        target_chunk_bytes = 32 * 1024 * 1024
+        bytes_per_col = n_samples * 4  # float32
         chunk_cols = max(1, min(n_noise, target_chunk_bytes // max(bytes_per_col, 1)))
         col = 0
         while col < n_noise:
             this = min(chunk_cols, n_noise - col)
-            X[:, noise_start + col : noise_start + col + this] = rng.standard_normal((n_samples, this))
+            X[:, noise_start + col : noise_start + col + this] = rng.standard_normal((n_samples, this)).astype(np.float32, copy=False)
             col += this
 
     names = ([f"inf{i}" for i in range(n_informative)]
@@ -108,7 +114,12 @@ def make_regime_dataset(
         p = 1.0 / (1.0 + np.exp(-(logits - thr)))
         y = (rng.random(n_samples) < p).astype(int)
 
-    return pd.DataFrame(X, columns=names), y, roles
+    # ``pd.DataFrame(X, columns=...)`` in pandas 2.x copies the backing buffer by
+    # default, which doubles peak RSS for the wide-noise C4 regime (10k x 20k =
+    # 1.5 GiB; the copy pushes peak above 4 GiB and trips the OOM sensor).
+    # ``copy=False`` keeps the DataFrame as a zero-copy view of ``X``; the
+    # caller treats the return as read-only so the shared buffer is safe.
+    return pd.DataFrame(X, columns=names, copy=False), y, roles
 
 
 def oracle_subset(roles: dict) -> list[str]:

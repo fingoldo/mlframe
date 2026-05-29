@@ -33,8 +33,12 @@ class TestReportingConfigTitleTemplate:
 
     def test_default_template_parses_into_expected_tokens(self):
         cfg = ReportingConfig()
+        # KS / MCC / BSS were added to the default template in the
+        # reporting-coverage expansion; this test pins the post-expansion
+        # token set so any future drop is caught immediately.
         assert cfg.title_metrics_tokens == (
             "ICE", "BR_DECOMP", "ECE", "CMAEW", "LL", "ROC_AUC", "PR_AUC",
+            "KS", "MCC", "BSS",
         )
 
     def test_custom_template_is_parsed_in_order(self):

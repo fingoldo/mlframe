@@ -274,10 +274,18 @@ def make_train_test_split(
             if timestamps is None
             else f"val_size={val_size}"
         )
-        logger.info(
-            "val_placement=%r downgraded to %r (%s)%s.",
-            val_placement, _effective_val_placement, _reason, _group_clause,
-        )
+        if val_placement == "backward":
+            logger.warning(
+                "val_placement=%r requested but downgraded to %r (%s)%s. "
+                "Temporal honesty lost: val will be drawn at random instead of newest-data. "
+                "Supply timestamps_column to honor backward placement.",
+                val_placement, _effective_val_placement, _reason, _group_clause,
+            )
+        else:
+            logger.info(
+                "val_placement=%r downgraded to %r (%s)%s.",
+                val_placement, _effective_val_placement, _reason, _group_clause,
+            )
     elif val_placement != "forward":
         logger.info("val_placement=%r (Mazzanti backward layout)", val_placement)
 

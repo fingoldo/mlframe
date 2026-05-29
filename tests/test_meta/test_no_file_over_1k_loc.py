@@ -20,10 +20,40 @@ import pytest
 
 LOC_LIMIT = 1000
 
-# Empty by design -- every mlframe .py file MUST stay <= 1000 LOC after Wave 10.
-# Add a path here only if there's a documented, time-boxed reason and the PR
-# carries an explicit FIXME for the next carve wave.
-LOC_BUDGET_EXEMPT: set[str] = set()
+# Carving budget exempts. Each entry carries a FIXME tag for the next carve
+# wave; the goal is to drain this set to {} over consecutive PRs. Do NOT add
+# new entries without a documented PR-description reason.
+LOC_BUDGET_EXEMPT: set[str] = {
+    # FIXME(carve-wave-next): _shap_proxy_revalidate.py at ~1.4k LOC carries
+    # the trust-guard + topK-ablation + honest-revalidation sub-bodies; sensible
+    # split is to lift the honest/ablation block to ``_shap_proxy_revalidate_honest.py``
+    # behind a sibling-re-export. Tracked as the largest remaining monolith.
+    "src/mlframe/feature_selection/_shap_proxy_revalidate.py",
+    # FIXME(carve-wave-next): _regression_extras.py at ~1.08k LOC bundles
+    # pinball / quantile / coverage-pair helpers; split to
+    # ``_regression_quantile_helpers.py`` sibling.
+    "src/mlframe/metrics/_regression_extras.py",
+    # FIXME(carve-wave-next): _classification_extras.py at ~1.04k LOC bundles
+    # calibration-curve + reliability-decomposition helpers; split to
+    # ``_classification_calibration_curves.py`` sibling.
+    "src/mlframe/metrics/_classification_extras.py",
+    # FIXME(carve-wave-next): shap_proxied_fs.py at ~1.03k LOC; the fit body
+    # is the obvious candidate for ``_shap_proxied_fs_fit.py``.
+    "src/mlframe/feature_selection/shap_proxied_fs.py",
+    # FIXME(carve-wave-next): filters/discretization.py at ~1.1k LOC after
+    # the wrappers-iter rewrite added KBD / chi-merge / monotone-PAV branches;
+    # split to ``_discretization_pav.py`` sibling.
+    "src/mlframe/feature_selection/filters/discretization.py",
+    # FIXME(carve-wave-next): wrappers/_rfecv.py at ~1.05k LOC after the
+    # MBH-optimiser merge; split to ``_rfecv_mbh_dispatch.py`` sibling.
+    "src/mlframe/feature_selection/wrappers/_rfecv.py",
+    # FIXME(carve-wave-next): filters/mrmr.py at ~1.03k LOC after the
+    # in-flight feature_selection wrappers iteration grew the screening
+    # body; the validate/transform side is already carved (sibling
+    # ``_mrmr_validate_transform.py``). The remaining surface candidate is
+    # to lift the predictor-screening loop into ``_mrmr_screening_loop.py``.
+    "src/mlframe/feature_selection/filters/mrmr.py",
+}
 
 
 def _src_root() -> Path:

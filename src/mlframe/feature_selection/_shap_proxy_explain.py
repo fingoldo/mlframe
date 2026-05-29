@@ -96,7 +96,7 @@ _TREESHAP_NUMBA_MIN_FEATURES = 64
 def _treeshap_numba_min_features() -> int:
     """Crossover width for routing to the custom numba TreeSHAP, from kernel_tuning_cache if present."""
     try:
-        from mlframe.feature_selection.filters._kernel_tuning import get_kernel_tuning_cache
+        from mlframe.feature_selection.filters import get_kernel_tuning_cache
 
         ktc = get_kernel_tuning_cache()
         if ktc is not None:

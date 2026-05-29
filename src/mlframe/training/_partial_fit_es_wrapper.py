@@ -199,7 +199,18 @@ class PartialFitESWrapper:
     def predict_proba(self, X):
         if hasattr(self.estimator, "predict_proba"):
             return self.estimator.predict_proba(X)
-        raise AttributeError("Underlying estimator has no predict_proba")
+        # Fallback for estimators with decision_function only (e.g. RidgeClassifier, LinearSVC).
+        # Reporting/calibration callers expect a probabilistic surface; raising AttributeError
+        # would force them to fall back to hard-label predict() which feeds class indices to
+        # log_loss (values >1 in multiclass). Synthesise probs via sigmoid/softmax instead.
+        if hasattr(self.estimator, "decision_function"):
+            from scipy.special import expit, softmax
+            dec = np.asarray(self.estimator.decision_function(X))
+            if dec.ndim == 1:
+                p = expit(dec)
+                return np.column_stack([1.0 - p, p])
+            return softmax(dec, axis=1)
+        raise AttributeError("Underlying estimator has no predict_proba or decision_function")
 
     def score(self, X, y):
         return self.estimator.score(X, y)
@@ -265,7 +276,11 @@ class PartialFitESWrapper:
             if p.ndim == 2 and p.shape[1] == 2:
                 return p[:, 1]
             return p
-        # Fallback to predict (hard labels) -- log_loss will warn but won't crash
+        if hasattr(self.estimator, "decision_function"):
+            from scipy.special import expit, softmax
+            dec = np.asarray(self.estimator.decision_function(X_val))
+            return expit(dec) if dec.ndim == 1 else softmax(dec, axis=1)
+        # Last-resort fallback: predict (hard labels) -- log_loss will warn but won't crash.
         return self.estimator.predict(X_val)
 
     # -- internal: dichotomic-search strategy ---------------------------------
@@ -287,10 +302,20 @@ class PartialFitESWrapper:
             est = clone(self.estimator)
             est.set_params(**{self.budget_param: int(budget)})
             est.fit(X_tr, y_tr)
-            pred = est.predict(X_val) if not self.is_classification else (
-                est.predict_proba(X_val)[:, 1] if hasattr(est, "predict_proba") and self.is_classification
-                else est.predict(X_val)
-            )
+            if not self.is_classification:
+                pred = est.predict(X_val)
+            elif hasattr(est, "predict_proba"):
+                p = est.predict_proba(X_val)
+                pred = p[:, 1] if p.ndim == 2 and p.shape[1] == 2 else p
+            elif hasattr(est, "decision_function"):
+                # RidgeClassifier / LinearSVC: produce probabilities so log_loss never sees
+                # raw class indices (which exceed [0,1] in multiclass and crash with
+                # "y_prob contains values greater than 1: 2.0").
+                from scipy.special import expit, softmax
+                dec = np.asarray(est.decision_function(X_val))
+                pred = expit(dec) if dec.ndim == 1 else softmax(dec, axis=1)
+            else:
+                pred = est.predict(X_val)
             v = float(metric_fn(y_val, pred))
             scores[budget] = (v, est)
             return v

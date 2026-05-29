@@ -225,7 +225,13 @@ def test_mrmr_empty_fallback_uses_secondary_index() -> None:
 
 
 def test_screen_expected_gains_uses_lexsort() -> None:
+    # Confirm-step body moved to ``_confirm_predictor.py`` during the
+    # post-1k-LOC monolith split; concat so the source-presence assertion
+    # matches regardless of which sibling currently houses the literal.
     src = _read("feature_selection/filters/screen.py")
+    _confirm = MLFRAME_ROOT / "feature_selection" / "filters" / "_confirm_predictor.py"
+    if _confirm.exists():
+        src += "\n" + _confirm.read_text(encoding="utf-8")
     assert "np.lexsort((np.arange(len(expected_gains)), -np.asarray(expected_gains)))" in src
 
 

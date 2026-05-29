@@ -71,7 +71,7 @@ def resolve_batch_size(
         return int(max(1, min(int(user_value), n_features)))
 
     try:
-        from mlframe.feature_selection.filters._kernel_tuning import get_kernel_tuning_cache
+        from mlframe.feature_selection.filters import get_kernel_tuning_cache
 
         cache = get_kernel_tuning_cache()
         if cache is not None:

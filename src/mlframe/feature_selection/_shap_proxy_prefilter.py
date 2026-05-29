@@ -93,7 +93,7 @@ def _prefilter_tuning() -> dict:
     """Per-HW prefilter thresholds from kernel_tuning_cache (auto_fast_width / gpu_model_min_rows), or
     ``{}`` when pyutilz / the entry is unavailable (callers fall back to the module defaults)."""
     try:
-        from mlframe.feature_selection.filters._kernel_tuning import get_kernel_tuning_cache
+        from mlframe.feature_selection.filters import get_kernel_tuning_cache
 
         ktc = get_kernel_tuning_cache()
         if ktc is not None:

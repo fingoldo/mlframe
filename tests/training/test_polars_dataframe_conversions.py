@@ -357,16 +357,18 @@ def test_fix7_composite_estimator_extract_returns_correct_dtype_no_extra_copy():
     np.testing.assert_array_equal(out, np.arange(50, dtype=np.float64))
 
 
-def test_fix7_composite_screening_extract_returns_float64_view():
+def test_fix7_composite_screening_extract_returns_float32_view():
     """composite_screening._extract_column_array must drop the np.asarray-over-polars wrap.
-    Behavioural check: float64 polars column extracts to float64 ndarray with values intact."""
+    Behavioural check: float64 polars column extracts to a float32 ndarray (the function
+    halves memory of the 4M-row discovery matrix per the module docstring), values intact
+    within float32 precision."""
     from mlframe.training.composite_screening import _extract_column_array
 
     df = pl.DataFrame({"x": np.arange(40, dtype=np.float64), "y": np.linspace(0.0, 1.0, 40)})
     out = _extract_column_array(df, "y")
     assert isinstance(out, np.ndarray)
-    assert out.dtype == np.float64
-    np.testing.assert_allclose(out, np.linspace(0.0, 1.0, 40))
+    assert out.dtype == np.float32
+    np.testing.assert_allclose(out, np.linspace(0.0, 1.0, 40, dtype=np.float32), rtol=1e-6)
 
 
 def test_fix7_composite_auto_detect_monotonicity_handles_float_input():
@@ -397,13 +399,15 @@ def test_fix7_extract_base_returns_float64_ndarray():
     np.testing.assert_array_equal(out[:2], np.array([1.0, 2.5]))
 
 
-def test_fix7_screening_extract_column_array_float64():
+def test_fix7_screening_extract_column_array_float32():
+    """_extract_column_array intentionally returns float32 (see module docstring)
+    to halve memory of the 4M-row discovery matrix."""
     from mlframe.training.composite_screening import _extract_column_array
 
     df = pl.DataFrame({"x": [1, 2, 3, 4]})
     out = _extract_column_array(df, "x")
-    assert out.dtype == np.float64
-    np.testing.assert_array_equal(out, np.array([1.0, 2.0, 3.0, 4.0]))
+    assert out.dtype == np.float32
+    np.testing.assert_array_equal(out, np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32))
 
 
 # ---------------------------------------------------------------------------

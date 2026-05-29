@@ -160,7 +160,7 @@ def gpu_treeshap_available() -> bool:
 
 def _block_size() -> int:
     try:
-        from mlframe.feature_selection.filters._kernel_tuning import get_kernel_tuning_cache
+        from mlframe.feature_selection.filters import get_kernel_tuning_cache
 
         ktc = get_kernel_tuning_cache()
         if ktc is not None:

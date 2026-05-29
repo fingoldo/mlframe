@@ -145,7 +145,21 @@ def _config_for_model(model_name: str, iterations: int = 5) -> dict:
     elif model_name == "xgb":
         cfg["xgb_kwargs"] = {"device": "cpu", "verbosity": 0}
     elif model_name == "cb":
-        cfg["cb_kwargs"] = {"task_type": "CPU", "verbose": 0}
+        # Per-test unique ``train_dir`` so concurrent xdist workers don't
+        # collide on the default ``catboost_info/catboost_training.json``
+        # log file (Windows os.remove raises PermissionError on the shared
+        # path mid-fit when a sibling worker is still writing).
+        import os
+        import tempfile
+        _cb_train_dir = tempfile.mkdtemp(
+            prefix=f"catboost_info_{os.getpid()}_",
+        )
+        cfg["cb_kwargs"] = {
+            "task_type": "CPU",
+            "verbose": 0,
+            "train_dir": _cb_train_dir,
+            "allow_writing_files": False,
+        }
     return cfg
 
 

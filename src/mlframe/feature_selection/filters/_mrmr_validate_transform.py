@@ -35,6 +35,8 @@ def _validate_string_params(self):
         ("fe_unary_preset", self._VALID_FE_UNARY_PRESETS),
         ("fe_binary_preset", self._VALID_FE_BINARY_PRESETS),
         ("cluster_aggregate_mode", self._VALID_CLUSTER_AGGREGATE_MODES),
+        ("mi_estimator", self._VALID_MI_ESTIMATORS),
+        ("nbins_strategy", self._VALID_NBINS_STRATEGIES),
     )
     for _name, _valid in _checks:
         _val = getattr(self, _name, None)
@@ -313,7 +315,18 @@ def _append_engineered(self, base_out, X, recipes):
     if not replayable:
         return base_out
     recipes = replayable
-    engineered_cols = [apply_recipe(r, X) for r in recipes]
+    # Engineered-recipe replay resolves source columns by NAME (e.g. cluster_aggregate looks
+    # up ``recipe.src_names`` via filters/engineered_recipes._extract_column). A plain 2-D
+    # ndarray has no column-name index, so wrap it in a pandas DataFrame using fit-time
+    # feature_names_in_ before replay. base_out is already projected so we keep its shape;
+    # this view is only used for engineered-column resolution.
+    _X_for_recipes = X
+    if isinstance(X, np.ndarray) and X.dtype.names is None and hasattr(self, "feature_names_in_"):
+        try:
+            _X_for_recipes = pd.DataFrame(X, columns=list(self.feature_names_in_))
+        except Exception:
+            _X_for_recipes = X
+    engineered_cols = [apply_recipe(r, _X_for_recipes) for r in recipes]
     if isinstance(base_out, pd.DataFrame):
         # ``copy=False`` would risk mutating caller's view (base_out is a view into pandas X). Build a narrow
         # new frame: engineered cols are fresh ndarrays anyway, only base cols share buffers with X.

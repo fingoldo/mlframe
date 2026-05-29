@@ -160,7 +160,8 @@ def drop_columns_from_dataframe(
         return df
 
     if verbose:
-        logger.info(f"Dropping {len(all_cols_to_drop)} column(s): {shorten(','.join(all_cols_to_drop),250)}...")
+        logger.info("Dropping %d column(s): %s...",
+                    len(all_cols_to_drop), shorten(','.join(all_cols_to_drop), 250))
 
     # Guard isinstance with `pl is not None` -- the module's top-level
     # `import polars as pl` is wrapped in try/except (line 27) so `pl`

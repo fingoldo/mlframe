@@ -137,12 +137,17 @@ def test_screen_use_simple_mode_uses_not_not_is_false():
     import pathlib
     import mlframe as _mlframe
     # 2026-05-22 split: screen_predictors moved to _screen_predictors.py.
+    # Second split (2026-05-2x): confirm-step body moved to _confirm_predictor.py
+    # where this literal now lives.
     _dir = pathlib.Path(_mlframe.__file__).resolve().parent / "feature_selection" / "filters"
     src = (
         (_dir / "screen.py").read_text(encoding="utf-8")
         + "\n"
         + (_dir / "_screen_predictors.py").read_text(encoding="utf-8")
     )
+    _confirm = _dir / "_confirm_predictor.py"
+    if _confirm.exists():
+        src += "\n" + _confirm.read_text(encoding="utf-8")
     # Pre-fix shape MUST be gone:
     assert "and (use_simple_mode is False or len(cached_MIs)" not in src
     # Post-fix marker:

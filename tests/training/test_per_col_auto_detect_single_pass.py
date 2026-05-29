@@ -188,6 +188,14 @@ def test_biz_val_auto_detect_polars_speedup():
 
 
 def _vendored_legacy_pandas(df, ftc, cat_features):
+    """Per-column-call equivalent of the post-single-pass _auto_detect_feature_types.
+
+    Mirrors the SAME dtype-detection contract as the production single-pass code
+    (``_string_like_dtype_tokens = ("object", "str", "category")`` plus the
+    ``"stringdtype"`` substring rescue) so this test gates ONLY the single-pass
+    aggregation refactor, not the broader dtype-name surface that was added to
+    handle pandas 3.0 / future.infer_string spellings.
+    """
     text_features = list(ftc.text_features or [])
     embedding_features = list(ftc.embedding_features or [])
     user_assigned = set(text_features) | set(embedding_features)
@@ -196,12 +204,18 @@ def _vendored_legacy_pandas(df, ftc, cat_features):
     if ftc.cat_text_cardinality_threshold_pct > 0.0:
         threshold = min(threshold, max(50, int(len(df) * ftc.cat_text_cardinality_threshold_pct)))
     min_non_null_abs = max(1, int(round(len(df) * ftc.min_non_null_fraction_for_text_promotion)))
+    _string_like_dtype_tokens = ("object", "str", "category")
     auto_drop: list = []
     for col in df.columns:
         if col in user_assigned:
             continue
         dtype_name = str(df[col].dtype)
-        if dtype_name.startswith("object") or dtype_name.startswith("string") or dtype_name == "category":
+        _dtype_lc = dtype_name.lower().lstrip("<")
+        _is_string_like = (
+            any(_dtype_lc.startswith(tok) for tok in _string_like_dtype_tokens)
+            or "stringdtype" in _dtype_lc
+        )
+        if _is_string_like:
             if dtype_name.startswith("object"):
                 _series = df[col]
                 try:

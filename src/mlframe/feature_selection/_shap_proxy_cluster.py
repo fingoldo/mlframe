@@ -237,7 +237,10 @@ def build_unit_matrix(
     unit_kind : list[str]
         "single" or "cluster:k" tag per unit (diagnostics).
     """
-    from mlframe.feature_selection.filters._cluster_aggregate import _derive_weights, _standardize_align
+    from mlframe.feature_selection.filters import (
+        derive_cluster_weights as _derive_weights,
+        standardize_align_cluster as _standardize_align,
+    )
 
     X = np.ascontiguousarray(np.asarray(X, dtype=np.float64))
     X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)

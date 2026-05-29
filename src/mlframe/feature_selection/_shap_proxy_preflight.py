@@ -20,13 +20,12 @@ from __future__ import annotations
 import logging
 
 import numpy as np
+from sklearn.model_selection import cross_val_score
 
 logger = logging.getLogger(__name__)
 
 
 def _cv_score(estimator, X, y, classification):
-    from sklearn.model_selection import cross_val_score
-
     scoring = "roc_auc" if classification else "r2"
     try:
         return float(np.mean(cross_val_score(estimator, X, y, cv=3, scoring=scoring)))

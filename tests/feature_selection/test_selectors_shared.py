@@ -131,20 +131,28 @@ class TestSharedAPIContract:
         assert 0 <= selector.n_features_ <= selector.n_features_in_
 
     def test_support_alignment(self, selector_factory, small_clf_problem):
-        """support_ should encode the selection consistently with n_features_."""
+        """support_ should encode the selection consistently with n_features_.
+
+        MRMR can extend transform output with engineered recipe columns (e.g.
+        cluster-aggregate, polynomial). support_ indexes RAW columns only --
+        n_features_ counts raw selected + engineered output. So the invariant
+        is ``support_count + n_engineered == n_features_``; falls back to
+        ``support_count == n_features_`` for selectors without engineered
+        recipes (e.g. RFECV).
+        """
         X, y = small_clf_problem
         selector = selector_factory().fit(X, y)
         support = selector.support_
         # MRMR and RFECV use different support_ representations:
         # - RFECV: bool mask aligned with feature_names_in_
         # - MRMR: integer indices into feature_names_in_
-        # Either way, the COUNT of selected features must equal n_features_.
         if len(support) > 0:
             if isinstance(support[0], (bool, np.bool_)):
                 count = int(np.sum(support))
             else:
                 count = len(support)
-            assert count == selector.n_features_
+            n_engineered = len(getattr(selector, "_engineered_recipes_", []))
+            assert count + n_engineered == selector.n_features_
 
     def test_transform_output_column_count_matches_n_features(self, selector_factory, small_clf_problem):
         X, y = small_clf_problem
@@ -441,7 +449,18 @@ class TestSharedRefit:
         if names_first and names_second:
             # On a fresh instance, the second selection must include only
             # renamed_* columns - no possible cache contamination.
-            assert all(n.startswith("renamed_") for n in names_second), (
+            # Engineered recipes (MRMR cluster-aggregate / unary-binary) carry a
+            # composite name like ``clusteragg_mean_z(renamed_f4+...)`` whose source
+            # columns are renamed_*; treat such names as renamed-aware iff every
+            # renamed-prefixed token they reference is renamed_*.
+            def _is_renamed_aware(name: str) -> bool:
+                if name.startswith("renamed_"):
+                    return True
+                # No bare raw column survived (e.g. "f4" with no "renamed_" prefix).
+                import re
+                bare = re.findall(r"\bf\d+\b", name)
+                return not bare
+            assert all(_is_renamed_aware(n) for n in names_second), (
                 f"Fresh-instance refit on renamed X produced stale-looking "
                 f"names: {names_second}"
             )

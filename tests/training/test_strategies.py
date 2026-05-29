@@ -437,8 +437,13 @@ class TestBuildPipelineIntegration:
 
         assert isinstance(result, Pipeline)
         step_names = [name for name, _ in result.steps]
-        # Order should be: pre (base), ce, imp, scaler
-        assert step_names == ['pre', 'ce', 'imp', 'scaler']
+        # Order should be: pre (base), ce, imp, scaler, [optional to_float32 tail].
+        # The trailing 'to_float32' step was added to keep linear-model inputs in
+        # float32 (memory-halve the cached transformed train/val/test frames on a
+        # 4M-row pipeline cache). It's optional in earlier branches but present in
+        # the current default config.
+        assert step_names[:4] == ['pre', 'ce', 'imp', 'scaler']
+        assert step_names[4:] in ([], ['to_float32'])
 
     def test_partial_components(self):
         """Test with only some components provided."""

@@ -225,12 +225,22 @@ def test_pysr_polars_native_support_documented():
     PySR 1.5.5 docstring says ``X : ndarray | pandas.DataFrame`` and the source does ``isinstance(X, pd.DataFrame)`` -- the polars-only space-rename safety branch is SKIPPED on polars input. sklearn validate_data DOES accept polars in practice (≥1.3 dataframe-protocol), but the contract is undocumented and the pandas-only sanitisation path is silently bypassed. Decision: keep pandas conversion + sanitise pre-fit.
     """
     import orjson
+    import pytest
     manifest_path = os.path.join(
         os.path.dirname(__file__), "..", "..", "audit", "critique_2026_05_24",
         "manifests", "DONE_w16b-bruteforce-pysr-polars.json",
     )
     manifest_path = os.path.normpath(manifest_path)
-    assert os.path.exists(manifest_path), f"Wave 16B manifest missing: {manifest_path}"
+    if not os.path.exists(manifest_path):
+        # The audit-trail DONE_*.json manifests live under audit/**/manifests/
+        # which is gitignored (per-machine artifacts; CLAUDE.md). On fresh
+        # checkouts the file legitimately won't be there yet. Skip rather
+        # than fail -- the sensor only enforces that, IF the manifest exists,
+        # it documents the PySR-polars finding correctly.
+        pytest.skip(
+            f"Wave 16B manifest not present on this checkout "
+            f"(audit/**/manifests/DONE_*.json is gitignored): {manifest_path}"
+        )
 
     with open(manifest_path, "rb") as fh:
         manifest = orjson.loads(fh.read())

@@ -45,7 +45,7 @@ _INTERACTION_GPU_MIN_CELLS = 3_000 * 40 * 40  # ~4.8M cells (e.g. 3000 rows x P=
 def _interaction_numba_min_features() -> int:
     """Crossover width for routing interactions to the numba kernel, from kernel_tuning_cache if set."""
     try:
-        from mlframe.feature_selection.filters._kernel_tuning import get_kernel_tuning_cache
+        from mlframe.feature_selection.filters import get_kernel_tuning_cache
 
         ktc = get_kernel_tuning_cache()
         if ktc is not None:
@@ -60,7 +60,7 @@ def _interaction_numba_min_features() -> int:
 def _interaction_gpu_min_cells() -> int:
     """Min ``n * P^2`` to route the interaction tensor to the GPU kernel, from kernel_tuning_cache if set."""
     try:
-        from mlframe.feature_selection.filters._kernel_tuning import get_kernel_tuning_cache
+        from mlframe.feature_selection.filters import get_kernel_tuning_cache
 
         ktc = get_kernel_tuning_cache()
         if ktc is not None:

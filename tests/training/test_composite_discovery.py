@@ -316,7 +316,12 @@ class TestLeakageGuards:
 
         for name, t in disc.iter_transform(df):
             if name == spec.name:
-                np.testing.assert_allclose(t, expected, rtol=1e-12, atol=1e-12,
+                # iter_transform's working buffer goes through composite_screening
+                # ._extract_column_array which casts to float32 (a deliberate memory
+                # halving on the 4M-row x 500-col discovery matrix). The "expected"
+                # values above stay in float64, so we tolerate the float32 rounding
+                # floor (~1e-6) rather than re-running the test in float64.
+                np.testing.assert_allclose(t, expected, rtol=1e-5, atol=1e-6,
                                            equal_nan=True)
 
 

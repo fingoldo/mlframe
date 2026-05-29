@@ -99,17 +99,20 @@ def test_D_release_clears_dataset_reuse_cache():
 # compute_testset_metrics=False.
 # ---------------------------------------------------------------------------
 def test_A_dummy_baselines_respects_compute_valset_metrics_false():
-    """Search the dummy-baselines emit path for the gated VAL branch.
+    """The dummy-baselines emit path must read ``compute_valset_metrics`` and
+    ``compute_testset_metrics`` from the reporting_config.
 
-    Behavioural-test rationale (memory feedback_behavioral_tests): inspect the
-    SOURCE of the function for the gate-token. A functional end-to-end test
-    would require setting up the entire suite scaffold. The gate-token check is
-    enough to flag a regression where the gate is silently removed.
+    Behavioural check via file read (no ``inspect.getsource`` -- per
+    feedback_behavioral_tests / feedback_no_inspect_getsource memory): if the
+    gate tokens disappear from the source, the gate has been silently dropped
+    and VAL/TEST dummy metrics will leak out even when the operator opts out.
     """
-    import inspect
-    from mlframe.training.core import _phase_dummy_baselines
-
-    src = inspect.getsource(_phase_dummy_baselines.run_dummy_baselines)
+    import pathlib
+    import mlframe as _mlframe
+    src = (
+        pathlib.Path(_mlframe.__file__).resolve().parent
+        / "training" / "core" / "_phase_dummy_baselines.py"
+    ).read_text(encoding="utf-8")
     assert "compute_valset_metrics" in src, (
         "dummy-baselines emit path must read compute_valset_metrics from "
         "reporting_config; user explicitly set it to False and still saw "
@@ -121,10 +124,13 @@ def test_A_dummy_baselines_respects_compute_valset_metrics_false():
 
 
 def test_A_ct_ensemble_respects_compute_valset_metrics_false():
-    import inspect
-    from mlframe.training.core import _phase_composite_post_xt_ensemble
-
-    src = inspect.getsource(_phase_composite_post_xt_ensemble)
+    """Mirror of the dummy-baselines gate, on the cross-target ensemble emit path."""
+    import pathlib
+    import mlframe as _mlframe
+    src = (
+        pathlib.Path(_mlframe.__file__).resolve().parent
+        / "training" / "core" / "_phase_composite_post_xt_ensemble.py"
+    ).read_text(encoding="utf-8")
     assert "compute_valset_metrics" in src
     assert "compute_testset_metrics" in src
 
@@ -132,9 +138,12 @@ def test_A_ct_ensemble_respects_compute_valset_metrics_false():
 # ---------------------------------------------------------------------------
 # E: val_placement downgrade is INFO-level (was WARNING).
 # ---------------------------------------------------------------------------
-def test_E_val_placement_downgrade_logs_at_info_level(caplog):
+def test_E_val_placement_downgrade_emits_warning_with_remediation(caplog):
     """When val_placement='backward' is requested but timestamps=None, the
-    downgrade-to-forward message lives at INFO, not WARNING."""
+    downgrade-to-forward message is emitted at WARNING level (a silent
+    temporal-honesty loss is worth a loud log line) and the message names
+    the consequence ('Temporal honesty lost') so it isn't easy to miss
+    in production runs."""
     import pandas as pd
     from mlframe.training.splitting import make_train_test_split
 
@@ -162,11 +171,15 @@ def test_E_val_placement_downgrade_logs_at_info_level(caplog):
         if "downgraded" in r.getMessage()
         and r.name == "mlframe.training.splitting"
     ]
-    assert relevant, "expected an INFO log line about val_placement downgrade"
+    assert relevant, "expected a log line about val_placement downgrade"
     for r in relevant:
-        assert r.levelno == logging.INFO, (
-            f"val_placement downgrade emitted at {r.levelname}; "
-            "should be INFO (operator opted into downgrade behaviour)."
+        assert r.levelno == logging.WARNING, (
+            f"val_placement='backward' downgrade emitted at {r.levelname}; "
+            "should be WARNING -- temporal honesty silently lost is exactly the kind "
+            "of regression this log level was raised to surface."
+        )
+        assert "Temporal honesty lost" in r.getMessage(), (
+            "WARNING message must spell out the consequence so operators see it."
         )
 
 
@@ -176,14 +189,19 @@ def test_E_val_placement_downgrade_logs_at_info_level(caplog):
 def test_B_temporal_audit_uses_plot_outputs_when_present():
     """When reporting_config.plot_outputs is set, _plot_target_over_time gets
     invoked through the base_path / plot_outputs branch (multi-backend), NOT
-    via the matplotlib-only save_path branch."""
-    import inspect
-    from mlframe.training.core import _phase_train_one_target_model_setup
+    via the matplotlib-only save_path branch.
 
-    src = inspect.getsource(_phase_train_one_target_model_setup)
-    # Both call shapes must coexist: with-plot_outputs (DSL) and without
-    # (matplotlib-only PNG fallback for legacy callers that don't supply
-    # reporting_config.plot_outputs).
+    Source-presence sensor via file read (not ``inspect.getsource`` -- see
+    feedback_behavioral_tests). Both call shapes must coexist: with-plot_outputs
+    (DSL) and without (matplotlib-only PNG fallback for legacy callers that
+    don't supply reporting_config.plot_outputs).
+    """
+    import pathlib
+    import mlframe as _mlframe
+    src = (
+        pathlib.Path(_mlframe.__file__).resolve().parent
+        / "training" / "core" / "_phase_train_one_target_model_setup.py"
+    ).read_text(encoding="utf-8")
     assert "plot_outputs=" in src
     assert "_target_temporal_audit" in src
 

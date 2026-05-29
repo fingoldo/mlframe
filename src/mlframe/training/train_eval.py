@@ -533,7 +533,8 @@ def process_model(
     if not use_cached_model:
         end = timer()
         if verbose:
-            logger.info(f"Finished training, took {(end-start)/60:.1f} min. RAM usage {get_own_memory_usage():.1f}GBs...")
+            logger.info("Finished training, took %.1f min. RAM usage %.1fGBs...",
+                        (end - start) / 60, get_own_memory_usage())
         if fpath:
             # lean=True. The train-time save here is the inference-ready
             # bundle the harness / serving stack reads back; train_preds + train_target
