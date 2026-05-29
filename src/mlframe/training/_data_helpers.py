@@ -682,6 +682,110 @@ def _groupids_to_sizes(group_ids: Any) -> np.ndarray | None:
     return np.diff(boundaries).astype(np.int64)
 
 
+# Model categories that already wire val/eval_set through ``_setup_eval_set`` and have
+# their own native ES path (booster callbacks or sklearn-style validation_fraction).
+# Models OUTSIDE this set get nothing val-driven by default; the auto-wrap helper below
+# folds them into a ``PartialFitESWrapper`` so val is no longer wasted.
+_NATIVE_ES_CATEGORIES: frozenset[str] = frozenset(
+    {"lgb", "hgb", "ngb", "cb", "xgb", "tabnet", "mlp"}
+)
+
+# Per-model budget parameter for the dichotomic-search ES strategy when the model lacks
+# ``partial_fit``. ``None`` means no usable budget knob (e.g. plain LinearRegression which
+# is closed-form -- no ES is possible at all, the wrapper degrades to a single fit-and-score).
+_BUDGET_PARAM_BY_CATEGORY: dict[str, str | None] = {
+    "ridge": "max_iter",
+    "lasso": "max_iter",
+    "elasticnet": "max_iter",
+    "huber": "max_iter",
+    "ransac": "max_trials",
+    "linear": None,         # LinearRegression/LogisticRegression closed-form -- no budget
+}
+
+
+def _detect_budget_param(model_category: str, model_obj: Any) -> str | None:
+    """Return the integer budget kwarg name on ``model_obj`` for dichotomic ES, or None.
+
+    Priority: explicit per-category mapping first (so we don't accidentally pick the wrong
+    knob on an estimator with multiple iterative params), then a runtime ``get_params``
+    probe for common names.
+    """
+    explicit = _BUDGET_PARAM_BY_CATEGORY.get(model_category)
+    if explicit is not None:
+        return explicit
+    if model_obj is None:
+        return None
+    try:
+        params = model_obj.get_params() if hasattr(model_obj, "get_params") else {}
+    except Exception:
+        return None
+    for cand in ("max_iter", "n_estimators", "max_trials"):
+        if cand in params and isinstance(params.get(cand), int):
+            return cand
+    return None
+
+
+def maybe_wrap_for_partial_fit_es(
+    model_obj: Any,
+    *,
+    model_category: str,
+    X_val: Any,
+    y_val: Any,
+    is_classification: bool,
+    behavior_kwargs: dict[str, Any] | None = None,
+) -> tuple[Any, bool]:
+    """Wrap a non-native-ES sklearn model in ``PartialFitESWrapper`` when feasible.
+
+    Returns (possibly_wrapped_model, was_wrapped). The wrapper drives val-based ES via
+    either ``partial_fit`` (preferred when available) or a dichotomic budget search on
+    ``max_iter`` / ``n_estimators`` / ``max_trials``. Models in ``_NATIVE_ES_CATEGORIES``
+    are passed through untouched (they already use val via ``_setup_eval_set``). Closed-
+    form models with neither capability (plain ``LinearRegression``) are passed through
+    too -- no ES is possible.
+
+    Parameters
+    ----------
+    behavior_kwargs
+        Optional dict carrying ``TrainingBehaviorConfig`` ES knobs (worsening_enabled,
+        worsening_coeff, worsening_min_iters, patience, max_iter) forwarded to the wrapper.
+    """
+    if model_obj is None or X_val is None or y_val is None:
+        return model_obj, False
+    if model_category in _NATIVE_ES_CATEGORIES:
+        return model_obj, False
+    # Already wrapped by a previous call (e.g. nested suite invocation) -- no-op.
+    if type(model_obj).__name__ == "PartialFitESWrapper":
+        return model_obj, False
+
+    has_partial_fit = hasattr(model_obj, "partial_fit")
+    budget_param = None if has_partial_fit else _detect_budget_param(model_category, model_obj)
+    if not has_partial_fit and budget_param is None:
+        # Closed-form / no usable knob -- nothing to early-stop.
+        return model_obj, False
+
+    from ._partial_fit_es_wrapper import PartialFitESWrapper
+
+    kw = dict(behavior_kwargs or {})
+    wrapper = PartialFitESWrapper(
+        model_obj,
+        metric=kw.pop("metric", None),
+        patience=int(kw.pop("patience", 10)),
+        min_delta=float(kw.pop("min_delta", 0.0)),
+        max_iter=int(kw.pop("max_iter", 200)),
+        is_classification=is_classification,
+        budget_param=budget_param,
+        budget_min=int(kw.pop("budget_min", 1)),
+        budget_max=int(kw.pop("budget_max", 1000)),
+        worsening_enabled=bool(kw.pop("early_stop_on_worsening", True)),
+        worsening_coeff=int(kw.pop("early_stop_on_worsening_coeff", 5)),
+        worsening_min_iters=int(kw.pop("early_stop_on_worsening_min_iters", 5)),
+        external_X_val=X_val,
+        external_y_val=y_val,
+        verbose=int(kw.pop("verbose", 0)),
+    )
+    return wrapper, True
+
+
 def _detect_max_iter(model_category: str, model_obj: Any) -> int | None:
     """Best-effort extraction of the iteration budget from a sklearn-API booster.
 

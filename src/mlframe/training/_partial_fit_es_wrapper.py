@@ -115,6 +115,13 @@ class PartialFitESWrapper:
         worsening_coeff: int = 5,
         worsening_min_iters: int = 5,
         verbose: int = 0,
+        # When the caller (typically the mlframe training suite) already has a held-out val
+        # set, passing it here means fit(X_tr, y_tr) -- WITHOUT the X_val=/y_val= kwargs --
+        # still drives ES off the external val instead of re-splitting X_tr. Lets the wrapper
+        # plug into ``model.fit(X, y, **fit_params)``-style calling conventions where the
+        # caller can't easily inject X_val/y_val into the fit signature.
+        external_X_val: Any = None,
+        external_y_val: Any = None,
     ) -> None:
         self.estimator = estimator
         self.metric = metric
@@ -131,6 +138,8 @@ class PartialFitESWrapper:
         self.worsening_coeff = int(worsening_coeff)
         self.worsening_min_iters = int(worsening_min_iters)
         self.verbose = int(verbose)
+        self.external_X_val = external_X_val
+        self.external_y_val = external_y_val
         # Filled after fit:
         self.best_iter: int | None = None
         self.best_metric: float | None = None
@@ -155,9 +164,19 @@ class PartialFitESWrapper:
             setattr(self, k, v)
         return self
 
-    def fit(self, X, y, *, X_val=None, y_val=None) -> "PartialFitESWrapper":
+    def fit(self, X, y, *, X_val=None, y_val=None, **_unused) -> "PartialFitESWrapper":
+        # Resolution order for the val set used by the ES callback:
+        #   1. explicit X_val= / y_val= kwargs win,
+        #   2. external_X_val / external_y_val supplied at construction,
+        #   3. internal train/val split via val_size.
+        # ``**_unused`` swallows fit_params keys the suite may pass (eval_set, callbacks etc.)
+        # that don't apply to non-native-ES estimators.
         if X_val is None or y_val is None:
-            X_tr, X_val, y_tr, y_val = _split_train_val(X, y, self.val_size, self.random_state)
+            if self.external_X_val is not None and self.external_y_val is not None:
+                X_tr, y_tr = X, y
+                X_val, y_val = self.external_X_val, self.external_y_val
+            else:
+                X_tr, X_val, y_tr, y_val = _split_train_val(X, y, self.val_size, self.random_state)
         else:
             X_tr, y_tr = X, y
         metric_fn, metric_name, mode = _resolve_metric(self.metric, self.is_classification)
@@ -184,6 +203,22 @@ class PartialFitESWrapper:
 
     def score(self, X, y):
         return self.estimator.score(X, y)
+
+    def __getattr__(self, name: str) -> Any:
+        """Fall through to the wrapped estimator for attributes we don't explicitly own.
+
+        Lets downstream code (feature-importance plotting, calibration, SHAP, etc.) read
+        ``.coef_`` / ``.feature_importances_`` / ``.classes_`` / etc. without knowing the
+        wrapper exists. ``__getattr__`` is only called when the normal attribute lookup
+        fails so wrapper-owned attributes (best_iter, history, etc.) take precedence.
+        """
+        # Guard against early access during unpickling when self.estimator may not be set yet.
+        if name == "estimator":
+            raise AttributeError(name)
+        est = self.__dict__.get("estimator")
+        if est is None:
+            raise AttributeError(name)
+        return getattr(est, name)
 
     # -- internal: partial_fit strategy ---------------------------------------
 

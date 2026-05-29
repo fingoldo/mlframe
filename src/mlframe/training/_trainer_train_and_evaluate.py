@@ -523,6 +523,46 @@ def train_and_evaluate_model(
             sample_weight_val=sample_weight[val_idx] if (sample_weight is not None and val_idx is not None) else None,
             group_ids_val=group_ids[val_idx] if (group_ids is not None and val_idx is not None) else None,
         )
+
+        # Auto-wrap models whose category isn't natively wired into ``_setup_eval_set``
+        # (linear / ridge / lasso / elasticnet / huber / sgd / ransac) in PartialFitESWrapper
+        # so val drives ES via partial_fit (SGD-family) or dichotomic budget search (the
+        # iterative-solver linear-family models). The wrapper transparently delegates
+        # attribute access to the underlying estimator via ``__getattr__`` so downstream
+        # feature-importance / calibration / SHAP code continues to read ``.coef_`` etc.
+        # unchanged. Closed-form models with no usable budget knob (plain LinearRegression)
+        # pass through untouched -- no ES is structurally possible there.
+        from ._data_helpers import maybe_wrap_for_partial_fit_es
+        _behavior_kwargs: dict[str, Any] = {}
+        _beh = getattr(getattr(control, "behavior", None), "__dict__", None)
+        if _beh is None:
+            # ``control`` is a TrainingControlConfig; suite-level TrainingBehaviorConfig may
+            # live a level up. Re-try via the explicit attribute names we care about.
+            for k in ("early_stop_on_worsening", "early_stop_on_worsening_coeff",
+                      "early_stop_on_worsening_min_iters"):
+                v = getattr(control, k, None)
+                if v is not None:
+                    _behavior_kwargs[k] = v
+        else:
+            for k in ("early_stop_on_worsening", "early_stop_on_worsening_coeff",
+                      "early_stop_on_worsening_min_iters"):
+                if k in _beh:
+                    _behavior_kwargs[k] = _beh[k]
+        _wrapped, _did_wrap = maybe_wrap_for_partial_fit_es(
+            model_obj if model is None else (model_obj or model),
+            model_category=model_category or "",
+            X_val=val_df, y_val=val_target,
+            is_classification=("Classifier" in (model_type_name or "")),
+            behavior_kwargs=_behavior_kwargs,
+        )
+        if _did_wrap:
+            logger.info("Auto-wrapped %s in PartialFitESWrapper for val-driven ES "
+                         "(model_category=%s)", model_type_name, model_category)
+            # Replace both ``model`` (used downstream for predict / metrics / FI) and
+            # ``model_obj`` (used for set_params / get_params probes upstream) with the wrapper.
+            # The wrapper's __getattr__ forwards everything to the underlying estimator.
+            model = _wrapped
+            model_obj = _wrapped
         _maybe_clean_ram()
     else:
         _disable_xgboost_early_stopping_if_needed(model_type_name, model_obj)
