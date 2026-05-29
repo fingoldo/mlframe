@@ -35,7 +35,8 @@ def _cv_score(estimator, X, y, classification):
 
 
 def dataset_diagnostics(X, y, *, classification, max_rows=2000, max_rows_corr=5000,
-                        max_corr_features=400, n_estimators=100, random_state=0):
+                        max_corr_features=400, n_estimators=100, random_state=0,
+                        inner_n_jobs_cap=False):
     """Cheap statistics that gate ShapProxiedFS's full pipeline. See module docstring.
 
     ``max_rows`` (iter25, lowered 5000 -> 2000): row subsample for the cheap booster probes. The
@@ -132,7 +133,11 @@ def dataset_diagnostics(X, y, *, classification, max_rows=2000, max_rows_corr=50
     import os
 
     n_cores = os.cpu_count() or 1
-    inner = max(1, n_cores // 2)
+    # iter54: default lets xgboost manage all cores via its own thread pool (inner=-1). The 2 fits
+    # (deep + stump) run concurrently in a 2-worker joblib pool; A/B at width 4000+10000 measured the
+    # iter4 ``n_cores // outer`` cap as 8-9% e2e slower (per-stage table in ``_shap_proxy_explain``).
+    # ``inner_n_jobs_cap=True`` restores legacy ``n_cores // 2`` for HW where the cap helps.
+    inner = max(1, n_cores // 2) if inner_n_jobs_cap else -1
     common = dict(n_estimators=int(n_estimators), learning_rate=0.1, n_jobs=inner,
                   random_state=random_state, tree_method="hist")
     # iter27 cap-the-ranker: deep max_depth 4 -> 3. The deep probe is RANKING-ONLY (we read the
@@ -174,16 +179,19 @@ def dataset_diagnostics(X, y, *, classification, max_rows=2000, max_rows_corr=50
 def preflight(
     X, y, *, classification, cluster_auto_threshold=40, redundancy_threshold=0.7,
     additive_ratio_floor=0.6, min_fit_gain=0.03, imbalance_floor=0.05, random_state=0,
-    max_rows=2000, max_rows_corr=5000, n_estimators=100,
+    max_rows=2000, max_rows_corr=5000, n_estimators=100, inner_n_jobs_cap=False,
 ):
     """Cheap recommendation on whether / how to run ShapProxiedFS. Returns a dict with
     ``recommendation`` in {run, caution, fallback}, the diagnostics, and the reasons.
 
     ``max_rows`` / ``max_rows_corr`` / ``n_estimators``: see :func:`dataset_diagnostics` --
     ranking-only booster caps that keep the gate cheap at wide regimes (the iter25 fix for
-    preflight=fit wall-clock parity)."""
+    preflight=fit wall-clock parity).
+
+    ``inner_n_jobs_cap`` (iter54, default False): see :func:`dataset_diagnostics`."""
     d = dataset_diagnostics(X, y, classification=classification, random_state=random_state,
-                            max_rows=max_rows, max_rows_corr=max_rows_corr, n_estimators=n_estimators)
+                            max_rows=max_rows, max_rows_corr=max_rows_corr, n_estimators=n_estimators,
+                            inner_n_jobs_cap=inner_n_jobs_cap)
     reasons, suggestions = [], []
     rec = "run"
 

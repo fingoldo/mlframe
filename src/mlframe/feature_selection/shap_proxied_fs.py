@@ -110,6 +110,7 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         trust_guard_fidelity_weights: tuple[float, float] = (0.6, 0.4),
         trust_guard_metric: str = "proxy_fidelity_score",
         n_jobs: int = -1,
+        inner_n_jobs_cap: bool = False,
         random_state: int = 0,
         verbose: bool = True,
         tqdm: bool = False,
@@ -381,6 +382,17 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
                                               float(trust_guard_fidelity_weights[1]))
         self.trust_guard_metric = str(trust_guard_metric).lower()
         self.n_jobs = n_jobs
+        # ``inner_n_jobs_cap`` (iter54, default False): controls the per-fit booster ``n_jobs`` inside
+        # the OOF-SHAP / reval / refine / trust-guard parallel pools. The legacy iter4 cap (booster
+        # n_jobs = max(1, n_cores // outer)) was added to prevent xgboost-vs-joblib oversubscription
+        # on the era's xgboost (1.x). iter53 A/B at width 4000+10000 measured the cap as 8-9% e2e
+        # SLOWER on 8-core modern boxes -- xgboost's own thread pool handles outer*inner > n_cores
+        # more efficiently than the joblib-side cap (reval +8%, refine +11%, trust +12% wall-clock
+        # loss with cap on; prefilter +2% small win). The selector now defaults inner=-1 so xgboost
+        # decides; the chosen subset and honest losses are bit-identical between the two paths
+        # (verified in iter53 A/B). Set ``inner_n_jobs_cap=True`` to restore the legacy cap on HW
+        # where measurement says it helps (older xgboost, NUMA boxes with hwloc surprises).
+        self.inner_n_jobs_cap = bool(inner_n_jobs_cap)
         self.random_state = random_state
         self.verbose = verbose
         self.tqdm = tqdm
@@ -711,7 +723,8 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
                 out_of_fold=self.out_of_fold, n_splits=self.n_splits, n_models=self.n_models,
                 config_jitter=self.config_jitter, return_variance=want_var,
                 rng=self._rng, tqdm_desc=("shap-oof" if self.tqdm else None), n_jobs=self.n_jobs,
-                n_estimators_cap=self.oof_shap_n_estimators)
+                n_estimators_cap=self.oof_shap_n_estimators,
+                inner_n_jobs_cap=self.inner_n_jobs_cap)
         if want_var:
             phi, base, y_phi, phi_var = shap_out
         else:
@@ -786,7 +799,8 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
 
         honest_cache = HonestLossCache()
         rv = dict(classification=self.classification, metric=self.metric, n_jobs=self.n_jobs,
-                  unit_to_members=unit_to_members, cache=honest_cache)
+                  unit_to_members=unit_to_members, cache=honest_cache,
+                  inner_n_jobs_cap=self.inner_n_jobs_cap)
 
         # Proxy-trust diagnostic (proxy ranks units; honest retrains on member columns).
         if self.trust_guard:
@@ -964,7 +978,8 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
                     ucb_enabled=self.refine_ucb_enabled,
                     ucb_min_eval_size=self.refine_ucb_min_eval_size,
                     ucb_slack=self.refine_ucb_slack,
-                    ucb_stdev_multiplier=self.refine_ucb_stdev_multiplier)
+                    ucb_stdev_multiplier=self.refine_ucb_stdev_multiplier,
+                    inner_n_jobs_cap=self.inner_n_jobs_cap)
                 # Final full-template re-evaluation of the ONE chosen subset (uncapped n_estimators).
                 # Refine's ranking trials use a cheaper capped booster (~100 trees) to decide WHICH
                 # members to drop; the user-visible quality bar (and any downstream report consumer)

@@ -242,10 +242,15 @@ def _permutation_importance_ranking(model_template, X_tr, y_tr, X_ev, y_ev, curr
 
 
 def _parallel_honest_losses(tasks, model_template, X_tr, y_tr, X_ev, y_ev, classification, metric, n_jobs,
-                            cache=None, n_estimators_cap=None, template_id=None):
+                            cache=None, n_estimators_cap=None, template_id=None,
+                            inner_n_jobs_cap=False):
     """Run many independent honest retrains concurrently. xgb/lgbm release the GIL during training,
-    so a threading backend shares the (large) DataFrames without per-task pickling; we cap each fit's
-    own thread count so the outer pool x inner threads doesn't oversubscribe the cores."""
+    so a threading backend shares the (large) DataFrames without per-task pickling.
+
+    ``inner_n_jobs_cap`` (iter54, default False): when False, each fit's ``n_jobs`` is set to -1 so
+    xgboost's internal thread pool decides scheduling; A/B at width 4000+10000 measured the legacy
+    ``n_cores // outer`` cap as 8-9% e2e SLOWER on 8-core boxes (reval +8%, refine +11%, trust +12%).
+    Set True to restore the iter4 outer-x-inner cap for HW where the cap measurably helps."""
     import os
 
     if not tasks:
@@ -255,7 +260,7 @@ def _parallel_honest_losses(tasks, model_template, X_tr, y_tr, X_ev, y_ev, class
         n_jobs = 1
     outer = n_cores if n_jobs == -1 else n_jobs
     outer = max(1, min(outer, len(tasks), n_cores))
-    inner = max(1, n_cores // outer)
+    inner = max(1, n_cores // outer) if inner_n_jobs_cap else -1
     if outer == 1:
         return [_honest_loss(model_template, X_tr, y_tr, X_ev, y_ev, idx, classification, metric,
                              seed=seed, inner_n_jobs=inner, cache=cache,
@@ -445,7 +450,7 @@ def proxy_trust_guard(
     fidelity_floor=0.5, n_jobs=-1, unit_to_members=None, cache=None, n_estimators_cap=None,
     unit_f_scores=None, anchor_uniform_tail_frac=0.2, cardinality_dist="uniform", zipf_alpha=1.0,
     fidelity_weights=(0.6, 0.4), trustworthy_metric="proxy_fidelity_score",
-    spearman_floor=_FIDELITY_FLOOR_UNSET,
+    spearman_floor=_FIDELITY_FLOOR_UNSET, inner_n_jobs_cap=False,
 ):
     """Measure proxy-vs-honest rank fidelity on anchor subsets. Returns a report dict.
 
@@ -573,7 +578,7 @@ def proxy_trust_guard(
     honest_losses = _parallel_honest_losses(
         [(_expand(idx, unit_to_members), None) for idx in anchors], model_template, X_search, y_search,
         X_holdout, y_holdout, classification, metric, n_jobs, cache=cache,
-        n_estimators_cap=n_estimators_cap, template_id=tid)
+        n_estimators_cap=n_estimators_cap, template_id=tid, inner_n_jobs_cap=inner_n_jobs_cap)
     cards = np.array([len(a) for a in anchors], dtype=np.float64)
     redunds = np.array([subset_redundancy(phi, a) for a in anchors], dtype=np.float64)
     proxy_losses = np.asarray(proxy_losses)
@@ -702,7 +707,7 @@ def revalidate_top_n(
     *, classification, metric=None, n_models=1, lambda_stab=0.5, parsimony_tol=0.02, rng=None, n_jobs=-1,
     unit_to_members=None, cache=None, revalidation_n_estimators=None,
     ucb_enabled=False, ucb_min_eval_size=None, ucb_slack=None, ucb_stdev_multiplier=1.5,
-    candidate_score=None,
+    candidate_score=None, inner_n_jobs_cap=False,
 ):
     """Honestly retrain each candidate subset on X_search, evaluate on the disjoint X_holdout.
 
@@ -825,7 +830,8 @@ def revalidate_top_n(
                 task_owner.append(ci)
         losses = _parallel_honest_losses(tasks, model_template, X_search, y_search, X_holdout, y_holdout,
                                          classification, metric, n_jobs, cache=cache,
-                                         n_estimators_cap=cap, template_id=tid)
+                                         n_estimators_cap=cap, template_id=tid,
+                                         inner_n_jobs_cap=inner_n_jobs_cap)
         for owner, loss in zip(task_owner, losses):
             per_candidate.setdefault(owner, []).append(loss)
         n_candidates_evaluated = n_total
@@ -859,7 +865,8 @@ def revalidate_top_n(
                     task_owner.append(ci)
             losses = _parallel_honest_losses(tasks, model_template, X_search, y_search, X_holdout, y_holdout,
                                              classification, metric, n_jobs, cache=cache,
-                                             n_estimators_cap=cap, template_id=tid)
+                                             n_estimators_cap=cap, template_id=tid,
+                                             inner_n_jobs_cap=inner_n_jobs_cap)
             for owner, loss in zip(task_owner, losses):
                 per_candidate.setdefault(owner, []).append(loss)
             evaluated_idx_set.update(batch_candidate_idx)
@@ -964,7 +971,7 @@ def active_learning_revalidate(
     candidates, model_template, X_search, y_search, X_holdout, y_holdout,
     *, classification, metric=None, corrector_data, phi, budget, batch=4, n_models=1,
     parsimony_tol=0.02, rng=None, n_jobs=-1, unit_to_members=None, cache=None,
-    revalidation_n_estimators=None,
+    revalidation_n_estimators=None, inner_n_jobs_cap=False,
 ):
     """Disagreement-driven honest re-validation (lever #4).
 
@@ -1010,7 +1017,8 @@ def active_learning_revalidate(
         tasks = [(member_cols[i], int(rng.integers(0, 2**31 - 1))) for i in pick for _ in range(n_models)]
         losses = _parallel_honest_losses(tasks, model_template, X_search, y_search, X_holdout, y_holdout,
                                          classification, metric, n_jobs, cache=cache,
-                                         n_estimators_cap=cap, template_id=tid)
+                                         n_estimators_cap=cap, template_id=tid,
+                                         inner_n_jobs_cap=inner_n_jobs_cap)
         for j, i in enumerate(pick):
             seg = losses[j * n_models:(j + 1) * n_models]
             m = float(np.mean(seg))
@@ -1052,6 +1060,7 @@ def within_cluster_refine(
     *, classification, metric=None, parsimony_tol=0.02, n_jobs=-1, max_drop_rounds=None, cache=None,
     member_groups=None, min_multi_clusters=3, refine_n_estimators=100,
     ucb_enabled=False, ucb_min_eval_size=None, ucb_slack=None, ucb_stdev_multiplier=1.0,
+    inner_n_jobs_cap=False,
 ):
     """Compact the selected clusters' member columns down to a quality-preserving subset (honest).
 
@@ -1158,7 +1167,8 @@ def within_cluster_refine(
                 probes.append((probe_cols, ci, sorted(drop_set)))
             losses = _parallel_honest_losses(
                 [(p[0], None) for p in probes], model_template, X_search, y_search, X_holdout, y_holdout,
-                classification, metric, n_jobs, cache=cache, n_estimators_cap=cap, template_id=tid)
+                classification, metric, n_jobs, cache=cache, n_estimators_cap=cap, template_id=tid,
+                inner_n_jobs_cap=inner_n_jobs_cap)
             # Each probe is evaluated against the ORIGINAL base/threshold (cluster collapses are
             # measured independently, not against each other). Accepted probes' drops accumulate.
             accepted_drops: set[int] = set()
@@ -1346,7 +1356,8 @@ def within_cluster_refine(
                     tasks.append((survivors, None))
                 losses_batch = _parallel_honest_losses(
                     tasks, model_template, X_search, y_search, X_holdout, y_holdout,
-                    classification, metric, n_jobs, cache=cache, n_estimators_cap=cap, template_id=tid)
+                    classification, metric, n_jobs, cache=cache, n_estimators_cap=cap, template_id=tid,
+                    inner_n_jobs_cap=inner_n_jobs_cap)
                 for li, ls in zip(batch_local, losses_batch):
                     evaluated_losses[li] = float(ls)
                     if ls < best_loss_round:
@@ -1386,7 +1397,8 @@ def within_cluster_refine(
             trials = [[c for c in current if c != drop] for drop in current]
             losses = _parallel_honest_losses([(t, None) for t in trials], model_template, X_search, y_search,
                                              X_holdout, y_holdout, classification, metric, n_jobs, cache=cache,
-                                             n_estimators_cap=cap, template_id=tid)
+                                             n_estimators_cap=cap, template_id=tid,
+                                             inner_n_jobs_cap=inner_n_jobs_cap)
             losses_arr = np.asarray(losses, dtype=np.float64)
             best_i = int(np.argmin(losses_arr))
             if losses_arr[best_i] > cur_threshold:

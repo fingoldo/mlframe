@@ -342,6 +342,7 @@ def compute_shap_matrix(
     shap_backend: str = "auto",
     n_jobs: int = 1,
     n_estimators_cap: Optional[int] = None,
+    inner_n_jobs_cap: bool = False,
 ):
     """Compute the per-row SHAP value matrix + per-row base value.
 
@@ -432,7 +433,16 @@ def compute_shap_matrix(
     if n_jobs not in (None, 0, 1) and len(folds) > 1:
         outer = n_cores if n_jobs == -1 else int(n_jobs)
         outer = max(1, min(outer, len(folds), n_cores))
-    inner = max(1, n_cores // outer) if outer > 1 else None
+    # iter54: default lets xgboost manage all cores via its own thread pool (inner=-1). iter53 A/B at
+    # width 4000+10000 measured the iter4 oversubscription cap (n_cores // outer when outer > 1) as
+    # 8-9% e2e SLOWER -- per-stage: reval +8%, refine +11%, trust +12% wall-clock loss; prefilter +2%
+    # small win. xgboost's internal scheduler handles outer*inner > n_cores more efficiently than the
+    # joblib-side cap on 8-core modern boxes. ``inner_n_jobs_cap=True`` restores legacy behaviour for
+    # callers who measure regression on their HW.
+    if outer > 1:
+        inner = max(1, n_cores // outer) if inner_n_jobs_cap else -1
+    else:
+        inner = None
 
     def _one_fold(fold_id, tr_idx, va_idx):
         pf, bf, vf = _models_phi(X.iloc[tr_idx], y[tr_idx], X.iloc[va_idx], fold_seeds[fold_id],
