@@ -682,6 +682,25 @@ def _groupids_to_sizes(group_ids: Any) -> np.ndarray | None:
     return np.diff(boundaries).astype(np.int64)
 
 
+def _detect_max_iter(model_category: str, model_obj: Any) -> int | None:
+    """Best-effort extraction of the iteration budget from a sklearn-API booster.
+
+    Used by the curve-shape ES detector (``worsening_max_iter``) and the
+    "best_iter hit max_iter" diagnostic. Returns None when the budget is not discoverable.
+    """
+    if model_obj is None:
+        return None
+    try:
+        params = model_obj.get_params() if hasattr(model_obj, "get_params") else {}
+    except Exception:
+        params = {}
+    if model_category == "cb":
+        return params.get("iterations") or params.get("n_estimators")
+    if model_category in {"lgb", "xgb"}:
+        return params.get("n_estimators")
+    return None
+
+
 def _setup_early_stopping_callback(model_category, fit_params, callback_params, model_obj=None):
     """Set up early stopping callback for the given model category."""
     no_callback_list_models = {"xgb", "hgb", "ngb"}
@@ -689,6 +708,14 @@ def _setup_early_stopping_callback(model_category, fit_params, callback_params, 
     if model_category not in no_callback_list_models:
         if "callbacks" not in fit_params:
             fit_params["callbacks"] = []
+
+    # Auto-inject the booster's iteration budget so the curve-shape detector can scale its
+    # worsening-streak threshold against it AND so the max-iter-hit diagnostic can fire.
+    # Caller-provided ``worsening_max_iter`` wins if set.
+    if isinstance(callback_params, dict) and callback_params.get("worsening_max_iter") is None:
+        budget = _detect_max_iter(model_category, model_obj)
+        if budget:
+            callback_params = {**callback_params, "worsening_max_iter": int(budget)}
 
     if model_category == "lgb":
         es_callback = LightGBMCallback(**callback_params)

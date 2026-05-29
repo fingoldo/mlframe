@@ -285,6 +285,9 @@ def __getattr__(name):
 # train_and_evaluate_model is now in trainer.py and loaded via _LAZY_IMPORTS
 
 
+from ._partial_fit_es_wrapper import PartialFitESWrapper  # noqa: E402, F401
+
+
 __all__ = [
     # Core functions
     'train_mlframe_models_suite',
@@ -292,6 +295,9 @@ __all__ = [
     'make_train_test_split',
     'train_and_evaluate_model',
     'configure_training_params',
+
+    # Early stopping helpers
+    'PartialFitESWrapper',
 
     # Configuration
     'PreprocessingConfig',

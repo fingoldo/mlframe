@@ -491,6 +491,20 @@ class TrainingBehaviorConfig(BaseConfig):
     # Default False: silently skipping a failed model is a semantic
     # shift that users must opt into explicitly.
     continue_on_model_failure: bool = False
+
+    # Curve-shape ES detector (default ON).
+    # Triggers when, starting from the best-known iteration, the monitored val metric
+    # STRICTLY worsens (no successive value better than its predecessor in the
+    # ``is_greater_better`` direction) for at least
+    # ``max(max_iter // early_stop_on_worsening_coeff, early_stop_on_worsening_min_iters)``
+    # iterations. Conceptually a forward-looking complement to patience-based ES:
+    # patience says "no NEW best for N iters", this says "the curve is monotonically
+    # bending the wrong way and has been for a while". Cheap to compute (one comparison
+    # per iter) and the strict-monotone condition is robust to per-iter noise without
+    # any smoothing hyperparameters.
+    early_stop_on_worsening: bool = True
+    early_stop_on_worsening_coeff: int = 5
+    early_stop_on_worsening_min_iters: int = 5
     # Default False: feature-drift-driven per-target MLP HPT override
     # is OFF by default. The drift sensor still runs and stamps the
     # recommendation into metadata + emits a WARN log line so the
