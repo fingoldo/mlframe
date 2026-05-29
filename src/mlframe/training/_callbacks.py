@@ -29,6 +29,29 @@ class UniversalCallback:
         stop_flag: Callable[[], bool] | None = None,
         ndigits: int = 6,
         verbose: int = 1,
+        # Slice-stable ES knobs. When ``slice_k > 0`` the callback aggregates per-shard scores
+        # over the first ``slice_k`` registered eval datasets OTHER than ``monitor_dataset``,
+        # then applies the patience / min_delta logic to the aggregate instead of to the single
+        # monitor_dataset value. ``slice_k=0`` (default) keeps the legacy single-val path
+        # bit-identical. ``slice_dataset_names`` is optional: when provided, those exact names
+        # are used; when None, the callback picks the first ``slice_k`` non-monitor dataset keys
+        # in insertion order at first iteration (works for LGB ``valid_*``, XGB ``validation_*``,
+        # CB ``validation_*`` without booster-specific glue).
+        slice_k: int = 0,
+        slice_dataset_names: list[str] | None = None,
+        slice_aggregate_mode: str = "t_lcb",
+        slice_aggregate_alpha: float = 1.0,
+        slice_aggregate_confidence: float = 0.9,
+        slice_aggregate_quantile_level: float = 0.9,
+        slice_correlation_inflation: float = 1.5,
+        slice_min_delta_in_se: float | None = None,
+        slice_persist_history: bool = False,
+        # When ``slice_diagnostic_only=True``, the callback still walks the per-shard history
+        # and populates ``slice_shard_score_history`` so the Pareto-plot artefact has data to
+        # render, but the stop decision keeps reading the single full-val metric (no aggregator
+        # math, no patience bump). Used for shipping per-shard diagnostics without changing the
+        # ES behaviour. Ignored when ``slice_k == 0``.
+        slice_diagnostic_only: bool = False,
     ) -> None:
 
         params = get_parent_func_args()
@@ -40,6 +63,26 @@ class UniversalCallback:
         self.iterations_since_improvement = 0
         self.metric_history: dict[str, dict[str, list[float]]] = {}
         self.stop_flag = stop_flag if stop_flag is not None else lambda: False
+        # Slice-stable bookkeeping: aggregated score at every iteration, per-shard table for the
+        # Pareto plot (only kept when ``slice_persist_history=True`` to keep the no-slice path's
+        # memory profile unchanged).
+        self.slice_aggregate_history: list[float] = []
+        self.slice_shard_score_history: list[list[float]] = []
+        self.slice_resolved_dataset_names: list[str] | None = None
+
+        # Patience auto-bump compensates for the larger variance of the dispersion-penalised
+        # aggregate; helper lives next to the shard builder so the two stay in lock-step.
+        # Skip the bump when slice mode is diagnostic-only (single-val drives ES, no penalty
+        # to compensate for).
+        if slice_k and patience is not None and not slice_diagnostic_only:
+            from ._slice_helpers import effective_patience as _eff_pat
+            bumped = _eff_pat(int(patience), int(slice_k))
+            if bumped != patience and self.verbose > 0:
+                logger.info(
+                    "UniversalCallback: slice-stable ES patience auto-bumped from %d to %d (K=%d)",
+                    patience, bumped, slice_k,
+                )
+            self.patience = bumped
 
         # Call super().__init__() to ensure proper MRO chain initialization.
         # For XGBoostCallback(UniversalCallback, TrainingCallback), this calls
@@ -50,9 +93,11 @@ class UniversalCallback:
             logger.info(
                 "UniversalCallback initialized with params: "
                 "time_budget_mins=%s, patience=%s, min_delta=%s, "
-                "monitor_dataset=%s, monitor_metric=%s, mode=%s",
-                time_budget_mins, patience, min_delta,
+                "monitor_dataset=%s, monitor_metric=%s, mode=%s, "
+                "slice_k=%s, slice_aggregate_mode=%s",
+                time_budget_mins, self.patience, min_delta,
                 monitor_dataset, monitor_metric, mode,
+                slice_k, slice_aggregate_mode if slice_k else None,
             )
 
     def on_start(self) -> None:
@@ -120,6 +165,74 @@ class UniversalCallback:
     def _get_state(self, current_value: float) -> str:
         return f"iter={self.iter:_}, {self.monitor_dataset} {self.monitor_metric}: current={current_value:.{self.ndigits}f}, best={self.best_metric:.{self.ndigits}f} @{self.best_iter:_}. RAM usage {get_own_memory_usage():.1f}GB."
 
+    def _resolve_slice_dataset_names(self) -> list[str]:
+        """Decide which dataset keys feed the slice aggregate.
+
+        Caller may have specified explicit names; otherwise we pick the first ``slice_k`` keys
+        OTHER than ``monitor_dataset`` from ``metric_history`` in insertion order (which equals
+        registration order on Python 3.7+ dicts). Works uniformly for LGB ``valid_1..K``, XGB
+        ``validation_1..K``, and CB ``validation_1..K`` without booster-specific name plumbing.
+        """
+        if self.slice_resolved_dataset_names is not None:
+            return self.slice_resolved_dataset_names
+        if self.slice_dataset_names:
+            self.slice_resolved_dataset_names = list(self.slice_dataset_names)
+            return self.slice_resolved_dataset_names
+        other = [name for name in self.metric_history.keys() if name != self.monitor_dataset]
+        self.slice_resolved_dataset_names = other[: int(self.slice_k)]
+        return self.slice_resolved_dataset_names
+
+    def _compute_slice_aggregate(self) -> float | None:
+        """Per-iteration aggregated score from the K shards, or None when shards aren't ready yet.
+
+        Returns ``None`` (skip aggregation this iteration) when at least one shard hasn't pushed
+        a fresh value into history -- this is the CB ``metric_period > 1`` guard: phantom values
+        on intermediate iterations would give std=0 and a spurious "stable" signal.
+        """
+        from ._cv_aggregation import aggregate_fold_scores
+
+        names = self._resolve_slice_dataset_names()
+        if len(names) < 2:
+            return None
+        # Use monitor_dataset's history length as the canonical iteration count.
+        monitor_hist = self.metric_history.get(self.monitor_dataset, {}).get(self.monitor_metric, [])
+        n_iters = len(monitor_hist)
+        if n_iters == 0:
+            return None
+        shard_values: list[float] = []
+        for name in names:
+            shard_hist = self.metric_history.get(name, {}).get(self.monitor_metric, [])
+            if len(shard_hist) < n_iters:
+                # CB metric_period>1 or per-iter eval not run on this shard -> skip aggregation
+                # this round; we'll try again next call.
+                return None
+            shard_values.append(float(shard_hist[-1]))
+        if self.slice_persist_history:
+            self.slice_shard_score_history.append(list(shard_values))
+        direction = "min" if self.mode == "min" else "max"
+        agg = aggregate_fold_scores(
+            shard_values,
+            mode=self.slice_aggregate_mode,  # type: ignore[arg-type]
+            direction=direction,
+            alpha=self.slice_aggregate_alpha,
+            confidence=self.slice_aggregate_confidence,
+            quantile_level=self.slice_aggregate_quantile_level,
+            correlation_inflation=self.slice_correlation_inflation,
+        )
+        self.slice_aggregate_history.append(agg)
+        return agg
+
+    def _effective_min_delta(self, shard_values: list[float] | None) -> float:
+        """When ``slice_min_delta_in_se`` is set, scale the per-iteration absolute min_delta by
+        ``slice_min_delta_in_se * SE(shard_values)``. Keeps abs-threshold semantics otherwise.
+        """
+        if self.slice_min_delta_in_se is None or not shard_values or len(shard_values) < 2:
+            return self.min_delta
+        import math
+        std = float(np.std(shard_values, ddof=1)) * float(self.slice_correlation_inflation)
+        se = std / math.sqrt(len(shard_values))
+        return float(self.slice_min_delta_in_se) * se
+
     def should_stop(self) -> bool:
         cur_ts = timer()
         if self.time_budget_mins is not None and self.start_time is not None:
@@ -138,7 +251,27 @@ class UniversalCallback:
         if self.monitor_dataset in self.metric_history and self.monitor_metric in self.metric_history[self.monitor_dataset]:
             history = self.metric_history[self.monitor_dataset][self.monitor_metric]
             if history:
-                current_value = history[-1]
+                # Slice-stable ES path: aggregate per-shard scores before applying patience/min_delta.
+                # When slice_k>0 AND the aggregate is unavailable this iter (CB metric_period>1
+                # phantom or shards not yet registered) we SKIP the decision rather than
+                # contaminate best_metric with the single-val number on a different scale.
+                # In ``diagnostic_only`` mode we still call _compute_slice_aggregate so the
+                # per-shard history populates for the Pareto artefact, but the stop decision
+                # reads single-val (legacy path).
+                slice_value: float | None = None
+                slice_shards: list[float] | None = None
+                if int(self.slice_k) > 0:
+                    slice_value = self._compute_slice_aggregate()
+                    if slice_value is None and not self.slice_diagnostic_only:
+                        return False
+                    if self.slice_persist_history and self.slice_shard_score_history:
+                        slice_shards = self.slice_shard_score_history[-1]
+                if self.slice_diagnostic_only:
+                    current_value = history[-1]
+                    effective_delta = self.min_delta
+                else:
+                    current_value = slice_value if slice_value is not None else history[-1]
+                    effective_delta = self._effective_min_delta(slice_shards) if slice_shards else self.min_delta
                 if self.best_metric is None:
                     self.iter = 0
                     self.best_iter = self.iter
@@ -149,8 +282,8 @@ class UniversalCallback:
                         self.last_reporting_ts = cur_ts
                 else:
                     self.iter += 1
-                    improved = (self.mode == "min" and current_value < self.best_metric - self.min_delta) or (
-                        self.mode == "max" and current_value > self.best_metric + self.min_delta
+                    improved = (self.mode == "min" and current_value < self.best_metric - effective_delta) or (
+                        self.mode == "max" and current_value > self.best_metric + effective_delta
                     )
                     # Pre-compute reporting condition (used in both branches)
                     should_report = self.verbose > 0 and (

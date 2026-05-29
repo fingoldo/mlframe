@@ -818,3 +818,35 @@ def get_training_configs(
         MLP_GENERAL_PARAMS=MLP_GENERAL_PARAMS,
         NGB_GENERAL_PARAMS=NGB_GENERAL_PARAMS,
     )
+
+
+def disable_native_es_for_slice_stable(configs: Any) -> None:
+    """Strip native early-stopping settings from per-booster params when slice-stable ES is active.
+
+    When the suite layer registers the slice-stable callback for ES (it aggregates per-shard
+    scores into a single stop signal), the booster's *own* early-stopping must not race against
+    that decision. CatBoost in particular fires its native ES off the FIRST registered eval_set
+    (the full val) on a single-metric basis and can stop training BEFORE the callback's
+    aggregate would; LGB/XGB are less aggressive but also expose the same hazard.
+
+    Mutates the configs in-place. Mirrors the ``early_stopping_disabled`` branch above so the
+    two paths converge on the same booster behaviour.
+    """
+    for _params in (
+        getattr(configs, "CB_GENERAL_PARAMS", None),
+        getattr(configs, "CB_REGR", None),
+        getattr(configs, "CB_CLASSIF", None),
+        getattr(configs, "CB_CALIB_CLASSIF", None),
+        getattr(configs, "LGB_GENERAL_PARAMS", None),
+        getattr(configs, "XGB_GENERAL_PARAMS", None),
+        getattr(configs, "XGB_GENERAL_CLASSIF", None),
+        getattr(configs, "XGB_CALIB_CLASSIF", None),
+        getattr(configs, "MLP_GENERAL_PARAMS", None),
+        getattr(configs, "COMMON_RFECV_PARAMS", None),
+    ):
+        if _params is not None:
+            _params.pop("early_stopping_rounds", None)
+    hgb = getattr(configs, "HGB_GENERAL_PARAMS", None)
+    if hgb is not None:
+        hgb["early_stopping"] = False
+        hgb.pop("n_iter_no_change", None)
