@@ -1397,16 +1397,21 @@ def test_ucb_njobs_1_short_circuits_to_legacy(planted):
 
 
 def test_selector_exposes_revalidation_ucb_defaults():
-    """Facade defaults for the iter34 lever: enabled by default, slack/min_eval_size auto-calibrated,
-    stdev_multiplier=1.0 (1-sigma margin on residual; tighter than the iter11 safe-batch 1.5x because
-    the score the gate consumes is corrector-aware not raw proxy_loss)."""
+    """Facade defaults for the iter34 lever: enabled by default, slack/min_eval_size auto-calibrated.
+    Iter41 changed ``stdev_multiplier`` default from 1.0 to ``None`` (width-dependent auto: 0.6 at
+    ``n_features >= 10000``, 1.0 below). The auto routing is covered separately in
+    ``test_shap_proxy_revalidation_ucb_width_default.py``; here we verify the sentinel + that an
+    explicit user value is preserved on the instance."""
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     sel = ShapProxiedFS()
     assert sel.revalidation_ucb_enabled is True
     assert sel.revalidation_ucb_min_eval_size is None
     assert sel.revalidation_ucb_slack is None
-    assert sel.revalidation_ucb_stdev_multiplier == 1.0
+    assert sel.revalidation_ucb_stdev_multiplier is None
+
+    sel_pinned = ShapProxiedFS(revalidation_ucb_stdev_multiplier=1.0)
+    assert sel_pinned.revalidation_ucb_stdev_multiplier == 1.0
 
     sel_off = ShapProxiedFS(revalidation_ucb_enabled=False)
     assert sel_off.revalidation_ucb_enabled is False

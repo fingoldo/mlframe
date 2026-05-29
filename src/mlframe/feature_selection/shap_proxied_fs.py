@@ -101,7 +101,7 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         revalidation_ucb_enabled: bool = True,
         revalidation_ucb_min_eval_size: int | None = None,
         revalidation_ucb_slack: float | None = None,
-        revalidation_ucb_stdev_multiplier: float = 1.0,
+        revalidation_ucb_stdev_multiplier: float | None = None,
         trust_guard_n_estimators: int | None = 100,
         trust_guard_stratified_anchors: bool = False,
         trust_guard_uniform_tail_frac: float = 0.2,
@@ -301,13 +301,21 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         # proxy_loss otherwise), passed through as ``candidate_score`` so the UCB lower bound lives
         # on the honest scale (raw proxy_loss spread is too tight to discriminate at width >= 10000
         # where every top_n=20 candidate is a near-duplicate union of the same SHAP-aware cluster
-        # picks). ``stdev_multiplier=1.0`` (calibrated default): a 1-sigma margin on the residual;
-        # k=1.5 sat just under the parsimony threshold and never fired (the corrector's narrow
-        # delta std swamped the gap). Measured 8.42s -> 4.63s revalidation (1.82x) at C3 with k=1.0.
+        # picks). ``stdev_multiplier`` (iter41): None (default) routes to a width-dependent auto -
+        # 0.6 at ``n_features >= 10000``, 1.0 below. Explicit float overrides. Rationale: at C3 scale
+        # (width 10000, n_rows 10000), iter38/iter40 prefilter-side tightening compressed the proxy
+        # spread, widening the residual delta std and slackening the UCB gate (smaller `mean(delta) -
+        # k*std(delta)` is more negative => lower UCB lower bounds => fewer stops). The two stages
+        # are coupled via UCB slack calibration. Smaller k => less std subtraction => higher (less
+        # pessimistic) lower bounds => gate fires sooner. The 0.6 floor was picked to cut revalidation
+        # ~30% without crossing the parsimony threshold on near-tie candidates. Smaller-width regimes
+        # retain k=1.0 because iter34 calibration is honest there and the proxy delta std is narrower.
         self.revalidation_ucb_enabled = bool(revalidation_ucb_enabled)
         self.revalidation_ucb_min_eval_size = revalidation_ucb_min_eval_size
         self.revalidation_ucb_slack = revalidation_ucb_slack
-        self.revalidation_ucb_stdev_multiplier = float(revalidation_ucb_stdev_multiplier)
+        self.revalidation_ucb_stdev_multiplier = (
+            float(revalidation_ucb_stdev_multiplier)
+            if revalidation_ucb_stdev_multiplier is not None else None)
         # ``trust_guard_n_estimators`` caps the per-anchor booster size inside ``proxy_trust_guard``.
         # The trust report only consumes RANKS of anchor losses (Spearman / Kendall / recall@k); a
         # capped booster gives a faithful fidelity signal at ~3x lower cost. None disables the cap.
@@ -377,6 +385,18 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         self.verbose = verbose
         self.tqdm = tqdm
         self._rng = np.random.default_rng(random_state)
+
+    def _resolve_revalidation_ucb_stdev_multiplier(self, n_features: int) -> float:
+        """Width-dependent default for the revalidation UCB stdev multiplier.
+
+        Explicit user value (set on the instance) always wins. ``None`` (the auto sentinel) routes
+        to ``0.6`` at ``n_features >= 10000`` and ``1.0`` below. Tightening at wide regimes cuts
+        revalidation wall-clock by firing the early-stop sooner; smaller-regime calibration
+        (iter34 default 1.0) stays untouched because the proxy residual spread is narrower there.
+        """
+        if self.revalidation_ucb_stdev_multiplier is not None:
+            return float(self.revalidation_ucb_stdev_multiplier)
+        return 0.6 if int(n_features) >= 10000 else 1.0
 
     @staticmethod
     def preflight(X, y, *, classification: bool = True, **kwargs):
@@ -839,7 +859,8 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
                         ucb_enabled=self.revalidation_ucb_enabled,
                         ucb_min_eval_size=self.revalidation_ucb_min_eval_size,
                         ucb_slack=self.revalidation_ucb_slack,
-                        ucb_stdev_multiplier=self.revalidation_ucb_stdev_multiplier,
+                        ucb_stdev_multiplier=self._resolve_revalidation_ucb_stdev_multiplier(
+                            n_features),
                         candidate_score=score, **rv)
                     report["revalidation"] = dict(ranked=ranked[: self.top_n], random_baseline=baseline)
         else:
