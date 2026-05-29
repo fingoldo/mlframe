@@ -77,6 +77,7 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         prefilter_n_estimators: int | None = 100,
         oof_shap_n_estimators: int | None = 100,
         prefilter_stage1_keep: int | None = None,
+        prefilter_univariate_batch_size: int | None = None,
         shap_prefilter_enabled: bool = True,
         shap_prefilter_top: int | None = None,
         shap_prefilter_safety_factor: int = 4,
@@ -181,6 +182,17 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         # None -> the prefilter module computes ``min(2000, 0.2*n_features)`` (default funnel).
         # Other methods ignore this knob.
         self.prefilter_stage1_keep = prefilter_stage1_keep
+        # ``prefilter_univariate_batch_size`` (iter37): column-batch width for the univariate /
+        # two_stage stage-A ANOVA F-score. None auto-sizes from available RAM; explicit int forces
+        # the batch (clamped to [1, n_features]). Sklearn's ``f_classif`` / ``f_regression``
+        # densify the full (n_samples, n_features) design as float64 before per-class slicing
+        # (~1.6 GB at width=20000 / n_rows=10000) and then carve K per-class halves on top,
+        # OOMing the wide regime at the cheapest stage. The chunked replacement (parity to
+        # float64 rounding) caps per-batch allocation at ``8 * n_samples * batch`` bytes
+        # independent of feature count. Tradeoff: smaller batches reduce peak RSS at the cost
+        # of per-batch Python loop overhead -- the auto-sizer targets a 256 MB chunk budget,
+        # which empirically dominates Python overhead for n_features above ~256.
+        self.prefilter_univariate_batch_size = prefilter_univariate_batch_size
         # ``shap_prefilter_*`` (iter31): SHAP-aware tightening of the effective ``prefilter_top``. The
         # downstream search only consumes top-``brute_force_max_features`` by mean |phi|; columns
         # between the search cap and the loose default (2000) pay full TreeSHAP cost in OOF-SHAP for
@@ -582,7 +594,8 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
                     model_template, X_search, y_search, method=self.prefilter_method,
                     prefilter_top=effective_prefilter_top, classification=self.classification,
                     n_features=n_features, n_estimators_cap=self.prefilter_n_estimators,
-                    stage1_keep=effective_stage1_keep)
+                    stage1_keep=effective_stage1_keep,
+                    univariate_batch_size=self.prefilter_univariate_batch_size)
                 if len(working_cols) < n_features:
                     X_search = X_search.iloc[:, working_cols].reset_index(drop=True)
                     X_hold = X_hold.iloc[:, working_cols].reset_index(drop=True)

@@ -296,6 +296,7 @@ def _rank_two_stage(
     prefilter_top: int,
     stage1_keep: int,
     n_estimators_cap=None,
+    univariate_batch_size: Optional[int] = None,
 ):
     """Cheap-funnel + capped-booster ranking.
 
@@ -327,7 +328,8 @@ def _rank_two_stage(
     wanting marginal-strength scores read ``stage1_f_scores``. -inf entries flag constant / degenerate
     columns (same sentinel as ``_rank_univariate``)."""
     t0 = time.perf_counter()
-    scores = _rank_univariate(X, y, classification=classification)
+    scores = _rank_univariate(X, y, classification=classification,
+                              batch_size=univariate_batch_size)
     stage1_keep = max(1, min(stage1_keep, n_features))
     stage1_cols = _topk(scores, stage1_keep)
     stage_a_dt = time.perf_counter() - t0
@@ -386,16 +388,25 @@ def _rank_two_stage(
         n_estimators_cap=n_estimators_cap)
 
 
-def _rank_univariate(X, y, *, classification: bool):
-    """Vectorised O(n*f) per-feature ANOVA F-score (sklearn ``f_classif`` / ``f_regression``). Cheap
-    single pass; marginal-signal only (misses pure-interaction features). NaN F-scores (constant
-    columns) rank lowest."""
-    from sklearn.feature_selection import f_classif, f_regression
+def _rank_univariate(X, y, *, classification: bool, batch_size: Optional[int] = None):
+    """Column-batched per-feature ANOVA F-score (parity with sklearn ``f_classif`` /
+    ``f_regression``). Cheap single pass; marginal-signal only (misses pure-interaction features).
+    NaN F-scores (constant columns) rank lowest.
+
+    ``batch_size=None`` auto-sizes via available RAM (see
+    ``_shap_proxy_prefilter_univariate.resolve_batch_size``). Sklearn's pre-1.5 ``f_classif`` /
+    ``f_regression`` densifies the full ``(n_samples, n_features)`` design as float64 (1.6 GB at
+    width=20000 / n_rows=10000) BEFORE the per-class slicing, which OOMs the C4 regime at the
+    univariate stage. The chunked path caps per-batch allocation at ``8 * n_samples * batch_size``
+    bytes independent of total feature count."""
+    from mlframe.feature_selection._shap_proxy_prefilter_univariate import (
+        f_classif_chunked, f_regression_chunked)
 
     Xv = X.values if isinstance(X, pd.DataFrame) else np.asarray(X)
-    scorer = f_classif if classification else f_regression
-    with np.errstate(divide="ignore", invalid="ignore"):
-        scores, _ = scorer(Xv, y)
+    if classification:
+        scores = f_classif_chunked(Xv, y, batch_size=batch_size)
+    else:
+        scores = f_regression_chunked(Xv, y, batch_size=batch_size)
     scores = np.asarray(scores, dtype=np.float64)
     scores[~np.isfinite(scores)] = -np.inf  # constant / degenerate columns sink to the bottom
     return scores
@@ -412,6 +423,7 @@ def prefilter_columns(
     n_features: int,
     n_estimators_cap: Optional[int] = 100,
     stage1_keep: Optional[int] = None,
+    univariate_batch_size: Optional[int] = None,
 ) -> tuple[np.ndarray, dict]:
     """Rank all columns by ``method`` and return ``(working_cols, info)``.
 
@@ -439,9 +451,11 @@ def prefilter_columns(
         s1 = stage1_keep if stage1_keep is not None else _default_stage1_keep(n_features)
         return _rank_two_stage(model_template, X, y, n_features=n_features,
                                classification=classification, prefilter_top=prefilter_top,
-                               stage1_keep=s1, n_estimators_cap=n_estimators_cap)
+                               stage1_keep=s1, n_estimators_cap=n_estimators_cap,
+                               univariate_batch_size=univariate_batch_size)
     if resolved == "univariate":
-        importance = _rank_univariate(X, y, classification=classification)
+        importance = _rank_univariate(X, y, classification=classification,
+                                      batch_size=univariate_batch_size)
         applied_cap = None  # univariate has no booster -> cap is meaningfully N/A in the report
         # Surface the F-score vector so downstream stages can re-rank by marginal strength without
         # paying a second f_classif / f_regression pass; sentinel -inf flags constant columns.
