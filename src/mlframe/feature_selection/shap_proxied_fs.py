@@ -402,6 +402,16 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         revalidation wall-clock by firing the early-stop sooner; smaller-regime calibration
         (iter34 default 1.0) stays untouched because the proxy residual spread is narrower there.
         """
+        # bench-attempt-rejected (iter48, 2026-05-29): tried a third step at width>=20000 -> k=0.4
+        # on top of the iter41 0.6 step. C4 (width=20000) measured reval 8.96s -> 8.87s (1% on
+        # ~9s, well under noise floor). The iter41 0.6 step already saturates the gate at C4:
+        # post-prefilter the top_n=20 candidates' proxy_loss values cluster tightly (near-duplicate
+        # SHAP-aware picks from the same 88-feature stage-B survivors), so the residual delta std
+        # is already small and dropping k further does not push (proxy + slack) above best_so_far
+        # for the un-evaluated tail. The reval wall remaining at ~9s is the floor: ucb_min_eval_size
+        # default ``max(n_workers, 3)`` first batch (~8 candidates) + 1-2 post-batch dispatches at
+        # the iter41 setting. Any further reval cut needs a different mechanism (smaller min_eval_size,
+        # or a corrector-aware sort that breaks the proxy_loss tie), not k tightening.
         if self.revalidation_ucb_stdev_multiplier is not None:
             return float(self.revalidation_ucb_stdev_multiplier)
         return 0.6 if int(n_features) >= 10000 else 1.0
