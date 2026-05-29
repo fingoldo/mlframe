@@ -78,6 +78,7 @@ from ._model_configs import (  # noqa: E402,F401
 from ._training_runtime_configs import (  # noqa: E402,F401
     TrainingConfig, DataConfig, TrainingControlConfig, MetricsConfig,
     FeatureImportanceConfig, OutputConfig, OutlierDetectionConfig,
+    SliceStableESConfig,
 )
 
 
@@ -335,6 +336,7 @@ __all__ = [
     "FeatureImportanceConfig",
     "OutputConfig",
     "OutlierDetectionConfig",
+    "SliceStableESConfig",
     "ConfidenceAnalysisConfig",
     "NamingConfig",
     "PredictionsContainer",

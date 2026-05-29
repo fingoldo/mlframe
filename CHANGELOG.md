@@ -99,6 +99,117 @@ Iteration-12 adds a `"two_stage"` method to the ShapProxiedFS native-importance 
   - 4.8x prefilter speedup at 6k with no measured recovery loss. The 10k regime extrapolation: single-stage prefilter scales near-linearly with width (iter11 attribution gave 52s at 10k); two_stage cuts stage A linearly + caps stage B at the funnel ceiling, so the 10k prefilter projects to ~10-15s vs 52s.
 - **Tests**: five new units in [`tests/feature_selection/test_shap_proxy_prefilter.py`](tests/feature_selection/test_shap_proxy_prefilter.py) — `test_resolve_auto_routes_two_stage_at_wide_threshold_no_gpu` (routing edges around both thresholds), `test_resolve_auto_gpu_wins_over_two_stage_when_device_available` (GPU still preferred when device + rows clear thresholds), `test_two_stage_returns_original_indices_and_honors_prefilter_top` (sorted unique original-positional working_cols + info dict contract), `test_two_stage_stage1_keep_defaults_to_min_2000_or_20pct` (default funnel formula across regimes), `test_two_stage_recovery_matches_single_stage_on_main_effect_target` (unit-level recovery contract w/ 1-feature slack). One slow biz_val test `test_biz_val_two_stage_prefilter_recovery_matches_single_stage_at_6k` (6k features x 3k rows, prints stage timings, recovery >= single-stage - 1). Existing routing tests adjusted to probe the mid-wide window so they're independent of the new threshold. All 109 `tests/feature_selection/ -k shap_prox -m "not slow"` pass; the targeted slow biz_val passes in 48s.
 - Next single best improvement: with the prefilter now bounded by stage A (sub-second at 10k) plus a capped stage-B booster fit on <= 2000 columns, the wide-data hotspot moves back to oof_shap (~20s) and refine (~3s). The next tier is either (a) caching the stage-A F-score across the trust-guard / search loops that currently re-run it on the same cohort, or (b) routing oof_shap's per-fold SHAP through the iter12 cohort instead of the original full frame — the SHAP cost itself scales with surviving columns, so stage A becomes a single shared funnel for every downstream stage.
+## 2026-05-28 — Slice-stable early stopping + robust CV-selector (opt-in)
+
+Adds an opt-in robust replacement for the classic "single val, single metric, stop when worse" early-stopping rule. The validation set is partitioned into K shards (random, time-aware, or via existing fairness subgroups) and the stop decision is driven by an aggregate over per-shard scores rather than the single full-val number. The same aggregator menu is also wired into the stacking-subsystem CV-selector (`composite_forward_stepwise`, `_composite_screening_tiny`) so model selection across CV folds can use a stability-aware criterion instead of `np.mean(fold_rmses)`. Default behaviour is bit-identical to the pre-feature path (`TrainingConfig.slice_stable_es.enabled=False`, `cv_selector_mode="mean"`).
+
+### Aggregator family
+
+`mlframe.training._cv_aggregation.aggregate_fold_scores` implements five modes, all auto-flipping by `is_greater_better`:
+
+- `mean` — bit-identical baseline.
+- `mean_minus_std` — Masters-style penalty `alpha * std(ddof=1)`.
+- `median_minus_mad` — outlier-resilient escape hatch for K >= 10.
+- `t_lcb` (default) — one-sided Student-t lower confidence bound `mean +/- t_{K-1, conf} * std/sqrt(K)` with optional Nadeau-Bengio correlation inflation factor (default 1.5) to compensate for dependent-fold bias.
+- `quantile` — non-parametric upper/lower quantile, auto-flipped by direction; recommended for K >= 8-10 where the empirical quantile is meaningfully resolved.
+
+Plus `compute_pareto_frontier` (O(T log T) non-dominated scan) and `select_from_pareto` (post-hoc best_iter selection from the (mean, std) frontier with a user-tunable risk quantile).
+
+### Slice-stable early stopping (`SliceStableESConfig`)
+
+`UniversalCallback` ([`src/mlframe/training/_callbacks.py`](src/mlframe/training/_callbacks.py)) now accepts `slice_k` + per-shard aggregator knobs. When `slice_k>0` it reads K positional eval-sets the booster computes natively at every iteration, aggregates them via `aggregate_fold_scores`, applies the per-shard `effective_patience` auto-bump (`p * (1 + 1/sqrt(K-1))`), and uses the aggregate as the stop signal. The CB `metric_period>1` phantom-value case is guarded explicitly: aggregation is skipped on iterations where at least one shard hasn't pushed a fresh value (rather than mixing scales with the single-val number).
+
+`build_slice_eval_sets` ([`src/mlframe/training/_slice_helpers.py`](src/mlframe/training/_slice_helpers.py)) produces per-shard `SliceEvalSet` records for the three sources:
+
+- `random` — `StratifiedKFold` for classification targets (mirrors the `_shap_proxy_compose.py:55-56` idiom), plain `KFold` otherwise. With `group_ids` supplied (ranker / qid path) auto-switches to `GroupKFold` so query boundaries are preserved.
+- `temporal` — K consecutive time-windows; required when the upstream split is time-aware.
+- `fairness` — reuses pre-built `indexed_subgroups` from the fairness pipeline; subgroups may overlap (worst-group-robust signal).
+- `both` — combines random + fairness; ES drives off random shards, fairness shards are diagnostic.
+
+`_setup_eval_set` ([`src/mlframe/training/_data_helpers.py`](src/mlframe/training/_data_helpers.py)) takes an optional `extra_eval_sets` kwarg and registers `[full_val, shard_0, ..., shard_K-1]` as a list to the booster. Parallel-aligned `sample_weight_eval_set` / `base_margin_eval_set` (XGB) / `eval_qid` (XGB) / `eval_group` (LGB, qid → group-size translation via the new `_groupids_to_sizes` helper) are propagated in lock-step so each eval-set is self-contained. Polars `Enum` and pandas `Categorical` dtypes are preserved because slicing goes through `.iloc` / `.filter(pl.Series(mask))`, never `.values`.
+
+`disable_native_es_for_slice_stable` (`_helpers_training_configs.py`) strips `early_stopping_rounds` from each per-booster params dict (CB / LGB / XGB) when slice-stable ES is active, so the booster's native ES doesn't race against the callback's aggregate.
+
+### Pareto-frontier artifact (default ON when slice-stable ES enabled)
+
+`mlframe.training._slice_pareto_plot.generate_pareto_artifact` renders a per-target / per-model `(mean_iter, std_iter)` scatter with the Pareto frontier overlaid, the selected best_iter highlighted, and alternative-quantile picks labelled so the operator can see how the risk knob would have chosen without re-running. Both `matplotlib` (PNG) and `plotly` (HTML) backends emit by default. Paths land in `ctx.metadata["slice_stable_es"][target_name][model_name]["pareto_plot_paths"]`. Auto-skips short runs (`n_iters < pareto_plot_min_iterations`, default 10) and catches save failures via WARN-once so the training run is never blocked on an artifact rendering glitch. Optional `pareto_persist_shard_history=True` also dumps the full `(iter, shard_idx, score)` table to parquet for downstream Jupyter analysis.
+
+### Robust CV-selector for the stacking subsystem
+
+`composite_forward_stepwise.py` (`_cv_rmse` / `forward_stepwise_multi_base`) and `_composite_screening_tiny.py` (`_tiny_cv_rmse_raw_y` / `_tiny_cv_rmse_y_scale`) now route their per-fold aggregation through `aggregate_fold_scores`. `CompositeTargetDiscoveryConfig` gained `cv_selector_mode` / `cv_selector_alpha` / `cv_selector_confidence` / `cv_selector_quantile_level` / `cv_persist_fold_scores` knobs. Default `"mean"` preserves bit-identical pre-feature behaviour. With `cv_persist_fold_scores=True` the diagnostics dict gains a `fold_scores_per_candidate: dict[str, list[float]]` field so callers can build their own post-hoc Pareto plots over the discovery candidates.
+
+### Coverage
+
+72+ new unit tests across `tests/training/test_cv_aggregation.py`, `test_slice_helpers.py`, `test_slice_callback.py`, `test_setup_eval_set_shards.py`, `test_slice_pareto_plot.py`, `test_slice_es_integration.py`, `test_slice_es_regression.py`, `test_slice_es_biz_value.py`, plus extensions to the existing `test_composite_forward_stepwise.py` covering the selector dispatch. Regression bit-identity locked at rtol=1e-12 for LGB predictions under `slice_stable_es.enabled=False`. Per-iteration overhead at K=5 measured under 3.5x on a tiny dataset where metric-eval dominates (much lower at production iteration counts).
+
+### Empirical study: 27 configurations across three bench waves, default reverted to `enabled=False`
+
+The infrastructure ships intact, but the **default is OFF**. A three-wave synthetic benchmark study (`scripts/bench_slice_es_synthetics{,_v2,_v3}.py`, 30 paired seeds each, paired Wilcoxon one-sided, raw results in `benchmarks/slice_es_{,wave2,wave3}_bench.json`) found that only ONE configuration out of 27 showed a positive gap vs single-val ES, and that win does NOT generalise across boosters, scenarios, or aggregators.
+
+**The one positive result:** `LGB regression + heteroscedastic-temporal val + temporal-K5 shards + aggregate="mean"`. `gap=+0.55%`, `p=0.006***`, `wins=9/30`. Reproducible (also passes as `tests/training/test_slice_es_biz_value.py::test_biz_value_lgb_temporal_K5_mean_observed_gap_documented` -- kept as observability-only, NOT as a value-prop gate).
+
+**Where it does NOT generalise:**
+
+| Regime | Aggregator | Gap | p-value |
+|---|---|---|---|
+| LGB regr heavy-tail tiny (n_train=200, Student-t df=2) | `mean` | -0.10% | 0.42 |
+| LGB regr heavy-tail tiny | `t_lcb` conf=0.9 | -0.82% | 0.99 |
+| LGB regr heavy-tail tiny | `median_minus_mad` | **-4.68%** | 1.00 |
+| LGB regr heavy-tail tiny | `quantile` q=0.6 | -0.91% | 1.00 |
+| LGB regr heavy-tail temporal | `mean` | +0.00% | 0.81 (1/30 wins) |
+| LGB regr heavy-tail temporal | `t_lcb` conf=0.9 | +0.00% | 0.94 |
+| LGB regr heavy-tail temporal | `median_minus_mad` | **-35.69%** | 1.00 |
+| LGB classif rare-class (p=5%) | `mean` K=3 | +0.00% | 1.00 (**0/30 wins**) |
+| LGB classif rare-class | `t_lcb` conf=0.9 | -4.17% | 0.99 |
+| **CB regr on the LGB-winning scenario** | `mean` K=5 temporal | **-0.50%** | 0.996 |
+| **CB regr on the LGB-winning scenario** | `t_lcb` conf=0.9 | **-0.50%** | 0.996 |
+| 6 wave-1 configs (`t_lcb conf=0.9 + correlation_inflation=1.5`) | various | -0.05% to -0.45% | all p>0.5 |
+| 4 wave-2 quantile / median configs | various | -2.2% to -9.4% | all p~=1.0 |
+
+**Why the LGB+temporal+K5+mean win doesn't validate the feature.** `aggregate="mean"` over a K-shard partition equals `mean(full val)` mathematically -- the only behavioural difference vs single-val ES is the `effective_patience` auto-bump (`x1.5` for K=5). The "patience auto-bump explains the win" hypothesis fits all the LGB-regression data, but it's refuted by the CatBoost result: the *same* scenario with the *same* aggregate but a different booster goes -0.50%. So the win is an LGB-specific idiosyncrasy of how its multi-eval-set registration path interacts with the patience-bumped callback, not a generalisable property of the technique.
+
+**What ships:**
+
+1. **CV-selector for the stacking subsystem** (`composite_forward_stepwise._cv_rmse`, `_composite_screening_tiny._tiny_cv_rmse_*`) -- aggregate dispatch via `aggregate_fold_scores` with `cv_selector_mode={"mean","mean_minus_std","median_minus_mad","t_lcb","quantile"}`. Default `"mean"` is bit-identical to the pre-feature behaviour; the other modes are principled and orthogonal to ES decisions (they operate on a finite set of finished candidates with their own fold-CV variance, not on a per-iteration stop signal). **Keep.**
+2. **Slice-stable ES infrastructure** (callback aggregator, multi-eval-set registration, shard construction across `random`/`temporal`/`fairness`/`both` sources, per-row attribute alignment, edge case handling). **Opt-in, off by default.** Operators researching variance-aware ES on workloads where single-val ES is demonstrably unstable can flip `SliceStableESConfig.enabled=True` after running their own per-workload calibration bench.
+3. **`diagnostic_only` mode** (new in this changeset; not part of the original plan). Separates per-shard logging + Pareto artefact rendering from ES decision logic. Operators set `SliceStableESConfig.diagnostic_only=True` to get the per-shard metric trace + Pareto plot at finalisation, while ES decisions keep reading the single full-val metric (legacy path). Default off.
+4. **Pareto frontier artefact** (matplotlib PNG + plotly HTML, paths in `ctx.metadata["slice_stable_es"]`). Fires whenever the callback has populated `slice_shard_score_history`, i.e. when `enabled=True` OR `diagnostic_only=True`. Default off (depends on the parent flags being set).
+
+**What does NOT ship:**
+
+The strict-assert headline biz_value test that locked in the +0.55% calibration as a regression gate. It was overfit to a single (booster, scenario, aggregator) triple; making it gate CI would freeze the false-positive into perpetuity. The bench script + raw JSON results are kept so anyone re-running the empirical study has a reproducible baseline.
+
+**What this study doesn't rule out.** The infrastructure was validated only on synthetic LGB / CB regression + classification at moderate scales. Real workloads with heavy-tail business metrics, group-aware splits, n_train < 200 + severely under-regularised boosters, or genuinely worst-group-fairness ES targets may surface different signals. Operators who hit those regimes can opt in via `SliceStableESConfig.enabled=True` and run the bench scripts on their own data before making it default. The 27-configuration negative result is honest, not conclusive: it says "doesn't help on the regimes I tested", not "can't help anywhere".
+
+### Wave-4 follow-up: serious 100k × KFold(10) bench, 306 paired Wilcoxon tests, drift-hypothesis falsification
+
+The empirical study was extended with a production-scale bench (`scripts/bench_slice_es_100k_kfold10.py`, raw results in `benchmarks/slice_es_100k_kfold10.json`): n=100k records, KFold(10) for test stability, 3 tasks (regression, regression with concept drift in `Y(X)`, binary classification), 3 boosters (LGB, XGB, CatBoost), full mlframe metrics suite (~17 regression + 15 classification metrics = 32 metrics per task) × 2 slice configurations vs baseline = **306 paired Wilcoxon one-sided tests** across 27 (task, model, config) cells.
+
+**Final tally:**
+
+| Result class | Count | % | Expected by chance (α=0.05) |
+|---|---:|---:|---:|
+| Significant wins (p<0.05, gap>0) | **2** | 0.7% | ~15 (5%) |
+| Significant losses (p<0.05, gap<0) | **0** | 0.0% | ~15 (5%) |
+| Suggestive (0.05≤p<0.10) | 2 | 0.7% | — |
+| Strict neutral (\|gap\|<0.1% AND p>0.10) | **245** | **80.1%** | — |
+
+**0.7% significant wins is BELOW the 5% chance baseline.** The 2 wins are isolated to `regr × CB × mdape` (+0.14% gap), identical for both `slice_mean` and `slice_tlcb` — a multiple-comparison artifact, not feature value.
+
+**The drift hypothesis was the explicit test of "concept drift in Y(X) should make slice-stable shine".** Result:
+
+- `regr_drift × slice_mean`: 54 of 54 cells `gap = +0.00%` exactly (bit-identical to baseline -- mathematically `mean(K partition shards) ≡ mean(full val)`, and `effective_patience` bump didn't pull a different best_iter).
+- `regr_drift × slice_tlcb` (variance-penalty aggregator): 32 of 54 cells `gap < -0.05%`, 0 wins. LGB: 17/18 metrics lost (max_err -2.03%, rmsle -1.16%). XGB: 15/18 lost. CB: all 18 exactly 0. The variance penalty stops earlier; on drift data where late-iter learning captures the late regime, early stopping consistently hurts.
+
+**Direct mechanistic explanation.** At n_val=9000 the val-induced sampling variance of the test metric is ~0.05%, two orders of magnitude below the pipeline noise floor (across-fold std 0.5-1% for regression, 0.06% for classification). Slicing the val into K=5 shards of n=1800 each provides no new information when each shard's metric is already low-variance. The partition mean is arithmetically identical to the full-val mean; the variance-aware aggregators (t-LCB conf=0.9 etc.) add penalty noise without compensating signal.
+
+**Drift hypothesis falsification.** The user's intuition that "fitting to one val set is bad" addresses a different problem: *selection bias* across many model / hyperparameter candidates, not best-iteration ES on a single training run. Slicing the same val set into K shards doesn't fix selection bias (it still optimises against the same data), and at n_val=9000 it doesn't fix sampling variance either (the variance is already negligible). The structural fix for "val overfit" is nested CV (separate selection set and held-out test) or simply a larger val -- both of which the KFold(10) test setup already provides.
+
+The bench reproducer scripts (`bench_slice_es_synthetics.py`, `_v2.py`, `_v3.py`, `_100k_kfold10.py`) all ship for operators who want to re-run the study on their own data before making slice-stable ES default-on.
+
+### Plan
+
+Full design rationale, 32 review findings, edge cases, and the biz_value synthetic dataset constructions live in `C:\Users\TheLocalCommander\.claude\plans\1-stateless-crane.md`.
 
 ## 2026-05-28 — ShapProxiedFS: `within_cluster_refine` permutation-importance + batch-drop (iter11)
 

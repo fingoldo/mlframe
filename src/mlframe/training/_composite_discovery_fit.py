@@ -791,6 +791,11 @@ def fit(
             and getattr(self, "_auto_base_pool", None)):
         _multi_max_k = int(getattr(self.config, "multi_base_max_k", 3))
         _multi_min_gain = float(getattr(self.config, "multi_base_min_marginal_rmse_gain", 0.02))
+        _cv_sel_mode = str(getattr(self.config, "cv_selector_mode", "mean"))
+        _cv_sel_alpha = float(getattr(self.config, "cv_selector_alpha", 1.0))
+        _cv_sel_conf = float(getattr(self.config, "cv_selector_confidence", 0.9))
+        _cv_sel_qlevel = float(getattr(self.config, "cv_selector_quantile_level", 0.9))
+        _cv_persist = bool(getattr(self.config, "cv_persist_fold_scores", False))
         _upgraded_specs: list[CompositeSpec] = []
         # ENS-Low-6: hoist the (base_column, pool_signature) -> pool_arrays
         # build outside the per-spec loop so K linear_residual specs that
@@ -823,6 +828,11 @@ def fit(
                     seed_bases=[_spec.base_column],
                     max_k=_multi_max_k,
                     min_marginal_rmse_gain=_multi_min_gain,
+                    cv_selector_mode=_cv_sel_mode,
+                    cv_selector_alpha=_cv_sel_alpha,
+                    cv_selector_confidence=_cv_sel_conf,
+                    cv_selector_quantile_level=_cv_sel_qlevel,
+                    cv_persist_fold_scores=_cv_persist,
                 )
             except Exception as _multi_err:
                 logger.warning(

@@ -42,6 +42,11 @@ def forward_stepwise_multi_base(
     # efficient random split). Callers with confirmed non-temporal data can pass time_aware=False.
     time_aware: bool = True,
     cv_splitter: Any = None,
+    cv_selector_mode: str = "mean",
+    cv_selector_alpha: float = 1.0,
+    cv_selector_confidence: float = 0.9,
+    cv_selector_quantile_level: float = 0.9,
+    cv_persist_fold_scores: bool = False,
 ) -> tuple[list[str], list[dict[str, Any]]]:
     """Greedy forward-stepwise base selection for ``linear_residual_multi``.
 
@@ -95,10 +100,16 @@ def forward_stepwise_multi_base(
     kept = list(seeds)
     diagnostics: list[dict[str, Any]] = []
 
-    def _cv_rmse(base_names: list[str]) -> float:
+    from ._cv_aggregation import aggregate_fold_scores
+
+    def _cv_rmse_with_folds(base_names: list[str]) -> tuple[float, list[float]]:
+        """Return ``(aggregated_score, per_fold_rmses)`` so callers can persist the full table
+        when ``cv_persist_fold_scores=True``. ``cv_selector_mode='mean'`` is bit-identical to
+        the original ``float(np.mean(fold_rmses))`` path."""
         if not base_names:
             # No bases -> predict mean of y; RMSE = std(y).
-            return float(np.std(y))
+            sentinel = float(np.std(y))
+            return sentinel, [sentinel]
         # All names are guaranteed to be in ``candidates`` by the validation above.
         base_matrix = np.column_stack([candidates[n] for n in base_names])
         if cv_splitter is not None:
@@ -107,7 +118,7 @@ def forward_stepwise_multi_base(
             kf = TimeSeriesSplit(n_splits=int(cv_folds))
         else:
             kf = KFold(n_splits=int(cv_folds), shuffle=True, random_state=int(random_state))
-        fold_rmses = []
+        fold_rmses: list[float] = []
         for train_idx, val_idx in kf.split(np.arange(y.size)):
             # Fit OLS y ~ base_matrix on TRAIN.
             params = _linear_residual_multi_fit(y[train_idx], base_matrix[train_idx])
@@ -121,8 +132,19 @@ def forward_stepwise_multi_base(
                 continue
             fold_rmses.append(float(np.sqrt(np.mean(diff[finite] * diff[finite]))))
         if not fold_rmses:
-            return float("nan")
-        return float(np.mean(fold_rmses))
+            return float("nan"), []
+        aggregated = aggregate_fold_scores(
+            fold_rmses,
+            mode=cv_selector_mode,  # type: ignore[arg-type]
+            direction="min",
+            alpha=cv_selector_alpha,
+            confidence=cv_selector_confidence,
+            quantile_level=cv_selector_quantile_level,
+        )
+        return aggregated, fold_rmses
+
+    def _cv_rmse(base_names: list[str]) -> float:
+        return _cv_rmse_with_folds(base_names)[0]
 
     # Step 0: baseline RMSE with current kept bases (or 0-base if seeds empty).
     rmse_current = _cv_rmse(kept)
@@ -134,9 +156,12 @@ def forward_stepwise_multi_base(
             break
         best_name = None
         best_rmse = float("inf")
+        per_candidate_folds: dict[str, list[float]] = {}
         for cand_name in available:
             trial = kept + [cand_name]
-            rmse_trial = _cv_rmse(trial)
+            rmse_trial, fold_rmses_trial = _cv_rmse_with_folds(trial)
+            if cv_persist_fold_scores:
+                per_candidate_folds[cand_name] = list(fold_rmses_trial)
             if np.isfinite(rmse_trial) and rmse_trial < best_rmse:
                 best_rmse = rmse_trial
                 best_name = cand_name
@@ -144,14 +169,17 @@ def forward_stepwise_multi_base(
             break
         gain = (rmse_current - best_rmse) / max(rmse_current, 1e-12)
         accepted = gain >= float(min_marginal_rmse_gain)
-        diagnostics.append({
+        step_diag: dict[str, Any] = {
             "step": len(diagnostics) + 1,
             "candidate_added": best_name,
             "rmse_before": rmse_current,
             "rmse_after": best_rmse,
             "marginal_gain": gain,
             "accepted": bool(accepted),
-        })
+        }
+        if cv_persist_fold_scores:
+            step_diag["fold_rmses_per_candidate"] = per_candidate_folds
+        diagnostics.append(step_diag)
         if not accepted:
             break
         kept.append(best_name)

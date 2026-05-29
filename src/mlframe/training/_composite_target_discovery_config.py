@@ -7,7 +7,7 @@ CompositeTargetDiscoveryConfig`` imports continue to resolve.
 """
 from __future__ import annotations
 
-from typing import Optional, List, Set, Tuple, Union
+from typing import Literal, Optional, List, Set, Tuple, Union
 
 from pydantic import Field, field_validator
 
@@ -115,6 +115,19 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     multi_base_enabled: bool = True
     multi_base_max_k: int = 3
     multi_base_min_marginal_rmse_gain: float = 0.02
+
+    # Robust CV-selector knobs (2026-05-28). The composite discovery / forward-stepwise paths
+    # historically pick winners by argmin(mean(fold_rmses)) -- which silently rewards lucky
+    # candidates whose mean wins by less than the per-fold std. With ``cv_selector_mode`` set
+    # to anything other than ``"mean"`` the per-fold scores are augmented with a dispersion
+    # penalty before the argmin: stable mediocre candidates can now beat unstable lucky ones.
+    # See ``mlframe.training._cv_aggregation.aggregate_fold_scores`` for the math.
+    # Default ``"mean"`` keeps current behaviour bit-identical.
+    cv_selector_mode: Literal["mean", "mean_minus_std", "median_minus_mad", "t_lcb", "quantile"] = "mean"
+    cv_selector_alpha: float = 1.0          # used by mean_minus_std / median_minus_mad
+    cv_selector_confidence: float = 0.9     # one-sided Student-t confidence for t_lcb
+    cv_selector_quantile_level: float = 0.9 # for aggregate="quantile" (auto-flip by direction)
+    cv_persist_fold_scores: bool = False    # surface per-fold scores in forward-stepwise diagnostics
 
     # Pack #3: stacked 2-pass composite discovery. When True the suite calls
     # ``CompositeTargetDiscovery.fit_stacked`` instead of plain ``fit``. Pass 1

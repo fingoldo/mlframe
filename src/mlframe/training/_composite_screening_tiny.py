@@ -214,6 +214,10 @@ def _tiny_cv_rmse_raw_y(
     time_aware: bool = False,
     cv_splitter: Any = None,
     groups: np.ndarray | None = None,
+    cv_selector_mode: str = "mean",
+    cv_selector_alpha: float = 1.0,
+    cv_selector_confidence: float = 0.9,
+    cv_selector_quantile_level: float = 0.9,
 ):
     """CV-RMSE of a tiny model trained DIRECTLY on raw y (no transform).
 
@@ -365,7 +369,15 @@ def _tiny_cv_rmse_raw_y(
         if return_per_bin:
             return float("nan"), np.full(n_bins, float("nan"))
         return float("nan")
-    mean_rmse = float(np.mean(fold_rmses))
+    from ._cv_aggregation import aggregate_fold_scores
+    mean_rmse = aggregate_fold_scores(
+        fold_rmses,
+        mode=cv_selector_mode,  # type: ignore[arg-type]
+        direction="min",
+        alpha=cv_selector_alpha,
+        confidence=cv_selector_confidence,
+        quantile_level=cv_selector_quantile_level,
+    )
     if not return_per_bin:
         return mean_rmse
     per_bin_arrays = [pb for _, pb in fold_results if pb is not None]
@@ -560,6 +572,10 @@ def _tiny_cv_rmse_y_scale(
     time_aware: bool = False,
     early_stop_threshold: float = float("inf"),
     groups: np.ndarray | None = None,
+    cv_selector_mode: str = "mean",
+    cv_selector_alpha: float = 1.0,
+    cv_selector_confidence: float = 0.9,
+    cv_selector_quantile_level: float = 0.9,
 ):
     """Compute CV-RMSE of a tiny model on the y-scale (after inverse).
 
@@ -749,7 +765,15 @@ def _tiny_cv_rmse_y_scale(
         if return_per_bin:
             return float("nan"), np.full(n_bins, float("nan"))
         return float("nan")
-    mean_rmse = float(np.mean(fold_rmses))
+    from ._cv_aggregation import aggregate_fold_scores
+    mean_rmse = aggregate_fold_scores(
+        fold_rmses,
+        mode=cv_selector_mode,  # type: ignore[arg-type]
+        direction="min",
+        alpha=cv_selector_alpha,
+        confidence=cv_selector_confidence,
+        quantile_level=cv_selector_quantile_level,
+    )
     if not return_per_bin:
         return mean_rmse
     # Aggregate per-bin: mean across folds (NaN-skipping).

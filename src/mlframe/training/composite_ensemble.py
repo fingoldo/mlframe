@@ -337,6 +337,12 @@ def _oof_cache_put(key: tuple, value: tuple) -> None:
 
 def _compute_oof_with_external_holdout(
     *,
+    # Slice-stable ES (mlframe.training.SliceStableESConfig) is NOT propagated into the inner
+    # OOF refit loop: this function builds its own per-fold ``eval_set`` via
+    # ``_carve_eval_set_from_train_with_groups`` and a single (X_holdout, y_holdout) pair, which
+    # is incompatible with the multi-eval-set / per-shard registration path slice-ES needs.
+    # Callers that want robust ES inside OOF refit should use full-K-fold CV with an outer
+    # selector (see ``_cv_aggregation.aggregate_fold_scores``) instead.
     component_models: list[Any],
     component_names: list[str],
     component_specs: list[dict[str, Any] | None],
