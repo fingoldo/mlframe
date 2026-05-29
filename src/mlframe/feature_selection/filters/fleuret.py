@@ -21,6 +21,7 @@ from pyutilz.numbalib import python_dict_2_numba_dict
 from .permutation import distribute_permutations
 from ._internals import LARGE_CONST
 from .evaluation import evaluate_gain
+from .info_theory import use_su_normalization
 
 
 def get_fleuret_criteria_confidence_parallel(
@@ -54,6 +55,9 @@ def get_fleuret_criteria_confidence_parallel(
     if workers_pool is None:
         workers_pool = Parallel(n_jobs=n_workers, **parallel_kwargs)
 
+    # 2026-05-28: read SU toggle once here (Python-level) and thread into every joblib worker.
+    _use_su = use_su_normalization()
+
     gc.collect()
     # Per-worker seed derivation: outer base_seed * Knuth multiplicative hash + worker index keeps streams independent yet aggregate is reproducible from outer base_seed.
     _worker_loads = list(distribute_permutations(npermutations=npermutations, n_workers=n_workers))
@@ -78,6 +82,7 @@ def get_fleuret_criteria_confidence_parallel(
             extra_x_shuffling=extra_x_shuffling,
             dtype=dtype,
             base_seed=int((int(base_seed) * 2654435761 + (_widx + 1)) & 0xFFFFFFFFFFFFFFFF),
+            use_su=_use_su,
         )
         for _widx, worker_npermutations in enumerate(_worker_loads)
     )
@@ -118,6 +123,7 @@ def parallel_fleuret(
     extra_x_shuffling: bool = True,
     dtype=np.int32,
     base_seed: int = 0,
+    use_su: bool = False,  # 2026-05-28: threaded from get_fleuret_criteria_confidence_parallel.
 ):
     """Joblib worker: rebuild numba.typed.Dict from pickled Python dicts, run the njit core, return a Python dict for the parent's union."""
     data_copy = data.copy()
@@ -152,6 +158,7 @@ def parallel_fleuret(
         extra_x_shuffling=extra_x_shuffling,
         dtype=dtype,
         base_seed=np.uint64(base_seed),
+        use_su=use_su,
     )
 
     return nfailed, i, dict(entropy_cache_dict)
@@ -195,6 +202,7 @@ def get_fleuret_criteria_confidence(
     extra_x_shuffling: bool = True,
     dtype=np.int32,
     base_seed: np.uint64 = np.uint64(0),
+    use_su: bool = False,  # 2026-05-28: threaded from Python-level parallel_fleuret.
 ) -> tuple:
     """Sub to njit work with random shuffling as well.
 
@@ -238,6 +246,7 @@ def get_fleuret_criteria_confidence(
             can_use_x_cache=not extra_x_shuffling,
             can_use_y_cache=False,
             confidence_mode=True,
+            use_su=use_su,
         )
 
         if current_gain >= bootstrapped_gain:

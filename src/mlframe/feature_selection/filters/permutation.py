@@ -20,7 +20,13 @@ from joblib import Parallel, delayed
 from numba import njit, prange
 
 from ._internals import NMAX_NONPARALLEL_ITERS
-from .info_theory import compute_mi_from_classes, merge_vars
+from .info_theory import (
+    compute_mi_from_classes, merge_vars, mi_or_su_from_classes,
+    # 2026-05-28: njit-callable dispatcher used inside permutation kernels;
+    # branches on a bool param so the SU mode propagates without re-reading
+    # the Python-level thread-local from inside @njit.
+    compute_relevance_score, use_su_normalization,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +85,7 @@ def parallel_mi_besag_clifford(
     p_high: float = 0.05,
     min_perms: int = 30,
     dtype=np.int32,
+    use_su: bool = False,  # 2026-05-28: SU normalization toggle threaded from mi_direct.
 ) -> tuple:
     """Besag-Clifford sequential permutation test with early stopping.
 
@@ -111,9 +118,8 @@ def parallel_mi_besag_clifford(
             local[j] = local[k]
             local[k] = tmp
 
-        mi_perm = compute_mi_from_classes(
-            classes_x=classes_x, freqs_x=freqs_x,
-            classes_y=local, freqs_y=freqs_y, dtype=dtype,
+        mi_perm = compute_relevance_score(
+            use_su, classes_x, freqs_x, local, freqs_y, dtype=dtype,
         )
         if mi_perm >= original_mi:
             nfailed += 1
@@ -145,6 +151,7 @@ def parallel_mi_prange(
     original_mi: float,
     base_seed: np.uint64,
     dtype=np.int32,
+    use_su: bool = False,  # 2026-05-28: SU normalization toggle threaded from mi_direct.
 ) -> tuple:
     """Inner-loop parallel permutation test.
 
@@ -178,9 +185,8 @@ def parallel_mi_prange(
             local[j] = local[k]
             local[k] = tmp
 
-        mi_perm = compute_mi_from_classes(
-            classes_x=classes_x, freqs_x=freqs_x,
-            classes_y=local, freqs_y=freqs_y, dtype=dtype,
+        mi_perm = compute_relevance_score(
+            use_su, classes_x, freqs_x, local, freqs_y, dtype=dtype,
         )
         if mi_perm >= original_mi:
             nfailed_arr[i] = 1
@@ -199,6 +205,7 @@ def parallel_mi(
     max_failed: int,
     dtype=np.int32,
     base_seed: np.uint64 = np.uint64(0),
+    use_su: bool = False,  # 2026-05-28: SU normalization toggle threaded from mi_direct.
 ) -> tuple[int, int]:
     """Worker for the joblib pool used by ``mi_direct``. Returns ``(n_failed, n_checked)`` so the caller can aggregate across pool members. ``npermutations=0`` returns ``(0, 0)`` cleanly.
 
@@ -214,9 +221,8 @@ def parallel_mi(
     _lcg_state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(1)
     for _i in range(npermutations):
         _lcg_state = np.uint64(shuffle_arr_lcg(classes_y_safe, _lcg_state))
-        mi = compute_mi_from_classes(
-            classes_x=classes_x, freqs_x=freqs_x,
-            classes_y=classes_y_safe, freqs_y=freqs_y, dtype=dtype,
+        mi = compute_relevance_score(
+            use_su, classes_x, freqs_x, classes_y_safe, freqs_y, dtype=dtype,
         )
         if mi >= original_mi:
             nfailed += 1
@@ -312,6 +318,11 @@ def mi_direct(
                     type(_exc).__name__, _exc,
                 )
 
+    # 2026-05-28: read SU toggle once per call; threaded into every njit branch
+    # below so cardinality-bias correction stays consistent across the permutation
+    # test (original score AND permuted scores both use the same scorer).
+    _use_su = use_su_normalization()
+
     classes_x, freqs_x, _ = merge_vars(
         factors_data=factors_data, vars_indices=x,
         var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype,
@@ -322,9 +333,8 @@ def mi_direct(
             var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype,
         )
 
-    original_mi = compute_mi_from_classes(
-        classes_x=classes_x, freqs_x=freqs_x,
-        classes_y=classes_y, freqs_y=freqs_y, dtype=dtype,
+    original_mi = compute_relevance_score(
+        _use_su, classes_x, freqs_x, classes_y, freqs_y, dtype=dtype,
     )
 
     confidence = 0.0
@@ -348,6 +358,7 @@ def mi_direct(
                 original_mi=original_mi,
                 base_seed=np.uint64(base_seed),
                 dtype=dtype,
+                use_su=_use_su,
             )
             i = n_checked - 1
             if nfailed >= max_failed:
@@ -363,6 +374,7 @@ def mi_direct(
                 original_mi=original_mi,
                 base_seed=np.uint64(base_seed),
                 dtype=dtype,
+                use_su=_use_su,
             )
             i = n_checked - 1
             if nfailed >= max_failed:
@@ -384,6 +396,7 @@ def mi_direct(
                     original_mi=original_mi,
                     max_failed=max_failed,
                     base_seed=np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(_widx + 1),
+                    use_su=_use_su,
                 )
                 for _widx, worker_npermutations in enumerate(_worker_loads)
             )
@@ -413,9 +426,8 @@ def mi_direct(
             for _i in range(npermutations):
                 i = _i
                 _lcg_state = np.uint64(shuffle_arr_lcg(classes_y_safe, _lcg_state))
-                mi = compute_mi_from_classes(
-                    classes_x=classes_x, freqs_x=freqs_x,
-                    classes_y=classes_y_safe, freqs_y=freqs_y, dtype=dtype,
+                mi = compute_relevance_score(
+                    _use_su, classes_x, freqs_x, classes_y_safe, freqs_y, dtype=dtype,
                 )
                 if mi >= original_mi:
                     nfailed += 1

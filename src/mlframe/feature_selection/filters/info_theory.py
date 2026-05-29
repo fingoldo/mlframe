@@ -156,6 +156,158 @@ def mi(
     return entropy_x + entropy_y - entropy_xy
 
 
+@njit(nogil=True, cache=True)
+def symmetric_uncertainty(
+    factors_data,
+    x: np.ndarray,
+    y: np.ndarray,
+    factors_nbins: np.ndarray,
+    verbose: bool = False,
+    dtype=np.int32,
+) -> float:
+    """Symmetric Uncertainty (Witten-Frank-Hall) — cardinality-normalised MI.
+
+    ``SU(X, Y) := 2 * I(X; Y) / (H(X) + H(Y))`` lives in [0, 1] independently of
+    the cardinality of X or Y. Raw ``I(X; Y)`` is bounded by ``min(H(X), H(Y))``
+    so high-cardinality features (zip codes, hash IDs, decile-binned continuous
+    columns with many bins) get inflated relevance scores under the bare ``mi``
+    estimator. SU divides by the sum of marginal entropies, scrubbing the bias.
+
+    Two same-entropy features keep the same MRMR ordering under SU vs MI (both
+    get divided by the same denominator). Cross-cardinality comparisons are
+    where SU bites: a 2-level binary feature with strong signal beats a
+    1000-level hash that happens to have higher raw MI from sheer entropy.
+
+    Used when ``MRMR(mi_normalization='su')``. Same numba cache as ``mi``.
+    Reference: Witten, Frank, Hall (2011) "Data Mining: Practical ML Tools and
+    Techniques", section on feature selection.
+    """
+    x = np.asarray(x, dtype=np.int64)
+    y = np.asarray(y, dtype=np.int64)
+    factors_nbins = np.asarray(factors_nbins, dtype=np.int64)
+
+    _, freqs_x, _ = merge_vars(
+        factors_data=factors_data, vars_indices=x, var_is_nominal=None,
+        factors_nbins=factors_nbins, verbose=verbose, dtype=dtype,
+    )
+    entropy_x = entropy(freqs=freqs_x)
+
+    _, freqs_y, _ = merge_vars(
+        factors_data=factors_data, vars_indices=y, var_is_nominal=None,
+        factors_nbins=factors_nbins, verbose=verbose, dtype=dtype,
+    )
+    entropy_y = entropy(freqs=freqs_y)
+
+    vars_xy = np.unique(np.concatenate((x, y)))
+    _, freqs_xy, _ = merge_vars(
+        factors_data=factors_data, vars_indices=vars_xy, var_is_nominal=None,
+        factors_nbins=factors_nbins, verbose=verbose, dtype=dtype,
+    )
+    entropy_xy = entropy(freqs=freqs_xy)
+
+    mi_xy = entropy_x + entropy_y - entropy_xy
+    denom = entropy_x + entropy_y
+    if denom <= 1e-12:
+        return 0.0
+    return 2.0 * mi_xy / denom
+
+
+@njit(nogil=True, cache=True)
+def conditional_symmetric_uncertainty(
+    factors_data: np.ndarray,
+    x: np.ndarray,
+    y: np.ndarray,
+    z: np.ndarray,
+    factors_nbins: np.ndarray,
+    dtype=np.int32,
+) -> float:
+    """Conditional Symmetric Uncertainty (CSU): ``2 * I(X; Y | Z) / (H(X|Z) + H(Y|Z))``.
+
+    Normalised conditional MI used by the Fleuret-criterion redundancy step
+    when ``MRMR(mi_normalization='su')`` is active. Reduces cardinality bias
+    in the conditional information path the same way ``symmetric_uncertainty``
+    does for the unconditional path: a high-cardinality Z silently inflates
+    raw ``I(X; Y | Z)`` because ``H(X|Z)`` and ``H(Y|Z)`` are still bounded
+    by their unconditional H counterparts.
+
+    Formula: I(X;Y|Z) = H(X,Z) + H(Y,Z) - H(Z) - H(X,Y,Z)
+             H(X|Z)   = H(X,Z) - H(Z)
+             H(Y|Z)   = H(Y,Z) - H(Z)
+             denom    = H(X|Z) + H(Y|Z) = H(X,Z) + H(Y,Z) - 2*H(Z)
+    """
+    x = np.asarray(x, dtype=np.int64)
+    y = np.asarray(y, dtype=np.int64)
+    z = np.asarray(z, dtype=np.int64)
+    factors_nbins = np.asarray(factors_nbins, dtype=np.int64)
+
+    _, freqs_z, _ = merge_vars(
+        factors_data=factors_data, vars_indices=z, var_is_nominal=None,
+        factors_nbins=factors_nbins, verbose=False, dtype=dtype,
+    )
+    h_z = entropy(freqs=freqs_z)
+
+    xz = np.unique(np.concatenate((x, z)))
+    _, freqs_xz, _ = merge_vars(
+        factors_data=factors_data, vars_indices=xz, var_is_nominal=None,
+        factors_nbins=factors_nbins, verbose=False, dtype=dtype,
+    )
+    h_xz = entropy(freqs=freqs_xz)
+
+    yz = np.unique(np.concatenate((y, z)))
+    _, freqs_yz, _ = merge_vars(
+        factors_data=factors_data, vars_indices=yz, var_is_nominal=None,
+        factors_nbins=factors_nbins, verbose=False, dtype=dtype,
+    )
+    h_yz = entropy(freqs=freqs_yz)
+
+    xyz = np.unique(np.concatenate((x, y, z)))
+    _, freqs_xyz, _ = merge_vars(
+        factors_data=factors_data, vars_indices=xyz, var_is_nominal=None,
+        factors_nbins=factors_nbins, verbose=False, dtype=dtype,
+    )
+    h_xyz = entropy(freqs=freqs_xyz)
+
+    cmi = h_xz + h_yz - h_z - h_xyz
+    denom = h_xz + h_yz - 2.0 * h_z
+    if denom <= 1e-12:
+        return 0.0
+    return 2.0 * cmi / denom
+
+
+# 2026-05-28: thread-local SU toggle. Set by MRMR.fit when mi_normalization='su',
+# read by evaluation.py / fleuret.py at the scoring sites. Pure functions ``mi``
+# and ``conditional_mi`` stay legacy bit-for-bit so cached entropy numbers
+# across the rest of the project don't shift.
+import threading as _threading
+_SU_STATE = _threading.local()
+
+
+def use_su_normalization() -> bool:
+    return bool(getattr(_SU_STATE, "active", False))
+
+
+def set_su_normalization(active: bool) -> None:
+    _SU_STATE.active = bool(active)
+
+
+def mi_or_su(factors_data, x, y, factors_nbins, verbose=False, dtype=np.int32) -> float:
+    """Dispatch raw MI or SU based on the thread-local toggle. Cheap path
+    when SU is off: a one-call delegation to ``mi`` (which is njit-cached)."""
+    if use_su_normalization():
+        return symmetric_uncertainty(factors_data, x, y, factors_nbins, verbose=verbose, dtype=dtype)
+    return mi(factors_data, x, y, factors_nbins, verbose=verbose, dtype=dtype)
+
+
+def cmi_or_csu(factors_data, x, y, z, factors_nbins, dtype=np.int32, **mi_kwargs) -> float:
+    """Dispatch conditional MI or CSU based on the thread-local toggle. ``conditional_mi``
+    accepts a richer kwarg surface (cache, can_use_x_cache, ...); when SU is on those caches
+    are bypassed because the SU denominator is path-dependent on the same entropies, so
+    caching the unconditional CMI would silently desync."""
+    if use_su_normalization():
+        return conditional_symmetric_uncertainty(factors_data, x, y, z, factors_nbins, dtype=dtype)
+    return conditional_mi(factors_data, x, y, z, factors_nbins=factors_nbins, dtype=dtype, **mi_kwargs)
+
+
 @njit(cache=True)
 def conditional_mi(
     factors_data: np.ndarray,
@@ -298,6 +450,91 @@ def compute_mi_from_classes(
                 jf = jc * inv_n
                 total += jf * math.log(jf / (prob_x * prob_y))
     return total
+
+
+@njit(nogil=True, cache=True)
+def compute_su_from_classes(
+    classes_x: np.ndarray,
+    freqs_x: np.ndarray,
+    classes_y: np.ndarray,
+    freqs_y: np.ndarray,
+    dtype=np.int32,
+) -> float:
+    """Symmetric Uncertainty from pre-computed class arrays + marginals.
+
+    SU(X, Y) = 2 * I(X; Y) / (H(X) + H(Y)). Built atop the same joint-counts
+    pass as ``compute_mi_from_classes`` so the permutation loop in
+    ``permutation.py`` can swap to this scorer when ``mi_normalization='su'``
+    without recomputing classes/freqs. Reuses the freqs_x / freqs_y arrays
+    to compute H(X), H(Y) -- one log-pass per marginal, O(K_x + K_y).
+    """
+    n = len(classes_x)
+    K_x = len(freqs_x)
+    K_y = len(freqs_y)
+    joint_counts = np.zeros((K_x, K_y), dtype=dtype)
+    for k in range(n):
+        joint_counts[classes_x[k], classes_y[k]] += 1
+    inv_n = 1.0 / n
+    mi_xy = 0.0
+    for i in range(K_x):
+        prob_x = freqs_x[i]
+        for j in range(K_y):
+            jc = joint_counts[i, j]
+            if jc != 0:
+                prob_y = freqs_y[j]
+                jf = jc * inv_n
+                mi_xy += jf * math.log(jf / (prob_x * prob_y))
+    h_x = 0.0
+    for i in range(K_x):
+        p = freqs_x[i]
+        if p > 0:
+            h_x -= p * math.log(p)
+    h_y = 0.0
+    for j in range(K_y):
+        p = freqs_y[j]
+        if p > 0:
+            h_y -= p * math.log(p)
+    denom = h_x + h_y
+    if denom <= 1e-12:
+        return 0.0
+    return 2.0 * mi_xy / denom
+
+
+@njit(nogil=True, cache=True)
+def compute_relevance_score(
+    use_su: bool,
+    classes_x: np.ndarray,
+    freqs_x: np.ndarray,
+    classes_y: np.ndarray,
+    freqs_y: np.ndarray,
+    dtype=np.int32,
+) -> float:
+    """njit-callable dispatcher between raw MI and Symmetric Uncertainty.
+
+    ``permutation.py``'s njit kernels cannot read the Python-level thread-local
+    SU toggle directly; this branch-on-flag helper lets the joblib entry point
+    (``mi_direct``) thread the SU mode down once per call, and the njit kernel
+    selects the scorer at runtime with a single bool check.
+
+    Both branches share the same dtype + array contracts as
+    ``compute_mi_from_classes`` so the existing permutation loops stay
+    byte-for-byte stable in the SU-off code path.
+    """
+    if use_su:
+        return compute_su_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=dtype)
+    return compute_mi_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=dtype)
+
+
+def mi_or_su_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=np.int32) -> float:
+    """Dispatch raw MI or SU from pre-computed classes based on the thread-local toggle.
+
+    Cheap when SU is off: one Python-call delegation to the njit ``compute_mi_from_classes``.
+    Used by ``permutation.py`` so the relevance gate in MRMR's simple-mode path picks up
+    the cardinality-bias-corrected scorer when ``MRMR(mi_normalization='su')``.
+    """
+    if use_su_normalization():
+        return compute_su_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=dtype)
+    return compute_mi_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=dtype)
 
 
 @njit(parallel=True, nogil=True, cache=True)

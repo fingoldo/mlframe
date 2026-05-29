@@ -23,7 +23,13 @@ from pyutilz.system import tqdmu
 from ._internals import LARGE_CONST, MAX_CONFIRMATION_CAND_NBINS, MAX_ITERATIONS_TO_TRACK
 from ._numba_utils import arr2str, count_cand_nbins, unpack_and_sort
 from .gpu import mi_direct_gpu
-from .info_theory import compute_mi_from_classes, conditional_mi, entropy, merge_vars
+from .info_theory import (
+    compute_mi_from_classes, conditional_mi, entropy, merge_vars,
+    # 2026-05-28: SU normalization dispatcher. ``cmi_or_csu`` reads a thread-local
+    # toggle set by ``MRMR.fit`` when ``mi_normalization='su'``; legacy path
+    # (toggle off) is one extra Python call ahead of njit kernels.
+    cmi_or_csu, use_su_normalization, conditional_symmetric_uncertainty,
+)
 from .permutation import mi_direct
 
 logger = logging.getLogger(__name__)
@@ -245,6 +251,7 @@ def evaluate_gain(
     dtype=np.int32,
     confidence_mode: bool = False,
     max_confirmation_cand_nbins: int = MAX_CONFIRMATION_CAND_NBINS,
+    use_su: bool = False,  # 2026-05-28: SU normalization toggle threaded from process_candidates / mrmr_fit_impl.
 ) -> tuple:
     """``max_confirmation_cand_nbins`` is a parameter (not a baked-in constant). Default mirrors the legacy value; ``MRMR.fit`` overrides with ``quantization_nbins ** interactions_max_order * 2`` unless the user pins it explicitly."""
 
@@ -273,18 +280,30 @@ def evaluate_gain(
 
                         if not key_found:
 
-                            additional_knowledge = conditional_mi(
-                                factors_data=factors_data,
-                                x=X,
-                                y=y,
-                                z=Z,
-                                var_is_nominal=None,
-                                factors_nbins=factors_nbins,
-                                entropy_cache=entropy_cache,
-                                can_use_x_cache=can_use_x_cache,
-                                can_use_y_cache=can_use_y_cache,
-                                dtype=dtype,
-                            )
+                            # 2026-05-28: SU branch bypasses entropy caches because the SU denominator
+                            # is path-dependent and re-using cached unconditional CMI numbers would
+                            # silently desync the normalization. Cheap (no caching) is correct here;
+                            # legacy raw-CMI path keeps cache wired in. ``use_su`` is threaded from
+                            # the Python-level caller (process_candidates -> evaluate_gain) so the
+                            # njit kernel doesn't need to read the Python thread-local at runtime.
+                            if use_su:
+                                additional_knowledge = conditional_symmetric_uncertainty(
+                                    factors_data=factors_data, x=X, y=y, z=Z,
+                                    factors_nbins=factors_nbins, dtype=dtype,
+                                )
+                            else:
+                                additional_knowledge = conditional_mi(
+                                    factors_data=factors_data,
+                                    x=X,
+                                    y=y,
+                                    z=Z,
+                                    var_is_nominal=None,
+                                    factors_nbins=factors_nbins,
+                                    entropy_cache=entropy_cache,
+                                    can_use_x_cache=can_use_x_cache,
+                                    can_use_y_cache=can_use_y_cache,
+                                    dtype=dtype,
+                                )
 
                             if nexisting > 0:
                                 additional_knowledge = additional_knowledge ** (nexisting + 1)
@@ -427,6 +446,7 @@ def evaluate_candidate(
                 cached_cond_MIs=cached_cond_MIs,
                 can_use_x_cache=True,
                 can_use_y_cache=True,
+                use_su=use_su_normalization(),
             )
 
             partial_gains[cand_idx] = current_gain, k
