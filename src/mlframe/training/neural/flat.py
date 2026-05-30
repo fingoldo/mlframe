@@ -206,6 +206,8 @@ def generate_mlp(
     use_batchnorm: bool = False,
     use_layernorm_per_layer: bool = False,
     use_residual: bool = False,
+    numerical_embedding: Optional[str] = None,
+    numerical_embedding_kwargs: Optional[dict] = None,
     groupnorm_num_groups: int = 0,
     layer_norm_kwargs: dict = None,
     batch_norm_kwargs: dict = None,
@@ -384,6 +386,31 @@ def generate_mlp(
 
     layers = []
     layer_sizes = [num_features]  # tracked for verbose logging
+
+    # C7 (F-32, 2026-05-31): numerical-feature embeddings. When set,
+    # the PLR (Periodic-Linear-ReLU) embedding maps each scalar feature
+    # to a high-dim representation via sin/cos at K learnable
+    # frequencies + a per-feature Linear projection. Per RealMLP-TD
+    # (Holzmuller et al., NeurIPS 2024) ablation: +20.6% R^2 regression
+    # / +2.3% accuracy classification. The rest of the MLP trunk
+    # downstream then operates on the embedded (N, in_features * embed_dim)
+    # representation as if it were the raw feature vector.
+    if numerical_embedding is not None:
+        from ._numerical_embeddings import PeriodicLinearEmbedding
+        _ne_kwargs = dict(numerical_embedding_kwargs or {})
+        if numerical_embedding == "plr":
+            _emb = PeriodicLinearEmbedding(in_features=num_features, **_ne_kwargs)
+        else:
+            raise ValueError(
+                f"Unknown numerical_embedding={numerical_embedding!r}; "
+                "supported: 'plr' (Periodic-Linear-ReLU)."
+            )
+        layers.append(_emb)
+        layer_sizes.append(_emb.out_features)
+        # Override num_features for everything that follows so the
+        # input-side Dropout / LayerNorm / GroupNorm and the first
+        # hidden Linear see the EMBEDDED dimension, not the raw.
+        num_features = _emb.out_features
 
     if inputs_dropout_prob > 0:
         layers.append(nn.Dropout(inputs_dropout_prob))
@@ -677,7 +704,12 @@ def generate_mlp(
             _rank_err,
         )
 
-    model.example_input_array = torch.zeros(1, num_features)
+    # example_input_array MUST reflect the USER-facing input shape
+    # (raw features), NOT the embedded shape — the model accepts raw
+    # X via the embedding layer at position 0. layer_sizes[0] preserves
+    # the original raw num_features even when numerical_embedding overrode
+    # num_features for downstream construction.
+    model.example_input_array = torch.zeros(1, layer_sizes[0])
 
     return model
 
