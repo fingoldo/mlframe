@@ -65,6 +65,25 @@ def mdlp_bin_edges(
     if scaled_min_split:
         min_split_size = max(int(min_split_size), int(0.02 * len(x)))
 
+    # 2026-05-30 Wave 9.1 fix (loop iter 48): drop NaN rows BEFORE
+    # sorting. Pre-fix ``np.argsort(x)`` placed NaN at the tail; the
+    # njit recursion then sliced ``x[best_idx+1:]`` and could include
+    # the NaN tail, poisoning subsequent ``x[best_idx] + x[best_idx+1]``
+    # midpoints and emitting literal NaN values into the ``splits``
+    # list. Final ``edges = [-inf, ...sorted_splits..., +inf]`` then
+    # contained NaN in the middle, violating the
+    # ``np.searchsorted``-relies-on-sorted invariant downstream.
+    # python backend and njit backend disagreed silently on NaN-bearing
+    # inputs - docstring promises identical semantics. Filter NaN out
+    # of both inputs once at the entry point (single-source-of-truth).
+    _finite_mask = np.isfinite(x)
+    if not _finite_mask.all():
+        x = x[_finite_mask]
+        y = y[_finite_mask]
+    if x.size == 0:
+        # All-NaN / all-non-finite input: no splits computable.
+        return np.array([-np.inf, np.inf], dtype=np.float64)
+
     sorter = np.argsort(x)
     x_sorted = np.ascontiguousarray(x[sorter].astype(np.float64))
     y_sorted = np.ascontiguousarray(y[sorter])
