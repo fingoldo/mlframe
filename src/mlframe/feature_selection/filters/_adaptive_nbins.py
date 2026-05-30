@@ -499,8 +499,25 @@ def per_feature_edges(
     if y is not None:
         y = np.asarray(y).ravel()
     edges_list: list = []
+    # 2026-05-30 Wave 9.1 fix (synergy-detection regression): if a
+    # column has few unique finite values (e.g. binary target, small
+    # categorical, ordinal already pre-encoded), quantile-based
+    # binning collapses to 1-bin because ``_edges_from_quantiles``
+    # returns empty edges after ``np.unique`` dedup. Detect these
+    # columns up front and produce midpoint-edges between consecutive
+    # unique values - this preserves the column's natural cardinality
+    # without going through quantile / supervised logic that doesn't
+    # apply.
+    _low_card_cap = int(kwargs.get("low_card_cap", 32))
     for j in range(n_features):
         col = X[:, j].astype(np.float64, copy=False)
+        _finite = col[np.isfinite(col)]
+        _uniq = np.unique(_finite) if _finite.size > 0 else np.empty(0, dtype=np.float64)
+        if 1 < _uniq.size <= _low_card_cap:
+            # Use midpoints between consecutive uniques as edges so
+            # each unique value lands in its own bin.
+            edges_list.append(0.5 * (_uniq[:-1] + _uniq[1:]))
+            continue
         if method_resolved == "sturges":
             edges = edges_sturges(col, base=base)
         elif method_resolved == "freedman_diaconis":
@@ -549,5 +566,27 @@ def per_feature_edges(
             )
         else:
             raise NotImplementedError(method_resolved)
+        # 2026-05-30 Wave 9.1 fix (synergy-detection regression): when a
+        # supervised binning method (MDLP / Mah / optimal_joint /
+        # fayyad_irani) returns zero inner edges - meaning the feature
+        # was collapsed to a single bin because individually it has no
+        # MI with y - the joint MI on any tuple containing this feature
+        # is identically 0 (1-cell joint). This silently DESTROYS
+        # synergy detection for XOR-family targets (y = sign(x1*x2),
+        # boolean conjunctions, etc.) where individual components are
+        # independent of y but their joint perfectly predicts y.
+        # Fall back to UNSUPERVISED binning (the requested ``base``)
+        # for collapsed columns so synergy tuples still have signal at
+        # the joint level. The single-feature MDLP signal is already
+        # gone (it returned no splits), so the unsupervised fallback
+        # can only improve detection power, never hurt.
+        if method_resolved in ("fayyad_irani", "optimal_joint", "mah") and (
+            edges is None or (hasattr(edges, "size") and edges.size == 0)
+        ):
+            _fallback_nb = int(kwargs.get("collapsed_fallback_nbins", 5))
+            if base == "quantile":
+                edges = _edges_from_quantiles(col, _fallback_nb)
+            else:
+                edges = _edges_from_uniform(col, _fallback_nb)
         edges_list.append(edges)
     return edges_list
