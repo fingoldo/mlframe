@@ -602,9 +602,25 @@ def quantize_search(arr, bins):
 
 @njit(cache=True)
 def discretize_uniform(arr: np.ndarray, n_bins: int, min_value: float = None, max_value: float = None, dtype: object = np.int8) -> np.ndarray:
+    # 2026-05-30 Wave 9.1 fix (loop iter 33): the divisor was
+    # ``(max - min + min/2)`` instead of the canonical ``(max - min)``.
+    # That formula silently miscoded any positive-shifted input -
+    # ``linspace(1000, 1100)`` into 10 bins collapsed to just bins
+    # {0: 600, 1: 400} instead of 10 evenly populated bins. On purely
+    # negative ranges the divisor went to zero (div-by-zero RuntimeWarning,
+    # everything -> bin 0) or even negative (sign flip). The bug poisoned
+    # every downstream MI / SU / MRMR score whenever ``method="uniform"``
+    # was used on prices / distances / counts / epoch timestamps / any
+    # mean-nonzero feature. Sibling CUDA path at discretization.py:850
+    # had the same defect by design (per the now-obsolete bit-comparability
+    # comment) - fixed together.
     if min_value is None or max_value is None:
         min_value, max_value = arrayMinMax(arr)
-    rev_bin_width = n_bins / (max_value - min_value + min_value / 2)
+    _rng = max_value - min_value
+    if _rng <= 0:
+        # Constant column: every row -> bin 0; honest single-bin code.
+        return np.zeros_like(arr, dtype=dtype)
+    rev_bin_width = n_bins / _rng
     result = ((arr - min_value) * rev_bin_width).astype(dtype)
     return np.clip(result, 0, n_bins - 1)
 
@@ -844,11 +860,23 @@ def discretize_2d_array_cuda(
         # docstring quotes H(X)/log(nbins) >= 0.82 for Gaussian).
         col_min = cp.min(d_arr, axis=0, keepdims=True)
         col_max = cp.max(d_arr, axis=0, keepdims=True)
-        # rev_bin_width = n_bins / (max - min + min/2) -- matches CPU formula
-        # at info_theory:discretize_uniform exactly so cross-backend results
-        # stay bit-comparable mod FP ordering.
-        rev = n_bins / (col_max - col_min + col_min / 2.0)
+        # 2026-05-30 Wave 9.1 fix (loop iter 33): mirrors the CPU
+        # ``discretize_uniform`` fix - canonical formula
+        # ``rev_bin_width = n_bins / (max - min)`` with constant-column
+        # zero fallback. The pre-fix formula
+        # ``n_bins / (max - min + min/2)`` silently mis-binned positive-
+        # shifted columns (e.g. linspace(1000, 1100) collapsed to 2 bins
+        # instead of 10) AND broke on negative ranges via div-by-zero
+        # / sign flip. Cross-backend bit-comparability still holds
+        # because both backends now use the same canonical formula.
+        _rng = col_max - col_min
+        # Where range is zero (constant column), substitute 1 to avoid
+        # div-by-zero; the resulting code is clamped to 0 below so the
+        # column emits a single bin honestly.
+        _rng_safe = cp.where(_rng > 0, _rng, 1.0)
+        rev = n_bins / _rng_safe
         out_f = (d_arr - col_min) * rev
+        out_f = cp.where(_rng > 0, out_f, 0.0)
         out_f = cp.clip(out_f, 0, n_bins - 1)
         out = out_f.astype(_out_cp_dtype)
 
