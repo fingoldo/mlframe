@@ -464,12 +464,39 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
 
     if recipe.quantization is not None:
         q = recipe.quantization
-        out = discretize_array(
-            arr=out,
-            n_bins=q["nbins"],
-            method=q["method"],
-            dtype=np.dtype(q["dtype"]),
-        )
+        # 2026-05-30 Wave 9.1 fix (loop iter 28): use fit-time edges when
+        # the recipe stored them. Pre-fix ``discretize_array`` recomputed
+        # ``np.nanpercentile`` from TEST data each replay, so the same
+        # physical row mapped to DIFFERENT bin codes between fit and
+        # transform under any distribution drift (58.8% disagreement
+        # observed in synthetic shift demo). That's a textbook train/test
+        # leak: the model trained on stale bin codes and got fresh
+        # rebinned codes at inference.
+        if q.get("edges") is not None:
+            edges = np.asarray(q["edges"], dtype=np.float64)
+            out = np.searchsorted(
+                edges[1:-1] if edges.size >= 2 else edges,
+                out, side="right",
+            ).astype(np.dtype(q["dtype"]))
+        else:
+            # Back-compat: pre-iter-28 recipes (pickled before edges were
+            # persisted) fall back to the leaky path. Warn so maintainers
+            # see the smell. New recipes always carry edges.
+            import warnings as _w_iter28
+            _w_iter28.warn(
+                f"unary_binary recipe '{recipe.name}' has no fit-time "
+                f"quantile edges; replay will re-quantile on test data "
+                f"and produce shifted codes under distribution drift. "
+                f"Refit the MRMR estimator to regenerate the recipe with "
+                f"persisted edges.",
+                UserWarning, stacklevel=2,
+            )
+            out = discretize_array(
+                arr=out,
+                n_bins=q["nbins"],
+                method=q["method"],
+                dtype=np.dtype(q["dtype"]),
+            )
     return out
 
 
@@ -628,9 +655,15 @@ def build_unary_binary_recipe(
     quantization_nbins: int | None,
     quantization_method: str | None,
     quantization_dtype: Any,
+    fit_values_for_edges: np.ndarray | None = None,
 ) -> EngineeredRecipe:
-    """Build an ``EngineeredRecipe`` of kind ``"unary_binary"``. ``quantization`` is ``None`` if no discretization, else a 3-field dict. Dtype is stringified
-    so the recipe is JSON-friendly and pickle-safe across numpy versions."""
+    """Build an ``EngineeredRecipe`` of kind ``"unary_binary"``. ``quantization`` is ``None`` if no discretization, else a dict carrying the binning
+    parameters AND, when ``fit_values_for_edges`` is provided, the fit-time bin edges so transform-time replay maps each row to the SAME bin
+    code regardless of test-data distribution. Dtype is stringified so the recipe is JSON-friendly and pickle-safe across numpy versions.
+
+    2026-05-30 Wave 9.1 iter 28: ``fit_values_for_edges`` lets the caller pin the quantile boundaries. Without it (legacy code paths) the
+    recipe emits a UserWarning at replay time about the train/test leakage risk.
+    """
     if quantization_nbins is None:
         quantization = None
     else:
@@ -639,6 +672,21 @@ def build_unary_binary_recipe(
             "method": str(quantization_method) if quantization_method else "uniform",
             "dtype": np.dtype(quantization_dtype).str,
         }
+        # Persist fit-time edges so replay never re-quantiles on test data.
+        if fit_values_for_edges is not None:
+            _arr = np.asarray(fit_values_for_edges, dtype=np.float64).ravel()
+            if quantization["method"] == "quantile":
+                _q = np.linspace(0.0, 100.0, int(quantization_nbins) + 1)
+                _edges = np.nanpercentile(_arr, _q)
+            else:  # uniform
+                _finite = _arr[np.isfinite(_arr)]
+                if _finite.size:
+                    _lo = float(_finite.min())
+                    _hi = float(_finite.max())
+                    _edges = np.linspace(_lo, _hi, int(quantization_nbins) + 1)
+                else:
+                    _edges = np.linspace(0.0, 0.0, int(quantization_nbins) + 1)
+            quantization["edges"] = _edges.tolist()
     return EngineeredRecipe(
         name=name,
         kind="unary_binary",

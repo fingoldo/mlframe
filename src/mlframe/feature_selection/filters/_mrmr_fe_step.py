@@ -511,6 +511,15 @@ def _run_fe_step(
                                     )
                                 continue
                             eng_name = get_new_feature_name(config, cols)
+                            # 2026-05-30 Wave 9.1 fix (loop iter 28):
+                            # pass the fit-time engineered values
+                            # ``transformed_vals[:, _j]`` so the recipe
+                            # persists the quantile edges. Pre-fix replay
+                            # re-quantiled on test data, silently shifting
+                            # bin codes between fit and transform under
+                            # distribution drift.
+                            _fit_vals = transformed_vals[:, _j] \
+                                if transformed_vals.shape[1] > _j else None
                             engineered_recipes[eng_name] = build_unary_binary_recipe(
                                 name=eng_name,
                                 src_a_name=src_a_name_raw,
@@ -523,6 +532,7 @@ def _run_fe_step(
                                 quantization_nbins=self.quantization_nbins,
                                 quantization_method=self.quantization_method,
                                 quantization_dtype=self.quantization_dtype,
+                                fit_values_for_edges=_fit_vals,
                             )
 
                 n_recommended_features += len(this_pair_features)
