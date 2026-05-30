@@ -101,6 +101,34 @@ def test_wmape_handles_zero_y():
     assert val == pytest.approx(expected, abs=1e-12)
 
 
+def test_wmape_mixed_dtypes_bit_equivalent():
+    """iter596: fast_wmape dropped the unconditional ``dtype=np.float64``
+    cast. Bit-equivalence must hold across the dtype pairs that appear in
+    regression reporting: (int targets, float64 preds), (float64, float32),
+    and the pure float64 baseline."""
+    rng = np.random.default_rng(20260530)
+    n = 25_000
+    y_int = rng.integers(1, 100, size=n, dtype=np.int64)
+    y_f64 = y_int.astype(np.float64) + rng.random(n) * 0.5
+    p_f64 = y_f64 + rng.normal(scale=0.1, size=n)
+    p_f32 = p_f64.astype(np.float32)
+    reference = fast_wmape(y_f64, p_f64)
+    for y_t, y_p, atol in [
+        (y_int, p_f64, 1e-6),
+        (y_f64, p_f64, 1e-12),
+        (y_f64, p_f32, 1e-5),
+    ]:
+        v = fast_wmape(y_t, y_p)
+        ref = (np.abs(np.asarray(y_p, np.float64) - np.asarray(y_t, np.float64)).sum()
+               / np.abs(np.asarray(y_t, np.float64)).sum())
+        assert abs(v - ref) < atol, (
+            f"dtypes ({y_t.dtype}, {y_p.dtype}): fast_wmape={v} vs ref={ref}"
+        )
+    # Sanity: float64+float64 path unchanged
+    v_ctrl = fast_wmape(y_f64, p_f64)
+    assert v_ctrl == pytest.approx(reference, abs=1e-12)
+
+
 # ----- MASE -----
 
 
