@@ -396,7 +396,15 @@ class PytorchLightningEstimator(BaseEstimator):
             metric_name = "ICE"
             metrics = [MetricSpec(name=metric_name, fcn=compute_probabilistic_multiclass_error, requires_probs=True)]
         else:
-            metric_name = "MSE"
+            # F-02 (2026-05-30 mlp audit): the metric function is sklearn's
+            # ``root_mean_squared_error`` (RMSE), so the label MUST be "RMSE"
+            # too. Pre-fix the label was "MSE" -- monitor keys ("val_MSE"),
+            # checkpoint filenames (``model-val_MSE=0.7555.ckpt``), and
+            # CSV-logger columns all carried the wrong scale label. The
+            # metric_direction_dispatcher / metric_name_higher_is_better
+            # registry already knew both keys as min-direction, so the
+            # rename does not break direction-dependent code paths.
+            metric_name = "RMSE"
             metrics = [MetricSpec(name=metric_name, fcn=_rmse_metric)]
 
         # When no validation data, monitor train_loss instead of train metrics (which may not be logged)
