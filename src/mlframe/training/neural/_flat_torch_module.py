@@ -216,10 +216,32 @@ class MLPTorchModel(L.LightningModule):
         # so 0 / clamp(0, 1e-12) = 0 -- the same zero loss the legacy branch
         # returned. Bench at n=50k (c0117 batch shape, CUDA): 299 us -> 267 us
         # per call (~10%), bit-identical for both non-degenerate and all-zero-
-        # weight cases. The once-per-process all-zero-weight WARN is dropped:
-        # zero gradient surfaces downstream as flat val loss, and per-batch
-        # sync to log a single warning was a poor trade.
+        # weight cases.
         weighted_loss = raw / torch.clamp(weight_sum, min=1e-12)
+        # F-10 (2026-05-30): emit a ONCE-per-LightningModule WARN on the
+        # first all-zero-weight batch. Pre-fix the safe-divide path
+        # silently returned 0 loss + 0 gradient with no log message --
+        # the model trained on nothing and the operator saw a flat val
+        # curve with no clue why. The check costs one GPU->CPU sync
+        # (weight_sum.item()) per training_step UNTIL the warning fires,
+        # after which the flag short-circuits everything. The sync is
+        # only paid when sample_weight is not None (opt-in path); fits
+        # without sample_weight pay nothing. The 2026-05-20 rationale
+        # to drop the per-batch sync stands for fits where the operator
+        # KNOWS sample_weight is well-behaved -- a once-per-fit sync
+        # is the price of catching the silent-debug trap.
+        if not getattr(self, "_warned_zero_weight_batch", False):
+            if float(weight_sum.detach().item()) < 1e-12:
+                logger.warning(
+                    "All-zero sample_weight batch in MLP training_step "
+                    "(batch_idx=%d): loss=0, gradient=0, model receives "
+                    "no learning signal from this step. Suppressing "
+                    "subsequent warnings for this LightningModule. If "
+                    "the entire fit has zero-weight batches the model "
+                    "will not learn -- check the sample_weight pipeline.",
+                    getattr(self, "_current_batch_idx", -1),
+                )
+                self._warned_zero_weight_batch = True
         return weighted_loss
 
     def training_step(self, batch, batch_idx: int) -> Dict[str, torch.Tensor]:
