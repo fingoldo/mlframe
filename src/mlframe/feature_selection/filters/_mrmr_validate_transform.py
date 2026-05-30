@@ -409,8 +409,28 @@ def _append_engineered(self, base_out, X, recipes):
         pass
 
     # ndarray fallback: hstack engineered cols. Names are lost but row order matches get_feature_names_out.
-    engineered_arr = np.column_stack(engineered_cols) if engineered_cols else np.empty((base_out.shape[0], 0))
+    # 2026-05-30 Wave 9.1 fix (loop iter 15): promote BOTH sides to the
+    # common dtype via np.result_type instead of forcing engineered cols
+    # into ``base_out.dtype``. Pre-fix when base_out was an integer
+    # ndarray (the common case for selected categorical / binned
+    # features), every engineered recipe (target_encoding,
+    # cluster_aggregate, hermite_pair, factorize_merge, ...) returning
+    # float64 was silently truncated to 0 via int cast - downstream
+    # models saw constant columns, AUC collapsed, no warning. The
+    # pandas / polars paths above don't have this bug since they
+    # preserve per-column dtype. fit_transform(ndarray) thus diverged
+    # from fit(pd.DataFrame).transform(ndarray), violating sklearn
+    # contract.
+    engineered_arr = (
+        np.column_stack(engineered_cols)
+        if engineered_cols
+        else np.empty((base_out.shape[0], 0))
+    )
+    common_dtype = np.result_type(base_out.dtype, engineered_arr.dtype)
     if base_out.size == 0:
-        return engineered_arr.astype(base_out.dtype, copy=False)
-    return np.hstack([base_out, engineered_arr.astype(base_out.dtype, copy=False)])
+        return engineered_arr.astype(common_dtype, copy=False)
+    return np.hstack([
+        base_out.astype(common_dtype, copy=False),
+        engineered_arr.astype(common_dtype, copy=False),
+    ])
 
