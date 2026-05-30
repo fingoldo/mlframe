@@ -355,7 +355,20 @@ def evaluate_gain(
                         # additional_knowledge = I(X; Y | Z) = H(X, Z) + H(Y, Z) - H(Z) - H(X, Y, Z); I(X, Z) = entropy_x + entropy_z - entropy_xz.
                         key_found = False
                         if not confidence_mode:
-                            key = arr2str(X) + "_" + arr2str(Z)
+                            # 2026-05-30 Wave 9.1 fix (loop iter 14):
+                            # ``arr2str`` already uses ``_`` as its element
+                            # separator, so the prior boundary ``"_"`` between
+                            # ``arr2str(X)`` and ``arr2str(Z)`` aliased every
+                            # partition of the multiset ``X u Z``. Confirmed:
+                            # X=[1,2] Z=[3,4], X=[1] Z=[2,3,4], X=[1,2,3] Z=[4]
+                            # all produced ``"1_2_3_4"`` -> wrong-answer cache
+                            # hits, silent. Affects every config with
+                            # ``max_veteranes_interactions_order >= 2`` or
+                            # engineered multi-element X/Z, biasing
+                            # conditional-MI scoring. Switching to ``"|"``
+                            # (a character ``arr2str`` cannot emit) makes the
+                            # boundary unambiguous.
+                            key = arr2str(X) + "|" + arr2str(Z)
                             if key in cached_cond_MIs:
                                 additional_knowledge = cached_cond_MIs[key]
                                 key_found = True
