@@ -231,6 +231,51 @@ class PytorchLightningEstimator(BaseEstimator):
             # expects.
             _local_dm_params["labels_dtype"] = torch.float32
 
+        # Single-label classifier label encoding. sklearn convention is that
+        # ``y`` can be any hashable (strings, non-dense ints, booleans);
+        # CrossEntropyLoss + ``labels_dtype=int64`` require ``{0..K-1}``
+        # integer indices. Without this encoding, ``fit`` crashed with
+        # ``IndexError: Target N is out of bounds`` for any y whose value set
+        # is not exactly ``{0..K-1}`` (e.g. ``{10, 20}`` or ``{"low","high"}``;
+        # F-19 in the 2026-05-30 mlp audit). Build the bidirectional encoder
+        # once and stash on ``self`` so ``predict`` can ``inverse_transform``
+        # at inference time (F-01).
+        _classifier_single_label = (
+            isinstance(self, ClassifierMixin) and not _is_multilabel_target
+        )
+        if _classifier_single_label:
+            from sklearn.preprocessing import LabelEncoder as _LabelEncoder
+            if is_partial_fit and classes is not None:
+                # ``classes`` is the caller's full universe of labels even if
+                # this partial_fit batch only sees a subset. Fit encoder to it
+                # so the index space stays stable across partial_fit calls.
+                self._label_encoder = _LabelEncoder().fit(np.asarray(classes))
+                self.classes_ = self._label_encoder.classes_
+            elif not hasattr(self, "_label_encoder") or self._label_encoder is None:
+                _y_for_le = y.values if isinstance(y, pd.Series) else np.asarray(y)
+                if _y_for_le.ndim == 2 and _y_for_le.shape[1] == 1:
+                    _y_for_le = _y_for_le.ravel()
+                self._label_encoder = _LabelEncoder().fit(_y_for_le)
+                self.classes_ = self._label_encoder.classes_
+            # else: partial_fit continuation with encoder already built; reuse.
+
+            # Encode training y to integer indices for the loss function.
+            _y_arr_train = y.values if isinstance(y, pd.Series) else np.asarray(y)
+            if _y_arr_train.ndim == 2 and _y_arr_train.shape[1] == 1:
+                _y_arr_train = _y_arr_train.ravel()
+            y = self._label_encoder.transform(_y_arr_train)
+
+            # Encode validation labels with the SAME encoder so val_loss /
+            # val_MSE share the index space the model trains on.
+            if eval_set[1] is not None:
+                _y_arr_val = (
+                    eval_set[1].values if isinstance(eval_set[1], pd.Series)
+                    else np.asarray(eval_set[1])
+                )
+                if _y_arr_val.ndim == 2 and _y_arr_val.shape[1] == 1:
+                    _y_arr_val = _y_arr_val.ravel()
+                eval_set = (eval_set[0], self._label_encoder.transform(_y_arr_val))
+
         dm = self.datamodule_class(
             train_features=X,
             train_labels=y,
@@ -987,7 +1032,22 @@ class PytorchLightningClassifier(
             numpy.ndarray: Predicted class labels
         """
         proba = self._predict_raw(X, device=device, precision=precision, batch_size=batch_size)
-        return np.argmax(proba, axis=1)
+        idx = np.argmax(proba, axis=1)
+        # sklearn convention: ``predict`` returns LABELS (entries of
+        # ``classes_``), not argmax INDICES. Pre-fix this returned the bare
+        # indices, which the downstream reporting layer band-aided with
+        # ``model.classes_[preds]`` (see _reporting_probabilistic.py:266);
+        # any direct ``accuracy_score(y, model.predict(X))`` silently
+        # miscalled for any y whose value set was not ``{0..K-1}``. F-01 in
+        # the 2026-05-30 mlp audit. The ``_label_encoder`` branch is the
+        # canonical path; ``classes_`` direct indexing covers estimators
+        # loaded from an older pickle that has classes_ but no encoder; the
+        # final ``return idx`` covers multilabel / dropped-state cases.
+        if getattr(self, "_label_encoder", None) is not None:
+            return self._label_encoder.inverse_transform(idx)
+        if getattr(self, "classes_", None) is not None:
+            return self.classes_[idx]
+        return idx
 
     def predict_proba(self, X, device: Optional[str] = None, precision: Optional[str] = None, batch_size: Optional[int] = None) -> np.ndarray:
         """
