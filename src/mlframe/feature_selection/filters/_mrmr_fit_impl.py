@@ -983,7 +983,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # re-compute from the original frame as a last resort.
                 _raw_mi = []
                 for _i in range(self.n_features_in_):
-                    _key = (_i, -1)  # (feature_idx, target_idx=-1 is target)
+                    # ``cached_MIs`` is keyed by the candidate variable-index
+                    # tuple (see evaluation.py: ``cached_MIs[X] = direct_gain``,
+                    # where ``X`` is the tuple of variable indices). For
+                    # single-variable candidates the key is ``(_i,)``. The prior
+                    # ``(_i, -1)`` lookup never matched any key, so every
+                    # entry resolved to 0.0 and the fallback's top-K ranking
+                    # was a no-op (picked index 0 regardless of signal).
+                    _key = (_i,)
                     _mi = self.cached_MIs.get(_key, 0.0) if hasattr(self, "cached_MIs") else 0.0
                     _raw_mi.append((_i, float(_mi)))
                 # Sort by MI desc; pick top-K.

@@ -87,9 +87,15 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
                 f"StabilityMRMR: sample_fraction must be in (0, 1]; "
                 f"got {self.sample_fraction!r}."
             )
-        if not (0.0 < float(self.support_threshold) <= 1.0):
+        # support_threshold lives on the probability axis [0, 1] for
+        # in-range gating, but the boundary and >1 values are useful
+        # sentinels documented in the test contract: 0.0 keeps every
+        # touched feature (>=0 is always satisfied) and >1.0 produces
+        # an empty support (no probability can clear it). Accept the
+        # extended [0, +inf) interval and let the >= mask resolve it.
+        if float(self.support_threshold) < 0.0:
             raise ValueError(
-                f"StabilityMRMR: support_threshold must be in (0, 1]; "
+                f"StabilityMRMR: support_threshold must be >= 0; "
                 f"got {self.support_threshold!r}."
             )
         rng = np.random.default_rng(self.random_state)

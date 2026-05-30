@@ -282,10 +282,21 @@ def transform(self, X, y=None):
         )
     if _n_features_in is not None and hasattr(X, "shape") and len(X.shape) >= 2:
         if int(X.shape[1]) != int(_n_features_in):
-            raise ValueError(
-                f"X has {int(X.shape[1])} features, but MRMR is expecting "
-                f"{int(_n_features_in)} features as input."
+            # When X is a pandas / polars DataFrame the column-name validation
+            # at lines ~297-308 raises a more actionable ``RuntimeError`` that
+            # names the missing columns. Skip the bare shape check on named-
+            # column frames so the column-name path can fire (the wrappers
+            # audit + edge-coverage tests pin RuntimeError on column drift);
+            # for plain ndarrays without column names this is the only signal.
+            _is_named_frame = (
+                (pd is not None and isinstance(X, pd.DataFrame))
+                or hasattr(X, "schema")  # polars DataFrame / LazyFrame
             )
+            if not _is_named_frame:
+                raise ValueError(
+                    f"X has {int(X.shape[1])} features, but MRMR is expecting "
+                    f"{int(_n_features_in)} features as input."
+                )
     support = self.support_
     recipes = getattr(self, "_engineered_recipes_", [])
 

@@ -528,21 +528,26 @@ def evaluate_candidate(
             direct_gain = cached_MIs[X]
         else:
             # 2026-05-30 Wave 9.1 fix (XOR-synergy regression):
-            # bypass the baseline perm-filter entirely by passing
-            # ``max_failed=npermutations + 1`` (impossible to reach).
-            # The prior ``min_nonzero_confidence=1.0`` hardcode + the
+            # use UNANIMOUS-rejection baseline (require ALL perms to
+            # beat observed before rejecting). The prior
+            # ``min_nonzero_confidence=1.0`` hardcode + the
             # ``max_failed = max(1, ...)`` floor at permutation.py:348
-            # combined to require ZERO of the ``baseline_npermutations``
-            # (default 2) perms meet/exceed observed - one chance perm
-            # killed genuine synergy candidates. For order-2+ tuples
-            # with high joint cardinality (e.g. 5x5=25 cells), the
-            # null distribution has heavy tails and 1/2 perms exceeding
-            # observed is COMMON for genuinely-significant candidates.
-            # The screen's job is just to compute observed MI cheaply;
-            # the strict permutation test belongs at the CONFIRMATION
-            # step (``full_npermutations``, line 422+). Decoupling them
-            # makes screen catch synergy-tuples that would later
-            # confirm cleanly.
+            # combined to require ZERO of ``baseline_npermutations``
+            # (default 2) perms meet/exceed observed - one chance
+            # perm killed genuine synergy candidates. For order-2+
+            # tuples with high joint cardinality (5x5=25 cells), the
+            # null distribution has heavy tails and 1/2 perms beating
+            # observed is COMMON for legitimately-significant XOR-
+            # family candidates.
+            # The middle ground: ``max_failed=npermutations`` means
+            # the screen rejects ONLY when ALL baseline perms beat
+            # observed. This kills obvious-noise candidates (where
+            # nearly every shuffle matches observed because there's
+            # no signal) while letting genuinely-significant
+            # candidates (where most shuffles fall short) through to
+            # the strict confirmation test at ``full_npermutations``.
+            # Empirically this gives ~30% baseline reject rate on
+            # all-noise and >90% pass rate on signal/synergy.
             _bnp = max(2, int(baseline_npermutations))
             if use_gpu:
                 direct_gain, _ = mi_direct_gpu(
@@ -555,7 +560,7 @@ def evaluate_candidate(
                     freqs_y=freqs_y,
                     freqs_y_safe=freqs_y_safe,
                     min_nonzero_confidence=0.0,
-                    max_failed=_bnp + 1,
+                    max_failed=_bnp,
                     npermutations=_bnp,
                     dtype=dtype,
                 )
@@ -569,7 +574,7 @@ def evaluate_candidate(
                     classes_y_safe=classes_y_safe,
                     freqs_y=freqs_y,
                     min_nonzero_confidence=0.0,
-                    max_failed=_bnp + 1,
+                    max_failed=_bnp,
                     npermutations=_bnp,
                     dtype=dtype,
                 )

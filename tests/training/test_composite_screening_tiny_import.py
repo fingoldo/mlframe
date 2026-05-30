@@ -113,7 +113,16 @@ def test_concurrent_import_does_not_raise():
     subsequent imports against partially-loaded modules can return early)."""
 
     def _import_and_call():
-        importlib.invalidate_caches()
+        # importlib.invalidate_caches() races on Windows with keras's
+        # ``_tf_keras`` lazy finder (CPython issue: third-party finders
+        # mutate ``sys.path_importer_cache`` from a background thread
+        # while invalidate_caches() iterates it). Swallow that environment
+        # KeyError so the import-race contract we actually test (no
+        # NameError / ImportError on _y_train_clip_bounds) stays measurable.
+        try:
+            importlib.invalidate_caches()
+        except KeyError:
+            pass
         from mlframe.training._composite_screening_tiny import _y_train_clip_bounds
         lo, hi = _y_train_clip_bounds(np.array([1.0, 2.0, 3.0, 4.0, 5.0]))
         return float(lo), float(hi)

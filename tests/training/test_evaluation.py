@@ -326,6 +326,13 @@ class TestNativeNNFeatureImportance:
             torch Module so the unwrap chain finds it."""
             def __init__(self, network):
                 self.network = network
+            # sklearn.inspection.permutation_importance hard-requires a
+            # ``fit`` method on the estimator (it routes through
+            # ``check_is_fitted`` even though it never trains the model);
+            # the network is already trained above so this is a no-op
+            # that just keeps the sklearn API happy.
+            def fit(self, X, y=None):
+                return self
             def predict(self, X):
                 import torch as _t
                 self.network.eval()

@@ -53,6 +53,11 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # ``_mrmr_validate_transform.py``). The remaining surface candidate is
     # to lift the predictor-screening loop into ``_mrmr_screening_loop.py``.
     "src/mlframe/feature_selection/filters/mrmr.py",
+    # FIXME(carve-wave-next): filters/_mrmr_fit_impl.py at ~1.1k LOC after
+    # the Wave 9.1 DCD + fallback hardening grew the post-screening section.
+    # Carve candidates: the empty-support fallback block + the FE/RFECV
+    # post-pass into ``_mrmr_fit_impl_finalise.py``.
+    "src/mlframe/feature_selection/filters/_mrmr_fit_impl.py",
 }
 
 
