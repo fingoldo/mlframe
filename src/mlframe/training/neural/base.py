@@ -164,6 +164,7 @@ class PytorchLightningEstimator(BaseEstimator):
         float32_matmul_precision: str = None,
         early_stopping_rounds: int = 100,
         random_state: Optional[int] = None,
+        class_weight=None,
     ):
         # ``random_state``: sklearn-canonical seed parameter (F-06, 2026-05-30).
         # When set to an integer, ``_fit_common`` seeds torch / numpy / Python
@@ -296,6 +297,47 @@ class PytorchLightningEstimator(BaseEstimator):
                 if _y_arr_val.ndim == 2 and _y_arr_val.shape[1] == 1:
                     _y_arr_val = _y_arr_val.ravel()
                 eval_set = (eval_set[0], self._label_encoder.transform(_y_arr_val))
+
+            # F-13 (2026-05-30): sklearn-canonical ``class_weight`` support.
+            # ``class_weight="balanced"`` -> per-sample weights = n / (K * count(class))
+            # ``class_weight={cls: w, ...}`` -> per-sample weights = w[cls]
+            # ``class_weight=None`` -> no per-class weighting
+            # The resulting per-sample weights are multiplied INTO any
+            # caller-supplied ``sample_weight`` (sklearn convention) so
+            # both knobs compose: a caller can weight rare events AND
+            # rebalance classes simultaneously.
+            if self.class_weight is not None:
+                from sklearn.utils.class_weight import (
+                    compute_sample_weight as _compute_sample_weight,
+                )
+                # compute_sample_weight expects ORIGINAL (un-encoded)
+                # class labels; pass the train y BEFORE the encoder
+                # transformed it. We reconstruct the original via
+                # inverse_transform from the already-encoded ``y``.
+                _y_for_cw = self._label_encoder.inverse_transform(y)
+                _cw_weights = _compute_sample_weight(
+                    class_weight=self.class_weight, y=_y_for_cw,
+                ).astype(np.float32)
+                if sample_weight is None:
+                    sample_weight = _cw_weights
+                else:
+                    # Multiplicative composition with caller's weights.
+                    _sw_arr = np.asarray(sample_weight, dtype=np.float32).ravel()
+                    if _sw_arr.shape != _cw_weights.shape:
+                        raise ValueError(
+                            f"class_weight-derived weights shape "
+                            f"{_cw_weights.shape} != sample_weight shape "
+                            f"{_sw_arr.shape}; cannot multiply."
+                        )
+                    sample_weight = _sw_arr * _cw_weights
+                logger.info(
+                    "Applied class_weight=%r -> per-sample weights "
+                    "with mean=%.4g, min=%.4g, max=%.4g",
+                    self.class_weight,
+                    float(np.mean(sample_weight)),
+                    float(np.min(sample_weight)),
+                    float(np.max(sample_weight)),
+                )
 
         dm = self.datamodule_class(
             train_features=X,
