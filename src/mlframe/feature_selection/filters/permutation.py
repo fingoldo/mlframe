@@ -503,16 +503,36 @@ def mi_direct(
             i = -1
             _n_rows = classes_y_safe.shape[0]
             _ref = classes_y_safe.copy()  # pristine reference for per-iter reset
+            # 2026-05-30 Wave 9.1 fix (loop iter 38): use Python int with
+            # explicit uint64 masking instead of np.uint64 scalar
+            # arithmetic. The numpy scalar path emits
+            # ``RuntimeWarning: overflow encountered in scalar multiply``
+            # on EVERY Fisher-Yates iteration (n_rows iterations per perm,
+            # npermutations per call). Effects:
+            #   - hard crash under ``warnings.filterwarnings('error')``
+            #     (common in test suites; sklearn doctests trip this)
+            #   - hard error on numpy 2.x with stricter scalar policy
+            #   - stderr spam at log-noise-level (10^6+ warning lines on
+            #     a real fit) misleading users into suspecting MRMR
+            #     correctness bugs
+            # The math IS correct under numpy 1.x (scalar wraps to uint64
+            # modulus) but the warning is a contract violation; Python
+            # int + ``& MASK64`` gives bit-exact output without the
+            # numpy scalar promotion. Matches the iter-18 parallel_mi
+            # njit LCG output exactly.
+            _MASK64 = (1 << 64) - 1
+            _MUL = 6364136223846793005
+            _ADD = 1442695040888963407
+            _SEED_MUL = 2654435761
+            _base_seed_int = int(base_seed)
             for _i in range(npermutations):
                 i = _i
-                # Per-iter LCG state, index-keyed (matches parallel_mi_prange:176
-                # and parallel_mi after the iter-18 fix).
-                state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(_i + 1)
+                state = (_base_seed_int * _SEED_MUL + (_i + 1)) & _MASK64
                 # Reset to pristine before this iter's shuffle.
                 classes_y_safe[:] = _ref
                 for j in range(_n_rows - 1, 0, -1):
-                    state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
-                    k = int(state >> np.uint64(33)) % (j + 1)
+                    state = (state * _MUL + _ADD) & _MASK64
+                    k = (state >> 33) % (j + 1)
                     tmp = classes_y_safe[j]
                     classes_y_safe[j] = classes_y_safe[k]
                     classes_y_safe[k] = tmp
