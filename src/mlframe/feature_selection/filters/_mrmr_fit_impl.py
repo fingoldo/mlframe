@@ -537,6 +537,25 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             self.dcd_ = _dcd_summary(_dcd_state)
         except Exception:
             self.dcd_ = None
+        # 2026-05-30 Wave 9.1 fix (loop iter 1, agent-found bug):
+        # When DCD's ``commit_swap`` extended ``factors_data`` inside screen
+        # with PC1 aggregate columns, the swap targets land in ``selected_vars``
+        # at indices >= len(nbins) here -- the outer-scope ``data/cols/nbins``
+        # still point at the pre-swap matrix, so downstream ``_run_fe_step``
+        # crashes in ``merge_vars`` with "negative dimensions" once an
+        # aggregate index is looked up. Adopt the extended matrices back
+        # from DCDState so downstream FE / final remap sees them.
+        if _dcd_state is not None:
+            try:
+                _new_p = int(_dcd_state.factors_data.shape[1])
+                _cur_p = int(data.shape[1])
+                if _new_p > _cur_p:
+                    data = _dcd_state.factors_data
+                    cols = list(_dcd_state.cols)
+                    nbins = np.asarray(_dcd_state.factors_nbins, dtype=np.int64)
+            except Exception:
+                # Best-effort -- if DCDState is malformed, fall through.
+                pass
 
         if fe_max_steps == 0 or num_fs_steps >= fe_max_steps:
             break

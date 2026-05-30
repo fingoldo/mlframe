@@ -250,6 +250,45 @@ class TestDCDSwapPath:
         assert decision.rep_relevance >= 0.0
         assert decision.anchor_relevance_in_ctx >= 0.0
 
+    def test_swap_e2e_no_crash_when_swap_fires(self):
+        """Wave 9.1 loop-iter-1 regression: end-to-end fit MUST NOT crash
+        when ``commit_swap`` extends ``factors_data`` mid-screen. The pre-fix
+        bug produced ``ValueError: negative dimensions not allowed`` in
+        ``_run_fe_step -> merge_vars`` because the outer-scope data/cols/nbins
+        didn't pick up the extended matrix.
+        """
+        import pandas as pd
+        from mlframe.feature_selection.filters.mrmr import MRMR
+        rng = np.random.default_rng(0)
+        n = 1500
+        # 3 latent signals + 4 collinear members each + 2 noise = 15 cols
+        # large enough cluster sizes to force swaps at threshold=4.
+        cols_data = {}
+        for sig_idx in range(3):
+            latent = rng.standard_normal(n)
+            cols_data[f"sig{sig_idx}_anchor"] = latent
+            for k in range(4):
+                cols_data[f"sig{sig_idx}_copy{k}"] = (
+                    latent + 0.05 * (k + 1) * rng.standard_normal(n)
+                )
+        cols_data["noise_0"] = rng.standard_normal(n)
+        cols_data["noise_1"] = rng.standard_normal(n)
+        X = pd.DataFrame(cols_data)
+        y_signal = sum(rng.standard_normal(n) * 0.0 + cols_data[f"sig{i}_anchor"]
+                        for i in range(3))
+        y = pd.Series((y_signal > np.median(y_signal)).astype(np.int64), name="y")
+        sel = MRMR(
+            dcd_enable=True, dcd_tau_cluster=0.5,
+            dcd_cluster_size_threshold=4, dcd_swap_gain_threshold=0.0,
+            verbose=0,
+        )
+        # The pre-fix bug raised here; post-fix must complete.
+        sel.fit(X, y)
+        # Every name in support_ must be resolvable (no out-of-bounds idx).
+        names = sel.get_feature_names_out()
+        assert len(names) >= 1
+        assert all(isinstance(n, str) and len(n) > 0 for n in names)
+
     def test_commit_swap_extends_data_matrix(self):
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
             make_dcd_state, discover_cluster_members,
