@@ -401,9 +401,18 @@ class _RecurrentWrapperBase(BaseEstimator):
             )
             callbacks.append(checkpoint_callback)
 
+        # CUDA-broken-host guard: probe a tiny allocation before Lightning
+        # opens its CUDA strategy. On hosts with CUDA libs but a broken
+        # runtime (CURAND init failure, illegal memory access on first
+        # ``model_to_device``), the bare ``accelerator=self.config.accelerator``
+        # path crashes during ``Trainer.fit``. Resolving via ``safe_accelerator``
+        # downgrades ``cuda`` / ``gpu`` / ``auto`` to ``cpu`` when the probe
+        # fails so the recurrent ensemble member finishes its fit instead of
+        # poisoning the whole composite ensemble.
+        from ._base_tensor_helpers import safe_accelerator
         trainer = L.Trainer(
             max_epochs=self.config.max_epochs,
-            accelerator=self.config.accelerator,
+            accelerator=safe_accelerator(self.config.accelerator),
             precision=self.config.precision,
             callbacks=callbacks,
             gradient_clip_val=self.config.gradient_clip_val,

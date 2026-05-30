@@ -64,6 +64,31 @@ def test_biz_val_gpu_mi_batched_at_least_1_5x_faster_than_cpu_at_n10k():
     n=10000 with 500 permutations. Measured 2026-05-10 on
     GTX 1050 Ti: 1.86x. Floor 1.5x leaves headroom for slow GPUs.
     """
+    # GPU-capability gate: same rationale as test_perf_mi_direct_gpu_at_n100k.
+    # On hosts where the GPU is too old / too small / shared, the speedup
+    # contract is hardware-bound rather than a code regression. Skip with a
+    # specific reason so the sensor still polices real regressions on
+    # capable boxes.
+    cupy = pytest.importorskip("cupy")
+    try:
+        if cupy.cuda.runtime.getDeviceCount() < 1:
+            pytest.skip("no CUDA device available")
+        _dev = cupy.cuda.Device(0)
+        _major, _minor = _dev.compute_capability[0], _dev.compute_capability[1]
+        _vram_total = int(_dev.mem_info[1])  # bytes
+        if (int(_major), int(_minor)) < (6, 0):
+            pytest.skip(
+                f"GPU compute capability {_major}.{_minor} below Pascal (6.0); "
+                f"perf floors are not calibrated for this generation."
+            )
+        if _vram_total < 4 * 1024 * 1024 * 1024:
+            pytest.skip(
+                f"GPU VRAM {_vram_total / 1e9:.1f} GB below 4 GB threshold; "
+                f"launch-overhead floors do not apply on tiny devices."
+            )
+    except Exception as _gpu_info_err:
+        pytest.skip(f"CUDA runtime not usable: {_gpu_info_err}")
+
     from mlframe.feature_selection.filters.permutation import mi_direct
     from mlframe.feature_selection.filters.gpu import mi_direct_gpu_batched
 

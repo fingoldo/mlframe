@@ -800,7 +800,15 @@ class MLPRanker(BaseEstimator, RegressorMixin):
                 )
             )
 
+        # CUDA-broken-host guard: probe a 1-element allocation before
+        # Lightning auto-selects ``cuda``. On hosts where the CUDA libs are
+        # present but the runtime can't open a context (CURAND init fail /
+        # illegal memory access on first model_to_device), Lightning's
+        # ``accelerator='auto'`` crashes deep inside the strategy setup.
+        # Falling back to CPU keeps the ranker fit-able everywhere.
+        from ._base_tensor_helpers import safe_accelerator
         trainer = L.Trainer(
+            accelerator=safe_accelerator("auto"),
             max_epochs=self.n_estimators,
             enable_model_summary=False,
             enable_progress_bar=bool(self.verbose),

@@ -217,6 +217,29 @@ def test_perf_mi_direct_gpu_at_n100k():
     except Exception as e:
         pytest.skip(f"CUDA runtime not usable: {e}")
 
+    # GPU-capability gate: bail out when the host GPU is too old or too small
+    # to run this kernel competitively. The speedup floors below are calibrated
+    # for Pascal+ (compute capability 6.x+) with >= 4 GB VRAM; older / smaller
+    # devices land below the 0.1x catastrophic floor purely on hardware, NOT
+    # because of a code regression. We surface the skip so the regression
+    # sensor stays meaningful on capable hosts.
+    try:
+        _dev = cupy.cuda.Device(0)
+        _major, _minor = _dev.compute_capability[0], _dev.compute_capability[1]
+        _vram_total = int(_dev.mem_info[1])  # bytes
+        if (int(_major), int(_minor)) < (6, 0):
+            pytest.skip(
+                f"GPU compute capability {_major}.{_minor} below Pascal (6.0); "
+                f"perf floors are not calibrated for this generation."
+            )
+        if _vram_total < 4 * 1024 * 1024 * 1024:
+            pytest.skip(
+                f"GPU VRAM {_vram_total / 1e9:.1f} GB below 4 GB threshold; "
+                f"kernel residency / launch-overhead floors do not apply."
+            )
+    except Exception as _gpu_info_err:
+        pytest.skip(f"GPU capability probe failed: {_gpu_info_err}")
+
     from mlframe.feature_selection.filters.permutation import mi_direct
     from mlframe.feature_selection.filters.gpu import mi_direct_gpu
 

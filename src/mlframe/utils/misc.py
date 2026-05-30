@@ -33,6 +33,15 @@ def set_random_seed(seed: int = 42, set_hash_seed: bool = False, set_torch_seed:
         cp.random.seed(seed)
     except (ImportError, ModuleNotFoundError):
         pass
+    except Exception:
+        # cupy installed but CUDA backend unusable on this host -- e.g.
+        # ``CURAND_STATUS_INITIALIZATION_FAILED`` when libcurand can't be
+        # opened (missing CUDA libs, GPU contention, container without
+        # ``/dev/nvidia*``), or ``CUDARuntimeError`` on driver mismatch.
+        # The CPU half of the seed pair (random / numpy / numba above)
+        # is already set; silently degrade rather than poison every
+        # downstream estimator that just wants reproducible CPU paths.
+        pass
     try:
         set_numba_random_seed(seed)
     except (TypeError, ValueError, RuntimeError):

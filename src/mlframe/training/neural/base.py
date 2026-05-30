@@ -133,6 +133,7 @@ from ._base_tensor_helpers import (  # noqa: F401, E402
     to_tensor_any,
     to_numpy_safe,
     _ensure_numpy,
+    safe_accelerator,
 )
 
 # sklearn get_params/set_params carved to a sibling; bound as methods on the
@@ -395,6 +396,27 @@ class PytorchLightningEstimator(BaseEstimator):
         if not has_validation:
             logger.info("No validation data - training without validation")
             trainer_params.update({"num_sanity_val_steps": 0, "limit_val_batches": 0})
+
+        # CUDA-broken-host guard: when the caller leaves the accelerator at
+        # ``auto`` (or asks for ``cuda``/``gpu`` outright), probe a 1-element
+        # allocation BEFORE Lightning builds the strategy. On hosts with CUDA
+        # libs but a broken driver / no device / a context the calling proc
+        # can't open, ``Trainer`` would otherwise die deep inside
+        # ``model_to_device`` with ``CUDA error: an illegal memory access``;
+        # the probe lets us fall back to CPU cleanly so the fit completes.
+        # When the operator explicitly forces ``accelerator='cuda'`` and CUDA
+        # is unusable, surface that as a log warning + still downgrade
+        # (silently failing the fit on a 100-call suite is worse than
+        # ignoring a single forced flag).
+        _requested = trainer_params.get("accelerator", "auto")
+        _resolved = safe_accelerator(_requested)
+        if _resolved != _requested and _requested in ("cuda", "gpu"):
+            logger.warning(
+                "Requested accelerator=%r but CUDA probe failed; "
+                "downgrading to CPU so fit can complete.",
+                _requested,
+            )
+        trainer_params["accelerator"] = _resolved
 
         # Default logger for LearningRateMonitor compatibility. CSV logs land in the SAME per-fit subdir as the checkpoint so the
         # entire run's artifacts (ckpt + metrics + LR-monitor csvs) are co-located under one path; trivially diffable / archivable.
