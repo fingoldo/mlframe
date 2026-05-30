@@ -588,5 +588,52 @@ def per_feature_edges(
                 edges = _edges_from_quantiles(col, _fallback_nb)
             else:
                 edges = _edges_from_uniform(col, _fallback_nb)
+        # 2026-05-31: SPARSE-AWARE secondary fallback. For TF-IDF /
+        # one-hot / bag-of-words style columns (>50% mass at a single
+        # value, e.g. zero for sparse tokens) the unsupervised quantile
+        # fallback ALSO collapses: every quantile lands at the dominant
+        # value, np.unique dedups to 1-2 edges, and the resulting 1-bin
+        # column produces MI=0 with y. This silently kills sparse-token
+        # signal (Layer 20 finding: nbins_strategy='mdlp' default + 95%-
+        # zero token columns -> screening returns fallback_used_=True
+        # with support=['tok_0']). Detect the sparse-dominance pattern
+        # explicitly and split into a separate-bin for the dominant
+        # value + quantile bins on the non-dominant subset.
+        if _finite.size >= 4 and (
+            edges is None or (hasattr(edges, "size") and edges.size <= 1)
+        ):
+            _vals_sp, _counts_sp = np.unique(_finite, return_counts=True)
+            if _vals_sp.size >= 2:
+                _max_idx = int(_counts_sp.argmax())
+                _dom_frac = float(_counts_sp[_max_idx]) / float(_finite.size)
+                if _dom_frac > 0.5:
+                    _dom_val = float(_vals_sp[_max_idx])
+                    _non_dom_mask = _finite != _dom_val
+                    _non_dom = _finite[_non_dom_mask]
+                    _sparse_nb = int(kwargs.get("sparse_separate_fallback_nbins", 4))
+                    if _non_dom.size >= _sparse_nb:
+                        _qs = np.linspace(0.0, 1.0, _sparse_nb + 1)[1:-1]
+                        _sub = np.quantile(_non_dom, _qs)
+                        _sub = np.unique(_sub)
+                    else:
+                        _sub = np.unique(_non_dom)
+                    # Boundary between dominant value and non-dominant range.
+                    _non_dom_min = float(_non_dom.min())
+                    _non_dom_max = float(_non_dom.max())
+                    if _dom_val <= _non_dom_min:
+                        _boundary = 0.5 * (_dom_val + _non_dom_min)
+                        _new_edges = np.concatenate([[_boundary], _sub])
+                    elif _dom_val >= _non_dom_max:
+                        _boundary = 0.5 * (_non_dom_max + _dom_val)
+                        _new_edges = np.concatenate([_sub, [_boundary]])
+                    else:
+                        _lower_dom = float(_finite[_finite < _dom_val].max())
+                        _upper_dom = float(_finite[_finite > _dom_val].min())
+                        _new_edges = np.concatenate([
+                            _sub[_sub < _dom_val],
+                            [0.5 * (_lower_dom + _dom_val), 0.5 * (_dom_val + _upper_dom)],
+                            _sub[_sub > _dom_val],
+                        ])
+                    edges = np.unique(_new_edges)
         edges_list.append(edges)
     return edges_list
