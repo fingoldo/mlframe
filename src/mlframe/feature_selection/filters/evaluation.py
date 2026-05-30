@@ -607,11 +607,37 @@ def evaluate_candidate(
             if cand_idx in partial_gains:
                 _g, _k = partial_gains[cand_idx]
                 partial_gains[cand_idx] = (float(_g) + bonus, _k)
-            if expected_gains[cand_idx]:
-                expected_gains[cand_idx] = current_gain
-        except Exception:
-            # BUR is best-effort; never break evaluation on its account.
-            pass
+            # 2026-05-30 Wave 9.1 fix (loop iter 26): publish the BUR-
+            # bonus-inflated gain into ``expected_gains[cand_idx]``
+            # unconditionally. Pre-fix the publish was gated on
+            # ``if expected_gains[cand_idx]:`` which:
+            #   - raised KeyError on the dict-path stopped_early branch
+            #     (line 575-577 only sets expected_gains when fully
+            #     evaluated -- on stopped_early it stays absent)
+            #   - returned 0 (falsy) on the ndarray-path stopped_early
+            #     branch, skipping the publish
+            # In both cases ``partial_gains[cand_idx]`` and ``current_gain``
+            # carried the BUR bonus but the dense ranking vector
+            # ``expected_gains`` did not -- the confirmation loop's
+            # lexsort then ranked the BUR-bonus winner BELOW peers
+            # whose ``expected_gains`` entries reflected pre-bonus
+            # scores. The bare ``except Exception: pass`` silently
+            # masked the KeyError on dict-path. Drop both the gate
+            # and the bare-except so BUR actually affects ranking and
+            # programming errors surface.
+            expected_gains[cand_idx] = current_gain
+        except (KeyError, IndexError) as _bur_publish_exc:
+            # ``expected_gains`` is preallocated by ``screen_predictors``
+            # before any candidate evaluation, so a missing slot here
+            # would indicate a true invariant break - re-raise.
+            raise RuntimeError(
+                f"BUR publish failed for cand_idx={cand_idx}: {_bur_publish_exc!r}"
+            ) from _bur_publish_exc
+        except Exception as _bur_exc:
+            # Real numerical / mi-kernel failures (degenerate joints,
+            # all-NaN slices) stay best-effort: warn and continue rather
+            # than aborting the whole screen.
+            logger.warning("BUR bonus computation failed silently: %r", _bur_exc)
 
     return current_gain, sink_reasons
 
