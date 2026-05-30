@@ -233,7 +233,7 @@ def run_stress_bench(N: int = 1_000_000,
 
 def print_summary(results_dicts: List[Dict]) -> None:
     print("\n" + "=" * 110)
-    print(f"1M-ROW STRESS BENCH — Production sanity check")
+    print("1M-ROW STRESS BENCH -- Production sanity check")
     print("=" * 110)
     # Per-estimator aggregates.
     by_est: Dict[str, List[Dict]] = {}

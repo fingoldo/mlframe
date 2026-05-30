@@ -40,7 +40,7 @@
   },
   "EnsemblingConfig": {
     "kind": "class",
-    "module": "mlframe.training._model_configs",
+    "module": "mlframe.training._model_configs_ensembling",
     "mro": [
       "mlframe.training._configs_base.BaseConfig",
       "pydantic.main.BaseModel",

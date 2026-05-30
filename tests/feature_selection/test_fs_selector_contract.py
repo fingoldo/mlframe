@@ -167,8 +167,15 @@ class TestUniversalContract:
         sel = _fit_safe(factory("binary"), X, y)
         Xt = sel.transform(X)
         mask = _as_bool_mask(sel)
-        assert Xt.shape == (X.shape[0], int(mask.sum())), \
-            f"{name}: transform shape {Xt.shape} != {(X.shape[0], int(mask.sum()))}"
+        # MRMR can append engineered-recipe columns to transform output (e.g.
+        # cluster-aggregate / hermite-pair); support_ is RAW-only, so the
+        # invariant is ``raw_selected + n_engineered == n_out``. Other
+        # selectors (RFECV, ShapProxiedFS) have no engineered tail and the
+        # default ``raw_selected == n_out`` check holds.
+        n_engineered = len(getattr(sel, "_engineered_recipes_", []))
+        expected_cols = int(mask.sum()) + n_engineered
+        assert Xt.shape == (X.shape[0], expected_cols), \
+            f"{name}: transform shape {Xt.shape} != {(X.shape[0], expected_cols)} (raw_selected={int(mask.sum())}, engineered={n_engineered})"
 
     def test_transform_preserves_row_count(self, name, factory, binary_df):
         X, y = binary_df

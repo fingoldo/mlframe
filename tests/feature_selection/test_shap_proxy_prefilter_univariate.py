@@ -130,8 +130,13 @@ def test_resolve_batch_size_cache_hit(monkeypatch):
 
     import mlframe.feature_selection._shap_proxy_prefilter_univariate as mod
 
+    # resolve_batch_size imports get_kernel_tuning_cache from the PUBLIC
+    # ``mlframe.feature_selection.filters`` surface (the underscore-prefixed
+    # ``._kernel_tuning`` source path was retired during the cross-package
+    # underscore-imports cleanup). Monkeypatch the public symbol so the
+    # cache-hit branch sees the stub.
     monkeypatch.setattr(
-        "mlframe.feature_selection.filters._kernel_tuning.get_kernel_tuning_cache",
+        "mlframe.feature_selection.filters.get_kernel_tuning_cache",
         lambda: _StubCache(),
     )
     got = resolve_batch_size(20000, 10000, user_value=None)
@@ -149,7 +154,7 @@ def test_resolve_batch_size_cache_miss_falls_through(monkeypatch):
             return None
 
     monkeypatch.setattr(
-        "mlframe.feature_selection.filters._kernel_tuning.get_kernel_tuning_cache",
+        "mlframe.feature_selection.filters.get_kernel_tuning_cache",
         lambda: _StubCache(),
     )
     got = resolve_batch_size(20000, 10000, user_value=None)

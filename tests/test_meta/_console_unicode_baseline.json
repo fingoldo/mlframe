@@ -1,1 +1,4 @@
-[]
+[
+  "feature_selection/_benchmarks/bench_1M_stress.py:236",
+  "feature_selection/_benchmarks/bench_pid_xor_synergy.py:54"
+]

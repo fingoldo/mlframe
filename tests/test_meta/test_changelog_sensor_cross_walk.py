@@ -101,8 +101,14 @@ def test_each_fix_bullet_mentions_a_sensor_or_meta_test():
 
 
 def test_known_wave17_findings_cite_their_sensors():
-    """Explicit per-finding cross-walk on the Wave 17 entries this commit lands."""
-    section = _load_audit_cycle_section()
+    """Explicit per-finding cross-walk on the Wave 17 entries.
+
+    Reads the WHOLE CHANGELOG (not just the first ``_load_audit_cycle_section``
+    head) so newer ``## YYYY-MM-DD - Wave N`` entries pushed ahead of Wave 17
+    don't move the cited sensors out of the soft-scoped scan window. The
+    citations must persist anywhere in the file.
+    """
+    content = _CHANGELOG.read_text(encoding="utf-8")
     required = {
         "A5#4": "test_regression_w17_get_training_configs_memo.py",
         "A5#16": "test_regression_w17_get_training_configs_memo.py",
@@ -111,10 +117,11 @@ def test_known_wave17_findings_cite_their_sensors():
     }
     missing: list[str] = []
     for finding, sensor in required.items():
-        if sensor not in section:
+        if sensor not in content:
             missing.append(f"{finding!r} -> {sensor}")
     assert not missing, (
-        "the following Wave 17 entries do not cite the expected sensor file in the audit-cycle CHANGELOG "
-        "section -- either the sensor was renamed, the entry was omitted, or the citation is missing:\n  "
+        "the following Wave 17 entries do not cite the expected sensor file in "
+        "CHANGELOG.md -- either the sensor was renamed, the entry was omitted, "
+        "or the citation is missing:\n  "
         + "\n  ".join(missing)
     )

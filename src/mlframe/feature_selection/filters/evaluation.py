@@ -273,6 +273,7 @@ def evaluate_gain(
     confidence_mode: bool = False,
     max_confirmation_cand_nbins: int = MAX_CONFIRMATION_CAND_NBINS,
     use_su: bool = False,  # 2026-05-28: SU normalization toggle threaded from process_candidates / mrmr_fit_impl.
+    use_jmim: bool = False,  # 2026-05-30 Wave 8: JMIM aggregator toggle, threaded from the Python-level caller for the same reason as ``use_su`` -- ``@njit`` cannot do ``from X import Y`` or call a non-njit thread-local reader at runtime (IMPORT_NAME opcode is unsupported).
 ) -> tuple:
     """``max_confirmation_cand_nbins`` is a parameter (not a baked-in constant). Default mirrors the legacy value; ``MRMR.fit`` overrides with ``quantization_nbins ** interactions_max_order * 2`` unless the user pins it explicitly."""
 
@@ -312,16 +313,23 @@ def evaluate_gain(
                             # because the joint-MI computation has its own
                             # per-pair entropy cost; future sprint may add a
                             # joint-MI cache keyed on the multiset {X, Z, Y}.
-                            from .info_theory import use_jmim_aggregator
-                            _use_jmim = use_jmim_aggregator()
                             # 2026-05-28: SU branch bypasses entropy caches because the SU denominator
                             # is path-dependent and re-using cached unconditional CMI numbers would
                             # silently desync the normalization. Cheap (no caching) is correct here;
-                            # legacy raw-CMI path keeps cache wired in. ``use_su`` is threaded from
-                            # the Python-level caller (process_candidates -> evaluate_gain) so the
-                            # njit kernel doesn't need to read the Python thread-local at runtime.
-                            if _use_jmim:
-                                xz_combined = np.unique(np.concatenate((X, Z)))
+                            # legacy raw-CMI path keeps cache wired in. ``use_su`` AND ``use_jmim``
+                            # are threaded from the Python-level caller (evaluate_candidate ->
+                            # evaluate_gain) -- the njit kernel cannot read the Python thread-locals
+                            # at runtime (IMPORT_NAME / dynamic Python call are unsupported in @njit).
+                            if use_jmim:
+                                # Build the joint variable index multiset {X, Z} for JMIM's
+                                # I({X, Z}; Y). np.concatenate is supported in @njit but the
+                                # numba type-inferencer can fail to unify dtypes when X and Z
+                                # come from different upstream call paths; coerce both sides
+                                # to int64 explicitly so the unification is bit-identical to
+                                # mi()'s internal x = np.asarray(x, dtype=np.int64) cast.
+                                _x_int = np.asarray(X, dtype=np.int64)
+                                _z_int = np.asarray(Z, dtype=np.int64)
+                                xz_combined = np.unique(np.concatenate((_x_int, _z_int)))
                                 additional_knowledge = mi(
                                     factors_data=factors_data,
                                     x=xz_combined, y=y,
@@ -488,6 +496,7 @@ def evaluate_candidate(
                 can_use_x_cache=True,
                 can_use_y_cache=True,
                 use_su=use_su_normalization(),
+                use_jmim=use_jmim_aggregator(),
             )
 
             partial_gains[cand_idx] = current_gain, k

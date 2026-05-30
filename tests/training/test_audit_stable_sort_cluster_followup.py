@@ -107,7 +107,14 @@ def test_fe_baselines_secondary_key_on_name() -> None:
 
 
 def test_knockoff_helper_secondary_key_on_name() -> None:
+    # Knockoff helpers moved to sibling _knockoffs.py during the wrappers
+    # /_helpers.py monolith split (kept under 1k LOC). Concat so the source
+    # sensor matches the post-carve layout regardless of which sibling
+    # currently houses the literal.
     src = _read("feature_selection/wrappers/_helpers.py")
+    _sibling = MLFRAME_ROOT / "feature_selection" / "wrappers" / "_knockoffs.py"
+    if _sibling.exists():
+        src += "\n" + _sibling.read_text(encoding="utf-8")
     assert "selected.sort(key=lambda kv: (-kv[1], kv[0]))" in src
 
 

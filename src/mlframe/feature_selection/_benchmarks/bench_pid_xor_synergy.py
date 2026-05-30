@@ -51,7 +51,7 @@ def naive_mi(x: np.ndarray, y: np.ndarray) -> float:
 
 def main():
     print("=" * 72)
-    print("PID XOR synergy bench — Williams-Beer + Ince I_ccs")
+    print("PID XOR synergy bench -- Williams-Beer + Ince I_ccs")
     print("=" * 72)
     print()
     print(f"{'noise':>6} {'I(X1;Y)':>10} {'I(X2;Y)':>10} {'I(X1X2;Y)':>10}"

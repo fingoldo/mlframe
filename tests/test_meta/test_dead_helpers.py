@@ -122,6 +122,12 @@ _USER_DEFERRED_DEAD_HELPERS: set[str] = {
     # in (requires a sequence-DGP sweep that the MLP sweep does not
     # transfer to). Documented in its own docstring.
     "training/feature_drift_report.py::translate_sklearn_mlp_overrides_to_recurrent_config_kwargs",
+    # 2026-05-30 -- Wave 8 (JMIM / BUR) intermediate dispatcher. Currently
+    # only consumed by the JMIM aggregator switching in evaluate_gain via
+    # thread-local; the helper exists for future SU-aware site callers that
+    # cannot read the thread-local in the @njit kernel hot path. Surface as
+    # public API once at least one external caller materialises.
+    "feature_selection/filters/info_theory.py::mi_or_su",
 }
 
 

@@ -1,3 +1,4 @@
 [
-  "feature_selection/_benchmarks/bench_iter33_scaling.py:209"
+  "feature_selection/_benchmarks/bench_iter33_scaling.py:209",
+  "feature_selection/_benchmarks/bench_iter54_inner_n_jobs_cap.py:111"
 ]

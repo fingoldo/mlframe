@@ -55,7 +55,11 @@ def test_screen_predictors_n_workers_2_no_nameerror():
         n_workers=2, random_seed=42, use_simple_mode=False,
         full_npermutations=10, baseline_npermutations=4, verbose=0,
     )
-    assert isinstance(out, tuple) and len(out) == 10
+    # Return arity grew when ``dcd_state`` (drift-and-conf-diagnostics) was
+    # threaded as an extra tail value. Accept the historical 10-tuple AND
+    # the post-WIP 11-tuple so the regression sensor keeps catching the
+    # NameError it was written for, regardless of the screening tail width.
+    assert isinstance(out, tuple) and len(out) in (10, 11)
 
 
 # ---------------------------------------------------------------------------

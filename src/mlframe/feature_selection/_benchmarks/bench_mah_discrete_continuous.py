@@ -204,7 +204,7 @@ def run_bench(N: int = 5000, n_repeats: int = 2,
 
 def print_summary(results_dicts):
     print("\n" + "=" * 110)
-    print("MAH/SCI discrete-continuous bench — paper's headline regime")
+    print("MAH/SCI discrete-continuous bench -- paper's headline regime")
     print("=" * 110)
     from collections import defaultdict
     by_est = defaultdict(list)

@@ -361,7 +361,12 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         # alpha=0 degenerates Zipf to uniform; higher alpha overcompresses to small-k extremes where
         # proxy and honest agree trivially. Set ``trust_guard_cardinality_dist='uniform'`` to recover
         # pre-iter16 behaviour exactly.
-        self.trust_guard_cardinality_dist = str(trust_guard_cardinality_dist).lower()
+        # Store the raw constructor value -- sklearn's ``clone()`` compares
+        # post-init param identity (``param1 is not param2``) and a mid-init
+        # ``.lower()`` rewrite returns a fresh string object on uncached inputs
+        # which trips the "constructor modifies parameter X" check. Normalise
+        # at call sites (or via a cached property) instead.
+        self.trust_guard_cardinality_dist = trust_guard_cardinality_dist
         self.trust_guard_zipf_alpha = float(trust_guard_zipf_alpha)
         # ``trust_guard_fidelity_weights`` (iter17): weights ``(w_spearman, w_recall)`` for the
         # composite ``proxy_fidelity_score = w_spearman * spearman + w_recall * recall_at_k`` that
@@ -378,9 +383,13 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         # ``trust_guard_metric`` (iter16, default ``'proxy_fidelity_score'``): which scalar gates the
         # ``trustworthy`` boolean. ``'spearman'`` preserves pre-iter16 backwards-compat semantics for
         # callers that pinned ``spearman_floor`` against the raw Spearman scale.
-        self.trust_guard_fidelity_weights = (float(trust_guard_fidelity_weights[0]),
-                                              float(trust_guard_fidelity_weights[1]))
-        self.trust_guard_metric = str(trust_guard_metric).lower()
+        # Store raw constructor values; sklearn's ``clone()`` compares post-init
+        # param identity (``param1 is not param2``) and any constructor-time
+        # rewrite (tuple-of-floats coercion, ``.lower()`` etc.) returns fresh
+        # objects that trip the "modifies parameter X" guard. Normalise at use
+        # sites instead (see proxy_trust_guard call below).
+        self.trust_guard_fidelity_weights = trust_guard_fidelity_weights
+        self.trust_guard_metric = trust_guard_metric
         self.n_jobs = n_jobs
         # ``inner_n_jobs_cap`` (iter54, default False): controls the per-fit booster ``n_jobs`` inside
         # the OOF-SHAP / reval / refine / trust-guard parallel pools. The legacy iter4 cap (booster
@@ -866,10 +875,11 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
                     n_estimators_cap=self.trust_guard_n_estimators,
                     unit_f_scores=unit_f_scores,
                     anchor_uniform_tail_frac=self.trust_guard_uniform_tail_frac,
-                    cardinality_dist=self.trust_guard_cardinality_dist,
+                    cardinality_dist=str(self.trust_guard_cardinality_dist).lower(),
                     zipf_alpha=self.trust_guard_zipf_alpha,
-                    fidelity_weights=self.trust_guard_fidelity_weights,
-                    trustworthy_metric=self.trust_guard_metric, **rv)
+                    fidelity_weights=(float(self.trust_guard_fidelity_weights[0]),
+                                       float(self.trust_guard_fidelity_weights[1])),
+                    trustworthy_metric=str(self.trust_guard_metric).lower(), **rv)
 
         # Unified candidate re-ranking before the expensive top-N honest retrains: order by the
         # corrector's predicted honest loss (#3/#6, falls back to raw proxy) PLUS an uncertainty
