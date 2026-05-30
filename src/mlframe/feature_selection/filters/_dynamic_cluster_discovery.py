@@ -273,17 +273,32 @@ def pair_su(state: DCDState, a: int, b: int,
             dtype=dtype,
         ))
     elif state.distance == "vi":
-        # 1 - VI normalised; VI = H(X,Y) - I(X,Y); when normalised by
-        # log(K_x * K_y) stays in [0, 1]. Here we approximate via SU and
-        # transform: VI_proxy = 1 - SU, distance = SU still.
-        from .info_theory import symmetric_uncertainty
-        su = float(symmetric_uncertainty(
-            fd,
-            np.array([a], dtype=np.int64),
-            np.array([b], dtype=np.int64),
-            np.asarray(fn, dtype=np.int64),
-            dtype=dtype,
-        ))
+        # 2026-05-30 Wave 9.1 fix (loop iter 23): proper Variation of
+        # Information distance. Pre-fix this branch was a silent alias
+        # of ``"su"``: it called ``symmetric_uncertainty`` and returned
+        # SU, ignoring the user's opt-in to VI semantics. The in-source
+        # comment even confessed "Here we approximate via SU"; user got
+        # zero of the documented VI behaviour.
+        #
+        # Implementation: VI(X, Y) = H(X) + H(Y) - 2 I(X; Y) = H(X, Y)
+        # - I(X; Y). Normalised by ``log(K_x * K_y)`` -> stays in
+        # [0, 1] (Meila 2007 normalization). Returned as a similarity
+        # score ``1 - VI_norm`` so the membership rule
+        # ``score > tau_cluster`` stays semantically aligned with the
+        # SU branch ("higher = more redundant -> prune from pool").
+        from .info_theory import mi, entropy, merge_vars
+        import math
+        x_idx = np.array([a], dtype=np.int64)
+        y_idx = np.array([b], dtype=np.int64)
+        fn_arr = np.asarray(fn, dtype=np.int64)
+        mi_ab = float(mi(fd, x_idx, y_idx, fn_arr, dtype=dtype))
+        _, freqs_a, _ = merge_vars(fd, x_idx, None, fn_arr, dtype=dtype)
+        _, freqs_b, _ = merge_vars(fd, y_idx, None, fn_arr, dtype=dtype)
+        h_a = float(entropy(freqs_a))
+        h_b = float(entropy(freqs_b))
+        vi = max(0.0, h_a + h_b - 2.0 * mi_ab)
+        norm = math.log(max(2, int(fn_arr[a]) * int(fn_arr[b])))
+        su = max(0.0, 1.0 - vi / norm) if norm > 0 else 0.0
     elif state.distance == "sotoca_pla":
         # Sotoca-Pla 2010 target-aware distance
         #   d(X_i, X_j) = 2 H(X_i, X_j) - I(X_i; X_j) - I(X_i; Y) - I(X_j; Y)
