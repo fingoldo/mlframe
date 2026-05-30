@@ -125,6 +125,7 @@ def f_classif_chunked(
     y,
     *,
     batch_size: Optional[int] = None,
+    use_gemm: bool = True,
 ) -> np.ndarray:
     """Column-batched ANOVA F-statistic, sklearn ``f_classif`` parity.
 
@@ -132,7 +133,14 @@ def f_classif_chunked(
     within-group SS) and degenerate (N <= K) columns -- same sentinel ``_rank_univariate`` writes
     after the sklearn call. Allocation per batch is ``8 * n_samples * batch_size`` bytes plus K
     boolean masks of length n_samples; the original (n_samples, n_features) is never materialised
-    as float64."""
+    as float64.
+
+    ``use_gemm=True`` (default) folds the K per-class fancy-index passes into one BLAS GEMM per
+    chunk via a (K, N) class-indicator matrix; the legacy K-loop is reachable with
+    ``use_gemm=False`` for parity testing. The GEMM path is auto-disabled when X is float32
+    because sgemm's reduction order does not bit-match sklearn's per-class
+    ``safe_sqr(a).sum(axis=0)`` accumulation at single precision (~4e-4 drift), and the
+    drop-in-sklearn-parity contract from iter39 requires byte-identical float32 output."""
     X = _coerce_2d_float(X)
     n_samples, n_features = X.shape
     y_arr = np.asarray(y).ravel()
@@ -156,6 +164,20 @@ def f_classif_chunked(
     acc_dtype = X.dtype
     n_per_class = counts.astype(acc_dtype)
 
+    # GEMM requires float64 accumulation to preserve the sklearn-parity contract: at float32
+    # sgemm reorders sums differently from sklearn's per-class safe_sqr.sum(axis=0), drifting
+    # ~4e-4 vs sklearn's f_classif(X32, y) and breaking the cached-vs-fresh F-score equality
+    # tested in test_f_classif_float32_input_matches_sklearn_float32.
+    gemm_active = use_gemm and acc_dtype == np.float64
+    # Indicator matrix (K, N) for the GEMM path; one fancy-index avoided per chunk -> K passes
+    # collapse to a single BLAS dgemm call. Built once outside the chunk loop so its cost is
+    # amortised across all column batches.
+    indicators = None
+    if gemm_active:
+        indicators = np.zeros((K, N), dtype=acc_dtype)
+        for k, mask in enumerate(masks):
+            indicators[k, mask] = acc_dtype.type(1.0)
+
     bs = resolve_batch_size(n_features, n_samples, batch_size)
     bs = max(1, min(bs, n_features))
 
@@ -167,15 +189,23 @@ def f_classif_chunked(
         stop = min(start + bs, n_features)
         chunk = X[:, start:stop]  # (N, b) view
         b = stop - start
-        sums = np.empty((K, b), dtype=acc_dtype)
-        sumsq = np.empty((K, b), dtype=acc_dtype)
-        for k, mask in enumerate(masks):
-            block = chunk[mask, :]  # (n_k, b)
-            sums[k] = block.sum(axis=0)
-            # Use (block * block).sum to match sklearn's safe_sqr(a).sum(axis=0) accumulation
-            # order. einsum would route through a BLAS dot that reorders sums and breaks
-            # bit-parity with sklearn under float32.
-            sumsq[k] = (block * block).sum(axis=0)
+        if gemm_active:
+            # Single dgemm: (K,N) @ (N,b) -> (K,b). Replaces K fancy-index materialisations and
+            # K column-reductions with one BLAS call; chunk_sq is the only (N,b) scratch we pay
+            # for, same as the legacy path's (n_k,b) per-class block taken K times.
+            sums = indicators @ chunk
+            chunk_sq = chunk * chunk
+            sumsq = indicators @ chunk_sq
+        else:
+            sums = np.empty((K, b), dtype=acc_dtype)
+            sumsq = np.empty((K, b), dtype=acc_dtype)
+            for k, mask in enumerate(masks):
+                block = chunk[mask, :]  # (n_k, b)
+                sums[k] = block.sum(axis=0)
+                # Use (block * block).sum to match sklearn's safe_sqr(a).sum(axis=0) accumulation
+                # order. einsum would route through a BLAS dot that reorders sums and breaks
+                # bit-parity with sklearn under float32.
+                sumsq[k] = (block * block).sum(axis=0)
         grand_sum = sums.sum(axis=0)  # (b,)
         total_sumsq = sumsq.sum(axis=0)  # (b,)
         correction = (grand_sum * grand_sum) / acc_dtype.type(N)

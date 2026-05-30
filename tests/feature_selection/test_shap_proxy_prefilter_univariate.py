@@ -232,3 +232,79 @@ def test_f_classif_float64_input_matches_sklearn_float64():
     expected, _ = f_classif(X, y)
     got = f_classif_chunked(X, y, batch_size=256)
     np.testing.assert_allclose(got, expected, rtol=1e-10, atol=1e-12)
+
+
+# --- K-way GEMM path (iter60) -----------------------------------------------
+
+def test_f_classif_gemm_matches_legacy_kloop_binary():
+    """GEMM path must reproduce the legacy K-loop per-class accumulation to float64 round-off."""
+    rng = np.random.default_rng(601)
+    X = rng.normal(size=(500, 80)).astype(np.float64)
+    y = rng.integers(0, 2, size=500)
+    legacy = f_classif_chunked(X, y, batch_size=16, use_gemm=False)
+    gemm = f_classif_chunked(X, y, batch_size=16, use_gemm=True)
+    finite = np.isfinite(legacy) & np.isfinite(gemm)
+    # Bit-identical math at float64; tightened well below the 1e-12 commit-gate threshold.
+    np.testing.assert_allclose(gemm[finite], legacy[finite], rtol=1e-13, atol=1e-14)
+    assert np.array_equal(np.isfinite(gemm), np.isfinite(legacy))
+
+
+def test_f_classif_gemm_matches_legacy_kloop_multiclass_k3():
+    rng = np.random.default_rng(602)
+    X = rng.normal(size=(600, 60)).astype(np.float64)
+    y = rng.integers(0, 3, size=600)
+    legacy = f_classif_chunked(X, y, batch_size=8, use_gemm=False)
+    gemm = f_classif_chunked(X, y, batch_size=8, use_gemm=True)
+    finite = np.isfinite(legacy) & np.isfinite(gemm)
+    np.testing.assert_allclose(gemm[finite], legacy[finite], rtol=1e-13, atol=1e-14)
+    assert np.array_equal(np.isfinite(gemm), np.isfinite(legacy))
+
+
+def test_f_classif_gemm_matches_legacy_kloop_multiclass_k5():
+    rng = np.random.default_rng(603)
+    X = rng.normal(size=(800, 50)).astype(np.float64)
+    y = rng.integers(0, 5, size=800)
+    legacy = f_classif_chunked(X, y, batch_size=12, use_gemm=False)
+    gemm = f_classif_chunked(X, y, batch_size=12, use_gemm=True)
+    finite = np.isfinite(legacy) & np.isfinite(gemm)
+    np.testing.assert_allclose(gemm[finite], legacy[finite], rtol=1e-13, atol=1e-14)
+    assert np.array_equal(np.isfinite(gemm), np.isfinite(legacy))
+
+
+def test_f_classif_gemm_constant_column_sentinel_parity():
+    """Sentinel (-inf) on constant columns must match between GEMM and legacy paths."""
+    rng = np.random.default_rng(604)
+    X = rng.normal(size=(200, 12)).astype(np.float64)
+    X[:, 4] = 1.7   # constant within-class -> zero SSW -> -inf
+    X[:, 9] = -3.0
+    y = rng.integers(0, 3, size=200)
+    legacy = f_classif_chunked(X, y, batch_size=4, use_gemm=False)
+    gemm = f_classif_chunked(X, y, batch_size=4, use_gemm=True)
+    assert gemm[4] == -np.inf and legacy[4] == -np.inf
+    assert gemm[9] == -np.inf and legacy[9] == -np.inf
+    finite = np.isfinite(legacy) & np.isfinite(gemm)
+    np.testing.assert_allclose(gemm[finite], legacy[finite], rtol=1e-13, atol=1e-14)
+
+
+def test_f_classif_gemm_auto_disabled_at_float32():
+    """GEMM is auto-disabled when X is float32 to preserve sklearn's float32-parity contract
+    (sgemm reorders sums vs sklearn's safe_sqr.sum, drifting ~4e-4). use_gemm=True must
+    therefore reduce to the legacy K-loop path, producing bit-identical output to
+    use_gemm=False."""
+    rng = np.random.default_rng(605)
+    X = rng.normal(size=(1500, 200)).astype(np.float32)
+    y = rng.integers(0, 3, size=1500)
+    legacy = f_classif_chunked(X, y, batch_size=64, use_gemm=False)
+    gemm_requested = f_classif_chunked(X, y, batch_size=64, use_gemm=True)
+    # Auto-fallback to legacy at float32 -> bit-identical, not merely close.
+    np.testing.assert_array_equal(gemm_requested, legacy)
+
+
+def test_f_classif_gemm_default_is_on():
+    """use_gemm defaults to True; the new path must be the one exercised by existing callers."""
+    rng = np.random.default_rng(606)
+    X = rng.normal(size=(300, 40)).astype(np.float64)
+    y = rng.integers(0, 2, size=300)
+    default = f_classif_chunked(X, y, batch_size=16)
+    explicit_gemm = f_classif_chunked(X, y, batch_size=16, use_gemm=True)
+    np.testing.assert_array_equal(default, explicit_gemm)
