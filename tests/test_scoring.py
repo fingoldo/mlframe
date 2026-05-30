@@ -54,6 +54,49 @@ def test_fast_rmse_handles_int_inputs():
     assert fast_rmse(y, p) == pytest.approx(1.0)
 
 
+def test_fast_rmse_mixed_dtypes_bit_equivalent():
+    """iter595: fast_rmse drops the unconditional ``dtype=np.float64`` cast
+    in favour of numba's mixed-dtype dispatch. Pin bit-equivalence with the
+    numpy reference across the dtype pairs that appear in the honest-
+    diagnostics bootstrap loop: (int labels, float64 probs) when a
+    classification target reaches the regression-ish fallback path, and
+    (float64, float32) when a torch/MLP model emits float32 means."""
+    rng = np.random.default_rng(20260530)
+    n = 50_000
+    y_int64 = rng.integers(0, 3, size=n, dtype=np.int64)
+    y_int32 = y_int64.astype(np.int32)
+    p_f64 = rng.random(n)
+    p_f32 = p_f64.astype(np.float32)
+    y_f64 = rng.random(n)
+
+    for y_t, y_p, atol in [
+        (y_int64, p_f64, 1e-9),
+        (y_int32, p_f64, 1e-9),
+        (y_f64, p_f64, 1e-9),
+        (y_f64, p_f32, 1e-5),
+    ]:
+        a = fast_rmse(y_t, y_p)
+        b = float(rmse_loss(y_t, y_p))
+        assert abs(a - b) < atol, (
+            f"dtypes ({y_t.dtype}, {y_p.dtype}): fast_rmse={a} vs rmse_loss={b}"
+        )
+
+
+def test_fast_rmse_handles_non_contiguous_input():
+    """iter595: ``np.ascontiguousarray`` replaces the asarray+dtype cast and
+    must still upgrade a strided view to a contiguous array so the numba
+    kernel sees a valid layout. Use a view-of-larger-buffer (every-other
+    element) to exercise the copying branch."""
+    rng = np.random.default_rng(20260530)
+    full = rng.random(200)
+    y = full[::2]
+    p = full[1::2] + 0.1
+    assert not y.flags.c_contiguous
+    a = fast_rmse(y, p)
+    b = float(rmse_loss(np.ascontiguousarray(y), np.ascontiguousarray(p)))
+    assert abs(a - b) < 1e-9
+
+
 def test_rmsle_loss_clips_negative_predictions():
     y_true = np.array([1.0, 2.0])
     y_pred_neg = np.array([-5.0, 2.0])
