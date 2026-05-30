@@ -402,33 +402,52 @@ def pair_su(state: DCDState, a: int, b: int,
         # Sotoca-Pla 2010 target-aware distance
         #   d(X_i, X_j) = 2 H(X_i, X_j) - I(X_i; X_j) - I(X_i; Y) - I(X_j; Y)
         # Normalised by 2 H(X_i, X_j) to stay in [0, 1] range.
+        # iter616: same fn_arr + pair_buf caching pattern as the SU /
+        # VI branches above (iter587 / 589 / 590). Pre-fix this branch
+        # paid 5x ``np.asarray(fn, dtype=np.int64)`` + 5x ``np.array(
+        # [a|b|...], dtype=np.int64)`` allocations per pair call -- the
+        # SU branch saved 1.84x with this same pattern; SOTOCA_PLA has
+        # even more redundant allocations per call (5 fn_arr + 5 pair_-
+        # arr) so the saving should be at least as large.
+        fn_arr = state._fn_arr_cached
+        if fn_arr is None:
+            fn_arr = np.asarray(fn, dtype=np.int64)
+            state._fn_arr_cached = fn_arr
+        pair_buf = state._pair_idx_buf
+        if pair_buf is None:
+            pair_buf = np.empty(2, dtype=np.int64)
+            state._pair_idx_buf = pair_buf
         # Fallback to SU if target_indices unavailable.
         if state.target_indices is None or state.target_indices.size == 0:
             from .info_theory import symmetric_uncertainty
+            pair_buf[0] = a
+            pair_buf[1] = b
             su = float(symmetric_uncertainty(
                 fd,
-                np.array([a], dtype=np.int64),
-                np.array([b], dtype=np.int64),
-                np.asarray(fn, dtype=np.int64),
+                pair_buf[0:1],
+                pair_buf[1:2],
+                fn_arr,
                 dtype=dtype,
             ))
         else:
             from .info_theory import mi, entropy, merge_vars
-            mi_ab = float(mi(fd, np.array([a], dtype=np.int64),
-                              np.array([b], dtype=np.int64),
-                              np.asarray(fn, dtype=np.int64), dtype=dtype))
-            mi_ay = float(mi(fd, np.array([a], dtype=np.int64),
+            pair_buf[0] = a
+            pair_buf[1] = b
+            mi_ab = float(mi(fd, pair_buf[0:1], pair_buf[1:2],
+                              fn_arr, dtype=dtype))
+            mi_ay = float(mi(fd, pair_buf[0:1],
                               state.target_indices,
-                              np.asarray(fn, dtype=np.int64), dtype=dtype))
-            mi_by = float(mi(fd, np.array([b], dtype=np.int64),
+                              fn_arr, dtype=dtype))
+            mi_by = float(mi(fd, pair_buf[1:2],
                               state.target_indices,
-                              np.asarray(fn, dtype=np.int64), dtype=dtype))
-            # H(X_a, X_b) via concatenated vars_indices.
+                              fn_arr, dtype=dtype))
+            # H(X_a, X_b) via concatenated vars_indices. pair_buf
+            # already has [a, b]; pass the full 2-element slice.
             _, freqs_ab, _ = merge_vars(
                 factors_data=fd,
-                vars_indices=np.array([a, b], dtype=np.int64),
+                vars_indices=pair_buf,
                 var_is_nominal=None,
-                factors_nbins=np.asarray(fn, dtype=np.int64),
+                factors_nbins=fn_arr,
                 dtype=dtype,
             )
             h_ab = float(entropy(freqs_ab))
