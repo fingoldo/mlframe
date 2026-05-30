@@ -117,9 +117,24 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _x_cols_sig = tuple(str(c) for c in X.columns)
         except Exception:
             _x_cols_sig = None
-    signature = (X.shape, y.shape, _y_hash_for_sig, _x_cols_sig)
+    # 2026-05-30 Wave 9.1 fix (loop iter 36): fold X content hash into
+    # the shortcut signature. Pre-fix the signature was
+    # ``(X.shape, y.shape, y_hash, x_cols)`` - X CONTENT was absent.
+    # Refitting the same MRMR instance on a different-content X with
+    # identical shape + column names + y silently replayed the prior
+    # fit, returning stale ``support_``. Affects sklearn CV with
+    # clone=False, partial_fit-style retraining loops, and rolling-
+    # window online retraining where shape+column-names+y are
+    # constant. The companion ``_FIT_CACHE`` path below already folded
+    # ``_full_x_content_hash`` - asymmetric guarantees between the two
+    # cache layers. Fold X content hash here so both layers agree.
+    _x_hash_for_sig = _full_x_content_hash(X)
+    signature = (X.shape, y.shape, _y_hash_for_sig, _x_hash_for_sig, _x_cols_sig)
     if self.skip_retraining_on_same_shape:
-        if signature == self.signature:
+        # Empty X hash (uncacheable) => fall through to full fit to
+        # avoid risking a wrong replay, mirroring the _FIT_CACHE rule
+        # at line 144 below.
+        if signature == self.signature and _x_hash_for_sig:
             if self.verbose:
                 logger.info("Skipping retraining on the same inputs signature %s", signature)
             return self
