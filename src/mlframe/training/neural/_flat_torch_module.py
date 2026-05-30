@@ -586,6 +586,13 @@ class MLPTorchModel(L.LightningModule):
         with torch.no_grad():
             logits = self(x)
 
+        # task_type='regression' (F-24) returns raw values regardless of
+        # shape -- including (N, K) multi-target regression where the prior
+        # ``logits.shape[1] > 1`` softmax branch would have silently
+        # mangled the outputs. Check this FIRST so it short-circuits
+        # before any classification-flavoured transform.
+        if self.task_type == "regression":
+            return logits
         # task_type='multilabel' returns per-label sigmoid (each output independent binary in [0, 1]);
         # task_type='binary' (F-05) returns sigmoid of 1-output logit -> P(y=1) shape (N, 1);
         # default multi-class K>1 path returns softmax rows that sum to 1.
@@ -598,5 +605,5 @@ class MLPTorchModel(L.LightningModule):
             # The classifier wrapper stacks [1-p, p] for the (N, 2) contract.
             return torch.sigmoid(logits)
         else:
-            # Regression: return raw values.
+            # Regression (no task_type tag — legacy path): return raw values.
             return logits

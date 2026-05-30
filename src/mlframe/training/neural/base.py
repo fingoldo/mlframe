@@ -478,7 +478,19 @@ class PytorchLightningEstimator(BaseEstimator):
                         self.classes_ = np.asarray(sorted(_y_arr, key=lambda v: (v is None, str(v))))
                 num_classes = len(self.classes_)
         else:
-            num_classes = 1
+            # F-24 (2026-05-31): native multi-target regression. When y has
+            # shape (N, K>=2) for a regressor (not multilabel), train K
+            # output heads sharing the trunk. MSE between (N, K) preds and
+            # (N, K) labels works without any loss-shape gymnastics.
+            # Single-target (N,) or (N, 1) y keeps num_classes=1.
+            _y_check_reg = y.values if isinstance(y, pd.Series) else y
+            _y_check_reg = np.asarray(_y_check_reg) if not isinstance(_y_check_reg, np.ndarray) else _y_check_reg
+            if _y_check_reg.ndim == 2 and _y_check_reg.shape[1] >= 2:
+                num_classes = int(_y_check_reg.shape[1])
+                self._is_multi_target_regression = True
+            else:
+                num_classes = 1
+                self._is_multi_target_regression = False
             self._is_multilabel = False
 
         # F-05 (2026-05-30): binary uses 1-output sigmoid + BCE instead of
@@ -505,6 +517,7 @@ class PytorchLightningEstimator(BaseEstimator):
         if (
             _out_act == "tanh_train_range"
             and num_classes == 1
+            and not getattr(self, "_is_multi_target_regression", False)
             and _net_params.get("output_activation_scale") is None
             and _net_params.get("output_activation_center") is None
         ):
@@ -694,6 +707,13 @@ class PytorchLightningEstimator(BaseEstimator):
             # and the classifier wrapper stacks (N, 2).
             _local_model_params["loss_fn"] = torch.nn.BCEWithLogitsLoss()
             _local_model_params["task_type"] = "binary"
+        elif isinstance(self, RegressorMixin):
+            # F-24 (2026-05-31): tag regressors so predict_step returns
+            # raw values for ALL shapes including (N, K>=2) multi-target.
+            # Without this tag, predict_step's existing
+            # ``logits.shape[1] > 1`` branch would mistakenly apply
+            # softmax to (N, K) regression outputs.
+            _local_model_params["task_type"] = "regression"
 
         with trainer.init_module():
             self.model = self.model_class(network=self.network, metrics=metrics, **_local_model_params)

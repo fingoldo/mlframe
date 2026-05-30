@@ -76,54 +76,58 @@ def _regressor_params():
     }
 
 
-def test_multi_target_regression_current_state():
-    """SNAPSHOT test: probe what PytorchLightningRegressor does with
-    a (N, K=3) y. We assert at most ONE of:
-      (a) fit() raises a clear shape-mismatch error, OR
-      (b) fit() completes and predict returns shape (N, K=3) with
-          R^2 > 0.5 per column (real multi-target support)
-      (c) fit() completes but predict returns shape (N,) or (N, 1)
-          (silent degeneration — current expected)
+def test_multi_target_regression_k3_native_support():
+    """F-24 (2026-05-31): PytorchLightningRegressor natively supports
+    multi-target y of shape (N, K>=2). Detection lives in _fit_common's
+    regressor branch -> num_classes = K -> network outputs K heads
+    sharing the trunk; MSE between (N, K) preds and (N, K) labels
+    works without loss-shape gymnastics.
 
-    If (b), multi-target is supported and this test passes the strong
-    assertion. If (a) or (c), the test passes the weak assertion and
-    DOCUMENTS what we currently do.
+    Strong assertions:
+      * fit() completes without raising
+      * predict() returns shape exactly (N, K)
+      * per-column R^2 > 0.5 (network actually learned each target)
+      * the estimator's ``_is_multi_target_regression`` flag is True
     """
     data = _make_multi_target_data(k=3)
     reg = PytorchLightningRegressor(**_regressor_params())
-    try:
-        reg.fit(data["X_train"], data["y_train"])
-    except Exception as e:
-        print(f"\nMulti-target regression fit() raised: {type(e).__name__}: {e}")
-        # Acceptable outcome (a): explicit reject is the ideal behaviour.
-        return
+    reg.fit(data["X_train"], data["y_train"])
 
-    try:
-        preds = reg.predict(data["X_test"])
-    except Exception as e:
-        print(f"\nMulti-target predict() raised: {type(e).__name__}: {e}")
-        return
+    assert getattr(reg, "_is_multi_target_regression", False) is True
 
-    print(f"\nMulti-target predict shape: {preds.shape} "
-          f"(y_test shape: {data['y_test'].shape})")
+    preds = reg.predict(data["X_test"])
+    assert preds.shape == data["y_test"].shape
 
-    if preds.shape == data["y_test"].shape:
-        per_col_r2 = [
-            r2_score(data["y_test"][:, k], preds[:, k]) for k in range(preds.shape[1])
-        ]
-        print(f"Per-column R^2: {per_col_r2}")
-        # If we reached here AND R^2 is good per column, multi-target works.
-        if min(per_col_r2) > 0.5:
-            print("✓ Multi-target regression: SUPPORTED (per-column R^2 > 0.5)")
-            return
-
-    # Documented degeneration (c): predict shape doesn't match labels,
-    # OR R^2 is poor per column. Snapshot the current state.
-    print(
-        "Multi-target regression: DEGENERATED on this estimator. "
-        "Expected: detect (N, K>=2) y in _fit_common, route num_classes -> K, "
-        "train K output heads."
+    per_col_r2 = [
+        r2_score(data["y_test"][:, k], preds[:, k]) for k in range(preds.shape[1])
+    ]
+    print(f"\nF-24 multi-target (K=3) per-column R^2: {per_col_r2}")
+    assert min(per_col_r2) > 0.5, (
+        f"per-column R^2 = {per_col_r2}; multi-target MLP did not learn "
+        "each target. Expected per-column R^2 > 0.5 on this clean "
+        "linear synthetic problem."
     )
+
+
+def test_multi_target_regression_k2_native_support():
+    """Same property at K=2 (smallest non-trivial multi-target)."""
+    data = _make_multi_target_data(k=2)
+    reg = PytorchLightningRegressor(**_regressor_params())
+    reg.fit(data["X_train"], data["y_train"])
+    assert reg._is_multi_target_regression is True
+    preds = reg.predict(data["X_test"])
+    assert preds.shape == (data["X_test"].shape[0], 2)
+    per_col_r2 = [r2_score(data["y_test"][:, k], preds[:, k]) for k in range(2)]
+    print(f"\nF-24 multi-target (K=2) per-column R^2: {per_col_r2}")
+    assert min(per_col_r2) > 0.5
+
+
+def test_multi_target_predict_proba_does_not_apply():
+    """Sanity: multi-target REGRESSOR doesn't have predict_proba."""
+    data = _make_multi_target_data(k=3)
+    reg = PytorchLightningRegressor(**_regressor_params())
+    reg.fit(data["X_train"], data["y_train"])
+    assert not hasattr(reg, "predict_proba")
 
 
 def test_single_target_regression_with_2d_y_n_1_still_works():
