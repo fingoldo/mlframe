@@ -548,18 +548,48 @@ def screen_predictors(
                                             # Re-snapshot data_copy for the next
                                             # confirm cycle (used by Fleuret).
                                             data_copy = factors_data.copy()
+                                            # 2026-05-30 Wave 9.1 fix (loop iter 2):
+                                            # confirm_one_predictor reads ctx.factors_data
+                                            # and ctx.data_copy at the top of every call;
+                                            # without these writes, subsequent confirmations
+                                            # in this screen invocation index into the OLD
+                                            # matrix with selected_vars holding the NEW
+                                            # post-swap index -> silent OOB under
+                                            # numba boundscheck=False, IndexError otherwise.
+                                            ctx.factors_data = factors_data
+                                            ctx.factors_nbins = factors_nbins
+                                            ctx.factors_names = factors_names
+                                            ctx.data_copy = data_copy
                                             if verbose:
                                                 logger.info(
                                                     "DCD swap: anchor %s -> aggregate idx %d (%d members)",
                                                     var, _new_idx, len(_cluster_members),
                                                 )
+                                except (IndexError, AttributeError, KeyError, TypeError) as _dcd_exc:
+                                    # 2026-05-30 Wave 9.1 fix (loop iter 2):
+                                    # programming errors MUST surface. Silently
+                                    # swallowing IndexError under verbose=0 is
+                                    # how the matrix-propagation gap slipped
+                                    # past testing in the first place. Numerical
+                                    # / binning edge cases (NaN/Inf in SU, SVD
+                                    # convergence) are caught one level down in
+                                    # the DCD module itself.
+                                    raise RuntimeError(
+                                        f"DCD discover/swap raised a programming "
+                                        f"error -- this indicates an mlframe bug, "
+                                        f"not a data issue: {_dcd_exc!r}"
+                                    ) from _dcd_exc
                                 except Exception as _dcd_exc:
-                                    # DCD is best-effort; never break screening on its account.
-                                    if verbose:
-                                        logger.warning(
-                                            "DCD discover/swap step failed silently: %r",
-                                            _dcd_exc,
-                                        )
+                                    # Genuinely best-effort -- numeric / fitting
+                                    # failures inside DCD (e.g. all-constant
+                                    # cluster, degenerate PC1) should not break
+                                    # the screen. These ARE expected on pathologic
+                                    # inputs; surface with a warning regardless of
+                                    # verbose level.
+                                    logger.warning(
+                                        "DCD discover/swap step failed: %r",
+                                        _dcd_exc,
+                                    )
                     cand_name = get_candidate_name(best_candidate, factors_names=factors_names)
 
                     res = {"name": cand_name, "indices": best_candidate, "gain": best_gain}

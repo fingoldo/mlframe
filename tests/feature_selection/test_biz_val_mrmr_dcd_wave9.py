@@ -289,6 +289,59 @@ class TestDCDSwapPath:
         assert len(names) >= 1
         assert all(isinstance(n, str) and len(n) > 0 for n in names)
 
+    def test_swap_does_not_corrupt_subsequent_confirmations(self):
+        """Wave 9.1 loop-iter-2 regression: after ``commit_swap`` extends the
+        matrix, ``ctx.factors_data``/``ctx.factors_nbins``/``ctx.factors_names``/
+        ``ctx.data_copy`` MUST be written too, else the next call to
+        ``confirm_one_predictor(ctx, ...)`` within the SAME screen invocation
+        sees a stale matrix and ``selected_vars`` containing the post-swap
+        index that's out of bounds for the stale matrix - silent OOB under
+        numba ``boundscheck=False`` or ``IndexError`` otherwise. Crucially,
+        we want at least 2 confirmations AFTER the swap to exercise the
+        re-read of ``ctx.factors_data`` inside ``confirm_one_predictor``.
+        """
+        import pandas as pd
+        from mlframe.feature_selection.filters.mrmr import MRMR
+        rng = np.random.default_rng(7)
+        n = 2000
+        # one strong cluster (forces swap early), then several independent
+        # signals (force multiple subsequent confirmations that re-enter
+        # confirm_one_predictor reading from ctx).
+        latent = rng.standard_normal(n)
+        cols_data = {"clu_anchor": latent}
+        for k in range(5):
+            cols_data[f"clu_copy{k}"] = latent + 0.05 * (k + 1) * rng.standard_normal(n)
+        # 5 independent signals that should each be confirmed AFTER the swap.
+        independents = []
+        for j in range(5):
+            s = rng.standard_normal(n)
+            cols_data[f"ind{j}"] = s
+            independents.append(s)
+        X = pd.DataFrame(cols_data)
+        # y depends on latent + every independent -> each ind is a true
+        # post-swap candidate that must be confirmable.
+        y_signal = latent + sum(independents)
+        y = pd.Series((y_signal > np.median(y_signal)).astype(np.int64), name="y")
+        sel = MRMR(
+            dcd_enable=True, dcd_tau_cluster=0.5,
+            dcd_cluster_size_threshold=5, dcd_swap_gain_threshold=0.0,
+            verbose=0,
+        )
+        # Pre-fix: stale ctx.factors_data -> next confirm reads
+        # selected_vars=[NEW_IDX] against old matrix -> crash / silent OOB.
+        sel.fit(X, y)
+        names = sel.get_feature_names_out()
+        assert len(names) >= 1
+        # At least one independent must survive (proves >=1 successful
+        # confirmation took place AFTER the swap).
+        if sel.dcd_ and sel.dcd_.get("swap_log"):
+            ind_names = {f"ind{j}" for j in range(5)}
+            confirmed_post_swap = ind_names & set(names)
+            assert len(confirmed_post_swap) >= 1, (
+                f"No independent signal confirmed after swap -- ctx propagation "
+                f"likely silently corrupted. selected={names}"
+            )
+
     def test_commit_swap_extends_data_matrix(self):
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
             make_dcd_state, discover_cluster_members,
