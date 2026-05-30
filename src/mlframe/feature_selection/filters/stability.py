@@ -67,10 +67,42 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
 
     def fit(self, X, y):
         from joblib import Parallel, delayed
+        # 2026-05-30 Wave 9.1 fix (loop iter 41): input validation.
+        # Pre-fix:
+        #   * sample_fraction=0.05 with n=10 -> sub_size=int(0.5)=0,
+        #     every clone got X[0:0] (empty fit), silent garbage
+        #     ``selection_probabilities_``.
+        #   * n_bootstraps=0 -> counts / 0 = NaN, ``support_=[]``
+        #     indistinguishable from a legitimate "all below threshold"
+        #     result.
+        #   * Negative / out-of-range params leaked to numpy with
+        #     unhelpful errors.
+        if not isinstance(self.n_bootstraps, (int, np.integer)) or self.n_bootstraps < 1:
+            raise ValueError(
+                f"StabilityMRMR: n_bootstraps must be a positive integer; "
+                f"got {self.n_bootstraps!r}."
+            )
+        if not (0.0 < float(self.sample_fraction) <= 1.0):
+            raise ValueError(
+                f"StabilityMRMR: sample_fraction must be in (0, 1]; "
+                f"got {self.sample_fraction!r}."
+            )
+        if not (0.0 < float(self.support_threshold) <= 1.0):
+            raise ValueError(
+                f"StabilityMRMR: support_threshold must be in (0, 1]; "
+                f"got {self.support_threshold!r}."
+            )
         rng = np.random.default_rng(self.random_state)
         n_samples = X.shape[0]
         n_features = X.shape[1]
-        sub_size = int(self.sample_fraction * n_samples)
+        # Floor at 2 so a clone never sees 0/1-row fit (numerically
+        # degenerate; MI estimators raise or return NaN at n<2).
+        sub_size = max(2, int(round(self.sample_fraction * n_samples)))
+        if sub_size > n_samples:
+            raise ValueError(
+                f"StabilityMRMR: sub_size ({sub_size}) exceeds n_samples "
+                f"({n_samples}); reduce sample_fraction."
+            )
 
         # Generate seeds upfront so the bootstrap is deterministic for a given ``random_state`` regardless of joblib worker order.
         seeds = rng.integers(0, 2 ** 31 - 1, size=self.n_bootstraps)
