@@ -181,6 +181,29 @@ def pid_decomposition(x1: np.ndarray, x2: np.ndarray, y: np.ndarray,
     if n == 0:
         return {"redundant": 0.0, "unique_x1": 0.0, "unique_x2": 0.0,
                 "synergistic": 0.0, "total": 0.0}
+    # 2026-05-30 Wave 9.1 fix (loop iter 24): validate index ranges
+    # explicitly. Pre-fix the joint-tabulation loop accepted negative
+    # values silently because numpy negative-indexing wraps to the last
+    # bin: x1[i]=-1 -> joint[K_x1-1, ...] += 1. Upper-bound overflow
+    # correctly raised IndexError (asymmetric handling - the smoking
+    # gun). Downstream NaN-sentinel callers (e.g. discretizers that
+    # use -1 for NaN per iter-11 convention) would silently corrupt
+    # PID output. Mirror the explicit-raise pattern from iter 13
+    # (factorize raise) and iter 22 (target_encoding raise).
+    if (x1 < 0).any() or (x2 < 0).any() or (y < 0).any():
+        raise ValueError(
+            "pid_decomposition: negative integer indices not allowed; "
+            "drop or recode NaN sentinels before calling. "
+            f"Got x1.min()={int(x1.min())}, x2.min()={int(x2.min())}, "
+            f"y.min()={int(y.min())}."
+        )
+    if int(x1.max()) >= int(K_x1) or int(x2.max()) >= int(K_x2) or int(y.max()) >= int(K_y):
+        raise ValueError(
+            "pid_decomposition: index exceeds declared cardinality. "
+            f"Got x1.max()={int(x1.max())} K_x1={K_x1}, "
+            f"x2.max()={int(x2.max())} K_x2={K_x2}, "
+            f"y.max()={int(y.max())} K_y={K_y}."
+        )
     joint = np.zeros((int(K_x1), int(K_x2), int(K_y)), dtype=np.float64)
     for i in range(n):
         joint[x1[i], x2[i], y[i]] += 1.0
