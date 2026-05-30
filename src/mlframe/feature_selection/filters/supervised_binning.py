@@ -59,7 +59,27 @@ def mdlp_bin_edges(
             Default ``False`` preserves the bench baseline.
     """
     x = np.asarray(x).ravel()
-    y = np.asarray(y).ravel().astype(np.int64)
+    # 2026-05-30 Wave 9.1 fix (loop iter 50): handle non-numeric y
+    # dtypes (string / object / pandas Categorical / pandas StringDtype).
+    # Pre-fix the raw ``.astype(np.int64)`` cast crashed with
+    # ``ValueError: invalid literal for int() with base 10: 'yes'`` on
+    # any classifier user passing string labels (the standard sklearn
+    # convention) or pandas Categorical (LabelEncoder / .astype('category')
+    # output). Error pointed into MDLP internals, not into y dtype, so
+    # caller debugging was hard. MDLP only needs class-IDENTITY (label
+    # equality at split-purity computation), so factorize is sufficient
+    # and order-preserving for already-integer-encoded inputs.
+    _y_arr = np.asarray(y).ravel()
+    if _y_arr.dtype.kind in ("O", "U", "S") or _y_arr.dtype.name in (
+        "category", "string", "object",
+    ):
+        try:
+            import pandas as _pd_iter50
+            _y_arr, _ = _pd_iter50.factorize(_y_arr, sort=True)
+        except Exception:
+            # Fallback: numpy-only label encode via unique.
+            _uniq, _y_arr = np.unique(_y_arr, return_inverse=True)
+    y = _y_arr.astype(np.int64)
     if len(x) != len(y):
         raise ValueError(f"len(x)={len(x)} != len(y)={len(y)}")
     if scaled_min_split:
