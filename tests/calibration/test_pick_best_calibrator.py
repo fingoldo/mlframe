@@ -120,3 +120,20 @@ def test_calibration_config_default_policy_on():
     assert cfg.alpha == 0.05
     assert cfg.n_bootstrap == 1000
     assert cfg.emit_plot is False
+
+
+def test_iter598_ece_score_mixed_dtype_bit_equivalent():
+    """iter598 dropped the unconditional ``dtype=np.float64`` cast on
+    ``y_true`` inside ``_ece_score``. The numba kernel only uses ``yi``
+    in ``sum_y[b] += yi`` where sum_y is float64 -- mixed-dtype dispatch
+    widens at the accumulator just like the explicit cast did. Pin
+    bit-equivalence across (int64, int8, float64) labels."""
+    from mlframe.calibration import policy as _policy
+    rng = np.random.default_rng(20260531)
+    n = 5_000
+    y_int = rng.integers(0, 2, size=n, dtype=np.int64)
+    p_f64 = np.clip(rng.random(n), 0.01, 0.99)
+    ref = _policy._ece_score(y_int.astype(np.float64), p_f64)
+    for y_t in (y_int, y_int.astype(np.int8), y_int.astype(np.int32)):
+        v = _policy._ece_score(y_t, p_f64)
+        assert abs(v - ref) < 1e-12, f"label dtype {y_t.dtype}: got={v} ref={ref}"

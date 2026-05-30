@@ -118,7 +118,13 @@ def _ece_score(y_true: np.ndarray, p_pred: np.ndarray, n_bins: int = DEFAULT_ECE
     if p.ndim == 2 and p.shape[1] >= 2:
         p = p[:, 1]
     p = np.ascontiguousarray(p.ravel())
-    y = np.ascontiguousarray(np.asarray(y_true, dtype=np.float64).ravel())
+    # iter598: dropped the unconditional ``dtype=np.float64`` cast on
+    # y_true (same pattern as iter595/596/597). The kernel only uses
+    # ``yi`` in ``sum_y[b] += yi`` where sum_y is float64; mixed-dtype
+    # numba dispatch widens at the accumulator, identical to the upfront
+    # cast result. Bench n=100k: int64 1.40x, int8 1.27x, float64 0.99x
+    # (no harm); n=25k int64 (bootstrap typical) 1.33x. Bit-equivalent.
+    y = np.ascontiguousarray(np.asarray(y_true).ravel())
     if p.size == 0 or y.size != p.size:
         return float("nan")
     return _ece_score_numba_serial(y, p, int(n_bins))
