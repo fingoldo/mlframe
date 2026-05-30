@@ -485,65 +485,41 @@ def mi_direct(
             if nfailed >= max_failed:
                 original_mi = 0.0
         else:
-            # 2026-05-30 Wave 9.1 fix (loop iter 18): use the SAME per-iter
-            # LCG seeding scheme as the new ``parallel_mi`` (and as
-            # ``parallel_mi_prange``) so the sequential fallback path is
-            # bit-exact with the outer-parallel path for any ``base_seed``
-            # and ``npermutations``. Pre-fix this branch used a state-
-            # threaded LCG advanced once per iteration from ``base_seed``,
-            # producing a stream that diverged from both
-            # ``parallel_mi_prange``'s per-iter seeding and the new
-            # ``parallel_mi``'s per-iter seeding. Net effect: ``mi_direct``
-            # with ``n_workers=1`` and ``n_workers=2`` gave different
-            # confidence values even with frozen ``base_seed``.
-            if classes_y_safe is None:
-                classes_y_safe = classes_y.copy()
-            else:
-                classes_y_safe = np.asarray(classes_y_safe).copy()
-            i = -1
-            _n_rows = classes_y_safe.shape[0]
-            _ref = classes_y_safe.copy()  # pristine reference for per-iter reset
-            # 2026-05-30 Wave 9.1 fix (loop iter 38): use Python int with
-            # explicit uint64 masking instead of np.uint64 scalar
-            # arithmetic. The numpy scalar path emits
-            # ``RuntimeWarning: overflow encountered in scalar multiply``
-            # on EVERY Fisher-Yates iteration (n_rows iterations per perm,
-            # npermutations per call). Effects:
-            #   - hard crash under ``warnings.filterwarnings('error')``
-            #     (common in test suites; sklearn doctests trip this)
-            #   - hard error on numpy 2.x with stricter scalar policy
-            #   - stderr spam at log-noise-level (10^6+ warning lines on
-            #     a real fit) misleading users into suspecting MRMR
-            #     correctness bugs
-            # The math IS correct under numpy 1.x (scalar wraps to uint64
-            # modulus) but the warning is a contract violation; Python
-            # int + ``& MASK64`` gives bit-exact output without the
-            # numpy scalar promotion. Matches the iter-18 parallel_mi
-            # njit LCG output exactly.
-            _MASK64 = (1 << 64) - 1
-            _MUL = 6364136223846793005
-            _ADD = 1442695040888963407
-            _SEED_MUL = 2654435761
-            _base_seed_int = int(base_seed)
-            for _i in range(npermutations):
-                i = _i
-                state = (_base_seed_int * _SEED_MUL + (_i + 1)) & _MASK64
-                # Reset to pristine before this iter's shuffle.
-                classes_y_safe[:] = _ref
-                for j in range(_n_rows - 1, 0, -1):
-                    state = (state * _MUL + _ADD) & _MASK64
-                    k = (state >> 33) % (j + 1)
-                    tmp = classes_y_safe[j]
-                    classes_y_safe[j] = classes_y_safe[k]
-                    classes_y_safe[k] = tmp
-                mi = compute_relevance_score(
-                    _use_su, classes_x, freqs_x, classes_y_safe, freqs_y, dtype=dtype,
-                )
-                if mi >= original_mi:
-                    nfailed += 1
-                    if nfailed >= max_failed:
-                        original_mi = 0.0
-                        break
+            # 2026-05-30 iter573: route to ``parallel_mi_prange`` (the
+            # njit @njit(parallel=True) kernel) for the n_workers<=1 /
+            # parallelism="outer" fallback. The kernel was previously
+            # gated by ``parallelism == "inner" AND npermutations >
+            # NMAX_NONPARALLEL_ITERS=2`` -- so a default-parameter call
+            # (n_workers=1, parallelism="outer", npermutations=10) fell
+            # to the hand-rolled pure-Python LCG below it instead, which
+            # ran 5 million Python loop iterations per call at n=500k
+            # (3158 ms / call on the c0021_1508f146 @500k profile bench;
+            # 65.3 s tottime / 156 calls = 420 ms / call on real-data
+            # MRMR.fit). ``parallel_mi_prange`` implements the SAME
+            # per-iter LCG (Knuth multiplicative hash + PCG step) so
+            # the (nfailed, n_checked) output is bit-equivalent to what
+            # the legacy Python loop produced -- the Wave 9.1 iter-18
+            # fix (PRESERVED in this routing) aligned the seeding
+            # schemes for exactly this reason. Below the kernel call
+            # the early-stop ``if nfailed >= max_failed: original_mi = 0``
+            # branch is preserved because ``parallel_mi_prange`` runs
+            # the full budget (no early exit -- prange iterations are
+            # independent), matching the inner-parallel contract at
+            # line 412-427.
+            nfailed, n_checked = parallel_mi_prange(
+                classes_x=classes_x,
+                freqs_x=freqs_x,
+                classes_y=classes_y_safe if classes_y_safe is not None else classes_y,
+                freqs_y=freqs_y,
+                npermutations=npermutations,
+                original_mi=original_mi,
+                base_seed=np.uint64(base_seed),
+                dtype=dtype,
+                use_su=_use_su,
+            )
+            i = n_checked - 1
+            if nfailed >= max_failed:
+                original_mi = 0.0
 
         # Caller-side npermutations==0 guard.
         if i >= 0:
