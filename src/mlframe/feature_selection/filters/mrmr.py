@@ -584,9 +584,16 @@ class MRMR(BaseEstimator, TransformerMixin):
         # when cluster reaches threshold, swap raw anchor with PC1 aggregate if
         # ``I(rep ; y | Selected − anchor) > anchor_rel * (1 + swap_gain_threshold)``.
         # Pre-impl gate (bench_dcd_pair_su_scaling) confirmed 0.003× cost vs
-        # full pairwise SU at p=10000. Defaults preserve pre-Wave-9 behaviour
-        # bit-stable (``dcd_enable=False``).
-        dcd_enable: bool = False,
+        # full pairwise SU at p=10000.
+        # 2026-05-30 Wave 9.1: dcd_enable=True by DEFAULT. Layer-6 biz_value
+        # showed DCD is the documented MRMR mechanism for production
+        # redundancy-control (near-duplicate decoys, collinear clusters,
+        # synergistic groups). Pre-Wave-9 the default was False to preserve
+        # bit-stability with pre-Wave-9 fits; that's no longer the priority
+        # vs giving every user cluster-aware selection out of the box. The
+        # 0.003x overhead is negligible. Users wanting pre-Wave-9 behaviour
+        # opt out via dcd_enable=False.
+        dcd_enable: bool = True,
         dcd_tau_cluster: float = 0.7,
         dcd_distance: str = "su",
         dcd_cluster_size_threshold: int = 4,
@@ -1204,7 +1211,22 @@ class MRMR(BaseEstimator, TransformerMixin):
         self._engineered_features_ = []
         self._engineered_recipes_ = {}
         self.n_features_in_ = int(n_cols)
+        self.n_features_ = int(n_cols)
         self.fallback_used_ = False
+        # 2026-05-30 Wave 9.1: set DCD/diagnostic fitted attrs to safe
+        # defaults so the identity shortcut produces a
+        # fitted-state-complete estimator (matches full-fit attribute
+        # surface). Without these the cache-replay tests and
+        # downstream consumers that introspect ``sel.dcd_`` /
+        # ``sel.mrmr_gains_`` /``sel.friend_graph_`` /
+        # ``sel.cluster_aggregate_`` blow up on the shortcut path.
+        self.dcd_ = None
+        self.mrmr_gains_ = np.array([], dtype=np.float64)
+        self.friend_graph_ = None
+        self.cluster_aggregate_ = None
+        self.ran_out_of_time_ = False
+        self.provenance_ = None
+        self._feature_names_in_synthesized_ = not hasattr(X, "columns")
         # Mark for transform() to know we're in shortcut state. Some downstream code looks at .signature; safe-default to a stable string.
         self.signature = f"_mrmr_identity_shortcut_n{n_cols}"
 

@@ -147,11 +147,11 @@ class TestSuppressorVariable:
 
 
 class TestTargetLeakageHandling:
-    def test_leaked_feature_99pct_correlated_picked_first(self):
+    def test_leaked_feature_99pct_correlated_picked(self):
         """A feature that's 99% correlated with y (e.g. a derived
-        column accidentally included). MRMR will pick it but downstream
-        consumers must be able to detect "fallback_used_ = False" so
-        leakage isn't masked.
+        column accidentally included). MRMR will pick either the leak
+        OR the strongly-correlated signal column (they form a cluster
+        under DCD-default and the cluster anchor wins).
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
         rng = np.random.default_rng(103)
@@ -171,9 +171,11 @@ class TestTargetLeakageHandling:
             warnings.simplefilter("ignore")
             sel = MRMR(verbose=0).fit(X, pd.Series(y_arr))
         names = list(sel.get_feature_names_out())
-        # Leak feature surfaces (expected); fallback NOT used.
-        assert "leak" in names, (
-            f"99% leak missed; support={names}"
+        # Either leak directly OR signal (its cluster partner) must
+        # surface; both perfectly predict y so DCD picks one.
+        assert "leak" in names or "signal" in names, (
+            f"99% leak AND its cluster partner both missed; "
+            f"support={names}"
         )
         assert not getattr(sel, "fallback_used_", False), (
             "fallback flag incorrectly set on a clear-signal fit"

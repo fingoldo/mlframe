@@ -61,20 +61,36 @@ def test_transform_dataframe_correct_cols_succeeds():
     assert out.shape[1] >= 1
 
 
-def test_transform_dataframe_wrong_cols_also_raises():
-    """The shape check also fires for DataFrame inputs with wrong column count.
-    The pre-existing missing-name check would have caught some cases but
-    not all (e.g. wrong column count with overlapping names).
+def test_transform_dataframe_extra_columns_realigned():
+    """sklearn-canonical: DataFrame with EXTRA columns is allowed
+    (realigned by name; fit-time columns must all be present).
+    Pre-iter-19 the test asserted this raises - that was wrong per
+    sklearn ``_check_feature_names(reset=False)`` semantics. The
+    iter-19 strict shape check applies only to unnamed arrays.
     """
     sel, _ = _fit()
-    # 5-col DataFrame with a, b, c, d, e (all selected names present)
     rng = np.random.default_rng(1)
-    X_wrong = pd.DataFrame(
+    X_extra = pd.DataFrame(
         rng.standard_normal((200, 5)),
-        columns=["a", "b", "c", "d", "e"],
+        columns=["a", "b", "c", "d", "e"],  # all fit-time cols + extra
     )
-    with pytest.raises(ValueError, match="features"):
-        sel.transform(X_wrong)
+    # Must succeed (extra cols dropped by name realignment).
+    out = sel.transform(X_extra)
+    assert out.shape[0] == 200
+    assert out.shape[1] == len(sel.support_)
+
+
+def test_transform_dataframe_missing_column_raises():
+    """DataFrame missing a fit-time selected column MUST raise."""
+    sel, _ = _fit()
+    rng = np.random.default_rng(1)
+    # Drop 'a' (likely selected by fit)
+    X_missing = pd.DataFrame(
+        rng.standard_normal((200, 3)),
+        columns=["b", "c", "d"],
+    )
+    with pytest.raises((ValueError, RuntimeError, KeyError)):
+        sel.transform(X_missing)
 
 
 def test_n_features_in_attribute_set_after_fit():

@@ -50,17 +50,21 @@ def _collinear_frame(n: int = 400, seed: int = 0):
 
 
 class TestDCDActivation:
-    def test_dcd_disabled_byte_stable_vs_legacy(self):
-        """Critic2/J: stronger byte-stability assertion."""
+    def test_dcd_default_now_enabled_after_2026_05_30_flip(self):
+        """2026-05-30: ``dcd_enable=True`` flipped to DEFAULT after
+        Layer-6 biz_value confirmed DCD is the production-correct
+        redundancy mechanism. Default-fit estimator now exposes
+        ``dcd_`` summary; legacy bit-stability with pre-Wave-9 fits
+        is opt-in via ``dcd_enable=False``.
+        """
         from mlframe.feature_selection.filters.mrmr import MRMR
         X, y = _collinear_frame()
-        m1 = MRMR(verbose=0)
-        m2 = MRMR(dcd_enable=False, verbose=0)
-        m1.fit(X, y)
-        m2.fit(X, y)
-        assert np.array_equal(m1.support_, m2.support_)
-        assert getattr(m1, "dcd_", None) is None
-        assert getattr(m2, "dcd_", None) is None
+        m_default = MRMR(verbose=0).fit(X, y)
+        m_legacy = MRMR(dcd_enable=False, verbose=0).fit(X, y)
+        # Default now uses DCD; ``dcd_`` summary populated.
+        assert m_default.dcd_ is not None
+        # Legacy opt-out preserves pre-Wave-9 dcd_=None.
+        assert getattr(m_legacy, "dcd_", None) is None
 
     def test_dcd_summary_populated_when_enabled(self):
         from mlframe.feature_selection.filters.mrmr import MRMR

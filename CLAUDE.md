@@ -1,5 +1,36 @@
 # mlframe — project conventions
 
+## Enable corrective mechanisms by default (CRITICAL)
+
+When you build a corrective mechanism that fixes a bug class — DCD
+cluster pruning, NaN-sentinel routing, dtype auto-promotion,
+MDLP-collapsed unsupervised fallback, edge dedup, frozen recipe `extra`,
+etc. — **flip the default to ON in the same change**. Do NOT preserve
+the pre-fix default for "bit-stability" or "legacy compatibility"
+when the legacy behaviour was silently wrong.
+
+**Why:** legacy bit-stability is NOT a virtue when legacy was wrong.
+Every user who doesn't read the changelog / find the opt-in flag keeps
+suffering the bug. The default config is the ONE config that matters
+for blast radius. Opt-in flags exist for the small minority who need
+the legacy behaviour for benchmarks or replay.
+
+**How to apply:**
+- After the corrective mechanism lands and existing tests pass with
+  the flag on, flip the constructor default to `True`.
+- If existing tests break, the test was asserting pre-fix wrong
+  behaviour — fix the test, don't disable the mechanism.
+- Document the flip in the constructor docstring + commit message;
+  list the opt-out parameter for legacy callers.
+
+**Validated 2026-05-30**: `dcd_enable=True` flipped to default after
+Layer-6 biz_value confirmed DCD is the production-correct redundancy
+mechanism (near-duplicate decoys, collinear clusters, synergistic
+groups all benefit). The 0.003× overhead was negligible. A handful of
+pre-existing tests that asserted pre-fix wrong behaviour ("no cluster
+aggregate in support" / "leak feature directly picked") got updated to
+the post-fix contract.
+
 ## Fuzz / combo tests are bug DETECTORS, not bug HIDERS (CRITICAL)
 
 **The fuzz/combo suite (`tests/training/test_fuzz_suite.py` +
