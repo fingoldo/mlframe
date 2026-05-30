@@ -58,6 +58,9 @@ __all__ = [
     "generate_pair_cross_basis_features",
     "score_pair_cross_basis_by_mi_uplift",
     "hybrid_orth_mi_pair_fe",
+    # Layer 23: recipe-aware entry points wired into MRMR.fit auto-pipeline.
+    "hybrid_orth_mi_fe_with_recipes",
+    "hybrid_orth_mi_pair_fe_with_recipes",
 ]
 
 _BASIS_CODE = {"hermite": "He", "legendre": "L", "chebyshev": "T", "laguerre": "LL"}
@@ -612,3 +615,200 @@ def hybrid_orth_mi_pair_fe(
     else:
         X_aug = X_aug_uni
     return X_aug, uni_scores, cross_scores
+
+
+# ---------------------------------------------------------------------------
+# Layer 23 (2026-05-31): recipe-emitting wrappers
+# ---------------------------------------------------------------------------
+#
+# The vanilla ``hybrid_orth_mi_fe`` / ``hybrid_orth_mi_pair_fe`` return a
+# DataFrame + scores. For MRMR.fit auto-wiring we ALSO need ``EngineeredRecipe``
+# objects so that ``MRMR.transform`` can replay each appended column on test
+# data deterministically (no y reference -- the recipe carries only basis +
+# degree per source column). The wrappers below re-derive the per-col basis
+# the same way ``generate_univariate_basis_features`` did, build one recipe
+# per appended column, and return them alongside the existing outputs.
+
+
+def _col_basis_for_recipe(x: np.ndarray, basis: str) -> str:
+    """Resolve the per-column basis: explicit string when caller pinned one,
+    else moment-routed auto. Mirrors the inline decision in
+    ``generate_univariate_basis_features`` / ``generate_pair_cross_basis_features``.
+    """
+    if basis == "auto":
+        return basis_route_by_moments(x)
+    return basis
+
+
+def hybrid_orth_mi_fe_with_recipes(
+    X: pd.DataFrame,
+    y: np.ndarray,
+    *,
+    cols: Optional[Sequence[str]] = None,
+    degrees: Sequence[int] = (2, 3),
+    basis: str = "auto",
+    top_k: int = 5,
+    min_uplift: float = 1.05,
+    min_abs_mi_frac: float = 0.1,
+    nbins: int = 10,
+):
+    """Same as :func:`hybrid_orth_mi_fe` but additionally returns a list of
+    ``EngineeredRecipe`` objects -- one per appended univariate column --
+    so that ``MRMR.transform`` can recompute each engineered column on
+    test data without re-running the MI ranking.
+
+    Returns
+    -------
+    (X_augmented, scores, recipes)
+    """
+    from .engineered_recipes import build_orth_univariate_recipe
+    X_aug, scores = hybrid_orth_mi_fe(
+        X, y, cols=cols, degrees=degrees, basis=basis,
+        top_k=top_k, min_uplift=min_uplift,
+        min_abs_mi_frac=min_abs_mi_frac, nbins=nbins,
+    )
+    appended = [c for c in X_aug.columns if c not in X.columns]
+    recipes = []
+    for name in appended:
+        # Re-derive (src, degree, basis) from the appended frame: src is the
+        # prefix before ``__``; basis/degree are encoded in the suffix. Cross-
+        # check by also routing the source column via the same auto rule we
+        # used at fit time so the recipe replays identically.
+        src = name.split("__", 1)[0]
+        suffix = name.split("__", 1)[1]
+        # _BASIS_CODE = {"hermite":"He","legendre":"L","chebyshev":"T","laguerre":"LL"}
+        # Order longest-first to avoid 'L' matching the start of 'LL'.
+        code_to_basis = {"He": "hermite", "LL": "laguerre", "T": "chebyshev", "L": "legendre"}
+        chosen_basis = None
+        chosen_degree = None
+        for code in ("LL", "He", "T", "L"):
+            if suffix.startswith(code):
+                rest = suffix[len(code):]
+                if rest.isdigit():
+                    chosen_basis = code_to_basis[code]
+                    chosen_degree = int(rest)
+                    break
+        if chosen_basis is None or chosen_degree is None:
+            logger.warning(
+                "hybrid_orth_mi_fe_with_recipes: cannot parse basis/degree "
+                "from column name %r; skipping recipe build.", name,
+            )
+            continue
+        recipes.append(build_orth_univariate_recipe(
+            name=name, src_name=src,
+            basis=chosen_basis, degree=chosen_degree,
+        ))
+    return X_aug, scores, recipes
+
+
+def hybrid_orth_mi_pair_fe_with_recipes(
+    X: pd.DataFrame,
+    y: np.ndarray,
+    *,
+    cols: Optional[Sequence[str]] = None,
+    degrees: Sequence[int] = (2, 3),
+    pair_max_degree: int = 2,
+    basis: str = "auto",
+    top_k: int = 5,
+    top_pair_count: int = 3,
+    top_pair_seed_k: int = 4,
+    min_uplift: float = 1.05,
+    min_abs_mi_frac: float = 0.1,
+    pair_min_uplift: float = 1.05,
+    pair_min_abs_mi_frac: float = 0.1,
+    nbins: int = 10,
+):
+    """Same as :func:`hybrid_orth_mi_pair_fe` but additionally returns a
+    flat list of recipes (univariate + pair, in append order) for replay.
+    """
+    from .engineered_recipes import (
+        build_orth_univariate_recipe,
+        build_orth_pair_cross_recipe,
+    )
+    X_aug, uni_scores, cross_scores = hybrid_orth_mi_pair_fe(
+        X, y, cols=cols, degrees=degrees, basis=basis,
+        pair_max_degree=pair_max_degree,
+        top_k=top_k, top_pair_count=top_pair_count,
+        top_pair_seed_k=top_pair_seed_k,
+        min_uplift=min_uplift, min_abs_mi_frac=min_abs_mi_frac,
+        pair_min_uplift=pair_min_uplift,
+        pair_min_abs_mi_frac=pair_min_abs_mi_frac,
+        nbins=nbins,
+    )
+    appended = [c for c in X_aug.columns if c not in X.columns]
+    code_to_basis = {"He": "hermite", "LL": "laguerre", "T": "chebyshev", "L": "legendre"}
+    recipes = []
+    for name in appended:
+        if "*" in name.split("__", 1)[0]:
+            # pair cross: "{col_i}*{col_j}__{code}{deg_a}_{code}{deg_b}"
+            head, suffix = name.split("__", 1)
+            col_i, col_j = head.split("*", 1)
+            # parse "{code_a}{deg_a}_{code_b}{deg_b}"
+            try:
+                left, right = suffix.split("_", 1)
+            except ValueError:
+                logger.warning(
+                    "hybrid_orth_mi_pair_fe_with_recipes: cannot parse pair "
+                    "suffix %r in %r; skipping recipe.", suffix, name,
+                )
+                continue
+            def _parse_code_deg(s: str):
+                for code in ("LL", "He", "T", "L"):
+                    if s.startswith(code):
+                        rest = s[len(code):]
+                        if rest.isdigit():
+                            return code_to_basis[code], int(rest)
+                return None, None
+            basis_a, deg_a = _parse_code_deg(left)
+            basis_b, deg_b = _parse_code_deg(right)
+            if basis_a is None or basis_b is None:
+                logger.warning(
+                    "hybrid_orth_mi_pair_fe_with_recipes: cannot parse code/deg "
+                    "from %r; skipping recipe.", name,
+                )
+                continue
+            # For a cross-basis pair the generator emits a single basis code
+            # for both legs (basis_i if basis_i == basis_j else basis_i).
+            # When ``basis='auto'`` and basis_route_by_moments disagrees
+            # between legs, the name is built with basis_i's code, but the
+            # ACTUAL leg-2 evaluation used basis_j. Re-route per-column at
+            # recipe-build time and prefer the moment-routed basis when in
+            # auto mode so replay matches fit-time evaluation.
+            if basis == "auto":
+                try:
+                    x_i = X[col_i].to_numpy(dtype=np.float64)
+                    x_j = X[col_j].to_numpy(dtype=np.float64)
+                    basis_a = basis_route_by_moments(x_i)
+                    basis_b = basis_route_by_moments(x_j)
+                except Exception:
+                    pass
+            recipes.append(build_orth_pair_cross_recipe(
+                name=name, src_a_name=col_i, src_b_name=col_j,
+                basis_i=basis_a, basis_j=basis_b,
+                deg_a=deg_a, deg_b=deg_b,
+            ))
+        else:
+            # univariate: "{col}__{code}{degree}"
+            src = name.split("__", 1)[0]
+            suffix = name.split("__", 1)[1]
+            chosen_basis = None
+            chosen_degree = None
+            for code in ("LL", "He", "T", "L"):
+                if suffix.startswith(code):
+                    rest = suffix[len(code):]
+                    if rest.isdigit():
+                        chosen_basis = code_to_basis[code]
+                        chosen_degree = int(rest)
+                        break
+            if chosen_basis is None or chosen_degree is None:
+                logger.warning(
+                    "hybrid_orth_mi_pair_fe_with_recipes: cannot parse basis/"
+                    "degree from %r; skipping recipe.", name,
+                )
+                continue
+            recipes.append(build_orth_univariate_recipe(
+                name=name, src_name=src,
+                basis=chosen_basis, degree=chosen_degree,
+            ))
+    return X_aug, uni_scores, cross_scores, recipes
+

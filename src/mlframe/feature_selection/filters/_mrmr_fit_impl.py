@@ -227,6 +227,100 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         self._feature_names_in_synthesized_ = True
     else:
         self._feature_names_in_synthesized_ = False
+
+    # 2026-05-31 Layer 23 — hybrid orthogonal-polynomial + MI-greedy FE.
+    # When ``fe_hybrid_orth_enable=True``, generate basis_n(z) columns for each
+    # numeric input column and MI-rank against y; append the top-K winners
+    # before screening. The hybrid pipeline lives in ``_orthogonal_univariate_fe``
+    # and returns EngineeredRecipe objects so transform() can replay each
+    # appended column without re-running the MI ranking (deterministic in X,
+    # never references y at replay time).
+    #
+    # The injection happens BEFORE feature_names_in_ is set so the engineered
+    # columns are NOT recorded as raw input features; instead they're
+    # pre-registered in ``engineered_recipes`` dict (the same dict the FE-step
+    # would populate) and the end-of-fit remap routes them through
+    # ``self._engineered_recipes_`` automatically.
+    self.hybrid_orth_features_ = []
+    _hybrid_orth_pre_recipes: dict = {}
+    if bool(getattr(self, "fe_hybrid_orth_enable", False)):
+        # Polars frames: skip with a warning -- hybrid FE pipeline operates on
+        # pandas. Native polars support would require a separate code path;
+        # not in Layer 23 MVP scope.
+        _is_pandas_for_hybrid = isinstance(X, pd.DataFrame)
+        if not _is_pandas_for_hybrid:
+            warnings.warn(
+                "MRMR: fe_hybrid_orth_enable=True but X is not a pandas "
+                "DataFrame; hybrid orthogonal-polynomial FE is skipped. "
+                "Convert to pandas via X.to_pandas() before fit() if you "
+                "want hybrid FE applied.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from ._orthogonal_univariate_fe import (
+                    hybrid_orth_mi_fe_with_recipes,
+                    hybrid_orth_mi_pair_fe_with_recipes,
+                )
+                _y_for_hybrid = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                # Hybrid MI scoring expects discrete y; coerce float-binary to int.
+                if _y_for_hybrid.dtype.kind in "fc":
+                    _y_for_hybrid = _y_for_hybrid.astype(np.int64)
+                _h_degrees = tuple(int(d) for d in self.fe_hybrid_orth_degrees)
+                _h_basis = str(self.fe_hybrid_orth_basis)
+                _h_top_k = int(self.fe_hybrid_orth_top_k)
+                _h_pair_enable = bool(self.fe_hybrid_orth_pair_enable)
+                _h_pair_max_degree = int(self.fe_hybrid_orth_pair_max_degree)
+                # Restrict the source pool to numeric columns the caller passed
+                # via factors_names_to_use (when set); otherwise the hybrid
+                # pipeline auto-routes to all numeric columns of X.
+                _h_cols = None
+                if getattr(self, "factors_names_to_use", None):
+                    _h_cols = [
+                        c for c in self.factors_names_to_use if c in X.columns
+                    ]
+                _X_before_hybrid_cols = list(X.columns)
+                if _h_pair_enable:
+                    X_h, _uni_sc, _cross_sc, _recipes = hybrid_orth_mi_pair_fe_with_recipes(
+                        X, _y_for_hybrid,
+                        cols=_h_cols,
+                        degrees=_h_degrees,
+                        basis=_h_basis,
+                        top_k=_h_top_k,
+                        top_pair_count=_h_top_k,
+                        pair_max_degree=_h_pair_max_degree,
+                    )
+                else:
+                    X_h, _uni_sc, _recipes = hybrid_orth_mi_fe_with_recipes(
+                        X, _y_for_hybrid,
+                        cols=_h_cols,
+                        degrees=_h_degrees,
+                        basis=_h_basis,
+                        top_k=_h_top_k,
+                    )
+                # Identify appended columns vs the pre-hybrid X.
+                _appended = [
+                    c for c in X_h.columns if c not in _X_before_hybrid_cols
+                ]
+                if _appended:
+                    X = X_h
+                    self.hybrid_orth_features_ = list(_appended)
+                    for _r in _recipes:
+                        _hybrid_orth_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit hybrid_orth: appended %d engineered "
+                            "column(s) (univariate + pair): %s",
+                            len(_appended), _appended[:8],
+                        )
+            except Exception as _h_exc:
+                logger.warning(
+                    "MRMR.fit hybrid_orth FE raised %s: %s; continuing "
+                    "without hybrid-FE columns.",
+                    type(_h_exc).__name__, _h_exc,
+                )
     # 2026-05-21 revert of Wave 29 P1 polars->pandas coercion. That
     # coercion was added on the premise that downstream ``X[target_name]
     # = y`` mutation assumed pandas and would raise on polars; but the
@@ -238,7 +332,15 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # production frames). Leaving polars frames untouched so the
     # native branch fires.
 
-    self.feature_names_in_ = X.columns.tolist() if hasattr(X.columns, "tolist") else list(X.columns)
+    # Layer 23: feature_names_in_ MUST exclude hybrid-appended columns so
+    # the end-of-fit ``selected_vars_names`` lookup routes hybrid names
+    # into ``_engineered_features_`` / ``_engineered_recipes_`` instead of
+    # the raw-feature ``original_indices`` path. transform() then replays
+    # hybrid columns from recipes and the sklearn ``n_features_in_``
+    # contract still matches the user-facing input width.
+    _hybrid_names_set = set(self.hybrid_orth_features_ or [])
+    _all_cols = X.columns.tolist() if hasattr(X.columns, "tolist") else list(X.columns)
+    self.feature_names_in_ = [c for c in _all_cols if c not in _hybrid_names_set]
     self.n_features_in_ = len(self.feature_names_in_)
 
     # ---------------------------------------------------------------------------------------------------------------
@@ -388,6 +490,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # engineered_recipes (name -> EngineeredRecipe) is initialised unconditionally; the splitter at the bottom
     # of fit() looks it up regardless of fe_max_steps. Stays empty when FE is disabled.
     engineered_recipes: dict = {}
+    # Layer 23: seed engineered_recipes with hybrid orthogonal-poly recipes
+    # built above (before the screening loop). The end-of-fit remap routes
+    # any selected_vars_name matching a key here into _engineered_recipes_.
+    if _hybrid_orth_pre_recipes:
+        engineered_recipes.update(_hybrid_orth_pre_recipes)
     # Reset per fit so a re-fit on the same instance doesn't carry stale cluster-aggregate state.
     self._cluster_aggregate_removals_ = []
     self.cluster_aggregate_ = []  # fitted summary (per-aggregate records) -> meta_info report
@@ -486,7 +593,16 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 y=target_indices,
                 factors_nbins=nbins,
                 factors_names=cols,
-                factors_names_to_use=self.factors_names_to_use,
+                # Layer 23: when hybrid orth FE appended columns, extend the
+                # candidate pool to include them so they reach the screening
+                # gates. When the caller did not pin factors_names_to_use,
+                # screen_predictors uses every column from ``cols`` so the
+                # hybrid cols are naturally included.
+                factors_names_to_use=(
+                    list(self.factors_names_to_use) + list(self.hybrid_orth_features_ or [])
+                    if (self.factors_names_to_use and self.hybrid_orth_features_)
+                    else self.factors_names_to_use
+                ),
                 factors_to_use=self.factors_to_use,
                 # algorithm
                 mrmr_relevance_algo=self.mrmr_relevance_algo,

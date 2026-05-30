@@ -120,7 +120,12 @@ class EngineeredRecipe:
     # ``coef_a``, ``coef_b``, ``basis``, ``bin_func_name``, ``preprocess_a``,
     # ``preprocess_b``, ``degree_a``, ``degree_b`` in ``extra``. The
     # 88-min Optuna best_res is now reproducible at predict-time.
-    kind: Literal["unary_binary", "factorize", "hermite_pair", "target_encoding", "cluster_aggregate"]
+    # Layer 23 2026-05-31: ``orth_univariate`` carries (src_names=(c,),
+    # extra={basis, degree}); ``orth_pair_cross`` carries
+    # (src_names=(c_i, c_j), extra={basis_i, basis_j, deg_a, deg_b}). Replay
+    # is closed-form from the source column(s) alone -- no y reference is
+    # captured at fit time, so transform() is leakage-free by construction.
+    kind: Literal["unary_binary", "factorize", "hermite_pair", "target_encoding", "cluster_aggregate", "orth_univariate", "orth_pair_cross"]
     src_names: tuple[str, ...]
     unary_names: tuple[str, ...] = ()
     binary_name: str = ""
@@ -307,6 +312,10 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         return _apply_hermite_pair(recipe, X)
     if recipe.kind == "cluster_aggregate":
         return _apply_cluster_aggregate(recipe, X)
+    if recipe.kind == "orth_univariate":
+        return _apply_orth_univariate(recipe, X)
+    if recipe.kind == "orth_pair_cross":
+        return _apply_orth_pair_cross(recipe, X)
     raise ValueError(f"Unknown recipe kind: {recipe.kind!r}")
 
 
@@ -823,4 +832,133 @@ def build_unary_binary_recipe(
         unary_preset=unary_preset,
         binary_preset=binary_preset,
         quantization=quantization,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Layer 23 (2026-05-31): orthogonal-polynomial univariate / pair-cross recipes
+# ---------------------------------------------------------------------------
+#
+# These replay the engineered columns produced by ``hybrid_orth_mi_fe`` /
+# ``hybrid_orth_mi_pair_fe`` from ``_orthogonal_univariate_fe.py``. Both
+# routes are CLOSED-FORM functions of the source column(s) alone -- the MI
+# scoring that picked them at fit time consumed y, but the column value
+# itself does not depend on y. Replay therefore reads only X.
+#
+# extra layout:
+# * orth_univariate : {basis: str, degree: int}
+# * orth_pair_cross : {basis_i: str, basis_j: str, deg_a: int, deg_b: int}
+
+
+def _eval_orth_basis_column(x: np.ndarray, basis: str, degree: int) -> np.ndarray:
+    """Preprocess x to the basis domain (z-score for hermite, min-max for
+    legendre/chebyshev, shift for laguerre), then evaluate the single basis
+    function of the given degree via a one-hot coefficient vector.
+
+    Mirrors ``_orthogonal_univariate_fe._evaluate_basis_column`` so that
+    transform()-time replay produces the SAME value as fit-time generation.
+    Lazy import of ``hermite_fe`` keeps the recipes module dependency-light.
+    """
+    from .hermite_fe import _POLY_BASES, polyeval_dispatch
+    basis_info = _POLY_BASES[basis]
+    fit_fn = basis_info["fit"]
+    # NaN-safe: mirror fit-time finite-mask behaviour. Fit-time uses the
+    # COLUMN mean to fill NaN before z-score / min-max. Test-time must use
+    # the SAME fill so the basis-evaluation parity holds row-by-row when the
+    # train and test frames disagree on which rows are NaN. The hybrid FE
+    # path uses ``np.nanmean`` on the column at fit time; we replicate.
+    x = np.asarray(x, dtype=np.float64)
+    finite_mask = np.isfinite(x)
+    if not finite_mask.all():
+        fill = float(np.nanmean(x[finite_mask])) if finite_mask.any() else 0.0
+        x = np.where(finite_mask, x, fill)
+    z, _params = fit_fn(x)
+    z = np.ascontiguousarray(z, dtype=np.float64)
+    coef = np.zeros(int(degree) + 1, dtype=np.float64)
+    coef[int(degree)] = 1.0
+    return polyeval_dispatch(basis, z, coef)
+
+
+def _apply_orth_univariate(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
+    """Replay an orthogonal-polynomial univariate column: extract the
+    source column, evaluate basis_n(z) where z is the per-basis preprocessed
+    value. Stateless given the stored basis + degree; no y reference.
+    """
+    if len(recipe.src_names) != 1:
+        raise ValueError(
+            f"orth_univariate recipe '{recipe.name}' must have exactly 1 "
+            f"src_names; got {len(recipe.src_names)}"
+        )
+    for key in ("basis", "degree"):
+        if key not in recipe.extra:
+            raise KeyError(
+                f"orth_univariate recipe '{recipe.name}' missing '{key}' "
+                f"in extra. Re-fit MRMR to regenerate."
+            )
+    src_name = recipe.src_names[0]
+    basis = str(recipe.extra["basis"])
+    degree = int(recipe.extra["degree"])
+    vals = _extract_column(X, src_name)
+    return _eval_orth_basis_column(vals, basis, degree)
+
+
+def _apply_orth_pair_cross(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
+    """Replay a pair-cross-basis column: extract both source columns,
+    evaluate basis_a^{deg_a}(z_i) * basis_b^{deg_b}(z_j). Stateless given
+    the stored bases + degrees; no y reference.
+    """
+    if len(recipe.src_names) != 2:
+        raise ValueError(
+            f"orth_pair_cross recipe '{recipe.name}' must have exactly 2 "
+            f"src_names; got {len(recipe.src_names)}"
+        )
+    for key in ("basis_i", "basis_j", "deg_a", "deg_b"):
+        if key not in recipe.extra:
+            raise KeyError(
+                f"orth_pair_cross recipe '{recipe.name}' missing '{key}' "
+                f"in extra. Re-fit MRMR to regenerate."
+            )
+    name_i, name_j = recipe.src_names
+    basis_i = str(recipe.extra["basis_i"])
+    basis_j = str(recipe.extra["basis_j"])
+    deg_a = int(recipe.extra["deg_a"])
+    deg_b = int(recipe.extra["deg_b"])
+    vals_i = _extract_column(X, name_i)
+    vals_j = _extract_column(X, name_j)
+    h_a = _eval_orth_basis_column(vals_i, basis_i, deg_a)
+    h_b = _eval_orth_basis_column(vals_j, basis_j, deg_b)
+    return h_a * h_b
+
+
+def build_orth_univariate_recipe(
+    *, name: str, src_name: str, basis: str, degree: int,
+) -> EngineeredRecipe:
+    """Frozen recipe for one orthogonal-polynomial univariate column
+    ``basis_n(preprocess(X[src_name]))``. Replay is closed-form and
+    deterministic; no y reference is captured."""
+    return EngineeredRecipe(
+        name=name,
+        kind="orth_univariate",
+        src_names=(src_name,),
+        extra={"basis": str(basis), "degree": int(degree)},
+    )
+
+
+def build_orth_pair_cross_recipe(
+    *, name: str, src_a_name: str, src_b_name: str,
+    basis_i: str, basis_j: str, deg_a: int, deg_b: int,
+) -> EngineeredRecipe:
+    """Frozen recipe for one cross-basis pair column
+    ``basis_i^{deg_a}(preprocess(X[a])) * basis_j^{deg_b}(preprocess(X[b]))``.
+    """
+    return EngineeredRecipe(
+        name=name,
+        kind="orth_pair_cross",
+        src_names=(src_a_name, src_b_name),
+        extra={
+            "basis_i": str(basis_i),
+            "basis_j": str(basis_j),
+            "deg_a": int(deg_a),
+            "deg_b": int(deg_b),
+        },
     )

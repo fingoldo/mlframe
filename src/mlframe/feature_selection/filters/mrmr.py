@@ -635,6 +635,34 @@ class MRMR(BaseEstimator, TransformerMixin):
         # already processed clusters during screening; running again would
         # double-aggregate).
         dcd_postoc_compose: bool = False,
+        # 2026-05-31 Layer 23 — Hybrid orthogonal-polynomial + MI-greedy FE
+        # auto-wired into the fit pipeline (sibling module:
+        # ``_orthogonal_univariate_fe.hybrid_orth_mi_fe`` /
+        # ``hybrid_orth_mi_pair_fe``). Default OFF -- legacy behaviour is
+        # byte-identical when ``fe_hybrid_orth_enable=False``. When True, the
+        # hybrid FE runs ONCE before screening: it generates
+        # ``basis_n(preprocess(X[c]))`` columns for each n in ``fe_hybrid_orth_degrees``
+        # and ranks by MI uplift vs the raw source baseline; the top-K winners
+        # are appended to X and screened as ordinary numeric columns. With
+        # ``fe_hybrid_orth_pair_enable=True`` (the default when the master is
+        # on) the bilinear ``basis_a(z_i) * basis_b(z_j)`` cross-basis stage
+        # also fires, capturing the XOR / saddle / circle pair targets.
+        #
+        # Stored as ``EngineeredRecipe`` objects of kinds ``"orth_univariate"`` /
+        # ``"orth_pair_cross"``; the recipe is closed-form in the source column
+        # values alone (no y reference at recipe-build time), so
+        # ``MRMR.transform`` replays each engineered column on test data
+        # without any leakage risk.
+        fe_hybrid_orth_enable: bool = False,
+        fe_hybrid_orth_degrees: tuple = (2, 3),
+        fe_hybrid_orth_basis: str = "auto",
+        # Combined cap on appended columns (univariate + pair). Top-K is
+        # applied separately to each stage by the underlying hybrid pipeline;
+        # this is the per-stage budget. Default 5 = at most 5 univariate
+        # winners + at most 5 pair winners when pair_enable=True.
+        fe_hybrid_orth_top_k: int = 5,
+        fe_hybrid_orth_pair_enable: bool = True,
+        fe_hybrid_orth_pair_max_degree: int = 2,
         # hidden
         stop_file: str = "stop",
     ):
@@ -896,6 +924,18 @@ class MRMR(BaseEstimator, TransformerMixin):
             "cluster_aggregate_corr_threshold": 0.6,
             "cluster_aggregate_homogeneity_tau": 0.6,
             "cluster_aggregate_max_candidates": 200,
+            # 2026-05-31 Layer 23 — hybrid orthogonal-poly FE auto-wire.
+            # Defaults preserve legacy behaviour: master switch OFF, so old
+            # pickles unpickle to "hybrid FE disabled".
+            "fe_hybrid_orth_enable": False,
+            "fe_hybrid_orth_degrees": (2, 3),
+            "fe_hybrid_orth_basis": "auto",
+            "fe_hybrid_orth_top_k": 5,
+            "fe_hybrid_orth_pair_enable": True,
+            "fe_hybrid_orth_pair_max_degree": 2,
+            # Fitted attribute (list of engineered names from hybrid stage);
+            # legacy pickles default to empty list.
+            "hybrid_orth_features_": [],
         }
         for k, v in defaults.items():
             state.setdefault(k, v)
