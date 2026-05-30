@@ -179,6 +179,34 @@ def test_nse_equals_r2_score():
     assert fast_nash_sutcliffe(y, p) == pytest.approx(r2_score(y, p), abs=1e-12)
 
 
+def test_iter607_pearson_corr_mixed_dtypes_bit_equivalent():
+    """iter607: fast_pearson_corr dropped the unconditional
+    ``dtype=np.float64`` cast. Pin bit-equivalence across the dtype
+    pairs that appear in regression reporting (fired from
+    ``fast_regression_metrics_block_extended`` per c0013 profile)."""
+    from mlframe.metrics._regression_extras import fast_pearson_corr
+    from scipy.stats import pearsonr
+    rng = np.random.default_rng(20260607)
+    n = 5_000
+    y_int = rng.integers(0, 100, size=n, dtype=np.int64)
+    y_f64 = y_int.astype(np.float64) + rng.random(n) * 0.5
+    p_f64 = y_f64 + rng.normal(scale=0.5, size=n)
+    p_f32 = p_f64.astype(np.float32)
+    for y_t, y_p, atol in [
+        (y_int, p_f64, 1e-9),
+        (y_f64, p_f64, 1e-12),
+        (y_f64, p_f32, 1e-5),
+    ]:
+        v = fast_pearson_corr(y_t, y_p)
+        ref = float(pearsonr(
+            np.asarray(y_t, np.float64),
+            np.asarray(y_p, np.float64),
+        )[0])
+        assert abs(v - ref) < atol, (
+            f"Pearson dtypes ({y_t.dtype}, {y_p.dtype}): got={v} ref={ref}"
+        )
+
+
 def test_iter606_explained_variance_mixed_dtypes_bit_equivalent():
     """iter606: fast_explained_variance dropped the unconditional
     ``dtype=np.float64`` cast. Pin bit-equivalence across the dtype
