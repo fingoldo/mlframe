@@ -197,6 +197,20 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expec
     ):
         temp_cached_cond_MIs = sanitize(cached_cond_MIs)
         temp_entropy_cache = sanitize(entropy_cache)
+        # 2026-05-30 Wave 9.1 iter 5 fix: snapshot main-thread Wave 8
+        # toggles. ``threading.local`` storage from info_theory.py does NOT
+        # propagate across joblib workers (each worker thread gets its own
+        # local namespace), so without explicit forwarding the workers
+        # silently read ``False`` / ``0.0`` defaults and Wave 8 features
+        # (SU normalization, JMIM, BUR) become no-ops in the parallel hot
+        # path - the common case since backend='threading' is the default.
+        from .info_theory import (
+            use_su_normalization as _use_su, use_jmim_aggregator as _use_jmim,
+            get_bur_lambda as _get_bur,
+        )
+        _su_snapshot = bool(_use_su())
+        _jmim_snapshot = bool(_use_jmim())
+        _bur_snapshot = float(_get_bur())
         res = workers_pool(
             delayed(evaluate_candidates)(
                 workload=workload,
@@ -225,6 +239,9 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expec
                 verbose=verbose,
                 ndigits=ndigits,
                 use_simple_mode=use_simple_mode,
+                use_su=_su_snapshot,
+                use_jmim=_jmim_snapshot,
+                bur_lambda=_bur_snapshot,
             )
             for workload in split_list_into_chunks(feasible_candidates, max(1, len(feasible_candidates) // n_workers))
         )

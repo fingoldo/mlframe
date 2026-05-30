@@ -32,6 +32,9 @@ from .info_theory import (
     # 2026-05-30 Wave 8: JMIM aggregator + BUR weight thread-local toggles
     # used in evaluate_gain / evaluate_candidate.
     use_jmim_aggregator, get_bur_lambda,
+    # 2026-05-30 Wave 9.1 iter 5: setters for re-publishing the toggles into
+    # joblib worker threads.
+    set_su_normalization, set_jmim_aggregator, set_bur_lambda,
 )
 from .permutation import mi_direct
 
@@ -140,7 +143,64 @@ def evaluate_candidates(
     verbose: int = 1,
     ndigits: int = 5,
     use_simple_mode: bool = True,
+    # 2026-05-30 Wave 9.1 iter 5: Wave 8 thread-locals MUST be re-published
+    # into the worker thread. ``threading.local`` does NOT propagate across
+    # joblib workers (even with backend='threading', new threads in the
+    # pool have their own local namespace), so reads from inside the worker
+    # would silently see the default ``False`` / ``0.0`` even though the
+    # main thread set them. Snapshot the main-thread values in
+    # ``_confirm_predictor`` and forward as explicit kwargs; the worker
+    # republishes them at entry and resets in finally.
+    use_su: bool = False,
+    use_jmim: bool = False,
+    bur_lambda: float = 0.0,
 ) -> None:
+
+    # Worker-thread re-publish of Wave 8 toggles (iter 5 fix). The
+    # try/finally guarantees we don't pollute the worker thread's locals
+    # if the same worker is re-used for a subsequent dispatch with
+    # different settings.
+    _prev_su = use_su_normalization()
+    _prev_jmim = use_jmim_aggregator()
+    _prev_bur = get_bur_lambda()
+    set_su_normalization(bool(use_su))
+    set_jmim_aggregator(bool(use_jmim))
+    set_bur_lambda(float(bur_lambda))
+    try:
+        return _evaluate_candidates_inner(
+            workload=workload, y=y, best_gain=best_gain,
+            factors_data=factors_data, factors_nbins=factors_nbins,
+            factors_names=factors_names, partial_gains=partial_gains,
+            selected_vars=selected_vars,
+            baseline_npermutations=baseline_npermutations,
+            classes_y=classes_y, freqs_y=freqs_y,
+            freqs_y_safe=freqs_y_safe, use_gpu=use_gpu,
+            cached_MIs=cached_MIs, cached_confident_MIs=cached_confident_MIs,
+            cached_cond_MIs=cached_cond_MIs, entropy_cache=entropy_cache,
+            mrmr_relevance_algo=mrmr_relevance_algo,
+            mrmr_redundancy_algo=mrmr_redundancy_algo,
+            max_veteranes_interactions_order=max_veteranes_interactions_order,
+            dtype=dtype, max_runtime_mins=max_runtime_mins,
+            start_time=start_time, min_relevance_gain=min_relevance_gain,
+            verbose=verbose, ndigits=ndigits,
+            use_simple_mode=use_simple_mode,
+        )
+    finally:
+        set_su_normalization(_prev_su)
+        set_jmim_aggregator(_prev_jmim)
+        set_bur_lambda(_prev_bur)
+
+
+def _evaluate_candidates_inner(
+    workload, y, best_gain, factors_data, factors_nbins, factors_names,
+    partial_gains, selected_vars, baseline_npermutations,
+    classes_y=None, freqs_y=None, freqs_y_safe=None, use_gpu=True,
+    cached_MIs=None, cached_confident_MIs=None, cached_cond_MIs=None,
+    entropy_cache=None, mrmr_relevance_algo="fleuret",
+    mrmr_redundancy_algo="fleuret", max_veteranes_interactions_order=1,
+    dtype=np.int32, max_runtime_mins=None, start_time=None,
+    min_relevance_gain=None, verbose=1, ndigits=5, use_simple_mode=True,
+):
 
     best_gain = -LARGE_CONST
     best_candidate = None
