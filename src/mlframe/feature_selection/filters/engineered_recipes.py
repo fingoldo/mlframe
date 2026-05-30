@@ -337,7 +337,23 @@ def _apply_cluster_aggregate(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     if not (len(recipe.src_names) == len(member_mean) == len(member_std) == len(signs)):
         raise ValueError(f"cluster_aggregate recipe '{recipe.name}': src_names / stats length mismatch.")
 
-    cols = [np.asarray(_extract_column(X, n), dtype=np.float64) for n in recipe.src_names]
+    # 2026-05-30 Wave 9.1 fix (loop iter 8): match the train-time
+    # ``_continuous_cols`` preprocessing in ``_cluster_aggregate.py:119``
+    # which ``nan_to_num``s the member columns BEFORE computing mean / std.
+    # Without the same wrap here, replay rows with NaN in any member become
+    # ``(NaN - mean) / std = NaN``, the ``Z @ weights`` row becomes NaN, and
+    # the final ``nan_to_num(out)`` at line 352 zeroes the row -- but the
+    # train-time aggregate for the same row was ``((0 - mean) / std * sign)
+    # @ weights``, a specific value. So fit recorded one number and
+    # transform produced a different one, breaking train/test parity in
+    # the very common case where TRAIN itself contains NaN.
+    cols = [
+        np.nan_to_num(
+            np.asarray(_extract_column(X, n), dtype=np.float64),
+            nan=0.0, posinf=0.0, neginf=0.0,
+        )
+        for n in recipe.src_names
+    ]
     M = np.column_stack(cols)  # (n, k)
     std = np.where(member_std > 0.0, member_std, 1.0)
     Z = ((M - member_mean) / std) * signs  # standardize with TRAIN stats + sign-align
