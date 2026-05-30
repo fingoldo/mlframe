@@ -505,6 +505,17 @@ class TrainingBehaviorConfig(BaseConfig):
     early_stop_on_worsening: bool = True
     early_stop_on_worsening_coeff: int = 5
     early_stop_on_worsening_min_iters: int = 5
+
+    # Default True: ``_trainer_train_and_evaluate.maybe_wrap_for_partial_fit_es``
+    # auto-wraps linear/ridge/lasso/elasticnet/huber/sgd/ransac models in
+    # ``PartialFitESWrapper`` when an X_val/y_val pair is available so val drives
+    # ES via partial_fit (SGD-family) or a dichotomic budget search
+    # (iterative-solver linear-family). Set to False to skip the wrap entirely
+    # and reach the underlying estimator unchanged -- intended for parity
+    # benchmarks against the pre-wrap legacy path and for off-switch operator
+    # control; NOT a perf knob (the wrap is essentially free at construction
+    # time; the bench value is the ES decision shift it enables).
+    auto_wrap_partial_fit_es: bool = True
     # Default False: feature-drift-driven per-target MLP HPT override
     # is OFF by default. The drift sensor still runs and stamps the
     # recommendation into metadata + emits a WARN log line so the

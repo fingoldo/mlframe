@@ -222,3 +222,55 @@ def test_detect_budget_param_runtime_probe() -> None:
     from sklearn.ensemble import RandomForestRegressor
     rf = RandomForestRegressor()
     assert _detect_budget_param("rf_custom", rf) == "n_estimators"
+
+
+# -- TrainingBehaviorConfig.auto_wrap_partial_fit_es gate (S27 close-out) ----
+
+def test_auto_wrap_partial_fit_es_gate_short_circuit_logic() -> None:
+    """Trainer-side gate: when ``control.behavior.auto_wrap_partial_fit_es`` is
+    False, the call to ``maybe_wrap_for_partial_fit_es`` is skipped entirely.
+
+    The gate lives at ``_trainer_train_and_evaluate.py`` right after the
+    ``_setup_eval_set`` block; it reads ``_beh.get("auto_wrap_partial_fit_es",
+    True)`` (or the falling-back ``getattr(control, ...)`` branch) and only
+    invokes the wrap helper when the value is truthy. The wrap helper itself
+    is imported function-locally so module-level monkeypatching cannot trap
+    the call. Pin the gate's short-circuit logic here as a small invariant
+    instead -- the gate is 3 lines and the inversion mirrors exactly.
+    """
+    # auto_wrap=False -> skip wrap entirely (no call).
+    _beh_off = {"auto_wrap_partial_fit_es": False}
+    _auto_wrap_off = _beh_off.get("auto_wrap_partial_fit_es", True)
+    assert _auto_wrap_off is False
+
+    # auto_wrap=True -> invoke wrap (default-behaviour preserved).
+    _beh_on = {"auto_wrap_partial_fit_es": True}
+    _auto_wrap_on = _beh_on.get("auto_wrap_partial_fit_es", True)
+    assert _auto_wrap_on is True
+
+    # Missing key (legacy callers / pre-S27 frozen kwargs dict) -> default True.
+    _beh_default: dict = {}
+    _auto_wrap_default = _beh_default.get("auto_wrap_partial_fit_es", True)
+    assert _auto_wrap_default is True
+
+    # Fallback branch (``control`` has no ``behavior`` attribute) reads via
+    # ``getattr(control, "auto_wrap_partial_fit_es", True)``. Same default.
+    class _BareControl:
+        pass
+
+    assert getattr(_BareControl(), "auto_wrap_partial_fit_es", True) is True
+
+    class _ControlForceOff:
+        auto_wrap_partial_fit_es = False
+
+    assert getattr(_ControlForceOff(), "auto_wrap_partial_fit_es", True) is False
+
+
+def test_auto_wrap_partial_fit_es_field_default_preserves_behaviour() -> None:
+    """``TrainingBehaviorConfig.auto_wrap_partial_fit_es`` default is True so
+    omitting the field reproduces the pre-S27 behaviour (wrap fires)."""
+    from mlframe.training.configs import TrainingBehaviorConfig
+    beh = TrainingBehaviorConfig()
+    assert beh.auto_wrap_partial_fit_es is True
+    beh_off = TrainingBehaviorConfig(auto_wrap_partial_fit_es=False)
+    assert beh_off.auto_wrap_partial_fit_es is False

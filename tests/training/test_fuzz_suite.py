@@ -301,6 +301,11 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
         # drives _phase_temporal_audit bin freq dispatch. Mirrors the existing
         # target_temporal_audit_column wiring elsewhere in the suite.
         "target_temporal_audit_granularity": combo.target_temporal_audit_granularity_cfg,
+        # S27 close-out: TrainingBehaviorConfig.auto_wrap_partial_fit_es real
+        # ctor param at _model_configs.py. False forces OFF the
+        # PartialFitESWrapper auto-wrap at _trainer_train_and_evaluate.py:551.
+        # Fuzz axis is inverted (force_off=True => auto_wrap=False).
+        "auto_wrap_partial_fit_es": not combo.auto_wrap_partial_fit_es_force_off_cfg,
     }
     # Defensive filter: drop any behavior key that's not a model_fields entry.
     behavior_kwargs = _safe_cfg_kwargs(TrainingBehaviorConfig, **behavior_kwargs)

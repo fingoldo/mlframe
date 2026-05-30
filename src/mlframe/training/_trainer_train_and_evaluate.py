@@ -543,18 +543,26 @@ def train_and_evaluate_model(
                 v = getattr(control, k, None)
                 if v is not None:
                     _behavior_kwargs[k] = v
+            _auto_wrap = getattr(control, "auto_wrap_partial_fit_es", True)
         else:
             for k in ("early_stop_on_worsening", "early_stop_on_worsening_coeff",
                       "early_stop_on_worsening_min_iters"):
                 if k in _beh:
                     _behavior_kwargs[k] = _beh[k]
-        _wrapped, _did_wrap = maybe_wrap_for_partial_fit_es(
-            model_obj if model is None else (model_obj or model),
-            model_category=model_category or "",
-            X_val=val_df, y_val=val_target,
-            is_classification=("Classifier" in (model_type_name or "")),
-            behavior_kwargs=_behavior_kwargs,
-        )
+            _auto_wrap = _beh.get("auto_wrap_partial_fit_es", True)
+        # ``auto_wrap_partial_fit_es`` (TrainingBehaviorConfig field, default True)
+        # gates the wrap entirely. False reaches the underlying estimator unchanged
+        # -- intended for parity bench / off-switch use, not perf.
+        if _auto_wrap:
+            _wrapped, _did_wrap = maybe_wrap_for_partial_fit_es(
+                model_obj if model is None else (model_obj or model),
+                model_category=model_category or "",
+                X_val=val_df, y_val=val_target,
+                is_classification=("Classifier" in (model_type_name or "")),
+                behavior_kwargs=_behavior_kwargs,
+            )
+        else:
+            _wrapped, _did_wrap = None, False
         if _did_wrap:
             logger.info("Auto-wrapped %s in PartialFitESWrapper for val-driven ES "
                          "(model_category=%s)", model_type_name, model_category)

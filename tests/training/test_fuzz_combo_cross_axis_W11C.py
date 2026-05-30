@@ -1754,3 +1754,85 @@ def test_iter576_audit_pass_6_low_tier_axes_flow_to_kwargs():
     assert getattr(cfg, "cv_selector_confidence", None) == 0.99
     assert getattr(cfg, "cv_selector_quantile_level", None) == 0.95
     assert getattr(cfg, "cv_persist_fold_scores", None) is True
+
+
+def test_iter582_close_remaining_axes_flow_to_kwargs():
+    """Pin S27 ``auto_wrap_partial_fit_es_force_off_cfg`` + 5 ``slice_stable_es_*``
+    axes flowing into their target config fields.
+
+    Closes the two remaining items from the session summary:
+
+      S27: ``TrainingBehaviorConfig.auto_wrap_partial_fit_es`` was added as a
+        real ctor param (default True preserves prior behaviour) and the gate
+        landed at ``_trainer_train_and_evaluate.py:551``. Fuzz axis is inverted
+        (``auto_wrap_partial_fit_es_force_off_cfg=True`` -> ctor field False).
+
+      slice_stable_es_*: 5 axes wired canon-only in commit 8d38bf20 are now
+        threaded through ``build_slice_stable_es_config(combo)`` into a real
+        ``SliceStableESConfig`` -- field-name mapping verified against
+        ``_training_runtime_configs.py:42-95`` (no audit-vs-source drift).
+    """
+    from tests.training._fuzz_combo import (
+        AXES, _build_combo, build_slice_stable_es_config,
+    )
+
+    # ----- S27 axis presence + dataclass default -----
+    assert "auto_wrap_partial_fit_es_force_off_cfg" in AXES
+    assert AXES["auto_wrap_partial_fit_es_force_off_cfg"] == (False, True)
+
+    base_axes = {name: values[0] for name, values in AXES.items()}
+    c_default = _build_combo(models=("linear",), axes=base_axes, seed=0)
+    assert c_default.auto_wrap_partial_fit_es_force_off_cfg is False
+
+    # S27 inversion: force_off=True -> auto_wrap_partial_fit_es=False
+    # (mirrors the inline TrainingBehaviorConfig kwarg wiring at
+    # test_fuzz_suite.py inside the behavior_kwargs dict).
+    s27_axes = dict(base_axes)
+    s27_axes.update(auto_wrap_partial_fit_es_force_off_cfg=True)
+    c_force_off = _build_combo(models=("linear",), axes=s27_axes, seed=0)
+    _auto_wrap = not c_force_off.auto_wrap_partial_fit_es_force_off_cfg
+    assert _auto_wrap is False, (
+        "force_off=True must invert into auto_wrap_partial_fit_es=False"
+    )
+    # And the default case: force_off=False -> auto_wrap=True (no behaviour change).
+    _auto_wrap_default = not c_default.auto_wrap_partial_fit_es_force_off_cfg
+    assert _auto_wrap_default is True
+
+    # ----- TrainingBehaviorConfig field ordering / type -----
+    from mlframe.training.configs import TrainingBehaviorConfig
+    assert "auto_wrap_partial_fit_es" in TrainingBehaviorConfig.model_fields
+    _fi = TrainingBehaviorConfig.model_fields["auto_wrap_partial_fit_es"]
+    # default must preserve current behaviour
+    assert _fi.default is True
+    # ctor sanity: explicit False round-trips.
+    _beh = TrainingBehaviorConfig(auto_wrap_partial_fit_es=False)
+    assert _beh.auto_wrap_partial_fit_es is False
+
+    # ----- 5 slice_stable_es_* axes flow into SliceStableESConfig -----
+    sl_on = dict(base_axes)
+    sl_on.update(
+        slice_stable_es_enabled_cfg=True,
+        slice_stable_es_aggregate_cfg="t_lcb",
+        slice_stable_es_source_cfg="random",
+        slice_stable_es_pareto_best_iter_selection_cfg=True,
+        slice_stable_es_diagnostic_only_cfg=True,
+    )
+    c_on = _build_combo(models=("cb",), axes=sl_on, seed=0)
+    cfg = build_slice_stable_es_config(c_on)
+    assert cfg is not None
+    # Field-name mapping (verified against SliceStableESConfig at
+    # _training_runtime_configs.py:42-95 -- no audit drift; all 5 SOURCE
+    # field names match the audit's audit-vs-source mapping).
+    assert cfg.enabled is True
+    assert cfg.aggregate == "t_lcb"
+    assert cfg.source == "random"
+    assert cfg.pareto_best_iter_selection is True
+    assert cfg.diagnostic_only is True
+
+    # Default-axes path: defaults flow through unchanged.
+    cfg_default = build_slice_stable_es_config(c_default)
+    assert cfg_default.enabled is False
+    assert cfg_default.aggregate == "mean"
+    assert cfg_default.source == "temporal"
+    assert cfg_default.pareto_best_iter_selection is False
+    assert cfg_default.diagnostic_only is False

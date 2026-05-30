@@ -1122,11 +1122,18 @@ AXES: dict[str, tuple[Any, ...]] = {
     # composite_discovery_enabled_cfg=True. Source default "mean".
     # _composite_target_discovery_config.py:117.
     "cv_selector_mode_cfg": ("mean", "t_lcb"),
+    # TrainingBehaviorConfig.auto_wrap_partial_fit_es (S27 close-out).
+    # Now a real ctor param at _model_configs.py (default True). True forces
+    # OFF the PartialFitESWrapper auto-wrap at
+    # _trainer_train_and_evaluate.py:551; pair = (False=default-leave-on,
+    # True=force-off). Wired via inversion:
+    # auto_wrap_partial_fit_es = not auto_wrap_partial_fit_es_force_off_cfg.
+    "auto_wrap_partial_fit_es_force_off_cfg": (False, True),
     # =====================================================================
     # 2026-05-30 audit-pass-6 LOW-tier deferred batch (W6 LOW). 28 axes
-    # from D:/Temp/AUDIT_PASS_6_DONE.md (S27 dropped: not a knob today,
-    # `auto_wrap_partial_fit_es_force_off_cfg` is not a real ctor param
-    # in TrainingBehaviorConfig). Defaults SOURCE-verified at HEAD:
+    # from D:/Temp/AUDIT_PASS_6_DONE.md (S27 now landed above the divider as
+    # a real ctor param at TrainingBehaviorConfig.auto_wrap_partial_fit_es).
+    # Defaults SOURCE-verified at HEAD:
     #   - ShapProxiedFS Stage-A/Refine/Reval/Threading (S1-S18) against
     #     src/mlframe/feature_selection/shap_proxied_fs.py:41-117.
     #   - Curve-shape ES coeff/min_iters (S25/S26) against
@@ -1627,6 +1634,9 @@ class FuzzCombo:
     mrmr_mi_normalization_cfg: str = "none"
     mrmr_dcd_enable_cfg: bool = False
     cv_selector_mode_cfg: str = "mean"
+    # S27 close-out: TrainingBehaviorConfig.auto_wrap_partial_fit_es real
+    # ctor param. False = leave wrap ON (source default); True = force OFF.
+    auto_wrap_partial_fit_es_force_off_cfg: bool = False
     # 2026-05-30 audit-pass-6 LOW-tier deferred batch (W6 LOW). 28 axes,
     # S27 dropped (no source ctor param). Defaults source-verified against
     # ShapProxiedFS.__init__ (feature_selection/shap_proxied_fs.py:79-113),
@@ -2701,6 +2711,11 @@ class FuzzCombo:
                     and self.target_type == "regression")
                 else "mean"
             ),
+            # S27 close-out: auto_wrap_partial_fit_es_force_off (no gate --
+            # the wrap path is unconditionally exercised whenever a linear-
+            # family model + X_val/y_val are present, which is independent of
+            # the model list axis; collapse-less canon is safe).
+            self.auto_wrap_partial_fit_es_force_off_cfg,
             # 2026-05-30 audit-pass-6 LOW-tier deferred batch (W6 LOW) canons.
             # ShapProxiedFS Stage-A (S1-S8): collapse to shap_proxied_fs.py:79-87
             # defaults when use_shap_proxied_fs=False.
@@ -3831,6 +3846,9 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         mrmr_mi_normalization_cfg=axes.get("mrmr_mi_normalization_cfg", "none"),
         mrmr_dcd_enable_cfg=axes.get("mrmr_dcd_enable_cfg", False),
         cv_selector_mode_cfg=axes.get("cv_selector_mode_cfg", "mean"),
+        auto_wrap_partial_fit_es_force_off_cfg=axes.get(
+            "auto_wrap_partial_fit_es_force_off_cfg", False
+        ),
         # 2026-05-30 audit-pass-6 LOW-tier deferred batch (W6 LOW).
         shap_proxied_prefilter_stage1_keep_cfg=axes.get(
             "shap_proxied_prefilter_stage1_keep_cfg", None
@@ -4435,6 +4453,59 @@ def build_composite_discovery_config(combo: "FuzzCombo"):
         cv_selector_confidence=combo.cv_selector_confidence_cfg,
         cv_selector_quantile_level=combo.cv_selector_quantile_level_cfg,
         cv_persist_fold_scores=combo.cv_persist_fold_scores_cfg,
+    )
+
+
+def build_slice_stable_es_config_from_flat(
+    *,
+    enabled: bool = False,
+    aggregate: str = "mean",
+    source: str = "temporal",
+    pareto_best_iter_selection: bool = False,
+    diagnostic_only: bool = False,
+):
+    """Build a ``SliceStableESConfig`` honouring the 5 fuzz axes (W6 upgrade
+    of the canon-only wiring landed in commit 8d38bf20).
+
+    Field-name mapping (audit suffix `_cfg` -> SOURCE field name on
+    ``mlframe.training._training_runtime_configs.SliceStableESConfig``):
+
+      slice_stable_es_enabled_cfg                  -> ``enabled``
+      slice_stable_es_aggregate_cfg                -> ``aggregate``
+      slice_stable_es_source_cfg                   -> ``source``
+      slice_stable_es_pareto_best_iter_selection_cfg
+                                                   -> ``pareto_best_iter_selection``
+      slice_stable_es_diagnostic_only_cfg          -> ``diagnostic_only``
+
+    All five names verified against
+    ``src/mlframe/training/_training_runtime_configs.py:42-95`` (no audit-vs-
+    source drift).
+    """
+    from mlframe.training.configs import SliceStableESConfig
+    return SliceStableESConfig(
+        enabled=enabled,
+        aggregate=aggregate,
+        source=source,
+        pareto_best_iter_selection=pareto_best_iter_selection,
+        diagnostic_only=diagnostic_only,
+    )
+
+
+def build_slice_stable_es_config(combo: "FuzzCombo"):
+    """FuzzCombo-aware wrapper around ``build_slice_stable_es_config_from_flat``.
+
+    Threads the 5 fuzz axes through the SliceStableESConfig construction so
+    the suite-side inline path exercises the config (current production
+    ``train_mlframe_models_suite`` does not accept a slice_stable_es kwarg
+    yet; this helper is also consumable by the trainer-direct test_fuzz_combo
+    smoke tests and any future suite plumbing).
+    """
+    return build_slice_stable_es_config_from_flat(
+        enabled=combo.slice_stable_es_enabled_cfg,
+        aggregate=combo.slice_stable_es_aggregate_cfg,
+        source=combo.slice_stable_es_source_cfg,
+        pareto_best_iter_selection=combo.slice_stable_es_pareto_best_iter_selection_cfg,
+        diagnostic_only=combo.slice_stable_es_diagnostic_only_cfg,
     )
 
 
