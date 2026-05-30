@@ -262,6 +262,30 @@ def transform(self, X, y=None):
             "This MRMR instance is not fitted yet. Call 'fit' before "
             "using 'transform'."
         )
+    # 2026-05-30 Wave 9.1 fix (loop iter 19): sklearn ``n_features_in_``
+    # contract. Pre-fix ``transform()`` accepted ndarray (and any non-
+    # DataFrame array) with wrong column count and silently sliced
+    # ``X[:, support_]`` from whatever positions support_ pointed at,
+    # returning garbage columns. Confirmed live: fit on 4-col DataFrame
+    # then transform 3-col, 5-col, 7-col ndarrays all returned shape
+    # (n, k) with no error or warning. The pandas path's
+    # column-name validation at lines 297-308 protected the DataFrame
+    # surface but the positional ndarray path was naked. sklearn's
+    # canonical contract requires raising ValueError on shape mismatch.
+    _n_features_in = getattr(self, "n_features_in_", None)
+    if _n_features_in is None:
+        # Fallback to feature_names_in_ length for legacy estimators
+        # missing the n_features_in_ attribute.
+        _n_features_in = (
+            len(self.feature_names_in_)
+            if hasattr(self, "feature_names_in_") else None
+        )
+    if _n_features_in is not None and hasattr(X, "shape") and len(X.shape) >= 2:
+        if int(X.shape[1]) != int(_n_features_in):
+            raise ValueError(
+                f"X has {int(X.shape[1])} features, but MRMR is expecting "
+                f"{int(_n_features_in)} features as input."
+            )
     support = self.support_
     recipes = getattr(self, "_engineered_recipes_", [])
 
