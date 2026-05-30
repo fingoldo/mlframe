@@ -395,6 +395,18 @@ def _prewarm_numba_cache_body():
     # "shift cost out of user-visible timer" property; short-lived
     # CLI tools / fuzz harnesses / CI jobs that know they don't use
     # neural can set the env var once and save 6-10s per process.
+    #
+    # iter618 end-to-end validation on c0089_777f5fe3 (binary lgb-only
+    # @100k) measured 32.17s suite default vs 13.86s with gate=0
+    # (-18.3s, -56% suite wall). The full saving is 2.3x larger than
+    # the initial subprocess-prewarm bench predicted because the
+    # heavy-lib IMPORT CASCADE (lightning -> torch -> cuda probe;
+    # shap -> transformers registry walk; pytorch_lightning callback
+    # registry) rippling through other module loads is not captured by
+    # pstats cumtime on the prewarm body itself (pstats shows only
+    # +0.31s on the body call), but DOES land in the user-visible
+    # wall-clock. The env var is therefore the highest-impact perf
+    # toggle in mlframe for short-lived non-neural runs.
     _prewarm_heavy = _os.environ.get("MLFRAME_PREWARM_HEAVY_LIBS", "").strip().lower()
     _skip_heavy = _prewarm_heavy in {"0", "false", "no", "skip"}
     if not _skip_heavy:
