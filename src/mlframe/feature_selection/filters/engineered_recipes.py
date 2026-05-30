@@ -401,7 +401,22 @@ def _apply_target_encoding(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     vals_b = np.clip(vals_b, 0, nbins_b - 1)
     pre_prune = vals_a + vals_b * nbins_a
     cell_idx = factorize_lookup[pre_prune]
-    # cell_idx may be -1 for unseen-and-raise; replace with global_mean
+    # 2026-05-30 Wave 9.1 fix (loop iter 22): honour ``unknown_strategy='raise'``.
+    # Pre-fix this branch silently substituted ``global_mean`` for unseen
+    # cells even when the recipe was explicitly built with raise strategy,
+    # diverging from ``_apply_factorize`` (line 512) and
+    # ``_apply_factorize_kway`` (line 556, iter-13 fix) which both raise.
+    # Production monitoring relying on raise-on-drift was failing open:
+    # a model whose target-encoded features were silently filled with the
+    # train global mean degraded predictions but passed any try/except
+    # guard.
+    if recipe.unknown_strategy == "raise" and (cell_idx < 0).any():
+        n_unseen = int((cell_idx < 0).sum())
+        raise ValueError(
+            f"target_encoding recipe '{recipe.name}': {n_unseen} row(s) have "
+            f"(X[{name_a}], X[{name_b}]) combinations not seen during fit. "
+            f"Set unknown_strategy='clip' or 'sentinel' to handle silently."
+        )
     out = np.where(cell_idx >= 0, cell_means[np.maximum(cell_idx, 0)], global_mean)
     return out.astype(np.float64, copy=False)
 
