@@ -52,7 +52,17 @@ def merge_vars(
     for var_number, var_index in enumerate(vars_indices):
 
         expected_nclasses = current_nclasses * factors_nbins[var_index]
-        freqs = np.zeros(expected_nclasses, dtype=dtype)
+        # 2026-05-30 Wave 9.1 fix (loop iter 21): use int64 for the
+        # per-class counter ``freqs`` and the remap ``lookup_table``,
+        # decoupled from the caller-supplied ``dtype`` (which sizes the
+        # per-sample class-id workspace). Pre-fix when ``dtype=np.int8``,
+        # a single 200-sample bin overflowed to -56 silently (live
+        # repro: freqs_norm = [-0.28] instead of [1.0]); under default
+        # ``dtype=np.int32`` the same defect lurked at any joint
+        # holding > 2**31 samples. The bin count is a pure counter
+        # bounded by ``n_samples`` regardless of class encoding, so
+        # int64 is the safe choice with negligible memory overhead.
+        freqs = np.zeros(expected_nclasses, dtype=np.int64)
         values = factors_data[:, var_index].astype(dtype)
         if verbose:
             print(f"var={var_index}, classes from {values.min()} to {values.max()}")
@@ -62,7 +72,10 @@ def merge_vars(
             final_classes[sample_row] = newclass
 
         nzeros = 0
-        lookup_table = np.empty(expected_nclasses, dtype=dtype)
+        # lookup_table holds remap targets up to ``expected_nclasses``
+        # which can exceed ``dtype``'s range for deep joints; int64
+        # eliminates the silent overflow there too.
+        lookup_table = np.empty(expected_nclasses, dtype=np.int64)
         for oldclass, npoints in enumerate(freqs):
             if npoints == 0:
                 nzeros += 1
