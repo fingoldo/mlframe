@@ -198,8 +198,20 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     fe_max_polynom_coeff = self.fe_max_polynom_coeff
 
     # Convert numpy array to DataFrame if needed
+    # 2026-05-30 Wave 9.1 fix (loop iter 27): record a sentinel
+    # ``self._feature_names_in_synthesized_`` so ``get_feature_names_out``
+    # can distinguish ndarray-fit synthesized placeholders from
+    # legitimate DataFrame columns the user happened to name
+    # ``feature_<int>``. Pre-fix the detection used
+    # ``str(n).startswith("feature_")`` heuristically, which
+    # misclassified real columns and silently bypassed the sklearn
+    # column-drift contract for any user whose DataFrame happened to
+    # use that naming (very common after ``pd.DataFrame(arr)`` + rename).
     if isinstance(X, np.ndarray):
         X = pd.DataFrame(X, columns=[f'feature_{i}' for i in range(X.shape[1])])
+        self._feature_names_in_synthesized_ = True
+    else:
+        self._feature_names_in_synthesized_ = False
     # 2026-05-21 revert of Wave 29 P1 polars->pandas coercion. That
     # coercion was added on the premise that downstream ``X[target_name]
     # = y`` mutation assumed pandas and would raise on polars; but the

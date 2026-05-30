@@ -1240,7 +1240,27 @@ class MRMR(BaseEstimator, TransformerMixin):
         if input_features is not None:
             in_names = np.asarray(input_features, dtype=object)
             saved = np.asarray(self.feature_names_in_, dtype=object)
-            synthesized = all(str(n).startswith("feature_") for n in saved)
+            # 2026-05-30 Wave 9.1 fix (loop iter 27): use the
+            # ``_feature_names_in_synthesized_`` sentinel set at fit
+            # time instead of the brittle ``startswith("feature_")``
+            # heuristic. The heuristic misclassified legitimate
+            # DataFrame columns the user happened to name
+            # ``feature_<n>`` (very common pattern after
+            # ``pd.DataFrame(arr)`` + rename) and silently bypassed
+            # the sklearn column-drift contract -
+            # ``get_feature_names_out(['totally_wrong_A','B','C'])``
+            # returned ``['totally_wrong_A']`` instead of raising.
+            # Back-compat fallback for unpickled pre-iter-27 estimators
+            # without the sentinel: require an EXACT regex match
+            # (anchored, ``feature_\d+$``) AND count parity, not just
+            # ``startswith``.
+            synthesized = getattr(self, "_feature_names_in_synthesized_", None)
+            if synthesized is None:
+                import re as _re
+                _placeholder = _re.compile(r"^feature_\d+$")
+                synthesized = all(
+                    _placeholder.match(str(n)) is not None for n in saved
+                )
             if not synthesized:
                 if (len(in_names) != len(saved)
                         or not np.array_equal(in_names, saved)):
