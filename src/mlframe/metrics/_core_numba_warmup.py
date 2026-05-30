@@ -9,6 +9,7 @@ resolve.
 from __future__ import annotations
 
 import logging
+import os as _os
 
 import numpy as np
 
@@ -375,38 +376,60 @@ def _prewarm_numba_cache_body():
         pass
 
     # Prewarm-import the heavy neural-net stack. `mlframe.lightninglib` / `mlframe.training.neural` pulls in PyTorch Lightning, which is a ~275s cold-import on Windows. The cost otherwise lands inside the suite call because the import is deferred until `mlp` is in the model list. Triggered ONLY when lightning is already discoverable; otherwise the import attempt itself would be a 5-10s ModuleNotFoundError walk through sys.path.
-    try:
-        import importlib.util as _ilu
-        if _ilu.find_spec("lightning") is not None:
-            try:
-                import lightning.fabric  # noqa: F401
-            except Exception:
-                pass
-            try:
-                import mlframe.lightninglib  # noqa: F401
-            except Exception:
-                pass
-        # `pytorch_lightning` is a separate package from `lightning` (legacy alias kept for back-compat); cold import is ~500s on Windows for the currently-pinned version.
-        if _ilu.find_spec("pytorch_lightning") is not None:
-            try:
-                import pytorch_lightning  # noqa: F401
-            except Exception:
-                pass
-        # `shap` cold import is ~228s on Windows (includes `shap.utils.transformers` walking the local transformers registry). The suite imports shap inside trainer.py when use_shap=True.
-        if _ilu.find_spec("shap") is not None:
-            try:
-                import shap  # noqa: F401
-                import shap.utils.transformers  # noqa: F401
-                # Match the runtime monkeypatch so prewarm leaves shap in the state the suite expects.
-                shap.utils.transformers.is_transformers_lm = lambda model: False
-            except Exception:
-                pass
+    #
+    # iter604 (perf gate): the heavy-lib prewarm here ALWAYS fires when
+    # dummy_baselines is enabled (the suite default), even when the
+    # caller's model list has no MLP/recurrent and the user never sets
+    # ``use_shap=True``. Profile measurements at 100k:
+    #   c0073 (regression hgb+xgb)      9.07s in this block (46% of 19.8s wall)
+    #   c0002 (LTR lgb)                 7.98s (72% of 11.1s wall)
+    #   c0006 (binary cb+xgb+ens)       9.65s (20% of 49.3s wall)
+    #   c0143 (multiclass xgb)          6.74s (33% of 20.3s wall)
+    # For non-neural / non-shap workloads the cost is pure waste -- the
+    # imports never get used. The MLFRAME_PREWARM_HEAVY_LIBS env var
+    # lets a caller opt out:
+    #   "0" / "false" / "no" / "skip"  -> skip all heavy-lib prewarms
+    #   anything else (incl. unset)    -> current behavior (warm if
+    #                                     discoverable)
+    # Default unchanged so production / interactive sessions keep the
+    # "shift cost out of user-visible timer" property; short-lived
+    # CLI tools / fuzz harnesses / CI jobs that know they don't use
+    # neural can set the env var once and save 6-10s per process.
+    _prewarm_heavy = _os.environ.get("MLFRAME_PREWARM_HEAVY_LIBS", "").strip().lower()
+    _skip_heavy = _prewarm_heavy in {"0", "false", "no", "skip"}
+    if not _skip_heavy:
         try:
-            import mlframe.training.neural  # noqa: F401
+            import importlib.util as _ilu
+            if _ilu.find_spec("lightning") is not None:
+                try:
+                    import lightning.fabric  # noqa: F401
+                except Exception:
+                    pass
+                try:
+                    import mlframe.lightninglib  # noqa: F401
+                except Exception:
+                    pass
+            # `pytorch_lightning` is a separate package from `lightning` (legacy alias kept for back-compat); cold import is ~500s on Windows for the currently-pinned version.
+            if _ilu.find_spec("pytorch_lightning") is not None:
+                try:
+                    import pytorch_lightning  # noqa: F401
+                except Exception:
+                    pass
+            # `shap` cold import is ~228s on Windows (includes `shap.utils.transformers` walking the local transformers registry). The suite imports shap inside trainer.py when use_shap=True.
+            if _ilu.find_spec("shap") is not None:
+                try:
+                    import shap  # noqa: F401
+                    import shap.utils.transformers  # noqa: F401
+                    # Match the runtime monkeypatch so prewarm leaves shap in the state the suite expects.
+                    shap.utils.transformers.is_transformers_lm = lambda model: False
+                except Exception:
+                    pass
+            try:
+                import mlframe.training.neural  # noqa: F401
+            except Exception:
+                pass
         except Exception:
             pass
-    except Exception:
-        pass
 
     # Warm cupy GPU AUC kernels. `compute_batch_aucs` dispatches to `gpu_multiple_roc_auc_scores` / `gpu_multiple_pr_auc_scores` when N>=100k AND M>=5. cupy compiles CUDA kernels via NVRTC on first call (~128s per fresh process). No-op when cupy isn't installed.
     # Gate the WHOLE block on is_gpu_metrics_available() (which now probes
