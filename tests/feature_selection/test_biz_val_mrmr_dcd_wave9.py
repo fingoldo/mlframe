@@ -195,3 +195,92 @@ class TestDCDEdgeCases:
         # DCD summary populated regardless of permutation budget.
         assert sel.dcd_ is not None
         assert sel.dcd_["n_su_calls"] >= 0
+
+
+class TestDCDSwapPath:
+    """Wave 9.1: anchor → PC1 swap evaluator + commit. Tests exercise the
+    standalone module API (the screen-loop wire-up is best-effort and only
+    fires when the PC1 aggregate beats the raw anchor by ``swap_gain_threshold``).
+    """
+    def _binned_matrix(self, n=200, seed=0):
+        import pandas as pd
+        rng = np.random.default_rng(int(seed))
+        true_sig = rng.standard_normal(n)
+        y_arr = (true_sig > 0).astype(np.int64)
+        cols_raw = [
+            true_sig,
+            true_sig + 0.10 * rng.standard_normal(n),
+            true_sig + 0.12 * rng.standard_normal(n),
+            true_sig + 0.15 * rng.standard_normal(n),
+            true_sig + 0.18 * rng.standard_normal(n),
+            rng.standard_normal(n),
+            y_arr.astype(np.float64),
+        ]
+        data = np.zeros((n, 7), dtype=np.int32)
+        for i, col_vals in enumerate(cols_raw):
+            edges = np.linspace(col_vals.min(), col_vals.max(), 11)
+            data[:, i] = np.clip(
+                np.digitize(col_vals, edges[1:-1]), 0, 9,
+            ).astype(np.int32)
+        nbins = np.array([10] * 7, dtype=np.int64)
+        target_indices = np.array([6], dtype=np.int64)
+        X_raw = pd.DataFrame({f"f{i}": cols_raw[i] for i in range(7)})
+        return data, nbins, target_indices, X_raw
+
+    def test_evaluate_swap_candidate_returns_decision(self):
+        from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
+            make_dcd_state, discover_cluster_members, evaluate_swap_candidate,
+            SwapDecision,
+        )
+        data, nbins, target_indices, X_raw = self._binned_matrix()
+        state = make_dcd_state(
+            X_raw=X_raw, factors_data=data, factors_nbins=nbins,
+            cols=[f"f{i}" for i in range(7)], nbins=nbins,
+            target_indices=target_indices, tau_cluster=0.3,
+            cluster_size_threshold=3, swap_gain_threshold=0.001,
+        )
+        discover_cluster_members(state, 0, list(range(1, 6)))
+        decision = evaluate_swap_candidate(
+            state, 0, [0], target_y=target_indices,
+            factors_data=data, factors_nbins=nbins,
+            cached_MIs={}, entropy_cache=None, full_npermutations=0,
+        )
+        assert isinstance(decision, SwapDecision)
+        # Should have computed rep + anchor relevance.
+        assert decision.rep_relevance >= 0.0
+        assert decision.anchor_relevance_in_ctx >= 0.0
+
+    def test_commit_swap_extends_data_matrix(self):
+        from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
+            make_dcd_state, discover_cluster_members,
+            evaluate_swap_candidate, commit_swap,
+        )
+        data, nbins, target_indices, X_raw = self._binned_matrix()
+        state = make_dcd_state(
+            X_raw=X_raw, factors_data=data, factors_nbins=nbins,
+            cols=[f"f{i}" for i in range(7)], nbins=nbins,
+            target_indices=target_indices, tau_cluster=0.3,
+            cluster_size_threshold=3, swap_gain_threshold=0.0,  # any improvement
+        )
+        discover_cluster_members(state, 0, list(range(1, 6)))
+        decision = evaluate_swap_candidate(
+            state, 0, [0], target_y=target_indices,
+            factors_data=data, factors_nbins=nbins,
+            cached_MIs={}, entropy_cache=None, full_npermutations=0,
+        )
+        if decision.accept:
+            data_ref = {}
+            selected_vars = [0]
+            new_idx = commit_swap(
+                state, 0, decision, selected_vars=selected_vars,
+                data_ref=data_ref, engineered_recipes=None,
+                predictors_log=None,
+            )
+            # data_ref["data"] should be extended by 1 column.
+            assert data_ref["data"].shape[1] == data.shape[1] + 1
+            # selected_vars's first element should now be the new aggregate idx.
+            assert selected_vars[0] == new_idx
+            # pool_pruned_mask should mark the original anchor as pruned.
+            assert state.pool_pruned_mask[0] is np.True_ or bool(state.pool_pruned_mask[0])
+            # swap_log entry persisted.
+            assert len(state.swap_log) >= 1

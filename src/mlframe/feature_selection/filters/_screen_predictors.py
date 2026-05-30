@@ -495,6 +495,8 @@ def screen_predictors(
                                 try:
                                     from ._dynamic_cluster_discovery import (
                                         discover_cluster_members as _dcd_discover,
+                                        evaluate_swap_candidate as _dcd_eval_swap,
+                                        commit_swap as _dcd_commit_swap,
                                     )
                                     # candidate_pool = surviving non-pruned non-selected indices
                                     _pool = [
@@ -509,11 +511,53 @@ def screen_predictors(
                                         factors_data=factors_data,
                                         factors_nbins=factors_nbins,
                                     )
+                                    # 2026-05-30 Wave 9.1 — anchor → PC1 swap.
+                                    # When the freshly-grown cluster reaches
+                                    # ``cluster_size_threshold``, evaluate a
+                                    # PC1 aggregate. If ``conditional_mi(rep ;
+                                    # y | Selected − anchor)`` beats anchor's
+                                    # by ``swap_gain_threshold``, commit_swap
+                                    # extends ``factors_data`` and replaces
+                                    # ``var`` in ``selected_vars`` atomically.
+                                    _cluster_members = dcd_state.cluster_anchors.get(int(var), set())
+                                    if len(_cluster_members) >= int(dcd_state.cluster_size_threshold):
+                                        _decision = _dcd_eval_swap(
+                                            dcd_state, int(var), selected_vars,
+                                            target_y=y,
+                                            factors_data=factors_data,
+                                            factors_nbins=factors_nbins,
+                                            entropy_cache=entropy_cache,
+                                            cached_MIs=cached_MIs,
+                                            full_npermutations=int(full_npermutations or 0),
+                                        )
+                                        if _decision.accept:
+                                            _data_ref = {}
+                                            _new_idx = _dcd_commit_swap(
+                                                dcd_state, int(var), _decision,
+                                                selected_vars=selected_vars,
+                                                data_ref=_data_ref,
+                                                engineered_recipes=None,
+                                                predictors_log=predictors,
+                                            )
+                                            # Re-bind the loop-local matrix refs
+                                            # so subsequent iterations see the
+                                            # extended data / cols / nbins.
+                                            factors_data = _data_ref.get("data", factors_data)
+                                            factors_nbins = _data_ref.get("nbins", factors_nbins)
+                                            factors_names = _data_ref.get("cols", factors_names)
+                                            # Re-snapshot data_copy for the next
+                                            # confirm cycle (used by Fleuret).
+                                            data_copy = factors_data.copy()
+                                            if verbose:
+                                                logger.info(
+                                                    "DCD swap: anchor %s -> aggregate idx %d (%d members)",
+                                                    var, _new_idx, len(_cluster_members),
+                                                )
                                 except Exception as _dcd_exc:
                                     # DCD is best-effort; never break screening on its account.
                                     if verbose:
                                         logger.warning(
-                                            "DCD discover step failed silently: %r",
+                                            "DCD discover/swap step failed silently: %r",
                                             _dcd_exc,
                                         )
                     cand_name = get_candidate_name(best_candidate, factors_names=factors_names)
