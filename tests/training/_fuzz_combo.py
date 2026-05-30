@@ -1118,6 +1118,28 @@ AXES: dict[str, tuple[Any, ...]] = {
     # Organic in-greedy-loop cluster discovery via MI/SU distance.
     # filters/mrmr.py:589.
     "mrmr_dcd_enable_cfg": (False, True),
+    # 2026-05-30 audit-pass-7 #2: MRMR.baseline_npermutations
+    # (mrmr.py:309, default 2). After evaluation.py commit b0e0ea4f the
+    # baseline gate uses max_failed=_bnp with min_nonzero_confidence=0.0,
+    # turning baseline_npermutations into the "unanimity-quorum" size for
+    # rejecting candidates. pair_2 = default permissive regime;
+    # pair_8 = strict regime where genuine XOR is borderline.
+    "mrmr_baseline_npermutations_cfg": (2, 8),
+    # 2026-05-30 audit-pass-7 #3: per_feature_edges low_card_cap kwarg
+    # (_adaptive_nbins.py:511, default 32). Threaded into MRMR via
+    # nbins_strategy_kwargs={"low_card_cap": ...}. pair_2 disables the
+    # midpoint-bypass for all but binary columns (every ordinal/small-
+    # categorical column then runs the configured method_resolved);
+    # pair_32 keeps the default bypass.
+    "mrmr_low_card_cap_cfg": (2, 32),
+    # 2026-05-30 audit-pass-7 #4: per_feature_edges collapsed_fallback_nbins
+    # kwarg (_adaptive_nbins.py:586, default 5). Only fires when the
+    # supervised binning method (mdlp / fayyad_irani / optimal_joint / mah)
+    # collapses a column to a single bin -- then the fallback uses this
+    # nbins for an unsupervised re-bin so synergy MI on tuples containing
+    # the collapsed column is not identically zero. pair_3 stresses sparser
+    # fallback joint cardinality; pair_10 stresses denser.
+    "mrmr_collapsed_fallback_nbins_cfg": (3, 10),
     # CV-selector mode (HIGH; mean vs Student-t LCB). Gate:
     # composite_discovery_enabled_cfg=True. Source default "mean".
     # _composite_target_discovery_config.py:117.
@@ -1632,7 +1654,18 @@ class FuzzCombo:
     mrmr_cmi_perm_stop_cfg: bool = False
     mrmr_stability_selection_method_cfg: str = "classic"
     mrmr_mi_normalization_cfg: str = "none"
-    mrmr_dcd_enable_cfg: bool = False
+    # 2026-05-30 audit-pass-7 #1: source default flipped False -> True at
+    # mrmr.py:596 (commit e4562791). Fuzz dataclass default mirrors the
+    # production default so default-config combos exercise the DCD branch;
+    # the AXES pair stays (False, True) so the legacy branch is still
+    # sampled.
+    mrmr_dcd_enable_cfg: bool = True
+    # 2026-05-30 audit-pass-7 #2/#3/#4: defaults source-verified against
+    # mrmr.py:309 (baseline_npermutations=2) and _adaptive_nbins.py:511,586
+    # (low_card_cap=32, collapsed_fallback_nbins=5).
+    mrmr_baseline_npermutations_cfg: int = 2
+    mrmr_low_card_cap_cfg: int = 32
+    mrmr_collapsed_fallback_nbins_cfg: int = 5
     cv_selector_mode_cfg: str = "mean"
     # S27 close-out: TrainingBehaviorConfig.auto_wrap_partial_fit_es real
     # ctor param. False = leave wrap ON (source default); True = force OFF.
@@ -2701,7 +2734,29 @@ class FuzzCombo:
                 else "classic"
             ),
             (self.mrmr_mi_normalization_cfg if self.use_mrmr_fs else "none"),
-            (self.mrmr_dcd_enable_cfg if self.use_mrmr_fs else False),
+            # audit-pass-7 #1: collapse fallback matches mrmr.py:596 default
+            # (True). Pre-flip the fallback was False; the source default
+            # change makes True the canonical "no MRMR" baseline.
+            (self.mrmr_dcd_enable_cfg if self.use_mrmr_fs else True),
+            # audit-pass-7 #2: baseline_npermutations only meaningful when
+            # MRMR fires (gates evaluate_candidate baseline-screen quorum).
+            (self.mrmr_baseline_npermutations_cfg if self.use_mrmr_fs else 2),
+            # audit-pass-7 #3: low_card_cap threaded via nbins_strategy_kwargs
+            # to per_feature_edges; only fires under MRMR.
+            (self.mrmr_low_card_cap_cfg if self.use_mrmr_fs else 32),
+            # audit-pass-7 #4: collapsed_fallback_nbins only fires when a
+            # supervised binning method collapses a column. Compound gate:
+            # MRMR ON AND nbins_strategy in {mdlp, fayyad_irani}. Other
+            # methods (quantile/qs/sturges/freedman_diaconis/...) never
+            # trigger the fallback so the axis is canon-only there.
+            (
+                self.mrmr_collapsed_fallback_nbins_cfg
+                if (
+                    self.use_mrmr_fs
+                    and self.mrmr_nbins_strategy_cfg in ("mdlp", "fayyad_irani")
+                )
+                else 5
+            ),
             # CV-selector mode: only meaningful when composite discovery is
             # enabled AND target is regression (the discovery is regression-
             # only). Mirrors the existing composite_* canon pattern.
@@ -3844,7 +3899,12 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
             "mrmr_stability_selection_method_cfg", "classic"
         ),
         mrmr_mi_normalization_cfg=axes.get("mrmr_mi_normalization_cfg", "none"),
-        mrmr_dcd_enable_cfg=axes.get("mrmr_dcd_enable_cfg", False),
+        mrmr_dcd_enable_cfg=axes.get("mrmr_dcd_enable_cfg", True),
+        # 2026-05-30 audit-pass-7 #2/#3/#4 -- defaults verified at
+        # mrmr.py:309 and _adaptive_nbins.py:511,586.
+        mrmr_baseline_npermutations_cfg=axes.get("mrmr_baseline_npermutations_cfg", 2),
+        mrmr_low_card_cap_cfg=axes.get("mrmr_low_card_cap_cfg", 32),
+        mrmr_collapsed_fallback_nbins_cfg=axes.get("mrmr_collapsed_fallback_nbins_cfg", 5),
         cv_selector_mode_cfg=axes.get("cv_selector_mode_cfg", "mean"),
         auto_wrap_partial_fit_es_force_off_cfg=axes.get(
             "auto_wrap_partial_fit_es_force_off_cfg", False
@@ -4001,6 +4061,15 @@ def build_mrmr_kwargs_from_flat(
     uaed_auto_size: bool = False,
     cpt_test: bool = False,
     pid_synergy_bonus: float = 0.0,
+    # 2026-05-30 audit-pass-7 #2: MRMR ctor knob (mrmr.py:309). Threads as
+    # a top-level kwarg into MRMR.__init__.
+    baseline_npermutations: int = 2,
+    # 2026-05-30 audit-pass-7 #3/#4: per_feature_edges kwargs forwarded
+    # via MRMR.nbins_strategy_kwargs (mrmr.py:225 -> _mrmr_fit_impl:341 ->
+    # categorize_dataset:nbins_strategy_kwargs -> per_feature_edges.kwargs).
+    # Defaults source-verified at _adaptive_nbins.py:511,586.
+    low_card_cap: int = 32,
+    collapsed_fallback_nbins: int = 5,
 ) -> Optional[Dict[str, Any]]:
     """Build the mrmr_kwargs dict passed to FeatureSelectionConfig.
     Returns None when use_mrmr_fs=False so the FS step is a no-op.
@@ -4056,7 +4125,20 @@ def build_mrmr_kwargs_from_flat(
         "uaed_auto_size": uaed_auto_size,
         "cpt_test": cpt_test,
         "pid_synergy_bonus": pid_synergy_bonus,
+        # 2026-05-30 audit-pass-7 #2: top-level MRMR ctor knob (mrmr.py:309).
+        "baseline_npermutations": baseline_npermutations,
     }
+    # 2026-05-30 audit-pass-7 #3/#4: per_feature_edges.kwargs threaded via
+    # MRMR.nbins_strategy_kwargs. Build the dict only when one of these
+    # knobs differs from the source default so we don't shadow any existing
+    # caller-supplied dict with empty overrides.
+    _nbins_kw: Dict[str, Any] = {}
+    if low_card_cap != 32:
+        _nbins_kw["low_card_cap"] = low_card_cap
+    if collapsed_fallback_nbins != 5:
+        _nbins_kw["collapsed_fallback_nbins"] = collapsed_fallback_nbins
+    if _nbins_kw:
+        kwargs["nbins_strategy_kwargs"] = _nbins_kw
     # The MRMR subsample knobs default to FE_DEFAULT_SUBSAMPLE_N upstream; only
     # override when the fuzz axis sets a non-zero budget so existing combos
     # don't accidentally flip the path on.
@@ -4120,6 +4202,10 @@ def build_mrmr_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]:
         uaed_auto_size=combo.mrmr_uaed_auto_size_cfg,
         cpt_test=combo.mrmr_cpt_test_cfg,
         pid_synergy_bonus=combo.mrmr_pid_synergy_bonus_cfg,
+        # 2026-05-30 audit-pass-7 #2/#3/#4.
+        baseline_npermutations=combo.mrmr_baseline_npermutations_cfg,
+        low_card_cap=combo.mrmr_low_card_cap_cfg,
+        collapsed_fallback_nbins=combo.mrmr_collapsed_fallback_nbins_cfg,
     )
 
 

@@ -1836,3 +1836,183 @@ def test_iter582_close_remaining_axes_flow_to_kwargs():
     assert cfg_default.source == "temporal"
     assert cfg_default.pareto_best_iter_selection is False
     assert cfg_default.diagnostic_only is False
+
+
+# ---------------------------------------------------------------------------
+# 2026-05-30 audit-pass-7 (4 axes): MRMR DCD-default flip + 3 perm/binning knobs.
+# ---------------------------------------------------------------------------
+
+
+def test_iter594_audit_pass_7_axes_flow_to_kwargs():
+    """4 audit-pass-7 axes must:
+      (a) FuzzCombo dataclass default for mrmr_dcd_enable_cfg mirrors the
+          flipped source default (True; mrmr.py:596). Pre-flip the dataclass
+          and the source disagreed -- bare ``MRMR()`` callers were taking the
+          DCD branch the fuzz default never exercised.
+      (b) Three NEW axes (baseline_npermutations / low_card_cap /
+          collapsed_fallback_nbins) are present with >=2 values + their
+          dataclass defaults match the source defaults verbatim.
+      (c) When use_mrmr_fs=False every axis canon-collapses to the source
+          default so the dedup pass cannot keep phantom MRMR-knob variation
+          alive on non-MRMR combos.
+      (d) When use_mrmr_fs=True the axes flow into build_mrmr_kwargs verbatim:
+          baseline_npermutations as a top-level kwarg, low_card_cap +
+          collapsed_fallback_nbins via the nbins_strategy_kwargs subdict
+          (the kwargs path the MRMR ctor forwards into _mrmr_fit_impl ->
+          categorize_dataset -> per_feature_edges).
+
+    Axes (all source-verified pre-edit):
+      #1 mrmr_dcd_enable_cfg (mrmr.py:596 default True; was False)
+      #2 mrmr_baseline_npermutations_cfg (mrmr.py:309 default 2)
+      #3 mrmr_low_card_cap_cfg (_adaptive_nbins.py:511 default 32)
+      #4 mrmr_collapsed_fallback_nbins_cfg (_adaptive_nbins.py:586 default 5)
+    """
+    from tests.training._fuzz_combo import (
+        AXES, FuzzCombo, _build_combo, enumerate_combos, build_mrmr_kwargs,
+    )
+
+    # (a) #1: dataclass FIELD default mirrors the flipped source default.
+    # We check the dataclass default directly (NOT via _build_combo + base_axes,
+    # because base_axes selects AXES[ax][0] which is False for the dcd axis --
+    # the dataclass default is what bare ``FuzzCombo()`` callers get when no
+    # axis dict is supplied).
+    assert FuzzCombo.__dataclass_fields__["mrmr_dcd_enable_cfg"].default is True, (
+        "audit-pass-7 #1: dataclass default must mirror mrmr.py:596 (True)"
+    )
+    base_axes = {name: values[0] for name, values in AXES.items()}
+
+    # (b) Presence + dataclass defaults for the 3 new axes.
+    for ax, expected_first in (
+        ("mrmr_baseline_npermutations_cfg", 2),
+        ("mrmr_low_card_cap_cfg", 2),  # AXES pair is (2, 32) so AXES[ax][0] == 2
+        ("mrmr_collapsed_fallback_nbins_cfg", 3),  # AXES pair (3, 10)
+    ):
+        assert ax in AXES, f"missing fuzz axis {ax}"
+        assert len(AXES[ax]) >= 2, f"axis {ax} must offer at least 2 values"
+        # Sanity: the AXES pair's first element matches the value the base
+        # canonical-axes dict produces (base_axes[ax] is AXES[ax][0]).
+        assert base_axes[ax] == expected_first, (
+            f"base_axes[{ax}] = {base_axes[ax]!r}, expected {expected_first!r}"
+        )
+
+    # Dataclass defaults match SOURCE defaults, not the first AXES element.
+    # AXES first element happens to differ from source default for #3 and #4
+    # (the audit's "stress" value); the dataclass default mirrors mrmr.py /
+    # _adaptive_nbins.py so a default-fuzz combo runs the source-default
+    # algorithm path.
+    assert FuzzCombo.__dataclass_fields__["mrmr_baseline_npermutations_cfg"].default == 2
+    assert FuzzCombo.__dataclass_fields__["mrmr_low_card_cap_cfg"].default == 32
+    assert FuzzCombo.__dataclass_fields__["mrmr_collapsed_fallback_nbins_cfg"].default == 5
+
+    # (c) enumerate_combos still hits 150 with 3 new axes wired.
+    combos = enumerate_combos(target=150, master_seed=20260422)
+    assert len(combos) == 150, f"enumerate_combos lost combos: {len(combos)}"
+
+    # (c-bis) #1 canon-collapse: when use_mrmr_fs=False, dcd_enable axis
+    # collapses to the (now True) default regardless of the stored value.
+    # The audit-pass-7 #1 fallback flip ensures legacy/no-MRMR combos share a
+    # canonical key with the post-flip baseline.
+    off_dcd_a = dict(base_axes); off_dcd_a.update(use_mrmr_fs=False, mrmr_dcd_enable_cfg=False)
+    off_dcd_b = dict(off_dcd_a); off_dcd_b["mrmr_dcd_enable_cfg"] = True
+    c_off_dcd_a = _build_combo(models=("cb",), axes=off_dcd_a, seed=0)
+    c_off_dcd_b = _build_combo(models=("cb",), axes=off_dcd_b, seed=0)
+    assert c_off_dcd_a.canonical_key() == c_off_dcd_b.canonical_key(), (
+        "audit-pass-7 #1: mrmr_dcd_enable_cfg must canon-collapse when use_mrmr_fs=False"
+    )
+
+    # (c) Per-axis canon-collapse for #2/#3/#4 under use_mrmr_fs=False.
+    off_axes_a = dict(base_axes)
+    off_axes_a.update(
+        use_mrmr_fs=False,
+        mrmr_baseline_npermutations_cfg=8,
+        mrmr_low_card_cap_cfg=32,
+        mrmr_collapsed_fallback_nbins_cfg=10,
+    )
+    off_axes_b = dict(off_axes_a)
+    off_axes_b.update(
+        mrmr_baseline_npermutations_cfg=2,
+        mrmr_low_card_cap_cfg=2,  # AXES first element; would matter only under use_mrmr_fs=True
+        mrmr_collapsed_fallback_nbins_cfg=3,
+    )
+    c_off_a = _build_combo(models=("cb",), axes=off_axes_a, seed=0)
+    c_off_b = _build_combo(models=("cb",), axes=off_axes_b, seed=0)
+    assert build_mrmr_kwargs(c_off_a) is None, (
+        "use_mrmr_fs=False must yield None mrmr_kwargs"
+    )
+    assert c_off_a.canonical_key() == c_off_b.canonical_key(), (
+        "audit-pass-7 #2/#3/#4: MRMR knob axes must canon-collapse when use_mrmr_fs=False"
+    )
+
+    # (c-quad) #4 has a COMPOUND gate: collapsed_fallback_nbins only fires
+    # when nbins_strategy is one of the supervised methods that can actually
+    # collapse a column. With nbins_strategy='quantile' (unsupervised) the
+    # fallback is never reached even with use_mrmr_fs=True, so the axis must
+    # canon-collapse there too.
+    quantile_a = dict(base_axes)
+    quantile_a.update(
+        use_mrmr_fs=True,
+        mrmr_nbins_strategy_cfg="quantile",
+        mrmr_collapsed_fallback_nbins_cfg=3,
+    )
+    quantile_b = dict(quantile_a)
+    quantile_b["mrmr_collapsed_fallback_nbins_cfg"] = 10
+    c_q_a = _build_combo(models=("cb",), axes=quantile_a, seed=0)
+    c_q_b = _build_combo(models=("cb",), axes=quantile_b, seed=0)
+    assert c_q_a.canonical_key() == c_q_b.canonical_key(), (
+        "audit-pass-7 #4: collapsed_fallback_nbins must canon-collapse when "
+        "nbins_strategy is not one of {mdlp, fayyad_irani}"
+    )
+
+    # (d) Threading: when use_mrmr_fs=True the axes flow into build_mrmr_kwargs.
+    on_axes = dict(base_axes)
+    on_axes.update(
+        use_mrmr_fs=True,
+        mrmr_nbins_strategy_cfg="mdlp",  # keep #4 reachable through the gate
+        mrmr_baseline_npermutations_cfg=8,
+        mrmr_low_card_cap_cfg=2,
+        mrmr_collapsed_fallback_nbins_cfg=10,
+    )
+    c_on = _build_combo(models=("cb",), axes=on_axes, seed=0)
+    kw = build_mrmr_kwargs(c_on)
+    assert kw is not None
+    # #2 top-level kwarg (name matches MRMR.__init__ exactly).
+    assert kw["baseline_npermutations"] == 8, (
+        f"#2 baseline_npermutations did not thread: {kw.get('baseline_npermutations')!r}"
+    )
+    # #3 + #4 ride in the nbins_strategy_kwargs subdict forwarded to
+    # per_feature_edges via categorize_dataset (mrmr.py:225 -> _mrmr_fit_impl:341).
+    sub = kw.get("nbins_strategy_kwargs")
+    assert sub is not None, "nbins_strategy_kwargs subdict missing"
+    assert sub.get("low_card_cap") == 2, (
+        f"#3 low_card_cap did not thread into nbins_strategy_kwargs: {sub!r}"
+    )
+    assert sub.get("collapsed_fallback_nbins") == 10, (
+        f"#4 collapsed_fallback_nbins did not thread into nbins_strategy_kwargs: {sub!r}"
+    )
+
+    # When axes #3 + #4 are at source defaults, the nbins_strategy_kwargs
+    # subdict should NOT be injected (so existing caller-supplied dicts are
+    # not silently shadowed with empty overrides). Reset #2 to the source
+    # default too so we can also pin its threading at the default value.
+    on_defaults = dict(on_axes)
+    on_defaults.update(
+        mrmr_baseline_npermutations_cfg=2,
+        mrmr_low_card_cap_cfg=32,
+        mrmr_collapsed_fallback_nbins_cfg=5,
+    )
+    c_on_def = _build_combo(models=("cb",), axes=on_defaults, seed=0)
+    kw_def = build_mrmr_kwargs(c_on_def)
+    assert kw_def is not None
+    assert "nbins_strategy_kwargs" not in kw_def, (
+        "nbins_strategy_kwargs must NOT be injected when #3 + #4 are at source defaults; "
+        f"got {kw_def.get('nbins_strategy_kwargs')!r}"
+    )
+    # #2 still threads even at the source default (always a real kwarg).
+    assert kw_def["baseline_npermutations"] == 2
+
+    # (d-bis) Distinct canonical_keys when the non-default values are set
+    # under use_mrmr_fs=True (so the pairwise sampler reaches both branches).
+    assert c_on.canonical_key() != c_on_def.canonical_key(), (
+        "audit-pass-7 #2/#3/#4: non-default values must produce distinct canonical "
+        "keys under use_mrmr_fs=True so the dedup keeps both branches reachable"
+    )
