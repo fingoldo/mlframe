@@ -408,6 +408,7 @@ def mi_direct_gpu_batched(
     dtype=np.int32,
     classes_y: np.ndarray = None,
     freqs_y: np.ndarray = None,
+    min_nonzero_confidence: float = 0.95,
 ) -> tuple:
     """Batched GPU permutation MI test.
 
@@ -567,7 +568,17 @@ def mi_direct_gpu_batched(
         nfailed = 0
 
     confidence = (1.0 - nfailed / nchecked) if nchecked > 0 else 0.0
-    if nfailed >= int(npermutations * 0.05):  # rough min_nonzero_confidence=0.95 default
+    # 2026-05-30 Wave 9.1 fix (loop iter 4): respect caller's
+    # min_nonzero_confidence instead of the previous hardcoded 0.05
+    # threshold. The hardcode silently diverged CPU and GPU paths when the
+    # caller (default MRMR ctor: min_nonzero_confidence=0.99) wanted a
+    # tighter gate. Same mirror as permutation.py:344 CPU path. The
+    # ``max(1, ...)`` clamp protects against degenerate ``npermutations``
+    # auto-rejecting every candidate when the threshold rounds to 0.
+    max_failed = int(npermutations * (1.0 - float(min_nonzero_confidence)))
+    if max_failed <= 1:
+        max_failed = 1
+    if nfailed >= max_failed:
         original_mi = 0.0
 
     return original_mi, confidence
@@ -584,6 +595,7 @@ def mi_direct_gpu_batched_streamed(
     classes_y: np.ndarray = None,
     freqs_y: np.ndarray = None,
     n_streams: int = 2,
+    min_nonzero_confidence: float = 0.95,
 ) -> tuple:
     """CUDA-streams variant of :func:`mi_direct_gpu_batched`.
 
@@ -732,7 +744,13 @@ def mi_direct_gpu_batched_streamed(
         nfailed = 0
 
     confidence = (1.0 - nfailed / nchecked) if nchecked > 0 else 0.0
-    if nfailed >= int(npermutations * 0.05):
+    # 2026-05-30 Wave 9.1 fix (loop iter 4): same fix as
+    # ``mi_direct_gpu_batched`` above - respect caller's
+    # min_nonzero_confidence; clamp to avoid degenerate auto-reject.
+    max_failed = int(npermutations * (1.0 - float(min_nonzero_confidence)))
+    if max_failed <= 1:
+        max_failed = 1
+    if nfailed >= max_failed:
         original_mi = 0.0
     return original_mi, confidence
 
@@ -801,6 +819,7 @@ def mi_direct_gpu(
             dtype=dtype,
             classes_y=classes_y,
             freqs_y=freqs_y,
+            min_nonzero_confidence=min_nonzero_confidence,
         )
 
     classes_x, freqs_x, _ = merge_vars(
