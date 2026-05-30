@@ -67,6 +67,11 @@ def _validate_string_params(self):
                 f"MRMR: dcd_swap_gain_threshold must be >= 0; got "
                 f"{self.dcd_swap_gain_threshold}."
             )
+        _alpha = float(getattr(self, "dcd_swap_alpha", 0.05))
+        if not (0.0 < _alpha <= 1.0):
+            raise ValueError(
+                f"MRMR: dcd_swap_alpha must be in (0, 1]; got {_alpha}."
+            )
         if (bool(getattr(self, "dcd_postoc_compose", False)) and
                 bool(getattr(self, "cluster_aggregate_enable", True))):
             import warnings as _w_dcd

@@ -115,6 +115,7 @@ class DCDState:
     pairwise_cache_max: int = 50_000
     min_cluster_size: int = 2
     max_cluster_size: int = 12
+    swap_alpha: float = 0.05                                          # permutation-null p-value threshold for swap accept
     # -- references to host MRMR matrix (mutated on swap) --
     X_raw_ref: Any = None                                             # pd.DataFrame or np.ndarray
     quantization_method: str = "quantile"
@@ -211,7 +212,8 @@ def make_dcd_state(
     for key in (
         "tau_cluster", "distance", "cluster_size_threshold",
         "swap_gain_threshold", "swap_method", "pairwise_cache_max",
-        "min_cluster_size", "max_cluster_size", "suppress_legacy_postoc",
+        "min_cluster_size", "max_cluster_size", "swap_alpha",
+        "suppress_legacy_postoc",
     ):
         if key in dcd_config:
             setattr(state, key, dcd_config[key])
@@ -556,12 +558,66 @@ def evaluate_swap_candidate(
     except Exception as exc:
         logger.warning(f"DCD swap: relevance estimation failed: {exc!r}")
         return SwapDecision(accept=False)
-    accept = rep_relevance > anchor_rel * (1.0 + float(state.swap_gain_threshold))
+    deterministic_gate = rep_relevance > anchor_rel * (1.0 + float(state.swap_gain_threshold))
+    if not deterministic_gate:
+        return SwapDecision(
+            accept=False,
+            rep_relevance=rep_relevance,
+            anchor_relevance_in_ctx=anchor_rel,
+        )
+    # 2026-05-30 Wave 9.1 fix (loop iter 3): permutation null on rep.
+    # The deterministic point-MI gate is upward-biased on small / noisy data
+    # because rep (a continuous PC1 projection re-binned with quantization_nbins
+    # bins, often > anchor's bin count) gets more degrees of freedom than the
+    # raw anchor. Without a null check, swap accepts spurious aggregates on
+    # pure noise. Plan v2 B-2 mandated this null but it was never implemented.
+    #
+    # Null hypothesis: rep_binned has no real conditional dependence on y
+    # given Selected\{anchor}. Reject when observed rep_relevance lies in
+    # the upper tail of the shuffled-rep distribution.
+    perm_p_value = 0.0
+    B = int(full_npermutations or 0)
+    if B > 0:
+        try:
+            rng = np.random.default_rng(int(getattr(state, "_perm_seed", 0)) + int(anchor))
+            # Persist rolling seed so successive swaps don't reuse the same null draws.
+            state._perm_seed = int(getattr(state, "_perm_seed", 0)) + B + 1
+            target_arr = np.asarray(target, dtype=np.int64)
+            n_exceed = 0
+            data_with_rep_perm = data_with_rep.copy()
+            for _ in range(B):
+                rep_shuffled = rep_binned.copy()
+                rng.shuffle(rep_shuffled)
+                data_with_rep_perm[:, new_col_idx] = rep_shuffled
+                if S_minus_anchor:
+                    null_rel = float(conditional_mi(
+                        factors_data=data_with_rep_perm,
+                        x=np.array([new_col_idx], dtype=np.int64),
+                        y=target_arr,
+                        z=np.array(S_minus_anchor, dtype=np.int64),
+                        var_is_nominal=None,
+                        factors_nbins=nbins_with_rep,
+                        entropy_cache=None,
+                        can_use_x_cache=False, can_use_y_cache=False,
+                    ))
+                else:
+                    null_rel = float(mi(
+                        data_with_rep_perm, np.array([new_col_idx], dtype=np.int64),
+                        target_arr, nbins_with_rep,
+                    ))
+                if null_rel >= rep_relevance:
+                    n_exceed += 1
+            perm_p_value = (n_exceed + 1) / (B + 1)
+        except Exception as exc:
+            logger.warning(f"DCD swap: permutation null failed (B={B}): {exc!r}")
+            perm_p_value = 1.0  # conservative: fail closed
+    accept = deterministic_gate and (B <= 0 or perm_p_value < float(state.swap_alpha))
     if not accept:
         return SwapDecision(
             accept=False,
             rep_relevance=rep_relevance,
             anchor_relevance_in_ctx=anchor_rel,
+            perm_p_value=perm_p_value,
         )
     aggregate_name = (
         f"_dcd_pc1_{'_'.join(str(cols[m])[:6] for m in members[:3])}"
@@ -579,7 +635,7 @@ def evaluate_swap_candidate(
                      "weights": weights.tolist()},
         rep_relevance=rep_relevance,
         anchor_relevance_in_ctx=anchor_rel,
-        perm_p_value=0.0,
+        perm_p_value=perm_p_value,
     )
 
 

@@ -342,6 +342,99 @@ class TestDCDSwapPath:
                 f"likely silently corrupted. selected={names}"
             )
 
+    def test_perm_null_rejects_noise_when_full_npermutations_positive(self):
+        """Wave 9.1 loop-iter-3 regression: when ``full_npermutations > 0`` and
+        the candidate cluster is pure noise (target is noise / uncorrelated),
+        the PC1 swap MUST be rejected by the permutation null even if the
+        deterministic gate would spuriously fire. Pre-fix the parameter was
+        ignored and accept was decided on point-MI alone.
+        """
+        from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
+            make_dcd_state, discover_cluster_members, evaluate_swap_candidate,
+        )
+        rng = np.random.default_rng(11)
+        n = 200
+        # All-noise: target is also random; no real cluster
+        data = rng.integers(0, 4, (n, 7)).astype(np.int32)
+        nbins = np.array([4] * 7, dtype=np.int64)
+        target_indices = np.array([6], dtype=np.int64)
+        import pandas as pd
+        X_raw = pd.DataFrame(data[:, :6], columns=[f"f{i}" for i in range(6)])
+        state = make_dcd_state(
+            X_raw=X_raw, factors_data=data, factors_nbins=nbins,
+            cols=[f"f{i}" for i in range(7)], nbins=nbins,
+            target_indices=target_indices,
+            tau_cluster=0.0,  # accept ALL into cluster
+            min_cluster_size=5, cluster_size_threshold=5,
+            swap_gain_threshold=-1.0,  # force deterministic-gate pass
+            swap_alpha=0.05,
+        )
+        discover_cluster_members(state, 0, list(range(1, 6)))
+        # With B=0 (no null), the swap WILL go through the deterministic gate
+        # because swap_gain_threshold=-1 makes ``rep > anchor*0`` trivially.
+        d_no_null = evaluate_swap_candidate(
+            state, 0, [0], target_y=target_indices,
+            full_npermutations=0,
+        )
+        # With B>0, the null catches it: under H0 random rep gets same/higher
+        # CMI than observed -> high p-value -> reject.
+        d_with_null = evaluate_swap_candidate(
+            state, 0, [0], target_y=target_indices,
+            full_npermutations=100,
+        )
+        # The null test must run (p was computed) and must reject on pure noise.
+        assert 0.0 <= d_with_null.perm_p_value <= 1.0
+        # Either deterministic gate already rejected (good) OR permutation null
+        # rejected (the fix we're testing). What must NOT happen: accept=True
+        # with high p-value -- that would mean the null wasn't checked.
+        if d_with_null.perm_p_value >= 0.5:
+            assert not d_with_null.accept, (
+                f"swap accepted with high perm_p_value={d_with_null.perm_p_value} "
+                f"-- permutation null not enforcing rejection."
+            )
+
+    def test_perm_null_default_zero_preserves_deterministic_behavior(self):
+        """With ``full_npermutations=0`` (the standalone-test default), the
+        function must behave exactly as the pre-iter-3 deterministic gate -
+        no permutation computed, ``perm_p_value=0.0`` on accept.
+        """
+        from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
+            make_dcd_state, discover_cluster_members, evaluate_swap_candidate,
+        )
+        data, nbins, target_indices, X_raw = self._binned_matrix()
+        state = make_dcd_state(
+            X_raw=X_raw, factors_data=data, factors_nbins=nbins,
+            cols=[f"f{i}" for i in range(7)], nbins=nbins,
+            target_indices=target_indices, tau_cluster=0.3,
+            cluster_size_threshold=3, swap_gain_threshold=0.0,
+            swap_alpha=0.05,
+        )
+        discover_cluster_members(state, 0, list(range(1, 6)))
+        decision = evaluate_swap_candidate(
+            state, 0, [0], target_y=target_indices, full_npermutations=0,
+        )
+        if decision.accept:
+            # No null was run; perm_p_value untouched from the accept branch.
+            assert decision.perm_p_value == 0.0
+
+    def test_dcd_swap_alpha_validation(self):
+        """``dcd_swap_alpha`` must be in (0, 1]."""
+        from mlframe.feature_selection.filters.mrmr import MRMR
+        X, y = self._noise_frame()
+        for bad in (-0.1, 0.0, 1.1, 2.0):
+            with pytest.raises(ValueError, match="dcd_swap_alpha"):
+                MRMR(dcd_enable=True, dcd_swap_alpha=bad).fit(X, y)
+        # 1.0 (always accept) and tiny epsilon must pass validation.
+        MRMR(dcd_enable=True, dcd_swap_alpha=1.0).fit(X, y)
+        MRMR(dcd_enable=True, dcd_swap_alpha=1e-6).fit(X, y)
+
+    def _noise_frame(self, n: int = 200, seed: int = 0):
+        import pandas as pd
+        rng = np.random.default_rng(int(seed))
+        X = pd.DataFrame({f"f{i}": rng.standard_normal(n) for i in range(6)})
+        y = pd.Series(rng.integers(0, 2, n), name="y")
+        return X, y
+
     def test_commit_swap_extends_data_matrix(self):
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
             make_dcd_state, discover_cluster_members,

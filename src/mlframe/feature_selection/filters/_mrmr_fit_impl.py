@@ -521,6 +521,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         pairwise_cache_max=self.dcd_pairwise_cache_max,
                         min_cluster_size=self.dcd_min_cluster_size,
                         max_cluster_size=self.dcd_max_cluster_size,
+                        swap_alpha=self.dcd_swap_alpha,
                         X_raw=X,
                         quantization_method=self.quantization_method,
                         quantization_nbins=self.quantization_nbins,

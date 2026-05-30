@@ -595,6 +595,16 @@ class MRMR(BaseEstimator, TransformerMixin):
         dcd_pairwise_cache_max: int = 50_000,
         dcd_min_cluster_size: int = 2,
         dcd_max_cluster_size: int = 12,
+        # 2026-05-30 Wave 9.1 iter 3: permutation-null gate on swap
+        # acceptance. With ``full_npermutations > 0`` AND ``dcd_enable=True``,
+        # ``evaluate_swap_candidate`` shuffles the PC1 rep B times, builds
+        # the null distribution of conditional MI, and only accepts the swap
+        # when both the deterministic gain gate AND ``perm_p_value < swap_alpha``
+        # are satisfied. Prior to this fix the swap was a pure point-MI
+        # comparison and accepted spurious aggregates on noisy / small-n
+        # data because PC1 (continuous, re-binned with finer granularity than
+        # the raw anchor) is upward-biased.
+        dcd_swap_alpha: float = 0.05,
         # ``dcd_postoc_compose=True`` keeps the post-hoc cluster_aggregate
         # active alongside DCD. Default False auto-suppresses it (DCD
         # already processed clusters during screening; running again would
