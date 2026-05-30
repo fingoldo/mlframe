@@ -861,7 +861,19 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         "target_type='classification' explicitly to override.",
                         _n_unique, _ratio,
                     )
-            temp_columns = list(set(X.columns) - set(X.columns[selected_vars]))
+            # 2026-05-30 Wave 9.1 fix (loop iter 17): order-preserving set
+            # difference. The prior ``list(set(X.columns) - set(...))``
+            # produced a HASH-SEED-DEPENDENT column order because Python's
+            # randomized string hashing reorders ``set`` iteration across
+            # processes. That order flowed into RFECV's CatBoost feature
+            # importances, whose tie-breaks then gave different
+            # ``self.support_`` across runs that differed only in
+            # ``PYTHONHASHSEED``. Concrete demo: 5/5 distinct orderings
+            # observed across seeds 0-4. Breaks the "same random_seed ->
+            # identical support_" contract for any user with
+            # ``run_additional_rfecv_minutes`` > 0.
+            _sel_names = set(X.columns[selected_vars].tolist())
+            temp_columns = [c for c in X.columns if c not in _sel_names]
 
             if _is_classification:
                 cb_num_rfecv = RFECV(
