@@ -210,6 +210,8 @@ class PytorchLightningEstimator(BaseEstimator):
         trainer_params: object,
         use_swa: bool = False,
         swa_params: dict = None,
+        use_ema: bool = False,
+        ema_params: dict = None,
         tune_params: bool = False,
         tune_batch_size: bool = False,
         float32_matmul_precision: str = None,
@@ -706,9 +708,63 @@ class PytorchLightningEstimator(BaseEstimator):
         if trainer_params.get("logger") is not False:
             callbacks.append(LearningRateMonitor(logging_interval="epoch"))
 
+        if self.use_swa and self.use_ema:
+            raise ValueError(
+                "use_swa and use_ema are mutually exclusive — both rewrite "
+                "the live model weights at train end (last-write-wins). "
+                "Pick one: SWA (broad LR cycle averaging) or EMA "
+                "(per-step exponential moving average)."
+            )
         if self.use_swa:
             swa_params = self.swa_params or {}
             callbacks.append(StochasticWeightAveraging(**swa_params))
+        if self.use_ema:
+            # F-28 (2026-05-31): exponential moving average of weights via
+            # Lightning's WeightAveraging callback + torch's EMA averaging
+            # function. Lightning auto-swaps the averaged weights into the
+            # live model on on_train_end, so downstream predict() uses the
+            # EMA copy transparently — zero changes to save/load needed.
+            # Cross-cited in two 2026-05-31 research agents
+            # (Lightning-plugins + activations/optimizers): +0.04-0.66% on
+            # tabular MLPs, cheaper than SWA (no LR warm-restart phase).
+            # Falls back to a SWA-as-EMA shim when WeightAveraging is not
+            # in the installed Lightning (added in Lightning ~2.5).
+            try:
+                from lightning.pytorch.callbacks import WeightAveraging  # noqa: F401
+                _ema_has_native = True
+            except ImportError:
+                _ema_has_native = False
+            from torch.optim.swa_utils import get_ema_avg_fn
+            _ema_params = dict(self.ema_params or {})
+            # ``decay`` is exposed at the mlframe level for ergonomics;
+            # plumb it into get_ema_avg_fn. Default 0.999 mirrors the
+            # torch.optim.swa_utils default.
+            _decay = float(_ema_params.pop("decay", 0.999))
+            _ema_params.setdefault("avg_fn", get_ema_avg_fn(decay=_decay))
+            if _ema_has_native:
+                from lightning.pytorch.callbacks import WeightAveraging
+                callbacks.append(WeightAveraging(**_ema_params))
+            else:
+                # SWA-as-EMA fallback: SWA accepts ``avg_fn`` (passes to
+                # torch's AveragedModel under the hood). Default
+                # ``swa_lrs`` to the user's learning_rate so SWA does NOT
+                # trigger a LR-restart phase — that would defeat the EMA
+                # semantic by tuning a separate "averaged" model with a
+                # different LR. ``swa_epoch_start=0.5`` starts averaging
+                # halfway through training (standard SWA default).
+                _ema_params.setdefault(
+                    "swa_lrs",
+                    float(self.model_params.get("learning_rate", 1e-3)),
+                )
+                _ema_params.setdefault("swa_epoch_start", 0.5)
+                callbacks.append(StochasticWeightAveraging(**_ema_params))
+                logger.info(
+                    "use_ema=True: lightning.pytorch.callbacks.WeightAveraging "
+                    "is unavailable (Lightning < 2.5?); falling back to "
+                    "StochasticWeightAveraging with EMA avg_fn + constant "
+                    "swa_lrs=learning_rate so no LR-restart phase. Upgrade "
+                    "Lightning to >=2.5 for the dedicated EMA path."
+                )
 
         if has_validation:
             logger.info("Using early_stopping_rounds=%d", self.early_stopping_rounds)
