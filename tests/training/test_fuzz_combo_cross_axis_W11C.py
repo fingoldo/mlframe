@@ -2016,3 +2016,224 @@ def test_iter594_audit_pass_7_axes_flow_to_kwargs():
         "audit-pass-7 #2/#3/#4: non-default values must produce distinct canonical "
         "keys under use_mrmr_fs=True so the dedup keeps both branches reachable"
     )
+
+
+def test_iter606_audit_pass_8_axes_flow_to_kwargs():
+    """4 audit-pass-8 HIGH axes must:
+      (a) Dataclass defaults mirror HEAD source verbatim:
+            #1 mrmr_cardinality_bias_correction_cfg = True
+               (filters/mrmr.py:334; audit-cited line matches HEAD)
+            #2 mrmr_min_relevance_gain_relative_to_first_cfg = 0.05
+               (filters/mrmr.py:326; audit-cited line matches HEAD)
+            #3 mlp_random_state_cfg = None
+               (training/neural/base.py:217; audit-cited line matches HEAD)
+            #4 mlp_class_weight_cfg = None
+               (training/neural/base.py:218; audit-cited line matches HEAD)
+      (b) Each axis pair is present in AXES with the values listed in the audit.
+      (c) Canon-collapse rules hold:
+            #1/#2 collapse to source default under use_mrmr_fs=False.
+            #3 collapses to None when 'mlp' NOT in models AND recurrent_model_cfg is None.
+            #4 collapses to None outside the compound gate
+               (mlp AND binary/multiclass AND rare_5pct/rare_1pct imbalance).
+      (d) Threading produces the expected kwargs subdicts:
+            #1/#2 flow via build_mrmr_kwargs as top-level MRMR ctor kwargs.
+            #3/#4 flow via build_mlp_kwargs into the MLP estimator kwargs dict.
+    """
+    from tests.training._fuzz_combo import (
+        AXES, FuzzCombo, _build_combo, enumerate_combos,
+        build_mrmr_kwargs, build_mlp_kwargs,
+    )
+
+    # (a) Dataclass defaults mirror HEAD source.
+    fields = FuzzCombo.__dataclass_fields__
+    assert fields["mrmr_cardinality_bias_correction_cfg"].default is True, (
+        "audit-pass-8 #1: default must mirror filters/mrmr.py:334 (True)"
+    )
+    assert fields["mrmr_min_relevance_gain_relative_to_first_cfg"].default == 0.05, (
+        "audit-pass-8 #2: default must mirror filters/mrmr.py:326 (0.05)"
+    )
+    assert fields["mlp_random_state_cfg"].default is None, (
+        "audit-pass-8 #3: default must mirror training/neural/base.py:217 (None)"
+    )
+    assert fields["mlp_class_weight_cfg"].default is None, (
+        "audit-pass-8 #4: default must mirror training/neural/base.py:218 (None)"
+    )
+
+    # (b) AXES presence with the audit-listed pairs.
+    assert AXES["mrmr_cardinality_bias_correction_cfg"] == (True, False)
+    assert AXES["mrmr_min_relevance_gain_relative_to_first_cfg"] == (0.05, 0.0)
+    assert AXES["mlp_random_state_cfg"] == (None, 42)
+    assert AXES["mlp_class_weight_cfg"] == (None, "balanced")
+
+    base_axes = {name: values[0] for name, values in AXES.items()}
+
+    # (c) enumerate_combos still hits 150 with 4 new axes wired.
+    combos = enumerate_combos(target=150, master_seed=20260601)
+    assert len(combos) == 150, f"enumerate_combos lost combos: {len(combos)}"
+
+    # (c-i) #1 canon-collapse: when use_mrmr_fs=False every value collapses
+    # to the source default True.
+    off1_a = dict(base_axes); off1_a.update(
+        use_mrmr_fs=False, mrmr_cardinality_bias_correction_cfg=False,
+    )
+    off1_b = dict(off1_a); off1_b["mrmr_cardinality_bias_correction_cfg"] = True
+    c_off1_a = _build_combo(models=("cb",), axes=off1_a, seed=0)
+    c_off1_b = _build_combo(models=("cb",), axes=off1_b, seed=0)
+    assert c_off1_a.canonical_key() == c_off1_b.canonical_key(), (
+        "audit-pass-8 #1: must canon-collapse under use_mrmr_fs=False"
+    )
+
+    # (c-ii) #2 canon-collapse: when use_mrmr_fs=False, values collapse
+    # to source default 0.05.
+    off2_a = dict(base_axes); off2_a.update(
+        use_mrmr_fs=False, mrmr_min_relevance_gain_relative_to_first_cfg=0.0,
+    )
+    off2_b = dict(off2_a); off2_b["mrmr_min_relevance_gain_relative_to_first_cfg"] = 0.05
+    c_off2_a = _build_combo(models=("cb",), axes=off2_a, seed=0)
+    c_off2_b = _build_combo(models=("cb",), axes=off2_b, seed=0)
+    assert c_off2_a.canonical_key() == c_off2_b.canonical_key(), (
+        "audit-pass-8 #2: must canon-collapse under use_mrmr_fs=False"
+    )
+
+    # (c-iii) #3 canon-collapse: with no MLP and no recurrent, every value
+    # collapses to None. Use a non-mlp model + recurrent_model_cfg=None.
+    off3_a = dict(base_axes); off3_a.update(
+        recurrent_model_cfg=None, mlp_random_state_cfg=42,
+    )
+    off3_b = dict(off3_a); off3_b["mlp_random_state_cfg"] = None
+    c_off3_a = _build_combo(models=("cb",), axes=off3_a, seed=0)
+    c_off3_b = _build_combo(models=("cb",), axes=off3_b, seed=0)
+    assert c_off3_a.canonical_key() == c_off3_b.canonical_key(), (
+        "audit-pass-8 #3: must canon-collapse when 'mlp' not in models AND "
+        "recurrent_model_cfg is None"
+    )
+
+    # (c-iv) #4 canon-collapse: outside the compound gate every value
+    # collapses to None. Test (a) no MLP, (b) MLP but regression target,
+    # (c) MLP + binary but balanced imbalance.
+    for ax_override in (
+        # (a) no MLP -> compound gate fails on models check.
+        {"target_type": "binary_classification", "imbalance_ratio": "rare_5pct",
+         "recurrent_model_cfg": None},
+        # (c) MLP + binary but balanced -> compound gate fails on imbalance.
+        # (kept models default to base_axes, which puts cb only; we test
+        #  the "balanced" leg by overriding _build_combo's models below).
+    ):
+        off4_a = dict(base_axes); off4_a.update(ax_override)
+        off4_a["mlp_class_weight_cfg"] = "balanced"
+        off4_b = dict(off4_a); off4_b["mlp_class_weight_cfg"] = None
+        c_off4_a = _build_combo(models=("cb",), axes=off4_a, seed=0)
+        c_off4_b = _build_combo(models=("cb",), axes=off4_b, seed=0)
+        assert c_off4_a.canonical_key() == c_off4_b.canonical_key(), (
+            f"audit-pass-8 #4: must canon-collapse outside the compound gate "
+            f"with override {ax_override!r}"
+        )
+
+    # (c-iv-bis) MLP + binary + balanced -> still outside the gate, collapses.
+    off4_bal_a = dict(base_axes); off4_bal_a.update(
+        target_type="binary_classification",
+        imbalance_ratio="balanced",
+        recurrent_model_cfg=None,
+        mlp_class_weight_cfg="balanced",
+    )
+    off4_bal_b = dict(off4_bal_a); off4_bal_b["mlp_class_weight_cfg"] = None
+    c_off4_bal_a = _build_combo(models=("mlp",), axes=off4_bal_a, seed=0)
+    c_off4_bal_b = _build_combo(models=("mlp",), axes=off4_bal_b, seed=0)
+    assert c_off4_bal_a.canonical_key() == c_off4_bal_b.canonical_key(), (
+        "audit-pass-8 #4: balanced imbalance must canon-collapse class_weight"
+    )
+
+    # (d) Threading: #1/#2 flow into build_mrmr_kwargs when use_mrmr_fs=True.
+    on_mrmr = dict(base_axes)
+    on_mrmr.update(
+        use_mrmr_fs=True,
+        mrmr_cardinality_bias_correction_cfg=False,
+        mrmr_min_relevance_gain_relative_to_first_cfg=0.0,
+    )
+    c_on_mrmr = _build_combo(models=("cb",), axes=on_mrmr, seed=0)
+    kw_mrmr = build_mrmr_kwargs(c_on_mrmr)
+    assert kw_mrmr is not None
+    assert kw_mrmr["cardinality_bias_correction"] is False, (
+        f"#1 did not thread into mrmr_kwargs: {kw_mrmr.get('cardinality_bias_correction')!r}"
+    )
+    assert kw_mrmr["min_relevance_gain_relative_to_first"] == 0.0, (
+        f"#2 did not thread into mrmr_kwargs: "
+        f"{kw_mrmr.get('min_relevance_gain_relative_to_first')!r}"
+    )
+
+    # MRMR off -> kwargs is None (no threading).
+    off_mrmr = dict(base_axes); off_mrmr.update(
+        use_mrmr_fs=False,
+        mrmr_cardinality_bias_correction_cfg=False,
+        mrmr_min_relevance_gain_relative_to_first_cfg=0.0,
+    )
+    c_off_mrmr = _build_combo(models=("cb",), axes=off_mrmr, seed=0)
+    assert build_mrmr_kwargs(c_off_mrmr) is None
+
+    # (d-bis) #3/#4 flow into build_mlp_kwargs when MLP+rare classification.
+    on_mlp = dict(base_axes)
+    on_mlp.update(
+        target_type="binary_classification",
+        imbalance_ratio="rare_5pct",
+        recurrent_model_cfg=None,
+        mlp_random_state_cfg=42,
+        mlp_class_weight_cfg="balanced",
+    )
+    c_on_mlp = _build_combo(models=("mlp",), axes=on_mlp, seed=0)
+    kw_mlp = build_mlp_kwargs(c_on_mlp)
+    assert kw_mlp is not None
+    assert kw_mlp.get("random_state") == 42, (
+        f"#3 did not thread into mlp_kwargs: {kw_mlp.get('random_state')!r}"
+    )
+    assert kw_mlp.get("class_weight") == "balanced", (
+        f"#4 did not thread into mlp_kwargs: {kw_mlp.get('class_weight')!r}"
+    )
+
+    # No MLP / no recurrent -> builder returns None.
+    no_neural = dict(base_axes); no_neural.update(
+        recurrent_model_cfg=None,
+        mlp_random_state_cfg=42,
+        mlp_class_weight_cfg="balanced",
+    )
+    c_no_neural = _build_combo(models=("cb",), axes=no_neural, seed=0)
+    assert build_mlp_kwargs(c_no_neural) is None, (
+        "build_mlp_kwargs must return None when neither MLP nor recurrent fire"
+    )
+
+    # MLP but regression -> class_weight is dropped (#4 gate fails), but
+    # random_state still threads (#3 gate only requires MLP-or-recurrent).
+    mlp_reg = dict(base_axes); mlp_reg.update(
+        target_type="regression",
+        imbalance_ratio="balanced",
+        recurrent_model_cfg=None,
+        mlp_random_state_cfg=42,
+        mlp_class_weight_cfg="balanced",
+    )
+    c_mlp_reg = _build_combo(models=("mlp",), axes=mlp_reg, seed=0)
+    kw_mlp_reg = build_mlp_kwargs(c_mlp_reg)
+    assert kw_mlp_reg is not None
+    assert kw_mlp_reg.get("random_state") == 42
+    assert "class_weight" not in kw_mlp_reg, (
+        "audit-pass-8 #4: class_weight must NOT thread on regression target"
+    )
+
+    # Distinct canonical_keys: on-MRMR + non-default #1/#2 vs source-defaults.
+    on_def = dict(on_mrmr)
+    on_def.update(
+        mrmr_cardinality_bias_correction_cfg=True,
+        mrmr_min_relevance_gain_relative_to_first_cfg=0.05,
+    )
+    c_on_def = _build_combo(models=("cb",), axes=on_def, seed=0)
+    assert c_on_mrmr.canonical_key() != c_on_def.canonical_key(), (
+        "audit-pass-8 #1/#2: non-default values must produce distinct canonical "
+        "keys under use_mrmr_fs=True so dedup keeps both branches reachable"
+    )
+
+    # Distinct canonical_keys for #3/#4 under the compound gate.
+    on_mlp_def = dict(on_mlp)
+    on_mlp_def.update(mlp_random_state_cfg=None, mlp_class_weight_cfg=None)
+    c_on_mlp_def = _build_combo(models=("mlp",), axes=on_mlp_def, seed=0)
+    assert c_on_mlp.canonical_key() != c_on_mlp_def.canonical_key(), (
+        "audit-pass-8 #3/#4: non-default values must produce distinct canonical "
+        "keys when 'mlp' in models AND rare classification holds"
+    )

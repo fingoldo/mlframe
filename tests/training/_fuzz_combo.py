@@ -1213,6 +1213,34 @@ AXES: dict[str, tuple[Any, ...]] = {
     "cv_selector_confidence_cfg": (0.9, 0.99),
     "cv_selector_quantile_level_cfg": (0.9, 0.95),
     "cv_persist_fold_scores_cfg": (False, True),
+    # =====================================================================
+    # 2026-05-31 audit-pass-8 HIGH (#1-#4). Four production knobs that landed
+    # in the 27814687..HEAD diff with no fuzz coverage. Defaults source-
+    # verified at HEAD (see dataclass field comments).
+    # =====================================================================
+    # #1 MRMR cardinality-bias pre-screen + Miller-Madow correction toggle.
+    # Source default True (filters/mrmr.py:334). Gates the high-card
+    # pre-screen + MM-bias subtraction at the selection gate. Canonicalises
+    # to True (source default) when use_mrmr_fs=False so the dedup pass
+    # collapses non-MRMR combos onto a single canonical baseline.
+    "mrmr_cardinality_bias_correction_cfg": (True, False),
+    # #2 MRMR diminishing-returns stopping rule: stop greedy selection once
+    # current gain drops below this fraction of the first-selected gain.
+    # Source default 0.05 (filters/mrmr.py:326). 0.0 disables (legacy
+    # absolute-floor-only path). Canonicalises to 0.05 when use_mrmr_fs=False.
+    "mrmr_min_relevance_gain_relative_to_first_cfg": (0.05, 0.0),
+    # #3 MLP sklearn-canonical random_state seed. Source default None
+    # (training/neural/base.py:217). 42 seeds torch+numpy+python random+
+    # Lightning DataLoader workers before any random op fires. Canonicalises
+    # to None when neither 'mlp' in models nor recurrent_model_cfg is set.
+    "mlp_random_state_cfg": (None, 42),
+    # #4 MLP sklearn-canonical class_weight for imbalance handling. Source
+    # default None (training/neural/base.py:218). "balanced" routes through
+    # sklearn.utils.class_weight.compute_sample_weight and multiplies into
+    # any caller-supplied sample_weight. Canonicalises to None outside the
+    # compound gate (MLP active AND binary/multiclass classification AND
+    # rare_5pct/rare_1pct imbalance).
+    "mlp_class_weight_cfg": (None, "balanced"),
 }
 
 
@@ -1706,6 +1734,19 @@ class FuzzCombo:
     cv_selector_confidence_cfg: float = 0.9
     cv_selector_quantile_level_cfg: float = 0.9
     cv_persist_fold_scores_cfg: bool = False
+    # 2026-05-31 audit-pass-8 HIGH (#1-#4). Defaults source-verified at HEAD:
+    #   #1 mrmr_cardinality_bias_correction_cfg: True
+    #      (src/mlframe/feature_selection/filters/mrmr.py:334)
+    #   #2 mrmr_min_relevance_gain_relative_to_first_cfg: 0.05
+    #      (src/mlframe/feature_selection/filters/mrmr.py:326)
+    #   #3 mlp_random_state_cfg: None
+    #      (src/mlframe/training/neural/base.py:217)
+    #   #4 mlp_class_weight_cfg: None
+    #      (src/mlframe/training/neural/base.py:218)
+    mrmr_cardinality_bias_correction_cfg: bool = True
+    mrmr_min_relevance_gain_relative_to_first_cfg: float = 0.05
+    mlp_random_state_cfg: "int | None" = None
+    mlp_class_weight_cfg: "str | None" = None
 
     def canonical_key(self) -> tuple:
         """Hashable tuple used for dedup. Canonicalizes semantically
@@ -2924,6 +2965,50 @@ class FuzzCombo:
                     and self.target_type == "regression")
                 else False
             ),
+            # 2026-05-31 audit-pass-8 HIGH (#1-#4) canon-collapse rules.
+            # #1 cardinality_bias_correction only meaningful when MRMR fires;
+            # collapse to source default True (mrmr.py:334) under
+            # use_mrmr_fs=False so non-MRMR combos share a canonical key with
+            # the post-flip baseline.
+            (
+                self.mrmr_cardinality_bias_correction_cfg
+                if self.use_mrmr_fs
+                else True
+            ),
+            # #2 min_relevance_gain_relative_to_first only fires inside
+            # _screen_predictors; collapse to source default 0.05
+            # (mrmr.py:326) when MRMR is off.
+            (
+                self.mrmr_min_relevance_gain_relative_to_first_cfg
+                if self.use_mrmr_fs
+                else 0.05
+            ),
+            # #3 mlp_random_state only meaningful when a neural-family
+            # estimator runs. Audit gate: 'mlp' in models OR recurrent
+            # is active. Collapse to source default None outside that gate.
+            (
+                self.mlp_random_state_cfg
+                if ("mlp" in self.models or self.recurrent_model_cfg is not None)
+                else None
+            ),
+            # #4 mlp_class_weight only meaningful when MLP runs against an
+            # imbalanced classification target. Compound gate: 'mlp' in
+            # models AND target_type in {binary_classification,
+            # multiclass_classification} AND imbalance_ratio in
+            # {rare_5pct, rare_1pct}. Collapse to source default None
+            # outside that gate.
+            (
+                self.mlp_class_weight_cfg
+                if (
+                    "mlp" in self.models
+                    and self.target_type in (
+                        "binary_classification",
+                        "multiclass_classification",
+                    )
+                    and self.imbalance_ratio in ("rare_5pct", "rare_1pct")
+                )
+                else None
+            ),
         )
 
     def _canonical_recurrent_model(self) -> "str | None":
@@ -3978,6 +4063,16 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         cv_selector_confidence_cfg=axes.get("cv_selector_confidence_cfg", 0.9),
         cv_selector_quantile_level_cfg=axes.get("cv_selector_quantile_level_cfg", 0.9),
         cv_persist_fold_scores_cfg=axes.get("cv_persist_fold_scores_cfg", False),
+        # 2026-05-31 audit-pass-8 HIGH (#1-#4). Defaults source-verified at
+        # filters/mrmr.py:334 / :326 and training/neural/base.py:217 / :218.
+        mrmr_cardinality_bias_correction_cfg=axes.get(
+            "mrmr_cardinality_bias_correction_cfg", True
+        ),
+        mrmr_min_relevance_gain_relative_to_first_cfg=axes.get(
+            "mrmr_min_relevance_gain_relative_to_first_cfg", 0.05
+        ),
+        mlp_random_state_cfg=axes.get("mlp_random_state_cfg", None),
+        mlp_class_weight_cfg=axes.get("mlp_class_weight_cfg", None),
     )
 
 
@@ -4070,6 +4165,12 @@ def build_mrmr_kwargs_from_flat(
     # Defaults source-verified at _adaptive_nbins.py:511,586.
     low_card_cap: int = 32,
     collapsed_fallback_nbins: int = 5,
+    # 2026-05-31 audit-pass-8 #1/#2: top-level MRMR ctor knobs. Names match
+    # MRMR.__init__ exactly. Defaults source-verified at filters/mrmr.py:334
+    # (cardinality_bias_correction=True) and filters/mrmr.py:326
+    # (min_relevance_gain_relative_to_first=0.05).
+    cardinality_bias_correction: bool = True,
+    min_relevance_gain_relative_to_first: float = 0.05,
 ) -> Optional[Dict[str, Any]]:
     """Build the mrmr_kwargs dict passed to FeatureSelectionConfig.
     Returns None when use_mrmr_fs=False so the FS step is a no-op.
@@ -4127,6 +4228,10 @@ def build_mrmr_kwargs_from_flat(
         "pid_synergy_bonus": pid_synergy_bonus,
         # 2026-05-30 audit-pass-7 #2: top-level MRMR ctor knob (mrmr.py:309).
         "baseline_npermutations": baseline_npermutations,
+        # 2026-05-31 audit-pass-8 #1/#2: top-level MRMR ctor knobs. Names
+        # match MRMR.__init__ exactly (filters/mrmr.py:334, :326).
+        "cardinality_bias_correction": cardinality_bias_correction,
+        "min_relevance_gain_relative_to_first": min_relevance_gain_relative_to_first,
     }
     # 2026-05-30 audit-pass-7 #3/#4: per_feature_edges.kwargs threaded via
     # MRMR.nbins_strategy_kwargs. Build the dict only when one of these
@@ -4206,6 +4311,68 @@ def build_mrmr_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]:
         baseline_npermutations=combo.mrmr_baseline_npermutations_cfg,
         low_card_cap=combo.mrmr_low_card_cap_cfg,
         collapsed_fallback_nbins=combo.mrmr_collapsed_fallback_nbins_cfg,
+        # 2026-05-31 audit-pass-8 #1/#2.
+        cardinality_bias_correction=combo.mrmr_cardinality_bias_correction_cfg,
+        min_relevance_gain_relative_to_first=combo.mrmr_min_relevance_gain_relative_to_first_cfg,
+    )
+
+
+def build_mlp_kwargs_from_flat(
+    *,
+    models: tuple[str, ...],
+    target_type: str,
+    imbalance_ratio: str,
+    recurrent_model: "str | None" = None,
+    # 2026-05-31 audit-pass-8 #3: PytorchLightningEstimator random_state.
+    # Source default None (training/neural/base.py:217).
+    random_state: "int | None" = None,
+    # 2026-05-31 audit-pass-8 #4: PytorchLightningClassifier class_weight.
+    # Source default None (training/neural/base.py:218).
+    class_weight: "str | None" = None,
+) -> Optional[Dict[str, Any]]:
+    """Build the mlp_kwargs dict forwarded into PytorchLightningEstimator /
+    PytorchLightningClassifier constructors. Returns None when neither MLP
+    nor recurrent are in scope so callers can skip the wiring entirely.
+
+    Single-edit point mirroring build_mrmr_kwargs_from_flat / build_shap_proxied
+    pattern: every MLP-side knob the fuzz harness exercises maps to its exact
+    __init__ parameter name here. Param names verified against
+    PytorchLightningEstimator.__init__ (training/neural/base.py:203-219).
+    """
+    mlp_active = "mlp" in models
+    recurrent_active = recurrent_model is not None
+    if not (mlp_active or recurrent_active):
+        return None
+    kwargs: Dict[str, Any] = {}
+    # #3 random_state: PytorchLightningEstimator (and the recurrent
+    # estimator's wrapper, which inherits the same fit-time seed contract)
+    # consume an Optional[int]. Both branches reachable via the fuzz axis;
+    # canon collapses to None outside the gate so dedup absorbs phantom
+    # variation on combos that wouldn't fire either path.
+    if random_state is not None:
+        kwargs["random_state"] = random_state
+    # #4 class_weight: only meaningful for the classifier subclass on
+    # imbalanced classification targets. The compound gate at the call
+    # site (mlp in models AND classification AND rare_5pct/rare_1pct)
+    # is mirrored in canonical_key; the builder respects whatever the
+    # caller passes and emits the key only when non-None so the source
+    # default (None) doesn't shadow downstream caller kwargs.
+    if class_weight is not None and mlp_active and target_type in (
+        "binary_classification", "multiclass_classification",
+    ) and imbalance_ratio in ("rare_5pct", "rare_1pct"):
+        kwargs["class_weight"] = class_weight
+    return kwargs
+
+
+def build_mlp_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]:
+    """FuzzCombo-aware wrapper around build_mlp_kwargs_from_flat."""
+    return build_mlp_kwargs_from_flat(
+        models=combo.models,
+        target_type=combo.target_type,
+        imbalance_ratio=combo.imbalance_ratio,
+        recurrent_model=combo.recurrent_model_cfg,
+        random_state=combo.mlp_random_state_cfg,
+        class_weight=combo.mlp_class_weight_cfg,
     )
 
 
