@@ -142,7 +142,7 @@ def generate_mlp(
     weights_init_fcn: Callable = None,
     dropout_prob: float = 0.15,
     inputs_dropout_prob: float = 0.01,
-    use_layernorm: bool = True,
+    use_layernorm: bool = False,
     use_batchnorm: bool = False,
     use_layernorm_per_layer: bool = False,
     groupnorm_num_groups: int = 0,
@@ -179,7 +179,42 @@ def generate_mlp(
         weights_init_fcn: Weight initialization function
         dropout_prob: Dropout probability after each layer
         inputs_dropout_prob: Dropout probability for input features
-        use_layernorm: Apply LayerNorm to inputs
+        use_layernorm: Apply ``nn.LayerNorm(num_features)`` to inputs.
+            Default ``False`` (F-03, 2026-05-30).
+
+            When to LEAVE False (the default, recommended for tabular):
+            inputs are heterogeneous-scale columns (raw numerics in
+            different units). LayerNorm-per-row z-scores ACROSS the
+            row's features, mixing them into one sequence and
+            discarding per-feature scale. Measured (n=1200, d=3,
+            scales 1.0 / 1000 / 10): test R^2 +0.083 (LN on) vs +0.989
+            (use_batchnorm=True) vs +0.998 (StandardScaler upstream).
+            Single-feature regression with LN on collapses to
+            predict-the-mean (R^2 ~0) because the per-row variance is
+            always 0 -> the normalised input is the zero tensor.
+
+            When to FLIP True: inputs are homogeneous-scale columns
+            that legitimately share a unit -- post-StandardScaler
+            features, an embedding output (e.g. Transformer / CNN
+            penultimate activations), an RNN hidden-state slice. In
+            those regimes the per-row z-score IS roughly the per-
+            feature z-score and LN-on costs LESS (measured: gap of
+            ~0.18 R^2 on homogeneous N(0,1) inputs vs ~0.9 R^2 on
+            heterogeneous-scale inputs -- order of magnitude smaller).
+            This is the regime where LayerNorm was originally proposed
+            (Ba et al. 2016) and shines on deeper / nonlinear /
+            high-variance-activation networks; it does NOT generalise
+            to shallow tabular MLPs with linear-ish targets, where it
+            adds a small drag even when inputs are already normalised.
+
+            The mlframe suite has been overriding this to False at
+            trainer.py:697 since 2026-05-21; the default flip here
+            propagates the fix to direct ``generate_mlp`` callers
+            that don't go through the suite. For per-feature input
+            normalisation use ``use_batchnorm=True`` (BN on hidden
+            activations, which transitively normalises the raw-input
+            feature mix the first Linear sees) or
+            ``sklearn.preprocessing.StandardScaler`` upstream of fit().
         use_batchnorm: Apply BatchNorm after each layer
         use_layernorm_per_layer: Apply LayerNorm after each layer (in addition to input LayerNorm)
         groupnorm_num_groups: Number of groups for GroupNorm (0 = disabled)
