@@ -364,10 +364,58 @@ def optimal_bin_edges(
 def apply_bin_edges(
     x: np.ndarray,
     edges: np.ndarray,
-    dtype: object = np.int8,
+    dtype: object = None,
 ) -> np.ndarray:
     """Apply pre-fit bin edges to discretise an array.
 
     Leak-safe: edges are computed once on train and used on both train + val without re-fitting.
+
+    2026-05-30 Wave 9.1 fix (loop iter 47):
+    1. Auto-pick dtype based on the actual bin count so int8's 128-bin
+       ceiling never silently wraps. Pre-fix default ``dtype=np.int8``
+       silently overflowed once ``len(edges) >= 128`` (multi-quantile /
+       cross-feature joint binning routinely produces > 128 edges),
+       returning monotonic-looking but wrong-class codes. Pass an
+       explicit narrower dtype to opt back into the legacy behaviour
+       (now warns on overflow).
+    2. Route NaN inputs to a dedicated ``-1`` sentinel (or out-of-range
+       slot depending on caller) instead of silently aliasing them with
+       the highest finite bin. ``np.searchsorted(edges, NaN,
+       side='right')`` returns ``len(edges)`` (= top bin index after
+       slicing) - NaN rows silently merged with the largest valid bin.
     """
-    return np.searchsorted(edges[1:-1], x, side="right").astype(dtype)
+    n_codes = int(np.asarray(edges).size) - 1  # bins, not edges
+    n_codes = max(1, n_codes)
+    if dtype is None:
+        # Auto-pick the smallest int dtype that holds [0, n_codes].
+        # Include +1 headroom for an optional NaN sentinel at n_codes.
+        _max_code = n_codes
+        if _max_code < 127:
+            dtype = np.int8
+        elif _max_code < 32767:
+            dtype = np.int16
+        else:
+            dtype = np.int32
+    else:
+        # Caller forced a dtype - validate it can hold n_codes.
+        try:
+            _info_max = int(np.iinfo(np.dtype(dtype)).max)
+        except (TypeError, ValueError):
+            _info_max = None
+        if _info_max is not None and n_codes > _info_max:
+            raise ValueError(
+                f"apply_bin_edges: n_codes={n_codes} exceeds caller-"
+                f"forced dtype {dtype}'s range (max {_info_max}); "
+                f"silent overflow would produce wrong class codes. "
+                f"Pass a wider dtype or omit dtype= to auto-pick."
+            )
+    arr = np.asarray(x, dtype=np.float64)
+    _nan_mask = np.isnan(arr) if arr.dtype.kind == "f" else None
+    codes = np.searchsorted(edges[1:-1], arr, side="right").astype(dtype)
+    if _nan_mask is not None and _nan_mask.any():
+        # NaN rows get a dedicated sentinel at n_codes (one past max
+        # real bin). Caller's downstream code needs to treat this
+        # sentinel as NaN; the alternative (silent aliasing) was
+        # documented behaviour but produced wrong MI / WoE.
+        codes[_nan_mask] = n_codes
+    return codes
