@@ -31,7 +31,24 @@ except ImportError:  # pragma: no cover
 
 def _extra_equal(a: dict, b: dict) -> bool:
     """Array-aware dict equality for ``EngineeredRecipe.extra``. Plain ``dict.__eq__`` returns an ndarray (not bool) when values are arrays; this helper uses
-    ``np.array_equal`` for arrays and ``==`` otherwise."""
+    ``np.array_equal`` for arrays and ``==`` otherwise.
+
+    2026-05-30 Wave 9.1 fix (loop iter 45): three correctness gaps:
+      1. ``np.array_equal(va, vb)`` returns False on NaN-containing
+         arrays because NaN != NaN. Persisted recipes whose lookups /
+         diagnostics contained NaN (factorize/target_encoding lookups,
+         cluster_aggregate's ``pca_var_ratio`` when PCA degenerates)
+         failed pickle round-trip equality and ``sklearn.clone`` ==
+         fitted checks.
+      2. Scalar NaN in the else branch (``va != vb`` is True for
+         ``nan != nan``) had the same defect.
+      3. Nested list-of-arrays raised ``ValueError: truth value
+         ambiguous`` from ``va != vb`` instead of returning bool -
+         leaking an exception out of ``__eq__``.
+    Fix: NaN-aware array equality via ``equal_nan=True``; NaN-aware
+    scalar equality; defensive fallback that returns False on
+    ambiguous truth-value errors instead of raising.
+    """
     if a.keys() != b.keys():
         return False
     for k in a:
@@ -39,10 +56,34 @@ def _extra_equal(a: dict, b: dict) -> bool:
         if isinstance(va, np.ndarray) or isinstance(vb, np.ndarray):
             if not (isinstance(va, np.ndarray) and isinstance(vb, np.ndarray)):
                 return False
-            if not np.array_equal(va, vb):
-                return False
+            # NaN-aware (equal_nan=True) for float arrays; harmless for
+            # integer arrays (numpy ignores the kwarg there).
+            try:
+                if not np.array_equal(va, vb, equal_nan=True):
+                    return False
+            except TypeError:
+                # Older numpy without equal_nan; fall back to manual
+                # NaN-aware check.
+                if va.shape != vb.shape:
+                    return False
+                _eq = (va == vb) | (
+                    (va != va) & (vb != vb)  # both NaN -> equal
+                )
+                if not bool(_eq.all()):
+                    return False
         else:
-            if va != vb:
+            # Scalar NaN: float('nan') != float('nan') is True under
+            # standard comparison, so treat both-NaN as equal.
+            if isinstance(va, float) and isinstance(vb, float):
+                if (va != va) and (vb != vb):
+                    continue
+            try:
+                if va != vb:
+                    return False
+            except ValueError:
+                # Nested list-of-arrays / ambiguous truth value: be
+                # conservative and report unequal rather than raising
+                # from inside __eq__.
                 return False
     return True
 
