@@ -236,6 +236,63 @@ def _assert_additivity_and_base(phi: np.ndarray, base: float, fold_tag: str = ""
 _JITTER_DEPTHS = (3, 4, 5, 6)  # cycled across models when config_jitter is on
 
 
+def compute_phi_rank_stability(per_fold_phi_mean, top_k: int = 80) -> float:
+    """Median pairwise Spearman correlation of per-fold mean |phi| feature rankings.
+
+    ``per_fold_phi_mean`` is shape (n_folds, n_features): each row is the mean |phi| over that fold's
+    validation rows. We rank features by mean |phi| within each fold (descending), then take the
+    median Spearman across all unordered fold pairs. Restricting to the top-K features before ranking
+    (default K=80 = 2 * max_prescreen of 40) drops the noise tail whose ranks are pure permutation
+    even in a stable regime and would deflate the correlation.
+
+    Returns a scalar in ``[-1, 1]`` (``1.0`` = identical rankings, ``0`` = unrelated, ``-1`` = inverted).
+    With fewer than 2 folds the metric is undefined and ``1.0`` is returned (no folds to disagree).
+    """
+    arr = np.asarray(per_fold_phi_mean, dtype=np.float64)
+    if arr.ndim != 2:
+        raise ValueError(f"per_fold_phi_mean must be 2-D (n_folds, n_features); got ndim={arr.ndim}")
+    n_folds, n_features = arr.shape
+    if n_folds < 2 or n_features == 0:
+        return 1.0
+    k = max(1, min(int(top_k), n_features))
+    # Take the union of each fold's top-K features so the ranking is over a consistent feature set.
+    # Within that set, lower ranks (1, 2, ...) = larger mean |phi|. Use the negative magnitude so
+    # argsort gives descending order; downstream Spearman cares about RANK, not raw value.
+    union = set()
+    for f in range(n_folds):
+        union.update(np.argsort(-arr[f])[:k].tolist())
+    cols = np.array(sorted(union), dtype=np.int64)
+    if cols.size < 2:
+        return 1.0
+    sub = arr[:, cols]
+    # Rank within each fold (higher mean |phi| -> lower numeric rank). Use scipy if available for the
+    # standard tie-handling, else fall back to argsort-of-argsort which is fine for non-tied magnitudes.
+    try:
+        from scipy.stats import rankdata, spearmanr  # type: ignore
+        ranks = np.vstack([rankdata(-sub[f], method="average") for f in range(n_folds)])
+        # spearmanr on the matrix returns the full pairwise correlation; extract upper-triangle.
+        corr, _ = spearmanr(ranks, axis=1)
+        if np.isscalar(corr):
+            return float(corr)
+        corr = np.asarray(corr, dtype=np.float64)
+        iu = np.triu_indices(n_folds, k=1)
+        vals = corr[iu]
+    except Exception:
+        ranks = np.argsort(np.argsort(-sub, axis=1), axis=1).astype(np.float64)
+        vals = []
+        for i in range(n_folds):
+            ri = ranks[i] - ranks[i].mean()
+            for j in range(i + 1, n_folds):
+                rj = ranks[j] - ranks[j].mean()
+                denom = float(np.sqrt((ri * ri).sum() * (rj * rj).sum()))
+                vals.append(float((ri * rj).sum() / denom) if denom > 0 else 1.0)
+        vals = np.asarray(vals, dtype=np.float64)
+    if vals.size == 0:
+        return 1.0
+    # Median is more robust than mean against one outlier fold (e.g. a tiny class-imbalance KFold split).
+    return float(np.median(vals))
+
+
 # bench-attempt-rejected (2026-05-28, iter20): converting ``X`` to numpy at the entry of ``_fit_one`` +
 # ``_models_phi`` + ``_honest_loss`` (revalidate.py) to skip XGBoost's ``_assign_dmatrix_features`` +
 # ``from_cstr_to_pystr`` + ``_validate_features`` marshalling. Motivated by iter19's cProfile attributing
@@ -343,6 +400,7 @@ def compute_shap_matrix(
     n_jobs: int = 1,
     n_estimators_cap: Optional[int] = None,
     inner_n_jobs_cap: bool = False,
+    return_per_fold_phi_mean: bool = False,
 ):
     """Compute the per-row SHAP value matrix + per-row base value.
 
@@ -370,6 +428,14 @@ def compute_shap_matrix(
 
     phi : (n, f) float64 -- per-row SHAP in margin (clf) / target (reg) space.
     base : (n,) float64 -- per-row baseline (the fold's expected_value), constant within a fold.
+
+    ``return_per_fold_phi_mean`` (iter59): when True, the return tuple gains a trailing
+    ``per_fold_phi_mean`` of shape (n_splits, n_features), where row k is ``|phi|.mean(axis=0)`` over
+    fold k's validation rows. Used downstream by ``compute_phi_rank_stability`` to gauge how stable
+    the top-K |phi| ranking is across folds; the SHAP-proxied selector consumes this as an
+    adaptive-prescreen-width signal. Cheap to retain: 8 * n_splits * n_features bytes (~400KB at the
+    default 5-fold / 10000-column regime). With ``out_of_fold=False`` we still return a single-row
+    array (the in-sample mean) so the consumer's contract stays uniform.
     """
     if rng is None:
         rng = np.random.default_rng(0)
@@ -404,8 +470,14 @@ def compute_shap_matrix(
         phi_acc, base_val, var = _models_phi(X, y, X, seeds)
         _assert_additivity_and_base(phi_acc, base_val)
         base_arr = np.full(n, base_val, dtype=np.float64)
+        per_fold_mean = np.abs(phi_acc).mean(axis=0, keepdims=True) if return_per_fold_phi_mean else None
+        out_tail: list = []
         if return_variance:
-            return phi_acc, base_arr, y.astype(np.float64), var
+            out_tail.append(var)
+        if return_per_fold_phi_mean:
+            out_tail.append(per_fold_mean)
+        if out_tail:
+            return (phi_acc, base_arr, y.astype(np.float64), *out_tail)
         return phi_acc, base_arr, y.astype(np.float64)
 
     # Out-of-fold: honest per-row attributions.
@@ -419,6 +491,7 @@ def compute_shap_matrix(
     phi = np.zeros((n, f), dtype=np.float64)
     base = np.zeros(n, dtype=np.float64)
     phi_var = np.zeros((n, f), dtype=np.float64) if return_variance else None
+    per_fold_mean = np.zeros((n_splits, f), dtype=np.float64) if return_per_fold_phi_mean else None
 
     folds = list(split_iter)
     # Pre-draw every fold's model seeds in fold order BEFORE any fit, so concurrent folds yield the
@@ -448,7 +521,7 @@ def compute_shap_matrix(
         pf, bf, vf = _models_phi(X.iloc[tr_idx], y[tr_idx], X.iloc[va_idx], fold_seeds[fold_id],
                                  inner_n_jobs=inner)
         _assert_additivity_and_base(pf, bf, fold_tag=f" fold {fold_id}")
-        return va_idx, pf, bf, vf
+        return fold_id, va_idx, pf, bf, vf
 
     if outer > 1:
         from joblib import Parallel, delayed
@@ -463,12 +536,21 @@ def compute_shap_matrix(
             iter_folds = tqdmu(folds, desc=tqdm_desc)
         fold_results = [_one_fold(fid, tr, va) for fid, (tr, va) in enumerate(iter_folds)]
 
-    for va_idx, pf, bf, vf in fold_results:
+    # ``fold_results`` may arrive out of order when ``outer > 1`` (joblib threads scatter); each tuple
+    # carries its fold id explicitly so per_fold_mean[fid] keeps the deterministic split-order mapping.
+    for fold_id, va_idx, pf, bf, vf in fold_results:
         phi[va_idx] = pf
         base[va_idx] = bf
         if return_variance:
             phi_var[va_idx] = vf
+        if return_per_fold_phi_mean:
+            per_fold_mean[fold_id] = np.abs(pf).mean(axis=0)
 
+    out_tail: list = []
     if return_variance:
-        return phi, base, y.astype(np.float64), phi_var
+        out_tail.append(phi_var)
+    if return_per_fold_phi_mean:
+        out_tail.append(per_fold_mean)
+    if out_tail:
+        return (phi, base, y.astype(np.float64), *out_tail)
     return phi, base, y.astype(np.float64)

@@ -79,6 +79,26 @@ _HEURISTIC_OPTIMIZERS = {"beam", "greedy_forward", "greedy_backward", "multistar
 _DEFAULT_BRUTE_FORCE_MAX_FEATURES = 28
 _DEFAULT_BRUTE_FORCE_N_SUB_GATE = 80_000_000
 
+# Iter59 adaptive-prescreen-width thresholds. The lever is a recall-protection device for low-SNR
+# regimes: at low SHAP rank-stability across OOF folds, the top features past the strongly-informative
+# core are essentially noise -- pulling them into the prescreen pool injects noise into beam's input
+# and can perturb the chosen subset off the truly informative one. So we NARROW (never widen) the
+# prescreen cap when stability drops. High-stability regimes keep the existing cap untouched.
+#
+# Thresholds (stability = median pairwise Spearman of per-fold mean |phi| feature rankings):
+#   stability >= 0.8  -> use default cap (current behaviour, no regression risk)
+#   0.6 <= stability < 0.8 -> cap = max(20, default - 4)  (mild narrow)
+#   stability < 0.6   -> cap = max(16, default - 8)       (aggressive narrow)
+#
+# Overridable per-HW via kernel_tuning_cache key ``mlframe.shap_proxied_fs.adaptive_prescreen_stability_thresholds``
+# which accepts a list of ``[stability_threshold, cap_delta]`` pairs sorted descending by threshold.
+_DEFAULT_ADAPTIVE_PRESCREEN_THRESHOLDS = (
+    (0.8, 0),    # stability >= 0.8: no narrowing, keep default cap
+    (0.6, -4),   # 0.6 <= stability < 0.8: narrow by 4
+    (-1.0, -8),  # stability < 0.6: narrow by 8 (catches negative correlations too)
+)
+_ADAPTIVE_PRESCREEN_FLOOR = 16  # never narrow below this regardless of stability
+
 
 def _resolve_brute_force_max_features(default: int = _DEFAULT_BRUTE_FORCE_MAX_FEATURES) -> int:
     """Per-HW brute-force cap from ``pyutilz.system.kernel_tuning_cache`` (key
@@ -105,6 +125,48 @@ def _resolve_brute_force_n_sub_gate(default: int = _DEFAULT_BRUTE_FORCE_N_SUB_GA
         return int(value)
     except Exception:
         return default
+
+
+def _resolve_adaptive_prescreen_thresholds():
+    """Return the (stability, delta) threshold list, ordered descending by stability.
+
+    Reads ``mlframe.shap_proxied_fs.adaptive_prescreen_stability_thresholds`` from kernel_tuning_cache
+    when present (expected as an iterable of (stability, delta) pairs). Falls back to the module
+    default. Always coerced to a tuple of (float, int) pairs sorted by descending stability.
+    """
+    raw = _DEFAULT_ADAPTIVE_PRESCREEN_THRESHOLDS
+    try:
+        from pyutilz.system import kernel_tuning_cache
+
+        cached = kernel_tuning_cache.get(
+            "mlframe.shap_proxied_fs.adaptive_prescreen_stability_thresholds", default=None)
+        if cached:
+            raw = cached
+    except Exception:
+        pass
+    pairs = [(float(s), int(d)) for s, d in raw]
+    pairs.sort(key=lambda p: -p[0])
+    return tuple(pairs)
+
+
+def _resolve_adaptive_prescreen_width(stability: float, default_cap: int,
+                                      floor: int = _ADAPTIVE_PRESCREEN_FLOOR) -> int:
+    """Resolve the prescreen pool width from the measured cross-fold SHAP rank stability.
+
+    Returns ``max(floor, default_cap + delta)`` where ``delta`` is read from the first threshold
+    matching ``stability >= threshold`` in the descending-sorted table. The default table never adds
+    a positive delta, so this lever can only NARROW the pool, never widen it past ``default_cap``.
+    Conservative by design: high-stability regimes (the existing working configurations) keep the
+    current cap untouched, and only the low-SHAP-rank-stability case (where the rank tail past the
+    strongly-informative core is noise) sees a narrower pool that excludes that noise tail.
+    """
+    table = _resolve_adaptive_prescreen_thresholds()
+    delta = 0
+    for thr, d in table:
+        if stability >= thr:
+            delta = d
+            break
+    return max(int(floor), int(default_cap) + int(delta))
 
 
 class ShapProxiedFS(BaseEstimator, TransformerMixin):
@@ -143,6 +205,7 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         max_interaction_features: int = 16,
         beam_width: int = 8,
         brute_force_max_features: int | None = None,
+        adaptive_prescreen_by_stability: bool = False,
         use_gpu: bool = False,
         prefilter_top: int | None = 2000,
         prefilter_method: str = "auto",
@@ -241,6 +304,21 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
             int(brute_force_max_features) if brute_force_max_features is not None
             else _resolve_brute_force_max_features()
         )
+        # ``adaptive_prescreen_by_stability`` (iter59, OFF by default): when True, measure cross-fold
+        # SHAP rank stability (median pairwise Spearman of per-fold mean |phi| feature rankings) and
+        # NARROW (never widen) the post-OOF prescreen cap when stability drops. Surfaces the measured
+        # stability + resolved cap under ``shap_proxy_report_['adaptive_prescreen']`` regardless of
+        # whether the cap changes, so callers can inspect the diagnostic before opting in.
+        #
+        # Iter59 A/B at compact-C3 (width=4000, n_rows=4000, snr=8) MEASURED -3 recall + 4.2x e2e
+        # wall when the lever was ON: post-cluster SHAP rankings have stability ~0.63 even at high
+        # SNR (the unit-level SHAP fluctuates across folds more than raw-feature SHAP would), so the
+        # mild-narrow bucket fires unintentionally, dropping the cap from 28 to 24 which crosses the
+        # dispatcher's brute-force gate (2^24 = 16M < 80M default) and pays a heavy brute-force +
+        # revalidation tail. Default flipped to False; the helper + report block stay shipped as
+        # instrumentation so future iters can recalibrate thresholds against post-cluster scales or
+        # gate the narrowing on dispatcher feasibility before re-enabling.
+        self.adaptive_prescreen_by_stability = bool(adaptive_prescreen_by_stability)
         self.use_gpu = use_gpu
         self.prefilter_top = prefilter_top
         self.prefilter_method = prefilter_method
@@ -891,6 +969,7 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         # SHAP attribution on the proxy (unit or raw) columns. Request per-model attribution variance
         # only when the uncertainty lever is active AND we actually have multiple models to vary.
         want_var = self.uncertainty_penalty > 0 and self.n_models > 1
+        want_per_fold_phi = bool(self.adaptive_prescreen_by_stability) and bool(self.out_of_fold)
         with _stage("oof_shap"):
             shap_out = compute_shap_matrix(
                 model_template, X_proxy, y_search, classification=self.classification,
@@ -898,19 +977,49 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
                 config_jitter=self.config_jitter, return_variance=want_var,
                 rng=self._rng, tqdm_desc=("shap-oof" if self.tqdm else None), n_jobs=self.n_jobs,
                 n_estimators_cap=self.oof_shap_n_estimators,
-                inner_n_jobs_cap=self.inner_n_jobs_cap)
-        if want_var:
+                inner_n_jobs_cap=self.inner_n_jobs_cap,
+                return_per_fold_phi_mean=want_per_fold_phi)
+        if want_var and want_per_fold_phi:
+            phi, base, y_phi, phi_var, per_fold_phi_mean = shap_out
+        elif want_var:
             phi, base, y_phi, phi_var = shap_out
+            per_fold_phi_mean = None
+        elif want_per_fold_phi:
+            phi, base, y_phi, per_fold_phi_mean = shap_out
+            phi_var = None
         else:
-            phi, base, y_phi, phi_var = (*shap_out, None)
+            phi, base, y_phi = shap_out
+            phi_var = None
+            per_fold_phi_mean = None
+
+        # Adaptive prescreen narrowing (iter59): when SHAP per-fold ranks are unstable, NARROW the
+        # cap so noisy mid-rank features don't get injected into beam's candidate pool. The lever is
+        # measurement-driven (median pairwise Spearman of per-fold mean |phi| feature ranks) and only
+        # ever narrows; high-stability regimes keep the current cap. Computed BEFORE the prescreen
+        # block below so the resolved cap drives that block's keep count.
+        effective_brute_force_cap = self.brute_force_max_features
+        adaptive_info: Optional[dict] = None
+        if want_per_fold_phi and per_fold_phi_mean is not None and per_fold_phi_mean.shape[0] >= 2:
+            from mlframe.feature_selection._shap_proxy_explain import compute_phi_rank_stability
+
+            stability = compute_phi_rank_stability(
+                per_fold_phi_mean, top_k=2 * max(self.brute_force_max_features, 40))
+            effective_brute_force_cap = _resolve_adaptive_prescreen_width(
+                stability, default_cap=self.brute_force_max_features)
+            adaptive_info = dict(
+                stability=float(stability),
+                default_cap=int(self.brute_force_max_features),
+                effective_cap=int(effective_brute_force_cap),
+            )
+            report["adaptive_prescreen"] = adaptive_info
 
         # Importance pre-screen: when the proxy still has more columns than the exact-search budget,
         # keep the top-K by SHAP importance (mean |phi|) so exhaustive-approx stays feasible.
         n_proxy = phi.shape[1]
         proxy_cols_kept = np.arange(n_proxy)  # proxy(unit) columns behind the current phi columns
         prescreen_top = self.prescreen_top
-        if prescreen_top is None and n_proxy > self.brute_force_max_features and self.optimizer in ("auto", "bruteforce", "bruteforce_gpu"):
-            prescreen_top = self.brute_force_max_features
+        if prescreen_top is None and n_proxy > effective_brute_force_cap and self.optimizer in ("auto", "bruteforce", "bruteforce_gpu"):
+            prescreen_top = effective_brute_force_cap
         if prescreen_top is not None and prescreen_top < n_proxy:
             with _stage("prescreen"):
                 importance = np.abs(phi).mean(axis=0)
