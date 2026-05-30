@@ -99,6 +99,17 @@ class DCDState:
     cluster_anchors: dict = field(default_factory=dict)              # anchor_idx -> set[member_col]
     member_to_anchor: dict = field(default_factory=dict)             # member_col -> anchor_idx
     pairwise_su_cache: "OrderedDict" = field(default_factory=OrderedDict)  # (min,max) -> SU
+    # iter587: per-column marginal-entropy cache for the SU / VI branches of
+    # pair_su. Pre-fix, every pair_su(a, b) call recomputed H(X_a) and
+    # H(X_b) via merge_vars + entropy -- 3 merge_vars per call when only
+    # the joint H(X_a, X_b) is genuinely unique per (a, b). For 30 features
+    # pairwise = 435 pairs and each feature appears in 29 pairs, so each
+    # marginal entropy gets recomputed 29x. The c0066 @100k profile
+    # attributed 0.58 s tottime / 243 calls (~2.4 ms each) to
+    # ``symmetric_uncertainty``; ~2/3 of that is the redundant marginal
+    # merge_vars + entropy. Caching by column index drops the dominant
+    # share to a single lookup per (a, b).
+    column_entropy_cache: dict = field(default_factory=dict)         # int -> float
     pool_pruned_mask: Optional[np.ndarray] = None                    # bool[p_initial]; True == pruned
     swap_log: list = field(default_factory=list)
     n_su_calls: int = 0
@@ -263,15 +274,43 @@ def pair_su(state: DCDState, a: int, b: int,
     state.n_cache_misses += 1
     state.n_su_calls += 1
     if state.distance == "su":
-        from .info_theory import symmetric_uncertainty
-        # Critic2/A fix: symmetric_uncertainty expects vars_indices arrays
-        su = float(symmetric_uncertainty(
-            fd,
-            np.array([a], dtype=np.int64),
-            np.array([b], dtype=np.int64),
-            np.asarray(fn, dtype=np.int64),
-            dtype=dtype,
-        ))
+        # iter587: avoid the 3-merge_vars cost of calling
+        # ``symmetric_uncertainty(x=[a], y=[b], ...)`` for every pair.
+        # H(X_a) and H(X_b) are functions of a single column each, so the
+        # marginal merge_vars + entropy work is identical for every pair
+        # containing that column. Cache per-column entropies in state
+        # (lazy, populated on miss); only the joint H(X_a, X_b) is
+        # genuinely pair-unique and runs every call. Net work per pair:
+        # 3 merge_vars + 3 entropy --> 1 merge_vars + 1 entropy + 2 dict
+        # lookups (cold) or 0 + 0 + 2 (warm), preserving bit-equivalent
+        # SU since both formulations compute the same H(X_a) + H(X_b) +
+        # H(X_a, X_b) -> 2*(H_a + H_b - H_ab)/(H_a + H_b).
+        from .info_theory import entropy, merge_vars
+        fn_arr = np.asarray(fn, dtype=np.int64)
+        ec = state.column_entropy_cache
+        h_a = ec.get(a)
+        if h_a is None:
+            _, freqs_a, _ = merge_vars(
+                fd, np.array([a], dtype=np.int64), None, fn_arr, dtype=dtype,
+            )
+            h_a = float(entropy(freqs_a))
+            ec[a] = h_a
+        h_b = ec.get(b)
+        if h_b is None:
+            _, freqs_b, _ = merge_vars(
+                fd, np.array([b], dtype=np.int64), None, fn_arr, dtype=dtype,
+            )
+            h_b = float(entropy(freqs_b))
+            ec[b] = h_b
+        _, freqs_ab, _ = merge_vars(
+            fd, np.array([a, b], dtype=np.int64), None, fn_arr, dtype=dtype,
+        )
+        h_ab = float(entropy(freqs_ab))
+        denom = h_a + h_b
+        if denom <= 1e-12:
+            su = 0.0
+        else:
+            su = 2.0 * (h_a + h_b - h_ab) / denom
     elif state.distance == "vi":
         # 2026-05-30 Wave 9.1 fix (loop iter 23): proper Variation of
         # Information distance. Pre-fix this branch was a silent alias
@@ -292,10 +331,19 @@ def pair_su(state: DCDState, a: int, b: int,
         y_idx = np.array([b], dtype=np.int64)
         fn_arr = np.asarray(fn, dtype=np.int64)
         mi_ab = float(mi(fd, x_idx, y_idx, fn_arr, dtype=dtype))
-        _, freqs_a, _ = merge_vars(fd, x_idx, None, fn_arr, dtype=dtype)
-        _, freqs_b, _ = merge_vars(fd, y_idx, None, fn_arr, dtype=dtype)
-        h_a = float(entropy(freqs_a))
-        h_b = float(entropy(freqs_b))
+        # iter587: same per-column entropy cache as the SU branch above --
+        # H(X_a) / H(X_b) recomputation was the dominant per-call cost.
+        ec = state.column_entropy_cache
+        h_a = ec.get(a)
+        if h_a is None:
+            _, freqs_a, _ = merge_vars(fd, x_idx, None, fn_arr, dtype=dtype)
+            h_a = float(entropy(freqs_a))
+            ec[a] = h_a
+        h_b = ec.get(b)
+        if h_b is None:
+            _, freqs_b, _ = merge_vars(fd, y_idx, None, fn_arr, dtype=dtype)
+            h_b = float(entropy(freqs_b))
+            ec[b] = h_b
         vi = max(0.0, h_a + h_b - 2.0 * mi_ab)
         norm = math.log(max(2, int(fn_arr[a]) * int(fn_arr[b])))
         # 2026-05-30 Wave 9.1 fix (loop iter 32, parity with sotoca_pla):
