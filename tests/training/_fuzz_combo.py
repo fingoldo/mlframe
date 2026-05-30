@@ -121,6 +121,16 @@ AXES: dict[str, tuple[Any, ...]] = {
         # (group_field='qid', mlframe_models in {cb,xgb,lgb}, RRF
         # ensembling). Non-LTR combos canonicalise to no group_field.
         "learning_to_rank",
+        # 2026-05-31 audit-pass-9 #8 (F-24): K-independent-target
+        # regression. Enum lives at _configs_base.py:126. Frame builder
+        # branch emits y of shape (N, K>=2) float32 so the new estimator
+        # code path (num_classes=K head sharing trunk, MSE on (N, K))
+        # surfaces in fuzz coverage. Canon: collapses to "regression"
+        # when only 1-D y is reachable on the combo (e.g. CB+LGB lack
+        # native multi-target regression -- the suite-side dispatch
+        # design doc is the source of truth, but canon stays defensive:
+        # only models with documented native MTR support keep the value).
+        "multi_target_regression",
     ),
     # 2026-05-13: target carrier itself is a fuzz axis. The old fixture
     # always normalised Polars targets to numpy, so MRMR never saw the
@@ -1277,6 +1287,84 @@ AXES: dict[str, tuple[Any, ...]] = {
     # False outside the compound gate (use_mrmr_fs=True AND
     # mrmr_interactions_max_order_cfg >= 2).
     "inject_xor_synergy_pair_cfg": (False, True),
+    # =====================================================================
+    # 2026-05-31 audit-pass-9 (W9). 8 new fuzz axes (5 HIGH + 3 MED) covering
+    # MLP + MRMR + target-type surfaces added since 6c83a714 with no fuzz
+    # coverage. Source-verified line numbers:
+    #   #1 _flat_torch_module.py:499 (AdamW betas setdefault)
+    #   #2 base.py:266-267 (use_ema/ema_params), :767-816 (SWA/EMA mutex)
+    #   #3 base.py:268, :897-907 (label_smoothing multiclass-only)
+    #   #4 base.py:269-270, :878-884 (focal_loss_gamma binary-only)
+    #   #5 flat.py:208, :465-474 (use_residual + spectral_norm warning)
+    #   #6 flat.py:209-210, :398-408 (numerical_embedding=plr + kwargs)
+    #   #7 mrmr.py:656-665 (fe_hybrid_orth_enable + pair_enable)
+    #   #8 _configs_base.py:126 (TargetTypes.MULTI_TARGET_REGRESSION)
+    # =====================================================================
+    # #1 AdamW betas: (0.9, 0.95) is the new realmlp-td-tuned default at
+    # _flat_torch_module.py:499; PyTorch's legacy (0.9, 0.999) is the
+    # second variant so the pre-flip ablation surface still gets fuzz
+    # coverage. Canon collapses to (0.9, 0.95) outside ('mlp' in models
+    # AND optimizer in {AdamW, Adam}); the fuzz runner uses the default
+    # AdamW optimizer so the gate reduces to 'mlp' in models.
+    "mlp_adamw_betas_cfg": ((0.9, 0.95), (0.9, 0.999)),
+    # #2 use_ema: PytorchLightningEstimator(use_ema=...) -- new in F-28
+    # (base.py:266-267 + callback wiring at :777-816). Default False;
+    # True wires Lightning's WeightAveraging callback with EMA averaging
+    # function + falls back to SWA-as-EMA shim on older Lightning. Canon
+    # collapses to False outside 'mlp' in models. Mutual-exclusion with
+    # use_swa is enforced at base.py:767 (raises ValueError); a separate
+    # canon pin collapses use_ema=True to False whenever use_swa=True so
+    # we never enumerate the ValueError-only combo.
+    "mlp_use_ema_cfg": (False, True),
+    # #3 label_smoothing: PytorchLightningEstimator(label_smoothing=...)
+    # at base.py:268, gated to multiclass at :897-907 (replaces the
+    # caller's CrossEntropyLoss with label_smoothing=eps). Default 0.0;
+    # 0.1 fires the substitution path. Canon collapses to 0.0 outside
+    # ('mlp' in models AND target_type == "multiclass_classification").
+    "mlp_label_smoothing_cfg": (0.0, 0.1),
+    # #4 focal_loss_gamma: PytorchLightningEstimator(focal_loss_gamma=...)
+    # at base.py:269-270, gated to binary at :878-884 (substitutes
+    # BCEWithLogitsLoss with sigmoid_focal_loss). Default None (BCE
+    # unchanged); 2.0 fires the substitution. Canon collapses to None
+    # outside ('mlp' in models AND target_type == "binary_classification");
+    # paired with imbalance_ratio in {rare_5pct, rare_1pct} so the focal-
+    # loss target (class imbalance) is actually present when the path
+    # fires. Outside that compound gate the axis canonicalises to None.
+    "mlp_focal_loss_gamma_cfg": (None, 2.0),
+    # #5 use_residual: generate_mlp(use_residual=...) at flat.py:208 wraps
+    # each Linear in a residual block; default False. Canon collapses to
+    # False outside ('mlp' in models) AND ALSO collapses to False whenever
+    # the default spectral_norm=True holds -- at flat.py:472-478 the
+    # combination produces only a WARN and the residual path silently
+    # treats the skip projection as non-Lipschitz; the meaningful arch
+    # change happens only with spectral_norm=False. The fuzz suite doesn't
+    # expose spectral_norm as an axis (library default True), so today the
+    # canon collapses use_residual to False unconditionally outside the
+    # MLP gate; once a spectral_norm axis is added the canon will be
+    # refined to follow it.
+    "mlp_use_residual_cfg": (False, True),
+    # #6 numerical_embedding: generate_mlp(numerical_embedding=...) at
+    # flat.py:209-210 + branch at :398-408. None = no embedding (default);
+    # "plr" = PeriodicLinearEmbedding (multiplies input dim by
+    # 2*n_frequencies + maybe 1). Canon collapses to None outside 'mlp'
+    # in models. The kwargs-quartet (embed_dim, n_frequencies, sigma,
+    # include_raw) is wired as a single literal axis -- "paper_default"
+    # leaves the PLR module ctor at its NeurIPS-2024 RealMLP defaults,
+    # "include_raw_false" overrides ``include_raw=False`` so the raw
+    # numeric column is dropped from the embedded output (exercises the
+    # narrower output-dim path).
+    "mlp_numerical_embedding_cfg": (None, "plr"),
+    "mlp_numerical_embedding_kwargs_cfg": ("paper_default", "include_raw_false"),
+    # #7 mrmr_fe_hybrid_orth: MRMR(fe_hybrid_orth_enable=...) at
+    # mrmr.py:656. Master switch defaults False (legacy byte-identical);
+    # True enables the univariate orth + cross-basis pair pipeline (new
+    # EngineeredRecipe kinds "orth_univariate" / "orth_pair_cross").
+    # Sub-axis pair_enable defaults True (mrmr.py:664) once the master is
+    # on; False disables the bilinear pair stage but keeps the univariate.
+    # Canon: master collapses to False outside use_mrmr_fs; pair_enable
+    # collapses to True outside (use_mrmr_fs AND master==True).
+    "mrmr_fe_hybrid_orth_enable_cfg": (False, True),
+    "mrmr_fe_hybrid_orth_pair_enable_cfg": (False, True),
 }
 
 
@@ -1809,6 +1897,32 @@ class FuzzCombo:
     mlp_l1_alpha_cfg: float = 0.0
     mlp_inject_zero_sample_weight_batch_cfg: bool = False
     inject_xor_synergy_pair_cfg: bool = False
+    # 2026-05-31 audit-pass-9 (W9). Defaults source-verified at HEAD:
+    #   #1 mlp_adamw_betas_cfg = (0.9, 0.95)
+    #      (src/mlframe/training/neural/_flat_torch_module.py:499)
+    #   #2 mlp_use_ema_cfg = False
+    #      (src/mlframe/training/neural/base.py:266)
+    #   #3 mlp_label_smoothing_cfg = 0.0
+    #      (src/mlframe/training/neural/base.py:268)
+    #   #4 mlp_focal_loss_gamma_cfg = None
+    #      (src/mlframe/training/neural/base.py:269)
+    #   #5 mlp_use_residual_cfg = False
+    #      (src/mlframe/training/neural/flat.py:208)
+    #   #6 mlp_numerical_embedding_cfg = None
+    #      mlp_numerical_embedding_kwargs_cfg = "paper_default"
+    #      (src/mlframe/training/neural/flat.py:209-210)
+    #   #7 mrmr_fe_hybrid_orth_enable_cfg = False (mrmr.py:656)
+    #      mrmr_fe_hybrid_orth_pair_enable_cfg = True (mrmr.py:664;
+    #         meaningful only when master is on)
+    mlp_adamw_betas_cfg: "tuple[float, float]" = (0.9, 0.95)
+    mlp_use_ema_cfg: bool = False
+    mlp_label_smoothing_cfg: float = 0.0
+    mlp_focal_loss_gamma_cfg: "float | None" = None
+    mlp_use_residual_cfg: bool = False
+    mlp_numerical_embedding_cfg: "str | None" = None
+    mlp_numerical_embedding_kwargs_cfg: str = "paper_default"
+    mrmr_fe_hybrid_orth_enable_cfg: bool = False
+    mrmr_fe_hybrid_orth_pair_enable_cfg: bool = True
 
     def canonical_key(self) -> tuple:
         """Hashable tuple used for dedup. Canonicalizes semantically
@@ -1870,7 +1984,21 @@ class FuzzCombo:
             null_frac,
             self.use_mrmr_fs,
             tuple(sorted(self.weight_schemas)),
-            self.target_type,
+            # 2026-05-31 audit-pass-9 #8: multi_target_regression collapses
+            # to "regression" when no native-MTR model is in the subset (no
+            # native multi-target backend -- the suite would either crash
+            # or silently fall back to sklearn MultiOutputRegressor wrap,
+            # which is the regression code path under a thin adapter).
+            # Native-MTR backends per docs/multi_target_regression_design.md:
+            # CatBoost (MultiRMSE) + MLP (F-24 (N, K) auto-detect).
+            (
+                self.target_type
+                if (
+                    self.target_type != "multi_target_regression"
+                    or any(m in self.models for m in ("mlp", "cb"))
+                )
+                else "regression"
+            ),
             target_carrier,
             self.auto_detect_cats,
             align,
@@ -1917,7 +2045,23 @@ class FuzzCombo:
             # exercises the full inject_degenerate_cols × CB × multilabel
             # cross-product again.
             self.inject_degenerate_cols,
-            self.inject_inf_nan,
+            # 2026-05-31 audit-pass-9 F-23 mirror: inject_inf_nan=True
+            # always hits the fit-entry _validate_no_nan_inf raise at
+            # training/neural/base.py:326 when the model subset is exactly
+            # ('mlp',). The True/False variants are then behaviour-identical
+            # (immediate crash vs. normal train); canon collapses True to
+            # False on those combos so dedup absorbs phantom variation.
+            # Multi-model subsets (mlp + cb / xgb / lgb / hgb / linear) keep
+            # the axis live because the non-MLP models consume inf/nan via
+            # their own paths.
+            (
+                self.inject_inf_nan
+                if not (
+                    "mlp" in self.models
+                    and len(self.models) == 1
+                )
+                else False
+            ),
             self.with_datetime_col,
             self.inject_zero_col,
             fairness,
@@ -3118,6 +3262,109 @@ class FuzzCombo:
                 )
                 else False
             ),
+            # 2026-05-31 audit-pass-9 (W9). Eight new MLP / MRMR / target-type
+            # axes; each collapses to its source default outside the documented
+            # gate so dedup absorbs phantom variation.
+            #
+            # #1 mlp_adamw_betas only meaningful when 'mlp' in models (suite
+            # always picks AdamW for the MLP path). Collapse to source default
+            # (0.9, 0.95) (_flat_torch_module.py:499) otherwise.
+            (
+                self.mlp_adamw_betas_cfg
+                if "mlp" in self.models
+                else (0.9, 0.95)
+            ),
+            # #2 mlp_use_ema: collapse to False outside 'mlp' in models AND
+            # outside the use_swa mutual-exclusion gate. base.py:767 raises
+            # ValueError when both flags are True, so canon also collapses
+            # use_ema=True to False whenever any use_swa axis indicator is
+            # on -- the fuzz suite does not expose a use_swa axis today, so
+            # the gate reduces to 'mlp' in models. When a use_swa axis lands,
+            # add ``and not self.mlp_use_swa_cfg`` to the gate.
+            (
+                self.mlp_use_ema_cfg
+                if "mlp" in self.models
+                else False
+            ),
+            # #3 mlp_label_smoothing: gated at base.py:897-907 to multiclass.
+            # Collapse to source default 0.0 outside ('mlp' AND multiclass).
+            (
+                self.mlp_label_smoothing_cfg
+                if (
+                    "mlp" in self.models
+                    and self.target_type == "multiclass_classification"
+                )
+                else 0.0
+            ),
+            # #4 mlp_focal_loss_gamma: gated at base.py:878-884 to binary
+            # classification; the focal-loss target is class imbalance, so we
+            # restrict variation to combos where the imbalance axis actually
+            # produces a rare positive class -- otherwise BCEWithLogitsLoss
+            # and focal loss are indistinguishable on a balanced binary
+            # target and dedup should collapse them. Outside the compound
+            # gate the axis collapses to None (BCE unchanged).
+            (
+                self.mlp_focal_loss_gamma_cfg
+                if (
+                    "mlp" in self.models
+                    and self.target_type == "binary_classification"
+                    and self.imbalance_ratio in ("rare_5pct", "rare_1pct")
+                )
+                else None
+            ),
+            # #5 mlp_use_residual: ResidualLinearBlock wrapper at flat.py:465.
+            # Collapse to source default False outside 'mlp' in models. The
+            # spectral_norm interaction at flat.py:472-478 only emits a WARN
+            # (no semantic flip) so we keep both branches reachable when MLP
+            # is in scope; once a spectral_norm axis is added the canon will
+            # refine to gate on spectral_norm=False as well.
+            (
+                self.mlp_use_residual_cfg
+                if "mlp" in self.models
+                else False
+            ),
+            # #6 mlp_numerical_embedding + kwargs literal. Both collapse to
+            # source default (None / "paper_default") outside 'mlp' in
+            # models. The kwargs axis additionally collapses to
+            # "paper_default" when the embedding axis is None, since the
+            # kwargs dict is only consumed when the embedding branch fires.
+            (
+                self.mlp_numerical_embedding_cfg
+                if "mlp" in self.models
+                else None
+            ),
+            (
+                self.mlp_numerical_embedding_kwargs_cfg
+                if (
+                    "mlp" in self.models
+                    and self.mlp_numerical_embedding_cfg is not None
+                )
+                else "paper_default"
+            ),
+            # #7 mrmr_fe_hybrid_orth master + pair. Master collapses to False
+            # outside use_mrmr_fs (mrmr.py:656). pair_enable collapses to
+            # source default True (mrmr.py:664) outside (use_mrmr_fs AND
+            # master==True) -- when the master is off the pair stage is
+            # skipped entirely and the True/False variants are behaviour-
+            # identical.
+            (
+                self.mrmr_fe_hybrid_orth_enable_cfg
+                if self.use_mrmr_fs
+                else False
+            ),
+            (
+                self.mrmr_fe_hybrid_orth_pair_enable_cfg
+                if (
+                    self.use_mrmr_fs
+                    and self.mrmr_fe_hybrid_orth_enable_cfg
+                )
+                else True
+            ),
+            # #8 multi_target_regression canon-collapse is applied at the
+            # PRIMARY target_type slot earlier in the tuple (see comment
+            # there); F-23 inject_inf_nan-vs-MLP mirror is applied at the
+            # PRIMARY inject_inf_nan slot earlier (see comment there). Both
+            # are NOT duplicated here.
         )
 
     def _canonical_recurrent_model(self) -> "str | None":
@@ -4196,6 +4443,22 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         inject_xor_synergy_pair_cfg=axes.get(
             "inject_xor_synergy_pair_cfg", False
         ),
+        # 2026-05-31 audit-pass-9 (W9). Defaults mirror source verbatim.
+        mlp_adamw_betas_cfg=axes.get("mlp_adamw_betas_cfg", (0.9, 0.95)),
+        mlp_use_ema_cfg=axes.get("mlp_use_ema_cfg", False),
+        mlp_label_smoothing_cfg=axes.get("mlp_label_smoothing_cfg", 0.0),
+        mlp_focal_loss_gamma_cfg=axes.get("mlp_focal_loss_gamma_cfg", None),
+        mlp_use_residual_cfg=axes.get("mlp_use_residual_cfg", False),
+        mlp_numerical_embedding_cfg=axes.get("mlp_numerical_embedding_cfg", None),
+        mlp_numerical_embedding_kwargs_cfg=axes.get(
+            "mlp_numerical_embedding_kwargs_cfg", "paper_default"
+        ),
+        mrmr_fe_hybrid_orth_enable_cfg=axes.get(
+            "mrmr_fe_hybrid_orth_enable_cfg", False
+        ),
+        mrmr_fe_hybrid_orth_pair_enable_cfg=axes.get(
+            "mrmr_fe_hybrid_orth_pair_enable_cfg", True
+        ),
     )
 
 
@@ -4294,6 +4557,12 @@ def build_mrmr_kwargs_from_flat(
     # (min_relevance_gain_relative_to_first=0.05).
     cardinality_bias_correction: bool = True,
     min_relevance_gain_relative_to_first: float = 0.05,
+    # 2026-05-31 audit-pass-9 (W9) #7: MRMR fe_hybrid_orth master + pair.
+    # Defaults source-verified at filters/mrmr.py:656 (enable=False) and
+    # filters/mrmr.py:664 (pair_enable=True, meaningful only when master
+    # is on). Names match MRMR.__init__ exactly.
+    fe_hybrid_orth_enable: bool = False,
+    fe_hybrid_orth_pair_enable: bool = True,
 ) -> Optional[Dict[str, Any]]:
     """Build the mrmr_kwargs dict passed to FeatureSelectionConfig.
     Returns None when use_mrmr_fs=False so the FS step is a no-op.
@@ -4355,6 +4624,10 @@ def build_mrmr_kwargs_from_flat(
         # match MRMR.__init__ exactly (filters/mrmr.py:334, :326).
         "cardinality_bias_correction": cardinality_bias_correction,
         "min_relevance_gain_relative_to_first": min_relevance_gain_relative_to_first,
+        # 2026-05-31 audit-pass-9 (W9) #7: fe_hybrid_orth master + pair.
+        # Names match MRMR.__init__ exactly (filters/mrmr.py:656, :664).
+        "fe_hybrid_orth_enable": fe_hybrid_orth_enable,
+        "fe_hybrid_orth_pair_enable": fe_hybrid_orth_pair_enable,
     }
     # 2026-05-30 audit-pass-7 #3/#4: per_feature_edges.kwargs threaded via
     # MRMR.nbins_strategy_kwargs. Build the dict only when one of these
@@ -4437,6 +4710,14 @@ def build_mrmr_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]:
         # 2026-05-31 audit-pass-8 #1/#2.
         cardinality_bias_correction=combo.mrmr_cardinality_bias_correction_cfg,
         min_relevance_gain_relative_to_first=combo.mrmr_min_relevance_gain_relative_to_first_cfg,
+        # 2026-05-31 audit-pass-9 (W9) #7: MRMR fe_hybrid_orth master + pair.
+        # The canon-collapse layer above already drops these to source defaults
+        # when use_mrmr_fs=False (build_mrmr_kwargs returns None for those
+        # combos) or when the master is off (pair_enable collapses to default
+        # True). Forward the raw axis values so MRMR-on combos exercise the
+        # both branches reachable via the pairwise sampler.
+        fe_hybrid_orth_enable=combo.mrmr_fe_hybrid_orth_enable_cfg,
+        fe_hybrid_orth_pair_enable=combo.mrmr_fe_hybrid_orth_pair_enable_cfg,
     )
 
 
@@ -4463,6 +4744,28 @@ def build_mlp_kwargs_from_flat(
     # _flat_torch_module.py:272-301 only fires when l1_alpha > 0). Threaded
     # as an MLP-hparams field forwarded into the LightningModule.
     l1_alpha: float = 0.0,
+    # 2026-05-31 audit-pass-9 (W9). Defaults source-verified at HEAD against
+    # PytorchLightningEstimator.__init__ (base.py:264-270) and generate_mlp
+    # (flat.py:208-210):
+    #   #1 adamw_betas: forwarded into optimizer_kwargs["betas"] which the
+    #      tabular-MLP-tuned default at _flat_torch_module.py:499
+    #      injects via setdefault when caller did not pass betas.
+    #   #2 use_ema: PytorchLightningEstimator __init__ kwarg (False default).
+    #   #3 label_smoothing: PytorchLightningEstimator __init__ kwarg
+    #      (0.0 default, multiclass-only at base.py:897-907).
+    #   #4 focal_loss_gamma: PytorchLightningEstimator __init__ kwarg
+    #      (None default, binary-only at base.py:878-884).
+    #   #5 use_residual: generate_mlp kwarg (False default; threaded via
+    #      mlp_kwargs["network_params"]).
+    #   #6 numerical_embedding + kwargs: generate_mlp kwargs (None / None
+    #      defaults; threaded via mlp_kwargs["network_params"]).
+    adamw_betas: "tuple[float, float]" = (0.9, 0.95),
+    use_ema: bool = False,
+    label_smoothing: float = 0.0,
+    focal_loss_gamma: "float | None" = None,
+    use_residual: bool = False,
+    numerical_embedding: "str | None" = None,
+    numerical_embedding_kwargs_mode: str = "paper_default",
 ) -> Optional[Dict[str, Any]]:
     """Build the mlp_kwargs dict forwarded into PytorchLightningEstimator /
     PytorchLightningClassifier constructors. Returns None when neither MLP
@@ -4508,6 +4811,58 @@ def build_mlp_kwargs_from_flat(
     # spuriously shadow downstream caller-supplied kwargs.
     if l1_alpha > 0 and mlp_active:
         kwargs["l1_alpha"] = l1_alpha
+    # 2026-05-31 audit-pass-9 (W9). All seven knobs flow only when MLP is
+    # actually active; canon collapses every axis to the source default
+    # outside its compound gate so dedup absorbs phantom variation. We
+    # emit each key only when it differs from the source default so the
+    # library-default path is not spuriously shadowed downstream.
+    if mlp_active:
+        # #1 AdamW betas: forwarded as optimizer_kwargs={"betas": (...)}.
+        # The setdefault at _flat_torch_module.py:499 ONLY fires when the
+        # caller did not pass betas, so emitting non-default values here
+        # exercises the override path; emitting the source default
+        # (0.9, 0.95) would be a no-op but we still emit so the wiring
+        # surface is asserted on every MLP combo.
+        kwargs.setdefault("optimizer_kwargs", {})
+        kwargs["optimizer_kwargs"]["betas"] = tuple(adamw_betas)
+        # #2 use_ema: PytorchLightningEstimator __init__ kwarg. Only emit
+        # when True so the library-default path is not shadowed.
+        if use_ema:
+            kwargs["use_ema"] = True
+        # #3 label_smoothing: multiclass-only. Emit only when >0 AND the
+        # multiclass gate holds so the source-default 0.0 path is never
+        # shadowed on non-multiclass combos.
+        if label_smoothing > 0.0 and target_type == "multiclass_classification":
+            kwargs["label_smoothing"] = float(label_smoothing)
+        # #4 focal_loss_gamma: binary-only. Emit only when non-None AND
+        # the binary gate holds; canon at the call site also restricts
+        # to imbalance_ratio in {rare_5pct, rare_1pct} so the focal-
+        # loss target (class imbalance) is present.
+        if focal_loss_gamma is not None and target_type == "binary_classification":
+            kwargs["focal_loss_gamma"] = float(focal_loss_gamma)
+        # #5 use_residual: generate_mlp network kwarg. Threaded via
+        # mlp_kwargs["network_params"]["use_residual"] -- the trainer
+        # merges network_params into mlp_network_params at trainer.py:712.
+        # Emit only when True so the library-default-False path is not
+        # spuriously shadowed.
+        if use_residual:
+            kwargs.setdefault("network_params", {})
+            kwargs["network_params"]["use_residual"] = True
+        # #6 numerical_embedding: generate_mlp kwarg + kwargs literal.
+        # Both emit only when an embedding is requested. The kwargs literal
+        # expands into the PLR-ctor kwargs dict; "paper_default" leaves
+        # the module at its NeurIPS-2024 defaults (no override), while
+        # "include_raw_false" overrides include_raw=False so the raw
+        # numeric column is dropped from the embedded output.
+        if numerical_embedding is not None:
+            kwargs.setdefault("network_params", {})
+            kwargs["network_params"]["numerical_embedding"] = numerical_embedding
+            if numerical_embedding_kwargs_mode == "include_raw_false":
+                kwargs["network_params"]["numerical_embedding_kwargs"] = {
+                    "include_raw": False,
+                }
+            # "paper_default" leaves the kwargs dict unset so the module
+            # ctor falls through to its library defaults.
     return kwargs
 
 
@@ -4523,6 +4878,14 @@ def build_mlp_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]:
         # 2026-05-31 audit-pass-8 #7/#8.
         use_layernorm=combo.mlp_use_layernorm_cfg,
         l1_alpha=combo.mlp_l1_alpha_cfg,
+        # 2026-05-31 audit-pass-9 (W9) #1/#2/#3/#4/#5/#6.
+        adamw_betas=combo.mlp_adamw_betas_cfg,
+        use_ema=combo.mlp_use_ema_cfg,
+        label_smoothing=combo.mlp_label_smoothing_cfg,
+        focal_loss_gamma=combo.mlp_focal_loss_gamma_cfg,
+        use_residual=combo.mlp_use_residual_cfg,
+        numerical_embedding=combo.mlp_numerical_embedding_cfg,
+        numerical_embedding_kwargs_mode=combo.mlp_numerical_embedding_kwargs_cfg,
     )
 
 
@@ -5450,6 +5813,17 @@ def build_frame_for_combo(combo: FuzzCombo):
     if combo.target_type == "regression":
         target = 2.0 * num_cols["num_0"] - 1.5 * num_cols["num_1"] + rng.standard_normal(n) * 0.3
         target_col = "target_reg"
+    elif combo.target_type == "multi_target_regression":
+        # F-24 audit-pass-9 #8: K=2 independent continuous targets derived
+        # from disjoint informative features. Shape (N, K=2) float32 so the
+        # estimator's auto-detect at training/neural/base.py:548 takes the
+        # multi-target branch (num_classes=K head sharing trunk). Both
+        # targets carry distinct signal so the MSE-on-(N,K) loss is
+        # well-defined and per-target metrics are meaningfully different.
+        t0 = 2.0 * num_cols["num_0"] - 1.5 * num_cols["num_1"] + rng.standard_normal(n) * 0.3
+        t1 = 1.5 * num_cols["num_2"] + 0.8 * num_cols["num_3"] + rng.standard_normal(n) * 0.3
+        target = np.column_stack([t0, t1]).astype("float32")
+        target_col = "target"  # FTE handles 2-D target via shape sniff
     elif combo.target_type == "binary_classification":
         logits = num_cols["num_0"] - 0.5 * num_cols["num_1"] + rng.standard_normal(n) * 0.3
         # Use the canonical imbalance value (clamped by n_rows via
@@ -5722,6 +6096,13 @@ def build_frame_for_combo(combo: FuzzCombo):
         # consumption time.
         if combo.target_type == "multilabel_classification":
             data[target_col] = pd.array([row.tolist() for row in target], dtype=object)
+        elif combo.target_type == "multi_target_regression":
+            # F-24 audit-pass-9 #8: (N, K) continuous targets stored as a
+            # single object column of list cells (mirrors the multilabel
+            # pattern). The estimator branch at training/neural/base.py:548
+            # auto-detects (N, K>=2) shape and routes through the multi-
+            # target regression head.
+            data[target_col] = pd.array([row.tolist() for row in target], dtype=object)
         else:
             data[target_col] = target
         return pd.DataFrame(data), target_col, cat_names
@@ -5771,6 +6152,13 @@ def build_frame_for_combo(combo: FuzzCombo):
         data_pl[target_col] = pl.Series(
             [row.tolist() for row in target],
             dtype=pl.List(pl.Int8),
+        )
+    elif combo.target_type == "multi_target_regression":
+        # F-24 audit-pass-9 #8: (N, K) continuous targets stored as a
+        # pl.List(pl.Float32) column (mirrors multilabel polars wiring).
+        data_pl[target_col] = pl.Series(
+            [row.tolist() for row in target],
+            dtype=pl.List(pl.Float32),
         )
     else:
         data_pl[target_col] = target

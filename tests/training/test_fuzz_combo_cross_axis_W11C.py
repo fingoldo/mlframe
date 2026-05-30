@@ -2613,3 +2613,492 @@ def test_iter613_audit_pass_8_med_axes_flow_to_kwargs():
         "audit-pass-8 #10: non-default value must produce distinct canonical "
         "key under use_mrmr_fs + interactions >= 2"
     )
+
+
+# ---------------------------------------------------------------------------
+# 2026-05-31 audit-pass-9 (W9): 5 HIGH + 3 MED MLP / MRMR / target-type axes.
+# Mirrors test_iter613_audit_pass_8_med_axes_flow_to_kwargs.
+# ---------------------------------------------------------------------------
+
+
+def test_iter615_audit_pass_9_axes_flow_to_kwargs():
+    """8 audit-pass-9 (W9) fuzz axes must:
+      (a) Dataclass defaults mirror HEAD source verbatim:
+            #1 mlp_adamw_betas_cfg = (0.9, 0.95)
+               (training/neural/_flat_torch_module.py:499)
+            #2 mlp_use_ema_cfg = False
+               (training/neural/base.py:266)
+            #3 mlp_label_smoothing_cfg = 0.0
+               (training/neural/base.py:268)
+            #4 mlp_focal_loss_gamma_cfg = None
+               (training/neural/base.py:269)
+            #5 mlp_use_residual_cfg = False
+               (training/neural/flat.py:208)
+            #6 mlp_numerical_embedding_cfg = None
+               mlp_numerical_embedding_kwargs_cfg = "paper_default"
+               (training/neural/flat.py:209-210)
+            #7 mrmr_fe_hybrid_orth_enable_cfg = False
+               mrmr_fe_hybrid_orth_pair_enable_cfg = True
+               (feature_selection/filters/mrmr.py:656, :664)
+            #8 target_type axis contains "multi_target_regression"
+               (configs/_configs_base.py:126; TargetTypes.MULTI_TARGET_REGRESSION)
+      (b) Each axis pair is present in AXES with the values listed in the
+          audit.
+      (c) Canon-collapse rules hold:
+            #1 collapses to (0.9, 0.95) outside 'mlp' in models.
+            #2 collapses to False outside 'mlp' in models.
+            #3 collapses to 0.0 outside ('mlp' AND multiclass).
+            #4 collapses to None outside ('mlp' AND binary AND rare imbalance).
+            #5 collapses to False outside 'mlp' in models.
+            #6 embedding collapses to None outside 'mlp' in models; kwargs
+               literal collapses to "paper_default" outside ('mlp' AND
+               embedding != None).
+            #7 master collapses to False outside use_mrmr_fs; pair_enable
+               collapses to True outside (use_mrmr_fs AND master==True).
+            #8 multi_target_regression collapses to "regression" when the
+               model subset contains no native-MTR backend (cb / mlp).
+      (d) Threading produces the expected kwargs subdicts:
+            #1-#6 flow via build_mlp_kwargs into the PytorchLightningEstimator /
+                  generate_mlp kwargs dict (param names match base.py:264-270
+                  + flat.py:208-210 verbatim).
+            #7 flows via build_mrmr_kwargs as the ``fe_hybrid_orth_enable`` /
+               ``fe_hybrid_orth_pair_enable`` ctor keys.
+            #8 flows via build_frame_for_combo emitting a 2-D (N, K) target
+               column when target_type=="multi_target_regression".
+      (e) F-23 mirror canon: inject_inf_nan=True collapses to False when the
+          model subset is exactly ('mlp',) -- the _validate_no_nan_inf raise
+          at training/neural/base.py:326 makes the True/False variants
+          behaviour-identical (immediate crash vs. normal train) so dedup
+          must absorb them.
+    """
+    from tests.training._fuzz_combo import (
+        AXES, FuzzCombo, _build_combo, enumerate_combos,
+        build_mlp_kwargs, build_mrmr_kwargs, build_frame_for_combo,
+    )
+
+    # (a) Dataclass defaults mirror HEAD source.
+    fields = FuzzCombo.__dataclass_fields__
+    assert fields["mlp_adamw_betas_cfg"].default == (0.9, 0.95), (
+        "audit-pass-9 #1: default must mirror "
+        "training/neural/_flat_torch_module.py:499 ((0.9, 0.95))"
+    )
+    assert fields["mlp_use_ema_cfg"].default is False, (
+        "audit-pass-9 #2: default must mirror training/neural/base.py:266 (False)"
+    )
+    assert fields["mlp_label_smoothing_cfg"].default == 0.0, (
+        "audit-pass-9 #3: default must mirror training/neural/base.py:268 (0.0)"
+    )
+    assert fields["mlp_focal_loss_gamma_cfg"].default is None, (
+        "audit-pass-9 #4: default must mirror training/neural/base.py:269 (None)"
+    )
+    assert fields["mlp_use_residual_cfg"].default is False, (
+        "audit-pass-9 #5: default must mirror training/neural/flat.py:208 (False)"
+    )
+    assert fields["mlp_numerical_embedding_cfg"].default is None, (
+        "audit-pass-9 #6: default must mirror training/neural/flat.py:209 (None)"
+    )
+    assert fields["mlp_numerical_embedding_kwargs_cfg"].default == "paper_default", (
+        "audit-pass-9 #6: kwargs literal default must mirror 'paper_default'"
+    )
+    assert fields["mrmr_fe_hybrid_orth_enable_cfg"].default is False, (
+        "audit-pass-9 #7: master default must mirror "
+        "feature_selection/filters/mrmr.py:656 (False)"
+    )
+    assert fields["mrmr_fe_hybrid_orth_pair_enable_cfg"].default is True, (
+        "audit-pass-9 #7: pair_enable default must mirror "
+        "feature_selection/filters/mrmr.py:664 (True)"
+    )
+
+    # (b) AXES presence with the audit-listed pairs.
+    assert AXES["mlp_adamw_betas_cfg"] == ((0.9, 0.95), (0.9, 0.999))
+    assert AXES["mlp_use_ema_cfg"] == (False, True)
+    assert AXES["mlp_label_smoothing_cfg"] == (0.0, 0.1)
+    assert AXES["mlp_focal_loss_gamma_cfg"] == (None, 2.0)
+    assert AXES["mlp_use_residual_cfg"] == (False, True)
+    assert AXES["mlp_numerical_embedding_cfg"] == (None, "plr")
+    assert AXES["mlp_numerical_embedding_kwargs_cfg"] == (
+        "paper_default", "include_raw_false",
+    )
+    assert AXES["mrmr_fe_hybrid_orth_enable_cfg"] == (False, True)
+    assert AXES["mrmr_fe_hybrid_orth_pair_enable_cfg"] == (False, True)
+    # #8: multi_target_regression appears as a NEW value in the existing
+    # target_type tuple alongside the legacy 5 entries.
+    assert "multi_target_regression" in AXES["target_type"], (
+        "audit-pass-9 #8: multi_target_regression must be added to "
+        "the existing target_type axis tuple"
+    )
+
+    base_axes = {name: values[0] for name, values in AXES.items()}
+
+    # enumerate_combos still hits 150 with 8 new axes wired (master_seed
+    # matches the audit's recommended value).
+    combos = enumerate_combos(target=150, master_seed=20260601)
+    assert len(combos) == 150, f"enumerate_combos lost combos: {len(combos)}"
+
+    # ------------------------------------------------------------------
+    # (c) Canon-collapse rules.
+    # ------------------------------------------------------------------
+
+    # (c-i) #1 betas canon-collapse: no MLP -> both values collapse to
+    # source default (0.9, 0.95).
+    off1_a = dict(base_axes); off1_a["mlp_adamw_betas_cfg"] = (0.9, 0.999)
+    off1_b = dict(off1_a); off1_b["mlp_adamw_betas_cfg"] = (0.9, 0.95)
+    c_off1_a = _build_combo(models=("cb",), axes=off1_a, seed=0)
+    c_off1_b = _build_combo(models=("cb",), axes=off1_b, seed=0)
+    assert c_off1_a.canonical_key() == c_off1_b.canonical_key(), (
+        "audit-pass-9 #1: must canon-collapse when 'mlp' not in models"
+    )
+
+    # (c-ii) #2 use_ema canon-collapse: no MLP -> both collapse to False.
+    off2_a = dict(base_axes); off2_a["mlp_use_ema_cfg"] = True
+    off2_b = dict(off2_a); off2_b["mlp_use_ema_cfg"] = False
+    c_off2_a = _build_combo(models=("cb",), axes=off2_a, seed=0)
+    c_off2_b = _build_combo(models=("cb",), axes=off2_b, seed=0)
+    assert c_off2_a.canonical_key() == c_off2_b.canonical_key(), (
+        "audit-pass-9 #2: must canon-collapse when 'mlp' not in models"
+    )
+
+    # (c-iii) #3 label_smoothing canon-collapse: non-multiclass target -> 0.0.
+    off3_a = dict(base_axes); off3_a.update(
+        target_type="binary_classification",
+        mlp_label_smoothing_cfg=0.1,
+    )
+    off3_b = dict(off3_a); off3_b["mlp_label_smoothing_cfg"] = 0.0
+    c_off3_a = _build_combo(models=("mlp",), axes=off3_a, seed=0)
+    c_off3_b = _build_combo(models=("mlp",), axes=off3_b, seed=0)
+    assert c_off3_a.canonical_key() == c_off3_b.canonical_key(), (
+        "audit-pass-9 #3: must canon-collapse on non-multiclass targets"
+    )
+
+    # (c-iv) #4 focal_loss canon-collapse: balanced target (no rare class)
+    # -> None even on binary.
+    off4_a = dict(base_axes); off4_a.update(
+        target_type="binary_classification",
+        imbalance_ratio="balanced",
+        mlp_focal_loss_gamma_cfg=2.0,
+    )
+    off4_b = dict(off4_a); off4_b["mlp_focal_loss_gamma_cfg"] = None
+    c_off4_a = _build_combo(models=("mlp",), axes=off4_a, seed=0)
+    c_off4_b = _build_combo(models=("mlp",), axes=off4_b, seed=0)
+    assert c_off4_a.canonical_key() == c_off4_b.canonical_key(), (
+        "audit-pass-9 #4: must canon-collapse on balanced binary "
+        "(focal targets imbalance)"
+    )
+
+    # (c-v) #5 use_residual canon-collapse: no MLP -> both collapse to False.
+    off5_a = dict(base_axes); off5_a["mlp_use_residual_cfg"] = True
+    off5_b = dict(off5_a); off5_b["mlp_use_residual_cfg"] = False
+    c_off5_a = _build_combo(models=("cb",), axes=off5_a, seed=0)
+    c_off5_b = _build_combo(models=("cb",), axes=off5_b, seed=0)
+    assert c_off5_a.canonical_key() == c_off5_b.canonical_key(), (
+        "audit-pass-9 #5: must canon-collapse when 'mlp' not in models"
+    )
+
+    # (c-vi) #6 numerical_embedding canon-collapse: no MLP -> embedding
+    # collapses to None AND kwargs literal collapses to "paper_default".
+    off6_a = dict(base_axes); off6_a.update(
+        mlp_numerical_embedding_cfg="plr",
+        mlp_numerical_embedding_kwargs_cfg="include_raw_false",
+    )
+    off6_b = dict(off6_a); off6_b.update(
+        mlp_numerical_embedding_cfg=None,
+        mlp_numerical_embedding_kwargs_cfg="paper_default",
+    )
+    c_off6_a = _build_combo(models=("cb",), axes=off6_a, seed=0)
+    c_off6_b = _build_combo(models=("cb",), axes=off6_b, seed=0)
+    assert c_off6_a.canonical_key() == c_off6_b.canonical_key(), (
+        "audit-pass-9 #6: must canon-collapse when 'mlp' not in models"
+    )
+    # When MLP is in models but embedding is None, kwargs literal still
+    # collapses to "paper_default" (irrelevant).
+    off6_c = dict(base_axes); off6_c.update(
+        mlp_numerical_embedding_cfg=None,
+        mlp_numerical_embedding_kwargs_cfg="include_raw_false",
+    )
+    off6_d = dict(off6_c); off6_d["mlp_numerical_embedding_kwargs_cfg"] = "paper_default"
+    c_off6_c = _build_combo(models=("mlp",), axes=off6_c, seed=0)
+    c_off6_d = _build_combo(models=("mlp",), axes=off6_d, seed=0)
+    assert c_off6_c.canonical_key() == c_off6_d.canonical_key(), (
+        "audit-pass-9 #6: kwargs literal must canon-collapse when embedding=None"
+    )
+
+    # (c-vii) #7 mrmr fe_hybrid_orth canon-collapse: use_mrmr_fs=False ->
+    # master collapses to False AND pair_enable to True.
+    off7_a = dict(base_axes); off7_a.update(
+        use_mrmr_fs=False,
+        mrmr_fe_hybrid_orth_enable_cfg=True,
+        mrmr_fe_hybrid_orth_pair_enable_cfg=False,
+    )
+    off7_b = dict(off7_a); off7_b.update(
+        mrmr_fe_hybrid_orth_enable_cfg=False,
+        mrmr_fe_hybrid_orth_pair_enable_cfg=True,
+    )
+    c_off7_a = _build_combo(models=("cb",), axes=off7_a, seed=0)
+    c_off7_b = _build_combo(models=("cb",), axes=off7_b, seed=0)
+    assert c_off7_a.canonical_key() == c_off7_b.canonical_key(), (
+        "audit-pass-9 #7: must canon-collapse when use_mrmr_fs=False"
+    )
+    # And when use_mrmr_fs=True but master=False, pair_enable still
+    # collapses to True (sub-stage doesn't fire).
+    off7_c = dict(base_axes); off7_c.update(
+        use_mrmr_fs=True,
+        mrmr_fe_hybrid_orth_enable_cfg=False,
+        mrmr_fe_hybrid_orth_pair_enable_cfg=False,
+    )
+    off7_d = dict(off7_c); off7_d["mrmr_fe_hybrid_orth_pair_enable_cfg"] = True
+    c_off7_c = _build_combo(models=("cb",), axes=off7_c, seed=0)
+    c_off7_d = _build_combo(models=("cb",), axes=off7_d, seed=0)
+    assert c_off7_c.canonical_key() == c_off7_d.canonical_key(), (
+        "audit-pass-9 #7: pair_enable must canon-collapse when master=False"
+    )
+
+    # (c-viii) #8 target_type=multi_target_regression canon-collapse: when
+    # neither cb nor mlp is in the model subset (no native-MTR backend),
+    # canon collapses to "regression" so dedup absorbs identical-behaviour
+    # combos.
+    off8_a = dict(base_axes); off8_a["target_type"] = "multi_target_regression"
+    off8_b = dict(off8_a); off8_b["target_type"] = "regression"
+    c_off8_a = _build_combo(models=("xgb",), axes=off8_a, seed=0)
+    c_off8_b = _build_combo(models=("xgb",), axes=off8_b, seed=0)
+    assert c_off8_a.canonical_key() == c_off8_b.canonical_key(), (
+        "audit-pass-9 #8: multi_target_regression must canon-collapse "
+        "to 'regression' when neither 'cb' nor 'mlp' is in models"
+    )
+
+    # ------------------------------------------------------------------
+    # (d) Threading.
+    # ------------------------------------------------------------------
+
+    # (d-i) #1 betas threading: MLP active -> optimizer_kwargs['betas']
+    # surfaces with the axis value.
+    on1 = dict(base_axes); on1["mlp_adamw_betas_cfg"] = (0.9, 0.999)
+    c_on1 = _build_combo(models=("mlp",), axes=on1, seed=0)
+    kw1 = build_mlp_kwargs(c_on1)
+    assert kw1 is not None
+    assert kw1.get("optimizer_kwargs", {}).get("betas") == (0.9, 0.999), (
+        f"#1 betas did not thread into mlp_kwargs: {kw1.get('optimizer_kwargs')!r}"
+    )
+
+    # (d-ii) #2 use_ema threading.
+    on2 = dict(base_axes); on2["mlp_use_ema_cfg"] = True
+    c_on2 = _build_combo(models=("mlp",), axes=on2, seed=0)
+    kw2 = build_mlp_kwargs(c_on2)
+    assert kw2 is not None
+    assert kw2.get("use_ema") is True, (
+        f"#2 use_ema did not thread into mlp_kwargs: {kw2.get('use_ema')!r}"
+    )
+    # Off -> key absent.
+    on2_off = dict(base_axes); on2_off["mlp_use_ema_cfg"] = False
+    c_on2_off = _build_combo(models=("mlp",), axes=on2_off, seed=0)
+    assert "use_ema" not in build_mlp_kwargs(c_on2_off), (
+        "#2 use_ema=False must NOT emit a use_ema key (library default)"
+    )
+
+    # (d-iii) #3 label_smoothing threading: multiclass-only.
+    on3 = dict(base_axes); on3.update(
+        target_type="multiclass_classification",
+        mlp_label_smoothing_cfg=0.1,
+    )
+    c_on3 = _build_combo(models=("mlp",), axes=on3, seed=0)
+    kw3 = build_mlp_kwargs(c_on3)
+    assert kw3.get("label_smoothing") == 0.1, (
+        f"#3 label_smoothing did not thread: {kw3.get('label_smoothing')!r}"
+    )
+    # Binary -> dropped.
+    on3_bin = dict(on3); on3_bin["target_type"] = "binary_classification"
+    c_on3_bin = _build_combo(models=("mlp",), axes=on3_bin, seed=0)
+    assert "label_smoothing" not in build_mlp_kwargs(c_on3_bin), (
+        "#3 label_smoothing must be dropped on non-multiclass targets"
+    )
+
+    # (d-iv) #4 focal_loss_gamma threading: binary-only.
+    on4 = dict(base_axes); on4.update(
+        target_type="binary_classification",
+        imbalance_ratio="rare_5pct",
+        mlp_focal_loss_gamma_cfg=2.0,
+    )
+    c_on4 = _build_combo(models=("mlp",), axes=on4, seed=0)
+    kw4 = build_mlp_kwargs(c_on4)
+    assert kw4.get("focal_loss_gamma") == 2.0, (
+        f"#4 focal_loss_gamma did not thread: {kw4.get('focal_loss_gamma')!r}"
+    )
+    # Multiclass -> dropped (focal is binary-only).
+    on4_mc = dict(on4); on4_mc["target_type"] = "multiclass_classification"
+    c_on4_mc = _build_combo(models=("mlp",), axes=on4_mc, seed=0)
+    assert "focal_loss_gamma" not in build_mlp_kwargs(c_on4_mc), (
+        "#4 focal_loss_gamma must be dropped on non-binary targets"
+    )
+
+    # (d-v) #5 use_residual threading via network_params.
+    on5 = dict(base_axes); on5["mlp_use_residual_cfg"] = True
+    c_on5 = _build_combo(models=("mlp",), axes=on5, seed=0)
+    kw5 = build_mlp_kwargs(c_on5)
+    assert kw5.get("network_params", {}).get("use_residual") is True, (
+        f"#5 use_residual did not thread into network_params: "
+        f"{kw5.get('network_params')!r}"
+    )
+
+    # (d-vi) #6 numerical_embedding threading via network_params.
+    on6 = dict(base_axes); on6.update(
+        mlp_numerical_embedding_cfg="plr",
+        mlp_numerical_embedding_kwargs_cfg="include_raw_false",
+    )
+    c_on6 = _build_combo(models=("mlp",), axes=on6, seed=0)
+    kw6 = build_mlp_kwargs(c_on6)
+    np6 = kw6.get("network_params", {})
+    assert np6.get("numerical_embedding") == "plr", (
+        f"#6 numerical_embedding did not thread: {np6.get('numerical_embedding')!r}"
+    )
+    assert np6.get("numerical_embedding_kwargs") == {"include_raw": False}, (
+        f"#6 numerical_embedding_kwargs literal did not expand to "
+        f"include_raw=False: {np6.get('numerical_embedding_kwargs')!r}"
+    )
+    # "paper_default" leaves the kwargs dict unset so the module ctor falls
+    # through to library defaults.
+    on6_pd = dict(on6); on6_pd["mlp_numerical_embedding_kwargs_cfg"] = "paper_default"
+    c_on6_pd = _build_combo(models=("mlp",), axes=on6_pd, seed=0)
+    np6_pd = build_mlp_kwargs(c_on6_pd).get("network_params", {})
+    assert "numerical_embedding_kwargs" not in np6_pd, (
+        "#6 'paper_default' must leave numerical_embedding_kwargs unset"
+    )
+
+    # No MLP -> kwargs builder returns None (matches the existing
+    # build_mlp_kwargs contract).
+    no_mlp = dict(base_axes); no_mlp.update(
+        mlp_adamw_betas_cfg=(0.9, 0.999),
+        mlp_use_ema_cfg=True,
+        mlp_use_residual_cfg=True,
+        mlp_numerical_embedding_cfg="plr",
+        recurrent_model_cfg=None,
+    )
+    c_no_mlp = _build_combo(models=("cb",), axes=no_mlp, seed=0)
+    assert build_mlp_kwargs(c_no_mlp) is None, (
+        "audit-pass-9: build_mlp_kwargs must return None with no MLP / recurrent"
+    )
+
+    # (d-vii) #7 fe_hybrid_orth threading into MRMR kwargs.
+    on7 = dict(base_axes); on7.update(
+        use_mrmr_fs=True,
+        mrmr_fe_hybrid_orth_enable_cfg=True,
+        mrmr_fe_hybrid_orth_pair_enable_cfg=False,
+    )
+    c_on7 = _build_combo(models=("cb",), axes=on7, seed=0)
+    mk7 = build_mrmr_kwargs(c_on7)
+    assert mk7 is not None
+    assert mk7.get("fe_hybrid_orth_enable") is True, (
+        f"#7 fe_hybrid_orth_enable did not thread into mrmr_kwargs: "
+        f"{mk7.get('fe_hybrid_orth_enable')!r}"
+    )
+    assert mk7.get("fe_hybrid_orth_pair_enable") is False, (
+        f"#7 fe_hybrid_orth_pair_enable did not thread: "
+        f"{mk7.get('fe_hybrid_orth_pair_enable')!r}"
+    )
+    # use_mrmr_fs=False -> kwargs None entirely.
+    off7_full = dict(base_axes); off7_full.update(
+        use_mrmr_fs=False,
+        mrmr_fe_hybrid_orth_enable_cfg=True,
+    )
+    assert build_mrmr_kwargs(
+        _build_combo(models=("cb",), axes=off7_full, seed=0)
+    ) is None, "#7 mrmr_kwargs must be None when use_mrmr_fs=False"
+
+    # (d-viii) #8 multi_target_regression frame builder emits (N, K) target.
+    on8 = dict(base_axes); on8.update(
+        n_rows=200,
+        input_type="pandas",
+        target_type="multi_target_regression",
+        imbalance_ratio="balanced",
+        recurrent_model_cfg=None,
+        cat_feature_count=0,
+        text_col_count=0,
+        embedding_col_count=0,
+        outlier_detection=None,
+        inject_inf_nan=False,
+        inject_degenerate_cols=False,
+        inject_zero_col=False,
+        inject_rank_deficient=False,
+        inject_all_nan_col=False,
+        inject_label_leak=False,
+        with_datetime_col=False,
+        inject_test_drift=None,
+        inject_xor_synergy_pair_cfg=False,
+        mlp_inject_zero_sample_weight_batch_cfg=False,
+        use_mrmr_fs=False,
+    )
+    c_on8 = _build_combo(models=("mlp",), axes=on8, seed=0)
+    df_on8, target_col_on8, _ = build_frame_for_combo(c_on8)
+    assert target_col_on8 in df_on8.columns, (
+        "#8 frame builder must emit target column for multi_target_regression"
+    )
+    # Each cell is a list of K=2 floats.
+    first_cell = df_on8[target_col_on8].iloc[0]
+    assert hasattr(first_cell, "__len__"), (
+        f"#8: multi_target_regression target cell must be array-like: {first_cell!r}"
+    )
+    assert len(first_cell) == 2, (
+        f"#8: target shape must be (N, K=2), got K={len(first_cell)}"
+    )
+
+    # (e) F-23 mirror canon: inject_inf_nan=True collapses to False when
+    # model subset is exactly ('mlp',) so the _validate_no_nan_inf raise at
+    # base.py:326 doesn't manufacture phantom variation.
+    off_inf_a = dict(base_axes); off_inf_a.update(
+        inject_inf_nan=True,
+    )
+    off_inf_b = dict(off_inf_a); off_inf_b["inject_inf_nan"] = False
+    c_off_inf_a = _build_combo(models=("mlp",), axes=off_inf_a, seed=0)
+    c_off_inf_b = _build_combo(models=("mlp",), axes=off_inf_b, seed=0)
+    assert c_off_inf_a.canonical_key() == c_off_inf_b.canonical_key(), (
+        "F-23 mirror: inject_inf_nan must canon-collapse when MLP is the "
+        "sole model (validator raises on entry regardless)"
+    )
+    # Multi-model subset (mlp + cb): inject_inf_nan stays live so dedup
+    # keeps both branches reachable (cb handles inf/nan via its own path).
+    multi_a = dict(base_axes); multi_a["inject_inf_nan"] = True
+    multi_b = dict(multi_a); multi_b["inject_inf_nan"] = False
+    c_multi_a = _build_combo(models=("cb", "mlp"), axes=multi_a, seed=0)
+    c_multi_b = _build_combo(models=("cb", "mlp"), axes=multi_b, seed=0)
+    assert c_multi_a.canonical_key() != c_multi_b.canonical_key(), (
+        "F-23 mirror: inject_inf_nan must remain live on multi-model "
+        "subsets where non-MLP models can consume inf/nan"
+    )
+
+    # (f) Distinct canonical_keys: on-axis values must NOT collapse to the
+    # source default under their compound-gate-on configuration.
+    # #1 distinct under 'mlp' in models.
+    on1_def = dict(on1); on1_def["mlp_adamw_betas_cfg"] = (0.9, 0.95)
+    c_on1_def = _build_combo(models=("mlp",), axes=on1_def, seed=0)
+    assert c_on1.canonical_key() != c_on1_def.canonical_key(), (
+        "#1: non-default betas must produce distinct canonical key under 'mlp'"
+    )
+    # #2 distinct under 'mlp' in models.
+    c_on2_def = _build_combo(models=("mlp",), axes=on2_off, seed=0)
+    assert c_on2.canonical_key() != c_on2_def.canonical_key(), (
+        "#2: use_ema=True must produce distinct canonical key under 'mlp'"
+    )
+    # #5 distinct under 'mlp' in models.
+    on5_def = dict(on5); on5_def["mlp_use_residual_cfg"] = False
+    c_on5_def = _build_combo(models=("mlp",), axes=on5_def, seed=0)
+    assert c_on5.canonical_key() != c_on5_def.canonical_key(), (
+        "#5: use_residual=True must produce distinct canonical key under 'mlp'"
+    )
+    # #6 distinct under 'mlp' + embedding != None.
+    on6_def = dict(on6); on6_def["mlp_numerical_embedding_cfg"] = None
+    c_on6_def = _build_combo(models=("mlp",), axes=on6_def, seed=0)
+    assert c_on6.canonical_key() != c_on6_def.canonical_key(), (
+        "#6: numerical_embedding='plr' must produce distinct canonical key under 'mlp'"
+    )
+    # #7 distinct under use_mrmr_fs.
+    on7_def = dict(on7); on7_def["mrmr_fe_hybrid_orth_enable_cfg"] = False
+    c_on7_def = _build_combo(models=("cb",), axes=on7_def, seed=0)
+    assert c_on7.canonical_key() != c_on7_def.canonical_key(), (
+        "#7: fe_hybrid_orth_enable=True must produce distinct canonical key "
+        "under use_mrmr_fs=True"
+    )
+    # #8 distinct under a native-MTR model subset.
+    on8_def = dict(on8); on8_def["target_type"] = "regression"
+    c_on8_def = _build_combo(models=("mlp",), axes=on8_def, seed=0)
+    assert c_on8.canonical_key() != c_on8_def.canonical_key(), (
+        "#8: multi_target_regression must produce distinct canonical key "
+        "from regression when 'mlp' is in models"
+    )
