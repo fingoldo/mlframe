@@ -298,7 +298,11 @@ def pair_su(state: DCDState, a: int, b: int,
         h_b = float(entropy(freqs_b))
         vi = max(0.0, h_a + h_b - 2.0 * mi_ab)
         norm = math.log(max(2, int(fn_arr[a]) * int(fn_arr[b])))
-        su = max(0.0, 1.0 - vi / norm) if norm > 0 else 0.0
+        # 2026-05-30 Wave 9.1 fix (loop iter 32, parity with sotoca_pla):
+        # clamp upper bound to 1.0 defensively. Numerical FP noise can
+        # push vi/norm below 0, allowing the score to exceed 1.0 even
+        # though the analytical bound holds.
+        su = max(0.0, min(1.0, 1.0 - vi / norm)) if norm > 0 else 0.0
     elif state.distance == "sotoca_pla":
         # Sotoca-Pla 2010 target-aware distance
         #   d(X_i, X_j) = 2 H(X_i, X_j) - I(X_i; X_j) - I(X_i; Y) - I(X_j; Y)
@@ -338,7 +342,18 @@ def pair_su(state: DCDState, a: int, b: int,
             # Convert distance to similarity-like score (1 - d) so the
             # threshold check ``score > tau_cluster`` semantics stay
             # uniform with SU.
-            su = max(0.0, 1.0 - d)
+            # 2026-05-30 Wave 9.1 fix (loop iter 32): clamp to [0, 1].
+            # Pre-fix the upper bound was unenforced: when target is
+            # highly informative about both X_a and X_b
+            # (``I(X_a;Y) + I(X_b;Y) > I(X_a;X_b)``, a common and
+            # expected case for target-informative features), ``d`` goes
+            # negative and the score exceeded 1.0 (live demo: 1.5).
+            # The score then triggered the cluster-membership rule
+            # ``score > tau_cluster`` for ANY tau in [0, 1] including
+            # the default 0.7, falsely pruning the very features
+            # sotoca_pla was designed to surface. Comment at line 305
+            # claimed "stay in [0,1] range" - true only after this clamp.
+            su = max(0.0, min(1.0, 1.0 - d))
     else:
         raise ValueError(f"DCD: unknown distance {state.distance!r}")
     cache[key] = su
