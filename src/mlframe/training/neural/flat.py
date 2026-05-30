@@ -130,6 +130,66 @@ class _BoundedTanhOutput(nn.Module):
         return f"scale={float(self.scale):.4g}, center={float(self.center):.4g}"
 
 
+class _ResidualLinearBlock(nn.Module):
+    """C6 (F-31, 2026-05-31): single residual block for tabular MLPs.
+
+    Gorishniy 2021 ("Revisiting Deep Learning Models for Tabular Data")
+    found that a properly-tuned residual MLP outperforms TabNet /
+    NODE / TabTransformer on standard tabular benchmarks. The block is::
+
+        x  ->  Linear(in, out)
+            -> [BN] -> activation -> [Dropout]
+            -> ADD skip(x)
+
+    where ``skip(x)`` is either identity (when ``in == out``) or a
+    bias-free 1-Linear projection (when ``in != out``) so the addition
+    is shape-safe across the existing per-layer-width MLP architectures
+    (Constant / Declining / Expanding / etc.).
+
+    This is the lightweight ResNet-tabular variant the agent recommended
+    as the highest-ROI architectural change (~30 LoC, zero new deps,
+    drop-in to ``generate_mlp``).
+    """
+
+    def __init__(
+        self,
+        in_dim: int,
+        out_dim: int,
+        activation_cls: Optional[Callable],
+        dropout_prob: float,
+        use_batchnorm: bool,
+        use_layernorm_per_layer: bool,
+        batch_norm_kwargs: dict,
+        layer_norm_kwargs: dict,
+    ) -> None:
+        super().__init__()
+        self.linear = nn.Linear(in_dim, out_dim)
+        if use_batchnorm:
+            self.norm = nn.BatchNorm1d(out_dim, **batch_norm_kwargs)
+        elif use_layernorm_per_layer:
+            self.norm = nn.LayerNorm(out_dim, **layer_norm_kwargs)
+        else:
+            self.norm = nn.Identity()
+        self.act = activation_cls() if activation_cls is not None else nn.Identity()
+        self.dropout = nn.Dropout(dropout_prob) if dropout_prob > 0 else nn.Identity()
+        # Skip projection: identity when dims match (parameter-free);
+        # bias-free Linear when dims differ (smallest projection cost).
+        self.skip = (
+            nn.Identity()
+            if in_dim == out_dim
+            else nn.Linear(in_dim, out_dim, bias=False)
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.dropout(self.act(self.norm(self.linear(x)))) + self.skip(x)
+
+    def extra_repr(self) -> str:
+        return (
+            f"in={self.linear.in_features}, out={self.linear.out_features}, "
+            f"skip={'identity' if isinstance(self.skip, nn.Identity) else 'linear'}"
+        )
+
+
 def generate_mlp(
     num_features: int,
     num_classes: int,
@@ -145,6 +205,7 @@ def generate_mlp(
     use_layernorm: bool = False,
     use_batchnorm: bool = False,
     use_layernorm_per_layer: bool = False,
+    use_residual: bool = False,
     groupnorm_num_groups: int = 0,
     layer_norm_kwargs: dict = None,
     batch_norm_kwargs: dict = None,
@@ -374,17 +435,48 @@ def generate_mlp(
             else:
                 cur_layer_neurons = effective_min_neurons
 
-        layers.append(_maybe_sn(nn.Linear(prev_layer_neurons, cur_layer_neurons)))
-        layer_sizes.append(cur_layer_neurons)
+        if use_residual:
+            # C6 (F-31): residual block bundles the Linear+norm+act+dropout
+            # AND the skip connection (identity if dims match, bias-free
+            # projection otherwise). Spectral norm is not threaded through
+            # the residual path (the skip projection would also need it for
+            # a true Lipschitz bound) — fall back to plain Linear with a
+            # WARN if the user combined both.
+            if spectral_norm:
+                logger.warning(
+                    "use_residual=True + spectral_norm=True: spectral norm "
+                    "is applied to the BODY Linear only, NOT to the skip "
+                    "projection; the global Lipschitz bound is therefore "
+                    "approximate. For an exact bound use one or the other."
+                )
+            _block = _ResidualLinearBlock(
+                in_dim=prev_layer_neurons,
+                out_dim=cur_layer_neurons,
+                activation_cls=activation_function,
+                dropout_prob=dropout_prob,
+                use_batchnorm=use_batchnorm,
+                use_layernorm_per_layer=use_layernorm_per_layer,
+                batch_norm_kwargs=batch_norm_kwargs,
+                layer_norm_kwargs=layer_norm_kwargs,
+            )
+            if spectral_norm:
+                _block.linear = nn.utils.spectral_norm(
+                    _block.linear, n_power_iterations=spectral_norm_n_power_iterations,
+                )
+            layers.append(_block)
+            layer_sizes.append(cur_layer_neurons)
+        else:
+            layers.append(_maybe_sn(nn.Linear(prev_layer_neurons, cur_layer_neurons)))
+            layer_sizes.append(cur_layer_neurons)
 
-        if use_batchnorm:
-            layers.append(nn.BatchNorm1d(cur_layer_neurons, **batch_norm_kwargs))
-        if use_layernorm_per_layer:
-            layers.append(nn.LayerNorm(cur_layer_neurons, **layer_norm_kwargs))
-        if activation_function:
-            layers.append(activation_function())
-        if dropout_prob > 0:
-            layers.append(nn.Dropout(dropout_prob))
+            if use_batchnorm:
+                layers.append(nn.BatchNorm1d(cur_layer_neurons, **batch_norm_kwargs))
+            if use_layernorm_per_layer:
+                layers.append(nn.LayerNorm(cur_layer_neurons, **layer_norm_kwargs))
+            if activation_function:
+                layers.append(activation_function())
+            if dropout_prob > 0:
+                layers.append(nn.Dropout(dropout_prob))
 
         prev_layer_neurons = cur_layer_neurons
         prev_layer_virt_neurons = cur_layer_virt_neurons
