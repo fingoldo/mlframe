@@ -1207,6 +1207,24 @@ class MRMR(BaseEstimator, TransformerMixin):
         """sklearn-1.x transformer protocol. Returns the names of selected features as an ndarray of str,
         matching transform() output cols. When ``self._engineered_recipes_`` is non-empty, their names are
         appended AFTER the base-feature names; order matches transform() output column order.
+
+        Per the sklearn protocol (BaseEstimator._check_feature_names):
+        - When ``input_features`` is None: use ``feature_names_in_``.
+        - When ``input_features`` is provided AND fit-time saw real names
+          (DataFrame input): the two MUST match or a ``ValueError`` is raised.
+          This is the Pipeline column-drift detection contract.
+        - When ``input_features`` is provided AND fit-time was an ndarray:
+          synthesized ``feature_N`` placeholders are opaque; honour the
+          caller's names. This lets Pipelines that name columns downstream
+          (e.g. ColumnTransformer + array math + name re-injection) propagate.
+
+        2026-05-30 Wave 9.1 fix (loop iter 12): pre-fix the ``input_features``
+        argument was accepted but silently ignored on every code path, so:
+        (a) Pipeline column-drift detection was bypassed - mismatched
+        ``input_features`` produced fit-time names with no warning;
+        (b) After ndarray fit, user-supplied ``input_features`` were dropped
+        and synthesized ``feature_N`` placeholders propagated to downstream
+        consumers.
         """
         if not hasattr(self, "support_") or not hasattr(self, "feature_names_in_"):
             from sklearn.exceptions import NotFittedError
@@ -1214,16 +1232,44 @@ class MRMR(BaseEstimator, TransformerMixin):
                 "This MRMR instance is not fitted yet. Call 'fit' before "
                 "using 'get_feature_names_out'."
             )
+        # Resolve effective fit-time feature names. If ``input_features`` was
+        # provided, validate against the saved ``feature_names_in_`` (sklearn
+        # column-drift protocol) - but only when fit saw real names. The
+        # ndarray-fit path synthesises ``feature_N`` placeholders which the
+        # caller can override.
+        if input_features is not None:
+            in_names = np.asarray(input_features, dtype=object)
+            saved = np.asarray(self.feature_names_in_, dtype=object)
+            synthesized = all(str(n).startswith("feature_") for n in saved)
+            if not synthesized:
+                if (len(in_names) != len(saved)
+                        or not np.array_equal(in_names, saved)):
+                    raise ValueError(
+                        f"input_features is not equal to feature_names_in_. "
+                        f"Got {list(in_names)[:8]}, expected "
+                        f"{list(saved)[:8]}."
+                    )
+                fni = saved
+            else:
+                # ndarray-fit case: caller's names take precedence.
+                if len(in_names) != len(saved):
+                    raise ValueError(
+                        f"input_features length ({len(in_names)}) does not "
+                        f"match the number of features seen at fit "
+                        f"({len(saved)})."
+                    )
+                fni = in_names
+        else:
+            fni = np.asarray(self.feature_names_in_, dtype=object)
         support = self.support_
         engineered_names = [r.name for r in getattr(self, "_engineered_recipes_", [])]
         if len(support) == 0 and not engineered_names:
             return np.array([], dtype=object)
-        # MRMR's support_ is integer indices into feature_names_in_
         if len(support) > 0 and isinstance(support[0], (bool, np.bool_)):
-            base_names = [n for n, s in zip(self.feature_names_in_, support) if s]
+            base_names = [n for n, s in zip(fni, support) if s]
         else:
-            base_names = [self.feature_names_in_[i] for i in support]
-        return np.asarray(base_names + engineered_names, dtype=object)
+            base_names = [fni[i] for i in support]
+        return np.asarray(list(base_names) + engineered_names, dtype=object)
 
     # ``transform`` + ``_append_engineered`` are implemented in
     # ``_mrmr_validate_transform.py`` and bound onto this class at the
