@@ -1304,6 +1304,34 @@ class MRMR(BaseEstimator, TransformerMixin):
             base_names = [fni[i] for i in support]
         return np.asarray(list(base_names) + engineered_names, dtype=object)
 
+    # 2026-05-30 Wave 9.1 fix (loop iter 43): explicit
+    # ``__sklearn_is_fitted__`` and ``get_support`` so sklearn's
+    # ``check_is_fitted`` / ``SelectorMixin`` consumers behave
+    # correctly.
+    # Pre-fix the class declared only ``BaseEstimator, TransformerMixin``
+    # with no ``__sklearn_is_fitted__``, so ``check_is_fitted`` fell
+    # back to a heuristic scanning for ANY trailing-underscore attr.
+    # ``_mrmr_fit_impl`` sets ``feature_names_in_`` / ``n_features_in_``
+    # ~700 lines BEFORE ``support_`` (line 942), so a fit() that
+    # crashed mid-screen left a half-fit instance that
+    # ``check_is_fitted`` accepted but ``transform`` then refused with
+    # ``NotFittedError`` - confusing for any downstream gate that used
+    # the canonical check.
+    # Also added ``get_support`` to honour the SelectorMixin contract
+    # downstream consumers (sklearn Pipeline, RFECV, monitoring hooks)
+    # expect.
+    def __sklearn_is_fitted__(self) -> bool:
+        return hasattr(self, "support_") and hasattr(self, "feature_names_in_")
+
+    def get_support(self, indices: bool = False):
+        from sklearn.utils.validation import check_is_fitted
+        check_is_fitted(self)
+        mask = np.zeros(int(self.n_features_in_), dtype=bool)
+        _supp = np.asarray(self.support_, dtype=np.intp)
+        if _supp.size:
+            mask[_supp] = True
+        return np.where(mask)[0] if indices else mask
+
     # ``transform`` + ``_append_engineered`` are implemented in
     # ``_mrmr_validate_transform.py`` and bound onto this class at the
     # bottom of this module.
