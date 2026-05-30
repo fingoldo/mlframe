@@ -298,66 +298,74 @@ class TestHighCardCatFEDisabledSeedRobustness:
 # ---------------------------------------------------------------------------
 
 
-class TestHighCardCatFEDisabledKnownHijack:
-    """DOCUMENTED LIMITATION.
+class TestHighCardHijackFullyResolved:
+    """2026-05-30: high-card hijack FULLY RESOLVED by the screening-
+    level cardinality-bias pre-screen (cells > 0.5*n filter) +
+    Miller-Madow MM-bias gate.
 
-    On seed=101, raw MI(user_id, y) approx 0.328 dominates MI(region, y)
-    approx 0.056 by ~5.9x because of finite-sample cardinality bias on
-    1200 levels x 2500 samples. MRMR's plug-in MI scorer ranks user_id
-    #1 in this case. This is NOT a bug in MRMR per se - it is the
-    fundamental cardinality bias of plug-in mutual-information
-    estimators (Paninski 2003), and it is the reason the DEFAULT
-    cat-FE config refuses to run on such columns.
+    Layered defenses (any one of which kills user_id on its own):
 
-    We pin the failure mode here so:
-      a) future "fixes" that silently change the seed=101 behaviour
-         get caught and re-evaluated against the broader 5-seed sweep,
-      b) users opting out of the cat-FE safety gate are explicitly
-         informed of the residual risk via this test's docstring.
+    1. PRE-SCREEN (cells > 0.5*n): user_id has 1200 levels x 2-level y
+       = 2400 joint cells at n=2500. 2400 > 1250 (0.5*n) so user_id is
+       refused at the candidate-generation step BEFORE any MI is even
+       computed. This is the load-bearing fix - principled hard limit:
+       a contingency table with more cells than half the samples has
+       <2 expected occupancy per cell, making plug-in MI dominated by
+       finite-sample artefact. Matches the cat-FE safety-gate
+       convention (cat_interactions.py:167 refuses nbins > 2*sqrt(n)).
+
+    2. MM-CORRECTION AT GATE (defense in depth): even if pre-screen
+       were disabled, the Miller-Madow subtraction would still demote
+       user_id to corrected-MI ~0.088 vs num_signal_1's corrected ~0.185,
+       so user_id would not anchor at rank #0.
+
+    3. RELATIVE-GAIN FLOOR: 5% of max(corrected gains so far) catches
+       trailing noise/bias residual.
+
+    A regression in any layer would surface: user_id reappearing in
+    support_ on ANY seed = pre-screen filter is broken or has been
+    threshold-relaxed past the 0.5*n cell budget.
     """
 
-    def test_user_id_leaks_into_support_seed101(self):
-        X, y = _build_highcard_data(seed=101)
+    @pytest.mark.parametrize("seed", [101, 202, 303, 404, 505])
+    def test_user_id_never_in_support(self, seed):
+        X, y = _build_highcard_data(seed=seed)
         names = _fit_layer10(X, y)
-        assert "user_id" in names, (
-            f"Seed=101 historically leaks user_id into support_ due to "
-            f"finite-sample cardinality bias. If this assertion now "
-            f"fails, MRMR has IMPROVED (good) - re-evaluate the contract "
-            f"and tighten Layer 10 if the improvement holds across "
-            f"seeds. Current support={names}"
+        assert "user_id" not in names, (
+            f"seed={seed}: user_id leaked into support_ despite the "
+            f"cells > 0.5*n pre-screen filter. n=2500, user_id has "
+            f"1200 levels x 2 y-classes = 2400 cells > 1250 - should be "
+            f"refused at candidate generation. support={names}"
         )
 
-    def test_su_normalization_demotes_user_id(self):
-        """``mi_normalization='su'`` (Symmetric Uncertainty,
-        Witten-Frank-Hall 2011) does NOT remove user_id from support_
-        on seed=101 -- but it MUST demote it below at least one true
-        signal feature. If SU left user_id at rank #0 it would offer
-        zero practical mitigation of the cardinality bias, and the
-        knob would be misleadingly named.
-
-        Observed (2026-05-30): SU demotes user_id from rank #0 (raw MI)
-        to rank #2, behind num_signal_1 and num_signal_2.
+    @pytest.mark.parametrize("seed", [101, 202, 303, 404, 505])
+    def test_numeric_signals_survive(self, seed):
+        """Negative-control: pre-screen + MM-correction must NOT cut
+        the real numeric signals. Both num_signal_1 and num_signal_2
+        survive across all seeds (their effective binned cardinality
+        is in {3, 5, 10, 20} - well within the cell budget).
         """
-        X, y = _build_highcard_data(seed=101)
-        names = _fit_layer10(X, y, mi_normalization="su")
-        assert "user_id" in names, (
-            f"SU removed user_id entirely on seed=101 - sharper than "
-            f"observed; re-evaluate the contract. support={names}"
+        X, y = _build_highcard_data(seed=seed)
+        names = _fit_layer10(X, y)
+        kept = {"num_signal_1", "num_signal_2"} & set(names)
+        assert kept == {"num_signal_1", "num_signal_2"}, (
+            f"seed={seed}: pre-screen/MM-correction cut a real numeric "
+            f"signal. support={names}; missing={ {'num_signal_1', 'num_signal_2'} - kept }"
         )
-        true_signals = {"num_signal_1", "num_signal_2"}
-        kept_signals = [n for n in names if n in true_signals]
-        assert kept_signals, (
-            f"SU mode dropped BOTH numeric signals; support={names}"
-        )
-        # At least one true signal must rank ABOVE user_id under SU.
-        user_idx = names.index("user_id")
-        signal_above = any(
-            names.index(sig) < user_idx for sig in kept_signals
-        )
-        assert signal_above, (
-            f"SU normalisation left user_id (rank {user_idx}) at or "
-            f"above all numeric signals -- SU is a no-op for this "
-            f"hijack. support={names}"
+
+    @pytest.mark.parametrize("seed", [101, 202, 303, 404, 505])
+    def test_region_medium_card_signal_survives(self, seed):
+        """region has 50 levels x 2 y-classes = 100 cells << 1250 (the
+        0.5*n budget at n=2500), so the cardinality pre-screen does NOT
+        refuse it. region carries genuine signal (logit weight 1.5 on
+        hot levels) and must end up in support_.
+        """
+        X, y = _build_highcard_data(seed=seed)
+        names = _fit_layer10(X, y)
+        assert "region" in names, (
+            f"seed={seed}: region (medium-card signal, 100 cells) "
+            f"missing from support_; cardinality pre-screen may have "
+            f"become over-aggressive. support={names}"
         )
 
 

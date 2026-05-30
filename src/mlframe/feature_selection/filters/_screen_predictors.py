@@ -66,6 +66,29 @@ def screen_predictors(
     baseline_npermutations: int = 100,
     # stopping conditions
     min_relevance_gain: float = 0.00001,
+    # 2026-05-30: diminishing-returns stop. Stops greedy selection when the
+    # current candidate's gain falls below this fraction of the FIRST-selected
+    # feature's gain. Catches "trailing noise" leakage on imbalanced y where
+    # tiny-but-statistically-positive gains squeeze past min_relevance_gain
+    # (e.g. Layer 13: signal gain 0.0176, noise gain 0.0004 - both clear the
+    # H(y)-relative floor at 1% imbalance, but noise is 2.5% of signal).
+    # 0.0 disables; default 0.05 = stop once gain drops below 5% of first
+    # gain. Only applies from the second selected feature onward.
+    min_relevance_gain_relative_to_first: float = 0.05,
+    # 2026-05-30: Miller-Madow MI bias correction at the selection gate.
+    # Plug-in mutual information OVERESTIMATES MI for high-cardinality
+    # features (Paninski 2003, Miller 1955). For a binned feature with
+    # |X| bins, target with |Y| classes, and n samples the plug-in MI
+    # picks up a bias of ~(|X|-1)*(|Y|-1)/(2n). On a 1200-level user_id
+    # at n=2500 with binary y that's ~0.24 nats - enough to make pure
+    # noise outrank real numeric signal (Layer 10 seed=101 hijack:
+    # user_id raw gain 0.328, after MM correction 0.088; num_signal_1
+    # raw 0.187 -> corrected 0.185; the corrected ordering puts the
+    # real signal first and demotes user_id to #3, where the relative-
+    # gain floor then excludes it). True = subtract MM bias from gains
+    # at the floor comparison only (does NOT mutate mrmr_gains_ which
+    # remains the raw plug-in value for downstream consumers).
+    cardinality_bias_correction: bool = True,
     max_consec_unconfirmed: int = 30,
     max_runtime_mins: float = None,
     interactions_min_order: int = 1,
@@ -339,6 +362,65 @@ def screen_predictors(
         classes_y, freqs_y, _ = merge_vars(factors_data=factors_data, vars_indices=y, var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype)
         classes_y_safe = classes_y.copy()
 
+        # 2026-05-30: cardinality-bias pre-screen. The Miller-Madow bias on plug-in
+        # MI is ~(|X|-1)*(|Y|-1)/(2n) nats. When this bias exceeds a sizable fraction
+        # of H(y) the raw plug-in MI is dominated by the bias term and the feature
+        # cannot be reliably scored; user_id-style 1200-level cats are the classic
+        # case (Layer 10 seed=101 hijack: user_id bias 0.24 nats vs H(y) 0.097 nats
+        # = 2.5x H(y); under any default config user_id wins the raw-MI race). The
+        # threshold is set so a column whose MM bias exceeds the entropy of the
+        # target is rejected as "too cardinality-biased to score honestly" - the
+        # user should bin / target-encode such columns first. Numeric features
+        # binned to <=20 cells trivially pass (bias <0.01 nats at n>=1000).
+        if cardinality_bias_correction and factors_data.shape[1] > 0:
+            _n_for_screen = int(factors_data.shape[0])
+            _y_idx_for_screen = int(y[0]) if hasattr(y, "__len__") else int(y)
+            _nbins_y_for_screen = int(factors_nbins[_y_idx_for_screen])
+            # Hard cardinality limit: refuse columns where the joint (X, y)
+            # contingency table has more cells than half the samples. Plug-in
+            # MI on such a table is dominated by finite-sample artefact - the
+            # expected occupancy per cell is < 2, making the empirical
+            # distribution effectively uniform over each row of X. This is
+            # exactly the user_id-hijack regime (Layer 10 seed=101: 1200 *
+            # 2 = 2400 cells vs n=2500; raw plug-in MI 0.328 is almost entirely
+            # bias, Miller-Madow leaves only 0.088 after correction). The 0.5*n
+            # threshold matches the cat-FE safety gate's effective limit
+            # (cat_interactions.py:167 refuses nbins > 2*sqrt(n) = 100 at
+            # n=2500, equivalent to 200 cells with binary y under the same
+            # criterion). Users who want to score such columns must bin /
+            # target-encode them first, or set cardinality_bias_correction=False.
+            _cell_budget = 0.5 * _n_for_screen
+            _refused = []
+            _refused_set = set()
+            for _col_idx in range(factors_data.shape[1]):
+                if _col_idx == _y_idx_for_screen:
+                    continue
+                _nbins_x = int(factors_nbins[_col_idx])
+                if _nbins_x <= 1:
+                    continue
+                _cells = _nbins_x * _nbins_y_for_screen
+                if _cells > _cell_budget:
+                    _refused.append(_col_idx)
+                    _refused_set.add(_col_idx)
+            if _refused and verbose >= 1:
+                _names = [factors_names[i] if factors_names is not None and i < len(factors_names) else f"col_{i}" for i in _refused]
+                logger.info(
+                    "screen_predictors: pre-screening dropped %d high-cardinality column(s) "
+                    "(joint cells > 0.5 * n=%d): %s. Bin or target-encode before fitting if "
+                    "they carry real signal. Disable via cardinality_bias_correction=False.",
+                    len(_refused), _n_for_screen, _names[:10] + (["..."] if len(_names) > 10 else []),
+                )
+            # Remove refused columns from the active factor index set so they're
+            # never enumerated as candidates at any interactions_order.
+            if _refused_set:
+                if isinstance(x, set):
+                    x = x - _refused_set
+                else:
+                    x = [i for i in x if i not in _refused_set]
+            _cardinality_refused_cols = _refused_set
+        else:
+            _cardinality_refused_cols = set()
+
         if use_gpu:
             import cupy as cp
 
@@ -499,7 +581,70 @@ def screen_predictors(
                 # Add best candidate to the list, if criteria are met, or proceed to the next interactions_order
                 # ---------------------------------------------------------------------------------------------------------------
 
-                if best_gain >= (min_relevance_gain if interactions_order == 1 else min_relevance_gain ** (1 / (interactions_order + 1))):
+                _abs_floor = (min_relevance_gain if interactions_order == 1 else min_relevance_gain ** (1 / (interactions_order + 1)))
+                # 2026-05-30 Miller-Madow: subtract finite-sample bias from gain at gate. For
+                # joint candidates (k-way interactions) use product-of-bin-counts as effective
+                # cardinality. Bias = (nbins_x_eff - 1) * (nbins_y - 1) / (2*n). The same
+                # correction is applied to the first-selected feature's stored gain so the
+                # relative-floor comparison is consistent across cardinalities.
+                _best_gain_for_gate = float(best_gain)
+                _first_gain_for_gate = 0.0
+                # MM gate only applies to single-feature candidates (interactions_order=1).
+                # For joint candidates (order >= 2) the bias (|joint_X|-1)*(|Y|-1)/(2n) grows
+                # multiplicatively in component nbins (product), which over-corrects: a 39 x 39
+                # joint at n=1500 carries bias 0.51 nats - enough to kill the XOR-product
+                # synergy signal even when the joint MI is genuinely informative. The pre-
+                # screen filter (cells > 0.5*n) already refuses high-cardinality SINGLE
+                # columns before they're combined, so joints with all-safe components are
+                # implicitly bounded; explicit MM correction on joints is double-counting.
+                if (cardinality_bias_correction
+                        and best_candidate is not None
+                        and interactions_order == 1):
+                    _n_samples_for_mm = int(factors_data.shape[0])
+                    _y_idx = int(y[0]) if hasattr(y, "__len__") else int(y)
+                    _nbins_y = int(factors_nbins[_y_idx])
+                    _nbins_x_eff = 1
+                    try:
+                        for _v in best_candidate:
+                            _nbins_x_eff *= int(factors_nbins[int(_v)])
+                        _mm_bias_cand = (_nbins_x_eff - 1) * (_nbins_y - 1) / (2.0 * _n_samples_for_mm)
+                        _best_gain_for_gate = float(best_gain) - _mm_bias_cand
+                    except (TypeError, ValueError):
+                        # best_candidate isn't iterable / contains non-int; skip MM gate
+                        pass
+                # 2026-05-30 diminishing-returns floor: from the SECOND selected feature onward,
+                # require corrected best_gain >= MAX(corrected gain over already-selected) *
+                # min_relevance_gain_relative_to_first. Using MAX (not just first) is critical when
+                # the first-picked feature has a cardinality-inflated raw MI that the Miller-Madow
+                # correction collapses (Layer 10 seed=101: user_id raw 0.328 -> corrected 0.088,
+                # num_signal_1 raw 0.187 -> corrected 0.185; the corrected MAX over the running
+                # set is num_signal_1's 0.185, so the floor at 5% is 0.009 - high enough to exclude
+                # both the cardinality-biased user_id residual AND any trailing noise). The absolute
+                # floor catches "no signal at all"; the relative floor catches "trailing noise that
+                # statistically clears the absolute floor but is 100x smaller than the strongest
+                # already-selected signal". 0.0 disables.
+                _rel_floor = 0.0
+                if min_relevance_gain_relative_to_first and selected_vars and predictors:
+                    _max_corrected_gain = 0.0
+                    _n_samples_for_mm = int(factors_data.shape[0]) if cardinality_bias_correction else 0
+                    _y_idx_for_mm = int(y[0]) if hasattr(y, "__len__") else int(y)
+                    _nbins_y_for_mm = int(factors_nbins[_y_idx_for_mm]) if cardinality_bias_correction else 0
+                    for _pred in predictors:
+                        _g_raw = float(_pred.get("gain", 0.0))
+                        _p_indices = _pred.get("indices", ())
+                        if cardinality_bias_correction and len(_p_indices) == 1:
+                            _p_nbins_eff = 1
+                            for _v in _p_indices:
+                                _p_nbins_eff *= int(factors_nbins[int(_v)])
+                            _g_corr = _g_raw - (_p_nbins_eff - 1) * (_nbins_y_for_mm - 1) / (2.0 * _n_samples_for_mm)
+                        else:
+                            _g_corr = _g_raw
+                        if _g_corr > _max_corrected_gain:
+                            _max_corrected_gain = _g_corr
+                    _first_gain_for_gate = _max_corrected_gain
+                    if _max_corrected_gain > 0.0:
+                        _rel_floor = _max_corrected_gain * float(min_relevance_gain_relative_to_first)
+                if _best_gain_for_gate >= _abs_floor and _best_gain_for_gate >= _rel_floor:
                     for var in best_candidate:
                         if var not in selected_vars:
                             selected_vars.append(var)

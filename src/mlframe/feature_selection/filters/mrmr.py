@@ -314,6 +314,24 @@ class MRMR(BaseEstimator, TransformerMixin):
         min_relevance_gain_frac: float = 0.001,
         # Resolution mode for ``min_relevance_gain``. ``'relative_to_entropy'`` scales the floor with H(y) so noisy features cannot pile up on low-entropy targets; ``'absolute'`` honours ``min_relevance_gain`` verbatim (legacy behaviour).
         min_relevance_gain_mode: str = "relative_to_entropy",
+        # 2026-05-30: diminishing-returns gate. Stops greedy selection once the
+        # current candidate's gain drops below this fraction of the FIRST
+        # selected feature's gain. Catches "trailing noise" leakage on
+        # imbalanced y / large n where tiny-but-statistically-positive gains
+        # clear the absolute floor (Layer 13 finding: noise gain 0.0004 vs
+        # signal gain 0.0176 - both cleared min_relevance_gain_frac * H(y) at
+        # 1% imbalance, but noise is only 2.5% of signal). 0.0 disables; 0.05
+        # = stop once gain falls below 5% of first gain. Applies from the
+        # SECOND selected feature onward (the first feature is the anchor).
+        min_relevance_gain_relative_to_first: float = 0.05,
+        # 2026-05-30: Miller-Madow MI bias correction at the selection gate.
+        # Plug-in MI overestimates by ~(|X|-1)*(|Y|-1)/(2n) for high-card
+        # X (Miller 1955, Paninski 2003). On 1200-level user_id at n=2500
+        # with binary y the bias is ~0.24 nats - enough to make pure noise
+        # outrank real numeric signal (Layer 10 seed=101 hijack). True =
+        # subtract MM bias from gains at the floor comparison; does NOT
+        # mutate the raw mrmr_gains_ attr (downstream sees raw plug-in MI).
+        cardinality_bias_correction: bool = True,
         max_consec_unconfirmed: int = 10,
         max_runtime_mins: float = None,
         interactions_min_order: int = 1,

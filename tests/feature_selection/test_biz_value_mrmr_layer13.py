@@ -472,18 +472,47 @@ class TestNoFalsePositiveBinningArtefact:
         ids=["p=1pct", "p=0.5pct"],
     )
     @pytest.mark.parametrize("seed", SEEDS)
-    def test_at_most_three_noise_in_support(self, imbalance, seed):
+    def test_no_noise_leakage_post_relative_gain_fix(self, imbalance, seed):
+        """2026-05-30 tightened from `<= 3 noise` after introducing
+        ``min_relevance_gain_relative_to_first=0.05`` default. The
+        relative-to-first floor catches the trailing-noise leak: noise
+        gain (~0.0004) is 2.5% of signal gain (~0.0176), below the 5%
+        floor, so noise is excluded outright. Pre-fix observed worst
+        case was 3 noise columns leaking on seed=13001 p=1%.
+        """
         X, y, n_pos = _build_imbalanced_data(imbalance, seed=seed)
         sel = _fit_mrmr(X, y)
         kept = _selected_names(sel)
         noise_in_support = [n for n in kept if n.startswith("noise_")]
-        assert len(noise_in_support) <= 3, (
+        assert len(noise_in_support) == 0, (
             f"seed={seed} imbalance={imbalance} n_pos={n_pos}: "
             f"{len(noise_in_support)} noise columns in support "
-            f"({noise_in_support}); the relevance gate has collapsed at "
-            f"a resolvable imbalance level. Observed worst case on the "
-            f"SEEDS grid is 3 -- 4 or more indicates regression. "
-            f"kept={kept}"
+            f"({noise_in_support}). Post relative-gain fix this MUST "
+            f"be zero - noise gain is <2.5% of signal gain and should "
+            f"be below the 5% relative floor. kept={kept}"
+        )
+
+    @pytest.mark.parametrize(
+        "imbalance",
+        [IMBALANCE_MILD, IMBALANCE_STRONG],
+        ids=["p=1pct", "p=0.5pct"],
+    )
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_support_is_signal_subset_post_fix(self, imbalance, seed):
+        """Post relative-gain fix: support_ is a subset of the true
+        signal set {x_signal, x_uniform_signal} on every (seed, imbalance)
+        in the p>=0.005 grid. Stronger than "no noise" - also rules out
+        any spurious column that's neither true signal nor canonical noise.
+        """
+        X, y, n_pos = _build_imbalanced_data(imbalance, seed=seed)
+        sel = _fit_mrmr(X, y)
+        kept = set(_selected_names(sel))
+        signals = {"x_signal", "x_uniform_signal"}
+        non_signal = kept - signals
+        assert not non_signal, (
+            f"seed={seed} imbalance={imbalance} n_pos={n_pos}: support "
+            f"contains non-signal columns {non_signal!r}; post-fix expectation "
+            f"is support_ subset of {{x_signal, x_uniform_signal}}. kept={kept}"
         )
 
 

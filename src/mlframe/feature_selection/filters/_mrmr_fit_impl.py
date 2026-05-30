@@ -506,6 +506,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 baseline_npermutations=self.baseline_npermutations,
                 # stopping conditions
                 min_relevance_gain=_effective_min_relevance_gain,
+                min_relevance_gain_relative_to_first=float(getattr(self, "min_relevance_gain_relative_to_first", 0.0)),
+                cardinality_bias_correction=bool(getattr(self, "cardinality_bias_correction", True)),
                 max_consec_unconfirmed=self.max_consec_unconfirmed,
                 max_runtime_mins=self.max_runtime_mins,
                 interactions_min_order=self.interactions_min_order,

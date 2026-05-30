@@ -475,34 +475,48 @@ class TestNoiseStaysBelowFloor:
     """
 
     @pytest.mark.parametrize("seed", SEEDS)
-    def test_mean_noise_below_support_threshold(self, seed):
+    def test_max_noise_frequency_is_zero(self, seed):
+        """2026-05-30 tightened from `mean_noise < 0.6` after introducing
+        ``min_relevance_gain_relative_to_first=0.05`` default in MRMR.
+        Pre-fix: noise_4 hit 0.733 on seed=24002 (11/15 bootstraps);
+        the wrapper faithfully reported the inner-MRMR finite-sample
+        leak. Post-fix: the relative-gain floor caps inner MRMR at the
+        real-signal subset, so noise NEVER enters inner support_, so
+        every bootstrap's per-feature inclusion counter for noise
+        stays at zero, so the empirical inclusion frequency is 0.0
+        across all noise columns. Pin the maximum, not just the mean -
+        a single column lifting above floor would also be a regression.
+        """
         X, y, flaky_slices = _build_drifty_data(seed=seed)
         sel = _fit_stability(X, y, seed=seed)
         freqs = _freq_dict(sel, X.columns.tolist())
         noise_freqs = [
             f for name, f in freqs.items() if name.startswith("noise_")
         ]
-        mean_noise = float(np.mean(noise_freqs))
-        assert mean_noise < SUPPORT_THRESHOLD, (
-            f"seed={seed} flaky_slices={flaky_slices}: mean noise "
-            f"frequency {mean_noise:.3f} >= support_threshold "
-            f"{SUPPORT_THRESHOLD}. The class 'pure noise' is being "
-            f"promoted past the user-facing accept gate. freqs={freqs}"
+        max_noise = float(np.max(noise_freqs))
+        assert max_noise == 0.0, (
+            f"seed={seed} flaky_slices={flaky_slices}: max noise "
+            f"frequency {max_noise:.3f} > 0; post relative-gain fix "
+            f"noise MUST be excluded from EVERY bootstrap, so all "
+            f"noise frequencies must be exactly 0. freqs={freqs}"
         )
 
     @pytest.mark.parametrize("seed", SEEDS)
-    def test_median_noise_below_typical_floor(self, seed):
+    def test_flaky_is_zero_post_fix(self, seed):
+        """The `flaky` feature has signal in only 1 of 5 slices (0.3
+        loading). Post relative-gain fix, the inner MRMR never picks
+        it up on any 75% subsample, so its selection frequency stays
+        at 0.0. Pre-fix it was already at 0.0 on the SEEDS grid; we
+        now pin that as a hard contract since the fix made it
+        structurally guaranteed (flaky's marginal gain << 5% of
+        stable_x's gain).
+        """
         X, y, flaky_slices = _build_drifty_data(seed=seed)
         sel = _fit_stability(X, y, seed=seed)
         freqs = _freq_dict(sel, X.columns.tolist())
-        noise_freqs = [
-            f for name, f in freqs.items() if name.startswith("noise_")
-        ]
-        median_noise = float(np.median(noise_freqs))
-        assert median_noise < 0.40, (
-            f"seed={seed} flaky_slices={flaky_slices}: median noise "
-            f"frequency {median_noise:.3f} >= 0.40. The typical pure-"
-            f"noise column is no longer near the floor. freqs={freqs}"
+        assert freqs["flaky"] == 0.0, (
+            f"seed={seed} flaky_slices={flaky_slices}: flaky freq "
+            f"{freqs['flaky']:.3f} > 0 post-fix; expected 0.0. freqs={freqs}"
         )
 
 
