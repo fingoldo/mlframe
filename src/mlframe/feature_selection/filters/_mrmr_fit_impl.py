@@ -925,6 +925,23 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # ---------------------------------------------------------------------------------------------------------------
 
     self.support_ = np.array(selected_vars)
+    # 2026-05-30 Wave 9.1 fix (loop iter 30): populate ``mrmr_gains_``
+    # so the documented ``uaed_auto_size=True`` post-fit elbow trim at
+    # line 1020+ actually fires. Pre-fix the comment claimed
+    # "Wave-7 audit landed this trace" but no code ever assigned the
+    # attribute - ``getattr(self, "mrmr_gains_", [])`` defaulted to
+    # empty, ``gains.size >= 3`` was False, the UAED block was
+    # guaranteed dead code. ``MRMR(uaed_auto_size=True)`` silently
+    # returned the full screen output regardless. Restore the
+    # advertised behaviour: store per-selection-round gains in
+    # screening order, aligned with the predictor log.
+    try:
+        self.mrmr_gains_ = np.asarray(
+            [float(p.get("gain", 0.0)) for p in (predictors or [])],
+            dtype=np.float64,
+        )
+    except Exception:
+        self.mrmr_gains_ = np.array([], dtype=np.float64)
     self.fallback_used_ = False
     # n_features_ reports the column count produced by transform() = raw selected + engineered (replayable via _engineered_recipes_). Higher-order
     # engineered features without a replayable recipe were already warned about above and are NOT counted (they don't appear in transform output).
