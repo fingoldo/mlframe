@@ -2237,3 +2237,379 @@ def test_iter606_audit_pass_8_axes_flow_to_kwargs():
         "audit-pass-8 #3/#4: non-default values must produce distinct canonical "
         "keys when 'mlp' in models AND rare classification holds"
     )
+
+
+def test_iter613_audit_pass_8_med_axes_flow_to_kwargs():
+    """5 audit-pass-8 MED + LOW->MED axes (#5/#7/#8/#9/#10) must:
+      (a) Dataclass defaults mirror HEAD source verbatim:
+            #5 shap_proxied_adaptive_prescreen_by_stability_cfg = False
+               (feature_selection/shap_proxied_fs.py:208; verified)
+            #7 mlp_use_layernorm_cfg = False
+               (training/neural/flat.py:205; audit-cited line 145 was a
+                docstring -- the real signature default lives at :205, drift
+                logged in dataclass field comment)
+            #8 mlp_l1_alpha_cfg = 0.0
+               (library default at MLPTorchModel hparams; the BN/LN/GN-
+                excluded L1 branch at _flat_torch_module.py:272-301 only
+                fires when l1_alpha > 0)
+            #9 mlp_inject_zero_sample_weight_batch_cfg = False
+               (regression-prevention gate at _flat_torch_module.py:233-256)
+            #10 inject_xor_synergy_pair_cfg = False
+                (fleuret-mode conditional-MI gate at
+                 feature_selection/filters/evaluation.py:596)
+      (b) Each axis pair is present in AXES with the values listed in the
+          audit.
+      (c) Canon-collapse rules hold:
+            #5 collapses to False under use_shap_proxied_fs=False.
+            #7 collapses to False outside ('mlp' AND regression).
+            #8 collapses to 0.0 outside 'mlp' in models.
+            #9 collapses to False outside ('mlp' AND weight_schemas !=
+               ("uniform",)).
+            #10 collapses to False outside (use_mrmr_fs AND
+                interactions_max_order >= 2).
+      (d) Threading produces the expected kwargs subdicts:
+            #5 flows via build_shap_proxied_fs_kwargs as the
+               ``adaptive_prescreen_by_stability`` ctor key.
+            #7/#8 flow via build_mlp_kwargs as ``use_layernorm`` /
+                  ``l1_alpha`` hparams.
+            #9/#10 flow via build_frame_for_combo (assert builder output
+                   contains the injected columns / stale-ts block).
+    """
+    from tests.training._fuzz_combo import (
+        AXES, FuzzCombo, _build_combo, enumerate_combos,
+        build_shap_proxied_fs_kwargs, build_mlp_kwargs,
+        build_frame_for_combo,
+    )
+
+    # (a) Dataclass defaults mirror HEAD source.
+    fields = FuzzCombo.__dataclass_fields__
+    assert fields["shap_proxied_adaptive_prescreen_by_stability_cfg"].default is False, (
+        "audit-pass-8 #5: default must mirror "
+        "feature_selection/shap_proxied_fs.py:208 (False)"
+    )
+    assert fields["mlp_use_layernorm_cfg"].default is False, (
+        "audit-pass-8 #7: default must mirror training/neural/flat.py:205 (False)"
+    )
+    assert fields["mlp_l1_alpha_cfg"].default == 0.0, (
+        "audit-pass-8 #8: default must mirror library default 0.0"
+    )
+    assert fields["mlp_inject_zero_sample_weight_batch_cfg"].default is False, (
+        "audit-pass-8 #9: default must mirror False (no injection)"
+    )
+    assert fields["inject_xor_synergy_pair_cfg"].default is False, (
+        "audit-pass-8 #10: default must mirror False (no injection)"
+    )
+
+    # (b) AXES presence with the audit-listed pairs.
+    assert AXES["shap_proxied_adaptive_prescreen_by_stability_cfg"] == (False, True)
+    assert AXES["mlp_use_layernorm_cfg"] == (False, True)
+    assert AXES["mlp_l1_alpha_cfg"] == (0.0, 0.001)
+    assert AXES["mlp_inject_zero_sample_weight_batch_cfg"] == (False, True)
+    assert AXES["inject_xor_synergy_pair_cfg"] == (False, True)
+
+    base_axes = {name: values[0] for name, values in AXES.items()}
+
+    # enumerate_combos still hits 150 with 5 new axes wired.
+    combos = enumerate_combos(target=150, master_seed=20260601)
+    assert len(combos) == 150, f"enumerate_combos lost combos: {len(combos)}"
+
+    # (c-i) #5 canon-collapse: when use_shap_proxied_fs=False, both values
+    # collapse to source default False.
+    off5_a = dict(base_axes); off5_a.update(
+        use_shap_proxied_fs=False,
+        shap_proxied_adaptive_prescreen_by_stability_cfg=True,
+    )
+    off5_b = dict(off5_a); off5_b["shap_proxied_adaptive_prescreen_by_stability_cfg"] = False
+    c_off5_a = _build_combo(models=("cb",), axes=off5_a, seed=0)
+    c_off5_b = _build_combo(models=("cb",), axes=off5_b, seed=0)
+    assert c_off5_a.canonical_key() == c_off5_b.canonical_key(), (
+        "audit-pass-8 #5: must canon-collapse under use_shap_proxied_fs=False"
+    )
+
+    # (c-ii) #7 canon-collapse: classification target or no MLP -> collapses.
+    off7_a = dict(base_axes); off7_a.update(
+        target_type="binary_classification",
+        mlp_use_layernorm_cfg=True,
+    )
+    off7_b = dict(off7_a); off7_b["mlp_use_layernorm_cfg"] = False
+    c_off7_a = _build_combo(models=("mlp",), axes=off7_a, seed=0)
+    c_off7_b = _build_combo(models=("mlp",), axes=off7_b, seed=0)
+    assert c_off7_a.canonical_key() == c_off7_b.canonical_key(), (
+        "audit-pass-8 #7: must canon-collapse under classification target "
+        "even when mlp is in models"
+    )
+    # And no MLP at all -> collapses regardless of target.
+    off7_c = dict(base_axes); off7_c.update(
+        target_type="regression",
+        mlp_use_layernorm_cfg=True,
+    )
+    off7_d = dict(off7_c); off7_d["mlp_use_layernorm_cfg"] = False
+    c_off7_c = _build_combo(models=("cb",), axes=off7_c, seed=0)
+    c_off7_d = _build_combo(models=("cb",), axes=off7_d, seed=0)
+    assert c_off7_c.canonical_key() == c_off7_d.canonical_key(), (
+        "audit-pass-8 #7: must canon-collapse when MLP not in models"
+    )
+
+    # (c-iii) #8 canon-collapse: no MLP -> collapses to 0.0.
+    off8_a = dict(base_axes); off8_a["mlp_l1_alpha_cfg"] = 0.001
+    off8_b = dict(off8_a); off8_b["mlp_l1_alpha_cfg"] = 0.0
+    c_off8_a = _build_combo(models=("cb",), axes=off8_a, seed=0)
+    c_off8_b = _build_combo(models=("cb",), axes=off8_b, seed=0)
+    assert c_off8_a.canonical_key() == c_off8_b.canonical_key(), (
+        "audit-pass-8 #8: must canon-collapse when 'mlp' not in models"
+    )
+
+    # (c-iv) #9 canon-collapse: weight_schemas=("uniform",) or no MLP -> False.
+    off9_a = dict(base_axes); off9_a.update(
+        weight_schemas=("uniform",),
+        mlp_inject_zero_sample_weight_batch_cfg=True,
+    )
+    off9_b = dict(off9_a); off9_b["mlp_inject_zero_sample_weight_batch_cfg"] = False
+    c_off9_a = _build_combo(models=("mlp",), axes=off9_a, seed=0)
+    c_off9_b = _build_combo(models=("mlp",), axes=off9_b, seed=0)
+    assert c_off9_a.canonical_key() == c_off9_b.canonical_key(), (
+        "audit-pass-8 #9: must canon-collapse under weight_schemas=('uniform',)"
+    )
+    # No MLP -> collapses regardless of weight_schemas.
+    off9_c = dict(base_axes); off9_c.update(
+        weight_schemas=("recency",),
+        mlp_inject_zero_sample_weight_batch_cfg=True,
+    )
+    off9_d = dict(off9_c); off9_d["mlp_inject_zero_sample_weight_batch_cfg"] = False
+    c_off9_c = _build_combo(models=("cb",), axes=off9_c, seed=0)
+    c_off9_d = _build_combo(models=("cb",), axes=off9_d, seed=0)
+    assert c_off9_c.canonical_key() == c_off9_d.canonical_key(), (
+        "audit-pass-8 #9: must canon-collapse when 'mlp' not in models"
+    )
+
+    # (c-v) #10 canon-collapse: use_mrmr_fs=False -> False; or interactions
+    # order < 2 -> False.
+    off10_a = dict(base_axes); off10_a.update(
+        use_mrmr_fs=False,
+        mrmr_interactions_max_order_cfg=2,
+        inject_xor_synergy_pair_cfg=True,
+    )
+    off10_b = dict(off10_a); off10_b["inject_xor_synergy_pair_cfg"] = False
+    c_off10_a = _build_combo(models=("cb",), axes=off10_a, seed=0)
+    c_off10_b = _build_combo(models=("cb",), axes=off10_b, seed=0)
+    assert c_off10_a.canonical_key() == c_off10_b.canonical_key(), (
+        "audit-pass-8 #10: must canon-collapse under use_mrmr_fs=False"
+    )
+    off10_c = dict(base_axes); off10_c.update(
+        use_mrmr_fs=True,
+        mrmr_interactions_max_order_cfg=1,
+        inject_xor_synergy_pair_cfg=True,
+    )
+    off10_d = dict(off10_c); off10_d["inject_xor_synergy_pair_cfg"] = False
+    c_off10_c = _build_combo(models=("cb",), axes=off10_c, seed=0)
+    c_off10_d = _build_combo(models=("cb",), axes=off10_d, seed=0)
+    assert c_off10_c.canonical_key() == c_off10_d.canonical_key(), (
+        "audit-pass-8 #10: must canon-collapse under interactions_max_order < 2"
+    )
+
+    # (d-i) #5 threading: when use_shap_proxied_fs=True, builder emits the
+    # adaptive_prescreen_by_stability key with the axis value.
+    on5 = dict(base_axes); on5.update(
+        use_shap_proxied_fs=True,
+        shap_proxied_adaptive_prescreen_by_stability_cfg=True,
+    )
+    c_on5 = _build_combo(models=("cb",), axes=on5, seed=0)
+    kw_shap = build_shap_proxied_fs_kwargs(c_on5)
+    assert kw_shap is not None
+    assert kw_shap["adaptive_prescreen_by_stability"] is True, (
+        f"#5 did not thread into shap_proxied_fs_kwargs: "
+        f"{kw_shap.get('adaptive_prescreen_by_stability')!r}"
+    )
+    # ShapProxiedFS off -> kwargs None.
+    off5_full = dict(base_axes); off5_full.update(
+        use_shap_proxied_fs=False,
+        shap_proxied_adaptive_prescreen_by_stability_cfg=True,
+    )
+    assert build_shap_proxied_fs_kwargs(
+        _build_combo(models=("cb",), axes=off5_full, seed=0)
+    ) is None
+
+    # (d-ii) #7/#8 threading: MLP + regression -> use_layernorm flows;
+    # MLP active -> l1_alpha flows.
+    on78 = dict(base_axes); on78.update(
+        target_type="regression",
+        imbalance_ratio="balanced",
+        recurrent_model_cfg=None,
+        mlp_use_layernorm_cfg=True,
+        mlp_l1_alpha_cfg=0.001,
+    )
+    c_on78 = _build_combo(models=("mlp",), axes=on78, seed=0)
+    kw_mlp = build_mlp_kwargs(c_on78)
+    assert kw_mlp is not None
+    assert kw_mlp.get("use_layernorm") is True, (
+        f"#7 did not thread into mlp_kwargs: {kw_mlp.get('use_layernorm')!r}"
+    )
+    assert kw_mlp.get("l1_alpha") == 0.001, (
+        f"#8 did not thread into mlp_kwargs: {kw_mlp.get('l1_alpha')!r}"
+    )
+
+    # MLP + classification -> use_layernorm dropped (#7 gate fails),
+    # l1_alpha still threads (#8 gate only needs MLP in models).
+    on78_cls = dict(base_axes); on78_cls.update(
+        target_type="binary_classification",
+        imbalance_ratio="balanced",
+        recurrent_model_cfg=None,
+        mlp_use_layernorm_cfg=True,
+        mlp_l1_alpha_cfg=0.001,
+    )
+    c_on78_cls = _build_combo(models=("mlp",), axes=on78_cls, seed=0)
+    kw_mlp_cls = build_mlp_kwargs(c_on78_cls)
+    assert kw_mlp_cls is not None
+    assert "use_layernorm" not in kw_mlp_cls, (
+        "audit-pass-8 #7: use_layernorm must NOT thread on classification target"
+    )
+    assert kw_mlp_cls.get("l1_alpha") == 0.001, (
+        f"#8 must still thread under classification: "
+        f"{kw_mlp_cls.get('l1_alpha')!r}"
+    )
+
+    # No MLP + no recurrent -> builder returns None entirely (neither
+    # threads).
+    no_neural = dict(base_axes); no_neural.update(
+        recurrent_model_cfg=None,
+        mlp_use_layernorm_cfg=True,
+        mlp_l1_alpha_cfg=0.001,
+    )
+    c_no_neural = _build_combo(models=("cb",), axes=no_neural, seed=0)
+    assert build_mlp_kwargs(c_no_neural) is None, (
+        "build_mlp_kwargs must return None when neither MLP nor recurrent fire"
+    )
+
+    # (d-iii) #10 threading: frame builder emits num_xor_a / num_xor_b
+    # when the axis is on (small-n combo so the test is cheap).
+    on10 = dict(base_axes); on10.update(
+        n_rows=200,
+        input_type="pandas",
+        target_type="binary_classification",
+        imbalance_ratio="balanced",
+        recurrent_model_cfg=None,
+        use_mrmr_fs=True,
+        mrmr_interactions_max_order_cfg=2,
+        inject_xor_synergy_pair_cfg=True,
+        # Pin axes that would otherwise inject pathological / heavy data.
+        cat_feature_count=0,
+        text_col_count=0,
+        embedding_col_count=0,
+        outlier_detection=None,
+        inject_inf_nan=False,
+        inject_degenerate_cols=False,
+        inject_zero_col=False,
+        inject_rank_deficient=False,
+        inject_all_nan_col=False,
+        inject_label_leak=False,
+        with_datetime_col=False,
+        inject_test_drift=None,
+        mlp_inject_zero_sample_weight_batch_cfg=False,
+    )
+    c_on10 = _build_combo(models=("cb",), axes=on10, seed=0)
+    df_on10, _target_col, _cat_names = build_frame_for_combo(c_on10)
+    assert "num_xor_a" in df_on10.columns, (
+        "#10 frame-builder did not emit num_xor_a under "
+        "inject_xor_synergy_pair_cfg=True"
+    )
+    assert "num_xor_b" in df_on10.columns, (
+        "#10 frame-builder did not emit num_xor_b under "
+        "inject_xor_synergy_pair_cfg=True"
+    )
+
+    # Off -> no XOR columns.
+    off10_full = dict(on10); off10_full["inject_xor_synergy_pair_cfg"] = False
+    c_off10_full = _build_combo(models=("cb",), axes=off10_full, seed=0)
+    df_off10, _, _ = build_frame_for_combo(c_off10_full)
+    assert "num_xor_a" not in df_off10.columns
+    assert "num_xor_b" not in df_off10.columns
+
+    # (d-iv) #9 threading: frame builder emits a ts column with a far-past
+    # tail block when the axis is on AND the gate holds.
+    on9 = dict(base_axes); on9.update(
+        n_rows=200,
+        input_type="pandas",
+        target_type="regression",
+        imbalance_ratio="balanced",
+        recurrent_model_cfg=None,
+        weight_schemas=("recency",),
+        mlp_inject_zero_sample_weight_batch_cfg=True,
+        # Pin pathological-data axes off for the assertion to focus on ts.
+        cat_feature_count=0,
+        text_col_count=0,
+        embedding_col_count=0,
+        outlier_detection=None,
+        inject_inf_nan=False,
+        inject_degenerate_cols=False,
+        inject_zero_col=False,
+        inject_rank_deficient=False,
+        inject_all_nan_col=False,
+        inject_label_leak=False,
+        with_datetime_col=False,
+        inject_test_drift=None,
+        inject_xor_synergy_pair_cfg=False,
+        use_mrmr_fs=False,
+    )
+    c_on9 = _build_combo(models=("mlp",), axes=on9, seed=0)
+    df_on9, _, _ = build_frame_for_combo(c_on9)
+    assert "ts" in df_on9.columns, (
+        "#9 frame-builder did not emit ts column under "
+        "mlp_inject_zero_sample_weight_batch_cfg=True"
+    )
+    # Last 20% of rows must be far-past (year 1900); first 80% must be 2026+.
+    import pandas as pd
+    ts_series = df_on9["ts"]
+    n_rows_on9 = len(df_on9)
+    tail = max(1, int(n_rows_on9 * 0.2))
+    assert (ts_series.iloc[-tail:] < pd.Timestamp("1950-01-01")).all(), (
+        "#9: last tail must be far-past (year 1900) so recency weights -> 0"
+    )
+    assert (ts_series.iloc[: n_rows_on9 - tail] > pd.Timestamp("2025-01-01")).all(), (
+        "#9: leading rows must be recent (2026+) so recency weights are positive"
+    )
+    # Off -> no ts injection (gate fails on weight_schemas=uniform).
+    off9_full = dict(on9); off9_full.update(
+        weight_schemas=("uniform",),
+        mlp_inject_zero_sample_weight_batch_cfg=True,
+    )
+    c_off9_full = _build_combo(models=("mlp",), axes=off9_full, seed=0)
+    df_off9, _, _ = build_frame_for_combo(c_off9_full)
+    assert "ts" not in df_off9.columns, (
+        "#9: gate must drop ts injection under weight_schemas=('uniform',)"
+    )
+
+    # (e) Distinct canonical_keys: on-axis values must NOT collapse to the
+    # source default under their compound-gate-on configuration.
+    # #5 distinct under use_shap_proxied_fs=True.
+    on5_def = dict(on5); on5_def["shap_proxied_adaptive_prescreen_by_stability_cfg"] = False
+    c_on5_def = _build_combo(models=("cb",), axes=on5_def, seed=0)
+    assert c_on5.canonical_key() != c_on5_def.canonical_key(), (
+        "audit-pass-8 #5: non-default value must produce distinct canonical "
+        "key under use_shap_proxied_fs=True"
+    )
+    # #7 distinct under mlp+regression.
+    on7_def = dict(on78); on7_def["mlp_use_layernorm_cfg"] = False
+    c_on7_def = _build_combo(models=("mlp",), axes=on7_def, seed=0)
+    # #8 distinct under mlp in models.
+    on8_def = dict(on78); on8_def["mlp_l1_alpha_cfg"] = 0.0
+    c_on8_def = _build_combo(models=("mlp",), axes=on8_def, seed=0)
+    assert c_on78.canonical_key() != c_on7_def.canonical_key() or (
+        c_on78.canonical_key() != c_on8_def.canonical_key()
+    ), (
+        "audit-pass-8 #7/#8: non-default values must change canonical key "
+        "under mlp+regression"
+    )
+    # #9 distinct under mlp + non-uniform weights.
+    on9_def = dict(on9); on9_def["mlp_inject_zero_sample_weight_batch_cfg"] = False
+    c_on9_def = _build_combo(models=("mlp",), axes=on9_def, seed=0)
+    assert c_on9.canonical_key() != c_on9_def.canonical_key(), (
+        "audit-pass-8 #9: non-default value must produce distinct canonical "
+        "key under mlp + non-uniform weights"
+    )
+    # #10 distinct under use_mrmr_fs + interactions >= 2.
+    on10_def = dict(on10); on10_def["inject_xor_synergy_pair_cfg"] = False
+    c_on10_def = _build_combo(models=("cb",), axes=on10_def, seed=0)
+    assert c_on10.canonical_key() != c_on10_def.canonical_key(), (
+        "audit-pass-8 #10: non-default value must produce distinct canonical "
+        "key under use_mrmr_fs + interactions >= 2"
+    )

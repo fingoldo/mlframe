@@ -1241,6 +1241,42 @@ AXES: dict[str, tuple[Any, ...]] = {
     # compound gate (MLP active AND binary/multiclass classification AND
     # rare_5pct/rare_1pct imbalance).
     "mlp_class_weight_cfg": (None, "balanced"),
+    # =====================================================================
+    # 2026-05-31 audit-pass-8 MED + LOW->MED (#5/#7/#8/#9/#10). Five
+    # production knobs that landed in the 27814687..HEAD diff with no fuzz
+    # coverage. Defaults source-verified at HEAD (see dataclass field
+    # comments).
+    # =====================================================================
+    # #5 ShapProxiedFS adaptive_prescreen_by_stability toggle. Source default
+    # False (shap_proxied_fs.py:208). True activates the per-fold phi-mean
+    # matrix + stability scoring + adaptive brute-force-cap narrowing.
+    # Canonicalises to False when use_shap_proxied_fs=False.
+    "shap_proxied_adaptive_prescreen_by_stability_cfg": (False, True),
+    # #7 MLP use_layernorm default-flip (False since 2026-05-30 commit
+    # a1ee8adb at flat.py:205). True exercises the post-StandardScaler /
+    # embedding-output regime where LN is appropriate. Canonicalises to
+    # False outside the compound gate ('mlp' in models AND target_type
+    # == "regression").
+    "mlp_use_layernorm_cfg": (False, True),
+    # #8 MLP L1 penalty alpha. 0.0 = library default (no-op);
+    # 0.001 fires the new BN/LN/GN-excluded L1 branch at
+    # _flat_torch_module.py:272-301. Canonicalises to 0.0 outside the
+    # 'mlp' in models gate.
+    "mlp_l1_alpha_cfg": (0.0, 0.001),
+    # #9 MLP all-zero-weight-batch WARN reachability. False = legacy fuzz
+    # (no synthetic zero-weight injection); True = frame-builder injects a
+    # contiguous N-row block whose recency weights collapse to ~0 so at
+    # least one MLP training batch sees weight_sum < 1e-12. Canonicalises
+    # to False outside the compound gate ('mlp' in models AND
+    # weight_schemas != ("uniform",)).
+    "mlp_inject_zero_sample_weight_batch_cfg": (False, True),
+    # #10 XOR synergy pair injection for the new fleuret-mode conditional-
+    # MI gate (feature_selection/filters/evaluation.py:596). False = legacy
+    # fuzz frames; True = frame-builder emits a guaranteed XOR-synergy pair
+    # (two binary cols whose XOR predicts y at high MI). Canonicalises to
+    # False outside the compound gate (use_mrmr_fs=True AND
+    # mrmr_interactions_max_order_cfg >= 2).
+    "inject_xor_synergy_pair_cfg": (False, True),
 }
 
 
@@ -1747,6 +1783,32 @@ class FuzzCombo:
     mrmr_min_relevance_gain_relative_to_first_cfg: float = 0.05
     mlp_random_state_cfg: "int | None" = None
     mlp_class_weight_cfg: "str | None" = None
+    # 2026-05-31 audit-pass-8 MED + LOW->MED (#5/#7/#8/#9/#10). Defaults
+    # source-verified at HEAD:
+    #   #5 shap_proxied_adaptive_prescreen_by_stability_cfg: False
+    #      (src/mlframe/feature_selection/shap_proxied_fs.py:208)
+    #   #7 mlp_use_layernorm_cfg: False
+    #      (src/mlframe/training/neural/flat.py:205; doc-cite drift -- the
+    #       audit said line 145 which is part of the ResidualBlock docstring,
+    #       the real ``generate_mlp`` signature default lives at :205)
+    #   #8 mlp_l1_alpha_cfg: 0.0 (no fuzz exposure pre-iter613; default is
+    #      whatever the suite/builder forwards. Library default for the
+    #      hparam is 0.0; the BN/LN/GN exclusion branch at
+    #      _flat_torch_module.py:272-301 only fires when l1_alpha > 0)
+    #   #9 mlp_inject_zero_sample_weight_batch_cfg: False (the
+    #      ``_warned_zero_weight_batch`` once-per-fit WARN at
+    #      _flat_torch_module.py:233-256 is dead code in fuzz today; True
+    #      arms the frame-builder side to spike weights so the branch fires)
+    #   #10 inject_xor_synergy_pair_cfg: False (fuzz frames emit no
+    #       guaranteed XOR-synergy pair today; True arms the frame-builder
+    #       side so the _force_cond branch at
+    #       feature_selection/filters/evaluation.py:596 surfaces a pure-
+    #       synergy survivor in mrmr_gains_)
+    shap_proxied_adaptive_prescreen_by_stability_cfg: bool = False
+    mlp_use_layernorm_cfg: bool = False
+    mlp_l1_alpha_cfg: float = 0.0
+    mlp_inject_zero_sample_weight_batch_cfg: bool = False
+    inject_xor_synergy_pair_cfg: bool = False
 
     def canonical_key(self) -> tuple:
         """Hashable tuple used for dedup. Canonicalizes semantically
@@ -3009,6 +3071,53 @@ class FuzzCombo:
                 )
                 else None
             ),
+            # 2026-05-31 audit-pass-8 MED + LOW->MED (#5/#7/#8/#9/#10) canon-
+            # collapse rules.
+            # #5 adaptive_prescreen_by_stability only fires inside
+            # ShapProxiedFS.compute_shap_matrix; collapse to source default
+            # False (shap_proxied_fs.py:208) when use_shap_proxied_fs=False.
+            (
+                self.shap_proxied_adaptive_prescreen_by_stability_cfg
+                if self.use_shap_proxied_fs
+                else False
+            ),
+            # #7 use_layernorm flip is regression-only (LN-on-classifier-
+            # logits is pathological); collapse to False outside the gate
+            # 'mlp' in models AND target_type == regression.
+            (
+                self.mlp_use_layernorm_cfg
+                if ("mlp" in self.models and self.target_type == "regression")
+                else False
+            ),
+            # #8 l1_alpha BN/LN/GN-excluded branch only fires for MLP. Collapse
+            # to 0.0 (no-op) outside 'mlp' in models.
+            (
+                self.mlp_l1_alpha_cfg
+                if "mlp" in self.models
+                else 0.0
+            ),
+            # #9 zero-weight-batch injection requires recency / non-uniform
+            # weights AND MLP active so the WARN branch can actually fire.
+            (
+                self.mlp_inject_zero_sample_weight_batch_cfg
+                if (
+                    "mlp" in self.models
+                    and self.weight_schemas != ("uniform",)
+                )
+                else False
+            ),
+            # #10 XOR synergy pair only meaningful when MRMR fleuret-mode
+            # conditional-MI gate can fire (use_mrmr_fs=True AND
+            # mrmr_interactions_max_order_cfg >= 2). Collapse to False
+            # outside that gate so dedup absorbs phantom variation.
+            (
+                self.inject_xor_synergy_pair_cfg
+                if (
+                    self.use_mrmr_fs
+                    and self.mrmr_interactions_max_order_cfg >= 2
+                )
+                else False
+            ),
         )
 
     def _canonical_recurrent_model(self) -> "str | None":
@@ -4073,6 +4182,20 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         ),
         mlp_random_state_cfg=axes.get("mlp_random_state_cfg", None),
         mlp_class_weight_cfg=axes.get("mlp_class_weight_cfg", None),
+        # 2026-05-31 audit-pass-8 MED + LOW->MED (#5/#7/#8/#9/#10). Defaults
+        # source-verified at shap_proxied_fs.py:208 / flat.py:205 + library
+        # defaults for the remaining MLP / frame-builder injection axes.
+        shap_proxied_adaptive_prescreen_by_stability_cfg=axes.get(
+            "shap_proxied_adaptive_prescreen_by_stability_cfg", False
+        ),
+        mlp_use_layernorm_cfg=axes.get("mlp_use_layernorm_cfg", False),
+        mlp_l1_alpha_cfg=axes.get("mlp_l1_alpha_cfg", 0.0),
+        mlp_inject_zero_sample_weight_batch_cfg=axes.get(
+            "mlp_inject_zero_sample_weight_batch_cfg", False
+        ),
+        inject_xor_synergy_pair_cfg=axes.get(
+            "inject_xor_synergy_pair_cfg", False
+        ),
     )
 
 
@@ -4329,6 +4452,17 @@ def build_mlp_kwargs_from_flat(
     # 2026-05-31 audit-pass-8 #4: PytorchLightningClassifier class_weight.
     # Source default None (training/neural/base.py:218).
     class_weight: "str | None" = None,
+    # 2026-05-31 audit-pass-8 #7: generate_mlp use_layernorm. Source default
+    # False (training/neural/flat.py:205; audit-cited :145 was a docstring
+    # line, the real signature default lives at :205). Threaded as an
+    # MLP-network-builder hparam, NOT a PytorchLightningEstimator __init__
+    # arg -- the suite forwards generate_mlp kwargs via hyperparams_config.
+    use_layernorm: bool = False,
+    # 2026-05-31 audit-pass-8 #8: MLPTorchModel l1_alpha. Source default
+    # 0.0 (library default; the BN/LN/GN-excluded L1 branch at
+    # _flat_torch_module.py:272-301 only fires when l1_alpha > 0). Threaded
+    # as an MLP-hparams field forwarded into the LightningModule.
+    l1_alpha: float = 0.0,
 ) -> Optional[Dict[str, Any]]:
     """Build the mlp_kwargs dict forwarded into PytorchLightningEstimator /
     PytorchLightningClassifier constructors. Returns None when neither MLP
@@ -4361,6 +4495,19 @@ def build_mlp_kwargs_from_flat(
         "binary_classification", "multiclass_classification",
     ) and imbalance_ratio in ("rare_5pct", "rare_1pct"):
         kwargs["class_weight"] = class_weight
+    # #7 use_layernorm: regression-only meaningful. The audit gate
+    # ('mlp' in models AND target_type == "regression") is mirrored in
+    # canonical_key. The builder emits the key only when the gate holds
+    # AND the caller asked for True so the library default (False)
+    # doesn't shadow downstream caller kwargs.
+    if use_layernorm and mlp_active and target_type == "regression":
+        kwargs["use_layernorm"] = True
+    # #8 l1_alpha: exercises the new BN/LN/GN-excluded L1 branch. Only
+    # meaningful when MLP is active; canon collapses to 0.0 elsewhere.
+    # Emit only when l1_alpha > 0 so the library-default-0.0 path doesn't
+    # spuriously shadow downstream caller-supplied kwargs.
+    if l1_alpha > 0 and mlp_active:
+        kwargs["l1_alpha"] = l1_alpha
     return kwargs
 
 
@@ -4373,6 +4520,9 @@ def build_mlp_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]:
         recurrent_model=combo.recurrent_model_cfg,
         random_state=combo.mlp_random_state_cfg,
         class_weight=combo.mlp_class_weight_cfg,
+        # 2026-05-31 audit-pass-8 #7/#8.
+        use_layernorm=combo.mlp_use_layernorm_cfg,
+        l1_alpha=combo.mlp_l1_alpha_cfg,
     )
 
 
@@ -4432,6 +4582,9 @@ def build_shap_proxied_fs_kwargs_from_flat(
     revalidation_ucb_slack: "float | None" = None,
     revalidation_ucb_stdev_multiplier: "float | None" = None,
     inner_n_jobs_cap: bool = False,
+    # 2026-05-31 audit-pass-8 #5: adaptive_prescreen_by_stability. Source
+    # default False (feature_selection/shap_proxied_fs.py:208).
+    adaptive_prescreen_by_stability: bool = False,
 ) -> Optional[Dict[str, Any]]:
     """Build the shap_proxied_fs_kwargs dict passed to
     ``registry.get("ShapProxiedFS").instantiate(**kwargs)`` (which forwards to
@@ -4502,6 +4655,9 @@ def build_shap_proxied_fs_kwargs_from_flat(
         "revalidation_ucb_slack": revalidation_ucb_slack,
         "revalidation_ucb_stdev_multiplier": revalidation_ucb_stdev_multiplier,
         "inner_n_jobs_cap": inner_n_jobs_cap,
+        # 2026-05-31 audit-pass-8 #5: param name matches
+        # ShapProxiedFS.__init__ verbatim (shap_proxied_fs.py:208).
+        "adaptive_prescreen_by_stability": adaptive_prescreen_by_stability,
     }
 
 
@@ -4553,6 +4709,8 @@ def build_shap_proxied_fs_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]
         revalidation_ucb_slack=combo.shap_proxied_revalidation_ucb_slack_cfg,
         revalidation_ucb_stdev_multiplier=combo.shap_proxied_revalidation_ucb_stdev_multiplier_cfg,
         inner_n_jobs_cap=combo.shap_proxied_inner_n_jobs_cap_cfg,
+        # 2026-05-31 audit-pass-8 #5.
+        adaptive_prescreen_by_stability=combo.shap_proxied_adaptive_prescreen_by_stability_cfg,
     )
 
 
@@ -5438,6 +5596,56 @@ def build_frame_for_combo(combo: FuzzCombo):
     # combos can toggle it independently.
     if combo.inject_all_nan_col:
         extra_num_cols["num_all_nan"] = np.full(n, np.nan, dtype="float32")
+    # 2026-05-31 audit-pass-8 #10: XOR-synergy pair injection. Two binary
+    # cols whose XOR predicts y at high MI but whose individual MI with y
+    # is ~0 -- the canonical hard case for greedy MRMR. The new fleuret-
+    # mode conditional-MI gate at evaluation.py:596 (_force_cond branch)
+    # is what surfaces these survivors in mrmr_gains_. Gate at the canon
+    # layer collapses this back to False outside (use_mrmr_fs AND
+    # interactions_max_order >= 2) so dedup absorbs phantom variation.
+    # The synergy is derived from the target so the conditional-MI test
+    # at high n surfaces it -- pre-fix this pair was dropped silently by
+    # the absolute-floor branch.
+    if combo.inject_xor_synergy_pair_cfg:
+        # Draw two independent Bernoulli(0.5) cols from a separate stream so
+        # the per-combo seed produces a deterministic pair.
+        _xor_rng = np.random.default_rng(combo.seed + 7919)  # 7919 = 1000th prime
+        xor_a = _xor_rng.integers(0, 2, size=n).astype("float32")
+        # Force XOR(xor_a, xor_b) ~ target where target is binarised. For
+        # non-binary targets, binarise via threshold at median so the
+        # synergy signal survives the y-discretisation MRMR runs.
+        if combo.target_type == "binary_classification":
+            y_bin = target.astype("int32")
+        elif combo.target_type == "multilabel_classification":
+            # Use label-0 as the discriminating y for the XOR pair.
+            y_bin = target[:, 0].astype("int32")
+        else:
+            # Regression / multiclass / LTR: binarise around median.
+            y_bin = (target > np.median(target)).astype("int32")
+        # xor_b = xor_a XOR y_bin => XOR(xor_a, xor_b) == y_bin.
+        # Pure synergy: marginal MI(xor_a, y) ~ 0, MI(xor_b, y) ~ 0, but
+        # conditional MI(xor_a; y | xor_b) >> 0.
+        xor_b = np.bitwise_xor(xor_a.astype("int32"), y_bin).astype("float32")
+        extra_num_cols["num_xor_a"] = xor_a
+        extra_num_cols["num_xor_b"] = xor_b
+    # 2026-05-31 audit-pass-8 #9: zero-weight-batch injection. Inserts a
+    # contiguous block of far-past timestamps for the last 20% of rows so
+    # the recency-weight builder (FTE._build_sample_weights when
+    # ``weight_schemas`` includes "recency") produces ~0 weights for that
+    # block -- at least one MLP training batch then sees
+    # weight_sum < 1e-12 and the once-per-fit WARN at
+    # _flat_torch_module.py:233-256 fires. Gate at the canon layer
+    # collapses this back to False outside ('mlp' in models AND
+    # weight_schemas != ("uniform",)) so non-recency / non-MLP combos
+    # don't accumulate phantom variation. The injection unconditionally
+    # adds a ``ts`` column when active so the recency builder has
+    # something to consume (existing ``with_datetime_col`` axis is
+    # orthogonal and may also emit ``ts`` -- the active branch wins).
+    _inject_zero_wb = (
+        combo.mlp_inject_zero_sample_weight_batch_cfg
+        and "mlp" in combo.models
+        and combo.weight_schemas != ("uniform",)
+    )
     # inject_label_leak: a feature exactly equal to target + tiny noise.
     # A correctly-functioning suite trains on this happily; the val
     # metric must land near-perfect. Deliberately NOT asserted here —
@@ -5496,8 +5704,19 @@ def build_frame_for_combo(combo: FuzzCombo):
             # auto-promotion inside ``_auto_detect_feature_types``.
             data[name] = pd.array(values, dtype="string")
         # with_datetime_col (#11): add a pandas datetime64 column.
-        if combo.with_datetime_col:
-            data["ts"] = pd.date_range("2026-01-01", periods=n, freq="h")
+        # 2026-05-31 audit-pass-8 #9: when the zero-weight-batch axis is on,
+        # force a ts column AND splat the last 20% of rows to a far-past
+        # timestamp (year 1900) so recency-weight schemes collapse that
+        # contiguous block to ~0 weights.
+        if combo.with_datetime_col or _inject_zero_wb:
+            ts = pd.date_range("2026-01-01", periods=n, freq="h")
+            if _inject_zero_wb and n >= 5:
+                tail = max(1, int(n * 0.2))
+                far_past = pd.Timestamp("1900-01-01")
+                ts = ts.to_series().reset_index(drop=True)
+                ts.iloc[n - tail :] = far_past
+                ts = pd.DatetimeIndex(ts)
+            data["ts"] = ts
         # Multilabel target: 2-D (N, K) stored as an object column of list cells.
         # SimpleFeaturesAndTargetsExtractor unpacks back to (N, K) ndarray at
         # consumption time.
@@ -5532,13 +5751,20 @@ def build_frame_for_combo(combo: FuzzCombo):
                 dtype=pl.List(pl.Float32),
             )
     # with_datetime_col (#11): polars datetime64 column.
-    if combo.with_datetime_col:
+    # 2026-05-31 audit-pass-8 #9: when the zero-weight-batch axis is on,
+    # force a ts column AND splat the last 20% of rows to a far-past
+    # timestamp (year 1900) so recency-weight schemes collapse that
+    # contiguous block to ~0 weights.
+    if combo.with_datetime_col or _inject_zero_wb:
         import datetime as _dt
         start = _dt.datetime(2026, 1, 1)
-        data_pl["ts"] = pl.Series(
-            [start + _dt.timedelta(hours=i) for i in range(n)],
-            dtype=pl.Datetime,
-        )
+        far_past = _dt.datetime(1900, 1, 1)
+        ts_values = [start + _dt.timedelta(hours=i) for i in range(n)]
+        if _inject_zero_wb and n >= 5:
+            tail = max(1, int(n * 0.2))
+            for i in range(n - tail, n):
+                ts_values[i] = far_past
+        data_pl["ts"] = pl.Series(ts_values, dtype=pl.Datetime)
     # Multilabel target: 2-D (N, K) stored as pl.List(pl.Int8) column.
     # SimpleFeaturesAndTargetsExtractor unpacks back to (N, K) ndarray.
     if combo.target_type == "multilabel_classification":
@@ -5549,3 +5775,33 @@ def build_frame_for_combo(combo: FuzzCombo):
     else:
         data_pl[target_col] = target
     return pl.DataFrame(data_pl), target_col, cat_names
+
+
+# 2026-05-31 audit-pass-8 #6 verification-probe TODO.
+#
+# Architectural default-flip dc9723ea (2026-05-30): binary classification on
+# PytorchLightningClassifier now silently uses the 1-output sigmoid + BCE
+# head whenever ``len(self.classes_) == 2`` (training/neural/base.py:438-443).
+# There is no opt-in flag and no back-compat shim.
+#
+# Today no convenient builder-side hook exists to assert
+# ``model._binary_sigmoid_head is True`` after fit -- the fuzz harness does
+# not retain the fitted MLP estimator objects in the path that test_iter613
+# exercises (the suite builds them inside _phase_train_one_target and
+# discards once preds + metrics are stamped). Verification therefore stays
+# a TODO until either (a) the suite exposes a per-model fit-hook the fuzz
+# harness can opt into, or (b) a dedicated sensor in
+# tests/training/test_fuzz_regression_sensors.py spins up a single binary
+# MLP fit and inspects ``estimator._binary_sigmoid_head`` directly.
+#
+# Failure mode being guarded against: a downstream wrapper (calibration
+# wrapper, multilabel adapter, recurrent estimator subclass) silently
+# overrides the gate to ``False`` and reverts to the legacy 2-output
+# softmax head -- pickled-model state-dict incompatibility + (N, 2)
+# prediction-shape regressions follow without any other warning.
+#
+# Until then the gate is exercised indirectly: every binary-classification
+# fuzz combo flows through the new branch and a regression at
+# training/neural/base.py:438-443 surfaces as either a shape mismatch
+# downstream (predict_proba returns (N, 1) instead of (N, 2)) or a loss
+# mismatch (CE vs BCE).
