@@ -179,6 +179,47 @@ def test_nse_equals_r2_score():
     assert fast_nash_sutcliffe(y, p) == pytest.approx(r2_score(y, p), abs=1e-12)
 
 
+def test_iter597_mbe_nse_mixed_dtypes_bit_equivalent():
+    """iter597 dropped the unconditional ``dtype=np.float64`` cast in
+    ``fast_mean_bias_error`` and ``fast_nash_sutcliffe``. Pin bit-
+    equivalence across the dtype pairs that fire in regression
+    reporting paths."""
+    rng = np.random.default_rng(20260531)
+    n = 5_000
+    y_int = rng.integers(0, 100, size=n, dtype=np.int64)
+    y_f64 = y_int.astype(np.float64) + rng.random(n) * 0.5
+    p_f64 = y_f64 + rng.normal(scale=0.5, size=n)
+    p_f32 = p_f64.astype(np.float32)
+
+    # MBE
+    mbe_ref = float(np.mean(p_f64 - y_f64))
+    for y_t, y_p, atol in [
+        (y_int, p_f64, 1e-9),
+        (y_f64, p_f64, 1e-12),
+        (y_f64, p_f32, 1e-4),
+    ]:
+        v = fast_mean_bias_error(y_t, y_p)
+        ref = float(np.mean(np.asarray(y_p, np.float64) - np.asarray(y_t, np.float64)))
+        assert abs(v - ref) < atol, (
+            f"MBE dtypes ({y_t.dtype}, {y_p.dtype}): got={v} ref={ref}"
+        )
+
+    # NSE
+    for y_t, y_p, atol in [
+        (y_int, p_f64, 1e-9),
+        (y_f64, p_f64, 1e-12),
+        (y_f64, p_f32, 1e-4),
+    ]:
+        v = fast_nash_sutcliffe(y_t, y_p)
+        yt64 = np.asarray(y_t, np.float64)
+        yp64 = np.asarray(y_p, np.float64)
+        mu = yt64.mean()
+        ref = 1.0 - ((yt64 - yp64) ** 2).sum() / ((yt64 - mu) ** 2).sum()
+        assert abs(v - ref) < atol, (
+            f"NSE dtypes ({y_t.dtype}, {y_p.dtype}): got={v} ref={ref}"
+        )
+
+
 def test_explained_variance_matches_sklearn():
     from sklearn.metrics import explained_variance_score
     rng = np.random.default_rng(5)

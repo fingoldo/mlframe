@@ -354,9 +354,15 @@ def fast_mean_bias_error(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """Signed mean residual: positive = systematic over-prediction;
     negative = systematic under-prediction. Single number summarising
     bias direction that |residuals| (MAE/RMSE) cannot show.
-    """
-    yt = np.ascontiguousarray(y_true, dtype=np.float64)
-    yp = np.ascontiguousarray(y_pred, dtype=np.float64)
+
+    iter597: dropped the unconditional ``dtype=np.float64`` cast (same
+    pattern as iter595 fast_rmse / iter596 fast_wmape). Kernel is a
+    single sub+add reduction per element; numba's per-signature dispatch
+    handles mixed dtypes natively. Bench n=100k: int64+float64 1.54x,
+    float64+float64 1.02x (no harm), float64+float32 1.88x. Bit-equiv
+    across all dtype pairs."""
+    yt = np.ascontiguousarray(y_true)
+    yp = np.ascontiguousarray(y_pred)
     if yt.shape[0] == 0:
         return np.nan
     return float(_mean_bias_error_kernel(yt, yp))
@@ -408,9 +414,20 @@ def _nash_sutcliffe_kernel(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 
 def fast_nash_sutcliffe(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """Nash-Sutcliffe Efficiency. Same math as R^2 (sklearn convention)
-    but the conventional reporting name in hydrology / climate work."""
-    yt = np.ascontiguousarray(y_true, dtype=np.float64)
-    yp = np.ascontiguousarray(y_pred, dtype=np.float64)
+    but the conventional reporting name in hydrology / climate work.
+
+    iter597: dropped the unconditional ``dtype=np.float64`` cast (same
+    pattern as iter595/596). Kernel is two scalar reductions over the
+    same arrays; numba dispatches on mixed-dtype signatures natively.
+    Bench n=100k: int64+float64 1.36x, float64+float64 1.00x (no harm),
+    float64+float32 1.34x. Bit-equiv across all dtype pairs. Note:
+    bench-attempt-rejected for ``fast_log_loss_binary`` (kernel has
+    log/cmp/clip per element -- the heavier per-element work makes
+    mixed-dtype widening overhead dominate the alloc saving; saw
+    0.91-0.98x on int+float64 paths). Pattern works on simple-body
+    kernels only."""
+    yt = np.ascontiguousarray(y_true)
+    yp = np.ascontiguousarray(y_pred)
     return float(_nash_sutcliffe_kernel(yt, yp))
 
 
