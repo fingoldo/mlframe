@@ -375,13 +375,20 @@ def _setup_per_target_mlframe_models(
             from ..feature_drift_report import (
                 translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs,
             )
-            _mlframe_override = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
-                _sklearn_override,
-            )
-            _untranslated = _mlframe_override.pop("__untranslated__", None)
             _orig_mlp_kwargs = (
                 getattr(hyperparams_config, "mlp_kwargs", None) or {}
             )
+            # 2026-05-31 audit-pass-10 #1: pass existing mlp_kwargs so the
+            # translator can preserve a caller-pinned optimizer (e.g.
+            # MuonAdamWHybrid). Previously the translator hardcoded
+            # ``optimizer=torch.optim.AdamW`` whenever ``alpha`` was present
+            # in the sklearn-shape override, and the deep-merge below
+            # silently overwrote a user's Muon choice.
+            _mlframe_override = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
+                _sklearn_override,
+                existing_mlp_kwargs=_orig_mlp_kwargs,
+            )
+            _untranslated = _mlframe_override.pop("__untranslated__", None)
             _merged_mlp_kwargs = dict(_orig_mlp_kwargs)
             for _slot in ("model_params", "network_params"):
                 if _slot in _mlframe_override:

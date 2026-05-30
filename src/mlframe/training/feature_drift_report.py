@@ -236,14 +236,22 @@ imported the flat constant before per-type thresholds landed."""
 
 def translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
     sklearn_overrides: Dict[str, Any],
+    existing_mlp_kwargs: "Dict[str, Any] | None" = None,
 ) -> Dict[str, Any]:
     """Translate a sklearn-MLPRegressor-shape override dict (produced by the
     robustness bench) into the nested ``mlp_kwargs`` shape consumed by the
     mlframe MLP builder in ``training/helpers.py:get_training_configs``.
 
     Keys recognised on input (sklearn naming):
-      - ``alpha`` (float): L2 weight decay -> mlframe routes via AdamW
-        optimizer with ``weight_decay``.
+      - ``alpha`` (float): L2 weight decay -> mlframe routes via the
+        caller-resolved optimizer's ``weight_decay`` kwarg (AdamW /
+        MuonAdamWHybrid / any other ``torch.optim`` that accepts
+        ``weight_decay``). When ``existing_mlp_kwargs`` already sets
+        ``model_params["optimizer"]`` we DO NOT overwrite it -- the
+        caller's choice wins, only ``optimizer_kwargs["weight_decay"]``
+        is injected. When no optimizer is preset, we default to
+        ``torch.optim.AdamW`` (the LightningModule's own default at
+        ``training/neural/_flat_torch_module.py:86``).
       - ``hidden_layer_sizes`` (tuple[int, ...]): output topology ->
         ``network_params`` ``nlayers`` + neuron sizes.
       - ``activation`` (str): {"relu", "tanh", "identity", "leaky_relu"}.
@@ -270,7 +278,20 @@ def translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
         try:
             import torch  # local import: torch is an MLP-only optional dep.
             out.setdefault("model_params", {})
-            out["model_params"]["optimizer"] = torch.optim.AdamW
+            # Preserve a caller-supplied optimizer (e.g. MuonAdamWHybrid).
+            # Audit-pass-10 #1 surfaced this as a real bug: hardcoding
+            # torch.optim.AdamW here silently overwrote the user's Muon
+            # choice whenever ``alpha`` was in sklearn_overrides AND the
+            # downstream deep-merge at
+            # ``training/core/_phase_train_one_target_model_setup.py``
+            # had ``{**existing, **override}`` direction. We now only
+            # set the optimizer when the caller did not pin one.
+            _existing_optimizer = None
+            if existing_mlp_kwargs:
+                _existing_model_params = existing_mlp_kwargs.get("model_params") or {}
+                _existing_optimizer = _existing_model_params.get("optimizer")
+            if _existing_optimizer is None:
+                out["model_params"]["optimizer"] = torch.optim.AdamW
             out["model_params"].setdefault("optimizer_kwargs", {})
             out["model_params"]["optimizer_kwargs"]["weight_decay"] = float(
                 sklearn_overrides["alpha"]

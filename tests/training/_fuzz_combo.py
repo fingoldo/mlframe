@@ -1365,6 +1365,52 @@ AXES: dict[str, tuple[Any, ...]] = {
     # collapses to True outside (use_mrmr_fs AND master==True).
     "mrmr_fe_hybrid_orth_enable_cfg": (False, True),
     "mrmr_fe_hybrid_orth_pair_enable_cfg": (False, True),
+    # 2026-05-31 audit-pass-10 (W10) axes. Each extends iter615's master-on
+    # hybrid-orth axis with the per-stage tunables that were exposed in
+    # 8e385854 but never wired into the fuzz harness; plus a brand-new
+    # optimizer axis covering the MuonAdamWHybrid path (F-33). Defaults
+    # source-verified at HEAD:
+    #   #1 mlp_optimizer_cfg = "adamw"
+    #      (training/neural/_flat_torch_module.py:86 -- default falls back
+    #      to torch.optim.AdamW when caller does not override). The Muon
+    #      alternative wires MuonAdamWHybrid via mlp_kwargs["model_params"]
+    #      ["optimizer"] = MuonAdamWHybrid (per _muon_optimizer.py:20 wiring
+    #      contract). Canon collapses to "adamw" outside 'mlp' in models.
+    #   #2 mrmr_fe_hybrid_orth_degrees_cfg = (2, 3)
+    #      (feature_selection/filters/mrmr.py:657). Pair: (2, 3) vs (2,).
+    #      Canon collapses to (2, 3) outside (use_mrmr_fs AND master==True).
+    #   #3 mrmr_fe_hybrid_orth_basis_cfg = "auto"
+    #      (feature_selection/filters/mrmr.py:658). Pair: "auto" vs "hermite".
+    #      Canon collapses to "auto" outside (use_mrmr_fs AND master==True).
+    #   #4 mrmr_fe_hybrid_orth_top_k_cfg = 5
+    #      (feature_selection/filters/mrmr.py:663). Pair: 5 vs 1 (tie-break
+    #      stress). Canon collapses to 5 outside (use_mrmr_fs AND master==True).
+    #   #5 BLOCKED -- qcut hidden constants (n_unique<=32 threshold + q=10)
+    #      live at _mrmr_fit_impl.py:276,281 as HARDCODED magic numbers, NOT
+    #      MRMR ctor params. No fuzz axis can wire them today; the wiring
+    #      requires a prior MRMR.__init__ promotion (e.g.
+    #      ``fe_hybrid_orth_discrete_y_uniques_threshold`` +
+    #      ``fe_hybrid_orth_qcut_bins`` ctor kwargs). See TODO marker below.
+    #   #6 mrmr_fe_hybrid_orth_pair_max_degree_cfg = 2
+    #      (feature_selection/filters/mrmr.py:665). Pair: 2 vs 3. Canon
+    #      collapses to 2 outside (use_mrmr_fs AND master==True AND
+    #      pair_enable==True) -- compound gate matches the pair-stage gate.
+    "mlp_optimizer_cfg": ("adamw", "muon_hybrid"),
+    "mrmr_fe_hybrid_orth_degrees_cfg": ((2, 3), (2,)),
+    "mrmr_fe_hybrid_orth_basis_cfg": ("auto", "hermite"),
+    "mrmr_fe_hybrid_orth_top_k_cfg": (5, 1),
+    "mrmr_fe_hybrid_orth_pair_max_degree_cfg": (2, 3),
+    # TODO(audit-pass-10 #5 -- ctor-promotion gap): the hybrid MI scorer at
+    # ``_mrmr_fit_impl.py:276,281`` hardcodes ``n_unique<=32`` and
+    # ``pd.qcut(q=10)`` as the discrete-vs-continuous y bucketing constants.
+    # Neither is exposed via ``MRMR.__init__`` today, so the fuzz harness
+    # cannot wire them as axes without a prior promotion step. Promote both
+    # to ctor params (suggested names ``fe_hybrid_orth_discrete_y_uniques_threshold``
+    # and ``fe_hybrid_orth_qcut_bins``) and then add the matching
+    # ``mrmr_qcut_unique_threshold_cfg`` (e.g. (32, 16)) / ``mrmr_qcut_q_cfg``
+    # (e.g. (10, 5)) axes here. Until then, Layer 24 Scenario D pins R^2>=0.85
+    # at the implicit q=10/threshold=32 calibration and there is no fuzz
+    # discrimination across alternate values.
 }
 
 
@@ -1923,6 +1969,27 @@ class FuzzCombo:
     mlp_numerical_embedding_kwargs_cfg: str = "paper_default"
     mrmr_fe_hybrid_orth_enable_cfg: bool = False
     mrmr_fe_hybrid_orth_pair_enable_cfg: bool = True
+    # 2026-05-31 audit-pass-10 (W10). Defaults source-verified at HEAD:
+    #   #1 mlp_optimizer_cfg = "adamw"
+    #      (training/neural/_flat_torch_module.py:86 -- ``optimizer = optimizer
+    #      or torch.optim.AdamW`` falls back to AdamW when caller did not
+    #      override). MuonAdamWHybrid class lives at
+    #      training/neural/_muon_optimizer.py:123; wiring contract per
+    #      docstring at _muon_optimizer.py:20: model_params["optimizer"] =
+    #      MuonAdamWHybrid.
+    #   #2 mrmr_fe_hybrid_orth_degrees_cfg = (2, 3)
+    #      (feature_selection/filters/mrmr.py:657)
+    #   #3 mrmr_fe_hybrid_orth_basis_cfg = "auto"
+    #      (feature_selection/filters/mrmr.py:658)
+    #   #4 mrmr_fe_hybrid_orth_top_k_cfg = 5
+    #      (feature_selection/filters/mrmr.py:663)
+    #   #6 mrmr_fe_hybrid_orth_pair_max_degree_cfg = 2
+    #      (feature_selection/filters/mrmr.py:665)
+    mlp_optimizer_cfg: str = "adamw"
+    mrmr_fe_hybrid_orth_degrees_cfg: "tuple[int, ...]" = (2, 3)
+    mrmr_fe_hybrid_orth_basis_cfg: str = "auto"
+    mrmr_fe_hybrid_orth_top_k_cfg: int = 5
+    mrmr_fe_hybrid_orth_pair_max_degree_cfg: int = 2
 
     def canonical_key(self) -> tuple:
         """Hashable tuple used for dedup. Canonicalizes semantically
@@ -3365,6 +3432,66 @@ class FuzzCombo:
             # there); F-23 inject_inf_nan-vs-MLP mirror is applied at the
             # PRIMARY inject_inf_nan slot earlier (see comment there). Both
             # are NOT duplicated here.
+            # ------------------------------------------------------------
+            # 2026-05-31 audit-pass-10 (W10). Five new axes; each collapses
+            # to its source default outside the documented gate.
+            #
+            # #1 mlp_optimizer: collapses to "adamw" outside 'mlp' in
+            # models. _flat_torch_module.py:86 falls back to AdamW when
+            # caller does not supply the optimizer; both variants reduce
+            # to the same code path on non-MLP combos.
+            (
+                self.mlp_optimizer_cfg
+                if "mlp" in self.models
+                else "adamw"
+            ),
+            # #2 mrmr_fe_hybrid_orth_degrees: collapses to source default
+            # (2, 3) outside (use_mrmr_fs AND master==True) -- the hybrid
+            # FE pipeline only fires under that compound gate, so the
+            # tuple variants are behaviour-identical otherwise.
+            (
+                self.mrmr_fe_hybrid_orth_degrees_cfg
+                if (
+                    self.use_mrmr_fs
+                    and self.mrmr_fe_hybrid_orth_enable_cfg
+                )
+                else (2, 3)
+            ),
+            # #3 mrmr_fe_hybrid_orth_basis: collapses to "auto" outside
+            # (use_mrmr_fs AND master==True). Same gate as #2; the basis
+            # routing only runs when the hybrid pipeline runs.
+            (
+                self.mrmr_fe_hybrid_orth_basis_cfg
+                if (
+                    self.use_mrmr_fs
+                    and self.mrmr_fe_hybrid_orth_enable_cfg
+                )
+                else "auto"
+            ),
+            # #4 mrmr_fe_hybrid_orth_top_k: collapses to 5 outside
+            # (use_mrmr_fs AND master==True). Same gate as #2.
+            (
+                self.mrmr_fe_hybrid_orth_top_k_cfg
+                if (
+                    self.use_mrmr_fs
+                    and self.mrmr_fe_hybrid_orth_enable_cfg
+                )
+                else 5
+            ),
+            # #6 mrmr_fe_hybrid_orth_pair_max_degree: compound gate --
+            # collapses to 2 outside (use_mrmr_fs AND master==True AND
+            # pair_enable==True). pair_max_degree only governs the
+            # pair-cross stage at _mrmr_fit_impl.py:292 which is gated
+            # behind ``_h_pair_enable`` (mrmr.py:664).
+            (
+                self.mrmr_fe_hybrid_orth_pair_max_degree_cfg
+                if (
+                    self.use_mrmr_fs
+                    and self.mrmr_fe_hybrid_orth_enable_cfg
+                    and self.mrmr_fe_hybrid_orth_pair_enable_cfg
+                )
+                else 2
+            ),
         )
 
     def _canonical_recurrent_model(self) -> "str | None":
@@ -4459,6 +4586,20 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         mrmr_fe_hybrid_orth_pair_enable_cfg=axes.get(
             "mrmr_fe_hybrid_orth_pair_enable_cfg", True
         ),
+        # 2026-05-31 audit-pass-10 (W10). Defaults mirror source verbatim.
+        mlp_optimizer_cfg=axes.get("mlp_optimizer_cfg", "adamw"),
+        mrmr_fe_hybrid_orth_degrees_cfg=axes.get(
+            "mrmr_fe_hybrid_orth_degrees_cfg", (2, 3)
+        ),
+        mrmr_fe_hybrid_orth_basis_cfg=axes.get(
+            "mrmr_fe_hybrid_orth_basis_cfg", "auto"
+        ),
+        mrmr_fe_hybrid_orth_top_k_cfg=axes.get(
+            "mrmr_fe_hybrid_orth_top_k_cfg", 5
+        ),
+        mrmr_fe_hybrid_orth_pair_max_degree_cfg=axes.get(
+            "mrmr_fe_hybrid_orth_pair_max_degree_cfg", 2
+        ),
     )
 
 
@@ -4563,6 +4704,16 @@ def build_mrmr_kwargs_from_flat(
     # is on). Names match MRMR.__init__ exactly.
     fe_hybrid_orth_enable: bool = False,
     fe_hybrid_orth_pair_enable: bool = True,
+    # 2026-05-31 audit-pass-10 (W10) #2/#3/#4/#6: per-stage hybrid-orth
+    # tunables. Defaults source-verified at filters/mrmr.py:657-665. Names
+    # match MRMR.__init__ exactly. Meaningful only when
+    # fe_hybrid_orth_enable=True (and pair_max_degree only meaningful when
+    # both master + pair_enable are on); callers should pass source defaults
+    # otherwise so the kwargs dict does not shadow downstream defaults.
+    fe_hybrid_orth_degrees: tuple = (2, 3),
+    fe_hybrid_orth_basis: str = "auto",
+    fe_hybrid_orth_top_k: int = 5,
+    fe_hybrid_orth_pair_max_degree: int = 2,
 ) -> Optional[Dict[str, Any]]:
     """Build the mrmr_kwargs dict passed to FeatureSelectionConfig.
     Returns None when use_mrmr_fs=False so the FS step is a no-op.
@@ -4628,6 +4779,17 @@ def build_mrmr_kwargs_from_flat(
         # Names match MRMR.__init__ exactly (filters/mrmr.py:656, :664).
         "fe_hybrid_orth_enable": fe_hybrid_orth_enable,
         "fe_hybrid_orth_pair_enable": fe_hybrid_orth_pair_enable,
+        # 2026-05-31 audit-pass-10 (W10) #2/#3/#4/#6: per-stage hybrid-orth
+        # tunables forwarded verbatim. Names match MRMR.__init__ exactly
+        # (filters/mrmr.py:657, :658, :663, :665). The canon-collapse layer
+        # at FuzzCombo.canonical_key absorbs phantom variation outside the
+        # compound gates, so we forward the raw axis values here -- inside
+        # the gate the hybrid pipeline is the only code path that reads
+        # them, outside the gate they are unread.
+        "fe_hybrid_orth_degrees": fe_hybrid_orth_degrees,
+        "fe_hybrid_orth_basis": fe_hybrid_orth_basis,
+        "fe_hybrid_orth_top_k": fe_hybrid_orth_top_k,
+        "fe_hybrid_orth_pair_max_degree": fe_hybrid_orth_pair_max_degree,
     }
     # 2026-05-30 audit-pass-7 #3/#4: per_feature_edges.kwargs threaded via
     # MRMR.nbins_strategy_kwargs. Build the dict only when one of these
@@ -4718,6 +4880,15 @@ def build_mrmr_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]:
         # both branches reachable via the pairwise sampler.
         fe_hybrid_orth_enable=combo.mrmr_fe_hybrid_orth_enable_cfg,
         fe_hybrid_orth_pair_enable=combo.mrmr_fe_hybrid_orth_pair_enable_cfg,
+        # 2026-05-31 audit-pass-10 (W10) #2/#3/#4/#6: per-stage hybrid-orth
+        # tunables. Canon-collapse at FuzzCombo.canonical_key reduces all
+        # four to source defaults outside the compound gate; the builder
+        # forwards the raw axis values so MRMR-on + master-on combos
+        # exercise the both branches reachable via the pairwise sampler.
+        fe_hybrid_orth_degrees=combo.mrmr_fe_hybrid_orth_degrees_cfg,
+        fe_hybrid_orth_basis=combo.mrmr_fe_hybrid_orth_basis_cfg,
+        fe_hybrid_orth_top_k=combo.mrmr_fe_hybrid_orth_top_k_cfg,
+        fe_hybrid_orth_pair_max_degree=combo.mrmr_fe_hybrid_orth_pair_max_degree_cfg,
     )
 
 
@@ -4766,6 +4937,16 @@ def build_mlp_kwargs_from_flat(
     use_residual: bool = False,
     numerical_embedding: "str | None" = None,
     numerical_embedding_kwargs_mode: str = "paper_default",
+    # 2026-05-31 audit-pass-10 (W10) #1: MLP optimizer selector. "adamw"
+    # leaves the LightningModule at its default optimizer
+    # (_flat_torch_module.py:86 falls back to torch.optim.AdamW when no
+    # override is passed); "muon_hybrid" plumbs MuonAdamWHybrid via
+    # mlp_kwargs["model_params"]["optimizer"]. The MuonAdamWHybrid class
+    # auto-splits the parameter list into the 2D-hidden group
+    # (Newton-Schulz orthogonalized) and the 1D / non-2D group (AdamW)
+    # internally; Lightning sees a single Optimizer instance, so no
+    # additional configure_optimizers branching is required.
+    optimizer: str = "adamw",
 ) -> Optional[Dict[str, Any]]:
     """Build the mlp_kwargs dict forwarded into PytorchLightningEstimator /
     PytorchLightningClassifier constructors. Returns None when neither MLP
@@ -4863,6 +5044,20 @@ def build_mlp_kwargs_from_flat(
                 }
             # "paper_default" leaves the kwargs dict unset so the module
             # ctor falls through to its library defaults.
+        # 2026-05-31 audit-pass-10 (W10) #1: MLP optimizer selector. "adamw"
+        # is the library default (no kwargs emission so the LightningModule
+        # falls back to torch.optim.AdamW at _flat_torch_module.py:86);
+        # "muon_hybrid" wires MuonAdamWHybrid via model_params per the
+        # contract docstring at training/neural/_muon_optimizer.py:20.
+        # The MuonAdamWHybrid ctor bakes its own betas=(0.9, 0.95) default
+        # (_muon_optimizer.py:156) for the internal AdamW sub-optimizer,
+        # so the #1 (W9) adamw_betas axis is INEFFECTIVE under this branch
+        # (canon-collapse at FuzzCombo level pins betas to (0.9, 0.95) in
+        # the muon_hybrid branch).
+        if optimizer == "muon_hybrid":
+            from mlframe.training.neural._muon_optimizer import MuonAdamWHybrid
+            kwargs.setdefault("model_params", {})
+            kwargs["model_params"]["optimizer"] = MuonAdamWHybrid
     return kwargs
 
 
@@ -4886,6 +5081,8 @@ def build_mlp_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]:
         use_residual=combo.mlp_use_residual_cfg,
         numerical_embedding=combo.mlp_numerical_embedding_cfg,
         numerical_embedding_kwargs_mode=combo.mlp_numerical_embedding_kwargs_cfg,
+        # 2026-05-31 audit-pass-10 (W10) #1.
+        optimizer=combo.mlp_optimizer_cfg,
     )
 
 

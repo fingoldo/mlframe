@@ -3102,3 +3102,319 @@ def test_iter615_audit_pass_9_axes_flow_to_kwargs():
         "#8: multi_target_regression must produce distinct canonical key "
         "from regression when 'mlp' is in models"
     )
+
+
+# ---------------------------------------------------------------------------
+# 2026-05-31 audit-pass-10 (W10): 1 HIGH Muon optimizer + 4 MED MRMR
+# hybrid_orth sub-axes + 1 LOW pair_max_degree. Finding #5 (qcut hidden
+# constants) is BLOCKED on MRMR ctor promotion; tracked as a TODO marker
+# in _fuzz_combo.py AXES dict.
+# ---------------------------------------------------------------------------
+
+
+def test_iter617_audit_pass_10_axes_flow_to_kwargs():
+    """5 audit-pass-10 (W10) fuzz axes must:
+      (a) Dataclass defaults mirror HEAD source verbatim:
+            #1 mlp_optimizer_cfg = "adamw"
+               (training/neural/_flat_torch_module.py:86 -- the fallback
+               ``optimizer = optimizer or torch.optim.AdamW``; the Muon
+               class lives at training/neural/_muon_optimizer.py:123 and
+               wires via ``model_params["optimizer"] = MuonAdamWHybrid``).
+            #2 mrmr_fe_hybrid_orth_degrees_cfg = (2, 3)
+               (feature_selection/filters/mrmr.py:657)
+            #3 mrmr_fe_hybrid_orth_basis_cfg = "auto"
+               (feature_selection/filters/mrmr.py:658)
+            #4 mrmr_fe_hybrid_orth_top_k_cfg = 5
+               (feature_selection/filters/mrmr.py:663)
+            #6 mrmr_fe_hybrid_orth_pair_max_degree_cfg = 2
+               (feature_selection/filters/mrmr.py:665)
+      (b) Each axis pair is present in AXES with the values listed in the
+          audit.
+      (c) Canon-collapse rules hold:
+            #1 collapses to "adamw" outside 'mlp' in models.
+            #2 collapses to (2, 3) outside (use_mrmr_fs AND master==True).
+            #3 collapses to "auto" outside (use_mrmr_fs AND master==True).
+            #4 collapses to 5 outside (use_mrmr_fs AND master==True).
+            #6 collapses to 2 outside (use_mrmr_fs AND master==True AND
+               pair_enable==True).
+      (d) Threading produces the expected kwargs subdicts:
+            #1 flows via build_mlp_kwargs into
+               mlp_kwargs["model_params"]["optimizer"] = MuonAdamWHybrid
+               (or stays absent for "adamw").
+            #2/#3/#4/#6 flow via build_mrmr_kwargs as
+               ``fe_hybrid_orth_degrees`` / ``fe_hybrid_orth_basis`` /
+               ``fe_hybrid_orth_top_k`` / ``fe_hybrid_orth_pair_max_degree``.
+      (e) enumerate_combos still returns 150 at the audit-recommended
+          master_seed.
+      (f) Distinct canonical keys hold under the compound-gate-on
+          configuration for each axis.
+      (g) Finding #5 (qcut hidden constants) is intentionally NOT wired
+          here; tracked via TODO marker in _fuzz_combo.py AXES so future
+          MRMR ctor promotion can land the axes in one pass.
+    """
+    from tests.training._fuzz_combo import (
+        AXES, FuzzCombo, _build_combo, enumerate_combos,
+        build_mlp_kwargs, build_mrmr_kwargs,
+    )
+
+    # (a) Dataclass defaults mirror HEAD source.
+    fields = FuzzCombo.__dataclass_fields__
+    assert fields["mlp_optimizer_cfg"].default == "adamw", (
+        "audit-pass-10 #1: default must mirror "
+        "training/neural/_flat_torch_module.py:86 (\"adamw\" fallback)"
+    )
+    assert fields["mrmr_fe_hybrid_orth_degrees_cfg"].default == (2, 3), (
+        "audit-pass-10 #2: default must mirror "
+        "feature_selection/filters/mrmr.py:657 ((2, 3))"
+    )
+    assert fields["mrmr_fe_hybrid_orth_basis_cfg"].default == "auto", (
+        "audit-pass-10 #3: default must mirror "
+        "feature_selection/filters/mrmr.py:658 (\"auto\")"
+    )
+    assert fields["mrmr_fe_hybrid_orth_top_k_cfg"].default == 5, (
+        "audit-pass-10 #4: default must mirror "
+        "feature_selection/filters/mrmr.py:663 (5)"
+    )
+    assert fields["mrmr_fe_hybrid_orth_pair_max_degree_cfg"].default == 2, (
+        "audit-pass-10 #6: default must mirror "
+        "feature_selection/filters/mrmr.py:665 (2)"
+    )
+
+    # (b) AXES presence with the audit-listed pairs.
+    assert AXES["mlp_optimizer_cfg"] == ("adamw", "muon_hybrid")
+    assert AXES["mrmr_fe_hybrid_orth_degrees_cfg"] == ((2, 3), (2,))
+    assert AXES["mrmr_fe_hybrid_orth_basis_cfg"] == ("auto", "hermite")
+    assert AXES["mrmr_fe_hybrid_orth_top_k_cfg"] == (5, 1)
+    assert AXES["mrmr_fe_hybrid_orth_pair_max_degree_cfg"] == (2, 3)
+
+    base_axes = {name: values[0] for name, values in AXES.items()}
+
+    # (e) enumerate_combos still returns 150 at master_seed=20260601.
+    combos = enumerate_combos(target=150, master_seed=20260601)
+    assert len(combos) == 150, f"enumerate_combos lost combos: {len(combos)}"
+
+    # ------------------------------------------------------------------
+    # (c) Canon-collapse rules.
+    # ------------------------------------------------------------------
+
+    # (c-1) #1 optimizer canon-collapse: no MLP -> both values collapse to
+    # source default "adamw".
+    off1_a = dict(base_axes); off1_a["mlp_optimizer_cfg"] = "muon_hybrid"
+    off1_b = dict(off1_a); off1_b["mlp_optimizer_cfg"] = "adamw"
+    c_off1_a = _build_combo(models=("cb",), axes=off1_a, seed=0)
+    c_off1_b = _build_combo(models=("cb",), axes=off1_b, seed=0)
+    assert c_off1_a.canonical_key() == c_off1_b.canonical_key(), (
+        "audit-pass-10 #1: must canon-collapse when 'mlp' not in models"
+    )
+
+    # (c-2) #2 degrees canon-collapse: use_mrmr_fs=False -> both collapse.
+    off2_a = dict(base_axes); off2_a.update(
+        use_mrmr_fs=False,
+        mrmr_fe_hybrid_orth_enable_cfg=True,
+        mrmr_fe_hybrid_orth_degrees_cfg=(2,),
+    )
+    off2_b = dict(off2_a); off2_b["mrmr_fe_hybrid_orth_degrees_cfg"] = (2, 3)
+    c_off2_a = _build_combo(models=("cb",), axes=off2_a, seed=0)
+    c_off2_b = _build_combo(models=("cb",), axes=off2_b, seed=0)
+    assert c_off2_a.canonical_key() == c_off2_b.canonical_key(), (
+        "audit-pass-10 #2: must canon-collapse when use_mrmr_fs=False"
+    )
+    # use_mrmr_fs=True but master=False -> still collapses (hybrid stage off).
+    off2_c = dict(base_axes); off2_c.update(
+        use_mrmr_fs=True,
+        mrmr_fe_hybrid_orth_enable_cfg=False,
+        mrmr_fe_hybrid_orth_degrees_cfg=(2,),
+    )
+    off2_d = dict(off2_c); off2_d["mrmr_fe_hybrid_orth_degrees_cfg"] = (2, 3)
+    c_off2_c = _build_combo(models=("cb",), axes=off2_c, seed=0)
+    c_off2_d = _build_combo(models=("cb",), axes=off2_d, seed=0)
+    assert c_off2_c.canonical_key() == c_off2_d.canonical_key(), (
+        "audit-pass-10 #2: must canon-collapse when hybrid master=False"
+    )
+
+    # (c-3) #3 basis canon-collapse: use_mrmr_fs=False -> both collapse.
+    off3_a = dict(base_axes); off3_a.update(
+        use_mrmr_fs=False,
+        mrmr_fe_hybrid_orth_enable_cfg=True,
+        mrmr_fe_hybrid_orth_basis_cfg="hermite",
+    )
+    off3_b = dict(off3_a); off3_b["mrmr_fe_hybrid_orth_basis_cfg"] = "auto"
+    c_off3_a = _build_combo(models=("cb",), axes=off3_a, seed=0)
+    c_off3_b = _build_combo(models=("cb",), axes=off3_b, seed=0)
+    assert c_off3_a.canonical_key() == c_off3_b.canonical_key(), (
+        "audit-pass-10 #3: must canon-collapse when use_mrmr_fs=False"
+    )
+
+    # (c-4) #4 top_k canon-collapse: use_mrmr_fs=False -> both collapse.
+    off4_a = dict(base_axes); off4_a.update(
+        use_mrmr_fs=False,
+        mrmr_fe_hybrid_orth_enable_cfg=True,
+        mrmr_fe_hybrid_orth_top_k_cfg=1,
+    )
+    off4_b = dict(off4_a); off4_b["mrmr_fe_hybrid_orth_top_k_cfg"] = 5
+    c_off4_a = _build_combo(models=("cb",), axes=off4_a, seed=0)
+    c_off4_b = _build_combo(models=("cb",), axes=off4_b, seed=0)
+    assert c_off4_a.canonical_key() == c_off4_b.canonical_key(), (
+        "audit-pass-10 #4: must canon-collapse when use_mrmr_fs=False"
+    )
+
+    # (c-6) #6 pair_max_degree canon-collapse: pair_enable=False -> both
+    # collapse (pair stage doesn't fire, max_degree is unread).
+    off6_a = dict(base_axes); off6_a.update(
+        use_mrmr_fs=True,
+        mrmr_fe_hybrid_orth_enable_cfg=True,
+        mrmr_fe_hybrid_orth_pair_enable_cfg=False,
+        mrmr_fe_hybrid_orth_pair_max_degree_cfg=3,
+    )
+    off6_b = dict(off6_a); off6_b["mrmr_fe_hybrid_orth_pair_max_degree_cfg"] = 2
+    c_off6_a = _build_combo(models=("cb",), axes=off6_a, seed=0)
+    c_off6_b = _build_combo(models=("cb",), axes=off6_b, seed=0)
+    assert c_off6_a.canonical_key() == c_off6_b.canonical_key(), (
+        "audit-pass-10 #6: must canon-collapse when pair_enable=False"
+    )
+    # And when master=False -> still collapses (pair stage gated on master).
+    off6_c = dict(base_axes); off6_c.update(
+        use_mrmr_fs=True,
+        mrmr_fe_hybrid_orth_enable_cfg=False,
+        mrmr_fe_hybrid_orth_pair_enable_cfg=True,
+        mrmr_fe_hybrid_orth_pair_max_degree_cfg=3,
+    )
+    off6_d = dict(off6_c); off6_d["mrmr_fe_hybrid_orth_pair_max_degree_cfg"] = 2
+    c_off6_c = _build_combo(models=("cb",), axes=off6_c, seed=0)
+    c_off6_d = _build_combo(models=("cb",), axes=off6_d, seed=0)
+    assert c_off6_c.canonical_key() == c_off6_d.canonical_key(), (
+        "audit-pass-10 #6: must canon-collapse when hybrid master=False"
+    )
+
+    # ------------------------------------------------------------------
+    # (d) Threading.
+    # ------------------------------------------------------------------
+
+    # (d-1) #1 optimizer threading: MLP active + "muon_hybrid" ->
+    # model_params["optimizer"] is set to MuonAdamWHybrid.
+    on1 = dict(base_axes); on1["mlp_optimizer_cfg"] = "muon_hybrid"
+    c_on1 = _build_combo(models=("mlp",), axes=on1, seed=0)
+    kw1 = build_mlp_kwargs(c_on1)
+    assert kw1 is not None
+    from mlframe.training.neural._muon_optimizer import MuonAdamWHybrid
+    assert kw1.get("model_params", {}).get("optimizer") is MuonAdamWHybrid, (
+        f"#1 muon_hybrid did not thread MuonAdamWHybrid into model_params: "
+        f"{kw1.get('model_params')!r}"
+    )
+    # "adamw" -> no optimizer key (LightningModule falls back to AdamW).
+    on1_adamw = dict(base_axes); on1_adamw["mlp_optimizer_cfg"] = "adamw"
+    c_on1_adamw = _build_combo(models=("mlp",), axes=on1_adamw, seed=0)
+    kw1_adamw = build_mlp_kwargs(c_on1_adamw)
+    assert "optimizer" not in kw1_adamw.get("model_params", {}), (
+        "#1 'adamw' must NOT emit a model_params['optimizer'] key "
+        "(library default at _flat_torch_module.py:86)"
+    )
+
+    # (d-2) #2 degrees threading: MRMR active + master on -> fe_hybrid_orth_degrees
+    # surfaces with the axis value.
+    on2 = dict(base_axes); on2.update(
+        use_mrmr_fs=True,
+        mrmr_fe_hybrid_orth_enable_cfg=True,
+        mrmr_fe_hybrid_orth_degrees_cfg=(2,),
+    )
+    c_on2 = _build_combo(models=("cb",), axes=on2, seed=0)
+    mk2 = build_mrmr_kwargs(c_on2)
+    assert mk2 is not None
+    assert mk2.get("fe_hybrid_orth_degrees") == (2,), (
+        f"#2 fe_hybrid_orth_degrees did not thread: "
+        f"{mk2.get('fe_hybrid_orth_degrees')!r}"
+    )
+
+    # (d-3) #3 basis threading.
+    on3 = dict(base_axes); on3.update(
+        use_mrmr_fs=True,
+        mrmr_fe_hybrid_orth_enable_cfg=True,
+        mrmr_fe_hybrid_orth_basis_cfg="hermite",
+    )
+    c_on3 = _build_combo(models=("cb",), axes=on3, seed=0)
+    mk3 = build_mrmr_kwargs(c_on3)
+    assert mk3.get("fe_hybrid_orth_basis") == "hermite", (
+        f"#3 fe_hybrid_orth_basis did not thread: "
+        f"{mk3.get('fe_hybrid_orth_basis')!r}"
+    )
+
+    # (d-4) #4 top_k threading.
+    on4 = dict(base_axes); on4.update(
+        use_mrmr_fs=True,
+        mrmr_fe_hybrid_orth_enable_cfg=True,
+        mrmr_fe_hybrid_orth_top_k_cfg=1,
+    )
+    c_on4 = _build_combo(models=("cb",), axes=on4, seed=0)
+    mk4 = build_mrmr_kwargs(c_on4)
+    assert mk4.get("fe_hybrid_orth_top_k") == 1, (
+        f"#4 fe_hybrid_orth_top_k did not thread: "
+        f"{mk4.get('fe_hybrid_orth_top_k')!r}"
+    )
+
+    # (d-6) #6 pair_max_degree threading: full compound gate on.
+    on6 = dict(base_axes); on6.update(
+        use_mrmr_fs=True,
+        mrmr_fe_hybrid_orth_enable_cfg=True,
+        mrmr_fe_hybrid_orth_pair_enable_cfg=True,
+        mrmr_fe_hybrid_orth_pair_max_degree_cfg=3,
+    )
+    c_on6 = _build_combo(models=("cb",), axes=on6, seed=0)
+    mk6 = build_mrmr_kwargs(c_on6)
+    assert mk6.get("fe_hybrid_orth_pair_max_degree") == 3, (
+        f"#6 fe_hybrid_orth_pair_max_degree did not thread: "
+        f"{mk6.get('fe_hybrid_orth_pair_max_degree')!r}"
+    )
+
+    # use_mrmr_fs=False -> build_mrmr_kwargs returns None.
+    off_full = dict(base_axes); off_full.update(
+        use_mrmr_fs=False,
+        mrmr_fe_hybrid_orth_enable_cfg=True,
+        mrmr_fe_hybrid_orth_degrees_cfg=(2,),
+        mrmr_fe_hybrid_orth_basis_cfg="hermite",
+        mrmr_fe_hybrid_orth_top_k_cfg=1,
+        mrmr_fe_hybrid_orth_pair_max_degree_cfg=3,
+    )
+    assert build_mrmr_kwargs(
+        _build_combo(models=("cb",), axes=off_full, seed=0)
+    ) is None, (
+        "audit-pass-10 #2/#3/#4/#6: mrmr_kwargs must be None when use_mrmr_fs=False"
+    )
+
+    # ------------------------------------------------------------------
+    # (f) Distinct canonical_keys under compound-gate-on.
+    # ------------------------------------------------------------------
+
+    # #1 distinct under 'mlp' in models.
+    on1_def = dict(on1); on1_def["mlp_optimizer_cfg"] = "adamw"
+    c_on1_def = _build_combo(models=("mlp",), axes=on1_def, seed=0)
+    assert c_on1.canonical_key() != c_on1_def.canonical_key(), (
+        "#1: 'muon_hybrid' must produce distinct canonical key under 'mlp'"
+    )
+    # #2 distinct under use_mrmr_fs+master.
+    on2_def = dict(on2); on2_def["mrmr_fe_hybrid_orth_degrees_cfg"] = (2, 3)
+    c_on2_def = _build_combo(models=("cb",), axes=on2_def, seed=0)
+    assert c_on2.canonical_key() != c_on2_def.canonical_key(), (
+        "#2: (2,) degrees must produce distinct canonical key under "
+        "use_mrmr_fs+master compound gate"
+    )
+    # #3 distinct under use_mrmr_fs+master.
+    on3_def = dict(on3); on3_def["mrmr_fe_hybrid_orth_basis_cfg"] = "auto"
+    c_on3_def = _build_combo(models=("cb",), axes=on3_def, seed=0)
+    assert c_on3.canonical_key() != c_on3_def.canonical_key(), (
+        "#3: 'hermite' basis must produce distinct canonical key under "
+        "use_mrmr_fs+master compound gate"
+    )
+    # #4 distinct under use_mrmr_fs+master.
+    on4_def = dict(on4); on4_def["mrmr_fe_hybrid_orth_top_k_cfg"] = 5
+    c_on4_def = _build_combo(models=("cb",), axes=on4_def, seed=0)
+    assert c_on4.canonical_key() != c_on4_def.canonical_key(), (
+        "#4: top_k=1 must produce distinct canonical key under "
+        "use_mrmr_fs+master compound gate"
+    )
+    # #6 distinct under use_mrmr_fs+master+pair_enable.
+    on6_def = dict(on6); on6_def["mrmr_fe_hybrid_orth_pair_max_degree_cfg"] = 2
+    c_on6_def = _build_combo(models=("cb",), axes=on6_def, seed=0)
+    assert c_on6.canonical_key() != c_on6_def.canonical_key(), (
+        "#6: pair_max_degree=3 must produce distinct canonical key under "
+        "use_mrmr_fs+master+pair_enable compound gate"
+    )
