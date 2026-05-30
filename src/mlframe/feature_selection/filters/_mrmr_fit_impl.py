@@ -968,6 +968,15 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         # Empty support_ fallback: rank by raw MI(X_j, y) so downstream pipelines don't crash on 0-feature
         # transform output. Only triggers when min_features_fallback >= 1 (off by default).
         _min_fb = int(getattr(self, "min_features_fallback", 0) or 0)
+        # 2026-05-30 Wave 9.1 fix (loop iter 39): hoist the
+        # ``warnings.warn`` OUT of the try block. Pre-fix the warning
+        # was inside ``try:`` and the surrounding ``except Exception``
+        # caught it under ``simplefilter('error', UserWarning)`` -
+        # making the user-facing warning indistinguishable from a real
+        # fallback failure (and silently dropping it). Now the
+        # try/except scopes only the MI computation; the warning fires
+        # afterwards on the successful path.
+        _fallback_msg = None
         if _min_fb >= 1 and self.n_features_in_ > 0:
             try:
                 # Rank by cached confident MI with the target; take top-K. cached_MIs may not be populated;
@@ -986,18 +995,34 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     self.support_ = np.array(_topk)
                     self.n_features_ = len(_topk)
                     self.fallback_used_ = True
-                    logger.warning(
-                        "MRMR: screening returned 0 features; falling back "
-                        "to top-%d by raw MI(X_j, y). Set "
-                        "min_features_fallback=0 to disable. "
-                        "fallback_used_=True is set on the estimator.",
-                        self.n_features_,
+                    _top_mi = float(_raw_mi[0][1]) if _raw_mi else 0.0
+                    _uninformative = _top_mi <= 0.0
+                    _fallback_msg = (
+                        f"MRMR: screening returned 0 features; falling "
+                        f"back to top-{self.n_features_} by raw "
+                        f"MI(X_j, y). Set min_features_fallback=0 to "
+                        f"disable. fallback_used_=True is set on the "
+                        f"estimator."
                     )
+                    if _uninformative:
+                        _fallback_msg = (
+                            f"{_fallback_msg} All candidates have MI <= 0 "
+                            f"(e.g. constant X columns or empty "
+                            f"cached_MIs); the returned support_ carries "
+                            f"NO signal."
+                        )
             except Exception as _exc:
                 logger.warning(
                     "MRMR fallback to top-K MI failed: %s. Returning empty support_.",
                     _exc,
                 )
+        if _fallback_msg is not None:
+            # logger.warning for log-grepping back-compat AND
+            # warnings.warn so simplefilter('error', UserWarning) / test
+            # suites can intercept programmatically.
+            logger.warning(_fallback_msg)
+            import warnings as _w_iter39
+            _w_iter39.warn(_fallback_msg, UserWarning, stacklevel=2)
 
     # ---------------------------------------------------------------------------------------------------------------
     # Report FS results
