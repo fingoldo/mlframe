@@ -269,10 +269,45 @@ def run_cluster_aggregate_step(
         for method in methods:
             weights = _derive_weights(Z, method)
             agg_name = f"clusteragg_{method}({'+'.join(member_names)})"
+            # 2026-05-30 Wave 9.1 fix (loop iter 29): compute the
+            # continuous aggregate FIRST so the recipe can persist the
+            # fit-time quantile edges. Pre-fix the recipe was built
+            # without edges and ``apply_recipe`` later re-quantiled on
+            # test data, silently shifting bin codes between fit and
+            # transform under distribution drift. Sibling of iter 28.
+            if method == "median":
+                _agg_continuous = np.median(Z, axis=1)
+            else:
+                _agg_continuous = Z @ np.asarray(weights, dtype=np.float64)
+            _agg_continuous = np.nan_to_num(
+                _agg_continuous, copy=False, nan=0.0, posinf=0.0, neginf=0.0,
+            )
+            # Build a per-recipe quantization dict with fit-time edges
+            # (deep-copy the caller's base dict so we don't mutate it
+            # across loop iterations).
+            if quantization is not None:
+                _q_local = dict(quantization)
+                _nb = int(_q_local.get("nbins", 0))
+                if _nb >= 2:
+                    if str(_q_local.get("method", "quantile")) == "quantile":
+                        _q_arr = np.linspace(0.0, 100.0, _nb + 1)
+                        _edges = np.nanpercentile(_agg_continuous, _q_arr)
+                    else:
+                        _finite = _agg_continuous[np.isfinite(_agg_continuous)]
+                        if _finite.size:
+                            _edges = np.linspace(
+                                float(_finite.min()), float(_finite.max()),
+                                _nb + 1,
+                            )
+                        else:
+                            _edges = np.linspace(0.0, 0.0, _nb + 1)
+                    _q_local["edges"] = _edges.tolist()
+            else:
+                _q_local = None
             recipe = build_cluster_aggregate_recipe(
                 name=agg_name, src_names=tuple(member_names), method=method,
                 member_mean=mean, member_std=std, signs=signs, weights=weights,
-                quantization=quantization, diagnostics={"representative": cols[rep]},
+                quantization=_q_local, diagnostics={"representative": cols[rep]},
             )
             # Fit-time column IS the replay output (parity by construction).
             binned = apply_recipe(recipe, X)

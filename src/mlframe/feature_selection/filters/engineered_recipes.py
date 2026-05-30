@@ -369,7 +369,29 @@ def _apply_cluster_aggregate(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     if recipe.quantization is not None:
         from .discretization import discretize_array
         q = recipe.quantization
-        out = discretize_array(arr=out, n_bins=q["nbins"], method=q["method"], dtype=np.dtype(q["dtype"]))
+        # 2026-05-30 Wave 9.1 fix (loop iter 29): use fit-time edges when
+        # the recipe stored them. Pre-fix ``discretize_array`` recomputed
+        # ``np.nanpercentile`` from TEST aggregate values each replay, so
+        # the same physical input row mapped to DIFFERENT cluster_aggregate
+        # bin codes between fit and transform under any distribution drift
+        # (83% disagreement at 10x stddev shift). Sibling of iter 28's
+        # unary_binary fix.
+        if q.get("edges") is not None:
+            edges = np.asarray(q["edges"], dtype=np.float64)
+            out = np.searchsorted(
+                edges[1:-1] if edges.size >= 2 else edges,
+                out, side="right",
+            ).astype(np.dtype(q["dtype"]))
+        else:
+            import warnings as _w_iter29
+            _w_iter29.warn(
+                f"cluster_aggregate recipe '{recipe.name}' has no fit-time "
+                f"quantile edges; replay will re-quantile on test data and "
+                f"produce shifted codes under distribution drift. Refit the "
+                f"MRMR estimator to regenerate the recipe with persisted edges.",
+                UserWarning, stacklevel=2,
+            )
+            out = discretize_array(arr=out, n_bins=q["nbins"], method=q["method"], dtype=np.dtype(q["dtype"]))
     return out
 
 
