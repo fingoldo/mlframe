@@ -1,9 +1,12 @@
-"""Unit tests for the iter56 brute-force dispatcher cap + iter57 boundary audit.
+"""Unit tests for the iter56 brute-force dispatcher cap + iter57 boundary audit + iter58 sweep.
 
 The lever raises the default ``brute_force_max_features`` from 22 -> 28 and the dispatcher's
 ``n_sub`` feasibility gate from 2M -> 80M. Both are overridable per-HW via
 ``pyutilz.system.kernel_tuning_cache``. The iter57 boundary tests pin the dispatcher's actual
 truth table at default ``max_features=None`` (brute force fires at n<=26, beam at n in {27, 28}).
+The iter58 sweep (``bench_iter58_beam_width_sweep``) measured caps {22, 28, 32, 40} at C3 + C3_hard
+and confirmed 28 as the recall-maximising sweet spot across both regimes; 32 lost a recall hit at
+C3_hard, 40 was slower without improving recall, 22 underrecalled at both. The default stays at 28.
 """
 
 from __future__ import annotations
@@ -141,3 +144,30 @@ def test_resolve_optimizer_explicit_max_features_unlocks_n28_bruteforce():
     # Documented opt-in: max_features<=12 with default cap=28 makes brute_force feasible at n=28.
     fs = ShapProxiedFS(optimizer="auto", max_features=12, use_gpu=False)
     assert fs._resolve_optimizer(28) == "bruteforce"
+
+
+# --------------------------------------- iter58 calibration: 28 is the prescreen-pool sweet spot
+# iter58's sweep (``bench_iter58_beam_width_sweep``) measured caps {22, 28, 32, 40} at C3 (snr=8)
+# and C3_hard (snr=2) with all stages instrumented. Result table (steady-state, post-warmup):
+#
+#   regime    cap  e2e_s  search_s  recall  honest_loss
+#   C3        22   cold   154.9     17/20   0.149824
+#   C3        28   43.2   1.35      18/20   0.149590
+#   C3        32   44.6   1.72      18/20   0.149411
+#   C3        40   57.3   3.40      18/20   0.150751
+#   C3_hard   22   cold   170.2     15/20   0.194880
+#   C3_hard   28   47.0   2.02      16/20   0.195924
+#   C3_hard   32   43.6   2.43      15/20   0.196003   <- LOST a recall hit vs cap28
+#   C3_hard   40   53.0   3.57      16/20   0.196421   <- tied at 16 but worse honest_loss + slower
+#
+# cap28 recall-dominates or ties every wider cap across both regimes; cap32 loses a recall hit at
+# C3_hard (the low-SNR regime where iter56 saw the bigger absolute gain). Hypothesis: widening the
+# prescreen pool past 28 lets noise features into beam's input, occasionally pushing the chosen
+# subset off the truly informative one when the SHAP ranking is noisy. The default stays at 28.
+def test_iter58_default_cap_is_28_per_beam_width_sweep():
+    from mlframe.feature_selection.shap_proxied_fs import _DEFAULT_BRUTE_FORCE_MAX_FEATURES
+
+    # If this default ever changes, re-run the iter58 sweep at the new candidate value PLUS at 28
+    # under matched random_state + dataset seed and confirm the wider cap doesn't lose a recall hit
+    # at C3_hard (the regime that flagged cap32 as worse).
+    assert _DEFAULT_BRUTE_FORCE_MAX_FEATURES == 28

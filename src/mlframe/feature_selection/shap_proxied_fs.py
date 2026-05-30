@@ -69,6 +69,13 @@ _HEURISTIC_OPTIMIZERS = {"beam", "greedy_forward", "greedy_backward", "multistar
 # dev box) caps a single brute-force search at ~16s wall. The next power-of-2 (n=28 with
 # max_features=None: 268M subsets, ~54s wall) is beyond what the dispatcher should pick without
 # the user explicitly opting in via ``optimizer="bruteforce"``.
+#
+# Iter58 beam-width sweep (``_benchmarks/bench_iter58_beam_width_sweep.py``) measured caps
+# {22, 28, 32, 40} at C3 (snr=8) and C3_hard (snr=2). cap28 recall-dominates or ties all wider
+# caps in both regimes; cap32 LOST a recall hit at C3_hard (15/20 vs cap28's 16/20), and cap40
+# was slower without improving recall. Hypothesis: widening the prescreen pool past 28 lets
+# noise features into beam's input, occasionally pushing the chosen subset off the truly
+# informative one when the SHAP ranking is noisy. Default stays at 28.
 _DEFAULT_BRUTE_FORCE_MAX_FEATURES = 28
 _DEFAULT_BRUTE_FORCE_N_SUB_GATE = 80_000_000
 
