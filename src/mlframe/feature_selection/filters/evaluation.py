@@ -368,9 +368,24 @@ def evaluate_gain(
                             # conditional-MI scoring. Switching to ``"|"``
                             # (a character ``arr2str`` cannot emit) makes the
                             # boundary unambiguous.
+                            # 2026-05-30 Wave 9.1 fix (loop iter 37):
+                            # cache the RAW (pre-exponent) conditional MI
+                            # and apply ``** (nexisting + 1)`` at every
+                            # read site. Pre-fix the cache stored the
+                            # already-exponentiated value but the key
+                            # omitted ``nexisting``, so a subsequent
+                            # ``(X, Z)`` lookup with a different
+                            # ``nexisting`` returned the WRONG exponent
+                            # (and silently biased the Fleuret/CMIM
+                            # redundancy score). Caching the raw value
+                            # lets all nexisting tiers share the
+                            # underlying CMI compute.
                             key = arr2str(X) + "|" + arr2str(Z)
                             if key in cached_cond_MIs:
                                 additional_knowledge = cached_cond_MIs[key]
+                                # Apply the nexisting exponent at read time.
+                                if nexisting > 0:
+                                    additional_knowledge = additional_knowledge ** (nexisting + 1)
                                 key_found = True
 
                         if not key_found:
@@ -427,11 +442,18 @@ def evaluate_gain(
                                     dtype=dtype,
                                 )
 
-                            if nexisting > 0:
-                                additional_knowledge = additional_knowledge ** (nexisting + 1)
-
+                            # 2026-05-30 Wave 9.1 fix (loop iter 37):
+                            # write the RAW additional_knowledge to the
+                            # cache BEFORE applying the nexisting
+                            # exponent. Apply the exponent only to the
+                            # local ``additional_knowledge`` after the
+                            # write. This makes the cache nexisting-
+                            # independent and lets all callers share
+                            # the underlying CMI compute.
                             if not confidence_mode:
                                 cached_cond_MIs[key] = additional_knowledge
+                            if nexisting > 0:
+                                additional_knowledge = additional_knowledge ** (nexisting + 1)
 
                     # Account for possible extra knowledge from conditioning on Z; must update best_gain globally and log such cases. Order of discovery is
                     # not guaranteed, but cases are too precious to ignore. Also enables skipping higher-order interactions containing all approved candidates.
