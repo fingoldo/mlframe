@@ -483,29 +483,99 @@ def get_model_feature_importances(
         # seconds where the child's native FI would aggregate in
         # milliseconds. c0008 profile (2026-05-28, multilabel cb+hgb @200k):
         # 35.8 s cumtime / 26 calls of ``_permutation_feature_importances``;
-        # CB-multilabel branches would have aggregated natively. HGB stays
-        # on the permutation path because HGB has no per-feature
-        # ``feature_importances_`` in any sklearn version (use_native_FI is
-        # False for the child too).
+        # CB-multilabel branches would have aggregated natively.
+        #
+        # iter577 (2026-05-30): two follow-up upgrades over the
+        # iter562 b21eaf3c version of this branch.
+        #
+        # (A) ROBUST AGGREGATOR. The original ``np.mean`` over signed
+        # ``coef_`` entries can produce a misleadingly small (or zero)
+        # aggregate when two labels carry strong-but-opposite-sign
+        # weights for the same feature -- the mean cancels them out
+        # and a genuinely-important feature gets pushed to the bottom
+        # of the report. For ``coef_`` aggregation we now use
+        # ``np.median(np.abs(per_child), axis=0)``: |coef| is the
+        # standard signed-coefficient feature-importance proxy in
+        # sklearn (LogisticRegression.coef_ etc. all report |coef|
+        # in feature_importances_ when available), and the median is
+        # outlier-robust to a single label whose magnitude is several
+        # orders larger than its siblings (an XOR-style label or a
+        # near-constant label). For ``feature_importances_``
+        # aggregation (already non-negative; CB / XGB / LGB) we keep
+        # mean because sign-cancellation is impossible. See
+        # ``tests/training/test_multioutput_fi_robust_aggregator_biz_value.py``
+        # for the regression-multilabel biz-value demonstration.
+        #
+        # (B) HGB-MULTILABEL PER-CHILD PERMUTATION FALLBACK. The
+        # earlier b21eaf3c version returned None whenever any child
+        # lacked both ``feature_importances_`` and ``coef_`` (the
+        # sklearn ``HistGradientBoostingClassifier`` /
+        # ``...Regressor`` case -- no native FI at any sklearn
+        # version). The code then fell through to a wrapper-level
+        # permutation_importance which pays full predict overhead on
+        # the multilabel WRAPPER (calls each child then stacks the
+        # output, then sklearn scoring expects 2-D y). The per-child
+        # ladder below runs ``_permutation_feature_importances`` on
+        # each native-FI-less child with the 1-D ``y[:, j]`` slice
+        # instead, returning a per-label FI that aggregates through
+        # the same robust median path. Native FI children
+        # contribute via the cheap path; per-child permutation
+        # children contribute via the (still slow) sklearn path --
+        # but at least the result is now a real aggregate and a
+        # mixed CB+HGB multilabel combo gets the CB labels via
+        # cheap-native and only HGB labels pay permutation cost.
         hasattr(inner, "estimators_")
         and isinstance(getattr(inner, "estimators_", None), (list, tuple))
         and len(inner.estimators_) > 0
     ):
         per_child: list[np.ndarray] = []
-        for child in inner.estimators_:
+        kinds: list[str] = []  # "native_fi" | "native_coef" | "permutation"
+        children = list(inner.estimators_)
+        # Pass 1: collect native FI / coef contributions, mark missing.
+        needs_perm: list[int] = []
+        for j, child in enumerate(children):
             if hasattr(child, "feature_importances_"):
                 per_child.append(np.asarray(child.feature_importances_))
+                kinds.append("native_fi")
             elif hasattr(child, "coef_"):
                 coef = np.asarray(child.coef_)
                 per_child.append(coef if coef.ndim == 1 else coef[-1, :])
+                kinds.append("native_coef")
             else:
-                per_child = []
-                break
+                # Placeholder; filled in pass 2 if X+y are available.
+                per_child.append(None)  # type: ignore[arg-type]
+                kinds.append("permutation")
+                needs_perm.append(j)
+        # Pass 2: per-child permutation for HGB-like children. Requires
+        # a 2-D y so we can slice ``y[:, j]`` for each label.
+        if needs_perm and X is not None and y is not None:
+            try:
+                y_arr = y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+            except Exception:
+                y_arr = None
+            if y_arr is not None and y_arr.ndim == 2 and y_arr.shape[1] >= len(children):
+                for j in needs_perm:
+                    child_fi = _permutation_feature_importances(
+                        children[j], X, y_arr[:, j]
+                    )
+                    if child_fi is not None:
+                        per_child[j] = np.asarray(child_fi)
+        # Drop any child whose permutation also failed (None placeholder).
+        # Filter (kinds, per_child) in lockstep so the indices stay aligned.
+        _filtered = [(k, fi) for k, fi in zip(kinds, per_child) if fi is not None]
+        kinds = [k for k, _ in _filtered]
+        per_child = [fi for _, fi in _filtered]
+        # Aggregate when shapes line up. For ``coef_`` contributions
+        # use ``median(abs(...))`` (robust to sign cancellation + outlier
+        # label magnitudes). For ``feature_importances_`` / permutation
+        # (already non-negative) use mean.
         if per_child and all(fi.shape == per_child[0].shape for fi in per_child):
-            # Mean aggregation: every label contributes equally. This loses
-            # per-label structure but matches the global FI semantics the
-            # report expects (one signed-or-unsigned 1-D array sized n_features).
-            feature_importances = np.mean(per_child, axis=0)
+            if any(k == "native_coef" for k in kinds):
+                # |coef|-median: sign-canceling-safe + outlier-robust.
+                stacked = np.stack(per_child, axis=0)
+                feature_importances = np.median(np.abs(stacked), axis=0)
+            else:
+                feature_importances = np.mean(per_child, axis=0)
     if feature_importances is None and not hasattr(inner, "feature_importances_") and not hasattr(inner, "coef_"):
         # Non-native source: try the NN-specific paths first when the
         # model is a torch Module wrapper. ``nn_fi_method``:

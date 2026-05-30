@@ -120,6 +120,68 @@ def test_multilabel_empty_estimators_skips_aggregation():
     assert fi is None
 
 
+def test_multilabel_hgb_uses_per_child_permutation_not_wrapper():
+    """iter577 follow-up: when MultiOutput children lack native FI (HGB),
+    the aggregator now runs ``_permutation_feature_importances`` PER CHILD
+    with the 1-D ``y[:, j]`` slice, not on the wrapper with 2-D y.
+
+    This pins (a) the per-child permutation path fires; (b) each call
+    receives a 1-D y (the label slice); (c) the wrapper-level fallback
+    path at the bottom of ``get_model_feature_importances`` does NOT
+    fire (the if-condition guards against double-work).
+
+    Pre-iter577 the entire branch fell through to a single wrapper-level
+    ``_permutation_feature_importances(model, X, y_2d)`` call, which
+    eats sklearn's MultiOutputClassifier.score path overhead and
+    cannot benefit from per-label parallelism downstream.
+    """
+    from unittest.mock import patch, MagicMock
+    from mlframe.training import _feature_importances as fi_mod
+
+    X, y, cols = _make_multilabel_data(n=200, n_feats=6, n_labels=3)
+    model = MultiOutputClassifier(HistGradientBoostingClassifier(max_iter=10))
+    model.fit(X, y)
+
+    # Wrap the real function so each call records its (X, y_shape).
+    real_fn = fi_mod._permutation_feature_importances
+    call_records: list[tuple] = []
+
+    def recording_fn(_model, _X, _y, **kwargs):
+        _y_arr = np.asarray(_y)
+        call_records.append((id(_model), _y_arr.shape, _y_arr.ndim))
+        return real_fn(_model, _X, _y, **kwargs)
+
+    with patch.object(fi_mod, "_permutation_feature_importances", side_effect=recording_fn):
+        out = fi_mod.get_model_feature_importances(model, cols, X=X, y=y)
+
+    assert out is not None
+    assert out.shape == (len(cols),)
+
+    # (a) per-child permutation fired -- one call per HGB child.
+    assert len(call_records) == 3, (
+        f"Expected 3 per-child permutation calls (one per label); "
+        f"got {len(call_records)}. Records: {call_records}"
+    )
+    # (b) every call passed a 1-D y slice (NOT the 2-D wrapper y).
+    for child_id, y_shape, y_ndim in call_records:
+        assert y_ndim == 1, (
+            f"Per-child permutation must receive 1-D y slice; got shape "
+            f"{y_shape} ndim={y_ndim}. This indicates the wrapper-level "
+            f"fallback fired instead of the per-child path."
+        )
+        # 1-D y length must match X (the original X is reused per child).
+        assert y_shape == (200,)
+    # (c) the model.id values are the CHILD ids, not the WRAPPER id.
+    wrapper_id = id(model)
+    child_ids = {id(c) for c in model.estimators_}
+    for child_id, _, _ in call_records:
+        assert child_id in child_ids and child_id != wrapper_id, (
+            f"Per-child permutation must receive a child estimator, not "
+            f"the wrapper. Got id={child_id}, wrapper={wrapper_id}, "
+            f"children={child_ids}"
+        )
+
+
 def test_standalone_estimator_still_uses_direct_feature_importances():
     """Pin that single-output CB still goes through the direct
     feature_importances_ branch -- the new MultiOutputClassifier branch must
