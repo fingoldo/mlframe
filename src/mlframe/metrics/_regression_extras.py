@@ -32,6 +32,18 @@ import numpy as np
 import numba
 
 from ._numba_params import NUMBA_NJIT_PARAMS, _PARALLEL_REDUCTION_THRESHOLD
+# iter592: hoist the rank_correlation import out of fast_spearman_corr's
+# body. c0103_2a635557 @100k profile attributed 140 ms of
+# fast_spearman_corr's 182 ms cumtime / 10 calls (~14 ms per call avg) to
+# ``<frozen importlib._bootstrap>:1165(_find_and_load)`` -- the first call
+# paid the full module-resolution cost while the remaining 9 calls hit
+# sys.modules immediately. rank_correlation.py imports only numpy +
+# NUMBA_NJIT_PARAMS (no cycle into _regression_extras), so a top-level
+# import is safe. After hoisting the cost moves to mlframe.metrics import
+# time (paid once at startup, amortised across the whole suite) and
+# fast_spearman_corr's runtime profile drops the import attribution
+# entirely. Per-call cost becomes ~4.2 ms (just _spearmanr_batched_numpy).
+from .rank_correlation import _spearmanr_batched_numpy
 
 
 # ============================================================================
@@ -511,7 +523,9 @@ def fast_spearman_corr(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     yp = np.asarray(y_pred, dtype=np.float64).reshape(1, -1)
     if yt.shape[1] < 2:
         return np.nan
-    from .rank_correlation import _spearmanr_batched_numpy
+    # iter592: ``_spearmanr_batched_numpy`` import hoisted to module-level
+    # at the top of this file. The lazy-import here paid 140 ms / call
+    # on the cold-cache first invocation per the c0103 profile.
     return float(_spearmanr_batched_numpy(yt, yp)[0])
 
 
