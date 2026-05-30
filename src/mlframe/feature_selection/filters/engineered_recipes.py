@@ -553,6 +553,22 @@ def _apply_factorize_kway(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     pre_prune = vals_0 + vals_1 * int(nbins_tuple[0])
     running = chain_lookups[0][pre_prune]
     running_nuniq = chain_nuniqs[0]
+    # 2026-05-30 Wave 9.1 fix (loop iter 13): under unknown_strategy='raise'
+    # we MUST raise BEFORE the next chain step uses ``running`` as an index.
+    # If we don't, ``pre_prune = running + vals_next * running_nuniq`` with
+    # ``running[i] == -1`` (unseen prefix) computes a negative-or-small
+    # index that Python wraps to the tail of ``chain_lookups[step-1]``,
+    # silently returning a real class code. The post-loop ``(running < 0)``
+    # check then sees no -1 and fails to raise. Confirmed live: a 3-way
+    # recipe with raise mode + unseen prefix returned [1] instead of
+    # raising ValueError.
+    if recipe.unknown_strategy == "raise" and (running < 0).any():
+        n_unseen = int((running < 0).sum())
+        raise ValueError(
+            f"k-way factorize recipe '{recipe.name}': {n_unseen} row(s) "
+            f"hit unseen prefix at chain step 1. Set unknown_strategy="
+            f"'clip' or 'sentinel' to handle silently."
+        )
 
     # Steps 2..k-1: chain forward
     for step in range(2, k):
@@ -564,6 +580,15 @@ def _apply_factorize_kway(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         pre_prune = running + vals_next * running_nuniq
         running = chain_lookups[step - 1][pre_prune]
         running_nuniq = chain_nuniqs[step - 1]
+        # Same guard at every intermediate step: any -1 here would get
+        # silently overwritten by the next negative-index wrap.
+        if recipe.unknown_strategy == "raise" and (running < 0).any():
+            n_unseen = int((running < 0).sum())
+            raise ValueError(
+                f"k-way factorize recipe '{recipe.name}': {n_unseen} row(s) "
+                f"hit unseen prefix at chain step {step}. Set "
+                f"unknown_strategy='clip' or 'sentinel' to handle silently."
+            )
 
     if recipe.unknown_strategy == "raise" and (running < 0).any():
         n_unseen = int((running < 0).sum())
