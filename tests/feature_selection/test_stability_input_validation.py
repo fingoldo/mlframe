@@ -72,14 +72,45 @@ def test_sample_fraction_out_of_range_raises(frac):
         ).fit(X, y)
 
 
-@pytest.mark.parametrize("thr", [0.0, -0.1, 1.5, 2.0])
-def test_support_threshold_out_of_range_raises(thr):
+def test_support_threshold_negative_raises():
+    """Only strictly-negative support_threshold is rejected. 0.0 and
+    >1.0 are documented sentinels (stability.py:90-100): 0.0 keeps
+    every touched feature (>=0 always satisfied); >1.0 yields empty
+    support (no probability can clear it). Reject only the values
+    that produce numerically undefined behaviour, not the useful
+    extremes.
+    """
     StabilityMRMR, MRMR, X, y = _setup()
     with pytest.raises(ValueError, match="support_threshold"):
         StabilityMRMR(
             estimator=MRMR(verbose=0), n_bootstraps=3,
+            sample_fraction=0.5, support_threshold=-0.1,
+        ).fit(X, y)
+
+
+def test_support_threshold_zero_keeps_all_touched():
+    """0.0 sentinel: every feature with prob>=0 (all of them) is in support_."""
+    StabilityMRMR, MRMR, X, y = _setup()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        sel = StabilityMRMR(
+            estimator=MRMR(verbose=0), n_bootstraps=3,
+            sample_fraction=0.5, support_threshold=0.0,
+        ).fit(X, y)
+    assert len(sel.support_) == X.shape[1]
+
+
+@pytest.mark.parametrize("thr", [1.5, 2.0])
+def test_support_threshold_above_one_yields_empty(thr):
+    """>1.0 sentinel: no probability can clear it -> support_ empty."""
+    StabilityMRMR, MRMR, X, y = _setup()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        sel = StabilityMRMR(
+            estimator=MRMR(verbose=0), n_bootstraps=3,
             sample_fraction=0.5, support_threshold=thr,
         ).fit(X, y)
+    assert len(sel.support_) == 0
 
 
 def test_valid_params_still_work():
