@@ -52,7 +52,19 @@ class MLPTorchModel(L.LightningModule):
             l1_alpha: L1 regularization coefficient (0.0 = no regularization)
             optimizer: Optimizer class (default: AdamW)
             optimizer_kwargs: Additional kwargs for optimizer
-            lr_scheduler: Learning rate scheduler class
+            lr_scheduler: Learning rate scheduler class. Recommended choices
+                for tabular MLP fits:
+                  * ``torch.optim.lr_scheduler.OneCycleLR`` -- best for short
+                    fits (<50 epochs), single LR cycle. Special-cased here:
+                    ``total_steps`` auto-computed from ``trainer.max_epochs * steps_per_epoch``.
+                  * ``torch.optim.lr_scheduler.CosineAnnealingWarmRestarts`` --
+                    best for longer fits (50+ epochs). Pass ``T_0`` (epochs
+                    per first cycle) and ``T_mult`` (cycle-growth ratio) via
+                    ``lr_scheduler_kwargs``. Matches RealMLP-TD's default
+                    (Holzmuller 2024) and gives better final minima than a
+                    single OneCycle on the 50-100 epoch range.
+                  * ``torch.optim.lr_scheduler.ReduceLROnPlateau`` -- value-
+                    driven; requires ``lr_scheduler_monitor`` (e.g. ``"val_loss"``).
             lr_scheduler_kwargs: Additional kwargs for scheduler
             compile_network: torch.compile mode (e.g., 'max-autotune', 'reduce-overhead')
             compute_trainset_metrics: Whether to compute metrics on training set
