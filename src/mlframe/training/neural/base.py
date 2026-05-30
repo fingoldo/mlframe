@@ -144,6 +144,59 @@ from ._base_sklearn_params import (  # noqa: F401, E402
 )
 
 
+def _make_binary_focal_loss(gamma: float, alpha: float):
+    """F-29 (2026-05-31): build a callable focal-loss for binary classification.
+
+    Uses torchvision.ops.sigmoid_focal_loss when available (one fused
+    kernel, well-tested). Falls back to a pure-PyTorch implementation
+    otherwise (torchvision is optional). Both paths accept the standard
+    ``(predictions, targets, reduction='mean'|'sum'|'none')`` signature
+    so they compose with the estimator's _compute_weighted_loss /
+    _loss_unreduced shape handling.
+
+    Lin et al. 2017 (RetinaNet): FL(p_t) = -alpha * (1 - p_t)^gamma * log(p_t).
+    Default alpha=0.25 weights the minority class (class 1) higher;
+    gamma=2.0 is the original paper's recommended starting point.
+    """
+    try:
+        from torchvision.ops import sigmoid_focal_loss as _tv_focal
+        _has_torchvision = True
+    except ImportError:
+        _has_torchvision = False
+
+    def _focal(input, target, reduction: str = "mean"):
+        # The estimator passes labels as float for the BCE-replacement
+        # path (labels_dtype was set to float32 in F-05 / F-29). Cast
+        # defensively in case a custom carrier slips a Long through.
+        if target.dtype != input.dtype:
+            target = target.to(input.dtype)
+        # Shape alignment: squeeze either side's (N, 1) -> (N,) so the
+        # focal kernel sees matching ranks (BCE-shaped path).
+        if input.dim() == 2 and input.shape[-1] == 1 and target.dim() == 1:
+            input = input.squeeze(-1)
+        elif target.dim() == 2 and target.shape[-1] == 1 and input.dim() == 1:
+            target = target.squeeze(-1)
+        if _has_torchvision:
+            return _tv_focal(input, target, alpha=alpha, gamma=gamma, reduction=reduction)
+        # Pure-PyTorch fallback: mirror torchvision's implementation.
+        p = torch.sigmoid(input)
+        ce_loss = torch.nn.functional.binary_cross_entropy_with_logits(
+            input, target, reduction="none",
+        )
+        p_t = p * target + (1 - p) * (1 - target)
+        loss = ce_loss * ((1 - p_t) ** gamma)
+        if alpha >= 0:
+            alpha_t = alpha * target + (1 - alpha) * (1 - target)
+            loss = alpha_t * loss
+        if reduction == "mean":
+            return loss.mean()
+        if reduction == "sum":
+            return loss.sum()
+        return loss  # reduction == "none"
+
+    return _focal
+
+
 def _validate_no_nan_inf(arg_name: str, data, allow_object_dtype: bool = False) -> None:
     """F-23 (2026-05-30) helper: reject NaN / inf in features or labels at
     fit() entry with a clear, actionable error. Pre-fix NaN propagated
@@ -212,6 +265,9 @@ class PytorchLightningEstimator(BaseEstimator):
         swa_params: dict = None,
         use_ema: bool = False,
         ema_params: dict = None,
+        label_smoothing: float = 0.0,
+        focal_loss_gamma: Optional[float] = None,
+        focal_loss_alpha: float = 0.25,
         tune_params: bool = False,
         tune_batch_size: bool = False,
         float32_matmul_precision: str = None,
@@ -809,7 +865,23 @@ class PytorchLightningEstimator(BaseEstimator):
             # F-05: binary sigmoid head -> BCEWithLogitsLoss + task_type
             # marker so predict_step / compute_metrics emit sigmoid probs
             # and the classifier wrapper stacks (N, 2).
-            _local_model_params["loss_fn"] = torch.nn.BCEWithLogitsLoss()
+            # F-29 (2026-05-31): optional focal loss for binary. When
+            # ``focal_loss_gamma`` is set, replace BCE with the sigmoid
+            # focal loss formulation (Lin et al. 2017): heavier penalty
+            # on hard examples, mitigates class imbalance even WITHOUT
+            # explicit class_weight. Default off — focal loss degrades
+            # the model's probability calibration (Cattan 2024) so it's
+            # opt-in for users who care more about F1 / recall on
+            # severely imbalanced binary targets than about calibrated
+            # probabilities. focal_loss_alpha is the class-1 weight
+            # (default 0.25 per the original paper).
+            if self.focal_loss_gamma is not None:
+                _local_model_params["loss_fn"] = _make_binary_focal_loss(
+                    gamma=float(self.focal_loss_gamma),
+                    alpha=float(self.focal_loss_alpha),
+                )
+            else:
+                _local_model_params["loss_fn"] = torch.nn.BCEWithLogitsLoss()
             _local_model_params["task_type"] = "binary"
         elif isinstance(self, RegressorMixin):
             # F-24 (2026-05-31): tag regressors so predict_step returns
@@ -818,6 +890,21 @@ class PytorchLightningEstimator(BaseEstimator):
             # ``logits.shape[1] > 1`` branch would mistakenly apply
             # softmax to (N, K) regression outputs.
             _local_model_params["task_type"] = "regression"
+        elif (
+            isinstance(self, ClassifierMixin)
+            and not self._is_multilabel
+            and not self._binary_sigmoid_head
+            and self.label_smoothing > 0.0
+        ):
+            # F-30 (2026-05-31): label smoothing for MULTICLASS only.
+            # Replaces the caller's CrossEntropyLoss with one carrying
+            # label_smoothing=epsilon. Per RealMLP-TD NeurIPS 2024:
+            # +1.8% multiclass accuracy on the ablation. Skipped for
+            # binary (Cattan 2024 shows calibration regression on
+            # imbalanced binary; focal_loss_gamma is the analogue knob).
+            _local_model_params["loss_fn"] = torch.nn.CrossEntropyLoss(
+                label_smoothing=float(self.label_smoothing),
+            )
 
         with trainer.init_module():
             self.model = self.model_class(network=self.network, metrics=metrics, **_local_model_params)
