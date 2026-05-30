@@ -1184,10 +1184,23 @@ class MRMR(BaseEstimator, TransformerMixin):
         """
         n_cols = X.shape[1] if X.ndim > 1 else 1
         self.support_ = np.arange(n_cols, dtype=np.int64)
-        self.feature_names_in_ = (
-            X.columns.tolist() if hasattr(X.columns, "tolist") else list(X.columns)
-            if hasattr(X, "columns") else [f"f{i}" for i in range(n_cols)]
-        )
+        # 2026-05-30 Wave 9.1 fix (loop iter 35): the prior expression
+        # ``X.columns.tolist() if hasattr(X.columns, "tolist") else
+        # list(X.columns) if hasattr(X, "columns") else [...]`` was a
+        # mis-parenthesised ternary. Python parses it as
+        # ``A if B1 else (C if B2 else E)``, evaluating ``B1 =
+        # hasattr(X.columns, "tolist")`` BEFORE the outer ``B2 =
+        # hasattr(X, "columns")`` guard. The inner ``X.columns`` access
+        # raised AttributeError on ndarray X, so the identity-shortcut
+        # cache-hit path (opt-in via ``mrmr_skip_when_prior_was_identity``)
+        # crashed on every ndarray fit instead of short-circuiting.
+        if hasattr(X, "columns"):
+            _cols = X.columns
+            self.feature_names_in_ = (
+                _cols.tolist() if hasattr(_cols, "tolist") else list(_cols)
+            )
+        else:
+            self.feature_names_in_ = [f"f{i}" for i in range(n_cols)]
         self._engineered_features_ = []
         self._engineered_recipes_ = {}
         self.n_features_in_ = int(n_cols)
