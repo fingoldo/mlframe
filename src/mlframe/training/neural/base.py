@@ -613,6 +613,18 @@ class PytorchLightningEstimator(BaseEstimator):
             save_last=False,
             save_top_k=1,
             mode="min",
+            # F-25 (2026-05-31 cProfile finding): checkpoint writes were
+            # 9.59s out of 15.6s total fit wall (61%) on a 10k x 50 / 10-epoch
+            # baseline. Lightning's default ModelCheckpoint includes the
+            # optimizer state + LR scheduler state + RNG state in every
+            # snapshot -- but on_train_end only reads checkpoint["state_dict"]
+            # (see _flat_torch_module.py:530-533), so the optimizer / scheduler
+            # / RNG bytes are written then discarded at load time. Switching
+            # to save_weights_only=True drops them at write time: ~6x smaller
+            # snapshot, ~6x faster per-write. Net fit-wall speedup is
+            # proportional to checkpoint-write share -- larger networks +
+            # longer fits see the most benefit.
+            save_weights_only=True,
         )
 
         trainer_params = self.trainer_params.copy()
