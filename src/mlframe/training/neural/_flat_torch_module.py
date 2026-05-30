@@ -236,10 +236,42 @@ class MLPTorchModel(L.LightningModule):
         loss = self._compute_weighted_loss(raw_predictions_for_loss, labels, sample_weight)
 
         if self.hparams.l1_alpha > 0:
+            # F-07 (2026-05-30): exclude normalisation-layer parameters from
+            # the L1 sum. ``self.network.parameters()`` includes BN / LN /
+            # GN gamma + beta; penalising those drives gamma toward zero
+            # and effectively kills the normalisation layer (gamma=0 means
+            # the layer output is just the bias). Standard practice (same
+            # convention PyTorch's decoupled weight-decay in AdamW uses):
+            # L1 on Linear weights, NOT on normalisation gamma/beta.
+            # Bench: identifying excluded param ids via id() costs O(M)
+            # per training_step where M is module count; for typical 3-10
+            # layer MLPs the overhead is sub-microsecond per step. Cache
+            # the set on first call to avoid the rebuild.
+            if not hasattr(self, "_l1_excluded_param_ids"):
+                _NORM_MODS = (
+                    torch.nn.BatchNorm1d,
+                    torch.nn.BatchNorm2d,
+                    torch.nn.BatchNorm3d,
+                    torch.nn.LayerNorm,
+                    torch.nn.GroupNorm,
+                    torch.nn.InstanceNorm1d,
+                    torch.nn.InstanceNorm2d,
+                    torch.nn.InstanceNorm3d,
+                )
+                _excluded = set()
+                for module in self.network.modules():
+                    if isinstance(module, _NORM_MODS):
+                        for p in module.parameters(recurse=False):
+                            _excluded.add(id(p))
+                self._l1_excluded_param_ids = _excluded
             # Python sum() forces a host-side reduction per parameter tensor,
             # so each .abs().sum() implicitly syncs the GPU. Stack the per-
             # tensor scalars first and sum once on-device to amortise the sync.
-            _abs_sums = [p.abs().sum().unsqueeze(0) for p in self.network.parameters()]
+            _abs_sums = [
+                p.abs().sum().unsqueeze(0)
+                for p in self.network.parameters()
+                if id(p) not in self._l1_excluded_param_ids
+            ]
             l1_norm = torch.cat(_abs_sums).sum() if _abs_sums else torch.tensor(0.0, device=loss.device)
             loss = loss + self.hparams.l1_alpha * l1_norm
             # self.log raises RuntimeError when the module is detached from a Trainer (unit-test usage).
