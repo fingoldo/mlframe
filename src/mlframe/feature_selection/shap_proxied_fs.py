@@ -34,6 +34,45 @@ logger = logging.getLogger(__name__)
 _EXACT_OPTIMIZERS = {"bruteforce", "bruteforce_gpu"}
 _HEURISTIC_OPTIMIZERS = {"beam", "greedy_forward", "greedy_backward", "multistart", "genetic", "annealing", "gradient"}
 
+# Brute-force dispatcher gates (iter56). Both are overridable per HW via
+# ``pyutilz.system.kernel_tuning_cache`` so a wider/narrower box can shift the boundary without
+# touching code. The defaults are calibrated on the 8-core dev box at the default
+# ``min_features=1 / max_features=12`` sweep: sum C(n,k) for k=1..12 is 3.1M at n=22, 47.1M at n=27,
+# 76.7M at n=28, 123M at n=29. Raising the n_sub gate to 80M permits brute force at n=28 (~15s at
+# the iter30 parallel kernel ~5M subsets/s, RAM constant) while still blocking n=29+ where the
+# wall-clock exceeds 25s. The previous (22, 2M) pair was unreachable at default ``max_card=12``
+# because even n=22 enumerates 3.1M subsets -- the gate effectively forced beam everywhere on
+# default ``max_features``; raising both unlocks the brute-force path for the common config.
+_DEFAULT_BRUTE_FORCE_MAX_FEATURES = 28
+_DEFAULT_BRUTE_FORCE_N_SUB_GATE = 80_000_000
+
+
+def _resolve_brute_force_max_features(default: int = _DEFAULT_BRUTE_FORCE_MAX_FEATURES) -> int:
+    """Per-HW brute-force cap from ``pyutilz.system.kernel_tuning_cache`` (key
+    ``mlframe.shap_proxied_fs.brute_force_max_features``), falling back to the module default."""
+    try:
+        from pyutilz.system import kernel_tuning_cache
+
+        value = kernel_tuning_cache.get(
+            "mlframe.shap_proxied_fs.brute_force_max_features", default=default)
+        return int(value)
+    except Exception:
+        return default
+
+
+def _resolve_brute_force_n_sub_gate(default: int = _DEFAULT_BRUTE_FORCE_N_SUB_GATE) -> int:
+    """Per-HW feasibility cap on enumerated subset count (key
+    ``mlframe.shap_proxied_fs.brute_force_n_sub_gate``). Above this the dispatcher falls through
+    to ``beam`` regardless of ``brute_force_max_features``."""
+    try:
+        from pyutilz.system import kernel_tuning_cache
+
+        value = kernel_tuning_cache.get(
+            "mlframe.shap_proxied_fs.brute_force_n_sub_gate", default=default)
+        return int(value)
+    except Exception:
+        return default
+
 
 class ShapProxiedFS(BaseEstimator, TransformerMixin):
     """SHAP-coalition-proxy feature selector (sklearn transformer)."""
@@ -70,7 +109,7 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         interaction_aware: bool = False,
         max_interaction_features: int = 16,
         beam_width: int = 8,
-        brute_force_max_features: int = 22,
+        brute_force_max_features: int | None = None,
         use_gpu: bool = False,
         prefilter_top: int | None = 2000,
         prefilter_method: str = "auto",
@@ -154,7 +193,17 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         self.interaction_aware = interaction_aware
         self.max_interaction_features = max_interaction_features
         self.beam_width = beam_width
-        self.brute_force_max_features = brute_force_max_features
+        # ``brute_force_max_features`` (iter56): raised default 22 -> 28 because brute force at n=28
+        # is still ~5s on the 8-core box (sum C(28,k) for k=1..12 ~ 41.4M subsets at ~5M subsets/s)
+        # and lets the dispatcher consider weak informatives that the strict top-22 cap misses on
+        # noisy-SHAP regimes (recall gain at low SNR). RAM is constant (~1MB). ``None`` consults
+        # ``pyutilz.system.kernel_tuning_cache`` (key
+        # ``mlframe.shap_proxied_fs.brute_force_max_features``) for per-HW override, falling back
+        # to the module default. Explicit int pins always win.
+        self.brute_force_max_features = (
+            int(brute_force_max_features) if brute_force_max_features is not None
+            else _resolve_brute_force_max_features()
+        )
         self.use_gpu = use_gpu
         self.prefilter_top = prefilter_top
         self.prefilter_method = prefilter_method
@@ -559,7 +608,7 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
 
         if n_features <= self.brute_force_max_features:
             n_sub = total_subsets(n_features, self.min_features, self.max_features)
-            if n_sub <= 2_000_000:
+            if n_sub <= _resolve_brute_force_n_sub_gate():
                 return "bruteforce_gpu" if self.use_gpu else "bruteforce"
         return "beam"
 
