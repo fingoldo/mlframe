@@ -1294,6 +1294,22 @@ class MRMR(BaseEstimator, TransformerMixin):
     # ``transform`` + ``_append_engineered`` are implemented in
     # ``_mrmr_validate_transform.py`` and bound onto this class at the
     # bottom of this module.
+    def transform(self, X, y=None):
+        """sklearn-1.x transformer protocol. Delegates to the
+        implementation in ``_mrmr_validate_transform.py``.
+
+        2026-05-30 Wave 9.1 fix (loop iter 34): defined directly on the
+        class body (rather than late-bound at module bottom) so
+        ``_SetOutputMixin.__init_subclass__`` actually wraps it. Pre-fix
+        the bottom-of-module ``MRMR.transform = _transform_func`` rebind
+        nuked the wrapper that ``__init_subclass__`` had attached
+        during class definition, silently making
+        ``MRMR.set_output(transform='pandas')`` a no-op when transform
+        was called directly with ndarray input (the canonical sklearn
+        contract requires a DataFrame).
+        """
+        from ._mrmr_validate_transform import transform as _t
+        return _t(self, X, y)
 
 
 
@@ -1318,5 +1334,9 @@ from ._mrmr_validate_transform import (  # noqa: E402
 )
 MRMR._validate_string_params = _validate_string_params_func
 MRMR._validate_inputs = _validate_inputs_func
-MRMR.transform = _transform_func
+# 2026-05-30 Wave 9.1 fix (loop iter 34): ``transform`` is now defined
+# on the class body above (as a thin delegator) so
+# ``_SetOutputMixin.__init_subclass__`` wraps it correctly. Do NOT
+# late-rebind ``MRMR.transform`` here - that would replay the original
+# bug by stripping the wrapper.
 MRMR._append_engineered = _append_engineered_func
