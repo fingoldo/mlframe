@@ -173,8 +173,16 @@ def screen_predictors(
             f"len(factors_nbins)={len(factors_nbins)}."
         )
 
-    if len(factors_names) == 0:
-        factors_names = ["F" + str(i) for i in range(len(factors_data))]
+    # 2026-05-30 Wave 9.1 fix (loop iter 25): two bugs collapsed into one
+    # input-validation block.
+    # (a) ``factors_names=None`` (the documented default) crashed at
+    #     ``len(None)`` before reaching the auto-name branch.
+    # (b) The auto-name fallback generated ``len(factors_data)`` (=n_rows)
+    #     names instead of ``factors_data.shape[1]`` (=n_cols) - immediate
+    #     downstream length-mismatch raise for any caller actually hitting
+    #     the empty-list branch.
+    if factors_names is None or len(factors_names) == 0:
+        factors_names = ["F" + str(i) for i in range(factors_data.shape[1])]
     else:
         if factors_data.shape[1] != len(factors_names):
             raise ValueError(
@@ -250,10 +258,21 @@ def screen_predictors(
         _cp_restore_seed = _struct.unpack("<Q", _os.urandom(8))[0]
         np.random.seed(random_seed)
         set_numba_random_seed(random_seed)
-        try:
-            cp.random.seed(random_seed)
-        except NameError:
-            pass  # CuPy not imported
+        # 2026-05-30 Wave 9.1 fix (loop iter 25): the prior
+        # ``try: cp.random.seed(random_seed); except NameError: pass``
+        # always swallowed NameError because ``cp`` is only imported
+        # inside ``if use_gpu:`` ~80 lines down. So the documented
+        # "seed it (numpy + numba + cupy) for the screening duration"
+        # was a dead path - CuPy RNG was NEVER seeded, breaking GPU
+        # reproducibility. Import cupy here when seeding is requested
+        # (regardless of use_gpu) so the seed call actually fires.
+        if use_gpu:
+            try:
+                import cupy as cp
+                cp.random.seed(random_seed)
+            except (ImportError, ModuleNotFoundError):
+                pass  # CuPy not available - fine; the screen branch
+                      # below will catch the same and fall back to CPU.
 
     try:
         max_failed = int(full_npermutations * (1 - min_nonzero_confidence))
@@ -665,7 +684,12 @@ def screen_predictors(
             except Exception:
                 pass
         if _cp_restore_seed is not None:
+            # 2026-05-30 Wave 9.1 fix (loop iter 25): mirror the
+            # entry-block fix. ``cp`` only exists in this scope when
+            # use_gpu was True AND CuPy was actually importable; import
+            # defensively here so the restore call really fires.
             try:
+                import cupy as cp
                 cp.random.seed(int(_cp_restore_seed))
-            except (NameError, Exception):
+            except Exception:
                 pass
