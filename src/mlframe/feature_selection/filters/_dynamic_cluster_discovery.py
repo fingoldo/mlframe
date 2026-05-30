@@ -358,21 +358,37 @@ def pair_su(state: DCDState, a: int, b: int,
         # SU branch ("higher = more redundant -> prune from pool").
         from .info_theory import mi, entropy, merge_vars
         import math
-        x_idx = np.array([a], dtype=np.int64)
-        y_idx = np.array([b], dtype=np.int64)
-        fn_arr = np.asarray(fn, dtype=np.int64)
-        mi_ab = float(mi(fd, x_idx, y_idx, fn_arr, dtype=dtype))
+        # iter590: same buffer-reuse + fn_arr cache as the iter589 SU
+        # branch above. Replaces per-call np.array([a]) / np.array([b]) /
+        # np.asarray(fn) allocations with the cached state-side buffers.
+        fn_arr = state._fn_arr_cached
+        if fn_arr is None:
+            fn_arr = np.asarray(fn, dtype=np.int64)
+            state._fn_arr_cached = fn_arr
+        pair_buf = state._pair_idx_buf
+        if pair_buf is None:
+            pair_buf = np.empty(2, dtype=np.int64)
+            state._pair_idx_buf = pair_buf
+        # mi(fd, x, y, ...) takes 1-D vars arrays. Use two non-overlapping
+        # 1-element views into the same 2-element pair_buf so x=pair_buf[0:1]
+        # and y=pair_buf[1:2]; the mi njit body reads both views and never
+        # mutates them, so aliasing into one backing buffer is safe.
+        pair_buf[0] = a
+        pair_buf[1] = b
+        mi_ab = float(mi(fd, pair_buf[0:1], pair_buf[1:2], fn_arr, dtype=dtype))
         # iter587: same per-column entropy cache as the SU branch above --
         # H(X_a) / H(X_b) recomputation was the dominant per-call cost.
         ec = state.column_entropy_cache
         h_a = ec.get(a)
         if h_a is None:
-            _, freqs_a, _ = merge_vars(fd, x_idx, None, fn_arr, dtype=dtype)
+            pair_buf[0] = a
+            _, freqs_a, _ = merge_vars(fd, pair_buf[:1], None, fn_arr, dtype=dtype)
             h_a = float(entropy(freqs_a))
             ec[a] = h_a
         h_b = ec.get(b)
         if h_b is None:
-            _, freqs_b, _ = merge_vars(fd, y_idx, None, fn_arr, dtype=dtype)
+            pair_buf[0] = b
+            _, freqs_b, _ = merge_vars(fd, pair_buf[:1], None, fn_arr, dtype=dtype)
             h_b = float(entropy(freqs_b))
             ec[b] = h_b
         vi = max(0.0, h_a + h_b - 2.0 * mi_ab)

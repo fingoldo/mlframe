@@ -109,6 +109,23 @@ def test_pair_su_column_entropy_cache_fills_then_plateaus(synth_factors):
     assert len(state.column_entropy_cache) == n_feats
 
 
+def test_pair_su_vi_branch_runs_with_buffer_reuse(synth_factors):
+    """iter590 follow-up: VI branch uses the same pair_buf buffer-reuse
+    pattern as the SU branch (two non-overlapping views into a 2-element
+    int64 scratch for the mi(fd, [a], [b], ...) call). This test pins
+    that the VI branch runs end-to-end and returns a finite score in
+    [0, 1] (the documented Meila-2007-normalised VI similarity range)."""
+    fd, fn, n_feats = synth_factors
+    state = DCDState(distance="vi", factors_data=fd, factors_nbins=fn)
+    score = pair_su(state, 0, 1)
+    assert np.isfinite(score)
+    assert 0.0 <= score <= 1.0
+    # Repeat call hits the pairwise cache (no recompute):
+    misses_before = state.n_cache_misses
+    pair_su(state, 0, 1)
+    assert state.n_cache_misses == misses_before
+
+
 def test_pair_su_cached_repeat_call_uses_pairwise_cache(synth_factors):
     """Repeat calls to pair_su(a, b) with same (a, b) hit the existing
     pairwise_su_cache, not the column_entropy_cache. Verifies the two
