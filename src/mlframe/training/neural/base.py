@@ -163,7 +163,16 @@ class PytorchLightningEstimator(BaseEstimator):
         tune_batch_size: bool = False,
         float32_matmul_precision: str = None,
         early_stopping_rounds: int = 100,
+        random_state: Optional[int] = None,
     ):
+        # ``random_state``: sklearn-canonical seed parameter (F-06, 2026-05-30).
+        # When set to an integer, ``_fit_common`` seeds torch / numpy / Python
+        # random + the Lightning DataLoader worker seed at fit() entry, so two
+        # ``fit()`` calls on the same data with the same ``random_state``
+        # produce bit-identical predictions. ``None`` (the default) preserves
+        # the pre-fix non-deterministic behaviour: callers who manage their
+        # own seed (e.g. via a higher-level pipeline) are not overridden.
+        #
         # Don't modify swa_params here (e.g., `swa_params or {}`) because sklearn's clone() requires constructor parameters not be
         # modified. Handle None later.
         store_params_in_object(obj=self, params=get_parent_func_args())
@@ -184,6 +193,18 @@ class PytorchLightningEstimator(BaseEstimator):
 
         if fit_params is None:
             fit_params = {}
+
+        # F-06 (2026-05-30): sklearn-canonical reproducibility seed. When
+        # ``random_state`` is an int, seed torch + numpy + Python random +
+        # the Lightning DataLoader worker seed BEFORE any random op fires
+        # (network init at line 357, dataloader shuffle, dropout mask
+        # sampling). Same data + same random_state -> bit-identical
+        # predictions. ``None`` leaves the prior non-deterministic
+        # behaviour intact; callers managing their own seed are not
+        # overridden. partial_fit honours the same seed on every batch
+        # (idempotent — re-seeding before each call is fine).
+        if self.random_state is not None:
+            L.seed_everything(int(self.random_state), workers=True, verbose=False)
 
         # Enable TF32 for float32 matmul if on GPU.
         if self.float32_matmul_precision and torch.cuda.is_available():
