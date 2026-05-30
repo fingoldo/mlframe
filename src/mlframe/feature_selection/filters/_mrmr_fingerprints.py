@@ -519,12 +519,39 @@ def _replay_fitted_state(target: MRMR, source: MRMR) -> int:
             p for p in inspect.signature(target.__class__.__init__).parameters
             if p != "self"
         )
+    # 2026-05-30 Wave 9.1 fix (loop iter 40): mutable CONTAINER types
+    # (dict / list / set) must be DEEP-COPIED so post-fit mutations on
+    # one replayed instance don't silently propagate to every other
+    # past+future cache hit. Pre-fix every fitted-state attribute was
+    # shallow-assigned, so ``B._engineered_features_.append(...)``
+    # mutated ``A._engineered_features_`` and a third clone C
+    # replaying from A then saw the phantom feature it never had.
+    # Same hazard for support_ ndarrays - freeze the source ndarray
+    # in-place so accidental ``support_[i] = x`` style writes raise
+    # ``ValueError`` instead of corrupting the shared cache entry.
+    # Numpy array sharing is still preserved for the COMMON read-only
+    # case (this is the cache-density win the original docstring
+    # called out).
+    import copy as _copy_iter40
+    _MUTABLE_CONTAINER_TYPES = (dict, list, set)
     n_replayed = 0
     for k, v in source.__dict__.items():
         if k in _MRMR_INIT_PARAM_NAMES:
             continue
-        # Shallow assign; deep copy would defeat the cache (we WANT to share cached numpy arrays).
-        target.__dict__[k] = v
+        if isinstance(v, _MUTABLE_CONTAINER_TYPES):
+            target.__dict__[k] = _copy_iter40.deepcopy(v)
+        elif isinstance(v, np.ndarray):
+            # Freeze the source ndarray so any in-place write raises
+            # instead of silently corrupting the cache. Only freeze
+            # arrays we own (skip views/slices).
+            if v.flags.owndata and v.flags.writeable:
+                try:
+                    v.flags.writeable = False
+                except Exception:
+                    pass
+            target.__dict__[k] = v
+        else:
+            target.__dict__[k] = v
         n_replayed += 1
     return n_replayed
 
