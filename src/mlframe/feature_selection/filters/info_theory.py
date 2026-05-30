@@ -110,6 +110,17 @@ def entropy_miller_madow(freqs: np.ndarray, n_samples: int, min_occupancy: float
         freqs = freqs[freqs > 0]
     h_plugin = -(np.log(freqs) * freqs).sum()
     k = len(freqs)
+    # 2026-05-30 Wave 9.1 fix (loop iter 20): guard against k <= 1.
+    # When freqs is empty (k=0) or single-bin (k=1) the Miller-Madow
+    # correction term ``(k - 1) / (2 * n_samples)`` is either negative
+    # (-1/(2n)) or zero. Negative entropy violates the H >= 0
+    # invariant and propagates as NEGATIVE conditional MI through
+    # ``conditional_mi = H(XZ) + H(YZ) - H(Z) - H(XYZ)`` on degenerate
+    # Z-conditioning slices (empty support after MDLP filtering, etc.).
+    # Plug-in entropy is exact at k <= 1 (deterministic distribution),
+    # so return h_plugin (which is 0) directly.
+    if k <= 1:
+        return h_plugin
     return h_plugin + (k - 1) / (2.0 * n_samples)
 
 
