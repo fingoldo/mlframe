@@ -298,6 +298,25 @@ class PytorchLightningEstimator(BaseEstimator):
                     _y_arr_val = _y_arr_val.ravel()
                 eval_set = (eval_set[0], self._label_encoder.transform(_y_arr_val))
 
+            # F-05 (2026-05-30): binary classification uses 1-output
+            # sigmoid + BCEWithLogitsLoss instead of 2-output softmax +
+            # CrossEntropyLoss. The two-output softmax head is
+            # overparameterised (softmax is shift-invariant in z0-z1)
+            # and inconsistent with the multilabel BCE path. Switching
+            # halves the output-layer params and aligns binary with the
+            # K=1 case of multilabel. predict_proba keeps returning the
+            # sklearn-canonical (N, 2) shape by stacking [1-p, p] in the
+            # classifier wrapper. Detection happens here (before dm
+            # construction) so labels_dtype can be set to float32 in
+            # time for BCEWithLogitsLoss.
+            self._binary_sigmoid_head = bool(len(self.classes_) == 2)
+            if self._binary_sigmoid_head:
+                _local_dm_params["labels_dtype"] = torch.float32
+        else:
+            # Multilabel or non-classifier paths: never binary.
+            self._binary_sigmoid_head = False
+
+        if _classifier_single_label:
             # F-13 (2026-05-30): sklearn-canonical ``class_weight`` support.
             # ``class_weight="balanced"`` -> per-sample weights = n / (K * count(class))
             # ``class_weight={cls: w, ...}`` -> per-sample weights = w[cls]
@@ -394,6 +413,13 @@ class PytorchLightningEstimator(BaseEstimator):
             num_classes = 1
             self._is_multilabel = False
 
+        # F-05 (2026-05-30): binary uses 1-output sigmoid + BCE instead of
+        # 2-output softmax + CE -- see the matching block above the dm
+        # construction. ``_binary_sigmoid_head`` flag was set there; here
+        # we just resolve the network output dim for the network reset
+        # below.
+        _network_output_dim = 1 if self._binary_sigmoid_head else num_classes
+
         # Reset network on fit() to match sklearn convention (fit resets, partial_fit continues). Each fit() call must create a
         # fresh network with correct input dimensions; critical when feature counts change between training iterations.
         if not is_partial_fit:
@@ -453,7 +479,7 @@ class PytorchLightningEstimator(BaseEstimator):
 
         # getattr handles freshly cloned models that don't have network attribute yet
         if getattr(self, 'network', None) is None:
-            self.network = generate_mlp(num_features=X.shape[1], num_classes=num_classes, **_net_params)
+            self.network = generate_mlp(num_features=X.shape[1], num_classes=_network_output_dim, **_net_params)
 
         if num_classes > 1:
             metric_name = "ICE"
@@ -594,6 +620,12 @@ class PytorchLightningEstimator(BaseEstimator):
             import torch.nn.functional as _F
             _local_model_params["loss_fn"] = _F.binary_cross_entropy_with_logits
             _local_model_params["task_type"] = "multilabel"
+        elif self._binary_sigmoid_head:
+            # F-05: binary sigmoid head -> BCEWithLogitsLoss + task_type
+            # marker so predict_step / compute_metrics emit sigmoid probs
+            # and the classifier wrapper stacks (N, 2).
+            _local_model_params["loss_fn"] = torch.nn.BCEWithLogitsLoss()
+            _local_model_params["task_type"] = "binary"
 
         with trainer.init_module():
             self.model = self.model_class(network=self.network, metrics=metrics, **_local_model_params)
@@ -1102,8 +1134,15 @@ class PytorchLightningClassifier(
         Returns:
             numpy.ndarray: Predicted class labels
         """
-        proba = self._predict_raw(X, device=device, precision=precision, batch_size=batch_size)
-        idx = np.argmax(proba, axis=1)
+        raw = self._predict_raw(X, device=device, precision=precision, batch_size=batch_size)
+        # F-05 binary path: raw has shape (N, 1) and contains P(y=1).
+        # Threshold at 0.5 to get integer class index 0/1; the
+        # _label_encoder.inverse_transform then converts to the original
+        # class labels (per sklearn convention).
+        if getattr(self, "_binary_sigmoid_head", False):
+            idx = (raw.reshape(-1) >= 0.5).astype(np.int64)
+        else:
+            idx = np.argmax(raw, axis=1)
         # sklearn convention: ``predict`` returns LABELS (entries of
         # ``classes_``), not argmax INDICES. Pre-fix this returned the bare
         # indices, which the downstream reporting layer band-aided with
@@ -1131,9 +1170,17 @@ class PytorchLightningClassifier(
             batch_size: Optional batch size for prediction
 
         Returns:
-            numpy.ndarray: Predicted class probabilities
+            numpy.ndarray: Predicted class probabilities, shape (N, K).
         """
-        return self._predict_raw(X, device=device, precision=precision, batch_size=batch_size)
+        raw = self._predict_raw(X, device=device, precision=precision, batch_size=batch_size)
+        # F-05 binary path: raw has shape (N, 1) with P(y=1); stack
+        # [1-p, p] to honour the sklearn (N, 2) ``predict_proba`` contract.
+        # The column order matches ``classes_`` (sorted): col 0 = P(class[0]),
+        # col 1 = P(class[1]).
+        if getattr(self, "_binary_sigmoid_head", False):
+            p1 = raw.reshape(-1)
+            return np.column_stack([1.0 - p1, p1])
+        return raw
 
 
 # Callback classes carved to ``_base_callbacks.py``. Re-exports preserve class identity so downstream isinstance / Trainer callback-list checks keep working unchanged.

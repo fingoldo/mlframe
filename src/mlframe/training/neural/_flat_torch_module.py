@@ -397,14 +397,24 @@ class MLPTorchModel(L.LightningModule):
             elif self.task_type == "multilabel":
                 # Multilabel: per-label thresholded predictions at 0.5 (each output independent binary).
                 preds_dict["argmax"] = (torch.sigmoid(raw_predictions) >= 0.5).long()
+            elif self.task_type == "binary":
+                # F-05 binary single-output: threshold sigmoid at 0.5 -> {0, 1}.
+                preds_dict["argmax"] = (torch.sigmoid(raw_predictions).squeeze(-1) >= 0.5).long()
             else:
-                # Regression / binary single-output: argmax has no meaning; skip metric below.
+                # Regression: argmax has no meaning; skip metric below.
                 preds_dict["argmax"] = None
         if need_softmax:
             if _is_multiclass:
                 preds_dict["softmax"] = F.softmax(raw_predictions, dim=1)
             elif self.task_type == "multilabel":
                 preds_dict["softmax"] = torch.sigmoid(raw_predictions)
+            elif self.task_type == "binary":
+                # F-05 binary single-output: convert (N, 1) sigmoid -> (N, 2)
+                # column-stacked [P(y=0), P(y=1)] so the same probabilistic
+                # metric (ICE, etc.) the multiclass path uses keeps working.
+                p1 = torch.sigmoid(raw_predictions).reshape(-1)
+                p0 = 1.0 - p1
+                preds_dict["softmax"] = torch.stack([p0, p1], dim=1)
             else:
                 preds_dict["softmax"] = raw_predictions
 
@@ -577,11 +587,16 @@ class MLPTorchModel(L.LightningModule):
             logits = self(x)
 
         # task_type='multilabel' returns per-label sigmoid (each output independent binary in [0, 1]);
+        # task_type='binary' (F-05) returns sigmoid of 1-output logit -> P(y=1) shape (N, 1);
         # default multi-class K>1 path returns softmax rows that sum to 1.
         if logits.dim() == 2 and logits.shape[1] > 1:
             if self.task_type == "multilabel":
                 return torch.sigmoid(logits)
             return torch.softmax(logits, dim=1)
+        if self.task_type == "binary":
+            # Binary 1-output sigmoid head: return P(y=1) in shape (N, 1).
+            # The classifier wrapper stacks [1-p, p] for the (N, 2) contract.
+            return torch.sigmoid(logits)
         else:
-            # Regression or binary classification: return raw values.
+            # Regression: return raw values.
             return logits
