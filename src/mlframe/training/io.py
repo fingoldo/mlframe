@@ -182,6 +182,17 @@ _SAFE_MODULE_PREFIXES: tuple = (
     "polars",
     "sklearn",
     "pytorch_lightning",
+    # 2026-05-30 (F-22 audit): modern Lightning installs expose the
+    # umbrella ``lightning.*`` namespace (e.g. ``lightning.fabric.utilities.data.AttributeDict``
+    # used by Lightning's hparams machinery) alongside the standalone
+    # ``lightning_fabric.*`` package. Without these prefixes a fitted
+    # PytorchLightningEstimator round-tripped through save_mlframe_model
+    # / load_mlframe_model raises ``Unsafe class blocked by _SafeUnpickler``
+    # for AttributeDict and load returns None. Both Lightning packages
+    # are first-party (Lightning AI / pytorch-lightning project), safe
+    # to allow alongside the original ``pytorch_lightning`` entry.
+    "lightning",
+    "lightning_fabric",
     "torch",
     "catboost",
     "lightgbm",
