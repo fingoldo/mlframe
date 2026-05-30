@@ -76,6 +76,63 @@ def test_explicit_python_backend_still_works():
     assert np.all(np.isfinite(edges))
 
 
+def test_per_feature_edges_uses_njit_default():
+    """The production caller ``per_feature_edges`` (used by
+    ``mrmr/discretization.py:categorize_dataset``) builds a kwargs dict
+    where ``mdlp_backend`` defaults to a string. Pre-fix iter570
+    didn't reach the production path: the FIRST fix flipped only
+    ``edges_fayyad_irani``'s direct default, but the
+    ``kwargs.get("mdlp_backend", "python")`` at the per_feature_edges
+    callsite shadowed it and re-introduced the regression. iter571
+    flips that kwarg default too.
+
+    This test pins that ``per_feature_edges`` with empty kwargs uses
+    the njit kernel by patching the kernels and checking which one
+    actually runs."""
+    from unittest.mock import patch
+    from mlframe.feature_selection.filters._adaptive_nbins import per_feature_edges
+
+    n = 500
+    rng = np.random.default_rng(42)
+    x = rng.standard_normal((n, 2)).astype(np.float64)
+    y = (x[:, 0] > 0).astype(np.int64)
+
+    call_record = {"njit": 0, "python": 0}
+
+    real_njit = pytest.importorskip(
+        "mlframe.feature_selection.filters.supervised_binning"
+    )._mdlp_recurse_njit
+    real_python = pytest.importorskip(
+        "mlframe.feature_selection.filters.supervised_binning"
+    )._mdlp_recurse
+
+    def fake_njit(*args, **kwargs):
+        call_record["njit"] += 1
+        return real_njit(*args, **kwargs)
+
+    def fake_python(*args, **kwargs):
+        call_record["python"] += 1
+        return real_python(*args, **kwargs)
+
+    with patch(
+        "mlframe.feature_selection.filters.supervised_binning._mdlp_recurse_njit",
+        side_effect=fake_njit,
+    ), patch(
+        "mlframe.feature_selection.filters.supervised_binning._mdlp_recurse",
+        side_effect=fake_python,
+    ):
+        per_feature_edges(x, y, method="fayyad_irani")
+
+    assert call_record["njit"] >= 1, (
+        "per_feature_edges with empty kwargs must route to _mdlp_recurse_njit; "
+        f"call record: {call_record}"
+    )
+    assert call_record["python"] == 0, (
+        "per_feature_edges with empty kwargs must NOT route to legacy "
+        f"_mdlp_recurse (the 1566s/1700s @500k hotspot); call record: {call_record}"
+    )
+
+
 def test_njit_backend_smoke_handles_pure_label_input():
     """Defensive: the njit kernel must handle pure-label (no informative
     split) input without raising. The recursion should short-circuit at

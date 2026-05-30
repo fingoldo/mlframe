@@ -525,7 +525,13 @@ def per_feature_edges(
                 col, y,
                 max_depth=kwargs.get("max_depth", 8),
                 min_split_size=kwargs.get("min_split_size", 5),
-                backend=kwargs.get("mdlp_backend", "python"),
+                # Match edges_fayyad_irani / mdlp_bin_edges default ('njit').
+                # The legacy 'python' default here re-introduced the
+                # 1566 s / 1700 s @500 k regression that the iter570 fix
+                # otherwise resolved -- this kwargs.get path is the
+                # production caller from categorize_dataset, so the
+                # default flip is the actual gating change.
+                backend=kwargs.get("mdlp_backend", "njit"),
                 scaled_min_split=kwargs.get("mdlp_scaled_min_split", False),
             )
         elif method_resolved == "mah":
