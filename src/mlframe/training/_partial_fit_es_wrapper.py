@@ -39,7 +39,16 @@ def _split_train_val(X, y, val_size: float, random_state: int):
 
 
 def _resolve_metric(metric: str | Callable | None, is_classification: bool) -> tuple[Callable, str, str]:
-    """Return (fn, name, mode) where mode is 'min' or 'max' per is_greater_better."""
+    """Return (fn, name, mode) where mode is 'min' or 'max' per is_greater_better.
+
+    iter612: route default+"rmse" metric through ``mlframe.metrics.scoring.fast_rmse``
+    instead of the inline ``np.sqrt(np.mean((p - y) ** 2))`` chain. fast_rmse's numba
+    single-pass kernel is ~37x faster than the numpy chain at n=100k (889us -> 24us
+    per call per the iter367 microbench). For partial_fit ES this fires once per
+    epoch on the val set; over a typical 20-epoch ES run on n=20k val that's
+    140us x 20 = 2.8ms saved per ES wrap. Multi-target / ensemble runs amortise
+    this across every wrapped estimator.
+    """
     if callable(metric):
         return metric, getattr(metric, "__name__", "custom"), "min"
     if metric in (None, ""):
@@ -47,9 +56,11 @@ def _resolve_metric(metric: str | Callable | None, is_classification: bool) -> t
             from sklearn.metrics import log_loss
             return (lambda y, p: log_loss(y, p, labels=np.unique(y))), "log_loss", "min"
         else:
-            return (lambda y, p: float(np.sqrt(np.mean((np.asarray(p) - np.asarray(y)) ** 2)))), "rmse", "min"
+            from mlframe.metrics.scoring import fast_rmse as _fast_rmse
+            return (lambda y, p: _fast_rmse(y, p)), "rmse", "min"
     if metric == "rmse":
-        return (lambda y, p: float(np.sqrt(np.mean((np.asarray(p) - np.asarray(y)) ** 2)))), "rmse", "min"
+        from mlframe.metrics.scoring import fast_rmse as _fast_rmse
+        return (lambda y, p: _fast_rmse(y, p)), "rmse", "min"
     if metric == "mae":
         return (lambda y, p: float(np.mean(np.abs(np.asarray(p) - np.asarray(y))))), "mae", "min"
     if metric == "logloss":
