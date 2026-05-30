@@ -370,9 +370,12 @@ def _handle_missing(arr: np.ndarray, *, strategy: str = "fillna_zero") -> np.nda
     post-discretize bin-assignment so NaN rows land in a dedicated max+1 bin
     per column, making MI estimators see them as an honest category.
     ``"raise"``: refuse a column with NaN.
-    ``"propagate"``: leave NaN in place (legacy polars behaviour); the
-    numba kernel will route to the lowest bin or raise depending on
-    bounds-checking.
+    ``"propagate"``: alias of ``"separate_bin"`` since the Wave 9.1
+    iter-11 fix. Previously documented as "leave NaN in place" but
+    that silently merged NaN rows into the column's TOP real bin via
+    ``np.searchsorted`` (NaN -> ej.size = max real code), destroying
+    any missingness-as-signal. Now median-fills here and the caller
+    re-routes NaN positions to the dedicated NaN bin.
     Private -- external callers should use the public ``discretize_*`` family.
     """
     if not np.isnan(arr).any():
@@ -392,7 +395,22 @@ def _handle_missing(arr: np.ndarray, *, strategy: str = "fillna_zero") -> np.nda
         filled = np.where(np.isnan(arr), col_medians, arr)
         return filled
     if strategy == "propagate":
-        return arr
+        # 2026-05-30 Wave 9.1 fix (loop iter 11): propagate USED to return
+        # the NaN-bearing array unchanged, but downstream ``np.searchsorted``
+        # routes NaN to ``ej.size`` -- the same code as the column's top
+        # real bin -- silently merging NaN rows with the highest-value
+        # real category. Net effect: any column whose NaN-ness carried
+        # signal scored near zero MI (verified: column where NaN-ness IS
+        # the target dropped from MI=0.69 nats under separate_bin to
+        # MI=0.38 under propagate). Fix: behave like ``separate_bin``
+        # at the categorize_dataset level - the actual NaN-bin reassignment
+        # happens in the categorize_dataset post-discretize block, but
+        # here we still need to median-fill so np.percentile gets clean
+        # edges. The caller's ``_nan_mask`` capture at categorize_dataset
+        # line 1027 was also extended to include 'propagate'.
+        col_medians = np.nanmedian(arr, axis=0)
+        col_medians = np.where(np.isnan(col_medians), 0.0, col_medians)
+        return np.where(np.isnan(arr), col_medians, arr)
     if strategy == "raise":
         raise ValueError("input contains NaN values; pass strategy='fillna_zero' or 'separate_bin' or 'propagate' to discretize anyway")
     raise ValueError(f"unknown missing-value strategy: {strategy!r}")
@@ -1024,7 +1042,15 @@ def categorize_dataset(
     # produces clean edges, then we overwrite the same positions in the
     # discretized output with bin=n_bins (max+1 per column). Net effect: NaN
     # gets its own honest category that MI estimators see correctly.
-    _nan_mask = np.isnan(arr) if (missing_strategy == "separate_bin" and arr.size > 0) else None
+    # 2026-05-30 Wave 9.1 fix (loop iter 11): include 'propagate' alongside
+    # 'separate_bin' so NaN positions get re-routed to the dedicated NaN
+    # bin instead of silently colliding with the top real bin via
+    # np.searchsorted(NaN -> ej.size).
+    _nan_mask = (
+        np.isnan(arr)
+        if (missing_strategy in ("separate_bin", "propagate") and arr.size > 0)
+        else None
+    )
 
     # Unified NaN handling for both pandas and polars.
     arr = _handle_missing(arr, strategy=missing_strategy)
