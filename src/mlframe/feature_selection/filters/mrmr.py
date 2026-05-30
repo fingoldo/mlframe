@@ -663,6 +663,23 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_hybrid_orth_top_k: int = 5,
         fe_hybrid_orth_pair_enable: bool = True,
         fe_hybrid_orth_pair_max_degree: int = 2,
+        # 2026-05-31 Layer 26 — generic MI-greedy FE constructor (sibling
+        # to the orthogonal-polynomial one). Default OFF -- legacy
+        # behaviour is byte-identical when ``fe_mi_greedy_enable=False``.
+        # When True, the MI-greedy FE runs ONCE before screening (after
+        # the hybrid orth stage when both are enabled): it enumerates
+        # generic unary / binary transforms (log_abs, sqrt_abs, square,
+        # cube, reciprocal_safe, tanh, expm1_clip, abs / add, sub, mul,
+        # div_safe, max, min, abs_diff, ratio_log) over the top-N source
+        # columns by raw MI, ranks the candidates by MI uplift, and
+        # appends the top-K winners to X. Recipes of kind
+        # ``"mi_greedy_transform"`` carry transform name + src cols only
+        # (no y), so transform() replay is leakage-free.
+        fe_mi_greedy_enable: bool = False,
+        fe_mi_greedy_top_k: int = 5,
+        fe_mi_greedy_seed_cols_count: int = 5,
+        fe_mi_greedy_include_unary: bool = True,
+        fe_mi_greedy_include_binary: bool = True,
         # hidden
         stop_file: str = "stop",
     ):
@@ -936,6 +953,14 @@ class MRMR(BaseEstimator, TransformerMixin):
             # Fitted attribute (list of engineered names from hybrid stage);
             # legacy pickles default to empty list.
             "hybrid_orth_features_": [],
+            # 2026-05-31 Layer 26 — MI-greedy FE constructor. Defaults
+            # preserve legacy behaviour: master switch OFF.
+            "fe_mi_greedy_enable": False,
+            "fe_mi_greedy_top_k": 5,
+            "fe_mi_greedy_seed_cols_count": 5,
+            "fe_mi_greedy_include_unary": True,
+            "fe_mi_greedy_include_binary": True,
+            "mi_greedy_features_": [],
         }
         for k, v in defaults.items():
             state.setdefault(k, v)

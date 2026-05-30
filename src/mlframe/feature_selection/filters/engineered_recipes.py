@@ -125,7 +125,7 @@ class EngineeredRecipe:
     # (src_names=(c_i, c_j), extra={basis_i, basis_j, deg_a, deg_b}). Replay
     # is closed-form from the source column(s) alone -- no y reference is
     # captured at fit time, so transform() is leakage-free by construction.
-    kind: Literal["unary_binary", "factorize", "hermite_pair", "target_encoding", "cluster_aggregate", "orth_univariate", "orth_pair_cross"]
+    kind: Literal["unary_binary", "factorize", "hermite_pair", "target_encoding", "cluster_aggregate", "orth_univariate", "orth_pair_cross", "mi_greedy_transform"]
     src_names: tuple[str, ...]
     unary_names: tuple[str, ...] = ()
     binary_name: str = ""
@@ -316,6 +316,8 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         return _apply_orth_univariate(recipe, X)
     if recipe.kind == "orth_pair_cross":
         return _apply_orth_pair_cross(recipe, X)
+    if recipe.kind == "mi_greedy_transform":
+        return _apply_mi_greedy_transform(recipe, X)
     raise ValueError(f"Unknown recipe kind: {recipe.kind!r}")
 
 
@@ -961,4 +963,60 @@ def build_orth_pair_cross_recipe(
             "deg_a": int(deg_a),
             "deg_b": int(deg_b),
         },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Layer 26 (2026-05-31): generic MI-greedy transform recipes
+# ---------------------------------------------------------------------------
+#
+# Replays the engineered columns produced by ``greedy_mi_fe_construct`` in
+# ``_mi_greedy_fe.py``. Same property as ``orth_univariate`` /
+# ``orth_pair_cross``: the column value is a closed-form function of the
+# source column(s) alone (the MI scorer that picked the candidate at fit time
+# consumed y, but the column expression doesn't). Replay reads only X.
+#
+# extra layout:
+# * mi_greedy_transform: {transform: str}
+# The src_names tuple length (1 or 2) determines unary vs binary at replay
+# time; the registry lookup in ``apply_mi_greedy_transform`` enforces the
+# transform/arity contract.
+
+
+def _apply_mi_greedy_transform(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
+    """Replay a generic MI-greedy engineered column. Stateless given the
+    stored transform name + source columns; no y reference."""
+    if "transform" not in recipe.extra:
+        raise KeyError(
+            f"mi_greedy_transform recipe '{recipe.name}' missing 'transform' "
+            f"in extra. Re-fit MRMR to regenerate."
+        )
+    if len(recipe.src_names) not in (1, 2):
+        raise ValueError(
+            f"mi_greedy_transform recipe '{recipe.name}': src_names must have "
+            f"length 1 (unary) or 2 (binary); got {len(recipe.src_names)}"
+        )
+    # Lazy import to avoid the circular dependency
+    # (_mi_greedy_fe -> engineered_recipes via recipe builder).
+    from ._mi_greedy_fe import apply_mi_greedy_transform
+    src_values = [
+        np.asarray(_extract_column(X, n), dtype=np.float64)
+        for n in recipe.src_names
+    ]
+    return apply_mi_greedy_transform(str(recipe.extra["transform"]), src_values)
+
+
+def build_mi_greedy_transform_recipe(
+    *, name: str, transform: str, src_names: tuple[str, ...],
+) -> EngineeredRecipe:
+    """Frozen recipe for one generic MI-greedy engineered column. ``transform``
+    must be one of the keys in ``_mi_greedy_fe.UNARY_TRANSFORMS`` (or
+    ``TRIG_BOUNDED_TRANSFORMS``) for unary recipes, or
+    ``_mi_greedy_fe.BINARY_TRANSFORMS`` for binary recipes; the registry
+    lookup at replay time enforces the validation."""
+    return EngineeredRecipe(
+        name=name,
+        kind="mi_greedy_transform",
+        src_names=tuple(src_names),
+        extra={"transform": str(transform)},
     )

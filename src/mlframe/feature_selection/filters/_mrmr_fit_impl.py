@@ -349,15 +349,105 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # production frames). Leaving polars frames untouched so the
     # native branch fires.
 
+    # 2026-05-31 Layer 26 — generic MI-greedy FE constructor (sibling to the
+    # hybrid orthogonal-polynomial stage above). Same wiring pattern: opt-in
+    # via ``fe_mi_greedy_enable=True``, default OFF preserves byte-identical
+    # behaviour. The seed pool is the RAW columns of X (NOT the post-hybrid
+    # augmented frame) so the two stages can't compound transforms (e.g.
+    # ``log(x__He2)``); each constructor explores its own design space and
+    # the union of winners is screened by MRMR.
+    self.mi_greedy_features_ = []
+    _mi_greedy_pre_recipes: dict = {}
+    if bool(getattr(self, "fe_mi_greedy_enable", False)):
+        _is_pandas_for_mi_greedy = isinstance(X, pd.DataFrame)
+        if not _is_pandas_for_mi_greedy:
+            warnings.warn(
+                "MRMR: fe_mi_greedy_enable=True but X is not a pandas "
+                "DataFrame; MI-greedy FE is skipped. Convert to pandas via "
+                "X.to_pandas() before fit() if you want MI-greedy FE applied.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from ._mi_greedy_fe import greedy_mi_fe_construct_with_recipes
+                _y_for_mig = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                if _y_for_mig.dtype.kind in "fc":
+                    _n_unique = int(np.unique(_y_for_mig).size)
+                    if _n_unique <= 32:
+                        _y_for_mig = _y_for_mig.astype(np.int64)
+                    else:
+                        try:
+                            _y_for_mig = pd.qcut(
+                                _y_for_mig, q=10, labels=False, duplicates="drop",
+                            ).astype(np.int64)
+                        except Exception:
+                            _y_for_mig = _y_for_mig.astype(np.int64)
+                # Restrict the MI-greedy seed pool to RAW source columns only
+                # (i.e. exclude hybrid-orth-appended columns from the prior
+                # stage). Compound transforms like ``log(He2(x))`` would
+                # create recipes whose ``src_names`` reference an engineered
+                # column that does not exist at transform time -- replay
+                # would KeyError. Each constructor explores its OWN design
+                # space; the union of winners is screened by MRMR.
+                _hybrid_already_appended = set(
+                    getattr(self, "hybrid_orth_features_", None) or []
+                )
+                _mig_cols = None
+                if getattr(self, "factors_names_to_use", None):
+                    _mig_cols = [
+                        c for c in self.factors_names_to_use
+                        if c in X.columns and c not in _hybrid_already_appended
+                    ]
+                else:
+                    _mig_cols = [
+                        c for c in X.columns
+                        if c not in _hybrid_already_appended
+                    ]
+                _X_before_mig_cols = list(X.columns)
+                X_mg, _mig_scores, _mig_recipes = greedy_mi_fe_construct_with_recipes(
+                    X, _y_for_mig,
+                    cols=_mig_cols,
+                    seed_cols_count=int(self.fe_mi_greedy_seed_cols_count),
+                    top_k=int(self.fe_mi_greedy_top_k),
+                    include_unary=bool(self.fe_mi_greedy_include_unary),
+                    include_binary=bool(self.fe_mi_greedy_include_binary),
+                )
+                _mig_appended = [
+                    c for c in X_mg.columns if c not in _X_before_mig_cols
+                ]
+                if _mig_appended:
+                    X = X_mg
+                    self.mi_greedy_features_ = list(_mig_appended)
+                    for _r in _mig_recipes:
+                        _mi_greedy_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit mi_greedy: appended %d engineered "
+                            "column(s): %s",
+                            len(_mig_appended), _mig_appended[:8],
+                        )
+            except Exception as _mig_exc:
+                logger.warning(
+                    "MRMR.fit mi_greedy FE raised %s: %s; continuing "
+                    "without MI-greedy columns.",
+                    type(_mig_exc).__name__, _mig_exc,
+                )
+
     # Layer 23: feature_names_in_ MUST exclude hybrid-appended columns so
     # the end-of-fit ``selected_vars_names`` lookup routes hybrid names
     # into ``_engineered_features_`` / ``_engineered_recipes_`` instead of
     # the raw-feature ``original_indices`` path. transform() then replays
     # hybrid columns from recipes and the sklearn ``n_features_in_``
     # contract still matches the user-facing input width.
+    # Layer 26: also exclude MI-greedy-appended columns -- same routing
+    # contract: they're engineered, not raw input.
     _hybrid_names_set = set(self.hybrid_orth_features_ or [])
+    _mi_greedy_names_set = set(self.mi_greedy_features_ or [])
+    _engineered_names_set = _hybrid_names_set | _mi_greedy_names_set
     _all_cols = X.columns.tolist() if hasattr(X.columns, "tolist") else list(X.columns)
-    self.feature_names_in_ = [c for c in _all_cols if c not in _hybrid_names_set]
+    self.feature_names_in_ = [c for c in _all_cols if c not in _engineered_names_set]
     self.n_features_in_ = len(self.feature_names_in_)
 
     # ---------------------------------------------------------------------------------------------------------------
@@ -512,6 +602,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # any selected_vars_name matching a key here into _engineered_recipes_.
     if _hybrid_orth_pre_recipes:
         engineered_recipes.update(_hybrid_orth_pre_recipes)
+    # Layer 26: same routing pattern for MI-greedy recipes.
+    if _mi_greedy_pre_recipes:
+        engineered_recipes.update(_mi_greedy_pre_recipes)
     # Reset per fit so a re-fit on the same instance doesn't carry stale cluster-aggregate state.
     self._cluster_aggregate_removals_ = []
     self.cluster_aggregate_ = []  # fitted summary (per-aggregate records) -> meta_info report
@@ -616,8 +709,16 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # screen_predictors uses every column from ``cols`` so the
                 # hybrid cols are naturally included.
                 factors_names_to_use=(
-                    list(self.factors_names_to_use) + list(self.hybrid_orth_features_ or [])
-                    if (self.factors_names_to_use and self.hybrid_orth_features_)
+                    list(self.factors_names_to_use)
+                    + list(self.hybrid_orth_features_ or [])
+                    + list(getattr(self, "mi_greedy_features_", None) or [])
+                    if (
+                        self.factors_names_to_use
+                        and (
+                            self.hybrid_orth_features_
+                            or getattr(self, "mi_greedy_features_", None)
+                        )
+                    )
                     else self.factors_names_to_use
                 ),
                 factors_to_use=self.factors_to_use,
