@@ -1154,14 +1154,38 @@ def categorize_dataset(
         else:
             new_vals = None
     if categorical_cols and new_vals is not None:
-        # Wave 40 (2026-05-20): the prior log-warn-then-truncate pattern silently wrapped
-        # category codes past the target dtype's max (e.g. id 128 -> -128 for int8),
-        # then nbins below read the post-wrap max and the joint-histogram in mi.py was
-        # sized to the wrapped value. Auto-promote dtype to fit the actual max code so
-        # high-cardinality categoricals (user_id / product_sku / hash-encoded targets)
-        # produce honest codes; fall back to the original log+truncate only if the
-        # caller explicitly forbids promotion via _force_dtype=True kwarg (not exposed
-        # at this signature -> always promote).
+        # 2026-05-30 Wave 9.1 fix (loop iter 31): the categorical block
+        # bypassed ``missing_strategy`` entirely. ``_multi_col_factorize_native``
+        # / ``pd.factorize`` / ``.cat.codes`` emit ``-1`` for NaN, which then
+        # silently flowed into the joint-histogram allocator and got
+        # negative-index wrapped to the LAST real category bin (or, under
+        # unsigned dtype, wrapped to 2^bits - 1 = a phantom huge category).
+        # Net effect: NaN observations silently merged with the largest
+        # real category, biasing every MI / SU / MRMR score on columns
+        # with NaN in pd.Categorical / object / string / bool columns.
+        # Sibling of iter 9 (numeric NaN bin collision) and iter 11
+        # (propagate strategy silent merge).
+        #
+        # Fix: shift codes by +1 so NaN sentinel becomes 0 and real
+        # categories become 1..K. Under ``missing_strategy='separate_bin'``
+        # (the default) this gives NaN its own honest bin. Under
+        # 'fillna_zero' the shift is equivalent: NaN ends up at bin 0
+        # which any downstream code reading "0 = first category" treats
+        # uniformly. Under 'raise', refuse if any -1 sentinel present.
+        if _missing_strategy_str := str(missing_strategy):
+            _has_nan = bool((new_vals < 0).any())
+            if _has_nan and _missing_strategy_str == "raise":
+                _nan_cnt = int((new_vals < 0).sum())
+                raise ValueError(
+                    f"categorize_dataset: {_nan_cnt} NaN value(s) in "
+                    f"categorical column(s) {categorical_cols} with "
+                    f"missing_strategy='raise'."
+                )
+            if _has_nan:
+                # Shift +1: -1 -> 0, k -> k+1. Cast back to dtype after
+                # shift (the shift increases the max by 1; auto-promote
+                # below catches dtype overflow on the new max).
+                new_vals = new_vals + 1
         max_cats = new_vals.max(axis=0)
         global_max = int(max_cats.max())
         if global_max > np.iinfo(dtype).max:
