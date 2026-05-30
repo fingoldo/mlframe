@@ -265,9 +265,26 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _y_for_hybrid = (
                     y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
                 )
-                # Hybrid MI scoring expects discrete y; coerce float-binary to int.
+                # Hybrid MI scoring expects discrete y. Two cases:
+                #   (a) Float-encoded discrete labels (0.0/1.0) -- safe to cast to int64.
+                #   (b) Continuous regression target -- truncating to int destroys the
+                #       signal (e.g. y in [-2.5, 3.1] all collapses to {-2,-1,0,1,2,3},
+                #       6 quasi-balanced bins, MI to any continuous predictor ~0).
+                #       Quantile-bin instead so MI scoring sees a meaningful discrete y.
                 if _y_for_hybrid.dtype.kind in "fc":
-                    _y_for_hybrid = _y_for_hybrid.astype(np.int64)
+                    _n_unique = int(np.unique(_y_for_hybrid).size)
+                    if _n_unique <= 32:
+                        _y_for_hybrid = _y_for_hybrid.astype(np.int64)
+                    else:
+                        try:
+                            _y_for_hybrid = pd.qcut(
+                                _y_for_hybrid, q=10, labels=False, duplicates="drop",
+                            ).astype(np.int64)
+                        except Exception:
+                            # qcut can fail when y has heavy ties or NaN. Fall back to
+                            # int-cast so the pipeline still runs (signal may degrade
+                            # but does not crash the fit).
+                            _y_for_hybrid = _y_for_hybrid.astype(np.int64)
                 _h_degrees = tuple(int(d) for d in self.fe_hybrid_orth_degrees)
                 _h_basis = str(self.fe_hybrid_orth_basis)
                 _h_top_k = int(self.fe_hybrid_orth_top_k)
