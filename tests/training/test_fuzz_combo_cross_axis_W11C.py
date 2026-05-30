@@ -1469,3 +1469,288 @@ def test_iter569_audit_pass_6_axes_flow_to_kwargs():
     assert c_w_a.canonical_key() != c_w_b.canonical_key(), (
         "early_stop_on_worsening_cfg must differentiate combos (no canon gate)"
     )
+
+
+def test_iter576_audit_pass_6_low_tier_axes_flow_to_kwargs():
+    """28 audit-pass-6 LOW-tier (W6 LOW) deferred fuzz axes must:
+      (a) be present in AXES with >=2 candidate values,
+      (b) carry the SOURCE-verified library defaults in the FuzzCombo
+          dataclass (verified pre-edit against
+          src/mlframe/feature_selection/shap_proxied_fs.py:79-113 for
+          ShapProxiedFS S1-S18, _model_configs.py:506-507 for
+          early_stop_on_worsening_{coeff,min_iters},
+          filters/mrmr.py:241,249,252,265 for Wave 8 S32/S34/S35/S37,
+          _composite_target_discovery_config.py:127-130 for S41-S44),
+      (c) collapse correctly under the documented secondary gates:
+            - 18 shap_proxied_* axes collapse to source defaults when
+              use_shap_proxied_fs=False (with refine_ucb sub-knobs also
+              gated by within_cluster_refine; revalidation_ucb sub-knobs
+              also gated by revalidate_cfg),
+            - 2 early_stop_on_worsening_{coeff,min_iters} collapse when
+              early_stop_on_worsening_cfg=False,
+            - 4 mrmr_* LOW scalars collapse when use_mrmr_fs=False,
+            - 4 cv_selector_* LOW scalars collapse when
+              composite_discovery_enabled_cfg=False OR target != regression.
+
+    S27 dropped: audit said `auto_wrap_partial_fit_es_force_off_cfg` is
+    "Not a knob today"; grep confirmed no source ctor param exists, so
+    the axis was not wired (29 -> 28 axes).
+
+    Drift corrections caught pre-edit (audit-vs-source):
+      - audit S15/S16/S17 (revalidation_ucb): defaults all None per
+        source shap_proxied_fs.py:102-104 -- confirmed.
+      - audit S13 (revalidation_n_estimators): default 100 per
+        shap_proxied_fs.py:100 -- confirmed.
+    """
+    from tests.training._fuzz_combo import (
+        AXES, _build_combo, build_mrmr_kwargs,
+        build_shap_proxied_fs_kwargs,
+        build_composite_discovery_config_from_flat,
+    )
+
+    new_axes = (
+        # ShapProxiedFS Stage-A (S1-S8).
+        "shap_proxied_prefilter_stage1_keep_cfg",
+        "shap_proxied_prefilter_univariate_batch_size_cfg",
+        "shap_proxied_shap_prefilter_enabled_cfg",
+        "shap_proxied_shap_prefilter_safety_factor_cfg",
+        "shap_proxied_shap_prefilter_min_features_cfg",
+        "shap_proxied_shap_aware_stage1_keep_cfg",
+        "shap_proxied_shap_aware_stage1_cushion_cfg",
+        "shap_proxied_shap_aware_stage1_floor_cfg",
+        # ShapProxiedFS Refine UCB (S9-S12).
+        "shap_proxied_refine_ucb_enabled_cfg",
+        "shap_proxied_refine_ucb_min_eval_size_cfg",
+        "shap_proxied_refine_ucb_slack_cfg",
+        "shap_proxied_refine_ucb_stdev_multiplier_cfg",
+        # ShapProxiedFS Revalidation (S13-S17).
+        "shap_proxied_revalidation_n_estimators_cfg",
+        "shap_proxied_revalidation_ucb_enabled_cfg",
+        "shap_proxied_revalidation_ucb_min_eval_size_cfg",
+        "shap_proxied_revalidation_ucb_slack_cfg",
+        "shap_proxied_revalidation_ucb_stdev_multiplier_cfg",
+        # ShapProxiedFS Threading (S18).
+        "shap_proxied_inner_n_jobs_cap_cfg",
+        # Curve-shape ES (S25, S26).
+        "early_stop_on_worsening_coeff_cfg",
+        "early_stop_on_worsening_min_iters_cfg",
+        # MRMR Wave 8 LOW (S32, S34, S35, S37).
+        "mrmr_relaxmrmr_alpha_cfg",
+        "mrmr_uaed_auto_size_cfg",
+        "mrmr_cpt_test_cfg",
+        "mrmr_pid_synergy_bonus_cfg",
+        # CV-selector LOW (S41-S44).
+        "cv_selector_alpha_cfg",
+        "cv_selector_confidence_cfg",
+        "cv_selector_quantile_level_cfg",
+        "cv_persist_fold_scores_cfg",
+    )
+
+    # (a) Presence in AXES with >=2 candidates.
+    assert len(new_axes) == 28, f"expected 28 W6 LOW axes, got {len(new_axes)}"
+    for ax in new_axes:
+        assert ax in AXES, f"missing fuzz axis {ax}"
+        assert len(AXES[ax]) >= 2, f"axis {ax} must offer at least 2 values"
+
+    # (b) FuzzCombo dataclass defaults match SOURCE defaults verified pre-edit.
+    base_axes = {name: values[0] for name, values in AXES.items()}
+    c_default = _build_combo(models=("cb",), axes=base_axes, seed=0)
+    # ShapProxiedFS Stage-A: shap_proxied_fs.py:79-87.
+    assert c_default.shap_proxied_prefilter_stage1_keep_cfg is None
+    assert c_default.shap_proxied_prefilter_univariate_batch_size_cfg is None
+    assert c_default.shap_proxied_shap_prefilter_enabled_cfg is True
+    assert c_default.shap_proxied_shap_prefilter_safety_factor_cfg == 4
+    assert c_default.shap_proxied_shap_prefilter_min_features_cfg == 40
+    assert c_default.shap_proxied_shap_aware_stage1_keep_cfg is True
+    assert c_default.shap_proxied_shap_aware_stage1_cushion_cfg == 8
+    assert c_default.shap_proxied_shap_aware_stage1_floor_cfg == 200
+    # ShapProxiedFS Refine UCB: shap_proxied_fs.py:96-99.
+    assert c_default.shap_proxied_refine_ucb_enabled_cfg is True
+    assert c_default.shap_proxied_refine_ucb_min_eval_size_cfg is None
+    assert c_default.shap_proxied_refine_ucb_slack_cfg is None
+    assert c_default.shap_proxied_refine_ucb_stdev_multiplier_cfg == 1.0
+    # ShapProxiedFS Revalidation: shap_proxied_fs.py:100-104.
+    assert c_default.shap_proxied_revalidation_n_estimators_cfg == 100
+    assert c_default.shap_proxied_revalidation_ucb_enabled_cfg is True
+    assert c_default.shap_proxied_revalidation_ucb_min_eval_size_cfg is None
+    assert c_default.shap_proxied_revalidation_ucb_slack_cfg is None
+    assert c_default.shap_proxied_revalidation_ucb_stdev_multiplier_cfg is None
+    # ShapProxiedFS Threading: shap_proxied_fs.py:113.
+    assert c_default.shap_proxied_inner_n_jobs_cap_cfg is False
+    # Curve-shape ES: _model_configs.py:506-507.
+    assert c_default.early_stop_on_worsening_coeff_cfg == 5
+    assert c_default.early_stop_on_worsening_min_iters_cfg == 5
+    # MRMR Wave 8 scalars: filters/mrmr.py:241,249,252,265.
+    assert c_default.mrmr_relaxmrmr_alpha_cfg == 0.0
+    assert c_default.mrmr_uaed_auto_size_cfg is False
+    assert c_default.mrmr_cpt_test_cfg is False
+    assert c_default.mrmr_pid_synergy_bonus_cfg == 0.0
+    # CV-selector scalars: _composite_target_discovery_config.py:127-130.
+    assert c_default.cv_selector_alpha_cfg == 1.0
+    assert c_default.cv_selector_confidence_cfg == 0.9
+    assert c_default.cv_selector_quantile_level_cfg == 0.9
+    assert c_default.cv_persist_fold_scores_cfg is False
+
+    # (c.1) All 18 shap_proxied_* axes collapse when use_shap_proxied_fs=False.
+    sp_a = dict(base_axes)
+    sp_a.update(use_shap_proxied_fs=False)
+    sp_b = dict(sp_a)
+    sp_b.update(
+        shap_proxied_prefilter_stage1_keep_cfg=200,
+        shap_proxied_prefilter_univariate_batch_size_cfg=256,
+        shap_proxied_shap_prefilter_enabled_cfg=False,
+        shap_proxied_shap_prefilter_safety_factor_cfg=8,
+        shap_proxied_shap_prefilter_min_features_cfg=80,
+        shap_proxied_shap_aware_stage1_keep_cfg=False,
+        shap_proxied_shap_aware_stage1_cushion_cfg=4,
+        shap_proxied_shap_aware_stage1_floor_cfg=500,
+        shap_proxied_refine_ucb_enabled_cfg=False,
+        shap_proxied_refine_ucb_min_eval_size_cfg=8,
+        shap_proxied_refine_ucb_slack_cfg=0.0,
+        shap_proxied_refine_ucb_stdev_multiplier_cfg=0.5,
+        shap_proxied_revalidation_n_estimators_cfg=None,
+        shap_proxied_revalidation_ucb_enabled_cfg=False,
+        shap_proxied_revalidation_ucb_min_eval_size_cfg=3,
+        shap_proxied_revalidation_ucb_slack_cfg=0.0,
+        shap_proxied_revalidation_ucb_stdev_multiplier_cfg=1.0,
+        shap_proxied_inner_n_jobs_cap_cfg=True,
+    )
+    c_sp_a = _build_combo(models=("cb",), axes=sp_a, seed=0)
+    c_sp_b = _build_combo(models=("cb",), axes=sp_b, seed=0)
+    assert c_sp_a.canonical_key() == c_sp_b.canonical_key(), (
+        "all 18 shap_proxied_* LOW axes must collapse to ShapProxiedFS "
+        "source defaults when use_shap_proxied_fs=False"
+    )
+
+    # (c.2) Curve-shape ES scalars collapse when detector is disabled.
+    es_a = dict(base_axes)
+    es_a.update(early_stop_on_worsening_cfg=False)
+    es_b = dict(es_a)
+    es_b.update(
+        early_stop_on_worsening_coeff_cfg=7,
+        early_stop_on_worsening_min_iters_cfg=10,
+    )
+    c_es_a = _build_combo(models=("cb",), axes=es_a, seed=0)
+    c_es_b = _build_combo(models=("cb",), axes=es_b, seed=0)
+    assert c_es_a.canonical_key() == c_es_b.canonical_key(), (
+        "early_stop_on_worsening_{coeff,min_iters} must collapse to source "
+        "defaults when early_stop_on_worsening_cfg=False"
+    )
+
+    # (c.3) MRMR LOW scalars collapse when use_mrmr_fs=False.
+    mr_a = dict(base_axes)
+    mr_a.update(use_mrmr_fs=False)
+    mr_b = dict(mr_a)
+    mr_b.update(
+        mrmr_relaxmrmr_alpha_cfg=0.1,
+        mrmr_uaed_auto_size_cfg=True,
+        mrmr_cpt_test_cfg=True,
+        mrmr_pid_synergy_bonus_cfg=0.1,
+    )
+    c_mr_a = _build_combo(models=("cb",), axes=mr_a, seed=0)
+    c_mr_b = _build_combo(models=("cb",), axes=mr_b, seed=0)
+    assert c_mr_a.canonical_key() == c_mr_b.canonical_key(), (
+        "4 MRMR Wave 8 LOW scalars must collapse to MRMR defaults when "
+        "use_mrmr_fs=False"
+    )
+
+    # (c.4) CV-selector LOW scalars collapse when discovery is off.
+    cv_a = dict(base_axes)
+    cv_a.update(composite_discovery_enabled_cfg=False)
+    cv_b = dict(cv_a)
+    cv_b.update(
+        cv_selector_alpha_cfg=1.5,
+        cv_selector_confidence_cfg=0.99,
+        cv_selector_quantile_level_cfg=0.95,
+        cv_persist_fold_scores_cfg=True,
+    )
+    c_cv_a = _build_combo(models=("cb",), axes=cv_a, seed=0)
+    c_cv_b = _build_combo(models=("cb",), axes=cv_b, seed=0)
+    assert c_cv_a.canonical_key() == c_cv_b.canonical_key(), (
+        "4 CV-selector LOW scalars must collapse to discovery defaults when "
+        "composite_discovery_enabled_cfg=False"
+    )
+
+    # (d.1) ShapProxiedFS LOW knobs flow through
+    # build_shap_proxied_fs_kwargs into the dict consumed by
+    # ShapProxiedFS.__init__. Names match the ctor verbatim
+    # (feature_selection/shap_proxied_fs.py:79-113).
+    on_axes = dict(base_axes)
+    on_axes.update(
+        use_shap_proxied_fs=True,
+        shap_proxied_prefilter_stage1_keep_cfg=200,
+        shap_proxied_prefilter_univariate_batch_size_cfg=256,
+        shap_proxied_shap_prefilter_enabled_cfg=False,
+        shap_proxied_shap_prefilter_safety_factor_cfg=8,
+        shap_proxied_shap_prefilter_min_features_cfg=80,
+        shap_proxied_shap_aware_stage1_keep_cfg=False,
+        shap_proxied_shap_aware_stage1_cushion_cfg=4,
+        shap_proxied_shap_aware_stage1_floor_cfg=500,
+        shap_proxied_refine_ucb_enabled_cfg=False,
+        shap_proxied_refine_ucb_min_eval_size_cfg=8,
+        shap_proxied_refine_ucb_slack_cfg=0.0,
+        shap_proxied_refine_ucb_stdev_multiplier_cfg=0.5,
+        shap_proxied_revalidation_n_estimators_cfg=None,
+        shap_proxied_revalidation_ucb_enabled_cfg=False,
+        shap_proxied_revalidation_ucb_min_eval_size_cfg=3,
+        shap_proxied_revalidation_ucb_slack_cfg=0.0,
+        shap_proxied_revalidation_ucb_stdev_multiplier_cfg=1.0,
+        shap_proxied_inner_n_jobs_cap_cfg=True,
+    )
+    c_on = _build_combo(models=("cb",), axes=on_axes, seed=0)
+    kw_sp = build_shap_proxied_fs_kwargs(c_on)
+    assert kw_sp is not None, (
+        "build_shap_proxied_fs_kwargs must return dict when use_shap_proxied_fs=True"
+    )
+    assert kw_sp["prefilter_stage1_keep"] == 200
+    assert kw_sp["prefilter_univariate_batch_size"] == 256
+    assert kw_sp["shap_prefilter_enabled"] is False
+    assert kw_sp["shap_prefilter_safety_factor"] == 8
+    assert kw_sp["shap_prefilter_min_features"] == 80
+    assert kw_sp["shap_aware_stage1_keep"] is False
+    assert kw_sp["shap_aware_stage1_cushion"] == 4
+    assert kw_sp["shap_aware_stage1_floor"] == 500
+    assert kw_sp["refine_ucb_enabled"] is False
+    assert kw_sp["refine_ucb_min_eval_size"] == 8
+    assert kw_sp["refine_ucb_slack"] == 0.0
+    assert kw_sp["refine_ucb_stdev_multiplier"] == 0.5
+    assert kw_sp["revalidation_n_estimators"] is None
+    assert kw_sp["revalidation_ucb_enabled"] is False
+    assert kw_sp["revalidation_ucb_min_eval_size"] == 3
+    assert kw_sp["revalidation_ucb_slack"] == 0.0
+    assert kw_sp["revalidation_ucb_stdev_multiplier"] == 1.0
+    assert kw_sp["inner_n_jobs_cap"] is True
+
+    # (d.2) MRMR LOW knobs flow through build_mrmr_kwargs.
+    mr_on_axes = dict(base_axes)
+    mr_on_axes.update(
+        use_mrmr_fs=True,
+        mrmr_relaxmrmr_alpha_cfg=0.1,
+        mrmr_uaed_auto_size_cfg=True,
+        mrmr_cpt_test_cfg=True,
+        mrmr_pid_synergy_bonus_cfg=0.1,
+    )
+    c_mr_on = _build_combo(models=("cb",), axes=mr_on_axes, seed=0)
+    kw_mr = build_mrmr_kwargs(c_mr_on)
+    assert kw_mr is not None
+    assert kw_mr["relaxmrmr_alpha"] == 0.1
+    assert kw_mr["uaed_auto_size"] is True
+    assert kw_mr["cpt_test"] is True
+    assert kw_mr["pid_synergy_bonus"] == 0.1
+
+    # (d.3) CV-selector LOW knobs flow through
+    # build_composite_discovery_config_from_flat into the
+    # CompositeTargetDiscoveryConfig.
+    cfg = build_composite_discovery_config_from_flat(
+        enabled=True,
+        cv_selector_alpha=1.5,
+        cv_selector_confidence=0.99,
+        cv_selector_quantile_level=0.95,
+        cv_persist_fold_scores=True,
+    )
+    assert cfg is not None
+    # Source field names verified at _composite_target_discovery_config.py:127-130.
+    assert getattr(cfg, "cv_selector_alpha", None) == 1.5
+    assert getattr(cfg, "cv_selector_confidence", None) == 0.99
+    assert getattr(cfg, "cv_selector_quantile_level", None) == 0.95
+    assert getattr(cfg, "cv_persist_fold_scores", None) is True
