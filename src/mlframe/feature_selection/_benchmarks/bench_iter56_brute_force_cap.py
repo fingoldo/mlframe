@@ -1,12 +1,17 @@
 """Iter56 A/B: raised brute_force_max_features 22 -> 28 + n_sub gate 2M -> 80M.
 
-Quality + speed bench at C3 (the regime where brute force is the dispatched optimizer post-prefilter
-tightening) and a low-SNR hard regime where the wider cap should catch weak informatives the strict
-top-22 cap misses. The lever is conservation-safe: brute force at n=28 ALLOWS consideration of
-more subsets than n=22 over the same proxy loss surface; it cannot pick a worse subset (modulo
-numerical ties broken differently). Lever wins when (a) the prefilter ranks a weak informative in
-positions 23..28 (low-SNR regimes), or (b) the proxy loss surface at the tighter cap accidentally
-excludes the global optimum.
+Quality + speed bench at C3 and a low-SNR hard regime. At default ``max_features=None`` (the bench
+config) the n_sub gate routes n<=26 to brute force and n in {27, 28} to beam (2^27 = 134M > 80M
+gate, 2^28 = 268M > 80M gate). So the cap28 arm here measures BEAM over a 28-column prescreen
+pool, not brute force at n=28; the wall-clock and recall gains come from beam having a wider
+candidate pool, not from exhaustive search at n=28. Brute force at n=28 only fires when the
+caller ALSO pins ``max_features<=12`` (see ``_resolve_optimizer`` docstring + module-level comment
+on ``_DEFAULT_BRUTE_FORCE_MAX_FEATURES`` in shap_proxied_fs.py).
+
+The bench is still informative: it measures the user-visible effect of raising
+``brute_force_max_features`` from 22 to 28 on the default ``max_features=None`` workload
+(prescreen-pool widening, beam over wider pool at n=27,28). Pin ``max_features=12`` and re-run if
+you want to measure the actual brute-force-at-n=28 path.
 
 Run::
 

@@ -34,15 +34,41 @@ logger = logging.getLogger(__name__)
 _EXACT_OPTIMIZERS = {"bruteforce", "bruteforce_gpu"}
 _HEURISTIC_OPTIMIZERS = {"beam", "greedy_forward", "greedy_backward", "multistart", "genetic", "annealing", "gradient"}
 
-# Brute-force dispatcher gates (iter56). Both are overridable per HW via
+# Brute-force dispatcher gates (iter56 + iter57 audit). Both are overridable per HW via
 # ``pyutilz.system.kernel_tuning_cache`` so a wider/narrower box can shift the boundary without
-# touching code. The defaults are calibrated on the 8-core dev box at the default
-# ``min_features=1 / max_features=12`` sweep: sum C(n,k) for k=1..12 is 3.1M at n=22, 47.1M at n=27,
-# 76.7M at n=28, 123M at n=29. Raising the n_sub gate to 80M permits brute force at n=28 (~15s at
-# the iter30 parallel kernel ~5M subsets/s, RAM constant) while still blocking n=29+ where the
-# wall-clock exceeds 25s. The previous (22, 2M) pair was unreachable at default ``max_card=12``
-# because even n=22 enumerates 3.1M subsets -- the gate effectively forced beam everywhere on
-# default ``max_features``; raising both unlocks the brute-force path for the common config.
+# touching code.
+#
+# Two distinct knobs, two distinct effects:
+#
+# 1. ``brute_force_max_features`` (default 28): cap on ``phi.shape[1]`` AFTER prescreen. The
+#    prescreen step (shap_proxied_fs.py near line 866) narrows the candidate pool to this many
+#    columns whenever the user runs ``optimizer="auto"|"bruteforce"|"bruteforce_gpu"``. The pool
+#    feeds whichever optimizer the dispatcher ends up picking - brute_force when feasible, beam
+#    otherwise - so this knob widens or narrows the CANDIDATE SPACE all optimizers see, not just
+#    brute force.
+#
+# 2. ``brute_force_n_sub_gate`` (default 80M): cap on the EXHAUSTIVE subset count
+#    ``total_subsets(n, min_card, max_card)`` that brute force would enumerate. The dispatcher
+#    uses this to decide whether brute_force is feasible AT the post-prescreen n. When it isn't,
+#    the dispatcher falls back to beam.
+#
+# Default-config behaviour at ``max_features=None`` (the default):
+#   total_subsets(n, 1, None) = 2^n - 1 (kernel treats None as n_features).
+#   - n in {1..26}: 2^n - 1 <= 67M, under the 80M gate -> brute force dispatches.
+#   - n in {27, 28}: 134M, 268M, over the 80M gate -> beam dispatches.
+#
+# So at ``max_features=None`` the EFFECTIVE brute-force ceiling is n=26, NOT n=28. The cap of 28
+# only unlocks the brute-force path when the user ALSO pins ``max_features<=12`` (sum C(28, 1..12)
+# = 76.7M, under the 80M gate). At n=27,28 with default ``max_features=None`` the cap acts as a
+# prescreen-pool widener that beam consumes - iter56's measured recall/wall gain came from beam at
+# the wider pool, NOT from brute force. The cap is named after the brute-force kernel because
+# that is the optimizer the dispatcher PREFERS at small n; at n=27,28 with default max_features
+# the dispatcher correctly falls back to beam over the 28-column prescreen pool.
+#
+# Sizing rationale for the gate: 80M at the iter30 parallel kernel (~5M subsets/s on the 8-core
+# dev box) caps a single brute-force search at ~16s wall. The next power-of-2 (n=28 with
+# max_features=None: 268M subsets, ~54s wall) is beyond what the dispatcher should pick without
+# the user explicitly opting in via ``optimizer="bruteforce"``.
 _DEFAULT_BRUTE_FORCE_MAX_FEATURES = 28
 _DEFAULT_BRUTE_FORCE_N_SUB_GATE = 80_000_000
 
@@ -193,11 +219,15 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         self.interaction_aware = interaction_aware
         self.max_interaction_features = max_interaction_features
         self.beam_width = beam_width
-        # ``brute_force_max_features`` (iter56): raised default 22 -> 28 because brute force at n=28
-        # is still ~5s on the 8-core box (sum C(28,k) for k=1..12 ~ 41.4M subsets at ~5M subsets/s)
-        # and lets the dispatcher consider weak informatives that the strict top-22 cap misses on
-        # noisy-SHAP regimes (recall gain at low SNR). RAM is constant (~1MB). ``None`` consults
-        # ``pyutilz.system.kernel_tuning_cache`` (key
+        # ``brute_force_max_features`` (iter56): raised default 22 -> 28. This is the prescreen
+        # cap on ``phi.shape[1]``, NOT a direct guarantee that brute force runs at the dispatched
+        # n. At default ``max_features=None`` the dispatcher's n_sub gate routes n<=26 to brute
+        # force and n in {27, 28} to beam (beam consumes the wider 28-column prescreen pool);
+        # iter56's measured wall-clock gain at C3 came from beam over the wider pool, NOT brute
+        # at n=28. To actually run brute force at n=28 the caller must pin
+        # ``max_features<=12`` (sum C(28,1..12)=76.7M < 80M gate). See the module-level comment on
+        # ``_DEFAULT_BRUTE_FORCE_MAX_FEATURES`` for the full dispatcher truth table. RAM is
+        # constant (~1MB). ``None`` consults ``pyutilz.system.kernel_tuning_cache`` (key
         # ``mlframe.shap_proxied_fs.brute_force_max_features``) for per-HW override, falling back
         # to the module default. Explicit int pins always win.
         self.brute_force_max_features = (
@@ -601,6 +631,15 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         return y
 
     def _resolve_optimizer(self, n_features: int) -> str:
+        """Pick the optimizer for the post-prescreen candidate pool.
+
+        At ``optimizer="auto"``, brute force is the preferred path when (a) the post-prescreen
+        ``n_features`` is at or below the user's ``brute_force_max_features`` ceiling AND (b) the
+        exhaustive subset count fits the dispatcher's ``brute_force_n_sub_gate`` feasibility cap.
+        Otherwise the dispatcher falls back to beam over the SAME candidate pool. At default
+        ``max_features=None`` the n_sub gate effectively caps brute-force dispatch at n<=26
+        (2^26 = 67M < 80M default gate); n in {27, 28} runs beam over the wider prescreen pool.
+        """
         opt = self.optimizer
         if opt != "auto":
             return opt
