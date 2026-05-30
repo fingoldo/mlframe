@@ -143,6 +143,35 @@ class StabilityMRMR(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X, y=None):
+        # 2026-05-30 Wave 9.1 fix (loop iter 42): validate fit-time
+        # column semantics at transform. Pre-fix the function
+        # positional-indexed via ``X.iloc[:, self.support_]`` with no
+        # check that the columns AT transform time match the columns
+        # AT fit time. Reordering, renaming, or dropping columns
+        # silently returned the wrong slice - downstream models saw
+        # feature ``d`` labelled as ``b`` and vice versa.
+        if hasattr(self, "feature_names_in_") and hasattr(X, "columns"):
+            cols = list(X.columns)
+            fit_cols = list(self.feature_names_in_)
+            if cols != fit_cols:
+                # Realign by name when all fit columns are present
+                # (sklearn ``_check_feature_names(reset=False)`` semantics).
+                if set(fit_cols).issubset(cols):
+                    X = X[fit_cols]
+                else:
+                    missing = sorted(set(fit_cols) - set(cols))
+                    raise ValueError(
+                        f"StabilityMRMR.transform: X columns differ from "
+                        f"fit; missing {missing!r}."
+                    )
+        elif hasattr(self, "n_features_in_"):
+            _ncols = int(X.shape[1])
+            if _ncols != int(self.n_features_in_):
+                raise ValueError(
+                    f"StabilityMRMR.transform: X has {_ncols} features, "
+                    f"but StabilityMRMR is expecting "
+                    f"{int(self.n_features_in_)} features as input."
+                )
         if hasattr(X, "iloc"):
             return X.iloc[:, self.support_]
         return X[:, self.support_]
