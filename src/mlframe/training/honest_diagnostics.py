@@ -103,8 +103,20 @@ def _bootstrap_block(y_true: np.ndarray, probs: np.ndarray, preds: Optional[np.n
             # bootstrap resampler hands us views of the original arrays so
             # one-time cast in the calling closure is enough (numba dispatcher
             # caches per dtype, so the first resample warms the JIT).
+            # iter599: dropped the .astype on _auc -- fast_roc_auc_unstable's
+            # underlying njit kernel accepts int y_true natively (``tps +=
+            # y_true[i]`` widens automatically). For int labels (the common
+            # bootstrap path) astype(np.float64) ALWAYS copies despite copy=
+            # False (the flag only saves a copy when dtype matches). Bench
+            # n=25k bootstrap-resample size: int64 1.05x, int8 1.19x,
+            # float64 1.00x. Bit-equivalent.
+            # KEPT .astype on _brier / _ll -- bench showed regressions on
+            # float64 labels (0.77x / 0.85x) when kernel was called direct;
+            # something about the dispatcher fast-path on (float64,float64)
+            # outperforms the bare call. Not worth the float64 regression to
+            # win on int paths.
             def _auc(yy, pp):
-                return float(_fast_auc(yy.astype(np.float64, copy=False), pp.astype(np.float64, copy=False)))
+                return float(_fast_auc(yy, pp))
 
             def _brier(yy, pp):
                 return float(_fast_brier(yy.astype(np.float64, copy=False), pp.astype(np.float64, copy=False)))
