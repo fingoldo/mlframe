@@ -206,21 +206,46 @@ def parallel_mi(
     dtype=np.int32,
     base_seed: np.uint64 = np.uint64(0),
     use_su: bool = False,  # 2026-05-28: SU normalization toggle threaded from mi_direct.
+    perm_offset: int = 0,  # 2026-05-30 Wave 9.1 iter 18: cumulative permutation index offset for n_workers-independent seeding.
 ) -> tuple[int, int]:
     """Worker for the joblib pool used by ``mi_direct``. Returns ``(n_failed, n_checked)`` so the caller can aggregate across pool members. ``npermutations=0`` returns ``(0, 0)`` cleanly.
 
     ``base_seed`` threads a per-worker seed through the inline LCG Fisher-Yates so two parallel suite calls with the same seed produce identical ``(nfailed, _i+1)`` output. ``base_seed=0`` keeps the legacy stream
     deterministic across calls in the same process; parent callers (``mi_direct`` joblib branch) should derive per-worker seeds via Knuth multiplicative hash so the worker streams stay independent.
+
+    2026-05-30 Wave 9.1 fix (loop iter 18): switched to per-permutation
+    LCG seeding (``base_seed * 2654435761 + (perm_offset + i + 1)``)
+    matching ``parallel_mi_prange``. Pre-fix the function advanced a
+    single LCG across all iterations from ``base_seed``, so the random
+    stream content was a function of the worker's perm count -
+    aggregating across workers with different counts gave different
+    ``(nfailed, n_checked)``. ``mi_direct(parallelism='outer',
+    n_workers=1..8)`` was NOT bit-exact for the same ``base_seed``
+    (confirmed 4 distinct confidence values across n_workers in {1,2,4,8}
+    for the same data and seed). The new scheme is n_workers-independent
+    by construction: worker w running perms [offset, offset+count)
+    consumes the SAME seeds that a single-worker run would use at those
+    same perm indices.
     """
     if npermutations == 0:
         return 0, 0
 
     nfailed = 0
     classes_y_safe = np.asarray(classes_y).copy()
+    n = classes_y_safe.shape[0]
     _i = 0
-    _lcg_state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(1)
     for _i in range(npermutations):
-        _lcg_state = np.uint64(shuffle_arr_lcg(classes_y_safe, _lcg_state))
+        # Per-iteration LCG state, index-keyed (matches parallel_mi_prange:176).
+        # Bit-exact across n_workers because the seed for perm index k is
+        # purely a function of base_seed and k - never of the partition.
+        state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(perm_offset + _i + 1)
+        # Inline Fisher-Yates with the per-iter LCG.
+        for j in range(n - 1, 0, -1):
+            state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
+            k = int(state >> np.uint64(33)) % (j + 1)
+            tmp = classes_y_safe[j]
+            classes_y_safe[j] = classes_y_safe[k]
+            classes_y_safe[k] = tmp
         mi = compute_relevance_score(
             use_su, classes_x, freqs_x, classes_y_safe, freqs_y, dtype=dtype,
         )
@@ -228,6 +253,11 @@ def parallel_mi(
             nfailed += 1
             if nfailed >= max_failed:
                 break
+        # Reset classes_y_safe for the next iteration to mirror prange's
+        # ``local = classes_y.copy()``. Mutating in place between perms
+        # would compound permutations into the seed sequence and break
+        # the per-iter independence.
+        classes_y_safe = np.asarray(classes_y).copy()
     return nfailed, _i + 1
 
 
@@ -414,21 +444,37 @@ def mi_direct(
             _classes_y_for_workers = (
                 classes_y_safe if classes_y_safe is not None else classes_y
             )
-            res = workers_pool(
-                delayed(parallel_mi)(
-                    classes_x=classes_x,
-                    freqs_x=freqs_x,
-                    classes_y=_classes_y_for_workers,
-                    freqs_y=freqs_y,
-                    dtype=dtype,
-                    npermutations=worker_npermutations,
-                    original_mi=original_mi,
-                    max_failed=max_failed,
-                    base_seed=np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(_widx + 1),
-                    use_su=_use_su,
+            # 2026-05-30 Wave 9.1 fix (loop iter 18): use the SAME
+            # ``base_seed`` for every worker and pass each worker its
+            # cumulative ``perm_offset`` so the perm-index seeding in
+            # ``parallel_mi`` matches the single-worker run bit-for-bit
+            # regardless of ``n_workers``. Pre-fix each worker got a
+            # DIFFERENT base_seed derivation
+            # (``base_seed * 2654435761 + widx + 1``) so the random
+            # stream content depended on n_workers - confidence varied
+            # by 70% across n_workers in {1, 2, 4, 8} for the same
+            # base_seed, breaking the "same seed -> identical output"
+            # contract for any consumer that switched ``n_jobs``.
+            _cumulative_offset = 0
+            _delayed_calls = []
+            for _widx, worker_npermutations in enumerate(_worker_loads):
+                _delayed_calls.append(
+                    delayed(parallel_mi)(
+                        classes_x=classes_x,
+                        freqs_x=freqs_x,
+                        classes_y=_classes_y_for_workers,
+                        freqs_y=freqs_y,
+                        dtype=dtype,
+                        npermutations=worker_npermutations,
+                        original_mi=original_mi,
+                        max_failed=max_failed,
+                        base_seed=np.uint64(base_seed),
+                        use_su=_use_su,
+                        perm_offset=_cumulative_offset,
+                    )
                 )
-                for _widx, worker_npermutations in enumerate(_worker_loads)
-            )
+                _cumulative_offset += int(worker_npermutations)
+            res = workers_pool(_delayed_calls)
 
             n_checked = 0
             for worker_nfailed, worker_i in res:
@@ -439,22 +485,37 @@ def mi_direct(
             if nfailed >= max_failed:
                 original_mi = 0.0
         else:
+            # 2026-05-30 Wave 9.1 fix (loop iter 18): use the SAME per-iter
+            # LCG seeding scheme as the new ``parallel_mi`` (and as
+            # ``parallel_mi_prange``) so the sequential fallback path is
+            # bit-exact with the outer-parallel path for any ``base_seed``
+            # and ``npermutations``. Pre-fix this branch used a state-
+            # threaded LCG advanced once per iteration from ``base_seed``,
+            # producing a stream that diverged from both
+            # ``parallel_mi_prange``'s per-iter seeding and the new
+            # ``parallel_mi``'s per-iter seeding. Net effect: ``mi_direct``
+            # with ``n_workers=1`` and ``n_workers=2`` gave different
+            # confidence values even with frozen ``base_seed``.
             if classes_y_safe is None:
                 classes_y_safe = classes_y.copy()
+            else:
+                classes_y_safe = np.asarray(classes_y_safe).copy()
             i = -1
-            # Inline LCG Fisher-Yates: ~6x faster than the @njit
-            # np.random.shuffle wrapper at n=200k (3.7 ms -> 0.6 ms /
-            # shuffle). State threaded across iters from base_seed so
-            # the (nfailed, npermutations) outcome is reproducible.
-            #
-            # Wrap each returned state with ``np.uint64(...)`` -- numba unboxes
-            # the return as a Python int in [0, 2**64) and the next call's
-            # type-dispatch raises ``OverflowError: int too big to convert``
-            # on values in [2**63, 2**64) without the explicit cast.
-            _lcg_state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(1)
+            _n_rows = classes_y_safe.shape[0]
+            _ref = classes_y_safe.copy()  # pristine reference for per-iter reset
             for _i in range(npermutations):
                 i = _i
-                _lcg_state = np.uint64(shuffle_arr_lcg(classes_y_safe, _lcg_state))
+                # Per-iter LCG state, index-keyed (matches parallel_mi_prange:176
+                # and parallel_mi after the iter-18 fix).
+                state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(_i + 1)
+                # Reset to pristine before this iter's shuffle.
+                classes_y_safe[:] = _ref
+                for j in range(_n_rows - 1, 0, -1):
+                    state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
+                    k = int(state >> np.uint64(33)) % (j + 1)
+                    tmp = classes_y_safe[j]
+                    classes_y_safe[j] = classes_y_safe[k]
+                    classes_y_safe[k] = tmp
                 mi = compute_relevance_score(
                     _use_su, classes_x, freqs_x, classes_y_safe, freqs_y, dtype=dtype,
                 )
