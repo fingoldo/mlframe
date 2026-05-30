@@ -94,56 +94,61 @@ def test_regressor_baseline_clean_inputs_train_to_completion(clean_regression_sp
     assert np.isfinite(preds).all(), "baseline produced NaN predictions on clean data"
 
 
-def test_regressor_with_nan_in_features_documents_behaviour(clean_regression_split):
-    """X has NaN -> what does the estimator do? Current behaviour: NaN
-    propagates through the first Linear, producing all-NaN activations
-    and all-NaN gradients; weights become NaN after step 1; predictions
-    are all NaN.
-
-    This test DOCUMENTS the current state. Ideal future fix would raise
-    a clear error at fit() entry. Until then, callers must pre-clean.
-    """
+def test_regressor_rejects_nan_in_features(clean_regression_split):
+    """F-23: fit() must reject NaN in X with a clear ValueError pointing
+    to sklearn imputation helpers. Pre-fix NaN propagated silently to
+    all-NaN predictions."""
     rng = np.random.default_rng(0)
     X_nan = _inject_nan_into_features(clean_regression_split["X_train"], rng)
 
     reg = PytorchLightningRegressor(**_regressor_params())
-    # We allow fit to either:
-    #   (a) raise (good — caller knows something's wrong), OR
-    #   (b) complete but produce all-NaN preds (bad but at least surfaces).
-    # The CURRENT behaviour falls into (b).
-    try:
+    with pytest.raises(ValueError, match=r"NaN.*SimpleImputer|SimpleImputer.*NaN|contains \d+ NaN"):
         reg.fit(X_nan, clean_regression_split["y_train"])
-    except (ValueError, RuntimeError) as e:
-        # Future behaviour: explicit reject. Then this test passes here.
-        print(f"\nNaN in features rejected at fit() with: {e}")
-        return
-
-    preds = reg.predict(clean_regression_split["X_test"])
-    n_nan_preds = int(np.isnan(preds).sum())
-    print(f"\nNaN-in-features documented behaviour: {n_nan_preds} / "
-          f"{len(preds)} predictions are NaN after fit() on dirty X")
-    # The diagnostic asserts SOMETHING is observable downstream: either
-    # the model produced NaN preds (current state) OR it somehow trained
-    # cleanly. Either way the test passes; it's a SNAPSHOT test.
-    assert n_nan_preds >= 0  # always true; this is a snapshot
 
 
-def test_regressor_with_nan_in_targets_documents_behaviour(clean_regression_split):
-    """y has NaN -> what happens? Current behaviour: NaN in the loss
-    propagates to NaN gradients and NaN-valued weights, identical to
-    the X-NaN case. DOCUMENTS the current behaviour."""
+def test_regressor_rejects_nan_in_targets(clean_regression_split):
+    """F-23: fit() must reject NaN in y with a clear ValueError."""
     rng = np.random.default_rng(0)
     y_nan = _inject_nan_into_targets(clean_regression_split["y_train"], rng)
 
     reg = PytorchLightningRegressor(**_regressor_params())
-    try:
+    with pytest.raises(ValueError, match=r"contains \d+ NaN"):
         reg.fit(clean_regression_split["X_train"], y_nan)
-    except (ValueError, RuntimeError) as e:
-        print(f"\nNaN in targets rejected at fit() with: {e}")
-        return
 
-    preds = reg.predict(clean_regression_split["X_test"])
-    n_nan_preds = int(np.isnan(preds).sum())
-    print(f"\nNaN-in-targets documented behaviour: {n_nan_preds} / "
-          f"{len(preds)} predictions are NaN after fit() on dirty y")
-    assert n_nan_preds >= 0
+
+def test_regressor_rejects_inf_in_features(clean_regression_split):
+    """F-23: inf values are equally bad for training (+inf * 0 = NaN in
+    matmul); must also be rejected."""
+    X_inf = clean_regression_split["X_train"].copy()
+    X_inf[0, 0] = np.inf
+    X_inf[1, 1] = -np.inf
+    reg = PytorchLightningRegressor(**_regressor_params())
+    with pytest.raises(ValueError, match=r"inf"):
+        reg.fit(X_inf, clean_regression_split["y_train"])
+
+
+def test_regressor_rejects_nan_in_eval_set(clean_regression_split):
+    """F-23: eval_set must also be validated -- pre-fix the val
+    DataLoader silently propagated NaN."""
+    from sklearn.model_selection import train_test_split
+    X_tr, X_val, y_tr, y_val = train_test_split(
+        clean_regression_split["X_train"], clean_regression_split["y_train"],
+        test_size=0.3, random_state=0,
+    )
+    rng = np.random.default_rng(0)
+    X_val_nan = _inject_nan_into_features(X_val, rng)
+
+    reg = PytorchLightningRegressor(**_regressor_params())
+    with pytest.raises(ValueError, match=r"X_val.*NaN|NaN.*X_val|contains \d+ NaN"):
+        reg.fit(X_tr, y_tr, eval_set=(X_val_nan, y_val))
+
+
+def test_regressor_accepts_clean_int_features(clean_regression_split):
+    """F-23 sanity: int-dtype features are valid (int arrays can't carry
+    NaN); the validator must NOT raise on them."""
+    X_int = clean_regression_split["X_train"].astype(np.int64)
+    reg = PytorchLightningRegressor(**_regressor_params())
+    # Must not raise; produces some prediction.
+    reg.fit(X_int, clean_regression_split["y_train"])
+    preds = reg.predict(clean_regression_split["X_test"].astype(np.int64))
+    assert preds.shape[0] == clean_regression_split["X_test"].shape[0]

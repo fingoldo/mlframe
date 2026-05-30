@@ -144,6 +144,57 @@ from ._base_sklearn_params import (  # noqa: F401, E402
 )
 
 
+def _validate_no_nan_inf(arg_name: str, data, allow_object_dtype: bool = False) -> None:
+    """F-23 (2026-05-30) helper: reject NaN / inf in features or labels at
+    fit() entry with a clear, actionable error. Pre-fix NaN propagated
+    silently through the network producing all-NaN predictions.
+
+    ``allow_object_dtype=True`` short-circuits the check for object-dtype
+    targets (string / Python labels), which the LabelEncoder block will
+    reject downstream with its own message if invalid.
+    """
+    if data is None:
+        return
+    # Normalise to np.ndarray for the check. Avoid copy when possible.
+    if isinstance(data, pd.DataFrame):
+        arr = data.to_numpy()
+    elif isinstance(data, pd.Series):
+        arr = data.to_numpy()
+    elif isinstance(data, pl.DataFrame):
+        arr = data.to_numpy()
+    elif isinstance(data, np.ndarray):
+        arr = data
+    elif isinstance(data, torch.Tensor):
+        arr = data.detach().cpu().numpy()
+    else:
+        arr = np.asarray(data)
+    # Skip the finite-check on non-numeric dtypes; np.isnan raises on
+    # object/str arrays. LabelEncoder will reject string labels for
+    # regressors downstream; this guard is for numeric data only.
+    if arr.dtype.kind not in ("f", "i", "u", "b"):
+        if allow_object_dtype:
+            return
+        raise ValueError(
+            f"{arg_name} has dtype {arr.dtype!r}; PytorchLightningEstimator "
+            "requires numeric dtype (float / int / bool). Convert via "
+            "pd.get_dummies, sklearn OrdinalEncoder, or similar."
+        )
+    if arr.dtype.kind == "f":
+        # Only float arrays can carry NaN / inf; int / bool arrays can't.
+        if not np.isfinite(arr).all():
+            n_nan = int(np.isnan(arr).sum())
+            n_inf = int(np.isinf(arr).sum())
+            raise ValueError(
+                f"{arg_name} contains {n_nan} NaN and {n_inf} inf values. "
+                "PytorchLightningEstimator does NOT impute internally because "
+                "NaN propagates through the network -> all-NaN predictions. "
+                "Pre-process with sklearn.impute.SimpleImputer / "
+                "IterativeImputer, drop the offending rows via "
+                f"{arg_name}.dropna(), or wrap the estimator in a sklearn "
+                "Pipeline whose first step handles missing values."
+            )
+
+
 class PytorchLightningEstimator(BaseEstimator):
     """Wrapper that allows Pytorch Lightning model, datamodule and trainer to participate in sklearn pipelines.
     Supports early stopping (via eval_set in fit_params).
@@ -206,6 +257,23 @@ class PytorchLightningEstimator(BaseEstimator):
         # (idempotent — re-seeding before each call is fine).
         if self.random_state is not None:
             L.seed_everything(int(self.random_state), workers=True, verbose=False)
+
+        # F-23 (2026-05-30): reject NaN / inf in features or labels at fit()
+        # entry. Pre-fix any NaN propagated through the first Linear ->
+        # all-NaN activations -> all-NaN gradients -> all-NaN weights after
+        # one step -> all-NaN predictions; the suite saw a flat val curve
+        # with no log signal. Now: explicit ValueError with a remediation
+        # hint. Skip the check on string / object dtypes (LabelEncoder will
+        # reject those further down with its own clear error).
+        _validate_no_nan_inf("X", X)
+        _validate_no_nan_inf("y", y, allow_object_dtype=True)
+        if eval_set is not None and not (isinstance(eval_set, tuple) and eval_set[0] is None):
+            # eval_set may be a 2-tuple ``(X_val, y_val)`` or a list-of-tuples
+            # (LightGBM convention) -- normalise to peek at the val frame.
+            _ev = eval_set[0] if isinstance(eval_set, list) and eval_set else eval_set
+            if isinstance(_ev, tuple) and _ev[0] is not None:
+                _validate_no_nan_inf("X_val", _ev[0])
+                _validate_no_nan_inf("y_val", _ev[1], allow_object_dtype=True)
 
         # Enable TF32 for float32 matmul if on GPU.
         if self.float32_matmul_precision and torch.cuda.is_available():
