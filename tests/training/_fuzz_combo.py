@@ -1059,6 +1059,69 @@ AXES: dict[str, tuple[Any, ...]] = {
     # pre-2026-04-21 naming scheme. Gate: any (the hash-suffix decision
     # fires on every model save).
     "behavior_model_file_hash_suffix_cfg": (True, False),
+    # =====================================================================
+    # 2026-05-30 audit-pass-6 (W6) -- 15 axes from commits landed since
+    # fcc47d04 wave 5. All defaults SOURCE-verified at this commit:
+    #   - SliceStableESConfig at src/mlframe/training/_training_runtime_configs.py:42-95
+    #   - TrainingBehaviorConfig.early_stop_on_worsening at _model_configs.py:505
+    #   - MRMR Wave 7/8/9 ctor args at filters/mrmr.py:224-302, 589
+    #   - CompositeTargetDiscoveryConfig.cv_selector_mode at
+    #     _composite_target_discovery_config.py:117
+    # Drift notes: audit said slice_stable_es source default "random" and
+    # aggregate default "t_lcb"; SOURCE says source="temporal" and
+    # aggregate="mean". Pairs use the SOURCE default first.
+    # =====================================================================
+    # Slice-stable ES master toggle (HIGH; entire algorithm branch).
+    "slice_stable_es_enabled_cfg": (False, True),
+    # Slice-stable ES aggregator: pure-mean (legacy bit-identical) vs t-LCB
+    # parametric lower-confidence-bound. Source default "mean". Source-verified
+    # at _training_runtime_configs.py:89.
+    "slice_stable_es_aggregate_cfg": ("mean", "t_lcb"),
+    # Slice-stable ES shard source. Source default "temporal" (verified
+    # at :78); "random" exercises the random-shard branch. Two of the
+    # four shard-builder branches (random / temporal / fairness / both).
+    "slice_stable_es_source_cfg": ("temporal", "random"),
+    # Slice-stable ES Pareto-aware best_iter post-hoc selection
+    # (_training_runtime_configs.py:98). Default False.
+    "slice_stable_es_pareto_best_iter_selection_cfg": (False, True),
+    # Slice-stable ES diagnostic-only path: register K eval-sets + log
+    # trace WITHOUT changing stop decisions. _training_runtime_configs.py:76.
+    "slice_stable_es_diagnostic_only_cfg": (False, True),
+    # Curve-shape ES detector (HIGH; new strictly-monotone worsening
+    # detector at _model_configs.py:505). Source default True.
+    "early_stop_on_worsening_cfg": (True, False),
+    # MRMR Wave 7 -- per-feature discretisation strategy. Source default
+    # "mdlp" (Fayyad-Irani per-feature MDLP), alternative "quantile"
+    # restores the pre-2026-05-29 fixed quantile binning behaviour.
+    # filters/mrmr.py:224.
+    "mrmr_nbins_strategy_cfg": ("mdlp", "quantile"),
+    # MRMR Wave 8 F13 -- Chao-Shen entropy bias correction. filters/mrmr.py:229.
+    # 3 algorithmic branches; pair exercises default vs CS.
+    "mrmr_mi_correction_cfg": ("none", "chao_shen"),
+    # MRMR Wave 8 A1 -- JMIM redundancy aggregator (Bennasar 2015) vs
+    # Fleuret CMIM (None = legacy). filters/mrmr.py:234.
+    "mrmr_redundancy_aggregator_cfg": (None, "jmim"),
+    # MRMR Wave 8 A3 -- BUR unique-relevance bonus (Gao 2022). 0.0 = off,
+    # 0.5 activates the additive bonus path. filters/mrmr.py:238.
+    "mrmr_bur_lambda_cfg": (0.0, 0.5),
+    # MRMR Wave 8 C8 -- permutation-null stopping criterion (Yu-Principe
+    # 2019). Replaces the threshold gate with a perm-null test.
+    # filters/mrmr.py:244.
+    "mrmr_cmi_perm_stop_cfg": (False, True),
+    # MRMR Wave 8 E11/E12 -- Cluster Stability Selection (Faletto-Bien
+    # 2022). filters/mrmr.py:259. Default "classic" Meinshausen-Buhlmann.
+    "mrmr_stability_selection_method_cfg": ("classic", "cluster"),
+    # MRMR commit 4840bbe7 -- Symmetric Uncertainty (Witten-Frank-Hall
+    # 2011) replaces raw MI to remove cardinality bias. filters/mrmr.py:276.
+    "mrmr_mi_normalization_cfg": ("none", "su"),
+    # MRMR Wave 9 -- Dynamic Cluster Discovery master enable flag.
+    # Organic in-greedy-loop cluster discovery via MI/SU distance.
+    # filters/mrmr.py:589.
+    "mrmr_dcd_enable_cfg": (False, True),
+    # CV-selector mode (HIGH; mean vs Student-t LCB). Gate:
+    # composite_discovery_enabled_cfg=True. Source default "mean".
+    # _composite_target_discovery_config.py:117.
+    "cv_selector_mode_cfg": ("mean", "t_lcb"),
 }
 
 
@@ -1481,6 +1544,27 @@ class FuzzCombo:
     reporting_mase_seasonality_cfg: int = 1
     recurrent_use_stratified_sampler_cfg: bool = True
     behavior_model_file_hash_suffix_cfg: bool = True
+    # 2026-05-30 audit-pass-6 (W6). Defaults source-verified against
+    # SliceStableESConfig (_training_runtime_configs.py:42-95),
+    # TrainingBehaviorConfig.early_stop_on_worsening (_model_configs.py:505),
+    # MRMR Wave 7/8/9 ctor args (filters/mrmr.py:224-302, 589), and
+    # CompositeTargetDiscoveryConfig.cv_selector_mode
+    # (_composite_target_discovery_config.py:117).
+    slice_stable_es_enabled_cfg: bool = False
+    slice_stable_es_aggregate_cfg: str = "mean"
+    slice_stable_es_source_cfg: str = "temporal"
+    slice_stable_es_pareto_best_iter_selection_cfg: bool = False
+    slice_stable_es_diagnostic_only_cfg: bool = False
+    early_stop_on_worsening_cfg: bool = True
+    mrmr_nbins_strategy_cfg: str = "mdlp"
+    mrmr_mi_correction_cfg: str = "none"
+    mrmr_redundancy_aggregator_cfg: "str | None" = None
+    mrmr_bur_lambda_cfg: float = 0.0
+    mrmr_cmi_perm_stop_cfg: bool = False
+    mrmr_stability_selection_method_cfg: str = "classic"
+    mrmr_mi_normalization_cfg: str = "none"
+    mrmr_dcd_enable_cfg: bool = False
+    cv_selector_mode_cfg: str = "mean"
 
     def canonical_key(self) -> tuple:
         """Hashable tuple used for dedup. Canonicalizes semantically
@@ -2464,6 +2548,61 @@ class FuzzCombo:
             # TrainingBehaviorConfig.model_file_hash_suffix: the per-model
             # hash-suffix decision fires on every model save, so no gate.
             self.behavior_model_file_hash_suffix_cfg,
+            # 2026-05-30 audit-pass-6 (W6) canons.
+            # SliceStableES axes: master enable flag is independent (always
+            # meaningful); the 4 sub-knobs collapse to SliceStableESConfig
+            # source defaults when the master is OFF so dedup absorbs combos
+            # that differ only on disabled-branch knobs.
+            self.slice_stable_es_enabled_cfg,
+            (
+                self.slice_stable_es_aggregate_cfg
+                if self.slice_stable_es_enabled_cfg
+                else "mean"
+            ),
+            (
+                self.slice_stable_es_source_cfg
+                if self.slice_stable_es_enabled_cfg
+                else "temporal"
+            ),
+            (
+                self.slice_stable_es_pareto_best_iter_selection_cfg
+                if self.slice_stable_es_enabled_cfg
+                else False
+            ),
+            (
+                self.slice_stable_es_diagnostic_only_cfg
+                if self.slice_stable_es_enabled_cfg
+                else False
+            ),
+            # Curve-shape ES detector: meaningful on every model that runs
+            # iterative fits with a val metric (boosters + linear partial-fit
+            # ES wrapper). No secondary gate -- the detector is unconditionally
+            # constructed when the booster path runs.
+            self.early_stop_on_worsening_cfg,
+            # MRMR Wave 7/8/9 axes: all collapse to MRMR.__init__ defaults
+            # when use_mrmr_fs is False so dedup absorbs identical-behaviour
+            # combos that differ only on inactive MRMR knobs.
+            (self.mrmr_nbins_strategy_cfg if self.use_mrmr_fs else "mdlp"),
+            (self.mrmr_mi_correction_cfg if self.use_mrmr_fs else "none"),
+            (self.mrmr_redundancy_aggregator_cfg if self.use_mrmr_fs else None),
+            (self.mrmr_bur_lambda_cfg if self.use_mrmr_fs else 0.0),
+            (self.mrmr_cmi_perm_stop_cfg if self.use_mrmr_fs else False),
+            (
+                self.mrmr_stability_selection_method_cfg
+                if self.use_mrmr_fs
+                else "classic"
+            ),
+            (self.mrmr_mi_normalization_cfg if self.use_mrmr_fs else "none"),
+            (self.mrmr_dcd_enable_cfg if self.use_mrmr_fs else False),
+            # CV-selector mode: only meaningful when composite discovery is
+            # enabled AND target is regression (the discovery is regression-
+            # only). Mirrors the existing composite_* canon pattern.
+            (
+                self.cv_selector_mode_cfg
+                if (self.composite_discovery_enabled_cfg
+                    and self.target_type == "regression")
+                else "mean"
+            ),
         )
 
     def _canonical_recurrent_model(self) -> "str | None":
@@ -3419,6 +3558,28 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         behavior_model_file_hash_suffix_cfg=axes.get(
             "behavior_model_file_hash_suffix_cfg", True
         ),
+        # 2026-05-30 audit-pass-6 (W6).
+        slice_stable_es_enabled_cfg=axes.get("slice_stable_es_enabled_cfg", False),
+        slice_stable_es_aggregate_cfg=axes.get("slice_stable_es_aggregate_cfg", "mean"),
+        slice_stable_es_source_cfg=axes.get("slice_stable_es_source_cfg", "temporal"),
+        slice_stable_es_pareto_best_iter_selection_cfg=axes.get(
+            "slice_stable_es_pareto_best_iter_selection_cfg", False
+        ),
+        slice_stable_es_diagnostic_only_cfg=axes.get(
+            "slice_stable_es_diagnostic_only_cfg", False
+        ),
+        early_stop_on_worsening_cfg=axes.get("early_stop_on_worsening_cfg", True),
+        mrmr_nbins_strategy_cfg=axes.get("mrmr_nbins_strategy_cfg", "mdlp"),
+        mrmr_mi_correction_cfg=axes.get("mrmr_mi_correction_cfg", "none"),
+        mrmr_redundancy_aggregator_cfg=axes.get("mrmr_redundancy_aggregator_cfg", None),
+        mrmr_bur_lambda_cfg=axes.get("mrmr_bur_lambda_cfg", 0.0),
+        mrmr_cmi_perm_stop_cfg=axes.get("mrmr_cmi_perm_stop_cfg", False),
+        mrmr_stability_selection_method_cfg=axes.get(
+            "mrmr_stability_selection_method_cfg", "classic"
+        ),
+        mrmr_mi_normalization_cfg=axes.get("mrmr_mi_normalization_cfg", "none"),
+        mrmr_dcd_enable_cfg=axes.get("mrmr_dcd_enable_cfg", False),
+        cv_selector_mode_cfg=axes.get("cv_selector_mode_cfg", "mean"),
     )
 
 
@@ -3487,6 +3648,15 @@ def build_mrmr_kwargs_from_flat(
     friend_graph_prune: bool = False,
     cluster_aggregate_enable: bool = True,
     cluster_aggregate_mode: str = "augment",
+    # 2026-05-30 audit-pass-6 Wave 7/8/9 MRMR ctor knobs.
+    nbins_strategy: str = "mdlp",
+    mi_correction: str = "none",
+    redundancy_aggregator: "str | None" = None,
+    bur_lambda: float = 0.0,
+    cmi_perm_stop: bool = False,
+    stability_selection_method: str = "classic",
+    mi_normalization: str = "none",
+    dcd_enable: bool = False,
 ) -> Optional[Dict[str, Any]]:
     """Build the mrmr_kwargs dict passed to FeatureSelectionConfig.
     Returns None when use_mrmr_fs=False so the FS step is a no-op.
@@ -3526,6 +3696,16 @@ def build_mrmr_kwargs_from_flat(
         "friend_graph_prune": friend_graph_prune,
         "cluster_aggregate_enable": cluster_aggregate_enable,
         "cluster_aggregate_mode": cluster_aggregate_mode,
+        # 2026-05-30 audit-pass-6 Wave 7/8/9 ctor knobs. Names match
+        # MRMR.__init__ exactly (filters/mrmr.py:224-302, 589).
+        "nbins_strategy": nbins_strategy,
+        "mi_correction": mi_correction,
+        "redundancy_aggregator": redundancy_aggregator,
+        "bur_lambda": bur_lambda,
+        "cmi_perm_stop": cmi_perm_stop,
+        "stability_selection_method": stability_selection_method,
+        "mi_normalization": mi_normalization,
+        "dcd_enable": dcd_enable,
     }
     # The MRMR subsample knobs default to FE_DEFAULT_SUBSAMPLE_N upstream; only
     # override when the fuzz axis sets a non-zero budget so existing combos
@@ -3576,6 +3756,15 @@ def build_mrmr_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]:
         friend_graph_prune=combo.mrmr_friend_graph_prune_cfg,
         cluster_aggregate_enable=combo.mrmr_cluster_aggregate_enable_cfg,
         cluster_aggregate_mode=combo.mrmr_cluster_aggregate_mode_cfg,
+        # 2026-05-30 audit-pass-6 Wave 7/8/9 ctor knobs.
+        nbins_strategy=combo.mrmr_nbins_strategy_cfg,
+        mi_correction=combo.mrmr_mi_correction_cfg,
+        redundancy_aggregator=combo.mrmr_redundancy_aggregator_cfg,
+        bur_lambda=combo.mrmr_bur_lambda_cfg,
+        cmi_perm_stop=combo.mrmr_cmi_perm_stop_cfg,
+        stability_selection_method=combo.mrmr_stability_selection_method_cfg,
+        mi_normalization=combo.mrmr_mi_normalization_cfg,
+        dcd_enable=combo.mrmr_dcd_enable_cfg,
     )
 
 
@@ -3718,6 +3907,8 @@ def build_composite_discovery_config_from_flat(
     mi_n_neighbors: int = 3,
     auto_base_null_perms: int = 20,
     multi_base_max_k: int = 3,
+    # 2026-05-30 audit-pass-6 CV-selector mode (HIGH; mean vs t-LCB et al).
+    cv_selector_mode: str = "mean",
 ):
     """Build a CompositeTargetDiscoveryConfig honoring the discovery
     enable + transforms_mode axes + (iter162) nested MI / stacked /
@@ -3779,6 +3970,10 @@ def build_composite_discovery_config_from_flat(
         "auto_skip_on_baseline_optimal": auto_skip_on_baseline_optimal,
         "mi_n_neighbors": mi_n_neighbors,
         "auto_base_null_perms": auto_base_null_perms,
+        # 2026-05-30 audit-pass-6 CV-selector mode (HIGH).
+        # CompositeTargetDiscoveryConfig.cv_selector_mode at
+        # _composite_target_discovery_config.py:117.
+        "cv_selector_mode": cv_selector_mode,
     }
     if composite_tiny_screening_mode == "per_family":
         kw["tiny_screening_families"] = ("lightgbm", "linear")
@@ -3817,6 +4012,11 @@ def build_composite_discovery_config(combo: "FuzzCombo"):
         mi_n_neighbors=combo.composite_mi_n_neighbors_cfg,
         auto_base_null_perms=combo.composite_auto_base_null_perms_cfg,
         multi_base_max_k=combo.composite_multi_base_max_k_cfg,
+        # 2026-05-30 audit-pass-6 CV-selector mode. When discovery is off
+        # the upstream CompositeTargetDiscoveryConfig(enabled=False) early-
+        # returns before the cv_selector_mode key is consumed, so passing
+        # the axis value unconditionally is safe.
+        cv_selector_mode=combo.cv_selector_mode_cfg,
     )
 
 

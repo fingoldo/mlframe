@@ -1263,3 +1263,209 @@ def test_iter558_audit_pass_5_axes_flow_to_kwargs():
     assert c_za_a.canonical_key() == c_za_b.canonical_key(), (
         "zipf_alpha must collapse to 0.25 when cardinality_dist != 'zipf'"
     )
+
+
+def test_iter569_audit_pass_6_axes_flow_to_kwargs():
+    """15 audit-pass-6 (W6) fuzz axes must:
+      (a) be present in AXES with >=2 candidate values,
+      (b) carry the SOURCE-verified library defaults in the FuzzCombo
+          dataclass (verified pre-edit against
+          src/mlframe/training/_training_runtime_configs.py:42-95 for
+          SliceStableESConfig, _model_configs.py:505 for
+          early_stop_on_worsening, filters/mrmr.py:224-302,589 for
+          Wave 7/8/9, and _composite_target_discovery_config.py:117
+          for cv_selector_mode),
+      (c) collapse correctly under the documented secondary gates:
+            - mrmr_* axes (8) collapse to defaults when use_mrmr_fs=False,
+            - cv_selector_mode_cfg collapses to "mean" when
+              composite_discovery_enabled_cfg=False OR target != regression,
+            - slice_stable_es sub-knobs (4) collapse to SliceStableESConfig
+              defaults when slice_stable_es_enabled_cfg=False,
+      (d) thread through the relevant config builder where applicable:
+            - MRMR axes flow into ``build_mrmr_kwargs`` dict
+              (consumed by FeatureSelectionConfig.mrmr_kwargs),
+            - cv_selector_mode flows through
+              ``build_composite_discovery_config_from_flat`` kwargs
+              (consumed by CompositeTargetDiscoveryConfig.cv_selector_mode),
+            - slice_stable_es + early_stop_on_worsening are CANON-ONLY:
+              the fuzz suite does not currently propagate
+              ``SliceStableESConfig`` or ``TrainingBehaviorConfig.early_stop_on_worsening``
+              into ``train_mlframe_models_suite`` (the suite-level kwarg is
+              not exposed); only the canon dedup is exercised by fuzz.
+              Pinned by canonical_key collapse assertions below.
+
+    Drift corrections caught pre-edit (audit-pass-6 vs source-of-truth):
+      - audit said ``slice_stable_es_source_cfg`` default "random" -->
+        SOURCE _training_runtime_configs.py:78 says "temporal". Using source.
+      - audit said ``slice_stable_es_aggregate_cfg`` default "t_lcb" -->
+        SOURCE _training_runtime_configs.py:89 says "mean". Using source.
+      - audit said ``early_stop_on_worsening_cfg`` default unspecified;
+        SOURCE _model_configs.py:505 says True. Using source.
+    """
+    from tests.training._fuzz_combo import (
+        AXES, _build_combo, build_mrmr_kwargs,
+        build_composite_discovery_config_from_flat,
+    )
+
+    new_axes = (
+        "slice_stable_es_enabled_cfg",
+        "slice_stable_es_aggregate_cfg",
+        "slice_stable_es_source_cfg",
+        "slice_stable_es_pareto_best_iter_selection_cfg",
+        "slice_stable_es_diagnostic_only_cfg",
+        "early_stop_on_worsening_cfg",
+        "mrmr_nbins_strategy_cfg",
+        "mrmr_mi_correction_cfg",
+        "mrmr_redundancy_aggregator_cfg",
+        "mrmr_bur_lambda_cfg",
+        "mrmr_cmi_perm_stop_cfg",
+        "mrmr_stability_selection_method_cfg",
+        "mrmr_mi_normalization_cfg",
+        "mrmr_dcd_enable_cfg",
+        "cv_selector_mode_cfg",
+    )
+
+    # (a) Presence in AXES with >=2 candidates.
+    for ax in new_axes:
+        assert ax in AXES, f"missing fuzz axis {ax}"
+        assert len(AXES[ax]) >= 2, f"axis {ax} must offer at least 2 values"
+
+    # (b) FuzzCombo dataclass defaults match SOURCE defaults verified pre-edit.
+    base_axes = {name: values[0] for name, values in AXES.items()}
+    c_default = _build_combo(models=("cb",), axes=base_axes, seed=0)
+    assert c_default.slice_stable_es_enabled_cfg is False
+    assert c_default.slice_stable_es_aggregate_cfg == "mean"
+    assert c_default.slice_stable_es_source_cfg == "temporal"
+    assert c_default.slice_stable_es_pareto_best_iter_selection_cfg is False
+    assert c_default.slice_stable_es_diagnostic_only_cfg is False
+    assert c_default.early_stop_on_worsening_cfg is True
+    assert c_default.mrmr_nbins_strategy_cfg == "mdlp"
+    assert c_default.mrmr_mi_correction_cfg == "none"
+    assert c_default.mrmr_redundancy_aggregator_cfg is None
+    assert c_default.mrmr_bur_lambda_cfg == 0.0
+    assert c_default.mrmr_cmi_perm_stop_cfg is False
+    assert c_default.mrmr_stability_selection_method_cfg == "classic"
+    assert c_default.mrmr_mi_normalization_cfg == "none"
+    assert c_default.mrmr_dcd_enable_cfg is False
+    assert c_default.cv_selector_mode_cfg == "mean"
+
+    # (c) Canon-collapse sanity. Build two combos that differ ONLY on
+    # the gated-off knob and verify canonical_key() is identical.
+    # (c.1) MRMR axes collapse when use_mrmr_fs=False.
+    mrmr_a = dict(base_axes)
+    mrmr_a.update(use_mrmr_fs=False)
+    mrmr_b = dict(mrmr_a)
+    mrmr_b.update(
+        mrmr_nbins_strategy_cfg="quantile",
+        mrmr_mi_correction_cfg="chao_shen",
+        mrmr_redundancy_aggregator_cfg="jmim",
+        mrmr_bur_lambda_cfg=0.5,
+        mrmr_cmi_perm_stop_cfg=True,
+        mrmr_stability_selection_method_cfg="cluster",
+        mrmr_mi_normalization_cfg="su",
+        mrmr_dcd_enable_cfg=True,
+    )
+    c_mrmr_a = _build_combo(models=("cb",), axes=mrmr_a, seed=0)
+    c_mrmr_b = _build_combo(models=("cb",), axes=mrmr_b, seed=0)
+    assert c_mrmr_a.canonical_key() == c_mrmr_b.canonical_key(), (
+        "all 8 MRMR Wave 7/8/9 axes must collapse to MRMR defaults when "
+        "use_mrmr_fs=False so dedup absorbs the disabled-branch combos"
+    )
+
+    # (c.2) cv_selector_mode_cfg collapses to "mean" when discovery is off.
+    cv_a = dict(base_axes)
+    cv_a.update(
+        composite_discovery_enabled_cfg=False,
+        cv_selector_mode_cfg="t_lcb",
+    )
+    cv_b = dict(cv_a)
+    cv_b["cv_selector_mode_cfg"] = "mean"
+    c_cv_a = _build_combo(models=("cb",), axes=cv_a, seed=0)
+    c_cv_b = _build_combo(models=("cb",), axes=cv_b, seed=0)
+    assert c_cv_a.canonical_key() == c_cv_b.canonical_key(), (
+        "cv_selector_mode_cfg must collapse to 'mean' when "
+        "composite_discovery_enabled_cfg=False"
+    )
+
+    # (c.3) slice_stable_es sub-knobs collapse to SliceStableESConfig
+    # defaults when slice_stable_es_enabled_cfg=False.
+    sse_a = dict(base_axes)
+    sse_a.update(slice_stable_es_enabled_cfg=False)
+    sse_b = dict(sse_a)
+    sse_b.update(
+        slice_stable_es_aggregate_cfg="t_lcb",
+        slice_stable_es_source_cfg="random",
+        slice_stable_es_pareto_best_iter_selection_cfg=True,
+        slice_stable_es_diagnostic_only_cfg=True,
+    )
+    c_sse_a = _build_combo(models=("cb",), axes=sse_a, seed=0)
+    c_sse_b = _build_combo(models=("cb",), axes=sse_b, seed=0)
+    assert c_sse_a.canonical_key() == c_sse_b.canonical_key(), (
+        "slice_stable_es sub-knobs must collapse to source defaults when "
+        "slice_stable_es_enabled_cfg=False"
+    )
+
+    # (d.1) MRMR axes flow through build_mrmr_kwargs into the dict that
+    # FeatureSelectionConfig.mrmr_kwargs consumes. Names match MRMR.__init__
+    # exactly (filters/mrmr.py:224-302, 589).
+    on_axes = dict(base_axes)
+    on_axes.update(
+        use_mrmr_fs=True,
+        mrmr_nbins_strategy_cfg="quantile",
+        mrmr_mi_correction_cfg="chao_shen",
+        mrmr_redundancy_aggregator_cfg="jmim",
+        mrmr_bur_lambda_cfg=0.5,
+        mrmr_cmi_perm_stop_cfg=True,
+        mrmr_stability_selection_method_cfg="cluster",
+        mrmr_mi_normalization_cfg="su",
+        mrmr_dcd_enable_cfg=True,
+    )
+    c_on = _build_combo(models=("cb",), axes=on_axes, seed=0)
+    kw = build_mrmr_kwargs(c_on)
+    assert kw is not None, "build_mrmr_kwargs must return dict when use_mrmr_fs=True"
+    assert kw["nbins_strategy"] == "quantile"
+    assert kw["mi_correction"] == "chao_shen"
+    assert kw["redundancy_aggregator"] == "jmim"
+    assert kw["bur_lambda"] == 0.5
+    assert kw["cmi_perm_stop"] is True
+    assert kw["stability_selection_method"] == "cluster"
+    assert kw["mi_normalization"] == "su"
+    assert kw["dcd_enable"] is True
+
+    # (d.2) cv_selector_mode flows through
+    # build_composite_discovery_config_from_flat into the
+    # CompositeTargetDiscoveryConfig kwargs.
+    cfg = build_composite_discovery_config_from_flat(
+        enabled=True, cv_selector_mode="t_lcb",
+    )
+    assert cfg is not None
+    # Source field name verified at _composite_target_discovery_config.py:117.
+    assert getattr(cfg, "cv_selector_mode", None) == "t_lcb"
+
+    # (d.3) slice_stable_es + early_stop_on_worsening are CANON-ONLY:
+    # the suite does not currently expose SliceStableESConfig nor the
+    # early_stop_on_worsening behaviour flag as a top-level kwarg to
+    # train_mlframe_models_suite; canon dedup is exercised above (c.3)
+    # and the master enable/disable axis below.
+    e_a = dict(base_axes)
+    e_a.update(slice_stable_es_enabled_cfg=True)
+    e_b = dict(base_axes)
+    e_b.update(slice_stable_es_enabled_cfg=False)
+    c_e_a = _build_combo(models=("cb",), axes=e_a, seed=0)
+    c_e_b = _build_combo(models=("cb",), axes=e_b, seed=0)
+    assert c_e_a.canonical_key() != c_e_b.canonical_key(), (
+        "slice_stable_es_enabled_cfg=True must NOT canon-collapse to False "
+        "(master toggle is always meaningful)"
+    )
+
+    # early_stop_on_worsening is unconditionally meaningful (no gate),
+    # so flipping it must yield a distinct canonical_key.
+    w_a = dict(base_axes)
+    w_a.update(early_stop_on_worsening_cfg=True)
+    w_b = dict(base_axes)
+    w_b.update(early_stop_on_worsening_cfg=False)
+    c_w_a = _build_combo(models=("cb",), axes=w_a, seed=0)
+    c_w_b = _build_combo(models=("cb",), axes=w_b, seed=0)
+    assert c_w_a.canonical_key() != c_w_b.canonical_key(), (
+        "early_stop_on_worsening_cfg must differentiate combos (no canon gate)"
+    )
