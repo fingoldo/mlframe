@@ -108,11 +108,27 @@ def freedman_diaconis_nbins(x: np.ndarray) -> int:
 
 
 def _edges_from_quantiles(x: np.ndarray, n_bins: int) -> np.ndarray:
-    """Quantile binning helper. Returns INNER edges only (n_bins - 1 values)."""
+    """Quantile binning helper. Returns INNER edges only (n_bins - 1 values).
+
+    2026-05-30 Wave 9.1 fix (loop iter 6): de-duplicate via ``np.unique``
+    before returning. ``np.nanpercentile`` on a constant column emits
+    ``n_bins + 1`` identical values; on a heavily skewed / sparse column
+    (e.g. 99% zeros) it emits a run of identical inner edges. Both cases
+    inflate downstream ``K_x = len(edges) + 1`` for ``searchsorted``,
+    silently over-correcting Miller-Madow MI bias by
+    ``(K_x_phantom - 1) * (K_y - 1) / (2N)`` and inflating ``log(K_x)``
+    in the SU normaliser denominator. ``edges_qs`` already does this -
+    bring ``_edges_from_quantiles`` in line so every caller funneling
+    through ``edges_quantile`` / ``edges_freedman_diaconis`` /
+    ``edges_sturges`` / ``edges_optimal_joint`` inherits the fix.
+    """
     if n_bins < 2:
         return np.array([], dtype=np.float64)
     quantiles = np.linspace(0.0, 100.0, n_bins + 1)
     full_edges = np.nanpercentile(np.asarray(x, dtype=np.float64).ravel(), quantiles)
+    full_edges = np.unique(full_edges)
+    if full_edges.size <= 2:
+        return np.array([], dtype=np.float64)
     return np.asarray(full_edges[1:-1], dtype=np.float64)
 
 
