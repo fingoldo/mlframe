@@ -58,6 +58,13 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # Carve candidates: the empty-support fallback block + the FE/RFECV
     # post-pass into ``_mrmr_fit_impl_finalise.py``.
     "src/mlframe/feature_selection/filters/_mrmr_fit_impl.py",
+    # FIXME(carve-wave-next): training/neural/base.py at ~1.16k LOC after the
+    # recent MLP-iter-3 (random_state, regression-metric rename, sklearn-
+    # canonical label encoding, all-zero-sample-weight warning) + CUDA-probe
+    # wiring. Sibling carve already covers logging / callbacks / tensor helpers
+    # / sklearn-params; the remaining facade is the ``PytorchLightningEstimator``
+    # class itself. Reasonable next splits: fit / predict body to siblings.
+    "src/mlframe/training/neural/base.py",
 }
 
 

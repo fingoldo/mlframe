@@ -580,7 +580,20 @@ def evaluate_candidate(
                 )
             cached_MIs[X] = direct_gain
 
-    if direct_gain > 0:
+    # Synergy candidates can have direct_gain == 0 (pure XOR, parity, etc.: the
+    # marginal MI is zero by construction but the conditional MI given an
+    # already-selected variable surfaces the synergy). When the fleuret-style
+    # complex mode is active (``selected_vars`` non-empty AND
+    # ``use_simple_mode=False``) we MUST still evaluate the conditional gain --
+    # gating on ``direct_gain > 0`` skips exactly the synergy class the
+    # algorithm is supposed to find. The simple-mode path (no conditional MI)
+    # still short-circuits on zero direct gain since there's nothing else to
+    # compute.
+    _force_cond = (
+        selected_vars and not use_simple_mode
+        and str(mrmr_relevance_algo) == "fleuret"
+    )
+    if direct_gain > 0 or _force_cond:
         if selected_vars and not use_simple_mode:
             # Some factors already selected. Best gain from including X is min I(X; Y | Z) over Z in selected_vars. But a variable correlated to every real
             # predictor plus noise has real value zero -- I(X; Y | Z) alone still gives significant impact. Summing I(X, Z) over Zs reveals it shares all
