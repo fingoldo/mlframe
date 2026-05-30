@@ -361,7 +361,23 @@ def mi_direct(
                 use_su=_use_su,
             )
             i = n_checked - 1
-            if nfailed >= max_failed:
+            # 2026-05-30 Wave 9.1 fix (loop iter 10): use RATE-based check
+            # for the BC early-stop path. BC may exit at small ``n_checked``
+            # (as low as ``min_perms=30``) when its Wilson CI on the failure
+            # rate proves the null hypothesis. In that case ``nfailed`` is
+            # also small and the budget-absolute ``nfailed >= max_failed``
+            # comparison (where ``max_failed = npermutations * (1 - mnc)``)
+            # silently FAILS to reject candidates whose actual p-value sits
+            # above the caller's ``1 - min_nonzero_confidence`` threshold.
+            # Confirmed live (seed=8, n=600): BC accepted ``mi=0.0049`` at
+            # ``conf=0.853`` (nfailed_rate=0.147 >> 1-0.99=0.01) while
+            # parallelism='outer' correctly rejected on the same data.
+            # The rate-based form is equivalent to the budget-absolute form
+            # when ``n_checked == npermutations`` (the outer/inner/workers
+            # paths below), so this fix is BC-specific.
+            _rate_floor = float(1.0 - float(min_nonzero_confidence))
+            if (nfailed >= max_failed
+                    or (n_checked > 0 and (nfailed / float(n_checked)) >= _rate_floor)):
                 original_mi = 0.0
         elif parallelism == "inner" and npermutations > NMAX_NONPARALLEL_ITERS:
             # Inner parallelism via numba prange. Single function call returns (nfailed, npermutations) -- matches outer-pool aggregation contract.
