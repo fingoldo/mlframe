@@ -156,10 +156,18 @@ def pinball_loss_per_alpha(
 
 
 def coverage(y_true, q_lo, q_hi) -> float:
-    """Empirical coverage: fraction of y in [q_lo, q_hi]. In [0, 1]."""
-    y = np.ascontiguousarray(np.asarray(y_true, dtype=np.float64).ravel())
-    lo = np.ascontiguousarray(np.asarray(q_lo, dtype=np.float64).ravel())
-    hi = np.ascontiguousarray(np.asarray(q_hi, dtype=np.float64).ravel())
+    """Empirical coverage: fraction of y in [q_lo, q_hi]. In [0, 1].
+
+    iter610: dropped the unconditional ``dtype=np.float64`` cast on
+    each input (same pattern as iter595-608). Kernel ``_fast_coverage``
+    is two comparisons + a counter per element -- inside the iter597
+    safe band. Bench n=100k: (int, f64, f64) 2.17x, (f64, f64, f64)
+    1.20x. Bit-equivalent. bench-attempt-rejected for
+    ``pinball_loss`` (4 ops/element with branched accumulator -- 0.92x
+    regression on float64+float64 @100k); pinball keeps its cast."""
+    y = np.ascontiguousarray(y_true).ravel()
+    lo = np.ascontiguousarray(q_lo).ravel()
+    hi = np.ascontiguousarray(q_hi).ravel()
     if not (y.shape == lo.shape == hi.shape):
         raise ValueError(
             f"coverage: shape mismatch y={y.shape}, q_lo={lo.shape}, q_hi={hi.shape}"
