@@ -430,8 +430,20 @@ def discover_cluster_members(
             anchor = int(next(iter(just_selected)))
         except (TypeError, StopIteration):
             return set()
-    anchors = state.cluster_anchors.setdefault(anchor, set())
+    # 2026-05-30 Wave 9.1 fix (loop iter 44): refuse to anchor on a
+    # column that was already swap-pruned. Pre-fix
+    # ``state.cluster_anchors.setdefault(anchor, set())`` resurrected a
+    # dead anchor as an empty entry, then the discover loop added
+    # arbitrary candidates as its "members" - inflating
+    # ``MRMR.dcd_["n_anchors"]`` and silently corrupting the published
+    # anchor->member graph. ``_screen_predictors._dcd_discover`` only
+    # passes freshly-selected ``var`` indices in the live path so this
+    # was latent, but the function is in ``__all__`` and the docstring
+    # promises set-default semantics - so direct API users tripped it.
     n_cols = state.pool_pruned_mask.shape[0]
+    if 0 <= anchor < n_cols and bool(state.pool_pruned_mask[anchor]):
+        return set()
+    anchors = state.cluster_anchors.setdefault(anchor, set())
     newly_added: set = set()
     for c in candidate_pool:
         try:
