@@ -1075,20 +1075,32 @@ def categorize_dataset(
         )
 
     if _nan_mask is not None and _nan_mask.any():
-        # Verify dtype width before overwriting: max bin index after assignment
-        # is n_bins (one past the regular [0, n_bins-1] range). Most callers
-        # use int16/int32 which handle this trivially; raise if int8 would
-        # overflow (n_bins>=127 would also overflow regular bins, so practical
-        # n_bins is well below int8 max anyway).
-        max_bin_after = n_bins
+        # 2026-05-30 Wave 9.1 fix (loop iter 9): per-COLUMN NaN bin code.
+        # Pre-fix used the constructor ``n_bins`` as the dedicated NaN code
+        # for every column, but the adaptive ``nbins_strategy`` branch
+        # produces per-column bin counts that often exceed ``n_bins``
+        # (e.g. FD gives ~22 for n=600 N(0,1), while ctor n_bins=4). So the
+        # NaN code 4 silently collided with regular real-data bin 4 - NaN
+        # observations got merged into a real bin, destroying the
+        # missingness signal and biasing every downstream MI / SU / MRMR
+        # score. Fix: each column's NaN code is one past that column's
+        # highest regular code. Per-column scheme works because downstream
+        # MI estimators treat each column independently and
+        # ``data.max(axis=0) + 1`` (line 1151) recomputes ``nbins`` per col.
+        if nbins_strategy is not None:
+            nan_codes_per_col = np.asarray(per_col_bins, dtype=np.int64)
+        else:
+            nan_codes_per_col = np.full(arr.shape[1], int(n_bins), dtype=np.int64)
+        max_bin_after = int(nan_codes_per_col.max())
         if max_bin_after > np.iinfo(data.dtype).max:
             raise ValueError(
                 f"separate_bin strategy needs dtype able to hold {max_bin_after}; "
                 f"current dtype {data.dtype} max is {np.iinfo(data.dtype).max}. "
                 "Pass a wider dtype to categorize_dataset."
             )
-        # Overwrite NaN-row, NaN-col positions with the dedicated bin index.
-        data[_nan_mask] = max_bin_after
+        # Per-column NaN code: broadcast across NaN-row positions.
+        _rows, _c = np.where(_nan_mask)
+        data[_rows, _c] = nan_codes_per_col[_c].astype(data.dtype)
 
     if _is_polars:
         if categorical_cols_detected:
