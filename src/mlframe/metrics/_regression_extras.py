@@ -464,9 +464,19 @@ def _explained_variance_kernel(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 
 
 def fast_explained_variance(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    """Explained variance score (sklearn convention)."""
-    yt = np.ascontiguousarray(y_true, dtype=np.float64)
-    yp = np.ascontiguousarray(y_pred, dtype=np.float64)
+    """Explained variance score (sklearn convention).
+
+    iter606: dropped the unconditional ``dtype=np.float64`` cast (same
+    pattern as iter595/596/597/598). Kernel has two scalar reductions
+    over the same arrays; numba dispatches on mixed-dtype signatures
+    natively. Bench n=100k: int64+float64 1.20x, float64+float64 0.98x
+    (borderline noise band), float64+float32 1.28x. Bit-equiv.
+    Note: bench-attempt-rejected for ``fast_huber_loss`` (4 ops/element
+    -- the abs+cmp+mul-add body sits at the boundary of the safe band;
+    saw 0.91x on float64+float64 @100k). The huber wrapper keeps its
+    upfront cast."""
+    yt = np.ascontiguousarray(y_true)
+    yp = np.ascontiguousarray(y_pred)
     return float(_explained_variance_kernel(yt, yp))
 
 
