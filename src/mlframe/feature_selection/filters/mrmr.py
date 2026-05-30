@@ -1085,19 +1085,34 @@ class MRMR(BaseEstimator, TransformerMixin):
             try:
                 from mlframe.training.provenance import record_provenance as _record_provenance
                 _n_rows = int(X.shape[0]) if hasattr(X, "shape") else None
+                # 2026-05-30 Wave 9.1 fix (loop iter 6): read ``random_seed``
+                # (the documented public API) instead of ``random_state``. The
+                # ctor at mrmr.py:641 promotes ``random_state -> random_seed``
+                # but NOT the reverse, so when the user passed the documented
+                # ``random_seed=42`` API directly, ``self.random_state`` stayed
+                # at its default ``None`` and the provenance trail recorded
+                # ``seed=None`` even though the actual kernel seed was 42.
+                # Reading ``random_seed`` works for both APIs because the ctor
+                # promotion guarantees it's populated from either source.
+                _seed_resolved = getattr(self, "random_seed", None)
+                if _seed_resolved is None:
+                    _seed_resolved = getattr(self, "random_state", None)
+                _seed_for_provenance = (
+                    int(_seed_resolved) if _seed_resolved is not None else None
+                )
                 _record_provenance(
                     getattr(self, "_provenance_sink_", None),
                     "mrmr",
                     source="train_only",
                     n_rows=_n_rows,
-                    seed=int(getattr(self, "random_state", 0) or 0) if getattr(self, "random_state", None) is not None else None,
+                    seed=_seed_for_provenance,
                     extra={"n_features_in": int(X.shape[1]) if hasattr(X, "shape") and len(X.shape) > 1 else None},
                 )
                 self.provenance_ = {
                     "step": "mrmr",
                     "source": "train_only",
                     "n_rows": _n_rows,
-                    "seed": int(getattr(self, "random_state", 0) or 0) if getattr(self, "random_state", None) is not None else None,
+                    "seed": _seed_for_provenance,
                 }
             except Exception:
                 pass
