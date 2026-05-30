@@ -132,6 +132,70 @@ class EngineeredRecipe:
     # Free-form bucket for future recipe kinds (e.g. polynomial-basis Hermite carries coef_a/coef_b/degree_a/degree_b/bin_func_name).
     extra: dict = field(default_factory=dict)
 
+    def __getstate__(self):
+        """Pickle-friendly state: unwrap the ``MappingProxyType`` back
+        to a plain dict so pickle can handle it. ``__setstate__``
+        re-applies the post_init freeze.
+        """
+        state = dict(self.__dict__)
+        # Convert mappingproxy -> dict for pickle.
+        if "extra" in state:
+            state["extra"] = dict(state["extra"])
+        return state
+
+    def __setstate__(self, state):
+        # ``frozen=True`` blocks normal __dict__ writes; use
+        # ``object.__setattr__`` for each key, then re-apply the
+        # post_init proxy/freeze chain.
+        for k, v in state.items():
+            object.__setattr__(self, k, v)
+        self.__post_init__()
+
+    def __post_init__(self):
+        """2026-05-30 Wave 9.1 fix (loop iter 49): freeze ``extra``.
+
+        ``frozen=True`` blocks attribute REBIND (``recipe.extra = {}``
+        raises) but NOT in-place mutation of the dict itself. Caller-
+        held references and accidental ``recipe.extra['x'] = ...`` /
+        ``recipe.extra['cell_means'][:] = ...`` silently corrupted
+        every subsequent ``apply_recipe`` replay and could poison any
+        cache that stored the recipe as a dict/set key (hash stays the
+        same on ``(kind, name)`` while ``__eq__`` flips with content).
+
+        Four failure modes documented in the iter-49 repro:
+        H.1 caller pops a required key after construction -> apply_*
+            raises KeyError on what looked like a "frozen" recipe.
+        H.2 in-place ndarray mutation -> apply_* returns garbage.
+        H.3 hash-eq invariant violated for any recipe in a set/dict.
+        H.4 cache poisoning when recipe used as dict key.
+
+        Fix: deep-copy the ``extra`` dict at construction (severs the
+        caller-held reference), freeze every ndarray inside it, then
+        wrap in ``MappingProxyType`` (read-only view). Re-assigning via
+        ``object.__setattr__`` because ``frozen=True`` blocks normal
+        attribute writes inside ``__post_init__``.
+        """
+        import copy as _copy_iter49
+        import types as _types_iter49
+        # Deep-copy so post-construction mutation of caller's source
+        # dict can't propagate into the recipe.
+        _extra_copy = _copy_iter49.deepcopy(dict(self.extra))
+        # Freeze every ndarray value so ``recipe.extra['x'][:] = ...``
+        # raises ValueError instead of silently corrupting downstream
+        # replays. Skip arrays we don't own (views).
+        for _v in _extra_copy.values():
+            if isinstance(_v, np.ndarray):
+                if _v.flags.owndata and _v.flags.writeable:
+                    try:
+                        _v.flags.writeable = False
+                    except Exception:
+                        pass
+        # Wrap in read-only proxy. ``MappingProxyType`` returns
+        # ``TypeError`` on any ``extra['x'] = ...`` style write.
+        object.__setattr__(
+            self, "extra", _types_iter49.MappingProxyType(_extra_copy),
+        )
+
     def __eq__(self, other: object) -> bool:
         """Custom ``__eq__`` handling ndarray values in ``extra`` (factorize lookup tables). ``frozen=True, eq=False`` disables the auto-generated one."""
         if not isinstance(other, EngineeredRecipe):
