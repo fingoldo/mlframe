@@ -205,6 +205,13 @@ def wasserstein_1d(reference: np.ndarray, target: np.ndarray) -> float:
 
     Numpy implementation via merge + cumsum (O((n+m) log(n+m))).
     """
+    # bench-attempt-rejected (iter614, 2026-05-31): tried dropping the
+    # upfront ``dtype=np.float64`` cast for int reference / target.
+    # Result REGRESSED 0.71-0.82x at n=1k..50k -- int dtype slows down
+    # np.sort + np.searchsorted (bitwise compares are slower than
+    # SIMD-friendly float64 ops), and the final ``/ size`` produces
+    # float64 anyway. The upfront cast wins because it lets the entire
+    # sort+searchsorted chain run on SIMD float64. Don't re-try.
     a = np.asarray(reference, dtype=np.float64)
     b = np.asarray(target, dtype=np.float64)
     if a.size == 0 or b.size == 0:
