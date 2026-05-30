@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import math
+import warnings
 from typing import Sequence
 
 import numpy as np
@@ -387,7 +388,12 @@ def _handle_missing(arr: np.ndarray, *, strategy: str = "fillna_zero") -> np.nda
         # discretization. Here we replace NaN with column median so np.percentile
         # produces clean bin edges; the original NaN positions are preserved
         # via the caller's nan-mask and overwritten back to max_bin+1 below.
-        col_medians = np.nanmedian(arr, axis=0)
+        # nanmedian emits RuntimeWarning("All-NaN slice encountered") on all-NaN
+        # columns, but the np.where below handles that case explicitly by
+        # falling back to 0.0; suppress the noise to keep test output clean.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            col_medians = np.nanmedian(arr, axis=0)
         # Empty / all-NaN columns: median is NaN; fall back to 0.0 for the
         # discretize edges (the column will be all-NaN-bin anyway).
         col_medians = np.where(np.isnan(col_medians), 0.0, col_medians)
@@ -408,7 +414,11 @@ def _handle_missing(arr: np.ndarray, *, strategy: str = "fillna_zero") -> np.nda
         # here we still need to median-fill so np.percentile gets clean
         # edges. The caller's ``_nan_mask`` capture at categorize_dataset
         # line 1027 was also extended to include 'propagate'.
-        col_medians = np.nanmedian(arr, axis=0)
+        # nanmedian emits RuntimeWarning on all-NaN columns; suppress (the
+        # subsequent np.where handles the NaN-median path explicitly).
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            col_medians = np.nanmedian(arr, axis=0)
         col_medians = np.where(np.isnan(col_medians), 0.0, col_medians)
         return np.where(np.isnan(arr), col_medians, arr)
     if strategy == "raise":
