@@ -102,6 +102,7 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         revalidation_ucb_min_eval_size: int | None = None,
         revalidation_ucb_slack: float | None = None,
         revalidation_ucb_stdev_multiplier: float | None = None,
+        revalidation_mmr_jaccard_threshold: float | None = None,
         trust_guard_n_estimators: int | None = 100,
         trust_guard_stratified_anchors: bool = False,
         trust_guard_uniform_tail_frac: float = 0.2,
@@ -317,6 +318,21 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         self.revalidation_ucb_stdev_multiplier = (
             float(revalidation_ucb_stdev_multiplier)
             if revalidation_ucb_stdev_multiplier is not None else None)
+        # ``revalidation_mmr_jaccard_threshold`` (iter50): MMR-style greedy de-duplication of the
+        # corrector-sorted top_n candidates BEFORE the honest re-validation stage. At width>=20000
+        # post-prefilter top_n=20 candidates are near-duplicate unions of the same SHAP-aware
+        # stage-B survivors (Jaccard >0.7 overlap pairwise observed in iter48/iter49). UCB already
+        # short-circuits the proxy-loss tail, but still pays per-batch dispatch on redundant subsets.
+        # MMR processes candidates in their (corrector-sorted) order, keeping candidate i if
+        # ``min_j Jaccard_distance(i, kept_j) > tau``. Conservation-preserving: dropped candidates
+        # are corrector-equivalent (>= 1-tau feature overlap) to a retained one and would not pass
+        # the parsimony band as a meaningful improvement. ``None`` (default) routes to a
+        # width-dependent auto: 0.3 at ``n_features >= 20000`` (high redundancy regime), disabled
+        # below (smaller-width top_n is less redundant; no measurable win to make and risk of
+        # dropping a winner in distinct-tail candidates). Explicit float overrides for any width.
+        self.revalidation_mmr_jaccard_threshold = (
+            float(revalidation_mmr_jaccard_threshold)
+            if revalidation_mmr_jaccard_threshold is not None else None)
         # ``trust_guard_n_estimators`` caps the per-anchor booster size inside ``proxy_trust_guard``.
         # The trust report only consumes RANKS of anchor losses (Spearman / Kendall / recall@k); a
         # capped booster gives a faithful fidelity signal at ~3x lower cost. None disables the cap.
@@ -436,6 +452,60 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         if self.revalidation_ucb_stdev_multiplier is not None:
             return float(self.revalidation_ucb_stdev_multiplier)
         return 0.6 if int(n_features) >= 10000 else 1.0
+
+    def _resolve_revalidation_mmr_jaccard_threshold(self, n_features: int) -> float | None:
+        """Width-dependent default for the iter50 MMR Jaccard de-duplication threshold.
+
+        Explicit user value (set on the instance) always wins, including ``0.0`` (no dedup) and
+        any value in ``(0, 1]``. ``None`` (auto sentinel) routes to ``0.3`` at
+        ``n_features >= 20000`` (where iter49 measured >0.7 pairwise overlap among the top_n=20
+        corrector-sorted candidates after the SHAP-aware cluster picks) and ``None`` (disabled)
+        below, since smaller-width top_n is less redundant and the floor risk (dropping a winner
+        in genuinely distinct candidates) outweighs the wall-clock gain.
+        """
+        if self.revalidation_mmr_jaccard_threshold is not None:
+            return float(self.revalidation_mmr_jaccard_threshold)
+        return 0.3 if int(n_features) >= 20000 else None
+
+    @staticmethod
+    def _mmr_filter_by_jaccard(candidates, tau: float) -> list[int]:
+        """Greedy MMR dedup over an already-(corrector-)sorted candidate list.
+
+        Returns the list of kept candidate indices (preserving the input order). A candidate is
+        kept if its Jaccard distance to every previously-kept candidate exceeds ``tau``; otherwise
+        it is dropped as a near-duplicate. Jaccard distance is ``1 - |A intersect B| / |A union B|``;
+        ``tau=0`` keeps everything (only exact duplicates would drop), ``tau=1`` keeps only the
+        first candidate. Defensive: if ``tau`` is misconfigured such that no second candidate
+        clears the gate, the first candidate (corrector-sorted winner) is always kept; the caller
+        will never receive an empty list. Candidates' feature indices (``c[1]``) are interpreted
+        as sets of unit/feature ids.
+        """
+        kept: list[int] = []
+        kept_sets: list[set] = []
+        for i, cand in enumerate(candidates):
+            s = set(int(x) for x in cand[1])
+            if not kept_sets:
+                kept.append(i)
+                kept_sets.append(s)
+                continue
+            min_dist = 1.0
+            for ks in kept_sets:
+                union = len(s | ks)
+                if union == 0:
+                    dist = 0.0
+                else:
+                    dist = 1.0 - (len(s & ks) / union)
+                if dist < min_dist:
+                    min_dist = dist
+                    if min_dist <= tau:
+                        break
+            if min_dist > tau:
+                kept.append(i)
+                kept_sets.append(s)
+        # Defensive: keep at least the top-1 (sorted-by-corrector winner) if the gate dropped all.
+        if not kept and candidates:
+            kept.append(0)
+        return kept
 
     @staticmethod
     def preflight(X, y, *, classification: bool = True, **kwargs):
@@ -904,6 +974,26 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         order = np.argsort(score, kind="stable")
         candidates = [candidates[i] for i in order]
         score = score[order]  # keep aligned with candidates for downstream UCB consumption
+
+        # MMR de-duplication of the corrector-sorted candidate list BEFORE revalidate (iter50).
+        # At wide regimes (n_features>=20000) top_n=20 candidates are near-duplicate unions of the
+        # same SHAP-aware stage-B picks; UCB short-circuits the proxy-loss tail but still pays
+        # per-batch dispatch on the redundant subsets. Greedy keep-if-Jaccard-distance>tau in
+        # corrector-sorted order; dropped candidates are corrector-equivalent to a retained one
+        # and would not pass the parsimony band as a meaningful improvement. Disabled by default
+        # below width 20000.
+        mmr_tau = self._resolve_revalidation_mmr_jaccard_threshold(n_features)
+        if mmr_tau is not None and self.revalidate and len(candidates) > 1:
+            kept_idx = self._mmr_filter_by_jaccard(candidates, float(mmr_tau))
+            n_total = len(candidates)
+            if len(kept_idx) < n_total:
+                candidates = [candidates[i] for i in kept_idx]
+                score = score[np.asarray(kept_idx, dtype=np.int64)]
+                report["revalidation_mmr"] = dict(applied=True, tau=float(mmr_tau),
+                                                  n_kept=len(kept_idx), n_total=int(n_total))
+            else:
+                report["revalidation_mmr"] = dict(applied=True, tau=float(mmr_tau),
+                                                  n_kept=int(n_total), n_total=int(n_total))
 
         # Expose the ranked candidate subsets (expanded to feature names) so downstream patterns
         # (e.g. proposal-generator seeding RFECV/genetic honest search) can consume them.
