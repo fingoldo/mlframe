@@ -115,6 +115,15 @@ class TargetTypes(StrEnum):
     MULTILABEL_CLASSIFICATION = "multilabel_classification"
     LEARNING_TO_RANK = "learning_to_rank"
     QUANTILE_REGRESSION = "quantile_regression"
+    # F-24 (2026-05-31): K independent continuous targets sharing a trunk.
+    # Target shape ``(N, K)`` float. Output shape ``(N, K)``: column k is the
+    # point prediction for target k. MLP / sklearn / Ridge / RandomForest /
+    # CatBoost (loss_function="MultiRMSE") have native support; LightGBM
+    # needs sklearn.multioutput.MultiOutputRegressor wrap. The MLP path
+    # already lands here via F-24 commit 2d300944 (PytorchLightningRegressor
+    # auto-detects (N, K>=2) y); full suite-side dispatch + per-target
+    # reporting + ensemble strategy is in `docs/multi_target_regression_design.md`.
+    MULTI_TARGET_REGRESSION = "multi_target_regression"
 
     @property
     def is_classification(self) -> bool:
@@ -133,7 +142,30 @@ class TargetTypes(StrEnum):
 
     @property
     def is_regression(self) -> bool:
+        """True for plain REGRESSION (single continuous target). For
+        MULTI_TARGET_REGRESSION (K independent continuous targets) use
+        ``is_multi_target_regression`` -- both are "regression flavours"
+        but require different output-shape handling at most call sites."""
         return self == TargetTypes.REGRESSION
+
+    @property
+    def is_multi_target_regression(self) -> bool:
+        """True only for ``MULTI_TARGET_REGRESSION``. Output shape (N, K)
+        with K independent continuous targets sharing a trunk. Branches
+        that gate on ``is_regression`` must add an explicit
+        ``is_multi_target_regression`` branch when MTR is in scope."""
+        return self == TargetTypes.MULTI_TARGET_REGRESSION
+
+    @property
+    def is_any_regression(self) -> bool:
+        """True for any regression flavour: REGRESSION, MULTI_TARGET_REGRESSION,
+        QUANTILE_REGRESSION. Convenience predicate for sites that route
+        per regression-vs-classification dichotomy regardless of shape."""
+        return self in (
+            TargetTypes.REGRESSION,
+            TargetTypes.MULTI_TARGET_REGRESSION,
+            TargetTypes.QUANTILE_REGRESSION,
+        )
 
     @property
     def is_binary(self) -> bool:
@@ -161,15 +193,19 @@ class TargetTypes(StrEnum):
 
     @property
     def is_multi_output(self) -> bool:
-        """True when probability output is (N, K) with K>2 logically.
+        """True when model output is (N, K) with K>=2 logically.
 
         Convenience predicate for ``[:, 1]`` slicing sites that should
         bail out / dispatch differently for multi-* targets. LTR is NOT
-        multi-output (output is a single score per row).
+        multi-output (output is a single score per row). MULTI_TARGET_REGRESSION
+        and QUANTILE_REGRESSION both produce (N, K) outputs and are
+        included so existing multi-output gates fire on them too.
         """
         return self in (
             TargetTypes.MULTICLASS_CLASSIFICATION,
             TargetTypes.MULTILABEL_CLASSIFICATION,
+            TargetTypes.MULTI_TARGET_REGRESSION,
+            TargetTypes.QUANTILE_REGRESSION,
         )
 
     @property
