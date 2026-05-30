@@ -268,9 +268,16 @@ def brier_skill_score(y_true: np.ndarray, y_score: np.ndarray) -> float:
     negative = worse than predicting the base rate every row.
 
     NaN when y_true is constant (the marginal baseline is also perfect).
-    """
+
+    iter611: dropped the unconditional ``dtype=np.float64`` cast on
+    y_score (same pattern as iter595-608). Kernel has 3 ops/element
+    (cmp != 0, sub-or-copy, mul-add) -- inside the iter597 safe band.
+    Bench n=25k: y_score float64 1.12x, float32 1.16x. Bit-equiv.
+    bench-attempt-rejected for ``ks_statistic`` -- argsort dominates
+    (~2ms / call), the cast is sub-5% of total cost, so the speedup
+    is within timing noise; ks_statistic keeps its cast."""
     yt = np.ascontiguousarray(y_true).astype(np.int64, copy=False)
-    ys = np.ascontiguousarray(y_score, dtype=np.float64)
+    ys = np.ascontiguousarray(y_score)
     if yt.shape[0] == 0:
         return np.nan
     return float(_brier_skill_score_kernel(yt, ys))
