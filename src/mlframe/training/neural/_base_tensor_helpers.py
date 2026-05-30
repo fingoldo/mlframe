@@ -112,20 +112,27 @@ def _probe_cuda_is_usable() -> bool:
     try:
         if torch.cuda.is_available():
             _dev = torch.device("cuda")
-            # Allocation + transfer + a small matmul + foreach_sqrt mirrors the
-            # ops a Lightning Adam fit drives in the first batch. If any of
-            # them throws on this host the probe is far cheaper than letting
-            # the full fit attempt fail and unwind the Trainer setup.
+            # Allocation + transfer + a small matmul + foreach_sqrt mirrors
+            # the ops a Lightning Adam fit drives in the first batch. The
+            # final ``empty_cache`` mirrors what Lightning's CUDA accelerator
+            # does FIRST in ``strategy.setup`` (lightning/pytorch/accelerators
+            # /cuda.py:_clear_cuda_memory) -- some hosts have a CUDA context
+            # that opens, allocates, runs kernels, syncs, BUT crashes the
+            # cache cleanup with ``CUDA error: an illegal memory access``,
+            # which then poisons Lightning's setup AND its teardown.
+            # Probing empty_cache here catches that quirky state up front.
             _x = torch.randn(64, 8, device=_dev)
             _w = torch.randn(8, 4, device=_dev, requires_grad=True)
             _y = (_x @ _w).sum()
             _y.backward()
             _ = torch._foreach_sqrt([torch.ones(4, device=_dev)])
             torch.cuda.synchronize()
+            torch.cuda.empty_cache()
             ok = True
     except Exception:
         ok = False
-    finally:
+        # Best-effort: try empty_cache once more inside the failure handler
+        # so a downstream caller isn't surprised by a half-poisoned context.
         try:
             torch.cuda.empty_cache()
         except Exception:
