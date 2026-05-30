@@ -260,12 +260,24 @@ def edges_mah(x: np.ndarray, y: np.ndarray, *, initial_k: int = 16) -> np.ndarra
 
 
 def edges_fayyad_irani(x: np.ndarray, y: np.ndarray, *, max_depth: int = 8,
-                        min_split_size: int = 5, backend: str = "python",
+                        min_split_size: int = 5, backend: str = "njit",
                         scaled_min_split: bool = False) -> np.ndarray:
     """Fayyad-Irani MDLP supervised edges. Flags forwarded:
 
     Args:
-        backend: ``'python'`` legacy | ``'njit'`` audit fix (10-30x speedup).
+        backend: ``'njit'`` (default; audit-recommended 10-30x speedup over
+            the legacy pure-Python path) | ``'python'`` (legacy fallback
+            kept for A/B testing). Sibling ``mdlp_bin_edges`` already
+            defaults to ``'njit'``; this wrapper now matches that default
+            so callers that go through the wrapper benefit too.
+            c0022_9f2cf625 @500k profile (2026-05-30): the python-backend
+            path consumed 1566 s of a 1700 s suite (88 % of wall) before
+            this fix because ``_mdlp_recurse`` calls ``_entropy_from_labels``
+            268 345 times, each doing ``np.unique`` + ``np.sort`` on the
+            label slice (4 ms per call at n=500k). The njit kernel
+            ``_mdlp_recurse_njit`` maintains running per-class counts
+            across the candidate-scan, so entropy is O(K_y) per candidate
+            instead of O(N log N + N) per candidate.
         scaled_min_split: ``False`` legacy | ``True`` audit fix
             (``max(5, 0.02*N)``).
     """
