@@ -401,11 +401,24 @@ def mi_direct(
 
             # Per-worker base_seed derived from outer base_seed via Knuth multiplicative hash + worker index so worker streams stay independent yet reproducible (same outer base_seed -> identical aggregate).
             _worker_loads = distribute_permutations(npermutations=npermutations, n_workers=n_workers)
+            # 2026-05-30 Wave 9.1 fix (loop iter 16): fall back to
+            # ``classes_y`` when ``classes_y_safe`` is None. The bc branch
+            # (line 355) and inner branch (line 387) already do this; the
+            # outer branch was the asymmetric one. Pre-fix
+            # ``mi_direct(parallelism='outer', n_workers>1,
+            # classes_y_safe=None, npermutations>NMAX_NONPARALLEL_ITERS)``
+            # crashed inside ``parallel_mi`` with
+            # ``TypingError: No implementation of function asarray(none)``.
+            # Each worker ``parallel_mi`` already ``.copy()``s the array
+            # internally so workers don't race on the shared ``classes_y``.
+            _classes_y_for_workers = (
+                classes_y_safe if classes_y_safe is not None else classes_y
+            )
             res = workers_pool(
                 delayed(parallel_mi)(
                     classes_x=classes_x,
                     freqs_x=freqs_x,
-                    classes_y=classes_y_safe,
+                    classes_y=_classes_y_for_workers,
                     freqs_y=freqs_y,
                     dtype=dtype,
                     npermutations=worker_npermutations,
