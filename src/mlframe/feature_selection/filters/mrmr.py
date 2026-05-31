@@ -693,6 +693,19 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_mi_greedy_seed_cols_count: int = 5,
         fe_mi_greedy_include_unary: bool = True,
         fe_mi_greedy_include_binary: bool = True,
+        # 2026-05-31 Layer 33 — K-fold target encoding for raw categorical
+        # columns. Default OFF -- legacy behaviour is byte-identical when
+        # ``fe_kfold_te_enable=False``. When True, after the hybrid + MI-
+        # greedy stages run, every column in ``fe_kfold_te_cols`` (or
+        # auto-detected categoricals with cardinality in [5, 500] when the
+        # tuple is empty) is target-encoded with K-fold OOF discipline and
+        # the encoded ``{col}__te`` column is appended to X. The recipe
+        # (``kfold_target_encoded``) stores the FULL-data per-category
+        # mean for deterministic replay -- no y is referenced at transform.
+        fe_kfold_te_enable: bool = False,
+        fe_kfold_te_cols: tuple = (),
+        fe_kfold_te_folds: int = 5,
+        fe_kfold_te_smoothing: float = 10.0,
         # hidden
         stop_file: str = "stop",
     ):
@@ -978,6 +991,13 @@ class MRMR(BaseEstimator, TransformerMixin):
             "fe_mi_greedy_include_unary": True,
             "fe_mi_greedy_include_binary": True,
             "mi_greedy_features_": [],
+            # 2026-05-31 Layer 33 — K-fold target-encoding FE defaults.
+            # Master switch OFF preserves legacy pickle byte-equivalence.
+            "fe_kfold_te_enable": False,
+            "fe_kfold_te_cols": (),
+            "fe_kfold_te_folds": 5,
+            "fe_kfold_te_smoothing": 10.0,
+            "kfold_te_features_": [],
         }
         for k, v in defaults.items():
             state.setdefault(k, v)

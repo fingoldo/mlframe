@@ -125,7 +125,7 @@ class EngineeredRecipe:
     # (src_names=(c_i, c_j), extra={basis_i, basis_j, deg_a, deg_b}). Replay
     # is closed-form from the source column(s) alone -- no y reference is
     # captured at fit time, so transform() is leakage-free by construction.
-    kind: Literal["unary_binary", "factorize", "hermite_pair", "target_encoding", "cluster_aggregate", "orth_univariate", "orth_pair_cross", "orth_spline", "orth_fourier", "mi_greedy_transform"]
+    kind: Literal["unary_binary", "factorize", "hermite_pair", "target_encoding", "cluster_aggregate", "orth_univariate", "orth_pair_cross", "orth_spline", "orth_fourier", "mi_greedy_transform", "kfold_target_encoded"]
     src_names: tuple[str, ...]
     unary_names: tuple[str, ...] = ()
     binary_name: str = ""
@@ -322,6 +322,8 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         return _apply_orth_fourier(recipe, X)
     if recipe.kind == "mi_greedy_transform":
         return _apply_mi_greedy_transform(recipe, X)
+    if recipe.kind == "kfold_target_encoded":
+        return _apply_kfold_target_encoded(recipe, X)
     raise ValueError(f"Unknown recipe kind: {recipe.kind!r}")
 
 
@@ -1242,5 +1244,99 @@ def build_orth_fourier_recipe(
             "freq": float(freq),
             "lo": float(lo),
             "span": float(span),
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Layer 33 (2026-05-31): K-fold target encoding for raw categorical columns
+# ---------------------------------------------------------------------------
+#
+# The K-fold OOF mean-of-y per category. The recipe stores the FULL-DATA
+# per-category mean (computed once at fit time) so transform() is a pure
+# dict lookup with no y reference -- the OOF discipline is enforced at FIT
+# only (the rows that fed into MRMR screening saw an out-of-fold encoded
+# value, never their own y).
+#
+# extra layout:
+# * kfold_target_encoded: {lookup: dict[str, float], global_mean: float,
+#                          smoothing: float}
+#   ``lookup`` maps the string-coerced source category to its smoothed
+#   per-category mean. Categories not in the lookup at transform time map
+#   to ``global_mean`` (no NaN propagation).
+#
+# Sibling to the cell-level ``target_encoding`` recipe above (which encodes
+# MERGED k-way categorical CELLS inside the cat-FE pair-search kernel);
+# this one encodes raw single columns and is the standard prod-ML pattern.
+
+
+def _apply_kfold_target_encoded(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
+    """Replay a k-fold target-encoded column. Stateless given the stored
+    lookup + global_mean; no y reference. Categories not present in the
+    lookup map to ``global_mean``."""
+    if len(recipe.src_names) != 1:
+        raise ValueError(
+            f"kfold_target_encoded recipe '{recipe.name}' must have exactly "
+            f"1 src_names; got {len(recipe.src_names)}"
+        )
+    for key in ("lookup", "global_mean"):
+        if key not in recipe.extra:
+            raise KeyError(
+                f"kfold_target_encoded recipe '{recipe.name}' missing '{key}' "
+                f"in extra. Re-fit MRMR to regenerate."
+            )
+    # Lazy import to avoid circular dependency at module-load time.
+    from ._target_encoding_fe import apply_target_encoding
+
+    name = recipe.src_names[0]
+    # Build a one-column frame view so apply_target_encoding's
+    # column-name interface works on any X (pandas / polars / structured).
+    if pd is not None and isinstance(X, pd.DataFrame):
+        X_view = X
+    elif pl is not None and isinstance(X, pl.DataFrame):
+        X_view = pd.DataFrame({name: X[name].to_numpy()})
+    elif isinstance(X, np.ndarray) and X.dtype.names is not None:
+        X_view = pd.DataFrame({name: X[name]})
+    else:
+        raise TypeError(
+            f"kfold_target_encoded recipe '{recipe.name}': cannot extract "
+            f"column {name!r} from X of type {type(X).__name__}. Pass a "
+            f"pandas / polars frame or a structured ndarray."
+        )
+    # Hand off to the apply helper. recipe.extra is a MappingProxy; pass a
+    # plain dict so older helpers that index into it without abstract-base-
+    # class checks don't trip.
+    return apply_target_encoding(
+        X_view, name, {
+            "lookup": dict(recipe.extra["lookup"]),
+            "global_mean": float(recipe.extra["global_mean"]),
+        },
+    )
+
+
+def build_kfold_target_encoded_recipe(
+    *, name: str, src_name: str, lookup: dict, global_mean: float,
+    smoothing: float,
+) -> EngineeredRecipe:
+    """Frozen recipe for a single-column K-fold target-encoded column.
+
+    ``lookup`` is the per-category mean-of-y table built from the full
+    training data with Micci-Barreca smoothing. ``global_mean`` is the
+    unconditional mean of y (used as the prior in smoothing AND as the
+    fallback for unseen categories at transform). ``smoothing`` is stored
+    for diagnostics / round-trip but is NOT consulted at transform time
+    (smoothing already baked into ``lookup`` values).
+    """
+    # Coerce keys to plain str so MappingProxy round-trip + pickle work
+    # cleanly even when the caller passed numpy/pandas string types.
+    lookup_clean = {str(k): float(v) for k, v in lookup.items()}
+    return EngineeredRecipe(
+        name=name,
+        kind="kfold_target_encoded",
+        src_names=(src_name,),
+        extra={
+            "lookup": lookup_clean,
+            "global_mean": float(global_mean),
+            "smoothing": float(smoothing),
         },
     )

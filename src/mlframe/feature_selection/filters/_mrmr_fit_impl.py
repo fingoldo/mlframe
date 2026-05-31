@@ -517,6 +517,100 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     type(_mig_exc).__name__, _mig_exc,
                 )
 
+    # 2026-05-31 Layer 33 — K-fold target encoding for raw categorical
+    # columns. Runs after hybrid + MI-greedy because TE is the standard
+    # prod pattern for cardinality > 5 categoricals that the other two
+    # stages do not touch. Recipes (kind ``kfold_target_encoded``) carry
+    # only the full-data per-category lookup -- no y at replay time.
+    # Engineered columns route through ``hybrid_orth_features_`` so the
+    # end-of-fit remap treats them as engineered features (same routing
+    # as Layer 23 / 26 / 32).
+    self.kfold_te_features_ = []
+    _kfold_te_pre_recipes: dict = {}
+    if bool(getattr(self, "fe_kfold_te_enable", False)):
+        _is_pandas_for_te = isinstance(X, pd.DataFrame)
+        if not _is_pandas_for_te:
+            warnings.warn(
+                "MRMR: fe_kfold_te_enable=True but X is not a pandas "
+                "DataFrame; K-fold target encoding is skipped. Convert "
+                "to pandas via X.to_pandas() before fit() if you want "
+                "K-fold TE applied.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from ._target_encoding_fe import (
+                    kfold_target_encode_with_recipes,
+                )
+                _te_cols_cfg = tuple(
+                    getattr(self, "fe_kfold_te_cols", ()) or ()
+                )
+                # Explicit empty tuple -> auto-detect; explicit names -> use
+                # exactly those (after intersecting with X.columns).
+                _te_cols = list(_te_cols_cfg) if _te_cols_cfg else None
+                if _te_cols is not None:
+                    _hybrid_appended = set(self.hybrid_orth_features_ or [])
+                    _mig_appended = set(self.mi_greedy_features_ or [])
+                    _te_cols = [
+                        c for c in _te_cols
+                        if c in X.columns
+                        and c not in _hybrid_appended
+                        and c not in _mig_appended
+                    ]
+                _y_for_te = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                # TE works for both binary classification and regression as-
+                # is (mean of {0,1} = P(y=1); mean of continuous = mean).
+                # Cast bool / object to float to avoid type errors inside
+                # the mean computation.
+                _y_for_te = np.asarray(_y_for_te, dtype=np.float64).ravel()
+                _X_before_te_cols = list(X.columns)
+                X_te, _te_appended, _te_recipes = kfold_target_encode_with_recipes(
+                    X, _y_for_te,
+                    cat_cols=_te_cols,
+                    n_folds=int(getattr(self, "fe_kfold_te_folds", 5)),
+                    smoothing=float(
+                        getattr(self, "fe_kfold_te_smoothing", 10.0)
+                    ),
+                    random_state=int(
+                        getattr(self, "random_seed", 0) or 0
+                    ),
+                )
+                # Guard against silent overlap with prior stages: the
+                # ``{col}__te`` suffix is dedicated to this stage so the
+                # collision pre-condition would require a user-supplied
+                # source column literally named ``{src}__te``. Drop any
+                # accidental name collision rather than overwrite.
+                _te_appended = [
+                    c for c in _te_appended if c not in _X_before_te_cols
+                ]
+                if _te_appended:
+                    X = X_te
+                    self.kfold_te_features_ = list(_te_appended)
+                    # Route through hybrid_orth_features_ so the end-of-fit
+                    # remap routes by-name selected items into
+                    # _engineered_recipes_ (Layer 23 routing path).
+                    self.hybrid_orth_features_ = (
+                        list(self.hybrid_orth_features_ or [])
+                        + list(_te_appended)
+                    )
+                    for _r in _te_recipes:
+                        if _r.name in _te_appended:
+                            _kfold_te_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit kfold_te: appended %d engineered "
+                            "column(s): %s",
+                            len(_te_appended), _te_appended[:8],
+                        )
+            except Exception as _te_exc:
+                logger.warning(
+                    "MRMR.fit kfold_te FE raised %s: %s; continuing "
+                    "without target-encoded columns.",
+                    type(_te_exc).__name__, _te_exc,
+                )
+
     # Layer 27 (2026-05-31): cross-stage engineered-column dedup. Hybrid and
     # MI-greedy stages run independently; on signals like ``y = sign(x^2 - 1)``
     # hybrid emits ``x__He2`` and MI-greedy emits ``square(x)`` / ``abs(x)`` /
@@ -584,12 +678,20 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             self.mi_greedy_features_ = [
                 c for c in (self.mi_greedy_features_ or []) if c not in _eng_drop
             ]
+            # Layer 33: mirror the same cleanup for TE-encoded columns.
+            self.kfold_te_features_ = [
+                c for c in (getattr(self, "kfold_te_features_", []) or [])
+                if c not in _eng_drop
+            ]
             for _c in list(_hybrid_orth_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _hybrid_orth_pre_recipes.pop(_c, None)
             for _c in list(_mi_greedy_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _mi_greedy_pre_recipes.pop(_c, None)
+            for _c in list(_kfold_te_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _kfold_te_pre_recipes.pop(_c, None)
             if verbose:
                 logger.info(
                     "MRMR.fit engineered-FE dedup: pruned %d near-duplicate "
@@ -767,6 +869,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # Layer 26: same routing pattern for MI-greedy recipes.
     if _mi_greedy_pre_recipes:
         engineered_recipes.update(_mi_greedy_pre_recipes)
+    # Layer 33: same routing pattern for K-fold target-encoded recipes.
+    if _kfold_te_pre_recipes:
+        engineered_recipes.update(_kfold_te_pre_recipes)
     # Reset per fit so a re-fit on the same instance doesn't carry stale cluster-aggregate state.
     self._cluster_aggregate_removals_ = []
     self.cluster_aggregate_ = []  # fitted summary (per-aggregate records) -> meta_info report
