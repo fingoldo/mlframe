@@ -127,6 +127,13 @@ class RecurrentConfig:
     #     compatibility; new users should not pick this.
     sequence_preprocessing: str = "none"
 
+    # F-62 (2026-05-31): Lookahead meta-optimizer (Zhang 2019). Off by
+    # default. When True, wraps the AdamW optimizer; +0.4-0.6% on tabular
+    # MLP per RealMLP-TD 2024 ablations.
+    use_lookahead: bool = False
+    lookahead_k: int = 5
+    lookahead_alpha: float = 0.5
+
     # Output
     num_classes: int = 2  # for classification; ignored for regression
 
