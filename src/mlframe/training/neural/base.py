@@ -314,7 +314,18 @@ class PytorchLightningEstimator(BaseEstimator):
         # overridden. partial_fit honours the same seed on every batch
         # (idempotent — re-seeding before each call is fine).
         if self.random_state is not None:
-            L.seed_everything(int(self.random_state), workers=True, verbose=False)
+            # ``verbose`` was added to ``L.seed_everything`` in lightning >=2.x;
+            # older installs (the TVT-regression test box) raise TypeError on
+            # the kwarg. Try the quiet form first, fall back to the legacy
+            # signature so the same code base stays portable across Lightning
+            # versions. (When we fall through, Lightning prints the seed line
+            # at INFO; the ``_LightningRankZeroNoiseFilter`` further down still
+            # suppresses noisy rank-zero chatter, so the on-disk log stays
+            # essentially identical.)
+            try:
+                L.seed_everything(int(self.random_state), workers=True, verbose=False)
+            except TypeError:
+                L.seed_everything(int(self.random_state), workers=True)
 
         # F-23 (2026-05-30): reject NaN / inf in features or labels at fit()
         # entry. Pre-fix any NaN propagated through the first Linear ->

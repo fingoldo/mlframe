@@ -28,7 +28,15 @@ def _reflection_frame(n=3000, k=4, noise=0.7, seed=0, extra_indep=True):
     return X, y, z
 
 
-_MRMR_KW = dict(verbose=0, random_seed=42, use_simple_mode=False, cluster_aggregate_corr_threshold=0.5)
+_MRMR_KW = dict(
+    verbose=0, random_seed=42, use_simple_mode=False,
+    cluster_aggregate_corr_threshold=0.5,
+    # Wave 9.1 (mrmr.py:1294) suppresses the post-hoc cluster_aggregate FE step
+    # when ``dcd_enable=True`` (the new default) AND ``dcd_postoc_compose`` is
+    # the default False, to avoid double-aggregation. These tests focus on the
+    # cluster_aggregate path itself, so disable DCD or let the two compose.
+    dcd_enable=False,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -222,7 +230,9 @@ def test_enabled_by_default():
 
     assert MRMR().get_params()["cluster_aggregate_enable"] is True
     X, y, _z = _reflection_frame(seed=7)
-    s = MRMR(verbose=0, random_seed=42, use_simple_mode=False, cluster_aggregate_corr_threshold=0.5).fit(X.iloc[:2000], y.iloc[:2000])
+    # dcd_enable=False so DCD doesn't auto-suppress the post-hoc cluster
+    # aggregate FE step (mrmr.py:1294); the gate fires the OLD default.
+    s = MRMR(verbose=0, random_seed=42, use_simple_mode=False, cluster_aggregate_corr_threshold=0.5, dcd_enable=False).fit(X.iloc[:2000], y.iloc[:2000])
     assert any("clusteragg" in c for c in s.get_feature_names_out())
     # The fitted summary is populated for meta_info.
     assert getattr(s, "cluster_aggregate_", None) and s.cluster_aggregate_[0]["method"] in {"mean_z", "mean_inv_var", "median", "pca_pc1", "factor_score"}
@@ -247,7 +257,8 @@ def test_each_method_builds_aggregate_recovering_latent(method):
 
     X, y, z = _reflection_frame(n=3000, k=4, noise=0.6, seed=20, extra_indep=True)
     s = MRMR(verbose=0, random_seed=42, use_simple_mode=False, cluster_aggregate_mode="replace",
-             cluster_aggregate_corr_threshold=0.5, cluster_aggregate_methods=(method,)).fit(X.iloc[:2000], y.iloc[:2000])
+             cluster_aggregate_corr_threshold=0.5, cluster_aggregate_methods=(method,),
+             dcd_enable=False).fit(X.iloc[:2000], y.iloc[:2000])
     aggs = [r for r in s._engineered_recipes_ if r.kind == "cluster_aggregate"]
     assert aggs and aggs[0].extra["method"] == method, f"method {method} should build an aggregate"
     out = s.transform(X)
@@ -274,7 +285,7 @@ def test_cluster_aggregate_feeds_further_fe_step(monkeypatch):
 
     X, y, _z = _reflection_frame(n=3000, k=4, noise=0.6, seed=21, extra_indep=True)
     MRMR(verbose=0, random_seed=42, use_simple_mode=False, cluster_aggregate_corr_threshold=0.5,
-         cluster_aggregate_methods=("mean_z",), fe_max_steps=2).fit(X.iloc[:2000], y.iloc[:2000])
+         cluster_aggregate_methods=("mean_z",), fe_max_steps=2, dcd_enable=False).fit(X.iloc[:2000], y.iloc[:2000])
 
     assert len(calls) >= 2, f"expected >=2 FE steps (fe_max_steps=2); got {len(calls)}"
     step2 = calls[1]
@@ -291,7 +302,7 @@ def test_cluster_aggregate_surfaces_in_meta_info():
     from mlframe.training.core._phase_train_one_target_helpers import _build_feature_selection_report
 
     X, y, _z = _reflection_frame(seed=30)
-    s = MRMR(verbose=0, random_seed=42, use_simple_mode=False, cluster_aggregate_corr_threshold=0.5).fit(X.iloc[:2000], y.iloc[:2000])
+    s = MRMR(verbose=0, random_seed=42, use_simple_mode=False, cluster_aggregate_corr_threshold=0.5, dcd_enable=False).fit(X.iloc[:2000], y.iloc[:2000])
     assert s.cluster_aggregate_, "fit should populate cluster_aggregate_"
     report = _build_feature_selection_report(s, "MRMR", list(X.columns), list(s.get_feature_names_out()))
     assert "cluster_aggregate" in report, f"report should carry the cluster_aggregate summary; got {list(report)}"

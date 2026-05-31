@@ -99,6 +99,24 @@ def _run_fe_step(
         if self.fe_fallback_to_all:
             logger.info("Proceeding with all features though (fe_fallback_to_all=True).")
             selected_vars = np.array([cols.index(col) for col in cols if col not in target_names])
+        elif (getattr(self, "cluster_aggregate_enable", False) and num_fs_steps == 0):
+            # cluster_aggregate operates on raw ``feature_names_in_`` columns
+            # (correlation-based clusters) and does NOT need ``selected_vars``.
+            # When screening returns 0 features (heavily-correlated reflection
+            # clusters routinely trigger this, since every member's marginal
+            # MI is near-zero), the legacy ``return None`` skipped the
+            # cluster-aggregate step too -- the test contract (and the
+            # documented "ON by default and fires on a clean reflection
+            # cluster" promise) requires running it regardless. Continue with
+            # an empty ``selected_vars`` and let the cluster-aggregate block
+            # at the bottom of this function fire; the pair / hermite blocks
+            # in between are no-ops on empty ``selected_vars``.
+            logger.info(
+                "Screening returned 0 features but cluster_aggregate_enable=True; "
+                "running cluster-aggregate step anyway (operates on raw "
+                "feature_names_in_, not on selected_vars).",
+            )
+            selected_vars = []
         else:
             logger.info("Skipping Feature Engineering (screening returned 0 features and fe_fallback_to_all=False).")
             return None

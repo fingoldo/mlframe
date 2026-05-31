@@ -161,6 +161,16 @@ def _persist_pipeline_disk_cache() -> None:
     """
     try:
         path = _pipeline_disk_cache_path()
+        # Defensive: monkeypatched paths in tests (and prod first-fit on a
+        # fresh box) may point at a directory the producer hasn't created yet.
+        # ``os.replace`` raises ``FileNotFoundError`` when the dir is missing,
+        # which our outer ``except Exception`` swallows -- leaving callers to
+        # wonder why ``persist + reload`` round-trips return nothing. One-line
+        # ``makedirs`` keeps the contract that ``persist`` always lands when
+        # the parent ``cache_file`` is in a writeable location.
+        _parent_dir = os.path.dirname(path)
+        if _parent_dir:
+            os.makedirs(_parent_dir, exist_ok=True)
         entries = _PIPELINE_JSON_ROUNDTRIP_CACHE
         if len(entries) > _PIPELINE_JSON_DISK_CACHE_MAX_ENTRIES:
             # FIFO eviction: keep the most recent N (dict preserves insertion order)

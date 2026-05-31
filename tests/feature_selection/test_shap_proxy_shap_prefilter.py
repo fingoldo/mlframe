@@ -79,11 +79,15 @@ def test_selector_records_shap_prefilter_block_when_enabled():
     rep = sel.shap_proxy_report_
     assert "shap_prefilter" in rep
     sp = rep["shap_prefilter"]
-    assert sp["requested_top"] == 88  # default: max(22 * 4, 40) = 88
-    assert sp["effective_prefilter_top"] == 88  # min(200, 88) = 88
+    # iter56 raised the default ``brute_force_max_features`` from 22 to 28
+    # (shap_proxied_fs.py:292). The formula stays
+    # ``max(brute_force_max_features * safety_factor=4, min_features=40)``;
+    # the new default lands at 112.
+    assert sp["requested_top"] == 112  # default: max(28 * 4, 40) = 112
+    assert sp["effective_prefilter_top"] == 112  # min(200, 112) = 112
     assert sp["user_prefilter_top"] == 200
     # prefilter must reflect the tightened cap.
-    assert rep["prefilter"]["kept"] <= 88
+    assert rep["prefilter"]["kept"] <= 112
 
 
 def test_selector_disabled_keeps_user_prefilter_top():

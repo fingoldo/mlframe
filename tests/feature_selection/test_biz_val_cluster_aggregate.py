@@ -43,7 +43,12 @@ def _make_model(name):
 DOWNSTREAM_MODELS = ["logreg", "boosting", "mlp"]
 _CA_KW = dict(verbose=0, random_seed=42, use_simple_mode=False, cluster_aggregate_corr_threshold=0.4,
               cluster_aggregate_homogeneity_tau=0.5, cluster_aggregate_min_cluster_size=3,
-              cluster_aggregate_methods=("mean_z", "mean_inv_var", "pca_pc1"))
+              cluster_aggregate_methods=("mean_z", "mean_inv_var", "pca_pc1"),
+              # Wave 9.1 (mrmr.py:1294) auto-suppresses the post-hoc
+              # cluster_aggregate FE step when ``dcd_enable=True`` (new default)
+              # + ``dcd_postoc_compose=False`` (default). These tests focus on
+              # the cluster_aggregate path itself, so disable DCD.
+              dcd_enable=False)
 
 
 # ---------------------------------------------------------------------------

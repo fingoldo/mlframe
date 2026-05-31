@@ -1,4 +1,7 @@
 [
   "feature_selection/_benchmarks/bench_iter33_scaling.py:209",
-  "feature_selection/_benchmarks/bench_iter54_inner_n_jobs_cap.py:111"
+  "feature_selection/_benchmarks/bench_iter54_inner_n_jobs_cap.py:111",
+  "feature_selection/_benchmarks/bench_iter56_brute_force_cap.py:107",
+  "feature_selection/_benchmarks/bench_iter58_beam_width_sweep.py:139",
+  "feature_selection/_benchmarks/bench_iter59_adaptive_prescreen.py:138"
 ]
