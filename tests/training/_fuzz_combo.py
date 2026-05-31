@@ -672,6 +672,16 @@ AXES: dict[str, tuple[Any, ...]] = {
     # booster tree count (None disables the cap, matching legacy uncapped
     # behaviour).
     "shap_proxied_cluster_weighting_cfg": ("pca_pc1", "factor_score"),
+    # iter624 (audit-pass-13 INFORMATIONAL): iter67 added two new
+    # ShapProxiedFS ctor params for SU-pairwise clustering via MRMR
+    # precomputed bins. Both default opt-IN (True / 0.5); the OFF
+    # branch (cluster_use_precomputed_bins=False) is the legacy
+    # Pearson-only fallback. Gate: use_shap_proxied_fs=True AND
+    # cluster_features != False.
+    # Verified prod defaults at shap_proxied_fs.py:228 (True) and :229
+    # (0.5).
+    "shap_proxied_cluster_use_precomputed_bins_cfg": (False, True),
+    "shap_proxied_cluster_su_threshold_cfg": (0.3, 0.5),
     "shap_proxied_max_interaction_features_cfg": (16, 64),
     "shap_proxied_prefilter_top_cfg": (2000, None),
     "shap_proxied_prefilter_n_estimators_cfg": (100, None),
@@ -1774,6 +1784,10 @@ class FuzzCombo:
     # 2026-05-28 ShapProxiedFS audit-pass-3 axes (W3). Defaults mirror
     # ShapProxiedFS.__init__ (feature_selection/shap_proxied_fs.py:69-79).
     shap_proxied_cluster_weighting_cfg: str = "pca_pc1"
+    # iter624: iter67 cluster_use_precomputed_bins + cluster_su_threshold.
+    # Defaults verified at shap_proxied_fs.py:228-229.
+    shap_proxied_cluster_use_precomputed_bins_cfg: bool = True
+    shap_proxied_cluster_su_threshold_cfg: float = 0.5
     shap_proxied_max_interaction_features_cfg: int = 16
     shap_proxied_prefilter_top_cfg: "int | None" = 2000
     shap_proxied_prefilter_n_estimators_cfg: "int | None" = 100
@@ -2918,6 +2932,23 @@ class FuzzCombo:
                 if (self.use_shap_proxied_fs
                     and self.shap_proxied_cluster_features_cfg is not False)
                 else "pca_pc1"
+            ),
+            # iter624 canon: cluster_use_precomputed_bins / cluster_su_threshold
+            # are consumed only when ShapProxiedFS clustering is active. Outside
+            # that compound gate (use_shap_proxied_fs=True AND cluster_features
+            # is not False) the toggle is a no-op; canon to source defaults
+            # so it doesn't fork canonical keys it can't affect.
+            (
+                self.shap_proxied_cluster_use_precomputed_bins_cfg
+                if (self.use_shap_proxied_fs
+                    and self.shap_proxied_cluster_features_cfg is not False)
+                else True
+            ),
+            (
+                self.shap_proxied_cluster_su_threshold_cfg
+                if (self.use_shap_proxied_fs
+                    and self.shap_proxied_cluster_features_cfg is not False)
+                else 0.5
             ),
             (
                 self.shap_proxied_max_interaction_features_cfg
@@ -4609,6 +4640,13 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         shap_proxied_cluster_weighting_cfg=axes.get(
             "shap_proxied_cluster_weighting_cfg", "pca_pc1"
         ),
+        # iter624 (audit-pass-13 INFORMATIONAL): iter67 SU-pairwise cluster.
+        shap_proxied_cluster_use_precomputed_bins_cfg=axes.get(
+            "shap_proxied_cluster_use_precomputed_bins_cfg", True
+        ),
+        shap_proxied_cluster_su_threshold_cfg=axes.get(
+            "shap_proxied_cluster_su_threshold_cfg", 0.5
+        ),
         shap_proxied_max_interaction_features_cfg=axes.get(
             "shap_proxied_max_interaction_features_cfg", 16
         ),
@@ -5535,6 +5573,10 @@ def build_shap_proxied_fs_kwargs_from_flat(
     # 2026-05-28 audit-pass-3 W3 axes. Defaults verified against
     # ShapProxiedFS.__init__ (feature_selection/shap_proxied_fs.py:69-79).
     cluster_weighting: str = "pca_pc1",
+    # iter624 (audit-pass-13 INFORMATIONAL): iter67 SU-pairwise cluster knobs.
+    # Defaults verified at shap_proxied_fs.py:228-229.
+    cluster_use_precomputed_bins: bool = True,
+    cluster_su_threshold: float = 0.5,
     max_interaction_features: int = 16,
     prefilter_top: "int | None" = 2000,
     prefilter_n_estimators: "int | None" = 100,
@@ -5616,6 +5658,11 @@ def build_shap_proxied_fs_kwargs_from_flat(
         # 2026-05-28 audit-pass-3 W3 axes (param names match
         # ShapProxiedFS.__init__ signature verbatim).
         "cluster_weighting": cluster_weighting,
+        # iter624 (audit-pass-13 INFORMATIONAL): iter67 ShapProxiedFS SU-
+        # pairwise cluster sub-knobs. Param names match ShapProxiedFS
+        # __init__ at shap_proxied_fs.py:228-229.
+        "cluster_use_precomputed_bins": cluster_use_precomputed_bins,
+        "cluster_su_threshold": cluster_su_threshold,
         "max_interaction_features": max_interaction_features,
         "prefilter_top": prefilter_top,
         "prefilter_n_estimators": prefilter_n_estimators,
@@ -5739,6 +5786,9 @@ def build_shap_proxied_fs_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]
         refine_n_estimators=combo.shap_proxied_refine_n_estimators_cfg,
         trust_guard_n_estimators=combo.shap_proxied_trust_guard_n_estimators_cfg,
         cluster_weighting=combo.shap_proxied_cluster_weighting_cfg,
+        # iter624 (audit-pass-13 INFORMATIONAL): iter67 SU-pairwise cluster knobs.
+        cluster_use_precomputed_bins=combo.shap_proxied_cluster_use_precomputed_bins_cfg,
+        cluster_su_threshold=combo.shap_proxied_cluster_su_threshold_cfg,
         max_interaction_features=combo.shap_proxied_max_interaction_features_cfg,
         prefilter_top=combo.shap_proxied_prefilter_top_cfg,
         prefilter_n_estimators=combo.shap_proxied_prefilter_n_estimators_cfg,
