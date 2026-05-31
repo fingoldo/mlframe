@@ -747,60 +747,58 @@ class MLPTorchModel(L.LightningModule):
             return None
 
     def _maybe_cuda_graph_forward(self, x: torch.Tensor) -> torch.Tensor:
-        """F-38 (2026-05-31): CUDA-graph fast path for the inference
-        forward. Falls back to eager ``self(x)`` when CUDA graphs are
-        unavailable or unsuitable for this shape.
+        """F-38 + F-40 (2026-05-31): CUDA-graph fast path for the
+        inference forward via the LOW-LEVEL torch.cuda.CUDAGraph() API.
+
+        Non-destructive: each captured graph is an independent CUDAGraph
+        object with its own static input + output buffers. self.network
+        and self.network.forward are NEVER mutated, so other shapes can
+        still run through eager forward without crashing.
+
+        Per-shape capture flow (cache miss path):
+          1. Warmup: 3 eager forwards on a side stream (NVIDIA best
+             practice -- lets the caching allocator settle, primes
+             cuDNN's algo selection, validates the network is capturable
+             for this shape).
+          2. Static buffer allocation: ``static_in = empty_like(x)``,
+             initial copy ``static_in.copy_(x)``.
+          3. Capture: ``with torch.cuda.graph(g): static_out = self.network(static_in)``.
+             Records every kernel into ``g``. static_out is the output
+             tensor bound to the captured graph's output slot.
+          4. Cache: store (g, static_in, static_out) keyed by
+             (shape, dtype, device).
+        Replay (cache hit):
+          1. ``static_in.copy_(x, non_blocking=True)``.
+          2. ``g.replay()`` -- single CPU-side launch + GPU runs the
+             captured kernel sequence against the new input.
+          3. Clone ``static_out`` (next replay overwrites it).
 
         Gating chain (any False -> eager fallback, zero overhead):
-          1. ``MLFRAME_CUDA_GRAPH_PREDICT=1`` env var (default off until
-             validated on the target host's PyTorch + GPU combo)
+          1. ``MLFRAME_CUDA_GRAPH_PREDICT`` env var:
+               unset / "1" / "true" / "auto" -> ON (default-on after F-40)
+               "0" / "false" / "off"           -> OFF (opt-out)
           2. CUDA is available + the input tensor lives on CUDA
-          3. No LSTM/GRU/RNN in the network (the same recurrent ops
-             TorchDynamo graph-breaks on are unsuitable for CUDA-graph
-             capture: control flow inside cuDNN call)
-          4. The current ``(shape, dtype, device)`` matches a cached
-             capture, OR a fresh capture succeeds (3 warmup forwards on
-             a side stream + ``torch.cuda.make_graphed_callables``)
+          3. No LSTM/GRU/RNN in the network (cuDNN control flow breaks
+             capture; same anti-pattern as F-35 torch.compile guard)
+          4. Successful capture (any failure caches the False sentinel
+             so we don't retry forever)
 
         Tail-batch behaviour: the LAST batch of a predict pass is
         usually smaller than the trained batch size (drop_last=False on
-        the predict dataloader). Its shape misses the cache and either:
-          * (a) triggers a fresh capture for that shape -- cheap one-off
-            (~3-5 ms), valuable if predict runs many batches at that
-            tail size
-          * (b) falls back to eager when env var bypass triggers
-        Both correct.
+        the predict dataloader). Its shape misses the cache and triggers
+        a fresh capture (~3-5 ms one-off). The capture is NON-destructive
+        (F-40 fix) so the previously-captured graph for the full-size
+        batch still works on the NEXT predict pass.
 
-        Sentinel value ``False`` is cached on shape-keys where capture
-        previously failed (e.g. dynamic input shapes, autograd-state
-        mismatch) so we don't retry forever.
+        2026-05-31 F-38 attempt with make_graphed_callables was REVERTED
+        because that API MUTATES self.network.forward (replaces it with
+        the graphed_fn specialised to the first capture's shape). F-40
+        uses the low-level CUDAGraph() API instead -- network stays
+        untouched.
         """
         import os as _os
-        # F-38 stays opt-in via MLFRAME_CUDA_GRAPH_PREDICT=1
-        #
-        # 2026-05-31 default-on attempt REVERTED for a fundamental
-        # reason: torch.cuda.make_graphed_callables on an nn.Module
-        # MUTATES the module's ``forward`` to redirect through the
-        # graphed function. After capturing for shape S1, ANY subsequent
-        # ``self.network(x)`` call -- including the warmup forwards we
-        # do for capturing shape S2 -- runs through the S1-specialised
-        # graphed_fn and crashes when x has shape S2. Lightning's
-        # predict path emits varying tail-batch shapes per predict pass
-        # (last batch is typically smaller), so the default-on path
-        # would corrupt the network for any subsequent predict.
-        #
-        # Hardening plan to make F-38 default-safe (multi-day):
-        #   1. Switch from make_graphed_callables to the lower-level
-        #      torch.cuda.CUDAGraph() API: capture is non-destructive
-        #      (an independent CUDAGraph object per shape; module
-        #      forward stays untouched).
-        #   2. OR pad tail batches to the cached batch size via the
-        #      DataModule predict_dataloader, return only the valid
-        #      prefix in _predict_raw.
-        #   3. OR set drop_last=True on the predict dataloader when
-        #      MLFRAME_CUDA_GRAPH_PREDICT=1, document the silent drop.
-        # Until one of the above lands, the safe default is opt-in.
-        if _os.environ.get("MLFRAME_CUDA_GRAPH_PREDICT", "0") != "1":
+        _env = _os.environ.get("MLFRAME_CUDA_GRAPH_PREDICT", "1").lower()
+        if _env in ("0", "false", "off", "no", ""):
             return self(x)
         if not torch.cuda.is_available():
             return self(x)
@@ -823,20 +821,18 @@ class MLPTorchModel(L.LightningModule):
             # eager fallback to avoid retry storms.
             return self(x)
         if _cached is not None:
-            # Defensive: even cached replay can fail if model state
-            # changed (weight updates between predict calls in a training
-            # loop, parameter swap by an EMA callback, etc.). Wrap in
-            # try/except + evict + fall back to eager. The eviction
-            # means the NEXT call re-captures the graph against the
-            # current weights -- correct behaviour at the cost of one
-            # warmup per state change.
+            # Defensive: replay can fail if model state changed
+            # (parameters swapped by an EMA callback between predict
+            # calls, weight load via load_state_dict, etc.). Wrap in
+            # try/except + evict + fall back to eager.
             try:
-                _static_in, _graphed_fn = _cached
+                _g, _static_in, _static_out = _cached
                 _static_in.copy_(x, non_blocking=True)
-                return _graphed_fn(_static_in)
+                _g.replay()
+                return _static_out.clone()
             except Exception as _replay_err:
                 logger.warning(
-                    "F-38: CUDA-graph replay failed for shape=%s (%s); "
+                    "F-40: CUDA-graph replay failed for shape=%s (%s); "
                     "evicting cache entry + falling back to eager.",
                     tuple(x.shape), _replay_err,
                 )
@@ -844,32 +840,40 @@ class MLPTorchModel(L.LightningModule):
                 return self(x)
 
         # First time seeing this shape on this device + dtype. Try a
-        # capture; cache the result (success or False sentinel).
+        # capture via the LOW-LEVEL CUDAGraph() API (non-destructive).
         try:
-            # 3 warmup forwards on a side stream before capture, per
-            # NVIDIA / PyTorch best practices. Without warmup the
-            # caching allocator hasn't settled and capture either
-            # records the wrong allocations or fails outright.
+            # 3 warmup forwards on a side stream. wait_stream chains so
+            # the side stream sees the caller's prior work; current
+            # stream then waits on the side stream so subsequent ops
+            # see the warmup's effects.
             _side_stream = torch.cuda.Stream()
+            _side_stream.wait_stream(torch.cuda.current_stream())
             with torch.cuda.stream(_side_stream):
                 for _ in range(3):
                     _ = self.network(x.clone())
             torch.cuda.current_stream().wait_stream(_side_stream)
+            torch.cuda.synchronize()
+
+            # Static input + output buffers. Capture binds them into
+            # the graph's input/output slots; replay just copies new x
+            # into static_in and the captured kernel sequence writes
+            # static_out.
             _static_in = torch.empty_like(x)
             _static_in.copy_(x)
-            _graphed_fn = torch.cuda.make_graphed_callables(
-                self.network, (_static_in,),
-            )
-            self._cuda_graph_predict_cache[_key] = (_static_in, _graphed_fn)
+            _g = torch.cuda.CUDAGraph()
+            with torch.cuda.graph(_g):
+                _static_out = self.network(_static_in)
+
+            self._cuda_graph_predict_cache[_key] = (_g, _static_in, _static_out)
             logger.info(
-                "F-38: CUDA-graph captured for predict shape=%s dtype=%s.",
+                "F-40: CUDA-graph captured for predict shape=%s dtype=%s.",
                 tuple(x.shape), x.dtype,
             )
-            return _graphed_fn(_static_in)
+            return _static_out.clone()
         except Exception as _graph_err:
             self._cuda_graph_predict_cache[_key] = False
             logger.warning(
-                "F-38: CUDA-graph capture failed for predict shape=%s "
+                "F-40: CUDA-graph capture failed for predict shape=%s "
                 "(%s); falling back to eager forward for this shape.",
                 tuple(x.shape), _graph_err,
             )

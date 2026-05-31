@@ -125,15 +125,27 @@ def test_cuda_graph_cache_initialised_empty():
     assert module._cuda_graph_predict_cache == {}
 
 
-def test_cuda_graph_env_off_falls_back_to_eager(monkeypatch):
-    """MLFRAME_CUDA_GRAPH_PREDICT unset (default) -> eager fallback.
-    F-38 stays opt-in until Lightning's varying tail-batch shapes are
-    handled cleanly (Capture fragility documented in the F-38 docstring)."""
-    monkeypatch.delenv("MLFRAME_CUDA_GRAPH_PREDICT", raising=False)
+def test_cuda_graph_env_explicit_off_falls_back_to_eager(monkeypatch):
+    """Explicit MLFRAME_CUDA_GRAPH_PREDICT=0 -> eager fallback.
+    F-40 flipped the default to ON (low-level CUDAGraph() API is
+    non-destructive); users opt OUT via "0" / "false" / "off"."""
+    monkeypatch.setenv("MLFRAME_CUDA_GRAPH_PREDICT", "0")
     module = _make_module()
     x = torch.randn(4, 4)
     out = module._maybe_cuda_graph_forward(x)
     torch.testing.assert_close(out, module(x))
+    assert module._cuda_graph_predict_cache == {}
+
+
+def test_cuda_graph_env_default_is_on_falls_back_on_cpu(monkeypatch):
+    """F-40 default-on: env unset -> opt-in. On CPU input the gate
+    still falls back to eager (CUDA graphs are GPU-only)."""
+    monkeypatch.delenv("MLFRAME_CUDA_GRAPH_PREDICT", raising=False)
+    module = _make_module()
+    x = torch.randn(4, 4)  # CPU
+    out = module._maybe_cuda_graph_forward(x)
+    torch.testing.assert_close(out, module(x))
+    # No capture attempted on CPU, cache stays empty.
     assert module._cuda_graph_predict_cache == {}
 
 
