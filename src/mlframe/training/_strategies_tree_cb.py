@@ -86,8 +86,19 @@ class CatBoostStrategy(TreeModelStrategy):
     # 2026-05-08 QR: CatBoost MultiQuantile loss handles K alphas in one
     # fit; predict returns (N, K) directly.
     supports_native_quantile = True
+    # F-34 (2026-05-31): CatBoost MultiRMSE loss handles K continuous
+    # targets in one fit; predict returns (N, K) directly.
+    supports_native_multi_target = True
     # Inherits cache_key = "tree" from TreeModelStrategy so CB/LGB/XGB share
     # transformed-DF cache (they have identical preprocessing requirements).
+
+    def get_multi_target_objective_kwargs(self) -> dict:
+        """CatBoost ``MultiRMSE`` loss_function for K-target regression.
+
+        Single ensemble outputs (N, K) directly. Use
+        ``MultiRMSEWithMissingValues`` if any target column has NaN.
+        """
+        return {"loss_function": "MultiRMSE"}
 
     def get_quantile_objective_kwargs(self, qr_config) -> dict:
         """CatBoost ``MultiQuantile`` loss_function with comma-joined alphas.

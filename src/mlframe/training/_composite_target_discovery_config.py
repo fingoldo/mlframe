@@ -931,7 +931,13 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     @classmethod
     def _normalise_multilabel_strategy(cls, v: str) -> str:
         v_lower = str(v).lower()
-        valid = {"per_target", "skip"}
+        # F-34 (2026-05-31): added "multi_target_regression" — keeps
+        # (N, K) regression targets joint under
+        # TargetTypes.MULTI_TARGET_REGRESSION instead of expanding to
+        # K independent 1-D targets. Best for correlated targets that
+        # benefit from a shared trunk / boosting ensemble (MultiRMSE,
+        # multi_output_tree, K-head MLP).
+        valid = {"per_target", "skip", "multi_target_regression"}
         if v_lower not in valid:
             raise ValueError(
                 f"multilabel_strategy must be one of {valid}, got '{v}'")

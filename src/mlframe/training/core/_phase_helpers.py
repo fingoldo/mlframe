@@ -269,6 +269,40 @@ def _defensive_copy_and_expand_multilabel_regression(
             metadata.setdefault("multilabel_target_expansion", {})[
                 str(TargetTypes.REGRESSION)
             ] = ml_expanded_map
+    elif ml_strategy == "multi_target_regression":
+        # F-34 (2026-05-31): keep (N, K) regression targets as-is, route
+        # them to TargetTypes.MULTI_TARGET_REGRESSION. Strategies that
+        # support native multi-target (CatBoost MultiRMSE, XGBoost
+        # multi_output_tree, MLP K-head, sklearn Linear/Ridge/RF) fit
+        # one model per target_name producing (N, K) predictions; others
+        # are wrapped by sklearn.multioutput.MultiOutputRegressor at
+        # build time. This is the OPPOSITE of "per_target": instead of
+        # exploding K columns into K independent 1-D fits, we keep them
+        # joint so the trunk / boosting ensemble exploits target
+        # correlations. Picked per dataset basis: per_target is safer
+        # for uncorrelated targets, multi_target_regression captures
+        # correlated targets in a single shared model.
+        _kept = dict(new_target_by_type[TargetTypes.REGRESSION])
+        _routed = dict(new_target_by_type.get(TargetTypes.MULTI_TARGET_REGRESSION, {}))
+        _routed_names: list[str] = []
+        for _tn, _tv in list(new_target_by_type[TargetTypes.REGRESSION].items()):
+            _arr = np.asarray(_tv)
+            if _arr.ndim == 2 and _arr.shape[1] >= 2:
+                _routed[_tn] = _arr  # keep the full (N, K) frame
+                _kept.pop(_tn, None)
+                _routed_names.append(_tn)
+                logger.info(
+                    "[CompositeTargetDiscovery] multi-target regression: kept '%s' "
+                    "as (N, %d) under TargetTypes.MULTI_TARGET_REGRESSION (joint fit).",
+                    _tn, _arr.shape[1],
+                )
+        new_target_by_type[TargetTypes.REGRESSION] = _kept
+        if _routed:
+            new_target_by_type[TargetTypes.MULTI_TARGET_REGRESSION] = _routed
+        if _routed_names:
+            metadata.setdefault("multi_target_regression_routing", {})[
+                str(TargetTypes.MULTI_TARGET_REGRESSION)
+            ] = _routed_names
     return new_target_by_type
 
 

@@ -237,6 +237,61 @@ class ModelPipelineStrategy(ABC):
         """
         return {}
 
+    @property
+    def supports_native_multi_target(self) -> bool:
+        """F-34 (2026-05-31): whether this strategy supports K
+        independent continuous targets ``y of shape (N, K>=2) float``
+        natively -- a single fitted model returns (N, K) predictions.
+
+        Native paths:
+          * CatBoost: ``loss_function="MultiRMSE"``
+          * XGBoost (>=2.0): ``multi_strategy="multi_output_tree"``
+          * sklearn linear / RandomForest: native by handing (N, K) y to fit()
+          * mlframe MLP: ``PytorchLightningRegressor`` auto-detects (N, K)
+            (F-24 commit 2d300944)
+
+        Non-native paths fall back to ``sklearn.multioutput.MultiOutputRegressor``
+        (LightGBM / HistGradientBoosting / NGBoost). The suite uses
+        ``wrap_multi_target`` to wrap the base regressor at build time.
+
+        Override per-strategy. Default False is safe — un-overridden
+        strategies route through the wrapper.
+        """
+        return False
+
+    def get_multi_target_objective_kwargs(self) -> dict:
+        """F-34 (2026-05-31): per-strategy kwargs for multi-target
+        regression objective.
+
+        Returns the dict to merge into the regressor constructor when
+        ``target_type.is_multi_target_regression`` is in scope. Default
+        returns ``{}`` — subclasses with native multi-target route
+        through this override (e.g. CatBoost returns
+        ``{"loss_function": "MultiRMSE"}``); subclasses without native
+        support are wrapped via ``wrap_multi_target`` instead.
+        """
+        return {}
+
+    def wrap_multi_target(self, estimator):
+        """F-34 (2026-05-31): wrap a single-target regressor in
+        sklearn.multioutput.MultiOutputRegressor when this strategy does
+        NOT natively support multi-target.
+
+        - Native strategies (``supports_native_multi_target=True``):
+          return estimator unchanged.
+        - Non-native: wrap with ``MultiOutputRegressor`` (per sklearn
+          convention — K independent fits, no joint training across
+          target columns).
+
+        Per-target ``sample_weight`` is NOT supported by
+        ``MultiOutputRegressor`` (sklearn limitation); a single
+        ``(N,)`` sample_weight applies to all K targets uniformly.
+        """
+        if self.supports_native_multi_target:
+            return estimator
+        from sklearn.multioutput import MultiOutputRegressor
+        return MultiOutputRegressor(estimator, n_jobs=1)
+
     def wrap_quantile(self, estimator, qr_config):
         """Wrap a base regressor for quantile-regression dispatch.
 

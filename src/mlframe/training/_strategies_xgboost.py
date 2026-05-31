@@ -49,12 +49,27 @@ class XGBoostStrategy(TreeModelStrategy):
     # ``objective="reg:quantileerror", quantile_alpha=[0.1,0.5,0.9]``;
     # predict() returns (N, K).
     supports_native_quantile = True
+    # F-34 (2026-05-31): XGBoost >=2.0 supports native multi-target
+    # regression via ``multi_strategy="multi_output_tree"`` paired with
+    # ``tree_method="hist"``. Single ensemble outputs (N, K).
+    supports_native_multi_target = True
     # supports_native_multilabel: declared False at class level (matches the
     # ABC default + tells callers "wrapper by default"). The actual native-
     # multilabel decision is dynamic -- see wrap_multilabel + get_classif_
     # objective_kwargs overrides below, which BOTH consult the runtime
     # MultilabelDispatchConfig.force_native_xgb_multilabel flag.
     # Inherits cache_key = "tree" from TreeModelStrategy.
+
+    def get_multi_target_objective_kwargs(self) -> dict:
+        """XGBoost >=2.0 native multi-output trees.
+
+        ``multi_strategy="multi_output_tree"`` trains a single tree that
+        emits (N, K) per leaf; ``tree_method="hist"`` is required.
+        """
+        return {
+            "multi_strategy": "multi_output_tree",
+            "tree_method": "hist",
+        }
 
     def get_quantile_objective_kwargs(self, qr_config) -> dict:
         """XGBoost native multi-quantile via ``reg:quantileerror`` +
