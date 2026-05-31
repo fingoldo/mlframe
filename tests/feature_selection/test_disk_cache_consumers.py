@@ -91,6 +91,114 @@ def test_compute_shap_matrix_cache_hit_returns_identical(tmp_path: Path):
     np.testing.assert_array_equal(y_a, y_b)
 
 
+def test_compute_shap_matrix_per_fold_fit_cache_populated(tmp_path: Path):
+    """First call with ``cache_dir`` populates BOTH the outer ``shap_phi_`` entry and one
+    ``oof_fold_fit_`` entry per (fold, model) combination (iter83). The per-fold cache nests
+    inside the outer phi cache and is consulted only when the outer key misses."""
+    from mlframe.feature_selection._shap_proxy_explain import compute_shap_matrix, make_default_estimator
+
+    X, y = _make_clf_data(n=300, f=10)
+    tpl = make_default_estimator(classification=True, random_state=0)
+    cache_dir = tmp_path / "shap_cache"
+
+    rng = np.random.default_rng(7)
+    compute_shap_matrix(
+        tpl, X, y, classification=True, out_of_fold=True, n_splits=3, n_models=1, rng=rng,
+        cache_dir=cache_dir,
+    )
+    files = list(cache_dir.iterdir())
+    fold_fit_files = [f for f in files if f.name.startswith("oof_fold_fit_")]
+    phi_files = [f for f in files if f.name.startswith("shap_phi_")]
+    # One outer phi entry + one per-fold-fit entry per (fold, model) = 3 * 1 = 3.
+    assert len(phi_files) == 1, f"expected 1 shap_phi_ entry, got {len(phi_files)}"
+    assert len(fold_fit_files) == 3, f"expected 3 oof_fold_fit_ entries, got {len(fold_fit_files)}"
+
+
+def test_compute_shap_matrix_per_fold_cache_hits_on_outer_miss(tmp_path: Path):
+    """When the outer ``shap_phi_`` cache MISSES but per-fold fit determinants are unchanged,
+    the per-fold cache must still hit and avoid the booster fit (iter83).
+
+    Construction: first call records the per-fold fit entries. Second call toggles
+    ``return_variance`` (which changes the outer phi-cache key but NOT any per-fold-fit
+    determinant: seeds, depth, n_estimators_cap, template params, classification, and the fold's
+    own (X_tr, y_tr) slice are all unchanged because rng=7 and n_splits=3 reproduce the same
+    splits). The phi matrix on the held-out rows must be byte-identical to the first call's --
+    the cached boosters produce identical TreeSHAP attributions."""
+    from mlframe.feature_selection._shap_proxy_explain import compute_shap_matrix, make_default_estimator
+
+    X, y = _make_clf_data(n=300, f=10)
+    tpl = make_default_estimator(classification=True, random_state=0)
+    cache_dir = tmp_path / "shap_cache"
+
+    rng_a = np.random.default_rng(7)
+    phi_a, base_a, y_a = compute_shap_matrix(
+        tpl, X, y, classification=True, out_of_fold=True, n_splits=3, n_models=1,
+        return_variance=False, rng=rng_a, cache_dir=cache_dir,
+    )
+    fold_fit_files_after_first = sorted(
+        f.name for f in cache_dir.iterdir() if f.name.startswith("oof_fold_fit_")
+    )
+    assert len(fold_fit_files_after_first) == 3
+
+    # Outer cache MISS (return_variance flips the outer-key state hash) but per-fold cache HIT.
+    rng_b = np.random.default_rng(7)
+    res_b = compute_shap_matrix(
+        tpl, X, y, classification=True, out_of_fold=True, n_splits=3, n_models=1,
+        return_variance=True, rng=rng_b, cache_dir=cache_dir,
+    )
+    phi_b, base_b, y_b, var_b = res_b
+
+    # Phi/base produced from the cached boosters must match the first call's bit-identically.
+    np.testing.assert_array_equal(phi_a, phi_b)
+    np.testing.assert_array_equal(base_a, base_b)
+    np.testing.assert_array_equal(y_a, y_b)
+
+    fold_fit_files_after_second = sorted(
+        f.name for f in cache_dir.iterdir() if f.name.startswith("oof_fold_fit_")
+    )
+    # No new per-fold-fit entries: the second call was served entirely from cache.
+    assert fold_fit_files_after_second == fold_fit_files_after_first
+    # The second call now also seeded its own outer ``shap_phi_`` entry (return_variance=True).
+    phi_files = [f for f in cache_dir.iterdir() if f.name.startswith("shap_phi_")]
+    assert len(phi_files) == 2
+
+
+def test_compute_shap_matrix_per_fold_cache_invalidates_on_template_change(tmp_path: Path):
+    """Per-fold cache MUST NOT serve a stale booster when fit determinants change.
+
+    Changing the booster template (different n_estimators) flips both the outer key AND every
+    per-fold key, so a NEW set of ``oof_fold_fit_`` entries is written. The first call's entries
+    remain alongside the new ones (cache never auto-evicts)."""
+    from mlframe.feature_selection._shap_proxy_explain import compute_shap_matrix, make_default_estimator
+
+    X, y = _make_clf_data(n=300, f=10)
+    cache_dir = tmp_path / "shap_cache"
+
+    tpl_a = make_default_estimator(classification=True, random_state=0, n_estimators=50)
+    rng_a = np.random.default_rng(7)
+    compute_shap_matrix(
+        tpl_a, X, y, classification=True, out_of_fold=True, n_splits=3, n_models=1,
+        rng=rng_a, cache_dir=cache_dir,
+    )
+    entries_after_a = sorted(
+        f.name for f in cache_dir.iterdir() if f.name.startswith("oof_fold_fit_")
+    )
+
+    tpl_b = make_default_estimator(classification=True, random_state=0, n_estimators=100)
+    rng_b = np.random.default_rng(7)
+    compute_shap_matrix(
+        tpl_b, X, y, classification=True, out_of_fold=True, n_splits=3, n_models=1,
+        rng=rng_b, cache_dir=cache_dir,
+    )
+    entries_after_b = sorted(
+        f.name for f in cache_dir.iterdir() if f.name.startswith("oof_fold_fit_")
+    )
+
+    # Strictly more entries -- B's keys are disjoint from A's because params changed.
+    assert len(entries_after_b) == 2 * len(entries_after_a)
+    assert set(entries_after_a).issubset(set(entries_after_b))
+
+
 def test_compute_shap_matrix_rng_state_matches_after_hit(tmp_path: Path):
     """Cache hit must advance ``rng`` by the SAME number of draws the miss path did,
     so downstream stages that share the rng see identical bits regardless of hit/miss."""

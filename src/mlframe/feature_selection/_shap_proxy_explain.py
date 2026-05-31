@@ -37,6 +37,58 @@ from sklearn.model_selection import KFold, StratifiedKFold
 logger = logging.getLogger(__name__)
 
 
+# Cache-key namespace for the per-fold FITTED booster pickle inside ``compute_shap_matrix``.
+# The OOF-SHAP stage's dominant cost is the n_splits * n_models booster fits (TreeExplainer
+# attribution against an already-fitted booster is cheap). iter79's ``shap_phi_`` final-phi cache
+# is all-or-nothing -- ANY param change (including downstream knobs that happen to share rng with
+# the OOF stage in some callers) invalidates the entire phi matrix. The per-fold cache hits even
+# when something orthogonal to (X_tr_fold, y_tr_fold, template, fold seed) changes; it nests
+# inside the iter79 cache so a clean re-run of identical params still short-circuits at the outer
+# layer without touching the per-fold layer.
+_OOF_FOLD_FIT_CACHE_PREFIX = "oof_fold_fit_"
+
+
+def _build_oof_fold_fit_disk_key(model_template, X_tr_fold, y_tr_fold, classification, seed,
+                                 jitter_depth, n_estimators_cap):
+    """Stable cache key for a per-fold fitted booster inside ``compute_shap_matrix`` (iter83).
+
+    Cache determinants: the fold's actual training slice ((X_tr_fold, y_tr_fold) summary -- these
+    arrays naturally encode the fold's row selection AND the global rng-derived KFold splitter
+    seed, so no separate fold_idx / train_idx_hash term is needed), the booster template params,
+    the per-fold seed (different ``n_models`` slot in the same fold has a different seed and
+    must NOT collide), the jitter depth (config_jitter cycles depth across models), the
+    n_estimators cap, and the classification flag.
+
+    The eval slice (held-out fold) is intentionally NOT in the key: a cached booster scores any
+    X_ex against itself, but ``compute_shap_matrix`` only uses each fold's booster to explain its
+    OWN held-out rows so the X_ex passed to ``_shap_phi_and_base`` is implicitly co-determined
+    with the fit data.
+
+    Returns ``None`` if hashing fails so the caller falls through to the compute path -- the
+    cache is best-effort, never a correctness gate.
+    """
+    try:
+        from mlframe.utils.disk_cache import compose_key, hash_array_summary, hash_object
+
+        try:
+            params = model_template.get_params(deep=False)
+        except Exception:
+            params = {"_repr": repr(model_template)}
+        x_tr_key = hash_array_summary(X_tr_fold.values if hasattr(X_tr_fold, "values") else np.asarray(X_tr_fold))
+        y_tr_key = hash_array_summary(np.asarray(y_tr_fold))
+        state_key = hash_object({
+            "seed": int(seed) if seed is not None else None,
+            "jitter_depth": int(jitter_depth) if jitter_depth is not None else None,
+            "n_estimators_cap": n_estimators_cap,
+            "classification": bool(classification),
+            "params": params,
+        })
+        return _OOF_FOLD_FIT_CACHE_PREFIX + compose_key(x_tr_key, y_tr_key, state_key)
+    except Exception as exc:
+        logger.debug("compute_shap_matrix: per-fold fit disk-cache key build failed (%s); skipping", exc)
+        return None
+
+
 _SHAP_XGB_PATCHED = False
 
 
@@ -587,14 +639,42 @@ def compute_shap_matrix(
         ``seeds`` is the pre-drawn list of model seeds (one per model). Passing them in -- instead of
         drawing from ``rng`` inside the loop -- decouples the per-fold work from RNG draw ORDER, so the
         out-of-fold loop can run folds concurrently and still produce the byte-identical result a serial
-        run would (the seed each fold sees is fixed regardless of which fold finishes first)."""
+        run would (the seed each fold sees is fixed regardless of which fold finishes first).
+
+        Per-fold disk cache (iter83): when ``_cache`` (the iter79 DiskCache opened above) is live,
+        each model fit checks the ``oof_fold_fit_`` namespace before calling ``_fit_one``. A hit
+        loads the pickled booster; the SHAP attribution then runs against the cached estimator and
+        is unaffected. The outer iter79 ``shap_phi_`` cache short-circuits the WHOLE computation
+        for an identical-param re-run; this inner cache handles the case where the iter79 key
+        misses but the per-fold determinants happen to match (e.g. caller mutated something that
+        feeds into the outer key without affecting any fold's fit data + seed)."""
         s = np.zeros((X_ex.shape[0], f), dtype=np.float64)
         sq = np.zeros((X_ex.shape[0], f), dtype=np.float64)
         b = 0.0
         for m in range(n_models):
             depth = _JITTER_DEPTHS[m % len(_JITTER_DEPTHS)] if config_jitter else None
-            est = _fit_one(model_template, X_tr, y_tr, classification, seeds[m], jitter_depth=depth,
-                           inner_n_jobs=inner_n_jobs, n_estimators_cap=n_estimators_cap)
+            est = None
+            fold_fit_key = None
+            if _cache is not None:
+                fold_fit_key = _build_oof_fold_fit_disk_key(
+                    model_template, X_tr, y_tr, classification, seeds[m], depth, n_estimators_cap,
+                )
+                if fold_fit_key is not None:
+                    try:
+                        cached_est = _cache.get(fold_fit_key)
+                    except Exception as exc:
+                        logger.debug("compute_shap_matrix: per-fold disk cache get failed (%s); skipping", exc)
+                        cached_est = None
+                    if cached_est is not None:
+                        est = cached_est
+            if est is None:
+                est = _fit_one(model_template, X_tr, y_tr, classification, seeds[m], jitter_depth=depth,
+                               inner_n_jobs=inner_n_jobs, n_estimators_cap=n_estimators_cap)
+                if _cache is not None and fold_fit_key is not None:
+                    try:
+                        _cache.put(fold_fit_key, est)
+                    except Exception as exc:
+                        logger.debug("compute_shap_matrix: per-fold disk cache put failed (%s); skipping", exc)
             pf, bf = _shap_phi_and_base(_unwrap_estimator(est), X_ex, backend=shap_backend)
             s += pf
             sq += pf * pf
