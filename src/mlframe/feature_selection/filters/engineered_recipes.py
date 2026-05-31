@@ -125,7 +125,7 @@ class EngineeredRecipe:
     # (src_names=(c_i, c_j), extra={basis_i, basis_j, deg_a, deg_b}). Replay
     # is closed-form from the source column(s) alone -- no y reference is
     # captured at fit time, so transform() is leakage-free by construction.
-    kind: Literal["unary_binary", "factorize", "hermite_pair", "target_encoding", "cluster_aggregate", "orth_univariate", "orth_pair_cross", "orth_spline", "orth_fourier", "mi_greedy_transform", "kfold_target_encoded", "count_encoded", "frequency_encoded", "cat_num_residual"]
+    kind: Literal["unary_binary", "factorize", "hermite_pair", "target_encoding", "cluster_aggregate", "orth_univariate", "orth_pair_cross", "orth_spline", "orth_fourier", "mi_greedy_transform", "kfold_target_encoded", "count_encoded", "frequency_encoded", "cat_num_residual", "missing_indicator", "missingness_count", "missingness_pattern"]
     src_names: tuple[str, ...]
     unary_names: tuple[str, ...] = ()
     binary_name: str = ""
@@ -330,6 +330,20 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         return _apply_frequency_encoded(recipe, X)
     if recipe.kind == "cat_num_residual":
         return _apply_cat_num_residual(recipe, X)
+    if recipe.kind in ("missing_indicator", "missingness_count", "missingness_pattern"):
+        # Layer 37 lazy import: keeps engineered_recipes.py under the 1k-LOC
+        # ceiling (mlframe sibling-split rule). The helpers live alongside
+        # the encoders that build them.
+        from ._missingness_fe import (
+            _apply_missing_indicator_recipe,
+            _apply_missingness_count_recipe,
+            _apply_missingness_pattern_recipe,
+        )
+        if recipe.kind == "missing_indicator":
+            return _apply_missing_indicator_recipe(recipe, X)
+        if recipe.kind == "missingness_count":
+            return _apply_missingness_count_recipe(recipe, X)
+        return _apply_missingness_pattern_recipe(recipe, X)
     raise ValueError(f"Unknown recipe kind: {recipe.kind!r}")
 
 
@@ -1526,5 +1540,67 @@ def build_cat_num_residual_recipe(
             "global_mean": float(global_mean),
             "smoothing": float(smoothing),
             "num_col": str(num_name),
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Layer 37 (2026-05-31): missingness-aware FE recipes (thin builders; the
+# apply helpers live in ``_missingness_fe.py`` to keep this module under the
+# 1k-LOC ceiling).
+# ---------------------------------------------------------------------------
+
+
+def build_missing_indicator_recipe(
+    *, name: str, src_name: str,
+) -> EngineeredRecipe:
+    """Frozen recipe for one ``is_missing__{col}`` indicator. Stateless --
+    replay just runs ``isna()`` on the source column."""
+    return EngineeredRecipe(
+        name=name,
+        kind="missing_indicator",
+        src_names=(src_name,),
+        extra={},
+    )
+
+
+def build_missingness_count_recipe(
+    *, name: str, cols: tuple,
+) -> EngineeredRecipe:
+    """Frozen recipe for the per-row missingness count across ``cols``.
+    Replay re-counts ``isna()`` over the same columns; missing columns at
+    test time contribute 0 (graceful schema-drift contract)."""
+    cols_t = tuple(str(c) for c in cols)
+    return EngineeredRecipe(
+        name=name,
+        kind="missingness_count",
+        # src_names is the column subset (variadic): apply helpers read
+        # from recipe.extra['cols'] so the dispatcher's invariants stay
+        # uniform with the other kinds.
+        src_names=cols_t,
+        extra={"cols": cols_t},
+    )
+
+
+def build_missingness_pattern_recipe(
+    *, name: str, cols: tuple, pattern_to_label: dict,
+    other_label: int, top_k: int,
+) -> EngineeredRecipe:
+    """Frozen recipe for the per-row top-K pattern label. The pattern
+    signature dict maps the bit-packed isna signature to an integer
+    label; unseen signatures at transform map to ``other_label``."""
+    cols_t = tuple(str(c) for c in cols)
+    # Coerce keys to int for stable pickle round-trip (signatures are
+    # int64 bit-packs of the isna mask).
+    pattern_clean = {int(k): int(v) for k, v in pattern_to_label.items()}
+    return EngineeredRecipe(
+        name=name,
+        kind="missingness_pattern",
+        src_names=cols_t,
+        extra={
+            "cols": cols_t,
+            "pattern_to_label": pattern_clean,
+            "other_label": int(other_label),
+            "top_k": int(top_k),
         },
     )

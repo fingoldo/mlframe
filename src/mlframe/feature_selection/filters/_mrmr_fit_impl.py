@@ -800,6 +800,167 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         type(_cn_exc).__name__, _cn_exc,
                     )
 
+    # 2026-05-31 Layer 37 — MISSINGNESS-AWARE FE. Three independent master
+    # switches (indicator / count / pattern); each appends its own engineered
+    # columns AND emits one recipe per column. Recipes route through
+    # ``hybrid_orth_features_`` so the end-of-fit remap (Layer 23 pattern)
+    # routes them into ``_engineered_recipes_``.
+    self.missingness_indicator_features_ = []
+    self.missingness_count_features_ = []
+    self.missingness_pattern_features_ = []
+    _miss_ind_pre_recipes: dict = {}
+    _miss_cnt_pre_recipes: dict = {}
+    _miss_pat_pre_recipes: dict = {}
+    if (
+        bool(getattr(self, "fe_missingness_indicator_enable", False))
+        or bool(getattr(self, "fe_missingness_count_enable", False))
+        or bool(getattr(self, "fe_missingness_pattern_enable", False))
+    ):
+        _is_pandas_l37 = isinstance(X, pd.DataFrame)
+        if not _is_pandas_l37:
+            warnings.warn(
+                "MRMR: Layer 37 FE (missingness indicator/count/pattern) enabled "
+                "but X is not a pandas DataFrame; the missingness encodings are "
+                "skipped. Convert to pandas via X.to_pandas() before fit() to "
+                "apply them.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            from ._missingness_fe import (
+                auto_detect_missing_cols,
+                missing_indicator_with_recipes,
+                missingness_count_with_recipes,
+                missingness_pattern_with_recipes,
+            )
+
+            _engineered_seen_l37 = (
+                set(self.hybrid_orth_features_ or [])
+                | set(self.mi_greedy_features_ or [])
+                | set(getattr(self, "kfold_te_features_", []) or [])
+                | set(getattr(self, "count_encoding_features_", []) or [])
+                | set(getattr(self, "frequency_encoding_features_", []) or [])
+                | set(getattr(self, "cat_num_interaction_features_", []) or [])
+            )
+
+            def _resolve_missing_cols(cfg):
+                _cfg = tuple(cfg or ())
+                if _cfg:
+                    return [
+                        c for c in _cfg
+                        if c in X.columns and c not in _engineered_seen_l37
+                    ]
+                # Auto-detect candidate cols with NaN rate in [1%, 99%].
+                return [
+                    c for c in auto_detect_missing_cols(X)
+                    if c not in _engineered_seen_l37
+                ]
+
+            # ----- Per-column indicator ------------------------------------
+            if bool(getattr(self, "fe_missingness_indicator_enable", False)):
+                try:
+                    _ind_cols = _resolve_missing_cols(
+                        getattr(self, "fe_missingness_indicator_cols", ())
+                    )
+                    _X_before_ind_cols = list(X.columns)
+                    X_i, _ind_appended, _ind_recipes = missing_indicator_with_recipes(
+                        X, cols=_ind_cols,
+                    )
+                    _ind_appended = [
+                        c for c in _ind_appended if c not in _X_before_ind_cols
+                    ]
+                    if _ind_appended:
+                        X = X_i
+                        self.missingness_indicator_features_ = list(_ind_appended)
+                        self.hybrid_orth_features_ = (
+                            list(self.hybrid_orth_features_ or []) + list(_ind_appended)
+                        )
+                        for _r in _ind_recipes:
+                            if _r.name in _ind_appended:
+                                _miss_ind_pre_recipes[_r.name] = _r
+                        if verbose:
+                            logger.info(
+                                "MRMR.fit missingness_indicator: appended %d "
+                                "engineered column(s): %s",
+                                len(_ind_appended), _ind_appended[:8],
+                            )
+                except Exception as _ind_exc:
+                    logger.warning(
+                        "MRMR.fit missingness_indicator FE raised %s: %s; "
+                        "continuing without missingness indicator columns.",
+                        type(_ind_exc).__name__, _ind_exc,
+                    )
+
+            # ----- Per-row missingness count -------------------------------
+            if bool(getattr(self, "fe_missingness_count_enable", False)):
+                try:
+                    _cnt_cols = _resolve_missing_cols(
+                        getattr(self, "fe_missingness_indicator_cols", ())
+                    )
+                    _X_before_mc_cols = list(X.columns)
+                    X_c, _mc_appended, _mc_recipes = missingness_count_with_recipes(
+                        X, cols=_cnt_cols,
+                    )
+                    _mc_appended = [
+                        c for c in _mc_appended if c not in _X_before_mc_cols
+                    ]
+                    if _mc_appended:
+                        X = X_c
+                        self.missingness_count_features_ = list(_mc_appended)
+                        self.hybrid_orth_features_ = (
+                            list(self.hybrid_orth_features_ or []) + list(_mc_appended)
+                        )
+                        for _r in _mc_recipes:
+                            if _r.name in _mc_appended:
+                                _miss_cnt_pre_recipes[_r.name] = _r
+                        if verbose:
+                            logger.info(
+                                "MRMR.fit missingness_count: appended %d "
+                                "engineered column(s): %s",
+                                len(_mc_appended), _mc_appended[:8],
+                            )
+                except Exception as _mc_exc:
+                    logger.warning(
+                        "MRMR.fit missingness_count FE raised %s: %s; "
+                        "continuing without missingness count column.",
+                        type(_mc_exc).__name__, _mc_exc,
+                    )
+
+            # ----- Per-row top-K pattern -----------------------------------
+            if bool(getattr(self, "fe_missingness_pattern_enable", False)):
+                try:
+                    _pat_cols = _resolve_missing_cols(
+                        getattr(self, "fe_missingness_indicator_cols", ())
+                    )
+                    _top_k = int(getattr(self, "fe_missingness_pattern_top_k", 5))
+                    _X_before_pat_cols = list(X.columns)
+                    X_p, _pat_appended, _pat_recipes = missingness_pattern_with_recipes(
+                        X, cols=_pat_cols, top_k=_top_k,
+                    )
+                    _pat_appended = [
+                        c for c in _pat_appended if c not in _X_before_pat_cols
+                    ]
+                    if _pat_appended:
+                        X = X_p
+                        self.missingness_pattern_features_ = list(_pat_appended)
+                        self.hybrid_orth_features_ = (
+                            list(self.hybrid_orth_features_ or []) + list(_pat_appended)
+                        )
+                        for _r in _pat_recipes:
+                            if _r.name in _pat_appended:
+                                _miss_pat_pre_recipes[_r.name] = _r
+                        if verbose:
+                            logger.info(
+                                "MRMR.fit missingness_pattern: appended %d "
+                                "engineered column(s): %s",
+                                len(_pat_appended), _pat_appended[:8],
+                            )
+                except Exception as _pat_exc:
+                    logger.warning(
+                        "MRMR.fit missingness_pattern FE raised %s: %s; "
+                        "continuing without missingness pattern column.",
+                        type(_pat_exc).__name__, _pat_exc,
+                    )
+
     # Layer 27 (2026-05-31): cross-stage engineered-column dedup. Hybrid and
     # MI-greedy stages run independently; on signals like ``y = sign(x^2 - 1)``
     # hybrid emits ``x__He2`` and MI-greedy emits ``square(x)`` / ``abs(x)`` /
@@ -885,6 +1046,19 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 c for c in (getattr(self, "cat_num_interaction_features_", []) or [])
                 if c not in _eng_drop
             ]
+            # Layer 37: mirror cleanup for missingness indicator / count / pattern.
+            self.missingness_indicator_features_ = [
+                c for c in (getattr(self, "missingness_indicator_features_", []) or [])
+                if c not in _eng_drop
+            ]
+            self.missingness_count_features_ = [
+                c for c in (getattr(self, "missingness_count_features_", []) or [])
+                if c not in _eng_drop
+            ]
+            self.missingness_pattern_features_ = [
+                c for c in (getattr(self, "missingness_pattern_features_", []) or [])
+                if c not in _eng_drop
+            ]
             for _c in list(_hybrid_orth_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _hybrid_orth_pre_recipes.pop(_c, None)
@@ -903,6 +1077,15 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             for _c in list(_cat_num_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _cat_num_pre_recipes.pop(_c, None)
+            for _c in list(_miss_ind_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _miss_ind_pre_recipes.pop(_c, None)
+            for _c in list(_miss_cnt_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _miss_cnt_pre_recipes.pop(_c, None)
+            for _c in list(_miss_pat_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _miss_pat_pre_recipes.pop(_c, None)
             if verbose:
                 logger.info(
                     "MRMR.fit engineered-FE dedup: pruned %d near-duplicate "
@@ -1090,6 +1273,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         engineered_recipes.update(_freq_enc_pre_recipes)
     if _cat_num_pre_recipes:
         engineered_recipes.update(_cat_num_pre_recipes)
+    # Layer 37: same routing for missingness indicator / count / pattern recipes.
+    if _miss_ind_pre_recipes:
+        engineered_recipes.update(_miss_ind_pre_recipes)
+    if _miss_cnt_pre_recipes:
+        engineered_recipes.update(_miss_cnt_pre_recipes)
+    if _miss_pat_pre_recipes:
+        engineered_recipes.update(_miss_pat_pre_recipes)
     # Reset per fit so a re-fit on the same instance doesn't carry stale cluster-aggregate state.
     self._cluster_aggregate_removals_ = []
     self.cluster_aggregate_ = []  # fitted summary (per-aggregate records) -> meta_info report

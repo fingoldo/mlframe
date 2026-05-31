@@ -729,6 +729,28 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_cat_num_interaction_num_cols: tuple = (),
         fe_cat_num_interaction_folds: int = 5,
         fe_cat_num_interaction_smoothing: float = 10.0,
+        # 2026-05-31 Layer 37 — MISSINGNESS-AWARE FE. Default OFF; legacy
+        # behaviour is byte-identical when all three master switches stay
+        # False. Layer 7's ``nan_strategy='separate_bin'`` already handles
+        # MNAR at the binning level inside the MI estimator; Layer 37
+        # COMPLEMENTS that by EXPOSING missingness as standalone engineered
+        # features the downstream model can consume directly.
+        # * ``missing_indicator``: per-source ``is_missing__{col}`` binary
+        #   column. When ``fe_missingness_indicator_cols`` is empty AND the
+        #   master switch is ON, auto-detect picks columns with NaN rate
+        #   in [1%, 99%].
+        # * ``missingness_count``: per-row count of NaNs across a column
+        #   subset (auto-detected if empty).
+        # * ``missingness_pattern``: per-row label of the top-K most
+        #   frequent missingness patterns at fit; unseen patterns at
+        #   transform map to the "other" bucket.
+        # Recipes (``missing_indicator`` / ``missingness_count`` /
+        # ``missingness_pattern``) replay as pure functions of X.
+        fe_missingness_indicator_enable: bool = False,
+        fe_missingness_indicator_cols: tuple = (),
+        fe_missingness_count_enable: bool = False,
+        fe_missingness_pattern_enable: bool = False,
+        fe_missingness_pattern_top_k: int = 5,
         # hidden
         stop_file: str = "stop",
     ):
