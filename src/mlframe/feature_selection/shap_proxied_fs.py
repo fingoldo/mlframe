@@ -208,7 +208,14 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         optimizer: str = "auto",
         *,
         out_of_fold: bool = True,
-        n_splits: int = 5,
+        # iter86: OOF-SHAP CV fold count. Lowered 5 -> 3 after a quality sweep across narrow
+        # (n=2000, p=200), C3-tier (n=2000, p=2000) and wide (n=5000, p=10000) regimes: recall stayed
+        # within 1 informative of the prior 5-fold default at all three widths (and beat it at C3),
+        # while OOF-SHAP stage wall dropped 41-51% on the regimes where it dominates. Each held-out
+        # split is correspondingly larger (33% vs 20% of rows), which adds a touch of attribution
+        # noise; the mean-|phi| ranking that downstream search consumes is robust to it at the
+        # measured widths. Callers can opt back into the legacy 5-fold by passing ``n_splits=5``.
+        n_splits: int = 3,
         n_models: int = 1,
         min_features: int = 1,
         max_features: Optional[int] = None,
