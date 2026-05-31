@@ -55,9 +55,11 @@ def resolve_shap_aware_stage1_keep(
     so the lever is a strict TIGHTENING (never widens beyond the legacy default, never below the
     floor, never below the eventual output ``effective_prefilter_top``).
 
-    ``stage1_cushion`` (default 8): per-survivor headroom over the eventual stage-B output. 8x is
-    twice the OOF-SHAP-attribution cushion (4x via ``safety_factor``), enough that a marginal-signal
-    informative can clear stage A even if its f_classif rank sits well below the top.
+    ``stage1_cushion`` (default 2): per-survivor headroom over the eventual stage-B output.
+    Iter76 measured cushion 8 -> 2 at C1/C2/C3 (width 5000-10000): prefilter wall 3.0-4.0x faster,
+    e2e 1.42-1.58x faster, recall preserved at C1/C2 and +1 at C3. The 2x headroom is the empirical
+    minimum that survives stage A's univariate F-rank for marginal-signal informatives that the
+    stage-B interaction-aware booster then recovers; below 2x the floor=200 starts to dominate.
     ``stage1_floor`` (default 200): absolute lower bound on stage A's survivor count regardless of
     how small the SHAP cap is. Keeps a generous cohort for stage B's interaction-aware booster on
     pathological tight ``brute_force_max_features`` configurations.

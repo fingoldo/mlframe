@@ -1562,7 +1562,7 @@ def test_iter576_audit_pass_6_low_tier_axes_flow_to_kwargs():
     assert c_default.shap_proxied_shap_prefilter_safety_factor_cfg == 4
     assert c_default.shap_proxied_shap_prefilter_min_features_cfg == 40
     assert c_default.shap_proxied_shap_aware_stage1_keep_cfg is True
-    assert c_default.shap_proxied_shap_aware_stage1_cushion_cfg == 8
+    assert c_default.shap_proxied_shap_aware_stage1_cushion_cfg == 2
     assert c_default.shap_proxied_shap_aware_stage1_floor_cfg == 200
     # ShapProxiedFS Refine UCB: shap_proxied_fs.py:96-99.
     assert c_default.shap_proxied_refine_ucb_enabled_cfg is True

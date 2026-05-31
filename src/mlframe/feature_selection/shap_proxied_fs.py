@@ -246,7 +246,7 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         shap_prefilter_safety_factor: int = 4,
         shap_prefilter_min_features: int = 40,
         shap_aware_stage1_keep: bool = True,
-        shap_aware_stage1_cushion: int = 8,
+        shap_aware_stage1_cushion: int = 2,
         shap_aware_stage1_floor: int = 200,
         cluster_features: bool | str = "auto",
         cluster_corr_threshold: float = 0.7,
@@ -422,19 +422,23 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         # 0.2*n_features)``), the two_stage prefilter's stage-B booster fit is the dominant
         # wall-clock cost (cProfile at C2 width=10000/n_rows=5000 attributed 14.8s of a 30s fit to
         # xgboost ``update`` on a 2000-column matrix). The eventual stage-B output is
-        # ``effective_prefilter_top`` (e.g. 88) anyway -- keeping stage A at 2000 forces the booster
+        # ``effective_prefilter_top`` (e.g. 112) anyway -- keeping stage A at 2000 forces the booster
         # to score 1900+ columns it will then discard. The lever tightens stage A to
         # ``max(shap_aware_stage1_floor, effective_prefilter_top * shap_aware_stage1_cushion)``
-        # (default ``max(200, 88*8) = 704``) so the booster fits on ~3x fewer columns at the same
-        # tree budget. ``shap_aware_stage1_cushion=8`` is 2x the OOF-SHAP attribution cushion
-        # (``shap_prefilter_safety_factor=4``); the extra factor of 2 leaves headroom for marginal
-        # informatives whose univariate F-rank sits below the top. ``shap_aware_stage1_floor=200``
-        # is a hard floor that protects pathological tight ``brute_force_max_features`` configs
-        # (e.g. 5 * 8 = 40 would be too aggressive a stage-A funnel). The lever is a strict
-        # tightening: ``min(default_stage1_keep, ...)`` never widens beyond legacy. Gated off via
-        # ``shap_aware_stage1_keep=False`` for parity / regression checks against iter32; ignored
-        # when the user pins ``prefilter_stage1_keep`` explicitly (pinned value always wins) OR
-        # when ``shap_prefilter_enabled=False`` OR when the resolved prefilter method is not
+        # (default ``max(200, 112*2) = 224``) so the booster fits on ~9x fewer columns at the same
+        # tree budget. ``shap_aware_stage1_cushion=2`` is the empirically-calibrated minimum that
+        # preserves recall across C1/C2/C3 (iter76 sweep at width 5000/10000): cushion 8 -> 2 cut
+        # prefilter wall 3.0-4.0x and e2e wall 1.42-1.58x with recall preserved or improved (+1 at
+        # C3). The 2x headroom is what survives stage A's univariate F-rank for marginal-signal
+        # informatives that the stage-B interaction-aware booster then recovers (4x cushion gave
+        # the same recall at 1.42x e2e; 2x is the empirical optimum -- under-cushion would force
+        # the floor to dominate). ``shap_aware_stage1_floor=200`` is a hard floor that protects
+        # pathological tight ``brute_force_max_features`` configs (e.g. 5 * 2 = 10 would be too
+        # aggressive a stage-A funnel). The lever is a strict tightening: ``min(default_stage1_keep,
+        # ...)`` never widens beyond legacy. Gated off via ``shap_aware_stage1_keep=False`` for
+        # parity / regression checks against iter32; ignored when the user pins
+        # ``prefilter_stage1_keep`` explicitly (pinned value always wins) OR when
+        # ``shap_prefilter_enabled=False`` OR when the resolved prefilter method is not
         # ``two_stage`` (only ``two_stage`` reads ``stage1_keep``).
         self.shap_aware_stage1_keep = bool(shap_aware_stage1_keep)
         self.shap_aware_stage1_cushion = int(shap_aware_stage1_cushion)

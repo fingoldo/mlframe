@@ -1195,7 +1195,7 @@ AXES: dict[str, tuple[Any, ...]] = {
     "shap_proxied_shap_prefilter_safety_factor_cfg": (4, 8),
     "shap_proxied_shap_prefilter_min_features_cfg": (40, 80),
     "shap_proxied_shap_aware_stage1_keep_cfg": (True, False),
-    "shap_proxied_shap_aware_stage1_cushion_cfg": (8, 4),
+    "shap_proxied_shap_aware_stage1_cushion_cfg": (2, 4),
     "shap_proxied_shap_aware_stage1_floor_cfg": (200, 500),
     # ShapProxiedFS Refine UCB knobs (S9-S12). Gate on
     # use_shap_proxied_fs=True AND shap_proxied_within_cluster_refine_cfg=True.
@@ -1999,7 +1999,7 @@ class FuzzCombo:
     shap_proxied_shap_prefilter_safety_factor_cfg: int = 4
     shap_proxied_shap_prefilter_min_features_cfg: int = 40
     shap_proxied_shap_aware_stage1_keep_cfg: bool = True
-    shap_proxied_shap_aware_stage1_cushion_cfg: int = 8
+    shap_proxied_shap_aware_stage1_cushion_cfg: int = 2
     shap_proxied_shap_aware_stage1_floor_cfg: int = 200
     shap_proxied_refine_ucb_enabled_cfg: bool = True
     shap_proxied_refine_ucb_min_eval_size_cfg: "int | None" = None
@@ -4848,7 +4848,7 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
             "shap_proxied_shap_aware_stage1_keep_cfg", True
         ),
         shap_proxied_shap_aware_stage1_cushion_cfg=axes.get(
-            "shap_proxied_shap_aware_stage1_cushion_cfg", 8
+            "shap_proxied_shap_aware_stage1_cushion_cfg", 2
         ),
         shap_proxied_shap_aware_stage1_floor_cfg=axes.get(
             "shap_proxied_shap_aware_stage1_floor_cfg", 200

@@ -277,6 +277,21 @@ def test_resolve_shap_aware_stage1_keep_none_eff_top_returns_default():
         default_stage1_keep=2000) == 2000
 
 
+def test_shap_aware_stage1_cushion_default_is_two():
+    """Iter76 calibrated the default cushion from 8 -> 2 (C1/C2/C3 sweep: prefilter wall 3.0-4.0x
+    faster, e2e 1.42-1.58x faster, recall preserved or +1). Lock the default so a future bump back
+    to 8 surfaces in CI rather than silently regressing the wide-data prefilter wall.
+    """
+    from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
+
+    sel = ShapProxiedFS()
+    assert sel.shap_aware_stage1_cushion == 2, (
+        f"iter76 default regression: expected cushion=2, got {sel.shap_aware_stage1_cushion}. "
+        "If you intentionally widened the cushion, also update bench attribution in "
+        "_shap_proxy_shap_prefilter.py docstring."
+    )
+
+
 def test_selector_records_stage1_keep_tightened_when_lever_active():
     """When the iter33 lever is active, the selector pre-resolves stage1_keep and the report
     sub-block records both the tightened value and the legacy default for diagnostics."""
@@ -301,8 +316,8 @@ def test_selector_records_stage1_keep_tightened_when_lever_active():
     # Lever recorded the resolved stage1_keep + the legacy default for the same n_features.
     assert "stage1_keep_tightened" in sp
     assert "stage1_keep_default" in sp
-    # Default for n_features=1300: min(2000, 0.2*1300)=260; eff_top=88, cushion=8 -> max(200, 704)=704
-    # min(260, 704) -> 260 (default wins). Verify the lever's strict-tighten contract.
+    # Default for n_features=1300: min(2000, 0.2*1300)=260; eff_top=88, cushion=2 (iter76 default)
+    # -> max(200, 176)=200; min(260, 200) -> 200 (lever tightens). Verify the strict-tighten contract.
     assert sp["stage1_keep_tightened"] <= sp["stage1_keep_default"]
 
 
