@@ -18,14 +18,49 @@ target `k`.
   estimator. Verified at `R^2 >= 0.985` per column on K=3 synthetic data.
 
 - **`TargetTypes.MULTI_TARGET_REGRESSION`** enum value — ✅ landed in
-  `_configs_base.py`. New helpers `is_multi_target_regression` and
+  commit `f03a86ef`. New helpers `is_multi_target_regression` and
   `is_any_regression` expose the predicate. `is_multi_output` now
   includes MTR alongside QR and multiclass / multilabel.
 
-- **Suite-side dispatch** — ⏳ PENDING. The training suite (`trainer.py`,
-  `_helpers_training_configs.py`, `_phase_train_one_target_*.py`, etc.)
-  does NOT yet auto-detect MTR; it currently raises or degenerates
-  per-model. Plan below.
+- **Strategy dispatch foundation** — ✅ **Landed in commit `d73bb763`** + smoke tests in `2241468f`.
+  `ModelPipelineStrategy` gained:
+  * `supports_native_multi_target: bool` (default False)
+  * `get_multi_target_objective_kwargs() -> dict` (default `{}`)
+  * `wrap_multi_target(estimator)` — identity for native, MultiOutputRegressor wrap for non-native
+  Per-strategy overrides:
+  * **CatBoostStrategy**: native, returns `{"loss_function": "MultiRMSE"}`
+  * **XGBoostStrategy**: native, returns `{"multi_strategy": "multi_output_tree", "tree_method": "hist"}` (XGBoost ≥ 2.0)
+  * **NeuralNetStrategy**: native (MLP-side already done in F-24)
+  * **LinearModelStrategy**: native (sklearn handles `(N, K)` natively)
+  * **TreeModelStrategy (LightGBM) / HGBStrategy**: non-native → `MultiOutputRegressor` wrap
+  All 5 backends fit + predict `(N, K)` correctly per `test_multi_target_regression_smoke.py`.
+
+- **Auto-route helper** — ✅ Landed in `d73bb763`.
+  New `multilabel_strategy="multi_target_regression"` option on
+  `CompositeTargetDiscoveryConfig`: instead of expanding `(N, K)`
+  regression targets to K independent 1-D targets (the legacy
+  `"per_target"` default), keeps them joint under
+  `TargetTypes.MULTI_TARGET_REGRESSION`. Pick this for correlated
+  targets that benefit from a shared trunk / boosting ensemble.
+
+- **Per-target body wiring / metrics / reporting** — ⏳ DEFERRED.
+  The per-target training body (`_phase_train_one_target_*.py`) does
+  NOT yet call `wrap_multi_target` / `get_multi_target_objective_kwargs`
+  at build time. The metrics registry has no MTR-specific aggregators
+  (per-target R² / RMSE _mean / _max). The reporting layer
+  (`_reporting_regression.py`) assumes a 1-D target and would not
+  generate per-target charts. These are tracked below under "Future
+  PRs" and are genuinely multi-day initiatives requiring significant
+  test infrastructure.
+
+- **Composite targets + CT_ENSEMBLE for MTR** — ⏳ NOT SUPPORTED.
+  `CompositeTargetEstimator` and `CompositeCrossTargetEnsemble` both
+  assume 1-D y per fit. Users opting into MTR via the auto-route
+  helper should NOT also enable composite-target-discovery for the
+  same target; mixing the two would either raise inside the composite
+  helpers (loud failure) or produce silently incorrect outputs.
+  Future work: per-target composite (K independent estimators) or a
+  joint-target composite generator. Out of scope for this PR.
 
 ## Per-strategy target dispatch (post-rollout)
 
