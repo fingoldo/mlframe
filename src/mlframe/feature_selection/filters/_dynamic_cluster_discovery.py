@@ -288,7 +288,10 @@ def pair_su(state: DCDState, a: int, b: int,
     Returns SU(X_a, X_b) in [0, 1] under ``distance='su'`` (default). For
     ``distance='vi'`` returns ``1 - VI/log(2*n_bins)`` to remain bounded;
     for ``'sotoca_pla'`` returns the target-aware distance from the
-    Sotoca-Pla 2010 formula.
+    Sotoca-Pla 2010 formula. For Layer 46 ``distance='auto'`` returns
+    ``max(SU, VI_sim)`` per pair — picks up both linear-friendly
+    duplicates (SU strong) and non-linear functional equivalences
+    (VI tighter), at the cost of one extra MI computation per pair.
 
     Cache key: ``(min(a,b), max(a,b))`` tuple (4× cheaper than frozenset
     per Critic2 finding).
@@ -307,6 +310,44 @@ def pair_su(state: DCDState, a: int, b: int,
         return 0.0
     state.n_cache_misses += 1
     state.n_su_calls += 1
+    # Layer 46 (2026-05-31): ``"auto"`` runs the SU and VI branches
+    # in sequence and reports the tighter redundancy score. The two
+    # underlying scores share the per-column entropy cache + fn_arr /
+    # pair_buf scratch buffers, so the extra work over a pure SU pair
+    # is one extra mi() njit call + the final max(). The VI branch
+    # already caches H(X_a), H(X_b); SU caches them too; the only
+    # net-new work is the mi(a, b) joint computation.
+    if state.distance == "auto":
+        _orig_distance = state.distance
+        # Roll back the counter increments we did above; the two
+        # recursive calls below will re-increment them once each
+        # (one pair counts as one auto-call worth of SU/MI work).
+        state.n_cache_misses -= 1
+        state.n_su_calls -= 1
+        try:
+            state.distance = "su"
+            su_score = pair_su(
+                state, a, b,
+                entropy_cache=entropy_cache,
+                factors_data=fd, factors_nbins=fn, dtype=dtype,
+            )
+            # Pop the SU score from the cache so the VI computation
+            # below does not return the SU score on lookup; the final
+            # max() will repopulate the cache under the same key.
+            state.pairwise_su_cache.pop(key, None)
+            state.distance = "vi"
+            vi_score = pair_su(
+                state, a, b,
+                entropy_cache=entropy_cache,
+                factors_data=fd, factors_nbins=fn, dtype=dtype,
+            )
+            state.pairwise_su_cache.pop(key, None)
+        finally:
+            state.distance = _orig_distance
+        su_combined = float(max(su_score, vi_score))
+        cache[key] = su_combined
+        state.cache_evict_lru()
+        return su_combined
     if state.distance == "su":
         # iter587: avoid the 3-merge_vars cost of calling
         # ``symmetric_uncertainty(x=[a], y=[b], ...)`` for every pair.
@@ -495,6 +536,62 @@ def pair_su(state: DCDState, a: int, b: int,
     cache[key] = su
     state.cache_evict_lru()
     return float(su)
+
+
+# =============================================================================
+# Layer 46 (2026-05-31): raw VI accessor (in nats) for diagnostic use
+# =============================================================================
+
+
+def pair_vi(state: DCDState, a: int, b: int,
+            factors_data=None, factors_nbins=None,
+            dtype=np.int32) -> float:
+    """Variation-of-Information distance between columns ``a`` and ``b``
+    in nats: ``VI(X_a, X_b) = H(X_a) + H(X_b) - 2 I(X_a; X_b)``.
+
+    VI is a proper metric (Meila 2007): non-negative, symmetric, zero
+    iff X_a and X_b are functionally equivalent, and satisfies the
+    triangle inequality. The ``"vi"`` and ``"auto"`` branches of
+    ``pair_su`` consume the SAME H_a, H_b and I_ab via the per-column
+    entropy cache, then normalise to a [0,1] similarity score.
+
+    This helper returns raw VI in nats for users who need the metric
+    interpretation (cluster cohesion plots, comparison with SU).
+    Reuses ``state.column_entropy_cache`` and the ``_pair_idx_buf`` /
+    ``_fn_arr_cached`` scratch buffers populated by ``pair_su``.
+    """
+    if a == b:
+        return 0.0
+    fd = factors_data if factors_data is not None else state.factors_data
+    fn = factors_nbins if factors_nbins is not None else state.factors_nbins
+    if fd is None or fn is None:
+        return 0.0
+    from .info_theory import mi, entropy, merge_vars
+    fn_arr = state._fn_arr_cached
+    if fn_arr is None:
+        fn_arr = np.asarray(fn, dtype=np.int64)
+        state._fn_arr_cached = fn_arr
+    pair_buf = state._pair_idx_buf
+    if pair_buf is None:
+        pair_buf = np.empty(2, dtype=np.int64)
+        state._pair_idx_buf = pair_buf
+    ec = state.column_entropy_cache
+    h_a = ec.get(a)
+    if h_a is None:
+        pair_buf[0] = a
+        _, freqs_a, _ = merge_vars(fd, pair_buf[:1], None, fn_arr, dtype=dtype)
+        h_a = float(entropy(freqs_a))
+        ec[a] = h_a
+    h_b = ec.get(b)
+    if h_b is None:
+        pair_buf[0] = b
+        _, freqs_b, _ = merge_vars(fd, pair_buf[:1], None, fn_arr, dtype=dtype)
+        h_b = float(entropy(freqs_b))
+        ec[b] = h_b
+    pair_buf[0] = a
+    pair_buf[1] = b
+    mi_ab = float(mi(fd, pair_buf[0:1], pair_buf[1:2], fn_arr, dtype=dtype))
+    return max(0.0, h_a + h_b - 2.0 * mi_ab)
 
 
 # =============================================================================
@@ -1490,6 +1587,7 @@ __all__ = [
     "DCDState", "SwapDecision",
     "make_dcd_state",
     "pair_su",
+    "pair_vi",
     "should_be_pruned",
     "discover_cluster_members",
     "evaluate_swap_candidate",

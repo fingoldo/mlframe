@@ -902,7 +902,11 @@ class MRMR(BaseEstimator, TransformerMixin):
     )
     # 2026-05-30 Wave 9 — DCD validation constants. swap_methods alias the
     # cluster_aggregate methods (Critic2/E fix: no duplicate constant).
-    _VALID_DCD_DISTANCES = ("su", "vi", "sotoca_pla")
+    # Layer 46 (2026-05-31): ``"auto"`` runs SU and VI in parallel per pair
+    # and returns the tighter redundancy score (``max(SU, VI_sim)``). Catches
+    # both linear-friendly duplicates (SU strong) and non-linear functional
+    # equivalences like y = f(x^2) (VI strong, SU silent).
+    _VALID_DCD_DISTANCES = ("su", "vi", "sotoca_pla", "auto")
     # Layer 44: DCD ``dcd_swap_method`` accepts the same expanded combiner set
     # so users can pin a single new method instead of relying on ``auto``.
     _VALID_DCD_SWAP_METHODS = (

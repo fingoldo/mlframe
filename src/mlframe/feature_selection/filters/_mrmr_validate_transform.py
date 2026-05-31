@@ -47,10 +47,12 @@ def _validate_string_params(self):
     if bool(getattr(self, "dcd_enable", False)):
         _d = getattr(self, "dcd_distance", "su")
         _tau = float(getattr(self, "dcd_tau_cluster", 0.7))
-        if _d == "su" and not (0.0 < _tau <= 1.0):
+        # Layer 46 (2026-05-31): ``"auto"`` returns max(SU, VI_sim) so the
+        # score lives in [0, 1] just like SU; reuse the SU range check.
+        if _d in ("su", "auto") and not (0.0 < _tau <= 1.0):
             raise ValueError(
                 f"MRMR: dcd_tau_cluster must be in (0, 1] for "
-                f"distance='su'; got {_tau}."
+                f"distance={_d!r}; got {_tau}."
             )
         if _d in ("vi", "sotoca_pla") and _tau <= 0.0:
             raise ValueError(
