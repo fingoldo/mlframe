@@ -279,7 +279,7 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         revalidation_ucb_stdev_multiplier: float | None = None,
         revalidation_adaptive_n_models: bool = True,
         revalidation_mmr_jaccard_threshold: float | None = None,
-        trust_guard_n_estimators: int | None = 100,
+        trust_guard_n_estimators: int | None = 25,
         trust_guard_stratified_anchors: bool = False,
         trust_guard_uniform_tail_frac: float = 0.2,
         trust_guard_cardinality_dist: str = "zipf",
@@ -628,7 +628,13 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
             if revalidation_mmr_jaccard_threshold is not None else None)
         # ``trust_guard_n_estimators`` caps the per-anchor booster size inside ``proxy_trust_guard``.
         # The trust report only consumes RANKS of anchor losses (Spearman / Kendall / recall@k); a
-        # capped booster gives a faithful fidelity signal at ~3x lower cost. None disables the cap.
+        # capped booster gives a faithful fidelity signal at a small fraction of the full-template cost.
+        # Default 25 (iter94 sweep at C3 width=10000 n_rows=10000 n_inf=20 n_red=20 snr=8.0 seed=0:
+        # values {100, 50, 25} all yielded IDENTICAL chosen subsets, trustworthy=True, and composite
+        # proxy_fidelity_score within 0.14% of the 100-tree baseline. trust_guard wall 4.106s -> 1.677s
+        # (2.45x); e2e wall 69.91s -> 26.37s. Rank-only consumer is robust to coarser boosters because
+        # tree ordering of anchor losses stabilises well before the residual-fit tail.) None disables
+        # the cap.
         self.trust_guard_n_estimators = trust_guard_n_estimators
         # ``trust_guard_stratified_anchors``: opt-in (default OFF) softmax-by-F-score anchor sampler
         # for the trust guard. Activates only when the prefilter cached an F-score vector
