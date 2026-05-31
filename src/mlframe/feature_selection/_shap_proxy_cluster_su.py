@@ -24,13 +24,158 @@ each column's marginal pass runs once even though the column appears in
 from __future__ import annotations
 
 import logging
+import math
 from typing import Iterable
 
 import numpy as np
+from numba import njit, prange
 
 from mlframe.feature_selection._shap_proxy_cluster import _uf_labels
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_parallel_min_features(default: int = 50) -> int:
+    """Smallest feature count at which the parallel prange kernel beats the serial path.
+
+    Below this width the per-pair work is small enough that prange thread-spawn dwarfs
+    the saved CPU time. Above it, the O(f^2) pair count scales the wall and parallel
+    pays off. The default (50) is dispatcher-tunable per HW via
+    ``pyutilz.system.kernel_tuning_cache`` (key
+    ``mlframe.shap_proxied_fs.cluster_su.parallel_min_features``).
+    """
+    try:
+        from pyutilz.system import kernel_tuning_cache
+
+        value = kernel_tuning_cache.get(
+            "mlframe.shap_proxied_fs.cluster_su.parallel_min_features", default=default)
+        return int(value)
+    except Exception:
+        return default
+
+
+@njit(parallel=True, nogil=True, cache=True, fastmath=False)
+def _pairwise_su_edges(
+    bins_packed: np.ndarray,
+    nbins: np.ndarray,
+    freqs_packed: np.ndarray,
+    freqs_offsets: np.ndarray,
+    h_marginals: np.ndarray,
+    constant_mask: np.ndarray,
+    threshold: float,
+) -> np.ndarray:
+    """Pairwise SU matrix above ``threshold`` returned as a dense flag matrix.
+
+    ``bins_packed`` is a ``(n_samples, n_features)`` int32 view; ``nbins[i]`` is the
+    cardinality used to size the joint-counts matrix on column ``i``; ``freqs_packed``
+    is the concatenation of all per-column marginal probability vectors with offsets
+    in ``freqs_offsets`` (shape ``(n_features + 1,)``); ``h_marginals[i]`` is the
+    pre-computed Shannon entropy of column ``i``; ``constant_mask[i]`` is ``True``
+    when column ``i`` has <=1 distinct bin (SU=0 vs anyone).
+
+    Returns an upper-triangle flag matrix (``flag[i, j] = 1`` iff ``SU(i, j) >= threshold``
+    and ``i < j``). Edge extraction happens outside the njit kernel so the prange
+    iterations stay purely numeric.
+    """
+    n_samples, n_features = bins_packed.shape
+    flags = np.zeros((n_features, n_features), dtype=np.uint8)
+    # max joint cardinality controls a single thread-local reusable buffer per
+    # outer iteration; avoids per-pair np.zeros allocation that bottlenecks at
+    # width >= 2000 (numba memory allocator under contention).
+    max_nb = 0
+    for i in range(n_features):
+        if nbins[i] > max_nb:
+            max_nb = nbins[i]
+    for i in prange(n_features):
+        if constant_mask[i]:
+            continue
+        nb_i = nbins[i]
+        h_i = h_marginals[i]
+        off_i = freqs_offsets[i]
+        # one int64 buffer per outer-i (thread-local because prange allocates
+        # locals inside the parallel region on the worker thread's stack).
+        joint = np.zeros((max_nb, max_nb), dtype=np.int64)
+        for j in range(i + 1, n_features):
+            if constant_mask[j]:
+                continue
+            nb_j = nbins[j]
+            # reset only the cells we'll touch.
+            for a in range(nb_i):
+                for b in range(nb_j):
+                    joint[a, b] = 0
+            for k in range(n_samples):
+                joint[bins_packed[k, i], bins_packed[k, j]] += 1
+            inv_n = 1.0 / n_samples
+            mi = 0.0
+            off_j = freqs_offsets[j]
+            for a in range(nb_i):
+                px = freqs_packed[off_i + a]
+                if px <= 0.0:
+                    continue
+                for b in range(nb_j):
+                    jc = joint[a, b]
+                    if jc == 0:
+                        continue
+                    py = freqs_packed[off_j + b]
+                    if py <= 0.0:
+                        continue
+                    jf = jc * inv_n
+                    mi += jf * math.log(jf / (px * py))
+            denom = h_i + h_marginals[j]
+            if denom <= 1e-12:
+                continue
+            su = 2.0 * mi / denom
+            if su >= threshold:
+                flags[i, j] = 1
+    return flags
+
+
+def _pack_bins_for_kernel(
+    arrays: list[np.ndarray],
+    marginals: list[tuple[np.ndarray, np.ndarray]],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray] | None:
+    """Pack per-column bin arrays + marginals into the contiguous buffers the kernel reads.
+
+    Returns ``None`` when columns have heterogeneous sample counts (the dict layout
+    that MRMR's ``categorize_dataset`` produces always shares ``n_samples`` so this
+    is just a defensive guard). Each returned array is C-contiguous and dtyped to
+    match the kernel's signature exactly so numba doesn't re-specialize per call.
+    """
+    if not arrays:
+        return None
+    n_samples = int(arrays[0].shape[0])
+    for a in arrays[1:]:
+        if int(a.shape[0]) != n_samples:
+            return None
+    n_features = len(arrays)
+    bins_packed = np.empty((n_samples, n_features), dtype=np.int32, order="C")
+    nbins = np.empty(n_features, dtype=np.int64)
+    freqs_offsets = np.empty(n_features + 1, dtype=np.int64)
+    h_marginals = np.empty(n_features, dtype=np.float64)
+    constant_mask = np.empty(n_features, dtype=np.bool_)
+
+    total_freqs = 0
+    for i, (_classes_unused, freqs) in enumerate(marginals):
+        total_freqs += int(freqs.shape[0])
+    freqs_packed = np.empty(total_freqs, dtype=np.float64)
+    offset = 0
+    for i, (classes_i, freqs_i) in enumerate(marginals):
+        # classes_i is int64 by construction in _column_marginal; downcast to the
+        # int32 packed dtype (bin ids are tiny, never overflow int32).
+        bins_packed[:, i] = classes_i.astype(np.int32, copy=False)
+        nb = int(freqs_i.shape[0])
+        nbins[i] = nb
+        freqs_offsets[i] = offset
+        freqs_packed[offset:offset + nb] = freqs_i
+        offset += nb
+        constant_mask[i] = nb <= 1
+        h = 0.0
+        for p in freqs_i:
+            if p > 0.0:
+                h -= float(p) * math.log(float(p))
+        h_marginals[i] = h
+    freqs_offsets[n_features] = offset
+    return bins_packed, nbins, freqs_packed, freqs_offsets, h_marginals, constant_mask
 
 
 def _resolve_columns(
@@ -82,6 +227,8 @@ def cluster_correlated_features_su(
     feature_names: Iterable[str] | None = None,
     nbins_per_feature: dict[str, int] | None = None,
     edge_cap: int = 20_000_000,
+    use_parallel: bool = True,
+    parallel_min_features: int | None = None,
 ) -> np.ndarray:
     """Cluster features by single-linkage on ``SU(X_i, X_j) >= threshold``.
 
@@ -114,6 +261,16 @@ def cluster_correlated_features_su(
         Reject the clustering if more than this many above-threshold edges
         are produced. Mirrors the Pearson backend's safeguard against
         runaway pair density. Raises ``MemoryError`` if exceeded.
+    use_parallel
+        Route the O(f^2) pair scan through the numba prange kernel
+        ``_pairwise_su_edges`` when ``n_features >= parallel_min_features``.
+        Default ``True``. The serial path is kept as the fallback (and the
+        chosen path at small widths where prange thread-spawn dominates).
+    parallel_min_features
+        Smallest ``n_features`` at which the parallel kernel is selected.
+        ``None`` consults ``pyutilz.system.kernel_tuning_cache`` (key
+        ``mlframe.shap_proxied_fs.cluster_su.parallel_min_features``);
+        default 50.
 
     Returns
     -------
@@ -146,6 +303,31 @@ def cluster_correlated_features_su(
     ei_parts: list[int] = []
     ej_parts: list[int] = []
     total = 0
+
+    # Parallel path: when we have enough features for prange overhead to pay back,
+    # build packed buffers once and let the numba kernel run the O(f^2) loop with
+    # thread-local joint-count buffers. Falls back to the serial loop on small f
+    # or when packing isn't safe (heterogeneous n_samples per column).
+    pmin = parallel_min_features if parallel_min_features is not None else _resolve_parallel_min_features()
+    use_kernel = bool(use_parallel) and f >= int(pmin)
+    if use_kernel:
+        packed = _pack_bins_for_kernel(arrays, marginals)
+        if packed is not None:
+            bins_packed, nbins, freqs_packed, freqs_offsets, h_marginals, constant_mask = packed
+            flags = _pairwise_su_edges(
+                bins_packed, nbins, freqs_packed, freqs_offsets,
+                h_marginals, constant_mask, threshold,
+            )
+            ei_arr, ej_arr = np.where(flags == 1)
+            if ei_arr.size > edge_cap:
+                raise MemoryError(
+                    f"ShapProxiedFS SU clustering: >{edge_cap} edges at "
+                    f"threshold={threshold}. Raise cluster_su_threshold to merge fewer features."
+                )
+            ei = ei_arr.astype(np.int64, copy=False)
+            ej = ej_arr.astype(np.int64, copy=False)
+            return _uf_labels(f, ei, ej)
+
     for i in range(f - 1):
         classes_i, freqs_i = marginals[i]
         if freqs_i.size == 0 or freqs_i.size == 1:
