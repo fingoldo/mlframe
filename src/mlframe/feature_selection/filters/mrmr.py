@@ -751,6 +751,33 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_missingness_count_enable: bool = False,
         fe_missingness_pattern_enable: bool = False,
         fe_missingness_pattern_top_k: int = 5,
+        # 2026-05-31 Layer 38 — CROSS-FEATURE RATIO + GROUPED-DELTA + LAGGED-DIFF FE.
+        # Default OFF; legacy behaviour byte-identical when all three master
+        # switches stay False. Each is appended via its own recipe kind
+        # (``pairwise_ratio`` / ``grouped_delta`` / ``lagged_diff``); replay is
+        # a pure function of X (no y reference at transform).
+        # * ``pairwise_ratio``: ``ratio__{a}__{b}`` (safe division floored at
+        #   ``eps``); pairs whose Pearson |corr| with either source is > 0.99
+        #   are rejected (no info gain). Set ``fe_pairwise_log_ratio_enable``
+        #   instead to emit ``log1p(|a|+eps) - log1p(|b|+eps)`` (handles
+        #   negative values gracefully).
+        # * ``grouped_delta``: ``x - mean(x | group)`` AND per-group z-score.
+        #   The recipe stores per-group mean/std at fit; unseen groups at
+        #   replay fall back to the train global stats.
+        # * ``lagged_diff``: sort by ``time_col`` then compute ``x - x.shift(p)``
+        #   for each p in ``periods``.
+        fe_pairwise_ratio_enable: bool = False,
+        fe_pairwise_ratio_cols: tuple = (),
+        fe_pairwise_ratio_eps: float = 1e-9,
+        fe_pairwise_log_ratio_enable: bool = False,
+        fe_pairwise_log_ratio_cols: tuple = (),
+        fe_grouped_delta_enable: bool = False,
+        fe_grouped_delta_group_col: str = None,
+        fe_grouped_delta_num_cols: tuple = (),
+        fe_lagged_diff_enable: bool = False,
+        fe_lagged_diff_time_col: str = None,
+        fe_lagged_diff_value_cols: tuple = (),
+        fe_lagged_diff_periods: tuple = (1, 2),
         # hidden
         stop_file: str = "stop",
     ):

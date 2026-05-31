@@ -125,7 +125,7 @@ class EngineeredRecipe:
     # (src_names=(c_i, c_j), extra={basis_i, basis_j, deg_a, deg_b}). Replay
     # is closed-form from the source column(s) alone -- no y reference is
     # captured at fit time, so transform() is leakage-free by construction.
-    kind: Literal["unary_binary", "factorize", "hermite_pair", "target_encoding", "cluster_aggregate", "orth_univariate", "orth_pair_cross", "orth_spline", "orth_fourier", "mi_greedy_transform", "kfold_target_encoded", "count_encoded", "frequency_encoded", "cat_num_residual", "missing_indicator", "missingness_count", "missingness_pattern"]
+    kind: Literal["unary_binary", "factorize", "hermite_pair", "target_encoding", "cluster_aggregate", "orth_univariate", "orth_pair_cross", "orth_spline", "orth_fourier", "mi_greedy_transform", "kfold_target_encoded", "count_encoded", "frequency_encoded", "cat_num_residual", "missing_indicator", "missingness_count", "missingness_pattern", "pairwise_ratio", "grouped_delta", "lagged_diff"]
     src_names: tuple[str, ...]
     unary_names: tuple[str, ...] = ()
     binary_name: str = ""
@@ -344,6 +344,19 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         if recipe.kind == "missingness_count":
             return _apply_missingness_count_recipe(recipe, X)
         return _apply_missingness_pattern_recipe(recipe, X)
+    if recipe.kind in ("pairwise_ratio", "grouped_delta", "lagged_diff"):
+        # Layer 38 lazy import: same rationale as Layer 37 -- keep this module
+        # under the 1k-LOC ceiling.
+        from ._ratio_delta_fe import (
+            _apply_pairwise_ratio_recipe,
+            _apply_grouped_delta_recipe,
+            _apply_lagged_diff_recipe,
+        )
+        if recipe.kind == "pairwise_ratio":
+            return _apply_pairwise_ratio_recipe(recipe, X)
+        if recipe.kind == "grouped_delta":
+            return _apply_grouped_delta_recipe(recipe, X)
+        return _apply_lagged_diff_recipe(recipe, X)
     raise ValueError(f"Unknown recipe kind: {recipe.kind!r}")
 
 
@@ -1602,5 +1615,80 @@ def build_missingness_pattern_recipe(
             "pattern_to_label": pattern_clean,
             "other_label": int(other_label),
             "top_k": int(top_k),
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Layer 38 (2026-05-31): cross-feature ratio + grouped-delta + lagged-diff
+# (thin builders; apply helpers live in ``_ratio_delta_fe.py``).
+# ---------------------------------------------------------------------------
+
+
+def build_pairwise_ratio_recipe(
+    *, name: str, src_a_name: str, src_b_name: str,
+    kind: str = "div", eps: float = 1e-9,
+) -> EngineeredRecipe:
+    """Frozen recipe for ``a / b`` (``kind='div'``, safe-division floored at
+    ``eps``) or ``log1p(|a|+eps) - log1p(|b|+eps)`` (``kind='log_div'``)."""
+    if kind not in ("div", "log_div"):
+        raise ValueError(
+            f"pairwise_ratio kind must be 'div' or 'log_div'; got {kind!r}"
+        )
+    return EngineeredRecipe(
+        name=name,
+        kind="pairwise_ratio",
+        src_names=(src_a_name, src_b_name),
+        extra={"kind": str(kind), "eps": float(eps)},
+    )
+
+
+def build_grouped_delta_recipe(
+    *, name: str, group_col: str, num_col: str, op: str,
+    lookup_mean: dict, lookup_std: dict,
+    global_mean: float, global_std: float,
+) -> EngineeredRecipe:
+    """Frozen recipe for a grouped-delta column. ``op='minus_mean'`` emits
+    ``x - mean(x | group)``; ``op='div_std'`` emits the per-group z-score
+    ``(x - mean(x | group)) / std(x | group)``. Both fall back to the
+    train global mean / std when a group is unseen at replay."""
+    if op not in ("minus_mean", "div_std"):
+        raise ValueError(
+            f"grouped_delta op must be 'minus_mean' or 'div_std'; got {op!r}"
+        )
+    lookup_mean_clean = {str(k): float(v) for k, v in lookup_mean.items()}
+    lookup_std_clean = {str(k): float(v) for k, v in lookup_std.items()}
+    return EngineeredRecipe(
+        name=name,
+        kind="grouped_delta",
+        src_names=(group_col, num_col),
+        extra={
+            "group_col": str(group_col),
+            "num_col": str(num_col),
+            "op": str(op),
+            "lookup_mean": lookup_mean_clean,
+            "lookup_std": lookup_std_clean,
+            "global_mean": float(global_mean),
+            "global_std": float(global_std),
+        },
+    )
+
+
+def build_lagged_diff_recipe(
+    *, name: str, time_col: str, value_col: str, period: int,
+) -> EngineeredRecipe:
+    """Frozen recipe for ``x_t - x_{t-period}`` after sorting by ``time_col``.
+    Replay re-sorts the test frame by ``time_col`` and emits the per-row
+    difference; the first ``period`` rows of the sorted order get 0."""
+    if int(period) < 1:
+        raise ValueError(f"lagged_diff period must be >= 1; got {period}")
+    return EngineeredRecipe(
+        name=name,
+        kind="lagged_diff",
+        src_names=(time_col, value_col),
+        extra={
+            "time_col": str(time_col),
+            "value_col": str(value_col),
+            "period": int(period),
         },
     )

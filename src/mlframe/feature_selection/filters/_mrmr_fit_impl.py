@@ -961,6 +961,194 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         type(_pat_exc).__name__, _pat_exc,
                     )
 
+    # 2026-05-31 Layer 38 — CROSS-FEATURE RATIO + GROUPED-DELTA + LAGGED-DIFF.
+    # Four independent master switches (ratio / log_ratio / grouped_delta /
+    # lagged_diff); each appends its engineered columns AND emits one recipe
+    # per column. Routing piggybacks on hybrid_orth_features_ (same Layer 23
+    # remap pattern used by Layers 33/34/37).
+    self.pairwise_ratio_features_ = []
+    self.pairwise_log_ratio_features_ = []
+    self.grouped_delta_features_ = []
+    self.lagged_diff_features_ = []
+    _ratio_pre_recipes: dict = {}
+    _log_ratio_pre_recipes: dict = {}
+    _grouped_delta_pre_recipes: dict = {}
+    _lagged_diff_pre_recipes: dict = {}
+    if (
+        bool(getattr(self, "fe_pairwise_ratio_enable", False))
+        or bool(getattr(self, "fe_pairwise_log_ratio_enable", False))
+        or bool(getattr(self, "fe_grouped_delta_enable", False))
+        or bool(getattr(self, "fe_lagged_diff_enable", False))
+    ):
+        _is_pandas_l38 = isinstance(X, pd.DataFrame)
+        if not _is_pandas_l38:
+            warnings.warn(
+                "MRMR: Layer 38 FE (ratio/log_ratio/grouped_delta/lagged_diff) "
+                "enabled but X is not a pandas DataFrame; the encodings are "
+                "skipped. Convert to pandas via X.to_pandas() before fit() to "
+                "apply them.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            from ._ratio_delta_fe import (
+                pairwise_ratio_with_recipes,
+                pairwise_log_ratio_with_recipes,
+                grouped_delta_with_recipes,
+                lagged_diff_with_recipes,
+            )
+
+            # ----- Pairwise ratio --------------------------------------------
+            if bool(getattr(self, "fe_pairwise_ratio_enable", False)):
+                try:
+                    _ratio_cols = tuple(
+                        getattr(self, "fe_pairwise_ratio_cols", ()) or ()
+                    )
+                    _ratio_cols = [c for c in _ratio_cols if c in X.columns]
+                    _eps = float(getattr(self, "fe_pairwise_ratio_eps", 1e-9))
+                    _X_before_r_cols = list(X.columns)
+                    X_r, _r_appended, _r_recipes = pairwise_ratio_with_recipes(
+                        X, cols=_ratio_cols, eps=_eps,
+                    )
+                    _r_appended = [
+                        c for c in _r_appended if c not in _X_before_r_cols
+                    ]
+                    if _r_appended:
+                        X = X_r
+                        self.pairwise_ratio_features_ = list(_r_appended)
+                        self.hybrid_orth_features_ = (
+                            list(self.hybrid_orth_features_ or []) + list(_r_appended)
+                        )
+                        for _r in _r_recipes:
+                            if _r.name in _r_appended:
+                                _ratio_pre_recipes[_r.name] = _r
+                        if verbose:
+                            logger.info(
+                                "MRMR.fit pairwise_ratio: appended %d "
+                                "engineered column(s): %s",
+                                len(_r_appended), _r_appended[:8],
+                            )
+                except Exception as _r_exc:
+                    logger.warning(
+                        "MRMR.fit pairwise_ratio FE raised %s: %s; "
+                        "continuing without ratio columns.",
+                        type(_r_exc).__name__, _r_exc,
+                    )
+
+            # ----- Pairwise log-ratio ----------------------------------------
+            if bool(getattr(self, "fe_pairwise_log_ratio_enable", False)):
+                try:
+                    _lr_cols = tuple(
+                        getattr(self, "fe_pairwise_log_ratio_cols", ()) or ()
+                    )
+                    _lr_cols = [c for c in _lr_cols if c in X.columns]
+                    _eps_lr = float(getattr(self, "fe_pairwise_ratio_eps", 1e-9))
+                    _X_before_lr_cols = list(X.columns)
+                    X_lr, _lr_appended, _lr_recipes = pairwise_log_ratio_with_recipes(
+                        X, cols=_lr_cols, eps=_eps_lr,
+                    )
+                    _lr_appended = [
+                        c for c in _lr_appended if c not in _X_before_lr_cols
+                    ]
+                    if _lr_appended:
+                        X = X_lr
+                        self.pairwise_log_ratio_features_ = list(_lr_appended)
+                        self.hybrid_orth_features_ = (
+                            list(self.hybrid_orth_features_ or []) + list(_lr_appended)
+                        )
+                        for _r in _lr_recipes:
+                            if _r.name in _lr_appended:
+                                _log_ratio_pre_recipes[_r.name] = _r
+                        if verbose:
+                            logger.info(
+                                "MRMR.fit pairwise_log_ratio: appended %d "
+                                "engineered column(s): %s",
+                                len(_lr_appended), _lr_appended[:8],
+                            )
+                except Exception as _lr_exc:
+                    logger.warning(
+                        "MRMR.fit pairwise_log_ratio FE raised %s: %s; "
+                        "continuing without log-ratio columns.",
+                        type(_lr_exc).__name__, _lr_exc,
+                    )
+
+            # ----- Grouped delta ---------------------------------------------
+            if bool(getattr(self, "fe_grouped_delta_enable", False)):
+                try:
+                    _gd_group = getattr(self, "fe_grouped_delta_group_col", None)
+                    _gd_nums = tuple(
+                        getattr(self, "fe_grouped_delta_num_cols", ()) or ()
+                    )
+                    _gd_nums = [c for c in _gd_nums if c in X.columns]
+                    _X_before_gd_cols = list(X.columns)
+                    X_gd, _gd_appended, _gd_recipes = grouped_delta_with_recipes(
+                        X, group_col=_gd_group, num_cols=_gd_nums,
+                    )
+                    _gd_appended = [
+                        c for c in _gd_appended if c not in _X_before_gd_cols
+                    ]
+                    if _gd_appended:
+                        X = X_gd
+                        self.grouped_delta_features_ = list(_gd_appended)
+                        self.hybrid_orth_features_ = (
+                            list(self.hybrid_orth_features_ or []) + list(_gd_appended)
+                        )
+                        for _r in _gd_recipes:
+                            if _r.name in _gd_appended:
+                                _grouped_delta_pre_recipes[_r.name] = _r
+                        if verbose:
+                            logger.info(
+                                "MRMR.fit grouped_delta: appended %d "
+                                "engineered column(s): %s",
+                                len(_gd_appended), _gd_appended[:8],
+                            )
+                except Exception as _gd_exc:
+                    logger.warning(
+                        "MRMR.fit grouped_delta FE raised %s: %s; "
+                        "continuing without grouped-delta columns.",
+                        type(_gd_exc).__name__, _gd_exc,
+                    )
+
+            # ----- Lagged diff -----------------------------------------------
+            if bool(getattr(self, "fe_lagged_diff_enable", False)):
+                try:
+                    _ld_time = getattr(self, "fe_lagged_diff_time_col", None)
+                    _ld_vals = tuple(
+                        getattr(self, "fe_lagged_diff_value_cols", ()) or ()
+                    )
+                    _ld_vals = [c for c in _ld_vals if c in X.columns]
+                    _ld_periods = tuple(
+                        getattr(self, "fe_lagged_diff_periods", (1, 2)) or (1, 2)
+                    )
+                    _X_before_ld_cols = list(X.columns)
+                    X_ld, _ld_appended, _ld_recipes = lagged_diff_with_recipes(
+                        X, time_col=_ld_time, value_cols=_ld_vals,
+                        periods=_ld_periods,
+                    )
+                    _ld_appended = [
+                        c for c in _ld_appended if c not in _X_before_ld_cols
+                    ]
+                    if _ld_appended:
+                        X = X_ld
+                        self.lagged_diff_features_ = list(_ld_appended)
+                        self.hybrid_orth_features_ = (
+                            list(self.hybrid_orth_features_ or []) + list(_ld_appended)
+                        )
+                        for _r in _ld_recipes:
+                            if _r.name in _ld_appended:
+                                _lagged_diff_pre_recipes[_r.name] = _r
+                        if verbose:
+                            logger.info(
+                                "MRMR.fit lagged_diff: appended %d "
+                                "engineered column(s): %s",
+                                len(_ld_appended), _ld_appended[:8],
+                            )
+                except Exception as _ld_exc:
+                    logger.warning(
+                        "MRMR.fit lagged_diff FE raised %s: %s; "
+                        "continuing without lagged-diff columns.",
+                        type(_ld_exc).__name__, _ld_exc,
+                    )
+
     # Layer 27 (2026-05-31): cross-stage engineered-column dedup. Hybrid and
     # MI-greedy stages run independently; on signals like ``y = sign(x^2 - 1)``
     # hybrid emits ``x__He2`` and MI-greedy emits ``square(x)`` / ``abs(x)`` /
@@ -1059,6 +1247,23 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 c for c in (getattr(self, "missingness_pattern_features_", []) or [])
                 if c not in _eng_drop
             ]
+            # Layer 38: mirror cleanup for ratio / log_ratio / grouped_delta / lagged_diff.
+            self.pairwise_ratio_features_ = [
+                c for c in (getattr(self, "pairwise_ratio_features_", []) or [])
+                if c not in _eng_drop
+            ]
+            self.pairwise_log_ratio_features_ = [
+                c for c in (getattr(self, "pairwise_log_ratio_features_", []) or [])
+                if c not in _eng_drop
+            ]
+            self.grouped_delta_features_ = [
+                c for c in (getattr(self, "grouped_delta_features_", []) or [])
+                if c not in _eng_drop
+            ]
+            self.lagged_diff_features_ = [
+                c for c in (getattr(self, "lagged_diff_features_", []) or [])
+                if c not in _eng_drop
+            ]
             for _c in list(_hybrid_orth_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _hybrid_orth_pre_recipes.pop(_c, None)
@@ -1086,6 +1291,18 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             for _c in list(_miss_pat_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _miss_pat_pre_recipes.pop(_c, None)
+            for _c in list(_ratio_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _ratio_pre_recipes.pop(_c, None)
+            for _c in list(_log_ratio_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _log_ratio_pre_recipes.pop(_c, None)
+            for _c in list(_grouped_delta_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _grouped_delta_pre_recipes.pop(_c, None)
+            for _c in list(_lagged_diff_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _lagged_diff_pre_recipes.pop(_c, None)
             if verbose:
                 logger.info(
                     "MRMR.fit engineered-FE dedup: pruned %d near-duplicate "
@@ -1280,6 +1497,15 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         engineered_recipes.update(_miss_cnt_pre_recipes)
     if _miss_pat_pre_recipes:
         engineered_recipes.update(_miss_pat_pre_recipes)
+    # Layer 38: same routing for ratio / log_ratio / grouped_delta / lagged_diff.
+    if _ratio_pre_recipes:
+        engineered_recipes.update(_ratio_pre_recipes)
+    if _log_ratio_pre_recipes:
+        engineered_recipes.update(_log_ratio_pre_recipes)
+    if _grouped_delta_pre_recipes:
+        engineered_recipes.update(_grouped_delta_pre_recipes)
+    if _lagged_diff_pre_recipes:
+        engineered_recipes.update(_lagged_diff_pre_recipes)
     # Reset per fit so a re-fit on the same instance doesn't carry stale cluster-aggregate state.
     self._cluster_aggregate_removals_ = []
     self.cluster_aggregate_ = []  # fitted summary (per-aggregate records) -> meta_info report
