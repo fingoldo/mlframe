@@ -225,6 +225,8 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         cluster_weighting: str = "pca_pc1",
         cluster_use_gpu: bool | str = "auto",
         cluster_auto_threshold: int = 40,
+        cluster_use_precomputed_bins: bool = True,
+        cluster_su_threshold: float = 0.5,
         prescreen_top: int | None = None,
         within_cluster_refine: bool = True,
         refine_n_estimators: int | None = 100,
@@ -411,6 +413,17 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         self.cluster_weighting = cluster_weighting
         self.cluster_use_gpu = cluster_use_gpu
         self.cluster_auto_threshold = cluster_auto_threshold
+        # iter67: when MRMR precomputed bins are supplied, the clustering stage
+        # can switch from Pearson |corr| to pairwise Symmetric Uncertainty on
+        # the binned columns. SU catches non-linear redundancy (XOR / saddle /
+        # sinusoidal) that Pearson misses. ``cluster_use_precomputed_bins``
+        # gates the switch (default True so callers passing precomputed get
+        # the upgrade automatically). ``cluster_su_threshold`` is the SU
+        # equivalent of ``cluster_corr_threshold`` -- different scale (SU is
+        # bounded by 1 but only reaches it on deterministic relationships),
+        # default 0.5 calibrated to a similar linking density as |corr| 0.7.
+        self.cluster_use_precomputed_bins = bool(cluster_use_precomputed_bins)
+        self.cluster_su_threshold = float(cluster_su_threshold)
         self.prescreen_top = prescreen_top
         self.within_cluster_refine = within_cluster_refine
         # ``refine_n_estimators`` caps the per-trial booster size inside ``within_cluster_refine``.
@@ -1000,12 +1013,63 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
                 build_unit_matrix, cluster_correlated_features, cluster_summary)
 
             with _stage("clustering"):
-                labels = cluster_correlated_features(
-                    X_search.values, threshold=self.cluster_corr_threshold, use_gpu=self.cluster_use_gpu)
+                # iter67: dispatch SU-pairwise clustering when MRMR precomputed
+                # bins are available. Catches non-linear redundancy (XOR /
+                # saddle / sinusoidal) that the Pearson backend misses. Falls
+                # back to Pearson silently when bins absent or user opts out.
+                _bins = (
+                    _precomputed_aligned.get("bins")
+                    if isinstance(_precomputed_aligned, dict) else None
+                )
+                _use_su_cluster = (
+                    self.cluster_use_precomputed_bins
+                    and isinstance(_bins, dict)
+                    and len(_bins) > 0
+                )
+                if _use_su_cluster:
+                    from mlframe.feature_selection._shap_proxy_cluster_su import (
+                        cluster_correlated_features_su,
+                    )
+
+                    _nbins_pf = (
+                        _precomputed_aligned.get("nbins_per_feature")
+                        if isinstance(_precomputed_aligned, dict) else None
+                    )
+                    # X_search.columns is the working-axis subset; bins keyed
+                    # by feature name handle post-prefilter narrowing for free.
+                    _cluster_names = [
+                        c for c in X_search.columns.tolist() if c in _bins
+                    ]
+                    if len(_cluster_names) == X_search.shape[1]:
+                        labels = cluster_correlated_features_su(
+                            _bins,
+                            threshold=self.cluster_su_threshold,
+                            feature_names=_cluster_names,
+                            nbins_per_feature=_nbins_pf,
+                        )
+                        _cluster_backend = "su"
+                        _cluster_threshold = float(self.cluster_su_threshold)
+                    else:
+                        # bins do not cover every working column (rare) -> fall
+                        # back to Pearson rather than silently dropping cols.
+                        labels = cluster_correlated_features(
+                            X_search.values, threshold=self.cluster_corr_threshold,
+                            use_gpu=self.cluster_use_gpu)
+                        _cluster_backend = "pearson_fallback_bins_incomplete"
+                        _cluster_threshold = float(self.cluster_corr_threshold)
+                else:
+                    labels = cluster_correlated_features(
+                        X_search.values, threshold=self.cluster_corr_threshold,
+                        use_gpu=self.cluster_use_gpu)
+                    _cluster_backend = "pearson"
+                    _cluster_threshold = float(self.cluster_corr_threshold)
                 units, unit_to_members, _kind = build_unit_matrix(
                     X_search.values, labels, weighting=self.cluster_weighting)
                 X_proxy = pd.DataFrame(units, columns=[f"unit{i}" for i in range(units.shape[1])])
-                report["clustering"] = cluster_summary(unit_to_members)
+                _cluster_block = cluster_summary(unit_to_members)
+                _cluster_block["backend"] = _cluster_backend
+                _cluster_block["threshold"] = _cluster_threshold
+                report["clustering"] = _cluster_block
         else:
             X_proxy = X_search
             unit_to_members = None
