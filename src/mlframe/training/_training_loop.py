@@ -44,6 +44,58 @@ from .utils import get_pandas_view_of_polars_df, maybe_clean_ram_adaptive as _ma
 logger = logging.getLogger(__name__)
 
 
+def _ensure_cb_mtr_loss(model, train_target, pool=None) -> None:
+    """When target is (N, K>=2) continuous but CatBoostRegressor lacks an
+    MTR-compatible ``loss_function``, set ``loss_function='MultiRMSE'``
+    pre-fit.
+
+    CatBoost rejects 2-D continuous ``y`` with the default ``RMSE`` loss
+    (``Currently only multi-regression, multilabel and survival
+    objectives work with multidimensional target``). The dispatch parallels
+    ``_ensure_cb_multilabel_loss`` for CatBoostClassifier+multilabel.
+    """
+    if model is None:
+        return
+    if type(model).__name__ != "CatBoostRegressor":
+        return
+    try:
+        get = getattr(model, "get_param", None) or getattr(model, "get_params", None)
+        params = get() if callable(get) else {}
+    except Exception:
+        params = {}
+    _existing = params.get("loss_function")
+    # Skip when the user already wired a multi-target-compatible loss.
+    if _existing is not None and "multi" in str(_existing).lower():
+        return
+    label_arr = None
+    if pool is not None:
+        try:
+            label_arr = np.asarray(pool.get_label())
+        except Exception:
+            label_arr = None
+    if label_arr is None:
+        label_arr = np.asarray(train_target) if train_target is not None else None
+        if label_arr is not None and label_arr.dtype == object and label_arr.ndim == 1 and label_arr.shape[0] > 0:
+            try:
+                label_arr = np.stack([np.asarray(c) for c in label_arr], axis=0)
+            except Exception:
+                label_arr = None
+    if label_arr is None or label_arr.ndim != 2 or label_arr.shape[1] < 2:
+        return
+    # Only fires for continuous (float) labels; integer 2-D is multilabel
+    # and handled by ``_ensure_cb_multilabel_loss`` instead.
+    if label_arr.dtype.kind not in ("f",):
+        return
+    try:
+        model.set_params(loss_function="MultiRMSE", eval_metric="MultiRMSE")
+    except Exception:
+        try:
+            model._init_params["loss_function"] = "MultiRMSE"
+            model._init_params["eval_metric"] = "MultiRMSE"
+        except Exception:
+            pass
+
+
 def _ensure_cb_multilabel_loss(model, train_target, pool=None) -> None:
     """When target is multilabel-shaped but CatBoost lacks loss_function,
     set loss_function='MultiLogloss' pre-fit."""
@@ -437,11 +489,13 @@ def _train_model_with_fallback(
                 # flag a "sample_weight with Pool" mismatch.
                 _reuse_fit_params = {k: v for k, v in fit_params.items() if k not in ("sample_weight", "cat_features", "text_features", "embedding_features")}
                 _ensure_cb_multilabel_loss(model, train_target, pool=_cb_pool)
+                _ensure_cb_mtr_loss(model, train_target, pool=_cb_pool)
                 _ensure_xgb_classification_objective(model, train_target)
                 model = _maybe_wrap_for_2d_target(model, train_target)
                 model.fit(_cb_pool, **_reuse_fit_params)
             else:
                 _ensure_cb_multilabel_loss(model, train_target)
+                _ensure_cb_mtr_loss(model, train_target)
                 _ensure_xgb_classification_objective(model, train_target)
                 _model_pre_wrap_type = type(model).__name__
                 model = _maybe_wrap_for_2d_target(model, train_target)

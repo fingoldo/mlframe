@@ -6792,10 +6792,32 @@ def build_frame_for_combo(combo: FuzzCombo):
         # multi-target branch (num_classes=K head sharing trunk). Both
         # targets carry distinct signal so the MSE-on-(N,K) loss is
         # well-defined and per-target metrics are meaningfully different.
-        t0 = 2.0 * num_cols["num_0"] - 1.5 * num_cols["num_1"] + rng.standard_normal(n) * 0.3
-        t1 = 1.5 * num_cols["num_2"] + 0.8 * num_cols["num_3"] + rng.standard_normal(n) * 0.3
-        target = np.column_stack([t0, t1]).astype("float32")
-        target_col = "target"  # FTE handles 2-D target via shape sniff
+        #
+        # iter633 fix: emit (N, K) ONLY when EVERY model in the combo
+        # natively handles a 2-D continuous target. The CANON_KEY at
+        # :2306-2313 collapses MTR-without-native-backend to "regression"
+        # for dedup but a mixed combo (one native + one non-native, e.g.
+        # mlp+linear or cb+lgb+xgb where lgb chokes) still crashes the
+        # non-native model with ``Unknown label type: continuous-multioutput``.
+        # The "native" gate is restricted to ``cb`` (CatBoost MultiRMSE,
+        # configured by ``_ensure_cb_mtr_loss``) because the MLP F-24 (N,K)
+        # auto-detect path documented in
+        # docs/multi_target_regression_design.md hangs in
+        # torch.nn.utils.clip_grad on the smoke harness (observed
+        # 2026-05-31 on cb+mlp combo), and the xgb multi_output_tree
+        # dispatcher is opt-in. Whenever a non-cb-only combo is detected,
+        # downgrade the frame to 1-D regression so the canon's
+        # "equivalent to regression" promise holds at the data level
+        # instead of crashing or hanging at model.fit.
+        _NATIVE_MTR_MODELS = {"cb"}
+        if all(m in _NATIVE_MTR_MODELS for m in combo.models):
+            t0 = 2.0 * num_cols["num_0"] - 1.5 * num_cols["num_1"] + rng.standard_normal(n) * 0.3
+            t1 = 1.5 * num_cols["num_2"] + 0.8 * num_cols["num_3"] + rng.standard_normal(n) * 0.3
+            target = np.column_stack([t0, t1]).astype("float32")
+            target_col = "target"  # FTE handles 2-D target via shape sniff
+        else:
+            target = 2.0 * num_cols["num_0"] - 1.5 * num_cols["num_1"] + rng.standard_normal(n) * 0.3
+            target_col = "target_reg"
     elif combo.target_type == "binary_classification":
         logits = num_cols["num_0"] - 0.5 * num_cols["num_1"] + rng.standard_normal(n) * 0.3
         # Use the canonical imbalance value (clamped by n_rows via
@@ -6965,8 +6987,14 @@ def build_frame_for_combo(combo: FuzzCombo):
         elif combo.target_type == "multilabel_classification":
             # Use label-0 as the discriminating y for the XOR pair.
             y_bin = target[:, 0].astype("int32")
+        elif combo.target_type == "multi_target_regression" and target.ndim == 2:
+            # iter633: native-MTR branch leaves target 2-D; XOR pair needs
+            # a 1-D y, use target-0 as the discriminating signal (mirrors
+            # the multilabel branch above).
+            y_bin = (target[:, 0] > np.median(target[:, 0])).astype("int32")
         else:
-            # Regression / multiclass / LTR: binarise around median.
+            # Regression / multiclass / LTR / non-native MTR (1-D after
+            # iter633 downgrade): binarise around median.
             y_bin = (target > np.median(target)).astype("int32")
         # xor_b = xor_a XOR y_bin => XOR(xor_a, xor_b) == y_bin.
         # Pure synergy: marginal MI(xor_a, y) ~ 0, MI(xor_b, y) ~ 0, but
@@ -7070,12 +7098,15 @@ def build_frame_for_combo(combo: FuzzCombo):
         # consumption time.
         if combo.target_type == "multilabel_classification":
             data[target_col] = pd.array([row.tolist() for row in target], dtype=object)
-        elif combo.target_type == "multi_target_regression":
+        elif combo.target_type == "multi_target_regression" and target.ndim == 2:
             # F-24 audit-pass-9 #8: (N, K) continuous targets stored as a
             # single object column of list cells (mirrors the multilabel
             # pattern). The estimator branch at training/neural/base.py:548
             # auto-detects (N, K>=2) shape and routes through the multi-
             # target regression head.
+            # iter633: only when every model in combo natively handles 2-D
+            # MTR (see :6788 branch); non-native combos receive a 1-D
+            # target so ``target.ndim == 2`` selects the native path.
             data[target_col] = pd.array([row.tolist() for row in target], dtype=object)
         else:
             data[target_col] = target
@@ -7127,9 +7158,11 @@ def build_frame_for_combo(combo: FuzzCombo):
             [row.tolist() for row in target],
             dtype=pl.List(pl.Int8),
         )
-    elif combo.target_type == "multi_target_regression":
+    elif combo.target_type == "multi_target_regression" and target.ndim == 2:
         # F-24 audit-pass-9 #8: (N, K) continuous targets stored as a
         # pl.List(pl.Float32) column (mirrors multilabel polars wiring).
+        # iter633: only when every model in combo natively handles 2-D MTR;
+        # non-native combos receive a 1-D target so the else-branch runs.
         data_pl[target_col] = pl.Series(
             [row.tolist() for row in target],
             dtype=pl.List(pl.Float32),
