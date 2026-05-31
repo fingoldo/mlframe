@@ -1241,6 +1241,103 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     "continuing without KSG-MI columns.",
                     type(_ksg_exc).__name__, _ksg_exc,
                 )
+    # 2026-06-01 Layer 66 — COPULA-MI ranking for the hybrid orth-poly FE
+    # (independent opt-in; does NOT require fe_hybrid_orth_enable). Each
+    # variable is rank-transformed to a uniform on (0, 1) before MI is
+    # estimated, so the score is INVARIANT under any strictly-monotone
+    # transform of either variable. Wins on heavy-tailed / skewed signals
+    # where the plug-in's qcut on raw values piles tail observations into
+    # one bin and hides genuine dependence. Engineered VALUES bit-equal to
+    # Layer 21 -> recipes reuse the ``orth_univariate`` kind.
+    if bool(getattr(self, "fe_hybrid_orth_copula_enable", False)):
+        _is_pandas_for_copula = isinstance(X, pd.DataFrame)
+        if not _is_pandas_for_copula:
+            warnings.warn(
+                "MRMR: fe_hybrid_orth_copula_enable=True but X is not a "
+                "pandas DataFrame; copula-MI hybrid FE is skipped. "
+                "Convert to pandas via X.to_pandas() before fit() if you "
+                "want the copula-MI selection applied.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from ._orthogonal_copula_mi_fe import (
+                    hybrid_orth_mi_copula_fe_with_recipes,
+                )
+                _y_for_copula = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                _hybrid_already_appended = set(
+                    getattr(self, "hybrid_orth_features_", None) or []
+                )
+                if getattr(self, "factors_names_to_use", None):
+                    _copula_cols = [
+                        c for c in self.factors_names_to_use
+                        if c in X.columns and c not in _hybrid_already_appended
+                    ]
+                else:
+                    _copula_cols = [
+                        c for c in X.columns
+                        if c not in _hybrid_already_appended
+                    ]
+                _copula_degrees = tuple(int(d) for d in getattr(
+                    self, "fe_hybrid_orth_degrees", (2, 3),
+                ))
+                _copula_basis = str(getattr(
+                    self, "fe_hybrid_orth_basis", "auto",
+                ))
+                _copula_top_k = int(getattr(self, "fe_hybrid_orth_top_k", 5))
+                _copula_n_bins = int(getattr(
+                    self, "fe_hybrid_orth_copula_n_bins", 20,
+                ))
+                # Copula MI on rank-uniformised data is less biased than the
+                # plug-in on raw values (the rank transform flattens the
+                # marginal so the bias-correcting Miller-Madow term works on
+                # a uniform target); the gates calibrated for Layer 21 plug-in
+                # (1.05 / 0.1) are too tight here -- copula MI lift on a
+                # cubic-in-x signal is typically 1.00-1.05x because rank(x)
+                # already captures the monotone structure, leaving only the
+                # non-monotone residual to lift. 0.95 / 0.05 matches the
+                # Layer 65 KSG calibration for the same reason.
+                _copula_min_uplift = 0.95
+                _copula_min_abs_mi_frac = 0.05
+                _X_before_copula_cols = list(X.columns)
+                X_copula, _copula_scores, _copula_recipes = (
+                    hybrid_orth_mi_copula_fe_with_recipes(
+                        X, _y_for_copula,
+                        cols=_copula_cols,
+                        degrees=_copula_degrees,
+                        basis=_copula_basis,
+                        top_k=_copula_top_k,
+                        min_uplift=_copula_min_uplift,
+                        min_abs_mi_frac=_copula_min_abs_mi_frac,
+                        n_bins=_copula_n_bins,
+                    )
+                )
+                _copula_appended = [
+                    c for c in X_copula.columns
+                    if c not in _X_before_copula_cols
+                ]
+                if _copula_appended:
+                    X = X_copula
+                    self.hybrid_orth_features_ = (
+                        list(self.hybrid_orth_features_ or [])
+                        + list(_copula_appended)
+                    )
+                    for _r in _copula_recipes:
+                        _hybrid_orth_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit hybrid_orth copula-MI: appended "
+                            "%d engineered column(s): %s",
+                            len(_copula_appended), _copula_appended[:8],
+                        )
+            except Exception as _copula_exc:
+                logger.warning(
+                    "MRMR.fit hybrid_orth copula-MI FE raised %s: %s; "
+                    "continuing without copula-MI columns.",
+                    type(_copula_exc).__name__, _copula_exc,
+                )
     # 2026-05-21 revert of Wave 29 P1 polars->pandas coercion. That
     # coercion was added on the premise that downstream ``X[target_name]
     # = y`` mutation assumed pandas and would raise on polars; but the

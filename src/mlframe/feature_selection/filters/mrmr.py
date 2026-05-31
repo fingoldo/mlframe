@@ -844,6 +844,24 @@ class MRMR(BaseEstimator, TransformerMixin):
         # k-NN estimator can resolve at typical sample sizes.
         fe_hybrid_orth_ksg_min_uplift: float = 0.95,
         fe_hybrid_orth_ksg_min_abs_mi_frac: float = 0.05,
+        # 2026-06-01 Layer 66 — COPULA-MI ranking for hybrid orth-poly FE
+        # (sibling module ``_orthogonal_copula_mi_fe``). Independent opt-in
+        # (does NOT require fe_hybrid_orth_enable). Layer 21 ranks by the
+        # plug-in quantile-binned MI estimator on RAW values -- on heavy-
+        # tailed or skewed marginals the qcut bin edges pile extreme-value
+        # observations into a single bin and hide genuine dependence inside
+        # the bulk. Layer 66 rank-transforms each variable to a uniform on
+        # ``(0, 1)`` (Sklar's theorem: the copula carries all dependence
+        # structure independently of the marginals), then estimates MI on
+        # the uniform pair via equal-width binning + Miller-Madow bias
+        # correction. The resulting MI is INVARIANT under any strictly-
+        # monotone transform of either variable -- exactly the property
+        # heavy-tail / log-scale signals need to be scored fairly.
+        # Engineered VALUES are bit-equal to Layer 21 so recipes reuse the
+        # ``orth_univariate`` kind and replay is shared infrastructure.
+        # Default OFF preserves pickle byte-equivalence.
+        fe_hybrid_orth_copula_enable: bool = False,
+        fe_hybrid_orth_copula_n_bins: int = 20,
         # 2026-05-31 Layer 32 — extra (non-polynomial) basis FE: B-spline +
         # Fourier. Complementary to the orth-poly path: spline catches sharp
         # local non-linearities (threshold rules ``y = sign(x - tau)``);
@@ -1342,6 +1360,10 @@ class MRMR(BaseEstimator, TransformerMixin):
             "fe_hybrid_orth_ksg_n_neighbors": 3,
             "fe_hybrid_orth_ksg_min_uplift": 0.95,
             "fe_hybrid_orth_ksg_min_abs_mi_frac": 0.05,
+            # 2026-06-01 Layer 66 — copula-MI ranking defaults.
+            # Master switch OFF preserves legacy pickle byte-equivalence.
+            "fe_hybrid_orth_copula_enable": False,
+            "fe_hybrid_orth_copula_n_bins": 20,
             # 2026-05-31 Layer 32 — extra-basis (spline / fourier) defaults.
             "fe_hybrid_orth_extra_bases": (),
             "fe_hybrid_orth_fourier_freqs": (1.0, 2.0),
