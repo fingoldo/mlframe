@@ -63,20 +63,34 @@ target `k`.
   `metric_name_higher_is_better()` resolves these via the
   registry-fallback path automatically.
 
-- **Regression reporting** — ✅ **Partially landed in commit `d48245de` (D4)**.
-  `report_regression_model_perf` detects (N, K≥2) targets/preds and
-  early-returns with the metrics dict populated from
-  `iter_extra_metrics(MULTI_TARGET_REGRESSION, ...)`. Logs aggregate
-  metrics. Per-target K-grid chart layout (scatter + histogram per
-  target column) is a future PR; the current path skips
-  chart/audit/fairness branches entirely.
+- **Regression reporting** — ✅ **Fully landed in commits `d48245de` (D4) + `86504f08` (E1)**.
+  `report_regression_model_perf` detects (N, K≥2) targets/preds and:
+  * stamps aggregated MTR metrics (rmse_macro / r2_macro / ...)
+    into the metrics dict via `iter_extra_metrics(MULTI_TARGET_REGRESSION, ...)`
+  * when `plot_outputs` + `plot_file` are set, renders ONE chart file
+    per target column via the existing `build_regression_panel_spec`
+    → `render_and_save` pipeline. Output names:
+    `{plot_file_base}_target{k}` (the renderer appends the format
+    extension from the DSL). Each per-target chart shows the same
+    scatter + histogram + residual-audit overlay as the single-target
+    report.
+  Still skipped on the MTR path: fairness subgroup, MASE,
+  prediction-envelope clip — all 1-D-only.
 
-- **CT_ENSEMBLE for MTR** — ✅ **Skip-with-WARN landed in commit `d48245de` (D2)**.
-  `_build_cross_target_ensemble_for_target` early-returns when
-  target_type is MULTI_TARGET_REGRESSION (CT_ENSEMBLE's component
-  stacking assumes 1-D y; (N, K) preds would crash or silently
-  degenerate). Future PR: per-target K-independent ensembles or
-  joint-column blending.
+- **CT_ENSEMBLE for MTR** — ✅ **Per-column equal-mean ensemble landed in commit `86504f08` (E2)**.
+  `_build_cross_target_ensemble_for_target` dispatcher routes MTR
+  targets to a new `_build_mtr_per_column_ensemble` helper that:
+  * collects components from `models[target_type][target_name]`
+  * builds `MTRPerColumnEqualMeanEnsemble` (a thin wrapper that
+    stacks K trained component models, averages their (N, K)
+    predictions across the component axis)
+  * appends the ensemble as a new entry with
+    `ct_ensemble=True + mtr_ensemble=True + ensemble_strategy="per_column_equal_mean"`
+    so downstream save / report layers treat it like any other
+    ensemble.
+  Single-component pools skip with INFO. Future PR: swap equal-weight
+  averaging for per-column honest-OOF optimal weights without changing
+  the public predict() contract.
 
 - **Composite targets (`CompositeTargetEstimator` / discovery)** —
   ⏳ NATURALLY SKIPPED. Composite discovery at
