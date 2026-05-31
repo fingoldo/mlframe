@@ -204,6 +204,32 @@ def _pack_onehot_bitmap(
     return bitmap
 
 
+# bench-attempt-rejected (2026-05-31, iter74): transposed bitmap layout
+# (max_nb, n_features, n_words) hoping LLVM would vectorize the inner word
+# loop across features. Measured at n_samples=1500 / n_threads=8 / threshold=0.4:
+#
+#   width  legacy_ms  transposed_ms  speedup
+#   100      4.2        4.6           0.91x
+#   500     86.7       87.5           0.99x
+#   1500   868.4      852.7           1.02x
+#   2000  1491.9     1505.7           0.99x
+#
+#   n_bins=4   252.6  266.2  0.95x
+#   n_bins=8   942.8  961.6  0.98x
+#   n_bins=10 1469.6 1517.1  0.97x
+#   n_bins=12 2241.0 2348.8  0.95x
+#
+# Parity held across all configs. The expected SIMD-across-features win does
+# not materialise in the per-pair (i, j) loop structure: within one
+# (a, b, w) triple the kernel only reads ONE word from each of two features,
+# so adjacent feature rows on cache lines are not reused before eviction.
+# A wider-AND-vectorization path would require restructuring to an outer
+# (a, b, w) loop accumulating ALL pair joints simultaneously, which needs
+# O(n_features^2 * max_nb^2) intermediate storage (1.8 GB at width=1500,
+# nbins=10) - blows past the 256 MB memory cap. Don't re-attempt without
+# blocking the (a, b) sweep into tiles that fit L2.
+
+
 @njit(parallel=True, nogil=True, cache=True, fastmath=False)
 def _pairwise_su_edges_bitmap(
     bitmap: np.ndarray,
