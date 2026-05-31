@@ -159,6 +159,11 @@ def _calibrate_tau_auto(
     # Lazy-import the parent's DCDState + pair_su to break the circular
     # dependency (parent re-exports these helpers in its own ``__all__``).
     from ._dynamic_cluster_discovery import DCDState, pair_su
+    # Layer 51 (2026-05-31): batched pairwise-SU dispatch. Lets the
+    # ~100-pair sweep below pre-warm the per-column entropy cache in a
+    # single sibling-column pass instead of paying the marginal-entropy
+    # cost per pair. Bit-equivalent to looped pair_su.
+    from ._dcd_pair_su_batch import pair_su_batch
 
     diagnostics: dict = {
         "n_pairs_sampled": 0,
@@ -206,13 +211,22 @@ def _calibrate_tau_auto(
         distance=str(distance),
     )
     su_scores: list = []
-    for a, b in pairs:
-        try:
-            s = pair_su(cal_state, a, b)
-        except Exception:
-            continue
-        if np.isfinite(s):
-            su_scores.append(float(s))
+    try:
+        batch_scores = pair_su_batch(cal_state, pairs)
+    except Exception:
+        batch_scores = None
+    if batch_scores is not None:
+        for s in batch_scores:
+            if np.isfinite(s):
+                su_scores.append(float(s))
+    else:
+        for a, b in pairs:
+            try:
+                s = pair_su(cal_state, a, b)
+            except Exception:
+                continue
+            if np.isfinite(s):
+                su_scores.append(float(s))
     if len(su_scores) < 10:
         return float(fallback), diagnostics
     arr = np.asarray(su_scores, dtype=np.float64)

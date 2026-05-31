@@ -240,6 +240,13 @@ from ._dcd_tau_auto import (
     _DCD_AUTO_TAU_MAX,
 )
 
+# Layer 51 (2026-05-31): batched pairwise-SU dispatcher. Sibling module
+# keeps the parent under the LOC budget; re-exported here so the
+# downstream import path
+# ``from ._dynamic_cluster_discovery import pair_su_batch`` continues
+# to work alongside ``pair_su``.
+from ._dcd_pair_su_batch import pair_su_batch
+
 
 def make_dcd_state(
     *,
@@ -1675,6 +1682,7 @@ __all__ = [
     "DCDState", "SwapDecision",
     "make_dcd_state",
     "pair_su",
+    "pair_su_batch",
     "pair_vi",
     "should_be_pruned",
     "discover_cluster_members",

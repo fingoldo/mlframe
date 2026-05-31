@@ -226,6 +226,11 @@ def build_cluster_hierarchy(
     name_to_idx = {str(c): i for i, c in enumerate(col_names)}
     # Lazy-import to break the circular dependency with the parent module.
     from ._dynamic_cluster_discovery import DCDState, pair_su
+    # Layer 51 (2026-05-31): batched pairwise-SU dispatch for the
+    # anchors-cross-anchors O(K^2) sweep at every hierarchy level.
+    # Bit-equivalent to looped pair_su; pre-warms the per-column
+    # entropy cache for all anchor columns in one sibling-column pass.
+    from ._dcd_pair_su_batch import pair_su_batch
 
     cal_state = DCDState(
         pool_pruned_mask=np.zeros(factors_data.shape[1], dtype=bool),
@@ -250,14 +255,37 @@ def build_cluster_hierarchy(
             break
         resolved_names = sorted(resolved.keys())
         pair_sus: dict = {}
+        # Layer 51: batched pairwise-SU dispatch. The (a, b) name pairs
+        # are mapped to their resolved column indices in one pass; the
+        # batch call pre-warms per-column entropies for every anchor
+        # column once instead of paying the marginal cost per pair.
+        index_pairs: list = []
+        name_pairs: list = []
         for i in range(len(resolved_names)):
             for j in range(i + 1, len(resolved_names)):
-                a, b = resolved_names[i], resolved_names[j]
+                a_name, b_name = resolved_names[i], resolved_names[j]
+                a_idx = int(resolved[a_name])
+                b_idx = int(resolved[b_name])
+                index_pairs.append((a_idx, b_idx))
+                name_pairs.append((a_name, b_name))
+        try:
+            scores = pair_su_batch(cal_state, index_pairs)
+        except Exception:
+            scores = None
+        if scores is None:
+            for (a_name, b_name), (a_idx, b_idx) in zip(name_pairs, index_pairs):
                 try:
-                    s = pair_su(cal_state, int(resolved[a]), int(resolved[b]))
+                    s = pair_su(cal_state, a_idx, b_idx)
                 except Exception:
                     s = 0.0
-                pair_sus[(a, b)] = float(s) if np.isfinite(s) else 0.0
+                pair_sus[(a_name, b_name)] = (
+                    float(s) if np.isfinite(s) else 0.0
+                )
+        else:
+            for (a_name, b_name), s in zip(name_pairs, scores):
+                pair_sus[(a_name, b_name)] = (
+                    float(s) if np.isfinite(s) else 0.0
+                )
         components = _components_from_pair_sus(
             resolved_names, pair_sus, super_tau,
         )
