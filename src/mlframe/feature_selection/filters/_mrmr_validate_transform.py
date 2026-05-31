@@ -423,7 +423,29 @@ def _append_engineered(self, base_out, X, recipes):
             _X_for_recipes = pd.DataFrame(X, columns=list(self.feature_names_in_))
         except Exception:
             _X_for_recipes = X
-    engineered_cols = [apply_recipe(r, _X_for_recipes) for r in recipes]
+    # Recipe replay must support multi-level chaining: a spline / fourier / hybrid
+    # extra-basis recipe can carry ``src_names=('x__He2',)`` referencing a sibling
+    # ``orth_univariate`` recipe rather than a raw input column. The fit-time pipeline
+    # appends each level's columns to the augmented frame before the next level runs,
+    # so the recipe order recorded in ``_engineered_recipes_`` is already a valid
+    # topological order. We mirror that here: materialise each recipe's output into
+    # a per-row working frame so subsequent recipes can resolve their ``src_names``.
+    # Falls back transparently to the legacy single-pass behaviour for recipes whose
+    # src_names point only at raw input columns.
+    engineered_cols = []
+    if isinstance(_X_for_recipes, pd.DataFrame):
+        chained = _X_for_recipes
+        for r in recipes:
+            col = apply_recipe(r, chained)
+            engineered_cols.append(col)
+            # Append the engineered column so a later recipe whose src_names references
+            # ``r.name`` (e.g. spline-on-He2) resolves cleanly. Using assign avoids
+            # mutating the caller's DataFrame.
+            chained = chained.assign(**{r.name: col})
+    else:
+        # ndarray / polars path: best-effort single pass (recipes that reference
+        # engineered intermediates aren't expressible without a name-indexed frame).
+        engineered_cols = [apply_recipe(r, _X_for_recipes) for r in recipes]
     if isinstance(base_out, pd.DataFrame):
         # ``copy=False`` would risk mutating caller's view (base_out is a view into pandas X). Build a narrow
         # new frame: engineered cols are fresh ndarrays anyway, only base cols share buffers with X.
