@@ -23,7 +23,13 @@ from mlframe.feature_selection._shap_proxy_objective import coalition_margin, pr
 
 
 class _Evaluator:
-    """Memoised proxy-loss evaluator over feature-index subsets (keyed by sorted tuple)."""
+    """Memoised proxy-loss evaluator over feature-index subsets (keyed by sorted tuple).
+
+    Also caches the per-subset coalition *margin* vector so that neighbourhood moves
+    (add / drop / flip) which differ from a known parent by one feature can update the
+    margin via a single O(n) vector add instead of recomputing the full ``phi[:, idx].sum``
+    reduction (the brute-force kernel uses the same incremental-sum trick).
+    """
 
     def __init__(self, phi, base, y, metric):
         self.phi = phi
@@ -31,10 +37,21 @@ class _Evaluator:
         self.y = y
         self.metric = metric
         self.cache: dict[tuple[int, ...], float] = {}
+        # Margin cache is opt-in (memory cost = O(|cached subsets| * n_samples)). Beam /
+        # greedy callers populate via ``loss_from_margin`` so add-one-feature children are cheap.
+        self.margin_cache: dict[tuple[int, ...], np.ndarray] = {}
         self.n_evals = 0
 
+    @staticmethod
+    def _key(idx) -> tuple[int, ...]:
+        # Skip the per-element ``int(i)`` cast on the fast path (Python int / numpy scalar tuples
+        # iterate fine into ``sorted``); fall back only for exotic inputs.
+        if isinstance(idx, tuple):
+            return idx if _is_sorted_tuple(idx) else tuple(sorted(idx))
+        return tuple(sorted(int(i) for i in idx))
+
     def loss(self, idx) -> float:
-        key = tuple(sorted(int(i) for i in idx))
+        key = self._key(idx)
         cached = self.cache.get(key)
         if cached is not None:
             return cached
@@ -46,10 +63,71 @@ class _Evaluator:
         self.n_evals += 1
         return val
 
+    def loss_with_margin(self, key: tuple[int, ...]) -> tuple[float, np.ndarray]:
+        """Compute (or return cached) loss + margin for a pre-sorted key.
+
+        Caller MUST pass an already sorted tuple of python ints. Used by beam / greedy
+        seeding so subsequent ``loss_from_parent`` calls can update the margin incrementally.
+        """
+        cached_loss = self.cache.get(key)
+        cached_margin = self.margin_cache.get(key)
+        if cached_loss is not None and cached_margin is not None:
+            return cached_loss, cached_margin
+        if len(key) == 0:
+            margin = self.base.copy()
+            val = float("inf")
+        else:
+            margin = coalition_margin(self.phi, self.base, list(key))
+            val = proxy_loss(margin, self.y, self.metric)
+        self.cache[key] = val
+        self.margin_cache[key] = margin
+        if cached_loss is None:
+            self.n_evals += 1
+        return val, margin
+
+    def loss_from_parent(self, parent_key: tuple[int, ...], parent_margin: np.ndarray,
+                        new_j: int) -> tuple[float, tuple[int, ...], np.ndarray]:
+        """Score ``parent_key + {new_j}`` reusing ``parent_margin``; insertion keeps key sorted.
+
+        Returns (loss, child_key, child_margin). ``child_margin`` is cached so the next
+        layer's expansion of this child also reuses it. ``new_j`` must NOT be in ``parent_key``.
+        """
+        # Insert new_j into the sorted parent_key (binary insert keeps tuple ordered).
+        lo, hi = 0, len(parent_key)
+        while lo < hi:
+            mid = (lo + hi) >> 1
+            if parent_key[mid] < new_j:
+                lo = mid + 1
+            else:
+                hi = mid
+        child_key = parent_key[:lo] + (new_j,) + parent_key[lo:]
+        cached_loss = self.cache.get(child_key)
+        cached_margin = self.margin_cache.get(child_key)
+        if cached_loss is not None and cached_margin is not None:
+            return cached_loss, child_key, cached_margin
+        child_margin = parent_margin + self.phi[:, new_j]
+        val = proxy_loss(child_margin, self.y, self.metric)
+        self.cache[child_key] = val
+        self.margin_cache[child_key] = child_margin
+        if cached_loss is None:
+            self.n_evals += 1
+        return val, child_key, child_margin
+
     def top_n(self, n: int) -> list[tuple[float, tuple[int, ...]]]:
         items = [(v, k) for k, v in self.cache.items() if k and np.isfinite(v)]
         items.sort(key=lambda t: t[0])
         return items[:n]
+
+
+def _is_sorted_tuple(t: tuple) -> bool:
+    # Fast verify ints + sorted; falls back if any non-int slips in (e.g. numpy scalars).
+    for i in range(1, len(t)):
+        a, b = t[i - 1], t[i]
+        if not (type(a) is int and type(b) is int):
+            return False
+        if a > b:
+            return False
+    return len(t) == 0 or type(t[0]) is int
 
 
 def _prep(phi, base, y, classification, metric):
@@ -64,21 +142,31 @@ def beam_search(phi, base, y, *, classification, metric=None, beam_width=8, min_
     f = phi.shape[1]
     max_card = f if max_card is None else min(max_card, f)
     ev = _Evaluator(phi, base, y, metric)
-    # Seed the beam with the best single features.
-    singles = sorted(((ev.loss((j,)), (j,)) for j in range(f)), key=lambda t: t[0])
-    beam = [c for _, c in singles[:beam_width]]
+    # Seed the beam with the best single features (margin cached so layer-1 expansion reuses it).
+    seeded: list[tuple[float, tuple[int, ...], np.ndarray]] = []
+    for j in range(f):
+        loss, margin = ev.loss_with_margin((j,))
+        seeded.append((loss, (j,), margin))
+    seeded.sort(key=lambda t: t[0])
+    beam = [(key, margin) for _, key, margin in seeded[:beam_width]]
     for _ in range(min_card, max_card):
-        expanded = {}
-        for subset in beam:
+        # ``expanded`` maps sorted-key -> loss; we evaluate each (parent, new_j) by single
+        # O(n) vector add over the cached parent margin instead of recomputing the full sum.
+        expanded: dict[tuple[int, ...], tuple[float, np.ndarray]] = {}
+        for parent_key, parent_margin in beam:
+            parent_set = set(parent_key)
             for j in range(f):
-                if j in subset:
+                if j in parent_set:
                     continue
-                cand = tuple(sorted(subset + (j,)))
-                if cand not in expanded:
-                    expanded[cand] = ev.loss(cand)
+                loss, child_key, child_margin = ev.loss_from_parent(parent_key, parent_margin, j)
+                # Sibling parents may reach the same child via different add-orders -- keep the
+                # already-computed value (deterministic, since the loss is a pure function of key).
+                if child_key not in expanded:
+                    expanded[child_key] = (loss, child_margin)
         if not expanded:
             break
-        beam = [c for c, _ in sorted(expanded.items(), key=lambda t: t[1])[:beam_width]]
+        ranked = sorted(expanded.items(), key=lambda t: t[1][0])[:beam_width]
+        beam = [(key, val[1]) for key, val in ranked]
     return ev.top_n(top_n)
 
 
@@ -88,17 +176,21 @@ def greedy_forward(phi, base, y, *, classification, metric=None, max_card=None, 
     max_card = f if max_card is None else min(max_card, f)
     ev = _Evaluator(phi, base, y, metric)
     current: tuple[int, ...] = ()
+    # Empty subset has base as margin; cache it so the first add-feature step reuses it.
+    cur_margin = base.copy()
     best_loss = float("inf")
     remaining = set(range(f))
     while remaining and len(current) < max_card:
-        cand_best, cand_loss = None, float("inf")
+        cand_best, cand_loss, cand_margin = None, float("inf"), None
         for j in remaining:
-            l = ev.loss(current + (j,))
+            l, _, m = ev.loss_from_parent(current, cur_margin, j)
             if l < cand_loss:
-                cand_loss, cand_best = l, j
+                cand_loss, cand_best, cand_margin = l, j, m
         if cand_best is None or cand_loss >= best_loss:
             break
+        # Re-derive the sorted key (cheap; len <= max_card) and reuse the chosen child's margin.
         current = tuple(sorted(current + (cand_best,)))
+        cur_margin = cand_margin
         best_loss = cand_loss
         remaining.discard(cand_best)
     return ev.top_n(top_n)
