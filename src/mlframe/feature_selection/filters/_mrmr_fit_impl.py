@@ -1693,6 +1693,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     )
                     if getattr(self, "dcd_enable", False) else None
                 ),
+                # 2026-05-31 Layer 43 (PART A) — thread the local
+                # engineered_recipes dict into screen so DCD's commit_swap can
+                # register the PC1 aggregate as a replayable EngineeredRecipe.
+                # Pre-fix the dict was inaccessible from screen and the swap
+                # silently dropped the aggregate from ``_engineered_recipes_``.
+                engineered_recipes=engineered_recipes,
             )
         )
         # 2026-05-30 Wave 9 — stash DCD summary on the estimator for the

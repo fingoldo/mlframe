@@ -629,7 +629,18 @@ class MRMR(BaseEstimator, TransformerMixin):
         # (next layer). Pin =2 explicitly to enable the new gate.
         dcd_cluster_size_threshold: int = 4,
         dcd_swap_gain_threshold: float = 0.05,
-        dcd_swap_method: str = "pca_pc1",
+        # 2026-05-31 Layer 43 (PART B): default flipped to ``"auto"``. When set
+        # to ``"auto"``, ``evaluate_swap_candidate`` runs a K-fold (n_folds=5)
+        # OOF conditional-MI scoring over the three linear-combiner methods
+        # (``mean_z``, ``mean_inv_var``, ``pca_pc1``) and picks the winner per
+        # cluster. The winning method name is persisted in the recipe ``extra``
+        # and the ``swap_log`` entry. Replay (``_apply_cluster_aggregate``)
+        # uses the chosen method bit-identically (no y at transform time).
+        # Pinning a specific method (``"pca_pc1"`` etc.) keeps the legacy
+        # single-method path; pinning ``"auto"`` is the strict superset of the
+        # legacy default since the auto path includes ``pca_pc1`` as a
+        # candidate and picks it whenever it dominates.
+        dcd_swap_method: str = "auto",
         dcd_pairwise_cache_max: int = 50_000,
         dcd_min_cluster_size: int = 2,
         dcd_max_cluster_size: int = 12,
@@ -885,7 +896,7 @@ class MRMR(BaseEstimator, TransformerMixin):
     # 2026-05-30 Wave 9 — DCD validation constants. swap_methods alias the
     # cluster_aggregate methods (Critic2/E fix: no duplicate constant).
     _VALID_DCD_DISTANCES = ("su", "vi", "sotoca_pla")
-    _VALID_DCD_SWAP_METHODS = ("mean_z", "mean_inv_var", "median", "pca_pc1", "factor_score")
+    _VALID_DCD_SWAP_METHODS = ("auto", "mean_z", "mean_inv_var", "median", "pca_pc1", "factor_score")
 
     # ``_validate_string_params`` + ``_validate_inputs`` are implemented
     # in ``_mrmr_validate_transform.py`` and bound onto this class at the

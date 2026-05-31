@@ -117,6 +117,13 @@ def screen_predictors(
     # quantization_method, quantization_nbins, quantization_dtype, factors_cols.
     # None preserves pre-Wave-9 behaviour bit-stable.
     dcd_config: dict = None,
+    # 2026-05-31 Layer 43 (PART A) — host-MRMR engineered_recipes dict (name ->
+    # EngineeredRecipe). Threaded into ``commit_swap`` so the DCD PC1 aggregate
+    # gets registered as a replayable recipe. Pre-fix it was hardcoded to None
+    # at the commit_swap callsite -> aggregate appeared in ``selected_vars`` /
+    # ``cols`` but the remap in _mrmr_fit_impl.py dropped it from
+    # ``_engineered_recipes_`` so ``get_feature_names_out`` silently lost it.
+    engineered_recipes: dict = None,
 ) -> float:
     """Finds best predictors for the target. ``factors_data`` must be an n-by-m array of integers (ordinal encoded).
 
@@ -711,11 +718,21 @@ def screen_predictors(
                                         )
                                         if _decision.accept:
                                             _data_ref = {}
+                                            # 2026-05-31 Layer 43 (PART A) fix:
+                                            # pass the host MRMR's engineered_recipes
+                                            # dict so commit_swap registers the PC1
+                                            # aggregate as an EngineeredRecipe. Pre-
+                                            # fix this was hardcoded to None and the
+                                            # aggregate name was dropped by the
+                                            # _mrmr_fit_impl.py remap that copies
+                                            # engineered_recipes.get(name) into
+                                            # self._engineered_recipes_. Net result:
+                                            # support_ silently shrank when swap fired.
                                             _new_idx = _dcd_commit_swap(
                                                 dcd_state, int(var), _decision,
                                                 selected_vars=selected_vars,
                                                 data_ref=_data_ref,
-                                                engineered_recipes=None,
+                                                engineered_recipes=engineered_recipes,
                                                 predictors_log=predictors,
                                             )
                                             # Re-bind the loop-local matrix refs

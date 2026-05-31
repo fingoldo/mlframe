@@ -595,6 +595,118 @@ def discover_cluster_members(
 
 
 # =============================================================================
+# Layer 43 (PART B): auto-method selection via K-fold OOF MI bake-off
+# =============================================================================
+
+
+_AUTO_METHOD_CANDIDATES = ("mean_z", "mean_inv_var", "pca_pc1")
+
+
+def _select_swap_method_auto(
+    *,
+    state: DCDState,
+    Z: np.ndarray,
+    target_y,
+    member_names: tuple,
+    n_folds: int = 5,
+) -> tuple:
+    """K-fold OOF MI bake-off over the three linear-combiner methods.
+
+    For each method in ``_AUTO_METHOD_CANDIDATES``:
+      1. Split rows into ``n_folds`` folds (deterministic by hash of member_names).
+      2. For each fold: derive weights on the train rows of Z, project the
+         held-out rows to a scalar aggregate, bin via the quantization recipe.
+      3. Compute MI(aggregate_oof; y_held_out) on the held-out rows.
+      4. Mean the per-fold MIs.
+    Returns ``(winner_method, scores_dict)`` where ``scores_dict`` maps every
+    method to its mean OOF MI. Caches under ``state._auto_method_cache`` keyed
+    by ``member_names`` for cheap re-evaluation.
+    """
+    from ._cluster_aggregate import _standardize_align, _derive_weights
+    # Cache lookup -- same cluster, same bake-off result.
+    cache = getattr(state, "_auto_method_cache", None)
+    if cache is None:
+        cache = {}
+        state._auto_method_cache = cache  # type: ignore[attr-defined]
+    cache_key = tuple(member_names)
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    # Resolve target -- prefer state's target index column.
+    y_arr = None
+    if state.target_indices is not None and state.target_indices.size > 0 and state.factors_data is not None:
+        try:
+            y_arr = np.asarray(state.factors_data[:, int(state.target_indices[0])], dtype=np.int64)
+        except Exception:
+            y_arr = None
+    if y_arr is None and target_y is not None:
+        y_arr = np.asarray(target_y, dtype=np.int64).ravel()
+    if y_arr is None or y_arr.size != Z.shape[0]:
+        # Cannot K-fold without a per-row target -> fall back to pca_pc1.
+        result = ("pca_pc1", {})
+        cache[cache_key] = result
+        return result
+
+    n_samples = Z.shape[0]
+    n_folds_eff = max(2, min(int(n_folds), n_samples))
+    # Deterministic shuffle seeded by member_names so repeat runs are stable.
+    seed_material = abs(hash(cache_key)) & 0xFFFFFFFF
+    rng = np.random.default_rng(int(seed_material))
+    perm = rng.permutation(n_samples)
+    fold_sizes = np.full(n_folds_eff, n_samples // n_folds_eff, dtype=np.int64)
+    fold_sizes[: n_samples % n_folds_eff] += 1
+    fold_bounds = np.concatenate([[0], np.cumsum(fold_sizes)])
+
+    scores = {}
+    for method in _AUTO_METHOD_CANDIDATES:
+        fold_mis = []
+        for f in range(n_folds_eff):
+            test_idx = perm[fold_bounds[f]: fold_bounds[f + 1]]
+            train_mask = np.ones(n_samples, dtype=bool)
+            train_mask[test_idx] = False
+            if train_mask.sum() < 3 or test_idx.size < 2:
+                continue
+            try:
+                Z_train = Z[train_mask]
+                Z_test = Z[test_idx]
+                w = _derive_weights(Z_train, method)
+                if w is None:
+                    continue
+                rep_test = Z_test @ np.asarray(w, dtype=np.float64)
+                rep_test = np.nan_to_num(rep_test, nan=0.0, posinf=0.0, neginf=0.0)
+                # Bin rep_test with the recipe's quantization (uses test-fold
+                # edges -- cheap, fold-local).
+                rep_binned = _binarize_aggregate(
+                    rep_test, method=state.quantization_method,
+                    n_bins=state.quantization_nbins, dtype=state.quantization_dtype,
+                )
+                y_test = y_arr[test_idx]
+                # MI(rep_binned; y_test). Use the mlframe info_theory.mi with
+                # a 2-col data block (rep_binned, y_test).
+                from .info_theory import mi as _mi_func
+                _data = np.column_stack([
+                    rep_binned.astype(np.int64), y_test.astype(np.int64),
+                ])
+                _nb_rep = int(rep_binned.max()) + 1 if rep_binned.size else int(state.quantization_nbins)
+                _nb_y = int(y_test.max()) + 1 if y_test.size else 2
+                _nbins_arr = np.array([_nb_rep, _nb_y], dtype=np.int64)
+                _mi_val = float(_mi_func(
+                    _data, np.array([0], dtype=np.int64),
+                    np.array([1], dtype=np.int64), _nbins_arr,
+                ))
+                fold_mis.append(_mi_val)
+            except Exception:
+                continue
+        scores[method] = float(np.mean(fold_mis)) if fold_mis else 0.0
+
+    # Winner: highest mean OOF MI; tie-break by candidate order (mean_z first).
+    winner = max(_AUTO_METHOD_CANDIDATES, key=lambda m: (scores.get(m, 0.0), -_AUTO_METHOD_CANDIDATES.index(m)))
+    result = (winner, scores)
+    cache[cache_key] = result
+    return result
+
+
+# =============================================================================
 # Pre-confirmation swap evaluation
 # =============================================================================
 
@@ -661,10 +773,29 @@ def evaluate_swap_candidate(
             return SwapDecision(accept=False)
         M = M[:, finite_mask]
         Z, mean, std, signs = _standardize_align(M, ref_col=0)
-        weights = _derive_weights(Z, state.swap_method)
-        if weights is None:
-            return SwapDecision(accept=False)
-        rep_continuous = (Z @ weights).astype(np.float64)
+        # 2026-05-31 Layer 43 (PART B): ``auto`` swap method.
+        # Run a K-fold (n_folds=5) OOF MI bake-off over the three linear-
+        # combiner methods and pick the per-cluster winner. The chosen method
+        # is recorded in the recipe + swap_log so replay uses it bit-identically
+        # (no y at transform time). K-fold scores are cached on
+        # state._auto_method_cache keyed by tuple(member_names) so successive
+        # re-evaluations of the same cluster reuse the bake-off.
+        if str(state.swap_method) == "auto":
+            chosen_method, kfold_scores = _select_swap_method_auto(
+                state=state, Z=Z, target_y=target_y,
+                member_names=tuple(member_names),
+            )
+        else:
+            chosen_method = str(state.swap_method)
+            kfold_scores = None
+        if chosen_method == "median":
+            weights = None
+            rep_continuous = np.median(Z, axis=1).astype(np.float64)
+        else:
+            weights = _derive_weights(Z, chosen_method)
+            if weights is None:
+                return SwapDecision(accept=False)
+            rep_continuous = (Z @ weights).astype(np.float64)
         # Bin the rep via quantile/uniform to integer codes.
         rep_binned = _binarize_aggregate(
             rep_continuous, method=state.quantization_method,
@@ -788,16 +919,29 @@ def evaluate_swap_candidate(
         f"_dcd_pc1_{'_'.join(str(cols[m])[:6] for m in members[:3])}"
         f"_n{len(members)}_a{anchor}"
     )
+    # 2026-05-31 Layer 43 (PART B): record the chosen method (the actual
+    # combiner used to build ``rep_continuous``) in the recipe, NOT the user-
+    # facing ``state.swap_method`` string. When ``auto`` was active, the
+    # chosen method is the K-fold OOF winner; when a specific method was
+    # pinned, chosen_method == state.swap_method. Replay reads recipe.method
+    # so the transform-time aggregate is bit-identical with fit.
+    recipe_obj = {
+        "method": chosen_method, "members": members,
+        "mean": mean.tolist(), "std": std.tolist(),
+        "signs": signs.tolist(),
+    }
+    if weights is not None:
+        recipe_obj["weights"] = weights.tolist()
+    if kfold_scores is not None:
+        recipe_obj["kfold_scores"] = {k: float(v) for k, v in kfold_scores.items()}
+        recipe_obj["auto_winner"] = chosen_method
     return SwapDecision(
         accept=True,
         new_col_idx=new_col_idx,
         aggregate_name=aggregate_name,
         binned_rep=rep_binned,
         new_nbins=int(nbins_with_rep[-1]),
-        recipe_obj={"method": state.swap_method, "members": members,
-                     "mean": mean.tolist(), "std": std.tolist(),
-                     "signs": signs.tolist(),
-                     "weights": weights.tolist()},
+        recipe_obj=recipe_obj,
         rep_relevance=rep_relevance,
         anchor_relevance_in_ctx=anchor_rel,
         perm_p_value=perm_p_value,
@@ -896,8 +1040,82 @@ def commit_swap(
     if int(anchor) < state.pool_pruned_mask.shape[0]:
         state.pool_pruned_mask[int(anchor)] = True
     # 5. Persist recipe + log.
+    # 2026-05-31 Layer 43 (PART A): when an ``engineered_recipes`` dict is
+    # supplied (host MRMR's name->EngineeredRecipe map), upgrade the swap
+    # ``recipe_obj`` (a plain dict carrying method/members/mean/std/signs/
+    # weights) to a frozen ``EngineeredRecipe`` of kind ``cluster_aggregate``
+    # so the ``_mrmr_fit_impl`` remap routes it into ``self._engineered_recipes_``
+    # and ``get_feature_names_out`` / ``transform`` replay the PC1 aggregate
+    # column. Pre-fix this stored a raw dict and the remap dropped the
+    # aggregate from ``support_``/output silently.
     if engineered_recipes is not None and decision.aggregate_name:
-        engineered_recipes[decision.aggregate_name] = decision.recipe_obj
+        _recipe = decision.recipe_obj
+        if isinstance(_recipe, dict):
+            try:
+                from .engineered_recipes import build_cluster_aggregate_recipe
+                _src_names = tuple(
+                    str(state.cols[m]) if 0 <= m < len(state.cols) else f"col_{m}"
+                    for m in _recipe.get("members", [])
+                )
+                _quant = {
+                    "nbins": int(state.quantization_nbins),
+                    "method": str(state.quantization_method),
+                    "dtype": np.dtype(state.quantization_dtype).str,
+                }
+                # Persist fit-time bin edges so ``_apply_cluster_aggregate``
+                # uses identical edges at transform-time (no re-quantile drift).
+                _bin = np.asarray(decision.binned_rep)
+                if _bin.size > 0:
+                    n_bins_eff = int(_bin.max()) + 1
+                    _q_arr = np.linspace(0.0, 100.0, n_bins_eff + 1)
+                    # Reconstruct continuous rep so we can derive edges
+                    # consistent with the fit-time binning.
+                    try:
+                        # Use the same standardized + sign-aligned matrix the
+                        # swap was evaluated against. X_raw_ref + src_names are
+                        # the canonical sources.
+                        if state.X_raw_ref is not None and hasattr(state.X_raw_ref, "columns"):
+                            _M = state.X_raw_ref[list(_src_names)].to_numpy(
+                                dtype=np.float64, copy=True,
+                            )
+                            _mean = np.asarray(_recipe["mean"], dtype=np.float64)
+                            _std_raw = np.asarray(_recipe["std"], dtype=np.float64)
+                            _std = np.where(_std_raw > 0.0, _std_raw, 1.0)
+                            _signs = np.asarray(_recipe["signs"], dtype=np.float64)
+                            _Z = ((_M - _mean) / _std) * _signs
+                            if _recipe.get("method") == "median":
+                                _cont = np.median(_Z, axis=1)
+                            else:
+                                _cont = _Z @ np.asarray(_recipe["weights"], dtype=np.float64)
+                            _cont = np.nan_to_num(
+                                _cont, copy=False, nan=0.0, posinf=0.0, neginf=0.0,
+                            )
+                            _edges = np.nanpercentile(_cont, _q_arr)
+                            _quant["edges"] = _edges.tolist()
+                    except Exception:
+                        pass
+                engineered_recipe = build_cluster_aggregate_recipe(
+                    name=str(decision.aggregate_name),
+                    src_names=_src_names,
+                    method=str(_recipe.get("method", "pca_pc1")),
+                    member_mean=np.asarray(_recipe["mean"], dtype=np.float64),
+                    member_std=np.asarray(_recipe["std"], dtype=np.float64),
+                    signs=np.asarray(_recipe["signs"], dtype=np.float64),
+                    weights=(
+                        np.asarray(_recipe["weights"], dtype=np.float64)
+                        if "weights" in _recipe else None
+                    ),
+                    quantization=_quant,
+                )
+                engineered_recipes[decision.aggregate_name] = engineered_recipe
+            except Exception as _build_exc:
+                logger.warning(
+                    "DCD commit_swap: failed to build EngineeredRecipe "
+                    "(falling back to dict): %r", _build_exc,
+                )
+                engineered_recipes[decision.aggregate_name] = _recipe
+        else:
+            engineered_recipes[decision.aggregate_name] = _recipe
     if predictors_log is not None:
         predictors_log.append({
             "dcd_swap": True,
@@ -906,14 +1124,28 @@ def commit_swap(
             "aggregate_name": decision.aggregate_name,
             "n_members": len(cluster_members),
         })
-    state.swap_log.append({
+    # 2026-05-31 Layer 43 (PART B): record the chosen swap method (and any
+    # K-fold OOF bake-off scores when ``auto`` ran) in the swap_log entry so
+    # downstream callers can audit per-cluster method selection.
+    _swap_log_entry = {
         "anchor": int(anchor),
         "new_col_idx": new_idx,
         "aggregate_name": decision.aggregate_name,
         "n_members": len(cluster_members),
         "rep_relevance": float(decision.rep_relevance),
         "anchor_relevance_in_ctx": float(decision.anchor_relevance_in_ctx),
-    })
+    }
+    if isinstance(decision.recipe_obj, dict):
+        _method = decision.recipe_obj.get("method")
+        if _method is not None:
+            _swap_log_entry["method"] = str(_method)
+        _kfold = decision.recipe_obj.get("kfold_scores")
+        if _kfold is not None:
+            _swap_log_entry["kfold_scores"] = {k: float(v) for k, v in _kfold.items()}
+        _winner = decision.recipe_obj.get("auto_winner")
+        if _winner is not None:
+            _swap_log_entry["auto_winner"] = str(_winner)
+    state.swap_log.append(_swap_log_entry)
     return new_idx
 
 
