@@ -115,6 +115,18 @@ class MLPTorchModel(L.LightningModule):
 
         Compiled models cannot be pickled in PyTorch 2.8 ("cannot pickle 'ConfigModuleInstance' object"),
         which breaks checkpoint saving. See https://github.com/pytorch/pytorch/issues/126154.
+
+        F-35 (2026-05-31) safety guards added per 2026-05-31 PyTorch
+        optimization audit (Agent A torch.compile research):
+          * LSTM/GRU/RNN networks: TorchDynamo INTENTIONALLY graph-breaks
+            on these (pytorch/pytorch#167275, #140845). Compiled is SLOWER
+            than eager due to host-device syncs around the cuDNN call.
+            Detect + skip + WARN; users who set compile_network globally
+            should NOT silently regress recurrent fits.
+          * MLFRAME_TORCH_COMPILE_DEBUG=1 env var: routes graph_break +
+            recompile events through torch._logging.set_logs so the next
+            perf investigation has visibility. Off by default (logs would
+            spam STDERR otherwise).
         """
         if not self.hparams.compile_network:
             return
@@ -122,6 +134,37 @@ class MLPTorchModel(L.LightningModule):
         if torch.__version__ < "2.0":
             logger.warning("torch.compile requires PyTorch >= 2.0. Skipping compilation.")
             return
+
+        # F-35 safety guard: LSTM/GRU/RNN are explicitly anti-compile.
+        _recurrent_types = (torch.nn.LSTM, torch.nn.GRU, torch.nn.RNN)
+        try:
+            _has_recurrent = any(
+                isinstance(m, _recurrent_types) for m in self.network.modules()
+            )
+        except Exception:
+            _has_recurrent = False
+        if _has_recurrent:
+            logger.warning(
+                "torch.compile requested but network contains LSTM/GRU/RNN "
+                "modules. TorchDynamo intentionally graph-breaks on these "
+                "(pytorch/pytorch#167275, #140845); compiled is SLOWER than "
+                "eager. Skipping compile for this network."
+            )
+            return
+
+        # Opt-in debug logs for graph breaks + recompiles.
+        import os as _os_dbg
+        if _os_dbg.environ.get("MLFRAME_TORCH_COMPILE_DEBUG", "0") == "1":
+            try:
+                import torch._logging as _tlog
+                _tlog.set_logs(graph_breaks=True, recompiles=True)
+                logger.info(
+                    "MLFRAME_TORCH_COMPILE_DEBUG=1: enabled torch._logging "
+                    "graph_breaks + recompiles. Re-run with --no-cov + capture "
+                    "STDERR to inspect."
+                )
+            except Exception as _dbg_err:
+                logger.debug("torch._logging.set_logs failed: %s", _dbg_err)
 
         try:
             self.network = torch.compile(self.network, mode=self.hparams.compile_network)
@@ -622,7 +665,16 @@ class MLPTorchModel(L.LightningModule):
         else:
             x = batch
 
-        with torch.no_grad():
+        # F-35 (2026-05-31): torch.inference_mode() replaces torch.no_grad()
+        # to be torch.compile-friendly. torch.no_grad() still graph-breaks
+        # under TorchDynamo in some PyTorch 2.x versions (the "data-
+        # dependent context manager" pattern); torch.inference_mode() is
+        # the modern equivalent with cleaner graph capture semantics. The
+        # observable behaviour is identical (no grad tracking) for
+        # standard tensor ops; inference_mode additionally blocks
+        # version-counter mutation which catches a class of user bugs
+        # cheaply. Per torch.inference_mode docs.
+        with torch.inference_mode():
             logits = self(x)
 
         # task_type='regression' (F-24) returns raw values regardless of

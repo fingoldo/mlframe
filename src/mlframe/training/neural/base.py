@@ -763,6 +763,60 @@ class PytorchLightningEstimator(BaseEstimator):
         if "logger" not in trainer_params:
             trainer_params["logger"] = CSVLogger(save_dir=_ckpt_root, name="")
 
+        # F-36 (2026-05-31): opt-in torch.profiler integration via
+        # MLFRAME_TORCH_PROFILE=1. Per the 2026-05-31 PyTorch optimization
+        # audit (Agent B profiler research), shallow tabular MLPs are
+        # typically kernel-launch-bound rather than compute-bound — the
+        # 20-40% wall typically spent in inter-kernel gaps is invisible
+        # to cProfile (a pure CPU profiler) but immediately visible in
+        # torch.profiler's CUDA trace. Lightning's PyTorchProfiler wraps
+        # torch.profiler with per-hook record_function ranges already
+        # present in the LightningModule call graph, so the trace shows
+        # training_step / backward / optimizer_step bounds for free.
+        # Defaults: 5-step rolling window (wait=1, warmup=1, active=3) +
+        # Chrome trace export to MLFRAME_TORCH_PROFILE_DIR (or ./torch_traces).
+        if "profiler" not in trainer_params:
+            if os.environ.get("MLFRAME_TORCH_PROFILE", "0") == "1":
+                try:
+                    from lightning.pytorch.profilers import PyTorchProfiler
+                    _activities = [torch.profiler.ProfilerActivity.CPU]
+                    if torch.cuda.is_available():
+                        _activities.append(torch.profiler.ProfilerActivity.CUDA)
+                    _prof_dir = os.environ.get(
+                        "MLFRAME_TORCH_PROFILE_DIR",
+                        os.path.join(_ckpt_root, "torch_traces"),
+                    )
+                    os.makedirs(_prof_dir, exist_ok=True)
+                    # group_by_input_shapes helps recurrent models where
+                    # variable seq-lens would otherwise collapse into a
+                    # single bucket; harmless for fixed-shape MLP.
+                    trainer_params["profiler"] = PyTorchProfiler(
+                        dirpath=_prof_dir,
+                        filename=f"mlp_{os.getpid()}",
+                        export_to_chrome=True,
+                        record_module_names=True,
+                        activities=_activities,
+                        schedule=torch.profiler.schedule(
+                            wait=1, warmup=1, active=3, repeat=1,
+                        ),
+                        record_shapes=True,
+                        profile_memory=True,
+                        with_stack=False,
+                        with_flops=True,
+                        group_by_input_shapes=True,
+                    )
+                    logger.info(
+                        "F-36: MLFRAME_TORCH_PROFILE=1 active; chrome traces "
+                        "land in %s. Open via chrome://tracing or Perfetto.",
+                        _prof_dir,
+                    )
+                except Exception as _prof_err:
+                    logger.warning(
+                        "MLFRAME_TORCH_PROFILE=1 but profiler setup failed "
+                        "(%s); fit continues without profiling.",
+                        _prof_err,
+                    )
+
         callbacks = [checkpointing]
         # Lightning raises ``MisconfigurationException`` when both
         # ``enable_progress_bar=False`` is in trainer_params AND a
