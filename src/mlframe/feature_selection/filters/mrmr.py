@@ -614,6 +614,19 @@ class MRMR(BaseEstimator, TransformerMixin):
         dcd_enable: bool = True,
         dcd_tau_cluster: float = 0.7,
         dcd_distance: str = "su",
+        # 2026-05-31 Layer 42: default kept at 4 pending downstream fix.
+        # Lowering to 2 (member count beyond anchor) makes the canonical
+        # 3-feature redundancy cluster (anchor + 2 dups) actually trigger
+        # the PC1 swap that previously was effectively gated OFF, but the
+        # post-swap aggregate is not currently wired into
+        # ``_engineered_recipes_`` / ``support_`` (commit_swap is called
+        # with ``engineered_recipes=None`` at _screen_predictors.py L718),
+        # so the swap silently drops the anchor from the output. Until the
+        # aggregate->recipe propagation lands, threshold=2 net-shrinks
+        # ``support_`` on real data. Layer 42 instead exposes the new
+        # validated lower bound (>=1) + documents the kt-tuned 2-step opt-in:
+        # ``dcd_cluster_size_threshold=2`` + a registered recipe pathway
+        # (next layer). Pin =2 explicitly to enable the new gate.
         dcd_cluster_size_threshold: int = 4,
         dcd_swap_gain_threshold: float = 0.05,
         dcd_swap_method: str = "pca_pc1",

@@ -57,9 +57,14 @@ def _validate_string_params(self):
                 f"MRMR: dcd_tau_cluster must be > 0 for distance={_d!r}; "
                 f"got {_tau}."
             )
-        if int(getattr(self, "dcd_cluster_size_threshold", 4)) < 2:
+        # 2026-05-31 Layer 42: lower bound from 2 to 1. The threshold counts
+        # cluster MEMBERS (not anchor + members), so threshold=1 fires the
+        # PC1 swap on the strict 2-feature redundancy case (anchor + 1
+        # perfect duplicate); threshold=2 (the new default) fires only when
+        # the cluster grew anchor + >=2 members. Both are sane settings.
+        if int(getattr(self, "dcd_cluster_size_threshold", 2)) < 1:
             raise ValueError(
-                f"MRMR: dcd_cluster_size_threshold must be >= 2; got "
+                f"MRMR: dcd_cluster_size_threshold must be >= 1; got "
                 f"{self.dcd_cluster_size_threshold}."
             )
         if float(getattr(self, "dcd_swap_gain_threshold", 0.05)) < 0.0:

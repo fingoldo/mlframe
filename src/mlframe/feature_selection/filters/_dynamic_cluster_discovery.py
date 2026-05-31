@@ -132,6 +132,15 @@ class DCDState:
     # -- tunables (forwarded from MRMR ctor) --
     tau_cluster: float = 0.7
     distance: str = "su"
+    # 2026-05-31 Layer 42: default held at 4 (members beyond anchor) pending
+    # the post-swap aggregate -> _engineered_recipes_ wiring. Lowering to 2
+    # actually triggers the PC1 swap on the 3-feature redundancy cluster
+    # (anchor + 2 dups, the production-canonical pattern), but commit_swap
+    # is currently called with engineered_recipes=None at
+    # _screen_predictors.py L718 so the new aggregate column is silently
+    # dropped from the final ``support_`` / ``get_feature_names_out``.
+    # Until the recipe-propagation hookup lands, threshold=2 net-shrinks
+    # ``support_`` on real data. Opt in via the MRMR kwarg.
     cluster_size_threshold: int = 4
     swap_gain_threshold: float = 0.05
     swap_method: str = "pca_pc1"
