@@ -338,6 +338,88 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     "without hybrid-FE columns.",
                     type(_h_exc).__name__, _h_exc,
                 )
+            # 2026-05-31 Layer 32 — extra-basis (B-spline / Fourier) FE stage.
+            # Runs only when the master hybrid switch is on AND the user
+            # opted in via a non-empty ``fe_hybrid_orth_extra_bases`` tuple.
+            # Complementary to the polynomial path: spline catches threshold
+            # rules, Fourier catches periodic patterns. Recipes are
+            # closed-form (no y), replay safe.
+            _extra_bases_cfg = tuple(
+                getattr(self, "fe_hybrid_orth_extra_bases", ()) or ()
+            )
+            # Defensive guard: the polynomial-stage ``try:`` may have raised
+            # before defining ``_y_for_hybrid`` / ``_h_top_k``. Bind safe
+            # defaults so the extra-basis stage can still run.
+            try:
+                _y_for_extra = _y_for_hybrid
+            except NameError:
+                _y_for_extra = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                if _y_for_extra.dtype.kind in "fc":
+                    if int(np.unique(_y_for_extra).size) <= 32:
+                        _y_for_extra = _y_for_extra.astype(np.int64)
+                    else:
+                        try:
+                            _y_for_extra = pd.qcut(
+                                _y_for_extra, q=10, labels=False, duplicates="drop",
+                            ).astype(np.int64)
+                        except Exception:
+                            _y_for_extra = _y_for_extra.astype(np.int64)
+            _top_k_for_extra = int(getattr(self, "fe_hybrid_orth_top_k", 5))
+            if _is_pandas_for_hybrid and _extra_bases_cfg:
+                try:
+                    from ._orthogonal_univariate_fe import (
+                        hybrid_orth_extra_basis_fe_with_recipes,
+                    )
+                    _fourier_freqs = tuple(
+                        float(f) for f in
+                        getattr(self, "fe_hybrid_orth_fourier_freqs", (1.0, 2.0))
+                    )
+                    _spline_knots = int(
+                        getattr(self, "fe_hybrid_orth_spline_knots", 5)
+                    )
+                    _X_before_extra_cols = list(X.columns)
+                    # Use the SAME source-column scope as the polynomial stage
+                    # (factors_names_to_use restriction).
+                    _e_cols = None
+                    if getattr(self, "factors_names_to_use", None):
+                        _e_cols = [
+                            c for c in self.factors_names_to_use if c in X.columns
+                        ]
+                    X_e, _e_scores, _e_recipes = hybrid_orth_extra_basis_fe_with_recipes(
+                        X, _y_for_extra,
+                        cols=_e_cols,
+                        extra_bases=_extra_bases_cfg,
+                        fourier_freqs=_fourier_freqs,
+                        spline_knots=_spline_knots,
+                        top_k=_top_k_for_extra,
+                    )
+                    _e_appended = [
+                        c for c in X_e.columns if c not in _X_before_extra_cols
+                    ]
+                    if _e_appended:
+                        X = X_e
+                        # Extend hybrid_orth_features_ with the extra-basis winners
+                        # so the downstream remap / transform pipeline handles them
+                        # exactly like the polynomial winners.
+                        self.hybrid_orth_features_ = (
+                            list(self.hybrid_orth_features_ or []) + list(_e_appended)
+                        )
+                        for _r in _e_recipes:
+                            _hybrid_orth_pre_recipes[_r.name] = _r
+                        if verbose:
+                            logger.info(
+                                "MRMR.fit hybrid_orth extra-basis: appended %d "
+                                "engineered column(s) (spline/fourier): %s",
+                                len(_e_appended), _e_appended[:8],
+                            )
+                except Exception as _e_exc:
+                    logger.warning(
+                        "MRMR.fit hybrid_orth extra-basis FE raised %s: %s; "
+                        "continuing without extra-basis columns.",
+                        type(_e_exc).__name__, _e_exc,
+                    )
     # 2026-05-21 revert of Wave 29 P1 polars->pandas coercion. That
     # coercion was added on the premise that downstream ``X[target_name]
     # = y`` mutation assumed pandas and would raise on polars; but the

@@ -663,6 +663,19 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_hybrid_orth_top_k: int = 5,
         fe_hybrid_orth_pair_enable: bool = True,
         fe_hybrid_orth_pair_max_degree: int = 2,
+        # 2026-05-31 Layer 32 — extra (non-polynomial) basis FE: B-spline +
+        # Fourier. Complementary to the orth-poly path: spline catches sharp
+        # local non-linearities (threshold rules ``y = sign(x - tau)``);
+        # Fourier catches periodic patterns (``y = sign(sin(2*pi*x))``).
+        # Empty tuple (default) keeps the legacy behaviour byte-identical.
+        # When non-empty AND ``fe_hybrid_orth_enable=True``, the extra-basis
+        # stage runs after the polynomial stages and appends its own top-K
+        # MI-uplift winners. Recipes (``orth_spline`` / ``orth_fourier``)
+        # are closed-form in the source column alone -- replay reads X
+        # only, no y leakage.
+        fe_hybrid_orth_extra_bases: tuple = (),
+        fe_hybrid_orth_fourier_freqs: tuple = (1.0, 2.0),
+        fe_hybrid_orth_spline_knots: int = 5,
         # 2026-05-31 Layer 26 — generic MI-greedy FE constructor (sibling
         # to the orthogonal-polynomial one). Default OFF -- legacy
         # behaviour is byte-identical when ``fe_mi_greedy_enable=False``.
@@ -950,6 +963,10 @@ class MRMR(BaseEstimator, TransformerMixin):
             "fe_hybrid_orth_top_k": 5,
             "fe_hybrid_orth_pair_enable": True,
             "fe_hybrid_orth_pair_max_degree": 2,
+            # 2026-05-31 Layer 32 — extra-basis (spline / fourier) defaults.
+            "fe_hybrid_orth_extra_bases": (),
+            "fe_hybrid_orth_fourier_freqs": (1.0, 2.0),
+            "fe_hybrid_orth_spline_knots": 5,
             # Fitted attribute (list of engineered names from hybrid stage);
             # legacy pickles default to empty list.
             "hybrid_orth_features_": [],

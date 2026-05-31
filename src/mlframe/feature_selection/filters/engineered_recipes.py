@@ -125,7 +125,7 @@ class EngineeredRecipe:
     # (src_names=(c_i, c_j), extra={basis_i, basis_j, deg_a, deg_b}). Replay
     # is closed-form from the source column(s) alone -- no y reference is
     # captured at fit time, so transform() is leakage-free by construction.
-    kind: Literal["unary_binary", "factorize", "hermite_pair", "target_encoding", "cluster_aggregate", "orth_univariate", "orth_pair_cross", "mi_greedy_transform"]
+    kind: Literal["unary_binary", "factorize", "hermite_pair", "target_encoding", "cluster_aggregate", "orth_univariate", "orth_pair_cross", "orth_spline", "orth_fourier", "mi_greedy_transform"]
     src_names: tuple[str, ...]
     unary_names: tuple[str, ...] = ()
     binary_name: str = ""
@@ -316,6 +316,10 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         return _apply_orth_univariate(recipe, X)
     if recipe.kind == "orth_pair_cross":
         return _apply_orth_pair_cross(recipe, X)
+    if recipe.kind == "orth_spline":
+        return _apply_orth_spline(recipe, X)
+    if recipe.kind == "orth_fourier":
+        return _apply_orth_fourier(recipe, X)
     if recipe.kind == "mi_greedy_transform":
         return _apply_mi_greedy_transform(recipe, X)
     raise ValueError(f"Unknown recipe kind: {recipe.kind!r}")
@@ -1019,4 +1023,224 @@ def build_mi_greedy_transform_recipe(
         kind="mi_greedy_transform",
         src_names=tuple(src_names),
         extra={"transform": str(transform)},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Layer 32 (2026-05-31): B-spline + Fourier basis FE recipes
+# ---------------------------------------------------------------------------
+#
+# Spline / Fourier complement the orthogonal-polynomial bases (Hermite /
+# Legendre / Chebyshev / Laguerre): they cover signal shapes the polynomial
+# bases miss -- sharp local thresholds (B-spline) and periodic patterns
+# (Fourier). Both replays are CLOSED-FORM functions of the source column
+# alone -- the MI scoring that picked them at fit time consumed y, but the
+# column value itself does not depend on y. Replay therefore reads only X.
+#
+# extra layout:
+# * orth_spline  : {knots: ndarray[float64], idx: int, lo: float, hi: float}
+#                  Cubic B-spline basis B_idx(z) where z = (x - lo) / (hi - lo)
+#                  clipped to [0, 1]; knots are quantile-placed at fit time.
+# * orth_fourier : {kind: "sin"|"cos", freq: float, lo: float, span: float}
+#                  sin(2*pi*freq*z) or cos(2*pi*freq*z) where z = (x - lo) / span.
+
+
+def _bspline_basis_values(z: np.ndarray, knots: np.ndarray, idx: int, degree: int = 3) -> np.ndarray:
+    """Evaluate the ``idx``-th cubic B-spline basis function at points ``z``.
+
+    Uses the Cox-de Boor recursion. ``knots`` is the full augmented knot
+    vector (with degree+1 repeated boundary knots). Returns shape (n,).
+    """
+    z = np.asarray(z, dtype=np.float64)
+    n = z.shape[0]
+    out = np.zeros(n, dtype=np.float64)
+    # Degree-0 indicator [t_k, t_{k+1})
+    # Build up the Cox-de Boor recursion for the single basis index `idx`.
+    # We do it in O(degree+1) per point by computing the full row of B-splines
+    # via the standard algorithm, then picking the column we need.
+    nk = len(knots)
+    for i in range(n):
+        zi = z[i]
+        # Find span: largest k with knots[k] <= zi < knots[k+1]
+        # Handle boundary: clip zi to [knots[degree], knots[-degree-1]]
+        if zi >= knots[nk - degree - 1]:
+            zi_eff = knots[nk - degree - 1] - 1e-12
+        elif zi <= knots[degree]:
+            zi_eff = knots[degree] + 1e-12
+        else:
+            zi_eff = zi
+        # Compute non-zero B-splines of given degree at zi_eff using standard
+        # de Boor algorithm (returns degree+1 non-zero values starting at span k-degree)
+        # Locate k such that knots[k] <= zi_eff < knots[k+1]
+        k = degree
+        for kk in range(degree, nk - degree - 1):
+            if knots[kk] <= zi_eff < knots[kk + 1]:
+                k = kk
+                break
+        else:
+            k = nk - degree - 2
+        # B-splines of degree d at zi_eff for span k.
+        # left[j] = zi - knots[k+1-j]; right[j] = knots[k+j] - zi
+        # N[0] = 1, then for d = 1..degree update.
+        N = np.zeros(degree + 1, dtype=np.float64)
+        N[0] = 1.0
+        for d in range(1, degree + 1):
+            saved = 0.0
+            for r in range(d):
+                t_left = knots[k + 1 + r - d]
+                t_right = knots[k + 1 + r]
+                denom = t_right - t_left
+                if denom <= 1e-12:
+                    temp = 0.0
+                else:
+                    temp = N[r] / denom
+                N[r] = saved + (t_right - zi_eff) * temp
+                saved = (zi_eff - t_left) * temp
+            N[d] = saved
+        # Non-zero basis indices for this span are k-degree..k.
+        # The column we want is `idx`. If idx in [k-degree, k] return N[idx - (k-degree)], else 0.
+        rel = idx - (k - degree)
+        if 0 <= rel <= degree:
+            out[i] = N[rel]
+        # else: 0 (already initialized)
+    return out
+
+
+def _fit_spline_knots(x: np.ndarray, n_inner_knots: int, degree: int = 3) -> tuple[np.ndarray, float, float]:
+    """Fit a cubic B-spline knot vector at quantiles ``(1..K)/(K+1)`` of x.
+
+    Returns the FULL augmented knot vector (with degree+1 boundary
+    repetitions at 0 and 1) plus the (lo, hi) normalisation range.
+    """
+    x = np.asarray(x, dtype=np.float64)
+    finite = np.isfinite(x)
+    if not finite.any():
+        lo, hi = 0.0, 1.0
+        inner = np.linspace(1.0 / (n_inner_knots + 1), n_inner_knots / (n_inner_knots + 1), n_inner_knots)
+    else:
+        xf = x[finite]
+        lo, hi = float(xf.min()), float(xf.max())
+        if hi - lo <= 1e-12:
+            hi = lo + 1.0
+        z = (xf - lo) / (hi - lo)
+        qs = np.linspace(1.0 / (n_inner_knots + 1), n_inner_knots / (n_inner_knots + 1), n_inner_knots)
+        inner = np.quantile(z, qs)
+        # Ensure strictly increasing knots
+        inner = np.unique(inner)
+        if inner.size < n_inner_knots:
+            # Top up with uniform fill where quantiles collapsed (ties).
+            extra_n = n_inner_knots - inner.size
+            uni = np.linspace(0.0, 1.0, extra_n + 2)[1:-1]
+            inner = np.unique(np.concatenate([inner, uni]))
+        inner = np.clip(inner, 1e-6, 1.0 - 1e-6)
+    # Augment with degree+1 boundary repetitions on each end (clamped knot vector).
+    boundary_lo = np.zeros(degree + 1, dtype=np.float64)
+    boundary_hi = np.ones(degree + 1, dtype=np.float64)
+    knots = np.concatenate([boundary_lo, inner.astype(np.float64), boundary_hi])
+    return knots, float(lo), float(hi)
+
+
+def _apply_orth_spline(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
+    """Replay one cubic B-spline basis column: B_{idx}(z) where z is min-max
+    normalised x with knots fixed at fit time. Stateless given the stored
+    knots + idx + (lo, hi); no y reference.
+    """
+    if len(recipe.src_names) != 1:
+        raise ValueError(
+            f"orth_spline recipe '{recipe.name}' must have exactly 1 "
+            f"src_names; got {len(recipe.src_names)}"
+        )
+    for key in ("knots", "idx", "lo", "hi"):
+        if key not in recipe.extra:
+            raise KeyError(
+                f"orth_spline recipe '{recipe.name}' missing '{key}' "
+                f"in extra. Re-fit MRMR to regenerate."
+            )
+    name = recipe.src_names[0]
+    knots = np.asarray(recipe.extra["knots"], dtype=np.float64)
+    idx = int(recipe.extra["idx"])
+    lo = float(recipe.extra["lo"])
+    hi = float(recipe.extra["hi"])
+    vals = np.asarray(_extract_column(X, name), dtype=np.float64)
+    finite = np.isfinite(vals)
+    if not finite.all():
+        fill = float(np.nanmean(vals[finite])) if finite.any() else 0.0
+        vals = np.where(finite, vals, fill)
+    span = max(hi - lo, 1e-12)
+    z = np.clip((vals - lo) / span, 0.0, 1.0)
+    return _bspline_basis_values(z, knots, idx, degree=3)
+
+
+def _apply_orth_fourier(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
+    """Replay one Fourier basis column: sin(2*pi*freq*z) or cos(2*pi*freq*z)
+    where z = (x - lo) / span, with (lo, span) fixed at fit time.
+    """
+    if len(recipe.src_names) != 1:
+        raise ValueError(
+            f"orth_fourier recipe '{recipe.name}' must have exactly 1 "
+            f"src_names; got {len(recipe.src_names)}"
+        )
+    for key in ("kind", "freq", "lo", "span"):
+        if key not in recipe.extra:
+            raise KeyError(
+                f"orth_fourier recipe '{recipe.name}' missing '{key}' "
+                f"in extra. Re-fit MRMR to regenerate."
+            )
+    name = recipe.src_names[0]
+    kind = str(recipe.extra["kind"])
+    freq = float(recipe.extra["freq"])
+    lo = float(recipe.extra["lo"])
+    span = float(recipe.extra["span"])
+    span = max(span, 1e-12)
+    vals = np.asarray(_extract_column(X, name), dtype=np.float64)
+    finite = np.isfinite(vals)
+    if not finite.all():
+        fill = float(np.nanmean(vals[finite])) if finite.any() else 0.0
+        vals = np.where(finite, vals, fill)
+    z = (vals - lo) / span
+    ang = 2.0 * np.pi * freq * z
+    if kind == "sin":
+        return np.sin(ang)
+    if kind == "cos":
+        return np.cos(ang)
+    raise ValueError(f"orth_fourier recipe '{recipe.name}': unknown kind {kind!r}")
+
+
+def build_orth_spline_recipe(
+    *, name: str, src_name: str, knots: np.ndarray, idx: int, lo: float, hi: float,
+) -> EngineeredRecipe:
+    """Frozen recipe for one cubic B-spline basis column ``B_{idx}(z)`` where
+    ``z = clip((X[src_name] - lo) / (hi - lo), 0, 1)`` with quantile-placed
+    knots fixed at fit time."""
+    return EngineeredRecipe(
+        name=name,
+        kind="orth_spline",
+        src_names=(src_name,),
+        extra={
+            "knots": np.asarray(knots, dtype=np.float64).copy(),
+            "idx": int(idx),
+            "lo": float(lo),
+            "hi": float(hi),
+        },
+    )
+
+
+def build_orth_fourier_recipe(
+    *, name: str, src_name: str, kind: str, freq: float, lo: float, span: float,
+) -> EngineeredRecipe:
+    """Frozen recipe for one Fourier basis column ``sin(2*pi*freq*z)`` or
+    ``cos(2*pi*freq*z)`` where ``z = (X[src_name] - lo) / span`` with
+    (lo, span) fixed at fit time."""
+    if kind not in ("sin", "cos"):
+        raise ValueError(f"orth_fourier kind must be 'sin' or 'cos'; got {kind!r}")
+    return EngineeredRecipe(
+        name=name,
+        kind="orth_fourier",
+        src_names=(src_name,),
+        extra={
+            "kind": str(kind),
+            "freq": float(freq),
+            "lo": float(lo),
+            "span": float(span),
+        },
     )

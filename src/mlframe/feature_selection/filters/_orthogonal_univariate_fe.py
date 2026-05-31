@@ -61,6 +61,9 @@ __all__ = [
     # Layer 23: recipe-aware entry points wired into MRMR.fit auto-pipeline.
     "hybrid_orth_mi_fe_with_recipes",
     "hybrid_orth_mi_pair_fe_with_recipes",
+    # Layer 32: spline + Fourier extra-basis FE.
+    "generate_extra_basis_features",
+    "hybrid_orth_extra_basis_fe_with_recipes",
 ]
 
 _BASIS_CODE = {"hermite": "He", "legendre": "L", "chebyshev": "T", "laguerre": "LL"}
@@ -1216,3 +1219,272 @@ def hybrid_orth_mi_pair_fe_with_recipes(
             ))
     return X_aug, uni_scores, cross_scores, recipes
 
+
+# ---------------------------------------------------------------------------
+# Layer 32 (2026-05-31): B-spline + Fourier extra-basis FE
+# ---------------------------------------------------------------------------
+#
+# Complementary flavour to the orthogonal-polynomial univariate path. Each
+# source column emits:
+#
+# * spline  : K cubic B-spline basis cols ``c__sp{i}`` for i in 0..K+2
+#             (knots quantile-placed at fit time). Captures sharp local
+#             threshold rules ``y = sign(x - tau)`` that orth-poly misses.
+#
+# * fourier : 2*F columns ``c__sin{f}`` and ``c__cos{f}`` for each f in
+#             ``fourier_freqs``. Captures periodic patterns
+#             ``y = sign(sin(2*pi*f*x))``.
+#
+# Both basis families have CLOSED-FORM replay via the matching
+# ``EngineeredRecipe`` kinds (``orth_spline`` / ``orth_fourier``); replay
+# reads X only -- never y -- so transform() is leakage-free by construction.
+
+
+_EXTRA_BASIS_KINDS = ("spline", "fourier")
+
+
+def _fit_spline_for_col(x: np.ndarray, n_inner_knots: int):
+    """Returns (knots, lo, hi, num_basis_cols). Lazy delegate to recipes
+    module so the knot-vector layout stays in one place."""
+    from .engineered_recipes import _fit_spline_knots, _bspline_basis_values  # noqa: F401
+    knots, lo, hi = _fit_spline_knots(x, n_inner_knots, degree=3)
+    # Number of cubic B-spline basis functions = len(knots) - degree - 1.
+    n_basis = len(knots) - 3 - 1
+    return knots, lo, hi, n_basis
+
+
+def _fit_fourier_for_col(x: np.ndarray):
+    """Returns (lo, span). Min-max normalise x so one period covers data range."""
+    x = np.asarray(x, dtype=np.float64)
+    finite = np.isfinite(x)
+    if not finite.any():
+        return 0.0, 1.0
+    lo = float(np.min(x[finite]))
+    hi = float(np.max(x[finite]))
+    span = max(hi - lo, 1e-12)
+    return lo, span
+
+
+def generate_extra_basis_features(
+    X: pd.DataFrame,
+    *,
+    cols: Optional[Sequence[str]] = None,
+    extra_bases: Sequence[str] = ("spline", "fourier"),
+    fourier_freqs: Sequence[float] = (1.0, 2.0),
+    spline_knots: int = 5,
+    dedup_collinear_sources: bool = True,
+    dedup_corr_threshold: float = 0.999,
+) -> tuple[pd.DataFrame, dict]:
+    """For each column in cols and each requested extra basis, emit the basis
+    columns and return them alongside the per-column fit metadata (knot
+    vectors, lo/hi, fourier (lo, span)) needed to build recipes.
+
+    Parameters
+    ----------
+    X : DataFrame
+        Source frame. Only numeric columns are processed; non-numeric are
+        silently skipped.
+    cols : sequence of column names, optional
+        Columns to expand. None = all numeric columns.
+    extra_bases : tuple of {'spline', 'fourier'}
+        Which extra bases to emit. Empty tuple => returns empty frame.
+    fourier_freqs : sequence of float
+        Frequencies for the Fourier basis. One sin and one cos column per
+        frequency per source column.
+    spline_knots : int
+        Number of inner quantile knots for the cubic B-spline basis.
+        Emits ``spline_knots + 3`` basis columns per source column (cubic
+        B-spline has K+degree basis functions on K inner knots).
+    dedup_collinear_sources : bool, default True
+        Drop near-duplicate source columns before basis enumeration
+        (mirrors the polynomial univariate path).
+
+    Returns
+    -------
+    (engineered_X, meta)
+        engineered_X : DataFrame of new columns with naming
+            ``"{col}__sp{i}"`` (spline) and ``"{col}__sin{f}"`` /
+            ``"{col}__cos{f}"`` (fourier).
+        meta : dict mapping each emitted column name to a dict with the
+            metadata required to build the matching recipe. Keys depend
+            on basis kind: spline -> {"basis": "spline", "src": ..., "knots":
+            ndarray, "idx": int, "lo": float, "hi": float}; fourier ->
+            {"basis": "fourier", "src": ..., "kind": "sin"/"cos", "freq":
+            float, "lo": float, "span": float}.
+    """
+    if cols is None:
+        cols = [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])]
+    extra_bases = tuple(b for b in extra_bases if b in _EXTRA_BASIS_KINDS)
+    if not extra_bases:
+        return pd.DataFrame(index=X.index), {}
+    if dedup_collinear_sources:
+        cols = _dedup_collinear_source_cols(
+            X, list(cols), corr_threshold=dedup_corr_threshold,
+        )
+    from .engineered_recipes import _bspline_basis_values  # local import
+    out_cols: dict = {}
+    meta: dict = {}
+    fourier_freqs = tuple(float(f) for f in fourier_freqs)
+    spline_knots = max(2, int(spline_knots))
+    for col in cols:
+        if col not in X.columns or not pd.api.types.is_numeric_dtype(X[col]):
+            continue
+        x = np.asarray(X[col].to_numpy(), dtype=np.float64)
+        finite_mask = np.isfinite(x)
+        if not finite_mask.any():
+            continue
+        if not finite_mask.all():
+            x = np.where(finite_mask, x, float(np.nanmean(x[finite_mask])))
+        if "spline" in extra_bases:
+            try:
+                knots, lo, hi, n_basis = _fit_spline_for_col(x, spline_knots)
+                span = max(hi - lo, 1e-12)
+                z = np.clip((x - lo) / span, 0.0, 1.0)
+                for i in range(n_basis):
+                    vals = _bspline_basis_values(z, knots, i, degree=3)
+                    # Skip near-constant columns -- the boundary cubic
+                    # B-splines occasionally collapse to ~0 on quantile-
+                    # placed knots when ties pile at the edge.
+                    if float(np.std(vals)) <= 1e-12:
+                        continue
+                    name = f"{col}__sp{i}"
+                    out_cols[name] = vals
+                    meta[name] = {
+                        "basis": "spline", "src": col,
+                        "knots": knots, "idx": i,
+                        "lo": float(lo), "hi": float(hi),
+                    }
+            except Exception as exc:
+                logger.warning(
+                    "generate_extra_basis_features: spline on col=%r raised "
+                    "%r; skipping spline for that column.",
+                    col, exc,
+                )
+        if "fourier" in extra_bases:
+            try:
+                lo_f, span_f = _fit_fourier_for_col(x)
+                z = (x - lo_f) / max(span_f, 1e-12)
+                for freq in fourier_freqs:
+                    ang = 2.0 * np.pi * freq * z
+                    s_vals = np.sin(ang)
+                    c_vals = np.cos(ang)
+                    if float(np.std(s_vals)) > 1e-12:
+                        name_s = f"{col}__sin{freq:g}"
+                        out_cols[name_s] = s_vals
+                        meta[name_s] = {
+                            "basis": "fourier", "src": col,
+                            "kind": "sin", "freq": float(freq),
+                            "lo": float(lo_f), "span": float(span_f),
+                        }
+                    if float(np.std(c_vals)) > 1e-12:
+                        name_c = f"{col}__cos{freq:g}"
+                        out_cols[name_c] = c_vals
+                        meta[name_c] = {
+                            "basis": "fourier", "src": col,
+                            "kind": "cos", "freq": float(freq),
+                            "lo": float(lo_f), "span": float(span_f),
+                        }
+            except Exception as exc:
+                logger.warning(
+                    "generate_extra_basis_features: fourier on col=%r raised "
+                    "%r; skipping fourier for that column.",
+                    col, exc,
+                )
+    return pd.DataFrame(out_cols, index=X.index), meta
+
+
+def _build_recipe_from_meta(name: str, meta_entry: dict):
+    """Materialise an ``EngineeredRecipe`` from one ``generate_extra_basis_features``
+    meta entry. Returns None for unknown basis kinds (defensive)."""
+    from .engineered_recipes import (
+        build_orth_spline_recipe, build_orth_fourier_recipe,
+    )
+    basis = meta_entry["basis"]
+    if basis == "spline":
+        return build_orth_spline_recipe(
+            name=name, src_name=str(meta_entry["src"]),
+            knots=np.asarray(meta_entry["knots"], dtype=np.float64),
+            idx=int(meta_entry["idx"]),
+            lo=float(meta_entry["lo"]), hi=float(meta_entry["hi"]),
+        )
+    if basis == "fourier":
+        return build_orth_fourier_recipe(
+            name=name, src_name=str(meta_entry["src"]),
+            kind=str(meta_entry["kind"]),
+            freq=float(meta_entry["freq"]),
+            lo=float(meta_entry["lo"]),
+            span=float(meta_entry["span"]),
+        )
+    return None
+
+
+def hybrid_orth_extra_basis_fe_with_recipes(
+    X: pd.DataFrame,
+    y: np.ndarray,
+    *,
+    cols: Optional[Sequence[str]] = None,
+    extra_bases: Sequence[str] = ("spline", "fourier"),
+    fourier_freqs: Sequence[float] = (1.0, 2.0),
+    spline_knots: int = 5,
+    top_k: int = 5,
+    min_uplift: float = 1.05,
+    min_abs_mi_frac: float = 0.1,
+    nbins: int = 10,
+):
+    """Layer 32 hybrid: spline + Fourier univariate basis FE + MI-greedy
+    selection. Mirrors :func:`hybrid_orth_mi_fe_with_recipes` for the
+    polynomial path but emits extra-basis columns (B-spline, Fourier)
+    instead. Returns (X_augmented, scores, recipes).
+
+    The selection rule is the same TWO-GATE chain as the polynomial path:
+    relative uplift >= min_uplift AND engineered_mi >= max(legacy floor,
+    noise-aware floor). See :func:`hybrid_orth_mi_fe` for the rationale.
+    """
+    engineered, meta = generate_extra_basis_features(
+        X, cols=cols, extra_bases=extra_bases,
+        fourier_freqs=fourier_freqs, spline_knots=spline_knots,
+    )
+    if engineered.empty:
+        empty_scores = pd.DataFrame(columns=[
+            "engineered_col", "source_col", "baseline_mi", "engineered_mi", "uplift",
+        ])
+        return X.copy(), empty_scores, []
+    raw_X = X[[c for c in (cols or X.columns) if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]]
+    scores = score_features_by_mi_uplift(raw_X, engineered, y, nbins=nbins)
+    raw_baselines = scores["baseline_mi"].to_numpy()
+    max_raw_baseline = float(raw_baselines.max()) if raw_baselines.size else 0.0
+    legacy_floor = float(min_abs_mi_frac) * max_raw_baseline
+    n_cands = int(raw_baselines.size)
+    sigma_thresh = max(
+        5.0,
+        float(np.sqrt(2.0 * np.log(max(2.0, 2.0 * n_cands))) + 1.5),
+    )
+    if raw_baselines.size >= 4:
+        med = float(np.median(raw_baselines))
+        mad = float(np.median(np.abs(raw_baselines - med)))
+        noise_floor = med + sigma_thresh * 1.4826 * mad
+    else:
+        noise_floor = 0.0
+    eng_mis = scores["engineered_mi"].to_numpy()
+    if eng_mis.size >= 4:
+        med_e = float(np.median(eng_mis))
+        mad_e = float(np.median(np.abs(eng_mis - med_e)))
+        eng_noise_floor = med_e + sigma_thresh * 1.4826 * mad_e
+    else:
+        eng_noise_floor = 0.0
+    abs_floor = max(legacy_floor, noise_floor, eng_noise_floor)
+    qualified = scores[
+        (scores["uplift"] >= float(min_uplift))
+        & (scores["engineered_mi"] >= abs_floor)
+    ]
+    winners = qualified.head(int(top_k))
+    keep = list(winners["engineered_col"])
+    X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy()
+    recipes = []
+    for name in keep:
+        if name not in meta:
+            continue
+        r = _build_recipe_from_meta(name, meta[name])
+        if r is not None:
+            recipes.append(r)
+    return X_aug, scores, recipes
