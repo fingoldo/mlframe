@@ -869,6 +869,24 @@ class MLPTorchModel(L.LightningModule):
                 "F-40: CUDA-graph captured for predict shape=%s dtype=%s.",
                 tuple(x.shape), x.dtype,
             )
+            # F-58 (2026-05-31): CRITICAL FIX.
+            # After capture, ``_static_out`` is bound to the graph's output
+            # slot but the kernels have only been RECORDED -- the buffer is
+            # uninitialised memory (observed: zeros). Returning it directly
+            # on the first call yields garbage predictions for the FIRST
+            # batch, dropping aggregate R^2 from 0.998 to 0.659 on a 360-
+            # row test split (n=64 per batch, 6 batches). All replays after
+            # the first are correct, which is why this bug masquerades as
+            # "first-batch random failure" and only surfaces in metrics.
+            # Bench: vanilla PyTorch identical network/optim/data converges
+            # to R^2=0.998, mlframe wrapper with this bug to 0.659; the
+            # gap was exclusively the first-batch zeros.
+            # Fix: do one replay AFTER capture so _static_out has the
+            # actual computed values for this batch, AND the cache is
+            # primed for subsequent same-shape calls. ~3 us extra on first
+            # batch only (the rest of the predict pass already pays the
+            # replay cost via the normal cache-hit path).
+            _g.replay()
             return _static_out.clone()
         except Exception as _graph_err:
             self._cuda_graph_predict_cache[_key] = False
