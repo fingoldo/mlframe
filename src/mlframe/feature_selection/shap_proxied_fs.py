@@ -289,6 +289,14 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         # the MRMR screen already computed. ``None`` (default) preserves
         # legacy behaviour byte-identical.
         precomputed: dict | None = None,
+        # iter78: GBT family for the default booster (used when ``model is None``). ``None`` (default)
+        # preserves the legacy xgboost path byte-identical. ``"catboost"`` swaps in the catboost
+        # template and routes SHAP attribution to catboost's native ``get_feature_importance(
+        # type='ShapValues')`` kernel (oblivious-tree SHAP that the numba TreeSHAP path does not
+        # cover); ``cat_features`` is forwarded to the catboost constructor so categorical columns
+        # are handled natively instead of one-hot pre-encoded. Ignored when ``model`` is provided.
+        booster_kind: str | None = None,
+        cat_features: list | None = None,
     ):
         self.model = model
         self.classification = classification
@@ -662,6 +670,11 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         # X.columns at fit() time via ``align_precomputed_to_X``. Stored as-is
         # so sklearn ``clone(estimator)`` round-trips the value.
         self.precomputed = precomputed
+        # iter78: store raw constructor values so sklearn ``clone()`` round-trips byte-identically;
+        # validation + auto-resolution happens at fit time via ``_resolve_booster_kind`` so a stale
+        # ``cat_features`` list isn't repeatedly re-validated on every ``set_params`` call.
+        self.booster_kind = booster_kind
+        self.cat_features = cat_features
         self._rng = np.random.default_rng(random_state)
         # Column-batch width for the disjoint train/holdout row split. The split copies
         # `X.values[idx, :]` block-by-block to bound peak transient memory at one batch's worth
@@ -671,6 +684,36 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         # if needed; sklearn `get_params()` ignores underscore-prefixed attrs.
         self._split_col_batch = 1024
         self._deferred_holdout = None
+
+    def _resolve_booster_kind(self) -> str:
+        """Pick the default booster family. ``None`` (default) auto-detects by availability so
+        environments with only catboost installed still work without the user pinning the kwarg;
+        an explicit user value always wins. Raises ``ValueError`` on an unknown kind so the typo
+        surfaces at fit time instead of silently falling back."""
+        from mlframe.feature_selection._shap_proxy_explain import _VALID_BOOSTER_KINDS
+
+        if self.booster_kind is not None:
+            kind = str(self.booster_kind).lower()
+            if kind not in _VALID_BOOSTER_KINDS:
+                raise ValueError(
+                    f"ShapProxiedFS: unknown booster_kind={self.booster_kind!r}; "
+                    f"expected one of {_VALID_BOOSTER_KINDS}."
+                )
+            return kind
+        # Auto-detect: prefer xgboost (the historical default; SHAP fast paths are most mature
+        # there), fall back to catboost when only catboost is installed.
+        try:
+            import xgboost  # noqa: F401
+            return "xgboost"
+        except ImportError:
+            from mlframe.feature_selection._shap_proxy_catboost import catboost_available
+
+            if catboost_available():
+                return "catboost"
+            raise ImportError(
+                "ShapProxiedFS: neither xgboost nor catboost is installed; install one or pass an "
+                "explicit ``model=`` template."
+            )
 
     def _resolve_revalidation_ucb_stdev_multiplier(self, n_features: int) -> float:
         """Width-dependent default for the revalidation UCB stdev multiplier.
@@ -884,8 +927,16 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         n_features = self.n_features_in_
         y = self._coerce_target(y)
 
-        model_template = self.model if self.model is not None else make_default_estimator(
-            self.classification, random_state=int(self.random_state))
+        if self.model is not None:
+            model_template = self.model
+        else:
+            # Resolve + validate booster_kind FIRST so a typo (e.g. "bogus") raises ValueError before
+            # the expensive prefilter / OOF-SHAP stages start. Auto-detect when None.
+            _booster_kind = self._resolve_booster_kind()
+            model_template = make_default_estimator(
+                self.classification, random_state=int(self.random_state),
+                booster_kind=_booster_kind, cat_features=self.cat_features,
+            )
 
         # Disjoint holdout for honest re-validation + trust guard (avoids winner's curse).
         stratify = y if self.classification else None

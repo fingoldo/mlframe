@@ -109,10 +109,20 @@ def test_biz_val_wide_pipeline_scales_and_recovers_informative():
     recovered = len(informative & selected)
     assert recovered >= 4, f"wide pipeline recovered too few informatives: {sorted(informative & selected)}"
     # The prefilter itself must not have thrown the informatives away before SHAP ever saw them.
-    # Iter31: the SHAP-aware tightening defaults the effective cap to ``max(22*4, 40) = 88`` so the
-    # prefilter narrows to 88 instead of the user's 400. ``of`` still reflects the input width.
+    # Iter31 introduced SHAP-aware tightening with effective cap ``max(brute_force_max_features *
+    # safety_factor, min_features)``; iter56 raised the brute_force_max_features default 22 -> 28,
+    # which lifts the SHAP-aware cap to ``max(28*4, 40) = 112``. Re-derive from the resolved
+    # constants so the assertion tracks future default shifts without manual updates. ``of`` still
+    # reflects the input width.
+    from mlframe.feature_selection._shap_proxy_shap_prefilter import resolve_shap_prefilter_top
+    from mlframe.feature_selection.shap_proxied_fs import _resolve_brute_force_max_features
+
+    expected_kept = resolve_shap_prefilter_top(
+        brute_force_max_features=_resolve_brute_force_max_features(),
+        safety_factor=4, min_features=40,
+    )
     pf = sel.shap_proxy_report_.get("prefilter")
-    assert pf is not None and pf["kept"] == 88 and pf["of"] == width
+    assert pf is not None and pf["kept"] == expected_kept and pf["of"] == width
 
 
 @pytest.mark.slow

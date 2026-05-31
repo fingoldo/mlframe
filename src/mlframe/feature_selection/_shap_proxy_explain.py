@@ -170,8 +170,35 @@ def _shap_phi_and_base(explainer_base, X: pd.DataFrame, backend: str = "auto"):
 
     Returns ``(phi, base)`` in margin / log-odds space (classification) or target space (regression).
     ``backend`` routes to the custom numba/cupy TreeSHAP (fast, wide data) or the ``shap`` library
-    (always-correct fallback); see ``_pick_backend``.
+    (always-correct fallback); see ``_pick_backend``. CatBoost models bypass the shap library
+    entirely and use the native ``get_feature_importance(type='ShapValues')`` C++ kernel, which
+    is exact for the oblivious-tree representation that the numba TreeSHAP path does not model.
     """
+    # CatBoost fast path: catboost's oblivious trees do not map onto the numba TreeSHAP kernel
+    # (which is calibrated for xgboost/lightgbm's flat-tree dumps) and the shap library's
+    # TreeExplainer also just calls catboost's native API but pays extra Python marshalling. Skip
+    # both by calling the C++ kernel directly. Class-name probe avoids importing catboost on the
+    # xgboost/lightgbm hot path.
+    from mlframe.feature_selection._shap_proxy_catboost import (
+        catboost_shap, is_catboost_estimator,
+    )
+
+    if is_catboost_estimator(explainer_base):
+        # Recover cat_features from the booster itself. ``_shap_proxy_cat_features`` is a runtime
+        # attribute the template factory stamps on the SOURCE estimator; sklearn ``clone()`` strips
+        # it from the per-fold clones used inside ``compute_shap_matrix``. The catboost constructor
+        # param ``cat_features`` IS preserved by clone, so query that first; fall back to the
+        # stamped attr (used when the caller hand-built a CatBoost without going through the
+        # factory).
+        cat_features = None
+        try:
+            cat_features = explainer_base.get_params().get("cat_features")
+        except (AttributeError, TypeError):
+            cat_features = None
+        if cat_features is None:
+            cat_features = getattr(explainer_base, "_shap_proxy_cat_features", None)
+        return catboost_shap(explainer_base, X, cat_features=cat_features)
+
     resolved = _pick_backend(explainer_base, X, backend)
     if resolved in ("treeshap_numba", "treeshap_gpu"):
         out = _treeshap_phi_and_base(explainer_base, X, use_gpu=(resolved == "treeshap_gpu"))
@@ -354,8 +381,44 @@ def _fit_one(model_template, X, y, classification: bool, seed: Optional[int], ji
     return est
 
 
-def make_default_estimator(classification: bool, random_state: int = 0, n_estimators: int = 300):
-    """Fast tree booster whose SHAP ``tree_path_dependent`` path is exact and well-behaved."""
+_VALID_BOOSTER_KINDS = ("xgboost", "catboost")
+
+
+def make_default_estimator(classification: bool, random_state: int = 0, n_estimators: int = 300,
+                            *, booster_kind: Optional[str] = None, cat_features=None):
+    """Fast tree booster whose SHAP path is exact and well-behaved.
+
+    ``booster_kind`` selects the GBT family: ``"xgboost"`` (default, fast hist tree with shap-library
+    or numba TreeSHAP) or ``"catboost"`` (oblivious trees with the native C++ ShapValues kernel and
+    first-class categorical feature support). ``None`` resolves to ``"xgboost"`` so the legacy
+    default is byte-identical when callers do not opt in.
+
+    ``cat_features`` is forwarded to the catboost constructor when ``booster_kind="catboost"``;
+    the catboost template also stamps ``_shap_proxy_cat_features`` on the estimator so that
+    sklearn ``clone()``-based downstream stages (OOF-SHAP folds, honest revalidation, refine,
+    trust guard, importance ablation) can recover the categorical hint inside ``_shap_phi_and_base``.
+    Ignored for xgboost (xgboost requires one-hot encoding upstream).
+    """
+    if booster_kind is None:
+        booster_kind = "xgboost"
+    kind = str(booster_kind).lower()
+    if kind not in _VALID_BOOSTER_KINDS:
+        raise ValueError(
+            f"booster_kind must be one of {_VALID_BOOSTER_KINDS}; got {booster_kind!r}"
+        )
+    if kind == "catboost":
+        from mlframe.feature_selection._shap_proxy_catboost import make_catboost_estimator
+
+        est = make_catboost_estimator(
+            classification=classification, random_state=int(random_state),
+            n_estimators=int(n_estimators), cat_features=cat_features,
+        )
+        # Stamp the categorical hint on the estimator instance so it survives sklearn ``clone`` of
+        # the template across folds / honest retrains -- the `_shap_proxy_cat_features` attr is read
+        # back by ``_shap_phi_and_base`` to build the catboost ``Pool`` with matching categoricals.
+        est._shap_proxy_cat_features = list(cat_features) if cat_features is not None else None
+        return est
+
     # bench-attempt-rejected (iter51): hypothesised that ``xgboost.core._init`` (QuantileDMatrix._init,
     # not a module-level init) was reducible via DMatrix sharing or Booster pooling across the ~8-60
     # per-fit calls inside one selector run. Three options surveyed:
