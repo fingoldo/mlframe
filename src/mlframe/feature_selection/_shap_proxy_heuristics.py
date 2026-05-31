@@ -113,6 +113,76 @@ class _Evaluator:
             self.n_evals += 1
         return val, child_key, child_margin
 
+    def loss_from_parent_drop(self, parent_key: tuple[int, ...], parent_margin: np.ndarray,
+                              drop_j: int) -> tuple[float, tuple[int, ...], np.ndarray]:
+        """Score ``parent_key - {drop_j}`` reusing ``parent_margin``; ``drop_j`` MUST be in parent.
+
+        One O(n) vector subtract instead of recomputing the full ``phi[:, idx].sum`` reduction.
+        Empty result is returned with loss=+inf (matches ``loss`` semantics for the empty subset).
+        """
+        # Locate drop_j (binary search; parent_key is sorted) and splice it out.
+        lo, hi = 0, len(parent_key)
+        while lo < hi:
+            mid = (lo + hi) >> 1
+            if parent_key[mid] < drop_j:
+                lo = mid + 1
+            else:
+                hi = mid
+        # parent_key[lo] == drop_j by precondition
+        child_key = parent_key[:lo] + parent_key[lo + 1:]
+        cached_loss = self.cache.get(child_key)
+        cached_margin = self.margin_cache.get(child_key)
+        if cached_loss is not None and cached_margin is not None:
+            return cached_loss, child_key, cached_margin
+        if len(child_key) == 0:
+            child_margin = self.base.copy()
+            val = float("inf")
+        else:
+            child_margin = parent_margin - self.phi[:, drop_j]
+            val = proxy_loss(child_margin, self.y, self.metric)
+        self.cache[child_key] = val
+        self.margin_cache[child_key] = child_margin
+        if cached_loss is None:
+            self.n_evals += 1
+        return val, child_key, child_margin
+
+    def loss_from_parent_swap(self, parent_key: tuple[int, ...], parent_margin: np.ndarray,
+                              out_j: int, in_j: int) -> tuple[float, tuple[int, ...], np.ndarray]:
+        """Score ``parent_key - {out_j} + {in_j}`` reusing ``parent_margin`` in a single O(n) pass.
+
+        ``out_j`` MUST be in parent; ``in_j`` MUST NOT. Fused vector op avoids the intermediate
+        margin allocation of drop-then-add (two O(n) passes -> one O(n) pass).
+        """
+        # Splice out_j out, then binary-insert in_j (both on the sorted parent_key).
+        lo, hi = 0, len(parent_key)
+        while lo < hi:
+            mid = (lo + hi) >> 1
+            if parent_key[mid] < out_j:
+                lo = mid + 1
+            else:
+                hi = mid
+        without_out = parent_key[:lo] + parent_key[lo + 1:]
+        lo, hi = 0, len(without_out)
+        while lo < hi:
+            mid = (lo + hi) >> 1
+            if without_out[mid] < in_j:
+                lo = mid + 1
+            else:
+                hi = mid
+        child_key = without_out[:lo] + (in_j,) + without_out[lo:]
+        cached_loss = self.cache.get(child_key)
+        cached_margin = self.margin_cache.get(child_key)
+        if cached_loss is not None and cached_margin is not None:
+            return cached_loss, child_key, cached_margin
+        # Fused: parent_margin + phi[:, in_j] - phi[:, out_j] in one np-internal pass.
+        child_margin = parent_margin + (self.phi[:, in_j] - self.phi[:, out_j])
+        val = proxy_loss(child_margin, self.y, self.metric)
+        self.cache[child_key] = val
+        self.margin_cache[child_key] = child_margin
+        if cached_loss is None:
+            self.n_evals += 1
+        return val, child_key, child_margin
+
     def top_n(self, n: int) -> list[tuple[float, tuple[int, ...]]]:
         items = [(v, k) for k, v in self.cache.items() if k and np.isfinite(v)]
         items.sort(key=lambda t: t[0])
@@ -217,25 +287,49 @@ def greedy_backward(phi, base, y, *, classification, metric=None, min_card=1, to
 
 
 def _local_search(ev, start: tuple[int, ...], f: int, max_card: int) -> tuple[int, ...]:
-    """Hill-climb by add / drop / swap until no single move improves."""
+    """Hill-climb by add / drop / swap until no single move improves.
+
+    Maintains ``(current_key, current_margin)`` so every add/drop/swap trial is a single
+    O(n) vector op via ``loss_from_parent[_drop|_swap]`` instead of a full reduce-from-scratch
+    over the candidate subset (same incremental trick as beam / greedy).
+    """
     current = tuple(sorted(start))
-    best = ev.loss(current)
+    best, cur_margin = ev.loss_with_margin(current)
     improved = True
     while improved:
         improved = False
-        moves = []
+        cur_set = set(current)
+        # First-improvement order: adds, then drops, then swaps -- matches the prior
+        # ``moves`` traversal so the chosen move (and hence final subset) is unchanged.
         if len(current) < max_card:
-            moves += [tuple(sorted(current + (j,))) for j in range(f) if j not in current]
+            for j in range(f):
+                if j in cur_set:
+                    continue
+                l, child_key, child_margin = ev.loss_from_parent(current, cur_margin, j)
+                if l < best:
+                    best, current, cur_margin, improved = l, child_key, child_margin, True
+                    break
+            if improved:
+                continue
         if len(current) > 1:
-            moves += [tuple(x for x in current if x != j) for j in current]
-        for out in current:  # swaps
+            for j in current:
+                l, child_key, child_margin = ev.loss_from_parent_drop(current, cur_margin, j)
+                if l < best:
+                    best, current, cur_margin, improved = l, child_key, child_margin, True
+                    break
+            if improved:
+                continue
+        for out in current:
+            stop = False
             for inn in range(f):
-                if inn not in current:
-                    moves.append(tuple(sorted([x for x in current if x != out] + [inn])))
-        for m in moves:
-            l = ev.loss(m)
-            if l < best:
-                best, current, improved = l, m, True
+                if inn in cur_set:
+                    continue
+                l, child_key, child_margin = ev.loss_from_parent_swap(current, cur_margin, out, inn)
+                if l < best:
+                    best, current, cur_margin, improved = l, child_key, child_margin, True
+                    stop = True
+                    break
+            if stop:
                 break
     return current
 
@@ -292,6 +386,13 @@ def genetic(phi, base, y, *, classification, metric=None, pop_size=40, n_generat
 
 def simulated_annealing(phi, base, y, *, classification, metric=None, n_iter=2000, t0=1.0,
                         cooling=0.995, rng=None, max_card=None, top_n=30):
+    """Metropolis bit-flips with geometric cooling.
+
+    Maintains ``(cur_key, cur_margin)``; each bit-flip is either an add (+phi[:, j]) or a
+    drop (-phi[:, j]) via ``loss_from_parent[_drop]`` -- one O(n) vector op per trial instead
+    of a full reduce. Math is bit-identical: the same Metropolis decision is taken on the
+    same proxy_loss values.
+    """
     phi, base, y, metric = _prep(phi, base, y, classification, metric)
     f = phi.shape[1]
     max_card = f if max_card is None else min(max_card, f)
@@ -300,18 +401,23 @@ def simulated_annealing(phi, base, y, *, classification, metric=None, n_iter=200
     mask = np.zeros(f, dtype=bool)
     mask[rng.integers(0, f)] = True
     cur_idx = tuple(np.flatnonzero(mask).tolist())
-    cur_loss = ev.loss(cur_idx)
+    cur_loss, cur_margin = ev.loss_with_margin(cur_idx)
+    cur_size = int(mask.sum())
     t = t0
     for _ in range(n_iter):
         j = int(rng.integers(0, f))
-        trial = mask.copy()
-        trial[j] = not trial[j]
-        if trial.sum() == 0 or trial.sum() > max_card:
+        flip_adds = not mask[j]
+        new_size = cur_size + 1 if flip_adds else cur_size - 1
+        if new_size == 0 or new_size > max_card:
             t *= cooling
             continue
-        trial_idx = tuple(np.flatnonzero(trial).tolist())
-        trial_loss = ev.loss(trial_idx)
+        if flip_adds:
+            trial_loss, trial_idx, trial_margin = ev.loss_from_parent(cur_idx, cur_margin, j)
+        else:
+            trial_loss, trial_idx, trial_margin = ev.loss_from_parent_drop(cur_idx, cur_margin, j)
         if trial_loss < cur_loss or rng.random() < np.exp(-(trial_loss - cur_loss) / max(t, 1e-9)):
-            mask, cur_loss = trial, trial_loss
+            # Accept: flip the bit in the mask and roll the cached state forward.
+            mask[j] = not mask[j]
+            cur_idx, cur_loss, cur_margin, cur_size = trial_idx, trial_loss, trial_margin, new_size
         t *= cooling
     return ev.top_n(top_n)
