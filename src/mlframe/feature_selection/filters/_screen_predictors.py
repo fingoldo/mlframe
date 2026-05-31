@@ -389,7 +389,21 @@ def screen_predictors(
             # n=2500, equivalent to 200 cells with binary y under the same
             # criterion). Users who want to score such columns must bin /
             # target-encode them first, or set cardinality_bias_correction=False.
-            _cell_budget = 0.5 * _n_for_screen
+            # Layer 29 fix (2026-05-31): the original criterion ``nbins_x *
+            # nbins_y > 0.5 * n`` was calibrated for the user_id-hijack
+            # pattern (large nbins_x against a small nbins_y like binary y),
+            # but it over-fires catastrophically for continuous regression
+            # targets where nbins_y is the number of unique y values (e.g.
+            # 192 for sklearn diabetes). At n=309 with nbins_y=192, even a
+            # well-binned feature (nbins_x=5) yields 5*192=960 cells > 154
+            # budget -> all 9 features refused -> support_=['age'] via
+            # fallback -> downstream R2=0.02 (catastrophic regression).
+            # The semantic intent is "feature cardinality too high for n
+            # samples", which is independent of y. Switch to the cat-FE
+            # convention: refuse columns with nbins_x > 2*sqrt(n). At n=2500
+            # this is 100 - still catches user_id (1200 levels) cleanly.
+            # At n=309 it's 35, which passes all 5-bin numerics in diabetes.
+            _nbins_x_ceiling = 2.0 * float(np.sqrt(_n_for_screen))
             _refused = []
             _refused_set = set()
             for _col_idx in range(factors_data.shape[1]):
@@ -398,17 +412,18 @@ def screen_predictors(
                 _nbins_x = int(factors_nbins[_col_idx])
                 if _nbins_x <= 1:
                     continue
-                _cells = _nbins_x * _nbins_y_for_screen
-                if _cells > _cell_budget:
+                if _nbins_x > _nbins_x_ceiling:
                     _refused.append(_col_idx)
                     _refused_set.add(_col_idx)
             if _refused and verbose >= 1:
                 _names = [factors_names[i] if factors_names is not None and i < len(factors_names) else f"col_{i}" for i in _refused]
                 logger.info(
                     "screen_predictors: pre-screening dropped %d high-cardinality column(s) "
-                    "(joint cells > 0.5 * n=%d): %s. Bin or target-encode before fitting if "
-                    "they carry real signal. Disable via cardinality_bias_correction=False.",
-                    len(_refused), _n_for_screen, _names[:10] + (["..."] if len(_names) > 10 else []),
+                    "(nbins_x > 2*sqrt(n)=%.0f at n=%d): %s. Bin or target-encode before "
+                    "fitting if they carry real signal. Disable via "
+                    "cardinality_bias_correction=False.",
+                    len(_refused), _nbins_x_ceiling, _n_for_screen,
+                    _names[:10] + (["..."] if len(_names) > 10 else []),
                 )
             # Remove refused columns from the active factor index set so they're
             # never enumerated as candidates at any interactions_order.
