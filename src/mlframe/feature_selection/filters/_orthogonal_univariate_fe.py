@@ -85,12 +85,75 @@ def _evaluate_basis_column(x: np.ndarray, basis: str, degree: int) -> np.ndarray
     return polyeval_dispatch(basis, z, coef)
 
 
+def _dedup_collinear_source_cols(
+    X: pd.DataFrame, cols: Sequence[str], *, corr_threshold: float = 0.999,
+) -> list[str]:
+    """Drop near-duplicate source columns BEFORE basis enumeration.
+
+    Layer 27 incident (2026-05-31): on 10 collinear sources (x2..x10 = x1 +
+    1% jitter), the constructor emitted 10 He_2 columns and every one
+    survived MRMR's redundancy gate because their CMI-residuals under
+    quantile binning differed by tiny amounts above the relevance floor.
+    Hybrid stage exploded the candidate set 10x and MRMR couldn't
+    distinguish the duplicates.
+
+    Fix: a cheap source-side dedup pass. Walks cols in order, computes the
+    abs Pearson correlation against every column already kept; drops the
+    candidate if it correlates above ``corr_threshold`` with anything in
+    the kept set. ``0.999`` matches the 1% jitter test fixture while
+    leaving real-world near-duplicates (corr in [0.95, 0.99]) untouched.
+
+    Non-numeric / constant / all-NaN columns are passed through (not
+    deduped, not dropped) so downstream basis evaluation handles them as
+    before.
+    """
+    if not cols:
+        return list(cols)
+    kept: list[str] = []
+    kept_arrays: list[np.ndarray] = []
+    for c in cols:
+        if c not in X.columns or not pd.api.types.is_numeric_dtype(X[c]):
+            # Pass-through: not a numeric column, let downstream skip it.
+            kept.append(c)
+            continue
+        arr = np.asarray(X[c].to_numpy(), dtype=np.float64)
+        finite = np.isfinite(arr)
+        if not finite.any() or arr[finite].std() <= 1e-12:
+            # Constant or all-NaN: pass-through.
+            kept.append(c)
+            kept_arrays.append(arr)
+            continue
+        is_dup = False
+        for prev in kept_arrays:
+            prev_finite = np.isfinite(prev)
+            mask = finite & prev_finite
+            if mask.sum() < 8:
+                continue
+            a = arr[mask]
+            b = prev[mask]
+            if a.std() <= 1e-12 or b.std() <= 1e-12:
+                continue
+            # Pearson abs correlation. Numerically stable for finite-mask slices.
+            corr = abs(float(np.corrcoef(a, b)[0, 1]))
+            if not np.isfinite(corr):
+                continue
+            if corr >= corr_threshold:
+                is_dup = True
+                break
+        if not is_dup:
+            kept.append(c)
+            kept_arrays.append(arr)
+    return kept
+
+
 def generate_univariate_basis_features(
     X: pd.DataFrame,
     *,
     cols: Optional[Sequence[str]] = None,
     degrees: Sequence[int] = (2, 3),
     basis: str = "auto",
+    dedup_collinear_sources: bool = True,
+    dedup_corr_threshold: float = 0.999,
 ) -> pd.DataFrame:
     """For each column in cols, emit ``basis_n(x)`` columns for n in degrees.
 
@@ -108,6 +171,12 @@ def generate_univariate_basis_features(
         'auto' routes per column via the moment fingerprint at
         ``basis_route_by_moments`` (skew>1.5 + one-sided -> laguerre; near-
         Gaussian -> hermite; bounded -> chebyshev; else chebyshev).
+    dedup_collinear_sources : bool, default True
+        When True, drop near-duplicate source columns (Pearson |corr| >=
+        ``dedup_corr_threshold`` against an already-kept source) BEFORE
+        basis enumeration. Defaults ON because the alternative emits N
+        copies of the same basis column for N collinear sources and
+        downstream MRMR cannot distinguish them (Layer 27 incident).
 
     Returns
     -------
@@ -116,6 +185,10 @@ def generate_univariate_basis_features(
     """
     if cols is None:
         cols = [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])]
+    if dedup_collinear_sources:
+        cols = _dedup_collinear_source_cols(
+            X, list(cols), corr_threshold=dedup_corr_threshold,
+        )
     code = _BASIS_CODE
     out_cols: dict = {}
     for col in cols:
@@ -262,12 +335,62 @@ def hybrid_orth_mi_fe(
     scores = score_features_by_mi_uplift(raw_X, engineered, y, nbins=nbins)
     # Two-gate selection:
     # 1. relative: uplift >= min_uplift (default 1.05 = require 5% MI gain vs raw source)
-    # 2. absolute: engineered_mi >= min_abs_mi_frac * max(raw_baseline_mi) -- prevents noise
-    #    columns from sneaking in via tiny-baseline ratio inflation
-    #    (e.g. noise raw MI 0.003 * noise He3 MI 0.004 = 1.4x uplift but absolute MI is
-    #    still noise floor; absolute gate rejects it).
-    max_raw_baseline = float(scores["baseline_mi"].max()) if not scores.empty else 0.0
-    abs_floor = float(min_abs_mi_frac) * max_raw_baseline
+    # 2. absolute: engineered_mi >= max(
+    #        min_abs_mi_frac * max(raw_baseline_mi),    # legacy floor
+    #        mean(raw_baseline_mi) + 3 * std(raw_baseline_mi),  # noise-aware floor
+    #    )
+    # Layer 27 incident (2026-05-31): on all-noise frames every raw col has
+    # MI in a tight band around the noise floor and ``0.1 * max_raw`` is
+    # itself in that band -- so ANY engineered_mi clears the floor and the
+    # top-K fills with FPs. The noise-aware ``mean + 3*std`` reference is
+    # statistical: a column drawn from the same noise distribution will
+    # exceed it only on extreme tail, knocking the false-positive rate
+    # below 5% per slot. On real-signal frames the max raw_baseline_mi is
+    # multiple std above the mean, so the legacy floor dominates and
+    # selection is unchanged.
+    raw_baselines = scores["baseline_mi"].to_numpy()
+    max_raw_baseline = float(raw_baselines.max()) if raw_baselines.size else 0.0
+    legacy_floor = float(min_abs_mi_frac) * max_raw_baseline
+    # Layer 27 noise-aware floor: use MEDIAN-based stats (robust to a few
+    # real signals dragging the mean up). On all-noise frames every
+    # baseline_mi sits in a tight band, median + 3*MAD bounds the band
+    # tightly. On signal frames the true signal is an outlier above the
+    # noise band and median+3*MAD remains in the noise band, so the
+    # legacy ``frac * max(raw_baseline)`` dominates and legitimate signals
+    # qualify as before.
+    # Bonferroni-aware sigma scale: pure sqrt(2 ln 2p) under-counts the chi-
+    # square-like right tail of plug-in MI's noise distribution. Empirically
+    # n=1500 binary y with 10 bins produces noise MIs that exceed Gaussian
+    # tails by ~1-1.5 sigma worth of probability mass. Anchor at the larger
+    # of: (a) Bonferroni for the candidate count, (b) a 5-sigma floor that
+    # bounds the chi-square right tail at ~1e-7 per slot. For 40 candidates
+    # this gives 5.0; for 1000 it gives ~5.8 (asymptotically Bonferroni-driven).
+    n_cands = int(raw_baselines.size)
+    sigma_thresh = max(
+        5.0,
+        float(np.sqrt(2.0 * np.log(max(2.0, 2.0 * n_cands))) + 1.5),
+    )
+    if raw_baselines.size >= 4:
+        med = float(np.median(raw_baselines))
+        mad = float(np.median(np.abs(raw_baselines - med)))
+        # 1.4826 * MAD ~= std for a normal distribution.
+        noise_floor = med + sigma_thresh * 1.4826 * mad
+    else:
+        noise_floor = 0.0
+    # Layer 27 follow-up: also compute a noise floor on the ENGINEERED MI
+    # distribution. On all-noise frames the engineered cols inherit the same
+    # noise structure; the top engineered_mi can be artifactually 2-4x the
+    # median by pure tail sampling. Bound engineered_mi above the engineered
+    # median+sigma*MAD too -- legitimate signals are statistical outliers in
+    # the engineered distribution AS WELL.
+    eng_mis = scores["engineered_mi"].to_numpy()
+    if eng_mis.size >= 4:
+        med_e = float(np.median(eng_mis))
+        mad_e = float(np.median(np.abs(eng_mis - med_e)))
+        eng_noise_floor = med_e + sigma_thresh * 1.4826 * mad_e
+    else:
+        eng_noise_floor = 0.0
+    abs_floor = max(legacy_floor, noise_floor, eng_noise_floor)
     qualified = scores[
         (scores["uplift"] >= float(min_uplift))
         & (scores["engineered_mi"] >= abs_floor)
@@ -603,7 +726,35 @@ def hybrid_orth_mi_pair_fe(
     if not uni_scores.empty:
         max_raw_baseline = max(max_raw_baseline, float(uni_scores["baseline_mi"].max()))
     max_cross_engineered = float(cross_scores["engineered_mi"].max()) if not cross_scores.empty else 0.0
-    abs_floor = float(pair_min_abs_mi_frac) * max(max_raw_baseline, max_cross_engineered)
+    legacy_floor = float(pair_min_abs_mi_frac) * max(max_raw_baseline, max_cross_engineered)
+    # Layer 27 (2026-05-31) noise-aware floor: see hybrid_orth_mi_fe for
+    # the rationale. The pair stage is even more prone to noise pollution
+    # (O(p^2) candidates vs O(p) for univariate); the noise-aware
+    # mean+3*std reference protects the all-noise frame's contract.
+    _baselines = cross_scores["baseline_mi"].to_numpy() if not cross_scores.empty else np.array([])
+    # Bonferroni-aware sigma (see hybrid_orth_mi_fe for derivation): pair
+    # candidate counts are much larger than univariate so the per-candidate
+    # threshold must be tighter. Anchor at max(5.0, sqrt(2 ln 2p) + 1.5).
+    n_cands = int(_baselines.size)
+    sigma_thresh = max(
+        5.0,
+        float(np.sqrt(2.0 * np.log(max(2.0, 2.0 * n_cands))) + 1.5),
+    )
+    if _baselines.size >= 4:
+        _med = float(np.median(_baselines))
+        _mad = float(np.median(np.abs(_baselines - _med)))
+        noise_floor = _med + sigma_thresh * 1.4826 * _mad
+    else:
+        noise_floor = 0.0
+    # Also bound vs engineered MI distribution.
+    _eng_mis = cross_scores["engineered_mi"].to_numpy() if not cross_scores.empty else np.array([])
+    if _eng_mis.size >= 4:
+        _med_e = float(np.median(_eng_mis))
+        _mad_e = float(np.median(np.abs(_eng_mis - _med_e)))
+        eng_noise_floor = _med_e + sigma_thresh * 1.4826 * _mad_e
+    else:
+        eng_noise_floor = 0.0
+    abs_floor = max(legacy_floor, noise_floor, eng_noise_floor)
     qualified = cross_scores[
         (cross_scores["uplift"] >= float(pair_min_uplift))
         & (cross_scores["engineered_mi"] >= abs_floor)

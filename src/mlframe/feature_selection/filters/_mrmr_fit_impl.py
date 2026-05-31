@@ -435,6 +435,86 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     type(_mig_exc).__name__, _mig_exc,
                 )
 
+    # Layer 27 (2026-05-31): cross-stage engineered-column dedup. Hybrid and
+    # MI-greedy stages run independently; on signals like ``y = sign(x^2 - 1)``
+    # hybrid emits ``x__He2`` and MI-greedy emits ``square(x)`` / ``abs(x)`` /
+    # ``sqrt_abs(x)`` / ``log_abs(x)`` -- all are monotone-in-|x| encodings
+    # of the SAME signal (Pearson |corr| ~ 0.99+ on rank-correlated MI binning).
+    # MRMR's CMI gate can't tell them apart well enough to prune; the
+    # combined support inflates with 4-5 near-identical columns. The cheap
+    # cure is a pre-MRMR dedup pass against the engineered cousins: keep the
+    # first appended occurrence, drop everything correlating >= 0.999 with an
+    # already-kept engineered column. Raw input columns are never deduped
+    # here -- that's MRMR's job and removing raw cols would change the
+    # ``feature_names_in_`` contract.
+    _eng_cols_appended = list(self.hybrid_orth_features_ or []) + list(
+        self.mi_greedy_features_ or []
+    )
+    if len(_eng_cols_appended) >= 2 and isinstance(X, pd.DataFrame):
+        _eng_keep: list[str] = []
+        _eng_drop: set[str] = set()
+        _eng_arrs: dict[str, np.ndarray] = {}
+        for _c in _eng_cols_appended:
+            if _c in _eng_drop:
+                continue
+            _arr_c = np.asarray(X[_c].to_numpy(), dtype=np.float64)
+            _fin_c = np.isfinite(_arr_c)
+            if not _fin_c.any() or _arr_c[_fin_c].std() <= 1e-12:
+                _eng_keep.append(_c)
+                _eng_arrs[_c] = _arr_c
+                continue
+            # Rank-correlate (Spearman) rather than Pearson: MRMR's plug-in
+            # MI scorer quantile-bins each column before computing MI, so
+            # two engineered columns related by ANY monotone reshape (square
+            # vs |x| vs log|x|) project to identical bin sequences and carry
+            # identical information about y. Pearson at 0.999 catches only
+            # the perfect linear case (e.g. x^2 vs x^2-1); Spearman at 0.99
+            # catches the full monotone-equivalent family that MRMR's
+            # downstream gate cannot distinguish.
+            _ranks_c = pd.Series(_arr_c).rank(method="average").to_numpy()
+            _is_dup = False
+            for _kept in _eng_keep:
+                _arr_k = _eng_arrs[_kept]
+                _mask = _fin_c & np.isfinite(_arr_k)
+                if _mask.sum() < 8:
+                    continue
+                _a, _b = _arr_c[_mask], _arr_k[_mask]
+                if _a.std() <= 1e-12 or _b.std() <= 1e-12:
+                    continue
+                _ranks_a = pd.Series(_a).rank(method="average").to_numpy()
+                _ranks_b = pd.Series(_b).rank(method="average").to_numpy()
+                if _ranks_a.std() <= 1e-12 or _ranks_b.std() <= 1e-12:
+                    continue
+                _rank_corr = abs(float(np.corrcoef(_ranks_a, _ranks_b)[0, 1]))
+                if np.isfinite(_rank_corr) and _rank_corr >= 0.99:
+                    _is_dup = True
+                    break
+            if _is_dup:
+                _eng_drop.add(_c)
+            else:
+                _eng_keep.append(_c)
+                _eng_arrs[_c] = _arr_c
+        if _eng_drop:
+            X = X.drop(columns=list(_eng_drop))
+            self.hybrid_orth_features_ = [
+                c for c in (self.hybrid_orth_features_ or []) if c not in _eng_drop
+            ]
+            self.mi_greedy_features_ = [
+                c for c in (self.mi_greedy_features_ or []) if c not in _eng_drop
+            ]
+            for _c in list(_hybrid_orth_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _hybrid_orth_pre_recipes.pop(_c, None)
+            for _c in list(_mi_greedy_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _mi_greedy_pre_recipes.pop(_c, None)
+            if verbose:
+                logger.info(
+                    "MRMR.fit engineered-FE dedup: pruned %d near-duplicate "
+                    "engineered column(s) at Spearman |rho| >= 0.99: %s",
+                    len(_eng_drop), sorted(_eng_drop),
+                )
+
     # Layer 23: feature_names_in_ MUST exclude hybrid-appended columns so
     # the end-of-fit ``selected_vars_names`` lookup routes hybrid names
     # into ``_engineered_features_`` / ``_engineered_recipes_`` instead of
