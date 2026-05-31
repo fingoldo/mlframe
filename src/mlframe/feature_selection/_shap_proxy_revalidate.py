@@ -1261,7 +1261,7 @@ def within_cluster_refine(
     *, classification, metric=None, parsimony_tol=0.02, n_jobs=-1, max_drop_rounds=None, cache=None,
     member_groups=None, min_multi_clusters=3, refine_n_estimators=100,
     ucb_enabled=False, ucb_min_eval_size=None, ucb_slack=None, ucb_stdev_multiplier=1.0,
-    inner_n_jobs_cap=False,
+    inner_n_jobs_cap=False, disk_cache_dir=None,
 ):
     """Compact the selected clusters' member columns down to a quality-preserving subset (honest).
 
@@ -1334,8 +1334,13 @@ def within_cluster_refine(
     # populated elsewhere in the pipeline. ``cap`` is None -> no capping, no namespacing (legacy path).
     cap = refine_n_estimators
     tid = ("refine_cap", int(cap)) if cap is not None else None
+    # iter81: cross-process disk cache extends iter80's wiring through the refine stage. Stage-1
+    # parallel cluster probes and stage-2b per-round single-drop trials repeat the SAME (cols, seed,
+    # template, cap) tuple on hyperparam sweeps -- a warm-cache lookup skips the booster fit entirely.
+    # ``None`` (default) keeps the legacy in-memory-only contract bit-identical.
+    disk_cache = _open_disk_cache(disk_cache_dir)
     base = _honest_loss(model_template, X_search, y_search, X_holdout, y_holdout, current, classification,
-                        metric, cache=cache, n_estimators_cap=cap, template_id=tid)
+                        metric, cache=cache, n_estimators_cap=cap, template_id=tid, disk_cache=disk_cache)
     threshold = base + parsimony_tol * abs(base)
 
     # ---- Stage 1: per-cluster collapse (one parallel probe per multi-cluster).
@@ -1369,7 +1374,7 @@ def within_cluster_refine(
             losses = _parallel_honest_losses(
                 [(p[0], None) for p in probes], model_template, X_search, y_search, X_holdout, y_holdout,
                 classification, metric, n_jobs, cache=cache, n_estimators_cap=cap, template_id=tid,
-                inner_n_jobs_cap=inner_n_jobs_cap)
+                inner_n_jobs_cap=inner_n_jobs_cap, disk_cache=disk_cache)
             # Each probe is evaluated against the ORIGINAL base/threshold (cluster collapses are
             # measured independently, not against each other). Accepted probes' drops accumulate.
             accepted_drops: set[int] = set()
@@ -1384,7 +1389,7 @@ def within_cluster_refine(
                 if len(collapsed) < len(current):
                     cum_loss = _honest_loss(
                         model_template, X_search, y_search, X_holdout, y_holdout, collapsed, classification,
-                        metric, cache=cache, n_estimators_cap=cap, template_id=tid)
+                        metric, cache=cache, n_estimators_cap=cap, template_id=tid, disk_cache=disk_cache)
                     if cum_loss <= threshold:
                         current = collapsed
                         base = min(base, cum_loss)
@@ -1473,7 +1478,7 @@ def within_cluster_refine(
                     continue
                 new_loss = _honest_loss(
                     model_template, X_search, y_search, X_holdout, y_holdout, survivors, classification,
-                    metric, cache=cache, n_estimators_cap=cap, template_id=tid)
+                    metric, cache=cache, n_estimators_cap=cap, template_id=tid, disk_cache=disk_cache)
                 if new_loss <= cur_threshold:
                     current = survivors
                     base = min(base, float(new_loss))
@@ -1558,7 +1563,7 @@ def within_cluster_refine(
                 losses_batch = _parallel_honest_losses(
                     tasks, model_template, X_search, y_search, X_holdout, y_holdout,
                     classification, metric, n_jobs, cache=cache, n_estimators_cap=cap, template_id=tid,
-                    inner_n_jobs_cap=inner_n_jobs_cap)
+                    inner_n_jobs_cap=inner_n_jobs_cap, disk_cache=disk_cache)
                 for li, ls in zip(batch_local, losses_batch):
                     evaluated_losses[li] = float(ls)
                     if ls < best_loss_round:
@@ -1599,7 +1604,7 @@ def within_cluster_refine(
             losses = _parallel_honest_losses([(t, None) for t in trials], model_template, X_search, y_search,
                                              X_holdout, y_holdout, classification, metric, n_jobs, cache=cache,
                                              n_estimators_cap=cap, template_id=tid,
-                                             inner_n_jobs_cap=inner_n_jobs_cap)
+                                             inner_n_jobs_cap=inner_n_jobs_cap, disk_cache=disk_cache)
             losses_arr = np.asarray(losses, dtype=np.float64)
             best_i = int(np.argmin(losses_arr))
             if losses_arr[best_i] > cur_threshold:
@@ -1611,13 +1616,19 @@ def within_cluster_refine(
 
 def importance_topk_ablation(
     phi, proxy_best_idx, model_template, X_search, y_search, X_holdout, y_holdout,
-    *, classification, metric=None, unit_to_members=None, cache=None,
+    *, classification, metric=None, unit_to_members=None, cache=None, disk_cache_dir=None,
 ):
     """Compare the proxy-chosen subset against a SHAP-importance-top-k subset of the same size.
 
     Returns a dict with both honest losses and whether the proxy strictly wins (the method's
     unique-value gate vs plain SHAP global importance). In clustering mode, importance ranks UNITS
     and both subsets expand to member columns for the honest comparison.
+
+    ``disk_cache_dir`` (iter81): when set, the two honest retrains (proxy subset + SHAP-importance-
+    top-k subset) check the cross-process :class:`DiskCache` first. The proxy subset is typically a
+    cache hit -- it's the chosen winner that revalidation just retrained -- so the warm-cache cost
+    of this stage drops to one fit for the imp_cols comparison (and to zero when both subsets
+    overlap a prior fit). ``None`` (default) keeps the legacy in-memory-only contract bit-identical.
     """
     metric = resolve_metric(classification, metric)
     k = len(proxy_best_idx)  # match unit count, then expand both sides to members
@@ -1625,10 +1636,11 @@ def importance_topk_ablation(
     imp_units = tuple(sorted(np.argsort(-importance)[:k].tolist()))
     proxy_cols = _expand(proxy_best_idx, unit_to_members)
     imp_cols = _expand(imp_units, unit_to_members)
+    disk_cache = _open_disk_cache(disk_cache_dir)
     proxy_honest = _honest_loss(model_template, X_search, y_search, X_holdout, y_holdout,
-                                proxy_cols, classification, metric, cache=cache)
+                                proxy_cols, classification, metric, cache=cache, disk_cache=disk_cache)
     imp_honest = _honest_loss(model_template, X_search, y_search, X_holdout, y_holdout,
-                              imp_cols, classification, metric, cache=cache)
+                              imp_cols, classification, metric, cache=cache, disk_cache=disk_cache)
     return dict(proxy_features=tuple(proxy_best_idx), proxy_honest_loss=proxy_honest,
                 importance_features=imp_units, importance_honest_loss=imp_honest,
                 proxy_wins=bool(proxy_honest < imp_honest), proxy_at_least_ties=bool(proxy_honest <= imp_honest))

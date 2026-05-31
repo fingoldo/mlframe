@@ -1542,7 +1542,7 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
                 report["importance_ablation"] = importance_topk_ablation(
                     phi, best_idx, model_template, X_search, y_search, X_hold, y_hold,
                     classification=self.classification, metric=self.metric, unit_to_members=unit_to_members,
-                    cache=honest_cache)
+                    cache=honest_cache, disk_cache_dir=self.cache_dir)
 
         # Expand best proxy subset -> original member columns, then optionally prune redundant members.
         if unit_to_members is not None:
@@ -1552,7 +1552,7 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         if self.within_cluster_refine and unit_to_members is not None and len(member_cols) > 1:
             from mlframe.feature_selection._shap_proxy_objective import resolve_metric
             from mlframe.feature_selection._shap_proxy_revalidate import (
-                _honest_loss, within_cluster_refine,
+                _honest_loss, _open_disk_cache, within_cluster_refine,
             )
 
             with _stage("within_cluster_refine"):
@@ -1572,7 +1572,8 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
                     ucb_min_eval_size=self.refine_ucb_min_eval_size,
                     ucb_slack=self.refine_ucb_slack,
                     ucb_stdev_multiplier=self.refine_ucb_stdev_multiplier,
-                    inner_n_jobs_cap=self.inner_n_jobs_cap)
+                    inner_n_jobs_cap=self.inner_n_jobs_cap,
+                    disk_cache_dir=self.cache_dir)
                 # Final full-template re-evaluation of the ONE chosen subset (uncapped n_estimators).
                 # Refine's ranking trials use a cheaper capped booster (~100 trees) to decide WHICH
                 # members to drop; the user-visible quality bar (and any downstream report consumer)
@@ -1582,10 +1583,13 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
                 # refine made no drops, this is a cache hit of the union retrain done elsewhere).
                 refine_info = dict(before=len(member_cols), after=len(refined))
                 if refined:
+                    # iter81: the full-template re-eval of the refined subset frequently hits the
+                    # disk cache too -- the same (cols, template, cap=None) tuple was retrained as
+                    # the revalidation winner upstream, so a warm-cache lookup avoids an extra fit.
                     refine_info["honest_loss_full"] = float(_honest_loss(
                         model_template, X_search, y_search, X_hold, y_hold, list(refined),
                         self.classification, resolve_metric(self.classification, self.metric),
-                        cache=honest_cache))
+                        cache=honest_cache, disk_cache=_open_disk_cache(self.cache_dir)))
                 report["within_cluster_refine"] = refine_info
                 member_cols = refined
 
