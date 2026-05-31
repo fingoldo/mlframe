@@ -23,6 +23,11 @@ warnings.filterwarnings("ignore")
 CONFIGS = {
     "C3": dict(width=10000, n_rows=10000, n_informative=20, n_redundant=20,
                redundancy_rho=0.8, snr=8.0, seed=0),
+    # iter92 lever: comparison criterion changes only inside the adaptive loop; at higher
+    # redundancy_rho cluster aggregation collapses more units to identical member sets, so the
+    # member-equiv early-stop is more likely to fire one round before the unit-equiv would.
+    "C3_high_redundancy": dict(width=10000, n_rows=10000, n_informative=20, n_redundant=20,
+                               redundancy_rho=0.9, snr=8.0, seed=0),
 }
 
 
@@ -82,6 +87,10 @@ def run_one(name, cfg, *, adaptive):
         n_models_run=ucb.get("n_models_run"),
         n_candidates_total=ucb.get("n_candidates_total"),
         n_candidates_evaluated=ucb.get("n_candidates_evaluated"),
+        # iter92 diagnostic: True iff member-equiv early-stop fired where the unit-tuple
+        # comparison alone would NOT have fired (cluster aggregation collapsed two unit tuples
+        # to the same deployed feature set).
+        member_equiv_fired=ucb.get("n_reval_models_run_via_member_equiv"),
     )
 
 
@@ -125,6 +134,7 @@ def main():
     print(f"  n_models_run baseline={base['n_models_run']}, adaptive={lev['n_models_run']}")
     print(f"  chosen-subset Jaccard: "
           f"{len(set(base['chosen']) & set(lev['chosen'])) / max(1, len(set(base['chosen']) | set(lev['chosen']))):.3f}")
+    print(f"  iter92 member_equiv_fired (adaptive): {lev.get('member_equiv_fired')}")
 
 
 if __name__ == "__main__":

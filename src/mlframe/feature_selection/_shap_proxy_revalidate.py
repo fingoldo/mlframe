@@ -1066,6 +1066,18 @@ def revalidate_top_n(
     # each round dispatches ONE seed per candidate (round k -> candidate_seeds[ci][k:k+1]).
     n_models_run = 0
     prev_winner: tuple | None = None
+    # iter92: compare winners on the EXPANDED member-column set rather than the raw unit tuple.
+    # At high redundancy_rho with cluster_features=True, distinct unit tuples can map to the same
+    # deployed member subset after cluster aggregation. The user-visible "chosen subset" is the
+    # member set, so equivalence on members captures convergence one round earlier whenever two
+    # different unit tuples collapse to the same deployment. Build a per-candidate member-key
+    # lookup (sorted tuple) once -- _expand was already paid for in ``member_cols`` above.
+    members_by_unit_tuple = {tuple(idx): tuple(sorted(int(c) for c in member_cols[ci]))
+                             for ci, (_, idx) in enumerate(candidates)}
+    prev_winner_members: tuple | None = None
+    # When the early-stop fires on member-equivalence WHILE unit tuples still differ, that's the
+    # iter92-specific win; tracked separately so downstream diagnostics can quantify the lever.
+    stopped_via_member_equiv = False
 
     for round_k in range(seed_rounds):
         if adapt_active:
@@ -1159,9 +1171,20 @@ def revalidate_top_n(
             cur_winner = _winner_from_per_candidate(
                 per_candidate, candidates, member_cols, lambda_stab, parsimony_tol,
             )
-            if round_k >= 1 and cur_winner is not None and cur_winner == prev_winner:
+            # iter92: equivalence on EXPANDED members. ``cur_winner`` is the unit tuple; look up its
+            # deployed member set. Fallback to the unit tuple if (somehow) absent from the map,
+            # which preserves iter77 semantics on degenerate inputs.
+            cur_winner_members = (members_by_unit_tuple.get(cur_winner)
+                                  if cur_winner is not None else None)
+            if (round_k >= 1 and cur_winner_members is not None
+                    and cur_winner_members == prev_winner_members):
+                # Member sets matched; the iter92 "fired earlier than iter77" subcase is when the
+                # unit tuples differ even though the deployed member sets are identical.
+                if cur_winner != prev_winner:
+                    stopped_via_member_equiv = True
                 break
             prev_winner = cur_winner
+            prev_winner_members = cur_winner_members
 
     ranked = []
     for ci, (proxy_loss_val, idx) in enumerate(candidates):
@@ -1224,7 +1247,13 @@ def revalidate_top_n(
                     slack=float(ucb_slack_used),
                     adaptive_n_models=bool(adapt_active),
                     n_models_configured=int(n_models),
-                    n_models_run=int(n_models_run))
+                    n_models_run=int(n_models_run),
+                    # iter92: ``True`` when adaptive early-stop fired because two consecutive
+                    # rounds' winners EXPANDED to the same member set despite differing unit
+                    # tuples (cluster-aggregation collapse). ``False`` covers both the
+                    # iter77-equivalent firing (unit tuples already matched) and the "no
+                    # early-stop" case.
+                    n_reval_models_run_via_member_equiv=bool(stopped_via_member_equiv))
     # Attach UCB diagnostic to the random-subset baseline dict (or create a stub when no winner).
     # Keeps the 3-tuple return contract stable; downstream consumers fish ucb diagnostics out via
     # ``report['revalidation']['random_baseline']['ucb']``. Same pattern as other-revalidator-side
