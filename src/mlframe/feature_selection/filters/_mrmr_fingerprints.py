@@ -433,6 +433,22 @@ def _target_name_signature(y) -> tuple:
     return ()
 
 
+# iter627 (perf): single-entry "last computed" memo cache for MRMR's
+# _full_x_content_hash. Caller sites at _mrmr_fit_impl.py:131 + :158
+# pass the SAME X frame in tight succession (line 131 builds the
+# signature for the cache lookup; line 158 re-runs the full hash for
+# the cache store key). The blake2b hash chain runs on the full X
+# frame bytes -- ~50ms on a 200MB frame per the iter59 bench, but
+# grows linear with frame size; on c0009-like wide post-FE frames
+# the second call wastes seconds re-hashing the same bytes.
+#
+# Same safety model as the iter625 _pipeline_cache._pre_pipeline_-
+# cache_key memo: id() + shape discriminate against GC-recycled-id
+# collisions, the two calls happen microseconds apart within MRMR.fit
+# so the input is guaranteed unchanged.
+_MRMR_LAST_X_HASH_CACHE: dict = {"id_shape": None, "hash": None}
+
+
 def _full_x_content_hash(X) -> str:
     """Full-content blake2b digest over X for collision-free cache keying.
 
@@ -444,7 +460,17 @@ def _full_x_content_hash(X) -> str:
 
     Mirrors ``_full_y_content_hash`` so the y-side and X-side guarantees are symmetric. Returns ``""`` on
     any conversion failure so the caller can choose to skip the cache rather than serve a wrong replay.
+
+    iter627 (perf): single-entry memo on (id(X), X.shape). MRMR.fit
+    calls this twice with the same X (signature key + store key);
+    the second call returns the cached hash without re-hashing.
     """
+    # iter627 fast-path: id-tuple key with shape discrimination.
+    sh = getattr(X, "shape", None)
+    id_shape = (id(X), sh if sh is not None else (None,))
+    if _MRMR_LAST_X_HASH_CACHE["id_shape"] == id_shape:
+        return _MRMR_LAST_X_HASH_CACHE["hash"]
+
     try:
         if hasattr(X, "to_numpy"):
             try:
@@ -471,7 +497,10 @@ def _full_x_content_hash(X) -> str:
                 h.update(",".join(str(c) for c in X.columns).encode())
             except Exception:
                 pass
-        return h.hexdigest()
+        result = h.hexdigest()
+        _MRMR_LAST_X_HASH_CACHE["id_shape"] = id_shape
+        _MRMR_LAST_X_HASH_CACHE["hash"] = result
+        return result
     except Exception:
         return ""
 
