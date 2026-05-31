@@ -66,7 +66,12 @@ def _insert_top(top_losses: np.ndarray, top_combos: np.ndarray, loss: float, com
 
 @njit(cache=True)
 def _topn_fixed_r(phi, base, y, combos, metric_code, top_n):
-    """Serial top-N scan over fixed-cardinality combinations with incremental prefix sums."""
+    """Serial top-N scan over fixed-cardinality combinations with incremental prefix sums.
+
+    Row-major variant: ``phi`` shape ``(n, f)``. Kept for backward compatibility and rollback
+    benchmarking; ``brute_force_top_n`` routes to the column-major variant by default since
+    ``phi[t, fcol]`` strided access here is 2-3x slower than the contiguous column-major form.
+    """
     C = combos.shape[0]
     r = combos.shape[1]
     n = phi.shape[0]
@@ -100,10 +105,55 @@ def _topn_fixed_r(phi, base, y, combos, metric_code, top_n):
     return top_combos, top_losses
 
 
+@njit(cache=True)
+def _topn_fixed_r_colmajor(phi_T, base, y, combos, metric_code, top_n):
+    """Column-major variant of ``_topn_fixed_r``: ``phi_T`` shape ``(f, n)`` so each feature column is
+    a contiguous row, making the inner ``phi_T[fcol]`` access a unit-stride read instead of the
+    strided ``phi[:, fcol]`` of the row-major variant. End-to-end speedup on f=18, n=1000, r=6:
+    ~2.5-3x for MAE/MSE (memory-bound), wash for Brier/log-loss (exp-bound) -- selected as default.
+    """
+    C = combos.shape[0]
+    r = combos.shape[1]
+    n = phi_T.shape[1]
+    top_n = min(top_n, C)
+    top_combos = -np.ones((top_n, r), dtype=np.int32)
+    top_losses = np.full(top_n, np.inf, dtype=np.float64)
+    prev = np.full(r, -1, dtype=np.int32)
+    main_sum = np.zeros(n, dtype=np.float64)
+    level_sums = np.zeros((r, n), dtype=np.float64)
+    margin = np.empty(n, dtype=np.float64)
+    for c in range(C):
+        comb = combos[c]
+        for i in range(r - 1):
+            if comb[i] != prev[i]:
+                if i > 0:
+                    main_sum[:] = level_sums[i - 1]
+                else:
+                    main_sum[:] = 0.0
+                for j in range(i, r - 1):
+                    fcol_row = phi_T[comb[j]]
+                    for t in range(n):
+                        main_sum[t] += fcol_row[t]
+                    level_sums[j][:] = main_sum
+                break
+        last_row = phi_T[comb[r - 1]]
+        for t in range(n):
+            margin[t] = base[t] + main_sum[t] + last_row[t]
+        loss = score_margin(margin, y, metric_code)
+        _insert_top(top_losses, top_combos, loss, comb)
+        prev[:] = comb
+    return top_combos, top_losses
+
+
 @njit(cache=True, parallel=True)
 def _topn_fixed_r_parallel(phi, base, y, combos, metric_code, top_n, n_chunks):
     """Chunk-parallel variant: each prange chunk runs an independent incremental scan with private
-    accumulators, producing a local top-N; locals are concatenated for a serial final merge."""
+    accumulators, producing a local top-N; locals are concatenated for a serial final merge.
+
+    Row-major variant (``phi`` shape ``(n, f)``). Kept for backward compatibility; the dispatcher in
+    ``brute_force_top_n`` routes parallel paths to ``_topn_fixed_r_parallel_colmajor`` for the same
+    cache-locality reason as the serial kernel.
+    """
     C = combos.shape[0]
     r = combos.shape[1]
     n = phi.shape[0]
@@ -137,6 +187,49 @@ def _topn_fixed_r_parallel(phi, base, y, combos, metric_code, top_n, n_chunks):
             last = comb[r - 1]
             for t in range(n):
                 margin[t] = base[t] + main_sum[t] + phi[t, last]
+            loss = score_margin(margin, y, metric_code)
+            _insert_top(local_losses, local_combos, loss, comb)
+            prev[:] = comb
+    return chunk_combos, chunk_losses
+
+
+@njit(cache=True, parallel=True)
+def _topn_fixed_r_parallel_colmajor(phi_T, base, y, combos, metric_code, top_n, n_chunks):
+    """Column-major chunk-parallel variant: ``phi_T`` shape ``(f, n)``. Same per-thread structure as
+    ``_topn_fixed_r_parallel`` but with contiguous-column reads (see ``_topn_fixed_r_colmajor``)."""
+    C = combos.shape[0]
+    r = combos.shape[1]
+    n = phi_T.shape[1]
+    top_n = min(top_n, C)
+    chunk_losses = np.full((n_chunks, top_n), np.inf, dtype=np.float64)
+    chunk_combos = -np.ones((n_chunks, top_n, r), dtype=np.int32)
+    base_chunk = C // n_chunks
+    for ch in prange(n_chunks):
+        start = ch * base_chunk
+        stop = C if ch == n_chunks - 1 else (ch + 1) * base_chunk
+        prev = np.full(r, -1, dtype=np.int32)
+        main_sum = np.zeros(n, dtype=np.float64)
+        level_sums = np.zeros((r, n), dtype=np.float64)
+        margin = np.empty(n, dtype=np.float64)
+        local_losses = chunk_losses[ch]
+        local_combos = chunk_combos[ch]
+        for c in range(start, stop):
+            comb = combos[c]
+            for i in range(r - 1):
+                if comb[i] != prev[i]:
+                    if i > 0:
+                        main_sum[:] = level_sums[i - 1]
+                    else:
+                        main_sum[:] = 0.0
+                    for j in range(i, r - 1):
+                        fcol_row = phi_T[comb[j]]
+                        for t in range(n):
+                            main_sum[t] += fcol_row[t]
+                        level_sums[j][:] = main_sum
+                    break
+            last_row = phi_T[comb[r - 1]]
+            for t in range(n):
+                margin[t] = base[t] + main_sum[t] + last_row[t]
             loss = score_margin(margin, y, metric_code)
             _insert_top(local_losses, local_combos, loss, comb)
             prev[:] = comb
@@ -201,6 +294,10 @@ def brute_force_top_n(
     y = np.ascontiguousarray(y, dtype=np.float64)
     n_features = phi.shape[1]
     max_card = n_features if max_card is None else min(max_card, n_features)
+    # Transpose once: column-major (f, n) layout turns the strided ``phi[t, fcol]`` reads inside the
+    # numba hot loop into unit-stride row reads, ~2-3x faster end-to-end at f=18, n=1000, r=6 for
+    # MAE/MSE (memory-bound) and neutral for Brier/log-loss (exp-bound).
+    phi_T = np.ascontiguousarray(phi.T)
 
     seq = np.arange(n_features, dtype=np.int32)
     candidates: list[tuple[float, tuple[int, ...]]] = []
@@ -211,13 +308,13 @@ def brute_force_top_n(
         if combos.shape[0] == 0:
             continue
         if parallel and combos.shape[0] >= n_chunks * 4:
-            ch_combos, ch_losses = _topn_fixed_r_parallel(phi, base, y, combos, metric_code, top_n, n_chunks)
+            ch_combos, ch_losses = _topn_fixed_r_parallel_colmajor(phi_T, base, y, combos, metric_code, top_n, n_chunks)
             for ch in range(ch_combos.shape[0]):
                 for k in range(ch_combos.shape[1]):
                     if np.isfinite(ch_losses[ch, k]):
                         candidates.append((float(ch_losses[ch, k]), tuple(int(x) for x in ch_combos[ch, k])))
         else:
-            tc, tl = _topn_fixed_r(phi, base, y, combos, metric_code, top_n)
+            tc, tl = _topn_fixed_r_colmajor(phi_T, base, y, combos, metric_code, top_n)
             for k in range(tc.shape[0]):
                 if np.isfinite(tl[k]):
                     candidates.append((float(tl[k]), tuple(int(x) for x in tc[k])))

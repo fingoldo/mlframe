@@ -40,8 +40,11 @@ def resolve_metric(classification: bool, metric: str | None) -> str:
     return metric
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=True, inline="always")
 def _sigmoid(x: float) -> float:
+    # ``inline="always"`` ensures numba folds the branched-stable form into the per-element loops in
+    # ``score_margin`` rather than emitting a function call (matters because this is the inner
+    # hot path of Brier / log-loss scoring over hundreds of thousands of subsets per fit).
     if x >= 0.0:
         z = np.exp(-x)
         return 1.0 / (1.0 + z)
