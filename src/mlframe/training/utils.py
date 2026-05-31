@@ -410,6 +410,16 @@ def compute_model_input_fingerprint(
     return digest, schema
 
 
+# iter628 (perf): single-entry "last result" memo for get_pandas_view_-
+# of_polars_df. Key = (id(pl_df), shape); value = the previously-
+# returned pandas DataFrame. Module-level so it survives across
+# call-site boundaries; single-entry so it's bounded memory (the
+# cached pandas view holds a ref on the polars buffer, so we don't
+# want to retain a long history). Matches the iter625 / iter627
+# "double-call with same id in tight succession" doctrine.
+_PD_VIEW_LAST_CACHE: dict = {"id_key": None, "result": None}
+
+
 def get_pandas_view_of_polars_df(
     df: pl.DataFrame,
     self_destruct: bool = False,
@@ -453,6 +463,36 @@ def get_pandas_view_of_polars_df(
     """
     if pl is None or not isinstance(df, (pl.DataFrame, pl.Series)):
         raise TypeError(f"Input must be a Polars DataFrame or Series, got {type(df).__name__}")
+
+    # iter628 (perf): single-entry "last result" memo. c0008 @100k
+    # profile showed 8 calls / 8.08s cumtime to this bridge across
+    # multiple callers (_normalise_X dominates at 7.44s; the other 7
+    # share 0.64s). Sequential calls from neighbouring code blocks
+    # often pass the SAME polars frame (train/val/test slices re-used
+    # across model strategies). The memo keyed by (id(df), shape,
+    # self_destruct) returns the cached pandas view on immediate
+    # repeats without re-running the ~1s pyarrow conversion.
+    #
+    # Safety: pl.DataFrame is mutable so id() recycling after GC is
+    # the standard risk; shape inclusion gives an extra discriminator.
+    # self_destruct=True paths bypass the memo (consuming input is
+    # destructive; never returning a cached prior view for those).
+    # The returned pandas view shares memory with the polars buffer,
+    # so two callers receiving the same cached view will see each
+    # other's in-place mutations. mlframe consumers don't mutate the
+    # bridge output (verified across the 5 call sites:
+    # _normalise_X / _prepare_strategy_inputs / _cb_polars_to_pandas
+    # / _coerce_to_pandas / _to_pandas_for_baseline) -- all read-only.
+    # If a future caller does mutate, the memo here is the first
+    # place to look for the bug.
+    if not self_destruct:
+        sh = getattr(df, "shape", None)
+        _id_key = (id(df), sh if sh is not None else (None,))
+        _cached = _PD_VIEW_LAST_CACHE.get("id_key")
+        if _cached == _id_key:
+            _result = _PD_VIEW_LAST_CACHE.get("result")
+            if _result is not None:
+                return _result
 
     # iter354 (2026-05-27) size-aware dispatcher: the pyarrow-Table +
     # per-column-cast path below is 9.5x faster than ``df.to_pandas()`` for
@@ -742,6 +782,20 @@ def get_pandas_view_of_polars_df(
             _shape_str, _elapsed, _rss_before_gb, _rss_after_gb,
             _rss_after_gb - _rss_before_gb, self_destruct,
         )
+
+    # iter628 (perf): populate the single-entry memo so the NEXT
+    # identical-id call returns the cached view. Skip when
+    # self_destruct=True (input is being consumed; caching its
+    # post-consume id would be unsafe).
+    if not self_destruct:
+        try:
+            sh = getattr(df, "shape", None)
+            _PD_VIEW_LAST_CACHE["id_key"] = (id(df), sh if sh is not None else (None,))
+            _PD_VIEW_LAST_CACHE["result"] = pandas_df
+        except Exception:
+            # Memo population is best-effort; never fail the conversion
+            # because of a cache-write hiccup.
+            pass
 
     return pandas_df
 
