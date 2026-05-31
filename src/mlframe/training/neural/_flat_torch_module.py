@@ -114,6 +114,19 @@ class MLPTorchModel(L.LightningModule):
         # automatically falls back to eager forward via dict-miss.
         self._cuda_graph_predict_cache: dict = {}
 
+        # F-39 (2026-05-31): torch.compile(reduce-overhead) predict cache.
+        # Per Agent A research, ``mode="reduce-overhead"`` enables CUDA
+        # graph trees + Inductor fusion automatically, strictly more
+        # powerful than the F-38 manual CUDA-graph path (Inductor fuses
+        # BN+act+Dropout chains in addition to graph capture). Env-gated
+        # via MLFRAME_TORCH_COMPILE_PREDICT=1; when both this and F-38
+        # are enabled, F-39 wins (single _compiled_predict_fn for all
+        # shapes via dynamic=False + lazy compile per shape). Compile
+        # latency on first call is 1-5s; amortised over 100+ predict
+        # calls in a typical suite.
+        self._compiled_predict_fn = None
+        self._compile_predict_failed = False
+
         self._apply_torch_compile()
 
         if hasattr(network, "example_input_array"):
@@ -659,6 +672,80 @@ class MLPTorchModel(L.LightningModule):
         except Exception as e:
             logger.error(f"Failed to load checkpoint: {e}", exc_info=True)
 
+    def _maybe_compile_predict_forward(self, x: torch.Tensor) -> torch.Tensor:
+        """F-39 (2026-05-31): torch.compile(mode="reduce-overhead")
+        fast path for the inference forward. Strictly more powerful than
+        F-38's manual CUDA-graph path -- Inductor fuses elementwise
+        chains (BN+act+Dropout) in addition to capturing kernels into
+        CUDA graphs. Cost: 1-5s compile latency on first call.
+
+        Gating:
+          1. ``MLFRAME_TORCH_COMPILE_PREDICT=1`` env var (default off
+             until validated on the target host's PyTorch + GPU combo)
+          2. CUDA is available + the input tensor lives on CUDA
+          3. No LSTM/GRU/RNN in the network (same anti-pattern as F-35
+             compile guard + F-38 CUDA-graph gate)
+          4. Prior compile attempt has not been cached as failed
+
+        Returns None to signal "not applicable; caller should fall
+        through to next path" (vs returning the eager output directly
+        which would obscure the cache miss).
+        """
+        import os as _os
+        if _os.environ.get("MLFRAME_TORCH_COMPILE_PREDICT", "0") != "1":
+            return None
+        if self._compile_predict_failed:
+            return None
+        if not torch.cuda.is_available():
+            return None
+        if not isinstance(x, torch.Tensor) or not x.is_cuda:
+            return None
+        _net = getattr(self.network, "_orig_mod", self.network)
+        try:
+            _recurrent = (torch.nn.LSTM, torch.nn.GRU, torch.nn.RNN)
+            if any(isinstance(m, _recurrent) for m in _net.modules()):
+                return None
+        except Exception:
+            return None
+
+        if self._compiled_predict_fn is None:
+            try:
+                # mode="reduce-overhead" enables CUDA graph trees +
+                # Inductor fusion. dynamic=False is correct for the
+                # cached-shape regime; tail batches that differ in
+                # batch size trigger a recompile inside the cache (one-
+                # off ~1-2s) which is amortised across the rest of the
+                # predict pass.
+                self._compiled_predict_fn = torch.compile(
+                    self.network, mode="reduce-overhead", dynamic=False,
+                )
+                logger.info(
+                    "F-39: torch.compile(mode='reduce-overhead') applied "
+                    "to predict forward; first call will pay 1-5s compile "
+                    "latency, subsequent calls run on CUDA graph trees + "
+                    "Inductor-fused kernels."
+                )
+            except Exception as _comp_err:
+                self._compile_predict_failed = True
+                logger.warning(
+                    "F-39: torch.compile(reduce-overhead) setup failed "
+                    "(%s); falling back to eager predict + F-38 CUDA-graph "
+                    "path (if env-gated).",
+                    _comp_err,
+                )
+                return None
+        try:
+            return self._compiled_predict_fn(x)
+        except Exception as _exec_err:
+            self._compile_predict_failed = True
+            self._compiled_predict_fn = None
+            logger.warning(
+                "F-39: compiled predict forward failed at execution "
+                "(%s); permanently falling back to eager + F-38 path.",
+                _exec_err,
+            )
+            return None
+
     def _maybe_cuda_graph_forward(self, x: torch.Tensor) -> torch.Tensor:
         """F-38 (2026-05-31): CUDA-graph fast path for the inference
         forward. Falls back to eager ``self(x)`` when CUDA graphs are
@@ -689,7 +776,30 @@ class MLPTorchModel(L.LightningModule):
         mismatch) so we don't retry forever.
         """
         import os as _os
-        # Cheapest gates first.
+        # F-38 stays opt-in via MLFRAME_CUDA_GRAPH_PREDICT=1
+        #
+        # 2026-05-31 default-on attempt REVERTED for a fundamental
+        # reason: torch.cuda.make_graphed_callables on an nn.Module
+        # MUTATES the module's ``forward`` to redirect through the
+        # graphed function. After capturing for shape S1, ANY subsequent
+        # ``self.network(x)`` call -- including the warmup forwards we
+        # do for capturing shape S2 -- runs through the S1-specialised
+        # graphed_fn and crashes when x has shape S2. Lightning's
+        # predict path emits varying tail-batch shapes per predict pass
+        # (last batch is typically smaller), so the default-on path
+        # would corrupt the network for any subsequent predict.
+        #
+        # Hardening plan to make F-38 default-safe (multi-day):
+        #   1. Switch from make_graphed_callables to the lower-level
+        #      torch.cuda.CUDAGraph() API: capture is non-destructive
+        #      (an independent CUDAGraph object per shape; module
+        #      forward stays untouched).
+        #   2. OR pad tail batches to the cached batch size via the
+        #      DataModule predict_dataloader, return only the valid
+        #      prefix in _predict_raw.
+        #   3. OR set drop_last=True on the predict dataloader when
+        #      MLFRAME_CUDA_GRAPH_PREDICT=1, document the silent drop.
+        # Until one of the above lands, the safe default is opt-in.
         if _os.environ.get("MLFRAME_CUDA_GRAPH_PREDICT", "0") != "1":
             return self(x)
         if not torch.cuda.is_available():
@@ -713,9 +823,25 @@ class MLPTorchModel(L.LightningModule):
             # eager fallback to avoid retry storms.
             return self(x)
         if _cached is not None:
-            _static_in, _graphed_fn = _cached
-            _static_in.copy_(x, non_blocking=True)
-            return _graphed_fn(_static_in)
+            # Defensive: even cached replay can fail if model state
+            # changed (weight updates between predict calls in a training
+            # loop, parameter swap by an EMA callback, etc.). Wrap in
+            # try/except + evict + fall back to eager. The eviction
+            # means the NEXT call re-captures the graph against the
+            # current weights -- correct behaviour at the cost of one
+            # warmup per state change.
+            try:
+                _static_in, _graphed_fn = _cached
+                _static_in.copy_(x, non_blocking=True)
+                return _graphed_fn(_static_in)
+            except Exception as _replay_err:
+                logger.warning(
+                    "F-38: CUDA-graph replay failed for shape=%s (%s); "
+                    "evicting cache entry + falling back to eager.",
+                    tuple(x.shape), _replay_err,
+                )
+                self._cuda_graph_predict_cache.pop(_key, None)
+                return self(x)
 
         # First time seeing this shape on this device + dtype. Try a
         # capture; cache the result (success or False sentinel).
@@ -776,17 +902,22 @@ class MLPTorchModel(L.LightningModule):
         # version-counter mutation which catches a class of user bugs
         # cheaply. Per torch.inference_mode docs.
         #
-        # F-38 (2026-05-31): CUDA-graph fast path. When MLFRAME_CUDA_GRAPH_PREDICT=1
-        # AND the input is a CUDA tensor AND the shape matches a cached
-        # graph capture, replay the graph for this batch (1.5x-3x speedup
-        # on shallow MLPs per Agent D research). Falls back to the eager
-        # forward when:
-        #   * CUDA not available / input is on CPU
-        #   * env var unset
-        #   * shape mismatch with cached graphs (tail batch)
-        #   * capture failed previously (cached as a sentinel)
+        # F-38 + F-39 (2026-05-31): two-tier accelerated predict.
+        # Order:
+        #   1. F-39 torch.compile(mode='reduce-overhead') [most powerful:
+        #      CUDA graphs + Inductor fusion] — gated by
+        #      MLFRAME_TORCH_COMPILE_PREDICT=1
+        #   2. F-38 manual CUDA-graph capture via make_graphed_callables
+        #      [graphs only, no fusion] — gated by
+        #      MLFRAME_CUDA_GRAPH_PREDICT=1
+        #   3. Eager fallback (always available)
+        # Each gate returns None / falls through when not applicable,
+        # so the default behaviour with no env vars set is byte-identical
+        # to pre-fix eager forward.
         with torch.inference_mode():
-            logits = self._maybe_cuda_graph_forward(x)
+            logits = self._maybe_compile_predict_forward(x)
+            if logits is None:
+                logits = self._maybe_cuda_graph_forward(x)
 
         # task_type='regression' (F-24) returns raw values regardless of
         # shape -- including (N, K) multi-target regression where the prior

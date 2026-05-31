@@ -126,8 +126,9 @@ def test_cuda_graph_cache_initialised_empty():
 
 
 def test_cuda_graph_env_off_falls_back_to_eager(monkeypatch):
-    """MLFRAME_CUDA_GRAPH_PREDICT unset -> _maybe_cuda_graph_forward
-    just calls self(x) (eager). Cache stays empty."""
+    """MLFRAME_CUDA_GRAPH_PREDICT unset (default) -> eager fallback.
+    F-38 stays opt-in until Lightning's varying tail-batch shapes are
+    handled cleanly (Capture fragility documented in the F-38 docstring)."""
     monkeypatch.delenv("MLFRAME_CUDA_GRAPH_PREDICT", raising=False)
     module = _make_module()
     x = torch.randn(4, 4)
