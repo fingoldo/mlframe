@@ -43,24 +43,49 @@ target `k`.
   `TargetTypes.MULTI_TARGET_REGRESSION`. Pick this for correlated
   targets that benefit from a shared trunk / boosting ensemble.
 
-- **Per-target body wiring / metrics / reporting** — ⏳ DEFERRED.
-  The per-target training body (`_phase_train_one_target_*.py`) does
-  NOT yet call `wrap_multi_target` / `get_multi_target_objective_kwargs`
-  at build time. The metrics registry has no MTR-specific aggregators
-  (per-target R² / RMSE _mean / _max). The reporting layer
-  (`_reporting_regression.py`) assumes a 1-D target and would not
-  generate per-target charts. These are tracked below under "Future
-  PRs" and are genuinely multi-day initiatives requiring significant
-  test infrastructure.
+- **Per-target body wiring** — ✅ **Landed in commit `d48245de` (D1)**.
+  `_phase_train_one_target_body.py` around line 651: when target_type
+  is MULTI_TARGET_REGRESSION, the cloned model has
+  `get_multi_target_objective_kwargs()` injected via `set_params`
+  (CatBoost `loss_function="MultiRMSE"`, XGBoost
+  `multi_strategy="multi_output_tree"`), then non-native strategies
+  are wrapped via `wrap_multi_target()` (LightGBM / HGB →
+  MultiOutputRegressor). MLP / Linear / Ridge auto-handle (N, K) at
+  fit-time so the block is a no-op for them. Fallback to setattr if
+  set_params rejects a kwarg.
 
-- **Composite targets + CT_ENSEMBLE for MTR** — ⏳ NOT SUPPORTED.
-  `CompositeTargetEstimator` and `CompositeCrossTargetEnsemble` both
-  assume 1-D y per fit. Users opting into MTR via the auto-route
-  helper should NOT also enable composite-target-discovery for the
-  same target; mixing the two would either raise inside the composite
-  helpers (loud failure) or produce silently incorrect outputs.
-  Future work: per-target composite (K independent estimators) or a
-  joint-target composite generator. Out of scope for this PR.
+- **Metrics registry** — ✅ **Landed in commit `d48245de` (D3)**.
+  Seven MTR metrics registered: `rmse_macro` / `rmse_micro` /
+  `rmse_max` / `mae_macro` / `mae_max` (lower-is-better), `r2_macro`
+  / `r2_min` (higher-is-better). macro = mean per-target column,
+  micro = pooled across (N*K), max/min = worst-case per-target
+  (catches degenerate target columns the mean masks).
+  `metric_name_higher_is_better()` resolves these via the
+  registry-fallback path automatically.
+
+- **Regression reporting** — ✅ **Partially landed in commit `d48245de` (D4)**.
+  `report_regression_model_perf` detects (N, K≥2) targets/preds and
+  early-returns with the metrics dict populated from
+  `iter_extra_metrics(MULTI_TARGET_REGRESSION, ...)`. Logs aggregate
+  metrics. Per-target K-grid chart layout (scatter + histogram per
+  target column) is a future PR; the current path skips
+  chart/audit/fairness branches entirely.
+
+- **CT_ENSEMBLE for MTR** — ✅ **Skip-with-WARN landed in commit `d48245de` (D2)**.
+  `_build_cross_target_ensemble_for_target` early-returns when
+  target_type is MULTI_TARGET_REGRESSION (CT_ENSEMBLE's component
+  stacking assumes 1-D y; (N, K) preds would crash or silently
+  degenerate). Future PR: per-target K-independent ensembles or
+  joint-column blending.
+
+- **Composite targets (`CompositeTargetEstimator` / discovery)** —
+  ⏳ NATURALLY SKIPPED. Composite discovery at
+  `_phase_composite_discovery.py:223` already filters to
+  `TargetTypes.REGRESSION` only — MTR targets are not iterated, so
+  no composite generation runs for them. Users mixing the auto-route
+  with composite discovery on the same target name should NOT see
+  duplicate work; the auto-route happens BEFORE discovery and moves
+  the target out of the REGRESSION bucket.
 
 ## Per-strategy target dispatch (post-rollout)
 
