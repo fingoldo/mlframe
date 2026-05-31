@@ -337,6 +337,13 @@ def screen_predictors(
         if dcd_config is not None and dcd_config.get("enable", False):
             try:
                 from ._dynamic_cluster_discovery import make_dcd_state
+                # Layer 47 (2026-05-31): tau_cluster passes through as-is so
+                # the literal ``'auto'`` sentinel reaches make_dcd_state's
+                # calibration branch. Numeric values are float()-coerced.
+                _raw_tau = dcd_config.get("tau_cluster", 0.7)
+                _tau_arg = (
+                    _raw_tau if isinstance(_raw_tau, str) else float(_raw_tau)
+                )
                 dcd_state = make_dcd_state(
                     X_raw=dcd_config.get("X_raw"),
                     factors_data=factors_data,
@@ -347,7 +354,7 @@ def screen_predictors(
                     quantization_method=dcd_config.get("quantization_method", "quantile"),
                     quantization_nbins=int(dcd_config.get("quantization_nbins", 10)),
                     quantization_dtype=dcd_config.get("quantization_dtype", np.int32),
-                    tau_cluster=float(dcd_config.get("tau_cluster", 0.7)),
+                    tau_cluster=_tau_arg,
                     distance=str(dcd_config.get("distance", "su")),
                     cluster_size_threshold=int(dcd_config.get("cluster_size_threshold", 4)),
                     swap_gain_threshold=float(dcd_config.get("swap_gain_threshold", 0.05)),
@@ -355,6 +362,13 @@ def screen_predictors(
                     pairwise_cache_max=int(dcd_config.get("pairwise_cache_max", 50_000)),
                     min_cluster_size=int(dcd_config.get("min_cluster_size", 2)),
                     max_cluster_size=int(dcd_config.get("max_cluster_size", 12)),
+                    # Layer 47 (2026-05-31): forward auto-tau calibration knobs.
+                    tau_calibration_n_pairs=int(dcd_config.get(
+                        "tau_calibration_n_pairs", 100,
+                    )),
+                    tau_calibration_seed=int(dcd_config.get(
+                        "tau_calibration_seed", 0,
+                    )),
                 )
             except Exception as _dcd_init_exc:
                 if verbose:

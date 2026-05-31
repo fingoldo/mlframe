@@ -46,19 +46,33 @@ def _validate_string_params(self):
     # 2026-05-30 Wave 9 — DCD range checks gated on dcd_enable.
     if bool(getattr(self, "dcd_enable", False)):
         _d = getattr(self, "dcd_distance", "su")
-        _tau = float(getattr(self, "dcd_tau_cluster", 0.7))
-        # Layer 46 (2026-05-31): ``"auto"`` returns max(SU, VI_sim) so the
-        # score lives in [0, 1] just like SU; reuse the SU range check.
-        if _d in ("su", "auto") and not (0.0 < _tau <= 1.0):
-            raise ValueError(
-                f"MRMR: dcd_tau_cluster must be in (0, 1] for "
-                f"distance={_d!r}; got {_tau}."
-            )
-        if _d in ("vi", "sotoca_pla") and _tau <= 0.0:
-            raise ValueError(
-                f"MRMR: dcd_tau_cluster must be > 0 for distance={_d!r}; "
-                f"got {_tau}."
-            )
+        _tau_raw = getattr(self, "dcd_tau_cluster", 0.7)
+        # Layer 47 (2026-05-31): ``dcd_tau_cluster='auto'`` opts into the
+        # per-fit bimodality-detection calibration sweep in
+        # ``make_dcd_state``. The string accepts only the literal lower-case
+        # ``"auto"``; any other string is a configuration error.
+        if isinstance(_tau_raw, str):
+            if _tau_raw.lower() != "auto":
+                raise ValueError(
+                    f"MRMR: dcd_tau_cluster must be a float in (0, 1] or the "
+                    f"literal string 'auto'; got {_tau_raw!r}."
+                )
+            # 'auto' string short-circuits the numeric range check.
+            _tau = None
+        else:
+            _tau = float(_tau_raw)
+            # Layer 46 (2026-05-31): ``"auto"`` (distance) returns max(SU, VI_sim) so the
+            # score lives in [0, 1] just like SU; reuse the SU range check.
+            if _d in ("su", "auto") and not (0.0 < _tau <= 1.0):
+                raise ValueError(
+                    f"MRMR: dcd_tau_cluster must be in (0, 1] for "
+                    f"distance={_d!r}; got {_tau}."
+                )
+            if _d in ("vi", "sotoca_pla") and _tau <= 0.0:
+                raise ValueError(
+                    f"MRMR: dcd_tau_cluster must be > 0 for distance={_d!r}; "
+                    f"got {_tau}."
+                )
         # 2026-05-31 Layer 42: lower bound from 2 to 1. The threshold counts
         # cluster MEMBERS (not anchor + members), so threshold=1 fires the
         # PC1 swap on the strict 2-feature redundancy case (anchor + 1

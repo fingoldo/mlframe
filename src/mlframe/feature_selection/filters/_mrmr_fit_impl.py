@@ -1686,6 +1686,16 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         min_cluster_size=self.dcd_min_cluster_size,
                         max_cluster_size=self.dcd_max_cluster_size,
                         swap_alpha=self.dcd_swap_alpha,
+                        # Layer 47 (2026-05-31): forward the auto-tau
+                        # calibration knobs (number of sampled feature pairs
+                        # and RNG seed) so make_dcd_state can fingerprint
+                        # the calibration sweep deterministically.
+                        tau_calibration_n_pairs=getattr(
+                            self, "dcd_tau_calibration_n_pairs", 100,
+                        ),
+                        tau_calibration_seed=getattr(
+                            self, "dcd_tau_calibration_seed", 0,
+                        ),
                         X_raw=X,
                         quantization_method=self.quantization_method,
                         quantization_nbins=self.quantization_nbins,

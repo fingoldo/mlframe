@@ -612,8 +612,20 @@ class MRMR(BaseEstimator, TransformerMixin):
         # 0.003x overhead is negligible. Users wanting pre-Wave-9 behaviour
         # opt out via dcd_enable=False.
         dcd_enable: bool = True,
-        dcd_tau_cluster: float = 0.7,
+        # Layer 47 (2026-05-31): ``dcd_tau_cluster`` accepts ``'auto'`` to
+        # opt into the per-fit bimodality-detection calibration sweep
+        # (``make_dcd_state`` samples 100 random feature pairs, fits a
+        # coarse histogram, and picks tau at the valley between the two
+        # SU modes; falls back to 0.7 when the distribution is unimodal).
+        # Numeric values keep the legacy fixed-tau behaviour bit-identical.
+        dcd_tau_cluster=0.7,
         dcd_distance: str = "su",
+        # Layer 47 (2026-05-31): knobs for the auto-tau calibration sweep.
+        # ``dcd_tau_calibration_n_pairs`` is the number of random feature pairs
+        # sampled for the bimodality histogram; ``dcd_tau_calibration_seed``
+        # makes the random sample deterministic per fit.
+        dcd_tau_calibration_n_pairs: int = 100,
+        dcd_tau_calibration_seed: int = 0,
         # 2026-05-31 Layer 42: default kept at 4 pending downstream fix.
         # Lowering to 2 (member count beyond anchor) makes the canonical
         # 3-feature redundancy cluster (anchor + 2 dups) actually trigger

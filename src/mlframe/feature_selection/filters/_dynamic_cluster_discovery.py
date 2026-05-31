@@ -173,6 +173,13 @@ class DCDState:
     nbins: Optional[np.ndarray] = None
     # -- coexistence policy --
     suppress_legacy_postoc: bool = True
+    # Layer 47 (2026-05-31): tau-auto calibration diagnostics. None when the
+    # caller passed a numeric ``tau_cluster``; populated by ``make_dcd_state``
+    # when ``tau_cluster='auto'`` to expose the bimodality detection result
+    # (mode, valley_su, sampled scores, mean/std) so users can audit the
+    # selection. Surfaced on ``MRMR.dcd_["tau_calibration"]`` via
+    # ``dcd_summary``.
+    tau_calibration: Optional[dict] = None
 
     def cache_evict_lru(self) -> None:
         while len(self.pairwise_su_cache) > int(self.pairwise_cache_max):
@@ -214,6 +221,24 @@ def _kernel_tuning_cache_lookup_tau(factors_data, factors_nbins,
     except Exception:
         pass
     return float(fallback)
+
+
+# =============================================================================
+# Layer 47 (2026-05-31): auto-tau calibration via small SU sweep on the data
+# =============================================================================
+# Implementation lives in the sibling module ``_dcd_tau_auto`` (LOC budget).
+# Re-exported here so the parent's ``__all__`` and downstream import paths
+# (``from ._dynamic_cluster_discovery import _calibrate_tau_auto``) continue
+# to work unchanged.
+from ._dcd_tau_auto import (
+    _calibrate_tau_auto,
+    _detect_valley_between_modes,
+    _DCD_DEFAULT_TAU,
+    _DCD_AUTO_TAU_DEFAULT_N_PAIRS,
+    _DCD_AUTO_TAU_FALLBACK,
+    _DCD_AUTO_TAU_MIN,
+    _DCD_AUTO_TAU_MAX,
+)
 
 
 def make_dcd_state(
@@ -262,6 +287,47 @@ def make_dcd_state(
     ):
         if key in dcd_config:
             setattr(state, key, dcd_config[key])
+    # Layer 47 (2026-05-31): ``tau_cluster='auto'`` calibration. When the
+    # caller passes the sentinel string ``'auto'``, run a small SU sweep
+    # over random feature pairs on the actual factors_data, detect a valley
+    # between the two modes of the SU distribution, and set tau to that
+    # valley. Falls back to ``_DCD_AUTO_TAU_FALLBACK`` (0.7) when the
+    # distribution is unimodal -- no clear clusters to pick a valley from.
+    # The diagnostics are recorded on ``state.tau_calibration`` and surfaced
+    # via ``dcd_summary``.
+    n_pairs = int(dcd_config.get("tau_calibration_n_pairs",
+                                  _DCD_AUTO_TAU_DEFAULT_N_PAIRS))
+    seed = int(dcd_config.get("tau_calibration_seed", 0))
+    tau_val = state.tau_cluster
+    if isinstance(tau_val, str) and tau_val.lower() == "auto":
+        calibrated, cal_diag = _calibrate_tau_auto(
+            factors_data=factors_data,
+            factors_nbins=factors_nbins,
+            distance=str(state.distance),
+            n_pairs=n_pairs,
+            seed=seed,
+            fallback=_DCD_AUTO_TAU_FALLBACK,
+        )
+        state.tau_cluster = float(calibrated)
+        state.tau_calibration = {
+            "requested": "auto",
+            "n_pairs_sampled": cal_diag["n_pairs_sampled"],
+            "n_pairs_finite": cal_diag["n_pairs_finite"],
+            "mode": cal_diag["mode"],
+            "tau": cal_diag["tau"],
+            "valley_su": cal_diag["valley_su"],
+            "su_mean": cal_diag["su_mean"],
+            "su_std": cal_diag["su_std"],
+        }
+        # NOTE: persisting the calibrated tau back to kernel_tuning_cache is
+        # intentionally NOT done here. KernelTuningCache.update() takes a
+        # ``regions`` list shape, not a flat ``(key, value)`` pair, so a
+        # round-trip persist requires the upstream bench-style mutate that
+        # owns the cache file. The lookup-only path in the
+        # ``_kernel_tuning_cache_lookup_tau`` helper above is the existing
+        # half of that loop; users wanting cross-run persistence should run
+        # the dedicated calibration bench and write a single regions entry.
+        return state
     # Wave 9.1: kernel_tuning_cache override for ``tau_cluster`` when the
     # constructor-supplied value is the dev-machine default 0.7. Lets
     # per-host calibration kick in without code edits while preserving
@@ -1580,6 +1646,9 @@ def dcd_summary(state: Optional[DCDState]) -> Optional[dict]:
         "cluster_anchors_names": name_anchors,
         "cluster_diagnostics": cluster_diagnostics,
         "tau_cluster": float(state.tau_cluster),
+        # Layer 47 (2026-05-31): auto-tau calibration diagnostics. None when
+        # the user passed a numeric tau (calibration didn't run).
+        "tau_calibration": getattr(state, "tau_calibration", None),
     }
 
 
@@ -1594,4 +1663,7 @@ __all__ = [
     "commit_swap",
     "dcd_summary",
     "use_dcd", "set_dcd_active",
+    # Layer 47 (2026-05-31): tau-auto calibration helpers (exported for
+    # white-box testing + downstream tooling).
+    "_calibrate_tau_auto", "_detect_valley_between_modes",
 ]
