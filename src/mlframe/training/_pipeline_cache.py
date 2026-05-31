@@ -241,6 +241,16 @@ def _content_fingerprint_for_cache(arr) -> tuple:
         return _fresh_uncachable()
 
 
+# iter632: a tiny per-process dict mapping (id, shape) -> blake2b digest.
+# Single-entry memos (iter625 / iter627) match the immediate get/set repeat
+# pattern but lose the multi-target / train+val alternation: the suite calls
+# this with train_df then val_df then train_df again on the next target.
+# Cap is 16 entries so the cache never grows unbounded if id() is recycled
+# by GC across a long-running session.
+_PIPELINE_X_HASH_CACHE: "OrderedDict[tuple, str]" = OrderedDict()
+_PIPELINE_X_HASH_CACHE_MAX = 16
+
+
 def _full_x_content_hash(arr) -> str:
     """Full blake2b content hash of an X frame for cache-key disambiguation.
 
@@ -249,9 +259,24 @@ def _full_x_content_hash(arr) -> str:
     Mirrors ``_full_y_content_hash`` (target side) and ``_full_x_content_hash`` (MRMR side) so the X/y guarantees are symmetric. Cost is O(rows*cols) bytes hashed -- a few ms even on a 1M-row frame, well under any cache benefit. Returns ``""`` on conversion failure so the caller can choose to skip the cache rather than serve a wrong replay.
 
     Object-dtype frames (mixed-type pandas) cannot be hashed deterministically via tobytes; returns ``""`` so those callers fall back to the cheaper point-sample alone -- losing collision resistance but not soundness, because object-dtype hot paths are rare and a cache miss is the safe degradation.
+
+    iter632: small-LRU (id, shape) memo. The upstream ``_pre_pipeline_cache_key``
+    memo (iter625) catches the immediate get/set repeat with the SAME
+    pipeline+target_name; this memo catches the multi-target case where
+    ``target_name`` changes between calls but the train/val frames are
+    identity-stable across targets. A single-slot cache misses on the
+    train/val alternation -- ``hash(train), hash(val), hash(train), ...``
+    -- so we use a 16-slot LRU instead.
     """
     if arr is None:
         return ""
+    # iter632 fast-path: id+shape discriminates against GC-recycled id collisions and is safe because train/val frames are not mutated between cache_key invocations within the suite (preserve the same guarantee as iter625 / iter627).
+    sh = getattr(arr, "shape", None)
+    id_shape = (id(arr), sh if sh is not None else (None,))
+    cached = _PIPELINE_X_HASH_CACHE.get(id_shape)
+    if cached is not None:
+        _PIPELINE_X_HASH_CACHE.move_to_end(id_shape)
+        return cached
     try:
         # iter299 (2026-05-26): polars-native hash path. The legacy
         # ``arr.to_numpy().tobytes() -> blake2b`` chain materialises the
@@ -285,7 +310,11 @@ def _full_x_content_hash(arr) -> str:
             h.update(str(arr.schema).encode())
             if col_names:
                 h.update(col_names.encode())
-            return h.hexdigest()
+            _result = h.hexdigest()
+            _PIPELINE_X_HASH_CACHE[id_shape] = _result
+            if len(_PIPELINE_X_HASH_CACHE) > _PIPELINE_X_HASH_CACHE_MAX:
+                _PIPELINE_X_HASH_CACHE.popitem(last=False)
+            return _result
         if pl is not None and isinstance(arr, pl.Series):
             try:
                 np_arr = arr.to_numpy()
@@ -333,7 +362,11 @@ def _full_x_content_hash(arr) -> str:
                 h.update(str(arr.dtypes.to_list()).encode())
                 if col_names:
                     h.update(col_names.encode())
-                return h.hexdigest()
+                _result = h.hexdigest()
+                _PIPELINE_X_HASH_CACHE[id_shape] = _result
+                if len(_PIPELINE_X_HASH_CACHE) > _PIPELINE_X_HASH_CACHE_MAX:
+                    _PIPELINE_X_HASH_CACHE.popitem(last=False)
+                return _result
             # Fallback to legacy to_numpy + tobytes path on any polars failure
             # (mixed-dtype frame polars can't ingest, etc).
             try:
@@ -368,7 +401,11 @@ def _full_x_content_hash(arr) -> str:
         h.update(str(np_arr.dtype).encode())
         if col_names:
             h.update(col_names.encode())
-        return h.hexdigest()
+        _result = h.hexdigest()
+        _PIPELINE_X_HASH_CACHE[id_shape] = _result
+        if len(_PIPELINE_X_HASH_CACHE) > _PIPELINE_X_HASH_CACHE_MAX:
+            _PIPELINE_X_HASH_CACHE.popitem(last=False)
+        return _result
     except Exception:
         return ""
 
