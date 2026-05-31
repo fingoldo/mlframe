@@ -202,12 +202,21 @@ def test_pipeline_mrmr_then_shap_proxied_fs_selects_su_backend():
         f"expected backend='su', got {rep_su['clustering']!r}"
     )
 
-    # Backend = 'pearson' without precomputed (no regression on legacy path).
-    sps_pearson = ShapProxiedFS(**common).fit(X, y)
+    # iter75: backend = 'su' even WITHOUT precomputed under auto-mode at small width.
+    # The selector bins X on the fly via categorize_dataset so SU runs unconditionally.
+    sps_auto = ShapProxiedFS(**common).fit(X, y)
+    rep_auto = sps_auto.shap_proxy_report_
+    assert "clustering" in rep_auto
+    assert rep_auto["clustering"].get("backend") == "su", (
+        f"iter75: expected default auto-mode backend='su' without precomputed, got {rep_auto['clustering']!r}"
+    )
+    assert rep_auto["clustering"].get("bins_source") == "on_the_fly"
+
+    # Explicit cluster_backend='pearson' restores the legacy Pearson path.
+    sps_pearson = ShapProxiedFS(cluster_backend="pearson", **common).fit(X, y)
     rep_p = sps_pearson.shap_proxy_report_
-    assert "clustering" in rep_p
     assert rep_p["clustering"].get("backend") == "pearson", (
-        f"expected backend='pearson' without precomputed, got {rep_p['clustering']!r}"
+        f"explicit cluster_backend='pearson' did not select Pearson: {rep_p['clustering']!r}"
     )
 
 

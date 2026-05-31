@@ -79,6 +79,16 @@ _HEURISTIC_OPTIMIZERS = {"beam", "greedy_forward", "greedy_backward", "multistar
 _DEFAULT_BRUTE_FORCE_MAX_FEATURES = 28
 _DEFAULT_BRUTE_FORCE_N_SUB_GATE = 80_000_000
 
+# iter75: when auto-mode picks the SU clustering backend without precomputed bins, ShapProxiedFS
+# bins X on-the-fly via MRMR's ``categorize_dataset`` and then runs pairwise SU. The pairwise scan
+# is O(f^2) and despite the iter67-74 speedups (33x cumulative at width=2000) it is still slower
+# than Pearson's vectorised correlation matrix at very wide search widths; above the cap the
+# auto-mode falls back to Pearson rather than pay the SU cost. 2000 is the calibration point at
+# which the iter69 column-major + iter71 fused-setup + iter73 popcount kernels keep SU within ~3x
+# of Pearson on the dev box; per-HW tunable via kernel_tuning_cache key
+# ``mlframe.shap_proxied_fs.cluster_su_auto_max_features``.
+_DEFAULT_CLUSTER_SU_AUTO_MAX_FEATURES = 2000
+
 # Iter59 adaptive-prescreen-width thresholds. The lever is a recall-protection device for low-SNR
 # regimes: at low SHAP rank-stability across OOF folds, the top features past the strongly-informative
 # core are essentially noise -- pulling them into the prescreen pool injects noise into beam's input
@@ -122,6 +132,24 @@ def _resolve_brute_force_n_sub_gate(default: int = _DEFAULT_BRUTE_FORCE_N_SUB_GA
 
         value = kernel_tuning_cache.get(
             "mlframe.shap_proxied_fs.brute_force_n_sub_gate", default=default)
+        return int(value)
+    except Exception:
+        return default
+
+
+def _resolve_cluster_su_auto_max_features(
+    default: int = _DEFAULT_CLUSTER_SU_AUTO_MAX_FEATURES,
+) -> int:
+    """Per-HW upper width at which ``cluster_backend='auto'`` still picks SU when no precomputed
+    bins are supplied. Above this the auto path falls back to Pearson (the pairwise SU O(f^2)
+    scan no longer amortises the iter73-era 33x-over-naive cost into a wall-clock win vs the
+    vectorised Pearson |corr|). Reads kernel_tuning_cache key
+    ``mlframe.shap_proxied_fs.cluster_su_auto_max_features``."""
+    try:
+        from pyutilz.system import kernel_tuning_cache
+
+        value = kernel_tuning_cache.get(
+            "mlframe.shap_proxied_fs.cluster_su_auto_max_features", default=default)
         return int(value)
     except Exception:
         return default
@@ -227,6 +255,9 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         cluster_auto_threshold: int = 40,
         cluster_use_precomputed_bins: bool = True,
         cluster_su_threshold: float = 0.5,
+        cluster_backend: str = "auto",
+        cluster_su_auto_max_features: int | None = None,
+        cluster_su_n_bins: int = 10,
         prescreen_top: int | None = None,
         within_cluster_refine: bool = True,
         refine_n_estimators: int | None = 100,
@@ -424,6 +455,25 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         # default 0.5 calibrated to a similar linking density as |corr| 0.7.
         self.cluster_use_precomputed_bins = bool(cluster_use_precomputed_bins)
         self.cluster_su_threshold = float(cluster_su_threshold)
+        # iter75: SU is the UNCONDITIONAL DEFAULT clustering backend ("auto" picks it whenever
+        # precomputed bins exist OR n_features <= ``cluster_su_auto_max_features``; bins are
+        # computed on-the-fly from X via MRMR's ``categorize_dataset`` when missing). Pearson
+        # stays accessible via ``cluster_backend="pearson"`` for the legacy regime + the wide
+        # widths above the auto cap. ``"su"`` forces SU regardless of width (may bin X even at
+        # width >> auto_max). The auto_max gate amortises the iter67-74 SU pairwise speedups
+        # (33x cumulative at width=2000) against Pearson's vectorised correlation matrix; above
+        # the cap Pearson still wins so auto falls back.
+        _backend_norm = str(cluster_backend).lower()
+        if _backend_norm not in ("auto", "su", "pearson"):
+            raise ValueError(
+                f"cluster_backend must be one of 'auto', 'su', 'pearson'; got {cluster_backend!r}"
+            )
+        self.cluster_backend = _backend_norm
+        self.cluster_su_auto_max_features = (
+            int(cluster_su_auto_max_features) if cluster_su_auto_max_features is not None
+            else _resolve_cluster_su_auto_max_features()
+        )
+        self.cluster_su_n_bins = int(cluster_su_n_bins)
         self.prescreen_top = prescreen_top
         self.within_cluster_refine = within_cluster_refine
         # ``refine_n_estimators`` caps the per-trial booster size inside ``within_cluster_refine``.
@@ -1013,36 +1063,83 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
                 build_unit_matrix, cluster_correlated_features, cluster_summary)
 
             with _stage("clustering"):
-                # iter67: dispatch SU-pairwise clustering when MRMR precomputed
-                # bins are available. Catches non-linear redundancy (XOR /
-                # saddle / sinusoidal) that the Pearson backend misses. Falls
-                # back to Pearson silently when bins absent or user opts out.
+                # iter75: SU is now the UNCONDITIONAL DEFAULT clustering backend whenever auto-mode
+                # picks it (precomputed bins available OR width <= ``cluster_su_auto_max_features``).
+                # Pearson is opt-in via ``cluster_backend="pearson"`` and the wide-width auto fallback.
+                # Bins are reused from MRMR.export_artifacts when present, else computed on the fly via
+                # ``categorize_dataset`` on ``X_search`` so every default user gets non-linear
+                # redundancy detection (XOR / saddle / sinusoidal) that Pearson |corr| misses.
                 _bins = (
                     _precomputed_aligned.get("bins")
                     if isinstance(_precomputed_aligned, dict) else None
                 )
-                _use_su_cluster = (
+                _have_precomputed_bins = (
                     self.cluster_use_precomputed_bins
                     and isinstance(_bins, dict)
                     and len(_bins) > 0
                 )
-                if _use_su_cluster:
+                # ``cluster_use_precomputed_bins=False`` is a per-instance opt-out from the
+                # SU-with-precomputed-bins fast path; we honour it as a forced Pearson dispatch
+                # (legacy semantics) regardless of cluster_backend, so existing callers keep their
+                # opt-out switch.
+                if not bool(self.cluster_use_precomputed_bins):
+                    effective_backend = "pearson"
+                elif self.cluster_backend == "pearson":
+                    effective_backend = "pearson"
+                elif self.cluster_backend == "su":
+                    effective_backend = "su"
+                else:
+                    # auto: prefer SU whenever bins exist (cheap reuse) or width is below the
+                    # on-the-fly-binning cost gate; above the cap Pearson's vectorised correlation
+                    # matrix still beats pairwise SU on wall-clock.
+                    n_search_cols = int(X_search.shape[1])
+                    if _have_precomputed_bins or n_search_cols <= int(self.cluster_su_auto_max_features):
+                        effective_backend = "su"
+                    else:
+                        effective_backend = "pearson"
+
+                _cluster_bins_source = "n/a"
+                if effective_backend == "su":
                     from mlframe.feature_selection._shap_proxy_cluster_su import (
                         cluster_correlated_features_su,
                     )
 
-                    _nbins_pf = (
-                        _precomputed_aligned.get("nbins_per_feature")
-                        if isinstance(_precomputed_aligned, dict) else None
+                    # Reuse precomputed bins when keyed to every working column; else bin
+                    # X_search on the fly via MRMR's discretiser. Keeping the precomputed path
+                    # avoids the second binning pass when MRMR already produced an aligned view.
+                    _cluster_names = (
+                        [c for c in X_search.columns.tolist() if c in _bins]
+                        if _have_precomputed_bins else []
                     )
-                    # X_search.columns is the working-axis subset; bins keyed
-                    # by feature name handle post-prefilter narrowing for free.
-                    _cluster_names = [
-                        c for c in X_search.columns.tolist() if c in _bins
-                    ]
+                    if _have_precomputed_bins and len(_cluster_names) == X_search.shape[1]:
+                        _nbins_pf = (
+                            _precomputed_aligned.get("nbins_per_feature")
+                            if isinstance(_precomputed_aligned, dict) else None
+                        )
+                        _bins_for_su = _bins
+                        _cluster_bins_source = "precomputed"
+                    else:
+                        # On-the-fly binning: categorize_dataset returns (data_array, column_names,
+                        # nbins_per_col). The dict layout matches what MRMR.export_artifacts produces
+                        # so cluster_correlated_features_su consumes it unchanged.
+                        from mlframe.feature_selection.filters.discretization import (
+                            categorize_dataset,
+                        )
+                        _bin_data, _bin_cols, _bin_nbins = categorize_dataset(
+                            X_search, n_bins=int(self.cluster_su_n_bins),
+                        )
+                        _bins_for_su = {
+                            name: _bin_data[:, i] for i, name in enumerate(_bin_cols)
+                        }
+                        _nbins_pf = {
+                            name: int(_bin_nbins[i]) for i, name in enumerate(_bin_cols)
+                        }
+                        _cluster_names = list(X_search.columns)
+                        _cluster_bins_source = "on_the_fly"
+
                     if len(_cluster_names) == X_search.shape[1]:
                         labels = cluster_correlated_features_su(
-                            _bins,
+                            _bins_for_su,
                             threshold=self.cluster_su_threshold,
                             feature_names=_cluster_names,
                             nbins_per_feature=_nbins_pf,
@@ -1050,13 +1147,14 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
                         _cluster_backend = "su"
                         _cluster_threshold = float(self.cluster_su_threshold)
                     else:
-                        # bins do not cover every working column (rare) -> fall
-                        # back to Pearson rather than silently dropping cols.
+                        # Defensive: categorize_dataset may drop unsupported dtypes (rare in numeric
+                        # X_search); fall back to Pearson rather than partial coverage.
                         labels = cluster_correlated_features(
                             X_search.values, threshold=self.cluster_corr_threshold,
                             use_gpu=self.cluster_use_gpu)
                         _cluster_backend = "pearson_fallback_bins_incomplete"
                         _cluster_threshold = float(self.cluster_corr_threshold)
+                        _cluster_bins_source = "n/a"
                 else:
                     labels = cluster_correlated_features(
                         X_search.values, threshold=self.cluster_corr_threshold,
@@ -1069,6 +1167,7 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
                 _cluster_block = cluster_summary(unit_to_members)
                 _cluster_block["backend"] = _cluster_backend
                 _cluster_block["threshold"] = _cluster_threshold
+                _cluster_block["bins_source"] = _cluster_bins_source
                 report["clustering"] = _cluster_block
         else:
             X_proxy = X_search

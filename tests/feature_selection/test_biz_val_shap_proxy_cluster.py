@@ -46,8 +46,13 @@ def test_biz_val_cluster_aware_recovers_latent_factors_on_wide_data():
     X, y = _make_wide(seed=0)
     assert X.shape[1] > 40  # above cluster_auto_threshold -> clustering engages
 
+    # iter75: SU is the default clustering backend but this test's threshold-tuned n_multi_clusters
+    # contract was written for Pearson |corr|; pin the Pearson backend explicitly to keep this
+    # biz_val test scoped to the Pearson clustering behaviour. The SU-default conservation contract
+    # lives in test_shap_proxy_cluster_su_default_backend.py.
     sel = ShapProxiedFS(
         classification=True, metric="brier", cluster_features=True, cluster_corr_threshold=0.6,
+        cluster_backend="pearson",
         max_features=8, top_n=15, n_splits=3, n_revalidation_models=1, random_state=0, verbose=False)
     sel.fit(X, y)
     rep = sel.shap_proxy_report_
@@ -121,8 +126,10 @@ def test_biz_val_cluster_compacts_redundant_members():
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     X, y = _make_wide(seed=1)
+    # iter75: pin Pearson backend to keep this test's threshold-tuned multi-cluster contract stable.
     sel = ShapProxiedFS(
         classification=True, metric="brier", cluster_features=True, cluster_corr_threshold=0.6,
+        cluster_backend="pearson",
         max_features=8, top_n=15, n_splits=3, n_revalidation_models=1, within_cluster_refine=True,
         random_state=1, verbose=False)
     sel.fit(X, y)
