@@ -1338,6 +1338,101 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     "continuing without copula-MI columns.",
                     type(_copula_exc).__name__, _copula_exc,
                 )
+    # 2026-06-01 Layer 67 — DISTANCE-CORRELATION ranking for the hybrid
+    # orth-poly FE (independent opt-in; does NOT require
+    # fe_hybrid_orth_enable). Szekely-Rizzo dCor is the only non-MI
+    # dependence measure in the layer family -- ``dCor == 0`` iff X and Y
+    # are independent on ANY relationship (Pearson lacks this iff
+    # guarantee). Naive dCor is O(n^2); the working sample is capped at
+    # n=500 via deterministic random subsample. Engineered VALUES bit-equal
+    # to Layer 21 -> recipes reuse the ``orth_univariate`` kind.
+    if bool(getattr(self, "fe_hybrid_orth_dcor_enable", False)):
+        _is_pandas_for_dcor = isinstance(X, pd.DataFrame)
+        if not _is_pandas_for_dcor:
+            warnings.warn(
+                "MRMR: fe_hybrid_orth_dcor_enable=True but X is not a "
+                "pandas DataFrame; dCor hybrid FE is skipped. "
+                "Convert to pandas via X.to_pandas() before fit() if you "
+                "want the dCor selection applied.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from ._orthogonal_dcor_fe import (
+                    hybrid_orth_mi_dcor_fe_with_recipes,
+                )
+                _y_for_dcor = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                _hybrid_already_appended = set(
+                    getattr(self, "hybrid_orth_features_", None) or []
+                )
+                if getattr(self, "factors_names_to_use", None):
+                    _dcor_cols = [
+                        c for c in self.factors_names_to_use
+                        if c in X.columns and c not in _hybrid_already_appended
+                    ]
+                else:
+                    _dcor_cols = [
+                        c for c in X.columns
+                        if c not in _hybrid_already_appended
+                    ]
+                _dcor_degrees = tuple(int(d) for d in getattr(
+                    self, "fe_hybrid_orth_degrees", (2, 3),
+                ))
+                _dcor_basis = str(getattr(
+                    self, "fe_hybrid_orth_basis", "auto",
+                ))
+                _dcor_top_k = int(getattr(self, "fe_hybrid_orth_top_k", 5))
+                _dcor_n_sample = int(getattr(
+                    self, "fe_hybrid_orth_dcor_n_sample", 500,
+                ))
+                # dCor on raw x already captures non-monotone structure
+                # (Hermite poly basis tracks the same dependence dCor
+                # detects), so engineered/baseline uplift on a single
+                # source is typically near 1.0; the 0.95 / 0.05 floor
+                # matches the Layer 65 / 66 calibration for the same
+                # reason.
+                _dcor_min_uplift = 0.95
+                _dcor_min_abs_mi_frac = 0.05
+                _X_before_dcor_cols = list(X.columns)
+                X_dcor, _dcor_scores, _dcor_recipes = (
+                    hybrid_orth_mi_dcor_fe_with_recipes(
+                        X, _y_for_dcor,
+                        cols=_dcor_cols,
+                        degrees=_dcor_degrees,
+                        basis=_dcor_basis,
+                        top_k=_dcor_top_k,
+                        min_uplift=_dcor_min_uplift,
+                        min_abs_mi_frac=_dcor_min_abs_mi_frac,
+                        n_sample=_dcor_n_sample,
+                        random_state=int(getattr(self, "random_seed", 0) or 0),
+                    )
+                )
+                _dcor_appended = [
+                    c for c in X_dcor.columns
+                    if c not in _X_before_dcor_cols
+                ]
+                if _dcor_appended:
+                    X = X_dcor
+                    self.hybrid_orth_features_ = (
+                        list(self.hybrid_orth_features_ or [])
+                        + list(_dcor_appended)
+                    )
+                    for _r in _dcor_recipes:
+                        _hybrid_orth_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit hybrid_orth dCor: appended %d "
+                            "engineered column(s): %s",
+                            len(_dcor_appended), _dcor_appended[:8],
+                        )
+            except Exception as _dcor_exc:
+                logger.warning(
+                    "MRMR.fit hybrid_orth dCor FE raised %s: %s; "
+                    "continuing without dCor columns.",
+                    type(_dcor_exc).__name__, _dcor_exc,
+                )
     # 2026-05-21 revert of Wave 29 P1 polars->pandas coercion. That
     # coercion was added on the premise that downstream ``X[target_name]
     # = y`` mutation assumed pandas and would raise on polars; but the

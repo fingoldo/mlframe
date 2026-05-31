@@ -862,6 +862,21 @@ class MRMR(BaseEstimator, TransformerMixin):
         # Default OFF preserves pickle byte-equivalence.
         fe_hybrid_orth_copula_enable: bool = False,
         fe_hybrid_orth_copula_n_bins: int = 20,
+        # 2026-06-01 Layer 67 — DISTANCE-CORRELATION ranking for hybrid orth-
+        # poly FE (sibling module ``_orthogonal_dcor_fe``). Independent opt-in
+        # (does NOT require fe_hybrid_orth_enable). Layer 21 / 65 / 66 are
+        # all MI estimators (differing in how they estimate it); Layer 67 is
+        # the Szekely-Rizzo distance correlation -- a NON-MI dependence
+        # measure with the universal ``dCor == 0 iff independent`` guarantee
+        # that Pearson lacks. Excels on non-monotone / non-functional /
+        # oscillatory dependencies where MI estimators converge slowly.
+        # Naive dCor is O(n^2) memory; subsamples at n=500 keep the per-
+        # pair distance matrices at 2 MB each. Engineered VALUES are bit-
+        # equal to Layer 21 so recipes reuse the ``orth_univariate`` kind
+        # and replay is shared infrastructure. Default OFF preserves pickle
+        # byte-equivalence.
+        fe_hybrid_orth_dcor_enable: bool = False,
+        fe_hybrid_orth_dcor_n_sample: int = 500,
         # 2026-05-31 Layer 32 — extra (non-polynomial) basis FE: B-spline +
         # Fourier. Complementary to the orth-poly path: spline catches sharp
         # local non-linearities (threshold rules ``y = sign(x - tau)``);
@@ -1364,6 +1379,10 @@ class MRMR(BaseEstimator, TransformerMixin):
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_hybrid_orth_copula_enable": False,
             "fe_hybrid_orth_copula_n_bins": 20,
+            # 2026-06-01 Layer 67 — distance-correlation ranking defaults.
+            # Master switch OFF preserves legacy pickle byte-equivalence.
+            "fe_hybrid_orth_dcor_enable": False,
+            "fe_hybrid_orth_dcor_n_sample": 500,
             # 2026-05-31 Layer 32 — extra-basis (spline / fourier) defaults.
             "fe_hybrid_orth_extra_bases": (),
             "fe_hybrid_orth_fourier_freqs": (1.0, 2.0),
