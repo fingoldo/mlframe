@@ -116,11 +116,17 @@ def test_within_cluster_refine_cache_hit_identical_subset_and_populates_dir(tmp_
         classification=True, n_jobs=1, member_groups=member_groups, refine_n_estimators=20,
         disk_cache_dir=cache_dir,
     )
-    # First call (miss) MUST have populated the cache_dir with honest_loss_ entries.
+    # First call (miss) MUST have populated the cache_dir with honest_loss_ entries (iter81). The
+    # iter82 perm-importance fit cache also writes ``perm_imp_fit_*`` entries; both prefixes are
+    # valid refine outputs and we only care that at least one honest_loss entry exists here.
     files = list(cache_dir.iterdir())
     assert len(files) >= 1, "refine cache_dir should have honest_loss_ entries after the cold call"
-    assert all(f.name.startswith("honest_loss_") for f in files), (
-        f"all refine entries should be in the honest_loss_ namespace, got {[f.name for f in files]}"
+    valid_prefixes = ("honest_loss_", "perm_imp_fit_")
+    assert all(f.name.startswith(valid_prefixes) for f in files), (
+        f"all refine entries should be in the honest_loss_ / perm_imp_fit_ namespaces, got {[f.name for f in files]}"
+    )
+    assert any(f.name.startswith("honest_loss_") for f in files), (
+        f"refine should have written at least one honest_loss_ entry, got {[f.name for f in files]}"
     )
 
     refined_warm = within_cluster_refine(

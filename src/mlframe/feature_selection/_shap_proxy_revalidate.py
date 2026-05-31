@@ -39,6 +39,14 @@ logger = logging.getLogger(__name__)
 # makes the cache human-greppable (``ls cache_dir/honest_loss_*`` shows reval/trust entries).
 _HONEST_LOSS_CACHE_PREFIX = "honest_loss_"
 
+# Cache-key namespace for the cross-process permutation-importance FITTED BOOSTER cache (iter82).
+# Stage 2a of within_cluster_refine fits a single booster on ``current_cols`` then issues k cheap
+# predict-on-shuffled passes; the fit dominates the runtime. Caching the fitted booster pickle (not
+# the scalar loss, unlike honest_loss_) lets a warm re-run of the same (X_tr, y_tr, cols, template)
+# skip the fit entirely while keeping per-feature shuffle predicts deterministic. Booster pickles
+# are typically 10-100 KB at our regimes.
+_PERM_IMP_FIT_CACHE_PREFIX = "perm_imp_fit_"
+
 
 def _build_honest_loss_disk_key(model_template, X_tr, y_tr, X_ev, y_ev, idx, classification, metric,
                                 seed, n_estimators_cap, template_id) -> Optional[str]:
@@ -77,6 +85,41 @@ def _build_honest_loss_disk_key(model_template, X_tr, y_tr, X_ev, y_ev, idx, cla
         return _HONEST_LOSS_CACHE_PREFIX + compose_key(x_tr_key, y_tr_key, x_ev_key, y_ev_key, state_key)
     except Exception as exc:
         logger.debug("_honest_loss: disk-cache key build failed (%s); skipping cache", exc)
+        return None
+
+
+def _build_perm_fit_disk_key(model_template, X_tr, y_tr, idx, n_estimators_cap, template_id) -> Optional[str]:
+    """Stable cache key for the FITTED booster used by ``_permutation_importance_ranking`` (iter82).
+
+    Permutation importance fits a single booster on (X_tr[:, idx], y_tr); subsequent per-column
+    shuffle predictions are evaluated against that fitted booster. The cached payload here is the
+    pickled fitted booster itself -- different from ``_HONEST_LOSS_CACHE_PREFIX`` entries (scalar
+    losses). Key inputs therefore depend ONLY on the fit determinants (training data + column
+    subset + template params + n_estimators_cap + template_id); the permutation seed is intentionally
+    NOT included because the seed affects only the post-fit shuffle predicts, never the fit itself.
+
+    The X_ev / y_ev evaluation data is likewise NOT in the key: the cached booster is independent of
+    where it gets scored. Callers that change X_ev re-use the cached fit and only re-do the cheap
+    predict pass.
+    """
+    try:
+        from mlframe.utils.disk_cache import compose_key, hash_array_summary, hash_object
+
+        try:
+            params = model_template.get_params(deep=False)
+        except Exception:
+            params = {"_repr": repr(model_template)}
+        x_tr_key = hash_array_summary(X_tr.values if hasattr(X_tr, "values") else np.asarray(X_tr))
+        y_tr_key = hash_array_summary(np.asarray(y_tr))
+        state_key = hash_object({
+            "cols": tuple(sorted(int(c) for c in idx)),
+            "n_estimators_cap": n_estimators_cap,
+            "template_id": template_id,
+            "params": params,
+        })
+        return _PERM_IMP_FIT_CACHE_PREFIX + compose_key(x_tr_key, y_tr_key, state_key)
+    except Exception as exc:
+        logger.debug("_permutation_importance_ranking: disk-cache key build failed (%s); skipping cache", exc)
         return None
 
 
@@ -288,7 +331,8 @@ def _honest_loss(model_template, X_tr, y_tr, X_ev, y_ev, idx, classification, me
 
 
 def _permutation_importance_ranking(model_template, X_tr, y_tr, X_ev, y_ev, current_cols, classification,
-                                    metric, *, n_estimators_cap=None, seed=0, inner_n_jobs=None):
+                                    metric, *, n_estimators_cap=None, seed=0, inner_n_jobs=None,
+                                    disk_cache=None, template_id=None):
     """Rank ``current_cols`` by permutation importance with a SINGLE fit + k cheap predict-on-shuffled
     passes; returns ``(base_loss, importances)`` aligned to ``current_cols``.
 
@@ -305,17 +349,46 @@ def _permutation_importance_ranking(model_template, X_tr, y_tr, X_ev, y_ev, curr
     instead of O(k) trial fits.
 
     The shuffle seed is fixed (deterministic across n_jobs=1 calls) so the ranking is reproducible.
+
+    ``disk_cache`` (iter82): when supplied, the fitted booster pickle is cached under a key derived
+    from (X_tr summary, y_tr summary, sorted cols, template params, n_estimators_cap, template_id).
+    A warm second call with identical fit determinants reloads the booster from disk and skips the
+    fit entirely -- the perm-importance shuffle predicts (cheap) still run on the cached estimator.
+    Cache hit / miss / pickle errors degrade silently to the compute path (best-effort policy).
     """
     cols = list(current_cols)
-    est = clone(model_template)
-    if n_estimators_cap is not None:
-        _try_cap_n_estimators(est, n_estimators_cap)
-    if inner_n_jobs is not None and hasattr(est, "n_jobs"):
-        try:
-            est.set_params(n_jobs=int(inner_n_jobs))
-        except (ValueError, TypeError):
-            pass
-    est.fit(X_tr.iloc[:, cols], y_tr)
+    # Cross-process fit cache (iter82): try to deserialize a previously-trained booster on the same
+    # (X_tr, y_tr, cols, template). Hash-build failure (None key) and DiskCache.get failure both
+    # fall through to the standard fit path; the cache is never a correctness gate. Note: we cache
+    # the FITTED estimator, not the loss / importance vector, so the per-feature shuffle predicts
+    # still execute against a numerically-identical model.
+    est = None
+    fit_disk_key = None
+    if disk_cache is not None:
+        fit_disk_key = _build_perm_fit_disk_key(model_template, X_tr, y_tr, cols, n_estimators_cap, template_id)
+        if fit_disk_key is not None:
+            try:
+                cached_est = disk_cache.get(fit_disk_key)
+            except Exception as exc:
+                logger.debug("_permutation_importance_ranking: disk cache get failed (%s); skipping", exc)
+                cached_est = None
+            if cached_est is not None:
+                est = cached_est
+    if est is None:
+        est = clone(model_template)
+        if n_estimators_cap is not None:
+            _try_cap_n_estimators(est, n_estimators_cap)
+        if inner_n_jobs is not None and hasattr(est, "n_jobs"):
+            try:
+                est.set_params(n_jobs=int(inner_n_jobs))
+            except (ValueError, TypeError):
+                pass
+        est.fit(X_tr.iloc[:, cols], y_tr)
+        if disk_cache is not None and fit_disk_key is not None:
+            try:
+                disk_cache.put(fit_disk_key, est)
+            except Exception as exc:
+                logger.debug("_permutation_importance_ranking: disk cache put failed (%s); skipping", exc)
     # Score the un-permuted base once; cheaper to use the same model with the un-shuffled matrix.
     X_ev_sub = X_ev.iloc[:, cols]
     X_ev_arr = X_ev_sub.to_numpy(copy=False)
@@ -1432,7 +1505,7 @@ def within_cluster_refine(
     if len(current) > 1:
         rank_base, importances = _permutation_importance_ranking(
             model_template, X_search, y_search, X_holdout, y_holdout, current, classification, metric,
-            n_estimators_cap=cap, seed=0)
+            n_estimators_cap=cap, seed=0, disk_cache=disk_cache, template_id=tid)
         base = min(base, float(rank_base))
         cur_threshold = base + parsimony_tol * abs(base)
         # Persist per-column importance so stage 2b can sort its drop trials by ascending-importance
