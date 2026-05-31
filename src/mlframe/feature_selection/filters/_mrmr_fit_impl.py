@@ -1140,6 +1140,107 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     "continuing without three-gate columns.",
                     type(_tg_exc).__name__, _tg_exc,
                 )
+    # 2026-05-31 Layer 65 — KSG / k-NN MI ranking for the hybrid orth-poly
+    # FE (independent opt-in; does NOT require fe_hybrid_orth_enable).
+    # Replaces the Layer 21 plug-in quantile-binned MI estimator with the
+    # Kraskov-Stoegbauer-Grassberger k-NN MI estimator via sklearn's
+    # ``mutual_info_classif`` (Ross 2014 mixed-KSG for discrete y). The
+    # engineered columns are bit-equal to Layer 21 -- only the SCORING
+    # (and therefore the selection) changes -- so recipes reuse the
+    # ``orth_univariate`` kind and replay is shared infrastructure.
+    if bool(getattr(self, "fe_hybrid_orth_ksg_enable", False)):
+        _is_pandas_for_ksg = isinstance(X, pd.DataFrame)
+        if not _is_pandas_for_ksg:
+            warnings.warn(
+                "MRMR: fe_hybrid_orth_ksg_enable=True but X is not a "
+                "pandas DataFrame; KSG hybrid FE is skipped. Convert to "
+                "pandas via X.to_pandas() before fit() if you want the "
+                "KSG-MI selection applied.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from ._orthogonal_ksg_mi_fe import (
+                    hybrid_orth_mi_ksg_fe_with_recipes,
+                )
+                _y_for_ksg = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                if _y_for_ksg.dtype.kind in "fc":
+                    _n_unique = int(np.unique(_y_for_ksg).size)
+                    if _n_unique <= 32:
+                        _y_for_ksg = _y_for_ksg.astype(np.int64)
+                    else:
+                        try:
+                            _y_for_ksg = pd.qcut(
+                                _y_for_ksg, q=10, labels=False, duplicates="drop",
+                            ).astype(np.int64)
+                        except Exception:
+                            _y_for_ksg = _y_for_ksg.astype(np.int64)
+                _hybrid_already_appended = set(
+                    getattr(self, "hybrid_orth_features_", None) or []
+                )
+                if getattr(self, "factors_names_to_use", None):
+                    _ksg_cols = [
+                        c for c in self.factors_names_to_use
+                        if c in X.columns and c not in _hybrid_already_appended
+                    ]
+                else:
+                    _ksg_cols = [
+                        c for c in X.columns
+                        if c not in _hybrid_already_appended
+                    ]
+                _ksg_degrees = tuple(int(d) for d in getattr(
+                    self, "fe_hybrid_orth_degrees", (2, 3),
+                ))
+                _ksg_basis = str(getattr(self, "fe_hybrid_orth_basis", "auto"))
+                _ksg_top_k = int(getattr(self, "fe_hybrid_orth_top_k", 5))
+                _ksg_n_neighbors = int(getattr(
+                    self, "fe_hybrid_orth_ksg_n_neighbors", 3,
+                ))
+                _ksg_min_uplift = float(getattr(
+                    self, "fe_hybrid_orth_ksg_min_uplift", 0.95,
+                ))
+                _ksg_min_abs_mi_frac = float(getattr(
+                    self, "fe_hybrid_orth_ksg_min_abs_mi_frac", 0.05,
+                ))
+                _ksg_seed = int(getattr(self, "random_seed", 0) or 0)
+                _X_before_ksg_cols = list(X.columns)
+                X_ksg, _ksg_scores, _ksg_recipes = (
+                    hybrid_orth_mi_ksg_fe_with_recipes(
+                        X, _y_for_ksg,
+                        cols=_ksg_cols,
+                        degrees=_ksg_degrees,
+                        basis=_ksg_basis,
+                        top_k=_ksg_top_k,
+                        min_uplift=_ksg_min_uplift,
+                        min_abs_mi_frac=_ksg_min_abs_mi_frac,
+                        n_neighbors=_ksg_n_neighbors,
+                        random_state=_ksg_seed,
+                    )
+                )
+                _ksg_appended = [
+                    c for c in X_ksg.columns if c not in _X_before_ksg_cols
+                ]
+                if _ksg_appended:
+                    X = X_ksg
+                    self.hybrid_orth_features_ = (
+                        list(self.hybrid_orth_features_ or []) + list(_ksg_appended)
+                    )
+                    for _r in _ksg_recipes:
+                        _hybrid_orth_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit hybrid_orth KSG-MI: appended "
+                            "%d engineered column(s): %s",
+                            len(_ksg_appended), _ksg_appended[:8],
+                        )
+            except Exception as _ksg_exc:
+                logger.warning(
+                    "MRMR.fit hybrid_orth KSG-MI FE raised %s: %s; "
+                    "continuing without KSG-MI columns.",
+                    type(_ksg_exc).__name__, _ksg_exc,
+                )
     # 2026-05-21 revert of Wave 29 P1 polars->pandas coercion. That
     # coercion was added on the premise that downstream ``X[target_name]
     # = y`` mutation assumed pandas and would raise on polars; but the

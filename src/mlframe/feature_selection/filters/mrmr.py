@@ -819,6 +819,31 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_hybrid_orth_three_gate_enable: bool = False,
         fe_hybrid_orth_three_gate_n_folds: int = 5,
         fe_hybrid_orth_three_gate_cmi_min: float = 0.001,
+        # 2026-05-31 Layer 65 — KSG / k-NN MI ranking for hybrid orth-poly FE
+        # (sibling module ``_orthogonal_ksg_mi_fe``). Independent opt-in
+        # (does NOT require fe_hybrid_orth_enable). Layer 21 ranks by the
+        # plug-in quantile-binned MI estimator (fast, but discretises smooth
+        # continuous structure away); Layer 65 swaps it for the Kraskov-
+        # Stoegbauer-Grassberger k-NN MI estimator via sklearn's
+        # ``mutual_info_classif`` (Ross 2014 mixed-KSG for discrete y).
+        # The KSG estimator is asymptotically unbiased on continuous data
+        # and recovers smooth signals (e.g. a He_3 cubic ripple that
+        # binning erases). Engineered VALUES are bit-equal to Layer 21 so
+        # recipes reuse the ``orth_univariate`` kind and replay is shared
+        # infrastructure. Default OFF preserves pickle byte-equivalence.
+        fe_hybrid_orth_ksg_enable: bool = False,
+        fe_hybrid_orth_ksg_n_neighbors: int = 3,
+        # KSG-specific selection thresholds. KSG MI values are smaller than
+        # plug-in's on the same signal (KSG is less biased upward), so the
+        # uplift gate floor that Layer 21 calibrated for plug-in (1.05) is
+        # too strict here -- KSG's k-NN already captures non-monotone
+        # structure in raw x1, depressing the per-engineered uplift below
+        # 1.05 even when the engineered column is genuinely useful. The
+        # 0.95 floor admits engineered columns whose MI is within 5 % of
+        # the raw source's MI, which is the smallest difference the
+        # k-NN estimator can resolve at typical sample sizes.
+        fe_hybrid_orth_ksg_min_uplift: float = 0.95,
+        fe_hybrid_orth_ksg_min_abs_mi_frac: float = 0.05,
         # 2026-05-31 Layer 32 — extra (non-polynomial) basis FE: B-spline +
         # Fourier. Complementary to the orth-poly path: spline catches sharp
         # local non-linearities (threshold rules ``y = sign(x - tau)``);
@@ -1311,6 +1336,12 @@ class MRMR(BaseEstimator, TransformerMixin):
             "fe_hybrid_orth_three_gate_enable": False,
             "fe_hybrid_orth_three_gate_n_folds": 5,
             "fe_hybrid_orth_three_gate_cmi_min": 0.001,
+            # 2026-05-31 Layer 65 — KSG / k-NN MI ranking defaults.
+            # Master switch OFF preserves legacy pickle byte-equivalence.
+            "fe_hybrid_orth_ksg_enable": False,
+            "fe_hybrid_orth_ksg_n_neighbors": 3,
+            "fe_hybrid_orth_ksg_min_uplift": 0.95,
+            "fe_hybrid_orth_ksg_min_abs_mi_frac": 0.05,
             # 2026-05-31 Layer 32 — extra-basis (spline / fourier) defaults.
             "fe_hybrid_orth_extra_bases": (),
             "fe_hybrid_orth_fourier_freqs": (1.0, 2.0),
