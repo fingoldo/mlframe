@@ -66,6 +66,26 @@ class RecurrentDataset(Dataset):
         weights_np = _ensure_numpy(sample_weights)
         self.sample_weights = torch.as_tensor(weights_np, dtype=torch.float32) if weights_np is not None else None
 
+        # F-51 (2026-05-31): promote the fixed-size tensor attrs to shared
+        # memory so DataLoader child workers (num_workers > 0) attach to a
+        # single backing buffer instead of pickling a fresh copy each.
+        # Mirrors MLP TorchDataset's design (data.py:45 docstring, Yuxin Wu
+        # "Demystify RAM Usage" pattern). Per-worker RAM saving is roughly
+        # (num_workers - 1) * sum(tensor.nbytes for tensor in promoted).
+        # Caveat: self.sequences stays a list of variable-length np arrays
+        # because share_memory_() doesn't apply to Python lists; for huge
+        # sequence corpora a follow-up should consider concat-tensor +
+        # offsets or worker_init_fn shared-memory plumbing. Tensors only
+        # promote when on CPU (CUDA tensors are already shared via UVM).
+        for _attr in ("labels", "aux_features", "sample_weights"):
+            _t = getattr(self, _attr)
+            if _t is None or _t.device.type != "cpu":
+                continue
+            try:
+                _t.share_memory_()
+            except (RuntimeError, NotImplementedError):
+                pass
+
     def __len__(self) -> int:
         return len(self.labels)
 
@@ -153,6 +173,7 @@ class RecurrentDataModule(LightningDataModule):
         is_regression: bool = False,
         use_stratified_sampler: bool = True,
         accelerator: str = "auto",
+        prefetch_factor: int = 4,
     ):
         """
         Initialize DataModule.
@@ -190,6 +211,10 @@ class RecurrentDataModule(LightningDataModule):
         self.num_workers = num_workers
         self.is_regression = is_regression
         self.use_stratified_sampler = use_stratified_sampler
+        # F-52: prefetch_factor only takes effect when num_workers > 0 (PyTorch
+        # DataLoader requirement). Stored as-is; per-loader emission guards
+        # below pass it only when num_workers > 0.
+        self.prefetch_factor = prefetch_factor
         # F-47 (2026-05-31): pin_memory should track the trainer accelerator,
         # not the host's CUDA availability. Pinning when the trainer runs on
         # CPU (e.g. user explicitly set accelerator="cpu" on a CUDA box for
@@ -203,6 +228,21 @@ class RecurrentDataModule(LightningDataModule):
         # For dynamic prediction
         self.predict_sequences = None
         self.predict_features = None
+
+    def _worker_kwargs(self) -> dict:
+        """F-52: extra DataLoader kwargs that only apply when num_workers > 0.
+
+        prefetch_factor isn't accepted by PyTorch DataLoader when num_workers
+        is 0 (raises ValueError); same for persistent_workers (warning only,
+        but emit nothing for cleanliness). Gathering them once keeps the four
+        loader methods symmetric without per-site if/else.
+        """
+        if self.num_workers <= 0:
+            return {}
+        return {
+            "persistent_workers": True,
+            "prefetch_factor": self.prefetch_factor,
+        }
 
     def setup(self, stage: str | None = None):
         """Lightning DataModule hook.
@@ -255,7 +295,7 @@ class RecurrentDataModule(LightningDataModule):
             num_workers=self.num_workers,
             collate_fn=recurrent_collate_fn,
             pin_memory=self._pin_memory,
-            persistent_workers=self.num_workers > 0,
+            **self._worker_kwargs(),
         )
 
     def val_dataloader(self) -> DataLoader:

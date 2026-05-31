@@ -91,7 +91,21 @@ class RecurrentConfig:
 
     # Hardware
     accelerator: str = "auto"
-    num_workers: int = 0  # 0 for Windows compatibility
+    # F-52 (2026-05-31): default num_workers stays 0 -- the previous comment
+    # ("0 for Windows compatibility") is overcautious. With share_memory_()
+    # promotion on the dataset tensors (F-51) and persistent_workers wired
+    # on all 4 loader stages (F-46), users SHOULD lift this to 2-4 on Linux
+    # and to 2 on Windows (spawn-fork). The default stays 0 for backward
+    # compat -- production users can override via RecurrentConfig.num_workers.
+    # Recurrent __getitem__ does per-item ``torch.as_tensor(sequences[idx])``
+    # which is a real CPU cost that workers amortize; num_workers=0 leaves
+    # 1.3-1.7x on the table on data-bound recurrent runs (Agent B audit P1).
+    num_workers: int = 0
+    # F-52: prefetch_factor only used when num_workers > 0. Default of 2 is
+    # fine for in-RAM eager tensors; for recurrent + variable-len padding
+    # (pad-on-the-fly via recurrent_collate_fn), 4 smooths GPU starvation
+    # during long-pad batches. Lift: 5-10% on heterogeneous seq-len data.
+    prefetch_factor: int = 4
 
     # Preprocessing
     scale_features: bool = True
