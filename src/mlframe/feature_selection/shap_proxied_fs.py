@@ -405,6 +405,14 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         # ``fast_model`` already sets a reduced budget (template / 4); the cap clamps via
         # ``min(current, cap)`` so it can never INCREASE fast_model's tree count. ``univariate`` is
         # a no-op. ``None`` disables the cap (legacy uncapped behaviour).
+        # Default kept at 100 after the iter95 sweep: at C3 (width=10000, n_rows=10000, n_inf=20,
+        # n_red=20, snr=8.0, seed=0) values {100, 50, 25} produced prefilter walls 2.965s / 2.254s
+        # / 1.430s and chosen-subset honest_loss 0.135456 / 0.148270 / 0.148710. cap=50 keeps the
+        # chosen subset bit-identical but perturbs chosen-subset honest_loss by +9.46% (iter90
+        # lesson: same-subset can hide a real loss regression downstream); cap=25 drops one true
+        # informative column (recall 0.95 -> 0.90). Both fail the +-5% honest_loss gate, so 100
+        # stays the default. Same-pattern caps that DID ship: iter94 trust_guard 100 -> 25,
+        # iter19 oof_shap 300 -> 100.
         self.prefilter_n_estimators = prefilter_n_estimators
         # ``oof_shap_n_estimators`` (iter19) caps the per-fold booster size inside ``compute_shap_matrix``
         # so the OOF-SHAP stage trains 100-tree models instead of the 300-tree template default. The
