@@ -482,12 +482,17 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         # width >> auto_max). The auto_max gate amortises the iter67-74 SU pairwise speedups
         # (33x cumulative at width=2000) against Pearson's vectorised correlation matrix; above
         # the cap Pearson still wins so auto falls back.
-        _backend_norm = str(cluster_backend).lower()
-        if _backend_norm not in ("auto", "su", "pearson"):
+        # sklearn clone() compares ``get_params()`` output with the value re-set
+        # by ``__init__`` BY IDENTITY (not equality); mutating ``cluster_backend``
+        # via ``.lower()`` would create a fresh string object that fails the
+        # identity check ("Cannot clone object: constructor modifies parameter").
+        # Validate WITHOUT mutating, store the caller's value verbatim, and do
+        # the lowercase normalisation at every use-site instead.
+        if str(cluster_backend).lower() not in ("auto", "su", "pearson"):
             raise ValueError(
                 f"cluster_backend must be one of 'auto', 'su', 'pearson'; got {cluster_backend!r}"
             )
-        self.cluster_backend = _backend_norm
+        self.cluster_backend = cluster_backend
         self.cluster_su_auto_max_features = (
             int(cluster_su_auto_max_features) if cluster_su_auto_max_features is not None
             else _resolve_cluster_su_auto_max_features()
@@ -1154,11 +1159,12 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
                 # SU-with-precomputed-bins fast path; we honour it as a forced Pearson dispatch
                 # (legacy semantics) regardless of cluster_backend, so existing callers keep their
                 # opt-out switch.
+                _backend_norm = str(self.cluster_backend).lower()
                 if not bool(self.cluster_use_precomputed_bins):
                     effective_backend = "pearson"
-                elif self.cluster_backend == "pearson":
+                elif _backend_norm == "pearson":
                     effective_backend = "pearson"
-                elif self.cluster_backend == "su":
+                elif _backend_norm == "su":
                     effective_backend = "su"
                 else:
                     # auto: prefer SU whenever bins exist (cheap reuse) or width is below the

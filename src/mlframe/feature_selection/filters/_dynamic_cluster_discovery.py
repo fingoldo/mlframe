@@ -1168,10 +1168,64 @@ def evaluate_swap_candidate(
     prefer_aggregate = aggregate_gate and (
         not member_gate or rep_relevance >= best_member_rel
     )
+    # Wave 9.1 iter-3 follow-up: when the caller requested a permutation
+    # null (``full_npermutations > 0``), apply the SAME null to the member
+    # candidate too. The point-CMI gate is upward-biased on small/noisy
+    # data; if the swap is firing on pure noise the null catches it for
+    # the aggregate path -- the member branch must not be a side door
+    # that bypasses the same check.
+    def _run_member_null(member_idx: int, member_rel: float, B_: int) -> float:
+        if B_ <= 0:
+            return 0.0
+        try:
+            rng_m = np.random.default_rng(int(getattr(state, "_perm_seed", 0)) + int(anchor) * 7919 + int(member_idx))
+            state._perm_seed = int(getattr(state, "_perm_seed", 0)) + B_ + 1
+            n_rows = state.factors_data.shape[0]
+            data_perm = state.factors_data.copy()
+            member_col_orig = data_perm[:, member_idx].copy()
+            target_arr_m = np.asarray(target, dtype=np.int64)
+            n_exceed_m = 0
+            for _ in range(B_):
+                shuffled = member_col_orig.copy()
+                rng_m.shuffle(shuffled)
+                data_perm[:, member_idx] = shuffled
+                if S_minus_anchor:
+                    null_rel_m = float(conditional_mi(
+                        factors_data=data_perm,
+                        x=np.array([member_idx], dtype=np.int64),
+                        y=target_arr_m,
+                        z=np.array(S_minus_anchor, dtype=np.int64),
+                        var_is_nominal=None,
+                        factors_nbins=state.factors_nbins,
+                        entropy_cache=None,
+                        can_use_x_cache=False, can_use_y_cache=False,
+                    ))
+                else:
+                    null_rel_m = float(mi(
+                        data_perm, np.array([member_idx], dtype=np.int64),
+                        target_arr_m, state.factors_nbins,
+                    ))
+                if null_rel_m >= member_rel:
+                    n_exceed_m += 1
+            return (n_exceed_m + 1) / (B_ + 1)
+        except Exception as exc:
+            logger.warning(f"DCD swap: member permutation null failed (B={B_}): {exc!r}")
+            return 1.0  # conservative: fail closed
     if not prefer_aggregate:
-        # Branch B: member swap. No aggregate column built, no recipe,
-        # no permutation null (the member is an already-discretised
-        # column the rest of the pipeline already trusts).
+        # Branch B: member swap. Apply permutation null when requested
+        # (B>0) -- otherwise this branch silently bypasses the check the
+        # caller asked for on the swap as a whole.
+        member_p = _run_member_null(int(best_member_idx), float(best_member_rel), int(full_npermutations or 0))
+        if int(full_npermutations or 0) > 0 and member_p >= float(state.swap_alpha):
+            return SwapDecision(
+                accept=False,
+                rep_relevance=rep_relevance,
+                anchor_relevance_in_ctx=anchor_rel,
+                perm_p_value=member_p,
+                branch="none",
+                member_col_idx=int(best_member_idx),
+                member_relevance=float(best_member_rel),
+            )
         return SwapDecision(
             accept=True,
             new_col_idx=int(best_member_idx),
@@ -1181,7 +1235,7 @@ def evaluate_swap_candidate(
             recipe_obj=None,
             rep_relevance=rep_relevance,
             anchor_relevance_in_ctx=anchor_rel,
-            perm_p_value=0.0,
+            perm_p_value=member_p,
             branch="member",
             member_col_idx=int(best_member_idx),
             member_relevance=float(best_member_rel),
@@ -1238,11 +1292,22 @@ def evaluate_swap_candidate(
     if not accept:
         # Layer 45: aggregate failed its permutation null. If the
         # best-member gate also held (member_gate True), fall through to
-        # the member-swap branch rather than abandoning the whole swap
-        # opportunity -- the member CMI was computed against the same
-        # already-discretised state.factors_data and needs no aggregate-
-        # specific null check.
+        # the member-swap branch -- but apply the SAME permutation null
+        # the caller requested via ``full_npermutations``. Wave 9.1 iter-3
+        # follow-up: the prior bypass made the member branch a side door
+        # past the null on pure-noise candidates.
         if member_gate and best_member_idx >= 0:
+            member_p2 = _run_member_null(int(best_member_idx), float(best_member_rel), int(full_npermutations or 0))
+            if int(full_npermutations or 0) > 0 and member_p2 >= float(state.swap_alpha):
+                return SwapDecision(
+                    accept=False,
+                    rep_relevance=rep_relevance,
+                    anchor_relevance_in_ctx=anchor_rel,
+                    perm_p_value=max(perm_p_value, member_p2),
+                    branch="none",
+                    member_col_idx=int(best_member_idx),
+                    member_relevance=float(best_member_rel),
+                )
             return SwapDecision(
                 accept=True,
                 new_col_idx=int(best_member_idx),
@@ -1252,7 +1317,7 @@ def evaluate_swap_candidate(
                 recipe_obj=None,
                 rep_relevance=rep_relevance,
                 anchor_relevance_in_ctx=anchor_rel,
-                perm_p_value=perm_p_value,
+                perm_p_value=member_p2,
                 branch="member",
                 member_col_idx=int(best_member_idx),
                 member_relevance=float(best_member_rel),

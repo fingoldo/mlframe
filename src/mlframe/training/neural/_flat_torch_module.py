@@ -40,6 +40,9 @@ class MLPTorchModel(L.LightningModule):
         load_best_weights_on_train_end: bool = True,
         log_lr: bool = False,
         task_type: Optional[str] = None,
+        use_lookahead: bool = False,
+        lookahead_k: int = 5,
+        lookahead_alpha: float = 0.5,
     ):
         """
         PyTorch Lightning module for MLP training.
@@ -133,6 +136,25 @@ class MLPTorchModel(L.LightningModule):
             self.example_input_array = network.example_input_array
         else:
             logger.debug("Network lacks 'example_input_array'; ONNX export may require manual input")
+
+    # F-38/F-39 follow-up: the CUDA-graph predict cache holds torch.cuda.CUDAGraph
+    # handles + GPU-resident static buffers, and the torch.compile predict cache
+    # holds a Dynamo ConfigModuleInstance. Both are non-picklable and exist only
+    # as runtime fast-path acceleration -- drop them on serialise so save_load /
+    # stdlib pickle bundles round-trip cleanly. The next predict_step on the
+    # restored object lazily re-captures the graph or re-compiles the path.
+    def __getstate__(self):  # type: ignore[no-untyped-def]
+        state = self.__dict__.copy()
+        state["_cuda_graph_predict_cache"] = {}
+        state["_compiled_predict_fn"] = None
+        state["_compile_predict_failed"] = False
+        return state
+
+    def __setstate__(self, state):  # type: ignore[no-untyped-def]
+        self.__dict__.update(state)
+        self._cuda_graph_predict_cache = {}
+        self._compiled_predict_fn = None
+        self._compile_predict_failed = False
 
     def _apply_torch_compile(self) -> None:
         """Apply torch.compile to the network if enabled.
@@ -328,8 +350,19 @@ class MLPTorchModel(L.LightningModule):
         features, labels, sample_weight = self._unpack_batch(batch)
         raw_predictions = self(features)
 
-        # Squeeze single-output regression to match label shape.
-        if raw_predictions.ndim == 2 and raw_predictions.shape[1] == 1:
+        # Align prediction and label rank for loss. Pre-fix this squeezed
+        # any (N, 1) prediction unconditionally; if the caller passed
+        # y of shape (N, 1) (a common pandas / 2-D DataFrame pattern for a
+        # single regression target) MSELoss received pred=(N,) and label=(N, 1)
+        # which broadcasts to an (N, N) tensor -- catastrophic loss shape,
+        # silently destroyed training (R^2 hit -0.0001). Squeeze ONLY when
+        # the label is 1-D; if the label keeps the trailing-1 dim, keep the
+        # prediction in matching shape.
+        if (
+            raw_predictions.ndim == 2
+            and raw_predictions.shape[1] == 1
+            and labels.ndim == 1
+        ):
             raw_predictions_for_loss = raw_predictions.squeeze(1)
         else:
             raw_predictions_for_loss = raw_predictions
@@ -418,7 +451,14 @@ class MLPTorchModel(L.LightningModule):
 
         raw_predictions = self(features)
 
-        if raw_predictions.ndim == 2 and raw_predictions.shape[1] == 1:
+        # Mirror the training_step rank-align fix: squeeze only when label is 1-D.
+        # 2-D y of shape (N, 1) MUST keep the trailing dim so MSELoss doesn't
+        # broadcast pred=(N,) against label=(N, 1) to an (N, N) tensor.
+        if (
+            raw_predictions.ndim == 2
+            and raw_predictions.shape[1] == 1
+            and labels.ndim == 1
+        ):
             raw_predictions_for_loss = raw_predictions.squeeze(1)
         else:
             raw_predictions_for_loss = raw_predictions
@@ -575,6 +615,26 @@ class MLPTorchModel(L.LightningModule):
                 optimizer_kwargs.setdefault("fused", True)
 
         optimizer = self.optimizer(self.parameters(), **optimizer_kwargs)
+
+        # F-62 (2026-05-31): Lookahead meta-optimizer wrap. Zhang 2019
+        # arxiv.org/abs/1907.08610 -- +0.4-0.6% on tabular MLP per
+        # RealMLP-TD 2024 ablations. Wraps the base optimizer; the
+        # scheduler attaches to the Lookahead wrapper which forwards
+        # state/param_groups so Lightning's scheduler-bind code works
+        # transparently.
+        if self.hparams.use_lookahead:
+            from ._lookahead_optimizer import Lookahead
+            optimizer = Lookahead(
+                optimizer,
+                k=self.hparams.lookahead_k,
+                alpha=self.hparams.lookahead_alpha,
+            )
+            logger.info(
+                "F-62: wrapped %s in Lookahead(k=%d, alpha=%.2f).",
+                self.optimizer.__name__,
+                self.hparams.lookahead_k,
+                self.hparams.lookahead_alpha,
+            )
 
         if self.lr_scheduler is None:
             return optimizer

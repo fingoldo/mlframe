@@ -141,8 +141,11 @@ class TestDCDValidation:
 
     def test_invalid_cluster_size_threshold_raises(self):
         from mlframe.feature_selection.filters.mrmr import MRMR
+        # Layer 42 (2026-05-31) lowered the minimum threshold from 2 to 1
+        # (threshold counts MEMBERS, not anchor + members, so =1 is the
+        # strict 2-feature redundancy case). Only values < 1 are rejected.
         with pytest.raises(ValueError, match="dcd_cluster_size_threshold"):
-            MRMR(dcd_enable=True, dcd_cluster_size_threshold=1)._validate_string_params()
+            MRMR(dcd_enable=True, dcd_cluster_size_threshold=0)._validate_string_params()
 
 
 class TestDCDComposability:

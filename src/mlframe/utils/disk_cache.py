@@ -59,6 +59,8 @@ from typing import Any, Optional, Union
 
 import numpy as np
 
+from mlframe.utils.safe_pickle import PickleVerificationError, safe_load, write_sidecar
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -284,8 +286,11 @@ class DiskCache:
             self.misses += 1
             return None
         try:
-            with open(path, "rb") as f:
-                value = pickle.load(f)
+            value = safe_load(str(path), allow_unverified=True)
+        except PickleVerificationError as exc:
+            logger.debug("DiskCache: sidecar verification failed for %s: %s", path, exc)
+            self.misses += 1
+            return None
         except (pickle.UnpicklingError, EOFError, OSError) as exc:
             # Corrupt entry (e.g. mid-rename crash on a non-atomic FS). Drop
             # the file so the next put rebuilds cleanly.
@@ -324,6 +329,10 @@ class DiskCache:
             with open(tmp_path, "wb") as f:
                 pickle.dump(value, f, protocol=_PICKLE_PROTOCOL)
             os.replace(tmp_path, path)
+            try:
+                write_sidecar(str(path))
+            except OSError as exc:
+                logger.debug("DiskCache: sidecar write failed for %s: %s", path, exc)
         except (OSError, pickle.PicklingError) as exc:
             logger.debug("DiskCache: put failed for key=%s: %s", key, exc)
             try:

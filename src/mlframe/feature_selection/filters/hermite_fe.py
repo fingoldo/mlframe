@@ -575,6 +575,10 @@ except ImportError:
 def _polyeval_cuda(basis: str, x: np.ndarray, c: np.ndarray) -> np.ndarray:
     """CUDA RawKernel polynomial eval. Includes H2D + launch + D2H. Worth it only at n >= 500k (per bench_poly_eval_backends)."""
     import cupy as cp
+    # _ensure_cuda_kernels writes into the _hermite_fe_mi module's dict;
+    # read from the same source to avoid a stale local-module dict that
+    # would surface as KeyError(basis) after the lazy compile succeeded.
+    from . import _hermite_fe_mi as _hfmi
     _ensure_cuda_kernels()
     x_gpu = cp.asarray(x, dtype=cp.float64)
     c_gpu = cp.asarray(c, dtype=cp.float64)
@@ -582,7 +586,7 @@ def _polyeval_cuda(basis: str, x: np.ndarray, c: np.ndarray) -> np.ndarray:
     out_gpu = cp.empty(n, dtype=cp.float64)
     block = 256
     grid = (n + block - 1) // block
-    _CUDA_KERNELS[basis](
+    _hfmi._CUDA_KERNELS[basis](
         (grid,), (block,),
         (x_gpu, c_gpu, c_gpu.shape[0], n, out_gpu),
     )

@@ -1480,11 +1480,14 @@ class PytorchLightningClassifier(
         """
         raw = self._predict_raw(X, device=device, precision=precision, batch_size=batch_size)
         # F-05 binary path: raw has shape (N, 1) and contains P(y=1).
-        # Threshold at 0.5 to get integer class index 0/1; the
-        # _label_encoder.inverse_transform then converts to the original
-        # class labels (per sklearn convention).
+        # Use ``> 0.5`` (strict) so the predict() / predict_proba contract holds:
+        # at raw==0.5 a ``>= 0.5`` threshold returned class 1 while
+        # ``argmax(predict_proba)`` -> ``argmax([0.5, 0.5])`` returns 0 (numpy
+        # tie-break to first index). The strict comparison aligns the two
+        # public methods on collapsed / under-trained models where many rows
+        # sit at exactly 0.5.
         if getattr(self, "_binary_sigmoid_head", False):
-            idx = (raw.reshape(-1) >= 0.5).astype(np.int64)
+            idx = (raw.reshape(-1) > 0.5).astype(np.int64)
         else:
             idx = np.argmax(raw, axis=1)
         # sklearn convention: ``predict`` returns LABELS (entries of

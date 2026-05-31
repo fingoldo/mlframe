@@ -14,23 +14,23 @@ extra layout:
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from .engineered_recipes import EngineeredRecipe, _extract_column
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 
-def _apply_orth_triplet_cross(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
+def _apply_orth_triplet_cross(recipe: "EngineeredRecipe", X: Any) -> np.ndarray:
     """Replay a triplet-cross-basis column: extract three source columns,
     evaluate basis_a^{deg_a}(z_i) * basis_b^{deg_b}(z_j) * basis_c^{deg_c}(z_k).
     Stateless given the stored bases + degrees; no y reference.
     """
     # Lazy import to avoid a circular dependency: ``engineered_recipes`` imports
-    # this module at its tail, and this module imports the basis evaluator
-    # from there. ``_eval_orth_basis_column`` is defined inside engineered_recipes;
-    # importing at call time decouples module-load order.
-    from .engineered_recipes import _eval_orth_basis_column
+    # this module at its tail, and this module imports the basis evaluator + extractor
+    # from there. Importing at call time decouples module-load order.
+    from .engineered_recipes import _eval_orth_basis_column, _extract_column
 
     if len(recipe.src_names) != 3:
         raise ValueError(
@@ -64,12 +64,14 @@ def build_orth_triplet_cross_recipe(
     src_a_name: str, src_b_name: str, src_c_name: str,
     basis_i: str, basis_j: str, basis_k: str,
     deg_a: int, deg_b: int, deg_c: int,
-) -> EngineeredRecipe:
+) -> "EngineeredRecipe":
     """Frozen recipe for one triplet cross-basis column
     ``basis_i^{deg_a}(preprocess(X[a])) *
       basis_j^{deg_b}(preprocess(X[b])) *
       basis_k^{deg_c}(preprocess(X[c]))``.
     """
+    from .engineered_recipes import EngineeredRecipe
+
     return EngineeredRecipe(
         name=name,
         kind="orth_triplet_cross",

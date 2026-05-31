@@ -22,6 +22,15 @@ WHITELIST: set[str] = {
     # AST-only meta-linters; never use literal getsource().
     "test_meta/test_no_inspect_getsource.py",
     "test_meta/test_no_unicode_in_console_output.py",
+    # F-37/F-38/F-39 predict-path order tests assert STATIC properties of
+    # predict_step's body (order of helper calls, which context manager is
+    # used, whether the no-branch form is in source). A behavioural rewrite
+    # would have to fake CUDA / cuDNN to exercise the same paths, multiplying
+    # surface area for no gain -- the static check IS the gate the author
+    # wanted. User-reaffirmed 2026-05-31 by reverting the behavioural rewrites.
+    "training/neural/test_compile_predict.py",
+    "training/neural/test_cuda_graph_predict.py",
+    "training/neural/test_torch_compile_safety_and_profiler.py",
 }
 
 
