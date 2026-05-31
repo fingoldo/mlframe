@@ -54,6 +54,34 @@ def _build_cross_target_ensemble_for_target(
 
     Mutates ``models``, ``metadata``, and ``_train_pred_cache`` in place; same contract as the original inline loop body.
     """
+    # F-34 (2026-05-31): cross-target ensemble assumes 1-D y per component
+    # fit; component predictions are stacked under a 1-D assumption.
+    # MULTI_TARGET_REGRESSION targets carry (N, K) preds and would either
+    # crash inside the stacker or silently degenerate to a column-0-only
+    # ensemble. Future PR: per-target CT_ENSEMBLE (K independent
+    # ensembles) or joint-column blending. Skip with WARN for now so
+    # users mixing MTR auto-route + use_mlframe_ensembles=True get a
+    # clear signal instead of silent miscomputation.
+    try:
+        from mlframe.training import TargetTypes
+        if str(_tt_e) == str(TargetTypes.MULTI_TARGET_REGRESSION) or (
+            hasattr(_tt_e, "is_multi_target_regression")
+            and _tt_e.is_multi_target_regression
+        ):
+            logger.warning(
+                "[CompositeCrossTargetEnsemble] target_type=%s is "
+                "MULTI_TARGET_REGRESSION; CT_ENSEMBLE assumes 1-D y per "
+                "component fit and does not yet support (N, K) targets. "
+                "Skipping CT_ENSEMBLE for target='%s'. Future PR: "
+                "per-target K-independent ensembles or joint-column blending.",
+                _tt_e, _orig_tname,
+            )
+            return
+    except Exception:
+        # Don't crash CT_ENSEMBLE entirely if the gate check itself
+        # fails (e.g. TargetTypes not importable for some reason).
+        pass
+
     # Collect raw-target + wrapped composite-target entries for this original target.
     _components: list[Any] = []
     _component_names: list[str] = []

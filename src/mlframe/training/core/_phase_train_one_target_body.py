@@ -647,6 +647,42 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 # patch fit_params (CatBoost text/embedding fastpath); without copying we would
                 # mutate the suite-level models_params template and the next target would inherit
                 # this iteration's overrides.
+
+                # F-34 (2026-05-31): MULTI_TARGET_REGRESSION build-time wiring.
+                # Two things to do BEFORE the cloned_model lands in
+                # current_model_params:
+                #   * Native strategies (CatBoost / XGBoost): inject the
+                #     library-specific objective kwargs (e.g.
+                #     loss_function="MultiRMSE", multi_strategy="multi_output_tree")
+                #     via set_params so the constructed regressor knows it's
+                #     fitting (N, K) targets.
+                #   * Non-native strategies (LightGBM / HGB): wrap the
+                #     cloned model in sklearn.multioutput.MultiOutputRegressor
+                #     so K independent fits stack into the (N, K) output.
+                # The MLP estimator auto-detects (N, K) at fit-time so this
+                # block is a no-op for "mlp" (NeuralNetStrategy.
+                # supports_native_multi_target=True + empty kwargs).
+                if target_type.is_multi_target_regression:
+                    from mlframe.training.strategies import get_strategy
+                    _mtr_strategy = get_strategy(mlframe_model_name)
+                    _mtr_obj_kwargs = _mtr_strategy.get_multi_target_objective_kwargs()
+                    if _mtr_obj_kwargs:
+                        try:
+                            cloned_model.set_params(**_mtr_obj_kwargs)
+                        except (ValueError, TypeError) as _mtr_set_err:
+                            # Some estimators (CatBoost on certain versions)
+                            # don't accept all params via set_params; fall
+                            # back to direct attribute assignment which
+                            # CatBoost does honour at fit-time.
+                            logger.warning(
+                                "MTR set_params(%s) on %s failed (%s); "
+                                "falling back to setattr.",
+                                _mtr_obj_kwargs, mlframe_model_name, _mtr_set_err,
+                            )
+                            for _k, _v in _mtr_obj_kwargs.items():
+                                setattr(cloned_model, _k, _v)
+                    cloned_model = _mtr_strategy.wrap_multi_target(cloned_model)
+
                 current_model_params = models_params[mlframe_model_name].copy()
                 current_model_params["model"] = cloned_model
 

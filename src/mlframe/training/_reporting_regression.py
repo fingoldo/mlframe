@@ -160,6 +160,46 @@ def report_regression_model_perf(
     # sklearn at production size.
     targets_arr = np.asarray(targets)
     preds_arr = np.asarray(preds)
+
+    # F-34 (2026-05-31): MULTI_TARGET_REGRESSION gate. This reporter
+    # assumes 1-D targets + 1-D preds for the scatter/histogram chart,
+    # the residual audit (skew/kurtosis), the prediction-envelope clip,
+    # and the MASE / fairness subgroup paths. (N, K) targets/preds would
+    # crash inside ``fast_regression_metrics_block`` or silently degrade
+    # to column-0-only metrics. For now: compute aggregated metrics
+    # (mean per-column R^2 / RMSE / MAE) via the metrics_registry MTR
+    # path and EARLY-RETURN without the chart / audit / fairness
+    # branches. A future PR will add a per-target chart grid.
+    if targets_arr.ndim == 2 and targets_arr.shape[1] >= 2:
+        from .configs import TargetTypes
+        from .metrics_registry import iter_extra_metrics
+        _mtr_extra = dict(iter_extra_metrics(
+            TargetTypes.MULTI_TARGET_REGRESSION,
+            targets_arr, None, preds_arr,
+        ))
+        if metrics is None:
+            metrics = {}
+        metrics.update(_mtr_extra)
+        if print_report:
+            try:
+                _msg_lines = [
+                    f"MULTI_TARGET_REGRESSION [{model_name}] "
+                    f"shape=(N={targets_arr.shape[0]}, K={targets_arr.shape[1]}):",
+                ]
+                for _k, _v in _mtr_extra.items():
+                    _msg_lines.append(f"  {_k} = {_v:+.4f}")
+                logger.info("\n".join(_msg_lines))
+            except Exception:
+                pass
+        if verbose:
+            logger.warning(
+                "MULTI_TARGET_REGRESSION report path: scatter/histogram "
+                "chart + residual audit + fairness subgroup + MASE all "
+                "skipped (per-target K-grid chart is a future PR). "
+                "Aggregated metrics from metrics_registry are stamped "
+                "into the metrics dict."
+            )
+        return preds_arr, None
     # Generic prediction-envelope clip. Bounds preds to a 3-sigma
     # window around the train target range BEFORE metrics + chart.
     # Applies to ALL regression models, not just MLP. Linear / Ridge /

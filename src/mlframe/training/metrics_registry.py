@@ -441,3 +441,103 @@ def _register_builtin_multilabel_extras():
 
 
 _register_builtin_multilabel_extras()
+
+
+def _register_builtin_multi_target_regression():
+    """F-34 (2026-05-31): per-target + aggregated metrics for
+    MULTI_TARGET_REGRESSION (y_true and preds both shape (N, K)).
+
+    macro = mean across K target columns (equal weight per target).
+    micro = pooled across (N * K) samples (uniform across elements;
+            scale-sensitive when target columns have different scales).
+    max / min = worst-case per-target value (caller wants to know the
+                weakest target rather than the average).
+    """
+    import numpy as _np
+    from sklearn.metrics import (
+        mean_absolute_error as _mae_fn,
+        mean_squared_error as _mse_fn,
+        r2_score as _r2_fn,
+    )
+
+    def _coerce_nk(y_true, preds):
+        """Coerce both args to 2-D (N, K). Tolerant of (N,) -> (N, 1)."""
+        yt = _np.asarray(y_true)
+        pr = _np.asarray(preds)
+        if yt.ndim == 1:
+            yt = yt.reshape(-1, 1)
+        if pr.ndim == 1:
+            pr = pr.reshape(-1, 1)
+        return yt, pr
+
+    def _rmse_macro(y_true, probs_NK, preds_NK):
+        yt, pr = _coerce_nk(y_true, preds_NK)
+        per_col = _np.sqrt(_mse_fn(yt, pr, multioutput="raw_values"))
+        return float(per_col.mean())
+
+    def _rmse_micro(y_true, probs_NK, preds_NK):
+        yt, pr = _coerce_nk(y_true, preds_NK)
+        return float(_np.sqrt(_mse_fn(yt.ravel(), pr.ravel())))
+
+    def _rmse_max(y_true, probs_NK, preds_NK):
+        yt, pr = _coerce_nk(y_true, preds_NK)
+        per_col = _np.sqrt(_mse_fn(yt, pr, multioutput="raw_values"))
+        return float(per_col.max())
+
+    def _mae_macro(y_true, probs_NK, preds_NK):
+        yt, pr = _coerce_nk(y_true, preds_NK)
+        per_col = _mae_fn(yt, pr, multioutput="raw_values")
+        return float(per_col.mean())
+
+    def _mae_max(y_true, probs_NK, preds_NK):
+        yt, pr = _coerce_nk(y_true, preds_NK)
+        per_col = _mae_fn(yt, pr, multioutput="raw_values")
+        return float(per_col.max())
+
+    def _r2_macro(y_true, probs_NK, preds_NK):
+        yt, pr = _coerce_nk(y_true, preds_NK)
+        return float(_r2_fn(yt, pr, multioutput="uniform_average"))
+
+    def _r2_min(y_true, probs_NK, preds_NK):
+        yt, pr = _coerce_nk(y_true, preds_NK)
+        per_col = _r2_fn(yt, pr, multioutput="raw_values")
+        return float(per_col.min())
+
+    register_metric(
+        TargetTypes.MULTI_TARGET_REGRESSION, "rmse_macro", _rmse_macro,
+        higher_is_better=False,
+        description="Mean per-target RMSE (equal weight per target column).",
+    )
+    register_metric(
+        TargetTypes.MULTI_TARGET_REGRESSION, "rmse_micro", _rmse_micro,
+        higher_is_better=False,
+        description="Pooled RMSE across all (N*K) samples; scale-sensitive.",
+    )
+    register_metric(
+        TargetTypes.MULTI_TARGET_REGRESSION, "rmse_max", _rmse_max,
+        higher_is_better=False,
+        description="Worst-case per-target RMSE -- catches degenerate targets.",
+    )
+    register_metric(
+        TargetTypes.MULTI_TARGET_REGRESSION, "mae_macro", _mae_macro,
+        higher_is_better=False,
+        description="Mean per-target MAE.",
+    )
+    register_metric(
+        TargetTypes.MULTI_TARGET_REGRESSION, "mae_max", _mae_max,
+        higher_is_better=False,
+        description="Worst-case per-target MAE.",
+    )
+    register_metric(
+        TargetTypes.MULTI_TARGET_REGRESSION, "r2_macro", _r2_macro,
+        higher_is_better=True,
+        description="Mean per-target R^2 (sklearn multioutput='uniform_average').",
+    )
+    register_metric(
+        TargetTypes.MULTI_TARGET_REGRESSION, "r2_min", _r2_min,
+        higher_is_better=True,
+        description="Worst-case per-target R^2 -- exposes the laggard target.",
+    )
+
+
+_register_builtin_multi_target_regression()
