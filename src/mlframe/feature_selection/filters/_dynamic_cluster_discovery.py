@@ -75,7 +75,17 @@ def set_dcd_active(active: bool) -> None:
 @dataclass
 class SwapDecision:
     """Outcome of ``evaluate_swap_candidate`` — atomic information needed to
-    perform a commit_swap if accepted."""
+    perform a commit_swap if accepted.
+
+    Layer 45 (2026-05-31) adds the ``branch`` discriminator and the
+    ``member_col_idx`` / ``member_relevance`` payload so commit_swap can
+    take the cheap member-swap path (no new column) when a cluster
+    member out-CMIs both the anchor and the candidate aggregate. Three
+    branches:
+      - ``"none"`` — anchor stays; no swap fires
+      - ``"member"`` — anchor replaced by a cluster member (no aggregate built)
+      - ``"aggregate"`` — anchor replaced by the candidate aggregate (existing behaviour)
+    """
     accept: bool
     new_col_idx: int = -1
     aggregate_name: str = ""
@@ -85,6 +95,9 @@ class SwapDecision:
     rep_relevance: float = 0.0
     anchor_relevance_in_ctx: float = 0.0
     perm_p_value: float = 1.0
+    branch: str = "none"
+    member_col_idx: int = -1
+    member_relevance: float = 0.0
 
 
 @dataclass
@@ -747,13 +760,32 @@ def evaluate_swap_candidate(
     entropy_cache: Optional[dict] = None,
     full_npermutations: int = 0,
 ) -> SwapDecision:
-    """Decide whether to swap ``anchor`` with a PC1 aggregate of its cluster.
+    """Decide whether (and how) to swap ``anchor`` for a better cluster
+    representative.
 
     Returns a SwapDecision with ``accept=False`` if either:
       - the cluster is below ``min_cluster_size`` members
-      - PC1 fit fails (degenerate / NaN variance)
-      - conditional relevance ``I(rep ; y | Selected − anchor)`` does NOT
-        exceed anchor's conditional relevance × ``(1 + swap_gain_threshold)``
+      - aggregate fit fails (degenerate / NaN variance)
+      - neither the candidate aggregate nor the best cluster member's
+        conditional relevance ``I(. ; y | Selected − anchor)`` exceeds
+        anchor's conditional relevance × ``(1 + swap_gain_threshold)``
+
+    Layer 45 (2026-05-31): three exclusive branches are evaluated:
+
+      A. No swap — anchor's CMI already dominates the cluster; ``branch="none"``.
+      B. Member swap — a cluster member's CMI dominates the anchor's AND
+         the candidate aggregate's. The anchor index in ``selected_vars`` is
+         simply replaced by the member index (no new aggregate column);
+         ``branch="member"``.
+      C. Aggregate swap — the aggregate's CMI dominates both the anchor's
+         and every member's. Existing behaviour; ``branch="aggregate"``.
+
+    The branch with the highest CMI wins (tie-break order: aggregate >
+    member > none, because aggregate already passed the explicit
+    permutation null when present). Member-swap skips the permutation
+    null because the member is an already-discretised real column whose
+    CMI is computed against the same factors_data the rest of the
+    pipeline scores, not a continuous aggregate rebinned for the swap.
 
     No mutation occurs until ``commit_swap`` is called with the returned
     decision (Critic1/B-2 pre-confirmation guarantee).
@@ -883,13 +915,90 @@ def evaluate_swap_candidate(
     except Exception as exc:
         logger.warning(f"DCD swap: relevance estimation failed: {exc!r}")
         return SwapDecision(accept=False)
-    deterministic_gate = rep_relevance > anchor_rel * (1.0 + float(state.swap_gain_threshold))
-    if not deterministic_gate:
+    # 2026-05-31 Layer 45: ANCHOR REFINEMENT. Pre-fix the decision was a
+    # binary gate (aggregate vs anchor). When the FIRST-picked feature
+    # was a high-MI noisy spike rather than the cluster's center, the
+    # aggregate ended up sign-aligned to a sub-optimal reference and the
+    # swap either fired weakly or never fired even though a sibling
+    # member carried strictly more information about y.
+    #
+    # The refinement: score each cluster member with the SAME conditional
+    # MI(member; y | Selected − anchor) used for the anchor. Pick the
+    # best member; if it dominates the anchor by the swap gain, it's a
+    # viable swap target on its own. The final branch is whichever of
+    # ``aggregate`` / ``best_member`` has the higher CMI -- both have to
+    # individually beat the anchor by ``swap_gain_threshold``.
+    from .info_theory import mi as _mi_func, conditional_mi as _cmi_func
+    member_relevances: dict = {}
+    best_member_idx = -1
+    best_member_rel = float("-inf")
+    target_arr = np.asarray(target, dtype=np.int64)
+    for m_idx in sorted(cluster):
+        try:
+            if S_minus_anchor:
+                m_rel = float(_cmi_func(
+                    factors_data=state.factors_data,
+                    x=np.array([int(m_idx)], dtype=np.int64),
+                    y=target_arr,
+                    z=np.array(S_minus_anchor, dtype=np.int64),
+                    var_is_nominal=None,
+                    factors_nbins=state.factors_nbins,
+                    entropy_cache=entropy_cache,
+                    can_use_x_cache=False, can_use_y_cache=True,
+                ))
+            else:
+                m_rel = float(_mi_func(
+                    state.factors_data,
+                    np.array([int(m_idx)], dtype=np.int64),
+                    target_arr, state.factors_nbins,
+                ))
+        except Exception:
+            m_rel = 0.0
+        member_relevances[int(m_idx)] = m_rel
+        if m_rel > best_member_rel:
+            best_member_rel = m_rel
+            best_member_idx = int(m_idx)
+    gain_factor = 1.0 + float(state.swap_gain_threshold)
+    aggregate_gate = rep_relevance > anchor_rel * gain_factor
+    member_gate = (
+        best_member_idx >= 0
+        and best_member_rel > anchor_rel * gain_factor
+    )
+    if not aggregate_gate and not member_gate:
+        # Branch A: no swap candidate beats the anchor.
         return SwapDecision(
             accept=False,
             rep_relevance=rep_relevance,
             anchor_relevance_in_ctx=anchor_rel,
+            branch="none",
+            member_col_idx=best_member_idx,
+            member_relevance=(best_member_rel if best_member_idx >= 0 else 0.0),
         )
+    # Both gates active -> pick the higher CMI as the candidate branch.
+    # When only one is active, that one wins by definition.
+    prefer_aggregate = aggregate_gate and (
+        not member_gate or rep_relevance >= best_member_rel
+    )
+    if not prefer_aggregate:
+        # Branch B: member swap. No aggregate column built, no recipe,
+        # no permutation null (the member is an already-discretised
+        # column the rest of the pipeline already trusts).
+        return SwapDecision(
+            accept=True,
+            new_col_idx=int(best_member_idx),
+            aggregate_name="",
+            binned_rep=None,
+            new_nbins=0,
+            recipe_obj=None,
+            rep_relevance=rep_relevance,
+            anchor_relevance_in_ctx=anchor_rel,
+            perm_p_value=0.0,
+            branch="member",
+            member_col_idx=int(best_member_idx),
+            member_relevance=float(best_member_rel),
+        )
+    # Branch C continues -- aggregate must still pass the permutation null.
+    deterministic_gate = aggregate_gate
     # 2026-05-30 Wave 9.1 fix (loop iter 3): permutation null on rep.
     # The deterministic point-MI gate is upward-biased on small / noisy data
     # because rep (a continuous PC1 projection re-binned with quantization_nbins
@@ -938,11 +1047,35 @@ def evaluate_swap_candidate(
             perm_p_value = 1.0  # conservative: fail closed
     accept = deterministic_gate and (B <= 0 or perm_p_value < float(state.swap_alpha))
     if not accept:
+        # Layer 45: aggregate failed its permutation null. If the
+        # best-member gate also held (member_gate True), fall through to
+        # the member-swap branch rather than abandoning the whole swap
+        # opportunity -- the member CMI was computed against the same
+        # already-discretised state.factors_data and needs no aggregate-
+        # specific null check.
+        if member_gate and best_member_idx >= 0:
+            return SwapDecision(
+                accept=True,
+                new_col_idx=int(best_member_idx),
+                aggregate_name="",
+                binned_rep=None,
+                new_nbins=0,
+                recipe_obj=None,
+                rep_relevance=rep_relevance,
+                anchor_relevance_in_ctx=anchor_rel,
+                perm_p_value=perm_p_value,
+                branch="member",
+                member_col_idx=int(best_member_idx),
+                member_relevance=float(best_member_rel),
+            )
         return SwapDecision(
             accept=False,
             rep_relevance=rep_relevance,
             anchor_relevance_in_ctx=anchor_rel,
             perm_p_value=perm_p_value,
+            branch="none",
+            member_col_idx=best_member_idx,
+            member_relevance=(best_member_rel if best_member_idx >= 0 else 0.0),
         )
     aggregate_name = (
         f"_dcd_pc1_{'_'.join(str(cols[m])[:6] for m in members[:3])}"
@@ -974,6 +1107,9 @@ def evaluate_swap_candidate(
         rep_relevance=rep_relevance,
         anchor_relevance_in_ctx=anchor_rel,
         perm_p_value=perm_p_value,
+        branch="aggregate",
+        member_col_idx=best_member_idx,
+        member_relevance=(best_member_rel if best_member_idx >= 0 else 0.0),
     )
 
 
@@ -1035,6 +1171,67 @@ def commit_swap(
     if not decision.accept:
         return -1
     new_idx = int(decision.new_col_idx)
+    # 2026-05-31 Layer 45: member-swap branch. The decision points at an
+    # existing factors_data column (a cluster member), not a new aggregate.
+    # No matrix extension, no recipe, no pool_pruned_mask resize. We
+    # simply unprune the chosen member (discover_cluster_members had
+    # pruned every member when it grew the cluster), replace the anchor
+    # index in selected_vars, and reseat the cluster bookkeeping under
+    # the member as the new anchor. The rest of the pipeline -- bin counts,
+    # transform replay, support_ resolution -- already trusts the column.
+    is_member_swap = (
+        getattr(decision, "branch", "aggregate") == "member"
+        and not decision.aggregate_name
+        and decision.binned_rep is None
+    )
+    if is_member_swap:
+        member_idx = new_idx
+        # Replace anchor in selected_vars with the chosen member.
+        try:
+            pos = selected_vars.index(int(anchor))
+            selected_vars[pos] = member_idx
+        except ValueError:
+            selected_vars.append(member_idx)
+        # Move cluster ownership to the new anchor; drop the chosen
+        # member from its own membership set (it IS the anchor now).
+        cluster_members = state.cluster_anchors.pop(int(anchor), set())
+        new_member_set = {int(m) for m in cluster_members if int(m) != member_idx}
+        # Add old anchor as a member of the new cluster (it's still
+        # SU-redundant with the new anchor and should stay pruned).
+        new_member_set.add(int(anchor))
+        state.cluster_anchors[member_idx] = new_member_set
+        for m in new_member_set:
+            state.member_to_anchor[int(m)] = member_idx
+        # Mark old anchor as pruned (it's now a member); unprune the new
+        # anchor (it must be eligible for downstream confirm/select).
+        if int(anchor) < state.pool_pruned_mask.shape[0]:
+            state.pool_pruned_mask[int(anchor)] = True
+        if 0 <= member_idx < state.pool_pruned_mask.shape[0]:
+            state.pool_pruned_mask[member_idx] = False
+        # Remove the new anchor from member_to_anchor since it is itself
+        # the anchor now (anchors aren't tracked there).
+        state.member_to_anchor.pop(member_idx, None)
+        if predictors_log is not None:
+            predictors_log.append({
+                "dcd_swap": True,
+                "dcd_swap_branch": "member",
+                "anchor": int(anchor),
+                "new_col_idx": member_idx,
+                "aggregate_name": "",
+                "n_members": len(new_member_set),
+            })
+        state.swap_log.append({
+            "anchor": int(anchor),
+            "new_col_idx": member_idx,
+            "aggregate_name": "",
+            "n_members": len(new_member_set),
+            "rep_relevance": float(decision.rep_relevance),
+            "anchor_relevance_in_ctx": float(decision.anchor_relevance_in_ctx),
+            "branch": "member",
+            "member_relevance": float(decision.member_relevance),
+        })
+        return member_idx
+    # Branch C below: aggregate swap (existing behaviour).
     # 1. Extend matrix.
     new_data = np.column_stack([state.factors_data, decision.binned_rep])
     new_cols = list(state.cols) + [str(decision.aggregate_name)]
@@ -1171,6 +1368,10 @@ def commit_swap(
         "n_members": len(cluster_members),
         "rep_relevance": float(decision.rep_relevance),
         "anchor_relevance_in_ctx": float(decision.anchor_relevance_in_ctx),
+        # Layer 45: branch discriminator on every swap_log entry. Aggregate
+        # path here; member-swap path emits "branch":"member" above.
+        "branch": "aggregate",
+        "member_relevance": float(decision.member_relevance),
     }
     if isinstance(decision.recipe_obj, dict):
         _method = decision.recipe_obj.get("method")
