@@ -322,6 +322,116 @@ def _pairwise_su_edges(
     return flags
 
 
+@njit(parallel=True, nogil=True, cache=True, fastmath=False)
+def _compute_marginals_packed(
+    bins_packed: np.ndarray,
+    nbins: np.ndarray,
+    freqs_offsets: np.ndarray,
+    freqs_packed: np.ndarray,
+    h_marginals: np.ndarray,
+    constant_mask: np.ndarray,
+) -> None:
+    """Fill freqs_packed/h_marginals/constant_mask from bins_packed in one parallel sweep.
+
+    For each feature i (in prange): bincount its row of ``bins_packed`` into the
+    contiguous slice ``freqs_packed[freqs_offsets[i] : freqs_offsets[i + 1]]``, normalize
+    in place to a probability vector, compute Shannon entropy in the same pass, and
+    set ``constant_mask[i]`` from non-zero-bin cardinality. Replaces the prior
+    two-pass Python loop (``_column_marginal`` per column followed by ``_pack_bins_for_kernel``'s
+    per-column entropy Python sum) with a single parallel kernel that touches each
+    column's data exactly once.
+    """
+    n_features, n_samples = bins_packed.shape
+    inv_n = 1.0 / n_samples if n_samples > 0 else 0.0
+    for i in prange(n_features):
+        nb_i = nbins[i]
+        off_i = freqs_offsets[i]
+        # Zero the slice we're about to fill (np.empty allocation upstream).
+        for b in range(nb_i):
+            freqs_packed[off_i + b] = 0.0
+        # Bincount the row.
+        for k in range(n_samples):
+            freqs_packed[off_i + bins_packed[i, k]] += 1.0
+        # Normalize + compute entropy in one pass; count non-zero bins for constancy.
+        nonzero_bins = 0
+        h = 0.0
+        for b in range(nb_i):
+            c = freqs_packed[off_i + b]
+            if c > 0.0:
+                p = c * inv_n
+                freqs_packed[off_i + b] = p
+                h -= p * math.log(p)
+                nonzero_bins += 1
+        h_marginals[i] = h
+        # constant column: only one bin id ever appears (regardless of how many
+        # padded bin slots the cardinality hint allocates).
+        constant_mask[i] = nonzero_bins <= 1
+
+
+def _setup_su_kernel_inputs(
+    arrays: list[np.ndarray],
+    nbins_hints: list[int] | None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray] | None:
+    """Fused replacement for ``_column_marginal`` + ``_pack_bins_for_kernel``.
+
+    Single Python pass over ``arrays``: determines per-feature ``nb_i`` (max of observed
+    bin id + 1 and any user hint), writes the int32 column-major ``bins_packed`` buffer,
+    and lays out the ``freqs_offsets`` table. Then a single ``@njit(parallel=True)`` sweep
+    (``_compute_marginals_packed``) fills the marginal probability vectors + Shannon
+    entropies in one parallel pass.
+
+    Returns ``None`` when columns have heterogeneous sample counts (the dict layout that
+    MRMR's ``categorize_dataset`` produces always shares ``n_samples`` so this is just a
+    defensive guard).
+    """
+    if not arrays:
+        return None
+    n_samples = int(arrays[0].shape[0])
+    for a in arrays[1:]:
+        if int(a.shape[0]) != n_samples:
+            return None
+    n_features = len(arrays)
+
+    # Pre-determine nb_i per feature (one .max() per column - O(n_samples) total per
+    # column; cheap C call, no Python-loop overhead per element). The hint overrides
+    # the observed max so the joint-counts matrix dimension stays consistent with
+    # MRMR's view of the bin space even when a column never realises its highest bin.
+    nbins = np.empty(n_features, dtype=np.int64)
+    freqs_offsets = np.empty(n_features + 1, dtype=np.int64)
+    offset = 0
+    for i, arr in enumerate(arrays):
+        if arr.size == 0:
+            observed_max = 0
+        else:
+            observed_max = int(arr.max()) + 1
+        hint = nbins_hints[i] if nbins_hints is not None else 0
+        nb = max(observed_max, int(hint) if hint else 0)
+        nbins[i] = nb
+        freqs_offsets[i] = offset
+        offset += nb
+    freqs_offsets[n_features] = offset
+
+    bins_packed = np.empty((n_features, n_samples), dtype=np.int32, order="C")
+    freqs_packed = np.empty(int(offset), dtype=np.float64)
+    h_marginals = np.empty(n_features, dtype=np.float64)
+    constant_mask = np.empty(n_features, dtype=np.bool_)
+
+    # Column-major write: each feature's bin ids occupy a contiguous int32 row so the
+    # SU kernel's inner sample loop reads stride-1 strips. The astype(copy=False) is a
+    # no-op view when arr is already int32, otherwise a single C-level copy.
+    for i, arr in enumerate(arrays):
+        bins_packed[i, :] = arr.astype(np.int32, copy=False)
+
+    # Parallel sweep: bincount + normalize + entropy + constant-mask, all in one
+    # pass per column on a worker thread. Replaces the prior pair of Python loops
+    # (np.bincount in _column_marginal + Python entropy sum in _pack_bins_for_kernel).
+    _compute_marginals_packed(
+        bins_packed, nbins, freqs_offsets, freqs_packed, h_marginals, constant_mask,
+    )
+
+    return bins_packed, nbins, freqs_packed, freqs_offsets, h_marginals, constant_mask
+
+
 def _pack_bins_for_kernel(
     arrays: list[np.ndarray],
     marginals: list[tuple[np.ndarray, np.ndarray]],
@@ -504,16 +614,6 @@ def cluster_correlated_features_su(
     if f == 0:
         return np.empty(0, dtype=np.int64)
 
-    # Pre-compute per-column marginals once. SU(X_i, X_j) calls share the
-    # marginal pass for each X_i and X_j independently, so caching across the
-    # O(f^2) pair loop drops the marginal work from 2*f*(f-1) to f.
-    marginals: list[tuple[np.ndarray, np.ndarray]] = []
-    for name, col in zip(names, arrays):
-        hint = None
-        if nbins_per_feature is not None and name in nbins_per_feature:
-            hint = int(nbins_per_feature[name])
-        marginals.append(_column_marginal(col, n_bins_hint=hint))
-
     threshold = float(threshold)
     ei_parts: list[int] = []
     ej_parts: list[int] = []
@@ -526,7 +626,18 @@ def cluster_correlated_features_su(
     pmin = parallel_min_features if parallel_min_features is not None else _resolve_parallel_min_features()
     use_kernel = bool(use_parallel) and f >= int(pmin)
     if use_kernel:
-        packed = _pack_bins_for_kernel(arrays, marginals)
+        # Fused builder: one Python pass over arrays + one njit(parallel=True) sweep
+        # for bincount/normalize/entropy/constant-mask. Replaces the prior two-pass
+        # _column_marginal + _pack_bins_for_kernel chain (both Python-level O(f) loops).
+        nbins_hints: list[int] | None
+        if nbins_per_feature is not None:
+            nbins_hints = [
+                int(nbins_per_feature[name]) if name in nbins_per_feature else 0
+                for name in names
+            ]
+        else:
+            nbins_hints = None
+        packed = _setup_su_kernel_inputs(arrays, nbins_hints)
         if packed is not None:
             bins_packed, nbins, freqs_packed, freqs_offsets, h_marginals, constant_mask = packed
 
@@ -573,6 +684,16 @@ def cluster_correlated_features_su(
             ei = ei_arr.astype(np.int64, copy=False)
             ej = ej_arr.astype(np.int64, copy=False)
             return _uf_labels(f, ei, ej)
+
+    # Serial fallback only reached when use_kernel is False (small width) or packing
+    # was unsafe. Build marginals lazily here so the parallel path (fused builder
+    # above) doesn't pay the per-column Python-loop cost.
+    marginals: list[tuple[np.ndarray, np.ndarray]] = []
+    for name, col in zip(names, arrays):
+        hint = None
+        if nbins_per_feature is not None and name in nbins_per_feature:
+            hint = int(nbins_per_feature[name])
+        marginals.append(_column_marginal(col, n_bins_hint=hint))
 
     for i in range(f - 1):
         classes_i, freqs_i = marginals[i]
