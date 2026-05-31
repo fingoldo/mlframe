@@ -1729,6 +1729,25 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             self.cluster_members_ = dict(self.dcd_.get("cluster_anchors_names", {}))
         else:
             self.cluster_members_ = None
+        # Layer 48 (2026-05-31): hierarchical post-hoc cluster map. Pure
+        # additive analyser over ``dcd_["cluster_anchors_names"]`` --
+        # surfaces super-cluster ties DCD's greedy single-anchor rule
+        # cannot. Empty dict when DCD found <2 anchors / no super-tau
+        # crossings. None mirrors ``cluster_members_`` semantics for the
+        # DCD-disabled case.
+        if isinstance(self.dcd_, dict):
+            try:
+                from ._cluster_hierarchy import build_cluster_hierarchy
+                self.cluster_hierarchy_ = build_cluster_hierarchy(
+                    self.dcd_, X,
+                    super_tau=float(getattr(self, "dcd_super_tau", 0.5)),
+                    max_levels=int(getattr(self, "dcd_hierarchy_max_levels", 3)),
+                    distance=str(getattr(self, "dcd_distance", "su")),
+                )
+            except Exception:
+                self.cluster_hierarchy_ = {}
+        else:
+            self.cluster_hierarchy_ = None
         # 2026-05-30 Wave 9.1 fix (loop iter 1, agent-found bug):
         # When DCD's ``commit_swap`` extended ``factors_data`` inside screen
         # with PC1 aggregate columns, the swap targets land in ``selected_vars``

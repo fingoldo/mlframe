@@ -1539,6 +1539,12 @@ class MRMR(BaseEstimator, TransformerMixin):
         # ``cluster_members_`` attribute (None when DCD was disabled or did
         # not run) so introspection code paths don't AttributeError.
         self.cluster_members_ = None
+        # Layer 48 (2026-05-31): hierarchical post-hoc cluster map. Empty
+        # dict default (matches "DCD ran but found no super-structure" --
+        # meaningfully different from None, which would mean DCD disabled).
+        # Identity shortcut bypasses DCD entirely, so the empty default is
+        # the correct attribute-complete marker.
+        self.cluster_hierarchy_ = {}
         self.mrmr_gains_ = np.array([], dtype=np.float64)
         self.friend_graph_ = None
         self.cluster_aggregate_ = None
