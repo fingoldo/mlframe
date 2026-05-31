@@ -538,6 +538,58 @@ def _column_marginal(
     return cls, counts / total
 
 
+def _run_cpu_pairwise_su(
+    bins_packed: np.ndarray,
+    nbins: np.ndarray,
+    freqs_packed: np.ndarray,
+    freqs_offsets: np.ndarray,
+    h_marginals: np.ndarray,
+    constant_mask: np.ndarray,
+    threshold: float,
+    *,
+    use_bitmap: bool,
+    bitmap_min_features: int | None,
+    bitmap_max_n_bins: int | None,
+) -> np.ndarray:
+    """Pick the CPU pairwise SU kernel: popcount-bitmap when its gates pass, else scalar.
+
+    Both kernels return identical ``flags`` (uint8 upper-triangle), so the caller
+    treats them interchangeably. The bitmap kernel wins at moderate width with
+    small ``n_bins`` because each per-pair sample sweep collapses to
+    ``n_bins^2 * ceil(n_samples/64)`` POPCNT-AND operations; the scalar kernel
+    stays the fallback for wide bin spaces or tiny widths where the bitmap pack
+    overhead dominates.
+    """
+    if use_bitmap:
+        from mlframe.feature_selection._shap_proxy_cluster_su_bitmap import (
+            pairwise_su_edges_bitmap,
+            should_route_bitmap,
+        )
+
+        n_features, n_samples = bins_packed.shape
+        max_nb = int(nbins.max()) if nbins.size else 0
+        if should_route_bitmap(
+            n_features=n_features,
+            n_samples=n_samples,
+            max_n_bins=max_nb,
+            bitmap_min_features=bitmap_min_features,
+            bitmap_max_n_bins=bitmap_max_n_bins,
+        ):
+            try:
+                return pairwise_su_edges_bitmap(
+                    bins_packed, nbins, freqs_packed, freqs_offsets,
+                    h_marginals, constant_mask, threshold,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Bitmap SU kernel failed (%s); falling back to scalar prange kernel", exc,
+                )
+    return _pairwise_su_edges(
+        bins_packed, nbins, freqs_packed, freqs_offsets,
+        h_marginals, constant_mask, threshold,
+    )
+
+
 def cluster_correlated_features_su(
     bins: dict[str, np.ndarray],
     *,
@@ -550,6 +602,9 @@ def cluster_correlated_features_su(
     use_gpu: str | bool = "auto",
     gpu_min_features: int | None = None,
     gpu_pair_chunk_size: int = 4096,
+    use_bitmap: bool = True,
+    bitmap_min_features: int | None = None,
+    bitmap_max_n_bins: int | None = None,
 ) -> np.ndarray:
     """Cluster features by single-linkage on ``SU(X_i, X_j) >= threshold``.
 
@@ -606,6 +661,28 @@ def cluster_correlated_features_su(
     gpu_pair_chunk_size
         Maximum number of i-rows processed per GPU einsum batch; bounds peak
         GPU memory at ``chunk * n_features * max_nb^2 * 8`` bytes. Default 4096.
+    use_bitmap
+        Enable the popcount-bitmap pairwise kernel
+        (``_shap_proxy_cluster_su_bitmap.pairwise_su_edges_bitmap``) when
+        ``n_features >= bitmap_min_features`` AND ``max(n_bins) <= bitmap_max_n_bins``
+        AND ``n_samples`` exceeds the bitmap-amortization floor AND the bitmap
+        memory fits the 256 MB cap. The bitmap path collapses the per-pair
+        sample sweep to ``n_bins^2 * ceil(n_samples/64)`` POPCNT-AND ops with
+        hardware ``POPCNT``; default ``True``. Disable to force the scalar
+        ``_pairwise_su_edges`` kernel (legacy / debug). Routed under the CPU
+        path only - GPU path takes priority when both apply.
+    bitmap_min_features
+        Smallest ``n_features`` at which the bitmap kernel beats the scalar
+        prange kernel. ``None`` consults ``pyutilz.system.kernel_tuning_cache``
+        (key ``mlframe.shap_proxied_fs.cluster_su.bitmap_min_features``);
+        default 200.
+    bitmap_max_n_bins
+        Upper ``max(n_bins)`` at which the bitmap kernel still wins. Above this
+        the ``n_bins^2`` per-pair work overwhelms the 64-wide POPCNT speedup
+        and the scalar kernel is faster. ``None`` consults
+        ``pyutilz.system.kernel_tuning_cache``
+        (key ``mlframe.shap_proxied_fs.cluster_su.bitmap_max_n_bins``);
+        default 16.
 
     Returns
     -------
@@ -676,14 +753,20 @@ def cluster_correlated_features_su(
                     )
                 except Exception as exc:
                     logger.warning("GPU SU kernel failed (%s); falling back to CPU prange kernel", exc)
-                    flags = _pairwise_su_edges(
+                    flags = _run_cpu_pairwise_su(
                         bins_packed, nbins, freqs_packed, freqs_offsets,
                         h_marginals, constant_mask, threshold,
+                        use_bitmap=use_bitmap,
+                        bitmap_min_features=bitmap_min_features,
+                        bitmap_max_n_bins=bitmap_max_n_bins,
                     )
             else:
-                flags = _pairwise_su_edges(
+                flags = _run_cpu_pairwise_su(
                     bins_packed, nbins, freqs_packed, freqs_offsets,
                     h_marginals, constant_mask, threshold,
+                    use_bitmap=use_bitmap,
+                    bitmap_min_features=bitmap_min_features,
+                    bitmap_max_n_bins=bitmap_max_n_bins,
                 )
             ei_arr, ej_arr = np.where(flags == 1)
             if ei_arr.size > edge_cap:
