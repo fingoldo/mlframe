@@ -513,8 +513,21 @@ def _apply_cluster_aggregate(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     std = np.where(member_std > 0.0, member_std, 1.0)
     Z = ((M - member_mean) / std) * signs  # standardize with TRAIN stats + sign-align
 
-    if method == "median":
+    # Layer 44: dispatch the four new non-linear / row-reduction methods that
+    # have no weights vector. Replay logic mirrors ``_apply_method_nonlinear``
+    # at fit; kept inline here so engineered_recipes.py stays free of an import
+    # cycle with _cluster_aggregate.py.
+    if method in ("median", "median_z"):
         out = np.median(Z, axis=1)
+    elif method == "signed_max_abs":
+        abs_Z = np.abs(Z)
+        idx = np.argmax(abs_Z, axis=1)
+        rows = np.arange(Z.shape[0])
+        signs_row = np.sign(Z[rows, idx])
+        signs_row = np.where(signs_row == 0.0, 1.0, signs_row)
+        out = signs_row * abs_Z[rows, idx]
+    elif method == "signed_l2_sum":
+        out = np.sum(np.sign(Z) * (Z ** 2), axis=1)
     else:
         if "weights" not in recipe.extra:
             raise KeyError(f"cluster_aggregate recipe '{recipe.name}' (method={method!r}) missing 'weights' in extra.")

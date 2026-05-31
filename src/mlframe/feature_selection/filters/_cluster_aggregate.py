@@ -30,7 +30,55 @@ from .info_theory import mi
 
 logger = logging.getLogger(__name__)
 
-CLUSTER_AGGREGATE_METHODS = ("mean_z", "mean_inv_var", "median", "pca_pc1", "factor_score")
+CLUSTER_AGGREGATE_METHODS = (
+    "mean_z", "mean_inv_var", "median", "pca_pc1", "factor_score",
+    # Layer 44 (2026-05-31): four additional aggregators added to the DCD
+    # auto bake-off pool to give it more candidate combiners to choose from.
+    # ``pca_pc2`` captures secondary cluster structure (correlated latents);
+    # ``median_z`` is robust to outlier rows; ``signed_max_abs`` and
+    # ``signed_l2_sum`` are non-linear combiners that surface the loudest
+    # member signal / quadratic combination. The first two follow the
+    # existing ``Z @ w`` linear-weight pattern; the last two are non-linear
+    # (no ``weights`` -- replay re-applies the same row reduction).
+    "pca_pc2", "median_z", "signed_max_abs", "signed_l2_sum",
+)
+
+
+# Layer 44: methods that bypass the ``Z @ weights`` pattern (non-linear or
+# row-reductions). For these, ``_derive_weights`` returns None and replay
+# (``_apply_cluster_aggregate``) dispatches to a per-method row-reducer.
+_NONLINEAR_METHODS = frozenset({
+    "median", "median_z", "signed_max_abs", "signed_l2_sum",
+})
+
+
+def _apply_method_nonlinear(Z: np.ndarray, method: str) -> np.ndarray:
+    """Row-reducer for non-linear cluster aggregators.
+
+    ``median`` / ``median_z``: per-row median of standardized members (robust to
+        outlier members). ``median`` and ``median_z`` are the same reduction;
+        the two names exist because ``median`` predates Layer 44 and is kept
+        bit-identical for the legacy pin while ``median_z`` is the explicit
+        z-scored alias used in the new bake-off pool.
+    ``signed_max_abs``: per-row ``sign(z_j*) * max_j |z_j|`` where ``j*`` is
+        the arg-max of |z_j|. Surfaces the loudest single member signal.
+    ``signed_l2_sum``: per-row ``sum_j sign(z_j) * z_j**2``. A signed
+        quadratic combiner -- larger-magnitude members contribute more,
+        sign carried so cancellation across opposite-sign members works.
+    """
+    if method in ("median", "median_z"):
+        return np.median(Z, axis=1)
+    if method == "signed_max_abs":
+        abs_Z = np.abs(Z)
+        idx = np.argmax(abs_Z, axis=1)
+        rows = np.arange(Z.shape[0])
+        signs_row = np.sign(Z[rows, idx])
+        # 0 sign collapses to +1 to avoid zeroing a max-abs of an exactly-zero row.
+        signs_row = np.where(signs_row == 0.0, 1.0, signs_row)
+        return signs_row * abs_Z[rows, idx]
+    if method == "signed_l2_sum":
+        return np.sum(np.sign(Z) * (Z ** 2), axis=1)
+    raise ValueError(f"unknown non-linear cluster-aggregate method {method!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -71,6 +119,24 @@ def _svd_flip_pc1(Z: np.ndarray) -> np.ndarray:
     return v
 
 
+def _svd_flip_pcN(Z: np.ndarray, idx: int) -> np.ndarray:
+    """N-th principal-component loading vector of centered ``Z`` (0-indexed), sign-pinned via the
+    sklearn ``svd_flip`` convention. Layer 44: powers ``pca_pc2`` for clusters with multi-factor
+    structure (when latents are correlated, PC2 captures the secondary axis of shared variation
+    that PC1 misses).
+
+    For ``k`` members the SVD returns ``min(n, k)`` components; if ``idx`` is out of range (e.g. PC2
+    requested on a single-column Z) we fall back to PC1 to keep the combiner well-defined.
+    """
+    Zc = Z - Z.mean(axis=0)
+    _u, _s, vt = np.linalg.svd(Zc, full_matrices=False)
+    if idx >= vt.shape[0]:
+        idx = 0
+    v = vt[idx]
+    v = v * np.sign(v[np.argmax(np.abs(v))] or 1.0)
+    return v
+
+
 def _pc1_communalities(Z: np.ndarray) -> np.ndarray:
     """Communality_i = (corr of member_i with the PC1 score)^2 in [0,1] under a 1-factor read:
     the fraction of member_i's variance explained by the shared component. Used for reliability."""
@@ -89,7 +155,10 @@ def _derive_weights(Z: np.ndarray, method: str):
     k = Z.shape[1]
     if method == "mean_z":
         return np.full(k, 1.0 / k, dtype=np.float64)
-    if method == "median":
+    # Layer 44: ``median`` (legacy alias) and the four new non-linear methods
+    # have no weight vector -- the aggregate is a row-reduction handled by
+    # ``_apply_method_nonlinear`` at fit and replay.
+    if method in _NONLINEAR_METHODS:
         return None
     if method == "mean_inv_var":
         comm = _pc1_communalities(Z)
@@ -97,6 +166,12 @@ def _derive_weights(Z: np.ndarray, method: str):
         return w / w.sum()
     if method == "pca_pc1":
         return _svd_flip_pc1(Z)
+    if method == "pca_pc2":
+        # Layer 44: 2nd principal component. On a homogeneous cluster (single
+        # latent, equal loadings) PC2 is dominated by noise; on a multi-factor
+        # cluster (correlated latents L1, L2 with members loading partially on
+        # each) PC2 captures the orthogonal axis that PC1 leaves on the table.
+        return _svd_flip_pcN(Z, 1)
     if method == "factor_score":
         comm = _pc1_communalities(Z)
         load = np.sqrt(comm)  # principal-factor loadings (sign already aligned, comm>=0)
@@ -275,8 +350,11 @@ def run_cluster_aggregate_step(
             # without edges and ``apply_recipe`` later re-quantiled on
             # test data, silently shifting bin codes between fit and
             # transform under distribution drift. Sibling of iter 28.
-            if method == "median":
-                _agg_continuous = np.median(Z, axis=1)
+            if method in _NONLINEAR_METHODS:
+                # Layer 44: row-reduction for non-linear combiners; replay uses
+                # the same ``_apply_method_nonlinear`` so fit/transform parity
+                # holds without persisting weights for these methods.
+                _agg_continuous = _apply_method_nonlinear(Z, method)
             else:
                 _agg_continuous = Z @ np.asarray(weights, dtype=np.float64)
             _agg_continuous = np.nan_to_num(

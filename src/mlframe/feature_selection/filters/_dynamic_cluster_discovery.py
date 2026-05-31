@@ -599,7 +599,19 @@ def discover_cluster_members(
 # =============================================================================
 
 
-_AUTO_METHOD_CANDIDATES = ("mean_z", "mean_inv_var", "pca_pc1")
+# Layer 44 (2026-05-31): expand the DCD auto bake-off pool from 3 to 7
+# candidate aggregators so the K-fold MI selector has materially more
+# combiner shapes to pick from. The original 3 cover homogeneous linear
+# averaging; the 4 additions extend the menu with:
+#   - ``pca_pc2``: secondary principal component (correlated multi-latent
+#     clusters where PC1 leaves shared structure on the table)
+#   - ``median_z``: row-robust to outlier members
+#   - ``signed_max_abs``: surfaces the loudest single member's signal
+#   - ``signed_l2_sum``: signed quadratic combiner
+_AUTO_METHOD_CANDIDATES = (
+    "mean_z", "mean_inv_var", "pca_pc1",
+    "pca_pc2", "median_z", "signed_max_abs", "signed_l2_sum",
+)
 
 
 def _select_swap_method_auto(
@@ -671,8 +683,19 @@ def _select_swap_method_auto(
                 Z_test = Z[test_idx]
                 w = _derive_weights(Z_train, method)
                 if w is None:
-                    continue
-                rep_test = Z_test @ np.asarray(w, dtype=np.float64)
+                    # Layer 44: non-linear / row-reduction combiners (median /
+                    # median_z / signed_max_abs / signed_l2_sum) have no weight
+                    # vector. Apply the same row-reducer the recipe will use at
+                    # replay so the K-fold MI estimate matches the production
+                    # path.
+                    from ._cluster_aggregate import (
+                        _apply_method_nonlinear, _NONLINEAR_METHODS,
+                    )
+                    if method not in _NONLINEAR_METHODS:
+                        continue
+                    rep_test = _apply_method_nonlinear(Z_test, method)
+                else:
+                    rep_test = Z_test @ np.asarray(w, dtype=np.float64)
                 rep_test = np.nan_to_num(rep_test, nan=0.0, posinf=0.0, neginf=0.0)
                 # Bin rep_test with the recipe's quantization (uses test-fold
                 # edges -- cheap, fold-local).
@@ -788,9 +811,15 @@ def evaluate_swap_candidate(
         else:
             chosen_method = str(state.swap_method)
             kfold_scores = None
-        if chosen_method == "median":
+        # Layer 44: route all non-linear / row-reduction methods through the
+        # shared ``_apply_method_nonlinear`` (median / median_z / signed_max_abs
+        # / signed_l2_sum). Linear methods stay on the ``Z @ weights`` fast path.
+        from ._cluster_aggregate import (
+            _apply_method_nonlinear, _NONLINEAR_METHODS,
+        )
+        if chosen_method in _NONLINEAR_METHODS:
             weights = None
-            rep_continuous = np.median(Z, axis=1).astype(np.float64)
+            rep_continuous = _apply_method_nonlinear(Z, chosen_method).astype(np.float64)
         else:
             weights = _derive_weights(Z, chosen_method)
             if weights is None:
@@ -1083,8 +1112,16 @@ def commit_swap(
                             _std = np.where(_std_raw > 0.0, _std_raw, 1.0)
                             _signs = np.asarray(_recipe["signs"], dtype=np.float64)
                             _Z = ((_M - _mean) / _std) * _signs
-                            if _recipe.get("method") == "median":
-                                _cont = np.median(_Z, axis=1)
+                            # Layer 44: non-linear / row-reduction methods
+                            # (median / median_z / signed_max_abs / signed_l2_sum)
+                            # rebuild via the shared reducer; linear methods
+                            # stay on ``Z @ weights``.
+                            from ._cluster_aggregate import (
+                                _apply_method_nonlinear, _NONLINEAR_METHODS,
+                            )
+                            _m = _recipe.get("method")
+                            if _m in _NONLINEAR_METHODS:
+                                _cont = _apply_method_nonlinear(_Z, _m)
                             else:
                                 _cont = _Z @ np.asarray(_recipe["weights"], dtype=np.float64)
                             _cont = np.nan_to_num(

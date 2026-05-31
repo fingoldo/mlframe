@@ -892,11 +892,23 @@ class MRMR(BaseEstimator, TransformerMixin):
     _VALID_FE_UNARY_PRESETS = ("minimal", "medium", "maximal")
     _VALID_FE_BINARY_PRESETS = ("minimal", "medium", "maximal")
     _VALID_CLUSTER_AGGREGATE_MODES = ("augment", "replace")
-    _VALID_CLUSTER_AGGREGATE_METHODS = ("mean_z", "mean_inv_var", "median", "pca_pc1", "factor_score")
+    # Layer 44 (2026-05-31): the cluster_aggregate method allow-list expands
+    # to include the four new combiners (``pca_pc2``, ``median_z``,
+    # ``signed_max_abs``, ``signed_l2_sum``) so direct ``cluster_aggregate_methods``
+    # API users can pin them individually, not just reach them via DCD ``auto``.
+    _VALID_CLUSTER_AGGREGATE_METHODS = (
+        "mean_z", "mean_inv_var", "median", "pca_pc1", "factor_score",
+        "pca_pc2", "median_z", "signed_max_abs", "signed_l2_sum",
+    )
     # 2026-05-30 Wave 9 — DCD validation constants. swap_methods alias the
     # cluster_aggregate methods (Critic2/E fix: no duplicate constant).
     _VALID_DCD_DISTANCES = ("su", "vi", "sotoca_pla")
-    _VALID_DCD_SWAP_METHODS = ("auto", "mean_z", "mean_inv_var", "median", "pca_pc1", "factor_score")
+    # Layer 44: DCD ``dcd_swap_method`` accepts the same expanded combiner set
+    # so users can pin a single new method instead of relying on ``auto``.
+    _VALID_DCD_SWAP_METHODS = (
+        "auto", "mean_z", "mean_inv_var", "median", "pca_pc1", "factor_score",
+        "pca_pc2", "median_z", "signed_max_abs", "signed_l2_sum",
+    )
 
     # ``_validate_string_params`` + ``_validate_inputs`` are implemented
     # in ``_mrmr_validate_transform.py`` and bound onto this class at the

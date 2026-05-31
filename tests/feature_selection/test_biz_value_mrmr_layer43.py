@@ -241,9 +241,15 @@ class TestPartB_AutoMethod:
             assert "method" in entry, (
                 f"swap_log entry missing 'method' key: {entry}"
             )
-            assert entry["method"] in (
+            # Layer 44: bake-off pool expanded from 3 to 7 candidates
+            # (added pca_pc2 / median_z / signed_max_abs / signed_l2_sum).
+            _valid_methods = {
                 "mean_z", "mean_inv_var", "pca_pc1",
-            ), f"unexpected chosen method: {entry['method']!r}"
+                "pca_pc2", "median_z", "signed_max_abs", "signed_l2_sum",
+            }
+            assert entry["method"] in _valid_methods, (
+                f"unexpected chosen method: {entry['method']!r}"
+            )
             # auto-mode hints
             assert entry.get("auto_winner") == entry["method"], (
                 f"auto_winner / method mismatch: {entry}"
@@ -252,9 +258,9 @@ class TestPartB_AutoMethod:
                 f"auto mode must record kfold_scores: {entry}"
             )
             scores = entry["kfold_scores"]
-            assert set(scores.keys()).issubset({
-                "mean_z", "mean_inv_var", "pca_pc1",
-            }), f"unexpected kfold_scores keys: {scores}"
+            assert set(scores.keys()).issubset(_valid_methods), (
+                f"unexpected kfold_scores keys: {scores}"
+            )
 
     def test_auto_prefers_reliability_weighted_on_heterogeneous_loadings(self):
         """Heterogeneous-SNR cluster: under widely different reliability
@@ -287,9 +293,15 @@ class TestPartB_AutoMethod:
             f"under heterogeneous loadings a reliability-weighted "
             f"combiner should score >= mean_z; got {scores}"
         )
-        # And the chosen winner is not the uniform mean.
-        assert entry["method"] in ("mean_inv_var", "pca_pc1"), (
-            f"expected winner in (mean_inv_var, pca_pc1); got "
+        # And the chosen winner is not the uniform mean. Layer 44: the bake-off
+        # pool now includes pca_pc2 / median_z / signed_max_abs / signed_l2_sum
+        # — any of those can also legitimately surface as the winner since they
+        # are also variance / magnitude-aware combiners; the contract here is
+        # only that ``mean_z`` is NOT the uniform winner under heterogeneous
+        # loadings.
+        assert entry["method"] != "mean_z", (
+            f"under heterogeneous loadings, expected a variance-aware "
+            f"combiner to win over uniform mean_z; got "
             f"{entry['method']!r} with scores {scores}"
         )
 
