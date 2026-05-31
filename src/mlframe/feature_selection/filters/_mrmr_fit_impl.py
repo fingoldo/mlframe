@@ -1702,6 +1702,17 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             self.dcd_ = _dcd_summary(_dcd_state)
         except Exception:
             self.dcd_ = None
+        # Layer 41 (2026-05-31): self-describing cluster membership accessor.
+        # Mirror ``dcd_["cluster_anchors_names"]`` onto the estimator as a
+        # first-class fitted attribute so downstream code can read the
+        # discovered clusters without indexing through ``self.dcd_`` (the
+        # raw summary dict). ``cluster_members_`` is None when DCD was
+        # disabled, matching ``dcd_`` semantics. Pure additive metadata --
+        # no effect on ``support_`` or ``transform`` output.
+        if isinstance(self.dcd_, dict):
+            self.cluster_members_ = dict(self.dcd_.get("cluster_anchors_names", {}))
+        else:
+            self.cluster_members_ = None
         # 2026-05-30 Wave 9.1 fix (loop iter 1, agent-found bug):
         # When DCD's ``commit_swap`` extended ``factors_data`` inside screen
         # with PC1 aggregate columns, the swap targets land in ``selected_vars``

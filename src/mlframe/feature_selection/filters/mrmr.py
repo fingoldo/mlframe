@@ -1483,6 +1483,10 @@ class MRMR(BaseEstimator, TransformerMixin):
         # ``sel.mrmr_gains_`` /``sel.friend_graph_`` /
         # ``sel.cluster_aggregate_`` blow up on the shortcut path.
         self.dcd_ = None
+        # Layer 41 (2026-05-31): identity-shortcut path must also expose the
+        # ``cluster_members_`` attribute (None when DCD was disabled or did
+        # not run) so introspection code paths don't AttributeError.
+        self.cluster_members_ = None
         self.mrmr_gains_ = np.array([], dtype=np.float64)
         self.friend_graph_ = None
         self.cluster_aggregate_ = None

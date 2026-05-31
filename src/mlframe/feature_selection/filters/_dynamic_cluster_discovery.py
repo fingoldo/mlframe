@@ -915,10 +915,80 @@ def commit_swap(
 
 def dcd_summary(state: Optional[DCDState]) -> Optional[dict]:
     """Return a JSON-serialisable summary of the DCD run for ``MRMR.dcd_``
-    artifact. Returns None when ``state is None`` (DCD disabled)."""
+    artifact. Returns None when ``state is None`` (DCD disabled).
+
+    Layer 41: in addition to the integer-indexed ``cluster_anchors`` map
+    (anchor_col_idx -> sorted_member_col_idx_list), the summary now exposes
+    a parallel ``cluster_anchors_names`` map (anchor_col_name -> sorted
+    member_col_name list) AND per-cluster diagnostics (``cluster_diagnostics``:
+    ``size``, ``min_pair_su``, ``mean_pair_su``, ``max_pair_su`` over the
+    anchor+member set). The integer map stays so legacy consumers keep
+    working; the name map makes the summary self-describing without forcing
+    callers to remember the column ordering at fit time.
+    """
     if state is None:
         return None
     n_pruned = int(state.pool_pruned_mask.sum()) if state.pool_pruned_mask is not None else 0
+    cols = list(getattr(state, "cols", []) or [])
+    n_cols = len(cols)
+    # Integer-indexed map (legacy contract, preserved bit-identical).
+    int_anchors = {int(k): sorted(int(v) for v in vs)
+                    for k, vs in state.cluster_anchors.items()}
+    # Layer 41: name-indexed map. Resolve each integer col index against
+    # ``state.cols`` (which is kept up-to-date through commit_swap, so
+    # post-swap aggregate names like ``_dcd_pc1_*`` resolve naturally).
+    # Falls back to ``f"col_{idx}"`` when the index is out of bounds for
+    # the captured cols list (defensive: should not happen on normal fits
+    # but guards against malformed states from partial swaps).
+    def _name(idx: int) -> str:
+        i = int(idx)
+        if 0 <= i < n_cols:
+            return str(cols[i])
+        return f"col_{i}"
+    name_anchors: dict = {}
+    for anchor_idx, member_idx_list in int_anchors.items():
+        name_anchors[_name(anchor_idx)] = [_name(m) for m in member_idx_list]
+    # Layer 41: per-cluster diagnostics. The minimum within-cluster SU is the
+    # most useful single number for judging whether ``tau_cluster`` is set
+    # too high (min_pair_su near tau means borderline) or too low
+    # (min_pair_su well below tau means false-positive cluster). Cheap:
+    # all pair-SU values were already computed during cluster discovery
+    # and live in ``state.pairwise_su_cache`` — we just look them up.
+    cluster_diagnostics: dict = {}
+    su_cache = state.pairwise_su_cache
+    for anchor_idx, member_idx_list in int_anchors.items():
+        members_all = [int(anchor_idx)] + [int(m) for m in member_idx_list]
+        size = len(members_all)
+        # Pairwise SU among ALL members of the cluster (anchor + members).
+        # Pull from cache; missing entries are skipped (cluster discovery
+        # only computes SU(member, anchor), so anchor-pair entries are
+        # always present, but member-member pairs may be absent -- that's
+        # fine, the min/mean/max are over what's available, which always
+        # includes at least the anchor-member SU values).
+        pair_sus: list = []
+        for i in range(size):
+            for j in range(i + 1, size):
+                a, b = members_all[i], members_all[j]
+                key = (a, b) if a < b else (b, a)
+                v = su_cache.get(key)
+                if v is not None:
+                    pair_sus.append(float(v))
+        if pair_sus:
+            cluster_diagnostics[_name(anchor_idx)] = {
+                "size": int(size),
+                "min_pair_su": float(min(pair_sus)),
+                "mean_pair_su": float(sum(pair_sus) / len(pair_sus)),
+                "max_pair_su": float(max(pair_sus)),
+                "n_pairs_evaluated": int(len(pair_sus)),
+            }
+        else:
+            cluster_diagnostics[_name(anchor_idx)] = {
+                "size": int(size),
+                "min_pair_su": None,
+                "mean_pair_su": None,
+                "max_pair_su": None,
+                "n_pairs_evaluated": 0,
+            }
     return {
         "n_anchors": len(state.cluster_anchors),
         "n_pruned": n_pruned,
@@ -929,8 +999,11 @@ def dcd_summary(state: Optional[DCDState]) -> Optional[dict]:
         "cache_hit_rate": (state.n_cache_hits / max(state.n_su_calls, 1)),
         "cache_size_final": len(state.pairwise_su_cache),
         "swap_log": state.swap_log,
-        "cluster_anchors": {int(k): sorted(int(v) for v in vs)
-                             for k, vs in state.cluster_anchors.items()},
+        "cluster_anchors": int_anchors,
+        # Layer 41 additions (additive; all legacy keys preserved above).
+        "cluster_anchors_names": name_anchors,
+        "cluster_diagnostics": cluster_diagnostics,
+        "tau_cluster": float(state.tau_cluster),
     }
 
 
