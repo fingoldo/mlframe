@@ -738,6 +738,24 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_hybrid_orth_adaptive_degree_enable: bool = False,
         fe_hybrid_orth_adaptive_degree_range: tuple = (1, 2, 3, 4, 5, 6),
         fe_hybrid_orth_adaptive_degree_min_uplift: float = 1.05,
+        # 2026-05-31 Layer 58 — CONDITIONAL BASIS ROUTING (sibling module
+        # ``_orthogonal_routing_fe``). Independent opt-in (does NOT require
+        # fe_hybrid_orth_enable). When enabled, for each source column we
+        # try every (pre_transform, basis, degree) cell in the cartesian
+        # product over ``PRE_TRANSFORM_NAMES`` x candidate bases x
+        # ``fe_hybrid_orth_conditional_routing_degrees``, keep the per-column
+        # MI argmax, then global top-K by uplift. The ``min_uplift`` default
+        # is tighter (1.10) than Layer 21/57's 1.05 because the candidate
+        # pool is 4x larger per column so the noise tail is fatter.
+        #
+        # Default OFF preserves byte-for-byte legacy behaviour. Recipes
+        # emit as ``orth_univariate`` with ``extra["pre_transform"]``
+        # carrying the chosen transform tag. Replay reads X only, no y,
+        # leakage-free by construction.
+        fe_hybrid_orth_conditional_routing_enable: bool = False,
+        fe_hybrid_orth_conditional_routing_top_k: int = 5,
+        fe_hybrid_orth_conditional_routing_min_uplift: float = 1.10,
+        fe_hybrid_orth_conditional_routing_degrees: tuple = (2, 3),
         # 2026-05-31 Layer 32 — extra (non-polynomial) basis FE: B-spline +
         # Fourier. Complementary to the orth-poly path: spline catches sharp
         # local non-linearities (threshold rules ``y = sign(x - tau)``);
@@ -1181,6 +1199,12 @@ class MRMR(BaseEstimator, TransformerMixin):
             "fe_hybrid_orth_adaptive_degree_enable": False,
             "fe_hybrid_orth_adaptive_degree_range": (1, 2, 3, 4, 5, 6),
             "fe_hybrid_orth_adaptive_degree_min_uplift": 1.05,
+            # 2026-05-31 Layer 58 — conditional basis routing FE defaults.
+            # Master switch OFF preserves legacy pickle byte-equivalence.
+            "fe_hybrid_orth_conditional_routing_enable": False,
+            "fe_hybrid_orth_conditional_routing_top_k": 5,
+            "fe_hybrid_orth_conditional_routing_min_uplift": 1.10,
+            "fe_hybrid_orth_conditional_routing_degrees": (2, 3),
             # 2026-05-31 Layer 32 — extra-basis (spline / fourier) defaults.
             "fe_hybrid_orth_extra_bases": (),
             "fe_hybrid_orth_fourier_freqs": (1.0, 2.0),

@@ -907,7 +907,52 @@ def build_unary_binary_recipe(
 # * orth_pair_cross : {basis_i: str, basis_j: str, deg_a: int, deg_b: int}
 
 
-def _eval_orth_basis_column(x: np.ndarray, basis: str, degree: int) -> np.ndarray:
+def _apply_orth_pre_transform(x: np.ndarray, pre_transform: str) -> np.ndarray:
+    """Layer 58 (2026-05-31) per-column pre-transform: optionally reshape the
+    raw column BEFORE the basis-domain preprocess kicks in. Supported values:
+
+    * ``"raw"``      -- identity (no pre-transform; legacy Layer 21/57 path)
+    * ``"log_abs"``  -- ``log(|x| + 1e-12)`` -- captures heavy-tail log-normal
+                        targets where raw Hermite z-score collapses the signal.
+    * ``"sqrt_abs"`` -- ``sign(x) * sqrt(|x|)`` -- mild non-linear stretch.
+    * ``"tanh"``     -- ``tanh(x / max(std, 1e-12))`` -- bounded mapping; pairs
+                        well with Chebyshev/Legendre on otherwise-unbounded
+                        inputs.
+
+    Replay invariant: stateless given x + pre_transform name. The std for
+    ``tanh`` is computed on-the-fly from the SAME column so train/test parity
+    holds (z-score in the basis preprocess already does the same). Unknown
+    values fall back to identity with a logger warning rather than raising.
+    """
+    x = np.asarray(x, dtype=np.float64)
+    if pre_transform in (None, "", "raw", "identity"):
+        return x
+    if pre_transform == "log_abs":
+        return np.log(np.abs(x) + 1e-12)
+    if pre_transform == "sqrt_abs":
+        return np.sign(x) * np.sqrt(np.abs(x))
+    if pre_transform == "tanh":
+        sd = float(np.std(x))
+        return np.tanh(x / sd) if sd > 1e-12 else np.tanh(x)
+    # Unknown -- warn and fall back to identity. Avoids raising at replay
+    # time on pickles produced by older clients that introduced bespoke
+    # tags; the worst case is one orth column that's the wrong shape, which
+    # downstream MRMR will deselect on the next refit.
+    import logging as _lg_pretrans
+    _lg_pretrans.getLogger(__name__).warning(
+        "_apply_orth_pre_transform: unknown pre_transform %r; falling back "
+        "to identity.", pre_transform,
+    )
+    return x
+
+
+def _eval_orth_basis_column(
+    x: np.ndarray,
+    basis: str,
+    degree: int,
+    *,
+    pre_transform: str = "raw",
+) -> np.ndarray:
     """Preprocess x to the basis domain (z-score for hermite, min-max for
     legendre/chebyshev, shift for laguerre), then evaluate the single basis
     function of the given degree via a one-hot coefficient vector.
@@ -915,6 +960,12 @@ def _eval_orth_basis_column(x: np.ndarray, basis: str, degree: int) -> np.ndarra
     Mirrors ``_orthogonal_univariate_fe._evaluate_basis_column`` so that
     transform()-time replay produces the SAME value as fit-time generation.
     Lazy import of ``hermite_fe`` keeps the recipes module dependency-light.
+
+    Layer 58 (2026-05-31): optional ``pre_transform`` applied to the column
+    BEFORE the basis preprocess (log|x| for heavy-tail, tanh for bounded
+    mapping, etc.). ``pre_transform='raw'`` (default) keeps Layer 21/57
+    byte-identical -- existing recipes deserialized without the field
+    behave unchanged.
     """
     from .hermite_fe import _POLY_BASES, polyeval_dispatch
     basis_info = _POLY_BASES[basis]
@@ -929,6 +980,17 @@ def _eval_orth_basis_column(x: np.ndarray, basis: str, degree: int) -> np.ndarra
     if not finite_mask.all():
         fill = float(np.nanmean(x[finite_mask])) if finite_mask.any() else 0.0
         x = np.where(finite_mask, x, fill)
+    # Layer 58: optional pre-transform before basis preprocess. Identity
+    # when ``pre_transform='raw'`` (default) -- legacy bit-exact path.
+    x = _apply_orth_pre_transform(x, pre_transform)
+    # The pre-transform can produce non-finite values for pathological inputs
+    # (e.g. log(0) when caller passed a value at the floor); guard with one
+    # more NaN-safe fill so the basis preprocess (z-score / min-max) doesn't
+    # propagate NaN through every downstream column.
+    finite_mask2 = np.isfinite(x)
+    if not finite_mask2.all():
+        fill2 = float(np.nanmean(x[finite_mask2])) if finite_mask2.any() else 0.0
+        x = np.where(finite_mask2, x, fill2)
     z, _params = fit_fn(x)
     z = np.ascontiguousarray(z, dtype=np.float64)
     coef = np.zeros(int(degree) + 1, dtype=np.float64)
@@ -955,8 +1017,15 @@ def _apply_orth_univariate(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     src_name = recipe.src_names[0]
     basis = str(recipe.extra["basis"])
     degree = int(recipe.extra["degree"])
+    # Layer 58 (2026-05-31): optional pre-transform applied to the raw column
+    # before the basis preprocess. Default ``"raw"`` (identity) keeps recipes
+    # produced by Layer 21/57 byte-identical -- existing pickles missing the
+    # ``pre_transform`` key replay unchanged.
+    pre_transform = str(recipe.extra.get("pre_transform", "raw"))
     vals = _extract_column(X, src_name)
-    return _eval_orth_basis_column(vals, basis, degree)
+    return _eval_orth_basis_column(
+        vals, basis, degree, pre_transform=pre_transform,
+    )
 
 
 def _apply_orth_pair_cross(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
@@ -988,16 +1057,32 @@ def _apply_orth_pair_cross(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
 
 
 def build_orth_univariate_recipe(
-    *, name: str, src_name: str, basis: str, degree: int,
+    *,
+    name: str,
+    src_name: str,
+    basis: str,
+    degree: int,
+    pre_transform: str = "raw",
 ) -> EngineeredRecipe:
     """Frozen recipe for one orthogonal-polynomial univariate column
-    ``basis_n(preprocess(X[src_name]))``. Replay is closed-form and
-    deterministic; no y reference is captured."""
+    ``basis_n(preprocess(pre_transform(X[src_name])))``. Replay is closed-form
+    and deterministic; no y reference is captured.
+
+    ``pre_transform`` defaults to ``"raw"`` (identity) so Layer 21/57
+    recipes remain byte-identical. Layer 58 routing FE picks one of
+    ``"raw" | "log_abs" | "sqrt_abs" | "tanh"`` per surviving column.
+    """
+    extra = {"basis": str(basis), "degree": int(degree)}
+    # Only write the field when the caller picked a non-default value so
+    # legacy pickles continue to compare equal byte-for-byte (the recipe's
+    # ``__eq__`` walks ``extra`` content).
+    if pre_transform and pre_transform != "raw":
+        extra["pre_transform"] = str(pre_transform)
     return EngineeredRecipe(
         name=name,
         kind="orth_univariate",
         src_names=(src_name,),
-        extra={"basis": str(basis), "degree": int(degree)},
+        extra=extra,
     )
 
 

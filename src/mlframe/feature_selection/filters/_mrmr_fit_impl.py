@@ -635,6 +635,100 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     "continuing without adaptive-degree columns.",
                     type(_ad_exc).__name__, _ad_exc,
                 )
+    # 2026-05-31 Layer 58 — CONDITIONAL BASIS ROUTING FE stage.
+    # Independent opt-in (does NOT require fe_hybrid_orth_enable). When
+    # active, we try every (pre_transform, basis, degree) cell per source
+    # column and keep the MI-uplift winner; global top-K appended. Recipe
+    # kind reuses ``orth_univariate`` (extra carries ``pre_transform``);
+    # replay reads X only, no y.
+    if bool(getattr(self, "fe_hybrid_orth_conditional_routing_enable", False)):
+        _is_pandas_for_routing = isinstance(X, pd.DataFrame)
+        if not _is_pandas_for_routing:
+            warnings.warn(
+                "MRMR: fe_hybrid_orth_conditional_routing_enable=True but X is "
+                "not a pandas DataFrame; conditional routing FE is skipped. "
+                "Convert to pandas via X.to_pandas() before fit() if you "
+                "want conditional routing FE applied.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from ._orthogonal_routing_fe import (
+                    hybrid_orth_mi_conditional_routing_fe_with_recipes,
+                )
+                _y_for_route = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                if _y_for_route.dtype.kind in "fc":
+                    _n_unique = int(np.unique(_y_for_route).size)
+                    if _n_unique <= 32:
+                        _y_for_route = _y_for_route.astype(np.int64)
+                    else:
+                        try:
+                            _y_for_route = pd.qcut(
+                                _y_for_route, q=10, labels=False, duplicates="drop",
+                            ).astype(np.int64)
+                        except Exception:
+                            _y_for_route = _y_for_route.astype(np.int64)
+                # Restrict the seed pool to RAW source columns -- engineered
+                # columns from prior stages would create recipes whose
+                # src_names reference an engineered column absent at
+                # transform time.
+                _hybrid_already_appended = set(
+                    getattr(self, "hybrid_orth_features_", None) or []
+                )
+                _rt_cols: list | None = None
+                if getattr(self, "factors_names_to_use", None):
+                    _rt_cols = [
+                        c for c in self.factors_names_to_use
+                        if c in X.columns and c not in _hybrid_already_appended
+                    ]
+                else:
+                    _rt_cols = [
+                        c for c in X.columns
+                        if c not in _hybrid_already_appended
+                    ]
+                _rt_top_k = int(getattr(
+                    self, "fe_hybrid_orth_conditional_routing_top_k", 5,
+                ))
+                _rt_min_uplift = float(getattr(
+                    self, "fe_hybrid_orth_conditional_routing_min_uplift", 1.10,
+                ))
+                _rt_degrees = tuple(int(d) for d in getattr(
+                    self, "fe_hybrid_orth_conditional_routing_degrees", (2, 3),
+                ))
+                _X_before_routing_cols = list(X.columns)
+                X_rt, _rt_scores, _rt_recipes = (
+                    hybrid_orth_mi_conditional_routing_fe_with_recipes(
+                        X, _y_for_route,
+                        cols=_rt_cols,
+                        degrees=_rt_degrees,
+                        top_k=_rt_top_k,
+                        min_uplift=_rt_min_uplift,
+                    )
+                )
+                _rt_appended = [
+                    c for c in X_rt.columns if c not in _X_before_routing_cols
+                ]
+                if _rt_appended:
+                    X = X_rt
+                    self.hybrid_orth_features_ = (
+                        list(self.hybrid_orth_features_ or []) + list(_rt_appended)
+                    )
+                    for _r in _rt_recipes:
+                        _hybrid_orth_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit hybrid_orth conditional-routing: appended "
+                            "%d engineered column(s): %s",
+                            len(_rt_appended), _rt_appended[:8],
+                        )
+            except Exception as _rt_exc:
+                logger.warning(
+                    "MRMR.fit hybrid_orth conditional-routing FE raised %s: %s; "
+                    "continuing without conditional-routing columns.",
+                    type(_rt_exc).__name__, _rt_exc,
+                )
     # 2026-05-21 revert of Wave 29 P1 polars->pandas coercion. That
     # coercion was added on the premise that downstream ``X[target_name]
     # = y`` mutation assumed pandas and would raise on polars; but the
