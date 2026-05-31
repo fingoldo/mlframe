@@ -1177,6 +1177,11 @@ class MRMR(BaseEstimator, TransformerMixin):
             "_partial_fit_y_buffer_": None,
             "_partial_fit_n_seen_": 0,
             "_partial_fit_n_since_refit_": 0,
+            # 2026-05-31 Layer 54 — FE provenance tracking.
+            # Legacy pickles default to ``None`` and the empty predictor log;
+            # the next fit() repopulates from the live greedy run.
+            "fe_provenance_": None,
+            "_predictors_log_": (),
         }
         for k, v in defaults.items():
             state.setdefault(k, v)
@@ -1441,6 +1446,13 @@ class MRMR(BaseEstimator, TransformerMixin):
                         )
                 except Exception:
                     pass
+            # Layer 54 (2026-05-31): populate ``fe_provenance_`` from
+            # the sibling module so users can audit which engineered
+            # columns landed in support_, why (origin + mechanism
+            # details) and what each contributed in the greedy gain
+            # ledger. Pure metadata; never mutates the selection result.
+            from ._mrmr_fe_provenance import populate_fe_provenance as _pop_prov
+            _pop_prov(self)
             return result
         finally:
             # 2026-05-28: restore SU thread-local to its pre-fit state (always False
@@ -1766,3 +1778,11 @@ MRMR._append_engineered = _append_engineered_func
 # binding here keeps the public sklearn-style API on the class surface.
 from ._mrmr_partial_fit import partial_fit as _partial_fit_func  # noqa: E402
 MRMR.partial_fit = _partial_fit_func
+
+# Layer 54 (2026-05-31): FE provenance report binding. The DataFrame is
+# populated inside ``fit`` (see _mrmr_fe_provenance.compute_fe_provenance);
+# ``get_fe_report`` is a thin renderer bound here so the public surface
+# stays on the class without forcing the parent module to take a new
+# heavyweight import at load time.
+from ._mrmr_fe_provenance import get_fe_report as _get_fe_report_func  # noqa: E402
+MRMR.get_fe_report = _get_fe_report_func

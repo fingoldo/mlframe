@@ -2172,6 +2172,24 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         )
     except Exception:
         self.mrmr_gains_ = np.array([], dtype=np.float64)
+    # Layer 54: stash the greedy predictor log on ``self`` so the FE
+    # provenance helper can map engineered feature names back to their
+    # support_rank / mrmr_gain entries. ``predictors`` is a list of
+    # ``{"name", "indices", "gain", ...}`` dicts in selection order.
+    # Light copy (per-entry shallow) to dodge accidental downstream
+    # mutation of the screen's working list; ``indices`` is captured as
+    # a tuple to keep the entry pickle-safe across processes.
+    try:
+        self._predictors_log_ = tuple(
+            {
+                "name": p.get("name"),
+                "gain": float(p.get("gain", 0.0)),
+                "indices": tuple(p.get("indices", ()) or ()),
+            }
+            for p in (predictors or [])
+        )
+    except Exception:
+        self._predictors_log_ = ()
     self.fallback_used_ = False
     # n_features_ reports the column count produced by transform() = raw selected + engineered (replayable via _engineered_recipes_). Higher-order
     # engineered features without a replayable recipe were already warned about above and are NOT counted (they don't appear in transform output).
