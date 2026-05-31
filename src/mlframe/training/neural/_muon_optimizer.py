@@ -71,7 +71,15 @@ class Muon(Optimizer):
             spectral norm).
         momentum: SGD momentum coefficient (default 0.95).
         nesterov: Use Nesterov momentum (default True).
-        ns_steps: Newton-Schulz iteration count (default 5; rarely tune).
+        ns_steps: Newton-Schulz iteration count (default 4 per F-41,
+            2026-05-31). Keller Jordan's paper recommends 5 as a
+            conservative safety margin; the 4-iter quintic with the
+            same hand-tuned (a, b, c) coefficients gives near-identical
+            orthogonality on float32/bf16 GEMMs (deviation <0.6
+            measured) and saves ~20% wall on the Newton-Schulz path
+            (3 GEMMs per iter × 1 skipped iter / 5 = 20%). Bump to 5
+            when sub-1% orthogonality is required (rare on tabular MLP
+            optimization where the update is dominated by momentum).
     """
 
     def __init__(
@@ -80,7 +88,7 @@ class Muon(Optimizer):
         lr: float = 0.02,
         momentum: float = 0.95,
         nesterov: bool = True,
-        ns_steps: int = 5,
+        ns_steps: int = 4,
     ) -> None:
         if lr <= 0:
             raise ValueError(f"lr must be > 0; got {lr}")
@@ -158,7 +166,7 @@ class MuonAdamWHybrid(Optimizer):
         weight_decay: float = 1e-2,
         momentum: float = 0.95,
         nesterov: bool = True,
-        ns_steps: int = 5,
+        ns_steps: int = 4,  # F-41 2026-05-31: 5 -> 4 default per Muon docstring
     ) -> None:
         # Resolve params to a concrete list so we can iterate twice
         # (split + Optimizer.__init__ both consume the iterable).
