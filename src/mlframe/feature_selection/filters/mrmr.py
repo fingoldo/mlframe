@@ -800,6 +800,25 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_hybrid_orth_bootstrap_enable: bool = False,
         fe_hybrid_orth_bootstrap_n_boot: int = 10,
         fe_hybrid_orth_bootstrap_sample_fraction: float = 0.8,
+        # 2026-05-31 Layer 63 — THREE-GATE + K-fold OOF MI ranking for the
+        # hybrid orth-poly FE (sibling module ``_orthogonal_three_gate_mi_fe``).
+        # Independent opt-in (does NOT require fe_hybrid_orth_enable).
+        # When enabled, the per-source univariate basis columns Layer 21
+        # generates are scored by OOF MI (K-fold held-out estimate using
+        # train-fitted bin edges) and admitted by THREE gates rather than
+        # two: (1) relative uplift_oof >= min_uplift, (2) absolute OOF
+        # engineered_mi >= MAD floor, (3) CMI(candidate; y | current
+        # support) >= cmi_min. Gate 3 catches the "duplicate signal"
+        # failure mode that two-gate selection misses: once x__He2 is in
+        # support, a second basis like x__T2 has near-identical marginal
+        # MI but negligible CMI given x__He2, so it is correctly dropped.
+        # Engineered VALUES bit-equal to Layer 21 -- only selection rule
+        # changes -- so recipes use ``orth_univariate`` kind and replay
+        # is shared infrastructure.
+        # Default OFF preserves legacy pickle byte-equivalence.
+        fe_hybrid_orth_three_gate_enable: bool = False,
+        fe_hybrid_orth_three_gate_n_folds: int = 5,
+        fe_hybrid_orth_three_gate_cmi_min: float = 0.001,
         # 2026-05-31 Layer 32 — extra (non-polynomial) basis FE: B-spline +
         # Fourier. Complementary to the orth-poly path: spline catches sharp
         # local non-linearities (threshold rules ``y = sign(x - tau)``);
@@ -1287,6 +1306,11 @@ class MRMR(BaseEstimator, TransformerMixin):
             "fe_hybrid_orth_bootstrap_enable": False,
             "fe_hybrid_orth_bootstrap_n_boot": 10,
             "fe_hybrid_orth_bootstrap_sample_fraction": 0.8,
+            # 2026-05-31 Layer 63 — three-gate + K-fold OOF MI defaults.
+            # Master switch OFF preserves legacy pickle byte-equivalence.
+            "fe_hybrid_orth_three_gate_enable": False,
+            "fe_hybrid_orth_three_gate_n_folds": 5,
+            "fe_hybrid_orth_three_gate_cmi_min": 0.001,
             # 2026-05-31 Layer 32 — extra-basis (spline / fourier) defaults.
             "fe_hybrid_orth_extra_bases": (),
             "fe_hybrid_orth_fourier_freqs": (1.0, 2.0),

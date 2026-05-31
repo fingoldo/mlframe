@@ -1024,6 +1024,122 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     "continuing without bootstrap-stable columns.",
                     type(_boot_exc).__name__, _boot_exc,
                 )
+    # 2026-05-31 Layer 63 — THREE-GATE + K-fold OOF MI ranking for the
+    # hybrid orth-poly FE (independent opt-in; does NOT require
+    # fe_hybrid_orth_enable). Layer 21 ranks engineered columns with a
+    # plug-in MI estimate biased upward by ``(K-1) / (2n)``; the absolute
+    # floor sometimes admits noise-driven candidates the bias inflated
+    # past it. Layer 63 scores with stratified K-fold OOF MI (train-fitted
+    # bin edges applied to held-out fold) and adds a Gate 3:
+    # ``CMI(candidate; y | current_support) >= cmi_min`` which kills
+    # duplicate-signal candidates (``x__T2`` after ``x__He2`` is already
+    # selected). When ``current_support`` is empty Gate 3 is skipped --
+    # marginal MI from Gate 1 already covers that case. Engineered VALUES
+    # are bit-equal to Layer 21 so recipes reuse the ``orth_univariate``
+    # kind and replay is shared infrastructure.
+    if bool(getattr(self, "fe_hybrid_orth_three_gate_enable", False)):
+        _is_pandas_for_tg = isinstance(X, pd.DataFrame)
+        if not _is_pandas_for_tg:
+            warnings.warn(
+                "MRMR: fe_hybrid_orth_three_gate_enable=True but X is not a "
+                "pandas DataFrame; three-gate hybrid FE is skipped. "
+                "Convert to pandas via X.to_pandas() before fit() if you "
+                "want the three-gate selection applied.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from ._orthogonal_three_gate_mi_fe import (
+                    hybrid_orth_mi_three_gate_fe_with_recipes,
+                )
+                _y_for_tg = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                if _y_for_tg.dtype.kind in "fc":
+                    _n_unique = int(np.unique(_y_for_tg).size)
+                    if _n_unique <= 32:
+                        _y_for_tg = _y_for_tg.astype(np.int64)
+                    else:
+                        try:
+                            _y_for_tg = pd.qcut(
+                                _y_for_tg, q=10, labels=False, duplicates="drop",
+                            ).astype(np.int64)
+                        except Exception:
+                            _y_for_tg = _y_for_tg.astype(np.int64)
+                _hybrid_already_appended = set(
+                    getattr(self, "hybrid_orth_features_", None) or []
+                )
+                if getattr(self, "factors_names_to_use", None):
+                    _tg_cols = [
+                        c for c in self.factors_names_to_use
+                        if c in X.columns and c not in _hybrid_already_appended
+                    ]
+                else:
+                    _tg_cols = [
+                        c for c in X.columns
+                        if c not in _hybrid_already_appended
+                    ]
+                _tg_degrees = tuple(int(d) for d in getattr(
+                    self, "fe_hybrid_orth_degrees", (2, 3),
+                ))
+                _tg_basis = str(getattr(self, "fe_hybrid_orth_basis", "auto"))
+                _tg_top_k = int(getattr(self, "fe_hybrid_orth_top_k", 5))
+                _tg_n_folds = int(getattr(
+                    self, "fe_hybrid_orth_three_gate_n_folds", 5,
+                ))
+                _tg_cmi_min = float(getattr(
+                    self, "fe_hybrid_orth_three_gate_cmi_min", 0.001,
+                ))
+                _tg_seed = int(getattr(self, "random_seed", 0) or 0)
+                # Build current_support from columns already appended by
+                # earlier hybrid stages (cluster-basis / bootstrap /
+                # Layer 21). When the support is empty (the common case
+                # in single-stage runs) Gate 3 is skipped inside the
+                # callee, which preserves Layer 21 behaviour at the
+                # selection level (sans the OOF re-ranking on Gate 1/2).
+                _tg_support_cols = [
+                    c for c in _hybrid_already_appended if c in X.columns
+                ]
+                _tg_current_support = (
+                    X[_tg_support_cols].copy()
+                    if _tg_support_cols
+                    else None
+                )
+                _X_before_tg_cols = list(X.columns)
+                X_tg, _tg_scores, _tg_recipes = (
+                    hybrid_orth_mi_three_gate_fe_with_recipes(
+                        X, _y_for_tg, _tg_current_support,
+                        cols=_tg_cols,
+                        degrees=_tg_degrees,
+                        basis=_tg_basis,
+                        top_k=_tg_top_k,
+                        cmi_min=_tg_cmi_min,
+                        n_folds=_tg_n_folds,
+                        seed=_tg_seed,
+                    )
+                )
+                _tg_appended = [
+                    c for c in X_tg.columns if c not in _X_before_tg_cols
+                ]
+                if _tg_appended:
+                    X = X_tg
+                    self.hybrid_orth_features_ = (
+                        list(self.hybrid_orth_features_ or []) + list(_tg_appended)
+                    )
+                    for _r in _tg_recipes:
+                        _hybrid_orth_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit hybrid_orth three-gate: appended "
+                            "%d engineered column(s): %s",
+                            len(_tg_appended), _tg_appended[:8],
+                        )
+            except Exception as _tg_exc:
+                logger.warning(
+                    "MRMR.fit hybrid_orth three-gate FE raised %s: %s; "
+                    "continuing without three-gate columns.",
+                    type(_tg_exc).__name__, _tg_exc,
+                )
     # 2026-05-21 revert of Wave 29 P1 polars->pandas coercion. That
     # coercion was added on the premise that downstream ``X[target_name]
     # = y`` mutation assumed pandas and would raise on polars; but the
