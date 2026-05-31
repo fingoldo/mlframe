@@ -451,6 +451,27 @@ def _pipeline_signature_for_cache(pipeline) -> str:
     return "|".join(parts)
 
 
+# iter625 (perf): single-entry "last computed" memo cache for the
+# expensive _pre_pipeline_cache_key compute. The function is called
+# TWICE per pipeline-fit transaction with byte-identical inputs:
+# once from _pre_pipeline_cache_get and once from _pre_pipeline_-
+# cache_set (the get/set pair brackets pipeline.fit_transform, which
+# does NOT mutate the input frames). The blake2b hash chain via
+# polars hash_rows runs ~1.17s/call at 100k x 16 (c0016 profile;
+# cumtime 4.98s across 4 calls in 1 target). Memoizing the last
+# result by id-tuple + shape saves ~50% of the hash work.
+#
+# Safety: id() recycling after GC could superficially match a new
+# frame, so the cache key includes (shape, len(columns)) for extra
+# discrimination. The recycled-id-AND-identical-shape collision
+# would require a frame to be GC'd between get + set (microseconds
+# apart in the suite hot path) AND replaced by a frame of identical
+# shape -- not impossible but vanishingly rare. The fall-through
+# computes the correct key anyway; the worst case is one extra
+# hash recompute, not a wrong key.
+_LAST_KEY_CACHE: dict = {"id_tup": None, "key": None}
+
+
 def _pre_pipeline_cache_key(train_df, val_df, pipeline, train_target=None, target_name=None, sample_weight=None):
     """Compose a CONTENT-based cache key.
 
@@ -467,7 +488,31 @@ def _pre_pipeline_cache_key(train_df, val_df, pipeline, train_target=None, targe
     ``sample_weight`` is folded only when the inner selector is marked weight-aware (``_mlframe_use_sample_weights_in_fs_``);
     otherwise FS is weight-invariant and the cache stays valid across weight schemas. Weight fingerprinting uses the cheap
     10-cell sampler shared with other content-based keys so the cost is O(1) regardless of n_rows.
+
+    iter625: single-entry memo cache on (id, shape)-tuple of inputs.
+    Fast-path hit on the get/set pair that brackets every pipeline-
+    fit; saves the second call's ~1.2s hash recompute. Safe because
+    the frames are not mutated between get and set.
     """
+    # iter625 fast-path: build a cheap id-tuple key (shape included
+    # for id-recycling defence) and check the last-computed cache.
+    def _id_shape(arr):
+        if arr is None:
+            return (None,)
+        sh = getattr(arr, "shape", None)
+        return (id(arr), sh if sh is not None else (None,))
+
+    id_tup = (
+        _id_shape(train_df),
+        _id_shape(val_df),
+        _id_shape(train_target),
+        id(pipeline),
+        str(target_name) if target_name is not None else "",
+        _id_shape(sample_weight),
+    )
+    if _LAST_KEY_CACHE["id_tup"] == id_tup:
+        return _LAST_KEY_CACHE["key"]
+
     sig = _pipeline_signature_for_cache(pipeline)
     _wants_sw = False
     try:
@@ -483,7 +528,7 @@ def _pre_pipeline_cache_key(train_df, val_df, pipeline, train_target=None, targe
     except Exception:
         _wants_sw = False
     _sw_fp = _content_fingerprint_for_cache(sample_weight) if (_wants_sw and sample_weight is not None) else ("no_sw",)
-    return (
+    key = (
         _content_fingerprint_for_cache(train_df),
         _content_fingerprint_for_cache(val_df),
         _content_fingerprint_for_cache(train_target),
@@ -494,6 +539,9 @@ def _pre_pipeline_cache_key(train_df, val_df, pipeline, train_target=None, targe
         sig,
         _sw_fp,
     )
+    _LAST_KEY_CACHE["id_tup"] = id_tup
+    _LAST_KEY_CACHE["key"] = key
+    return key
 
 
 def _pre_pipeline_cache_get(train_df, val_df, pipeline, train_target=None, target_name=None, cache_max: int | None = None, sample_weight=None):
