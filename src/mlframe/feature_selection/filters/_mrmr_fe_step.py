@@ -290,7 +290,8 @@ def _run_fe_step(
                         uplift = float("inf")
                         if verbose >= 2:
                             logger.info(
-                                f"Factors pair {raw_vars_pair} has zero individual MI but pair_mi={pair_mi:.4f} -- canonical hidden-pair case (e.g. XOR), keeping for FE"
+                                "Factors pair %s has zero individual MI but pair_mi=%.4f -- canonical hidden-pair case (e.g. XOR), keeping for FE",
+                                raw_vars_pair, pair_mi,
                             )
                         prospective_pairs[(raw_vars_pair, pair_mi)] = vars_usage_counter[raw_vars_pair[0]] + vars_usage_counter[raw_vars_pair[1]]
                         for var in raw_vars_pair:
@@ -300,7 +301,8 @@ def _run_fe_step(
                     uplift = pair_mi / ind_elems_mi_sum
                     if verbose >= 2:
                         logger.info(
-                            f"Factors pair {raw_vars_pair} will be considered for Feature Engineering, {ind_elems_mi_sum:.4f}->{pair_mi:.4f}, rat={uplift:.2f}"
+                            "Factors pair %s will be considered for Feature Engineering, %.4f->%.4f, rat=%.2f",
+                            raw_vars_pair, ind_elems_mi_sum, pair_mi, uplift,
                         )
                     prospective_pairs[(raw_vars_pair, pair_mi)] = vars_usage_counter[raw_vars_pair[0]] + vars_usage_counter[raw_vars_pair[1]]
                     for var in raw_vars_pair:

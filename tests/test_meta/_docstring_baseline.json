@@ -131,6 +131,8 @@
   "feature_selection/_benchmarks/bench_iter58_beam_width_sweep.py::run_one",
   "feature_selection/_benchmarks/bench_iter59_adaptive_prescreen.py::main",
   "feature_selection/_benchmarks/bench_iter59_adaptive_prescreen.py::run_one",
+  "feature_selection/_benchmarks/bench_iter75_default_su_backend.py::main",
+  "feature_selection/_benchmarks/bench_iter75_default_su_backend.py::run_regime",
   "feature_selection/_benchmarks/bench_jmim_collinear_xor.py::BenchResult",
   "feature_selection/_benchmarks/bench_jmim_collinear_xor.py::main",
   "feature_selection/_benchmarks/bench_jmim_collinear_xor.py::run_one",

@@ -55,12 +55,15 @@ def test_target_types_is_classification_predicates():
 
 
 def test_target_types_mutual_exclusion():
-    """Exactly one of {is_binary, is_regression, is_multiclass, is_multilabel,
-    is_ranking, is_quantile} must be True for every TargetTypes value -- the
-    top-level role flags partition the enum."""
+    """Exactly one of {is_binary, is_regression, is_multi_target_regression,
+    is_multiclass, is_multilabel, is_ranking, is_quantile} must be True for
+    every TargetTypes value -- the top-level role flags partition the enum.
+    ``is_multi_target_regression`` was added alongside MULTI_TARGET_REGRESSION
+    (output shape (N, K)); ``is_regression`` stays narrow (single-target only)
+    so existing single-target gates keep firing correctly."""
     for tt in TargetTypes:
-        flags = [tt.is_binary, tt.is_regression, tt.is_multiclass,
-                 tt.is_multilabel, tt.is_ranking, tt.is_quantile]
+        flags = [tt.is_binary, tt.is_regression, tt.is_multi_target_regression,
+                 tt.is_multiclass, tt.is_multilabel, tt.is_ranking, tt.is_quantile]
         assert sum(flags) == 1, f"{tt!r}: expected exactly 1 flag True, got {flags}"
 
 

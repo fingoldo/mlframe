@@ -7,8 +7,6 @@
   "feature_selection/boruta_shap.py:377",
   "feature_selection/boruta_shap.py:378",
   "feature_selection/boruta_shap.py:379",
-  "feature_selection/filters/_mrmr_fe_step.py:274",
-  "feature_selection/filters/_mrmr_fe_step.py:284",
   "feature_selection/filters/_neural_mi.py:186",
   "feature_selection/filters/_neural_mi.py:448",
   "feature_selection/filters/_neural_mi.py:617",

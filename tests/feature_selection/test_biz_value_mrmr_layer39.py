@@ -329,10 +329,19 @@ class TestPriorLayerImportSmoke:
         if tests_dir not in sys.path:
             sys.path.insert(0, tests_dir)
         # Force a fresh import so a previously-imported (and possibly
-        # stale) cached module does not mask a current breakage.
+        # stale) cached module does not mask a current breakage. Snapshot
+        # + restore the entry so we don't leave a rebound module behind
+        # for sibling tests (per CLAUDE.md test-pollution rule).
+        original_mod = sys.modules.get(mod_name)
         if mod_name in sys.modules:
             del sys.modules[mod_name]
-        importlib.import_module(mod_name)
+        try:
+            importlib.import_module(mod_name)
+        finally:
+            if original_mod is not None:
+                sys.modules[mod_name] = original_mod
+            else:
+                sys.modules.pop(mod_name, None)
 
 
 # ---------------------------------------------------------------------------

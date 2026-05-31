@@ -26,7 +26,12 @@ class TestEnum:
         assert qr.is_regression is False
         assert qr.is_classification is False
         assert qr.is_ranking is False
-        assert qr.is_multi_output is False  # multi_output is for classification
+        # ``is_multi_output`` was widened to include MULTI_TARGET_REGRESSION
+        # and QUANTILE_REGRESSION (both produce (N, K) outputs) so existing
+        # ``[:, 1]`` slicing gates fire on them too. The distinction we care
+        # about here is "QR is not multiclass / multilabel" -- covered by the
+        # ``is_classification`` check above.
+        assert qr.is_multi_output is True
 
 
 class TestConfig:

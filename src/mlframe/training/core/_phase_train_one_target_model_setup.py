@@ -378,12 +378,12 @@ def _setup_per_target_mlframe_models(
             _orig_mlp_kwargs = (
                 getattr(hyperparams_config, "mlp_kwargs", None) or {}
             )
-            # 2026-05-31 audit-pass-10 #1: pass existing mlp_kwargs so the
-            # translator can preserve a caller-pinned optimizer (e.g.
-            # MuonAdamWHybrid). Previously the translator hardcoded
-            # ``optimizer=torch.optim.AdamW`` whenever ``alpha`` was present
-            # in the sklearn-shape override, and the deep-merge below
-            # silently overwrote a user's Muon choice.
+            # Pass existing mlp_kwargs so the translator can preserve a
+            # caller-pinned optimizer (e.g. MuonAdamWHybrid). Without it
+            # the translator hardcoded ``optimizer=torch.optim.AdamW``
+            # whenever ``alpha`` was present in the sklearn-shape override,
+            # and the deep-merge below silently overwrote a user's Muon
+            # choice.
             _mlframe_override = translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
                 _sklearn_override,
                 existing_mlp_kwargs=_orig_mlp_kwargs,

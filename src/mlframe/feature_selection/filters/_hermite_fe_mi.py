@@ -326,6 +326,9 @@ def plugin_mi_classif_batch_dispatch(X_cols: np.ndarray, y: np.ndarray,
         return _plugin_mi_classif_batch_cuda(X_cols, y, n_bins)
     return _plugin_mi_classif_batch_njit(X_cols, y, n_bins)
 
+_CUDA_KERNELS: dict = {}
+
+
 def _ensure_cuda_kernels():
     """Lazy-compile CUDA RawKernels on first use."""
     # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports

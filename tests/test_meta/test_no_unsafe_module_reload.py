@@ -58,6 +58,15 @@ def _file_has_restore_mechanism(src: str) -> bool:
         "sys.modules[name] = snapshot",
         "sys.modules.update(snapshot",
         "sys.modules[_key] = _saved",
+        # explicit ``original_mod = sys.modules.get(...)`` / ``original_module``
+        # snapshot followed by per-key restore (see
+        # ``test_biz_value_mrmr_layer31.py`` -- the test snapshots into
+        # ``original_mod`` and the finally branch restores via
+        # ``sys.modules[mod_name] = original_mod`` / ``sys.modules.pop``).
+        "sys.modules[mod_name] = original_mod",
+        "sys.modules[mod_name] = original_module",
+        "sys.modules[name] = original_mod",
+        "sys.modules[name] = original_module",
         # module __dict__ snapshot+restore (see test_automl.py fixture)
         "_mod_ref.__dict__.clear()",
         "_mod_ref.__dict__.update(",

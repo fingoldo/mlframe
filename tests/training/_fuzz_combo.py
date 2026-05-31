@@ -1195,7 +1195,11 @@ AXES: dict[str, tuple[Any, ...]] = {
     "shap_proxied_shap_prefilter_safety_factor_cfg": (4, 8),
     "shap_proxied_shap_prefilter_min_features_cfg": (40, 80),
     "shap_proxied_shap_aware_stage1_keep_cfg": (True, False),
-    "shap_proxied_shap_aware_stage1_cushion_cfg": (2, 4),
+    # 2026-05-31 audit-pass-14 F14-2: extended (2, 4) -> (2, 4, 8). Source
+    # default flipped 8 -> 2 in iter76 (shap_proxied_fs.py:249); the legacy
+    # cushion=8 branch is now untested in default config, so we keep the
+    # third value pinned for fuzz coverage of the pre-iter76 calibration.
+    "shap_proxied_shap_aware_stage1_cushion_cfg": (2, 4, 8),
     "shap_proxied_shap_aware_stage1_floor_cfg": (200, 500),
     # ShapProxiedFS Refine UCB knobs (S9-S12). Gate on
     # use_shap_proxied_fs=True AND shap_proxied_within_cluster_refine_cfg=True.
@@ -1524,6 +1528,64 @@ AXES: dict[str, tuple[Any, ...]] = {
     # promotion (e.g. ``MRMR(disable_kernel_tuning_cache=True)``). See
     # FUZZ_AXES_W12_IMPL_DONE.md for the recommended source-side
     # promotion if reproducibility-without-cache becomes a fuzz target.
+    # =====================================================================
+    # 2026-05-31 audit-pass-14 (W14). 6 fuzz axes (2 HIGH default-flip +
+    # 3 MED new auto-mode/feature + 1 LOW shape invariant) covering the
+    # 8b581eea..34578dab iter69-76 + Layers 44-54 diff. Defaults
+    # SOURCE-verified at HEAD against
+    # src/mlframe/feature_selection/shap_proxied_fs.py:249, :258 and
+    # src/mlframe/feature_selection/filters/mrmr.py:621-655, :845-847,
+    # :947-950. See AUDIT_PASS_14_DONE.md for the per-finding citations.
+    # F14-6 (fe_provenance_ shape invariant) is implemented as a sensor
+    # test in test_fuzz_combo_cross_axis_W11C.py rather than a fuzz axis
+    # (no opt-out switch exposed in MRMR.__init__).
+    # =====================================================================
+    # F14-1 [HIGH default-flip] ShapProxiedFS.cluster_backend
+    # (shap_proxied_fs.py:258, default "auto" since iter75). "auto" routes
+    # to SU at width<=cluster_su_auto_max_features (default 2000) else
+    # Pearson; "pearson" is the legacy regime that fuzz used to exercise
+    # by default. Gate: use_shap_proxied_fs=True (the toggle is unread
+    # otherwise). Canon-collapse to "auto" outside the gate.
+    "shap_proxied_cluster_backend_cfg": ("auto", "su", "pearson"),
+    # F14-3 [MED new feature] MRMR partial_fit streaming ctor knobs
+    # (mrmr.py:845-847, Layer 53). The partial_fit() public API is itself
+    # a separate code path that the fuzz suite does NOT invoke today;
+    # these ctor params shape the future partial_fit behaviour and are
+    # wired here as coverage-marker axes so the (param != default) ctor
+    # branches still receive pairwise enumeration. Gate: use_mrmr_fs=True;
+    # canon-collapses to the source defaults outside the gate.
+    "mrmr_partial_fit_decay_cfg": (0.0, 0.3),
+    "mrmr_partial_fit_min_recompute_cfg": (100, 50),
+    "mrmr_partial_fit_window_cfg": (None, 500),
+    # F14-4 [MED new auto-mode] MRMR.dcd_tau_cluster (mrmr.py:621, Layer 47).
+    # Type pin dropped: now accepts ``'auto'`` to enable bimodal SU valley
+    # detection, falling back to 0.7 on unimodal / degenerate. The
+    # _dcd_tau_auto.calibrate_tau path is unreached without this axis.
+    # Gate: use_mrmr_fs=True AND mrmr_dcd_enable_cfg=True; canon to 0.7
+    # outside that compound gate.
+    "mrmr_dcd_tau_cluster_cfg": (0.7, "auto"),
+    # F14-5 [MED new auto-mode] MRMR.dcd_distance (mrmr.py:622, Layer 46).
+    # "auto" runs SU + VI per pair and returns max; "su" is the legacy
+    # default. Gate: use_mrmr_fs=True AND mrmr_dcd_enable_cfg=True; canon
+    # to "su" outside the gate.
+    "mrmr_dcd_distance_cfg": ("su", "auto"),
+    # F14-5 [MED Layer 44 aggregator enrichment] MRMR.dcd_swap_method
+    # (mrmr.py:655, _VALID_DCD_SWAP_METHODS expanded at :947-950 to add
+    # ``pca_pc2``, ``median_z``, ``signed_max_abs``, ``signed_l2_sum``).
+    # "auto" picks per pair; the explicit values pin a single new method
+    # for fuzz repro. Gate: use_mrmr_fs=True AND mrmr_dcd_enable_cfg=True;
+    # canon to "auto" outside the gate.
+    "mrmr_dcd_swap_method_cfg": (
+        "auto", "mean_z", "pca_pc2", "median_z", "signed_max_abs",
+    ),
+    # F14-2 [HIGH default-flip] -- the existing
+    # ``shap_proxied_shap_aware_stage1_cushion_cfg`` pair (2, 4) declared
+    # above (~line 1198) is extended with the legacy value 8 to keep
+    # fuzz coverage of the pre-iter76 calibration. The source default
+    # flipped 8 -> 2 in iter76 (shap_proxied_fs.py:249) so the cushion=8
+    # branch is now untested in default config. The pair is extended in
+    # place rather than redeclared here; see the existing entry at the
+    # Stage-A LOW-tier block.
 }
 
 
@@ -2155,6 +2217,24 @@ class FuzzCombo:
     mrmr_fe_mi_greedy_enable_cfg: bool = False
     mrmr_shap_proxy_artifact_reuse_cfg: str = "off"
     mrmr_shap_proxy_align_mode_cfg: str = "exact"
+    # 2026-05-31 audit-pass-14 (W14). Defaults source-verified at HEAD:
+    #   F14-1 shap_proxied_cluster_backend_cfg = "auto"
+    #         (src/mlframe/feature_selection/shap_proxied_fs.py:258)
+    #   F14-3 mrmr_partial_fit_decay_cfg = 0.0
+    #         mrmr_partial_fit_min_recompute_cfg = 100
+    #         mrmr_partial_fit_window_cfg = None
+    #         (src/mlframe/feature_selection/filters/mrmr.py:845-847)
+    #   F14-4 mrmr_dcd_tau_cluster_cfg = 0.7
+    #         (src/mlframe/feature_selection/filters/mrmr.py:621)
+    #   F14-5 mrmr_dcd_distance_cfg = "su"  (mrmr.py:622)
+    #         mrmr_dcd_swap_method_cfg = "auto"  (mrmr.py:655)
+    shap_proxied_cluster_backend_cfg: str = "auto"
+    mrmr_partial_fit_decay_cfg: float = 0.0
+    mrmr_partial_fit_min_recompute_cfg: int = 100
+    mrmr_partial_fit_window_cfg: "int | None" = None
+    mrmr_dcd_tau_cluster_cfg: "float | str" = 0.7
+    mrmr_dcd_distance_cfg: str = "su"
+    mrmr_dcd_swap_method_cfg: str = "auto"
 
     def canonical_key(self) -> tuple:
         """Hashable tuple used for dedup. Canonicalizes semantically
@@ -3301,9 +3381,11 @@ class FuzzCombo:
                 else True
             ),
             (
+                # 2026-05-31 audit-pass-14 F14-2: source default flipped 8 -> 2
+                # in iter76 (shap_proxied_fs.py:249); fallback follows prod.
                 self.shap_proxied_shap_aware_stage1_cushion_cfg
                 if self.use_shap_proxied_fs
-                else 8
+                else 2
             ),
             (
                 self.shap_proxied_shap_aware_stage1_floor_cfg
@@ -3835,6 +3917,54 @@ class FuzzCombo:
                     and self.mrmr_shap_proxy_artifact_reuse_cfg == "on"
                 )
                 else "exact"
+            ),
+            # 2026-05-31 audit-pass-14 (W14). Canon-collapse the 6 new axes
+            # outside their documented gates so the dedup pass absorbs
+            # phantom variation. Defaults mirror prod (verified at HEAD).
+            # F14-1: cluster_backend collapses to "auto" when ShapProxiedFS
+            # is off (the toggle is unread).
+            (
+                self.shap_proxied_cluster_backend_cfg
+                if self.use_shap_proxied_fs
+                else "auto"
+            ),
+            # F14-3: partial_fit_* ctor params shape future partial_fit()
+            # behaviour; the legacy fit() byte-identical path ignores them.
+            # Canon to source defaults when MRMR is off.
+            (
+                self.mrmr_partial_fit_decay_cfg
+                if self.use_mrmr_fs
+                else 0.0
+            ),
+            (
+                self.mrmr_partial_fit_min_recompute_cfg
+                if self.use_mrmr_fs
+                else 100
+            ),
+            (
+                self.mrmr_partial_fit_window_cfg
+                if self.use_mrmr_fs
+                else None
+            ),
+            # F14-4: dcd_tau_cluster only fires when DCD is on (the
+            # auto-calibration path lives behind dcd_enable). Canon to
+            # 0.7 outside the compound gate.
+            (
+                self.mrmr_dcd_tau_cluster_cfg
+                if (self.use_mrmr_fs and self.mrmr_dcd_enable_cfg)
+                else 0.7
+            ),
+            # F14-5: dcd_distance + dcd_swap_method both gated on DCD.
+            # Canon to "su" / "auto" source defaults outside the gate.
+            (
+                self.mrmr_dcd_distance_cfg
+                if (self.use_mrmr_fs and self.mrmr_dcd_enable_cfg)
+                else "su"
+            ),
+            (
+                self.mrmr_dcd_swap_method_cfg
+                if (self.use_mrmr_fs and self.mrmr_dcd_enable_cfg)
+                else "auto"
             ),
         )
 
@@ -4989,6 +5119,37 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         mrmr_shap_proxy_align_mode_cfg=axes.get(
             "mrmr_shap_proxy_align_mode_cfg", "exact"
         ),
+        # 2026-05-31 audit-pass-14 (W14). Defaults source-verified at HEAD:
+        #   F14-1 shap_proxied_cluster_backend_cfg = "auto"
+        #         (shap_proxied_fs.py:258)
+        #   F14-3 mrmr_partial_fit_decay_cfg = 0.0
+        #         mrmr_partial_fit_min_recompute_cfg = 100
+        #         mrmr_partial_fit_window_cfg = None
+        #         (filters/mrmr.py:845-847)
+        #   F14-4 mrmr_dcd_tau_cluster_cfg = 0.7 (filters/mrmr.py:621)
+        #   F14-5 mrmr_dcd_distance_cfg = "su" (filters/mrmr.py:622)
+        #         mrmr_dcd_swap_method_cfg = "auto" (filters/mrmr.py:655)
+        shap_proxied_cluster_backend_cfg=axes.get(
+            "shap_proxied_cluster_backend_cfg", "auto"
+        ),
+        mrmr_partial_fit_decay_cfg=axes.get(
+            "mrmr_partial_fit_decay_cfg", 0.0
+        ),
+        mrmr_partial_fit_min_recompute_cfg=axes.get(
+            "mrmr_partial_fit_min_recompute_cfg", 100
+        ),
+        mrmr_partial_fit_window_cfg=axes.get(
+            "mrmr_partial_fit_window_cfg", None
+        ),
+        mrmr_dcd_tau_cluster_cfg=axes.get(
+            "mrmr_dcd_tau_cluster_cfg", 0.7
+        ),
+        mrmr_dcd_distance_cfg=axes.get(
+            "mrmr_dcd_distance_cfg", "su"
+        ),
+        mrmr_dcd_swap_method_cfg=axes.get(
+            "mrmr_dcd_swap_method_cfg", "auto"
+        ),
     )
 
 
@@ -5126,6 +5287,29 @@ def build_mrmr_kwargs_from_flat(
     # When True the fitted MRMR exposes ``export_artifacts()`` which the
     # downstream ShapProxiedFS consumes via the ``precomputed=`` ctor kwarg.
     retain_artifacts: bool = False,
+    # 2026-05-31 audit-pass-14 (W14). Defaults source-verified at HEAD
+    # against MRMR.__init__:
+    #   F14-3 partial_fit_decay = 0.0
+    #         partial_fit_min_recompute = 100
+    #         partial_fit_window = None
+    #         (filters/mrmr.py:845-847)
+    #   F14-4 dcd_tau_cluster = 0.7 (filters/mrmr.py:621; "auto" valid
+    #         since Layer 47)
+    #   F14-5 dcd_distance = "su" (filters/mrmr.py:622)
+    #         dcd_swap_method = "auto" (filters/mrmr.py:655)
+    # The partial_fit_* params shape future partial_fit() behaviour but
+    # do not affect the legacy fit() byte-identical path; forwarded so
+    # the ctor branches receive pairwise enumeration. dcd_* params are
+    # consumed only when dcd_enable=True (the MRMR-side gate at
+    # mrmr.py:589 / Layer 46/47); forwarded verbatim so the canon-collapse
+    # layer at FuzzCombo.canonical_key absorbs phantom variation outside
+    # the compound gate.
+    partial_fit_decay: float = 0.0,
+    partial_fit_min_recompute: int = 100,
+    partial_fit_window: "int | None" = None,
+    dcd_tau_cluster: "float | str" = 0.7,
+    dcd_distance: str = "su",
+    dcd_swap_method: str = "auto",
 ) -> Optional[Dict[str, Any]]:
     """Build the mrmr_kwargs dict passed to FeatureSelectionConfig.
     Returns None when use_mrmr_fs=False so the FS step is a no-op.
@@ -5224,6 +5408,14 @@ def build_mrmr_kwargs_from_flat(
         "fe_grouped_delta_enable": fe_grouped_delta_enable,
         "fe_lagged_diff_enable": fe_lagged_diff_enable,
         "retain_artifacts": retain_artifacts,
+        # 2026-05-31 audit-pass-14 (W14). Param names match MRMR.__init__
+        # exactly (filters/mrmr.py:845-847 / :621 / :622 / :655).
+        "partial_fit_decay": partial_fit_decay,
+        "partial_fit_min_recompute": partial_fit_min_recompute,
+        "partial_fit_window": partial_fit_window,
+        "dcd_tau_cluster": dcd_tau_cluster,
+        "dcd_distance": dcd_distance,
+        "dcd_swap_method": dcd_swap_method,
     }
     # 2026-05-30 audit-pass-7 #3/#4: per_feature_edges.kwargs threaded via
     # MRMR.nbins_strategy_kwargs. Build the dict only when one of these
@@ -5354,6 +5546,15 @@ def build_mrmr_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]:
             combo.mrmr_shap_proxy_artifact_reuse_cfg == "on"
             and combo.use_shap_proxied_fs
         ),
+        # 2026-05-31 audit-pass-14 (W14). Forward partial_fit + dcd_* axes
+        # verbatim; canon-collapse at FuzzCombo.canonical_key reduces them
+        # to source defaults outside their compound gates.
+        partial_fit_decay=combo.mrmr_partial_fit_decay_cfg,
+        partial_fit_min_recompute=combo.mrmr_partial_fit_min_recompute_cfg,
+        partial_fit_window=combo.mrmr_partial_fit_window_cfg,
+        dcd_tau_cluster=combo.mrmr_dcd_tau_cluster_cfg,
+        dcd_distance=combo.mrmr_dcd_distance_cfg,
+        dcd_swap_method=combo.mrmr_dcd_swap_method_cfg,
     )
 
 
@@ -5622,6 +5823,10 @@ def build_shap_proxied_fs_kwargs_from_flat(
     # the actual suite consumer substitutes ``mrmr.export_artifacts()``
     # at the call site after MRMR.fit() has run.
     precomputed: "dict | None" = None,
+    # 2026-05-31 audit-pass-14 (W14) F14-1: ShapProxiedFS.cluster_backend
+    # (shap_proxied_fs.py:258). Source default "auto" since iter75; "su"
+    # forces the iter75 path, "pearson" pins the legacy regime.
+    cluster_backend: str = "auto",
 ) -> Optional[Dict[str, Any]]:
     """Build the shap_proxied_fs_kwargs dict passed to
     ``registry.get("ShapProxiedFS").instantiate(**kwargs)`` (which forwards to
@@ -5705,6 +5910,10 @@ def build_shap_proxied_fs_kwargs_from_flat(
         # legacy ``recompute-from-scratch`` ctor contract (no behaviour
         # change unless the artifact-reuse master is on).
         "precomputed": precomputed,
+        # 2026-05-31 audit-pass-14 (W14) F14-1: cluster_backend forwarded
+        # verbatim (param name matches ShapProxiedFS.__init__ at
+        # shap_proxied_fs.py:258 exactly).
+        "cluster_backend": cluster_backend,
     }
 
 
@@ -5823,6 +6032,8 @@ def build_shap_proxied_fs_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]
         adaptive_prescreen_by_stability=combo.shap_proxied_adaptive_prescreen_by_stability_cfg,
         # 2026-05-31 audit-pass-12 (W12) C1/C2.
         precomputed=_precomputed,
+        # 2026-05-31 audit-pass-14 (W14) F14-1.
+        cluster_backend=combo.shap_proxied_cluster_backend_cfg,
     )
 
 
@@ -6789,13 +7000,15 @@ def build_frame_for_combo(combo: FuzzCombo):
     # mutation); any crash is the real bug we're probing for.
     # For multilabel (target is (N, K)): leak label 0 specifically.
     if combo.inject_label_leak:
-        if combo.target_type == "multilabel_classification":
-            # Leak the first label only — 2-D target can't be broadcast as
-            # a single feature. Single-label leak is still catastrophic for
-            # a model that silently mis-uses the first target dimension.
-            leak_src = target[:, 0]
+        # 2-D targets (multilabel_classification, multi_target_regression,
+        # quantile_regression) can't be broadcast as a single feature; leak
+        # the first column / target only -- still catastrophic for a model
+        # that silently mis-uses the first target dimension.
+        _target_arr = np.asarray(target)
+        if _target_arr.ndim >= 2:
+            leak_src = _target_arr[:, 0]
         else:
-            leak_src = target
+            leak_src = _target_arr
         leak_col = leak_src.astype("float32") + (rng.standard_normal(n) * 0.01).astype("float32")
         extra_num_cols["num_leak"] = leak_col
     # R3-1 inject_test_drift: perturb the last 15% of rows so test/val
