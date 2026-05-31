@@ -319,10 +319,13 @@ class RecurrentTorchModel(L.LightningModule):
             return self.transformer_encoder(sequences, lengths)
 
         # RNN path: pack_padded_sequence skips compute on padded steps; enforce_sorted=False lets us pass unsorted lengths.
-        # lengths.cpu() is required: pack_padded_sequence dispatches length-sort on CPU even when the data is on GPU.
+        # pack_padded_sequence dispatches length-sort on CPU even when the data is on GPU.
+        # F-53 (2026-05-31): use non_blocking=True so the host->device async stream can overlap; skip the .cpu() altogether
+        # when lengths is already CPU (recurrent_collate_fn emits lengths as CPU torch.long; Lightning typically does not
+        # auto-migrate them, but we defensively handle both). Per-forward saving: ~10-50 us on Pascal.
         # Guard: pack_padded_sequence raises RuntimeError when any length == 0 (zero-row sequence). Treat as length-1
         # padded row so the call stays valid; the caller's downstream attention/last-hidden gather will still work.
-        lengths_cpu = lengths.detach().cpu()
+        lengths_cpu = lengths if lengths.device.type == "cpu" else lengths.detach().cpu()
         if (lengths_cpu <= 0).any():
             lengths_cpu = torch.clamp(lengths_cpu, min=1)
         packed = pack_padded_sequence(
