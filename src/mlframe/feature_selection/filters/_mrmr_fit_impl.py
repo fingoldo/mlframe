@@ -1433,6 +1433,99 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     "continuing without dCor columns.",
                     type(_dcor_exc).__name__, _dcor_exc,
                 )
+    # 2026-06-01 Layer 68 — PER-COLUMN SCORER AUTO-SELECTION across the
+    # Layer 21 / 65 / 66 / 67 scorer family (independent opt-in; does NOT
+    # require fe_hybrid_orth_enable). For each engineered column the
+    # bootstrap-LCB criterion picks the best scorer in
+    # {plug-in, KSG, copula, dCor} and uses ITS LCB for the cross-column
+    # ranking + selection. Engineered VALUES bit-equal to Layer 21 ->
+    # recipes reuse the ``orth_univariate`` kind.
+    if bool(getattr(self, "fe_hybrid_orth_auto_scorer_enable", False)):
+        _is_pandas_for_auto = isinstance(X, pd.DataFrame)
+        if not _is_pandas_for_auto:
+            warnings.warn(
+                "MRMR: fe_hybrid_orth_auto_scorer_enable=True but X is "
+                "not a pandas DataFrame; auto-scorer hybrid FE is "
+                "skipped. Convert to pandas via X.to_pandas() before "
+                "fit() if you want the auto-scorer selection applied.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from ._orthogonal_scorer_auto_fe import (
+                    hybrid_orth_mi_auto_scorer_fe_with_recipes,
+                )
+                _y_for_auto = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                _hybrid_already_appended = set(
+                    getattr(self, "hybrid_orth_features_", None) or []
+                )
+                if getattr(self, "factors_names_to_use", None):
+                    _auto_cols = [
+                        c for c in self.factors_names_to_use
+                        if c in X.columns and c not in _hybrid_already_appended
+                    ]
+                else:
+                    _auto_cols = [
+                        c for c in X.columns
+                        if c not in _hybrid_already_appended
+                    ]
+                _auto_degrees = tuple(int(d) for d in getattr(
+                    self, "fe_hybrid_orth_degrees", (2, 3),
+                ))
+                _auto_basis = str(getattr(
+                    self, "fe_hybrid_orth_basis", "auto",
+                ))
+                _auto_top_k = int(getattr(self, "fe_hybrid_orth_top_k", 5))
+                _auto_n_boot = int(getattr(
+                    self, "fe_hybrid_orth_auto_scorer_n_boot", 5,
+                ))
+                # Same calibration as Layers 65 / 66 / 67: the chosen
+                # scorer often captures raw-x dependence as cleanly as
+                # the engineered column, so single-source uplift sits
+                # near 1.0; the 0.95 / 0.05 floors keep the gate from
+                # rejecting genuine wins on a sample-noise tick.
+                _auto_min_uplift = 0.95
+                _auto_min_abs_mi_frac = 0.05
+                _X_before_auto_cols = list(X.columns)
+                X_auto, _auto_scores, _auto_recipes = (
+                    hybrid_orth_mi_auto_scorer_fe_with_recipes(
+                        X, _y_for_auto,
+                        cols=_auto_cols,
+                        degrees=_auto_degrees,
+                        basis=_auto_basis,
+                        top_k=_auto_top_k,
+                        min_uplift=_auto_min_uplift,
+                        min_abs_mi_frac=_auto_min_abs_mi_frac,
+                        n_boot=_auto_n_boot,
+                        random_state=int(getattr(self, "random_seed", 0) or 0),
+                    )
+                )
+                _auto_appended = [
+                    c for c in X_auto.columns
+                    if c not in _X_before_auto_cols
+                ]
+                if _auto_appended:
+                    X = X_auto
+                    self.hybrid_orth_features_ = (
+                        list(self.hybrid_orth_features_ or [])
+                        + list(_auto_appended)
+                    )
+                    for _r in _auto_recipes:
+                        _hybrid_orth_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit hybrid_orth auto-scorer: appended "
+                            "%d engineered column(s): %s",
+                            len(_auto_appended), _auto_appended[:8],
+                        )
+            except Exception as _auto_exc:
+                logger.warning(
+                    "MRMR.fit hybrid_orth auto-scorer FE raised %s: %s; "
+                    "continuing without auto-scorer columns.",
+                    type(_auto_exc).__name__, _auto_exc,
+                )
     # 2026-05-21 revert of Wave 29 P1 polars->pandas coercion. That
     # coercion was added on the premise that downstream ``X[target_name]
     # = y`` mutation assumed pandas and would raise on polars; but the

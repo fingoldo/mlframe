@@ -877,6 +877,23 @@ class MRMR(BaseEstimator, TransformerMixin):
         # byte-equivalence.
         fe_hybrid_orth_dcor_enable: bool = False,
         fe_hybrid_orth_dcor_n_sample: int = 500,
+        # 2026-06-01 Layer 68 — PER-COLUMN SCORER AUTO-SELECTION across the
+        # full Layer 21 / 65 / 66 / 67 family (sibling module
+        # ``_orthogonal_scorer_auto_fe``). Independent opt-in (does NOT
+        # require fe_hybrid_orth_enable). Each scorer wins on a different
+        # signal family (plug-in: discrete-binned; KSG: smooth continuous;
+        # copula: heavy-tailed; dCor: non-monotone) -- on heterogeneous
+        # frames the single-scorer opt-ins of Layers 65 / 66 / 67 are
+        # wrong on SOME columns no matter which one the user picks. Layer
+        # 68 runs all four under a small bootstrap budget, picks the
+        # per-column scorer with the highest LOWER CONFIDENCE BOUND
+        # (mean - 1.96 * std) across ``n_boot`` resamples, and uses ITS
+        # score for the ranking + selection. Engineered VALUES are bit-
+        # equal to Layer 21 so recipes reuse the ``orth_univariate`` kind
+        # and replay is shared infrastructure. Default OFF preserves
+        # pickle byte-equivalence.
+        fe_hybrid_orth_auto_scorer_enable: bool = False,
+        fe_hybrid_orth_auto_scorer_n_boot: int = 5,
         # 2026-05-31 Layer 32 — extra (non-polynomial) basis FE: B-spline +
         # Fourier. Complementary to the orth-poly path: spline catches sharp
         # local non-linearities (threshold rules ``y = sign(x - tau)``);
@@ -1383,6 +1400,10 @@ class MRMR(BaseEstimator, TransformerMixin):
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_hybrid_orth_dcor_enable": False,
             "fe_hybrid_orth_dcor_n_sample": 500,
+            # 2026-06-01 Layer 68 — per-column scorer auto-selection defaults.
+            # Master switch OFF preserves legacy pickle byte-equivalence.
+            "fe_hybrid_orth_auto_scorer_enable": False,
+            "fe_hybrid_orth_auto_scorer_n_boot": 5,
             # 2026-05-31 Layer 32 — extra-basis (spline / fourier) defaults.
             "fe_hybrid_orth_extra_bases": (),
             "fe_hybrid_orth_fourier_freqs": (1.0, 2.0),
