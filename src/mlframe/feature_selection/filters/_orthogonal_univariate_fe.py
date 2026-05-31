@@ -1488,3 +1488,20 @@ def hybrid_orth_extra_basis_fe_with_recipes(
         if r is not None:
             recipes.append(r)
     return X_aug, scores, recipes
+
+
+# ---------------------------------------------------------------------------
+# Layer 56 (2026-05-31): TRI-PRODUCT cross-basis FE lives in sibling module
+# ``_orthogonal_triplet_fe`` (parent module size budget). Re-exporting here
+# would create a circular import (triplet sibling needs ``_evaluate_basis_column``
+# / ``_mi_classif_batch`` / ``_BASIS_CODE`` from THIS module at import time).
+# Callers import the four triplet entry points directly:
+#
+#   from mlframe.feature_selection.filters._orthogonal_triplet_fe import (
+#       generate_triplet_cross_basis_features,
+#       score_triplet_cross_basis_by_mi_uplift,
+#       hybrid_orth_mi_triplet_fe,
+#       hybrid_orth_mi_triplet_fe_with_recipes,
+#   )
+# ---------------------------------------------------------------------------
+

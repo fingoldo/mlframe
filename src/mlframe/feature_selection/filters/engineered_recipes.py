@@ -125,7 +125,7 @@ class EngineeredRecipe:
     # (src_names=(c_i, c_j), extra={basis_i, basis_j, deg_a, deg_b}). Replay
     # is closed-form from the source column(s) alone -- no y reference is
     # captured at fit time, so transform() is leakage-free by construction.
-    kind: Literal["unary_binary", "factorize", "hermite_pair", "target_encoding", "cluster_aggregate", "orth_univariate", "orth_pair_cross", "orth_spline", "orth_fourier", "mi_greedy_transform", "kfold_target_encoded", "count_encoded", "frequency_encoded", "cat_num_residual", "missing_indicator", "missingness_count", "missingness_pattern", "pairwise_ratio", "grouped_delta", "lagged_diff"]
+    kind: Literal["unary_binary", "factorize", "hermite_pair", "target_encoding", "cluster_aggregate", "orth_univariate", "orth_pair_cross", "orth_triplet_cross", "orth_spline", "orth_fourier", "mi_greedy_transform", "kfold_target_encoded", "count_encoded", "frequency_encoded", "cat_num_residual", "missing_indicator", "missingness_count", "missingness_pattern", "pairwise_ratio", "grouped_delta", "lagged_diff"]
     src_names: tuple[str, ...]
     unary_names: tuple[str, ...] = ()
     binary_name: str = ""
@@ -316,6 +316,9 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         return _apply_orth_univariate(recipe, X)
     if recipe.kind == "orth_pair_cross":
         return _apply_orth_pair_cross(recipe, X)
+    if recipe.kind == "orth_triplet_cross":
+        from ._orthogonal_triplet_fe_recipes import _apply_orth_triplet_cross
+        return _apply_orth_triplet_cross(recipe, X)
     if recipe.kind == "orth_spline":
         return _apply_orth_spline(recipe, X)
     if recipe.kind == "orth_fourier":
@@ -1705,3 +1708,16 @@ def build_lagged_diff_recipe(
             "period": int(period),
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Layer 56 (2026-05-31): orth_triplet_cross recipe builder re-export.
+# Implementation in sibling ``_orthogonal_triplet_fe_recipes`` keeps the
+# parent module under the 1700-line budget without hiding the builder from
+# callers that already import everything from ``engineered_recipes``.
+# ---------------------------------------------------------------------------
+from ._orthogonal_triplet_fe_recipes import (  # noqa: E402
+    build_orth_triplet_cross_recipe,
+    _apply_orth_triplet_cross,
+)
+

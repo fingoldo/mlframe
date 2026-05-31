@@ -699,6 +699,29 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_hybrid_orth_top_k: int = 5,
         fe_hybrid_orth_pair_enable: bool = True,
         fe_hybrid_orth_pair_max_degree: int = 2,
+        # 2026-05-31 Layer 56 — TRI-PRODUCT cross-basis FE (sibling module
+        # ``_orthogonal_triplet_fe``). Captures genuine 3-way interactions
+        # like ``y = sign(x_i * x_j * x_k)`` (3-way XOR) or
+        # ``y = sign(price * quantity * count - threshold)`` that no pair
+        # term can resolve (3-way XOR has zero marginal pair MI).
+        #
+        # Default OFF -- combinatorial enumeration O(p^3 * deg^3) is too
+        # aggressive to enable silently. When master + triplet_enable are
+        # ON, the triplet stage runs AFTER the pair stage on the SAME
+        # input frame X (raw sources), uses ``triplet_seed_k`` top-MI raw
+        # columns to bound the candidate count to C(seed_k, 3) * deg^3,
+        # and appends ``top_count`` MI-uplift winners as
+        # ``orth_triplet_cross`` recipes. Replay reads only X.
+        #
+        # ``triplet_max_degree=1`` default emits exactly one cell per
+        # triplet (``He_1*He_1*He_1`` -- the dominant 3-way signal).
+        # Bump to 2 only if your domain has known cubic-in-each-leg
+        # 3-way interactions; otherwise the deg-1 cell carries every
+        # multiplicative 3-way target the literature pins.
+        fe_hybrid_orth_triplet_enable: bool = False,
+        fe_hybrid_orth_triplet_max_degree: int = 1,
+        fe_hybrid_orth_triplet_seed_k: int = 4,
+        fe_hybrid_orth_triplet_top_count: int = 2,
         # 2026-05-31 Layer 32 — extra (non-polynomial) basis FE: B-spline +
         # Fourier. Complementary to the orth-poly path: spline catches sharp
         # local non-linearities (threshold rules ``y = sign(x - tau)``);
@@ -1131,6 +1154,12 @@ class MRMR(BaseEstimator, TransformerMixin):
             "fe_hybrid_orth_top_k": 5,
             "fe_hybrid_orth_pair_enable": True,
             "fe_hybrid_orth_pair_max_degree": 2,
+            # 2026-05-31 Layer 56 — triplet cross-basis FE defaults.
+            # Master switch OFF preserves legacy pickle byte-equivalence.
+            "fe_hybrid_orth_triplet_enable": False,
+            "fe_hybrid_orth_triplet_max_degree": 1,
+            "fe_hybrid_orth_triplet_seed_k": 4,
+            "fe_hybrid_orth_triplet_top_count": 2,
             # 2026-05-31 Layer 32 — extra-basis (spline / fourier) defaults.
             "fe_hybrid_orth_extra_bases": (),
             "fe_hybrid_orth_fourier_freqs": (1.0, 2.0),

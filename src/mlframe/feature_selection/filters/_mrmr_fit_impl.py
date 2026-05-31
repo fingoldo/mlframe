@@ -420,6 +420,126 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         "continuing without extra-basis columns.",
                         type(_e_exc).__name__, _e_exc,
                     )
+    # 2026-05-31 Layer 56 — TRI-PRODUCT cross-basis FE stage.
+    # Independent opt-in (does NOT require fe_hybrid_orth_enable): captures
+    # genuine 3-way interactions like 3-way XOR and price*quantity*count
+    # that the pair stage cannot. O(seed_k^3 * deg^3) candidate count is
+    # bounded by seed_k=4 default. Recipes (``orth_triplet_cross``) replay
+    # from X only, no y, leakage-free by construction.
+    if bool(getattr(self, "fe_hybrid_orth_triplet_enable", False)):
+        _is_pandas_for_triplet = isinstance(X, pd.DataFrame)
+        if not _is_pandas_for_triplet:
+            warnings.warn(
+                "MRMR: fe_hybrid_orth_triplet_enable=True but X is not a pandas "
+                "DataFrame; triplet cross-basis FE is skipped. Convert to "
+                "pandas via X.to_pandas() before fit() if you want triplet "
+                "FE applied.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from ._orthogonal_triplet_fe import (
+                    hybrid_orth_mi_triplet_fe_with_recipes,
+                )
+                _y_for_triplet = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                if _y_for_triplet.dtype.kind in "fc":
+                    _n_unique = int(np.unique(_y_for_triplet).size)
+                    if _n_unique <= 32:
+                        _y_for_triplet = _y_for_triplet.astype(np.int64)
+                    else:
+                        try:
+                            _y_for_triplet = pd.qcut(
+                                _y_for_triplet, q=10, labels=False, duplicates="drop",
+                            ).astype(np.int64)
+                        except Exception:
+                            _y_for_triplet = _y_for_triplet.astype(np.int64)
+                # Triplet seed pool is restricted to RAW columns -- never
+                # the previously-appended hybrid/extra-basis columns,
+                # because those are themselves products of source cols and
+                # would invalidate the 3-way-interaction interpretation
+                # AND create recipes whose src_names reference engineered
+                # columns absent at transform time (KeyError on replay).
+                _hybrid_already_appended = set(
+                    getattr(self, "hybrid_orth_features_", None) or []
+                )
+                _t_cols: list | None = None
+                if getattr(self, "factors_names_to_use", None):
+                    _t_cols = [
+                        c for c in self.factors_names_to_use
+                        if c in X.columns and c not in _hybrid_already_appended
+                    ]
+                else:
+                    _t_cols = [
+                        c for c in X.columns
+                        if c not in _hybrid_already_appended
+                    ]
+                _t_max_degree = int(
+                    getattr(self, "fe_hybrid_orth_triplet_max_degree", 1)
+                )
+                _t_seed_k = int(
+                    getattr(self, "fe_hybrid_orth_triplet_seed_k", 4)
+                )
+                _t_top_count = int(
+                    getattr(self, "fe_hybrid_orth_triplet_top_count", 2)
+                )
+                _t_basis = str(getattr(self, "fe_hybrid_orth_basis", "auto"))
+                _t_degrees = tuple(
+                    int(d) for d in getattr(self, "fe_hybrid_orth_degrees", (2, 3))
+                )
+                _t_top_k = int(getattr(self, "fe_hybrid_orth_top_k", 5))
+                _X_before_triplet_cols = list(X.columns)
+                X_t, _t_uni_sc, _t_triplet_sc, _t_recipes = (
+                    hybrid_orth_mi_triplet_fe_with_recipes(
+                        X, _y_for_triplet,
+                        cols=_t_cols,
+                        degrees=_t_degrees,
+                        basis=_t_basis,
+                        top_k=_t_top_k,
+                        triplet_max_degree=_t_max_degree,
+                        top_triplet_seed_k=_t_seed_k,
+                        top_triplet_count=_t_top_count,
+                    )
+                )
+                _t_appended = [
+                    c for c in X_t.columns if c not in _X_before_triplet_cols
+                ]
+                # Only keep TRUE triplet columns (3 legs joined by '*');
+                # the wrapper may also pass univariate winners through
+                # which the master hybrid stage already handles when
+                # enabled. Filtering here avoids double-appending the
+                # same univariate winner.
+                _t_triplet_only = [c for c in _t_appended if c.split("__", 1)[0].count("*") == 2]
+                if _t_triplet_only:
+                    # Append only triplet columns onto the (possibly already
+                    # hybrid-augmented) X. ``hybrid_orth_features_`` was
+                    # unconditionally seeded to [] at the top of this fn.
+                    X = pd.concat([X, X_t[_t_triplet_only]], axis=1)
+                    self.hybrid_orth_features_ = (
+                        list(self.hybrid_orth_features_ or []) + list(_t_triplet_only)
+                    )
+                    # ``_hybrid_orth_pre_recipes`` is unconditionally
+                    # initialised earlier in this function (line ~245); the
+                    # triplet stage shares the same dict so its recipes
+                    # merge into ``_engineered_recipes_`` at end-of-fit via
+                    # the existing remap.
+                    _kept = set(_t_triplet_only)
+                    for _r in _t_recipes:
+                        if _r.name in _kept:
+                            _hybrid_orth_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit hybrid_orth triplet: appended %d "
+                            "engineered column(s): %s",
+                            len(_t_triplet_only), _t_triplet_only[:8],
+                        )
+            except Exception as _t_exc:
+                logger.warning(
+                    "MRMR.fit hybrid_orth triplet FE raised %s: %s; "
+                    "continuing without triplet-FE columns.",
+                    type(_t_exc).__name__, _t_exc,
+                )
     # 2026-05-21 revert of Wave 29 P1 polars->pandas coercion. That
     # coercion was added on the premise that downstream ``X[target_name]
     # = y`` mutation assumed pandas and would raise on polars; but the
