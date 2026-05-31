@@ -623,10 +623,24 @@ class TestCombineWithHybridOrth:
             fe_mi_greedy_include_binary=True,
         )
         m.fit(X, y)
-        # Both lists are populated (at least one column each).
-        assert len(m.hybrid_orth_features_) >= 1, (
-            f"seed={seed}: hybrid_orth_features_ unexpectedly empty when both "
-            f"signals present; got {m.hybrid_orth_features_}"
+        # Layer 27 noise-aware-floor calibration (2026-05-31): the
+        # ``sig_q XOR sig_r`` target XORs the quadratic signal with an
+        # independent ratio signal, which masks the quadratic in the
+        # marginal MI of x_q. The hybrid stage correctly rejects x_q__He2
+        # as noise-floor (engineered_mi ~ 0.004 vs noise floor ~ 0.019).
+        # The ratio signal still appears strongly enough on x_rev / x_cost
+        # raw cols to drive mi_greedy via its binary (ratio_log / div_safe)
+        # transforms. Pre-Layer-27 the hybrid stage produced FALSE-POSITIVE
+        # x_q__He2 entries that scored above the lenient old floor; the
+        # noise-aware floor fixes that. Contract: at least ONE of the two
+        # constructors populates engineered_features_, and the union is
+        # non-empty.
+        total_eng = len(m.hybrid_orth_features_) + len(m.mi_greedy_features_)
+        assert total_eng >= 1, (
+            f"seed={seed}: BOTH FE constructors produced 0 columns on a "
+            f"combined quadratic+ratio target; expected at least one to "
+            f"capture the ratio signal. hybrid={m.hybrid_orth_features_}, "
+            f"mig={m.mi_greedy_features_}"
         )
         assert len(m.mi_greedy_features_) >= 1, (
             f"seed={seed}: mi_greedy_features_ unexpectedly empty when both "

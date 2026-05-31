@@ -456,7 +456,31 @@ def _greedy_score_and_select(
     # _orthogonal_univariate_fe.hybrid_orth_mi_pair_fe.
     max_raw = float(scores["baseline_mi"].max()) if not scores.empty else 0.0
     max_eng = float(scores["engineered_mi"].max()) if not scores.empty else 0.0
-    abs_floor = float(min_abs_mi_frac) * max(max_raw, max_eng)
+    legacy_floor = float(min_abs_mi_frac) * max(max_raw, max_eng)
+    # Layer 27 (2026-05-31) noise-aware floor: when ALL raw + engineered
+    # baselines sit in the noise band (typical all-noise frame), the
+    # legacy ``frac * max(...)`` reference is itself noise -- any FP
+    # candidate clears it. The mean+3*std reference is statistical:
+    # columns drawn from the same noise distribution exceed it only on
+    # the extreme tail, knocking the per-slot FP rate below 5%. On
+    # real-signal frames the max baseline is many std above the mean, so
+    # the legacy floor dominates and selection is unchanged.
+    pool = np.concatenate([
+        scores["baseline_mi"].to_numpy(),
+        scores["engineered_mi"].to_numpy(),
+    ]) if not scores.empty else np.array([])
+    if pool.size >= 4:
+        med = float(np.median(pool))
+        mad = float(np.median(np.abs(pool - med)))
+        # 1.4826 * MAD ~= std for a normal distribution; median-based
+        # stats are robust to a few legitimate-signal outliers dragging
+        # the mean up (which would lift the noise floor above true
+        # signals -- false-negative regression observed at Layer 25
+        # seed=13 when mean+3*std was used).
+        noise_floor = med + 3.5 * 1.4826 * mad
+    else:
+        noise_floor = 0.0
+    abs_floor = max(legacy_floor, noise_floor)
     qualified = scores[
         (scores["uplift"] >= float(min_uplift))
         & (scores["engineered_mi"] >= abs_floor)
