@@ -782,6 +782,24 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_hybrid_orth_cluster_basis_aggregator: str = "mean_z",
         fe_hybrid_orth_cluster_basis_degrees: tuple = (2, 3),
         fe_hybrid_orth_cluster_basis_top_k: int = 3,
+        # 2026-05-31 Layer 62 — BOOTSTRAP-STABLE MI ranking for the hybrid
+        # orth-poly FE (sibling module ``_orthogonal_bootstrap_mi_fe``).
+        # Independent opt-in (does NOT require fe_hybrid_orth_enable).
+        # When enabled, the same per-source univariate basis columns Layer
+        # 21 generates are scored by the lower-confidence-bound of MI
+        # uplift across ``n_boot`` bootstrap subsamples (drawn with
+        # replacement at ``sample_fraction``) instead of a single point
+        # estimate. Candidates with a high MEAN MI but a long right tail
+        # get a large std and a small LCB; stable signals ride through.
+        # Selection-stability win: borderline noise-driven flukes that
+        # the point-estimate ranking admits in 1 of N runs are filtered
+        # out. Recipes use ``orth_univariate`` kind -- the engineered
+        # VALUES are bit-equal to Layer 21, only the selection rule
+        # differs -- so replay is shared infrastructure.
+        # Default OFF preserves legacy pickle byte-equivalence.
+        fe_hybrid_orth_bootstrap_enable: bool = False,
+        fe_hybrid_orth_bootstrap_n_boot: int = 10,
+        fe_hybrid_orth_bootstrap_sample_fraction: float = 0.8,
         # 2026-05-31 Layer 32 — extra (non-polynomial) basis FE: B-spline +
         # Fourier. Complementary to the orth-poly path: spline catches sharp
         # local non-linearities (threshold rules ``y = sign(x - tau)``);
@@ -1264,6 +1282,11 @@ class MRMR(BaseEstimator, TransformerMixin):
             "fe_hybrid_orth_cluster_basis_aggregator": "mean_z",
             "fe_hybrid_orth_cluster_basis_degrees": (2, 3),
             "fe_hybrid_orth_cluster_basis_top_k": 3,
+            # 2026-05-31 Layer 62 — bootstrap-stable MI ranking defaults.
+            # Master switch OFF preserves legacy pickle byte-equivalence.
+            "fe_hybrid_orth_bootstrap_enable": False,
+            "fe_hybrid_orth_bootstrap_n_boot": 10,
+            "fe_hybrid_orth_bootstrap_sample_fraction": 0.8,
             # 2026-05-31 Layer 32 — extra-basis (spline / fourier) defaults.
             "fe_hybrid_orth_extra_bases": (),
             "fe_hybrid_orth_fourier_freqs": (1.0, 2.0),

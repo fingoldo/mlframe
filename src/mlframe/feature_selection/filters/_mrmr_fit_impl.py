@@ -926,6 +926,104 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     "continuing without cluster-basis columns.",
                     type(_cb_exc).__name__, _cb_exc,
                 )
+    # 2026-05-31 Layer 62 — BOOTSTRAP-STABLE MI ranking for the hybrid
+    # orth-poly FE (independent opt-in; does NOT require
+    # fe_hybrid_orth_enable). Replaces the Layer 21 point-estimate MI gate
+    # with a lower-confidence-bound (mean - 1.96 * std) across n_boot
+    # bootstrap subsamples drawn jointly at sample_fraction. The
+    # engineered columns are bit-equal to Layer 21 -- only the SELECTION
+    # changes -- so recipes reuse the ``orth_univariate`` kind and replay
+    # is shared. Restrict to RAW columns to avoid recipes referencing
+    # already-engineered columns absent at transform.
+    if bool(getattr(self, "fe_hybrid_orth_bootstrap_enable", False)):
+        _is_pandas_for_boot = isinstance(X, pd.DataFrame)
+        if not _is_pandas_for_boot:
+            warnings.warn(
+                "MRMR: fe_hybrid_orth_bootstrap_enable=True but X is not a "
+                "pandas DataFrame; bootstrap-stable hybrid FE is skipped. "
+                "Convert to pandas via X.to_pandas() before fit() if you "
+                "want the bootstrap-stable selection applied.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from ._orthogonal_bootstrap_mi_fe import (
+                    hybrid_orth_mi_bootstrap_fe_with_recipes,
+                )
+                _y_for_boot = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                if _y_for_boot.dtype.kind in "fc":
+                    _n_unique = int(np.unique(_y_for_boot).size)
+                    if _n_unique <= 32:
+                        _y_for_boot = _y_for_boot.astype(np.int64)
+                    else:
+                        try:
+                            _y_for_boot = pd.qcut(
+                                _y_for_boot, q=10, labels=False, duplicates="drop",
+                            ).astype(np.int64)
+                        except Exception:
+                            _y_for_boot = _y_for_boot.astype(np.int64)
+                _hybrid_already_appended = set(
+                    getattr(self, "hybrid_orth_features_", None) or []
+                )
+                if getattr(self, "factors_names_to_use", None):
+                    _boot_cols = [
+                        c for c in self.factors_names_to_use
+                        if c in X.columns and c not in _hybrid_already_appended
+                    ]
+                else:
+                    _boot_cols = [
+                        c for c in X.columns
+                        if c not in _hybrid_already_appended
+                    ]
+                _boot_degrees = tuple(int(d) for d in getattr(
+                    self, "fe_hybrid_orth_degrees", (2, 3),
+                ))
+                _boot_basis = str(getattr(self, "fe_hybrid_orth_basis", "auto"))
+                _boot_top_k = int(getattr(self, "fe_hybrid_orth_top_k", 5))
+                _boot_n = int(getattr(
+                    self, "fe_hybrid_orth_bootstrap_n_boot", 10,
+                ))
+                _boot_frac = float(getattr(
+                    self, "fe_hybrid_orth_bootstrap_sample_fraction", 0.8,
+                ))
+                _boot_seed = int(getattr(self, "random_seed", 0) or 0)
+                _X_before_boot_cols = list(X.columns)
+                X_boot, _boot_scores, _boot_recipes = (
+                    hybrid_orth_mi_bootstrap_fe_with_recipes(
+                        X, _y_for_boot,
+                        cols=_boot_cols,
+                        degrees=_boot_degrees,
+                        basis=_boot_basis,
+                        top_k=_boot_top_k,
+                        n_boot=_boot_n,
+                        sample_fraction=_boot_frac,
+                        seed=_boot_seed,
+                    )
+                )
+                _boot_appended = [
+                    c for c in X_boot.columns if c not in _X_before_boot_cols
+                ]
+                if _boot_appended:
+                    X = X_boot
+                    self.hybrid_orth_features_ = (
+                        list(self.hybrid_orth_features_ or []) + list(_boot_appended)
+                    )
+                    for _r in _boot_recipes:
+                        _hybrid_orth_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit hybrid_orth bootstrap-stable: appended "
+                            "%d engineered column(s): %s",
+                            len(_boot_appended), _boot_appended[:8],
+                        )
+            except Exception as _boot_exc:
+                logger.warning(
+                    "MRMR.fit hybrid_orth bootstrap-stable FE raised %s: %s; "
+                    "continuing without bootstrap-stable columns.",
+                    type(_boot_exc).__name__, _boot_exc,
+                )
     # 2026-05-21 revert of Wave 29 P1 polars->pandas coercion. That
     # coercion was added on the premise that downstream ``X[target_name]
     # = y`` mutation assumed pandas and would raise on polars; but the
