@@ -112,19 +112,23 @@ class _BoundedTanhOutput(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # tanh(x) * scale + center. On CUDA, ``addcmul`` fuses the scale-multiply
-        # and center-add into a single kernel (3 elementwise kernels -> 2), which
-        # cuts kernel-launch overhead: measured 1.5-2.4x on this op across
-        # (batch, 1) / (batch, K) shapes. It reads -- does NOT mutate -- tanh's
-        # output, so autograd's tanh gradient (1 - tanh^2) stays intact; forward
-        # and gradient are bit-identical to the separate-op form (verified).
-        # The separate-op form is kept for CPU, where addcmul is slower on these
-        # small output-activation tensors (bench: (200000, 1) 0.78x, (4096, 64)
-        # 0.95x) -- CPU has no launch overhead to amortise.
-        t = torch.tanh(x)
-        if x.is_cuda:
-            return torch.addcmul(self.center, t, self.scale)
-        return t * self.scale + self.center
+        # F-37 (2026-05-31): always use the separate-op form
+        # ``tanh(x) * scale + center``. Pre-fix this had a ``if x.is_cuda:
+        # return addcmul(...)`` data-dependent branch — measured 1.5-2.4x
+        # on CUDA via the explicit addcmul fusion, but the branch
+        # FRAGMENTS torch.compile's Inductor fusion of the output head
+        # (per the 2026-05-31 torch.compile audit, Agent A finding #2).
+        # The whole tanh + mul + add chain is exactly the pure-pointwise
+        # pattern Inductor fuses into ONE Triton kernel automatically
+        # when torch.compile is active, recovering the CUDA fusion win
+        # without the data-dependent branch. The CPU trade is 5-20% on
+        # tiny output heads (bench: (200000, 1) 0.78x, (4096, 64) 0.95x),
+        # accepted because (a) it's a tiny absolute time, (b) compile is
+        # the load-bearing perf lever now, (c) the previous CUDA branch
+        # was opt-in to a fusion win only available without compile —
+        # a no-win combo. autograd's tanh gradient (1 - tanh^2) is
+        # preserved either way.
+        return torch.tanh(x) * self.scale + self.center
 
     def extra_repr(self) -> str:
         return f"scale={float(self.scale):.4g}, center={float(self.center):.4g}"

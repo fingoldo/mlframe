@@ -103,6 +103,17 @@ class MLPTorchModel(L.LightningModule):
         self.training_step_outputs = []
         self.validation_step_outputs = []
 
+        # F-38 (2026-05-31): CUDA-graph predict cache. Shape-keyed map of
+        # (input_shape, dtype, device) -> (static_input_buffer, graphed_fn).
+        # Lazily populated on the first predict_step call when the env-gate
+        # MLFRAME_CUDA_GRAPH_PREDICT=1 is set + CUDA is the active device.
+        # On Ampere+ with shallow MLPs (10-15 small kernels per forward),
+        # CUDA graphs collapse a 50-150 µs kernel-launch tail into one
+        # ~10 µs replay -- published 1.5x-3x end-to-end predict gain
+        # (kumo.ai, vLLM, NVIDIA blog). Tail batch (size != cached key)
+        # automatically falls back to eager forward via dict-miss.
+        self._cuda_graph_predict_cache: dict = {}
+
         self._apply_torch_compile()
 
         if hasattr(network, "example_input_array"):
@@ -648,6 +659,96 @@ class MLPTorchModel(L.LightningModule):
         except Exception as e:
             logger.error(f"Failed to load checkpoint: {e}", exc_info=True)
 
+    def _maybe_cuda_graph_forward(self, x: torch.Tensor) -> torch.Tensor:
+        """F-38 (2026-05-31): CUDA-graph fast path for the inference
+        forward. Falls back to eager ``self(x)`` when CUDA graphs are
+        unavailable or unsuitable for this shape.
+
+        Gating chain (any False -> eager fallback, zero overhead):
+          1. ``MLFRAME_CUDA_GRAPH_PREDICT=1`` env var (default off until
+             validated on the target host's PyTorch + GPU combo)
+          2. CUDA is available + the input tensor lives on CUDA
+          3. No LSTM/GRU/RNN in the network (the same recurrent ops
+             TorchDynamo graph-breaks on are unsuitable for CUDA-graph
+             capture: control flow inside cuDNN call)
+          4. The current ``(shape, dtype, device)`` matches a cached
+             capture, OR a fresh capture succeeds (3 warmup forwards on
+             a side stream + ``torch.cuda.make_graphed_callables``)
+
+        Tail-batch behaviour: the LAST batch of a predict pass is
+        usually smaller than the trained batch size (drop_last=False on
+        the predict dataloader). Its shape misses the cache and either:
+          * (a) triggers a fresh capture for that shape -- cheap one-off
+            (~3-5 ms), valuable if predict runs many batches at that
+            tail size
+          * (b) falls back to eager when env var bypass triggers
+        Both correct.
+
+        Sentinel value ``False`` is cached on shape-keys where capture
+        previously failed (e.g. dynamic input shapes, autograd-state
+        mismatch) so we don't retry forever.
+        """
+        import os as _os
+        # Cheapest gates first.
+        if _os.environ.get("MLFRAME_CUDA_GRAPH_PREDICT", "0") != "1":
+            return self(x)
+        if not torch.cuda.is_available():
+            return self(x)
+        if not isinstance(x, torch.Tensor) or not x.is_cuda:
+            return self(x)
+        # Skip if the underlying network contains recurrent modules
+        # (same anti-pattern as F-35 torch.compile guard).
+        _net = getattr(self.network, "_orig_mod", self.network)
+        try:
+            _recurrent = (torch.nn.LSTM, torch.nn.GRU, torch.nn.RNN)
+            if any(isinstance(m, _recurrent) for m in _net.modules()):
+                return self(x)
+        except Exception:
+            return self(x)
+
+        _key = (tuple(x.shape), x.dtype, x.device)
+        _cached = self._cuda_graph_predict_cache.get(_key)
+        if _cached is False:
+            # Previous capture attempt failed for this shape; permanent
+            # eager fallback to avoid retry storms.
+            return self(x)
+        if _cached is not None:
+            _static_in, _graphed_fn = _cached
+            _static_in.copy_(x, non_blocking=True)
+            return _graphed_fn(_static_in)
+
+        # First time seeing this shape on this device + dtype. Try a
+        # capture; cache the result (success or False sentinel).
+        try:
+            # 3 warmup forwards on a side stream before capture, per
+            # NVIDIA / PyTorch best practices. Without warmup the
+            # caching allocator hasn't settled and capture either
+            # records the wrong allocations or fails outright.
+            _side_stream = torch.cuda.Stream()
+            with torch.cuda.stream(_side_stream):
+                for _ in range(3):
+                    _ = self.network(x.clone())
+            torch.cuda.current_stream().wait_stream(_side_stream)
+            _static_in = torch.empty_like(x)
+            _static_in.copy_(x)
+            _graphed_fn = torch.cuda.make_graphed_callables(
+                self.network, (_static_in,),
+            )
+            self._cuda_graph_predict_cache[_key] = (_static_in, _graphed_fn)
+            logger.info(
+                "F-38: CUDA-graph captured for predict shape=%s dtype=%s.",
+                tuple(x.shape), x.dtype,
+            )
+            return _graphed_fn(_static_in)
+        except Exception as _graph_err:
+            self._cuda_graph_predict_cache[_key] = False
+            logger.warning(
+                "F-38: CUDA-graph capture failed for predict shape=%s "
+                "(%s); falling back to eager forward for this shape.",
+                tuple(x.shape), _graph_err,
+            )
+            return self(x)
+
     def predict_step(self, batch, batch_idx: int) -> torch.Tensor:
         """
         Handle prediction for both (x, y) and x-only batches.
@@ -674,8 +775,18 @@ class MLPTorchModel(L.LightningModule):
         # standard tensor ops; inference_mode additionally blocks
         # version-counter mutation which catches a class of user bugs
         # cheaply. Per torch.inference_mode docs.
+        #
+        # F-38 (2026-05-31): CUDA-graph fast path. When MLFRAME_CUDA_GRAPH_PREDICT=1
+        # AND the input is a CUDA tensor AND the shape matches a cached
+        # graph capture, replay the graph for this batch (1.5x-3x speedup
+        # on shallow MLPs per Agent D research). Falls back to the eager
+        # forward when:
+        #   * CUDA not available / input is on CPU
+        #   * env var unset
+        #   * shape mismatch with cached graphs (tail batch)
+        #   * capture failed previously (cached as a sentinel)
         with torch.inference_mode():
-            logits = self(x)
+            logits = self._maybe_cuda_graph_forward(x)
 
         # task_type='regression' (F-24) returns raw values regardless of
         # shape -- including (N, K) multi-target regression where the prior
