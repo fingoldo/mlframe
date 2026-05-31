@@ -1411,6 +1411,109 @@ AXES: dict[str, tuple[Any, ...]] = {
     # (e.g. (10, 5)) axes here. Until then, Layer 24 Scenario D pins R^2>=0.85
     # at the implicit q=10/threshold=32 calibration and there is no fuzz
     # discrimination across alternate values.
+    # =====================================================================
+    # 2026-05-31 audit-pass-12 (W12). 12 fuzz axes (5 HIGH + 5 MED + 2 LOW)
+    # covering the post-e8d11293 production knob surface (22 commits, F-34
+    # MTR dispatch + 8 MRMR FE layers + MRMR/ShapProxiedFS artifact-reuse
+    # pipeline). Source defaults verified at HEAD; see dataclass field
+    # comments for line citations.
+    # =====================================================================
+    # Group A -- F-34 MTR suite-side dispatch.
+    # A1 CompositeTargetDiscoveryConfig.multilabel_strategy (validator at
+    # _composite_target_discovery_config.py:940 accepts {"per_target",
+    # "skip", "multi_target_regression"}; field default "per_target" at :773).
+    # Gate: target_type in {multilabel_classification, multi_target_regression};
+    # canon-collapse to "per_target" otherwise (the field is consumed only
+    # on those target types).
+    "composite_target_multilabel_strategy_cfg": (
+        "per_target", "multi_target_regression",
+    ),
+    # A2 cross-target ensemble enablement marker. The early-return WARN at
+    # _phase_composite_post_xt_ensemble._build_cross_target_ensemble_for_target
+    # fires when target_type == TargetTypes.MULTI_TARGET_REGRESSION (D2 in
+    # commit d48245de). Existing fuzz never co-varies this with the MTR
+    # target_type. New axis is canon-only (the WARN gate is suite-internal,
+    # no top-level kwarg today); pair (True, False) exercises both branches
+    # AND the canon dedup pins True on combos where the CT ensemble would
+    # be skipped anyway.
+    "enable_ct_ensemble_cfg": (True, False),
+    # A3 MTR metric-registry coverage marker (canon-only). The new entries
+    # in metrics_registry._register_builtin_multi_target_regression
+    # (rmse_macro/_micro/_max, mae_macro/_max, r2_macro/_min) are reachable
+    # only when target_type=multi_target_regression. Canon collapses to
+    # None outside the MTR target so dedup absorbs non-MTR combos that
+    # could not consume the metric value.
+    "mtr_eval_metric_cfg": (None, "rmse_macro"),
+    # Group B -- MRMR FE layer master switches (all default-OFF per
+    # filters/mrmr.py; legacy bit-identical at False).
+    # B1 Layer 33 K-fold target encoding (mrmr.py:705 fe_kfold_te_enable).
+    # Gate: use_mrmr_fs=True AND combo has categorical column.
+    "mrmr_fe_kfold_te_enable_cfg": (False, True),
+    # B2 Layer 37 missingness-aware FE three sub-master switches.
+    # mrmr.py:749/751/752 (indicator / count / pattern). Compound gate:
+    # use_mrmr_fs=True AND (inject_inf_nan OR inject_all_nan_col OR
+    # cat columns with null_fraction_cats > 0 -- any source of NaNs in
+    # the frame).
+    "mrmr_fe_missingness_indicator_enable_cfg": (False, True),
+    "mrmr_fe_missingness_count_enable_cfg": (False, True),
+    "mrmr_fe_missingness_pattern_enable_cfg": (False, True),
+    # B3 Layer 34 count / freq / cat-num residual FE. Single 4-way axis
+    # maps to mrmr.py:723/725/727 (fe_count_encoding_enable /
+    # fe_frequency_encoding_enable / fe_cat_num_interaction_enable). Gate:
+    # use_mrmr_fs=True AND categorical column present.
+    "mrmr_fe_cat_aux_enable_cfg": ("off", "count", "freq", "interaction"),
+    # B4 Layer 32 spline + Fourier extra bases (mrmr.py:676 default ()).
+    # Compound gate: use_mrmr_fs=True AND mrmr_fe_hybrid_orth_enable_cfg=True
+    # (extra-basis stage runs after the polynomial stages at the hybrid
+    # entry point; no-op when master is off).
+    "mrmr_fe_hybrid_orth_extra_bases_cfg": ((), ("spline",), ("fourier",)),
+    # B5 Layer 38 ratio + grouped-delta + lagged-diff FE. Single 4-way axis
+    # maps to mrmr.py:769/772/774/777 master switches. Gate: use_mrmr_fs=True.
+    # "grouped_delta" requires fe_grouped_delta_group_col (None today in
+    # fuzz frame builder); "lagged_diff" requires fe_lagged_diff_time_col
+    # (None today). Both kinds canon-collapse to "off" unless the frame
+    # builder emits a candidate group_col / time_col.
+    "mrmr_fe_ratio_delta_diff_cfg": (
+        "off", "ratio", "grouped_delta", "lagged_diff",
+    ),
+    # B6 Layer 26 generic MI-greedy FE (mrmr.py:691 fe_mi_greedy_enable).
+    # Sibling to fe_hybrid_orth; gate is use_mrmr_fs=True only (no compound
+    # gate needed).
+    "mrmr_fe_mi_greedy_enable_cfg": (False, True),
+    # Group C -- MRMR + ShapProxiedFS artifact-reuse pipeline.
+    # C1 master switch for the cross-selector artifact handoff. "off" keeps
+    # MRMR.retain_artifacts=False AND does NOT pass precomputed=... to
+    # ShapProxiedFS (legacy). "on" sets MRMR.retain_artifacts=True (mrmr.py:787)
+    # AND threads MRMR.export_artifacts() into ShapProxiedFS(precomputed=...)
+    # at shap_proxied_fs.py:258. Compound gate: use_mrmr_fs=True AND
+    # use_shap_proxied_fs=True (both selectors must be in the chain for
+    # the handoff to fire).
+    "mrmr_shap_proxy_artifact_reuse_cfg": ("off", "on"),
+    # C2 align_precomputed_to_X branch selector. The 4 branches at
+    # _shap_proxy_precomputed.align_precomputed_to_X are:
+    #   "exact":       names == X.columns in order (line 168)
+    #   "permuted":    same set, different order (line 180)
+    #   "subset":      X.columns is a subset of feature_names (line 180)
+    #   "mismatched":  consumer / producer disagree; returns (None, report)
+    #                  with WARN-and-fall-back (line 216)
+    # Gate: mrmr_shap_proxy_artifact_reuse_cfg == "on" (otherwise no
+    # precomputed dict is passed).
+    "mrmr_shap_proxy_align_mode_cfg": (
+        "exact", "permuted", "subset", "mismatched",
+    ),
+    # TODO(audit-pass-12 D1 -- kernel_tuning_cache verification): the
+    # Layer 30 bulk corrcoef dedup (commit 77478957) + Layer 31 numba
+    # batched MI scorer (commit b6c3ab0d) are auto-dispatched with no
+    # user-facing toggle exposed on the MRMR ctor. Tuning-cache keys live
+    # at ``mlframe.feature_selection.filters.batch_pair_mi_gpu`` (Wave 23
+    # P1) + ``hermite_fe.py:616`` (Wave 23 P2) + ``gpu.py:478`` (joint-
+    # hist dispatch) + ``discretization.py:746`` (per-host cache). No new
+    # MRMR ctor kwarg surfaces in the e8d11293..HEAD diff -- the cache
+    # is consulted internally and the dispatcher is deterministic given
+    # a fixed host. No fuzz axis can be wired without source-side ctor
+    # promotion (e.g. ``MRMR(disable_kernel_tuning_cache=True)``). See
+    # FUZZ_AXES_W12_IMPL_DONE.md for the recommended source-side
+    # promotion if reproducibility-without-cache becomes a fuzz target.
 }
 
 
@@ -1990,6 +2093,54 @@ class FuzzCombo:
     mrmr_fe_hybrid_orth_basis_cfg: str = "auto"
     mrmr_fe_hybrid_orth_top_k_cfg: int = 5
     mrmr_fe_hybrid_orth_pair_max_degree_cfg: int = 2
+    # 2026-05-31 audit-pass-12 (W12). Defaults source-verified at HEAD:
+    #   Group A (F-34 MTR dispatch):
+    #     A1 composite_target_multilabel_strategy_cfg = "per_target"
+    #        (src/mlframe/training/_composite_target_discovery_config.py:773
+    #         + validator at :940 accepts
+    #         {"per_target", "skip", "multi_target_regression"})
+    #     A2 enable_ct_ensemble_cfg = True (existing suite-side default; new
+    #        axis surfaces the
+    #        ``_phase_composite_post_xt_ensemble._build_cross_target_ensemble_for_target``
+    #        early-return WARN gate when target_type=multi_target_regression)
+    #     A3 mtr_eval_metric_cfg = None (canon-only marker for the new
+    #        metrics_registry MTR entries: ``rmse_macro/_micro/_max``,
+    #        ``mae_macro/_max``, ``r2_macro/_min`` -- see
+    #        src/mlframe/training/metrics_registry.py
+    #        ``_register_builtin_multi_target_regression``)
+    #   Group B (MRMR FE layers):
+    #     B1 mrmr_fe_kfold_te_enable_cfg = False
+    #        (feature_selection/filters/mrmr.py:705)
+    #     B2 mrmr_fe_missingness_indicator_enable_cfg = False (mrmr.py:749)
+    #        mrmr_fe_missingness_count_enable_cfg     = False (mrmr.py:751)
+    #        mrmr_fe_missingness_pattern_enable_cfg   = False (mrmr.py:752)
+    #     B3 mrmr_fe_cat_aux_enable_cfg = "off" (single 4-way axis that maps
+    #        to the three master switches at mrmr.py:723/725/727)
+    #     B4 mrmr_fe_hybrid_orth_extra_bases_cfg = ()
+    #        (mrmr.py:676; only meaningful under master fe_hybrid_orth)
+    #     B5 mrmr_fe_ratio_delta_diff_cfg = "off" (single 4-way axis covering
+    #        mrmr.py:769/772/774/777 master switches)
+    #     B6 mrmr_fe_mi_greedy_enable_cfg = False (mrmr.py:691)
+    #   Group C (MRMR + ShapProxiedFS artifact-reuse pipeline):
+    #     C1 mrmr_shap_proxy_artifact_reuse_cfg = "off"
+    #        (couples MRMR.retain_artifacts at mrmr.py:787 with
+    #         ShapProxiedFS.precomputed at shap_proxied_fs.py:258)
+    #        mrmr_shap_proxy_align_mode_cfg = "exact"
+    #        (covers _shap_proxy_precomputed.align_precomputed_to_X branches:
+    #         exact / permutation / subset / mismatched at :168, :180, :216)
+    composite_target_multilabel_strategy_cfg: str = "per_target"
+    enable_ct_ensemble_cfg: bool = True
+    mtr_eval_metric_cfg: "str | None" = None
+    mrmr_fe_kfold_te_enable_cfg: bool = False
+    mrmr_fe_missingness_indicator_enable_cfg: bool = False
+    mrmr_fe_missingness_count_enable_cfg: bool = False
+    mrmr_fe_missingness_pattern_enable_cfg: bool = False
+    mrmr_fe_cat_aux_enable_cfg: str = "off"
+    mrmr_fe_hybrid_orth_extra_bases_cfg: tuple = ()
+    mrmr_fe_ratio_delta_diff_cfg: str = "off"
+    mrmr_fe_mi_greedy_enable_cfg: bool = False
+    mrmr_shap_proxy_artifact_reuse_cfg: str = "off"
+    mrmr_shap_proxy_align_mode_cfg: str = "exact"
 
     def canonical_key(self) -> tuple:
         """Hashable tuple used for dedup. Canonicalizes semantically
@@ -3492,6 +3643,168 @@ class FuzzCombo:
                 )
                 else 2
             ),
+            # ------------------------------------------------------------
+            # 2026-05-31 audit-pass-12 (W12). 12 new axes; each collapses to
+            # its source default outside the documented gate so dedup absorbs
+            # phantom variation.
+            #
+            # Group A -- F-34 MTR suite-side dispatch.
+            # A1 composite_target_multilabel_strategy: only consumed by
+            # CompositeTargetDiscoveryConfig.multilabel_strategy when the
+            # target_type is multilabel or MTR (validator accepts the
+            # value but downstream branches only read the field on those
+            # target types). Canon collapses to "per_target" (the source
+            # default at :773) otherwise.
+            (
+                self.composite_target_multilabel_strategy_cfg
+                if self.target_type in (
+                    "multilabel_classification", "multi_target_regression",
+                )
+                else "per_target"
+            ),
+            # A2 enable_ct_ensemble: the early-return WARN at
+            # _phase_composite_post_xt_ensemble fires only when target_type
+            # == multi_target_regression (D2 in commit d48245de). Outside
+            # that target, the True/False variants are behaviour-identical
+            # (the CT ensemble path runs normally regardless of this flag
+            # today; the suite-internal gate ignores it). Canon collapses
+            # to True (the suite-side default) outside the MTR target.
+            (
+                self.enable_ct_ensemble_cfg
+                if self.target_type == "multi_target_regression"
+                else True
+            ),
+            # A3 mtr_eval_metric: the new metrics_registry MTR entries
+            # (rmse_macro/_micro/_max, mae_macro/_max, r2_macro/_min) are
+            # reachable only on multi_target_regression targets. Canon
+            # collapses to None outside that target so dedup absorbs combos
+            # that could not consume the metric value.
+            (
+                self.mtr_eval_metric_cfg
+                if self.target_type == "multi_target_regression"
+                else None
+            ),
+            # Group B -- MRMR FE layer master switches.
+            # B1 fe_kfold_te: K-fold target encoding requires at least one
+            # categorical column to encode. Canon collapses to False outside
+            # (use_mrmr_fs AND cat_feature_count >= 1) so dedup absorbs
+            # no-op combos.
+            (
+                self.mrmr_fe_kfold_te_enable_cfg
+                if (self.use_mrmr_fs and self.cat_feature_count >= 1)
+                else False
+            ),
+            # B2 missingness-aware FE (indicator / count / pattern). Auto-
+            # detect at mrmr.py:740 only picks columns with NaN rate in
+            # [1%, 99%]. Canon collapses to False outside (use_mrmr_fs AND
+            # any NaN source in the frame): inject_inf_nan, inject_all_nan_col,
+            # or cat columns with null_fraction_cats > 0.
+            (
+                self.mrmr_fe_missingness_indicator_enable_cfg
+                if (
+                    self.use_mrmr_fs
+                    and (
+                        self.inject_inf_nan
+                        or self.inject_all_nan_col
+                        or (self.cat_feature_count > 0 and self.null_fraction_cats > 0)
+                    )
+                )
+                else False
+            ),
+            (
+                self.mrmr_fe_missingness_count_enable_cfg
+                if (
+                    self.use_mrmr_fs
+                    and (
+                        self.inject_inf_nan
+                        or self.inject_all_nan_col
+                        or (self.cat_feature_count > 0 and self.null_fraction_cats > 0)
+                    )
+                )
+                else False
+            ),
+            (
+                self.mrmr_fe_missingness_pattern_enable_cfg
+                if (
+                    self.use_mrmr_fs
+                    and (
+                        self.inject_inf_nan
+                        or self.inject_all_nan_col
+                        or (self.cat_feature_count > 0 and self.null_fraction_cats > 0)
+                    )
+                )
+                else False
+            ),
+            # B3 fe_cat_aux (count / freq / cat-num interaction): all three
+            # need a categorical column. Canon collapses to "off" outside
+            # (use_mrmr_fs AND cat_feature_count >= 1). For "interaction"
+            # the auto-detection at mrmr.py:728 needs at least one numeric
+            # column too -- the synthetic builder always emits num_0..num_3
+            # so the gate reduces to the cat-column check.
+            (
+                self.mrmr_fe_cat_aux_enable_cfg
+                if (self.use_mrmr_fs and self.cat_feature_count >= 1)
+                else "off"
+            ),
+            # B4 fe_hybrid_orth_extra_bases: only consumed when the master
+            # hybrid_orth pipeline runs. Canon collapses to () outside
+            # (use_mrmr_fs AND mrmr_fe_hybrid_orth_enable_cfg) -- same
+            # compound gate as the W10 hybrid-orth tunables.
+            (
+                self.mrmr_fe_hybrid_orth_extra_bases_cfg
+                if (
+                    self.use_mrmr_fs
+                    and self.mrmr_fe_hybrid_orth_enable_cfg
+                )
+                else ()
+            ),
+            # B5 fe_ratio_delta_diff: each kind has its own gate.
+            #   * "ratio" / log_ratio: needs >=2 numeric columns -- always
+            #     satisfied by the synthetic builder (num_0..num_3).
+            #   * "grouped_delta": needs fe_grouped_delta_group_col, which
+            #     the fuzz frame builder does NOT supply today. Collapses
+            #     to "off".
+            #   * "lagged_diff": needs fe_lagged_diff_time_col, ditto.
+            #     Collapses to "off".
+            # The aggregate canon: outside use_mrmr_fs OR when the chosen
+            # kind has no supporting frame data, collapse to "off".
+            (
+                self.mrmr_fe_ratio_delta_diff_cfg
+                if (
+                    self.use_mrmr_fs
+                    and self.mrmr_fe_ratio_delta_diff_cfg in ("off", "ratio")
+                )
+                else "off"
+            ),
+            # B6 fe_mi_greedy: sibling to hybrid_orth; gate is use_mrmr_fs
+            # only.
+            (
+                self.mrmr_fe_mi_greedy_enable_cfg
+                if self.use_mrmr_fs
+                else False
+            ),
+            # Group C -- MRMR + ShapProxiedFS artifact-reuse pipeline.
+            # C1 master switch. Both selectors must be in the chain. Canon
+            # collapses to "off" outside (use_mrmr_fs AND use_shap_proxied_fs)
+            # since the handoff cannot fire without both endpoints.
+            (
+                self.mrmr_shap_proxy_artifact_reuse_cfg
+                if (self.use_mrmr_fs and self.use_shap_proxied_fs)
+                else "off"
+            ),
+            # C2 align_mode: only relevant when artifact_reuse is "on" --
+            # otherwise no precomputed dict is passed and the
+            # align_precomputed_to_X function is never invoked. Canon
+            # collapses to "exact" outside the artifact-reuse-on gate.
+            (
+                self.mrmr_shap_proxy_align_mode_cfg
+                if (
+                    self.use_mrmr_fs
+                    and self.use_shap_proxied_fs
+                    and self.mrmr_shap_proxy_artifact_reuse_cfg == "on"
+                )
+                else "exact"
+            ),
         )
 
     def _canonical_recurrent_model(self) -> "str | None":
@@ -4600,6 +4913,44 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         mrmr_fe_hybrid_orth_pair_max_degree_cfg=axes.get(
             "mrmr_fe_hybrid_orth_pair_max_degree_cfg", 2
         ),
+        # 2026-05-31 audit-pass-12 (W12). Defaults mirror source verbatim
+        # (Group A canon-only markers, Group B MRMR FE master switches,
+        # Group C MRMR+ShapProxiedFS coupling).
+        composite_target_multilabel_strategy_cfg=axes.get(
+            "composite_target_multilabel_strategy_cfg", "per_target"
+        ),
+        enable_ct_ensemble_cfg=axes.get("enable_ct_ensemble_cfg", True),
+        mtr_eval_metric_cfg=axes.get("mtr_eval_metric_cfg", None),
+        mrmr_fe_kfold_te_enable_cfg=axes.get(
+            "mrmr_fe_kfold_te_enable_cfg", False
+        ),
+        mrmr_fe_missingness_indicator_enable_cfg=axes.get(
+            "mrmr_fe_missingness_indicator_enable_cfg", False
+        ),
+        mrmr_fe_missingness_count_enable_cfg=axes.get(
+            "mrmr_fe_missingness_count_enable_cfg", False
+        ),
+        mrmr_fe_missingness_pattern_enable_cfg=axes.get(
+            "mrmr_fe_missingness_pattern_enable_cfg", False
+        ),
+        mrmr_fe_cat_aux_enable_cfg=axes.get(
+            "mrmr_fe_cat_aux_enable_cfg", "off"
+        ),
+        mrmr_fe_hybrid_orth_extra_bases_cfg=axes.get(
+            "mrmr_fe_hybrid_orth_extra_bases_cfg", ()
+        ),
+        mrmr_fe_ratio_delta_diff_cfg=axes.get(
+            "mrmr_fe_ratio_delta_diff_cfg", "off"
+        ),
+        mrmr_fe_mi_greedy_enable_cfg=axes.get(
+            "mrmr_fe_mi_greedy_enable_cfg", False
+        ),
+        mrmr_shap_proxy_artifact_reuse_cfg=axes.get(
+            "mrmr_shap_proxy_artifact_reuse_cfg", "off"
+        ),
+        mrmr_shap_proxy_align_mode_cfg=axes.get(
+            "mrmr_shap_proxy_align_mode_cfg", "exact"
+        ),
     )
 
 
@@ -4714,6 +5065,29 @@ def build_mrmr_kwargs_from_flat(
     fe_hybrid_orth_basis: str = "auto",
     fe_hybrid_orth_top_k: int = 5,
     fe_hybrid_orth_pair_max_degree: int = 2,
+    # 2026-05-31 audit-pass-12 (W12). Group B MRMR FE layer master switches +
+    # Group C retain_artifacts. Defaults source-verified at HEAD against
+    # MRMR.__init__ (filters/mrmr.py:676/691/705/723/725/727/749/751/752/769/
+    # 772/774/777/787). Names match MRMR.__init__ exactly. All default-OFF
+    # so callers leaving them at the defaults produce the legacy bit-
+    # identical kwargs dict.
+    fe_hybrid_orth_extra_bases: tuple = (),
+    fe_mi_greedy_enable: bool = False,
+    fe_kfold_te_enable: bool = False,
+    fe_count_encoding_enable: bool = False,
+    fe_frequency_encoding_enable: bool = False,
+    fe_cat_num_interaction_enable: bool = False,
+    fe_missingness_indicator_enable: bool = False,
+    fe_missingness_count_enable: bool = False,
+    fe_missingness_pattern_enable: bool = False,
+    fe_pairwise_ratio_enable: bool = False,
+    fe_pairwise_log_ratio_enable: bool = False,
+    fe_grouped_delta_enable: bool = False,
+    fe_lagged_diff_enable: bool = False,
+    # 2026-05-31 audit-pass-12 (W12) C1: retain_artifacts at mrmr.py:787.
+    # When True the fitted MRMR exposes ``export_artifacts()`` which the
+    # downstream ShapProxiedFS consumes via the ``precomputed=`` ctor kwarg.
+    retain_artifacts: bool = False,
 ) -> Optional[Dict[str, Any]]:
     """Build the mrmr_kwargs dict passed to FeatureSelectionConfig.
     Returns None when use_mrmr_fs=False so the FS step is a no-op.
@@ -4790,6 +5164,28 @@ def build_mrmr_kwargs_from_flat(
         "fe_hybrid_orth_basis": fe_hybrid_orth_basis,
         "fe_hybrid_orth_top_k": fe_hybrid_orth_top_k,
         "fe_hybrid_orth_pair_max_degree": fe_hybrid_orth_pair_max_degree,
+        # 2026-05-31 audit-pass-12 (W12). Group B MRMR FE layer master
+        # switches + Group C retain_artifacts. Names match MRMR.__init__
+        # verbatim (filters/mrmr.py:676/691/705/723/725/727/749/751/752/
+        # 769/772/774/777/787). The canon-collapse layer at
+        # FuzzCombo.canonical_key absorbs phantom variation outside each
+        # axis's documented gate, so we forward the raw axis values --
+        # gates inside MRMR.fit gate the actual FE-stage execution on
+        # frame contents independently.
+        "fe_hybrid_orth_extra_bases": fe_hybrid_orth_extra_bases,
+        "fe_mi_greedy_enable": fe_mi_greedy_enable,
+        "fe_kfold_te_enable": fe_kfold_te_enable,
+        "fe_count_encoding_enable": fe_count_encoding_enable,
+        "fe_frequency_encoding_enable": fe_frequency_encoding_enable,
+        "fe_cat_num_interaction_enable": fe_cat_num_interaction_enable,
+        "fe_missingness_indicator_enable": fe_missingness_indicator_enable,
+        "fe_missingness_count_enable": fe_missingness_count_enable,
+        "fe_missingness_pattern_enable": fe_missingness_pattern_enable,
+        "fe_pairwise_ratio_enable": fe_pairwise_ratio_enable,
+        "fe_pairwise_log_ratio_enable": fe_pairwise_log_ratio_enable,
+        "fe_grouped_delta_enable": fe_grouped_delta_enable,
+        "fe_lagged_diff_enable": fe_lagged_diff_enable,
+        "retain_artifacts": retain_artifacts,
     }
     # 2026-05-30 audit-pass-7 #3/#4: per_feature_edges.kwargs threaded via
     # MRMR.nbins_strategy_kwargs. Build the dict only when one of these
@@ -4889,6 +5285,37 @@ def build_mrmr_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]:
         fe_hybrid_orth_basis=combo.mrmr_fe_hybrid_orth_basis_cfg,
         fe_hybrid_orth_top_k=combo.mrmr_fe_hybrid_orth_top_k_cfg,
         fe_hybrid_orth_pair_max_degree=combo.mrmr_fe_hybrid_orth_pair_max_degree_cfg,
+        # 2026-05-31 audit-pass-12 (W12). Map the FuzzCombo axes into the
+        # MRMR ctor kwarg names. Group B 4-way axes (cat_aux + ratio_delta_diff)
+        # expand into the three / four master switches each.
+        fe_hybrid_orth_extra_bases=combo.mrmr_fe_hybrid_orth_extra_bases_cfg,
+        fe_mi_greedy_enable=combo.mrmr_fe_mi_greedy_enable_cfg,
+        fe_kfold_te_enable=combo.mrmr_fe_kfold_te_enable_cfg,
+        # B3: 4-way mrmr_fe_cat_aux_enable_cfg -> 3 master switches.
+        fe_count_encoding_enable=(combo.mrmr_fe_cat_aux_enable_cfg == "count"),
+        fe_frequency_encoding_enable=(combo.mrmr_fe_cat_aux_enable_cfg == "freq"),
+        fe_cat_num_interaction_enable=(combo.mrmr_fe_cat_aux_enable_cfg == "interaction"),
+        # B2: 3 sub-axes already 1:1 mapped to the master switches.
+        fe_missingness_indicator_enable=combo.mrmr_fe_missingness_indicator_enable_cfg,
+        fe_missingness_count_enable=combo.mrmr_fe_missingness_count_enable_cfg,
+        fe_missingness_pattern_enable=combo.mrmr_fe_missingness_pattern_enable_cfg,
+        # B5: 4-way mrmr_fe_ratio_delta_diff_cfg -> 4 master switches.
+        # The canon collapses "grouped_delta" / "lagged_diff" -> "off" since
+        # the fuzz frame builder does not emit a group_col / time_col today,
+        # so the only non-off branch reached in practice is "ratio".
+        fe_pairwise_ratio_enable=(combo.mrmr_fe_ratio_delta_diff_cfg == "ratio"),
+        fe_pairwise_log_ratio_enable=False,  # log_ratio variant deferred (axis covers raw ratio only)
+        fe_grouped_delta_enable=(combo.mrmr_fe_ratio_delta_diff_cfg == "grouped_delta"),
+        fe_lagged_diff_enable=(combo.mrmr_fe_ratio_delta_diff_cfg == "lagged_diff"),
+        # C1: retain_artifacts ON when the artifact-reuse master is on AND
+        # both selectors are in the chain. The canonical_key collapse layer
+        # already pins the axis to "off" outside the compound gate, but the
+        # build_mrmr_kwargs path is reached only when use_mrmr_fs=True so
+        # we honour the axis value verbatim here.
+        retain_artifacts=(
+            combo.mrmr_shap_proxy_artifact_reuse_cfg == "on"
+            and combo.use_shap_proxied_fs
+        ),
     )
 
 
@@ -5145,6 +5572,14 @@ def build_shap_proxied_fs_kwargs_from_flat(
     # 2026-05-31 audit-pass-8 #5: adaptive_prescreen_by_stability. Source
     # default False (feature_selection/shap_proxied_fs.py:208).
     adaptive_prescreen_by_stability: bool = False,
+    # 2026-05-31 audit-pass-12 (W12) C1/C2: precomputed cross-selector
+    # artifacts dict honoured by ShapProxiedFS.__init__ at
+    # shap_proxied_fs.py:258. The fuzz harness threads a sentinel-shaped
+    # dict (matching the four ``align_precomputed_to_X`` branches
+    # selected by ``align_mode``) when the artifact-reuse master is on;
+    # the actual suite consumer substitutes ``mrmr.export_artifacts()``
+    # at the call site after MRMR.fit() has run.
+    precomputed: "dict | None" = None,
 ) -> Optional[Dict[str, Any]]:
     """Build the shap_proxied_fs_kwargs dict passed to
     ``registry.get("ShapProxiedFS").instantiate(**kwargs)`` (which forwards to
@@ -5218,11 +5653,76 @@ def build_shap_proxied_fs_kwargs_from_flat(
         # 2026-05-31 audit-pass-8 #5: param name matches
         # ShapProxiedFS.__init__ verbatim (shap_proxied_fs.py:208).
         "adaptive_prescreen_by_stability": adaptive_prescreen_by_stability,
+        # 2026-05-31 audit-pass-12 (W12) C1/C2: precomputed dict honoured at
+        # shap_proxied_fs.py:258. Forwarded verbatim; None preserves the
+        # legacy ``recompute-from-scratch`` ctor contract (no behaviour
+        # change unless the artifact-reuse master is on).
+        "precomputed": precomputed,
     }
+
+
+def _build_precomputed_sentinel_for_align_mode(
+    align_mode: str,
+) -> Optional[Dict[str, Any]]:
+    """2026-05-31 audit-pass-12 (W12) C2 helper. Produce a precomputed-shaped
+    sentinel dict that drives ``align_precomputed_to_X`` down each of the
+    four documented branches:
+
+      "exact":      feature_names == ["num_0", "num_1", "num_2", "num_3"]
+                    -> exact_match branch at
+                    _shap_proxy_precomputed.py:168
+      "permuted":   feature_names == ["num_3", "num_2", "num_1", "num_0"]
+                    -> permutation_match branch at
+                    _shap_proxy_precomputed.py:180 (len(X_cols)==len(names))
+      "subset":    feature_names == ["num_0","num_1","num_2","num_3","num_4"]
+                    -> subset_match branch at :180 (len(X_cols)<len(names))
+      "mismatched": feature_names == ["UNKNOWN_A", "UNKNOWN_B"]
+                    -> reject + WARN + (None, report) at :216
+
+    The sentinel keeps the suite-level helper exercisable without an
+    actual MRMR.fit() call -- the fuzz runner asserts which branch fires
+    via ``shap_proxy_report_['precomputed_used']``. Real production
+    callers substitute ``mrmr.export_artifacts()`` for the sentinel.
+    """
+    if align_mode == "exact":
+        return {
+            "feature_names": ["num_0", "num_1", "num_2", "num_3"],
+            "su_to_target": [0.1, 0.2, 0.3, 0.4],
+        }
+    if align_mode == "permuted":
+        return {
+            "feature_names": ["num_3", "num_2", "num_1", "num_0"],
+            "su_to_target": [0.4, 0.3, 0.2, 0.1],
+        }
+    if align_mode == "subset":
+        return {
+            "feature_names": ["num_0", "num_1", "num_2", "num_3", "num_4"],
+            "su_to_target": [0.1, 0.2, 0.3, 0.4, 0.5],
+        }
+    if align_mode == "mismatched":
+        return {
+            "feature_names": ["UNKNOWN_A", "UNKNOWN_B"],
+            "su_to_target": [0.5, 0.5],
+        }
+    return None
 
 
 def build_shap_proxied_fs_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]:
     """FuzzCombo-aware wrapper around build_shap_proxied_fs_kwargs_from_flat."""
+    # 2026-05-31 audit-pass-12 (W12) C1/C2: build the precomputed sentinel
+    # dict only when both selectors are in the chain AND the artifact-reuse
+    # master is on. The canonical_key collapse layer already pins
+    # mrmr_shap_proxy_artifact_reuse_cfg = "off" outside that compound gate,
+    # so the lookup is safe to gate solely on the master value here.
+    _precomputed = None
+    if (
+        combo.use_mrmr_fs
+        and combo.use_shap_proxied_fs
+        and combo.mrmr_shap_proxy_artifact_reuse_cfg == "on"
+    ):
+        _precomputed = _build_precomputed_sentinel_for_align_mode(
+            combo.mrmr_shap_proxy_align_mode_cfg,
+        )
     return build_shap_proxied_fs_kwargs_from_flat(
         use_shap_proxied_fs=combo.use_shap_proxied_fs,
         optimizer=combo.shap_proxied_optimizer_cfg,
@@ -5271,6 +5771,8 @@ def build_shap_proxied_fs_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]
         inner_n_jobs_cap=combo.shap_proxied_inner_n_jobs_cap_cfg,
         # 2026-05-31 audit-pass-8 #5.
         adaptive_prescreen_by_stability=combo.shap_proxied_adaptive_prescreen_by_stability_cfg,
+        # 2026-05-31 audit-pass-12 (W12) C1/C2.
+        precomputed=_precomputed,
     )
 
 
@@ -5303,6 +5805,13 @@ def build_composite_discovery_config_from_flat(
     cv_selector_confidence: float = 0.9,
     cv_selector_quantile_level: float = 0.9,
     cv_persist_fold_scores: bool = False,
+    # 2026-05-31 audit-pass-12 (W12) A1: CompositeTargetDiscoveryConfig.
+    # multilabel_strategy validator at _composite_target_discovery_config.py:940
+    # accepts {"per_target", "skip", "multi_target_regression"}. Field default
+    # "per_target" at :773. Forwarded verbatim; canon-collapse to "per_target"
+    # outside multilabel/MTR target_types already applied at the FuzzCombo
+    # canonical_key layer.
+    multilabel_strategy: str = "per_target",
 ):
     """Build a CompositeTargetDiscoveryConfig honoring the discovery
     enable + transforms_mode axes + (iter162) nested MI / stacked /
@@ -5375,6 +5884,9 @@ def build_composite_discovery_config_from_flat(
         "cv_selector_confidence": cv_selector_confidence,
         "cv_selector_quantile_level": cv_selector_quantile_level,
         "cv_persist_fold_scores": cv_persist_fold_scores,
+        # 2026-05-31 audit-pass-12 (W12) A1: multilabel_strategy field at
+        # _composite_target_discovery_config.py:773 (validator at :940).
+        "multilabel_strategy": multilabel_strategy,
     }
     if composite_tiny_screening_mode == "per_family":
         kw["tiny_screening_families"] = ("lightgbm", "linear")
@@ -5424,6 +5936,8 @@ def build_composite_discovery_config(combo: "FuzzCombo"):
         cv_selector_confidence=combo.cv_selector_confidence_cfg,
         cv_selector_quantile_level=combo.cv_selector_quantile_level_cfg,
         cv_persist_fold_scores=combo.cv_persist_fold_scores_cfg,
+        # 2026-05-31 audit-pass-12 (W12) A1.
+        multilabel_strategy=combo.composite_target_multilabel_strategy_cfg,
     )
 
 

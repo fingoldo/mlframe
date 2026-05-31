@@ -3418,3 +3418,529 @@ def test_iter617_audit_pass_10_axes_flow_to_kwargs():
         "#6: pair_max_degree=3 must produce distinct canonical key under "
         "use_mrmr_fs+master+pair_enable compound gate"
     )
+
+
+# ---------------------------------------------------------------------------
+# 2026-05-31 audit-pass-12 (W12): 12 axes (5 HIGH + 5 MED + 2 LOW) covering
+# Group A (F-34 MTR dispatch), Group B (MRMR FE layers 26/32/33/34/37/38),
+# Group C (MRMR + ShapProxiedFS artifact-reuse pipeline). Group D (Layer 30/31
+# perf kernel_tuning_cache) verified non-actionable -- documented as TODO in
+# _fuzz_combo.py since no MRMR ctor surface exists.
+# ---------------------------------------------------------------------------
+
+
+def test_iter622_audit_pass_12_axes_flow_to_kwargs():
+    """12 audit-pass-12 (W12) fuzz axes must:
+      (a) be present in AXES with >=2 candidate values,
+      (b) carry the SOURCE-verified library defaults in the FuzzCombo dataclass
+          (verified pre-edit against
+          ``src/mlframe/training/_composite_target_discovery_config.py:773,940``
+          for A1, ``src/mlframe/feature_selection/filters/mrmr.py:676/691/705/
+          723/725/727/749/751/752/769/772/774/777/787`` for B/C MRMR ctor
+          params, and ``src/mlframe/feature_selection/shap_proxied_fs.py:258``
+          for the C1 ``precomputed`` kwarg),
+      (c) collapse correctly under the documented gates,
+      (d) thread through their downstream consumer:
+            - A1 multilabel_strategy flows via build_composite_discovery_config
+              into the CompositeTargetDiscoveryConfig dataclass field,
+            - A2/A3 are canon-only markers (no production builder target today;
+              suite-internal WARN gate at
+              _phase_composite_post_xt_ensemble._build_cross_target_ensemble_for_target
+              fires on target_type=multi_target_regression irrespective of
+              this axis -- pinned via canon dedup),
+            - B1-B6 flow via build_mrmr_kwargs into MRMR.__init__,
+            - C1 master flows two ways: MRMR.retain_artifacts at mrmr.py:787
+              AND ShapProxiedFS(precomputed=...) at shap_proxied_fs.py:258
+              (with the sentinel dict driving the 4 align_precomputed_to_X
+              branches selected by C2).
+
+    Findings (12 total, sorted by severity per AUDIT_PASS_12_DONE.md table):
+      HIGH (5):
+        A1 composite_target_multilabel_strategy_cfg ("per_target",
+                                                      "multi_target_regression")
+        A2 enable_ct_ensemble_cfg                    (True, False)
+        B1 mrmr_fe_kfold_te_enable_cfg               (False, True)
+        B2 mrmr_fe_missingness_{indicator,count,pattern}_enable_cfg  (False, True)
+        C1 mrmr_shap_proxy_artifact_reuse_cfg + mrmr_shap_proxy_align_mode_cfg
+      MED (5):
+        A3 mtr_eval_metric_cfg                       (None, "rmse_macro")
+        B3 mrmr_fe_cat_aux_enable_cfg                ("off","count","freq","interaction")
+        B4 mrmr_fe_hybrid_orth_extra_bases_cfg       ((), ("spline",), ("fourier",))
+        B5 mrmr_fe_ratio_delta_diff_cfg              ("off","ratio","grouped_delta","lagged_diff")
+        B6 mrmr_fe_mi_greedy_enable_cfg              (False, True)
+      LOW (2):
+        B7 deferred (wrapper-only, not on MRMR ctor -- see audit row B7)
+        D1 deferred (kernel_tuning_cache dispatch is internal -- TODO in
+           _fuzz_combo.py)
+    """
+    from tests.training._fuzz_combo import (
+        AXES, FuzzCombo, _build_combo, enumerate_combos,
+        build_mrmr_kwargs, build_shap_proxied_fs_kwargs,
+        build_composite_discovery_config, build_composite_discovery_config_from_flat,
+    )
+
+    new_axes = (
+        # Group A
+        "composite_target_multilabel_strategy_cfg",
+        "enable_ct_ensemble_cfg",
+        "mtr_eval_metric_cfg",
+        # Group B
+        "mrmr_fe_kfold_te_enable_cfg",
+        "mrmr_fe_missingness_indicator_enable_cfg",
+        "mrmr_fe_missingness_count_enable_cfg",
+        "mrmr_fe_missingness_pattern_enable_cfg",
+        "mrmr_fe_cat_aux_enable_cfg",
+        "mrmr_fe_hybrid_orth_extra_bases_cfg",
+        "mrmr_fe_ratio_delta_diff_cfg",
+        "mrmr_fe_mi_greedy_enable_cfg",
+        # Group C
+        "mrmr_shap_proxy_artifact_reuse_cfg",
+        "mrmr_shap_proxy_align_mode_cfg",
+    )
+    # (a) Presence in AXES with >=2 candidates.
+    for ax in new_axes:
+        assert ax in AXES, f"missing fuzz axis {ax}"
+        assert len(AXES[ax]) >= 2, f"axis {ax} must offer at least 2 values"
+
+    # (b) FuzzCombo dataclass defaults match the source-verified library defaults.
+    fields = FuzzCombo.__dataclass_fields__
+    assert fields["composite_target_multilabel_strategy_cfg"].default == "per_target", (
+        "A1: default must mirror _composite_target_discovery_config.py:773 ('per_target')"
+    )
+    assert fields["enable_ct_ensemble_cfg"].default is True, (
+        "A2: default True mirrors the suite-side default"
+    )
+    assert fields["mtr_eval_metric_cfg"].default is None, (
+        "A3: canon-only marker default None"
+    )
+    assert fields["mrmr_fe_kfold_te_enable_cfg"].default is False, (
+        "B1: default must mirror filters/mrmr.py:705 (False)"
+    )
+    assert fields["mrmr_fe_missingness_indicator_enable_cfg"].default is False, (
+        "B2 indicator: default must mirror filters/mrmr.py:749 (False)"
+    )
+    assert fields["mrmr_fe_missingness_count_enable_cfg"].default is False, (
+        "B2 count: default must mirror filters/mrmr.py:751 (False)"
+    )
+    assert fields["mrmr_fe_missingness_pattern_enable_cfg"].default is False, (
+        "B2 pattern: default must mirror filters/mrmr.py:752 (False)"
+    )
+    assert fields["mrmr_fe_cat_aux_enable_cfg"].default == "off", (
+        "B3: 4-way axis default 'off' (all three master switches False)"
+    )
+    assert fields["mrmr_fe_hybrid_orth_extra_bases_cfg"].default == (), (
+        "B4: default must mirror filters/mrmr.py:676 (())"
+    )
+    assert fields["mrmr_fe_ratio_delta_diff_cfg"].default == "off", (
+        "B5: 4-way axis default 'off' (all four master switches False)"
+    )
+    assert fields["mrmr_fe_mi_greedy_enable_cfg"].default is False, (
+        "B6: default must mirror filters/mrmr.py:691 (False)"
+    )
+    assert fields["mrmr_shap_proxy_artifact_reuse_cfg"].default == "off", (
+        "C1: artifact-reuse master default 'off' (legacy bit-identical)"
+    )
+    assert fields["mrmr_shap_proxy_align_mode_cfg"].default == "exact", (
+        "C2: align mode default 'exact' (the no-op branch when no precomputed)"
+    )
+
+    base_axes = {name: values[0] for name, values in AXES.items()}
+
+    # (c) enumerate_combos still hits 150 with the 12 new axes wired.
+    combos = enumerate_combos(target=150, master_seed=20260601)
+    assert len(combos) == 150, f"enumerate_combos lost combos: {len(combos)}"
+
+    # ------------------------------------------------------------------
+    # Group A: F-34 MTR suite-side dispatch.
+    # ------------------------------------------------------------------
+
+    # A1 threading: multilabel_strategy flows through
+    # build_composite_discovery_config -> CompositeTargetDiscoveryConfig.
+    on_a1 = dict(base_axes)
+    on_a1.update(
+        composite_discovery_enabled_cfg=True,
+        target_type="regression",  # required for build_composite_discovery_config to enable
+        composite_target_multilabel_strategy_cfg="multi_target_regression",
+    )
+    c_a1_on = _build_combo(models=("cb",), axes=on_a1, seed=0)
+    cfg_a1 = build_composite_discovery_config(c_a1_on)
+    # The CompositeTargetDiscoveryConfig field is consumed by the suite's
+    # phase_helpers MTR routing branch; we assert it threaded through verbatim.
+    assert getattr(cfg_a1, "multilabel_strategy", None) == "multi_target_regression", (
+        f"A1: multilabel_strategy did not thread: {getattr(cfg_a1, 'multilabel_strategy', None)!r}"
+    )
+
+    # A1 canon-collapse: outside multilabel/MTR target_types, the axis
+    # collapses to "per_target" (the field is unread on other targets).
+    a1_off_a = dict(base_axes); a1_off_a.update(
+        target_type="binary_classification",
+        composite_target_multilabel_strategy_cfg="multi_target_regression",
+    )
+    a1_off_b = dict(a1_off_a); a1_off_b["composite_target_multilabel_strategy_cfg"] = "per_target"
+    c_a1_off_a = _build_combo(models=("cb",), axes=a1_off_a, seed=0)
+    c_a1_off_b = _build_combo(models=("cb",), axes=a1_off_b, seed=0)
+    assert c_a1_off_a.canonical_key() == c_a1_off_b.canonical_key(), (
+        "A1: multilabel_strategy must canon-collapse on non-multilabel / non-MTR targets"
+    )
+
+    # A1 distinct canonical_key under the gate:
+    a1_on_def = dict(on_a1); a1_on_def["composite_target_multilabel_strategy_cfg"] = "per_target"
+    c_a1_on_def = _build_combo(models=("cb",), axes=a1_on_def, seed=0)
+    # NOTE: on_a1 sets target_type="regression" which is NOT in the multilabel/MTR
+    # gate -- both variants collapse to "per_target", so canon_key is the same.
+    # Rebuild with MTR target so canon truly forks:
+    on_a1_mtr = dict(base_axes); on_a1_mtr.update(
+        target_type="multi_target_regression",
+        composite_target_multilabel_strategy_cfg="multi_target_regression",
+    )
+    on_a1_mtr_def = dict(on_a1_mtr); on_a1_mtr_def["composite_target_multilabel_strategy_cfg"] = "per_target"
+    # MTR target collapses to "regression" in canonical_key when models
+    # don't include cb / mlp; use cb to keep the MTR target live.
+    c_a1_mtr = _build_combo(models=("cb",), axes=on_a1_mtr, seed=0)
+    c_a1_mtr_def = _build_combo(models=("cb",), axes=on_a1_mtr_def, seed=0)
+    assert c_a1_mtr.canonical_key() != c_a1_mtr_def.canonical_key(), (
+        "A1: multilabel_strategy must fork canonical_key under MTR target on cb"
+    )
+
+    # A2 canon-collapse: enable_ct_ensemble outside MTR target collapses to True.
+    a2_off_a = dict(base_axes); a2_off_a.update(
+        target_type="regression",
+        enable_ct_ensemble_cfg=False,
+    )
+    a2_off_b = dict(a2_off_a); a2_off_b["enable_ct_ensemble_cfg"] = True
+    c_a2_off_a = _build_combo(models=("cb",), axes=a2_off_a, seed=0)
+    c_a2_off_b = _build_combo(models=("cb",), axes=a2_off_b, seed=0)
+    assert c_a2_off_a.canonical_key() == c_a2_off_b.canonical_key(), (
+        "A2: enable_ct_ensemble must canon-collapse on non-MTR targets"
+    )
+    # A2 canon distinct under MTR target on cb (no collapse).
+    a2_on_a = dict(base_axes); a2_on_a.update(
+        target_type="multi_target_regression",
+        enable_ct_ensemble_cfg=False,
+    )
+    a2_on_b = dict(a2_on_a); a2_on_b["enable_ct_ensemble_cfg"] = True
+    c_a2_on_a = _build_combo(models=("cb",), axes=a2_on_a, seed=0)
+    c_a2_on_b = _build_combo(models=("cb",), axes=a2_on_b, seed=0)
+    assert c_a2_on_a.canonical_key() != c_a2_on_b.canonical_key(), (
+        "A2: enable_ct_ensemble must fork canon under MTR target on cb"
+    )
+
+    # A3 canon-collapse: outside MTR target, the metric marker collapses to None.
+    a3_off_a = dict(base_axes); a3_off_a.update(
+        target_type="regression",
+        mtr_eval_metric_cfg="rmse_macro",
+    )
+    a3_off_b = dict(a3_off_a); a3_off_b["mtr_eval_metric_cfg"] = None
+    c_a3_off_a = _build_combo(models=("cb",), axes=a3_off_a, seed=0)
+    c_a3_off_b = _build_combo(models=("cb",), axes=a3_off_b, seed=0)
+    assert c_a3_off_a.canonical_key() == c_a3_off_b.canonical_key(), (
+        "A3: mtr_eval_metric must canon-collapse on non-MTR targets"
+    )
+    # A3 fork under MTR target on cb.
+    a3_on_a = dict(base_axes); a3_on_a.update(
+        target_type="multi_target_regression",
+        mtr_eval_metric_cfg="rmse_macro",
+    )
+    a3_on_b = dict(a3_on_a); a3_on_b["mtr_eval_metric_cfg"] = None
+    c_a3_on_a = _build_combo(models=("cb",), axes=a3_on_a, seed=0)
+    c_a3_on_b = _build_combo(models=("cb",), axes=a3_on_b, seed=0)
+    assert c_a3_on_a.canonical_key() != c_a3_on_b.canonical_key(), (
+        "A3: mtr_eval_metric must fork canon under MTR target on cb"
+    )
+
+    # ------------------------------------------------------------------
+    # Group B: MRMR FE layer master switches.
+    # ------------------------------------------------------------------
+
+    # Compose an MRMR-on combo with a categorical column + injected NaNs so
+    # every B gate holds simultaneously and all axes flow through builder.
+    on_b = dict(base_axes)
+    on_b.update(
+        use_mrmr_fs=True,
+        cat_feature_count=3,
+        null_fraction_cats=0.1,  # ensures missingness gate holds
+        mrmr_fe_kfold_te_enable_cfg=True,
+        mrmr_fe_missingness_indicator_enable_cfg=True,
+        mrmr_fe_missingness_count_enable_cfg=True,
+        mrmr_fe_missingness_pattern_enable_cfg=True,
+        mrmr_fe_cat_aux_enable_cfg="interaction",
+        mrmr_fe_mi_greedy_enable_cfg=True,
+        mrmr_fe_ratio_delta_diff_cfg="ratio",
+        # Activate hybrid_orth so the extra_bases axis is consumed.
+        mrmr_fe_hybrid_orth_enable_cfg=True,
+        mrmr_fe_hybrid_orth_extra_bases_cfg=("spline",),
+    )
+    c_on_b = _build_combo(models=("cb",), axes=on_b, seed=0)
+    kw_b = build_mrmr_kwargs(c_on_b)
+    assert kw_b is not None
+    # B1: K-fold TE master switch flows through.
+    assert kw_b["fe_kfold_te_enable"] is True, "B1: fe_kfold_te_enable did not thread"
+    # B2: missingness master switches flow through.
+    assert kw_b["fe_missingness_indicator_enable"] is True, "B2 indicator: did not thread"
+    assert kw_b["fe_missingness_count_enable"] is True, "B2 count: did not thread"
+    assert kw_b["fe_missingness_pattern_enable"] is True, "B2 pattern: did not thread"
+    # B3: 4-way cat_aux axis maps to ONE of the three master switches.
+    # "interaction" -> fe_cat_num_interaction_enable=True, others False.
+    assert kw_b["fe_cat_num_interaction_enable"] is True, "B3 interaction: did not thread"
+    assert kw_b["fe_count_encoding_enable"] is False, "B3: only 'interaction' branch should be on"
+    assert kw_b["fe_frequency_encoding_enable"] is False, "B3: only 'interaction' branch should be on"
+    # B4: extra_bases flows through verbatim.
+    assert kw_b["fe_hybrid_orth_extra_bases"] == ("spline",), (
+        f"B4: extra_bases did not thread: {kw_b['fe_hybrid_orth_extra_bases']!r}"
+    )
+    # B5: 4-way ratio_delta_diff axis maps to ONE of the four master switches.
+    # "ratio" -> fe_pairwise_ratio_enable=True, others False.
+    assert kw_b["fe_pairwise_ratio_enable"] is True, "B5 ratio: did not thread"
+    assert kw_b["fe_pairwise_log_ratio_enable"] is False, "B5: only 'ratio' branch on"
+    assert kw_b["fe_grouped_delta_enable"] is False, "B5: only 'ratio' branch on"
+    assert kw_b["fe_lagged_diff_enable"] is False, "B5: only 'ratio' branch on"
+    # B6: MI-greedy master switch flows through.
+    assert kw_b["fe_mi_greedy_enable"] is True, "B6: fe_mi_greedy_enable did not thread"
+
+    # B3 4-way exhaustive: each non-off value maps to its own master switch.
+    for label, expected in (
+        ("count", "fe_count_encoding_enable"),
+        ("freq", "fe_frequency_encoding_enable"),
+        ("interaction", "fe_cat_num_interaction_enable"),
+    ):
+        axes_b3 = dict(base_axes); axes_b3.update(
+            use_mrmr_fs=True, cat_feature_count=3,
+            mrmr_fe_cat_aux_enable_cfg=label,
+        )
+        c_b3 = _build_combo(models=("cb",), axes=axes_b3, seed=0)
+        kw_b3 = build_mrmr_kwargs(c_b3)
+        assert kw_b3[expected] is True, f"B3 {label}: did not thread to {expected}"
+        # Other two switches must be False (exclusivity).
+        for other_key in ("fe_count_encoding_enable", "fe_frequency_encoding_enable", "fe_cat_num_interaction_enable"):
+            if other_key != expected:
+                assert kw_b3[other_key] is False, (
+                    f"B3 {label}: {other_key} must be False under exclusive 4-way mapping"
+                )
+
+    # B5 4-way exhaustive: each non-off value maps to its own master switch.
+    # "ratio" -> fe_pairwise_ratio_enable; "grouped_delta" -> fe_grouped_delta_enable;
+    # "lagged_diff" -> fe_lagged_diff_enable. Note: B5 canon collapses
+    # "grouped_delta" / "lagged_diff" -> "off" (no group_col / time_col in
+    # fuzz frame today), so the builder ONLY sees "off" / "ratio" routes
+    # in practice; we verify the mapping holds against the raw axis values.
+    # Build with the raw value passed through canonical-key collapse:
+    for label, expected in (
+        ("ratio", "fe_pairwise_ratio_enable"),
+    ):
+        axes_b5 = dict(base_axes); axes_b5.update(
+            use_mrmr_fs=True,
+            mrmr_fe_ratio_delta_diff_cfg=label,
+        )
+        c_b5 = _build_combo(models=("cb",), axes=axes_b5, seed=0)
+        kw_b5 = build_mrmr_kwargs(c_b5)
+        assert kw_b5[expected] is True, f"B5 {label}: did not thread to {expected}"
+
+    # B1-B6 canon-collapse: when use_mrmr_fs=False, every axis collapses.
+    off_b_a = dict(on_b); off_b_a["use_mrmr_fs"] = False
+    off_b_b = dict(off_b_a)
+    off_b_b.update(
+        mrmr_fe_kfold_te_enable_cfg=False,
+        mrmr_fe_missingness_indicator_enable_cfg=False,
+        mrmr_fe_missingness_count_enable_cfg=False,
+        mrmr_fe_missingness_pattern_enable_cfg=False,
+        mrmr_fe_cat_aux_enable_cfg="off",
+        mrmr_fe_hybrid_orth_extra_bases_cfg=(),
+        mrmr_fe_ratio_delta_diff_cfg="off",
+        mrmr_fe_mi_greedy_enable_cfg=False,
+    )
+    c_off_b_a = _build_combo(models=("cb",), axes=off_b_a, seed=0)
+    c_off_b_b = _build_combo(models=("cb",), axes=off_b_b, seed=0)
+    assert build_mrmr_kwargs(c_off_b_a) is None, "MRMR off: kwargs must be None"
+    assert c_off_b_a.canonical_key() == c_off_b_b.canonical_key(), (
+        "B1-B6: all MRMR FE master switches must canon-collapse when use_mrmr_fs=False"
+    )
+
+    # B1 specific gate: no cat columns -> kfold_te canon-collapses too.
+    off_b1_a = dict(base_axes); off_b1_a.update(
+        use_mrmr_fs=True, cat_feature_count=0,
+        mrmr_fe_kfold_te_enable_cfg=True,
+    )
+    off_b1_b = dict(off_b1_a); off_b1_b["mrmr_fe_kfold_te_enable_cfg"] = False
+    c_off_b1_a = _build_combo(models=("cb",), axes=off_b1_a, seed=0)
+    c_off_b1_b = _build_combo(models=("cb",), axes=off_b1_b, seed=0)
+    assert c_off_b1_a.canonical_key() == c_off_b1_b.canonical_key(), (
+        "B1: fe_kfold_te must canon-collapse when no categorical column"
+    )
+
+    # B2 specific gate: no NaN source -> missingness master switches canon.
+    off_b2_a = dict(base_axes); off_b2_a.update(
+        use_mrmr_fs=True,
+        inject_inf_nan=False, inject_all_nan_col=False,
+        cat_feature_count=0,
+        mrmr_fe_missingness_indicator_enable_cfg=True,
+        mrmr_fe_missingness_count_enable_cfg=True,
+        mrmr_fe_missingness_pattern_enable_cfg=True,
+    )
+    off_b2_b = dict(off_b2_a)
+    off_b2_b.update(
+        mrmr_fe_missingness_indicator_enable_cfg=False,
+        mrmr_fe_missingness_count_enable_cfg=False,
+        mrmr_fe_missingness_pattern_enable_cfg=False,
+    )
+    c_off_b2_a = _build_combo(models=("cb",), axes=off_b2_a, seed=0)
+    c_off_b2_b = _build_combo(models=("cb",), axes=off_b2_b, seed=0)
+    assert c_off_b2_a.canonical_key() == c_off_b2_b.canonical_key(), (
+        "B2: missingness master switches must canon-collapse with no NaN source"
+    )
+
+    # B4 specific gate: hybrid_orth master OFF -> extra_bases canon-collapses.
+    off_b4_a = dict(base_axes); off_b4_a.update(
+        use_mrmr_fs=True,
+        mrmr_fe_hybrid_orth_enable_cfg=False,
+        mrmr_fe_hybrid_orth_extra_bases_cfg=("spline",),
+    )
+    off_b4_b = dict(off_b4_a); off_b4_b["mrmr_fe_hybrid_orth_extra_bases_cfg"] = ()
+    c_off_b4_a = _build_combo(models=("cb",), axes=off_b4_a, seed=0)
+    c_off_b4_b = _build_combo(models=("cb",), axes=off_b4_b, seed=0)
+    assert c_off_b4_a.canonical_key() == c_off_b4_b.canonical_key(), (
+        "B4: extra_bases must canon-collapse when hybrid_orth master is off"
+    )
+
+    # B5 specific gate: grouped_delta / lagged_diff have no support in the
+    # current fuzz frame builder -> canon-collapses to "off".
+    for kind in ("grouped_delta", "lagged_diff"):
+        off_b5_a = dict(base_axes); off_b5_a.update(
+            use_mrmr_fs=True, mrmr_fe_ratio_delta_diff_cfg=kind,
+        )
+        off_b5_b = dict(off_b5_a); off_b5_b["mrmr_fe_ratio_delta_diff_cfg"] = "off"
+        c_off_b5_a = _build_combo(models=("cb",), axes=off_b5_a, seed=0)
+        c_off_b5_b = _build_combo(models=("cb",), axes=off_b5_b, seed=0)
+        assert c_off_b5_a.canonical_key() == c_off_b5_b.canonical_key(), (
+            f"B5 {kind}: must canon-collapse when no group_col / time_col in frame"
+        )
+
+    # ------------------------------------------------------------------
+    # Group C: MRMR + ShapProxiedFS artifact-reuse pipeline.
+    # ------------------------------------------------------------------
+
+    # C1 threading: retain_artifacts ON via MRMR kwargs + precomputed sentinel
+    # via ShapProxiedFS kwargs, for each align_mode branch.
+    align_to_reason = {
+        "exact": ("exact_match", True),
+        "permuted": ("permutation_match", True),
+        "subset": ("subset_match", True),
+        "mismatched": ("feature_name_mismatch", False),
+    }
+    for align_mode, (expected_reason, expected_honoured) in align_to_reason.items():
+        on_c = dict(base_axes)
+        on_c.update(
+            use_mrmr_fs=True,
+            use_shap_proxied_fs=True,
+            mrmr_shap_proxy_artifact_reuse_cfg="on",
+            mrmr_shap_proxy_align_mode_cfg=align_mode,
+        )
+        c_on_c = _build_combo(models=("cb",), axes=on_c, seed=0)
+        kw_mrmr = build_mrmr_kwargs(c_on_c)
+        assert kw_mrmr is not None
+        assert kw_mrmr["retain_artifacts"] is True, (
+            f"C1 ({align_mode}): MRMR.retain_artifacts must thread True under "
+            f"artifact-reuse on"
+        )
+        kw_shap = build_shap_proxied_fs_kwargs(c_on_c)
+        assert kw_shap is not None
+        assert kw_shap["precomputed"] is not None, (
+            f"C1 ({align_mode}): ShapProxiedFS.precomputed must be a dict "
+            f"under artifact-reuse on"
+        )
+        # Drive the actual align_precomputed_to_X function with the sentinel
+        # to verify the expected branch is reached.
+        from mlframe.feature_selection._shap_proxy_precomputed import (
+            align_precomputed_to_X,
+        )
+        import pandas as pd
+        # X.columns must match what the sentinel feature_names target:
+        X_4 = pd.DataFrame({"num_0": [0.0], "num_1": [0.1], "num_2": [0.2], "num_3": [0.3]})
+        aligned, report = align_precomputed_to_X(kw_shap["precomputed"], X_4)
+        assert report["honoured"] is expected_honoured, (
+            f"C2 ({align_mode}): align_precomputed_to_X honoured mismatch -- "
+            f"got {report['honoured']!r}, expected {expected_honoured!r}; "
+            f"report={report!r}"
+        )
+        assert report["reason"] == expected_reason, (
+            f"C2 ({align_mode}): align_precomputed_to_X reason mismatch -- "
+            f"got {report['reason']!r}, expected {expected_reason!r}"
+        )
+        if expected_honoured:
+            assert aligned is not None
+        else:
+            assert aligned is None
+
+    # C1 canon-collapse: artifact-reuse master OFF -> retain_artifacts False AND
+    # precomputed None.
+    off_c_a = dict(base_axes)
+    off_c_a.update(
+        use_mrmr_fs=True,
+        use_shap_proxied_fs=True,
+        mrmr_shap_proxy_artifact_reuse_cfg="off",
+        mrmr_shap_proxy_align_mode_cfg="permuted",
+    )
+    off_c_b = dict(off_c_a); off_c_b["mrmr_shap_proxy_align_mode_cfg"] = "exact"
+    c_off_c_a = _build_combo(models=("cb",), axes=off_c_a, seed=0)
+    c_off_c_b = _build_combo(models=("cb",), axes=off_c_b, seed=0)
+    assert c_off_c_a.canonical_key() == c_off_c_b.canonical_key(), (
+        "C2: align_mode must canon-collapse to 'exact' when artifact-reuse master is off"
+    )
+    kw_off_c = build_mrmr_kwargs(c_off_c_a)
+    assert kw_off_c["retain_artifacts"] is False, (
+        "C1: MRMR.retain_artifacts must be False when artifact-reuse master is off"
+    )
+    kw_off_shap = build_shap_proxied_fs_kwargs(c_off_c_a)
+    assert kw_off_shap["precomputed"] is None, (
+        "C1: ShapProxiedFS.precomputed must be None when artifact-reuse master is off"
+    )
+
+    # C1 canon-collapse: ShapProxiedFS OFF -> artifact-reuse master forced off.
+    off_c_no_shap_a = dict(base_axes); off_c_no_shap_a.update(
+        use_mrmr_fs=True, use_shap_proxied_fs=False,
+        mrmr_shap_proxy_artifact_reuse_cfg="on",
+    )
+    off_c_no_shap_b = dict(off_c_no_shap_a); off_c_no_shap_b["mrmr_shap_proxy_artifact_reuse_cfg"] = "off"
+    c_off_c_ns_a = _build_combo(models=("cb",), axes=off_c_no_shap_a, seed=0)
+    c_off_c_ns_b = _build_combo(models=("cb",), axes=off_c_no_shap_b, seed=0)
+    assert c_off_c_ns_a.canonical_key() == c_off_c_ns_b.canonical_key(), (
+        "C1: artifact-reuse master must canon-collapse to 'off' when use_shap_proxied_fs=False"
+    )
+
+    # ------------------------------------------------------------------
+    # (e) Distinct canonical_keys under each compound gate so the pairwise
+    # sampler keeps both branches reachable.
+    # ------------------------------------------------------------------
+    # B1 distinct under (use_mrmr_fs AND cat_feature_count >= 1).
+    on_b1_a = dict(base_axes); on_b1_a.update(
+        use_mrmr_fs=True, cat_feature_count=3,
+        mrmr_fe_kfold_te_enable_cfg=True,
+    )
+    on_b1_b = dict(on_b1_a); on_b1_b["mrmr_fe_kfold_te_enable_cfg"] = False
+    c_on_b1_a = _build_combo(models=("cb",), axes=on_b1_a, seed=0)
+    c_on_b1_b = _build_combo(models=("cb",), axes=on_b1_b, seed=0)
+    assert c_on_b1_a.canonical_key() != c_on_b1_b.canonical_key(), (
+        "B1: True/False must fork canon under (use_mrmr_fs AND cats present)"
+    )
+
+    # B6 distinct under use_mrmr_fs.
+    on_b6_a = dict(base_axes); on_b6_a.update(
+        use_mrmr_fs=True, mrmr_fe_mi_greedy_enable_cfg=True,
+    )
+    on_b6_b = dict(on_b6_a); on_b6_b["mrmr_fe_mi_greedy_enable_cfg"] = False
+    c_on_b6_a = _build_combo(models=("cb",), axes=on_b6_a, seed=0)
+    c_on_b6_b = _build_combo(models=("cb",), axes=on_b6_b, seed=0)
+    assert c_on_b6_a.canonical_key() != c_on_b6_b.canonical_key(), (
+        "B6: True/False must fork canon under use_mrmr_fs"
+    )
+
+    # C1 distinct under (use_mrmr_fs AND use_shap_proxied_fs).
+    on_c1_a = dict(base_axes); on_c1_a.update(
+        use_mrmr_fs=True, use_shap_proxied_fs=True,
+        mrmr_shap_proxy_artifact_reuse_cfg="on",
+    )
+    on_c1_b = dict(on_c1_a); on_c1_b["mrmr_shap_proxy_artifact_reuse_cfg"] = "off"
+    c_on_c1_a = _build_combo(models=("cb",), axes=on_c1_a, seed=0)
+    c_on_c1_b = _build_combo(models=("cb",), axes=on_c1_b, seed=0)
+    assert c_on_c1_a.canonical_key() != c_on_c1_b.canonical_key(), (
+        "C1: on/off must fork canon under (use_mrmr_fs AND use_shap_proxied_fs)"
+    )
