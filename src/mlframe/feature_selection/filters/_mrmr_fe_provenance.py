@@ -105,9 +105,18 @@ _RECIPE_KIND_TO_ORIGIN: dict[str, str] = {
 # fallback when the recipe is missing (higher-order engineered feature
 # with no replayable recipe) or the kind is ``unary_binary`` / generic.
 # Roster lookup runs AFTER recipe lookup so per-recipe specificity wins.
+#
+# Ordering invariant (Layer 64): specific-mechanism rosters (L33 kfold_te,
+# L34 count/freq/cat-num, L37 missingness, L38 ratio/grouped/lagged)
+# precede the catch-all ``hybrid_orth_features_`` and ``mi_greedy_features_``
+# rosters. ``_mrmr_fit_impl`` deliberately maintains
+# ``hybrid_orth_features_`` as a cumulative "all engineered cols
+# appended" tracker (so the downstream cross-stage dedup pass can walk
+# one list), which means it carries names from the specific buckets
+# too. If hybrid_orth were checked first the lookup would label every
+# count-encoded / missingness / pairwise column as ``hybrid_orth`` and
+# fe_provenance_ would lose its per-mechanism breakdown.
 _ROSTER_ATTR_TO_ORIGIN: tuple[tuple[str, str], ...] = (
-    ("hybrid_orth_features_", "hybrid_orth"),
-    ("mi_greedy_features_", "mi_greedy"),
     ("kfold_te_features_", "kfold_te"),
     ("count_encoding_features_", "count_enc"),
     ("frequency_encoding_features_", "freq_enc"),
@@ -119,6 +128,9 @@ _ROSTER_ATTR_TO_ORIGIN: tuple[tuple[str, str], ...] = (
     ("pairwise_log_ratio_features_", "pairwise_log_ratio"),
     ("grouped_delta_features_", "grouped_delta"),
     ("lagged_diff_features_", "lagged_diff"),
+    # Catch-all rosters last so specific buckets win the lookup.
+    ("mi_greedy_features_", "mi_greedy"),
+    ("hybrid_orth_features_", "hybrid_orth"),
 )
 
 
@@ -243,22 +255,53 @@ def _final_feature_order(mrmr_self: Any) -> list[str]:
     """Return ``support_`` raw names followed by engineered names in the
     order they appear in ``_engineered_recipes_``. Mirrors the column
     order produced by ``transform()`` so the provenance DataFrame can be
-    zipped against transform output positionally."""
+    zipped against transform output positionally.
+
+    Layer 64 (2026-05-31): also drain every roster attribute the
+    transform path replays (L34 count/freq/cat-num, L37 missingness
+    indicator/count/pattern, L38 pairwise_ratio / pairwise_log_ratio /
+    grouped_delta / lagged_diff) so each enabled mechanism contributes
+    at least one row to ``fe_provenance_``. Without this, downstream
+    audit / replay paths see "engineered_unknown" or no row at all for
+    every roster-driven (non-recipe) mechanism."""
     names: list[str] = []
+    seen: set[str] = set()
+
+    def _append(nm: Any) -> None:
+        if nm is None:
+            return
+        s = str(nm)
+        if s in seen:
+            return
+        seen.add(s)
+        names.append(s)
+
     support = getattr(mrmr_self, "support_", None)
     feature_names_in = getattr(mrmr_self, "feature_names_in_", None) or []
     if support is not None and len(feature_names_in):
         try:
             for idx in np.asarray(support).tolist():
                 if 0 <= int(idx) < len(feature_names_in):
-                    names.append(str(feature_names_in[int(idx)]))
+                    _append(feature_names_in[int(idx)])
         except Exception:
             pass
     engineered_recipes = getattr(mrmr_self, "_engineered_recipes_", None) or ()
     for recipe in engineered_recipes:
-        nm = getattr(recipe, "name", None)
-        if nm is not None:
-            names.append(str(nm))
+        _append(getattr(recipe, "name", None))
+    # Drain every roster attribute the transform path replays so each
+    # enabled mechanism shows up in fe_provenance_ even when no recipe
+    # object was emitted by the FE step (the L34/L37/L38 stages store
+    # their outputs as roster names + replay logic, not as
+    # EngineeredRecipe instances).
+    for attr, _label in _ROSTER_ATTR_TO_ORIGIN:
+        roster = getattr(mrmr_self, attr, None)
+        if roster is None:
+            continue
+        try:
+            for nm in list(roster):
+                _append(nm)
+        except Exception:
+            continue
     return names
 
 

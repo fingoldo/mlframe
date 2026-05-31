@@ -1974,9 +1974,22 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # already-kept engineered column. Raw input columns are never deduped
     # here -- that's MRMR's job and removing raw cols would change the
     # ``feature_names_in_`` contract.
-    _eng_cols_appended = list(self.hybrid_orth_features_ or []) + list(
+    # Order-preserving dedup BEFORE we walk the list: when the same
+    # engineered name is emitted by both the hybrid_orth and the
+    # mi_greedy stages (e.g. both produce ``square(x1)`` under a
+    # signal-driven recipe), ``X[name]`` selects a 2-column DataFrame
+    # rather than a Series and the downstream ``.rank()`` call
+    # explodes with ``Data must be 1-dimensional``. The dedup also
+    # short-circuits the inner O(K^2) pairwise rank-correlation loop
+    # for the trivial perfect-name-match case.
+    _eng_cols_appended_raw = list(self.hybrid_orth_features_ or []) + list(
         self.mi_greedy_features_ or []
     )
+    _eng_seen: set[str] = set()
+    _eng_cols_appended = [
+        _c for _c in _eng_cols_appended_raw
+        if not (_c in _eng_seen or _eng_seen.add(_c))
+    ]
     if len(_eng_cols_appended) >= 2 and isinstance(X, pd.DataFrame):
         _eng_keep: list[str] = []
         _eng_drop: set[str] = set()
@@ -1984,7 +1997,16 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         for _c in _eng_cols_appended:
             if _c in _eng_drop:
                 continue
-            _arr_c = np.asarray(X[_c].to_numpy(), dtype=np.float64)
+            # Defense in depth: if X carries duplicate column labels (a
+            # caller-side data-quality issue we don't want to silently
+            # mask but can't crash on either), ``X[_c]`` returns a
+            # DataFrame; collapse to the first column so rank/corrcoef
+            # downstream see a 1-D array and the cross-stage dedup
+            # still runs.
+            _col_view = X[_c]
+            if isinstance(_col_view, pd.DataFrame):
+                _col_view = _col_view.iloc[:, 0]
+            _arr_c = np.asarray(_col_view.to_numpy(), dtype=np.float64)
             _fin_c = np.isfinite(_arr_c)
             if not _fin_c.any() or _arr_c[_fin_c].std() <= 1e-12:
                 _eng_keep.append(_c)
@@ -2135,6 +2157,53 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     _mi_greedy_names_set = set(self.mi_greedy_features_ or [])
     _engineered_names_set = _hybrid_names_set | _mi_greedy_names_set
     _all_cols = X.columns.tolist() if hasattr(X.columns, "tolist") else list(X.columns)
+    # Defense in depth (Layer 64 finding 2026-05-31): if any FE stage
+    # accidentally appended a column under a name already present in
+    # X (e.g. two recipe families converging on the same canonical
+    # ``square(x1)`` label, or a stage re-emitting an input column it
+    # picked up from a previous stage), pandas downstream raises
+    # ``cannot reindex on an axis with duplicate labels`` when
+    # ``X.loc[:, target_names] = vals`` runs the target injection.
+    # Drop in-place: keep the FIRST occurrence (which is the original
+    # raw input column or the first stage's emission), drop later
+    # duplicate-named columns, and prune the engineered roster of any
+    # name that was effectively shadowed so the recipe ledger stays
+    # consistent with the column actually surviving in X.
+    if isinstance(X, pd.DataFrame) and X.columns.has_duplicates:
+        # Layer 64 (2026-05-31) defense: keep only the FIRST occurrence
+        # of each duplicate-label column position in X. The engineered
+        # rosters and the recipe ledger are NOT pruned here -- the
+        # recipe is what the transform path uses to re-emit the column,
+        # so dropping the name from the roster would break
+        # ``transform`` (it tries to look up the support_ name in the
+        # input X, doesn't find the recipe replay output, and raises
+        # "MRMR.transform: N/K selected columns missing from input X").
+        # The duplicate is purely a fit-time X-frame artefact (one FE
+        # stage re-emitted a column another stage already appended);
+        # the recipe replay produces a single canonical column at
+        # transform time.
+        _seen_cols: set[str] = set()
+        _keep_positions: list[int] = []
+        _shadowed_eng_names: set[str] = set()
+        _n_dropped = 0
+        for _i, _c in enumerate(_all_cols):
+            if _c in _seen_cols:
+                if _c in _engineered_names_set:
+                    _shadowed_eng_names.add(_c)
+                _n_dropped += 1
+                continue
+            _seen_cols.add(_c)
+            _keep_positions.append(_i)
+        X = X.iloc[:, _keep_positions].copy()
+        _all_cols = X.columns.tolist()
+        if verbose:
+            logger.warning(
+                "MRMR.fit: pruned %d duplicate column label(s) before "
+                "target injection; engineered names shadowed (kept "
+                "first occurrence + recipe ledger entry intact): %s",
+                _n_dropped,
+                sorted(_shadowed_eng_names),
+            )
     self.feature_names_in_ = [c for c in _all_cols if c not in _engineered_names_set]
     self.n_features_in_ = len(self.feature_names_in_)
 
