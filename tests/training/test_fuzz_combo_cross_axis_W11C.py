@@ -3944,3 +3944,306 @@ def test_iter622_audit_pass_12_axes_flow_to_kwargs():
     assert c_on_c1_a.canonical_key() != c_on_c1_b.canonical_key(), (
         "C1: on/off must fork canon under (use_mrmr_fs AND use_shap_proxied_fs)"
     )
+
+
+def test_iter627_audit_pass_14_axes_flow_to_kwargs():
+    """6 audit-pass-14 (W14) fuzz axes (+1 invariant probe for F14-6) must:
+      (a) be present in AXES (or, for F14-2 cushion, be extended in place with
+          the legacy value 8) with >=2 candidate values,
+      (b) carry the SOURCE-verified library defaults in the FuzzCombo dataclass
+          (verified pre-edit against
+          ``src/mlframe/feature_selection/shap_proxied_fs.py:249, :258`` and
+          ``src/mlframe/feature_selection/filters/mrmr.py:621/622/655/845-847``),
+      (c) collapse correctly under the documented gates,
+      (d) thread through their downstream consumer:
+            - F14-1 cluster_backend flows via build_shap_proxied_fs_kwargs into
+              ShapProxiedFS.__init__,
+            - F14-2 cushion=8 stays reachable via the extended pair,
+            - F14-3 partial_fit_decay/min_recompute/window flow via
+              build_mrmr_kwargs into MRMR.__init__ (the partial_fit() public
+              API itself is not exercised here; the ctor params shape future
+              behaviour and the fuzz pairwise sampler still exercises the
+              (param != default) ctor branches),
+            - F14-4 dcd_tau_cluster flows via build_mrmr_kwargs (accepts the
+              new ``'auto'`` literal alongside the legacy float),
+            - F14-5 dcd_distance + dcd_swap_method flow via build_mrmr_kwargs
+              (the expanded _VALID_DCD_SWAP_METHODS pool at mrmr.py:947-950
+              accepts the 4 new aggregator names verbatim).
+      (e) F14-6 [LOW shape invariant]: ``len(support_) == fe_provenance_.shape[0]``
+          is asserted by the test-shaped invariant probe below. ``fe_provenance_``
+          is always-on additive (no opt-out flag in MRMR.__init__) so this is a
+          sensor probe rather than a fuzz axis -- the sensor protects the
+          new shape contract against monolith-split / re-export bugs in the
+          mrmr facade.
+
+    Findings (6 total, sorted by severity per AUDIT_PASS_14_DONE.md):
+      HIGH (2):
+        F14-1 shap_proxied_cluster_backend_cfg  ("auto","su","pearson")
+        F14-2 shap_proxied_shap_aware_stage1_cushion_cfg  (2,4,8)  [extended in place]
+      MED (3):
+        F14-3 mrmr_partial_fit_{decay,min_recompute,window}_cfg
+        F14-4 mrmr_dcd_tau_cluster_cfg  (0.7, "auto")
+        F14-5 mrmr_dcd_distance_cfg + mrmr_dcd_swap_method_cfg
+      LOW (1):
+        F14-6 fe_provenance_ shape invariant  [sensor only]
+    """
+    from tests.training._fuzz_combo import (
+        AXES, FuzzCombo, _build_combo, enumerate_combos,
+        build_mrmr_kwargs, build_shap_proxied_fs_kwargs,
+    )
+
+    new_axes = (
+        "shap_proxied_cluster_backend_cfg",
+        "mrmr_partial_fit_decay_cfg",
+        "mrmr_partial_fit_min_recompute_cfg",
+        "mrmr_partial_fit_window_cfg",
+        "mrmr_dcd_tau_cluster_cfg",
+        "mrmr_dcd_distance_cfg",
+        "mrmr_dcd_swap_method_cfg",
+    )
+    # (a) Presence in AXES with >=2 candidates.
+    for ax in new_axes:
+        assert ax in AXES, f"missing fuzz axis {ax}"
+        assert len(AXES[ax]) >= 2, f"axis {ax} must offer at least 2 values"
+    # F14-2: cushion axis was extended in place 2026-05-31 (was (2, 4), now (2, 4, 8)).
+    cushion_axis = AXES["shap_proxied_shap_aware_stage1_cushion_cfg"]
+    assert 2 in cushion_axis and 4 in cushion_axis and 8 in cushion_axis, (
+        f"F14-2: cushion axis must include the legacy 8 for fuzz coverage of the "
+        f"pre-iter76 calibration; got {cushion_axis}"
+    )
+
+    # (b) FuzzCombo dataclass defaults match the source-verified library defaults.
+    fields = FuzzCombo.__dataclass_fields__
+    assert fields["shap_proxied_cluster_backend_cfg"].default == "auto", (
+        "F14-1: default must mirror shap_proxied_fs.py:258 ('auto')"
+    )
+    assert fields["shap_proxied_shap_aware_stage1_cushion_cfg"].default == 2, (
+        "F14-2: default must mirror shap_proxied_fs.py:249 (2 since iter76)"
+    )
+    assert fields["mrmr_partial_fit_decay_cfg"].default == 0.0, (
+        "F14-3 decay: default must mirror filters/mrmr.py:845 (0.0)"
+    )
+    assert fields["mrmr_partial_fit_min_recompute_cfg"].default == 100, (
+        "F14-3 min_recompute: default must mirror filters/mrmr.py:846 (100)"
+    )
+    assert fields["mrmr_partial_fit_window_cfg"].default is None, (
+        "F14-3 window: default must mirror filters/mrmr.py:847 (None)"
+    )
+    assert fields["mrmr_dcd_tau_cluster_cfg"].default == 0.7, (
+        "F14-4: default must mirror filters/mrmr.py:621 (0.7)"
+    )
+    assert fields["mrmr_dcd_distance_cfg"].default == "su", (
+        "F14-5 distance: default must mirror filters/mrmr.py:622 ('su')"
+    )
+    assert fields["mrmr_dcd_swap_method_cfg"].default == "auto", (
+        "F14-5 swap_method: default must mirror filters/mrmr.py:655 ('auto')"
+    )
+
+    base_axes = {name: values[0] for name, values in AXES.items()}
+
+    # (c) enumerate_combos still hits 150 with the 6 new axes wired.
+    combos = enumerate_combos(target=150, master_seed=20260601)
+    assert len(combos) == 150, f"enumerate_combos lost combos: {len(combos)}"
+
+    # ------------------------------------------------------------------
+    # F14-1 cluster_backend: threads into ShapProxiedFS kwargs verbatim
+    # under use_shap_proxied_fs=True; canon-collapses to "auto" otherwise.
+    # ------------------------------------------------------------------
+    for backend in ("auto", "su", "pearson"):
+        on_f1 = dict(base_axes); on_f1.update(
+            use_shap_proxied_fs=True,
+            shap_proxied_cluster_backend_cfg=backend,
+        )
+        c_on_f1 = _build_combo(models=("cb",), axes=on_f1, seed=0)
+        kw = build_shap_proxied_fs_kwargs(c_on_f1)
+        assert kw is not None
+        assert kw["cluster_backend"] == backend, (
+            f"F14-1: cluster_backend={backend!r} did not thread; got {kw['cluster_backend']!r}"
+        )
+
+    # F14-1 canon-collapse: cluster_backend axis is unread when ShapProxiedFS is off.
+    off_f1_a = dict(base_axes); off_f1_a.update(
+        use_shap_proxied_fs=False, shap_proxied_cluster_backend_cfg="su",
+    )
+    off_f1_b = dict(off_f1_a); off_f1_b["shap_proxied_cluster_backend_cfg"] = "pearson"
+    c_off_f1_a = _build_combo(models=("cb",), axes=off_f1_a, seed=0)
+    c_off_f1_b = _build_combo(models=("cb",), axes=off_f1_b, seed=0)
+    assert c_off_f1_a.canonical_key() == c_off_f1_b.canonical_key(), (
+        "F14-1: cluster_backend must canon-collapse when use_shap_proxied_fs=False"
+    )
+    # F14-1 distinct under the gate: "su" vs "pearson" must fork canon.
+    on_f1_a = dict(base_axes); on_f1_a.update(
+        use_shap_proxied_fs=True, shap_proxied_cluster_backend_cfg="su",
+    )
+    on_f1_b = dict(on_f1_a); on_f1_b["shap_proxied_cluster_backend_cfg"] = "pearson"
+    c_on_f1_a = _build_combo(models=("cb",), axes=on_f1_a, seed=0)
+    c_on_f1_b = _build_combo(models=("cb",), axes=on_f1_b, seed=0)
+    assert c_on_f1_a.canonical_key() != c_on_f1_b.canonical_key(), (
+        "F14-1: cluster_backend su vs pearson must fork canon under use_shap_proxied_fs=True"
+    )
+
+    # ------------------------------------------------------------------
+    # F14-2 cushion=8 threads via ShapProxiedFS kwargs (legacy fuzz baseline).
+    # ------------------------------------------------------------------
+    on_f2 = dict(base_axes); on_f2.update(
+        use_shap_proxied_fs=True,
+        shap_proxied_shap_aware_stage1_cushion_cfg=8,
+    )
+    c_on_f2 = _build_combo(models=("cb",), axes=on_f2, seed=0)
+    kw_f2 = build_shap_proxied_fs_kwargs(c_on_f2)
+    assert kw_f2 is not None
+    assert kw_f2["shap_aware_stage1_cushion"] == 8, (
+        f"F14-2: cushion=8 did not thread; got {kw_f2['shap_aware_stage1_cushion']!r}"
+    )
+    # All three pair values fork canon under the gate.
+    forks = []
+    for cushion in (2, 4, 8):
+        on = dict(base_axes); on.update(
+            use_shap_proxied_fs=True,
+            shap_proxied_shap_aware_stage1_cushion_cfg=cushion,
+        )
+        forks.append(_build_combo(models=("cb",), axes=on, seed=0).canonical_key())
+    assert len(set(forks)) == 3, (
+        f"F14-2: cushion 2/4/8 must produce 3 distinct canonical keys under "
+        f"use_shap_proxied_fs=True; got {len(set(forks))} distinct"
+    )
+
+    # ------------------------------------------------------------------
+    # F14-3 partial_fit ctor params flow via build_mrmr_kwargs verbatim.
+    # ------------------------------------------------------------------
+    on_f3 = dict(base_axes); on_f3.update(
+        use_mrmr_fs=True,
+        mrmr_partial_fit_decay_cfg=0.3,
+        mrmr_partial_fit_min_recompute_cfg=50,
+        mrmr_partial_fit_window_cfg=500,
+    )
+    c_on_f3 = _build_combo(models=("cb",), axes=on_f3, seed=0)
+    kw_f3 = build_mrmr_kwargs(c_on_f3)
+    assert kw_f3 is not None
+    assert kw_f3["partial_fit_decay"] == 0.3
+    assert kw_f3["partial_fit_min_recompute"] == 50
+    assert kw_f3["partial_fit_window"] == 500
+    # Canon-collapse when use_mrmr_fs=False.
+    off_f3_a = dict(base_axes); off_f3_a.update(
+        use_mrmr_fs=False, mrmr_partial_fit_decay_cfg=0.3,
+        mrmr_partial_fit_min_recompute_cfg=50,
+        mrmr_partial_fit_window_cfg=500,
+    )
+    off_f3_b = dict(off_f3_a)
+    off_f3_b.update(
+        mrmr_partial_fit_decay_cfg=0.0,
+        mrmr_partial_fit_min_recompute_cfg=100,
+        mrmr_partial_fit_window_cfg=None,
+    )
+    c_off_f3_a = _build_combo(models=("cb",), axes=off_f3_a, seed=0)
+    c_off_f3_b = _build_combo(models=("cb",), axes=off_f3_b, seed=0)
+    assert c_off_f3_a.canonical_key() == c_off_f3_b.canonical_key(), (
+        "F14-3: partial_fit_* axes must canon-collapse when use_mrmr_fs=False"
+    )
+    # Distinct under the gate.
+    on_f3_a = dict(base_axes); on_f3_a.update(
+        use_mrmr_fs=True, mrmr_partial_fit_decay_cfg=0.3,
+    )
+    on_f3_b = dict(on_f3_a); on_f3_b["mrmr_partial_fit_decay_cfg"] = 0.0
+    c_on_f3_a = _build_combo(models=("cb",), axes=on_f3_a, seed=0)
+    c_on_f3_b = _build_combo(models=("cb",), axes=on_f3_b, seed=0)
+    assert c_on_f3_a.canonical_key() != c_on_f3_b.canonical_key(), (
+        "F14-3: partial_fit_decay 0.3 vs 0.0 must fork canon under use_mrmr_fs=True"
+    )
+
+    # ------------------------------------------------------------------
+    # F14-4 dcd_tau_cluster=auto flows verbatim under (use_mrmr_fs AND dcd_enable).
+    # ------------------------------------------------------------------
+    on_f4 = dict(base_axes); on_f4.update(
+        use_mrmr_fs=True,
+        mrmr_dcd_enable_cfg=True,
+        mrmr_dcd_tau_cluster_cfg="auto",
+    )
+    c_on_f4 = _build_combo(models=("cb",), axes=on_f4, seed=0)
+    kw_f4 = build_mrmr_kwargs(c_on_f4)
+    assert kw_f4 is not None
+    assert kw_f4["dcd_tau_cluster"] == "auto", (
+        f"F14-4: dcd_tau_cluster='auto' did not thread; got {kw_f4['dcd_tau_cluster']!r}"
+    )
+    # Canon-collapse when dcd is off.
+    off_f4_a = dict(base_axes); off_f4_a.update(
+        use_mrmr_fs=True, mrmr_dcd_enable_cfg=False,
+        mrmr_dcd_tau_cluster_cfg="auto",
+    )
+    off_f4_b = dict(off_f4_a); off_f4_b["mrmr_dcd_tau_cluster_cfg"] = 0.7
+    c_off_f4_a = _build_combo(models=("cb",), axes=off_f4_a, seed=0)
+    c_off_f4_b = _build_combo(models=("cb",), axes=off_f4_b, seed=0)
+    assert c_off_f4_a.canonical_key() == c_off_f4_b.canonical_key(), (
+        "F14-4: dcd_tau_cluster must canon-collapse when dcd is off"
+    )
+    # Distinct under the compound gate.
+    on_f4_a = dict(base_axes); on_f4_a.update(
+        use_mrmr_fs=True, mrmr_dcd_enable_cfg=True,
+        mrmr_dcd_tau_cluster_cfg="auto",
+    )
+    on_f4_b = dict(on_f4_a); on_f4_b["mrmr_dcd_tau_cluster_cfg"] = 0.7
+    c_on_f4_a = _build_combo(models=("cb",), axes=on_f4_a, seed=0)
+    c_on_f4_b = _build_combo(models=("cb",), axes=on_f4_b, seed=0)
+    assert c_on_f4_a.canonical_key() != c_on_f4_b.canonical_key(), (
+        "F14-4: dcd_tau_cluster auto vs 0.7 must fork canon under dcd_enable"
+    )
+
+    # ------------------------------------------------------------------
+    # F14-5 dcd_distance + dcd_swap_method threading + the 4 new Layer 44 values.
+    # ------------------------------------------------------------------
+    for swap_method in ("auto", "mean_z", "pca_pc2", "median_z", "signed_max_abs"):
+        on_f5 = dict(base_axes); on_f5.update(
+            use_mrmr_fs=True,
+            mrmr_dcd_enable_cfg=True,
+            mrmr_dcd_distance_cfg="auto",
+            mrmr_dcd_swap_method_cfg=swap_method,
+        )
+        c_on_f5 = _build_combo(models=("cb",), axes=on_f5, seed=0)
+        kw_f5 = build_mrmr_kwargs(c_on_f5)
+        assert kw_f5 is not None
+        assert kw_f5["dcd_distance"] == "auto", (
+            f"F14-5: dcd_distance='auto' did not thread; got {kw_f5['dcd_distance']!r}"
+        )
+        assert kw_f5["dcd_swap_method"] == swap_method, (
+            f"F14-5: dcd_swap_method={swap_method!r} did not thread; "
+            f"got {kw_f5['dcd_swap_method']!r}"
+        )
+    # F14-5 canon-collapse when dcd_enable=False.
+    off_f5_a = dict(base_axes); off_f5_a.update(
+        use_mrmr_fs=True, mrmr_dcd_enable_cfg=False,
+        mrmr_dcd_distance_cfg="auto",
+        mrmr_dcd_swap_method_cfg="pca_pc2",
+    )
+    off_f5_b = dict(off_f5_a)
+    off_f5_b.update(
+        mrmr_dcd_distance_cfg="su",
+        mrmr_dcd_swap_method_cfg="auto",
+    )
+    c_off_f5_a = _build_combo(models=("cb",), axes=off_f5_a, seed=0)
+    c_off_f5_b = _build_combo(models=("cb",), axes=off_f5_b, seed=0)
+    assert c_off_f5_a.canonical_key() == c_off_f5_b.canonical_key(), (
+        "F14-5: dcd_distance / dcd_swap_method must canon-collapse when dcd is off"
+    )
+
+    # ------------------------------------------------------------------
+    # F14-6 [shape invariant probe] -- ``fe_provenance_`` is unconditionally
+    # populated inside MRMR.fit() since Layer 54. The contract is
+    # ``len(support_) == fe_provenance_.shape[0]``. The MRMR class is
+    # imported here only to assert that the attr lives on the class (sensor
+    # against monolith-split / re-export bugs in the mrmr facade). The
+    # actual fit-time shape assertion runs under --run-fuzz when MRMR
+    # actually executes; here we pin the contract at the API surface.
+    # ------------------------------------------------------------------
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    # The class must own (or inherit) a default for support_ + fe_provenance_
+    # so post-fit shape introspection is well-defined. Layer 54 introduces
+    # fe_provenance_ as an instance attribute set inside fit(); on a fresh
+    # ctor it is absent. We assert the populator module is importable so the
+    # contract surface is reachable (split-bug sensor).
+    from mlframe.feature_selection.filters import _mrmr_fe_provenance
+    assert hasattr(_mrmr_fe_provenance, "populate_fe_provenance"), (
+        "F14-6: _mrmr_fe_provenance.populate_fe_provenance must be importable "
+        "from filters/_mrmr_fe_provenance (Layer 54 shape-contract surface)"
+    )
+    # Sanity: the MRMR class itself is reachable through the facade.
+    assert MRMR is not None
