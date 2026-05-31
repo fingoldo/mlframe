@@ -411,11 +411,31 @@ def batch_scan_constants_and_inf_polars(
     _PFX_INF = "__mlf_inf__"
     _PFX_CN = "__mlf_cn__"
     _PFX_CS = "__mlf_cs__"
+    # iter621 (perf): cache ``cs.numeric()`` so it's constructed once
+    # instead of up to 3 times across the inf+min+max expressions. The
+    # downstream selector ops (is_infinite, sum, min, max, eq_missing)
+    # all derive from the cached selector. Saves ~0.5us per call site
+    # in selector dispatch overhead. Bench c0013-shape 100k x 30 frame:
+    # 23.2ms -> 23.0ms (1.01x; selector-build is a tiny slice of total
+    # cost, the polars internal sweep dominates). Shipped anyway because
+    # there's no downside and the code is shorter.
+    num_sel = cs.numeric() if (detect_inf or detect_constant_numeric) else None
     if detect_inf:
-        exprs.append(cs.numeric().is_infinite().sum().name.prefix(_PFX_INF))
+        exprs.append(num_sel.is_infinite().sum().name.prefix(_PFX_INF))
     if detect_constant_numeric:
-        exprs.append(cs.numeric().min().eq_missing(cs.numeric().max()).name.prefix(_PFX_CN))
+        exprs.append(num_sel.min().eq_missing(num_sel.max()).name.prefix(_PFX_CN))
     if detect_constant_nonnumeric:
+        # bench-attempt-rejected (iter621, 2026-05-31): tried replacing
+        # ``n_unique() == 1`` with ``min().eq_missing(max())`` to avoid
+        # the hashset build for the constant-string detection. Bench at
+        # 100k x 30 (15 num + 15 low-card cats / strings): 0.77x
+        # REGRESSION on the low-cardinality categorical case (n_unique
+        # on a Categorical with ~8 unique values is a dict-lookup-fast
+        # path; min/max requires scanning all 100k values to find the
+        # lex extremes). Only wins on high-cardinality string cols
+        # (1.30x). The Categorical fast-path beats the min/max scan on
+        # the common cat_feature_count axis (low cardinality), so kept
+        # n_unique here.
         exprs.append(
             (cs.by_dtype(pl.String, pl.Categorical).n_unique() == 1).name.prefix(_PFX_CS)
         )
