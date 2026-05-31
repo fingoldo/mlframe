@@ -461,6 +461,7 @@ def per_feature_edges(
     y: Optional[np.ndarray] = None,
     method: str = "auto",
     base: str = "quantile",
+    cache_dir: Optional[str] = None,
     **kwargs,
 ) -> list:
     """Return list-of-arrays of bin edges per feature column.
@@ -473,6 +474,11 @@ def per_feature_edges(
             'optimal_joint' / 'cv'.
         base: For 'sturges' / 'freedman_diaconis' / 'optimal_joint' — 'quantile' (default)
             or 'uniform'.
+        cache_dir: Optional directory for a per-column content-addressable disk cache. ``None``
+            (default) disables. Each column's edge array is keyed by ``(col-summary-hash,
+            method, base, kwargs, y-summary-if-supervised)``; cross-call hits skip the per-column
+            edge-builder. For supervised methods (MDLP / mah / optimal_joint), keys include the
+            y-summary so refits with the same X but different labels do not collide.
         **kwargs: Forwarded to the underlying edge-builder
             (e.g. ``max_depth`` for fayyad_irani, ``candidates`` for optimal_joint,
             ``p0`` for bayesian_blocks).
@@ -498,6 +504,28 @@ def per_feature_edges(
         )
     if y is not None:
         y = np.asarray(y).ravel()
+
+    # Per-column content-addressable disk cache. Each column's edge computation is independent;
+    # caching keys by (column-summary, method, base, kwargs, y-summary-when-supervised) lets a
+    # second call on the same X+y skip the per-column edge-builder. Cache failures are non-fatal:
+    # we fall back to the un-cached path on any exception so a broken cache cannot break a fit.
+    _cache = None
+    _y_key = None
+    if cache_dir is not None:
+        try:
+            from mlframe.utils.disk_cache import DiskCache, compose_key, hash_array_summary, hash_object
+
+            _cache = DiskCache(cache_dir)
+            _y_key = hash_array_summary(y) if (needs_y and y is not None) else "no_y"
+            _kw_key = hash_object({
+                "method": method_resolved,
+                "base": str(base),
+                "kwargs": kwargs,
+            })
+        except Exception as exc:
+            logger.debug("per_feature_edges: cache disabled (%s)", exc)
+            _cache = None
+
     edges_list: list = []
     # 2026-05-30 Wave 9.1 fix (synergy-detection regression): if a
     # column has few unique finite values (e.g. binary target, small
@@ -511,12 +539,35 @@ def per_feature_edges(
     _low_card_cap = int(kwargs.get("low_card_cap", 32))
     for j in range(n_features):
         col = X[:, j].astype(np.float64, copy=False)
+        # Per-column cache lookup BEFORE the low-card branch so even cheap midpoint
+        # edges hit the cache on repeat fits; the gain there is modest but the code
+        # path stays uniform.
+        _col_cache_key = None
+        if _cache is not None:
+            try:
+                from mlframe.utils.disk_cache import hash_array_summary, compose_key
+
+                _col_summary = hash_array_summary(col)
+                _col_cache_key = "nbin_" + compose_key(_col_summary, _y_key, _kw_key)
+                _hit = _cache.get(_col_cache_key)
+                if _hit is not None:
+                    edges_list.append(_hit)
+                    continue
+            except Exception as exc:
+                logger.debug("per_feature_edges: cache get failed col=%d (%s)", j, exc)
+                _col_cache_key = None
         _finite = col[np.isfinite(col)]
         _uniq = np.unique(_finite) if _finite.size > 0 else np.empty(0, dtype=np.float64)
         if 1 < _uniq.size <= _low_card_cap:
             # Use midpoints between consecutive uniques as edges so
             # each unique value lands in its own bin.
-            edges_list.append(0.5 * (_uniq[:-1] + _uniq[1:]))
+            _edges_lc = 0.5 * (_uniq[:-1] + _uniq[1:])
+            edges_list.append(_edges_lc)
+            if _col_cache_key is not None:
+                try:
+                    _cache.put(_col_cache_key, _edges_lc)
+                except Exception:
+                    pass
             continue
         if method_resolved == "sturges":
             edges = edges_sturges(col, base=base)
@@ -636,4 +687,9 @@ def per_feature_edges(
                         ])
                     edges = np.unique(_new_edges)
         edges_list.append(edges)
+        if _col_cache_key is not None and edges is not None:
+            try:
+                _cache.put(_col_cache_key, edges)
+            except Exception:
+                pass
     return edges_list

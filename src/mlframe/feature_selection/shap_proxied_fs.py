@@ -297,6 +297,12 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         # are handled natively instead of one-hot pre-encoded. Ignored when ``model`` is provided.
         booster_kind: str | None = None,
         cat_features: list | None = None,
+        # iter79: content-addressable disk cache for the OOF-SHAP stage. ``None`` (default) disables.
+        # Set to a directory path to share phi/base across re-fits with the same (X, y, template,
+        # fold/seed) tuple -- e.g. hyperparam sweeps that vary downstream stages but leave the
+        # SHAP-attribution input unchanged. The cache is content-addressable, multi-process safe,
+        # LRU-evicted; see ``mlframe.utils.disk_cache``.
+        cache_dir: str | None = None,
     ):
         self.model = model
         self.classification = classification
@@ -675,6 +681,7 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         # ``cat_features`` list isn't repeatedly re-validated on every ``set_params`` call.
         self.booster_kind = booster_kind
         self.cat_features = cat_features
+        self.cache_dir = cache_dir
         self._rng = np.random.default_rng(random_state)
         # Column-batch width for the disjoint train/holdout row split. The split copies
         # `X.values[idx, :]` block-by-block to bound peak transient memory at one batch's worth
@@ -1240,7 +1247,8 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
                 rng=self._rng, tqdm_desc=("shap-oof" if self.tqdm else None), n_jobs=self.n_jobs,
                 n_estimators_cap=self.oof_shap_n_estimators,
                 inner_n_jobs_cap=self.inner_n_jobs_cap,
-                return_per_fold_phi_mean=want_per_fold_phi)
+                return_per_fold_phi_mean=want_per_fold_phi,
+                cache_dir=self.cache_dir)
         if want_var and want_per_fold_phi:
             phi, base, y_phi, phi_var, per_fold_phi_mean = shap_out
         elif want_var:

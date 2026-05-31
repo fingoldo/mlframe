@@ -916,6 +916,12 @@ class MRMR(BaseEstimator, TransformerMixin):
         partial_fit_window: int = None,
         # hidden
         stop_file: str = "stop",
+        # iter79: content-addressable disk cache for the per-column adaptive bin-edge stage. ``None``
+        # (default) disables. When set, ``per_feature_edges`` caches each column's edge array keyed
+        # by (column-summary, method, kwargs, y-summary-when-supervised); re-fits on the same X+y
+        # skip the per-column edge-builder. Most useful for hyperparam sweeps and ablations where
+        # the binning input recurs verbatim across runs. See ``mlframe.utils.disk_cache``.
+        cache_dir: str = None,
     ):
 
         # checks

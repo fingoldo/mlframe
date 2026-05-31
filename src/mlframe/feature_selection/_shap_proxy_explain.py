@@ -26,7 +26,8 @@ of scope for v1 because the coalition value is a single scalar margin per row.
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from pathlib import Path
+from typing import Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -464,6 +465,7 @@ def compute_shap_matrix(
     n_estimators_cap: Optional[int] = None,
     inner_n_jobs_cap: bool = False,
     return_per_fold_phi_mean: bool = False,
+    cache_dir: Optional[Union[str, Path]] = None,
 ):
     """Compute the per-row SHAP value matrix + per-row base value.
 
@@ -506,6 +508,79 @@ def compute_shap_matrix(
     y = np.asarray(y)
     n, f = X.shape
 
+    # Content-addressable disk cache: keyed by (X summary, y summary, booster params, fold/model
+    # state). The OOF-SHAP stage dominates wall-clock at C3/C4; in hyperparam sweeps and ablations
+    # the same (X, y, template) tuple recurs verbatim, so a hit returns phi + base + tail without
+    # paying the per-fold xgboost fit + TreeSHAP attribution cost. ``cache_dir=None`` skips entirely
+    # (default, zero behaviour change). The RNG bit-stream is snapshotted at entry so the cache key
+    # reflects the seed every fold WILL see, not whatever state ``rng`` reaches after the function
+    # consumes draws -- without that snapshot a hit on a partially-consumed rng would key under
+    # different bits than the original miss.
+    _cache = None
+    _cache_key = None
+    if cache_dir is not None:
+        try:
+            from mlframe.utils.disk_cache import DiskCache, compose_key, hash_array_summary, hash_object
+
+            _cache = DiskCache(cache_dir)
+            try:
+                _params = model_template.get_params(deep=False)
+            except Exception:
+                _params = {"_repr": repr(model_template)}
+            try:
+                _rng_state = rng.bit_generator.state
+            except AttributeError:
+                _rng_state = repr(rng)
+            _x_key = hash_array_summary(X.values if hasattr(X, "values") else np.asarray(X))
+            _y_key = hash_array_summary(np.asarray(y))
+            _state_key = hash_object({
+                "params": _params,
+                "rng": _rng_state,
+                "n_splits": int(n_splits),
+                "n_models": int(n_models),
+                "out_of_fold": bool(out_of_fold),
+                "config_jitter": bool(config_jitter),
+                "return_variance": bool(return_variance),
+                "return_per_fold_phi_mean": bool(return_per_fold_phi_mean),
+                "shap_backend": str(shap_backend),
+                "n_estimators_cap": n_estimators_cap,
+                "inner_n_jobs_cap": bool(inner_n_jobs_cap),
+                "classification": bool(classification),
+                "columns": list(map(str, getattr(X, "columns", []))),
+            })
+            _cache_key = "shap_phi_" + compose_key(_x_key, _y_key, _state_key)
+            _hit = _cache.get(_cache_key)
+            if _hit is not None:
+                logger.debug("compute_shap_matrix: cache hit key=%s", _cache_key)
+                # Replay the exact ``rng.integers`` draws the miss path would consume so the shared
+                # rng's post-state matches byte-for-byte. Without this, downstream stages that share
+                # the same rng (selector heuristics, refine, trust-guard) would observe different
+                # draws between cache-hit and cache-miss runs -- breaking subset bit-identity.
+                # Sequence (mirrors the non-cached code path below):
+                #   * out_of_fold=False: n_models seeds.
+                #   * out_of_fold=True: 1 splitter seed + n_splits * n_models fold seeds.
+                if not out_of_fold:
+                    for _ in range(n_models):
+                        rng.integers(0, 2**31 - 1)
+                else:
+                    rng.integers(0, 2**31 - 1)
+                    for _ in range(n_splits * n_models):
+                        rng.integers(0, 2**31 - 1)
+                return _hit
+        except Exception as exc:
+            # Cache failures are non-fatal: we lose the speedup but the compute path stays correct.
+            logger.debug("compute_shap_matrix: cache disabled (%s)", exc)
+            _cache = None
+            _cache_key = None
+
+    def _maybe_store(result):
+        if _cache is not None and _cache_key is not None:
+            try:
+                _cache.put(_cache_key, result)
+            except Exception as exc:
+                logger.debug("compute_shap_matrix: cache put failed (%s)", exc)
+        return result
+
     def _models_phi(X_tr, y_tr, X_ex, seeds, inner_n_jobs=None):
         """Mean phi, mean base, and (model-to-model) phi variance over n_models fits on X_ex.
 
@@ -540,8 +615,8 @@ def compute_shap_matrix(
         if return_per_fold_phi_mean:
             out_tail.append(per_fold_mean)
         if out_tail:
-            return (phi_acc, base_arr, y.astype(np.float64), *out_tail)
-        return phi_acc, base_arr, y.astype(np.float64)
+            return _maybe_store((phi_acc, base_arr, y.astype(np.float64), *out_tail))
+        return _maybe_store((phi_acc, base_arr, y.astype(np.float64)))
 
     # Out-of-fold: honest per-row attributions.
     if classification:
@@ -615,5 +690,5 @@ def compute_shap_matrix(
     if return_per_fold_phi_mean:
         out_tail.append(per_fold_mean)
     if out_tail:
-        return (phi, base, y.astype(np.float64), *out_tail)
-    return phi, base, y.astype(np.float64)
+        return _maybe_store((phi, base, y.astype(np.float64), *out_tail))
+    return _maybe_store((phi, base, y.astype(np.float64)))

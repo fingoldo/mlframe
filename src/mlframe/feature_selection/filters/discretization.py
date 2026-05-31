@@ -1039,6 +1039,7 @@ def categorize_dataset(
     nbins_strategy: str = None,
     nbins_strategy_kwargs: dict = None,
     y_for_strategy=None,
+    cache_dir: str = None,
 ):
     """Convert a DataFrame into an ordinal-encoded ``(n_samples, n_features)`` array. Accepts pandas or polars (DataFrame or LazyFrame -- materialised at the
     boundary). ``missing_strategy`` controls NaN handling: see :func:`_handle_missing`."""
@@ -1109,7 +1110,7 @@ def categorize_dataset(
         if _needs_y and y_for_strategy is not None:
             _y_arr = np.asarray(y_for_strategy).ravel()
         edges_per_col = per_feature_edges(
-            arr, y=_y_arr, method=nbins_strategy, **_strategy_kwargs,
+            arr, y=_y_arr, method=nbins_strategy, cache_dir=cache_dir, **_strategy_kwargs,
         )
         # Per-column searchsorted; pad to global max nbins.
         n_rows = arr.shape[0]

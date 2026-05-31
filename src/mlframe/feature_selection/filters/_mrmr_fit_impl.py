@@ -1825,6 +1825,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         nbins_strategy=_nbins_strategy,
         nbins_strategy_kwargs=_nbins_strategy_kwargs,
         y_for_strategy=_y_for_strategy,
+        cache_dir=getattr(self, "cache_dir", None),
     )
     logger.info("categorized.")
 
