@@ -164,12 +164,16 @@ def report_regression_model_perf(
     # F-34 (2026-05-31): MULTI_TARGET_REGRESSION gate. This reporter
     # assumes 1-D targets + 1-D preds for the scatter/histogram chart,
     # the residual audit (skew/kurtosis), the prediction-envelope clip,
-    # and the MASE / fairness subgroup paths. (N, K) targets/preds would
-    # crash inside ``fast_regression_metrics_block`` or silently degrade
-    # to column-0-only metrics. For now: compute aggregated metrics
-    # (mean per-column R^2 / RMSE / MAE) via the metrics_registry MTR
-    # path and EARLY-RETURN without the chart / audit / fairness
-    # branches. A future PR will add a per-target chart grid.
+    # and the MASE / fairness subgroup paths. (N, K) targets/preds get
+    # routed here:
+    #   * aggregated metrics (rmse_macro / r2_macro / ...) via the
+    #     metrics_registry MTR path -> stamped into the metrics dict
+    #   * per-target charts (E1, F-34 follow-up): one chart file per
+    #     target column at ``{plot_file}_target{k}{ext}``, each
+    #     produced via the existing build_regression_panel_spec ->
+    #     render_and_save pipeline (same as the single-target chart,
+    #     just looped K times). Fairness / MASE / prediction-envelope
+    #     clip stay skipped (they assume 1-D y).
     if targets_arr.ndim == 2 and targets_arr.shape[1] >= 2:
         from .configs import TargetTypes
         from .metrics_registry import iter_extra_metrics
@@ -191,13 +195,81 @@ def report_regression_model_perf(
                 logger.info("\n".join(_msg_lines))
             except Exception:
                 pass
+        # E1 (2026-05-31): per-target K-grid charts. One chart file per
+        # target column, named ``{plot_file_base}_target{k}{ext}``.
+        # Goes through the existing build_regression_panel_spec ->
+        # render_and_save pipeline so chart styling matches the
+        # single-target report exactly.
+        if plot_outputs and plot_file:
+            try:
+                from sklearn.metrics import (
+                    mean_absolute_error as _mae_for_chart,
+                    mean_squared_error as _mse_for_chart,
+                    r2_score as _r2_for_chart,
+                )
+                from mlframe.reporting.charts.regression import build_regression_panel_spec
+                from mlframe.reporting.output import parse_plot_output_dsl
+                from mlframe.reporting.renderers import render_and_save
+                from .regression_residual_audit import audit_residuals
+                _render_config = parse_plot_output_dsl(plot_outputs)
+                # render_and_save appends the format extension from
+                # the DSL config -- strip a trailing common image
+                # extension if the caller passed one so we don't end
+                # up with "file_target0.png.png".
+                _base = plot_file
+                for _ext_strip in (".png", ".pdf", ".svg", ".jpg", ".jpeg", ".html"):
+                    if _base.lower().endswith(_ext_strip):
+                        _base = _base[: -len(_ext_strip)]
+                        break
+                _K = int(targets_arr.shape[1])
+                for _k_idx in range(_K):
+                    _yt_k = targets_arr[:, _k_idx].astype(np.float64).ravel()
+                    _yp_k = preds_arr[:, _k_idx].astype(np.float64).ravel()
+                    _mask_k = np.isfinite(_yt_k) & np.isfinite(_yp_k)
+                    if int(_mask_k.sum()) < 5:
+                        logger.warning(
+                            "MTR per-target chart: target %d has <5 finite "
+                            "(true, pred) pairs; skipping chart for this column.",
+                            _k_idx,
+                        )
+                        continue
+                    _audit_k = audit_residuals(_yt_k[_mask_k], _yp_k[_mask_k], seed=42)
+                    _mae_k = float(_mae_for_chart(_yt_k[_mask_k], _yp_k[_mask_k]))
+                    _rmse_k = float(_np_sqrt := np.sqrt(_mse_for_chart(_yt_k[_mask_k], _yp_k[_mask_k])))
+                    _r2_k = float(_r2_for_chart(_yt_k[_mask_k], _yp_k[_mask_k]))
+                    _metrics_str = (
+                        f"target {_k_idx}: R^2={_r2_k:+.4f} "
+                        f"RMSE={_rmse_k:.4f} MAE={_mae_k:.4f}"
+                    )
+                    _spec = build_regression_panel_spec(
+                        _yt_k, _yp_k, audit=_audit_k,
+                        header_str=f"{report_title or model_name} target {_k_idx}",
+                        metrics_str=_metrics_str,
+                        figsize=figsize, plot_sample_size=plot_sample_size,
+                    )
+                    if plot_dpi is not None:
+                        import dataclasses as _dc
+                        _spec = _dc.replace(_spec, dpi=plot_dpi)
+                    _per_target_path = f"{_base}_target{_k_idx}"
+                    render_and_save(_spec, _render_config, _per_target_path)
+                logger.info(
+                    "MTR per-target charts: rendered %d chart base paths at "
+                    "%s_target0 ... %s_target%d (renderer appends format ext).",
+                    _K, _base, _base, _K - 1,
+                )
+            except Exception as _chart_err:
+                logger.warning(
+                    "MTR per-target chart generation failed (%s); "
+                    "aggregated metrics still stamped into metrics dict.",
+                    _chart_err,
+                )
         if verbose:
             logger.warning(
-                "MULTI_TARGET_REGRESSION report path: scatter/histogram "
-                "chart + residual audit + fairness subgroup + MASE all "
-                "skipped (per-target K-grid chart is a future PR). "
-                "Aggregated metrics from metrics_registry are stamped "
-                "into the metrics dict."
+                "MULTI_TARGET_REGRESSION report path: residual audit + "
+                "fairness subgroup + MASE skipped (1-D-only). "
+                "Aggregated metrics in metrics dict; per-target charts "
+                "rendered to {plot_file}_target{k}{ext} when plot_outputs "
+                "+ plot_file are set."
             )
         return preds_arr, None
     # Generic prediction-envelope clip. Bounds preds to a 3-sigma

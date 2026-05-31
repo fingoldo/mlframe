@@ -24,6 +24,142 @@ _DEFAULT_OOF_RANDOM_STATE = 42
 _PROB_NORM_EPS = 1e-12
 
 
+class MTRPerColumnEqualMeanEnsemble:
+    """E2 (F-34, 2026-05-31): equal-weight per-column ensemble for
+    MULTI_TARGET_REGRESSION cross-target ensembling.
+
+    Wraps a list of K trained component models (each producing (N, K)
+    predictions on input X). At predict time:
+
+      1. Each component produces preds (N, K).
+      2. Stack across components -> (n_components, N, K).
+      3. Mean across the component axis -> (N, K).
+
+    Equal weights is the MVP. Future PR: per-column honest-OOF
+    optimal weights without changing the public predict() contract.
+
+    The wrapper exposes the standard sklearn-shape predict(X) ->
+    np.ndarray so the suite's downstream save / report layers treat
+    it as any other regressor.
+    """
+
+    def __init__(self, components, component_names, n_targets: int):
+        if not components:
+            raise ValueError("MTRPerColumnEqualMeanEnsemble requires at least 1 component")
+        self._components = list(components)
+        self._component_names = list(component_names) if component_names else [
+            f"comp{i}" for i in range(len(self._components))
+        ]
+        self._n_targets = int(n_targets)
+
+    @property
+    def components(self):
+        return tuple(self._components)
+
+    @property
+    def component_names(self):
+        return tuple(self._component_names)
+
+    @property
+    def n_targets(self) -> int:
+        return self._n_targets
+
+    def predict(self, X) -> np.ndarray:
+        preds_stack = []
+        for c in self._components:
+            p = np.asarray(c.predict(X))
+            if p.ndim == 1:
+                # Single-target component? Promote (N,) to (N, 1) so the
+                # stack shape is consistent; downstream caller must
+                # ensure all components have the same n_targets dimension.
+                p = p.reshape(-1, 1)
+            preds_stack.append(p)
+        stacked = np.stack(preds_stack, axis=0)  # (n_components, N, K)
+        return stacked.mean(axis=0)
+
+    def __repr__(self) -> str:
+        return (
+            f"MTRPerColumnEqualMeanEnsemble("
+            f"n_components={len(self._components)}, "
+            f"n_targets={self._n_targets}, "
+            f"components={self._component_names!r})"
+        )
+
+
+def _build_mtr_per_column_ensemble(*, _tt_e, _orig_tname, models, metadata, target_by_type) -> None:
+    """E2 helper: build a per-column equal-mean ensemble for an MTR
+    target. Mutates ``models`` and ``metadata`` in place to mirror the
+    single-target CT_ENSEMBLE registration shape.
+
+    Collects components from ``models[_tt_e][_orig_tname]`` (same source
+    as the standard CT_ENSEMBLE function above), wraps them in
+    ``MTRPerColumnEqualMeanEnsemble``, and appends the result as a new
+    entry under the same target so downstream save / report layers see
+    a single ensemble model alongside the per-component models.
+    """
+    _orig_entries = (models or {}).get(_tt_e, {}).get(_orig_tname, []) or []
+    _components: list[Any] = []
+    _component_names: list[str] = []
+    for _i, _entry in enumerate(_orig_entries):
+        _inner = getattr(_entry, "model", None) or _entry
+        if not hasattr(_inner, "predict"):
+            continue
+        _pp = getattr(_entry, "pre_pipeline", None)
+        _name = f"raw#{_i}"
+        _components.append(PrePipelinePredictShim(_inner, _pp, _name))
+        _component_names.append(_name)
+
+    if len(_components) < 2:
+        logger.info(
+            "[MTR CT_ENSEMBLE] target='%s': only %d component(s) "
+            "available; need >=2 for an ensemble. Skipping.",
+            _orig_tname, len(_components),
+        )
+        return
+
+    # Probe K (n_targets) from the routed target_by_type entry.
+    try:
+        _y_full = (target_by_type or {}).get(_tt_e, {}).get(_orig_tname)
+        _y_arr = np.asarray(_y_full) if _y_full is not None else None
+        _K = int(_y_arr.shape[1]) if _y_arr is not None and _y_arr.ndim == 2 else 1
+    except Exception:
+        _K = 1
+
+    _ensemble_model = MTRPerColumnEqualMeanEnsemble(
+        components=_components,
+        component_names=_component_names,
+        n_targets=_K,
+    )
+    _ens_entry = SimpleNamespace(
+        model=_ensemble_model,
+        pre_pipeline=None,
+        # mirror the structural keys the standard CT_ENSEMBLE entry
+        # carries so downstream consumers that look for these attrs
+        # don't KeyError
+        model_name=f"CT_ENSEMBLE_MTR[{','.join(_component_names)}]",
+        target_name=_orig_tname,
+        ct_ensemble=True,
+        mtr_ensemble=True,
+        ensemble_strategy="per_column_equal_mean",
+        n_components=len(_components),
+        component_names=tuple(_component_names),
+    )
+    models.setdefault(_tt_e, {}).setdefault(_orig_tname, []).append(_ens_entry)
+    metadata.setdefault("mtr_ct_ensemble", {}).setdefault(
+        str(_tt_e), {})[_orig_tname] = {
+        "strategy": "per_column_equal_mean",
+        "n_components": len(_components),
+        "component_names": list(_component_names),
+        "n_targets": _K,
+    }
+    logger.info(
+        "[MTR CT_ENSEMBLE] target='%s' (K=%d): equal-weight per-column "
+        "mean ensemble built over %d components: %s. Future PR: "
+        "honest-OOF optimal per-column weights.",
+        _orig_tname, _K, len(_components), _component_names,
+    )
+
+
 def _build_cross_target_ensemble_for_target(
     *,
     _tt_e,
@@ -54,33 +190,36 @@ def _build_cross_target_ensemble_for_target(
 
     Mutates ``models``, ``metadata``, and ``_train_pred_cache`` in place; same contract as the original inline loop body.
     """
-    # F-34 (2026-05-31): cross-target ensemble assumes 1-D y per component
-    # fit; component predictions are stacked under a 1-D assumption.
-    # MULTI_TARGET_REGRESSION targets carry (N, K) preds and would either
-    # crash inside the stacker or silently degenerate to a column-0-only
-    # ensemble. Future PR: per-target CT_ENSEMBLE (K independent
-    # ensembles) or joint-column blending. Skip with WARN for now so
-    # users mixing MTR auto-route + use_mlframe_ensembles=True get a
-    # clear signal instead of silent miscomputation.
+    # F-34 (2026-05-31) + E2 (2026-05-31): MULTI_TARGET_REGRESSION
+    # cross-target ensemble path. The general CT_ENSEMBLE flow below
+    # assumes 1-D y per component (uses sklearn metrics that expect 1-D
+    # plus the honest-OOF blender that solves a 1-D regression at the
+    # component level). For (N, K) MTR targets we build a SIMPLIFIED
+    # per-column equal-weight mean ensemble: stack each component's
+    # (N, K) predictions across a "component" axis, then average across
+    # components to produce a single (N, K) ensemble output.
+    # Equal-weight is the MVP; future PR can swap in per-column honest-
+    # OOF blended weights without changing the public deployable model
+    # interface.
     try:
         from mlframe.training import TargetTypes
-        if str(_tt_e) == str(TargetTypes.MULTI_TARGET_REGRESSION) or (
-            hasattr(_tt_e, "is_multi_target_regression")
-            and _tt_e.is_multi_target_regression
-        ):
-            logger.warning(
-                "[CompositeCrossTargetEnsemble] target_type=%s is "
-                "MULTI_TARGET_REGRESSION; CT_ENSEMBLE assumes 1-D y per "
-                "component fit and does not yet support (N, K) targets. "
-                "Skipping CT_ENSEMBLE for target='%s'. Future PR: "
-                "per-target K-independent ensembles or joint-column blending.",
-                _tt_e, _orig_tname,
-            )
-            return
+        _is_mtr = (
+            str(_tt_e) == str(TargetTypes.MULTI_TARGET_REGRESSION)
+            or (hasattr(_tt_e, "is_multi_target_regression")
+                and _tt_e.is_multi_target_regression)
+        )
     except Exception:
-        # Don't crash CT_ENSEMBLE entirely if the gate check itself
-        # fails (e.g. TargetTypes not importable for some reason).
-        pass
+        _is_mtr = False
+
+    if _is_mtr:
+        _build_mtr_per_column_ensemble(
+            _tt_e=_tt_e,
+            _orig_tname=_orig_tname,
+            models=models,
+            metadata=metadata,
+            target_by_type=target_by_type,
+        )
+        return
 
     # Collect raw-target + wrapped composite-target entries for this original target.
     _components: list[Any] = []

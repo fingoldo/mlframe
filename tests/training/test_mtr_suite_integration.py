@@ -133,48 +133,10 @@ def test_report_regression_n1_y_treated_as_single_target():
     assert is_mtr is False, "(N, 1) must NOT trigger the MTR gate"
 
 
-# --- D2: CT_ENSEMBLE early-skip --------------------------------------------
-
-
-def test_ct_ensemble_skip_for_mtr_logs_warning(caplog):
-    """When _build_ct_ensemble_for_target is invoked with
-    target_type=MULTI_TARGET_REGRESSION, it logs a WARN and returns
-    without mutating models/metadata."""
-    from mlframe.training.core._phase_composite_post_xt_ensemble import (
-        _build_cross_target_ensemble_for_target,
-    )
-    models, metadata, cache = {}, {}, {}
-    with caplog.at_level(logging.WARNING, logger="mlframe.training.core._phase_composite_post_xt_ensemble"):
-        _build_cross_target_ensemble_for_target(
-            _tt_e=TargetTypes.MULTI_TARGET_REGRESSION,
-            _orig_tname="mtr_target",
-            _spec_list=[],
-            _ce_strategy="weighted_mean",
-            models=models,
-            metadata=metadata,
-            target_by_type={TargetTypes.MULTI_TARGET_REGRESSION: {"mtr_target": np.zeros((10, 3))}},
-            composite_target_discovery_config=None,
-            target_name="mtr_target",
-            model_name="test",
-            filtered_train_df=None,
-            filtered_val_df=None,
-            test_df_pd=None,
-            filtered_train_idx=None,
-            filtered_val_idx=None,
-            test_idx=None,
-            train_df_pd=None,
-            val_df_pd=None,
-            train_idx=None,
-            val_idx=None,
-            reporting_config=None,
-            plot_file=None,
-            _train_pred_cache=cache,
-        )
-    # Models / metadata / cache unchanged.
-    assert models == {}
-    assert metadata == {}
-    assert cache == {}
-    # Warning logged.
-    warn_msgs = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
-    assert any("MULTI_TARGET_REGRESSION" in m and "CT_ENSEMBLE" in m
-               for m in warn_msgs), f"expected MTR CT_ENSEMBLE skip warning; got {warn_msgs}"
+# --- D2 superseded by E2 -----------------------------------------------------
+#
+# The earlier D2 test asserted "MTR target_type causes CT_ENSEMBLE to log a
+# WARN and skip". E2 (commit landing alongside this update) replaced the
+# skip with an actual per-column equal-mean ensemble (see
+# test_mtr_charts_and_ensemble.py::test_ct_ensemble_dispatcher_routes_mtr_to_per_column_path).
+# The new contract is the right one — silent skip was a stepping-stone.
