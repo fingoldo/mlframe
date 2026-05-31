@@ -894,6 +894,21 @@ class MRMR(BaseEstimator, TransformerMixin):
         # pickle byte-equivalence.
         fe_hybrid_orth_auto_scorer_enable: bool = False,
         fe_hybrid_orth_auto_scorer_n_boot: int = 5,
+        # 2026-06-01 Layer 69 — ENSEMBLE-OF-SCORERS rank-fusion for hybrid
+        # orth-poly FE. Sibling of Layer 68: instead of picking ONE scorer
+        # per column via bootstrap LCB, aggregate per-scorer rankings via
+        # mean_rank / borda_count / reciprocal_rank fusion and select by
+        # the consensus rank. The ensemble wins when bootstrap-LCB noise
+        # makes the per-column winner unstable across seeds -- rank fusion
+        # smooths over the instability because a column ranked high by
+        # ANY of the participating scorers keeps a high consensus rank
+        # even if no individual scorer wins the LCB tournament on every
+        # seed. Default OFF preserves pickle byte-equivalence.
+        fe_hybrid_orth_ensemble_enable: bool = False,
+        fe_hybrid_orth_ensemble_aggregator: str = "mean_rank",
+        fe_hybrid_orth_ensemble_scorers: tuple = (
+            "plug_in", "ksg", "copula", "dcor",
+        ),
         # 2026-05-31 Layer 32 — extra (non-polynomial) basis FE: B-spline +
         # Fourier. Complementary to the orth-poly path: spline catches sharp
         # local non-linearities (threshold rules ``y = sign(x - tau)``);
@@ -1404,6 +1419,13 @@ class MRMR(BaseEstimator, TransformerMixin):
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_hybrid_orth_auto_scorer_enable": False,
             "fe_hybrid_orth_auto_scorer_n_boot": 5,
+            # 2026-06-01 Layer 69 — ensemble rank-fusion defaults.
+            # Master switch OFF preserves legacy pickle byte-equivalence.
+            "fe_hybrid_orth_ensemble_enable": False,
+            "fe_hybrid_orth_ensemble_aggregator": "mean_rank",
+            "fe_hybrid_orth_ensemble_scorers": (
+                "plug_in", "ksg", "copula", "dcor",
+            ),
             # 2026-05-31 Layer 32 — extra-basis (spline / fourier) defaults.
             "fe_hybrid_orth_extra_bases": (),
             "fe_hybrid_orth_fourier_freqs": (1.0, 2.0),

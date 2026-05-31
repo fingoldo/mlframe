@@ -1526,6 +1526,111 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     "continuing without auto-scorer columns.",
                     type(_auto_exc).__name__, _auto_exc,
                 )
+    # 2026-06-01 Layer 69 — ENSEMBLE-OF-SCORERS rank-fusion across the
+    # Layer 21 / 65 / 66 / 67 scorer family (independent opt-in; does NOT
+    # require fe_hybrid_orth_enable). Each requested scorer ranks every
+    # engineered column independently; the per-scorer ranks are fused via
+    # ``fe_hybrid_orth_ensemble_aggregator`` (mean_rank / borda_count /
+    # reciprocal_rank) and the consensus drives selection. Complementary
+    # to Layer 68: ensemble wins on AMBIGUOUS frames where the bootstrap-
+    # LCB per-column winner is unstable across seeds. Engineered VALUES
+    # bit-equal to Layer 21 -> recipes reuse the ``orth_univariate`` kind.
+    if bool(getattr(self, "fe_hybrid_orth_ensemble_enable", False)):
+        _is_pandas_for_ens = isinstance(X, pd.DataFrame)
+        if not _is_pandas_for_ens:
+            warnings.warn(
+                "MRMR: fe_hybrid_orth_ensemble_enable=True but X is not a "
+                "pandas DataFrame; ensemble hybrid FE is skipped. Convert "
+                "to pandas via X.to_pandas() before fit() if you want the "
+                "ensemble selection applied.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from ._orthogonal_scorer_auto_fe import (
+                    hybrid_orth_mi_ensemble_fe_with_recipes,
+                )
+                _y_for_ens = (
+                    y.to_numpy() if hasattr(y, "to_numpy")
+                    else np.asarray(y)
+                )
+                _hybrid_already_appended = set(
+                    getattr(self, "hybrid_orth_features_", None) or []
+                )
+                if getattr(self, "factors_names_to_use", None):
+                    _ens_cols = [
+                        c for c in self.factors_names_to_use
+                        if c in X.columns
+                        and c not in _hybrid_already_appended
+                    ]
+                else:
+                    _ens_cols = [
+                        c for c in X.columns
+                        if c not in _hybrid_already_appended
+                    ]
+                _ens_degrees = tuple(int(d) for d in getattr(
+                    self, "fe_hybrid_orth_degrees", (2, 3),
+                ))
+                _ens_basis = str(getattr(
+                    self, "fe_hybrid_orth_basis", "auto",
+                ))
+                _ens_top_k = int(getattr(self, "fe_hybrid_orth_top_k", 5))
+                _ens_aggregator = str(getattr(
+                    self, "fe_hybrid_orth_ensemble_aggregator", "mean_rank",
+                ))
+                _ens_scorers = tuple(getattr(
+                    self, "fe_hybrid_orth_ensemble_scorers",
+                    ("plug_in", "ksg", "copula", "dcor"),
+                ))
+                # Same gate calibration as Layers 65 / 66 / 67 / 68: the
+                # raw-x dependence is captured by the chosen scorers
+                # nearly as cleanly as the engineered column, so the
+                # uplift floor sits at 0.95 and the abs MI fraction at
+                # 0.05 to keep genuine borderline wins.
+                _ens_min_uplift = 0.95
+                _ens_min_abs_mi_frac = 0.05
+                _X_before_ens_cols = list(X.columns)
+                X_ens, _ens_scores, _ens_recipes = (
+                    hybrid_orth_mi_ensemble_fe_with_recipes(
+                        X, _y_for_ens,
+                        cols=_ens_cols,
+                        degrees=_ens_degrees,
+                        basis=_ens_basis,
+                        top_k=_ens_top_k,
+                        min_uplift=_ens_min_uplift,
+                        min_abs_mi_frac=_ens_min_abs_mi_frac,
+                        scorers=_ens_scorers,
+                        aggregator=_ens_aggregator,
+                        random_state=int(
+                            getattr(self, "random_seed", 0) or 0
+                        ),
+                    )
+                )
+                _ens_appended = [
+                    c for c in X_ens.columns
+                    if c not in _X_before_ens_cols
+                ]
+                if _ens_appended:
+                    X = X_ens
+                    self.hybrid_orth_features_ = (
+                        list(self.hybrid_orth_features_ or [])
+                        + list(_ens_appended)
+                    )
+                    for _r in _ens_recipes:
+                        _hybrid_orth_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit hybrid_orth ensemble: appended %d "
+                            "engineered column(s) via %s aggregator: %s",
+                            len(_ens_appended), _ens_aggregator,
+                            _ens_appended[:8],
+                        )
+            except Exception as _ens_exc:
+                logger.warning(
+                    "MRMR.fit hybrid_orth ensemble FE raised %s: %s; "
+                    "continuing without ensemble columns.",
+                    type(_ens_exc).__name__, _ens_exc,
+                )
     # 2026-05-21 revert of Wave 29 P1 polars->pandas coercion. That
     # coercion was added on the premise that downstream ``X[target_name]
     # = y`` mutation assumed pandas and would raise on polars; but the
