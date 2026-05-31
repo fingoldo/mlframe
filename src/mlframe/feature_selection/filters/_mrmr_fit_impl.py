@@ -2077,6 +2077,38 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # ---------------------------------------------------------------------------------------------------------------
 
     self.support_ = np.array(selected_vars)
+    # Always store ``cached_MIs`` -- the empty-support fallback at the bottom
+    # of this function reads ``self.cached_MIs`` to rank by raw MI(X_j, y), so
+    # the attribute should exist regardless of ``retain_artifacts``. Cheap (a
+    # dict of tuple->float; bounded by the screen's candidate pool).
+    self.cached_MIs = cached_MIs
+
+    # iter66: artifact retention for cross-selector reuse (off by default).
+    # Captured at the cols-space stage so ``data`` / ``cols`` / ``nbins`` are
+    # the active matrices the screen actually consumed; the export dict is
+    # axis-aligned to the original ``feature_names_in_`` for the downstream
+    # consumer's convenience.
+    if getattr(self, "retain_artifacts", False):
+        try:
+            from ._mrmr_artifacts import compute_mrmr_artifacts
+            self._artifacts_ = compute_mrmr_artifacts(
+                data=data,
+                cols=list(cols),
+                nbins=nbins,
+                target_indices=target_indices,
+                cached_MIs=cached_MIs,
+                feature_names_in=list(self.feature_names_in_),
+                support_original=self.support_,
+                retain_bins=bool(getattr(self, "retain_bins", True)),
+                dtype=self.quantization_dtype,
+            )
+        except Exception as _exc:
+            logger.warning(
+                "MRMR.retain_artifacts: capture failed (%s); export_artifacts() will raise. "
+                "Cause: %s",
+                type(_exc).__name__, _exc,
+            )
+            self._artifacts_ = None
     # 2026-05-30 Wave 9.1 fix (loop iter 30): populate ``mrmr_gains_``
     # so the documented ``uaed_auto_size=True`` post-fit elbow trim at
     # line 1020+ actually fires. Pre-fix the comment claimed

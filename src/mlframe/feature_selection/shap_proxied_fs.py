@@ -250,6 +250,12 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         random_state: int = 0,
         verbose: bool = True,
         tqdm: bool = False,
+        # iter66: accept precomputed cross-selector artifacts (canonically from
+        # ``MRMR(retain_artifacts=True).export_artifacts()``) so the stage-A
+        # univariate F-statistic pre-screen can be replaced with the SU ranking
+        # the MRMR screen already computed. ``None`` (default) preserves
+        # legacy behaviour byte-identical.
+        precomputed: dict | None = None,
     ):
         self.model = model
         self.classification = classification
@@ -585,6 +591,10 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         self.random_state = random_state
         self.verbose = verbose
         self.tqdm = tqdm
+        # iter66: precomputed cross-selector artifacts; validated + aligned to
+        # X.columns at fit() time via ``align_precomputed_to_X``. Stored as-is
+        # so sklearn ``clone(estimator)`` round-trips the value.
+        self.precomputed = precomputed
         self._rng = np.random.default_rng(random_state)
         # Column-batch width for the disjoint train/holdout row split. The split copies
         # `X.values[idx, :]` block-by-block to bound peak transient memory at one batch's worth
@@ -851,6 +861,23 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
 
         report: dict = {}
 
+        # iter66: validate + align the precomputed cross-selector artifacts
+        # (canonically from ``MRMR(retain_artifacts=True).export_artifacts()``)
+        # against X.columns. On any mismatch ``align_precomputed_to_X`` logs a
+        # warning and returns None so the prefilter falls back to legacy
+        # behaviour. The diagnostic block is always surfaced under
+        # ``report['precomputed_used']`` so callers can confirm which path ran.
+        from mlframe.feature_selection._shap_proxy_precomputed import (
+            align_precomputed_to_X, su_to_prefilter_keep,
+        )
+        _precomputed_aligned, _precomputed_report = align_precomputed_to_X(
+            self.precomputed, X_search,
+        )
+        report["precomputed_used"] = _precomputed_report
+        report["precomputed_bins_available"] = bool(
+            isinstance(_precomputed_aligned, dict) and _precomputed_aligned.get("bins")
+        )
+
         # Cheap native-importance pre-filter BEFORE the expensive OOF-SHAP. SHAP cost scales with the
         # column count, and clustering only compresses CORRELATED features (independent noise stays as
         # singletons), so on wide data SHAP would otherwise run on ~all columns. Rank all features and
@@ -922,12 +949,29 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
                             _default_stage1_keep(n_features))
 
             with _stage("prefilter"):
-                working_cols, pf_info = prefilter_columns(
-                    model_template, X_search, y_search, method=self.prefilter_method,
-                    prefilter_top=effective_prefilter_top, classification=self.classification,
-                    n_features=n_features, n_estimators_cap=self.prefilter_n_estimators,
-                    stage1_keep=effective_stage1_keep,
-                    univariate_batch_size=self.prefilter_univariate_batch_size)
+                if (_precomputed_aligned is not None
+                        and "su_to_target" in _precomputed_aligned):
+                    # iter66: replace the booster / F-statistic prefilter with
+                    # the SU(X_j, y) ranking the MRMR screen already computed.
+                    # Skips the cloned-booster fit / chunked f_classif pass
+                    # entirely; the ordering is more cardinality-honest than
+                    # the F-statistic for mixed-cardinality features
+                    # (Witten-Frank-Hall 2011).
+                    working_cols = su_to_prefilter_keep(
+                        _precomputed_aligned, keep_top=int(effective_prefilter_top),
+                    )
+                    pf_info = {
+                        "method": "precomputed_su",
+                        "kept": int(working_cols.size),
+                        "source": "MRMR.export_artifacts",
+                    }
+                else:
+                    working_cols, pf_info = prefilter_columns(
+                        model_template, X_search, y_search, method=self.prefilter_method,
+                        prefilter_top=effective_prefilter_top, classification=self.classification,
+                        n_features=n_features, n_estimators_cap=self.prefilter_n_estimators,
+                        stage1_keep=effective_stage1_keep,
+                        univariate_batch_size=self.prefilter_univariate_batch_size)
                 if len(working_cols) < n_features:
                     X_search = X_search.iloc[:, working_cols]
                 report["prefilter"] = pf_info

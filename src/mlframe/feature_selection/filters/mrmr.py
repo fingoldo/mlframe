@@ -778,6 +778,14 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_lagged_diff_time_col: str = None,
         fe_lagged_diff_value_cols: tuple = (),
         fe_lagged_diff_periods: tuple = (1, 2),
+        # Artifact retention for cross-selector reuse. When True, after fit() the
+        # estimator carries ``su_to_target_``, ``mi_to_target_``, ``cached_MIs``,
+        # and (when ``retain_bins=True``) per-column binned arrays so a downstream
+        # selector (e.g. ShapProxiedFS(precomputed=mrmr.export_artifacts()))
+        # can skip its own univariate pre-screen. Default False keeps the legacy
+        # memory footprint byte-identical.
+        retain_artifacts: bool = False,
+        retain_bins: bool = True,
         # hidden
         stop_file: str = "stop",
     ):
@@ -1389,6 +1397,54 @@ class MRMR(BaseEstimator, TransformerMixin):
                         pass
             self._pandas_frame_for_target_cleanup = None
             self._target_names_for_cleanup = None
+
+    def export_artifacts(self) -> dict:
+        """Return the in-fit reusable intermediates as a dict for downstream selectors.
+
+        Requires the estimator to have been constructed with
+        ``retain_artifacts=True`` (off by default to preserve the legacy memory
+        footprint) and to have been fitted. The returned dict carries
+        Symmetric Uncertainty + direct MI vectors against y, plus -- when
+        ``retain_bins=True`` -- the per-column binned arrays. Schema is defined
+        in ``_mrmr_artifacts._ARTIFACT_SCHEMA``; consumers MUST tolerate missing
+        optional keys for forward compat.
+
+        The canonical consumer is ``ShapProxiedFS(precomputed=...)``: passing
+        ``mrmr.export_artifacts()`` lets that selector skip its own univariate
+        F-statistic pre-screen and rank by MRMR's SU(X_j, y) instead. The
+        selected subset is unchanged for SU-vs-F-ranking-equivalent regimes;
+        the win is wall-clock + a more cardinality-honest ranking on mixed-
+        cardinality data.
+
+        Raises
+        ------
+        ValueError
+            If ``self.retain_artifacts`` is False (artifacts were not captured).
+        sklearn.exceptions.NotFittedError
+            If the estimator has not been fitted yet.
+        """
+        if not getattr(self, "retain_artifacts", False):
+            raise ValueError(
+                "MRMR.export_artifacts() requires retain_artifacts=True at construction time. "
+                "Re-construct as MRMR(retain_artifacts=True, ...) and fit before exporting."
+            )
+        from sklearn.utils.validation import check_is_fitted
+        check_is_fitted(self, ["support_"])
+        artifacts = getattr(self, "_artifacts_", None)
+        if not artifacts:
+            # retain_artifacts=True was set but the in-fit capture did not
+            # populate the dict -- likely a fit() path that bypassed
+            # _fit_impl (identity shortcut, FIT_CACHE hit on a pre-Wave-66
+            # cached instance, stability-selection outer loop). Surface a
+            # clear error so the caller can adjust the pipeline rather than
+            # silently consuming an empty dict.
+            raise ValueError(
+                "MRMR.export_artifacts(): retain_artifacts=True but the in-fit capture did "
+                "not populate self._artifacts_. The fit may have hit the identity-shortcut "
+                "cache or a pre-retain_artifacts cached instance; refit with "
+                "MRMR._FIT_CACHE.clear() and mrmr_skip_when_prior_was_identity=False."
+            )
+        return artifacts
 
     def _fit_identity_shortcut(self, X) -> None:
         """Populate the fit-result attributes as if MRMR returned the input X unchanged.
