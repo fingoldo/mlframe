@@ -1412,21 +1412,37 @@ def within_cluster_refine(
     # template, cap) tuple on hyperparam sweeps -- a warm-cache lookup skips the booster fit entirely.
     # ``None`` (default) keeps the legacy in-memory-only contract bit-identical.
     disk_cache = _open_disk_cache(disk_cache_dir)
-    base = _honest_loss(model_template, X_search, y_search, X_holdout, y_holdout, current, classification,
-                        metric, cache=cache, n_estimators_cap=cap, template_id=tid, disk_cache=disk_cache)
-    threshold = base + parsimony_tol * abs(base)
-
-    # ---- Stage 1: per-cluster collapse (one parallel probe per multi-cluster).
-    # Skip when member_groups is missing OR has too few multi-member groups to pay the stage-1 toll
-    # (k probes + 1 cumulative verify); on low-redundancy data the cluster-collapse never fires and
-    # we just want to fall through to stage 2's legacy single-drop greedy.
+    # Defer the initial-base fit when Stage 1 won't fire: in that case Stage 2a's
+    # ``_permutation_importance_ranking`` fits the SAME booster on the SAME ``current`` columns
+    # (same template, same cap, same fixed template random_state, no seed-override on the base
+    # call), so its returned ``rank_base`` is byte-equivalent to the value the base ``_honest_loss``
+    # would have produced. Folding the two into one fit saves ~0.5 s per refine call at C3-scale
+    # (10k rows x 26-col working set) and pays out anytime member_groups is None or all groups are
+    # singletons (the cluster-collapse low-redundancy fast path). When Stage 1 WILL fire we keep
+    # the eager base fit because its threshold gates the Stage 1 probes -- the perm-importance pass
+    # runs AFTER Stage 1 may have shrunk ``current``, so its rank_base would be on the wrong set.
     n_multi_eligible = 0
     if member_groups is not None:
         current_set_pre = set(current)
         for g in member_groups:
             if sum(1 for c in g if int(c) in current_set_pre) > 1:
                 n_multi_eligible += 1
-    if member_groups is not None and n_multi_eligible >= min_multi_clusters:
+    stage1_will_fire = member_groups is not None and n_multi_eligible >= min_multi_clusters
+    if stage1_will_fire:
+        base = _honest_loss(model_template, X_search, y_search, X_holdout, y_holdout, current,
+                            classification, metric, cache=cache, n_estimators_cap=cap,
+                            template_id=tid, disk_cache=disk_cache)
+        threshold = base + parsimony_tol * abs(base)
+    else:
+        # Sentinel: Stage 2a will compute ``rank_base`` and seed ``base`` from it.
+        base = None  # type: ignore[assignment]
+        threshold = None  # type: ignore[assignment]
+
+    # ---- Stage 1: per-cluster collapse (one parallel probe per multi-cluster).
+    # Skip when member_groups is missing OR has too few multi-member groups to pay the stage-1 toll
+    # (k probes + 1 cumulative verify); on low-redundancy data the cluster-collapse never fires and
+    # we just want to fall through to stage 2's legacy single-drop greedy.
+    if stage1_will_fire:
         current_set = set(current)
         # Normalize: filter member_groups to columns actually in `current`, drop empties / singletons.
         multi: list[list[int]] = []
@@ -1506,7 +1522,15 @@ def within_cluster_refine(
         rank_base, importances = _permutation_importance_ranking(
             model_template, X_search, y_search, X_holdout, y_holdout, current, classification, metric,
             n_estimators_cap=cap, seed=0, disk_cache=disk_cache, template_id=tid)
-        base = min(base, float(rank_base))
+        # When Stage 1 was skipped, ``rank_base`` IS the initial honest base on the full working set
+        # (perm-importance fits the same booster on the same cols, so the un-permuted loss is the
+        # base ``_honest_loss`` would have returned). When Stage 1 fired and updated base/threshold,
+        # min() preserves the existing semantics (Stage 1 only ever drops cols, so its post-drop
+        # loss is the smaller-is-better value to keep).
+        if base is None:
+            base = float(rank_base)
+        else:
+            base = min(base, float(rank_base))
         cur_threshold = base + parsimony_tol * abs(base)
         # Persist per-column importance so stage 2b can sort its drop trials by ascending-importance
         # priors (lowest importance = safest drop = lowest expected honest loss). Used as the UCB
