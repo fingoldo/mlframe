@@ -729,6 +729,98 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     "continuing without conditional-routing columns.",
                     type(_rt_exc).__name__, _rt_exc,
                 )
+    # 2026-05-31 Layer 59 — DIFF-BASIS FE for highly-correlated source pairs.
+    # Independent opt-in (does NOT require fe_hybrid_orth_enable). When
+    # active, the auto-pair detector flags every pair with |Pearson corr| >=
+    # threshold, computes the residual diff, and evaluates a basis expansion
+    # per requested degree; top-K winners appended. Recipe kind
+    # ``orth_diff_basis``; replay reads X only, no y.
+    if bool(getattr(self, "fe_hybrid_orth_diff_basis_enable", False)):
+        _is_pandas_for_diff = isinstance(X, pd.DataFrame)
+        if not _is_pandas_for_diff:
+            warnings.warn(
+                "MRMR: fe_hybrid_orth_diff_basis_enable=True but X is not a "
+                "pandas DataFrame; diff-basis FE is skipped. Convert to "
+                "pandas via X.to_pandas() before fit() if you want diff-basis "
+                "FE applied.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from ._orthogonal_diff_basis_fe import (
+                    hybrid_orth_mi_diff_basis_fe_with_recipes,
+                )
+                _y_for_diff = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                if _y_for_diff.dtype.kind in "fc":
+                    _n_unique = int(np.unique(_y_for_diff).size)
+                    if _n_unique <= 32:
+                        _y_for_diff = _y_for_diff.astype(np.int64)
+                    else:
+                        try:
+                            _y_for_diff = pd.qcut(
+                                _y_for_diff, q=10, labels=False, duplicates="drop",
+                            ).astype(np.int64)
+                        except Exception:
+                            _y_for_diff = _y_for_diff.astype(np.int64)
+                # Restrict the seed pool to RAW source columns -- engineered
+                # columns from prior stages would create recipes whose
+                # src_names reference an engineered column absent at transform.
+                _hybrid_already_appended = set(
+                    getattr(self, "hybrid_orth_features_", None) or []
+                )
+                if getattr(self, "factors_names_to_use", None):
+                    _df_cols = [
+                        c for c in self.factors_names_to_use
+                        if c in X.columns and c not in _hybrid_already_appended
+                    ]
+                else:
+                    _df_cols = [
+                        c for c in X.columns
+                        if c not in _hybrid_already_appended
+                    ]
+                _df_corr = float(getattr(
+                    self, "fe_hybrid_orth_diff_basis_corr_threshold", 0.7,
+                ))
+                _df_degrees = tuple(int(d) for d in getattr(
+                    self, "fe_hybrid_orth_diff_basis_degrees", (1, 2, 3),
+                ))
+                _df_top_k = int(getattr(
+                    self, "fe_hybrid_orth_diff_basis_top_k", 3,
+                ))
+                _X_before_diff_cols = list(X.columns)
+                X_df, _df_scores, _df_recipes = (
+                    hybrid_orth_mi_diff_basis_fe_with_recipes(
+                        X, _y_for_diff,
+                        cols=_df_cols,
+                        degrees=_df_degrees,
+                        pair_corr_threshold=_df_corr,
+                        top_k=_df_top_k,
+                    )
+                )
+                _df_appended = [
+                    c for c in X_df.columns if c not in _X_before_diff_cols
+                ]
+                if _df_appended:
+                    X = X_df
+                    self.hybrid_orth_features_ = (
+                        list(self.hybrid_orth_features_ or []) + list(_df_appended)
+                    )
+                    for _r in _df_recipes:
+                        _hybrid_orth_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit hybrid_orth diff-basis: appended %d "
+                            "engineered column(s): %s",
+                            len(_df_appended), _df_appended[:8],
+                        )
+            except Exception as _df_exc:
+                logger.warning(
+                    "MRMR.fit hybrid_orth diff-basis FE raised %s: %s; "
+                    "continuing without diff-basis columns.",
+                    type(_df_exc).__name__, _df_exc,
+                )
     # 2026-05-21 revert of Wave 29 P1 polars->pandas coercion. That
     # coercion was added on the premise that downstream ``X[target_name]
     # = y`` mutation assumed pandas and would raise on polars; but the

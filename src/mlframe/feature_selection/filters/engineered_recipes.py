@@ -125,7 +125,7 @@ class EngineeredRecipe:
     # (src_names=(c_i, c_j), extra={basis_i, basis_j, deg_a, deg_b}). Replay
     # is closed-form from the source column(s) alone -- no y reference is
     # captured at fit time, so transform() is leakage-free by construction.
-    kind: Literal["unary_binary", "factorize", "hermite_pair", "target_encoding", "cluster_aggregate", "orth_univariate", "orth_pair_cross", "orth_triplet_cross", "orth_spline", "orth_fourier", "mi_greedy_transform", "kfold_target_encoded", "count_encoded", "frequency_encoded", "cat_num_residual", "missing_indicator", "missingness_count", "missingness_pattern", "pairwise_ratio", "grouped_delta", "lagged_diff"]
+    kind: Literal["unary_binary", "factorize", "hermite_pair", "target_encoding", "cluster_aggregate", "orth_univariate", "orth_pair_cross", "orth_triplet_cross", "orth_spline", "orth_fourier", "orth_diff_basis", "mi_greedy_transform", "kfold_target_encoded", "count_encoded", "frequency_encoded", "cat_num_residual", "missing_indicator", "missingness_count", "missingness_pattern", "pairwise_ratio", "grouped_delta", "lagged_diff"]
     src_names: tuple[str, ...]
     unary_names: tuple[str, ...] = ()
     binary_name: str = ""
@@ -316,6 +316,11 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         return _apply_orth_univariate(recipe, X)
     if recipe.kind == "orth_pair_cross":
         return _apply_orth_pair_cross(recipe, X)
+    if recipe.kind == "orth_diff_basis":
+        # Layer 59 (2026-05-31): lazy import keeps this module under the
+        # ~1.8k-LOC ceiling; the apply helper lives in the sibling FE module.
+        from ._orthogonal_diff_basis_fe import _apply_orth_diff_basis
+        return _apply_orth_diff_basis(recipe, X)
     if recipe.kind == "orth_triplet_cross":
         from ._orthogonal_triplet_fe_recipes import _apply_orth_triplet_cross
         return _apply_orth_triplet_cross(recipe, X)
@@ -1103,6 +1108,32 @@ def build_orth_pair_cross_recipe(
             "deg_a": int(deg_a),
             "deg_b": int(deg_b),
         },
+    )
+
+
+def build_orth_diff_basis_recipe(
+    *, name: str, col_a: str, col_b: str,
+    basis: str, degree: int, pre_transform: str = "raw",
+) -> EngineeredRecipe:
+    """Layer 59 (2026-05-31): frozen recipe for one diff-basis column
+    ``basis_degree(preprocess(pre_transform(X[col_a] - X[col_b])))``.
+
+    The diff orientation is FIXED as ``col_a - col_b`` so the recipe replays
+    deterministically; reversing the column order yields a sign-flipped
+    column which the MI scorer treats as a distinct candidate. Replay is a
+    pure function of X (no y reference). ``pre_transform`` defaults to
+    ``"raw"`` so the field is omitted from ``extra`` on the legacy path,
+    keeping recipe byte-equality with earlier diff-basis pickles that pre-
+    date the pre-transform feature.
+    """
+    extra = {"basis": str(basis), "degree": int(degree)}
+    if pre_transform and pre_transform != "raw":
+        extra["pre_transform"] = str(pre_transform)
+    return EngineeredRecipe(
+        name=name,
+        kind="orth_diff_basis",
+        src_names=(str(col_a), str(col_b)),
+        extra=extra,
     )
 
 

@@ -756,6 +756,18 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_hybrid_orth_conditional_routing_top_k: int = 5,
         fe_hybrid_orth_conditional_routing_min_uplift: float = 1.10,
         fe_hybrid_orth_conditional_routing_degrees: tuple = (2, 3),
+        # 2026-05-31 Layer 59 — DIFF-BASIS FE for highly-correlated source
+        # pairs (sibling module ``_orthogonal_diff_basis_fe``). Independent
+        # opt-in (does NOT require fe_hybrid_orth_enable). When enabled, the
+        # auto-pair detector flags every pair with |Pearson corr| >= the
+        # threshold, computes the residual ``X[a] - X[b]``, and evaluates
+        # ``basis_d(preprocess(diff))`` for each degree. Top-K winners
+        # appended; recipe kind ``"orth_diff_basis"``; replay reads X only,
+        # no y. Default OFF preserves legacy pickle byte-equivalence.
+        fe_hybrid_orth_diff_basis_enable: bool = False,
+        fe_hybrid_orth_diff_basis_corr_threshold: float = 0.7,
+        fe_hybrid_orth_diff_basis_degrees: tuple = (1, 2, 3),
+        fe_hybrid_orth_diff_basis_top_k: int = 3,
         # 2026-05-31 Layer 32 — extra (non-polynomial) basis FE: B-spline +
         # Fourier. Complementary to the orth-poly path: spline catches sharp
         # local non-linearities (threshold rules ``y = sign(x - tau)``);
@@ -1205,6 +1217,12 @@ class MRMR(BaseEstimator, TransformerMixin):
             "fe_hybrid_orth_conditional_routing_top_k": 5,
             "fe_hybrid_orth_conditional_routing_min_uplift": 1.10,
             "fe_hybrid_orth_conditional_routing_degrees": (2, 3),
+            # 2026-05-31 Layer 59 — diff-basis FE defaults.
+            # Master switch OFF preserves legacy pickle byte-equivalence.
+            "fe_hybrid_orth_diff_basis_enable": False,
+            "fe_hybrid_orth_diff_basis_corr_threshold": 0.7,
+            "fe_hybrid_orth_diff_basis_degrees": (1, 2, 3),
+            "fe_hybrid_orth_diff_basis_top_k": 3,
             # 2026-05-31 Layer 32 — extra-basis (spline / fourier) defaults.
             "fe_hybrid_orth_extra_bases": (),
             "fe_hybrid_orth_fourier_freqs": (1.0, 2.0),
