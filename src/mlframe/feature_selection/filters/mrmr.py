@@ -768,6 +768,20 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_hybrid_orth_diff_basis_corr_threshold: float = 0.7,
         fe_hybrid_orth_diff_basis_degrees: tuple = (1, 2, 3),
         fe_hybrid_orth_diff_basis_top_k: int = 3,
+        # 2026-05-31 Layer 61 — PER-CLUSTER SHARED-BASIS FE (sibling module
+        # ``_orthogonal_cluster_basis_fe``). Independent opt-in (does NOT
+        # require fe_hybrid_orth_enable). When enabled, the internal
+        # correlation-based cluster detector finds connected components of
+        # the |Pearson corr| >= corr_threshold graph, reduces each cluster
+        # to one column via ``aggregator`` (mean_z / median_z / pc1), then
+        # evaluates ``basis_d(preprocess(aggregate))`` for each requested
+        # degree. Top-K winners appended; recipe kind
+        # ``"orth_cluster_basis"``; replay reads X only, no y. Default OFF
+        # preserves legacy pickle byte-equivalence.
+        fe_hybrid_orth_cluster_basis_enable: bool = False,
+        fe_hybrid_orth_cluster_basis_aggregator: str = "mean_z",
+        fe_hybrid_orth_cluster_basis_degrees: tuple = (2, 3),
+        fe_hybrid_orth_cluster_basis_top_k: int = 3,
         # 2026-05-31 Layer 32 — extra (non-polynomial) basis FE: B-spline +
         # Fourier. Complementary to the orth-poly path: spline catches sharp
         # local non-linearities (threshold rules ``y = sign(x - tau)``);
@@ -1244,6 +1258,12 @@ class MRMR(BaseEstimator, TransformerMixin):
             "fe_hybrid_orth_diff_basis_corr_threshold": 0.7,
             "fe_hybrid_orth_diff_basis_degrees": (1, 2, 3),
             "fe_hybrid_orth_diff_basis_top_k": 3,
+            # 2026-05-31 Layer 61 — per-cluster shared-basis FE defaults.
+            # Master switch OFF preserves legacy pickle byte-equivalence.
+            "fe_hybrid_orth_cluster_basis_enable": False,
+            "fe_hybrid_orth_cluster_basis_aggregator": "mean_z",
+            "fe_hybrid_orth_cluster_basis_degrees": (2, 3),
+            "fe_hybrid_orth_cluster_basis_top_k": 3,
             # 2026-05-31 Layer 32 — extra-basis (spline / fourier) defaults.
             "fe_hybrid_orth_extra_bases": (),
             "fe_hybrid_orth_fourier_freqs": (1.0, 2.0),

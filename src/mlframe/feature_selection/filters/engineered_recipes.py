@@ -125,7 +125,7 @@ class EngineeredRecipe:
     # (src_names=(c_i, c_j), extra={basis_i, basis_j, deg_a, deg_b}). Replay
     # is closed-form from the source column(s) alone -- no y reference is
     # captured at fit time, so transform() is leakage-free by construction.
-    kind: Literal["unary_binary", "factorize", "hermite_pair", "target_encoding", "cluster_aggregate", "orth_univariate", "orth_pair_cross", "orth_triplet_cross", "orth_spline", "orth_fourier", "orth_diff_basis", "mi_greedy_transform", "kfold_target_encoded", "count_encoded", "frequency_encoded", "cat_num_residual", "missing_indicator", "missingness_count", "missingness_pattern", "pairwise_ratio", "grouped_delta", "lagged_diff"]
+    kind: Literal["unary_binary", "factorize", "hermite_pair", "target_encoding", "cluster_aggregate", "orth_univariate", "orth_pair_cross", "orth_triplet_cross", "orth_spline", "orth_fourier", "orth_diff_basis", "orth_cluster_basis", "mi_greedy_transform", "kfold_target_encoded", "count_encoded", "frequency_encoded", "cat_num_residual", "missing_indicator", "missingness_count", "missingness_pattern", "pairwise_ratio", "grouped_delta", "lagged_diff"]
     src_names: tuple[str, ...]
     unary_names: tuple[str, ...] = ()
     binary_name: str = ""
@@ -321,6 +321,13 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         # ~1.8k-LOC ceiling; the apply helper lives in the sibling FE module.
         from ._orthogonal_diff_basis_fe import _apply_orth_diff_basis
         return _apply_orth_diff_basis(recipe, X)
+    if recipe.kind == "orth_cluster_basis":
+        # Layer 61 (2026-05-31): per-cluster shared-basis FE. Replay
+        # recomputes the aggregate from the stored member tuple via the
+        # recipe-stored aggregator (mean_z / median_z / pc1), then evaluates
+        # the same basis_degree -- bit-exact round-trip from fit to transform.
+        from ._orthogonal_cluster_basis_fe import _apply_orth_cluster_basis
+        return _apply_orth_cluster_basis(recipe, X)
     if recipe.kind == "orth_triplet_cross":
         from ._orthogonal_triplet_fe_recipes import _apply_orth_triplet_cross
         return _apply_orth_triplet_cross(recipe, X)
@@ -1134,6 +1141,36 @@ def build_orth_diff_basis_recipe(
         kind="orth_diff_basis",
         src_names=(str(col_a), str(col_b)),
         extra=extra,
+    )
+
+
+def build_orth_cluster_basis_recipe(
+    *, name: str, members: tuple[str, ...],
+    basis: str, degree: int, aggregator: str = "mean_z",
+) -> EngineeredRecipe:
+    """Layer 61 (2026-05-31): frozen recipe for one per-cluster shared-
+    basis column ``basis_degree(preprocess(aggregator(members)))``.
+
+    The member tuple is stored in deterministic (sorted) order so the
+    aggregate orientation matches fit time exactly. ``aggregator`` is
+    one of ``mean_z`` / ``median_z`` / ``pc1`` -- see
+    :func:`compute_cluster_aggregate` in the cluster-basis FE module.
+    Replay is a pure function of X (no y reference).
+    """
+    if len(members) < 2:
+        raise ValueError(
+            f"build_orth_cluster_basis_recipe: ``members`` must have >=2 "
+            f"entries (cluster, not singleton); got {len(members)}."
+        )
+    return EngineeredRecipe(
+        name=name,
+        kind="orth_cluster_basis",
+        src_names=tuple(str(m) for m in members),
+        extra={
+            "basis": str(basis),
+            "degree": int(degree),
+            "aggregator": str(aggregator),
+        },
     )
 
 

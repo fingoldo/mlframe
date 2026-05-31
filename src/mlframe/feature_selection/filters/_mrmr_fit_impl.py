@@ -821,6 +821,111 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     "continuing without diff-basis columns.",
                     type(_df_exc).__name__, _df_exc,
                 )
+    # 2026-05-31 Layer 61 — PER-CLUSTER SHARED-BASIS FE. Independent opt-in
+    # (does NOT require fe_hybrid_orth_enable). When active, an internal
+    # correlation-based cluster detector finds connected components of the
+    # |Pearson corr| >= corr_threshold graph among raw numeric columns, then
+    # for each cluster reduces to one aggregate column via the configured
+    # aggregator (mean_z / median_z / pc1) and evaluates basis_d on the
+    # aggregate. The shared-basis path complements Layer 21 (per-member
+    # basis) and Layer 7 cluster_aggregate (swaps cluster to PC1/mean_z as a
+    # new raw feature WITHOUT a basis expansion). Recipe kind
+    # ``orth_cluster_basis``; replay reads X only, no y.
+    if bool(getattr(self, "fe_hybrid_orth_cluster_basis_enable", False)):
+        _is_pandas_for_cb = isinstance(X, pd.DataFrame)
+        if not _is_pandas_for_cb:
+            warnings.warn(
+                "MRMR: fe_hybrid_orth_cluster_basis_enable=True but X is not "
+                "a pandas DataFrame; cluster-basis FE is skipped. Convert to "
+                "pandas via X.to_pandas() before fit() if you want cluster-"
+                "basis FE applied.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from ._orthogonal_cluster_basis_fe import (
+                    hybrid_orth_mi_cluster_basis_fe_with_recipes,
+                )
+                _y_for_cb = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                if _y_for_cb.dtype.kind in "fc":
+                    _n_unique = int(np.unique(_y_for_cb).size)
+                    if _n_unique <= 32:
+                        _y_for_cb = _y_for_cb.astype(np.int64)
+                    else:
+                        try:
+                            _y_for_cb = pd.qcut(
+                                _y_for_cb, q=10, labels=False, duplicates="drop",
+                            ).astype(np.int64)
+                        except Exception:
+                            _y_for_cb = _y_for_cb.astype(np.int64)
+                # Restrict to RAW source columns -- engineered columns from
+                # prior stages would create recipes whose src_names reference
+                # an engineered column absent at transform.
+                _hybrid_already_appended = set(
+                    getattr(self, "hybrid_orth_features_", None) or []
+                )
+                if getattr(self, "factors_names_to_use", None):
+                    _cb_cols = [
+                        c for c in self.factors_names_to_use
+                        if c in X.columns and c not in _hybrid_already_appended
+                    ]
+                else:
+                    _cb_cols = [
+                        c for c in X.columns
+                        if c not in _hybrid_already_appended
+                    ]
+                _cb_aggregator = str(getattr(
+                    self, "fe_hybrid_orth_cluster_basis_aggregator", "mean_z",
+                ))
+                _cb_degrees = tuple(int(d) for d in getattr(
+                    self, "fe_hybrid_orth_cluster_basis_degrees", (2, 3),
+                ))
+                _cb_top_k = int(getattr(
+                    self, "fe_hybrid_orth_cluster_basis_top_k", 3,
+                ))
+                # Cluster detection reuses the diff-basis corr threshold as a
+                # sensible default (same calibration: 0.7 is the reflection-
+                # cluster floor). We deliberately do NOT share the same
+                # constructor argument so callers can tune diff-basis and
+                # cluster-basis independently.
+                _cb_corr = float(getattr(
+                    self, "fe_hybrid_orth_diff_basis_corr_threshold", 0.7,
+                ))
+                _X_before_cb_cols = list(X.columns)
+                X_cb, _cb_scores, _cb_recipes = (
+                    hybrid_orth_mi_cluster_basis_fe_with_recipes(
+                        X, _y_for_cb,
+                        cols=_cb_cols,
+                        aggregator=_cb_aggregator,
+                        degrees=_cb_degrees,
+                        corr_threshold=_cb_corr,
+                        top_k=_cb_top_k,
+                    )
+                )
+                _cb_appended = [
+                    c for c in X_cb.columns if c not in _X_before_cb_cols
+                ]
+                if _cb_appended:
+                    X = X_cb
+                    self.hybrid_orth_features_ = (
+                        list(self.hybrid_orth_features_ or []) + list(_cb_appended)
+                    )
+                    for _r in _cb_recipes:
+                        _hybrid_orth_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit hybrid_orth cluster-basis: appended %d "
+                            "engineered column(s): %s",
+                            len(_cb_appended), _cb_appended[:8],
+                        )
+            except Exception as _cb_exc:
+                logger.warning(
+                    "MRMR.fit hybrid_orth cluster-basis FE raised %s: %s; "
+                    "continuing without cluster-basis columns.",
+                    type(_cb_exc).__name__, _cb_exc,
+                )
     # 2026-05-21 revert of Wave 29 P1 polars->pandas coercion. That
     # coercion was added on the premise that downstream ``X[target_name]
     # = y`` mutation assumed pandas and would raise on polars; but the
