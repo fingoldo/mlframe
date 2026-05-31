@@ -822,6 +822,29 @@ class MRMR(BaseEstimator, TransformerMixin):
         # memory footprint byte-identical.
         retain_artifacts: bool = False,
         retain_bins: bool = True,
+        # 2026-05-31 Layer 53 — incremental / streaming refit support via
+        # ``partial_fit(X_new, y_new)``. Default-OFF byte-identical with
+        # legacy fit(): the partial_fit method is opt-in only. Knobs:
+        #   partial_fit_decay : float in [0, 1]. 0 = no decay (concatenate
+        #     all historic batches), 1 = full re-weight on the new batch
+        #     (effectively re-fit on new only). Intermediate values weight
+        #     recent rows more heavily via per-row sample weights at the
+        #     resample stage. Implemented by upsampling the new batch by
+        #     ``ceil(1 / max(1-decay, eps))`` against the historic buffer
+        #     when calling the underlying fit(); preserves the bit-exact
+        #     legacy weighted-resample contract.
+        #   partial_fit_min_recompute : int. Minimum number of new rows
+        #     observed since the last full refit before partial_fit triggers
+        #     a recompute. Smaller updates are buffered until the threshold
+        #     is reached. Defaults to 100 to amortise screening cost across
+        #     small streaming batches.
+        #   partial_fit_window : int or None. Rolling window in rows. When
+        #     not None and the buffered (X, y) exceeds this length, the
+        #     oldest rows are dropped before the next refit. None disables
+        #     the rolling window (cumulative growth).
+        partial_fit_decay: float = 0.0,
+        partial_fit_min_recompute: int = 100,
+        partial_fit_window: int = None,
         # hidden
         stop_file: str = "stop",
     ):
@@ -1144,6 +1167,16 @@ class MRMR(BaseEstimator, TransformerMixin):
             "count_encoding_features_": [],
             "frequency_encoding_features_": [],
             "cat_num_interaction_features_": [],
+            # 2026-05-31 Layer 53 — partial_fit / streaming refit.
+            # Legacy pickles default OFF (decay 0, threshold 100, no window);
+            # fitted-state buffers default to None until partial_fit is called.
+            "partial_fit_decay": 0.0,
+            "partial_fit_min_recompute": 100,
+            "partial_fit_window": None,
+            "_partial_fit_X_buffer_": None,
+            "_partial_fit_y_buffer_": None,
+            "_partial_fit_n_seen_": 0,
+            "_partial_fit_n_since_refit_": 0,
         }
         for k, v in defaults.items():
             state.setdefault(k, v)
@@ -1727,3 +1760,9 @@ MRMR._validate_inputs = _validate_inputs_func
 # late-rebind ``MRMR.transform`` here - that would replay the original
 # bug by stripping the wrapper.
 MRMR._append_engineered = _append_engineered_func
+
+# Layer 53 (2026-05-31): incremental / streaming refit. ``partial_fit``
+# lives in the sibling module so the parent stays under the 1.8k LOC budget;
+# binding here keeps the public sklearn-style API on the class surface.
+from ._mrmr_partial_fit import partial_fit as _partial_fit_func  # noqa: E402
+MRMR.partial_fit = _partial_fit_func
