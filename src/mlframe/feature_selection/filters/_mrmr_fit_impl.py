@@ -1534,6 +1534,95 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     "continuing without HSIC columns.",
                     type(_hsic_exc).__name__, _hsic_exc,
                 )
+    # 2026-06-01 Layer 72 — JMIM (Bennasar 2015) redundancy-aware ranking
+    # for hybrid orth-poly FE (independent opt-in; does NOT require
+    # fe_hybrid_orth_enable). Each engineered candidate is scored by
+    # ``min over X_j in S of I((X_cand, X_j); Y)`` where S is the raw
+    # source column pool. Selection: same two-gate rule as Layers 65 /
+    # 66 / 67 / 71. Engineered VALUES bit-equal to Layer 21 -> recipes
+    # reuse the ``orth_univariate`` kind.
+    if bool(getattr(self, "fe_hybrid_orth_jmim_enable", False)):
+        _is_pandas_for_jmim = isinstance(X, pd.DataFrame)
+        if not _is_pandas_for_jmim:
+            warnings.warn(
+                "MRMR: fe_hybrid_orth_jmim_enable=True but X is not a "
+                "pandas DataFrame; JMIM hybrid FE is skipped. "
+                "Convert to pandas via X.to_pandas() before fit() if you "
+                "want the JMIM selection applied.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from ._orthogonal_jmim_fe import (
+                    hybrid_orth_mi_jmim_fe_with_recipes,
+                )
+                _y_for_jmim = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                _hybrid_already_appended = set(
+                    getattr(self, "hybrid_orth_features_", None) or []
+                )
+                if getattr(self, "factors_names_to_use", None):
+                    _jmim_cols = [
+                        c for c in self.factors_names_to_use
+                        if c in X.columns and c not in _hybrid_already_appended
+                    ]
+                else:
+                    _jmim_cols = [
+                        c for c in X.columns
+                        if c not in _hybrid_already_appended
+                    ]
+                _jmim_degrees = tuple(int(d) for d in getattr(
+                    self, "fe_hybrid_orth_degrees", (2, 3),
+                ))
+                _jmim_basis = str(getattr(
+                    self, "fe_hybrid_orth_basis", "auto",
+                ))
+                _jmim_top_k = int(getattr(self, "fe_hybrid_orth_top_k", 5))
+                _jmim_n_bins = int(getattr(
+                    self, "fe_hybrid_orth_jmim_n_bins", 10,
+                ))
+                # Same calibration as Layers 65 / 66 / 67 / 71: 0.95 /
+                # 0.05 floor keeps genuine borderline wins.
+                _jmim_min_uplift = 0.95
+                _jmim_min_abs_mi_frac = 0.05
+                _X_before_jmim_cols = list(X.columns)
+                X_jmim, _jmim_scores, _jmim_recipes = (
+                    hybrid_orth_mi_jmim_fe_with_recipes(
+                        X, _y_for_jmim,
+                        cols=_jmim_cols,
+                        degrees=_jmim_degrees,
+                        basis=_jmim_basis,
+                        top_k=_jmim_top_k,
+                        min_uplift=_jmim_min_uplift,
+                        min_abs_mi_frac=_jmim_min_abs_mi_frac,
+                        n_bins=_jmim_n_bins,
+                    )
+                )
+                _jmim_appended = [
+                    c for c in X_jmim.columns
+                    if c not in _X_before_jmim_cols
+                ]
+                if _jmim_appended:
+                    X = X_jmim
+                    self.hybrid_orth_features_ = (
+                        list(self.hybrid_orth_features_ or [])
+                        + list(_jmim_appended)
+                    )
+                    for _r in _jmim_recipes:
+                        _hybrid_orth_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit hybrid_orth JMIM: appended %d "
+                            "engineered column(s): %s",
+                            len(_jmim_appended), _jmim_appended[:8],
+                        )
+            except Exception as _jmim_exc:
+                logger.warning(
+                    "MRMR.fit hybrid_orth JMIM FE raised %s: %s; "
+                    "continuing without JMIM columns.",
+                    type(_jmim_exc).__name__, _jmim_exc,
+                )
     # 2026-06-01 Layer 68 — PER-COLUMN SCORER AUTO-SELECTION across the
     # Layer 21 / 65 / 66 / 67 scorer family (independent opt-in; does NOT
     # require fe_hybrid_orth_enable). For each engineered column the

@@ -893,6 +893,21 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_hybrid_orth_hsic_enable: bool = False,
         fe_hybrid_orth_hsic_kernel: str = "rbf",
         fe_hybrid_orth_hsic_n_sample: int = 500,
+        # 2026-06-01 Layer 72 — JMIM (Joint Mutual Information Maximisation,
+        # Bennasar 2015) redundancy-aware ranking for hybrid orth-poly FE
+        # (sibling module ``_orthogonal_jmim_fe``). Independent opt-in (does
+        # NOT require fe_hybrid_orth_enable). Layers 21 / 65 / 66 / 67 / 71
+        # rank by MARGINAL dependence with y; Layer 72 ranks by the WORST-
+        # CASE joint MI against the already-selected support:
+        # ``J(X_k) = min over X_j in S of I((X_k, X_j); Y)`` (Bennasar 2015,
+        # Eq. 5). The min over S enforces non-redundancy column-by-column,
+        # so a candidate that is informative jointly with ONE support
+        # member but redundant with ANOTHER cannot hide behind the strong
+        # interaction. Engineered VALUES are bit-equal to Layer 21 ->
+        # recipes reuse the ``orth_univariate`` kind. Default OFF preserves
+        # pickle byte-equivalence.
+        fe_hybrid_orth_jmim_enable: bool = False,
+        fe_hybrid_orth_jmim_n_bins: int = 10,
         # 2026-06-01 Layer 68 — PER-COLUMN SCORER AUTO-SELECTION across the
         # full Layer 21 / 65 / 66 / 67 family (sibling module
         # ``_orthogonal_scorer_auto_fe``). Independent opt-in (does NOT
@@ -1439,6 +1454,10 @@ class MRMR(BaseEstimator, TransformerMixin):
             "fe_hybrid_orth_hsic_enable": False,
             "fe_hybrid_orth_hsic_kernel": "rbf",
             "fe_hybrid_orth_hsic_n_sample": 500,
+            # 2026-06-01 Layer 72 — JMIM (Bennasar 2015) defaults.
+            # Master switch OFF preserves legacy pickle byte-equivalence.
+            "fe_hybrid_orth_jmim_enable": False,
+            "fe_hybrid_orth_jmim_n_bins": 10,
             # 2026-06-01 Layer 68 — per-column scorer auto-selection defaults.
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_hybrid_orth_auto_scorer_enable": False,
