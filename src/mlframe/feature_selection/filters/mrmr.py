@@ -877,6 +877,22 @@ class MRMR(BaseEstimator, TransformerMixin):
         # byte-equivalence.
         fe_hybrid_orth_dcor_enable: bool = False,
         fe_hybrid_orth_dcor_n_sample: int = 500,
+        # 2026-06-01 Layer 71 — HSIC (Hilbert-Schmidt Independence Criterion)
+        # ranking for the hybrid orth-poly FE (sibling module
+        # ``_orthogonal_hsic_fe``). Independent opt-in (does NOT require
+        # fe_hybrid_orth_enable). Like Layer 67 dCor, HSIC is a NON-MI
+        # dependence measure with the universal ``HSIC == 0 iff independent``
+        # guarantee under a CHARACTERISTIC kernel (Gaussian RBF). Operates
+        # at a kernel-chosen length SCALE via the median-heuristic bandwidth;
+        # complementary to dCor (which has no scale parameter) on sharp
+        # local non-linearities and high-frequency oscillation. Naive HSIC
+        # is O(n^2) memory; the working sample is capped at n=500 via
+        # deterministic random subsample. Engineered VALUES bit-equal to
+        # Layer 21 -> recipes reuse the ``orth_univariate`` kind. Default
+        # OFF preserves pickle byte-equivalence.
+        fe_hybrid_orth_hsic_enable: bool = False,
+        fe_hybrid_orth_hsic_kernel: str = "rbf",
+        fe_hybrid_orth_hsic_n_sample: int = 500,
         # 2026-06-01 Layer 68 — PER-COLUMN SCORER AUTO-SELECTION across the
         # full Layer 21 / 65 / 66 / 67 family (sibling module
         # ``_orthogonal_scorer_auto_fe``). Independent opt-in (does NOT
@@ -906,8 +922,11 @@ class MRMR(BaseEstimator, TransformerMixin):
         # seed. Default OFF preserves pickle byte-equivalence.
         fe_hybrid_orth_ensemble_enable: bool = False,
         fe_hybrid_orth_ensemble_aggregator: str = "mean_rank",
+        # 2026-06-01 Layer 71: HSIC added to the ensemble default pool;
+        # callers that previously pinned the 4-tuple keep the old
+        # behaviour, the default now leverages all five scorers.
         fe_hybrid_orth_ensemble_scorers: tuple = (
-            "plug_in", "ksg", "copula", "dcor",
+            "plug_in", "ksg", "copula", "dcor", "hsic",
         ),
         # 2026-05-31 Layer 32 — extra (non-polynomial) basis FE: B-spline +
         # Fourier. Complementary to the orth-poly path: spline catches sharp
@@ -1415,6 +1434,11 @@ class MRMR(BaseEstimator, TransformerMixin):
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_hybrid_orth_dcor_enable": False,
             "fe_hybrid_orth_dcor_n_sample": 500,
+            # 2026-06-01 Layer 71 — HSIC ranking defaults.
+            # Master switch OFF preserves legacy pickle byte-equivalence.
+            "fe_hybrid_orth_hsic_enable": False,
+            "fe_hybrid_orth_hsic_kernel": "rbf",
+            "fe_hybrid_orth_hsic_n_sample": 500,
             # 2026-06-01 Layer 68 — per-column scorer auto-selection defaults.
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_hybrid_orth_auto_scorer_enable": False,
@@ -1424,7 +1448,7 @@ class MRMR(BaseEstimator, TransformerMixin):
             "fe_hybrid_orth_ensemble_enable": False,
             "fe_hybrid_orth_ensemble_aggregator": "mean_rank",
             "fe_hybrid_orth_ensemble_scorers": (
-                "plug_in", "ksg", "copula", "dcor",
+                "plug_in", "ksg", "copula", "dcor", "hsic",
             ),
             # 2026-05-31 Layer 32 — extra-basis (spline / fourier) defaults.
             "fe_hybrid_orth_extra_bases": (),

@@ -529,8 +529,9 @@ class TestDefaultDisabledByteIdentical:
         m = _make_mrmr()
         assert m.fe_hybrid_orth_ensemble_enable is False
         assert m.fe_hybrid_orth_ensemble_aggregator == "mean_rank"
+        # 2026-06-01 Layer 71: HSIC joined the default ensemble pool.
         assert tuple(m.fe_hybrid_orth_ensemble_scorers) == (
-            "plug_in", "ksg", "copula", "dcor",
+            "plug_in", "ksg", "copula", "dcor", "hsic",
         )
 
 

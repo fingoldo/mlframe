@@ -81,7 +81,14 @@ __all__ = [
 
 
 # Canonical scorer identifiers used in the auto-selection table.
-SCORER_NAMES = ("plug_in", "ksg", "copula", "dcor")
+# 2026-06-01 Layer 71: HSIC joined the pool. Kernel-based dependence with
+# the same iff-independence guarantee dCor offers but at a bandwidth-tuned
+# length scale -- complementary to dCor on sharp local non-linearities and
+# high-frequency oscillation. Adding HSIC is back-compat: callers that
+# pinned the legacy 4-tuple via ``fe_hybrid_orth_ensemble_scorers`` keep
+# the old behaviour; the auto pool picks HSIC when its bootstrap LCB
+# dominates the other four.
+SCORER_NAMES = ("plug_in", "ksg", "copula", "dcor", "hsic")
 
 # Canonical aggregator identifiers for ensemble-of-scorers rank fusion.
 # - mean_rank: average of per-scorer ranks (1 = best); the standard rank-
@@ -161,6 +168,18 @@ def _score_dcor(x: np.ndarray, y: np.ndarray, *, n_sample: int = 500,
     return float(distance_correlation(
         np.asarray(x).ravel(), np.asarray(y).ravel(),
         n_sample=int(n_sample), random_state=int(random_state),
+    ))
+
+
+def _score_hsic(x: np.ndarray, y: np.ndarray, *, n_sample: int = 500,
+                random_state: int = 0) -> float:
+    """HSIC -- Layer 71's kernel-based non-MI dependence (RBF, median heuristic)."""
+    from ._orthogonal_hsic_fe import hsic
+
+    return float(hsic(
+        np.asarray(x).ravel(), np.asarray(y).ravel(),
+        kernel="rbf", n_sample=int(n_sample),
+        random_state=int(random_state),
     ))
 
 
@@ -307,6 +326,11 @@ def select_best_scorer_per_column(
             return _score_copula(x_vec, y_vec, n_bins=int(copula_n_bins))
         if name == "dcor":
             return _score_dcor(
+                x_vec, y_vec, n_sample=int(dcor_n_sample),
+                random_state=int(seed),
+            )
+        if name == "hsic":
+            return _score_hsic(
                 x_vec, y_vec, n_sample=int(dcor_n_sample),
                 random_state=int(seed),
             )
@@ -674,6 +698,11 @@ def _compute_per_scorer_rank_table(
             return _score_copula(x_vec, y_vec, n_bins=int(copula_n_bins))
         if name == "dcor":
             return _score_dcor(
+                x_vec, y_vec, n_sample=int(dcor_n_sample),
+                random_state=int(random_state),
+            )
+        if name == "hsic":
+            return _score_hsic(
                 x_vec, y_vec, n_sample=int(dcor_n_sample),
                 random_state=int(random_state),
             )

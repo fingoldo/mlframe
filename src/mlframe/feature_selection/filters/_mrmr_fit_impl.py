@@ -1433,6 +1433,107 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     "continuing without dCor columns.",
                     type(_dcor_exc).__name__, _dcor_exc,
                 )
+    # 2026-06-01 Layer 71 — HSIC ranking for hybrid orth-poly FE
+    # (independent opt-in; does NOT require fe_hybrid_orth_enable).
+    # Kernel-based dependence measure with the universal HSIC == 0 iff
+    # independent guarantee under a characteristic kernel (Gaussian RBF
+    # with median-heuristic bandwidth). Complementary to Layer 67 dCor:
+    # HSIC operates at a kernel-chosen length SCALE, wins on sharp local
+    # non-linearities and high-frequency oscillation. Naive HSIC is
+    # O(n^2); the working sample is capped at n=500 via deterministic
+    # random subsample. Engineered VALUES bit-equal to Layer 21 ->
+    # recipes reuse the ``orth_univariate`` kind.
+    if bool(getattr(self, "fe_hybrid_orth_hsic_enable", False)):
+        _is_pandas_for_hsic = isinstance(X, pd.DataFrame)
+        if not _is_pandas_for_hsic:
+            warnings.warn(
+                "MRMR: fe_hybrid_orth_hsic_enable=True but X is not a "
+                "pandas DataFrame; HSIC hybrid FE is skipped. "
+                "Convert to pandas via X.to_pandas() before fit() if you "
+                "want the HSIC selection applied.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from ._orthogonal_hsic_fe import (
+                    hybrid_orth_mi_hsic_fe_with_recipes,
+                )
+                _y_for_hsic = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                _hybrid_already_appended = set(
+                    getattr(self, "hybrid_orth_features_", None) or []
+                )
+                if getattr(self, "factors_names_to_use", None):
+                    _hsic_cols = [
+                        c for c in self.factors_names_to_use
+                        if c in X.columns and c not in _hybrid_already_appended
+                    ]
+                else:
+                    _hsic_cols = [
+                        c for c in X.columns
+                        if c not in _hybrid_already_appended
+                    ]
+                _hsic_degrees = tuple(int(d) for d in getattr(
+                    self, "fe_hybrid_orth_degrees", (2, 3),
+                ))
+                _hsic_basis = str(getattr(
+                    self, "fe_hybrid_orth_basis", "auto",
+                ))
+                _hsic_top_k = int(getattr(self, "fe_hybrid_orth_top_k", 5))
+                _hsic_kernel = str(getattr(
+                    self, "fe_hybrid_orth_hsic_kernel", "rbf",
+                ))
+                _hsic_n_sample = int(getattr(
+                    self, "fe_hybrid_orth_hsic_n_sample", 500,
+                ))
+                # Same calibration as Layers 65 / 66 / 67: HSIC on raw x
+                # already captures non-linear structure (the polynomial
+                # basis tracks the same dependence the RBF kernel
+                # detects), so engineered/baseline uplift on a single
+                # source typically sits near 1.0; 0.95 / 0.05 floor
+                # keeps genuine borderline wins.
+                _hsic_min_uplift = 0.95
+                _hsic_min_abs_mi_frac = 0.05
+                _X_before_hsic_cols = list(X.columns)
+                X_hsic, _hsic_scores, _hsic_recipes = (
+                    hybrid_orth_mi_hsic_fe_with_recipes(
+                        X, _y_for_hsic,
+                        cols=_hsic_cols,
+                        degrees=_hsic_degrees,
+                        basis=_hsic_basis,
+                        top_k=_hsic_top_k,
+                        min_uplift=_hsic_min_uplift,
+                        min_abs_mi_frac=_hsic_min_abs_mi_frac,
+                        kernel=_hsic_kernel,
+                        n_sample=_hsic_n_sample,
+                        random_state=int(getattr(self, "random_seed", 0) or 0),
+                    )
+                )
+                _hsic_appended = [
+                    c for c in X_hsic.columns
+                    if c not in _X_before_hsic_cols
+                ]
+                if _hsic_appended:
+                    X = X_hsic
+                    self.hybrid_orth_features_ = (
+                        list(self.hybrid_orth_features_ or [])
+                        + list(_hsic_appended)
+                    )
+                    for _r in _hsic_recipes:
+                        _hybrid_orth_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit hybrid_orth HSIC: appended %d "
+                            "engineered column(s): %s",
+                            len(_hsic_appended), _hsic_appended[:8],
+                        )
+            except Exception as _hsic_exc:
+                logger.warning(
+                    "MRMR.fit hybrid_orth HSIC FE raised %s: %s; "
+                    "continuing without HSIC columns.",
+                    type(_hsic_exc).__name__, _hsic_exc,
+                )
     # 2026-06-01 Layer 68 — PER-COLUMN SCORER AUTO-SELECTION across the
     # Layer 21 / 65 / 66 / 67 scorer family (independent opt-in; does NOT
     # require fe_hybrid_orth_enable). For each engineered column the
@@ -1580,7 +1681,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 ))
                 _ens_scorers = tuple(getattr(
                     self, "fe_hybrid_orth_ensemble_scorers",
-                    ("plug_in", "ksg", "copula", "dcor"),
+                    ("plug_in", "ksg", "copula", "dcor", "hsic"),
                 ))
                 # Same gate calibration as Layers 65 / 66 / 67 / 68: the
                 # raw-x dependence is captured by the chosen scorers
