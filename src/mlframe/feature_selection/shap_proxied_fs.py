@@ -404,6 +404,12 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         # the cap (legacy 300-tree fit). Honest re-validation + trust-guard still use the FULL
         # template (uncapped) on the final chosen subset, so the user-facing OOF loss reported in
         # ``report['holdout_loss']`` is unaffected.
+        # bench-attempt-rejected (iter90, 2026-06-01): tried lowering default 100 -> 50 at C3
+        # (n_samples=10000, width=10000, n_inf=20, n_red=20, snr=8.0, seed=0). Recall tied at 17/20
+        # AND oof_shap stage 7.84s -> 2.44s (3.2x faster). But chosen-subset honest brier loss
+        # regressed 0.1348 -> 0.1498 (loss_ratio 0.581 -> 0.6518, +12% worse vs random baseline).
+        # The OOF-SHAP ranking is recall-stable below 100 trees but the coalition value used in
+        # the chosen-subset pick degrades, surfacing as a worse holdout brier. Keeping default=100.
         self.oof_shap_n_estimators = oof_shap_n_estimators
         # ``prefilter_stage1_keep`` overrides the two_stage prefilter's stage-A survivor count.
         # None -> the prefilter module computes ``min(2000, 0.2*n_features)`` (default funnel).
