@@ -19,6 +19,8 @@ loss everywhere, to match the proxy objective.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
+from typing import Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -30,6 +32,69 @@ from sklearn.metrics import (
 from mlframe.feature_selection._shap_proxy_objective import coalition_margin, proxy_loss, resolve_metric
 
 logger = logging.getLogger(__name__)
+
+
+# Cache-key namespace for the cross-process honest_loss disk cache. Keeps entries from this consumer
+# from colliding with the shap_phi_ entries the OOF-SHAP path writes into the same cache_dir, and
+# makes the cache human-greppable (``ls cache_dir/honest_loss_*`` shows reval/trust entries).
+_HONEST_LOSS_CACHE_PREFIX = "honest_loss_"
+
+
+def _build_honest_loss_disk_key(model_template, X_tr, y_tr, X_ev, y_ev, idx, classification, metric,
+                                seed, n_estimators_cap, template_id) -> Optional[str]:
+    """Return a stable cache key for an ``_honest_loss`` call, or ``None`` if hashing fails.
+
+    Key inputs cover everything that determines the cached float:
+      * (X_tr, y_tr) summary -- the fit data.
+      * (X_ev, y_ev) summary -- the eval data (different holdouts give different losses).
+      * column subset (sorted, frozen) + classification + metric + seed.
+      * model template params + n_estimators_cap + template_id (so capped vs full-template entries
+        live in disjoint key namespaces, mirroring the in-memory cache's ``template_id`` field).
+
+    Hash failure (an exotic template that doesn't pickle, etc.) returns ``None`` so the caller
+    falls through to the compute path -- the cache is best-effort, never a correctness gate.
+    """
+    try:
+        from mlframe.utils.disk_cache import compose_key, hash_array_summary, hash_object
+
+        try:
+            params = model_template.get_params(deep=False)
+        except Exception:
+            params = {"_repr": repr(model_template)}
+        x_tr_key = hash_array_summary(X_tr.values if hasattr(X_tr, "values") else np.asarray(X_tr))
+        y_tr_key = hash_array_summary(np.asarray(y_tr))
+        x_ev_key = hash_array_summary(X_ev.values if hasattr(X_ev, "values") else np.asarray(X_ev))
+        y_ev_key = hash_array_summary(np.asarray(y_ev))
+        state_key = hash_object({
+            "cols": tuple(sorted(int(c) for c in idx)),
+            "seed": seed,
+            "classification": bool(classification),
+            "metric": str(metric),
+            "n_estimators_cap": n_estimators_cap,
+            "template_id": template_id,
+            "params": params,
+        })
+        return _HONEST_LOSS_CACHE_PREFIX + compose_key(x_tr_key, y_tr_key, x_ev_key, y_ev_key, state_key)
+    except Exception as exc:
+        logger.debug("_honest_loss: disk-cache key build failed (%s); skipping cache", exc)
+        return None
+
+
+def _open_disk_cache(disk_cache_dir):
+    """Return a ``DiskCache`` for ``disk_cache_dir`` or ``None`` if it can't be opened.
+
+    Failure here (permission error, exotic path) downgrades to "compute and skip cache" rather than
+    raising -- a cache hiccup must never poison the honest-retrain path it's optimising.
+    """
+    if disk_cache_dir is None:
+        return None
+    try:
+        from mlframe.utils.disk_cache import DiskCache
+
+        return DiskCache(disk_cache_dir)
+    except Exception as exc:
+        logger.debug("_honest_loss: disk-cache open failed for %r (%s); skipping cache", disk_cache_dir, exc)
+        return None
 
 
 def _expand(idx, unit_to_members):
@@ -138,12 +203,24 @@ def _loss_from_predictions(p_or_pred, y_ev, classification, metric):
 
 
 def _honest_loss(model_template, X_tr, y_tr, X_ev, y_ev, idx, classification, metric, seed=None,
-                 inner_n_jobs=None, cache=None, n_estimators_cap=None, template_id=None):
+                 inner_n_jobs=None, cache=None, n_estimators_cap=None, template_id=None,
+                 disk_cache=None):
     """Train ``model_template`` on selected feature columns; return holdout loss (lower=better).
 
     When ``cache`` (a :class:`HonestLossCache`) is supplied, an identical ``(cols, seed, template_id)``
     retrain is served from the cache instead of refitting -- the same model on the same data with the
     same seed is deterministic, so the cached float is numerically identical to a fresh fit.
+
+    ``disk_cache`` (iter80, optional :class:`mlframe.utils.disk_cache.DiskCache`) extends the
+    in-memory ``HonestLossCache`` across PROCESSES / FIT INVOCATIONS. The in-memory cache is rebuilt
+    per ``ShapProxiedFS.fit`` (so a second fit on identical (X, y, columns, template) retrains from
+    scratch); the disk cache survives the process boundary. Cache key includes (X_tr summary, y_tr
+    summary, X_ev summary, y_ev summary, sorted cols, seed, template params, n_estimators_cap,
+    template_id, classification, metric) -- everything that determines the cached float. Cached
+    payload is the scalar loss (one float, ~8 bytes serialised), so the disk overhead is
+    millions-of-entries-cheap even before LRU eviction. Cache miss is silent; a hashing or I/O
+    hiccup transparently degrades to compute + don't-cache (best-effort policy: the cache is a
+    performance lever, never a correctness gate).
 
     ``n_estimators_cap`` reduces the booster's tree count to a cheaper value for ranking-only retrains
     (refine's per-trial / per-probe fits). The cap is set via ``set_params`` on the standard sklearn
@@ -155,6 +232,29 @@ def _honest_loss(model_template, X_tr, y_tr, X_ev, y_ev, idx, classification, me
         hit = cache.get(idx, seed, template_id)
         if hit is not None:
             return hit
+
+    # Cross-process disk cache lookup. The in-memory cache misses here (or was None), but a prior
+    # ShapProxiedFS.fit on identical (X_tr, y_tr, X_ev, y_ev, cols, template) may have cached the
+    # scalar loss to disk -- a hit avoids the fit + predict + loss work entirely. Hash-build failure
+    # (None key) and DiskCache.get failure both degrade silently to the compute path.
+    disk_key = None
+    if disk_cache is not None:
+        disk_key = _build_honest_loss_disk_key(
+            model_template, X_tr, y_tr, X_ev, y_ev, idx, classification, metric, seed,
+            n_estimators_cap, template_id,
+        )
+        if disk_key is not None:
+            try:
+                disk_hit = disk_cache.get(disk_key)
+            except Exception as exc:
+                logger.debug("_honest_loss: disk cache get failed (%s); skipping", exc)
+                disk_hit = None
+            if disk_hit is not None:
+                # Warm the in-memory cache too, so further same-fit calls don't pay the disk
+                # round-trip cost for what is now a known-deterministic value.
+                if cache is not None:
+                    cache.put(idx, seed, float(disk_hit), template_id)
+                return float(disk_hit)
 
     cols = list(idx)
     est = clone(model_template)
@@ -179,6 +279,11 @@ def _honest_loss(model_template, X_tr, y_tr, X_ev, y_ev, idx, classification, me
     loss = _loss_from_predictions(p, y_ev, classification, metric)
     if cache is not None:
         cache.put(idx, seed, loss, template_id)
+    if disk_cache is not None and disk_key is not None:
+        try:
+            disk_cache.put(disk_key, float(loss))
+        except Exception as exc:
+            logger.debug("_honest_loss: disk cache put failed (%s); skipping", exc)
     return loss
 
 
@@ -243,14 +348,20 @@ def _permutation_importance_ranking(model_template, X_tr, y_tr, X_ev, y_ev, curr
 
 def _parallel_honest_losses(tasks, model_template, X_tr, y_tr, X_ev, y_ev, classification, metric, n_jobs,
                             cache=None, n_estimators_cap=None, template_id=None,
-                            inner_n_jobs_cap=False):
+                            inner_n_jobs_cap=False, disk_cache=None):
     """Run many independent honest retrains concurrently. xgb/lgbm release the GIL during training,
     so a threading backend shares the (large) DataFrames without per-task pickling.
 
     ``inner_n_jobs_cap`` (iter54, default False): when False, each fit's ``n_jobs`` is set to -1 so
     xgboost's internal thread pool decides scheduling; A/B at width 4000+10000 measured the legacy
     ``n_cores // outer`` cap as 8-9% e2e SLOWER on 8-core boxes (reval +8%, refine +11%, trust +12%).
-    Set True to restore the iter4 outer-x-inner cap for HW where the cap measurably helps."""
+    Set True to restore the iter4 outer-x-inner cap for HW where the cap measurably helps.
+
+    ``disk_cache`` (iter80): forwarded to every per-task ``_honest_loss`` so cross-process cache hits
+    avoid the fit entirely. The ``DiskCache`` instance is safe for concurrent threaded ``get`` /
+    ``put`` because the underlying ``pickle.load`` / ``os.replace`` calls are atomic at the OS level
+    (the cache's own docstring discusses the contract); the in-thread workers do not share Python
+    state across each other inside this function."""
     import os
 
     if not tasks:
@@ -264,14 +375,16 @@ def _parallel_honest_losses(tasks, model_template, X_tr, y_tr, X_ev, y_ev, class
     if outer == 1:
         return [_honest_loss(model_template, X_tr, y_tr, X_ev, y_ev, idx, classification, metric,
                              seed=seed, inner_n_jobs=inner, cache=cache,
-                             n_estimators_cap=n_estimators_cap, template_id=template_id)
+                             n_estimators_cap=n_estimators_cap, template_id=template_id,
+                             disk_cache=disk_cache)
                 for idx, seed in tasks]
     from joblib import Parallel, delayed
 
     return Parallel(n_jobs=outer, prefer="threads")(
         delayed(_honest_loss)(model_template, X_tr, y_tr, X_ev, y_ev, idx, classification, metric,
                               seed=seed, inner_n_jobs=inner, cache=cache,
-                              n_estimators_cap=n_estimators_cap, template_id=template_id)
+                              n_estimators_cap=n_estimators_cap, template_id=template_id,
+                              disk_cache=disk_cache)
         for idx, seed in tasks
     )
 
@@ -450,7 +563,7 @@ def proxy_trust_guard(
     fidelity_floor=0.5, n_jobs=-1, unit_to_members=None, cache=None, n_estimators_cap=None,
     unit_f_scores=None, anchor_uniform_tail_frac=0.2, cardinality_dist="uniform", zipf_alpha=1.0,
     fidelity_weights=(0.6, 0.4), trustworthy_metric="proxy_fidelity_score",
-    spearman_floor=_FIDELITY_FLOOR_UNSET, inner_n_jobs_cap=False,
+    spearman_floor=_FIDELITY_FLOOR_UNSET, inner_n_jobs_cap=False, disk_cache_dir=None,
 ):
     """Measure proxy-vs-honest rank fidelity on anchor subsets. Returns a report dict.
 
@@ -575,10 +688,16 @@ def proxy_trust_guard(
 
     tid = ("trust_cap", int(n_estimators_cap)) if n_estimators_cap is not None else None
     proxy_losses = [proxy_loss(coalition_margin(phi, base, idx), y_search, metric) for idx in anchors]
+    # iter80: open the cross-process disk cache once (None when disabled). The cache short-circuits
+    # the per-anchor xgboost fit whenever (X_search, y_search, X_holdout, y_holdout, expanded cols,
+    # template params, cap) was retrained by a prior fit -- the standard ShapProxiedFS hyperparam
+    # sweep / ablation pattern. Open here (not per-anchor) so the LRU evictor sees the whole batch.
+    disk_cache = _open_disk_cache(disk_cache_dir)
     honest_losses = _parallel_honest_losses(
         [(_expand(idx, unit_to_members), None) for idx in anchors], model_template, X_search, y_search,
         X_holdout, y_holdout, classification, metric, n_jobs, cache=cache,
-        n_estimators_cap=n_estimators_cap, template_id=tid, inner_n_jobs_cap=inner_n_jobs_cap)
+        n_estimators_cap=n_estimators_cap, template_id=tid, inner_n_jobs_cap=inner_n_jobs_cap,
+        disk_cache=disk_cache)
     cards = np.array([len(a) for a in anchors], dtype=np.float64)
     redunds = np.array([subset_redundancy(phi, a) for a in anchors], dtype=np.float64)
     proxy_losses = np.asarray(proxy_losses)
@@ -733,6 +852,7 @@ def revalidate_top_n(
     unit_to_members=None, cache=None, revalidation_n_estimators=None,
     ucb_enabled=False, ucb_min_eval_size=None, ucb_slack=None, ucb_stdev_multiplier=1.5,
     candidate_score=None, inner_n_jobs_cap=False, adaptive_n_models=False,
+    disk_cache_dir=None,
 ):
     """Honestly retrain each candidate subset on X_search, evaluate on the disjoint X_holdout.
 
@@ -810,6 +930,11 @@ def revalidate_top_n(
     rng = np.random.default_rng(0) if rng is None else rng
     cap = revalidation_n_estimators
     tid = ("reval_cap", int(cap)) if cap is not None else None
+    # iter80: cross-process disk cache for repeat hyperparam sweeps over the same (X_search,
+    # y_search, X_holdout, y_holdout, template) tuple. Opened once so the LRU evictor sees the full
+    # batch of writes from this revalidation pass; ``None`` (default) keeps the legacy in-memory-only
+    # cache wiring.
+    disk_cache = _open_disk_cache(disk_cache_dir)
     # Pre-expand member columns + sample per-fit seeds once so candidate ordering shuffles only the
     # task LIST, never re-samples (cache reuse + determinism across UCB/no-UCB paths).
     member_cols = [_expand(idx, unit_to_members) for _, idx in candidates]
@@ -884,7 +1009,8 @@ def revalidate_top_n(
             losses = _parallel_honest_losses(tasks, model_template, X_search, y_search, X_holdout, y_holdout,
                                              classification, metric, n_jobs, cache=cache,
                                              n_estimators_cap=cap, template_id=tid,
-                                             inner_n_jobs_cap=inner_n_jobs_cap)
+                                             inner_n_jobs_cap=inner_n_jobs_cap,
+                                             disk_cache=disk_cache)
             for owner, loss in zip(task_owner, losses):
                 per_candidate.setdefault(owner, []).append(loss)
             n_candidates_evaluated = n_total
@@ -920,7 +1046,8 @@ def revalidate_top_n(
                 losses = _parallel_honest_losses(tasks, model_template, X_search, y_search, X_holdout, y_holdout,
                                                  classification, metric, n_jobs, cache=cache,
                                                  n_estimators_cap=cap, template_id=tid,
-                                                 inner_n_jobs_cap=inner_n_jobs_cap)
+                                                 inner_n_jobs_cap=inner_n_jobs_cap,
+                                                 disk_cache=disk_cache)
                 for owner, loss in zip(task_owner, losses):
                     per_candidate.setdefault(owner, []).append(loss)
                 evaluated_idx_set.update(batch_candidate_idx)
@@ -994,7 +1121,7 @@ def revalidate_top_n(
         winner_cols = _expand(best_idx, unit_to_members)
         winner_full_loss = _honest_loss(
             model_template, X_search, y_search, X_holdout, y_holdout, winner_cols,
-            classification, metric, cache=cache)
+            classification, metric, cache=cache, disk_cache=disk_cache)
         # Update the reported entry for the chosen winner. Find it in ranked by features identity.
         for d in ranked:
             if d["features"] == best_idx:
@@ -1017,7 +1144,7 @@ def revalidate_top_n(
         rnd = tuple(sorted(rng.choice(f, size=k, replace=False).tolist()))
         baseline = dict(features=rnd, honest_loss=_honest_loss(
             model_template, X_search, y_search, X_holdout, y_holdout, list(rnd), classification, metric,
-            cache=cache))
+            cache=cache, disk_cache=disk_cache))
     ucb_info = dict(enabled=bool(use_ucb), n_candidates_total=int(n_total),
                     n_candidates_evaluated=int(n_candidates_evaluated),
                     min_eval_size=int(ucb_min_eval_size_eff),
@@ -1040,7 +1167,7 @@ def active_learning_revalidate(
     candidates, model_template, X_search, y_search, X_holdout, y_holdout,
     *, classification, metric=None, corrector_data, phi, budget, batch=4, n_models=1,
     parsimony_tol=0.02, rng=None, n_jobs=-1, unit_to_members=None, cache=None,
-    revalidation_n_estimators=None, inner_n_jobs_cap=False,
+    revalidation_n_estimators=None, inner_n_jobs_cap=False, disk_cache_dir=None,
 ):
     """Disagreement-driven honest re-validation (lever #4).
 
@@ -1065,6 +1192,10 @@ def active_learning_revalidate(
     rng = np.random.default_rng(0) if rng is None else rng
     cap = revalidation_n_estimators
     tid = ("reval_cap", int(cap)) if cap is not None else None
+    # iter80: cross-process disk cache (same wiring as ``revalidate_top_n``). Each AL round picks a
+    # disagreement-driven batch and retrains honest losses; the disk cache short-circuits any
+    # (cols, seed, template) tuple seen on a prior fit. Disabled when ``disk_cache_dir is None``.
+    disk_cache = _open_disk_cache(disk_cache_dir)
     cd = {k: list(v) for k, v in corrector_data.items()}  # mutable copy we augment each round
     proxy_all = np.array([c[0] for c in candidates], dtype=np.float64)
     idxs = [c[1] for c in candidates]
@@ -1087,7 +1218,8 @@ def active_learning_revalidate(
         losses = _parallel_honest_losses(tasks, model_template, X_search, y_search, X_holdout, y_holdout,
                                          classification, metric, n_jobs, cache=cache,
                                          n_estimators_cap=cap, template_id=tid,
-                                         inner_n_jobs_cap=inner_n_jobs_cap)
+                                         inner_n_jobs_cap=inner_n_jobs_cap,
+                                         disk_cache=disk_cache)
         for j, i in enumerate(pick):
             seg = losses[j * n_models:(j + 1) * n_models]
             m = float(np.mean(seg))
@@ -1113,7 +1245,7 @@ def active_learning_revalidate(
         winner_cols = _expand(best_idx, unit_to_members)
         winner_full_loss = _honest_loss(
             model_template, X_search, y_search, X_holdout, y_holdout, winner_cols,
-            classification, metric, cache=cache)
+            classification, metric, cache=cache, disk_cache=disk_cache)
         for d in ranked:
             if d["features"] == best_idx:
                 d["honest_loss_capped"] = float(d["honest_loss"])

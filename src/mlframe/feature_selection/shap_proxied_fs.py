@@ -1361,9 +1361,17 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         from mlframe.feature_selection._shap_proxy_revalidate import HonestLossCache
 
         honest_cache = HonestLossCache()
+        # iter80: extend iter79's disk-cache wiring through the honest-retrain stages
+        # (proxy_trust_guard + revalidate_top_n + active_learning_revalidate). The disk cache adds a
+        # cross-process layer underneath the in-memory ``honest_cache``: within-fit reuse stays in
+        # RAM (HonestLossCache), repeat-fit reuse hits disk (DiskCache keyed on (X_search, y_search,
+        # X_holdout, y_holdout, cols, template, seed, cap)). ``cache_dir=None`` (default) keeps the
+        # legacy in-memory-only contract bit-identical. See ``_shap_proxy_revalidate.disk_cache_dir``
+        # docstrings for the cache-key composition + best-effort failure policy.
         rv = dict(classification=self.classification, metric=self.metric, n_jobs=self.n_jobs,
                   unit_to_members=unit_to_members, cache=honest_cache,
-                  inner_n_jobs_cap=self.inner_n_jobs_cap)
+                  inner_n_jobs_cap=self.inner_n_jobs_cap,
+                  disk_cache_dir=self.cache_dir)
 
         # Proxy-trust diagnostic (proxy ranks units; honest retrains on member columns).
         if self.trust_guard:
