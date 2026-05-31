@@ -66,18 +66,22 @@ def _pairwise_su_edges(
 ) -> np.ndarray:
     """Pairwise SU matrix above ``threshold`` returned as a dense flag matrix.
 
-    ``bins_packed`` is a ``(n_samples, n_features)`` int32 view; ``nbins[i]`` is the
-    cardinality used to size the joint-counts matrix on column ``i``; ``freqs_packed``
-    is the concatenation of all per-column marginal probability vectors with offsets
-    in ``freqs_offsets`` (shape ``(n_features + 1,)``); ``h_marginals[i]`` is the
-    pre-computed Shannon entropy of column ``i``; ``constant_mask[i]`` is ``True``
-    when column ``i`` has <=1 distinct bin (SU=0 vs anyone).
+    ``bins_packed`` is a ``(n_features, n_samples)`` int32 view (column-major
+    layout: each feature's per-sample bin ids occupy a contiguous row, so the
+    inner sample-scan reads two contiguous int32 strips and saturates the L1
+    cache line instead of jumping ``n_features * 4`` bytes per sample);
+    ``nbins[i]`` is the cardinality used to size the joint-counts matrix on
+    column ``i``; ``freqs_packed`` is the concatenation of all per-column
+    marginal probability vectors with offsets in ``freqs_offsets`` (shape
+    ``(n_features + 1,)``); ``h_marginals[i]`` is the pre-computed Shannon
+    entropy of column ``i``; ``constant_mask[i]`` is ``True`` when column ``i``
+    has <=1 distinct bin (SU=0 vs anyone).
 
     Returns an upper-triangle flag matrix (``flag[i, j] = 1`` iff ``SU(i, j) >= threshold``
     and ``i < j``). Edge extraction happens outside the njit kernel so the prange
     iterations stay purely numeric.
     """
-    n_samples, n_features = bins_packed.shape
+    n_features, n_samples = bins_packed.shape
     flags = np.zeros((n_features, n_features), dtype=np.uint8)
     # max joint cardinality controls a single thread-local reusable buffer per
     # outer iteration; avoids per-pair np.zeros allocation that bottlenecks at
@@ -104,7 +108,7 @@ def _pairwise_su_edges(
                 for b in range(nb_j):
                     joint[a, b] = 0
             for k in range(n_samples):
-                joint[bins_packed[k, i], bins_packed[k, j]] += 1
+                joint[bins_packed[i, k], bins_packed[j, k]] += 1
             inv_n = 1.0 / n_samples
             mi = 0.0
             off_j = freqs_offsets[j]
@@ -148,7 +152,12 @@ def _pack_bins_for_kernel(
         if int(a.shape[0]) != n_samples:
             return None
     n_features = len(arrays)
-    bins_packed = np.empty((n_samples, n_features), dtype=np.int32, order="C")
+    # Column-major layout: feature i's per-sample bin ids live in row i so the
+    # kernel's inner sample loop reads two contiguous int32 strips
+    # (bins_packed[i, :] and bins_packed[j, :]) — one cache line load per ~16
+    # samples instead of one per sample under the prior (n_samples, n_features)
+    # row-major layout where the i and j columns lived on different cache lines.
+    bins_packed = np.empty((n_features, n_samples), dtype=np.int32, order="C")
     nbins = np.empty(n_features, dtype=np.int64)
     freqs_offsets = np.empty(n_features + 1, dtype=np.int64)
     h_marginals = np.empty(n_features, dtype=np.float64)
@@ -161,8 +170,9 @@ def _pack_bins_for_kernel(
     offset = 0
     for i, (classes_i, freqs_i) in enumerate(marginals):
         # classes_i is int64 by construction in _column_marginal; downcast to the
-        # int32 packed dtype (bin ids are tiny, never overflow int32).
-        bins_packed[:, i] = classes_i.astype(np.int32, copy=False)
+        # int32 packed dtype (bin ids are tiny, never overflow int32). Writing
+        # the whole row at once stays sequential in the destination buffer.
+        bins_packed[i, :] = classes_i.astype(np.int32, copy=False)
         nb = int(freqs_i.shape[0])
         nbins[i] = nb
         freqs_offsets[i] = offset
