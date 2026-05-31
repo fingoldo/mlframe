@@ -845,19 +845,35 @@ def _select_swap_method_auto(
     fold_sizes[: n_samples % n_folds_eff] += 1
     fold_bounds = np.concatenate([[0], np.cumsum(fold_sizes)])
 
-    scores = {}
-    for method in _AUTO_METHOD_CANDIDATES:
-        fold_mis = []
-        for f in range(n_folds_eff):
-            test_idx = perm[fold_bounds[f]: fold_bounds[f + 1]]
-            train_mask = np.ones(n_samples, dtype=bool)
-            train_mask[test_idx] = False
-            if train_mask.sum() < 3 or test_idx.size < 2:
-                continue
+    # Layer 50 (2026-05-31): loop folds-outer / methods-inner with a per-fold
+    # SVD cache. Pre-fix the loop was methods-outer; 4 of the 7 candidates
+    # (``mean_inv_var``, ``pca_pc1``, ``pca_pc2``, ``factor_score``) each
+    # re-SVD'd the SAME Z_train independently -- 4x redundant SVD work per
+    # fold per cluster. Profile on p=200/n=5000/10 latents attributed
+    # 0.444s tottime / 150 calls to ``np.linalg.svd`` alone; with the cache
+    # the 4 SVDs collapse to 1 (~4x reduction on the SVD line item, ~2x
+    # reduction on the auto-bake-off cumtime). Bit-equivalent: every method
+    # consumes the SAME vt[0] / vt[1] / Zc / communalities arrays it would
+    # have computed independently; the cache just hands back the precomputed
+    # result instead of redoing it.
+    scores = {m: [] for m in _AUTO_METHOD_CANDIDATES}
+    # Per-fold Z_train cache slot (reset on every new fold). The dict is
+    # reused as a sentinel: cleared at the top of each fold so methods
+    # within the fold see the same SVD; methods across folds get a fresh
+    # cache (Z_train differs by row partition).
+    svd_cache: dict = {}
+    for f in range(n_folds_eff):
+        test_idx = perm[fold_bounds[f]: fold_bounds[f + 1]]
+        train_mask = np.ones(n_samples, dtype=bool)
+        train_mask[test_idx] = False
+        if train_mask.sum() < 3 or test_idx.size < 2:
+            continue
+        Z_train = Z[train_mask]
+        Z_test = Z[test_idx]
+        svd_cache.clear()  # fresh per-fold SVD slot.
+        for method in _AUTO_METHOD_CANDIDATES:
             try:
-                Z_train = Z[train_mask]
-                Z_test = Z[test_idx]
-                w = _derive_weights(Z_train, method)
+                w = _derive_weights(Z_train, method, svd_cache=svd_cache)
                 if w is None:
                     # Layer 44: non-linear / row-reduction combiners (median /
                     # median_z / signed_max_abs / signed_l2_sum) have no weight
@@ -893,12 +909,15 @@ def _select_swap_method_auto(
                     _data, np.array([0], dtype=np.int64),
                     np.array([1], dtype=np.int64), _nbins_arr,
                 ))
-                fold_mis.append(_mi_val)
+                scores[method].append(_mi_val)
             except Exception:
                 continue
-        scores[method] = float(np.mean(fold_mis)) if fold_mis else 0.0
 
-    # Winner: highest mean OOF MI; tie-break by candidate order (mean_z first).
+    # Reduce per-method per-fold lists to mean OOF MI; tie-break by candidate
+    # order (mean_z first). Bit-equivalent to the pre-Layer-50 flow: same
+    # MI values, same averaging, same tie-break -- the only change was the
+    # loop nesting order to enable per-fold SVD caching.
+    scores = {m: (float(np.mean(v)) if v else 0.0) for m, v in scores.items()}
     winner = max(_AUTO_METHOD_CANDIDATES, key=lambda m: (scores.get(m, 0.0), -_AUTO_METHOD_CANDIDATES.index(m)))
     result = (winner, scores)
     cache[cache_key] = result

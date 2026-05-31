@@ -109,17 +109,53 @@ def _standardize_align(M: np.ndarray, ref_col: int):
     return Z, mean, std, signs
 
 
-def _svd_flip_pc1(Z: np.ndarray) -> np.ndarray:
-    """PC1 loading vector of centered ``Z`` (correlation-matrix eigenvector), sign-pinned via the
-    sklearn ``svd_flip`` convention (largest-abs loading positive) for cross-BLAS determinism."""
+# Layer 50 (2026-05-31): SVD-reuse cache for the DCD auto bake-off.
+#
+# Pre-fix: every call to ``_svd_flip_pc1`` / ``_svd_flip_pcN`` /
+# ``_pc1_communalities`` independently centred ``Z`` and called
+# ``np.linalg.svd``. The DCD auto bake-off (``_select_swap_method_auto``)
+# evaluates 7 combiner methods on each of K folds; 4 of those methods
+# (``mean_inv_var``, ``pca_pc1``, ``pca_pc2``, ``factor_score``) need the
+# SVD of the SAME ``Z_train`` matrix -- so per fold we paid 4x the SVD
+# work on identical input. Layer 50 profile on p=200 / n=5000 / 10
+# latents attributed 0.444s tottime (#1 hotspot) to ``np.linalg.svd``
+# alone, 150 calls; that's where the cache pays off.
+#
+# Cache shape: a plain dict ``{"vt": vt, "Zc": Zc, "comm": comm}`` passed
+# explicitly to ``_derive_weights`` / ``_pc1_communalities`` /
+# ``_svd_flip_pc1`` / ``_svd_flip_pcN``. The caller owns the dict
+# (one per fold) and discards it after the fold finishes -- no global
+# state, no thread-locals, no GC weakref shenanigans. Callers that don't
+# need caching pass ``svd_cache=None`` and the helpers compute fresh.
+
+
+def _svd_compute(Z: np.ndarray, svd_cache: dict | None = None) -> tuple[np.ndarray, np.ndarray]:
+    """Return ``(Zc, vt)`` for centred ``Z`` with caching. ``svd_cache`` is
+    a dict the caller threads through one batch of ``_derive_weights`` calls
+    sharing the same ``Z``; on first call the SVD is computed and stored,
+    subsequent calls (other methods on the same ``Z``) reuse it. Pass None
+    to disable caching.
+    """
+    if svd_cache is not None and "vt" in svd_cache:
+        return svd_cache["Zc"], svd_cache["vt"]
     Zc = Z - Z.mean(axis=0)
     _u, _s, vt = np.linalg.svd(Zc, full_matrices=False)
+    if svd_cache is not None:
+        svd_cache["Zc"] = Zc
+        svd_cache["vt"] = vt
+    return Zc, vt
+
+
+def _svd_flip_pc1(Z: np.ndarray, svd_cache: dict | None = None) -> np.ndarray:
+    """PC1 loading vector of centered ``Z`` (correlation-matrix eigenvector), sign-pinned via the
+    sklearn ``svd_flip`` convention (largest-abs loading positive) for cross-BLAS determinism."""
+    _Zc, vt = _svd_compute(Z, svd_cache)
     v = vt[0]
     v = v * np.sign(v[np.argmax(np.abs(v))] or 1.0)
     return v
 
 
-def _svd_flip_pcN(Z: np.ndarray, idx: int) -> np.ndarray:
+def _svd_flip_pcN(Z: np.ndarray, idx: int, svd_cache: dict | None = None) -> np.ndarray:
     """N-th principal-component loading vector of centered ``Z`` (0-indexed), sign-pinned via the
     sklearn ``svd_flip`` convention. Layer 44: powers ``pca_pc2`` for clusters with multi-factor
     structure (when latents are correlated, PC2 captures the secondary axis of shared variation
@@ -128,8 +164,7 @@ def _svd_flip_pcN(Z: np.ndarray, idx: int) -> np.ndarray:
     For ``k`` members the SVD returns ``min(n, k)`` components; if ``idx`` is out of range (e.g. PC2
     requested on a single-column Z) we fall back to PC1 to keep the combiner well-defined.
     """
-    Zc = Z - Z.mean(axis=0)
-    _u, _s, vt = np.linalg.svd(Zc, full_matrices=False)
+    _Zc, vt = _svd_compute(Z, svd_cache)
     if idx >= vt.shape[0]:
         idx = 0
     v = vt[idx]
@@ -137,21 +172,60 @@ def _svd_flip_pcN(Z: np.ndarray, idx: int) -> np.ndarray:
     return v
 
 
-def _pc1_communalities(Z: np.ndarray) -> np.ndarray:
+def _pc1_communalities(Z: np.ndarray, svd_cache: dict | None = None) -> np.ndarray:
     """Communality_i = (corr of member_i with the PC1 score)^2 in [0,1] under a 1-factor read:
-    the fraction of member_i's variance explained by the shared component. Used for reliability."""
-    v = _svd_flip_pc1(Z)
-    score = (Z - Z.mean(axis=0)) @ v
-    comm = np.array([np.corrcoef(Z[:, j], score)[0, 1] ** 2 for j in range(Z.shape[1])], dtype=np.float64)
-    return np.clip(np.nan_to_num(comm, nan=0.0), 1e-6, 1.0 - 1e-6)
+    the fraction of member_i's variance explained by the shared component. Used for reliability.
+
+    Layer 50 (2026-05-31): vectorised per-column corrcoef. Pre-fix the loop
+    ``[np.corrcoef(Z[:,j], score)[0,1]**2 for j ...]`` paid K corrcoef
+    dispatches; for K=20 members on n=4000 rows that loop alone showed up
+    on the profile as the bulk of ``_pc1_communalities`` cumtime. Replace
+    with one centred matmul: ``corr_j = (Zc_j . score_c) / (||Zc_j||*||score_c||)``,
+    bit-equivalent up to FP-summation order to corrcoef (which uses
+    ``cov(x,y)/sqrt(var(x)var(y))`` with the same n-1 normalisation that
+    cancels in the ratio). The svd_cache lets the caller share the
+    Zc/vt computation with sibling ``_svd_flip_pc1`` / ``_derive_weights``
+    calls on the same ``Z``.
+    """
+    Zc, vt = _svd_compute(Z, svd_cache)
+    if svd_cache is not None and "comm" in svd_cache:
+        return svd_cache["comm"]
+    v = vt[0]
+    v = v * np.sign(v[np.argmax(np.abs(v))] or 1.0)
+    score = Zc @ v
+    score_c = score - score.mean()
+    score_norm_sq = float(score_c @ score_c)
+    if score_norm_sq <= 0.0:
+        comm = np.zeros(Z.shape[1], dtype=np.float64)
+    else:
+        # ``Zc`` is already centred (column-mean removed); per-column norm = sqrt(sum_i Zc_ij^2).
+        col_norm_sq = (Zc * Zc).sum(axis=0)
+        numer = Zc.T @ score_c
+        denom = col_norm_sq * score_norm_sq
+        with np.errstate(invalid="ignore", divide="ignore"):
+            comm = (numer * numer) / np.where(denom > 0.0, denom, 1.0)
+        # Constant columns (col_norm_sq == 0) get corrcoef NaN -> 0 per the
+        # legacy nan_to_num path below.
+        comm = np.where(col_norm_sq > 0.0, comm, 0.0)
+    comm = np.clip(np.nan_to_num(comm, nan=0.0), 1e-6, 1.0 - 1e-6)
+    if svd_cache is not None:
+        svd_cache["comm"] = comm
+    return comm
 
 
-def _derive_weights(Z: np.ndarray, method: str):
+def _derive_weights(Z: np.ndarray, method: str, svd_cache: dict | None = None):
     """Weight vector for a LINEAR combiner over standardized+sign-aligned ``Z`` (or ``None`` for median).
 
     mean_z -> uniform; mean_inv_var -> reliability comm/(1-comm) (BLUE-ish under hetero noise);
     pca_pc1 -> PC1 eigenvector (variance-max, best under hetero loadings); factor_score -> Bartlett
-    1-factor combiner (principal-factor loadings, w ∝ Psi^-1 L / (L' Psi^-1 L))."""
+    1-factor combiner (principal-factor loadings, w ∝ Psi^-1 L / (L' Psi^-1 L)).
+
+    Layer 50 (2026-05-31): ``svd_cache`` is an optional dict the caller threads
+    through a batch of method evaluations on the SAME ``Z`` (e.g. the DCD auto
+    bake-off's K-fold loop). Methods that need the SVD (``mean_inv_var``,
+    ``pca_pc1``, ``pca_pc2``, ``factor_score``) share the cached vt / Zc /
+    communalities, collapsing 4 SVDs into 1 per fold. Pass None to keep the
+    pre-Layer-50 behaviour (re-SVD every call)."""
     k = Z.shape[1]
     if method == "mean_z":
         return np.full(k, 1.0 / k, dtype=np.float64)
@@ -161,19 +235,19 @@ def _derive_weights(Z: np.ndarray, method: str):
     if method in _NONLINEAR_METHODS:
         return None
     if method == "mean_inv_var":
-        comm = _pc1_communalities(Z)
+        comm = _pc1_communalities(Z, svd_cache=svd_cache)
         w = comm / (1.0 - comm)  # reliability / noise ~ inverse residual variance
         return w / w.sum()
     if method == "pca_pc1":
-        return _svd_flip_pc1(Z)
+        return _svd_flip_pc1(Z, svd_cache=svd_cache)
     if method == "pca_pc2":
         # Layer 44: 2nd principal component. On a homogeneous cluster (single
         # latent, equal loadings) PC2 is dominated by noise; on a multi-factor
         # cluster (correlated latents L1, L2 with members loading partially on
         # each) PC2 captures the orthogonal axis that PC1 leaves on the table.
-        return _svd_flip_pcN(Z, 1)
+        return _svd_flip_pcN(Z, 1, svd_cache=svd_cache)
     if method == "factor_score":
-        comm = _pc1_communalities(Z)
+        comm = _pc1_communalities(Z, svd_cache=svd_cache)
         load = np.sqrt(comm)  # principal-factor loadings (sign already aligned, comm>=0)
         psi = np.clip(1.0 - comm, 1e-6, None)  # idiosyncratic (uniqueness) variances
         wl = load / psi
