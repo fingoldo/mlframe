@@ -54,6 +54,194 @@ def _resolve_parallel_min_features(default: int = 50) -> int:
         return default
 
 
+def _resolve_gpu_min_features(default: int = 500) -> int:
+    """Smallest feature count at which the GPU pairwise SU path is preferred over the CPU prange kernel.
+
+    Below this width the cupy/CUDA launch overhead + onehot-pack allocation dwarfs even the
+    parallel CPU kernel's wall (~0.14s at f=500 / n_bins=10 / n=1500 on iter69's bench).
+    Dispatcher-tunable per HW via ``pyutilz.system.kernel_tuning_cache`` (key
+    ``mlframe.shap_proxied_fs.cluster_su.gpu_min_features``); default 500.
+    """
+    try:
+        from pyutilz.system import kernel_tuning_cache
+
+        value = kernel_tuning_cache.get(
+            "mlframe.shap_proxied_fs.cluster_su.gpu_min_features", default=default)
+        return int(value)
+    except Exception:
+        return default
+
+
+_GPU_AVAILABLE_CACHE: bool | None = None
+
+
+def cluster_su_gpu_available() -> bool:
+    """Process-cached probe for a cupy CUDA device. Lazy import; never raises.
+
+    Returns True iff ``cupy`` imports cleanly AND ``cp.cuda.runtime.getDeviceCount() > 0``
+    AND a tiny float32 allocation round-trips. The result is cached for the process
+    lifetime: probing is cheap on the hit path (single dict lookup) but the first call
+    pays the cupy import + nvrtc init, which we don't want to repeat across pair-loop
+    calls.
+    """
+    global _GPU_AVAILABLE_CACHE
+    if _GPU_AVAILABLE_CACHE is not None:
+        return _GPU_AVAILABLE_CACHE
+    try:
+        import cupy as cp  # noqa: F401
+
+        if cp.cuda.runtime.getDeviceCount() <= 0:
+            _GPU_AVAILABLE_CACHE = False
+            return False
+        # Round-trip a tiny allocation so a half-installed cupy (DLL load OK but device
+        # alloc broken) fails the gate here, not deep inside the kernel.
+        probe = cp.zeros(4, dtype=cp.float32)
+        _ = probe.sum().get()
+        _GPU_AVAILABLE_CACHE = True
+        return True
+    except Exception:
+        _GPU_AVAILABLE_CACHE = False
+        return False
+
+
+def _gpu_free_memory_bytes() -> int:
+    """Best-effort free GPU memory probe; 0 on failure (caller treats as 'cannot fit')."""
+    try:
+        import cupy as cp
+
+        free, _total = cp.cuda.runtime.memGetInfo()
+        return int(free)
+    except Exception:
+        return 0
+
+
+def _should_route_su_gpu(
+    n_features: int,
+    n_samples: int,
+    max_n_bins: int,
+    *,
+    gpu_min_features: int | None = None,
+    memory_safety_factor: float = 0.5,
+) -> bool:
+    """Decide whether to route the pairwise SU scan to the GPU kernel.
+
+    Three gates, all must pass:
+      1. cupy + CUDA device available (``cluster_su_gpu_available()``).
+      2. ``n_features >= gpu_min_features`` (kernel_tuning_cache-tunable; default 500).
+      3. One-hot working set ``n_features * max_n_bins * n_samples * 4`` bytes fits in
+         ``memory_safety_factor`` of free GPU memory. The 0.5 default leaves headroom for
+         the joint-matrix tensor and cuBLAS scratch.
+    """
+    if not cluster_su_gpu_available():
+        return False
+    gmin = gpu_min_features if gpu_min_features is not None else _resolve_gpu_min_features()
+    if n_features < int(gmin):
+        return False
+    onehot_bytes = int(n_features) * int(max_n_bins) * int(n_samples) * 4
+    free_bytes = _gpu_free_memory_bytes()
+    if free_bytes <= 0:
+        return False
+    return onehot_bytes < int(free_bytes * float(memory_safety_factor))
+
+
+def _pairwise_su_edges_gpu(
+    bins_packed: np.ndarray,
+    nbins: np.ndarray,
+    h_marginals: np.ndarray,
+    constant_mask: np.ndarray,
+    threshold: float,
+    pair_chunk_size: int = 4096,
+) -> np.ndarray:
+    """GPU pairwise SU edge scan via batched one-hot @ one-hot.T joints.
+
+    Input has the same column-major layout as ``_pairwise_su_edges`` so the CPU and GPU
+    paths share ``_pack_bins_for_kernel``. The algorithm:
+
+      1. Build a padded one-hot tensor ``X_onehot`` of shape ``(n_features, max_nb, n_samples)``
+         float32 on GPU. Padded rows (bin id >= ``nbins[i]``) stay zero so they contribute
+         nothing to joints; constant columns are masked out before edge extraction.
+      2. For each chunk of ``i`` rows compute the joint matrix against ALL ``j > i`` via
+         ``einsum('ias,jbs->ijab', X_onehot[i_chunk], X_onehot)`` -> shape ``(chunk, f, mb, mb)``.
+         The on-device working tensor is ``chunk * f * mb^2 * 8 bytes`` (float64 for
+         numerically stable log) which we keep under the ``pair_chunk_size`` cap.
+      3. Compute SU per pair entry-wise: ``mi = sum_{ab} joint_ab * log(joint_ab /
+         (px_a * py_b))`` (skipping zero entries), ``su = 2*mi / (h_i + h_j)``.
+      4. Return ``flags`` of shape ``(n_features, n_features)`` uint8 upper-triangle, matching
+         the CPU kernel's contract so the caller's ``np.where`` extraction is unchanged.
+    """
+    import cupy as cp
+
+    n_features, n_samples = bins_packed.shape
+    max_nb = int(nbins.max()) if nbins.size else 0
+    inv_n = cp.float64(1.0 / n_samples) if n_samples > 0 else cp.float64(0.0)
+
+    bins_dev = cp.asarray(bins_packed, dtype=cp.int32)
+    nbins_dev = cp.asarray(nbins, dtype=cp.int64)
+    h_dev = cp.asarray(h_marginals, dtype=cp.float64)
+    constant_dev = cp.asarray(constant_mask, dtype=cp.bool_)
+
+    # One-hot tensor: positions (f, b, s) = 1 iff bins_packed[f, s] == b. Padded rows
+    # (b >= nbins[f]) stay zero - cheaper than tracking nb_i per pair on GPU.
+    onehot = cp.zeros((n_features, max_nb, n_samples), dtype=cp.float32)
+    bin_axis = cp.arange(max_nb, dtype=cp.int32).reshape(1, max_nb, 1)
+    onehot[:] = (bins_dev[:, None, :] == bin_axis).astype(cp.float32)
+
+    # Marginal probability vector per feature from the one-hot sums (axis=samples).
+    # Shape: (n_features, max_nb) float64. Padded bins always sum to 0 -> px=0 -> skipped.
+    px_dev = onehot.sum(axis=2).astype(cp.float64) * inv_n
+
+    flags = cp.zeros((n_features, n_features), dtype=cp.uint8)
+
+    # Chunked i-loop so the einsum's working tensor stays bounded. Each chunk computes
+    # the SU row for all j > i_start.
+    for i_start in range(0, n_features, pair_chunk_size):
+        i_end = min(i_start + pair_chunk_size, n_features)
+        chunk_size = i_end - i_start
+
+        # joint[i_local, j, a, b] = sum_s onehot[i_global, a, s] * onehot[j, b, s]
+        joint_counts = cp.einsum(
+            "ias,jbs->ijab",
+            onehot[i_start:i_end].astype(cp.float64),
+            onehot.astype(cp.float64),
+        )
+        joint_p = joint_counts * inv_n  # joint probability tensor (chunk, f, mb, mb)
+
+        # mi = sum_{a,b} joint_p * log(joint_p / (px_i_a * px_j_b)) over a, b
+        # We need px_outer[i_local, j, a, b] = px[i_global, a] * px[j, b].
+        px_i = px_dev[i_start:i_end][:, None, :, None]  # (chunk, 1, mb, 1)
+        px_j = px_dev[None, :, None, :]                  # (1, f, 1, mb)
+        px_outer = px_i * px_j                            # (chunk, f, mb, mb)
+
+        # log-ratio only where joint_p > 0 AND px_outer > 0; zero elsewhere
+        eps = cp.float64(1e-300)
+        safe_outer = cp.where(px_outer > 0.0, px_outer, eps)
+        ratio = cp.where(joint_p > 0.0, joint_p / safe_outer, cp.float64(1.0))
+        log_ratio = cp.where(joint_p > 0.0, cp.log(ratio), cp.float64(0.0))
+        mi = (joint_p * log_ratio).sum(axis=(2, 3))  # (chunk, f)
+
+        h_i_chunk = h_dev[i_start:i_end][:, None]       # (chunk, 1)
+        denom = h_i_chunk + h_dev[None, :]               # (chunk, f)
+        # denom == 0 happens iff BOTH columns have entropy 0 (both constant). For those
+        # pairs ``constant_mask`` already excludes them below.
+        safe_denom = cp.where(denom > 1e-12, denom, cp.float64(1.0))
+        su = cp.where(denom > 1e-12, 2.0 * mi / safe_denom, cp.float64(0.0))
+
+        # Mask: upper triangle only AND not constant on either side.
+        i_idx = cp.arange(i_start, i_end)[:, None]       # (chunk, 1)
+        j_idx = cp.arange(n_features)[None, :]            # (1, f)
+        upper = j_idx > i_idx                             # (chunk, f)
+        not_const = (~constant_dev[i_start:i_end])[:, None] & (~constant_dev[None, :])
+
+        passes = (su >= cp.float64(threshold)) & upper & not_const
+        flags[i_start:i_end] = passes.astype(cp.uint8)
+
+        # Free chunk temporaries before next chunk to keep peak GPU memory bounded.
+        del joint_counts, joint_p, px_outer, safe_outer, ratio, log_ratio, mi, denom
+        del safe_denom, su, upper, not_const, passes
+
+    return cp.asnumpy(flags)
+
+
 @njit(parallel=True, nogil=True, cache=True, fastmath=False)
 def _pairwise_su_edges(
     bins_packed: np.ndarray,
@@ -239,6 +427,9 @@ def cluster_correlated_features_su(
     edge_cap: int = 20_000_000,
     use_parallel: bool = True,
     parallel_min_features: int | None = None,
+    use_gpu: str | bool = "auto",
+    gpu_min_features: int | None = None,
+    gpu_pair_chunk_size: int = 4096,
 ) -> np.ndarray:
     """Cluster features by single-linkage on ``SU(X_i, X_j) >= threshold``.
 
@@ -281,6 +472,20 @@ def cluster_correlated_features_su(
         ``None`` consults ``pyutilz.system.kernel_tuning_cache`` (key
         ``mlframe.shap_proxied_fs.cluster_su.parallel_min_features``);
         default 50.
+    use_gpu
+        ``"auto"`` (default), ``True``, or ``False``. When ``"auto"`` the GPU
+        path runs iff cupy + a CUDA device are present AND ``n_features``
+        exceeds ``gpu_min_features`` AND the one-hot working set fits in 50%
+        of free GPU memory. ``True`` forces the GPU path (still falls back
+        when cupy fails to import). ``False`` keeps the CPU prange kernel.
+    gpu_min_features
+        Smallest ``n_features`` at which the GPU pairwise-SU kernel beats the
+        CPU prange kernel (cupy launch overhead amortises only above this
+        width). ``None`` consults ``pyutilz.system.kernel_tuning_cache`` (key
+        ``mlframe.shap_proxied_fs.cluster_su.gpu_min_features``); default 500.
+    gpu_pair_chunk_size
+        Maximum number of i-rows processed per GPU einsum batch; bounds peak
+        GPU memory at ``chunk * n_features * max_nb^2 * 8`` bytes. Default 4096.
 
     Returns
     -------
@@ -324,10 +529,41 @@ def cluster_correlated_features_su(
         packed = _pack_bins_for_kernel(arrays, marginals)
         if packed is not None:
             bins_packed, nbins, freqs_packed, freqs_offsets, h_marginals, constant_mask = packed
-            flags = _pairwise_su_edges(
-                bins_packed, nbins, freqs_packed, freqs_offsets,
-                h_marginals, constant_mask, threshold,
-            )
+
+            # GPU dispatch: ahead of the prange kernel because the GPU path wins at
+            # f >= gpu_min_features. Falls back transparently if cupy/CUDA misbehave.
+            gpu_route = False
+            if use_gpu in ("auto", True):
+                n_samples_kernel = int(bins_packed.shape[1])
+                max_nb = int(nbins.max()) if nbins.size else 0
+                if use_gpu is True:
+                    # forced path: only the availability + memory gates apply (no width gate)
+                    gpu_route = _should_route_su_gpu(
+                        n_features=f, n_samples=n_samples_kernel, max_n_bins=max_nb,
+                        gpu_min_features=0,
+                    )
+                else:
+                    gpu_route = _should_route_su_gpu(
+                        n_features=f, n_samples=n_samples_kernel, max_n_bins=max_nb,
+                        gpu_min_features=gpu_min_features,
+                    )
+            if gpu_route:
+                try:
+                    flags = _pairwise_su_edges_gpu(
+                        bins_packed, nbins, h_marginals, constant_mask, threshold,
+                        pair_chunk_size=int(gpu_pair_chunk_size),
+                    )
+                except Exception as exc:
+                    logger.warning("GPU SU kernel failed (%s); falling back to CPU prange kernel", exc)
+                    flags = _pairwise_su_edges(
+                        bins_packed, nbins, freqs_packed, freqs_offsets,
+                        h_marginals, constant_mask, threshold,
+                    )
+            else:
+                flags = _pairwise_su_edges(
+                    bins_packed, nbins, freqs_packed, freqs_offsets,
+                    h_marginals, constant_mask, threshold,
+                )
             ei_arr, ej_arr = np.where(flags == 1)
             if ei_arr.size > edge_cap:
                 raise MemoryError(
