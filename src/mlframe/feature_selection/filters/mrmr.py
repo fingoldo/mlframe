@@ -798,6 +798,21 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_mi_greedy_seed_cols_count: int = 5,
         fe_mi_greedy_include_unary: bool = True,
         fe_mi_greedy_include_binary: bool = True,
+        # 2026-05-31 Layer 60 — CMI-greedy FE constructor (sibling to the
+        # marginal-MI greedy one above). Default OFF -- legacy behaviour
+        # is byte-identical when ``fe_mi_greedy_cmi_enable=False``. When
+        # True, the same candidate transform library used by Layer 26 is
+        # ranked by ``CMI(candidate; y | currently-selected-support)``
+        # instead of marginal ``MI(candidate; y)``, so duplicate-signal
+        # transforms (``log_abs(x)`` AND ``square(x)`` both monotone in
+        # ``|x|``) are naturally suppressed -- once one of the family is
+        # in the support, the others' CMI collapses near zero and they
+        # are never picked. Recipes reuse kind ``"mi_greedy_transform"``
+        # so transform-time replay is shared infrastructure.
+        fe_mi_greedy_cmi_enable: bool = False,
+        fe_mi_greedy_cmi_top_k: int = 5,
+        fe_mi_greedy_cmi_seed_cols_count: int = 4,
+        fe_mi_greedy_cmi_min_gain: float = 0.005,
         # 2026-05-31 Layer 33 — K-fold target encoding for raw categorical
         # columns. Default OFF -- legacy behaviour is byte-identical when
         # ``fe_kfold_te_enable=False``. When True, after the hybrid + MI-
@@ -1244,6 +1259,12 @@ class MRMR(BaseEstimator, TransformerMixin):
             "fe_mi_greedy_include_unary": True,
             "fe_mi_greedy_include_binary": True,
             "mi_greedy_features_": [],
+            # 2026-05-31 Layer 60 — CMI-greedy FE constructor. Defaults
+            # preserve legacy behaviour: master switch OFF.
+            "fe_mi_greedy_cmi_enable": False,
+            "fe_mi_greedy_cmi_top_k": 5,
+            "fe_mi_greedy_cmi_seed_cols_count": 4,
+            "fe_mi_greedy_cmi_min_gain": 0.005,
             # 2026-05-31 Layer 33 — K-fold target-encoding FE defaults.
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_kfold_te_enable": False,

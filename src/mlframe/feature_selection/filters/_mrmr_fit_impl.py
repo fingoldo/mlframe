@@ -918,6 +918,99 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     type(_mig_exc).__name__, _mig_exc,
                 )
 
+    # 2026-05-31 Layer 60 — CMI-greedy FE constructor (sibling to Layer 26).
+    # Ranks the same candidate library by ``CMI(candidate; y | support)``
+    # instead of marginal ``MI(candidate; y)`` so duplicate-signal transforms
+    # (``log_abs(x)`` + ``square(x)`` both monotone in |x|) cannot all be
+    # picked: once one is in the support, the others' CMI collapses near
+    # zero. Winners are MERGED into ``mi_greedy_features_`` (same recipe
+    # kind ``mi_greedy_transform``) so downstream end-of-fit remap and
+    # transform-time replay are shared infrastructure. Seed pool excludes
+    # both prior hybrid-orth and prior marginal-MI-greedy engineered cols
+    # (same rationale: replay must not reference engineered sources).
+    if bool(getattr(self, "fe_mi_greedy_cmi_enable", False)):
+        _is_pandas_for_cmi = isinstance(X, pd.DataFrame)
+        if not _is_pandas_for_cmi:
+            warnings.warn(
+                "MRMR: fe_mi_greedy_cmi_enable=True but X is not a pandas "
+                "DataFrame; CMI-greedy FE is skipped. Convert to pandas via "
+                "X.to_pandas() before fit() if you want CMI-greedy FE applied.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from ._mi_greedy_cmi_fe import greedy_cmi_fe_construct_with_recipes
+                _y_for_cmi = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                if _y_for_cmi.dtype.kind in "fc":
+                    _n_unique_cmi = int(np.unique(_y_for_cmi).size)
+                    if _n_unique_cmi <= 32:
+                        _y_for_cmi = _y_for_cmi.astype(np.int64)
+                    else:
+                        try:
+                            _y_for_cmi = pd.qcut(
+                                _y_for_cmi, q=10, labels=False, duplicates="drop",
+                            ).astype(np.int64)
+                        except Exception:
+                            _y_for_cmi = _y_for_cmi.astype(np.int64)
+                _eng_already_appended = (
+                    set(getattr(self, "hybrid_orth_features_", None) or [])
+                    | set(self.mi_greedy_features_ or [])
+                )
+                if getattr(self, "factors_names_to_use", None):
+                    _cmi_cols = [
+                        c for c in self.factors_names_to_use
+                        if c in X.columns and c not in _eng_already_appended
+                    ]
+                else:
+                    _cmi_cols = [
+                        c for c in X.columns
+                        if c not in _eng_already_appended
+                    ]
+                _X_before_cmi_cols = list(X.columns)
+                X_cmi, _cmi_scores, _cmi_recipes = greedy_cmi_fe_construct_with_recipes(
+                    X, _y_for_cmi,
+                    cols=_cmi_cols,
+                    seed_cols_count=int(self.fe_mi_greedy_cmi_seed_cols_count),
+                    top_k=int(self.fe_mi_greedy_cmi_top_k),
+                    include_unary=bool(getattr(self, "fe_mi_greedy_include_unary", True)),
+                    include_binary=bool(getattr(self, "fe_mi_greedy_include_binary", True)),
+                    min_cmi_gain=float(self.fe_mi_greedy_cmi_min_gain),
+                )
+                _cmi_appended = [
+                    c for c in X_cmi.columns
+                    if c not in _X_before_cmi_cols
+                ]
+                if _cmi_appended:
+                    X = X_cmi
+                    # Merge into the existing mi_greedy_features_ list so
+                    # end-of-fit dedup / remap / pickle treat both stages
+                    # uniformly. Skip names already present (the two stages
+                    # share the engineered-column namespace; CMI ones that
+                    # happen to collide with Layer-26 picks are dropped by
+                    # name-equality here).
+                    _existing = set(self.mi_greedy_features_ or [])
+                    for _c in _cmi_appended:
+                        if _c not in _existing:
+                            self.mi_greedy_features_.append(_c)
+                            _existing.add(_c)
+                    for _r in _cmi_recipes:
+                        if _r.name not in _mi_greedy_pre_recipes:
+                            _mi_greedy_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit mi_greedy_cmi: appended %d engineered "
+                            "column(s): %s",
+                            len(_cmi_appended), _cmi_appended[:8],
+                        )
+            except Exception as _cmi_exc:
+                logger.warning(
+                    "MRMR.fit mi_greedy_cmi FE raised %s: %s; continuing "
+                    "without CMI-greedy columns.",
+                    type(_cmi_exc).__name__, _cmi_exc,
+                )
+
     # 2026-05-31 Layer 33 — K-fold target encoding for raw categorical
     # columns. Runs after hybrid + MI-greedy because TE is the standard
     # prod pattern for cardinality > 5 categoricals that the other two
