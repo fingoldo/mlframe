@@ -674,6 +674,31 @@ def _ucb_stop_remaining_cannot_win(
     return bool(np.min(lower_bounds) > threshold)
 
 
+def _winner_from_per_candidate(per_candidate, candidates, member_cols, lambda_stab, parsimony_tol):
+    """Parsimony-rule winner index tuple from accumulated per-candidate seed losses (iter77).
+
+    Mirrors the post-dispatch ranking + parsimony pick used to finalise ``revalidate_top_n``'s
+    winner; used INSIDE the model-round loop to test winner stability across consecutive rounds
+    when ``adaptive_n_models=True``. Returns ``None`` when ``per_candidate`` is empty.
+    """
+    ranked = []
+    for ci, (proxy_loss_val, idx) in enumerate(candidates):
+        if ci not in per_candidate or not per_candidate[ci]:
+            continue
+        scores = np.asarray(per_candidate[ci], dtype=np.float64)
+        mean, std = float(scores.mean()), float(scores.std())
+        ranked.append(dict(features=tuple(idx), n_members=len(member_cols[ci]),
+                           stable_score=mean + lambda_stab * std))
+    if not ranked:
+        return None
+    ranked.sort(key=lambda d: d["stable_score"])
+    best_score = ranked[0]["stable_score"]
+    threshold = best_score + parsimony_tol * abs(best_score)
+    eligible = [d for d in ranked if d["stable_score"] <= threshold]
+    chosen = min(eligible, key=lambda d: (d["n_members"], d["stable_score"]))
+    return chosen["features"]
+
+
 def _ucb_auto_slack(evaluated_proxy, evaluated_honest_mean, stdev_multiplier=1.5):
     """Calibrate the UCB slack from already-evaluated (proxy, honest_mean) pairs.
 
@@ -707,7 +732,7 @@ def revalidate_top_n(
     *, classification, metric=None, n_models=1, lambda_stab=0.5, parsimony_tol=0.02, rng=None, n_jobs=-1,
     unit_to_members=None, cache=None, revalidation_n_estimators=None,
     ucb_enabled=False, ucb_min_eval_size=None, ucb_slack=None, ucb_stdev_multiplier=1.5,
-    candidate_score=None, inner_n_jobs_cap=False,
+    candidate_score=None, inner_n_jobs_cap=False, adaptive_n_models=False,
 ):
     """Honestly retrain each candidate subset on X_search, evaluate on the disjoint X_holdout.
 
@@ -767,6 +792,19 @@ def revalidate_top_n(
     min_eval_size OR ``n_jobs in (1, 0, None)``, falls through to the legacy single-batch path with
     zero behaviour change -- single-job runs (test fixtures) have no batching to save on, so the gate
     would only risk dropping the winner without any wall benefit.
+
+    ``adaptive_n_models`` (iter77): when True, dispatch the ``n_models`` stability seeds as SEPARATE
+    rounds (one seed per candidate per round) instead of one combined batch. After each completed
+    round (k >= 2), the parsimony-rule winner is computed from accumulated per-candidate losses; if
+    the winner is identical to the previous round's winner, remaining seed rounds are skipped. Floor
+    is 2 rounds (need at least one stability check); ceiling is ``n_models``. Worst case (winners
+    differ every round) is the same total fit count as the legacy path. With ``n_models=1`` the knob
+    is a no-op. The candidate-UCB candidate-pruning still applies within each round. Conservation
+    guarantee: when ``n_models_run == n_models`` the result is bit-identical to the legacy path
+    (same seeds, same accumulation, same ranking). When the loop exits early, ``stable_score`` is
+    computed on fewer seeds per candidate so std is lower-variance but mean is the same expectation;
+    the parsimony rule (relative-tol) is robust to this. Surface: ``baseline['ucb']['n_models_run']``
+    reports actual rounds executed.
     """
     metric = resolve_metric(classification, metric)
     rng = np.random.default_rng(0) if rng is None else rng
@@ -821,46 +859,26 @@ def revalidate_top_n(
     per_candidate: dict[int, list[float]] = {}
     n_candidates_evaluated = 0
     ucb_slack_used = 0.0
-    if not use_ucb:
-        # Legacy path: one parallel batch over all candidates.
-        tasks, task_owner = [], []
-        for ci in range(n_total):
-            for s in candidate_seeds[ci]:
-                tasks.append((member_cols[ci], s))
-                task_owner.append(ci)
-        losses = _parallel_honest_losses(tasks, model_template, X_search, y_search, X_holdout, y_holdout,
-                                         classification, metric, n_jobs, cache=cache,
-                                         n_estimators_cap=cap, template_id=tid,
-                                         inner_n_jobs_cap=inner_n_jobs_cap)
-        for owner, loss in zip(task_owner, losses):
-            per_candidate.setdefault(owner, []).append(loss)
-        n_candidates_evaluated = n_total
-    else:
-        evaluated_idx_set: set[int] = set()
-        # First batch saturates the workers. Subsequent batches are workers-sized so each iteration
-        # is one wall-clock pool dispatch on the same operating point.
-        import os as _os
-        n_cores = _os.cpu_count() or 1
-        outer_workers = n_cores if n_jobs in (-1, None, 0) else int(n_jobs)
-        outer_workers = max(1, outer_workers)
-        batch_sizes: list[int] = []
-        # First batch matches ``ucb_min_eval_size_eff`` candidates (each with ``n_models`` fits).
-        cur = 0
-        while cur < n_total:
-            if cur == 0:
-                step = min(ucb_min_eval_size_eff, n_total - cur)
-            else:
-                step = min(max(1, outer_workers // max(1, n_models)), n_total - cur)
-                step = max(step, 1)
-            batch_sizes.append(step)
-            cur += step
-        pos = 0
-        for step in batch_sizes:
-            batch_candidate_idx = [int(proxy_order[pos + j]) for j in range(step)]
-            pos += step
+    # iter77 adaptive_n_models: split the n_models stability seeds into separate rounds, allow early
+    # stop when the parsimony winner stabilises. With adaptive_n_models=False (legacy) the rounds
+    # collapse into one combined batch (the original semantics).
+    adapt_active = bool(adaptive_n_models) and int(n_models) >= 2
+    seed_rounds = int(n_models) if adapt_active else 1
+    # When NOT adaptive, "one round" dispatches all n_models seeds per candidate; when adaptive,
+    # each round dispatches ONE seed per candidate (round k -> candidate_seeds[ci][k:k+1]).
+    n_models_run = 0
+    prev_winner: tuple | None = None
+
+    for round_k in range(seed_rounds):
+        if adapt_active:
+            round_seeds = [[candidate_seeds[ci][round_k]] for ci in range(n_total)]
+        else:
+            round_seeds = candidate_seeds  # legacy: all seeds in one round
+        if not use_ucb:
+            # Legacy path: one parallel batch over all candidates.
             tasks, task_owner = [], []
-            for ci in batch_candidate_idx:
-                for s in candidate_seeds[ci]:
+            for ci in range(n_total):
+                for s in round_seeds[ci]:
                     tasks.append((member_cols[ci], s))
                     task_owner.append(ci)
             losses = _parallel_honest_losses(tasks, model_template, X_search, y_search, X_holdout, y_holdout,
@@ -869,33 +887,81 @@ def revalidate_top_n(
                                              inner_n_jobs_cap=inner_n_jobs_cap)
             for owner, loss in zip(task_owner, losses):
                 per_candidate.setdefault(owner, []).append(loss)
-            evaluated_idx_set.update(batch_candidate_idx)
-            n_candidates_evaluated = len(evaluated_idx_set)
-            if pos >= n_total:
+            n_candidates_evaluated = n_total
+        else:
+            evaluated_idx_set: set[int] = set()
+            # First batch saturates the workers. Subsequent batches are workers-sized so each iteration
+            # is one wall-clock pool dispatch on the same operating point.
+            import os as _os
+            n_cores = _os.cpu_count() or 1
+            outer_workers = n_cores if n_jobs in (-1, None, 0) else int(n_jobs)
+            outer_workers = max(1, outer_workers)
+            # Effective seeds-per-candidate THIS round drives the worker-share denominator.
+            seeds_per_cand = len(round_seeds[0]) if round_seeds and round_seeds[0] else 1
+            batch_sizes: list[int] = []
+            cur = 0
+            while cur < n_total:
+                if cur == 0:
+                    step = min(ucb_min_eval_size_eff, n_total - cur)
+                else:
+                    step = min(max(1, outer_workers // max(1, seeds_per_cand)), n_total - cur)
+                    step = max(step, 1)
+                batch_sizes.append(step)
+                cur += step
+            pos = 0
+            for step in batch_sizes:
+                batch_candidate_idx = [int(proxy_order[pos + j]) for j in range(step)]
+                pos += step
+                tasks, task_owner = [], []
+                for ci in batch_candidate_idx:
+                    for s in round_seeds[ci]:
+                        tasks.append((member_cols[ci], s))
+                        task_owner.append(ci)
+                losses = _parallel_honest_losses(tasks, model_template, X_search, y_search, X_holdout, y_holdout,
+                                                 classification, metric, n_jobs, cache=cache,
+                                                 n_estimators_cap=cap, template_id=tid,
+                                                 inner_n_jobs_cap=inner_n_jobs_cap)
+                for owner, loss in zip(task_owner, losses):
+                    per_candidate.setdefault(owner, []).append(loss)
+                evaluated_idx_set.update(batch_candidate_idx)
+                n_candidates_evaluated = len(evaluated_idx_set)
+                if pos >= n_total:
+                    break
+                # Compute the running best stable_score over evaluated candidates.
+                best_so_far = float("inf")
+                ev_proxy: list[float] = []
+                ev_honest_mean: list[float] = []
+                for ci in evaluated_idx_set:
+                    scores = np.asarray(per_candidate[ci], dtype=np.float64)
+                    mean = float(scores.mean())
+                    std = float(scores.std())
+                    stable = mean + lambda_stab * std
+                    if stable < best_so_far:
+                        best_so_far = stable
+                    ev_proxy.append(float(score_arr[ci]))
+                    ev_honest_mean.append(mean)
+                if ucb_slack is None:
+                    ucb_slack_used = _ucb_auto_slack(ev_proxy, ev_honest_mean, ucb_stdev_multiplier)
+                else:
+                    ucb_slack_used = float(ucb_slack)
+                remaining_idx = [int(proxy_order[j]) for j in range(pos, n_total)]
+                remaining_score = [float(score_arr[ci]) for ci in remaining_idx]
+                if _ucb_stop_remaining_cannot_win(
+                    best_so_far, remaining_score, ucb_slack_used, parsimony_tol,
+                ):
+                    break
+        n_models_run = round_k + 1
+        # Parsimony-rule winner across accumulated per-candidate losses; early-stop when stable
+        # across two consecutive rounds. Floor at 2 rounds so we always have at least one stability
+        # check (round_k >= 1). When n_models == 1 the loop runs exactly once -- no check possible
+        # and adapt_active is False anyway, so this branch is skipped.
+        if adapt_active:
+            cur_winner = _winner_from_per_candidate(
+                per_candidate, candidates, member_cols, lambda_stab, parsimony_tol,
+            )
+            if round_k >= 1 and cur_winner is not None and cur_winner == prev_winner:
                 break
-            # Compute the running best stable_score over evaluated candidates.
-            best_so_far = float("inf")
-            ev_proxy: list[float] = []
-            ev_honest_mean: list[float] = []
-            for ci in evaluated_idx_set:
-                scores = np.asarray(per_candidate[ci], dtype=np.float64)
-                mean = float(scores.mean())
-                std = float(scores.std())
-                stable = mean + lambda_stab * std
-                if stable < best_so_far:
-                    best_so_far = stable
-                ev_proxy.append(float(score_arr[ci]))
-                ev_honest_mean.append(mean)
-            if ucb_slack is None:
-                ucb_slack_used = _ucb_auto_slack(ev_proxy, ev_honest_mean, ucb_stdev_multiplier)
-            else:
-                ucb_slack_used = float(ucb_slack)
-            remaining_idx = [int(proxy_order[j]) for j in range(pos, n_total)]
-            remaining_score = [float(score_arr[ci]) for ci in remaining_idx]
-            if _ucb_stop_remaining_cannot_win(
-                best_so_far, remaining_score, ucb_slack_used, parsimony_tol,
-            ):
-                break
+            prev_winner = cur_winner
 
     ranked = []
     for ci, (proxy_loss_val, idx) in enumerate(candidates):
@@ -955,7 +1021,10 @@ def revalidate_top_n(
     ucb_info = dict(enabled=bool(use_ucb), n_candidates_total=int(n_total),
                     n_candidates_evaluated=int(n_candidates_evaluated),
                     min_eval_size=int(ucb_min_eval_size_eff),
-                    slack=float(ucb_slack_used))
+                    slack=float(ucb_slack_used),
+                    adaptive_n_models=bool(adapt_active),
+                    n_models_configured=int(n_models),
+                    n_models_run=int(n_models_run))
     # Attach UCB diagnostic to the random-subset baseline dict (or create a stub when no winner).
     # Keeps the 3-tuple return contract stable; downstream consumers fish ucb diagnostics out via
     # ``report['revalidation']['random_baseline']['ucb']``. Same pattern as other-revalidator-side

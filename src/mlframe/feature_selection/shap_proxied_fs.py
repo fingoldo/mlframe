@@ -270,6 +270,7 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         revalidation_ucb_min_eval_size: int | None = None,
         revalidation_ucb_slack: float | None = None,
         revalidation_ucb_stdev_multiplier: float | None = None,
+        revalidation_adaptive_n_models: bool = True,
         revalidation_mmr_jaccard_threshold: float | None = None,
         trust_guard_n_estimators: int | None = 100,
         trust_guard_stratified_anchors: bool = False,
@@ -569,6 +570,15 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         self.revalidation_ucb_stdev_multiplier = (
             float(revalidation_ucb_stdev_multiplier)
             if revalidation_ucb_stdev_multiplier is not None else None)
+        # ``revalidation_adaptive_n_models`` (iter77, default True): split the n_revalidation_models
+        # stability seeds into separate rounds and early-stop once the parsimony-rule winner has been
+        # identical across two consecutive rounds. Floor is 2 rounds (need >=1 stability check);
+        # ceiling is n_revalidation_models. Conservation: when the loop runs the full ceiling the
+        # accumulated per-candidate losses are identical to legacy (same seeds, same accumulation).
+        # When winners differ every round, no early stop fires and total fit count matches legacy.
+        # With n_revalidation_models=1 (calibration paths) the knob is a no-op. Surfaced via
+        # ``report['revalidation']['random_baseline']['ucb']['n_models_run']``.
+        self.revalidation_adaptive_n_models = bool(revalidation_adaptive_n_models)
         # ``revalidation_mmr_jaccard_threshold`` (iter50): MMR-style greedy de-duplication of the
         # corrector-sorted top_n candidates BEFORE the honest re-validation stage. At width>=20000
         # post-prefilter top_n=20 candidates are near-duplicate unions of the same SHAP-aware
@@ -1510,6 +1520,7 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
                         ucb_slack=self.revalidation_ucb_slack,
                         ucb_stdev_multiplier=self._resolve_revalidation_ucb_stdev_multiplier(
                             n_features),
+                        adaptive_n_models=self.revalidation_adaptive_n_models,
                         candidate_score=score, **rv)
                     report["revalidation"] = dict(ranked=ranked[: self.top_n], random_baseline=baseline)
         else:
