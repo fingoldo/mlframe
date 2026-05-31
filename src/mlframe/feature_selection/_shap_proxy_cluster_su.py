@@ -274,6 +274,16 @@ def _pairwise_su_edges(
     # max joint cardinality controls a single thread-local reusable buffer per
     # outer iteration; avoids per-pair np.zeros allocation that bottlenecks at
     # width >= 2000 (numba memory allocator under contention).
+    #
+    # bench-attempt-rejected (2026-05-31, iter72): j-tile block of B consecutive
+    # j-columns sharing the i-row L1 read in the sample sweep. Tested B in
+    # {2,3,4,5,7,8,16,32} at width=2000 / n_samples=1500 / n_bins=10 / 8 numba
+    # threads: every B regressed (best B=8 was 2.59s vs per-pair 2.13s = 0.82x).
+    # Likely the B strided writes to joints[jb, x_i, x_j] saturate L1 stores and
+    # the extra zeroing work (B * nb_i * nb_j cells per tile) wipes any savings
+    # from sharing the i-row read. Do not re-attempt pure j-tiling without first
+    # changing the inner-loop store pattern (e.g. SoA joints[B, k_chunk] +
+    # post-reduction, or sample-tile + j-tile two-level blocking).
     max_nb = 0
     for i in range(n_features):
         if nbins[i] > max_nb:
