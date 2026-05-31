@@ -540,6 +540,101 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     "continuing without triplet-FE columns.",
                     type(_t_exc).__name__, _t_exc,
                 )
+    # 2026-05-31 Layer 57 — ADAPTIVE PER-COLUMN DEGREE FE stage.
+    # Independent opt-in (does NOT require fe_hybrid_orth_enable). When
+    # active, for each source column we evaluate every degree in
+    # ``fe_hybrid_orth_adaptive_degree_range`` and emit ONLY the argmax-MI
+    # degree (if it clears the per-col uplift gate). Recipe kind reuses
+    # ``orth_univariate`` -- replay reads X only, no y.
+    if bool(getattr(self, "fe_hybrid_orth_adaptive_degree_enable", False)):
+        _is_pandas_for_adaptive = isinstance(X, pd.DataFrame)
+        if not _is_pandas_for_adaptive:
+            warnings.warn(
+                "MRMR: fe_hybrid_orth_adaptive_degree_enable=True but X is "
+                "not a pandas DataFrame; adaptive-degree FE is skipped. "
+                "Convert to pandas via X.to_pandas() before fit() if you "
+                "want adaptive-degree FE applied.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from ._orthogonal_adaptive_degree_fe import (
+                    hybrid_orth_mi_adaptive_degree_fe_with_recipes,
+                )
+                _y_for_adapt = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                if _y_for_adapt.dtype.kind in "fc":
+                    _n_unique = int(np.unique(_y_for_adapt).size)
+                    if _n_unique <= 32:
+                        _y_for_adapt = _y_for_adapt.astype(np.int64)
+                    else:
+                        try:
+                            _y_for_adapt = pd.qcut(
+                                _y_for_adapt, q=10, labels=False, duplicates="drop",
+                            ).astype(np.int64)
+                        except Exception:
+                            _y_for_adapt = _y_for_adapt.astype(np.int64)
+                # Restrict the seed pool to RAW source columns -- engineered
+                # columns from prior stages would create recipes whose
+                # src_names reference an engineered column absent at
+                # transform time (KeyError on replay).
+                _hybrid_already_appended = set(
+                    getattr(self, "hybrid_orth_features_", None) or []
+                )
+                _ad_cols: list | None = None
+                if getattr(self, "factors_names_to_use", None):
+                    _ad_cols = [
+                        c for c in self.factors_names_to_use
+                        if c in X.columns and c not in _hybrid_already_appended
+                    ]
+                else:
+                    _ad_cols = [
+                        c for c in X.columns
+                        if c not in _hybrid_already_appended
+                    ]
+                _ad_range = tuple(int(d) for d in getattr(
+                    self, "fe_hybrid_orth_adaptive_degree_range", (1, 2, 3, 4, 5, 6),
+                ))
+                _ad_min_uplift = float(getattr(
+                    self, "fe_hybrid_orth_adaptive_degree_min_uplift", 1.05,
+                ))
+                _ad_basis = str(getattr(self, "fe_hybrid_orth_basis", "auto"))
+                _X_before_adaptive_cols = list(X.columns)
+                X_ad, _ad_scores, _ad_recipes = (
+                    hybrid_orth_mi_adaptive_degree_fe_with_recipes(
+                        X, _y_for_adapt,
+                        cols=_ad_cols,
+                        degree_range=_ad_range,
+                        basis=_ad_basis,
+                        min_uplift=_ad_min_uplift,
+                    )
+                )
+                _ad_appended = [
+                    c for c in X_ad.columns if c not in _X_before_adaptive_cols
+                ]
+                if _ad_appended:
+                    X = X_ad
+                    self.hybrid_orth_features_ = (
+                        list(self.hybrid_orth_features_ or []) + list(_ad_appended)
+                    )
+                    # Merge into the same recipe dict used by the master
+                    # hybrid stage so the end-of-fit remap into
+                    # ``_engineered_recipes_`` picks it up.
+                    for _r in _ad_recipes:
+                        _hybrid_orth_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit hybrid_orth adaptive-degree: appended "
+                            "%d engineered column(s): %s",
+                            len(_ad_appended), _ad_appended[:8],
+                        )
+            except Exception as _ad_exc:
+                logger.warning(
+                    "MRMR.fit hybrid_orth adaptive-degree FE raised %s: %s; "
+                    "continuing without adaptive-degree columns.",
+                    type(_ad_exc).__name__, _ad_exc,
+                )
     # 2026-05-21 revert of Wave 29 P1 polars->pandas coercion. That
     # coercion was added on the premise that downstream ``X[target_name]
     # = y`` mutation assumed pandas and would raise on polars; but the

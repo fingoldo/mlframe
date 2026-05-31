@@ -722,6 +722,22 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_hybrid_orth_triplet_max_degree: int = 1,
         fe_hybrid_orth_triplet_seed_k: int = 4,
         fe_hybrid_orth_triplet_top_count: int = 2,
+        # 2026-05-31 Layer 57 — ADAPTIVE PER-COLUMN DEGREE selection
+        # (sibling module ``_orthogonal_adaptive_degree_fe``). Independent
+        # opt-in (does NOT require fe_hybrid_orth_enable). When enabled,
+        # for each source column we evaluate every degree in
+        # ``fe_hybrid_orth_adaptive_degree_range`` and emit ONLY the
+        # argmax-MI degree (if it clears ``min_uplift`` over raw).
+        #
+        # Default OFF preserves Layer 21's fixed-degree sweep
+        # ``fe_hybrid_orth_degrees=(2,3)`` byte-for-byte. Recipes emit as
+        # ``orth_univariate`` (no new kind -- the recipe already carries
+        # ``(basis, degree)`` per column, the only change is the value
+        # is the per-column argmax instead of a sweep). Replay reads X
+        # only, no y, leakage-free by construction.
+        fe_hybrid_orth_adaptive_degree_enable: bool = False,
+        fe_hybrid_orth_adaptive_degree_range: tuple = (1, 2, 3, 4, 5, 6),
+        fe_hybrid_orth_adaptive_degree_min_uplift: float = 1.05,
         # 2026-05-31 Layer 32 — extra (non-polynomial) basis FE: B-spline +
         # Fourier. Complementary to the orth-poly path: spline catches sharp
         # local non-linearities (threshold rules ``y = sign(x - tau)``);
@@ -1160,6 +1176,11 @@ class MRMR(BaseEstimator, TransformerMixin):
             "fe_hybrid_orth_triplet_max_degree": 1,
             "fe_hybrid_orth_triplet_seed_k": 4,
             "fe_hybrid_orth_triplet_top_count": 2,
+            # 2026-05-31 Layer 57 — adaptive per-column degree defaults.
+            # Master switch OFF preserves legacy pickle byte-equivalence.
+            "fe_hybrid_orth_adaptive_degree_enable": False,
+            "fe_hybrid_orth_adaptive_degree_range": (1, 2, 3, 4, 5, 6),
+            "fe_hybrid_orth_adaptive_degree_min_uplift": 1.05,
             # 2026-05-31 Layer 32 — extra-basis (spline / fourier) defaults.
             "fe_hybrid_orth_extra_bases": (),
             "fe_hybrid_orth_fourier_freqs": (1.0, 2.0),
