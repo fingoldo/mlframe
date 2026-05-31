@@ -329,6 +329,20 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         self.parsimony_tol = parsimony_tol
         self.min_selected_ratio = min_selected_ratio
         self.trust_guard = trust_guard
+        # ``n_anchors`` default (30) was held against an iter93 sweep at C3 (width=10000, n_rows=10000,
+        # n_inf=20, n_red=20, snr=8.0, seed=0). The CHOSEN SUBSET is bit-identical from n_anchors=30
+        # down to n_anchors=8 and ``trustworthy=True`` everywhere (all composite fidelities clear the
+        # 0.5 floor). But the trust SCORE components degrade sharply below 30: recall@k 1.0 (30) -> 0.75
+        # (24) -> 0.667 (16) -> 0.50 (12) -> 0.0 (8); composite proxy_fidelity_score 0.9848 -> 0.8875 ->
+        # 0.8420 -> 0.7790 -> 0.5571. Spearman alone (0.9746 -> 0.9286) stays inside +/-5% across the
+        # whole sweep, but the composite is the gated metric so its dynamic range matters; at small
+        # anchors recall@k loses range (k = max(1, n_anchors//5) collapses to 1 by n=8, so a single
+        # anchor disagreement zeros it). trust_guard wall cut is also marginal until n=8: 1.54s (30) ->
+        # 1.30s (24) -> 1.22s (16) -> 1.52s (12) -> 0.97s (8); the wall is parallelism-overhead bound,
+        # not anchor-count bound, until cardinality drops far enough to shrink the dispatch fan-out.
+        # Keep n_anchors=30: the chosen-subset parity says the gate would still pass at lower anchors,
+        # but the trust SCORE is what downstream consumers (bias corrector, fidelity reporting) read,
+        # and degrading its margin to the floor for a sub-second wall cut is the wrong trade.
         self.n_anchors = n_anchors
         # ``fidelity_floor`` (iter18, default 0.5): below this composite the trust-guard fires LOW.
         # The legacy ``spearman_floor`` kwarg name is preserved as a deprecated alias since iter18 --
