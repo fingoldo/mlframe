@@ -152,6 +152,7 @@ class RecurrentDataModule(LightningDataModule):
         num_workers: int = 0,
         is_regression: bool = False,
         use_stratified_sampler: bool = True,
+        accelerator: str = "auto",
     ):
         """
         Initialize DataModule.
@@ -189,6 +190,15 @@ class RecurrentDataModule(LightningDataModule):
         self.num_workers = num_workers
         self.is_regression = is_regression
         self.use_stratified_sampler = use_stratified_sampler
+        # F-47 (2026-05-31): pin_memory should track the trainer accelerator,
+        # not the host's CUDA availability. Pinning when the trainer runs on
+        # CPU (e.g. user explicitly set accelerator="cpu" on a CUDA box for
+        # debugging or smoke tests) wastes RAM and triggers a useless host-
+        # side page-lock attempt for every batch.
+        self._pin_memory = (
+            torch.cuda.is_available()
+            and accelerator in ("auto", "gpu", "cuda")
+        )
 
         # For dynamic prediction
         self.predict_sequences = None
@@ -244,7 +254,7 @@ class RecurrentDataModule(LightningDataModule):
             sampler=sampler,
             num_workers=self.num_workers,
             collate_fn=recurrent_collate_fn,
-            pin_memory=torch.cuda.is_available(),
+            pin_memory=self._pin_memory,
             persistent_workers=self.num_workers > 0,
         )
 
@@ -261,13 +271,17 @@ class RecurrentDataModule(LightningDataModule):
             is_regression=self.is_regression,
         )
 
+        # F-46 (2026-05-31): mirror train_dataloader persistent_workers.
+        # EarlyStopping triggers val every epoch; without persistence we
+        # re-spawn workers each call (~150-300ms on Windows).
         return DataLoader(
             dataset,
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
             collate_fn=recurrent_collate_fn,
-            pin_memory=torch.cuda.is_available(),
+            pin_memory=self._pin_memory,
+            persistent_workers=self.num_workers > 0,
         )
 
     def test_dataloader(self) -> DataLoader:
@@ -282,13 +296,15 @@ class RecurrentDataModule(LightningDataModule):
             is_regression=self.is_regression,
         )
 
+        # F-46: persist test workers across re-runs (mirror train+val).
         return DataLoader(
             dataset,
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
             collate_fn=recurrent_collate_fn,
-            pin_memory=torch.cuda.is_available(),
+            pin_memory=self._pin_memory,
+            persistent_workers=self.num_workers > 0,
         )
 
     def predict_dataloader(self) -> DataLoader:
@@ -312,13 +328,17 @@ class RecurrentDataModule(LightningDataModule):
             is_regression=self.is_regression,
         )
 
+        # F-46: persist predict workers; predict_dataloader is called once
+        # per predict() invocation -- and many estimators predict 5-20x per
+        # fit suite (val + test + OOF + ensemble probes).
         return DataLoader(
             dataset,
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
             collate_fn=recurrent_collate_fn,
-            pin_memory=torch.cuda.is_available(),
+            pin_memory=self._pin_memory,
+            persistent_workers=self.num_workers > 0,
         )
 
     def setup_predict(

@@ -496,11 +496,29 @@ class RecurrentTorchModel(L.LightningModule):
             return self._loss_fn_mean(logits, labels)
 
     def configure_optimizers(self):
-        """Configure AdamW with OneCycleLR scheduler."""
+        """Configure AdamW with OneCycleLR scheduler.
+
+        F-44 (2026-05-31): opt into fused AdamW kernel on CUDA. Skip under
+        fp16-mixed -- Lightning AMP plugin can't reconcile fused-AdamW
+        internal unscaling with the gradient-clipping pass that runs under
+        a live GradScaler. bf16-mixed and fp32 are safe.
+        """
+        precision = "32-true"
+        try:
+            if self.trainer is not None:
+                precision = str(self.trainer.precision)
+        except Exception:
+            pass
+        _safe_for_fused = (
+            torch.cuda.is_available()
+            and precision != "16-mixed"
+        )
+        _fused_kwarg = {"fused": True} if _safe_for_fused else {}
         optimizer = torch.optim.AdamW(
             self.parameters(),
             lr=self.config.learning_rate,
             weight_decay=self.config.weight_decay,
+            **_fused_kwarg,
         )
 
         if self.trainer and self.trainer.estimated_stepping_batches:

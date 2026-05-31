@@ -377,6 +377,14 @@ class _RecurrentWrapperBase(BaseEstimator):
             task_type=_task_type,
         )
 
+    def _auto_precision(self) -> str:
+        from ._recurrent_perf import auto_precision
+        return auto_precision(self.config.precision)
+
+    def _maybe_enable_cudnn_rnn_autotune(self) -> None:
+        from ._recurrent_perf import maybe_enable_cudnn_rnn_autotune
+        maybe_enable_cudnn_rnn_autotune(self.config.rnn_type)
+
     def _create_trainer(self, has_validation: bool, plot: bool) -> tuple[L.Trainer, Any]:
         """Create Lightning Trainer with callbacks."""
         callbacks: list = []
@@ -413,7 +421,7 @@ class _RecurrentWrapperBase(BaseEstimator):
         trainer = L.Trainer(
             max_epochs=self.config.max_epochs,
             accelerator=safe_accelerator(self.config.accelerator),
-            precision=self.config.precision,
+            precision=self._auto_precision(),
             callbacks=callbacks,
             gradient_clip_val=self.config.gradient_clip_val,
             enable_progress_bar=True,
@@ -645,6 +653,7 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
         )
 
         self.trainer, checkpoint_callback = self._create_trainer(val_loader is not None, plot)
+        self._maybe_enable_cudnn_rnn_autotune()
         self.trainer.fit(self.model, train_loader, val_loader)
 
         if checkpoint_callback is not None and checkpoint_callback.best_model_path:
@@ -703,7 +712,7 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
 
         predict_trainer = L.Trainer(
             accelerator=self.config.accelerator,
-            precision=self.config.precision,
+            precision=self._auto_precision(),
             logger=False,
             enable_progress_bar=False,
             enable_model_summary=False,
@@ -824,6 +833,7 @@ class RecurrentRegressorWrapper(_RecurrentWrapperBase, RegressorMixin):
         )
 
         self.trainer, checkpoint_callback = self._create_trainer(val_loader is not None, plot)
+        self._maybe_enable_cudnn_rnn_autotune()
         self.trainer.fit(self.model, train_loader, val_loader)
 
         if checkpoint_callback is not None and checkpoint_callback.best_model_path:
@@ -882,7 +892,7 @@ class RecurrentRegressorWrapper(_RecurrentWrapperBase, RegressorMixin):
 
         predict_trainer = L.Trainer(
             accelerator=self.config.accelerator,
-            precision=self.config.precision,
+            precision=self._auto_precision(),
             logger=False,
             enable_progress_bar=False,
             enable_model_summary=False,
