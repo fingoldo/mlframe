@@ -125,7 +125,7 @@ class EngineeredRecipe:
     # (src_names=(c_i, c_j), extra={basis_i, basis_j, deg_a, deg_b}). Replay
     # is closed-form from the source column(s) alone -- no y reference is
     # captured at fit time, so transform() is leakage-free by construction.
-    kind: Literal["unary_binary", "factorize", "hermite_pair", "target_encoding", "cluster_aggregate", "orth_univariate", "orth_pair_cross", "orth_spline", "orth_fourier", "mi_greedy_transform", "kfold_target_encoded"]
+    kind: Literal["unary_binary", "factorize", "hermite_pair", "target_encoding", "cluster_aggregate", "orth_univariate", "orth_pair_cross", "orth_spline", "orth_fourier", "mi_greedy_transform", "kfold_target_encoded", "count_encoded", "frequency_encoded", "cat_num_residual"]
     src_names: tuple[str, ...]
     unary_names: tuple[str, ...] = ()
     binary_name: str = ""
@@ -324,6 +324,12 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         return _apply_mi_greedy_transform(recipe, X)
     if recipe.kind == "kfold_target_encoded":
         return _apply_kfold_target_encoded(recipe, X)
+    if recipe.kind == "count_encoded":
+        return _apply_count_encoded(recipe, X)
+    if recipe.kind == "frequency_encoded":
+        return _apply_frequency_encoded(recipe, X)
+    if recipe.kind == "cat_num_residual":
+        return _apply_cat_num_residual(recipe, X)
     raise ValueError(f"Unknown recipe kind: {recipe.kind!r}")
 
 
@@ -1338,5 +1344,187 @@ def build_kfold_target_encoded_recipe(
             "lookup": lookup_clean,
             "global_mean": float(global_mean),
             "smoothing": float(smoothing),
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Layer 34 (2026-05-31): count / frequency encoding + cat x num residual.
+# ---------------------------------------------------------------------------
+#
+# Companions to ``kfold_target_encoded``: these three kinds cover the
+# remaining production-grade categorical pipelines that Layer 33 does not
+# touch. The kernels live in ``_count_freq_interaction_fe.py``.
+#
+# extra layout:
+# * count_encoded     : {lookup: dict[str, int],   default: int}
+# * frequency_encoded : {lookup: dict[str, float], default: float}
+# * cat_num_residual  : {lookup: dict[str, float], global_mean: float,
+#                        smoothing: float, num_col: str}
+#   src_names is (cat_col, num_col) -- both extracted at replay.
+#
+# All three replays are STATELESS given X (no y reference, no fold info).
+
+
+def _apply_count_encoded(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
+    """Replay count encoding via the stored per-category lookup."""
+    if len(recipe.src_names) != 1:
+        raise ValueError(
+            f"count_encoded recipe '{recipe.name}' must have exactly 1 "
+            f"src_names; got {len(recipe.src_names)}"
+        )
+    if "lookup" not in recipe.extra:
+        raise KeyError(
+            f"count_encoded recipe '{recipe.name}' missing 'lookup' in extra."
+        )
+    from ._count_freq_interaction_fe import apply_count_encoding
+
+    name = recipe.src_names[0]
+    if pd is not None and isinstance(X, pd.DataFrame):
+        X_view = X
+    elif pl is not None and isinstance(X, pl.DataFrame):
+        X_view = pd.DataFrame({name: X[name].to_numpy()})
+    elif isinstance(X, np.ndarray) and X.dtype.names is not None:
+        X_view = pd.DataFrame({name: X[name]})
+    else:
+        raise TypeError(
+            f"count_encoded recipe '{recipe.name}': cannot extract column "
+            f"{name!r} from X of type {type(X).__name__}."
+        )
+    return apply_count_encoding(
+        X_view, name, {
+            "lookup": dict(recipe.extra["lookup"]),
+            "default": int(recipe.extra.get("default", 0)),
+        },
+    )
+
+
+def _apply_frequency_encoded(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
+    """Replay frequency encoding via the stored per-category lookup."""
+    if len(recipe.src_names) != 1:
+        raise ValueError(
+            f"frequency_encoded recipe '{recipe.name}' must have exactly 1 "
+            f"src_names; got {len(recipe.src_names)}"
+        )
+    if "lookup" not in recipe.extra:
+        raise KeyError(
+            f"frequency_encoded recipe '{recipe.name}' missing 'lookup' in extra."
+        )
+    from ._count_freq_interaction_fe import apply_frequency_encoding
+
+    name = recipe.src_names[0]
+    if pd is not None and isinstance(X, pd.DataFrame):
+        X_view = X
+    elif pl is not None and isinstance(X, pl.DataFrame):
+        X_view = pd.DataFrame({name: X[name].to_numpy()})
+    elif isinstance(X, np.ndarray) and X.dtype.names is not None:
+        X_view = pd.DataFrame({name: X[name]})
+    else:
+        raise TypeError(
+            f"frequency_encoded recipe '{recipe.name}': cannot extract column "
+            f"{name!r} from X of type {type(X).__name__}."
+        )
+    return apply_frequency_encoding(
+        X_view, name, {
+            "lookup": dict(recipe.extra["lookup"]),
+            "default": float(recipe.extra.get("default", 0.0)),
+        },
+    )
+
+
+def _apply_cat_num_residual(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
+    """Replay cat x num residual: ``X[num] - lookup.get(X[cat], global_mean)``."""
+    if len(recipe.src_names) != 2:
+        raise ValueError(
+            f"cat_num_residual recipe '{recipe.name}' must have exactly 2 "
+            f"src_names (cat_col, num_col); got {len(recipe.src_names)}"
+        )
+    for key in ("lookup", "global_mean"):
+        if key not in recipe.extra:
+            raise KeyError(
+                f"cat_num_residual recipe '{recipe.name}' missing {key!r} in extra."
+            )
+    from ._count_freq_interaction_fe import apply_cat_num_residual
+
+    cat_name, num_name = recipe.src_names
+    if pd is not None and isinstance(X, pd.DataFrame):
+        X_view = X
+    elif pl is not None and isinstance(X, pl.DataFrame):
+        X_view = pd.DataFrame({
+            cat_name: X[cat_name].to_numpy(),
+            num_name: X[num_name].to_numpy(),
+        })
+    elif isinstance(X, np.ndarray) and X.dtype.names is not None:
+        X_view = pd.DataFrame({
+            cat_name: X[cat_name],
+            num_name: X[num_name],
+        })
+    else:
+        raise TypeError(
+            f"cat_num_residual recipe '{recipe.name}': cannot extract columns "
+            f"from X of type {type(X).__name__}."
+        )
+    return apply_cat_num_residual(
+        X_view, cat_name, num_name, {
+            "lookup": dict(recipe.extra["lookup"]),
+            "global_mean": float(recipe.extra["global_mean"]),
+        },
+    )
+
+
+def build_count_encoded_recipe(
+    *, name: str, src_name: str, lookup: dict, default: int = 0,
+) -> EngineeredRecipe:
+    """Frozen recipe for a count-encoded column. ``lookup`` maps each
+    fit-time category (as str) to its observed count; unseen categories at
+    replay map to ``default`` (default 0). No y reference at any stage."""
+    lookup_clean = {str(k): int(v) for k, v in lookup.items()}
+    return EngineeredRecipe(
+        name=name,
+        kind="count_encoded",
+        src_names=(src_name,),
+        extra={
+            "lookup": lookup_clean,
+            "default": int(default),
+        },
+    )
+
+
+def build_frequency_encoded_recipe(
+    *, name: str, src_name: str, lookup: dict, default: float = 0.0,
+) -> EngineeredRecipe:
+    """Frozen recipe for a frequency-encoded column (count / n_samples).
+    Unseen categories at replay map to ``default`` (default 0.0)."""
+    lookup_clean = {str(k): float(v) for k, v in lookup.items()}
+    return EngineeredRecipe(
+        name=name,
+        kind="frequency_encoded",
+        src_names=(src_name,),
+        extra={
+            "lookup": lookup_clean,
+            "default": float(default),
+        },
+    )
+
+
+def build_cat_num_residual_recipe(
+    *, name: str, cat_name: str, num_name: str, lookup: dict,
+    global_mean: float, smoothing: float,
+) -> EngineeredRecipe:
+    """Frozen recipe for a cat x num residual column. ``lookup`` is the
+    smoothed per-category mean of ``num_name``; replay subtracts
+    ``lookup.get(cat, global_mean)`` from the row's num value. Unseen
+    categories fall back to ``global_mean`` (subtracting the unconditional
+    mean is the natural fallback)."""
+    lookup_clean = {str(k): float(v) for k, v in lookup.items()}
+    return EngineeredRecipe(
+        name=name,
+        kind="cat_num_residual",
+        src_names=(cat_name, num_name),
+        extra={
+            "lookup": lookup_clean,
+            "global_mean": float(global_mean),
+            "smoothing": float(smoothing),
+            "num_col": str(num_name),
         },
     )

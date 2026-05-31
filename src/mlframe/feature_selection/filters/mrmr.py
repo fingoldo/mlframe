@@ -706,6 +706,29 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_kfold_te_cols: tuple = (),
         fe_kfold_te_folds: int = 5,
         fe_kfold_te_smoothing: float = 10.0,
+        # 2026-05-31 Layer 34 — COUNT + FREQUENCY ENCODING for high-
+        # cardinality categoricals, plus CATEGORICAL x NUMERIC INTERACTION
+        # via OOF target-mean residual. Default OFF -- legacy behaviour
+        # is byte-identical when all three master switches are False.
+        # Each encoded column is appended via its own recipe kind
+        # (``count_encoded`` / ``frequency_encoded`` / ``cat_num_residual``);
+        # replay is a pure function of X (no y reference at transform).
+        # ``fe_count_encoding_cols`` / ``fe_frequency_encoding_cols`` reuse
+        # the same auto-detection (object / categorical / string dtype with
+        # cardinality in [5, 500]) as Layer 33 when left as empty tuple.
+        # ``fe_cat_num_interaction_cat_cols`` x ``fe_cat_num_interaction_num_cols``
+        # is the explicit Cartesian product (no auto-detect; the choice of
+        # which numeric column to condition on which categorical column is
+        # domain-specific).
+        fe_count_encoding_enable: bool = False,
+        fe_count_encoding_cols: tuple = (),
+        fe_frequency_encoding_enable: bool = False,
+        fe_frequency_encoding_cols: tuple = (),
+        fe_cat_num_interaction_enable: bool = False,
+        fe_cat_num_interaction_cat_cols: tuple = (),
+        fe_cat_num_interaction_num_cols: tuple = (),
+        fe_cat_num_interaction_folds: int = 5,
+        fe_cat_num_interaction_smoothing: float = 10.0,
         # hidden
         stop_file: str = "stop",
     ):
@@ -998,6 +1021,20 @@ class MRMR(BaseEstimator, TransformerMixin):
             "fe_kfold_te_folds": 5,
             "fe_kfold_te_smoothing": 10.0,
             "kfold_te_features_": [],
+            # 2026-05-31 Layer 34 — count / frequency / cat x num residual.
+            # Master switches OFF preserve legacy pickle byte-equivalence.
+            "fe_count_encoding_enable": False,
+            "fe_count_encoding_cols": (),
+            "fe_frequency_encoding_enable": False,
+            "fe_frequency_encoding_cols": (),
+            "fe_cat_num_interaction_enable": False,
+            "fe_cat_num_interaction_cat_cols": (),
+            "fe_cat_num_interaction_num_cols": (),
+            "fe_cat_num_interaction_folds": 5,
+            "fe_cat_num_interaction_smoothing": 10.0,
+            "count_encoding_features_": [],
+            "frequency_encoding_features_": [],
+            "cat_num_interaction_features_": [],
         }
         for k, v in defaults.items():
             state.setdefault(k, v)

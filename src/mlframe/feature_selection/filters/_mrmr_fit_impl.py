@@ -611,6 +611,195 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     type(_te_exc).__name__, _te_exc,
                 )
 
+    # 2026-05-31 Layer 34 — COUNT + FREQUENCY ENCODING + CAT x NUM
+    # INTERACTION (target-mean residual). Three independent master switches;
+    # each appends its own engineered columns AND emits one recipe per col.
+    # Recipes route through ``hybrid_orth_features_`` so the end-of-fit
+    # remap (Layer 23 pattern) routes them into ``_engineered_recipes_``.
+    self.count_encoding_features_ = []
+    self.frequency_encoding_features_ = []
+    self.cat_num_interaction_features_ = []
+    _count_enc_pre_recipes: dict = {}
+    _freq_enc_pre_recipes: dict = {}
+    _cat_num_pre_recipes: dict = {}
+    if (
+        bool(getattr(self, "fe_count_encoding_enable", False))
+        or bool(getattr(self, "fe_frequency_encoding_enable", False))
+        or bool(getattr(self, "fe_cat_num_interaction_enable", False))
+    ):
+        _is_pandas_l34 = isinstance(X, pd.DataFrame)
+        if not _is_pandas_l34:
+            warnings.warn(
+                "MRMR: Layer 34 FE (count/frequency/cat_num) enabled but X "
+                "is not a pandas DataFrame; the encodings are skipped. "
+                "Convert to pandas via X.to_pandas() before fit() to apply them.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            from ._count_freq_interaction_fe import (
+                count_encode_with_recipes,
+                frequency_encode_with_recipes,
+                cat_num_interaction_with_recipes,
+            )
+            from ._target_encoding_fe import auto_detect_te_cols
+
+            _hybrid_appended_l34 = set(self.hybrid_orth_features_ or [])
+            _mig_appended_l34 = set(self.mi_greedy_features_ or [])
+            _te_appended_l34 = set(self.kfold_te_features_ or [])
+            _engineered_seen_l34 = (
+                _hybrid_appended_l34 | _mig_appended_l34 | _te_appended_l34
+            )
+
+            # ----- Count encoding ----------------------------------------
+            if bool(getattr(self, "fe_count_encoding_enable", False)):
+                try:
+                    _cnt_cfg = tuple(
+                        getattr(self, "fe_count_encoding_cols", ()) or ()
+                    )
+                    if _cnt_cfg:
+                        _cnt_cols = [
+                            c for c in _cnt_cfg
+                            if c in X.columns and c not in _engineered_seen_l34
+                        ]
+                    else:
+                        _cnt_cols = auto_detect_te_cols(
+                            X, min_card=5, max_card=500,
+                        )
+                    _X_before_cnt_cols = list(X.columns)
+                    X_c, _cnt_appended, _cnt_recipes = count_encode_with_recipes(
+                        X, cat_cols=_cnt_cols,
+                    )
+                    _cnt_appended = [
+                        c for c in _cnt_appended if c not in _X_before_cnt_cols
+                    ]
+                    if _cnt_appended:
+                        X = X_c
+                        self.count_encoding_features_ = list(_cnt_appended)
+                        self.hybrid_orth_features_ = (
+                            list(self.hybrid_orth_features_ or []) + list(_cnt_appended)
+                        )
+                        for _r in _cnt_recipes:
+                            if _r.name in _cnt_appended:
+                                _count_enc_pre_recipes[_r.name] = _r
+                        if verbose:
+                            logger.info(
+                                "MRMR.fit count_encoding: appended %d "
+                                "engineered column(s): %s",
+                                len(_cnt_appended), _cnt_appended[:8],
+                            )
+                except Exception as _cnt_exc:
+                    logger.warning(
+                        "MRMR.fit count_encoding FE raised %s: %s; "
+                        "continuing without count-encoded columns.",
+                        type(_cnt_exc).__name__, _cnt_exc,
+                    )
+
+            # ----- Frequency encoding ------------------------------------
+            if bool(getattr(self, "fe_frequency_encoding_enable", False)):
+                try:
+                    _freq_cfg = tuple(
+                        getattr(self, "fe_frequency_encoding_cols", ()) or ()
+                    )
+                    if _freq_cfg:
+                        _freq_cols = [
+                            c for c in _freq_cfg
+                            if c in X.columns and c not in _engineered_seen_l34
+                        ]
+                    else:
+                        _freq_cols = auto_detect_te_cols(
+                            X, min_card=5, max_card=500,
+                        )
+                    _X_before_freq_cols = list(X.columns)
+                    X_f, _freq_appended, _freq_recipes = frequency_encode_with_recipes(
+                        X, cat_cols=_freq_cols,
+                    )
+                    _freq_appended = [
+                        c for c in _freq_appended if c not in _X_before_freq_cols
+                    ]
+                    if _freq_appended:
+                        X = X_f
+                        self.frequency_encoding_features_ = list(_freq_appended)
+                        self.hybrid_orth_features_ = (
+                            list(self.hybrid_orth_features_ or []) + list(_freq_appended)
+                        )
+                        for _r in _freq_recipes:
+                            if _r.name in _freq_appended:
+                                _freq_enc_pre_recipes[_r.name] = _r
+                        if verbose:
+                            logger.info(
+                                "MRMR.fit frequency_encoding: appended %d "
+                                "engineered column(s): %s",
+                                len(_freq_appended), _freq_appended[:8],
+                            )
+                except Exception as _freq_exc:
+                    logger.warning(
+                        "MRMR.fit frequency_encoding FE raised %s: %s; "
+                        "continuing without frequency-encoded columns.",
+                        type(_freq_exc).__name__, _freq_exc,
+                    )
+
+            # ----- Cat x Num interaction (OOF residual) ------------------
+            if bool(getattr(self, "fe_cat_num_interaction_enable", False)):
+                try:
+                    _cn_cats = tuple(
+                        getattr(self, "fe_cat_num_interaction_cat_cols", ()) or ()
+                    )
+                    _cn_nums = tuple(
+                        getattr(self, "fe_cat_num_interaction_num_cols", ()) or ()
+                    )
+                    _cn_cats = [
+                        c for c in _cn_cats if c in X.columns
+                    ]
+                    _cn_nums = [
+                        c for c in _cn_nums if c in X.columns
+                    ]
+                    if _cn_cats and _cn_nums:
+                        _y_for_cn = (
+                            y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                        )
+                        _y_for_cn = np.asarray(_y_for_cn, dtype=np.float64).ravel()
+                        _X_before_cn_cols = list(X.columns)
+                        X_cn, _cn_appended, _cn_recipes = (
+                            cat_num_interaction_with_recipes(
+                                X, _y_for_cn,
+                                cat_cols=_cn_cats,
+                                num_cols=_cn_nums,
+                                n_folds=int(
+                                    getattr(self, "fe_cat_num_interaction_folds", 5)
+                                ),
+                                smoothing=float(
+                                    getattr(self, "fe_cat_num_interaction_smoothing", 10.0)
+                                ),
+                                random_state=int(
+                                    getattr(self, "random_seed", 0) or 0
+                                ),
+                            )
+                        )
+                        _cn_appended = [
+                            c for c in _cn_appended if c not in _X_before_cn_cols
+                        ]
+                        if _cn_appended:
+                            X = X_cn
+                            self.cat_num_interaction_features_ = list(_cn_appended)
+                            self.hybrid_orth_features_ = (
+                                list(self.hybrid_orth_features_ or []) + list(_cn_appended)
+                            )
+                            for _r in _cn_recipes:
+                                if _r.name in _cn_appended:
+                                    _cat_num_pre_recipes[_r.name] = _r
+                            if verbose:
+                                logger.info(
+                                    "MRMR.fit cat_num_interaction: appended %d "
+                                    "engineered column(s): %s",
+                                    len(_cn_appended), _cn_appended[:8],
+                                )
+                except Exception as _cn_exc:
+                    logger.warning(
+                        "MRMR.fit cat_num_interaction FE raised %s: %s; "
+                        "continuing without cat x num residual columns.",
+                        type(_cn_exc).__name__, _cn_exc,
+                    )
+
     # Layer 27 (2026-05-31): cross-stage engineered-column dedup. Hybrid and
     # MI-greedy stages run independently; on signals like ``y = sign(x^2 - 1)``
     # hybrid emits ``x__He2`` and MI-greedy emits ``square(x)`` / ``abs(x)`` /
@@ -683,6 +872,19 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 c for c in (getattr(self, "kfold_te_features_", []) or [])
                 if c not in _eng_drop
             ]
+            # Layer 34: mirror cleanup for count / freq / cat_num residual.
+            self.count_encoding_features_ = [
+                c for c in (getattr(self, "count_encoding_features_", []) or [])
+                if c not in _eng_drop
+            ]
+            self.frequency_encoding_features_ = [
+                c for c in (getattr(self, "frequency_encoding_features_", []) or [])
+                if c not in _eng_drop
+            ]
+            self.cat_num_interaction_features_ = [
+                c for c in (getattr(self, "cat_num_interaction_features_", []) or [])
+                if c not in _eng_drop
+            ]
             for _c in list(_hybrid_orth_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _hybrid_orth_pre_recipes.pop(_c, None)
@@ -692,6 +894,15 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             for _c in list(_kfold_te_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _kfold_te_pre_recipes.pop(_c, None)
+            for _c in list(_count_enc_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _count_enc_pre_recipes.pop(_c, None)
+            for _c in list(_freq_enc_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _freq_enc_pre_recipes.pop(_c, None)
+            for _c in list(_cat_num_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _cat_num_pre_recipes.pop(_c, None)
             if verbose:
                 logger.info(
                     "MRMR.fit engineered-FE dedup: pruned %d near-duplicate "
@@ -872,6 +1083,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # Layer 33: same routing pattern for K-fold target-encoded recipes.
     if _kfold_te_pre_recipes:
         engineered_recipes.update(_kfold_te_pre_recipes)
+    # Layer 34: same routing for count / frequency / cat_num residual recipes.
+    if _count_enc_pre_recipes:
+        engineered_recipes.update(_count_enc_pre_recipes)
+    if _freq_enc_pre_recipes:
+        engineered_recipes.update(_freq_enc_pre_recipes)
+    if _cat_num_pre_recipes:
+        engineered_recipes.update(_cat_num_pre_recipes)
     # Reset per fit so a re-fit on the same instance doesn't carry stale cluster-aggregate state.
     self._cluster_aggregate_removals_ = []
     self.cluster_aggregate_ = []  # fitted summary (per-aggregate records) -> meta_info report
