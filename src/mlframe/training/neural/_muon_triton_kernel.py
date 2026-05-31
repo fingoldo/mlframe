@@ -125,8 +125,23 @@ def _build_triton_ns_fn() -> Optional[Callable]:
         Returns A: (M, M) same dtype, symmetric.
         """
         M, N = X.shape
-        # Output buffer; Triton accumulates in fp32 but we cast back.
-        A = torch.empty((M, M), dtype=X.dtype, device=X.device)
+        # F-60 (2026-05-31): zero-init A, NOT torch.empty. The upper-tri
+        # kernel SKIPS strict-lower-triangle tiles (line 96-97 early return)
+        # AND masks out off-tile positions inside the kernel, so the LOWER
+        # half + masked positions of A are NEVER written. ``torch.triu(A) +
+        # torch.triu(A, diagonal=1).T`` then reads those uninitialised
+        # positions: usually finite garbage that gets zeroed by triu, but
+        # CUDA's caching allocator can reuse a freed buffer whose previous
+        # owner left NaN/Inf bit patterns. ``0 * NaN = NaN`` propagates
+        # through triu's multiply -> the SYRK output gets NaN -> Newton-
+        # Schulz orthogonalisation gets NaN -> Muon's update tensor gets
+        # NaN -> silent training corruption with the Muon optimiser.
+        # Same root cause as F-58 (kernel writes subset, caller reads whole).
+        # Currently dormant: the path is hard-gated to Ampere+ (cc >= 8.0)
+        # so Pascal dev hosts never hit it; will bite the next Ampere+
+        # rebench. One cudaMemsetAsync per NS step is negligible vs the
+        # matmul, so the zero-init is the cheap robust default.
+        A = torch.zeros((M, M), dtype=X.dtype, device=X.device)
         # Tile sizes -- tuned for Ampere+. Pre-Ampere uses smaller blocks.
         BLOCK_M = 128 if M >= 256 else 64
         BLOCK_N = BLOCK_M
