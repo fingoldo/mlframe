@@ -125,7 +125,7 @@ class EngineeredRecipe:
     # (src_names=(c_i, c_j), extra={basis_i, basis_j, deg_a, deg_b}). Replay
     # is closed-form from the source column(s) alone -- no y reference is
     # captured at fit time, so transform() is leakage-free by construction.
-    kind: Literal["unary_binary", "factorize", "hermite_pair", "target_encoding", "cluster_aggregate", "orth_univariate", "orth_pair_cross", "orth_triplet_cross", "orth_quadruplet_cross", "orth_spline", "orth_fourier", "orth_diff_basis", "orth_cluster_basis", "mi_greedy_transform", "kfold_target_encoded", "count_encoded", "frequency_encoded", "cat_num_residual", "missing_indicator", "missingness_count", "missingness_pattern", "pairwise_ratio", "grouped_delta", "lagged_diff", "grouped_agg"]
+    kind: Literal["unary_binary", "factorize", "hermite_pair", "target_encoding", "cluster_aggregate", "orth_univariate", "orth_pair_cross", "orth_triplet_cross", "orth_quadruplet_cross", "orth_spline", "orth_fourier", "orth_diff_basis", "orth_cluster_basis", "mi_greedy_transform", "kfold_target_encoded", "count_encoded", "frequency_encoded", "cat_num_residual", "missing_indicator", "missingness_count", "missingness_pattern", "pairwise_ratio", "grouped_delta", "lagged_diff", "grouped_agg", "grouped_quantile", "target_aware_group_bin"]
     src_names: tuple[str, ...]
     unary_names: tuple[str, ...] = ()
     binary_name: str = ""
@@ -382,6 +382,17 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         # apply helper lives alongside the grouped-agg generator.
         from ._grouped_agg_fe import _apply_grouped_agg_recipe
         return _apply_grouped_agg_recipe(recipe, X)
+    if recipe.kind in ("grouped_quantile", "target_aware_group_bin"):
+        # Layer 88 lazy import: per-group distributional FE (percentile-rank +
+        # spread + target-aware supervised bins); replay helpers live with the
+        # generator. Keeps this module under the LOC ceiling.
+        from ._grouped_quantile_fe import (
+            _apply_grouped_quantile_recipe,
+            _apply_target_aware_group_bin_recipe,
+        )
+        if recipe.kind == "grouped_quantile":
+            return _apply_grouped_quantile_recipe(recipe, X)
+        return _apply_target_aware_group_bin_recipe(recipe, X)
     raise ValueError(f"Unknown recipe kind: {recipe.kind!r}")
 
 
@@ -1888,6 +1899,75 @@ def build_grouped_agg_recipe(
             "lookup_std": lookup_std_clean,
             "global_mean": float(global_mean),
             "global_std": float(global_std),
+        },
+    )
+
+
+def build_grouped_quantile_recipe(
+    *, name: str, group_col: str, num_col: str, op: str,
+    group_sorted: dict, global_sorted: list,
+    iqr_lookup: dict, p90p10_lookup: dict,
+    global_iqr: float, global_p90p10: float,
+    quantiles=(),
+) -> EngineeredRecipe:
+    """Layer 88 (2026-06-01): frozen recipe for one per-group distributional
+    feature. ``op='pct_rank'`` emits the empirical-CDF position of x within its
+    group (stored per-group sorted value arrays); ``op='iqr'`` / ``op='p90p10'``
+    emit the per-group spread broadcast. Unseen groups at replay fall back to
+    the pooled global edges. Replay reads only X (no y), so transform() is
+    leakage-free."""
+    if op not in ("pct_rank", "iqr", "p90p10"):
+        raise ValueError(
+            f"grouped_quantile op must be 'pct_rank', 'iqr', or 'p90p10'; "
+            f"got {op!r}"
+        )
+    group_sorted_clean = {
+        str(k): [float(v) for v in vals] for k, vals in group_sorted.items()
+    }
+    return EngineeredRecipe(
+        name=name,
+        kind="grouped_quantile",
+        src_names=(group_col, num_col),
+        extra={
+            "group_col": str(group_col),
+            "num_col": str(num_col),
+            "op": str(op),
+            "group_sorted": group_sorted_clean,
+            "global_sorted": [float(v) for v in global_sorted],
+            "iqr_lookup": {str(k): float(v) for k, v in iqr_lookup.items()},
+            "p90p10_lookup": {str(k): float(v) for k, v in p90p10_lookup.items()},
+            "global_iqr": float(global_iqr),
+            "global_p90p10": float(global_p90p10),
+            "quantiles": [float(q) for q in quantiles],
+        },
+    )
+
+
+def build_target_aware_group_bin_recipe(
+    *, name: str, group_col: str, num_col: str,
+    group_edges: dict, global_edges: list, n_bins: int,
+    op: str = "target_aware_bin",
+) -> EngineeredRecipe:
+    """Layer 88 (2026-06-01): frozen recipe for one target-aware per-group
+    supervised bin index. ``group_edges`` holds, per group key, the inner MDLP
+    edges (refit on ALL train rows, maximising ``I(bin; y)`` within the group);
+    ``global_edges`` is the pooled fallback for unseen groups. Replay maps a
+    row's value through ``searchsorted`` on its group's edges -- a pure function
+    of X. The leak-safe OOF assignment used at fit for MI scoring is NOT
+    persisted, so transform() carries no y reference."""
+    group_edges_clean = {
+        str(k): [float(v) for v in edges] for k, edges in group_edges.items()
+    }
+    return EngineeredRecipe(
+        name=name,
+        kind="target_aware_group_bin",
+        src_names=(group_col, num_col),
+        extra={
+            "group_col": str(group_col),
+            "num_col": str(num_col),
+            "group_edges": group_edges_clean,
+            "global_edges": [float(v) for v in global_edges],
+            "n_bins": int(n_bins),
         },
     )
 

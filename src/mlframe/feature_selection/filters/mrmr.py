@@ -1232,6 +1232,21 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_grouped_agg_group_cols: tuple = (),
         fe_grouped_agg_num_cols: tuple = (),
         fe_grouped_agg_top_k: int = 10,
+        # 2026-06-01 Layer 88 — per-group histogram + quantile FE with
+        # target-aware edges. NVIDIA cuDF Kaggle-Grandmaster technique #2:
+        # percentile-rank-within-group (empirical CDF position of x in its
+        # group) + per-group IQR / p90-p10 spread, optionally a target-aware
+        # supervised per-group bin index (OOF-fit MDLP edges maximising
+        # I(bin; y)). Each survivor MI-gated against the source num_col
+        # marginal MI. Default OFF -> byte-identical legacy path. ``group_cols``
+        # / ``num_cols`` empty => auto-detect (int-as-cat / continuous).
+        fe_grouped_quantile_enable: bool = False,
+        fe_grouped_quantile_quantiles: tuple = (0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95),
+        fe_grouped_quantile_target_aware: bool = False,
+        fe_grouped_quantile_n_bins: int = 5,
+        fe_grouped_quantile_top_k: int = 8,
+        fe_grouped_quantile_group_cols: tuple = (),
+        fe_grouped_quantile_num_cols: tuple = (),
         # Artifact retention for cross-selector reuse. When True, after fit() the
         # estimator carries ``su_to_target_``, ``mi_to_target_``, ``cached_MIs``,
         # and (when ``retain_bins=True``) per-column binned arrays so a downstream

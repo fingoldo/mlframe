@@ -3087,11 +3087,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     self.grouped_delta_features_ = []
     self.lagged_diff_features_ = []
     self.grouped_agg_features_ = []
+    self.grouped_quantile_features_ = []
     _ratio_pre_recipes: dict = {}
     _log_ratio_pre_recipes: dict = {}
     _grouped_delta_pre_recipes: dict = {}
     _lagged_diff_pre_recipes: dict = {}
     _grouped_agg_pre_recipes: dict = {}
+    _grouped_quantile_pre_recipes: dict = {}
     if (
         bool(getattr(self, "fe_pairwise_ratio_enable", False))
         or bool(getattr(self, "fe_pairwise_log_ratio_enable", False))
@@ -3346,6 +3348,77 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     type(_ga_exc).__name__, _ga_exc,
                 )
 
+    # Layer 88 (2026-06-01): per-group histogram + quantile FE with
+    # target-aware edges. NVIDIA cuDF Kaggle-Grandmaster technique #2.
+    # Percentile-rank-within-group + per-group IQR / p90-p10 spread, optionally
+    # the OOF-fit target-aware supervised bin index; each survivor MI-gated
+    # against the source num_col marginal MI. Routing piggybacks on
+    # hybrid_orth_features_ (same Layer 23 remap as Layers 33/34/37/38/87).
+    if bool(getattr(self, "fe_grouped_quantile_enable", False)):
+        if not isinstance(X, pd.DataFrame):
+            warnings.warn(
+                "MRMR: Layer 88 grouped_quantile FE enabled but X is not a "
+                "pandas DataFrame; the features are skipped. Convert via "
+                "X.to_pandas() before fit() to apply them.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from ._grouped_quantile_fe import hybrid_grouped_quantile_fe
+
+                _y_for_gq = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                _gq_groups = tuple(
+                    getattr(self, "fe_grouped_quantile_group_cols", ()) or ()
+                )
+                _gq_groups = [c for c in _gq_groups if c in X.columns] or None
+                _gq_nums = tuple(
+                    getattr(self, "fe_grouped_quantile_num_cols", ()) or ()
+                )
+                _gq_nums = [c for c in _gq_nums if c in X.columns] or None
+                _gq_quantiles = tuple(
+                    getattr(self, "fe_grouped_quantile_quantiles", ())
+                    or (0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95)
+                )
+                _gq_target_aware = bool(
+                    getattr(self, "fe_grouped_quantile_target_aware", False)
+                )
+                _gq_n_bins = int(getattr(self, "fe_grouped_quantile_n_bins", 5))
+                _gq_top_k = int(getattr(self, "fe_grouped_quantile_top_k", 8))
+                _X_before_gq_cols = list(X.columns)
+                X_gq, _gq_appended, _gq_recipes, _gq_scores = hybrid_grouped_quantile_fe(
+                    X, _y_for_gq,
+                    group_cols=_gq_groups, num_cols=_gq_nums,
+                    quantiles=_gq_quantiles, target_aware=_gq_target_aware,
+                    n_bins=_gq_n_bins, top_k=_gq_top_k,
+                    random_state=int(getattr(self, "random_seed", 0) or 0),
+                )
+                _gq_appended = [
+                    c for c in _gq_appended if c not in _X_before_gq_cols
+                ]
+                if _gq_appended:
+                    X = X_gq
+                    self.grouped_quantile_features_ = list(_gq_appended)
+                    self.hybrid_orth_features_ = (
+                        list(self.hybrid_orth_features_ or []) + list(_gq_appended)
+                    )
+                    for _r in _gq_recipes:
+                        if _r.name in _gq_appended:
+                            _grouped_quantile_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit grouped_quantile: appended %d engineered "
+                            "column(s): %s",
+                            len(_gq_appended), _gq_appended[:8],
+                        )
+            except Exception as _gq_exc:
+                logger.warning(
+                    "MRMR.fit grouped_quantile FE raised %s: %s; continuing "
+                    "without grouped-quantile columns.",
+                    type(_gq_exc).__name__, _gq_exc,
+                )
+
     # Layer 27 (2026-05-31): cross-stage engineered-column dedup. Hybrid and
     # MI-greedy stages run independently; on signals like ``y = sign(x^2 - 1)``
     # hybrid emits ``x__He2`` and MI-greedy emits ``square(x)`` / ``abs(x)`` /
@@ -3488,6 +3561,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 c for c in (getattr(self, "grouped_agg_features_", []) or [])
                 if c not in _eng_drop
             ]
+            # Layer 88: mirror cleanup for grouped_quantile.
+            self.grouped_quantile_features_ = [
+                c for c in (getattr(self, "grouped_quantile_features_", []) or [])
+                if c not in _eng_drop
+            ]
             for _c in list(_hybrid_orth_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _hybrid_orth_pre_recipes.pop(_c, None)
@@ -3530,6 +3608,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             for _c in list(_grouped_agg_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _grouped_agg_pre_recipes.pop(_c, None)
+            for _c in list(_grouped_quantile_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _grouped_quantile_pre_recipes.pop(_c, None)
             if verbose:
                 logger.info(
                     "MRMR.fit engineered-FE dedup: pruned %d near-duplicate "
@@ -3784,6 +3865,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # Layer 87: same routing for grouped multi-stat aggregate recipes.
     if _grouped_agg_pre_recipes:
         engineered_recipes.update(_grouped_agg_pre_recipes)
+    # Layer 88: same routing for grouped-quantile / target-aware-bin recipes.
+    if _grouped_quantile_pre_recipes:
+        engineered_recipes.update(_grouped_quantile_pre_recipes)
     # Reset per fit so a re-fit on the same instance doesn't carry stale cluster-aggregate state.
     self._cluster_aggregate_removals_ = []
     self.cluster_aggregate_ = []  # fitted summary (per-aggregate records) -> meta_info report
