@@ -121,6 +121,90 @@ def test_lookahead_state_dict_round_trip_step_count():
     assert lh2._step_count == 7
 
 
+def test_lookahead_state_dict_round_trip_slow_weights():
+    """F-A fix (2026-05-31, audit follow-up): slow weights round-trip
+    via state_dict so a resumed run resumes Zhang 2019's algorithm at
+    the correct phase. Pre-fix the slow_weights were dropped on save
+    and re-initialised lazily from fast on load -- combined with the
+    persisted step_count, the first post-load step would hit
+    ``step_count % k == 0``, take the snapshot branch (slow == fast),
+    and skip the alpha-interpolation entirely. The resumed run then
+    runs one full cycle at effective alpha=1 (pure fast), silently
+    losing the anchoring effect.
+    """
+    # Drive the optimiser to a non-trivial slow-weight state.
+    p = torch.nn.Parameter(torch.tensor([1.0, 2.0, 3.0]))
+    base = torch.optim.SGD([p], lr=0.1)
+    lh = Lookahead(base, k=3, alpha=0.5)
+    for _ in range(7):  # 2 full sync cycles + 1 extra step
+        p.grad = torch.ones_like(p)
+        lh.step()
+    expected_slow = lh._slow_weights[id(p)].clone()
+    sd = lh.state_dict()
+    # Serialised slow_weights are present + match the live tensor.
+    assert "slow_weights" in sd
+    assert len(sd["slow_weights"]) == 1
+    torch.testing.assert_close(sd["slow_weights"][0]["tensor"], expected_slow)
+
+    # Restore into a fresh optimizer and verify slow_weights bind.
+    p2 = torch.nn.Parameter(torch.tensor([10.0, 20.0, 30.0]))  # DIFFERENT init
+    base2 = torch.optim.SGD([p2], lr=0.1)
+    lh2 = Lookahead(base2, k=3, alpha=0.5)
+    lh2.load_state_dict(sd)
+    # After load, lh2's slow weights are bound to p2 (the current arch's
+    # param) and contain the saved values.
+    assert id(p2) in lh2._slow_weights
+    torch.testing.assert_close(lh2._slow_weights[id(p2)], expected_slow)
+    assert lh2._step_count == 7
+
+
+def test_lookahead_state_dict_load_resumes_step_count_correctly_for_next_sync():
+    """F-A integration: after a load_state_dict from a mid-cycle state,
+    the very next ``step()`` continues the cycle phase rather than
+    re-snapping (which is what the pre-fix code did).
+
+    Concretely: save at step_count=5 (mid-cycle for k=3, so next sync
+    is at step_count=6). Load + take one step -> step_count=6 -> sync
+    fires AND must run real interpolation against the loaded slow,
+    not snap-to-fast.
+    """
+    p = torch.nn.Parameter(torch.zeros(4))
+    base = torch.optim.SGD([p], lr=1.0)
+    lh = Lookahead(base, k=3, alpha=0.5)
+    # Drive for 5 steps; the k-th sync at step 3 ran, leaving slow != fast.
+    for _ in range(5):
+        p.grad = torch.ones_like(p)
+        lh.step()
+    sd = lh.state_dict()
+    pre_slow = lh._slow_weights[id(p)].clone()
+    pre_fast = p.data.clone()
+    assert not torch.allclose(pre_slow, pre_fast)
+
+    # Restore into a fresh optimizer with the same initial params.
+    p2 = torch.nn.Parameter(torch.zeros(4))
+    base2 = torch.optim.SGD([p2], lr=1.0)
+    lh2 = Lookahead(base2, k=3, alpha=0.5)
+    lh2.load_state_dict(sd)
+    # Force p2 to match the saved fast value so the next step sees the
+    # same state as the original run would have post-load.
+    p2.data.copy_(pre_fast)
+    torch.testing.assert_close(lh2._slow_weights[id(p2)], pre_slow)
+    assert lh2._step_count == 5
+
+    # Next step (step 6) is a k-th sync. With F-A fix, slow is the LOADED
+    # tensor and interpolation runs normally:
+    #   pre-step:  fast = pre_fast (loaded), slow = pre_slow (loaded)
+    #   SGD:       fast -= 1
+    #   sync:      slow.lerp(fast, 0.5); fast.copy(slow)
+    p2.grad = torch.ones_like(p2)
+    lh2.step()
+    # Recompute expected: SGD makes fast = pre_fast - 1; then lerp:
+    # slow_new = pre_slow + 0.5 * ((pre_fast - 1) - pre_slow)
+    expected_slow_new = pre_slow + 0.5 * ((pre_fast - 1.0) - pre_slow)
+    torch.testing.assert_close(lh2._slow_weights[id(p2)], expected_slow_new)
+    torch.testing.assert_close(p2.data, expected_slow_new)
+
+
 def test_lookahead_param_groups_forward_to_base():
     """Lightning + schedulers access .param_groups; must forward."""
     p = torch.nn.Parameter(torch.zeros(4))

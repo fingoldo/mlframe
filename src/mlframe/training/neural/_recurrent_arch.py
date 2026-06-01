@@ -51,10 +51,34 @@ class AttentionPooling(nn.Module):
         mask = torch.arange(max_len, device=device).unsqueeze(0) >= lengths.unsqueeze(1)
         scores = scores.masked_fill(mask, float("-inf"))
 
+        # F-E (2026-05-31, audit follow-up): if EVERY position in a row is
+        # masked (lengths[b] == 0), softmax(-inf, -inf, ..., -inf) is NaN
+        # everywhere; bmm propagates NaN into the context vector and
+        # silently poisons the MLPHead with NaN. Detect such rows, give
+        # them a safe uniform-zero attention (so the bmm produces a zero
+        # vector), and continue. This is semantically the "no valid input
+        # -> no signal -> zero context" contract; downstream layers can
+        # then learn whatever bias is appropriate. Pre-fix, the upstream
+        # _encode_sequences clamped lengths to >= 1 to dodge an exception
+        # but that path made position 0 valid -> attention scored on the
+        # RNN's response to a padding token (F-I concern). The all-masked
+        # case is the residual one this guard catches.
+        all_masked = mask.all(dim=1)  # (batch,)
+        # Replace -inf rows with zeros so softmax yields uniform weights
+        # (1/max_len) which we then explicitly zero out below.
+        if all_masked.any():
+            scores = torch.where(
+                all_masked.unsqueeze(1), torch.zeros_like(scores), scores,
+            )
+
         attention_weights = torch.softmax(scores, dim=1)  # (batch, seq_len)
 
         # Weighted sum over time
         context = torch.bmm(attention_weights.unsqueeze(1), rnn_output).squeeze(1)
+
+        # F-E zero-out: rows that had no valid input get a zero context.
+        if all_masked.any():
+            context = context * (~all_masked).unsqueeze(1).to(context.dtype)
 
         return context
 

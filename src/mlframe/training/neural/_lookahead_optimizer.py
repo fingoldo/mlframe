@@ -125,20 +125,65 @@ class Lookahead(Optimizer):
         self.base_optimizer.add_param_group(param_group)
 
     def state_dict(self) -> dict:
-        # Include lookahead-specific state for resume.
+        """F-A fix (2026-05-31, audit follow-up): serialise slow weights
+        keyed by their position in the base optimizer's param_groups
+        traversal so they round-trip a resume correctly.
+
+        Pre-fix the slow weights were dropped on save + lazy re-initialised
+        from fast on load. Combined with the persisted ``step_count``,
+        the first post-load step would hit ``step_count % k == 0``
+        immediately, take the snapshot branch (slow == fast), and SKIP
+        the alpha-interpolation -- effectively running one full cycle at
+        alpha=1 (pure fast). Silent quality regression on resumed runs.
+
+        Storage format: a list of {group_idx, param_idx, tensor} entries.
+        On load, we re-walk param_groups in the same order and bind each
+        tensor to the corresponding param's id. Resume is bit-identical
+        to a never-interrupted run for matching architectures; non-
+        matching architectures gracefully fall through to lazy-snap of
+        the unmatched params.
+        """
+        slow_serial: list[dict] = []
+        for g_idx, group in enumerate(self.base_optimizer.param_groups):
+            for p_idx, p in enumerate(group["params"]):
+                if not p.requires_grad:
+                    continue
+                slow = self._slow_weights.get(id(p))
+                if slow is None:
+                    continue
+                slow_serial.append({
+                    "group_idx": g_idx,
+                    "param_idx": p_idx,
+                    "tensor": slow.detach().clone(),
+                })
         return {
             "base": self.base_optimizer.state_dict(),
             "step_count": self._step_count,
-            # slow_weights keyed by param id can't round-trip; rely on
-            # the cycle to re-prime after load. The (k-1) post-load steps
-            # before the next sync are slightly suboptimal but bit-stable
-            # vs pickling tensor handles by id.
+            "slow_weights": slow_serial,
+            "k": self.k,
+            "alpha": self.alpha,
         }
 
     def load_state_dict(self, state_dict: dict) -> None:
         self.base_optimizer.load_state_dict(state_dict["base"])
         self._step_count = state_dict.get("step_count", 0)
-        self._slow_weights = {}  # lazy re-init
+        # F-A: re-bind slow weights to current params by group/param index.
+        self._slow_weights = {}
+        slow_serial = state_dict.get("slow_weights", [])
+        # Build a lookup of (group_idx, param_idx) -> param object.
+        for entry in slow_serial:
+            g_idx = entry["group_idx"]
+            p_idx = entry["param_idx"]
+            tensor = entry["tensor"]
+            try:
+                p = self.base_optimizer.param_groups[g_idx]["params"][p_idx]
+            except (IndexError, KeyError):
+                continue  # arch mismatch; fall through to lazy-snap on next step
+            # Move tensor to the param's device/dtype to avoid surprises
+            # on cross-device resume.
+            self._slow_weights[id(p)] = tensor.to(
+                device=p.device, dtype=p.dtype,
+            )
 
     def zero_grad(self, set_to_none: bool = True) -> None:
         self.base_optimizer.zero_grad(set_to_none=set_to_none)
