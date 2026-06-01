@@ -387,8 +387,17 @@ def missing_indicator_with_recipes(
     X: pd.DataFrame,
     *,
     cols: Optional[Sequence[str]] = None,
+    mi_gate: bool = False,
+    mi_gate_top_k: Optional[int] = None,
+    y: Optional[np.ndarray] = None,
 ):
-    """Append ``is_missing__{col}`` columns to X and emit one recipe per col."""
+    """Append ``is_missing__{col}`` columns to X and emit one recipe per col.
+
+    ``mi_gate=True`` (with ``y``) applies the Tier-1 local MI floor (Layer 91):
+    per-source indicator columns are the explosion-prone L37 emitter (one
+    column per source), so the floor drops indicators that carry no signal on y
+    (the common MAR case) and keeps top-``mi_gate_top_k`` informative ones.
+    """
     from .engineered_recipes import build_missing_indicator_recipe
 
     if not cols:
@@ -397,6 +406,14 @@ def missing_indicator_with_recipes(
     if not cols:
         return X.copy(), [], []
     enc_df, _raw_recipes = missing_indicator_fit(X, cols)
+    if mi_gate and y is not None and not enc_df.empty:
+        from ._unified_fe_gate import local_mi_gate
+
+        keep = set(local_mi_gate(enc_df, y, raw_X=X, top_k=mi_gate_top_k))
+        if not keep:
+            return X.copy(), [], []
+        cols = [c for c in cols if engineered_name_missing_indicator(c) in keep]
+        enc_df = enc_df[[engineered_name_missing_indicator(c) for c in cols]]
     X_aug = pd.concat([X, enc_df], axis=1)
     appended = list(enc_df.columns)
     recipes = [

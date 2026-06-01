@@ -455,13 +455,38 @@ def apply_lagged_diff(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
 # ---------------------------------------------------------------------------
 
 
+def _gate_ratio_pairs(enc_df, accepted, name_fn, y, raw_X, mi_gate, mi_gate_top_k):
+    """Tier-1 local MI floor over an ordered-pair ratio pool. Returns the
+    pruned ``(enc_df, accepted)`` keeping only pairs whose engineered column
+    clears the raw-baseline noise floor (top-K by MI). No-op when ``mi_gate``
+    is False or ``y`` is None."""
+    if not mi_gate or y is None or enc_df is None or enc_df.empty:
+        return enc_df, accepted
+    from ._unified_fe_gate import local_mi_gate
+
+    keep = set(local_mi_gate(enc_df, y, raw_X=raw_X, top_k=mi_gate_top_k))
+    if not keep:
+        return enc_df.iloc[:, :0], []
+    accepted = [(a, b) for (a, b) in accepted if name_fn(a, b) in keep]
+    enc_df = enc_df[[name_fn(a, b) for (a, b) in accepted]]
+    return enc_df, accepted
+
+
 def pairwise_ratio_with_recipes(
     X: pd.DataFrame,
     *,
     cols: Optional[Sequence[str]] = None,
     eps: float = 1e-9,
+    mi_gate: bool = False,
+    mi_gate_top_k: Optional[int] = None,
+    y: Optional[np.ndarray] = None,
 ):
-    """Append ratio columns to X and emit one recipe per accepted pair."""
+    """Append ratio columns to X and emit one recipe per accepted pair.
+
+    ``mi_gate=True`` (with ``y``) applies the Tier-1 local MI floor (Layer 91)
+    over the O(p^2) ordered-pair ratio pool -- the most explosion-prone L38
+    emitter.
+    """
     from .engineered_recipes import build_pairwise_ratio_recipe
 
     if not cols:
@@ -470,6 +495,11 @@ def pairwise_ratio_with_recipes(
     if len(cols) < 2:
         return X.copy(), [], []
     enc_df, accepted = pairwise_ratio_features(X, cols, eps=float(eps))
+    if not accepted:
+        return X.copy(), [], []
+    enc_df, accepted = _gate_ratio_pairs(
+        enc_df, accepted, engineered_name_ratio, y, X, mi_gate, mi_gate_top_k,
+    )
     if not accepted:
         return X.copy(), [], []
     X_aug = pd.concat([X, enc_df], axis=1)
@@ -489,8 +519,14 @@ def pairwise_log_ratio_with_recipes(
     *,
     cols: Optional[Sequence[str]] = None,
     eps: float = 1e-9,
+    mi_gate: bool = False,
+    mi_gate_top_k: Optional[int] = None,
+    y: Optional[np.ndarray] = None,
 ):
-    """Append log-ratio columns and emit one recipe per accepted pair."""
+    """Append log-ratio columns and emit one recipe per accepted pair.
+
+    ``mi_gate=True`` (with ``y``) applies the Tier-1 local MI floor (Layer 91).
+    """
     from .engineered_recipes import build_pairwise_ratio_recipe
 
     if not cols:
@@ -499,6 +535,11 @@ def pairwise_log_ratio_with_recipes(
     if len(cols) < 2:
         return X.copy(), [], []
     enc_df, accepted = pairwise_log_ratio_features(X, cols, eps=float(eps))
+    if not accepted:
+        return X.copy(), [], []
+    enc_df, accepted = _gate_ratio_pairs(
+        enc_df, accepted, engineered_name_log_ratio, y, X, mi_gate, mi_gate_top_k,
+    )
     if not accepted:
         return X.copy(), [], []
     X_aug = pd.concat([X, enc_df], axis=1)
@@ -518,9 +559,16 @@ def grouped_delta_with_recipes(
     *,
     group_col: Optional[str] = None,
     num_cols: Optional[Sequence[str]] = None,
+    mi_gate: bool = False,
+    mi_gate_top_k: Optional[int] = None,
+    y: Optional[np.ndarray] = None,
 ):
     """Append grouped-delta + grouped-zscore columns and emit one recipe per
-    engineered column."""
+    engineered column.
+
+    ``mi_gate=True`` (with ``y``) applies the Tier-1 local MI floor (Layer 91)
+    over the 2*|num_cols| grouped-stat pool.
+    """
     from .engineered_recipes import build_grouped_delta_recipe
 
     if not group_col or group_col not in X.columns or not num_cols:
@@ -531,6 +579,13 @@ def grouped_delta_with_recipes(
     enc_df, raw_recipes = grouped_delta_features(X, group_col, num_cols)
     if enc_df.empty:
         return X.copy(), [], []
+    if mi_gate and y is not None:
+        from ._unified_fe_gate import local_mi_gate
+
+        keep = set(local_mi_gate(enc_df, y, raw_X=X, top_k=mi_gate_top_k))
+        if not keep:
+            return X.copy(), [], []
+        enc_df = enc_df[[c for c in enc_df.columns if c in keep]]
     X_aug = pd.concat([X, enc_df], axis=1)
     appended = list(enc_df.columns)
     recipes = [
@@ -546,8 +601,15 @@ def lagged_diff_with_recipes(
     time_col: Optional[str] = None,
     value_cols: Optional[Sequence[str]] = None,
     periods: Sequence[int] = (1, 2),
+    mi_gate: bool = False,
+    mi_gate_top_k: Optional[int] = None,
+    y: Optional[np.ndarray] = None,
 ):
-    """Append lagged-diff columns and emit one recipe per (value_col, period)."""
+    """Append lagged-diff columns and emit one recipe per (value_col, period).
+
+    ``mi_gate=True`` (with ``y``) applies the Tier-1 local MI floor (Layer 91)
+    over the |value_cols| * |periods| lag pool.
+    """
     from .engineered_recipes import build_lagged_diff_recipe
 
     if not time_col or time_col not in X.columns or not value_cols:
@@ -561,6 +623,13 @@ def lagged_diff_with_recipes(
     enc_df, raw_recipes = lagged_diff_features(X, time_col, value_cols, periods)
     if enc_df.empty:
         return X.copy(), [], []
+    if mi_gate and y is not None:
+        from ._unified_fe_gate import local_mi_gate
+
+        keep = set(local_mi_gate(enc_df, y, raw_X=X, top_k=mi_gate_top_k))
+        if not keep:
+            return X.copy(), [], []
+        enc_df = enc_df[[c for c in enc_df.columns if c in keep]]
     X_aug = pd.concat([X, enc_df], axis=1)
     appended = list(enc_df.columns)
     recipes = [

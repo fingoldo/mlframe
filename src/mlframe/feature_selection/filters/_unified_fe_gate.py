@@ -1,0 +1,311 @@
+"""Two-tier information-theoretic gates for the recipe-emitting FE mechanisms
+(Layer 91, 2026-06-01).
+
+Four FE mechanisms emit engineered columns from a per-source / per-pair /
+per-group enumeration with NO relevance gate of their own:
+
+* Layer 33 K-fold target encoding (``_target_encoding_fe``)
+* Layer 34 count / frequency / cat-num residual (``_count_freq_interaction_fe``)
+* Layer 37 missingness indicator / count / pattern (``_missingness_fe``)
+* Layer 38 ratio / grouped-delta / lagged-diff (``_ratio_delta_fe``)
+
+Their pools grow combinatorially: 50 categorical columns -> 50 count-encoded
+columns, p numeric columns -> p*(p-1) ratio columns, and so on. Every emitted
+column then flows into MRMR's relevance / redundancy screen, inflating its
+work and (on small n) admitting noise survivors. This module adds two
+independent gates the wrappers / MRMR.fit opt into.
+
+Tier 1 -- LOCAL MI FLOOR (cheap, per-mechanism)
+-----------------------------------------------
+``local_mi_gate`` scores every freshly-emitted engineered column by plug-in
+``MI(candidate; y)`` (reusing ``_orthogonal_univariate_fe._mi_classif_batch``)
+and drops any whose MI falls below a noise floor. The floor is anchored on the
+RAW baseline MI distribution (median + ``mad_mult`` * MAD of the raw columns'
+MI), NOT on the engineered columns -- the Layer 90 lesson: an engineered-pool-
+relative floor moves with the pool and lets a pool of uniformly-weak columns
+set its own low bar. After flooring, the top-``top_k`` survivors by MI are
+kept (bounding the pool even when many columns clear the floor).
+
+Tier 2 -- UNIFIED SECOND-PASS CMI GATE (cross-mechanism)
+--------------------------------------------------------
+``unified_second_pass_gate`` runs a greedy conditional-MI selection over ALL
+engineered columns (regardless of which mechanism emitted them), conditioning
+on a running support that starts from the raw signal. An engineered column is
+dropped when ``CMI(col; y | already_selected) < threshold`` -- i.e. it adds no
+new information beyond what raw columns + earlier-selected engineered columns
+already carry. This catches CROSS-mechanism redundancy that no single
+mechanism's local gate can see: ``count(cat_a)`` and ``freq(cat_a)`` are an
+affine transform of each other (identical bin pattern), so once one is seated
+the other's CMI collapses to ~0 and it is dropped.
+
+Both gates are pure functions of (engineered X, y, raw column names). They
+return the SUBSET of engineered column names to KEEP; the caller drops the
+rest. They never reference y at transform time (they run only at fit).
+"""
+from __future__ import annotations
+
+import logging
+from typing import Optional, Sequence
+
+import numpy as np
+import pandas as pd
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    "raw_mi_noise_floor",
+    "local_mi_gate",
+    "unified_second_pass_gate",
+]
+
+
+# ---------------------------------------------------------------------------
+# Tier 1: local MI floor
+# ---------------------------------------------------------------------------
+
+
+def _coerce_y_classes(y) -> np.ndarray:
+    """Promote y to a dense int64 class array (binary / multiclass). Continuous
+    y is quantile-binned into 10 bins so the plug-in classification MI estimator
+    still applies (mirrors the Layer 60 ``score_candidates_by_cmi`` contract)."""
+    y_arr = np.asarray(y)
+    if np.issubdtype(y_arr.dtype, np.integer) or y_arr.dtype == bool:
+        _, y_bin = np.unique(y_arr.astype(np.int64), return_inverse=True)
+        return y_bin.astype(np.int64)
+    if np.issubdtype(y_arr.dtype, np.floating):
+        finite = y_arr[np.isfinite(y_arr)]
+        n_unique = int(np.unique(finite).size) if finite.size else 0
+        if n_unique <= 20:
+            _, y_bin = np.unique(y_arr, return_inverse=True)
+            return y_bin.astype(np.int64)
+        # Continuous: 10-bin quantile discretisation.
+        from ._mi_greedy_cmi_fe import _quantile_bin
+        return _quantile_bin(y_arr, nbins=10)
+    _, y_bin = np.unique(y_arr, return_inverse=True)
+    return y_bin.astype(np.int64)
+
+
+def raw_mi_noise_floor(
+    raw_X: pd.DataFrame,
+    y,
+    *,
+    nbins: int = 10,
+    mad_mult: float = 3.5,
+) -> float:
+    """Noise floor = ``median(raw_mi) + mad_mult * MAD(raw_mi)`` over the
+    numeric raw columns' marginal ``MI(col; y)``.
+
+    Anchoring on the RAW distribution (not the engineered pool) is the Layer 90
+    lesson: an engineered-pool floor drifts with the pool, so a pool of
+    uniformly weak engineered columns sets its own low bar and lets noise
+    through. The raw distribution is a stable reference for "what an
+    uninformative-to-weak column's MI looks like on this y at this n".
+
+    Returns 0.0 when there are no usable numeric raw columns (degenerate: the
+    caller then keeps everything that clears 0, i.e. any column with MI > 0).
+    """
+    from ._orthogonal_univariate_fe import _mi_classif_batch
+
+    if not isinstance(raw_X, pd.DataFrame) or raw_X.shape[1] == 0:
+        return 0.0
+    num_cols = [c for c in raw_X.columns if pd.api.types.is_numeric_dtype(raw_X[c])]
+    if not num_cols:
+        return 0.0
+    y_bin = _coerce_y_classes(y)
+    arr = raw_X[num_cols].to_numpy(dtype=np.float64)
+    raw_mi = np.asarray(_mi_classif_batch(arr, y_bin, nbins=nbins), dtype=np.float64)
+    raw_mi = raw_mi[np.isfinite(raw_mi)]
+    if raw_mi.size == 0:
+        return 0.0
+    med = float(np.median(raw_mi))
+    mad = float(np.median(np.abs(raw_mi - med)))
+    # MAD scaled to a std-equivalent (1.4826) so ``mad_mult`` reads like a
+    # sigma multiplier on a roughly-normal raw-MI distribution.
+    return med + float(mad_mult) * 1.4826 * mad
+
+
+def local_mi_gate(
+    enc_df: pd.DataFrame,
+    y,
+    raw_X: Optional[pd.DataFrame] = None,
+    *,
+    top_k: Optional[int] = None,
+    nbins: int = 10,
+    mad_mult: float = 3.5,
+    floor: Optional[float] = None,
+) -> list[str]:
+    """Tier-1 local MI floor. Returns the subset of ``enc_df`` columns to keep.
+
+    A column is kept when ``MI(col; y) >= floor`` where ``floor`` is the
+    ``raw_mi_noise_floor`` of ``raw_X`` (or the explicit ``floor`` argument).
+    Survivors are then ranked by MI and the top-``top_k`` retained (no cap when
+    ``top_k`` is None / <= 0). Column order in the returned list follows
+    descending MI.
+
+    Non-numeric engineered columns (should not occur -- every emitter produces
+    numeric output) are dropped defensively.
+    """
+    from ._orthogonal_univariate_fe import _mi_classif_batch
+
+    if not isinstance(enc_df, pd.DataFrame) or enc_df.shape[1] == 0:
+        return []
+    cand_cols = [c for c in enc_df.columns if pd.api.types.is_numeric_dtype(enc_df[c])]
+    if not cand_cols:
+        return []
+    if floor is None:
+        floor = raw_mi_noise_floor(raw_X, y, nbins=nbins, mad_mult=mad_mult) if raw_X is not None else 0.0
+    y_bin = _coerce_y_classes(y)
+    arr = enc_df[cand_cols].to_numpy(dtype=np.float64)
+    cand_mi = np.asarray(_mi_classif_batch(arr, y_bin, nbins=nbins), dtype=np.float64)
+    scored = [
+        (col, float(cand_mi[j]))
+        for j, col in enumerate(cand_cols)
+        if np.isfinite(cand_mi[j]) and cand_mi[j] >= floor
+    ]
+    scored.sort(key=lambda t: t[1], reverse=True)
+    if top_k is not None and int(top_k) > 0:
+        scored = scored[: int(top_k)]
+    return [col for col, _mi in scored]
+
+
+# ---------------------------------------------------------------------------
+# Tier 2: unified second-pass CMI gate (cross-mechanism)
+# ---------------------------------------------------------------------------
+
+
+def unified_second_pass_gate(
+    X_with_all_engineered: pd.DataFrame,
+    y,
+    raw_cols: Sequence[str],
+    engineered_cols: Sequence[str],
+    *,
+    max_keep: Optional[int] = None,
+    min_cmi_gain: float = 0.005,
+    nbins: int = 10,
+    seed_raw_cols_count: int = 4,
+) -> list[str]:
+    """Tier-2 unified second-pass CMI gate over ALL engineered columns.
+
+    Greedily seats engineered columns by ``CMI(col; y | running_support)``.
+    The running support is seeded with the top-``seed_raw_cols_count`` RAW
+    numeric columns by marginal MI (the "raw signal" the engineered pool must
+    beat), then grows by each seated engineered winner. A column is dropped
+    when its best CMI over the current support is ``< min_cmi_gain`` -- it adds
+    no new information beyond raw + already-seated engineered columns.
+
+    This catches CROSS-mechanism redundancy: ``count(cat_a)`` and ``freq(cat_a)``
+    have identical equi-frequency bin patterns, so once one is seated the
+    other's CMI collapses to ~0 and it is dropped, even though each mechanism's
+    own local gate would keep both.
+
+    Bin-pattern dedup: a candidate whose quantile-bin fingerprint matches an
+    already-seated winner is skipped outright (its CMI is identically zero given
+    the seated column, but the explicit skip avoids float ties admitting it).
+
+    Parameters
+    ----------
+    X_with_all_engineered : DataFrame
+        Frame containing both the raw and the engineered columns.
+    y : array-like
+    raw_cols : sequence of str
+        Raw (non-engineered) column names; the conditioning seed is drawn from
+        their numeric subset.
+    engineered_cols : sequence of str
+        Engineered column names to gate. Only these are eligible to be kept.
+    max_keep : int or None
+        Hard cap on the number of engineered columns kept. None = no cap
+        (greedy still stops when no candidate clears ``min_cmi_gain``).
+    min_cmi_gain : float
+        Minimum CMI a candidate must add over the current support to be seated.
+    nbins : int
+        Equi-frequency bins per column.
+    seed_raw_cols_count : int
+        Number of top-marginal-MI raw numeric columns folded into the initial
+        conditioning support. 0 = start with empty support (pure marginal MI
+        ranking at the first step).
+
+    Returns
+    -------
+    list[str]
+        Engineered column names to KEEP, in selection order.
+    """
+    from ._mi_greedy_cmi_fe import _cmi_from_binned, _quantile_bin, _renumber_joint
+    from ._orthogonal_univariate_fe import _mi_classif_batch
+
+    if not isinstance(X_with_all_engineered, pd.DataFrame):
+        raise TypeError(
+            "unified_second_pass_gate: X must be a pandas DataFrame; got "
+            f"{type(X_with_all_engineered).__name__}"
+        )
+    eng = [
+        c for c in engineered_cols
+        if c in X_with_all_engineered.columns
+        and pd.api.types.is_numeric_dtype(X_with_all_engineered[c])
+    ]
+    if not eng:
+        return []
+    y_bin = _coerce_y_classes(y)
+
+    # Seed the conditioning support with the top-N raw numeric columns by
+    # marginal MI -- the "raw signal" the engineered pool must add to.
+    raw_num = [
+        c for c in raw_cols
+        if c in X_with_all_engineered.columns
+        and pd.api.types.is_numeric_dtype(X_with_all_engineered[c])
+    ]
+    z_joint: Optional[np.ndarray] = None
+    if raw_num and int(seed_raw_cols_count) > 0:
+        raw_arr = X_with_all_engineered[raw_num].to_numpy(dtype=np.float64)
+        raw_mi = np.asarray(_mi_classif_batch(raw_arr, y_bin, nbins=nbins), dtype=np.float64)
+        order = np.argsort(-raw_mi)
+        seed_cols = [raw_num[i] for i in order[: int(seed_raw_cols_count)]]
+        seed_bins = [
+            _quantile_bin(X_with_all_engineered[c].to_numpy(), nbins=nbins)
+            for c in seed_cols
+        ]
+        if seed_bins:
+            z_joint, _ = _renumber_joint(*seed_bins)
+
+    # Pre-bin every engineered candidate + fingerprint for monotone-equivalence
+    # dedup against seated winners.
+    cand_bins: dict[str, np.ndarray] = {
+        c: _quantile_bin(X_with_all_engineered[c].to_numpy(), nbins=nbins)
+        for c in eng
+    }
+    cand_fp: dict[str, bytes] = {c: cand_bins[c].tobytes() for c in eng}
+
+    n_samples = int(y_bin.size)
+    frag_cap = max(2, n_samples // 5)
+    winners: list[str] = []
+    winner_fps: set[bytes] = set()
+    remaining = set(eng)
+    cap = int(max_keep) if (max_keep is not None and int(max_keep) > 0) else len(eng)
+
+    while remaining and len(winners) < cap:
+        best_name = None
+        best_cmi = -1.0
+        for name in remaining:
+            if cand_fp[name] in winner_fps:
+                continue
+            cmi = _cmi_from_binned(cand_bins[name], y_bin, z_joint)
+            if cmi > best_cmi:
+                best_cmi = cmi
+                best_name = name
+        if best_name is None or best_cmi < float(min_cmi_gain):
+            break
+        winners.append(best_name)
+        winner_fps.add(cand_fp[best_name])
+        remaining.discard(best_name)
+        # Fold the winner into Z (under the fragmentation cap) so the next CMI
+        # measures the gain ON TOP OF this column -- this is what drops the
+        # cross-mechanism redundant siblings.
+        new_bin = cand_bins[best_name]
+        if z_joint is None or z_joint.size == 0:
+            z_joint = new_bin.copy()
+        else:
+            candidate_joint, _ = _renumber_joint(z_joint, new_bin)
+            if int(np.unique(candidate_joint).size) <= frag_cap:
+                z_joint = candidate_joint
+            # else: freeze Z so later candidates stay measurable.
+
+    return winners

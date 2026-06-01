@@ -341,6 +341,8 @@ def kfold_target_encode_with_recipes(
     random_state: int = 0,
     auto_min_card: int = 5,
     auto_max_card: int = 500,
+    mi_gate: bool = False,
+    mi_gate_top_k: Optional[int] = None,
 ):
     """End-to-end: detect / accept cat cols, fit OOF encoding, build
     ``EngineeredRecipe`` objects ready for ``MRMR.transform`` replay.
@@ -370,6 +372,19 @@ def kfold_target_encode_with_recipes(
         smoothing=smoothing,
         random_state=random_state,
     )
+
+    # Tier-1 local MI floor (Layer 91): drop target-encoded columns whose
+    # MI(col; y) falls below the raw-baseline noise floor, keep top-K. Bounds
+    # the pool before it reaches MRMR's relevance screen.
+    if mi_gate and not te_df.empty:
+        from ._unified_fe_gate import local_mi_gate
+
+        keep = set(local_mi_gate(te_df, y, raw_X=X, top_k=mi_gate_top_k))
+        if not keep:
+            return X.copy(), [], []
+        kept_src = [c for c in cat_cols if engineered_name_te(c) in keep]
+        te_df = te_df[[engineered_name_te(c) for c in kept_src]]
+        cat_cols = kept_src
 
     # Append the encoded columns without disturbing the source columns
     # (MRMR's screening handles them as ordinary numeric features).

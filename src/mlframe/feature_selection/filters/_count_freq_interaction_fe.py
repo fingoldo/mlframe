@@ -416,12 +416,32 @@ def apply_cat_num_residual(
 # ---------------------------------------------------------------------------
 
 
+def _gate_enc(enc_df, y, raw_X, mi_gate, mi_gate_top_k):
+    """Tier-1 local MI floor over an ``enc_df`` of engineered columns. Returns
+    the (possibly pruned) ``enc_df`` keeping only columns that clear the raw-
+    baseline noise floor (top-K by MI). No-op when ``mi_gate`` is False."""
+    if not mi_gate or enc_df is None or enc_df.empty:
+        return enc_df
+    from ._unified_fe_gate import local_mi_gate
+
+    keep = local_mi_gate(enc_df, y, raw_X=raw_X, top_k=mi_gate_top_k)
+    return enc_df[keep]
+
+
 def count_encode_with_recipes(
     X: pd.DataFrame,
     *,
     cat_cols: Optional[Sequence[str]] = None,
+    mi_gate: bool = False,
+    mi_gate_top_k: Optional[int] = None,
+    y: Optional[np.ndarray] = None,
 ):
-    """Append ``{col}__count`` columns to X and emit one recipe per col."""
+    """Append ``{col}__count`` columns to X and emit one recipe per col.
+
+    When ``mi_gate=True`` (and ``y`` supplied) the emitted columns are filtered
+    by the Tier-1 local MI floor (Layer 91): drop columns whose ``MI(col; y)``
+    is below the raw-baseline noise floor, keep top-``mi_gate_top_k``.
+    """
     from .engineered_recipes import build_count_encoded_recipe
 
     if not cat_cols:
@@ -430,6 +450,12 @@ def count_encode_with_recipes(
     if not cat_cols:
         return X.copy(), [], []
     enc_df, raw_recipes = count_encode_fit(X, cat_cols)
+    if mi_gate and y is not None:
+        enc_df = _gate_enc(enc_df, y, X, mi_gate, mi_gate_top_k)
+        if enc_df.empty:
+            return X.copy(), [], []
+        kept = set(enc_df.columns)
+        cat_cols = [c for c in cat_cols if engineered_name_count(c) in kept]
     X_aug = pd.concat([X, enc_df], axis=1)
     appended = list(enc_df.columns)
     recipes = [
@@ -448,8 +474,14 @@ def frequency_encode_with_recipes(
     X: pd.DataFrame,
     *,
     cat_cols: Optional[Sequence[str]] = None,
+    mi_gate: bool = False,
+    mi_gate_top_k: Optional[int] = None,
+    y: Optional[np.ndarray] = None,
 ):
-    """Append ``{col}__freq`` columns to X and emit one recipe per col."""
+    """Append ``{col}__freq`` columns to X and emit one recipe per col.
+
+    ``mi_gate=True`` (with ``y``) applies the Tier-1 local MI floor (Layer 91).
+    """
     from .engineered_recipes import build_frequency_encoded_recipe
 
     if not cat_cols:
@@ -458,6 +490,12 @@ def frequency_encode_with_recipes(
     if not cat_cols:
         return X.copy(), [], []
     enc_df, raw_recipes = frequency_encode_fit(X, cat_cols)
+    if mi_gate and y is not None:
+        enc_df = _gate_enc(enc_df, y, X, mi_gate, mi_gate_top_k)
+        if enc_df.empty:
+            return X.copy(), [], []
+        kept = set(enc_df.columns)
+        cat_cols = [c for c in cat_cols if engineered_name_freq(c) in kept]
     X_aug = pd.concat([X, enc_df], axis=1)
     appended = list(enc_df.columns)
     recipes = [
@@ -481,10 +519,16 @@ def cat_num_interaction_with_recipes(
     n_folds: int = 5,
     smoothing: float = 10.0,
     random_state: int = 0,
+    mi_gate: bool = False,
+    mi_gate_top_k: Optional[int] = None,
 ):
     """Append ``{num}__resid_by__{cat}`` columns for the Cartesian product
     of ``cat_cols`` x ``num_cols`` (only valid combinations: cat in X,
-    num in X and numeric)."""
+    num in X and numeric).
+
+    ``mi_gate=True`` applies the Tier-1 local MI floor (Layer 91) over the
+    Cartesian residual pool (which is O(|cat| * |num|) and the most
+    explosion-prone of the three L34 emitters)."""
     from .engineered_recipes import build_cat_num_residual_recipe
 
     if not cat_cols or not num_cols:
@@ -521,5 +565,12 @@ def cat_num_interaction_with_recipes(
                 )
             )
     new_df = pd.DataFrame(new_cols, index=X.index)
+    if mi_gate and not new_df.empty:
+        new_df = _gate_enc(new_df, y, X, mi_gate, mi_gate_top_k)
+        if new_df.empty:
+            return X.copy(), [], []
+        kept = set(new_df.columns)
+        appended = [n for n in appended if n in kept]
+        recipes = [r for r in recipes if r.name in kept]
     X_aug = pd.concat([X, new_df], axis=1)
     return X_aug, appended, recipes

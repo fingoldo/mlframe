@@ -1220,6 +1220,31 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_lagged_diff_time_col: str = None,
         fe_lagged_diff_value_cols: tuple = (),
         fe_lagged_diff_periods: tuple = (1, 2),
+        # 2026-06-01 Layer 91 — TWO-TIER IT GATES on the four recipe-emitting
+        # FE mechanisms that otherwise emit columns with NO relevance gate
+        # (L33 k-fold target encoding, L34 count/freq/cat-num residual, L37
+        # missingness, L38 ratio/grouped-delta/lagged-diff). Both default OFF
+        # so legacy behaviour is byte-identical.
+        # * ``fe_local_mi_gate`` (Tier 1): after each of the four mechanisms
+        #   generates its candidate columns, drop any whose marginal
+        #   ``MI(col; y)`` is below the RAW-baseline noise floor (median +
+        #   3.5*MAD of the raw columns' MI distribution -- anchored on raw, not
+        #   the engineered pool, per the Layer 90 lesson) and keep the top
+        #   ``fe_local_mi_gate_top_k`` survivors. Bounds combinatorial pool
+        #   growth (50 cat cols -> <= top_k count-encoded columns). Default
+        #   FALSE to preserve byte-identity; ENABLING is recommended whenever
+        #   any of the four mechanisms is on with a wide column set.
+        # * ``fe_unified_second_pass_gate`` (Tier 2): a single greedy CMI pass
+        #   over ALL engineered columns (from every mechanism) conditioned on
+        #   the running support (seeded from the top raw-MI columns). Drops a
+        #   column when ``CMI(col; y | already-selected) < min_gain`` -- catches
+        #   CROSS-mechanism redundancy a per-mechanism gate cannot see
+        #   (``count(cat_a)`` vs ``freq(cat_a)`` are affine; only one is kept).
+        fe_local_mi_gate: bool = False,
+        fe_local_mi_gate_top_k: int = 20,
+        fe_unified_second_pass_gate: bool = False,
+        fe_unified_second_pass_max_keep: int = None,
+        fe_unified_second_pass_min_gain: float = 0.005,
         # 2026-06-01 Layer 87 — grouped multi-stat aggregator with CMI gate.
         # NVIDIA cuDF Kaggle-Grandmaster technique #1: per-group statistics of
         # a continuous column broadcast back to rows, plus z-within-group and
@@ -1801,6 +1826,14 @@ class MRMR(BaseEstimator, TransformerMixin):
             "count_encoding_features_": [],
             "frequency_encoding_features_": [],
             "cat_num_interaction_features_": [],
+            # 2026-06-01 Layer 91 — two-tier IT gates on the recipe-emitting
+            # FE mechanisms. Master switches OFF preserve legacy pickle
+            # byte-equivalence.
+            "fe_local_mi_gate": False,
+            "fe_local_mi_gate_top_k": 20,
+            "fe_unified_second_pass_gate": False,
+            "fe_unified_second_pass_max_keep": None,
+            "fe_unified_second_pass_min_gain": 0.005,
             # 2026-05-31 Layer 53 — partial_fit / streaming refit.
             # Legacy pickles default OFF (decay 0, threshold 100, no window);
             # fitted-state buffers default to None until partial_fit is called.

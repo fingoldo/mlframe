@@ -2692,6 +2692,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     random_state=int(
                         getattr(self, "random_seed", 0) or 0
                     ),
+                    mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
+                    mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
                 )
                 # Guard against silent overlap with prior stages: the
                 # ``{col}__te`` suffix is dedicated to this stage so the
@@ -2782,8 +2784,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             X, min_card=5, max_card=500,
                         )
                     _X_before_cnt_cols = list(X.columns)
+                    _y_for_cnt = (
+                        y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    )
                     X_c, _cnt_appended, _cnt_recipes = count_encode_with_recipes(
                         X, cat_cols=_cnt_cols,
+                        mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
+                        mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
+                        y=_y_for_cnt,
                     )
                     _cnt_appended = [
                         c for c in _cnt_appended if c not in _X_before_cnt_cols
@@ -2826,8 +2834,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             X, min_card=5, max_card=500,
                         )
                     _X_before_freq_cols = list(X.columns)
+                    _y_for_freq = (
+                        y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    )
                     X_f, _freq_appended, _freq_recipes = frequency_encode_with_recipes(
                         X, cat_cols=_freq_cols,
+                        mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
+                        mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
+                        y=_y_for_freq,
                     )
                     _freq_appended = [
                         c for c in _freq_appended if c not in _X_before_freq_cols
@@ -2888,6 +2902,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                                 ),
                                 random_state=int(
                                     getattr(self, "random_seed", 0) or 0
+                                ),
+                                mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
+                                mi_gate_top_k=int(
+                                    getattr(self, "fe_local_mi_gate_top_k", 20)
                                 ),
                             )
                         )
@@ -2978,8 +2996,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         getattr(self, "fe_missingness_indicator_cols", ())
                     )
                     _X_before_ind_cols = list(X.columns)
+                    _y_for_ind = (
+                        y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                    )
                     X_i, _ind_appended, _ind_recipes = missing_indicator_with_recipes(
                         X, cols=_ind_cols,
+                        mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
+                        mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
+                        y=_y_for_ind,
                     )
                     _ind_appended = [
                         c for c in _ind_appended if c not in _X_before_ind_cols
@@ -3121,6 +3145,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 lagged_diff_with_recipes,
             )
 
+            _l38_mi_gate = bool(getattr(self, "fe_local_mi_gate", False))
+            _l38_mi_gate_top_k = int(getattr(self, "fe_local_mi_gate_top_k", 20))
+            _y_for_l38 = (
+                y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+            )
+
             # ----- Pairwise ratio --------------------------------------------
             if bool(getattr(self, "fe_pairwise_ratio_enable", False)):
                 try:
@@ -3132,6 +3162,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _X_before_r_cols = list(X.columns)
                     X_r, _r_appended, _r_recipes = pairwise_ratio_with_recipes(
                         X, cols=_ratio_cols, eps=_eps,
+                        mi_gate=_l38_mi_gate, mi_gate_top_k=_l38_mi_gate_top_k,
+                        y=_y_for_l38,
                     )
                     _r_appended = [
                         c for c in _r_appended if c not in _X_before_r_cols
@@ -3169,6 +3201,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _X_before_lr_cols = list(X.columns)
                     X_lr, _lr_appended, _lr_recipes = pairwise_log_ratio_with_recipes(
                         X, cols=_lr_cols, eps=_eps_lr,
+                        mi_gate=_l38_mi_gate, mi_gate_top_k=_l38_mi_gate_top_k,
+                        y=_y_for_l38,
                     )
                     _lr_appended = [
                         c for c in _lr_appended if c not in _X_before_lr_cols
@@ -3206,6 +3240,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _X_before_gd_cols = list(X.columns)
                     X_gd, _gd_appended, _gd_recipes = grouped_delta_with_recipes(
                         X, group_col=_gd_group, num_cols=_gd_nums,
+                        mi_gate=_l38_mi_gate, mi_gate_top_k=_l38_mi_gate_top_k,
+                        y=_y_for_l38,
                     )
                     _gd_appended = [
                         c for c in _gd_appended if c not in _X_before_gd_cols
@@ -3247,6 +3283,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     X_ld, _ld_appended, _ld_recipes = lagged_diff_with_recipes(
                         X, time_col=_ld_time, value_cols=_ld_vals,
                         periods=_ld_periods,
+                        mi_gate=_l38_mi_gate, mi_gate_top_k=_l38_mi_gate_top_k,
+                        y=_y_for_l38,
                     )
                     _ld_appended = [
                         c for c in _ld_appended if c not in _X_before_ld_cols
@@ -3759,6 +3797,98 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     "engineered column(s) at Spearman |rho| >= 0.99: %s",
                     len(_eng_drop), sorted(_eng_drop),
                 )
+
+    # Layer 91 (2026-06-01): Tier-2 UNIFIED SECOND-PASS CMI GATE. The Layer 27
+    # dedup above is UNSUPERVISED (Spearman rank-corr between engineered cousins)
+    # and so cannot see cross-mechanism redundancy that only manifests
+    # conditional on y -- e.g. ``count(cat_a)`` and ``freq(cat_a)`` ARE caught by
+    # Spearman (identical rank order), but ``count(cat_a)`` vs a target-encoding
+    # of cat_a that carries the same y-signal through a different bin pattern is
+    # NOT. This gate runs a single greedy CMI selection over ALL engineered
+    # columns (every mechanism) conditioned on the running support seeded from
+    # the top raw-MI columns, keeping only columns that add new information about
+    # y on top of raw + earlier-selected engineered columns. Default OFF (byte-
+    # identical legacy path). y is read only here at fit; transform replays the
+    # surviving recipes without y.
+    if (
+        bool(getattr(self, "fe_unified_second_pass_gate", False))
+        and isinstance(X, pd.DataFrame)
+    ):
+        try:
+            _eng_now = [
+                c for c in (
+                    list(self.hybrid_orth_features_ or [])
+                    + list(self.mi_greedy_features_ or [])
+                )
+                if c in X.columns
+            ]
+            # Order-preserving unique.
+            _seen_u: set[str] = set()
+            _eng_now = [
+                c for c in _eng_now if not (c in _seen_u or _seen_u.add(c))
+            ]
+            if len(_eng_now) >= 2:
+                from ._unified_fe_gate import unified_second_pass_gate
+
+                _raw_cols_u = [c for c in X.columns if c not in set(_eng_now)]
+                _y_for_u = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                _keep_u = set(unified_second_pass_gate(
+                    X, _y_for_u,
+                    raw_cols=_raw_cols_u,
+                    engineered_cols=_eng_now,
+                    max_keep=getattr(self, "fe_unified_second_pass_max_keep", None),
+                    min_cmi_gain=float(
+                        getattr(self, "fe_unified_second_pass_min_gain", 0.005)
+                    ),
+                ))
+                _eng_drop_u = set(_eng_now) - _keep_u
+                if _eng_drop_u:
+                    X = X.drop(columns=list(_eng_drop_u))
+                    for _attr in (
+                        "hybrid_orth_features_", "mi_greedy_features_",
+                        "kfold_te_features_", "count_encoding_features_",
+                        "frequency_encoding_features_",
+                        "cat_num_interaction_features_",
+                        "missingness_indicator_features_",
+                        "missingness_count_features_",
+                        "missingness_pattern_features_",
+                        "pairwise_ratio_features_", "pairwise_log_ratio_features_",
+                        "grouped_delta_features_", "lagged_diff_features_",
+                        "grouped_agg_features_", "grouped_quantile_features_",
+                        "cat_pair_features_", "numeric_decompose_features_",
+                    ):
+                        setattr(self, _attr, [
+                            c for c in (getattr(self, _attr, []) or [])
+                            if c not in _eng_drop_u
+                        ])
+                    for _pre in (
+                        _hybrid_orth_pre_recipes, _mi_greedy_pre_recipes,
+                        _kfold_te_pre_recipes, _count_enc_pre_recipes,
+                        _freq_enc_pre_recipes, _cat_num_pre_recipes,
+                        _miss_ind_pre_recipes, _miss_cnt_pre_recipes,
+                        _miss_pat_pre_recipes, _ratio_pre_recipes,
+                        _log_ratio_pre_recipes, _grouped_delta_pre_recipes,
+                        _lagged_diff_pre_recipes, _grouped_agg_pre_recipes,
+                        _grouped_quantile_pre_recipes, _cat_pair_pre_recipes,
+                        _numeric_decompose_pre_recipes,
+                    ):
+                        for _c in list(_pre.keys()):
+                            if _c in _eng_drop_u:
+                                _pre.pop(_c, None)
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit unified second-pass CMI gate: pruned %d "
+                            "cross-mechanism redundant engineered column(s): %s",
+                            len(_eng_drop_u), sorted(_eng_drop_u),
+                        )
+        except Exception as _u_exc:
+            logger.warning(
+                "MRMR.fit unified_second_pass_gate raised %s: %s; continuing "
+                "without the Tier-2 cross-mechanism gate.",
+                type(_u_exc).__name__, _u_exc,
+            )
 
     # Layer 23: feature_names_in_ MUST exclude hybrid-appended columns so
     # the end-of-fit ``selected_vars_names`` lookup routes hybrid names
