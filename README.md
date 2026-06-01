@@ -246,6 +246,72 @@ print(g.to_meta()["class_counts"])  # {'green': ..., 'red': ..., 'yellow': ...}
 pruned = MRMR(friend_graph_prune=True).fit(X, y)
 ```
 
+### Adaptive Feature Engineering & Param-Oracle
+
+**The problem.** `MRMR` accumulated ~50 opt-in `fe_*_enable` / `dcd_*` feature-engineering generators (Layers 33-95), each one a master switch that pays off only on a specific data shape and adds compute everywhere else. A user who has not read 50 docstrings does not know which to flip, so in practice the entire FE zoo stays off and the wins go unrealised. Three layers (98-100) collapse that decision surface into one knob, backed by a meta-learning cache.
+
+**`fe_auto=True` — the 1-knob FE mode.** `MRMR(fe_auto=True).fit(X, y)` cheaply fingerprints `(X, y)` *before* the FE stages run and flips exactly the master `fe_*_enable` flags whose data-shape precondition is met for this fit. It only ADDS generators — a flag you set `True` yourself is never turned off — and the original constructor values are restored after `fit` so semantics stay stable across fits / `clone` / pickle. Default `fe_auto=False` keeps the byte-identical legacy path. The rule-based recommender (`mlframe.feature_selection.filters._meta_fe_recommender.recommend_fe_flags_by_rules`) needs no history; it is the cold-start prior, and maps:
+
+| Data-shape precondition | Master flags enabled |
+| --- | --- |
+| int-as-cat group column (distinct count 3..500) | `fe_grouped_agg_enable`, `fe_composite_group_agg_enable`, `fe_grouped_quantile_enable` |
+| object / category columns | `fe_count_encoding_enable`, `fe_frequency_encoding_enable`, `fe_cat_pair_enable` |
+| ... + >= 3 categorical columns | `fe_cat_triple_enable` |
+| ... + a continuous numeric column | `fe_cat_num_interaction_enable` |
+| time column + entity column | `fe_temporal_agg_enable` |
+| any column NaN rate >= 1% | `fe_missingness_indicator_enable` |
+| heavy-tailed / skewed continuous | `fe_hybrid_orth_enable` |
+| anchored / discrete-pattern numeric | `fe_numeric_decompose_enable`, `fe_modular_enable` |
+
+A clean Gaussian frame (no cats / groups / time / NaNs) returns all-False — no spurious enables. `MRMR.recommend_enabled_fe(X, y)` exposes the same recommendation (its `recommended_enable` list) plus the static flip-safety taxonomy without running a fit.
+
+```python
+from mlframe.feature_selection.filters.mrmr import MRMR
+
+# One knob: fingerprint the data, auto-enable the generators that fit its shape.
+sel = MRMR(fe_auto=True).fit(X, y)
+
+# Inspect what would be enabled, without fitting:
+print(MRMR.recommend_enabled_fe(X, y)["recommended_enable"])
+```
+
+**`fe_hybrid_orth_default_scorer="auto_oracle"` — unified scorer selection.** The univariate basis-selection stage can route through any of 14 scorer modes. `"auto_oracle"` (Layer 100, `_oracle_scorer_select.OracleScorerSelector`) unifies the two prior adaptive paths under the Param-Oracle: the Layer-76 fingerprint rule cascade is the cold-start prior, the expensive Layer-68 all-scorers bake-off runs ONCE (`benchmark_all_scorers`) to populate the oracle, and once a fingerprint bucket has confident history the learned-best scorer over `{plug_in, ksg, copula, dcor, hsic, jmim, tc, cmim}` wins. The legacy `"auto"` (L68) and `"meta"` (L76) values keep working unchanged; `"auto_oracle"` is the new learning path.
+
+**Param-Oracle (`mlframe.utils._param_oracle.ParamOracle`) — the meta-learning cache.** Almost every hot decision in this codebase (which MI scorer, which CUDA kernel variant, which FE recipe) has an *input-dependent* optimum — a function of the shape and statistics of the data, not a constant you can hardcode. The Param-Oracle generalises that into a small learning-to-optimize loop:
+
+- **fingerprint -> best-param.** `default_fingerprint(args, kwargs)` returns a dict of scalars only — `n`, `p`, `dtype_kind`, `sparsity`, `mean_abs_skew`, `mean_kurtosis`, `cardinality_mean`, `mean_abs_corr` — computed from the first array/DataFrame-like argument. `recommend(fp, fn_name=...)` resolves a new fingerprint via exact log-bucket match -> k-NN in fingerprint space -> global best -> caller default, gated by a `min_observations` confidence threshold.
+- **stat-only persistence.** The on-disk parquet store NEVER holds raw arrays — only scalar fingerprint stats, the param combo, and the scalar objective. Tiny, privacy-safe, portable.
+- **sibling of `pyutilz.system.kernel_tuning_cache`, not a replacement.** It deliberately *reuses* that cache's proven patterns — the same per-host `hw_fingerprint()` key, the same `$PYUTILZ_KERNEL_CACHE_DIR` / `~/.pyutilz` layout convention (under a `param_oracle/` subdir), log-scale size bucketing, and filelock-guarded atomic merge-on-write — and does NOT modify it. Where it differs: the kernel cache stores a hand-emitted region table of discrete choices; the Param-Oracle stores raw observations and learns the mapping via continuous k-NN over a richer statistical fingerprint.
+- **3 modes.** `"benchmark"` sweeps every combo of `param_space` and records each; `"inference"` only recommends, never sweeps; `"hybrid"` is epsilon-greedy — exploit the recommendation with probability `1 - epsilon`, explore a random combo otherwise, recording every call.
+- **consumer roadmap.** FE-flag recommendation (Layer 99, done), scorer selection (Layer 100, done), and HPO warm-start (planned: seed hyper-parameter search from the per-fingerprint best instead of a cold start).
+
+Decorate a function so each call is governed by the oracle's mode (the instance itself is the decorator; it records the timed objective and learns over runs):
+
+```python
+from mlframe.utils._param_oracle import ParamOracle
+
+oracle = ParamOracle(
+    "my_kernel.parquet",                  # bare name -> resolved under the param_oracle store dir
+    param_space={"variant": ["njit", "cuda"], "block": [128, 256]},
+    mode="hybrid",                        # epsilon-greedy explore/exploit
+    minimize="elapsed_s",
+    epsilon=0.1,
+)
+
+@oracle
+def my_kernel(X, variant="njit", block=128):
+    ...                                   # heavy compute; oracle picks variant+block by data fingerprint
+    return result
+```
+
+**Worked example — the full auto pipeline.** Combine both knobs so MRMR fingerprints the data, auto-enables the matching FE generators, and routes scorer choice through the learning oracle:
+
+```python
+sel = MRMR(fe_auto=True, fe_hybrid_orth_default_scorer="auto_oracle").fit(X, y)
+print(sel.support_)                                   # selected-feature mask
+print(MRMR.recommend_enabled_fe(X, y)["recommended_enable"])  # which generators fired
+```
+
 **Time-series and financial feature engineering on Polars.** Windowed aggregation, ACF, Hurst exponent, TA-Lib indicators, market-wide rolling features. Most extraction paths run Polars-native without copying to pandas:
 
 ```python
