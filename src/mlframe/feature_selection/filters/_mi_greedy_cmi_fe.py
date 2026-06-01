@@ -87,6 +87,15 @@ def _quantile_bin(col: np.ndarray, nbins: int) -> np.ndarray:
     / Inf are mapped to bin 0 (caller is expected to scrub upstream; we keep
     the fallback for safety).
     """
+    # bench-attempt-rejected (2026-06-01): replacing np.quantile value-edge
+    # binning with a numba argsort rank-based equi-frequency binner was BOTH
+    # slower (0.60x: 1222ms vs 730ms / 411 calls -- numpy np.quantile uses
+    # introselect partition, not a full sort, and beats numba argsort) AND
+    # NOT MI-equivalent here: on tied/discrete columns rank-binning splits ties
+    # across bins, shifting MI(X;y) ~2x (disc: 5.8e-5 -> 1.1e-4) and thus the
+    # CMI-greedy selection. The "binning-tie-invariance" note at
+    # _orthogonal_univariate_fe.py:451 applies only to that hermite MI kernel,
+    # NOT to this CMI-greedy path. Keep the value-edge np.quantile binning.
     a = np.asarray(col, dtype=np.float64)
     qs = np.linspace(0.0, 1.0, nbins + 1)
     # Fast path: an all-finite column (the production nan-filled case) skips the
