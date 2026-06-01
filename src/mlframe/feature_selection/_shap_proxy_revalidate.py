@@ -451,15 +451,26 @@ def _parallel_honest_losses(tasks, model_template, X_tr, y_tr, X_ev, y_ev, class
                              n_estimators_cap=n_estimators_cap, template_id=template_id,
                              disk_cache=disk_cache)
                 for idx, seed in tasks]
-    from joblib import Parallel, delayed
+    # iter103: swap joblib.Parallel(prefer="threads") for concurrent.futures.ThreadPoolExecutor.
+    # cProfile (width=10000, n_rows=10000) attributed 13.8s tottime to time.sleep inside
+    # joblib's _retrieve polling loop on a 22.4s fit (joblib.parallel cumtime 13.98s, this
+    # function 11.56s = 51% of fit wall). concurrent.futures uses condition-variable wait
+    # (no polling), preserves submitted-order results via [f.result() for f in futs], same
+    # threading semantics (xgb/lgbm release the GIL). Microbench at 60 short-ish xgb fits
+    # on an 8-core box measured +3.2% min wall (3469ms -> 3360ms); the real-fit gain comes
+    # from removing the polling-loop overhead that scales with total fit count, not per-fit
+    # cost. Parity verified bit-identical on the microbench.
+    from concurrent.futures import ThreadPoolExecutor
 
-    return Parallel(n_jobs=outer, prefer="threads")(
-        delayed(_honest_loss)(model_template, X_tr, y_tr, X_ev, y_ev, idx, classification, metric,
-                              seed=seed, inner_n_jobs=inner, cache=cache,
-                              n_estimators_cap=n_estimators_cap, template_id=template_id,
-                              disk_cache=disk_cache)
-        for idx, seed in tasks
-    )
+    with ThreadPoolExecutor(max_workers=outer) as ex:
+        futs = [
+            ex.submit(_honest_loss, model_template, X_tr, y_tr, X_ev, y_ev, idx, classification, metric,
+                      seed=seed, inner_n_jobs=inner, cache=cache,
+                      n_estimators_cap=n_estimators_cap, template_id=template_id,
+                      disk_cache=disk_cache)
+            for idx, seed in tasks
+        ]
+        return [f.result() for f in futs]
 
 
 def _softmax_weights(scores, temperature="auto"):
