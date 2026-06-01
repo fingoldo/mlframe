@@ -14,6 +14,14 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Keys the suite stashes in ``datamodule_params`` for the estimator's own
+# predict-time use that are NOT constructor parameters of the datamodule
+# classes (TorchDataModule / RecurrentDataModule). They must be stripped
+# before any ``datamodule_class(**params)`` splat. ``predict_batch_size`` is
+# read directly off ``self.datamodule_params`` in ``_predict_raw``; passing it
+# to the datamodule constructor raises ``unexpected keyword argument``.
+_PREDICT_ONLY_DM_PARAM_KEYS = frozenset({"predict_batch_size"})
+
 # Logging filters / MetricSpec / suppression context manager / _rmse_metric: side-effect log-filter attach runs at sibling import time. Re-exports preserve identity for downstream isinstance / hasattr.
 from ._base_logging import (  # noqa: F401, E402
     _LightningRankZeroNoiseFilter,
@@ -404,7 +412,18 @@ class PytorchLightningEstimator(BaseEstimator):
             _y_check = np.asarray(_y_check) if not isinstance(_y_check, np.ndarray) else _y_check
             _is_multilabel_target = bool(_y_check.ndim == 2 and _y_check.shape[1] >= 2)
 
-        _local_dm_params = dict(self.datamodule_params)
+        # ``predict_batch_size`` is a predict-time-only knob the suite plumbs
+        # into ``datamodule_params`` (see _helpers_training_configs.py:733); it
+        # is consumed at predict() directly off ``self.datamodule_params`` and
+        # is NOT a constructor parameter of TorchDataModule / RecurrentDataModule.
+        # Strip it (and any future predict-only keys) before splatting into the
+        # datamodule constructor, otherwise the fit-time build raises
+        # ``TorchDataModule.__init__() got an unexpected keyword argument
+        # 'predict_batch_size'`` the moment a caller sets mlp_predict_batch_size.
+        _local_dm_params = {
+            k: v for k, v in self.datamodule_params.items()
+            if k not in _PREDICT_ONLY_DM_PARAM_KEYS
+        }
         if _is_multilabel_target:
             # BCEWithLogitsLoss requires float labels; CrossEntropyLoss (the
             # classifier default in helpers.py) requires Long. The estimator
@@ -1136,7 +1155,14 @@ class PytorchLightningEstimator(BaseEstimator):
             # fit() epilogue), keeping the lightweight shell around so
             # predict-after-fit no longer reaches this branch at all.
             logger.warning("No datamodule found from training. Creating temporary datamodule for prediction.")
-            datamodule = self.datamodule_class(**self.datamodule_params)
+            # Same predict-only-key strip as the fit-time construction: the
+            # temporary datamodule constructor rejects ``predict_batch_size``
+            # (it is read off self.datamodule_params at line ~1161 below, not
+            # passed to the datamodule).
+            datamodule = self.datamodule_class(**{
+                k: v for k, v in self.datamodule_params.items()
+                if k not in _PREDICT_ONLY_DM_PARAM_KEYS
+            })
         else:
             # Pre-fix this else-branch was missing and ``datamodule`` was
             # left unbound; line 522 ``datamodule.setup_predict(...)`` then
