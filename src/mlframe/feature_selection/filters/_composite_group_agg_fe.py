@@ -97,7 +97,18 @@ def build_composite_keys(X: pd.DataFrame, group_cols: Sequence[str]) -> np.ndarr
     """
     parts = []
     for c in group_cols:
-        parts.append(X[c].astype(object).map(lambda v: "" if v is None else str(v)).to_numpy())
+        ser = X[c]
+        # Fast path: a column with no missing values converts with a single
+        # vectorised C-level ``astype(str)`` (pandas applies str() element-wise,
+        # bit-identical to the per-row lambda's ``str(v)`` branch). The per-row
+        # ``.map(lambda)`` was a 960k-call hotspot at n=40k * group_cols. The
+        # lambda's only non-str() case is ``v is None -> ""``, which cannot
+        # occur when there are no nulls, so the fast path is exact. Columns
+        # with nulls keep the explicit lambda (None -> "" while NaN -> "nan").
+        if not ser.isna().any():
+            parts.append(ser.astype(str).to_numpy(dtype=object))
+        else:
+            parts.append(ser.astype(object).map(lambda v: "" if v is None else str(v)).to_numpy())
     if not parts:
         return np.empty(len(X), dtype=object)
     # \x1f = ASCII unit separator; vanishingly unlikely inside real labels.
