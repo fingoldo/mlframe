@@ -675,6 +675,23 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         # plain Zipf alpha=0.25 composite 0.8335. Lever still does not pay at this regime even under
         # the recall-aware metric; remain opt-in for callers whose prefilter is noise-heavy.
         self.trust_guard_stratified_anchors = bool(trust_guard_stratified_anchors)
+        # ``trust_guard_uniform_tail_frac`` re-audited iter98 (2026-06-01) after iter97 made the
+        # softmax scale-invariant. Question: does the calibrated 20% uniform tail still pay now that
+        # stratified is well-behaved (no longer collapsing to ~one-hot on raw F-scores)? Sweep
+        # {0.0, 0.1, 0.2, 0.3} at width=6000, n=3000, n_inf=12, snr=8.0, seed=0,
+        # trust_guard_stratified_anchors=True:
+        #
+        #   tail_frac=0.0  spearman=0.9764  recall@k=0.833  fidelity=0.9192  recovery=11/12
+        #   tail_frac=0.1  spearman=0.9803  recall@k=0.833  fidelity=0.9215  recovery=11/12
+        #   tail_frac=0.2  spearman=0.9849  recall@k=1.000  fidelity=0.9909  recovery=11/12  <-- DEFAULT
+        #   tail_frac=0.3  spearman=0.9778  recall@k=1.000  fidelity=0.9867  recovery=11/12
+        #
+        # All four produce IDENTICAL chosen subsets (jaccard=1.0) and equal recovery; 0.2 wins on
+        # both spearman AND composite fidelity. Reducing the tail to 0.1 / 0.0 costs recall@k
+        # (0.833 vs 1.000) because the pure-stratified draw never probes any column outside the
+        # F-score head, so the proxy's top-k overlap with honest top-k drops one anchor.
+        # iter97's scale-invariant softmax did NOT shift the optimum -- 20% uniform tail remains
+        # the calibrated value.
         self.trust_guard_uniform_tail_frac = float(trust_guard_uniform_tail_frac)
         # ``trust_guard_cardinality_dist`` (iter15+iter16): how anchor cardinality ``k`` is drawn
         # over ``[min_card, max_card]`` inside ``proxy_trust_guard``. ``'zipf'`` (iter16 default after
