@@ -307,8 +307,10 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
     # fit from _cmi_from_binned; warm it here so the first-fit JIT compile
     # (~0.3s) lands outside the timed screening path.
     try:
-        from ._mi_greedy_cmi_fe import _entropy_from_classes_njit
-        _ = _entropy_from_classes_njit(np.array([0, 1, 1, 2, 0], dtype=np.int64))
+        from ._mi_greedy_cmi_fe import _entropy_from_classes_njit, _factorize_dense_njit
+        _warm_cls = np.array([0, 1, 1, 2, 0], dtype=np.int64)
+        _ = _entropy_from_classes_njit(_warm_cls)
+        _ = _factorize_dense_njit(_warm_cls)
     except Exception:
         pass
 
