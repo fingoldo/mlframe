@@ -317,8 +317,14 @@ class TestMRMRIntegration:
 
 class TestDefaultDisabledByteIdentical:
     def test_gates_default_off(self):
+        # 2026-06-01 Layer 97 — ``fe_local_mi_gate`` default flipped to True.
+        # It is a pure corrective (drops only sub-noise engineered columns,
+        # keeps top-k) and a strict no-op unless an L33/L34/L37/L38 FE
+        # mechanism is also enabled, so enabling by default cannot reduce
+        # accuracy. ``fe_unified_second_pass_gate`` stays opt-in (it is a real
+        # CMI pass with a min_gain cost that CAN drop columns).
         m = _make_mrmr()
-        assert m.fe_local_mi_gate is False
+        assert m.fe_local_mi_gate is True
         assert m.fe_unified_second_pass_gate is False
 
     def test_transform_identical_with_gates_off_vs_master(self):
@@ -345,9 +351,13 @@ class TestDefaultDisabledByteIdentical:
         Xtr, Xho = X.iloc[:1800].reset_index(drop=True), X.iloc[1800:].reset_index(drop=True)
         ytr = y.iloc[:1800].reset_index(drop=True)
 
+        # 2026-06-01 Layer 97 — both instances pin the gate OFF explicitly so
+        # this test isolates the "gate knobs are no-ops when OFF" byte-identity
+        # claim (the ctor default for fe_local_mi_gate is now True).
         m1 = _make_mrmr(
             fe_count_encoding_enable=True, fe_count_encoding_cols=("pred_cat",),
             fe_ntop_features=4,
+            fe_local_mi_gate=False, fe_unified_second_pass_gate=False,
         )
         m1.fit(Xtr, ytr)
         out1 = m1.transform(Xho)

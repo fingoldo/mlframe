@@ -177,6 +177,7 @@ def fingerprint_signal(
         return {
             "n": n,
             "unique_y_count": unique_y_count,
+            "n_source_cols": 0,
             "x_unique_avg": 0.0,
             "mean_abs_pearson": 0.0,
             "mean_abs_skew": 0.0,
@@ -285,6 +286,7 @@ def fingerprint_signal(
     return {
         "n": n,
         "unique_y_count": unique_y_count,
+        "n_source_cols": int(len(num_cols)),
         "x_unique_avg": x_unique_avg,
         "mean_abs_pearson": mean_abs_pearson,
         "mean_abs_skew": mean_abs_skew,
@@ -319,9 +321,16 @@ def predict_best_scorer(fp: dict) -> str:
     3. ``dcor_proxy - mean_abs_pearson >= 0.05`` AND
        ``mean_abs_pearson < 0.20`` -> ``hsic``
        (Pearson-blind non-monotone; L75 quadratic / cubic).
-    4. ``unique_y_count >= 20`` -> ``ksg``
+    4. ``unique_y_count < 15`` AND ``inter_x_max_corr < 0.6`` AND
+       ``n_source_cols >= 5`` AND ``mean_abs_pearson < 0.20`` ->
+       ``cmim`` (Layer 84 addition; L83 7-dataset benchmark showed CMIM
+       as real-data winner on tabular sklearn-style classification
+       frames where no single column has a strong linear handle on y;
+       placed AFTER heavy-tail / Pearson-blind rules because those have
+       a more specific dispatch).
+    5. ``unique_y_count >= 20`` -> ``ksg``
        (continuous y, no heavy tail; L65 design claim).
-    5. Default -> ``plug_in`` (L21 cheap baseline; linear_monotone winner).
+    6. Default -> ``plug_in`` (L21 cheap baseline; linear_monotone winner).
 
     Parameters
     ----------
@@ -339,6 +348,7 @@ def predict_best_scorer(fp: dict) -> str:
     skew = float(fp.get("mean_abs_skew", 0.0))
     kurt = float(fp.get("mean_kurtosis", 0.0))
     uy = int(fp.get("unique_y_count", 0))
+    n_src = int(fp.get("n_source_cols", 0))
 
     # Rule 1: redundancy among candidates -> CMIM.
     if inter_x >= 0.85:
@@ -355,10 +365,42 @@ def predict_best_scorer(fp: dict) -> str:
     # Rule 3: Pearson-blind non-monotone -> HSIC.
     if (dcor_p - pears) >= 0.05 and pears < 0.20:
         return "hsic"
-    # Rule 4: continuous y, no heavy tail -> KSG.
+    # Rule 4 (Layer 84): tabular sklearn-like classification with mild
+    # redundancy -> CMIM. L83's 7-dataset x 10-mechanism benchmark
+    # established CMIM as the real-data winner on tabular sklearn-style
+    # frames (5/7 wins or ties). The signature is:
+    #   * ``unique_y_count < 15`` (classification with a small label
+    #     alphabet -- excludes regression which falls through to KSG);
+    #   * ``inter_x_max_corr < 0.6`` (mild redundancy, not the extreme
+    #     near-copy regime Rule 1 already routes; CMIM still earns its
+    #     keep on tabular frames at lower correlations because the
+    #     conditional-MI redundancy filter discounts engineered columns
+    #     whose information about y is already covered by some raw
+    #     source);
+    #   * ``n_source_cols >= 5`` (enough source columns for the
+    #     redundancy filter to have non-trivial conditioning sets;
+    #     below 5 the MI estimator noise dominates the per-pair CMI);
+    #   * ``mean_abs_pearson < 0.20`` (no easy linear signal -- a clean
+    #     linear-monotone signal where Pearson catches the dependence is
+    #     better routed to plug_in, which is the L75 linear_monotone
+    #     winner. CMIM's redundancy filter pays off when no single column
+    #     has a clear linear handle on y, so the engineered candidates
+    #     have to be ranked on conditional-MI redundancy. This bound also
+    #     keeps the L76 linear_monotone fingerprint at Pearson ~ 0.26
+    #     routed to plug_in rather than CMIM.).
+    # Heavy-tail (Rule 2) and Pearson-blind (Rule 3) take precedence
+    # because those fixtures have a more specific scorer dispatch.
+    if (
+        uy < 15
+        and inter_x < 0.6
+        and n_src >= 5
+        and pears < 0.20
+    ):
+        return "cmim"
+    # Rule 5: continuous y, no heavy tail -> KSG.
     if uy >= 20:
         return "ksg"
-    # Rule 5: default -> plug-in.
+    # Rule 6: default -> plug-in.
     return "plug_in"
 
 

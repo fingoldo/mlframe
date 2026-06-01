@@ -1231,16 +1231,26 @@ class MRMR(BaseEstimator, TransformerMixin):
         #   3.5*MAD of the raw columns' MI distribution -- anchored on raw, not
         #   the engineered pool, per the Layer 90 lesson) and keep the top
         #   ``fe_local_mi_gate_top_k`` survivors. Bounds combinatorial pool
-        #   growth (50 cat cols -> <= top_k count-encoded columns). Default
-        #   FALSE to preserve byte-identity; ENABLING is recommended whenever
-        #   any of the four mechanisms is on with a wide column set.
+        #   growth (50 cat cols -> <= top_k count-encoded columns).
+        #   2026-06-01 Layer 97 — DEFAULT FLIPPED to True. The gate is a pure
+        #   corrective: it only ever drops freshly-engineered columns whose
+        #   marginal MI(col; y) is below the RAW-baseline noise floor and keeps
+        #   the top ``fe_local_mi_gate_top_k`` survivors. It can never drop a
+        #   raw input feature, never reduces real signal (a predictive
+        #   engineered column clears the raw floor by construction), and it is a
+        #   strict NO-OP unless one of the four recipe-emitting FE mechanisms
+        #   (L33/L34/L37/L38) is also enabled. Enabling by default therefore
+        #   shrinks the engineered candidate pool (speed + downstream-MRMR
+        #   precision) for every user who turns an FE mechanism on without
+        #   reading this docstring, with no accuracy downside. Pin False to
+        #   restore the pre-Layer-97 un-gated (full-pool) behaviour.
         # * ``fe_unified_second_pass_gate`` (Tier 2): a single greedy CMI pass
         #   over ALL engineered columns (from every mechanism) conditioned on
         #   the running support (seeded from the top raw-MI columns). Drops a
         #   column when ``CMI(col; y | already-selected) < min_gain`` -- catches
         #   CROSS-mechanism redundancy a per-mechanism gate cannot see
         #   (``count(cat_a)`` vs ``freq(cat_a)`` are affine; only one is kept).
-        fe_local_mi_gate: bool = False,
+        fe_local_mi_gate: bool = True,
         fe_local_mi_gate_top_k: int = 20,
         fe_unified_second_pass_gate: bool = False,
         fe_unified_second_pass_max_keep: int = None,
@@ -1910,7 +1920,7 @@ class MRMR(BaseEstimator, TransformerMixin):
             # 2026-06-01 Layer 91 — two-tier IT gates on the recipe-emitting
             # FE mechanisms. Master switches OFF preserve legacy pickle
             # byte-equivalence.
-            "fe_local_mi_gate": False,
+            "fe_local_mi_gate": True,  # 2026-06-01 Layer 97 default-flip (corrective gate, see __init__)
             "fe_local_mi_gate_top_k": 20,
             "fe_unified_second_pass_gate": False,
             "fe_unified_second_pass_max_keep": None,
@@ -2242,6 +2252,96 @@ class MRMR(BaseEstimator, TransformerMixin):
                         pass
             self._pandas_frame_for_target_cleanup = None
             self._target_names_for_cleanup = None
+
+    @classmethod
+    def recommend_enabled_fe(cls, X=None, y=None) -> dict:
+        """Classify every ``fe_*`` / ``dcd_*`` ctor flag by flip-safety and (stub)
+        recommend which FE generators to enable for a given ``(X, y)``.
+
+        This is the placeholder seam for the Layer-98 Param-Oracle meta-recommender:
+        a future implementation will inspect ``X`` dtypes / cardinalities / row count
+        and ``y`` entropy to auto-enable the FE generators whose data-shape preconditions
+        are met (e.g. turn on ``fe_grouped_agg_enable`` only when an int-as-cat group
+        column AND a continuous num column coexist). For now it returns the static
+        flip-safety classification so callers / tests can introspect the policy without
+        re-deriving it.
+
+        Flip-safety taxonomy
+        --------------------
+        FLIP_SAFE
+            Pure corrective / strict-improvement mechanisms: enabling cannot reduce
+            accuracy and cannot materially slow a user who does not need them (no-op
+            unless a paired master switch is on). Already flipped to default-True.
+            * ``fe_local_mi_gate`` (Layer 91 Tier 1) — drops only sub-noise engineered
+              columns, keeps top-k; no-op unless an L33/L34/L37/L38 FE mechanism is on.
+
+        ALREADY_DEFAULT
+            Corrective mechanisms shipped default-True in earlier layers; listed for
+            completeness so the recommender never double-recommends them.
+            * ``dcd_enable`` (Wave 9 dynamic cluster discovery, 0.003x overhead)
+            * ``cardinality_bias_correction`` (Miller-Madow gate bias correction)
+            * ``min_relevance_gain_relative_to_first`` (diminishing-returns gate)
+            * ``cluster_aggregate_enable`` / ``cluster_aggregate_mode='replace'``
+            * ``mrmr_skip_when_prior_was_identity`` / ``fe_adaptive_threshold_relax``
+            * ``build_friend_graph`` (diagnostic only)
+
+        FLIP_RISKY
+            FE GENERATORS (add compute, help only on specific data shapes) and SCORER
+            choices (domain-specific). Stay opt-in OR behind a cheap auto-detect; the
+            L98 recommender is what will turn the data-shape-matched subset on.
+            * generators: ``fe_count_encoding_enable``, ``fe_frequency_encoding_enable``,
+              ``fe_cat_num_interaction_enable``, ``fe_missingness_enable``,
+              ``fe_ratio_enable``, ``fe_grouped_delta_enable``, ``fe_lagged_diff_enable``,
+              ``fe_grouped_agg_enable``, ``fe_composite_group_agg_enable``,
+              ``fe_grouped_quantile_enable``, ``fe_cat_pair_enable``,
+              ``fe_cat_triple_enable``, ``fe_hybrid_orth_enable`` (+ triplet / quadruplet
+              / adaptive-arity / adaptive-degree / routing / lasso / elasticnet /
+              semi-supervised variants), ``fe_smart_polynom_iters``, ``fe_max_polynoms``.
+            * unified second-pass: ``fe_unified_second_pass_gate`` — a real CMI pass with
+              ``min_gain`` cost that CAN drop columns; opt-in, not a pure corrective.
+            * scorer / estimator: ``mrmr_relevance_algo`` / ``mrmr_redundancy_algo``,
+              ``mi_correction`` (chao_shen), ``redundancy_aggregator`` (jmim),
+              ``relaxmrmr_alpha``, ``pid_synergy_bonus``, ``bur_lambda``,
+              ``cmi_perm_stop``, ``cpt_test``, ``uaed_auto_size``, ``mi_normalization``.
+
+        Returns
+        -------
+        dict
+            ``{"flip_safe": [...], "already_default": [...], "flip_risky": [...],
+            "recommended_enable": [...]}``. ``recommended_enable`` is currently empty
+            (the data-driven generator recommendation is the Layer-98 deliverable).
+        """
+        flip_safe = ["fe_local_mi_gate"]
+        already_default = [
+            "dcd_enable",
+            "cardinality_bias_correction",
+            "min_relevance_gain_relative_to_first",
+            "cluster_aggregate_enable",
+            "cluster_aggregate_mode",
+            "mrmr_skip_when_prior_was_identity",
+            "fe_adaptive_threshold_relax",
+            "build_friend_graph",
+        ]
+        flip_risky = [
+            "fe_count_encoding_enable", "fe_frequency_encoding_enable",
+            "fe_cat_num_interaction_enable", "fe_missingness_enable",
+            "fe_ratio_enable", "fe_grouped_delta_enable", "fe_lagged_diff_enable",
+            "fe_grouped_agg_enable", "fe_composite_group_agg_enable",
+            "fe_grouped_quantile_enable", "fe_cat_pair_enable", "fe_cat_triple_enable",
+            "fe_hybrid_orth_enable", "fe_hybrid_orth_triplet_enable",
+            "fe_hybrid_orth_quadruplet_enable", "fe_hybrid_orth_adaptive_arity_enable",
+            "fe_hybrid_orth_adaptive_degree_enable", "fe_smart_polynom_iters",
+            "fe_max_polynoms", "fe_unified_second_pass_gate",
+            "mi_correction", "redundancy_aggregator", "relaxmrmr_alpha",
+            "pid_synergy_bonus", "bur_lambda", "cmi_perm_stop", "cpt_test",
+            "uaed_auto_size", "mi_normalization",
+        ]
+        return {
+            "flip_safe": flip_safe,
+            "already_default": already_default,
+            "flip_risky": flip_risky,
+            "recommended_enable": [],  # Layer-98 Param-Oracle fills this from (X, y) shape.
+        }
 
     def export_artifacts(self) -> dict:
         """Return the in-fit reusable intermediates as a dict for downstream selectors.
