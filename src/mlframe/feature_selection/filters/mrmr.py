@@ -908,6 +908,20 @@ class MRMR(BaseEstimator, TransformerMixin):
         # pickle byte-equivalence.
         fe_hybrid_orth_jmim_enable: bool = False,
         fe_hybrid_orth_jmim_n_bins: int = 10,
+        # 2026-06-01 Layer 73 — Total Correlation (Watanabe 1960) multivariate-
+        # redundancy ranking for hybrid orth-poly FE (sibling module
+        # ``_orthogonal_total_correlation_fe``). Independent opt-in (does NOT
+        # require fe_hybrid_orth_enable). Layers 21 / 65 / 66 / 67 / 71 rank
+        # by MARGINAL dependence with y; Layer 72 (JMIM) ranks by the worst
+        # PAIRWISE joint MI with the support. Layer 73 ranks by the FULL-
+        # ORDER joint shared information ``TC(Z) = sum H(Z_i) - H(Z)``
+        # contribution: ``delta_tc = TC([support, c, y]) - TC([support, y])``.
+        # Catches higher-order redundancy (e.g. XOR-style three-variable
+        # parity) that every pairwise scorer misses. Engineered VALUES are
+        # bit-equal to Layer 21 -> recipes reuse the ``orth_univariate``
+        # kind. Default OFF preserves pickle byte-equivalence.
+        fe_hybrid_orth_tc_enable: bool = False,
+        fe_hybrid_orth_tc_n_bins: int = 10,
         # 2026-06-01 Layer 68 — PER-COLUMN SCORER AUTO-SELECTION across the
         # full Layer 21 / 65 / 66 / 67 family (sibling module
         # ``_orthogonal_scorer_auto_fe``). Independent opt-in (does NOT
@@ -1458,6 +1472,10 @@ class MRMR(BaseEstimator, TransformerMixin):
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_hybrid_orth_jmim_enable": False,
             "fe_hybrid_orth_jmim_n_bins": 10,
+            # 2026-06-01 Layer 73 — TC (Watanabe 1960) ranking defaults.
+            # Master switch OFF preserves legacy pickle byte-equivalence.
+            "fe_hybrid_orth_tc_enable": False,
+            "fe_hybrid_orth_tc_n_bins": 10,
             # 2026-06-01 Layer 68 — per-column scorer auto-selection defaults.
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_hybrid_orth_auto_scorer_enable": False,
