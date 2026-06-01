@@ -682,8 +682,58 @@ class MLPTorchModel(L.LightningModule):
         logger.info("LR scheduler config: %s", scheduler_config)
         return {"optimizer": optimizer, "lr_scheduler": scheduler_config}
 
+    def _invalidate_predict_caches(self) -> None:
+        """F-D fix (2026-05-31, audit follow-up): clear the F-40 CUDA-graph
+        cache + F-39 torch.compile cache.
+
+        The cache holds captured kernels that reference the parameter
+        tensors' storage addresses at capture time. Most weight-update
+        paths (Lookahead .copy_, EMA WeightAveraging.update_parameters,
+        SWA .copy_, load_state_dict default) PRESERVE storage so the
+        captured graph keeps producing correct values. But ANY path that
+        REPLACES a nn.Parameter object (load_state_dict(assign=True),
+        LoRA adapter swap, dynamic head replacement, user-explicit
+        param mutation) leaves the captured graph pointing at stale
+        storage -- replay produces predictions from PRE-swap weights
+        with no exception. Same silent-correctness class as F-58.
+
+        Call this AFTER any code path that could replace params
+        (on_train_end checkpoint reload, user calls to set weights, etc.)
+        Idempotent.
+        """
+        if hasattr(self, "_cuda_graph_predict_cache"):
+            self._cuda_graph_predict_cache.clear()
+        if hasattr(self, "_compiled_predict_fn"):
+            self._compiled_predict_fn = None
+            self._compile_predict_failed = False
+
     def on_train_end(self) -> None:
         """Load best model weights after training completes."""
+        # F-B fix (2026-05-31, audit follow-up): if the optimizer is a
+        # Lookahead wrapper (F-62), commit slow weights to fast BEFORE
+        # any checkpoint reload. Lookahead's per-cycle sync leaves
+        # fast = slow only on k-th steps; if training stopped on a
+        # non-k-th step the live params still hold fast (the exploration
+        # head). Per Zhang 2019 evaluation uses slow, so force the
+        # commitment here. Safe under EMA/SWA: those callbacks have
+        # already swapped their averaged weights into the model by
+        # on_train_end; the Lookahead anchor sat alongside them.
+        try:
+            from ._lookahead_optimizer import Lookahead
+            opts = self.optimizers()
+            opt_iter = opts if isinstance(opts, (list, tuple)) else [opts]
+            for opt in opt_iter:
+                base = getattr(opt, "optimizer", opt)  # Lightning may wrap
+                if isinstance(base, Lookahead):
+                    base.commit_slow_to_fast()
+        except Exception as _lh_err:
+            logger.debug("F-B: Lookahead commit_slow_to_fast skipped (%s)", _lh_err)
+
+        # F-D fix: invalidate predict caches before reloading checkpoint
+        # so the next predict() doesn't replay a graph captured under
+        # the pre-load weights.
+        self._invalidate_predict_caches()
+
         if not self.hparams.load_best_weights_on_train_end:
             return
 
@@ -719,6 +769,13 @@ class MLPTorchModel(L.LightningModule):
                 return
 
             missing, unexpected = self.load_state_dict(checkpoint["state_dict"], strict=False)
+            # F-D second invalidation: load_state_dict default semantics
+            # copy weights INTO existing tensors (storage preserved), so
+            # captured graph stays valid. But under assign=True semantics
+            # (PyTorch >=2.x option some versions of Lightning use) the
+            # storage CHANGES. Clear again to be safe; cost is one
+            # capture re-warmup on the next predict.
+            self._invalidate_predict_caches()
 
             if missing:
                 logger.warning(f"Missing keys in state_dict: {missing}")
@@ -857,7 +914,17 @@ class MLPTorchModel(L.LightningModule):
         untouched.
         """
         import os as _os
-        _env = _os.environ.get("MLFRAME_CUDA_GRAPH_PREDICT", "1").lower()
+        # F-60 follow-up (2026-06-01): default-on caused predict() and
+        # predict_proba() to return divergent values across successive
+        # _predict_raw calls (observed max diff ~1.0 in [0, 1] sigmoid
+        # output, 43% of test rows). Root cause: the captured graph's
+        # static buffers can read stale GPU memory after Lightning's
+        # predict loop releases its intermediates between calls -- the
+        # replay returns the cached output rather than the recomputation
+        # over the new input copied into _static_in. Until the
+        # cross-call invalidation is solved, default OFF; users with a
+        # validated host can opt back in via MLFRAME_CUDA_GRAPH_PREDICT=1.
+        _env = _os.environ.get("MLFRAME_CUDA_GRAPH_PREDICT", "0").lower()
         if _env in ("0", "false", "off", "no", ""):
             return self(x)
         if not torch.cuda.is_available():
@@ -889,6 +956,11 @@ class MLPTorchModel(L.LightningModule):
                 _g, _static_in, _static_out = _cached
                 _static_in.copy_(x, non_blocking=True)
                 _g.replay()
+                # Block until the captured kernel sequence finishes
+                # writing _static_out before .clone() reads it. Without
+                # this sync the replay was racing the host read on
+                # subsequent _predict_raw calls, returning stale values.
+                torch.cuda.synchronize()
                 return _static_out.clone()
             except Exception as _replay_err:
                 logger.warning(

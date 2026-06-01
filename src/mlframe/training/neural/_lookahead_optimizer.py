@@ -163,7 +163,12 @@ class Lookahead(Optimizer):
                 slow = self._slow_weights.get(pid)
                 if slow is None:
                     # Param added post-construction (e.g. via add_param_group).
-                    # Snapshot now; first real interpolation runs next cycle.
+                    # Snapshot at the *current fast* now so the next cycle
+                    # has a valid anchor to interpolate against.
+                    # F-C audit follow-up: we snapshot fast (not initial)
+                    # because we don't know the initial pre-trained state
+                    # of a post-construction param; the anchor will lag
+                    # by one cycle but converge from there.
                     self._slow_weights[pid] = p.data.detach().clone()
                     continue
                 # slow <- slow + alpha * (fast - slow) == lerp(slow, fast, alpha)
@@ -171,6 +176,32 @@ class Lookahead(Optimizer):
                 # fast <- slow
                 p.data.copy_(slow)
         return loss
+
+    @torch.no_grad()
+    def commit_slow_to_fast(self) -> None:
+        """F-B fix (2026-05-31, audit follow-up): force fast = slow across
+        all tracked params.
+
+        Per Zhang 2019 the EVALUATION objective uses slow weights (the
+        anchor), not fast (the per-cycle exploration head). Mid-cycle the
+        live param tensor holds fast; between syncs it equals slow. If
+        training stops on a non-k-th step (early stop, max-epochs that
+        doesn't divide k, ...) the live params hold FAST and downstream
+        predict() returns the wrong weights.
+
+        Call this AFTER the final training step (e.g. from
+        on_train_end) to guarantee predict() sees slow.
+
+        Idempotent: no-op when fast already equals slow.
+        """
+        for group in self.base_optimizer.param_groups:
+            for p in group["params"]:
+                if not p.requires_grad:
+                    continue
+                slow = self._slow_weights.get(id(p))
+                if slow is None:
+                    continue
+                p.data.copy_(slow)
 
 
 def wrap_with_lookahead(

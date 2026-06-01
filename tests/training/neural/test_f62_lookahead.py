@@ -148,6 +148,121 @@ def test_wrap_with_lookahead_returns_lookahead_when_on():
     assert wrapped.base_optimizer is base
 
 
+# --- F-B (audit follow-up): commit_slow_to_fast ------------------------------
+
+
+def test_commit_slow_to_fast_makes_param_equal_slow():
+    """F-B: after commit_slow_to_fast(), p.data MUST equal the slow
+    anchor for every tracked param. Verifies the post-fit
+    fast<-slow projection used in on_train_end."""
+    p = torch.nn.Parameter(torch.zeros(4))
+    base = torch.optim.SGD([p], lr=1.0)
+    lh = Lookahead(base, k=2, alpha=0.5)
+    # Drive a few steps so fast (p) diverges from slow (== initial).
+    p.grad = torch.ones_like(p)
+    lh.step()  # step 1: p = -1; no sync
+    # At this point: slow = 0 (initial), p = -1 (fast)
+    assert torch.allclose(lh._slow_weights[id(p)], torch.zeros(4))
+    assert torch.allclose(p.data, -1.0 * torch.ones(4))
+
+    lh.commit_slow_to_fast()
+    # After commit: p MUST equal slow (which was 0, the initial anchor).
+    assert torch.allclose(p.data, torch.zeros(4)), (
+        f"F-B: commit_slow_to_fast must overwrite p with slow; got p={p.data}"
+    )
+
+
+def test_commit_slow_to_fast_is_idempotent_when_already_synced():
+    """At a k-th step fast == slow already; commit is a no-op."""
+    p = torch.nn.Parameter(torch.zeros(4))
+    base = torch.optim.SGD([p], lr=1.0)
+    lh = Lookahead(base, k=2, alpha=0.5)
+    # Step twice to land on a k-th sync.
+    p.grad = torch.ones_like(p)
+    lh.step()
+    p.grad = torch.ones_like(p)
+    lh.step()  # k-th sync: fast == slow after this
+    snapshot = p.data.clone()
+    lh.commit_slow_to_fast()
+    # Idempotent: no change.
+    assert torch.allclose(p.data, snapshot)
+
+
+def test_mlp_on_train_end_commits_slow_to_fast_when_use_lookahead():
+    """F-B integration: after a Lookahead-wrapped MLP fit completes,
+    the network's params MUST equal the optimizer's slow weights (not
+    the mid-cycle fast values). This guards against the regression
+    where ``predict()`` after fit returns wrong-anchor predictions.
+    """
+    from mlframe.training.neural import (
+        MLPTorchModel,
+        PytorchLightningRegressor,
+        TorchDataModule,
+    )
+    X, y = make_regression(n_samples=128, n_features=4, noise=0.5, random_state=0)
+    X = X.astype(np.float32); y = y.astype(np.float32)
+    X_tr, X_te, y_tr, _ = train_test_split(X, y, test_size=0.3, random_state=0)
+
+    torch.manual_seed(0); np.random.seed(0)
+    reg = PytorchLightningRegressor(
+        model_class=MLPTorchModel,
+        model_params={
+            "loss_fn": nn.MSELoss(),
+            "learning_rate": 5e-3,
+            "use_lookahead": True,
+            "lookahead_k": 7,  # >1 so the last step is unlikely to be a sync
+            "lookahead_alpha": 0.5,
+            # Don't reload best checkpoint -- we want to inspect the
+            # post-fit live weights, not a reloaded snapshot.
+            "load_best_weights_on_train_end": False,
+        },
+        network_params={
+            "nlayers": 1, "first_layer_num_neurons": 8,
+            "dropout_prob": 0.0, "inputs_dropout_prob": 0.0,
+            "use_layernorm": False, "use_batchnorm": False,
+            "activation_function": nn.ReLU,
+        },
+        datamodule_class=TorchDataModule,
+        datamodule_params={
+            "features_dtype": torch.float32, "labels_dtype": torch.float32,
+            "dataloader_params": {"batch_size": 16, "num_workers": 0},
+        },
+        trainer_params={
+            "max_epochs": 5, "enable_model_summary": False,
+            "enable_progress_bar": False, "log_every_n_steps": 5,
+            "devices": 1, "accelerator": "cpu", "logger": False,
+        },
+        random_state=0,
+    )
+    reg.fit(X_tr, y_tr)
+
+    # After fit, every param tensor must match its corresponding slow
+    # entry in the Lookahead optimizer. If they differ the F-B fix
+    # didn't fire (or the optimizer wasn't a Lookahead).
+    # Note: the Lookahead is a configure_optimizers return that Lightning
+    # may have wrapped further; reach through if so.
+    opts = reg.model.optimizers()
+    opt_iter = opts if isinstance(opts, (list, tuple)) else [opts]
+    found_lookahead = False
+    for opt in opt_iter:
+        base = getattr(opt, "optimizer", opt)
+        if not isinstance(base, Lookahead):
+            continue
+        found_lookahead = True
+        for group in base.base_optimizer.param_groups:
+            for p in group["params"]:
+                slow = base._slow_weights.get(id(p))
+                if slow is None:
+                    continue
+                # Allow tiny numeric noise from device-side ops.
+                assert torch.allclose(p.data, slow, atol=1e-5), (
+                    f"F-B: post-fit p does not equal slow (max diff "
+                    f"{(p.data - slow).abs().max().item():.6f}). The "
+                    f"on_train_end commit_slow_to_fast hook did not fire."
+                )
+    assert found_lookahead, "F-B test: configure_optimizers did not return a Lookahead"
+
+
 # --- Integration ---------------------------------------------------------------
 
 

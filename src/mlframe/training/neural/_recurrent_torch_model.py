@@ -615,3 +615,23 @@ class RecurrentTorchModel(L.LightningModule):
             }
 
         return optimizer
+
+    def on_train_end(self) -> None:
+        """F-B fix (2026-05-31, audit follow-up): if the optimizer is a
+        Lookahead wrapper (F-62), commit slow weights to fast so predict()
+        uses the anchor (per Zhang 2019 evaluation contract) rather than
+        the mid-cycle fast exploration head. Without this hook a fit
+        stopping on a non-k-th step leaves the live params at fast.
+        """
+        try:
+            from ._lookahead_optimizer import Lookahead
+            opts = self.optimizers()
+            opt_iter = opts if isinstance(opts, (list, tuple)) else [opts]
+            for opt in opt_iter:
+                base = getattr(opt, "optimizer", opt)
+                if isinstance(base, Lookahead):
+                    base.commit_slow_to_fast()
+        except Exception as _lh_err:
+            logger.debug(
+                "F-B: Lookahead commit_slow_to_fast skipped (%s)", _lh_err
+            )
