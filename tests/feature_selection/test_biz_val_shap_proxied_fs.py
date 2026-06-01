@@ -169,9 +169,34 @@ def test_biz_val_fast_prefilter_does_not_worsen_recovery_vs_model():
         f"fast_model prefilter worsened recovery: fast={rec_fast}/{n_informative} vs model={rec_model}/{n_informative}")
     # And both must still recover most of the planted informatives (sanity floor).
     assert rec_fast >= 4, f"fast_model recovered too few informatives: {rec_fast}/{n_informative}"
+
     # Speed: the fast pre-filter STAGE must be faster than the full-booster one (the whole point).
-    assert pf_fast_secs < pf_model_secs, (
-        f"fast_model prefilter ({pf_fast_secs:.2f}s) not faster than model ({pf_model_secs:.2f}s)")
+    # Timed directly via best-of-3 min-wall rather than the single-shot stage timing from the full
+    # fit above: a one-sample wall-clock comparison flips under CPU contention (a sibling process can
+    # starve one of the two prefilter fits for that sample), which is unrelated to the fast-vs-model
+    # speed property being asserted. Min-wall over a few trials picks the least-contended sample for
+    # each method so the comparison reflects the kernels' inherent cost, not scheduler noise. Same
+    # template both methods use (mirrors the selector's default booster), so the direction (fast_model
+    # fits fewer + shallower trees) is what's measured.
+    from mlframe.feature_selection._shap_proxy_explain import make_default_estimator
+    from mlframe.feature_selection._shap_proxy_prefilter import prefilter_columns
+
+    template = make_default_estimator(True, random_state=0)
+    ys = pd.Series(y)
+
+    def _min_prefilter_secs(method, n_trials=3):
+        best = float("inf")
+        for _ in range(n_trials):
+            t0 = time.perf_counter()
+            prefilter_columns(template, X, ys, method=method, prefilter_top=300,
+                              classification=True, n_features=width, n_estimators_cap=100)
+            best = min(best, time.perf_counter() - t0)
+        return best
+
+    pf_model_best = _min_prefilter_secs("model")
+    pf_fast_best = _min_prefilter_secs("fast_model")
+    assert pf_fast_best < pf_model_best, (
+        f"fast_model prefilter ({pf_fast_best:.2f}s) not faster than model ({pf_model_best:.2f}s)")
 
 
 @pytest.mark.slow
