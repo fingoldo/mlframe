@@ -125,7 +125,7 @@ class EngineeredRecipe:
     # (src_names=(c_i, c_j), extra={basis_i, basis_j, deg_a, deg_b}). Replay
     # is closed-form from the source column(s) alone -- no y reference is
     # captured at fit time, so transform() is leakage-free by construction.
-    kind: Literal["unary_binary", "factorize", "hermite_pair", "target_encoding", "cluster_aggregate", "orth_univariate", "orth_pair_cross", "orth_triplet_cross", "orth_quadruplet_cross", "orth_spline", "orth_fourier", "orth_diff_basis", "orth_cluster_basis", "mi_greedy_transform", "kfold_target_encoded", "count_encoded", "frequency_encoded", "cat_num_residual", "missing_indicator", "missingness_count", "missingness_pattern", "pairwise_ratio", "grouped_delta", "lagged_diff", "grouped_agg", "grouped_quantile", "target_aware_group_bin", "cat_pair_cross"]
+    kind: Literal["unary_binary", "factorize", "hermite_pair", "target_encoding", "cluster_aggregate", "orth_univariate", "orth_pair_cross", "orth_triplet_cross", "orth_quadruplet_cross", "orth_spline", "orth_fourier", "orth_diff_basis", "orth_cluster_basis", "mi_greedy_transform", "kfold_target_encoded", "count_encoded", "frequency_encoded", "cat_num_residual", "missing_indicator", "missingness_count", "missingness_pattern", "pairwise_ratio", "grouped_delta", "lagged_diff", "grouped_agg", "grouped_quantile", "target_aware_group_bin", "cat_pair_cross", "numeric_rounding", "digit_extract"]
     src_names: tuple[str, ...]
     unary_names: tuple[str, ...] = ()
     binary_name: str = ""
@@ -401,6 +401,17 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
             },
             global_mean=float(recipe.extra.get("global_mean", 0.0)),
         )
+    if recipe.kind in ("numeric_rounding", "digit_extract"):
+        # Layer 90 (2026-06-01): numeric decomposition (multi-precision
+        # rounding + decimal-digit extraction). Pure arithmetic on the single
+        # source column -- no lazy import needed, no y reference.
+        src_name = recipe.src_names[0]
+        vals = _extract_column(X, src_name)
+        if recipe.kind == "numeric_rounding":
+            from ._numeric_decompose_fe import apply_rounding
+            return apply_rounding(vals, float(recipe.extra["precision"]))
+        from ._numeric_decompose_fe import apply_digit_extract
+        return apply_digit_extract(vals, int(recipe.extra["digit_position"]))
     if recipe.kind in ("grouped_quantile", "target_aware_group_bin"):
         # Layer 88 lazy import: per-group distributional FE (percentile-rank +
         # spread + target-aware supervised bins); replay helpers live with the
@@ -2072,5 +2083,15 @@ from ._orthogonal_triplet_fe_recipes import (  # noqa: E402
 from ._orthogonal_quadruplet_fe_recipes import (  # noqa: E402
     build_orth_quadruplet_cross_recipe,
     _apply_orth_quadruplet_cross,
+)
+
+# ---------------------------------------------------------------------------
+# Layer 90 (2026-06-01): numeric-decomposition recipe builders re-export.
+# Implementation in sibling ``_numeric_decompose_fe`` keeps this module from
+# growing further; the apply path is dispatched inline above (pure arithmetic).
+# ---------------------------------------------------------------------------
+from ._numeric_decompose_fe import (  # noqa: E402
+    build_numeric_rounding_recipe,
+    build_digit_extract_recipe,
 )
 

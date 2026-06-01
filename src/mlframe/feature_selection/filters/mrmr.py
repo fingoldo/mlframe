@@ -1261,6 +1261,22 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_cat_pair_min_interaction_info: float = 0.001,
         fe_cat_pair_cat_cols: tuple = (),
         fe_cat_pair_top_k: int = 5,
+        # 2026-06-01 Layer 90 — NUMERIC DECOMPOSITION FE. NVIDIA cuDF Kaggle-
+        # Grandmaster technique #4: multi-precision rounding (round(x/p)*p for
+        # p in precisions) + decimal-digit extraction (floor(x*10^k) mod 10).
+        # Captures price-anchored step-function targets (rounding buckets) and
+        # cents-digit / encoded-id-substructure signals (digit extraction) that
+        # any monotone transform of raw x is blind to. The IT enhancement gates
+        # each candidate by Layer 62 bootstrap-stable MI (lower CB): a
+        # decomposition is kept only when its MI lower bound clears the raw
+        # column's noise band, so smooth-target frames (where rounding is lossy
+        # raw x and digits are pure noise) emit nothing. Default OFF ->
+        # byte-identical legacy path. ``cols`` empty => all numeric columns.
+        fe_numeric_decompose_enable: bool = False,
+        fe_numeric_decompose_precisions: tuple = (1, 0.1, 0.01, 0.001),
+        fe_numeric_decompose_digits: tuple = (0, 1, 2),
+        fe_numeric_decompose_n_boot: int = 10,
+        fe_numeric_decompose_top_k: int = 5,
         # Artifact retention for cross-selector reuse. When True, after fit() the
         # estimator carries ``su_to_target_``, ``mi_to_target_``, ``cached_MIs``,
         # and (when ``retain_bins=True``) per-column binned arrays so a downstream

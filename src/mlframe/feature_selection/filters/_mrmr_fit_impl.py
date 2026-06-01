@@ -3089,7 +3089,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     self.grouped_agg_features_ = []
     self.grouped_quantile_features_ = []
     self.cat_pair_features_ = []
+    self.numeric_decompose_features_ = []
     _cat_pair_pre_recipes: dict = {}
+    _numeric_decompose_pre_recipes: dict = {}
     _ratio_pre_recipes: dict = {}
     _log_ratio_pre_recipes: dict = {}
     _grouped_delta_pre_recipes: dict = {}
@@ -3478,6 +3480,71 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     type(_cp_exc).__name__, _cp_exc,
                 )
 
+    # Layer 90 (2026-06-01): numeric decomposition (multi-precision rounding +
+    # decimal-digit extraction) with a bootstrap-stable MI gate.
+    if bool(getattr(self, "fe_numeric_decompose_enable", False)):
+        if not isinstance(X, pd.DataFrame):
+            warnings.warn(
+                "MRMR: Layer 90 numeric_decompose FE enabled but X is not a "
+                "pandas DataFrame; the features are skipped. Convert via "
+                "X.to_pandas() before fit() to apply them.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from ._numeric_decompose_fe import (
+                    hybrid_numeric_decompose_fe_with_recipes,
+                )
+
+                _y_for_nd = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                _nd_precisions = tuple(
+                    getattr(self, "fe_numeric_decompose_precisions",
+                            (1, 0.1, 0.01, 0.001))
+                )
+                _nd_digits = tuple(
+                    getattr(self, "fe_numeric_decompose_digits", (0, 1, 2))
+                )
+                _nd_n_boot = int(getattr(self, "fe_numeric_decompose_n_boot", 10))
+                _nd_top_k = int(getattr(self, "fe_numeric_decompose_top_k", 5))
+                _X_before_nd_cols = list(X.columns)
+                X_nd, _nd_appended, _nd_recipes, _nd_scores = (
+                    hybrid_numeric_decompose_fe_with_recipes(
+                        X, _y_for_nd,
+                        cols=None,
+                        precisions=_nd_precisions,
+                        digit_positions=_nd_digits,
+                        top_k=_nd_top_k,
+                        n_boot=_nd_n_boot,
+                        seed=int(getattr(self, "random_seed", 0) or 0),
+                    )
+                )
+                _nd_appended = [
+                    c for c in _nd_appended if c not in _X_before_nd_cols
+                ]
+                if _nd_appended:
+                    X = X_nd
+                    self.numeric_decompose_features_ = list(_nd_appended)
+                    self.hybrid_orth_features_ = (
+                        list(self.hybrid_orth_features_ or []) + list(_nd_appended)
+                    )
+                    for _r in _nd_recipes:
+                        if _r.name in _nd_appended:
+                            _numeric_decompose_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit numeric_decompose: appended %d engineered "
+                            "column(s): %s",
+                            len(_nd_appended), _nd_appended[:8],
+                        )
+            except Exception as _nd_exc:
+                logger.warning(
+                    "MRMR.fit numeric_decompose FE raised %s: %s; continuing "
+                    "without numeric-decomposition columns.",
+                    type(_nd_exc).__name__, _nd_exc,
+                )
+
     # Layer 27 (2026-05-31): cross-stage engineered-column dedup. Hybrid and
     # MI-greedy stages run independently; on signals like ``y = sign(x^2 - 1)``
     # hybrid emits ``x__He2`` and MI-greedy emits ``square(x)`` / ``abs(x)`` /
@@ -3630,6 +3697,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 c for c in (getattr(self, "cat_pair_features_", []) or [])
                 if c not in _eng_drop
             ]
+            # Layer 90: mirror cleanup for numeric-decomposition columns.
+            self.numeric_decompose_features_ = [
+                c for c in (getattr(self, "numeric_decompose_features_", []) or [])
+                if c not in _eng_drop
+            ]
             for _c in list(_hybrid_orth_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _hybrid_orth_pre_recipes.pop(_c, None)
@@ -3678,6 +3750,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             for _c in list(_cat_pair_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _cat_pair_pre_recipes.pop(_c, None)
+            for _c in list(_numeric_decompose_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _numeric_decompose_pre_recipes.pop(_c, None)
             if verbose:
                 logger.info(
                     "MRMR.fit engineered-FE dedup: pruned %d near-duplicate "
@@ -3938,6 +4013,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # Layer 89: same routing for cat x cat synergy-cross recipes.
     if _cat_pair_pre_recipes:
         engineered_recipes.update(_cat_pair_pre_recipes)
+    if _numeric_decompose_pre_recipes:
+        engineered_recipes.update(_numeric_decompose_pre_recipes)
     # Reset per fit so a re-fit on the same instance doesn't carry stale cluster-aggregate state.
     self._cluster_aggregate_removals_ = []
     self.cluster_aggregate_ = []  # fitted summary (per-aggregate records) -> meta_info report
