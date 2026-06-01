@@ -294,3 +294,44 @@ def test_confidence_analysis_completes_within_time_budget():
         f"confidence_analysis took {elapsed:.1f}s on 200x5 — iteration "
         "cap default may have been removed."
     )
+
+
+def test_confidence_analysis_accepts_iterations_synonym():
+    """Regression (fuzz c0002, 2026-05-31): a caller passing the CatBoost
+    iteration-budget under a synonym spelling (``n_estimators`` /
+    ``num_boost_round`` / ``num_trees``) must not collide with the
+    function's internal ``iterations`` default.
+
+    Pre-fix ``run_confidence_analysis`` did
+    ``confidence_model_kwargs.setdefault("iterations", 200)`` unconditionally;
+    when the caller already supplied ``n_estimators`` CatBoost raised
+    ``only one of the parameters iterations, n_estimators, num_boost_round,
+    num_trees should be initialized`` and the whole confidence pass crashed.
+    The guard now skips the default when ANY synonym is already present.
+    """
+    rng = np.random.default_rng(0)
+    n = 200
+    test_df = pd.DataFrame({
+        "x_num": rng.standard_normal(n).astype(np.float32),
+        "x_int": rng.integers(0, 5, size=n).astype(np.int32),
+    })
+    test_target = rng.integers(0, 2, size=n).astype(np.int64)
+    test_probs = rng.uniform(size=(n, 2))
+    test_probs /= test_probs.sum(axis=1, keepdims=True)
+
+    for synonym in ("n_estimators", "num_boost_round", "num_trees"):
+        result = run_confidence_analysis(
+            test_df=test_df,
+            test_target=test_target,
+            test_probs=test_probs,
+            confidence_model_kwargs={synonym: 25, "max_depth": 4},
+            use_shap=False,
+            verbose=False,
+        )
+        assert result is not None, f"confidence fit crashed on synonym {synonym!r}"
+        # The caller-supplied budget wins uncontested; no `iterations` key
+        # was injected to shadow it.
+        params = result.get_params()
+        assert params.get(synonym) == 25 or params.get("iterations") == 25, (
+            f"caller {synonym}=25 was not honoured; params={params}"
+        )

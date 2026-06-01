@@ -553,7 +553,18 @@ def run_confidence_analysis(
     # 4-10+ minutes per confidence fit on CPU. The confidence regressor
     # is best-effort diagnostic -- even 50 boosting rounds gives a
     # serviceable feature-importance signal. Caller can override.
-    confidence_model_kwargs.setdefault("iterations", 200)
+    #
+    # CatBoost rejects ``iterations`` co-present with any of its synonyms
+    # (``n_estimators`` / ``num_boost_round`` / ``num_trees``) with
+    # "only one of the parameters ... should be initialized". A caller who
+    # passes the perfectly-valid ``n_estimators`` would otherwise crash the
+    # whole confidence pass the moment our ``setdefault("iterations", ...)``
+    # fired. Only inject the cap when NONE of the four synonyms is already
+    # present so an explicit caller-supplied budget (under any spelling)
+    # wins uncontested.
+    _CB_ITER_SYNONYMS = ("iterations", "n_estimators", "num_boost_round", "num_trees")
+    if not any(_syn in confidence_model_kwargs for _syn in _CB_ITER_SYNONYMS):
+        confidence_model_kwargs["iterations"] = 200
     confidence_model_kwargs.setdefault("early_stopping_rounds", 30)
 
     # Lazy import: _model_factories <-> _eval_helpers circular load; resolved at call time.
