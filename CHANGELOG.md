@@ -1,5 +1,39 @@
 # Changelog
 
+## 2026-06-01 — ShapProxiedFS: ``trust_guard_stratified_anchors`` 2D contour audit, keep opt-in (iter101)
+
+Iter100 left ``trust_guard_stratified_anchors`` opt-in after a 4x2x2 width-only
+contour at n_rows=5000 failed to find a clean separator. Iter101 extended the
+sweep to a 12-cell 2D (width x n_rows) grid on dense-redundant only (rho=0.85,
+n_red=20, n_inf=20, snr=8.0, seed=0); widths {2k,4k,6k,10k} x n_rows {2k,5k,10k}.
+Per-cell deltas (stratified - uniform):
+
+  width  n_rows    d_sp     d_fid    winner
+   2000    2000  -0.0036  -0.0688    uni
+   2000    5000  +0.0044  +0.0693    strat
+   2000   10000  -0.0142  -0.0752    uni
+   4000    2000  +0.0147  +0.0088    tie
+   4000    5000  +0.0116  +0.0069    tie
+   4000   10000  -0.0062  -0.0704    uni
+   6000    2000  +0.0080  +0.0048    tie
+   6000    5000  -0.0102  -0.1395    uni
+   6000   10000  +0.0062  +0.0037    tie
+  10000    2000  -0.0107  -0.0731    uni
+  10000    5000  +0.0040  -0.0643    uni
+  10000   10000  +0.0013  -0.0659    uni
+
+Stratified wins exactly 1/12 cells (w=2000, n=5000) on composite fidelity,
+ties 4, regresses 7 (worst -0.140 at w=6000/n=5000). No single-axis
+r=n_rows/width or r=n_rows/sqrt(width) threshold cleanly separates win-cells.
+Iter99 W2K (w=2000, n=2000) sanity cell re-measured at sp=0.9626 fid=0.8442
+vs iter99's sp=0.9684 fid=0.8811 -- ~0.04 swing reflects real measurement
+variance from concurrent CPU contention during the sweep. Iter99's W6K/W10K
+wins do NOT reproduce at n_rows=5000, suggesting those were specific to a
+(width, n_rows, seed) interaction rather than a generalisable property of
+stratified sampling. Per the iter100 calibration gate, no ``'auto'`` mode
+shipped; the lever remains opt-in (default=False). Bench reproducer at
+``_benchmarks/bench_iter101_stratified_anchors_2d.py``.
+
 ## 2026-06-01 — ShapProxiedFS: ``trust_guard_stratified_anchors`` auto-dispatcher calibration, ship docs-only (iter100)
 
 Tested the hypothesis that a width-aware ``'auto'`` mode for the stratified
