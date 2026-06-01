@@ -1148,6 +1148,15 @@ class MLPTorchModel(L.LightningModule):
             logits = self._maybe_compile_predict_forward(x)
             if logits is None:
                 logits = self._maybe_cuda_graph_forward(x)
+            # F-73 (2026-06-01): explicit eager fallback as the documented
+            # third tier. ``_maybe_cuda_graph_forward`` normally returns a
+            # tensor (it does its OWN eager fallback internally), so this
+            # branch is defensive -- but it makes the three-tier contract
+            # (compile -> graph -> eager) REAL rather than implicit, so
+            # any future path that returns None can't crash the
+            # downstream ``logits.dim()`` dispatch. Cheap (one None check).
+            if logits is None:
+                logits = self(x)
 
         # task_type='regression' (F-24) returns raw values regardless of
         # shape -- including (N, K) multi-target regression where the prior
