@@ -2003,6 +2003,111 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     "continuing without ensemble columns.",
                     type(_ens_exc).__name__, _ens_exc,
                 )
+    # 2026-06-01 Layer 76 — META-SCORER auto-selection that LEARNS from
+    # cheap signal characteristics ("data fingerprints") and dispatches
+    # to the predicted-best scorer of the Layer 21 / 65 / 66 / 67 / 71 /
+    # 72 / 74 family (sibling module ``_orthogonal_meta_scorer_fe``).
+    # Independent opt-in (does NOT require fe_hybrid_orth_enable). Where
+    # Layer 68 (per-column bootstrap LCB) and Layer 69 (rank fusion) run
+    # ALL scorers and let a meta-criterion pick, Layer 76 spends a small
+    # fixed budget on cheap fingerprints + a deterministic 5-rule cascade
+    # distilled from the L75 empirical matrix, then runs ONLY the
+    # predicted-best scorer. Wall-clock saving roughly n_scorers - 1 vs
+    # L68/L69. Engineered VALUES bit-equal to Layer 21 -> recipes reuse
+    # the ``orth_univariate`` kind.
+    if bool(getattr(self, "fe_hybrid_orth_meta_enable", False)):
+        _is_pandas_for_meta = isinstance(X, pd.DataFrame)
+        if not _is_pandas_for_meta:
+            warnings.warn(
+                "MRMR: fe_hybrid_orth_meta_enable=True but X is not a "
+                "pandas DataFrame; meta-scorer hybrid FE is skipped. "
+                "Convert to pandas via X.to_pandas() before fit() if you "
+                "want the meta-scorer selection applied.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from ._orthogonal_meta_scorer_fe import (
+                    hybrid_orth_mi_meta_fe_with_recipes,
+                )
+                _y_for_meta = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                _hybrid_already_appended = set(
+                    getattr(self, "hybrid_orth_features_", None) or []
+                )
+                if getattr(self, "factors_names_to_use", None):
+                    _meta_cols = [
+                        c for c in self.factors_names_to_use
+                        if c in X.columns and c not in _hybrid_already_appended
+                    ]
+                else:
+                    _meta_cols = [
+                        c for c in X.columns
+                        if c not in _hybrid_already_appended
+                    ]
+                _meta_degrees = tuple(int(d) for d in getattr(
+                    self, "fe_hybrid_orth_degrees", (2, 3),
+                ))
+                _meta_basis = str(getattr(
+                    self, "fe_hybrid_orth_basis", "auto",
+                ))
+                _meta_top_k = int(getattr(self, "fe_hybrid_orth_top_k", 5))
+                _meta_force = getattr(
+                    self, "fe_hybrid_orth_meta_force_scorer", None,
+                )
+                # Same calibration as Layers 65 / 66 / 67 / 68 / 69: the
+                # scorer captures raw-x dependence nearly as cleanly as
+                # the engineered column, so single-source uplift sits near
+                # 1.0; 0.95 / 0.05 floors keep the gate from rejecting
+                # genuine wins on a sample-noise tick.
+                _meta_min_uplift = 0.95
+                _meta_min_abs_mi_frac = 0.05
+                _X_before_meta_cols = list(X.columns)
+                (
+                    X_meta, _meta_scores, _meta_recipes,
+                    _meta_chosen, _meta_fp,
+                ) = hybrid_orth_mi_meta_fe_with_recipes(
+                    X, _y_for_meta,
+                    cols=_meta_cols,
+                    degrees=_meta_degrees,
+                    basis=_meta_basis,
+                    top_k=_meta_top_k,
+                    min_uplift=_meta_min_uplift,
+                    min_abs_mi_frac=_meta_min_abs_mi_frac,
+                    force_scorer=_meta_force,
+                    random_state=int(getattr(self, "random_seed", 0) or 0),
+                )
+                _meta_appended = [
+                    c for c in X_meta.columns
+                    if c not in _X_before_meta_cols
+                ]
+                if _meta_appended:
+                    X = X_meta
+                    self.hybrid_orth_features_ = (
+                        list(self.hybrid_orth_features_ or [])
+                        + list(_meta_appended)
+                    )
+                    for _r in _meta_recipes:
+                        _hybrid_orth_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit hybrid_orth meta-scorer: dispatched "
+                            "to %r (force=%r); appended %d engineered "
+                            "column(s): %s",
+                            _meta_chosen, _meta_force,
+                            len(_meta_appended), _meta_appended[:8],
+                        )
+                # Expose the chosen scorer + fingerprint for downstream
+                # audit / debug (also survives pickle because plain attrs).
+                self.hybrid_orth_meta_chosen_scorer_ = _meta_chosen
+                self.hybrid_orth_meta_fingerprint_ = dict(_meta_fp)
+            except Exception as _meta_exc:
+                logger.warning(
+                    "MRMR.fit hybrid_orth meta-scorer FE raised %s: %s; "
+                    "continuing without meta-scorer columns.",
+                    type(_meta_exc).__name__, _meta_exc,
+                )
     # 2026-05-21 revert of Wave 29 P1 polars->pandas coercion. That
     # coercion was added on the premise that downstream ``X[target_name]
     # = y`` mutation assumed pandas and would raise on polars; but the

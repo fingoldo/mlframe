@@ -21,7 +21,7 @@ from collections import OrderedDict, defaultdict
 from itertools import combinations, islice
 from os.path import exists
 from timeit import default_timer as timer
-from typing import Sequence
+from typing import Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -971,6 +971,24 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_hybrid_orth_ensemble_scorers: tuple = (
             "plug_in", "ksg", "copula", "dcor", "hsic",
         ),
+        # 2026-06-01 Layer 76 — META-SCORER auto-selection that LEARNS
+        # from cheap signal characteristics (sibling module
+        # ``_orthogonal_meta_scorer_fe``). Independent opt-in (does NOT
+        # require fe_hybrid_orth_enable). Layer 68 (per-column bootstrap
+        # LCB) and Layer 69 (rank-fusion ensemble) run ALL scorers and
+        # let a meta-criterion pick; Layer 76 instead spends a small
+        # fixed budget on cheap fingerprints (skew, kurtosis, n_unique,
+        # mean abs Pearson, dCor proxy via Spearman) and a deterministic
+        # 5-rule cascade distilled from the L75 empirical matrix to
+        # PREDICT which scorer will win, then runs ONLY that scorer. The
+        # wall-clock saving is roughly n_scorers - 1 vs L68/L69. Engineered
+        # VALUES bit-equal to Layer 21 -> recipes reuse the
+        # ``orth_univariate`` kind. Set ``fe_hybrid_orth_meta_force_scorer``
+        # to override the rule cascade and pin a specific scorer
+        # (one of "plug_in"/"ksg"/"copula"/"dcor"/"hsic"/"jmim"/"cmim"/"tc").
+        # Default OFF preserves pickle byte-equivalence.
+        fe_hybrid_orth_meta_enable: bool = False,
+        fe_hybrid_orth_meta_force_scorer: Optional[str] = None,
         # 2026-05-31 Layer 32 — extra (non-polynomial) basis FE: B-spline +
         # Fourier. Complementary to the orth-poly path: spline catches sharp
         # local non-linearities (threshold rules ``y = sign(x - tau)``);
@@ -1505,6 +1523,10 @@ class MRMR(BaseEstimator, TransformerMixin):
             "fe_hybrid_orth_ensemble_scorers": (
                 "plug_in", "ksg", "copula", "dcor", "hsic",
             ),
+            # 2026-06-01 Layer 76 — meta-scorer auto-selection defaults.
+            # Master switch OFF preserves legacy pickle byte-equivalence.
+            "fe_hybrid_orth_meta_enable": False,
+            "fe_hybrid_orth_meta_force_scorer": None,
             # 2026-05-31 Layer 32 — extra-basis (spline / fourier) defaults.
             "fe_hybrid_orth_extra_bases": (),
             "fe_hybrid_orth_fourier_freqs": (1.0, 2.0),
