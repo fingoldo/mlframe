@@ -321,6 +321,15 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
     except Exception:
         pass
 
+    # Layer-95 periodic/modular kernel (warm all three op codes).
+    try:
+        from ._periodic_fe import _modular_njit
+        _warm_mod = np.array([1.5, -2.5, np.nan, np.inf], dtype=np.float64)
+        for _oc in (0, 1, 2):
+            _ = _modular_njit(_warm_mod, 7.0, _oc)
+    except Exception:
+        pass
+
     _wall = time.perf_counter() - _t0
     if verbose:
         _log.info("prewarm_fs_numba_cache: warmed FS kernels in %.2fs", _wall)
