@@ -125,7 +125,7 @@ class EngineeredRecipe:
     # (src_names=(c_i, c_j), extra={basis_i, basis_j, deg_a, deg_b}). Replay
     # is closed-form from the source column(s) alone -- no y reference is
     # captured at fit time, so transform() is leakage-free by construction.
-    kind: Literal["unary_binary", "factorize", "hermite_pair", "target_encoding", "cluster_aggregate", "orth_univariate", "orth_pair_cross", "orth_triplet_cross", "orth_quadruplet_cross", "orth_spline", "orth_fourier", "orth_diff_basis", "orth_cluster_basis", "mi_greedy_transform", "kfold_target_encoded", "count_encoded", "frequency_encoded", "cat_num_residual", "missing_indicator", "missingness_count", "missingness_pattern", "pairwise_ratio", "grouped_delta", "lagged_diff", "grouped_agg", "grouped_quantile", "target_aware_group_bin", "cat_pair_cross", "numeric_rounding", "digit_extract", "temporal_expanding", "temporal_rolling", "temporal_lag"]
+    kind: Literal["unary_binary", "factorize", "hermite_pair", "target_encoding", "cluster_aggregate", "orth_univariate", "orth_pair_cross", "orth_triplet_cross", "orth_quadruplet_cross", "orth_spline", "orth_fourier", "orth_diff_basis", "orth_cluster_basis", "mi_greedy_transform", "kfold_target_encoded", "count_encoded", "frequency_encoded", "cat_num_residual", "missing_indicator", "missingness_count", "missingness_pattern", "pairwise_ratio", "grouped_delta", "lagged_diff", "grouped_agg", "composite_group_agg", "grouped_quantile", "target_aware_group_bin", "cat_pair_cross", "numeric_rounding", "digit_extract", "temporal_expanding", "temporal_rolling", "temporal_lag"]
     src_names: tuple[str, ...]
     unary_names: tuple[str, ...] = ()
     binary_name: str = ""
@@ -382,6 +382,12 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         # apply helper lives alongside the grouped-agg generator.
         from ._grouped_agg_fe import _apply_grouped_agg_recipe
         return _apply_grouped_agg_recipe(recipe, X)
+    if recipe.kind == "composite_group_agg":
+        # Layer 93 lazy import: composite (multi-column) group-key aggregate;
+        # replay helper lives with the generator. Keeps this module under the
+        # LOC ceiling.
+        from ._composite_group_agg_fe import _apply_composite_group_agg_recipe
+        return _apply_composite_group_agg_recipe(recipe, X)
     if recipe.kind == "cat_pair_cross":
         # Layer 89 lazy import: cat x cat synergy cross; replay helper lives
         # with the generator. Keeps this module under the LOC ceiling.
@@ -1978,6 +1984,53 @@ def build_grouped_agg_recipe(
         src_names=(group_col, num_col),
         extra={
             "group_col": str(group_col),
+            "num_col": str(num_col),
+            "stat": str(stat),
+            "op": str(op),
+            "group_lookup_dict": lookup_clean,
+            "global_value": float(global_value),
+            "lookup_mean": lookup_mean_clean,
+            "lookup_std": lookup_std_clean,
+            "global_mean": float(global_mean),
+            "global_std": float(global_std),
+        },
+    )
+
+
+def build_composite_group_agg_recipe(
+    *, name: str, group_cols, num_col: str, stat: str, op: str,
+    group_lookup_dict: dict, global_value: float,
+    lookup_mean: dict, lookup_std: dict,
+    global_mean: float, global_std: float,
+) -> EngineeredRecipe:
+    """Layer 93 (2026-06-01): frozen recipe for one COMPOSITE-key grouped
+    multi-stat aggregate. ``group_cols`` is the ORDERED tuple of group columns
+    (e.g. ``("region", "month")``); the composite key is rebuilt at replay from
+    those columns the same way it was at fit. ``op='broadcast'`` emits the
+    per-composite-cell ``stat``; ``op='z_within'`` emits ``(x - mean) / std``
+    within the composite cell; ``op='ratio'`` emits ``x / mean``. Unseen
+    composite cells fall back to the fit-time global statistic. Replay reads
+    only X (no y), so transform() is leakage-free."""
+    if op not in ("broadcast", "z_within", "ratio"):
+        raise ValueError(
+            f"composite_group_agg op must be 'broadcast', 'z_within', or "
+            f"'ratio'; got {op!r}"
+        )
+    group_cols = tuple(str(c) for c in group_cols)
+    if len(group_cols) < 2:
+        raise ValueError(
+            f"composite_group_agg recipe '{name}' requires >= 2 group_cols; "
+            f"got {group_cols!r}"
+        )
+    lookup_clean = {str(k): float(v) for k, v in group_lookup_dict.items()}
+    lookup_mean_clean = {str(k): float(v) for k, v in lookup_mean.items()}
+    lookup_std_clean = {str(k): float(v) for k, v in lookup_std.items()}
+    return EngineeredRecipe(
+        name=name,
+        kind="composite_group_agg",
+        src_names=tuple(group_cols) + (str(num_col),),
+        extra={
+            "group_cols": group_cols,
             "num_col": str(num_col),
             "stat": str(stat),
             "op": str(op),

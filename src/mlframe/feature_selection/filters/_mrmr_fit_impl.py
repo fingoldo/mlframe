@@ -3111,6 +3111,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     self.grouped_delta_features_ = []
     self.lagged_diff_features_ = []
     self.grouped_agg_features_ = []
+    self.composite_group_agg_features_ = []
     self.grouped_quantile_features_ = []
     self.cat_pair_features_ = []
     self.numeric_decompose_features_ = []
@@ -3123,6 +3124,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     _grouped_delta_pre_recipes: dict = {}
     _lagged_diff_pre_recipes: dict = {}
     _grouped_agg_pre_recipes: dict = {}
+    _composite_group_agg_pre_recipes: dict = {}
     _grouped_quantile_pre_recipes: dict = {}
     if (
         bool(getattr(self, "fe_pairwise_ratio_enable", False))
@@ -3390,6 +3392,96 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     "MRMR.fit grouped_agg FE raised %s: %s; continuing "
                     "without grouped-aggregate columns.",
                     type(_ga_exc).__name__, _ga_exc,
+                )
+
+    # Layer 93 (2026-06-01): COMPOSITE (multi-column) group-key aggregates.
+    # Multi-col extension of Layer 87: each composite key is factorized into
+    # one integer-coded group and run through the same per-group stat / z /
+    # ratio machinery; survivors are CMI-gated against the raw support and
+    # uplift-gated against the source num_col marginal MI. Composite keys whose
+    # distinct-cell count exceeds 0.5*n are refused (Layer 29 guard). Routing
+    # piggybacks on hybrid_orth_features_ (same Layer 23 remap as 33/.../87).
+    if bool(getattr(self, "fe_composite_group_agg_enable", False)):
+        if not isinstance(X, pd.DataFrame):
+            warnings.warn(
+                "MRMR: Layer 93 composite_group_agg FE enabled but X is not a "
+                "pandas DataFrame; the aggregates are skipped. Convert via "
+                "X.to_pandas() before fit() to apply them.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from ._composite_group_agg_fe import hybrid_composite_group_agg_fe
+
+                _y_for_cga = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                if _y_for_cga.dtype.kind in "fc":
+                    _n_unique_cga = int(np.unique(_y_for_cga).size)
+                    if _n_unique_cga <= 32:
+                        _y_for_cga = _y_for_cga.astype(np.int64)
+                    else:
+                        try:
+                            _y_for_cga = pd.qcut(
+                                _y_for_cga, q=10, labels=False, duplicates="drop",
+                            ).astype(np.int64)
+                        except Exception:
+                            _y_for_cga = _y_for_cga.astype(np.int64)
+
+                # key_sets: each entry is a tuple of >= 2 group cols. Empty =>
+                # auto-detect r-combinations of detected group columns.
+                _cga_key_sets_raw = tuple(
+                    getattr(self, "fe_composite_group_agg_key_sets", ()) or ()
+                )
+                _cga_key_sets = [
+                    tuple(c for c in gset if c in X.columns)
+                    for gset in _cga_key_sets_raw
+                ]
+                _cga_key_sets = [g for g in _cga_key_sets if len(g) >= 2] or None
+                _cga_nums = tuple(
+                    getattr(self, "fe_composite_group_agg_num_cols", ()) or ()
+                )
+                _cga_nums = [c for c in _cga_nums if c in X.columns] or None
+                _cga_stats = tuple(
+                    getattr(self, "fe_composite_group_agg_stats", ())
+                    or ("mean", "std", "count")
+                )
+                _cga_max_arity = int(
+                    getattr(self, "fe_composite_group_agg_max_arity", 2)
+                )
+                _cga_top_k = int(getattr(self, "fe_composite_group_agg_top_k", 10))
+                _X_before_cga_cols = list(X.columns)
+                X_cga, _cga_appended, _cga_recipes, _cga_scores = (
+                    hybrid_composite_group_agg_fe(
+                        X, _y_for_cga,
+                        group_col_sets=_cga_key_sets, num_cols=_cga_nums,
+                        stats=_cga_stats, max_arity=_cga_max_arity,
+                        top_k=_cga_top_k,
+                    )
+                )
+                _cga_appended = [
+                    c for c in _cga_appended if c not in _X_before_cga_cols
+                ]
+                if _cga_appended:
+                    X = X_cga
+                    self.composite_group_agg_features_ = list(_cga_appended)
+                    self.hybrid_orth_features_ = (
+                        list(self.hybrid_orth_features_ or []) + list(_cga_appended)
+                    )
+                    for _r in _cga_recipes:
+                        if _r.name in _cga_appended:
+                            _composite_group_agg_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit composite_group_agg: appended %d "
+                            "engineered column(s): %s",
+                            len(_cga_appended), _cga_appended[:8],
+                        )
+            except Exception as _cga_exc:
+                logger.warning(
+                    "MRMR.fit composite_group_agg FE raised %s: %s; continuing "
+                    "without composite-aggregate columns.",
+                    type(_cga_exc).__name__, _cga_exc,
                 )
 
     # Layer 88 (2026-06-01): per-group histogram + quantile FE with
@@ -3812,6 +3904,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 c for c in (getattr(self, "grouped_agg_features_", []) or [])
                 if c not in _eng_drop
             ]
+            # Layer 93: mirror cleanup for composite_group_agg.
+            self.composite_group_agg_features_ = [
+                c for c in (getattr(self, "composite_group_agg_features_", []) or [])
+                if c not in _eng_drop
+            ]
             # Layer 88: mirror cleanup for grouped_quantile.
             self.grouped_quantile_features_ = [
                 c for c in (getattr(self, "grouped_quantile_features_", []) or [])
@@ -3869,6 +3966,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             for _c in list(_grouped_agg_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _grouped_agg_pre_recipes.pop(_c, None)
+            for _c in list(_composite_group_agg_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _composite_group_agg_pre_recipes.pop(_c, None)
             for _c in list(_grouped_quantile_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _grouped_quantile_pre_recipes.pop(_c, None)
@@ -3946,7 +4046,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         "missingness_pattern_features_",
                         "pairwise_ratio_features_", "pairwise_log_ratio_features_",
                         "grouped_delta_features_", "lagged_diff_features_",
-                        "grouped_agg_features_", "grouped_quantile_features_",
+                        "grouped_agg_features_", "composite_group_agg_features_",
+                        "grouped_quantile_features_",
                         "cat_pair_features_", "numeric_decompose_features_",
                         "temporal_agg_features_",
                     ):
@@ -3962,6 +4063,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _miss_pat_pre_recipes, _ratio_pre_recipes,
                         _log_ratio_pre_recipes, _grouped_delta_pre_recipes,
                         _lagged_diff_pre_recipes, _grouped_agg_pre_recipes,
+                        _composite_group_agg_pre_recipes,
                         _grouped_quantile_pre_recipes, _cat_pair_pre_recipes,
                         _numeric_decompose_pre_recipes, _temporal_agg_pre_recipes,
                     ):
@@ -4228,6 +4330,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # Layer 87: same routing for grouped multi-stat aggregate recipes.
     if _grouped_agg_pre_recipes:
         engineered_recipes.update(_grouped_agg_pre_recipes)
+    # Layer 93: same routing for composite-key grouped aggregate recipes.
+    if _composite_group_agg_pre_recipes:
+        engineered_recipes.update(_composite_group_agg_pre_recipes)
     # Layer 88: same routing for grouped-quantile / target-aware-bin recipes.
     if _grouped_quantile_pre_recipes:
         engineered_recipes.update(_grouped_quantile_pre_recipes)

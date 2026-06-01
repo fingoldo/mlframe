@@ -1257,6 +1257,24 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_grouped_agg_group_cols: tuple = (),
         fe_grouped_agg_num_cols: tuple = (),
         fe_grouped_agg_top_k: int = 10,
+        # 2026-06-01 Layer 93 — COMPOSITE (multi-column) GROUP-KEY aggregates,
+        # the multi-col extension of Layer 87. Real aggregations key on more
+        # than one column (groupby([region, month]) / groupby([store,
+        # category])); the interaction at the composite level often carries
+        # signal that neither single-column group exposes. Each composite key
+        # is factorized into one integer-coded group and run through the Layer
+        # 87 per-group stat / z / ratio machinery; each survivor is CMI-gated
+        # against the raw support and uplift-gated against the source num_col
+        # marginal MI. Composite keys whose distinct-cell count exceeds
+        # 0.5*n are refused (Layer 29 guard). Default OFF -> byte-identical
+        # legacy path. ``key_sets`` empty => auto-detect r-combinations (up to
+        # ``max_arity``) of detected group columns that clear the guard.
+        fe_composite_group_agg_enable: bool = False,
+        fe_composite_group_agg_key_sets: tuple = (),
+        fe_composite_group_agg_max_arity: int = 2,
+        fe_composite_group_agg_stats: tuple = ("mean", "std", "count"),
+        fe_composite_group_agg_num_cols: tuple = (),
+        fe_composite_group_agg_top_k: int = 10,
         # 2026-06-01 Layer 88 — per-group histogram + quantile FE with
         # target-aware edges. NVIDIA cuDF Kaggle-Grandmaster technique #2:
         # percentile-rank-within-group (empirical CDF position of x in its
