@@ -1169,16 +1169,6 @@ class PytorchLightningEstimator(BaseEstimator):
         datamodule.setup_predict(X, batch_size=pred_batch_size)
 
         if not hasattr(self, "trainer") or self.trainer is None:
-            # F-G fix (2026-05-31, audit follow-up): when self.trainer is
-            # None (either because the wrapper never instantiated one or
-            # because a PRIOR _predict_raw already nulled it), resolve
-            # the accelerator from -- in priority order -- (1) the
-            # cached _last_predict_accelerator from a previous predict,
-            # (2) the original user-supplied trainer_params, (3) "auto".
-            # Pre-fix the only path was "auto" which silently switched
-            # CPU->CUDA whenever CUDA was available on the host, even
-            # if the user originally forced CPU; this broke F-D CUDA-graph
-            # cache and pin_memory assumptions set up in the first call.
             _cached_acc = getattr(self, "_last_predict_accelerator", None)
             _user_acc = (self.trainer_params or {}).get("accelerator")
             trainer_params = {
@@ -1188,31 +1178,48 @@ class PytorchLightningEstimator(BaseEstimator):
                 "enable_checkpointing": False,
                 "enable_progress_bar": False,
             }
-            prediction_trainer = L.Trainer(**trainer_params)
         else:
-            # Use existing trainer but create a new one to avoid state issues
             trainer_params = {
                 "accelerator": (
                     self.trainer.accelerator.__class__.__name__.replace("Accelerator", "").lower() if hasattr(self.trainer, "accelerator") else "auto"
                 ),
-                "devices": 1,  # single device for prediction
+                "devices": 1,
                 "logger": False,
                 "enable_checkpointing": False,
                 "enable_progress_bar": False,
             }
-
             if device is not None:
                 if device.startswith("cuda"):
                     trainer_params["accelerator"] = "cuda"
                 elif device == "cpu":
                     trainer_params["accelerator"] = "cpu"
-
             if precision is not None:
                 trainer_params["precision"] = precision
             elif hasattr(self.trainer, "precision"):
                 trainer_params["precision"] = self.trainer.precision
 
+        # F-67 (2026-05-31): cache the prediction trainer keyed by
+        # (accelerator, precision). Pre-fix every _predict_raw call
+        # built a fresh L.Trainer + destroyed it via self.trainer=None,
+        # paying ~236 ms gc.collect per cycle (cProfile 2026-05-31:
+        # 2 calls = 472 ms / 6.94 s profiled wall = 6.8% of total
+        # predict path). For typical ensemble suites with 5-20 predict
+        # calls per fit, that's 1.2-4.7 s of pure GC overhead per fit.
+        # Caching reuses the same Trainer across predicts; Lightning's
+        # ``trainer.predict()`` is idempotent and resets internal state
+        # between calls. Cache invalidates only on (accelerator,
+        # precision) change -- the rare case of mid-suite device flip
+        # rebuilds, the typical homogeneous suite hits the cache.
+        _cache_key = (
+            trainer_params.get("accelerator"),
+            trainer_params.get("precision"),
+        )
+        _trainer_cache = getattr(self, "_prediction_trainer_cache", {})
+        prediction_trainer = _trainer_cache.get(_cache_key)
+        if prediction_trainer is None:
             prediction_trainer = L.Trainer(**trainer_params)
+            _trainer_cache[_cache_key] = prediction_trainer
+            self._prediction_trainer_cache = _trainer_cache
 
         # F-G fix: cache the accelerator the current prediction_trainer
         # was built with so the next _predict_raw call (after
