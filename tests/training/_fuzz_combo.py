@@ -1586,6 +1586,66 @@ AXES: dict[str, tuple[Any, ...]] = {
     # branch is now untested in default config. The pair is extended in
     # place rather than redeclared here; see the existing entry at the
     # Stage-A LOW-tier block.
+    # =====================================================================
+    # iter639 audit-pass-15. Layers 63-85 + F-62..F-72 newly exposed
+    # config knobs that had no fuzz coverage. Defaults SOURCE-verified at
+    # HEAD against src/mlframe/feature_selection/filters/mrmr.py and
+    # src/mlframe/training/neural/_flat_torch_module.py /
+    # src/mlframe/training/neural/flat.py.
+    # =====================================================================
+    # MRMR Layers 63-76, 85 -- hybrid-orth scorer family.
+    # H1 fe_hybrid_orth_default_scorer (mrmr.py:1092, default "plug_in").
+    # Layer 85 routes ALL univariate FE scoring through one of 8 estimators
+    # (plug_in / ksg / copula / dcor / hsic / jmim / tc / cmim); each is a
+    # distinct numerical code path with separate failure modes, and plug_in
+    # hides the other 7. Pair (plug_in, ksg, copula) covers the histogram-
+    # based default + the two highest-leverage alternates (kNN MI + rank-
+    # invariant copula MI). Gate: use_mrmr_fs=True AND
+    # mrmr_fe_hybrid_orth_enable_cfg=True; canon-collapse to "plug_in"
+    # outside that compound gate.
+    "mrmr_fe_hybrid_orth_default_scorer_cfg": ("plug_in", "ksg", "copula"),
+    # H2 fe_hybrid_orth_meta_enable (mrmr.py:1068, default False). Layer 76
+    # meta-scorer signal-fingerprint auto-select drives a per-call dispatcher
+    # that picks one of the 8 scorers from data stats; mis-fingerprinting
+    # on weird-cat / inject_inf_nan combos is a leakage hazard. Gate:
+    # use_mrmr_fs=True AND mrmr_fe_hybrid_orth_enable_cfg=True; canon to
+    # False outside.
+    "mrmr_fe_hybrid_orth_meta_enable_cfg": (False, True),
+    # H3 fe_hybrid_orth_bootstrap_enable (mrmr.py:878, default False).
+    # Layer 62 bootstrap-stable MI resamples rows during scoring; behavioural
+    # divergence from non-bootstrapped scoring surfaces NaN-propagation +
+    # RNG-mutation regressions. Gate: use_mrmr_fs=True AND
+    # mrmr_fe_hybrid_orth_enable_cfg=True; canon to False outside.
+    "mrmr_fe_hybrid_orth_bootstrap_enable_cfg": (False, True),
+    # H4 fe_hybrid_orth_three_gate_enable (mrmr.py:897, default False).
+    # Layer 63 three-gate K-fold OOF CMI introduces a CV split inside FE;
+    # interacts with shuffle_val_cfg / wholeday_splitting_cfg in ways the
+    # existing axes do not probe. Gate: use_mrmr_fs=True AND
+    # mrmr_fe_hybrid_orth_enable_cfg=True; canon to False outside.
+    "mrmr_fe_hybrid_orth_three_gate_enable_cfg": (False, True),
+    # Neural F-62..F-72 -- MLP training options.
+    # N1 use_sam (training/neural/_flat_torch_module.py:48, default False).
+    # F-63 SAM optimizer wrapper changes training_step into a double-forward;
+    # interacts with class_weight + sample_weight in ways the plain AdamW
+    # path doesn't. Gate: 'mlp' in models; canon to False outside.
+    "mlp_use_sam_cfg": (False, True),
+    # N2 use_lookahead (training/neural/_flat_torch_module.py:43, default
+    # False). F-62 Lookahead has 3 fix commits (F-A/F-B/F-D) for slow-weight
+    # commit + state_dict round-trip; recent fix density signals it needs
+    # broader combo coverage. Gate: 'mlp' in models; canon to False outside.
+    "mlp_use_lookahead_cfg": (False, True),
+    # N3 use_mixup (training/neural/_flat_torch_module.py:46, default False).
+    # F-68/F-69/F-70 Mixup mutates labels in training_step; multilabel +
+    # label_smoothing + focal_loss + multi_target combinations are the
+    # silent-correctness landmines. Gate: 'mlp' in models; canon to False
+    # outside.
+    "mlp_use_mixup_cfg": (False, True),
+    # N4 spectral_norm_output_only (training/neural/flat.py:224, default
+    # False). F-72 cheap output-only SN wraps just the final Linear;
+    # distinct code path from full-SN and exercises the bounded-output +
+    # Lipschitz interaction on classifier vs regressor. Gate: 'mlp' in
+    # models; canon to False outside.
+    "mlp_spectral_norm_output_only_cfg": (False, True),
 }
 
 
@@ -2235,6 +2295,19 @@ class FuzzCombo:
     mrmr_dcd_tau_cluster_cfg: "float | str" = 0.7
     mrmr_dcd_distance_cfg: str = "su"
     mrmr_dcd_swap_method_cfg: str = "auto"
+    # iter639 audit-pass-15 — MRMR hybrid-orth scorer family (Layers 62, 63,
+    # 76, 85) + MLP optimizer wrappers (F-62 Lookahead, F-63 SAM, F-68/69/70
+    # Mixup) + F-72 output-only spectral norm. Defaults source-verified at
+    # HEAD against feature_selection/filters/mrmr.py and
+    # training/neural/_flat_torch_module.py / training/neural/flat.py.
+    mrmr_fe_hybrid_orth_default_scorer_cfg: str = "plug_in"
+    mrmr_fe_hybrid_orth_meta_enable_cfg: bool = False
+    mrmr_fe_hybrid_orth_bootstrap_enable_cfg: bool = False
+    mrmr_fe_hybrid_orth_three_gate_enable_cfg: bool = False
+    mlp_use_sam_cfg: bool = False
+    mlp_use_lookahead_cfg: bool = False
+    mlp_use_mixup_cfg: bool = False
+    mlp_spectral_norm_output_only_cfg: bool = False
 
     def canonical_key(self) -> tuple:
         """Hashable tuple used for dedup. Canonicalizes semantically
@@ -3966,6 +4039,43 @@ class FuzzCombo:
                 if (self.use_mrmr_fs and self.mrmr_dcd_enable_cfg)
                 else "auto"
             ),
+            # iter639 audit-pass-15. Layers 62/63/76/85 hybrid-orth scorer
+            # family. All four are meaningful only inside the
+            # fe_hybrid_orth_enable=True compound gate; canon to source
+            # defaults outside so dedup absorbs phantom variation that
+            # would otherwise multiply combo count 24x without exercising
+            # any new code path.
+            (
+                self.mrmr_fe_hybrid_orth_default_scorer_cfg
+                if (self.use_mrmr_fs and self.mrmr_fe_hybrid_orth_enable_cfg)
+                else "plug_in"
+            ),
+            (
+                self.mrmr_fe_hybrid_orth_meta_enable_cfg
+                if (self.use_mrmr_fs and self.mrmr_fe_hybrid_orth_enable_cfg)
+                else False
+            ),
+            (
+                self.mrmr_fe_hybrid_orth_bootstrap_enable_cfg
+                if (self.use_mrmr_fs and self.mrmr_fe_hybrid_orth_enable_cfg)
+                else False
+            ),
+            (
+                self.mrmr_fe_hybrid_orth_three_gate_enable_cfg
+                if (self.use_mrmr_fs and self.mrmr_fe_hybrid_orth_enable_cfg)
+                else False
+            ),
+            # iter640 audit-pass-15. F-62/63/68-70/72 MLP options. Gated
+            # on 'mlp' in models; canon to False outside so non-MLP combos
+            # collapse to one variant per knob.
+            self.mlp_use_sam_cfg if "mlp" in self.models else False,
+            self.mlp_use_lookahead_cfg if "mlp" in self.models else False,
+            self.mlp_use_mixup_cfg if "mlp" in self.models else False,
+            (
+                self.mlp_spectral_norm_output_only_cfg
+                if "mlp" in self.models
+                else False
+            ),
         )
 
     def _canonical_recurrent_model(self) -> "str | None":
@@ -5150,6 +5260,27 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         mrmr_dcd_swap_method_cfg=axes.get(
             "mrmr_dcd_swap_method_cfg", "auto"
         ),
+        # iter639/640 audit-pass-15. Defaults source-verified at HEAD
+        # against feature_selection/filters/mrmr.py and
+        # training/neural/_flat_torch_module.py / flat.py.
+        mrmr_fe_hybrid_orth_default_scorer_cfg=axes.get(
+            "mrmr_fe_hybrid_orth_default_scorer_cfg", "plug_in"
+        ),
+        mrmr_fe_hybrid_orth_meta_enable_cfg=axes.get(
+            "mrmr_fe_hybrid_orth_meta_enable_cfg", False
+        ),
+        mrmr_fe_hybrid_orth_bootstrap_enable_cfg=axes.get(
+            "mrmr_fe_hybrid_orth_bootstrap_enable_cfg", False
+        ),
+        mrmr_fe_hybrid_orth_three_gate_enable_cfg=axes.get(
+            "mrmr_fe_hybrid_orth_three_gate_enable_cfg", False
+        ),
+        mlp_use_sam_cfg=axes.get("mlp_use_sam_cfg", False),
+        mlp_use_lookahead_cfg=axes.get("mlp_use_lookahead_cfg", False),
+        mlp_use_mixup_cfg=axes.get("mlp_use_mixup_cfg", False),
+        mlp_spectral_norm_output_only_cfg=axes.get(
+            "mlp_spectral_norm_output_only_cfg", False
+        ),
     )
 
 
@@ -5310,6 +5441,15 @@ def build_mrmr_kwargs_from_flat(
     dcd_tau_cluster: "float | str" = 0.7,
     dcd_distance: str = "su",
     dcd_swap_method: str = "auto",
+    # iter639 audit-pass-15. Layers 62/63/76/85 hybrid-orth scorer family.
+    # Defaults source-verified at HEAD against MRMR.__init__
+    # (filters/mrmr.py:878 / :897 / :1068 / :1092). All gated downstream of
+    # fe_hybrid_orth_enable; canon at FuzzCombo.canonical_key absorbs phantom
+    # variation outside the compound gate.
+    fe_hybrid_orth_default_scorer: str = "plug_in",
+    fe_hybrid_orth_meta_enable: bool = False,
+    fe_hybrid_orth_bootstrap_enable: bool = False,
+    fe_hybrid_orth_three_gate_enable: bool = False,
 ) -> Optional[Dict[str, Any]]:
     """Build the mrmr_kwargs dict passed to FeatureSelectionConfig.
     Returns None when use_mrmr_fs=False so the FS step is a no-op.
@@ -5416,6 +5556,15 @@ def build_mrmr_kwargs_from_flat(
         "dcd_tau_cluster": dcd_tau_cluster,
         "dcd_distance": dcd_distance,
         "dcd_swap_method": dcd_swap_method,
+        # iter639 audit-pass-15. Names match MRMR.__init__ exactly
+        # (filters/mrmr.py:878 / :897 / :1068 / :1092). All four are
+        # meaningful only inside the fe_hybrid_orth_enable=True gate;
+        # canon at FuzzCombo.canonical_key absorbs phantom variation
+        # outside the gate so dedup keeps the surviving combos minimal.
+        "fe_hybrid_orth_default_scorer": fe_hybrid_orth_default_scorer,
+        "fe_hybrid_orth_meta_enable": fe_hybrid_orth_meta_enable,
+        "fe_hybrid_orth_bootstrap_enable": fe_hybrid_orth_bootstrap_enable,
+        "fe_hybrid_orth_three_gate_enable": fe_hybrid_orth_three_gate_enable,
     }
     # 2026-05-30 audit-pass-7 #3/#4: per_feature_edges.kwargs threaded via
     # MRMR.nbins_strategy_kwargs. Build the dict only when one of these
@@ -5555,6 +5704,11 @@ def build_mrmr_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]:
         dcd_tau_cluster=combo.mrmr_dcd_tau_cluster_cfg,
         dcd_distance=combo.mrmr_dcd_distance_cfg,
         dcd_swap_method=combo.mrmr_dcd_swap_method_cfg,
+        # iter639 audit-pass-15. Forward hybrid-orth scorer family axes.
+        fe_hybrid_orth_default_scorer=combo.mrmr_fe_hybrid_orth_default_scorer_cfg,
+        fe_hybrid_orth_meta_enable=combo.mrmr_fe_hybrid_orth_meta_enable_cfg,
+        fe_hybrid_orth_bootstrap_enable=combo.mrmr_fe_hybrid_orth_bootstrap_enable_cfg,
+        fe_hybrid_orth_three_gate_enable=combo.mrmr_fe_hybrid_orth_three_gate_enable_cfg,
     )
 
 
@@ -5613,6 +5767,16 @@ def build_mlp_kwargs_from_flat(
     # internally; Lightning sees a single Optimizer instance, so no
     # additional configure_optimizers branching is required.
     optimizer: str = "adamw",
+    # iter640 audit-pass-15. F-62 Lookahead + F-63 SAM + F-68/69/70 Mixup
+    # + F-72 output-only spectral norm. Defaults source-verified at HEAD
+    # against MLPTorchModel.__init__ (training/neural/_flat_torch_module.py
+    # :43/:46/:48) and generate_mlp (training/neural/flat.py:224). All four
+    # are gated on `mlp` in models; canon at FuzzCombo.canonical_key
+    # collapses them to source defaults outside the gate.
+    use_sam: bool = False,
+    use_lookahead: bool = False,
+    use_mixup: bool = False,
+    spectral_norm_output_only: bool = False,
 ) -> Optional[Dict[str, Any]]:
     """Build the mlp_kwargs dict forwarded into PytorchLightningEstimator /
     PytorchLightningClassifier constructors. Returns None when neither MLP
@@ -5724,6 +5888,23 @@ def build_mlp_kwargs_from_flat(
             from mlframe.training.neural._muon_optimizer import MuonAdamWHybrid
             kwargs.setdefault("model_params", {})
             kwargs["model_params"]["optimizer"] = MuonAdamWHybrid
+        # iter640 audit-pass-15. F-62/63/68-70/72 MLP options. Each emits
+        # under the model_params/network_params child dict only when True
+        # so the library-default (False) path stays bit-identical when the
+        # axis is off. Names match MLPTorchModel.__init__ / generate_mlp
+        # kwargs verbatim.
+        if use_sam:
+            kwargs.setdefault("model_params", {})
+            kwargs["model_params"]["use_sam"] = True
+        if use_lookahead:
+            kwargs.setdefault("model_params", {})
+            kwargs["model_params"]["use_lookahead"] = True
+        if use_mixup:
+            kwargs.setdefault("model_params", {})
+            kwargs["model_params"]["use_mixup"] = True
+        if spectral_norm_output_only:
+            kwargs.setdefault("network_params", {})
+            kwargs["network_params"]["spectral_norm_output_only"] = True
     return kwargs
 
 
@@ -5749,6 +5930,11 @@ def build_mlp_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]:
         numerical_embedding_kwargs_mode=combo.mlp_numerical_embedding_kwargs_cfg,
         # 2026-05-31 audit-pass-10 (W10) #1.
         optimizer=combo.mlp_optimizer_cfg,
+        # iter640 audit-pass-15. F-62/63/68-70/72 MLP options.
+        use_sam=combo.mlp_use_sam_cfg,
+        use_lookahead=combo.mlp_use_lookahead_cfg,
+        use_mixup=combo.mlp_use_mixup_cfg,
+        spectral_norm_output_only=combo.mlp_spectral_norm_output_only_cfg,
     )
 
 
