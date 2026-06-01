@@ -155,14 +155,11 @@ def dataset_diagnostics(X, y, *, classification, max_rows=2000, max_rows_corr=50
         base = 0.0  # r2 of the mean predictor
 
     if n_cores >= 2:
-        # iter104: ThreadPoolExecutor over joblib.Parallel(prefer="threads"). With only 2 fits
-        # the joblib polling overhead is proportionally large; [f.result() for f in futs]
-        # preserves submission order so deep_score/stump_score tuple-unpacking stays positional.
-        from concurrent.futures import ThreadPoolExecutor
+        from joblib import Parallel, delayed
 
-        with ThreadPoolExecutor(max_workers=2) as ex:
-            futs = [ex.submit(_cv_score, est, Xs, ys, classification) for est in (deep, stump)]
-            deep_score, stump_score = [f.result() for f in futs]
+        deep_score, stump_score = Parallel(n_jobs=2, prefer="threads")(
+            delayed(_cv_score)(est, Xs, ys, classification) for est in (deep, stump)
+        )
     else:
         deep_score = _cv_score(deep, Xs, ys, classification)
         stump_score = _cv_score(stump, Xs, ys, classification)
