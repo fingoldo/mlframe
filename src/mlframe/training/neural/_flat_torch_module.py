@@ -45,6 +45,9 @@ class MLPTorchModel(L.LightningModule):
         lookahead_alpha: float = 0.5,
         use_mixup: bool = False,
         mixup_alpha: float = 0.2,
+        use_sam: bool = False,
+        sam_rho: float = 0.05,
+        sam_adaptive: bool = False,
     ):
         """
         PyTorch Lightning module for MLP training.
@@ -683,6 +686,26 @@ class MLPTorchModel(L.LightningModule):
                 self.optimizer.__name__,
                 self.hparams.lookahead_k,
                 self.hparams.lookahead_alpha,
+            )
+
+        # F-63 (2026-05-31): Sharpness-Aware Minimization (Foret 2020
+        # arxiv 2010.01412). 2x training cost per step (extra forward +
+        # backward at the ascent-perturbed weights); +0.3-0.7% on tabular
+        # MLP per Yandex 2025 ablations, +0.8-1.5% on ImageNet. Composes
+        # with Lookahead (SAM wraps the Lookahead-wrapped base; both
+        # forward state/param_groups through). Adaptive SAM (Kwon 2021)
+        # scales perturbations by |theta|; opt-in via sam_adaptive=True.
+        if self.hparams.use_sam:
+            from ._sam_optimizer import SAM
+            optimizer = SAM(
+                optimizer,
+                rho=self.hparams.sam_rho,
+                adaptive=self.hparams.sam_adaptive,
+            )
+            logger.info(
+                "F-63: wrapped optimizer in SAM(rho=%.3f, adaptive=%s).",
+                self.hparams.sam_rho,
+                self.hparams.sam_adaptive,
             )
 
         if self.lr_scheduler is None:
