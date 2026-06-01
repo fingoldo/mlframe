@@ -1424,6 +1424,20 @@ class MRMR(BaseEstimator, TransformerMixin):
         partial_fit_decay: float = 0.0,
         partial_fit_min_recompute: int = 100,
         partial_fit_window: int = None,
+        # 2026-06-01 Layer 99 — META FE-RECOMMENDER "1-knob" mode. Default OFF
+        # -> byte-identical legacy path (individual fe_*_enable defaults
+        # untouched). When True, fit() fingerprints (X, y) BEFORE the FE stages
+        # run and asks the Layer-99 rule recommender (built on the Layer-98
+        # Param-Oracle) which master FE generators match the data shape, then
+        # flips exactly those fe_*_enable flags ON for this fit -- so a user who
+        # sets only ``fe_auto=True`` gets the int-as-cat -> grouped-agg,
+        # cats -> count/freq/cat-pair, time+entity -> temporal, NaNs ->
+        # missingness, heavy-tail -> hybrid-orth mapping automatically, without
+        # reading 50 docstrings. Flags the user explicitly set to True are never
+        # turned OFF (auto only ADDS recommended generators). The original flag
+        # values are restored after fit so the constructor-arg semantics stay
+        # stable across fits and pickling/clone round-trips.
+        fe_auto: bool = False,
         # hidden
         stop_file: str = "stop",
         # iter79: content-addressable disk cache for the per-column adaptive bin-edge stage. ``None``
@@ -1940,6 +1954,9 @@ class MRMR(BaseEstimator, TransformerMixin):
             # the next fit() repopulates from the live greedy run.
             "fe_provenance_": None,
             "_predictors_log_": (),
+            # 2026-06-01 Layer 99 — fe_auto "1-knob" mode. Pre-L99 pickles
+            # default to False -> byte-identical legacy path on reload.
+            "fe_auto": False,
         }
         for k, v in defaults.items():
             state.setdefault(k, v)
@@ -2110,6 +2127,35 @@ class MRMR(BaseEstimator, TransformerMixin):
         self._fit_sample_weight_ = None if sample_weight is None else np.asarray(sample_weight, dtype=np.float64)
         X, y = self._maybe_resample_for_sample_weight(X, y, self._fit_sample_weight_)
 
+        # 2026-06-01 Layer 99 — fe_auto "1-knob" mode. BEFORE the FE stages run,
+        # ask the rule recommender which master FE generators match this (X, y)
+        # data shape and flip exactly those fe_*_enable flags ON for this fit
+        # (auto only ADDS; a flag the user already set True is left True). The
+        # ORIGINAL values are captured here and restored in the finally block so
+        # constructor-arg semantics stay stable across fits / pickling / clone.
+        _fe_auto_restore: dict = {}
+        if bool(getattr(self, "fe_auto", False)):
+            try:
+                from ._meta_fe_recommender import recommend_fe_flags_by_rules
+                _rec_flags = recommend_fe_flags_by_rules(X, y)
+                for _flag, _on in _rec_flags.items():
+                    if _on and not bool(getattr(self, _flag, False)):
+                        _fe_auto_restore[_flag] = getattr(self, _flag, False)
+                        setattr(self, _flag, True)
+                if _fe_auto_restore:
+                    logger.info(
+                        "[MRMR] fe_auto=True -> enabled FE generators for this fit: %s",
+                        sorted(_fe_auto_restore),
+                    )
+            except Exception as _exc:
+                warnings.warn(
+                    f"MRMR fe_auto: rule recommender raised {type(_exc).__name__}: {_exc}. "
+                    f"Proceeding with the explicitly-set fe_*_enable flags.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                _fe_auto_restore = {}
+
         # 2026-05-28: activate thread-local SU normalization when mi_normalization='su'.
         # The toggle is read by evaluation.py / Fleuret loops at the scoring site so
         # raw conditional_mi (and cached entropy numbers) stay legacy-bit-stable for
@@ -2240,6 +2286,13 @@ class MRMR(BaseEstimator, TransformerMixin):
                 self.cluster_aggregate_enable = _orig_cluster_aggregate_enable
             except Exception:
                 pass
+            # Layer 99 — restore any fe_*_enable flags fe_auto flipped ON, so the
+            # constructor-arg semantics are stable across fits / clone / pickle.
+            try:
+                for _flag, _orig in _fe_auto_restore.items():
+                    setattr(self, _flag, _orig)
+            except Exception:
+                pass
             frame = getattr(self, "_pandas_frame_for_target_cleanup", None)
             names = getattr(self, "_target_names_for_cleanup", None)
             if frame is not None and names:
@@ -2255,16 +2308,18 @@ class MRMR(BaseEstimator, TransformerMixin):
 
     @classmethod
     def recommend_enabled_fe(cls, X=None, y=None) -> dict:
-        """Classify every ``fe_*`` / ``dcd_*`` ctor flag by flip-safety and (stub)
+        """Classify every ``fe_*`` / ``dcd_*`` ctor flag by flip-safety AND
         recommend which FE generators to enable for a given ``(X, y)``.
 
-        This is the placeholder seam for the Layer-98 Param-Oracle meta-recommender:
-        a future implementation will inspect ``X`` dtypes / cardinalities / row count
-        and ``y`` entropy to auto-enable the FE generators whose data-shape preconditions
-        are met (e.g. turn on ``fe_grouped_agg_enable`` only when an int-as-cat group
-        column AND a continuous num column coexist). For now it returns the static
-        flip-safety classification so callers / tests can introspect the policy without
-        re-deriving it.
+        The Layer-99 rule recommender (``_meta_fe_recommender``) inspects ``X``
+        dtypes / cardinalities / NaN rates / time+entity structure and turns on
+        the master FE flags whose data-shape preconditions are met (e.g.
+        ``fe_grouped_agg_enable`` only when an int-as-cat group column exists).
+        When ``X`` is None it returns the static flip-safety classification only
+        (``recommended_enable`` empty), so callers / tests can introspect the
+        policy without supplying data. This is the cold-start path; the
+        Param-Oracle-backed learned layer (``MetaFERecommender``) is optional and
+        improves on these rules over time.
 
         Flip-safety taxonomy
         --------------------
@@ -2308,8 +2363,10 @@ class MRMR(BaseEstimator, TransformerMixin):
         -------
         dict
             ``{"flip_safe": [...], "already_default": [...], "flip_risky": [...],
-            "recommended_enable": [...]}``. ``recommended_enable`` is currently empty
-            (the data-driven generator recommendation is the Layer-98 deliverable).
+            "recommended_enable": [...]}``. ``recommended_enable`` is the
+            data-driven subset of master FE flags the Layer-99 rule recommender
+            turns ON for the supplied ``(X, y)`` data shape (empty when ``X`` is
+            None or no precondition fires).
         """
         flip_safe = ["fe_local_mi_gate"]
         already_default = [
@@ -2336,11 +2393,23 @@ class MRMR(BaseEstimator, TransformerMixin):
             "pid_synergy_bonus", "bur_lambda", "cmi_perm_stop", "cpt_test",
             "uaed_auto_size", "mi_normalization",
         ]
+        # Layer-99: data-driven recommendation. When (X, y) is supplied, the
+        # rule recommender picks the master FE flags whose data-shape
+        # preconditions are met; cold-start (no Param-Oracle history needed).
+        recommended_enable: list = []
+        if X is not None:
+            try:
+                from ._meta_fe_recommender import recommend_fe_flags_by_rules
+                rec = recommend_fe_flags_by_rules(X, y)
+                recommended_enable = sorted(f for f, on in rec.items() if on)
+            except Exception as _exc:  # never let recommendation break introspection
+                logger.warning("recommend_enabled_fe: rule recommender failed: %s", _exc)
+                recommended_enable = []
         return {
             "flip_safe": flip_safe,
             "already_default": already_default,
             "flip_risky": flip_risky,
-            "recommended_enable": [],  # Layer-98 Param-Oracle fills this from (X, y) shape.
+            "recommended_enable": recommended_enable,
         }
 
     def export_artifacts(self) -> dict:

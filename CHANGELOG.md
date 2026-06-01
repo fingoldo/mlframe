@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-06-01 — Layer 99: META FE-RECOMMENDER — ~50 opt-in FE flags collapse to 1 ``fe_auto`` knob
+
+MRMR ships ~50 opt-in ``fe_*_enable`` feature-engineering generators (Layers 33-95), each helping only on a specific data shape; users who don't read the docstrings leave the entire zoo off and the wins go unrealised. Layer 99 closes that gap with two complementary layers, both built ON the Layer-98 Param-Oracle (``_meta_fe_recommender.py``).
+
+A. Rule-based cold-start recommender (``recommend_fe_flags_by_rules(X, y)``). Cheaply fingerprints the data shape (reusing Param-Oracle's ``default_fingerprint`` plus FE-relevant structural detectors) and maps each matched precondition to the master flag(s) it pays off for: int-as-cat group column (card 3..500) -> grouped_agg / composite_group_agg / grouped_quantile; object/category columns -> count_encoding / frequency_encoding / cat_pair (>= 3 cats -> cat_triple; + numeric -> cat_num_interaction); time column + entity column -> temporal_agg; any column NaN rate >= 1% -> missingness_indicator; heavy-tailed/skewed continuous -> hybrid_orth; anchored/discrete-pattern numeric -> numeric_decompose / modular. A clean Gaussian frame returns all-False (no false positives). Needs NO history — the cold-start prior.
+
+B. Param-Oracle-backed learned recommender (``MetaFERecommender``). Wraps (A) as its cold-start fallback and layers a ``ParamOracle`` keyed on the dataset fingerprint over it. ``fit_observe(X, y, flags_used, cv_score)`` records which flag-set scored what on which fingerprint (stat-only — only scalar fingerprint stats, the flag-set, and the score touch disk); ``recommend(X, y)`` returns the learned best flag-set once confident per-fingerprint history exists, else falls back to the rules. The learned layer improves on the static rules over time without ever doing worse than the cold-start prior.
+
+Wiring. ``MRMR.recommend_enabled_fe(X, y)`` now fills ``recommended_enable`` from the rule recommender (empty when ``X`` is None). New ctor flag ``fe_auto=False`` (the "1-knob" mode): when True, ``fit()`` fingerprints ``(X, y)`` BEFORE the FE stages run and flips exactly the recommended master ``fe_*_enable`` flags ON for that fit (auto only ADDS; user-set flags are never turned off). The original flag values are restored after fit so constructor-arg semantics stay stable across fits / clone / pickle. Default ``fe_auto=False`` -> byte-identical legacy path; pre-L99 pickles default the flag to False on reload.
+
+End-to-end (group-mean fixture, fe_auto vs explicit manual-best grouped_agg, LogReg holdout AUC): seed=1 auto 0.8873 / manual 0.8808; seed=7 0.7448 / 0.7031; seed=13 0.7637 / 0.7631 (auto >= manual - 0.02 on every seed; 8-9 grouped features auto-enabled).
+
+Tests: ``tests/feature_selection/test_biz_value_mrmr_layer99.py`` (17 cases) pins the rule table (group/cat/time-entity/missingness enables, clean-continuous no-false-positives), the ``recommend_enabled_fe`` wiring, the ``fe_auto`` end-to-end AUC + flag-restore + default byte-identical, the learned recommender overriding the rules on a fingerprint where rules pick nothing, cold-start == rules, stat-only persistence, and pickle/clone preserving ``fe_auto``. Full L99 + Param-Oracle suite: 26 passed.
+
 ## 2026-06-01 — Layer 95: periodic/modular FE (PART A) + per-group distribution-distance FE (PART B)
 
 Two opt-in MRMR feature-engineering extensions, both default OFF (byte-identical legacy path).
