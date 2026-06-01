@@ -92,6 +92,29 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # gating + reporting branch landed. Reasonable next split: the report-emit
     # loop into ``_phase_composite_post_xt_ensemble_report.py``.
     "src/mlframe/training/core/_phase_composite_post_xt_ensemble.py",
+    # FIXME(carve-wave-next): _flat_torch_module.py at ~1.1k LOC after the F-37
+    # BoundedTanh, F-38 CUDA-graph predict cache, F-39 torch.compile predict,
+    # F-40 low-level CUDAGraph() rewrite, F-58 first-batch fix, and F-61
+    # pickle hooks. Sensible carve: lift the CUDA-graph + compile predict
+    # helpers (~250 LOC, methods ``_maybe_cuda_graph_forward`` +
+    # ``_maybe_compile_predict_forward`` + the F-58 sync) into
+    # ``_flat_torch_module_predict_accel.py`` as plain functions taking
+    # ``self`` -- parent re-attaches them in __init_subclass__-style binding.
+    "src/mlframe/training/neural/_flat_torch_module.py",
+    # FIXME(carve-wave-next): filters/_orthogonal_scorer_auto_fe.py at ~1.17k LOC
+    # after the cross-basis routing + adaptive-degree + diff-basis branches
+    # landed in the orth-FE wave. Sensible carve: lift each scorer's body
+    # into ``_orthogonal_scorer_auto_fe_<kind>.py`` siblings; keep the
+    # dispatch + dataclass in the parent.
+    "src/mlframe/feature_selection/filters/_orthogonal_scorer_auto_fe.py",
+    # FIXME(carve-wave-next): training/neural/recurrent.py at ~1.01k LOC after
+    # the F-44 bf16-mixed auto-promote + F-46 fused-AdamW + F-47 cuDNN
+    # persistent-RNN + F-48 nested-tensor + F-51 share_memory_() + F-53
+    # lengths.cpu() non-sync sequence landed. Sensible carve: lift the
+    # ``RecurrentDataset`` + collate helpers into
+    # ``recurrent_dataset_helpers.py`` sibling; keep the LightningModule
+    # in the parent facade.
+    "src/mlframe/training/neural/recurrent.py",
 }
 
 
