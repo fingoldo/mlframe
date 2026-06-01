@@ -892,8 +892,12 @@ class MLPTorchModel(L.LightningModule):
 
         Gating chain (any False -> eager fallback, zero overhead):
           1. ``MLFRAME_CUDA_GRAPH_PREDICT`` env var:
-               unset / "1" / "true" / "auto" -> ON (default-on after F-40)
-               "0" / "false" / "off"           -> OFF (opt-out)
+               "1" / "true" / "on" / "yes" -> ON (opt-in)
+               unset / "0" / "false" / "off" -> OFF (default-off after the
+               2026-06-01 cross-call determinism regression; F-40's
+               default-on returned stale replay output when Lightning's
+               predict loop reused the GPU allocator between successive
+               ``_predict_raw`` calls)
           2. CUDA is available + the input tensor lives on CUDA
           3. No LSTM/GRU/RNN in the network (cuDNN control flow breaks
              capture; same anti-pattern as F-35 torch.compile guard)

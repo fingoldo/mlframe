@@ -132,9 +132,12 @@ def test_cuda_graph_env_explicit_off_falls_back_to_eager(monkeypatch):
     assert module._cuda_graph_predict_cache == {}
 
 
-def test_cuda_graph_env_default_is_on_falls_back_on_cpu(monkeypatch):
-    """F-40 default-on: env unset -> opt-in. On CPU input the gate
-    still falls back to eager (CUDA graphs are GPU-only)."""
+def test_cuda_graph_env_default_falls_back_on_cpu(monkeypatch):
+    """Env unset -> default OFF (2026-06-01 flip). On CPU input the gate
+    falls back to eager regardless. The earlier default-on caused a
+    cross-call determinism regression where the captured graph's replay
+    returned stale output when Lightning released GPU intermediates
+    between successive ``_predict_raw`` calls."""
     monkeypatch.delenv("MLFRAME_CUDA_GRAPH_PREDICT", raising=False)
     module = _make_module()
     x = torch.randn(4, 4)  # CPU
