@@ -43,6 +43,57 @@ def test_score_margin_matches_numpy_references():
     np.testing.assert_allclose(score_margin(margin, y_bin, 3), bce, rtol=1e-6)  # log-loss
 
 
+@pytest.mark.parametrize("code", [0, 1, 2, 3])
+@pytest.mark.parametrize("n", [200, 12000])
+def test_score_margin_parallel_matches_serial(code, n):
+    """score_margin_parallel (prange) must match the serial kernel to summation round-off.
+
+    Locks the iter106 dispatcher: the parallel twin is routed in for tall margins, so its loss must
+    track the serial loop closely enough that subset ranking is unaffected. The reduction order
+    differs under prange so we assert rtol=1e-12 (float64 sum-reorder), not bit-equality. Both n
+    below and above the default crossover (10000) are exercised so the kernel itself is checked
+    regardless of which side of the dispatch threshold the row count falls on.
+    """
+    from mlframe.feature_selection._shap_proxy_objective import score_margin, score_margin_parallel
+
+    rng = np.random.default_rng(code * 7 + n)
+    margin = rng.normal(size=n)
+    y = (rng.normal(size=n) if code in (0, 1) else (rng.random(n) > 0.5).astype(float))
+    serial = score_margin(margin, y, code)
+    parallel = score_margin_parallel(margin, y, code)
+    np.testing.assert_allclose(parallel, serial, rtol=1e-12, atol=1e-12)
+
+
+def test_score_margin_auto_routes_by_row_count(monkeypatch):
+    """score_margin_auto picks parallel at/above the crossover, serial below it -- same value either
+    way. Verifies the dispatch boundary uses margin.shape[0] against the resolved threshold."""
+    import mlframe.feature_selection._shap_proxy_objective as O
+
+    calls = {"serial": 0, "parallel": 0}
+    real_serial, real_parallel = O.score_margin, O.score_margin_parallel
+
+    def spy_serial(m, y, c):
+        calls["serial"] += 1
+        return real_serial(m, y, c)
+
+    def spy_parallel(m, y, c):
+        calls["parallel"] += 1
+        return real_parallel(m, y, c)
+
+    monkeypatch.setattr(O, "score_margin", spy_serial)
+    monkeypatch.setattr(O, "score_margin_parallel", spy_parallel)
+    monkeypatch.setattr(O, "_score_margin_parallel_min_rows", lambda: 1000)
+
+    rng = np.random.default_rng(0)
+    y_small = (rng.random(500) > 0.5).astype(float)
+    O.score_margin_auto(rng.normal(size=500), y_small, 2)
+    assert calls == {"serial": 1, "parallel": 0}
+
+    y_big = (rng.random(2000) > 0.5).astype(float)
+    O.score_margin_auto(rng.normal(size=2000), y_big, 2)
+    assert calls == {"serial": 1, "parallel": 1}
+
+
 def test_proxy_loss_auc_is_one_minus_auc():
     from mlframe.feature_selection._shap_proxy_objective import proxy_loss
 

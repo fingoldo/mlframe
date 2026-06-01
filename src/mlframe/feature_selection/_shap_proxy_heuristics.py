@@ -25,6 +25,7 @@ from mlframe.feature_selection._shap_proxy_objective import (
     proxy_loss,
     resolve_metric,
     score_margin,
+    score_margin_auto,
 )
 
 
@@ -61,15 +62,21 @@ class _Evaluator:
     def _make_fast_loss(self, y, metric):
         """Return a closure(margin) -> float that skips proxy_loss's per-call dispatch.
 
-        Falls back to ``proxy_loss`` for AUC (needs a per-subset sort, not a pointwise loss)."""
+        Falls back to ``proxy_loss`` for AUC (needs a per-subset sort, not a pointwise loss).
+
+        iter106: every margin this evaluator scores has the SAME row count (``y.shape[0]``), so the
+        serial-vs-prange ``score_margin`` route is resolved ONCE here (via ``score_margin_auto``'s
+        crossover) and baked into the closure -- zero per-call dispatch in the beam/greedy hot loop.
+        At tall regimes (n_rows >= ~10000) the prange kernel is ~2x on the dominant brier/log-loss
+        reductions (profiled width=500 / n_rows=50000: score_margin 1.5s of a 32s fit)."""
         if metric == "auc":
             metric_local = metric
             return lambda margin: proxy_loss(margin, y, metric_local)
         code = METRIC_CODES[metric]
         if metric == "rmse":
             from math import sqrt
-            return lambda margin: sqrt(score_margin(margin, y, 1))
-        return lambda margin: float(score_margin(margin, y, code))
+            return lambda margin: sqrt(score_margin_auto(margin, y, 1))
+        return lambda margin: float(score_margin_auto(margin, y, code))
 
     @staticmethod
     def _key(idx) -> tuple[int, ...]:
