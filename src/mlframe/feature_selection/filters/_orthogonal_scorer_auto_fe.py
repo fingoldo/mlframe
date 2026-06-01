@@ -70,6 +70,7 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "SCORER_NAMES",
     "ENSEMBLE_AGGREGATORS",
+    "MUTUAL_RANK_AGGREGATORS",
     "select_best_scorer_per_column",
     "score_features_by_auto_scorer_uplift",
     "score_features_by_ensemble_uplift",
@@ -101,7 +102,18 @@ SCORER_NAMES = ("plug_in", "ksg", "copula", "dcor", "hsic")
 #   Cormack/Clarke/Buettcher 2009); strongly downweights agreement on
 #   already-low-ranked columns so a single scorer with a strong top-1
 #   does not get drowned by three scorers agreeing on a tail column.
-ENSEMBLE_AGGREGATORS = ("mean_rank", "borda_count", "reciprocal_rank")
+ENSEMBLE_AGGREGATORS = (
+    "mean_rank", "borda_count", "reciprocal_rank", "mutual_top_k",
+)
+
+# 2026-06-01 Layer 82: MUTUAL-RANK fusion aggregators. The "mutual_top_k"
+# strategy keeps a candidate ONLY if it lies in the top-K of EVERY
+# participating scorer (strict conjunction). Complements the existing
+# mean/Borda/RR aggregators which are all UNION-flavoured (one strong scorer
+# can carry a candidate). The strict-conjunction rule trades recall for
+# precision -- useful when the cost of admitting a noise column is higher
+# than the cost of missing a borderline signal.
+MUTUAL_RANK_AGGREGATORS = ("mutual_top_k",)
 
 
 def _score_plug_in(x: np.ndarray, y: np.ndarray, *, nbins: int = 10) -> float:
@@ -746,6 +758,8 @@ def _aggregate_ranks(
     rank_per_scorer: dict,
     eng_cols: Sequence[str],
     aggregator: str,
+    *,
+    mutual_top_k: int = 5,
 ) -> dict:
     """Fuse per-scorer ranks into a single aggregate score (lower = better).
 
@@ -756,6 +770,11 @@ def _aggregate_ranks(
     * ``reciprocal_rank``: ``sum(1 / (k + rank))`` (k = 60, the
       Cormack/Clarke/Buettcher 2009 default). Returned negated so lower
       = better.
+    * ``mutual_top_k`` (Layer 82): strict conjunction -- a candidate is
+      tagged "qualified" (aggregate score = max-of-ranks, lower = better)
+      only if it sits in the top-K of EVERY participating scorer. Columns
+      that miss the top-K of ANY scorer get a huge sentinel score so the
+      downstream selector drops them. Trades recall for precision.
 
     Returns
     -------
@@ -792,6 +811,25 @@ def _aggregate_ranks(
                 rr += 1.0 / (k + r)
             out[col] = -float(rr)
         return out
+    if aggregator == "mutual_top_k":
+        # Strict conjunction: a candidate must be top-K under EVERY scorer.
+        # Columns that miss the top-K of any scorer get sentinel = n_cols
+        # * 1000 so they sink to the bottom of the ranking. Among the
+        # qualified set, smaller worst-case rank wins (the "weakest-link"
+        # rank across scorers).
+        k_thr = max(1, int(mutual_top_k))
+        sentinel = float(n_cols * 1000 + 1)
+        for col in eng_cols:
+            ranks = [
+                rank_per_scorer[s].get(col, n_cols + 1) for s in scorers
+            ]
+            worst = max(ranks) if ranks else (n_cols + 1)
+            if worst <= k_thr:
+                # Qualified: rank by worst-case (weakest-link) rank.
+                out[col] = float(worst)
+            else:
+                out[col] = sentinel
+        return out
     raise ValueError(
         f"unknown aggregator {aggregator!r}; expected one of "
         f"{ENSEMBLE_AGGREGATORS}"
@@ -805,6 +843,7 @@ def score_features_by_ensemble_uplift(
     *,
     scorers: Sequence[str] = SCORER_NAMES,
     aggregator: str = "mean_rank",
+    mutual_top_k: int = 5,
     random_state: int = 0,
     nbins: int = 10,
     n_neighbors: int = 3,
@@ -908,6 +947,7 @@ def score_features_by_ensemble_uplift(
     eng_cols = list(score_table["engineered_col"])
     agg_scores = _aggregate_ranks(
         rank_per_scorer, eng_cols, aggregator=aggregator,
+        mutual_top_k=int(mutual_top_k),
     )
 
     rows = []
@@ -964,6 +1004,7 @@ def hybrid_orth_mi_ensemble_fe(
     min_abs_mi_frac: float = 0.1,
     scorers: Sequence[str] = SCORER_NAMES,
     aggregator: str = "mean_rank",
+    mutual_top_k: int = 5,
     random_state: int = 0,
     nbins: int = 10,
     n_neighbors: int = 3,
@@ -1007,6 +1048,7 @@ def hybrid_orth_mi_ensemble_fe(
     scores = score_features_by_ensemble_uplift(
         raw_X, engineered, y,
         scorers=scorers, aggregator=aggregator,
+        mutual_top_k=int(mutual_top_k),
         random_state=int(random_state), nbins=int(nbins),
         n_neighbors=int(n_neighbors),
         copula_n_bins=int(copula_n_bins),
@@ -1039,6 +1081,15 @@ def hybrid_orth_mi_ensemble_fe(
         (scores["uplift"] >= float(min_uplift))
         & (scores["engineered_mi"] >= abs_floor)
     ]
+    # Layer 82 mutual_top_k: drop rows the strict-conjunction aggregator
+    # disqualified (they carry a sentinel aggregate_rank far above n_cols).
+    # The uplift/abs gates can still admit them on borderline data, so the
+    # explicit sentinel cut is required to honour the strict-conjunction
+    # contract.
+    if aggregator == "mutual_top_k" and "aggregate_rank" in qualified.columns:
+        n_total = len(scores)
+        mutual_cut = float(n_total * 1000)
+        qualified = qualified[qualified["aggregate_rank"] <= mutual_cut]
     winners = qualified.head(int(top_k))
     keep = list(winners["engineered_col"])
     X_aug = (
@@ -1059,6 +1110,7 @@ def hybrid_orth_mi_ensemble_fe_with_recipes(
     min_abs_mi_frac: float = 0.1,
     scorers: Sequence[str] = SCORER_NAMES,
     aggregator: str = "mean_rank",
+    mutual_top_k: int = 5,
     random_state: int = 0,
     nbins: int = 10,
     n_neighbors: int = 3,
@@ -1079,6 +1131,7 @@ def hybrid_orth_mi_ensemble_fe_with_recipes(
         top_k=top_k, min_uplift=min_uplift,
         min_abs_mi_frac=min_abs_mi_frac,
         scorers=scorers, aggregator=aggregator,
+        mutual_top_k=int(mutual_top_k),
         random_state=int(random_state),
         nbins=int(nbins), n_neighbors=int(n_neighbors),
         copula_n_bins=int(copula_n_bins),

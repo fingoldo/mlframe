@@ -783,6 +783,23 @@ class MRMR(BaseEstimator, TransformerMixin):
         # equivalence.
         fe_hybrid_orth_lasso_enable: bool = False,
         fe_hybrid_orth_lasso_alpha: float = 0.01,
+        # 2026-06-01 Layer 82 — ELASTIC NET (L1 + L2) PRE-SELECTION (sibling
+        # module ``_orthogonal_elasticnet_fe``). Independent opt-in (does NOT
+        # require fe_hybrid_orth_enable). Lasso (Layer 81) arbitrarily picks
+        # one of a correlated candidate pair and zeroes the rest; the L2
+        # penalty in Elastic Net shares coefficient mass among correlated
+        # columns ("grouping effect", Zou & Hastie 2005), so a correlated
+        # pair survives or drops together rather than being arbitrarily
+        # split. ``l1_ratio=1.0`` reproduces Lasso; ``l1_ratio=0.0``
+        # reproduces Ridge; default 0.5 splits the penalty evenly.
+        #
+        # Recipes still use ``orth_univariate`` kind (engineered VALUES are
+        # bit-equal to Layer 21 -- only the selection metric changes), replay
+        # reads X only, no y. Default OFF preserves legacy pickle byte
+        # equivalence.
+        fe_hybrid_orth_elasticnet_enable: bool = False,
+        fe_hybrid_orth_elasticnet_alpha: float = 0.01,
+        fe_hybrid_orth_elasticnet_l1_ratio: float = 0.5,
         # 2026-05-31 Layer 57 — ADAPTIVE PER-COLUMN DEGREE selection
         # (sibling module ``_orthogonal_adaptive_degree_fe``). Independent
         # opt-in (does NOT require fe_hybrid_orth_enable). When enabled,
@@ -1529,6 +1546,11 @@ class MRMR(BaseEstimator, TransformerMixin):
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_hybrid_orth_lasso_enable": False,
             "fe_hybrid_orth_lasso_alpha": 0.01,
+            # 2026-06-01 Layer 82 — Elastic Net (L1 + L2) pre-selection defaults.
+            # Master switch OFF preserves legacy pickle byte-equivalence.
+            "fe_hybrid_orth_elasticnet_enable": False,
+            "fe_hybrid_orth_elasticnet_alpha": 0.01,
+            "fe_hybrid_orth_elasticnet_l1_ratio": 0.5,
             # 2026-05-31 Layer 57 — adaptive per-column degree defaults.
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_hybrid_orth_adaptive_degree_enable": False,
