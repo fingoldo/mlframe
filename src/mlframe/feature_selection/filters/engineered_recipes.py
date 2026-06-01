@@ -125,7 +125,7 @@ class EngineeredRecipe:
     # (src_names=(c_i, c_j), extra={basis_i, basis_j, deg_a, deg_b}). Replay
     # is closed-form from the source column(s) alone -- no y reference is
     # captured at fit time, so transform() is leakage-free by construction.
-    kind: Literal["unary_binary", "factorize", "hermite_pair", "target_encoding", "cluster_aggregate", "orth_univariate", "orth_pair_cross", "orth_triplet_cross", "orth_quadruplet_cross", "orth_spline", "orth_fourier", "orth_diff_basis", "orth_cluster_basis", "mi_greedy_transform", "kfold_target_encoded", "count_encoded", "frequency_encoded", "cat_num_residual", "missing_indicator", "missingness_count", "missingness_pattern", "pairwise_ratio", "grouped_delta", "lagged_diff", "grouped_agg", "grouped_quantile", "target_aware_group_bin", "cat_pair_cross", "numeric_rounding", "digit_extract"]
+    kind: Literal["unary_binary", "factorize", "hermite_pair", "target_encoding", "cluster_aggregate", "orth_univariate", "orth_pair_cross", "orth_triplet_cross", "orth_quadruplet_cross", "orth_spline", "orth_fourier", "orth_diff_basis", "orth_cluster_basis", "mi_greedy_transform", "kfold_target_encoded", "count_encoded", "frequency_encoded", "cat_num_residual", "missing_indicator", "missingness_count", "missingness_pattern", "pairwise_ratio", "grouped_delta", "lagged_diff", "grouped_agg", "grouped_quantile", "target_aware_group_bin", "cat_pair_cross", "numeric_rounding", "digit_extract", "temporal_expanding", "temporal_rolling", "temporal_lag"]
     src_names: tuple[str, ...]
     unary_names: tuple[str, ...] = ()
     binary_name: str = ""
@@ -412,6 +412,22 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
             return apply_rounding(vals, float(recipe.extra["precision"]))
         from ._numeric_decompose_fe import apply_digit_extract
         return apply_digit_extract(vals, int(recipe.extra["digit_position"]))
+    if recipe.kind in ("temporal_expanding", "temporal_rolling", "temporal_lag"):
+        # Layer 92 (2026-06-01): leak-safe temporal aggregations. Replay
+        # computes each test row's expanding / rolling / lag stat against the
+        # stored TRAIN per-entity history plus earlier within-test rows -- never
+        # the row's own future, never train labels. Lazy import keeps this
+        # module under the LOC ceiling.
+        from ._temporal_agg_fe import (
+            apply_temporal_expanding,
+            apply_temporal_rolling,
+            apply_temporal_lag,
+        )
+        if recipe.kind == "temporal_expanding":
+            return apply_temporal_expanding(X, dict(recipe.extra))
+        if recipe.kind == "temporal_rolling":
+            return apply_temporal_rolling(X, dict(recipe.extra))
+        return apply_temporal_lag(X, dict(recipe.extra))
     if recipe.kind in ("grouped_quantile", "target_aware_group_bin"):
         # Layer 88 lazy import: per-group distributional FE (percentile-rank +
         # spread + target-aware supervised bins); replay helpers live with the
@@ -2093,5 +2109,16 @@ from ._orthogonal_quadruplet_fe_recipes import (  # noqa: E402
 from ._numeric_decompose_fe import (  # noqa: E402
     build_numeric_rounding_recipe,
     build_digit_extract_recipe,
+)
+
+# ---------------------------------------------------------------------------
+# Layer 92 (2026-06-01): temporal leak-safe aggregation recipe builders
+# re-export. Implementation in sibling ``_temporal_agg_fe`` keeps this module
+# from growing further; the apply path is dispatched inline above.
+# ---------------------------------------------------------------------------
+from ._temporal_agg_fe import (  # noqa: E402
+    build_temporal_expanding_recipe,
+    build_temporal_rolling_recipe,
+    build_temporal_lag_recipe,
 )
 

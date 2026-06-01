@@ -1302,6 +1302,25 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_numeric_decompose_digits: tuple = (0, 1, 2),
         fe_numeric_decompose_n_boot: int = 10,
         fe_numeric_decompose_top_k: int = 5,
+        # 2026-06-01 Layer 92 — TEMPORAL LEAK-SAFE GROUPED AGGREGATIONS. Layer
+        # 87 grouped aggregates compute the per-group statistic over the WHOLE
+        # train fold; for time-series / transaction data that peeks at a row's
+        # own future (the per-entity mean includes the entity's LATER rows),
+        # inflating train-CV and collapsing the forward holdout. This layer
+        # keys aggregations on a TIME column and only ever sees the strict past:
+        # expanding stat over rows before the current one, rolling time-window
+        # stat, and lag features. Each survivor MI-gated against y. Recipes
+        # store the FIT-time per-entity sorted history so test rows compute
+        # their stat against TRAIN history only -- no test-future peeking, no
+        # train-label leak. Default OFF -> byte-identical legacy path.
+        fe_temporal_agg_enable: bool = False,
+        fe_temporal_agg_entity_cols: tuple = (),
+        fe_temporal_agg_value_cols: tuple = (),
+        fe_temporal_agg_time_col: str = None,
+        fe_temporal_agg_stats: tuple = ("mean", "std", "count"),
+        fe_temporal_agg_windows: tuple = (),
+        fe_temporal_agg_lags: tuple = (1,),
+        fe_temporal_agg_top_k: int = 10,
         # Artifact retention for cross-selector reuse. When True, after fit() the
         # estimator carries ``su_to_target_``, ``mi_to_target_``, ``cached_MIs``,
         # and (when ``retain_bins=True``) per-column binned arrays so a downstream

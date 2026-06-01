@@ -1,0 +1,788 @@
+"""Temporal leak-safe grouped aggregations (Layer 92, 2026-06-01).
+
+Layer 87 ships whole-fold grouped aggregations: ``group_mean(value | entity)``
+computed over EVERY train row. For time-series / transaction data this peeks at
+the future -- the per-entity mean used to score an early row already contains
+that entity's LATER rows. The model trains on a statistic it can never compute
+at inference time (you don't know a user's future spend when scoring today),
+so the train-CV score is inflated and the forward holdout collapses. Every
+Kaggle time-series winner instead uses expanding / rolling-window aggregations
+keyed on a time column, which by construction only see the past.
+
+This module provides three leak-safe temporal FE families:
+
+* ``generate_expanding_agg_features`` -- sort by ``time_col`` within entity,
+  compute the EXPANDING stat over rows strictly BEFORE the current one
+  (``expanding(mean/std/count/min/max).shift(1)``). Row 0 of each entity has no
+  history and falls back to the global prior.
+* ``generate_rolling_window_agg_features`` -- rolling TIME-window stat (pandas
+  rolling on a datetime index), shifted by one row to exclude the current.
+* ``generate_lag_features`` -- the entity's value at ``t - lag`` (autoregressive
+  signal); unseen / out-of-history positions fall back to the global prior.
+
+Recipe-based replay (CRITICAL leak-safety contract)
+----------------------------------------------------
+
+At fit time each recipe stores the per-entity SORTED history snapshot
+(timestamps + values) observed on the TRAIN fold. At transform time a test row
+computes its expanding / rolling / lag statistic against the TRAIN history only
+(all train rows whose timestamp is strictly earlier than the test row), then,
+within the test frame, against earlier test rows of the same entity. This means
+``transform(X_test)``:
+
+* never peeks at a test row's own future (leak-free within the test set), and
+* never leaks train labels (the history carries values, never ``y``).
+
+The ``y`` array is consumed ONLY by the MI gate in :func:`hybrid_temporal_agg_fe`
+to rank candidates; the recipes carry no ``y`` reference.
+"""
+from __future__ import annotations
+
+import logging
+from typing import Optional, Sequence
+
+import numpy as np
+import pandas as pd
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    "EXPANDING_STATS",
+    "engineered_name_expanding",
+    "engineered_name_rolling",
+    "engineered_name_lag",
+    "generate_expanding_agg_features",
+    "generate_rolling_window_agg_features",
+    "generate_lag_features",
+    "build_temporal_expanding_recipe",
+    "build_temporal_rolling_recipe",
+    "build_temporal_lag_recipe",
+    "apply_temporal_expanding",
+    "apply_temporal_rolling",
+    "apply_temporal_lag",
+    "hybrid_temporal_agg_fe",
+]
+
+EXPANDING_STATS = ("mean", "std", "count", "min", "max")
+
+
+def engineered_name_expanding(value_col: str, entity_col: str, stat: str) -> str:
+    return f"texp_{stat}({value_col}|{entity_col})"
+
+
+def engineered_name_rolling(value_col: str, entity_col: str, window: str, stat: str) -> str:
+    return f"troll_{stat}_{window}({value_col}|{entity_col})"
+
+
+def engineered_name_lag(value_col: str, entity_col: str, lag: int) -> str:
+    return f"tlag{int(lag)}({value_col}|{entity_col})"
+
+
+# ---------------------------------------------------------------------------
+# Helpers shared by the three families
+# ---------------------------------------------------------------------------
+
+
+def _entity_key_series(X: pd.DataFrame, entity_cols: Sequence[str]) -> pd.Series:
+    """Collapse one or more entity columns into a single str key per row,
+    index-aligned with X. Multi-column keys join with a NUL separator that
+    cannot appear in normal string casts."""
+    if len(entity_cols) == 1:
+        return X[entity_cols[0]].astype(object).map(lambda v: str(v))
+    parts = [X[c].astype(object).map(lambda v: str(v)) for c in entity_cols]
+    key = parts[0]
+    for p in parts[1:]:
+        key = key.str.cat(p, sep="\x00")
+    return key
+
+
+def _global_prior(values: np.ndarray, stat: str) -> float:
+    finite = values[np.isfinite(values)]
+    if finite.size == 0:
+        return 0.0
+    if stat == "mean":
+        return float(np.mean(finite))
+    if stat == "std":
+        return float(np.std(finite, ddof=1)) if finite.size > 1 else 0.0
+    if stat == "count":
+        return 0.0
+    if stat == "min":
+        return float(np.min(finite))
+    if stat == "max":
+        return float(np.max(finite))
+    if stat == "median":
+        return float(np.median(finite))
+    raise ValueError(f"temporal_agg: unknown stat {stat!r}")
+
+
+def _validate(X, entity_cols, value_cols, time_col, fn_name):
+    if not isinstance(X, pd.DataFrame):
+        raise TypeError(
+            f"{fn_name}: X must be a pandas DataFrame; got {type(X).__name__}"
+        )
+    entity_cols = [c for c in (entity_cols or []) if c in X.columns]
+    value_cols = [
+        c for c in (value_cols or [])
+        if c in X.columns and pd.api.types.is_numeric_dtype(X[c])
+    ]
+    if time_col is None or time_col not in X.columns:
+        raise KeyError(
+            f"{fn_name}: time_col {time_col!r} not present in X.columns"
+        )
+    return entity_cols, value_cols
+
+
+def _stable_time_order(time_vals: np.ndarray) -> np.ndarray:
+    """Mergesort (stable) argsort over a time column. Stability guarantees a
+    deterministic order for ties so fit / transform agree row-for-row."""
+    return np.argsort(time_vals, kind="mergesort")
+
+
+# ---------------------------------------------------------------------------
+# Expanding aggregations
+# ---------------------------------------------------------------------------
+
+
+def _expanding_stat_past_only(
+    sorted_vals: np.ndarray, group_codes: np.ndarray, stat: str,
+) -> np.ndarray:
+    """Compute the EXPANDING ``stat`` over rows strictly BEFORE the current
+    row, within each entity, given values already in (entity, time) order.
+
+    ``group_codes`` is a dense per-entity integer code aligned with
+    ``sorted_vals`` (also already in the sorted order). Returns an array the
+    same length as ``sorted_vals``; the first row of each entity (no history)
+    is left as NaN for the caller to fill with the global prior.
+    """
+    n = sorted_vals.size
+    out = np.full(n, np.nan, dtype=np.float64)
+    # Per-entity running accumulators.
+    n_seen: dict[int, int] = {}
+    run_sum: dict[int, float] = {}
+    run_sumsq: dict[int, float] = {}
+    run_min: dict[int, float] = {}
+    run_max: dict[int, float] = {}
+    for i in range(n):
+        g = int(group_codes[i])
+        cnt = n_seen.get(g, 0)
+        if cnt > 0:
+            if stat == "count":
+                out[i] = float(cnt)
+            elif stat == "mean":
+                out[i] = run_sum[g] / cnt
+            elif stat == "std":
+                if cnt > 1:
+                    mean = run_sum[g] / cnt
+                    var = (run_sumsq[g] - cnt * mean * mean) / (cnt - 1)
+                    out[i] = float(np.sqrt(var)) if var > 0.0 else 0.0
+                else:
+                    out[i] = 0.0
+            elif stat == "min":
+                out[i] = run_min[g]
+            elif stat == "max":
+                out[i] = run_max[g]
+        # Fold the CURRENT row into the entity's history AFTER scoring it.
+        v = sorted_vals[i]
+        if np.isfinite(v):
+            n_seen[g] = cnt + 1
+            run_sum[g] = run_sum.get(g, 0.0) + v
+            run_sumsq[g] = run_sumsq.get(g, 0.0) + v * v
+            run_min[g] = v if g not in run_min else min(run_min[g], v)
+            run_max[g] = v if g not in run_max else max(run_max[g], v)
+        else:
+            # Non-finite value still advances the row pointer but contributes
+            # nothing to the running stats; count stays as-is.
+            n_seen.setdefault(g, cnt)
+    return out
+
+
+def generate_expanding_agg_features(
+    X: pd.DataFrame,
+    entity_cols: Sequence[str],
+    value_cols: Sequence[str],
+    time_col: str,
+    stats: Sequence[str] = EXPANDING_STATS,
+):
+    """Leak-safe expanding aggregations: per-entity stat over the strict past.
+
+    Returns ``(enc_df, raw_recipes)`` where each recipe carries the per-entity
+    sorted (time, value) history so :func:`apply_temporal_expanding` can replay
+    a test frame against the TRAIN history only.
+    """
+    entity_cols, value_cols = _validate(
+        X, entity_cols, value_cols, time_col, "generate_expanding_agg_features",
+    )
+    stats = [s for s in stats if s in EXPANDING_STATS]
+    encoded: dict[str, np.ndarray] = {}
+    raw_recipes: dict[str, dict] = {}
+    if not entity_cols or not value_cols or not stats:
+        return pd.DataFrame(index=X.index), raw_recipes
+
+    key = _entity_key_series(X, entity_cols).to_numpy()
+    time_vals = X[time_col].to_numpy()
+    order = _stable_time_order(time_vals)
+    inv_order = np.empty_like(order)
+    inv_order[order] = np.arange(order.size)
+    key_sorted = key[order]
+    codes_sorted, _uniq = pd.factorize(key_sorted, sort=False)
+
+    # Persist the per-entity sorted history (train snapshot) once per value col.
+    for value_col in value_cols:
+        vals = np.asarray(X[value_col].to_numpy(), dtype=np.float64)
+        vals_sorted = vals[order]
+        # History snapshot: per-entity sorted (time, value) lists.
+        history: dict[str, dict] = {}
+        for g_code in range(int(codes_sorted.max()) + 1 if codes_sorted.size else 0):
+            mask = codes_sorted == g_code
+            ent_key = str(key_sorted[mask][0])
+            history[ent_key] = {
+                "t": time_vals[order][mask].tolist(),
+                "v": vals_sorted[mask].tolist(),
+            }
+        for stat in stats:
+            res_sorted = _expanding_stat_past_only(vals_sorted, codes_sorted, stat)
+            prior = _global_prior(vals, stat)
+            res_sorted = np.where(np.isfinite(res_sorted), res_sorted, prior)
+            res = res_sorted[inv_order]
+            name = engineered_name_expanding(value_col, entity_cols[0] if len(entity_cols) == 1 else "+".join(entity_cols), stat)
+            encoded[name] = res
+            raw_recipes[name] = {
+                "entity_cols": list(entity_cols),
+                "value_col": value_col,
+                "time_col": time_col,
+                "stat": stat,
+                "history": history,
+                "global_prior": prior,
+            }
+    enc_df = pd.DataFrame(encoded, index=X.index)
+    return enc_df, raw_recipes
+
+
+# ---------------------------------------------------------------------------
+# Rolling time-window aggregations
+# ---------------------------------------------------------------------------
+
+
+def _rolling_stat_past_only(
+    times: np.ndarray, vals: np.ndarray, group_codes: np.ndarray,
+    window: str, stat: str,
+) -> np.ndarray:
+    """Rolling TIME-window stat over rows strictly BEFORE the current one,
+    within each entity. ``times`` must already be in (entity, time) order and
+    convertible to datetime / numeric. Window is a pandas offset string ('7D').
+    """
+    n = vals.size
+    out = np.full(n, np.nan, dtype=np.float64)
+    # Convert window to a timedelta in the time column's native units. We rely
+    # on pandas to parse offset strings against a DatetimeIndex; for numeric
+    # time we interpret the leading integer as a raw numeric span.
+    td = pd.Timedelta(window) if _is_datetime_like(times) else _numeric_window(window)
+    # Per-entity sliding deque of (time, value).
+    starts: dict[int, int] = {}
+    # Group rows contiguously is not guaranteed; use per-entity python lists.
+    ent_times: dict[int, list] = {}
+    ent_vals: dict[int, list] = {}
+    for i in range(n):
+        g = int(group_codes[i])
+        t = times[i]
+        tl = ent_times.setdefault(g, [])
+        vl = ent_vals.setdefault(g, [])
+        if tl:
+            lo = t - td
+            # Keep only history strictly before current AND within window.
+            window_vals = [vv for (tt, vv) in zip(tl, vl) if (tt >= lo) and (tt < t) and np.isfinite(vv)]
+            if window_vals:
+                arr = np.asarray(window_vals, dtype=np.float64)
+                out[i] = _reduce(arr, stat)
+        tl.append(t)
+        vl.append(vals[i])
+    return out
+
+
+def _is_datetime_like(arr: np.ndarray) -> bool:
+    return np.issubdtype(np.asarray(arr).dtype, np.datetime64)
+
+
+def _numeric_window(window: str) -> float:
+    """Parse a numeric rolling window. Accepts a bare number ('7') or a pandas
+    offset string whose leading integer is treated as a raw numeric span."""
+    try:
+        return float(window)
+    except (TypeError, ValueError):
+        pass
+    # Strip a trailing unit letter from offset-like strings ('7D' -> 7).
+    digits = "".join(ch for ch in str(window) if (ch.isdigit() or ch == "."))
+    return float(digits) if digits else 1.0
+
+
+def _reduce(arr: np.ndarray, stat: str) -> float:
+    if stat == "mean":
+        return float(np.mean(arr))
+    if stat == "std":
+        return float(np.std(arr, ddof=1)) if arr.size > 1 else 0.0
+    if stat == "count":
+        return float(arr.size)
+    if stat == "min":
+        return float(np.min(arr))
+    if stat == "max":
+        return float(np.max(arr))
+    if stat == "median":
+        return float(np.median(arr))
+    raise ValueError(f"temporal_agg rolling: unknown stat {stat!r}")
+
+
+def generate_rolling_window_agg_features(
+    X: pd.DataFrame,
+    entity_cols: Sequence[str],
+    value_cols: Sequence[str],
+    time_col: str,
+    windows: Sequence[str] = ("7D", "30D"),
+    stats: Sequence[str] = ("mean", "count"),
+):
+    """Leak-safe rolling time-window aggregations (one column per
+    window x stat x value_col). Each row sees only earlier rows of its entity
+    within the offset window. Returns ``(enc_df, raw_recipes)``.
+    """
+    entity_cols, value_cols = _validate(
+        X, entity_cols, value_cols, time_col,
+        "generate_rolling_window_agg_features",
+    )
+    windows = [str(w) for w in (windows or [])]
+    stats = [s for s in stats if s in ("mean", "std", "count", "min", "max", "median")]
+    encoded: dict[str, np.ndarray] = {}
+    raw_recipes: dict[str, dict] = {}
+    if not entity_cols or not value_cols or not windows or not stats:
+        return pd.DataFrame(index=X.index), raw_recipes
+
+    key = _entity_key_series(X, entity_cols).to_numpy()
+    time_vals = X[time_col].to_numpy()
+    order = _stable_time_order(time_vals)
+    inv_order = np.empty_like(order)
+    inv_order[order] = np.arange(order.size)
+    key_sorted = key[order]
+    times_sorted = time_vals[order]
+    codes_sorted, _ = pd.factorize(key_sorted, sort=False)
+    ent_label = entity_cols[0] if len(entity_cols) == 1 else "+".join(entity_cols)
+
+    for value_col in value_cols:
+        vals = np.asarray(X[value_col].to_numpy(), dtype=np.float64)
+        vals_sorted = vals[order]
+        history: dict[str, dict] = {}
+        n_codes = int(codes_sorted.max()) + 1 if codes_sorted.size else 0
+        for g_code in range(n_codes):
+            mask = codes_sorted == g_code
+            ent_key = str(key_sorted[mask][0])
+            t_list = times_sorted[mask]
+            history[ent_key] = {
+                "t": (t_list.astype("datetime64[ns]").astype(np.int64).tolist()
+                      if _is_datetime_like(t_list) else t_list.astype(np.float64).tolist()),
+                "v": vals_sorted[mask].astype(np.float64).tolist(),
+                "is_datetime": bool(_is_datetime_like(t_list)),
+            }
+        for window in windows:
+            for stat in stats:
+                res_sorted = _rolling_stat_past_only(
+                    times_sorted, vals_sorted, codes_sorted, window, stat,
+                )
+                prior = _global_prior(vals, stat)
+                res_sorted = np.where(np.isfinite(res_sorted), res_sorted, prior)
+                res = res_sorted[inv_order]
+                name = engineered_name_rolling(value_col, ent_label, window, stat)
+                encoded[name] = res
+                raw_recipes[name] = {
+                    "entity_cols": list(entity_cols),
+                    "value_col": value_col,
+                    "time_col": time_col,
+                    "window": window,
+                    "stat": stat,
+                    "history": history,
+                    "global_prior": prior,
+                }
+    enc_df = pd.DataFrame(encoded, index=X.index)
+    return enc_df, raw_recipes
+
+
+# ---------------------------------------------------------------------------
+# Lag features
+# ---------------------------------------------------------------------------
+
+
+def generate_lag_features(
+    X: pd.DataFrame,
+    entity_cols: Sequence[str],
+    value_cols: Sequence[str],
+    time_col: str,
+    lags: Sequence[int] = (1, 2, 3),
+):
+    """Leak-safe lag features: the entity's value at ``t - lag`` (in sorted
+    time order). Positions with no ``lag``-th predecessor fall back to the
+    global prior. Returns ``(enc_df, raw_recipes)``.
+    """
+    entity_cols, value_cols = _validate(
+        X, entity_cols, value_cols, time_col, "generate_lag_features",
+    )
+    lags = [int(l) for l in (lags or []) if int(l) >= 1]
+    encoded: dict[str, np.ndarray] = {}
+    raw_recipes: dict[str, dict] = {}
+    if not entity_cols or not value_cols or not lags:
+        return pd.DataFrame(index=X.index), raw_recipes
+
+    key = _entity_key_series(X, entity_cols).to_numpy()
+    time_vals = X[time_col].to_numpy()
+    order = _stable_time_order(time_vals)
+    inv_order = np.empty_like(order)
+    inv_order[order] = np.arange(order.size)
+    key_sorted = key[order]
+    times_sorted = time_vals[order]
+    codes_sorted, _ = pd.factorize(key_sorted, sort=False)
+    ent_label = entity_cols[0] if len(entity_cols) == 1 else "+".join(entity_cols)
+
+    for value_col in value_cols:
+        vals = np.asarray(X[value_col].to_numpy(), dtype=np.float64)
+        vals_sorted = vals[order]
+        prior = _global_prior(vals, "mean")
+        history: dict[str, dict] = {}
+        n_codes = int(codes_sorted.max()) + 1 if codes_sorted.size else 0
+        # Per-entity ordered value list (for lag-by-position).
+        for g_code in range(n_codes):
+            mask = codes_sorted == g_code
+            ent_key = str(key_sorted[mask][0])
+            t_list = times_sorted[mask]
+            history[ent_key] = {
+                "t": (t_list.astype("datetime64[ns]").astype(np.int64).tolist()
+                      if _is_datetime_like(t_list) else t_list.astype(np.float64).tolist()),
+                "v": vals_sorted[mask].astype(np.float64).tolist(),
+                "is_datetime": bool(_is_datetime_like(t_list)),
+            }
+        for lag in lags:
+            res_sorted = np.full(vals_sorted.size, np.nan, dtype=np.float64)
+            # Per-entity ring of recent values.
+            recent: dict[int, list] = {}
+            for i in range(vals_sorted.size):
+                g = int(codes_sorted[i])
+                buf = recent.setdefault(g, [])
+                if len(buf) >= lag:
+                    res_sorted[i] = buf[-lag]
+                buf.append(vals_sorted[i])
+            res_sorted = np.where(np.isfinite(res_sorted), res_sorted, prior)
+            res = res_sorted[inv_order]
+            name = engineered_name_lag(value_col, ent_label, lag)
+            encoded[name] = res
+            raw_recipes[name] = {
+                "entity_cols": list(entity_cols),
+                "value_col": value_col,
+                "time_col": time_col,
+                "lag": lag,
+                "history": history,
+                "global_prior": prior,
+            }
+    enc_df = pd.DataFrame(encoded, index=X.index)
+    return enc_df, raw_recipes
+
+
+# ---------------------------------------------------------------------------
+# Recipe builders (re-exported from engineered_recipes)
+# ---------------------------------------------------------------------------
+
+
+def build_temporal_expanding_recipe(*, name, entity_cols, value_col, time_col, stat, history, global_prior):
+    from .engineered_recipes import EngineeredRecipe
+    return EngineeredRecipe(
+        name=name, kind="temporal_expanding",
+        src_names=tuple(entity_cols) + (value_col,),
+        extra={
+            "entity_cols": [str(c) for c in entity_cols],
+            "value_col": str(value_col),
+            "time_col": str(time_col),
+            "stat": str(stat),
+            "history": history,
+            "global_prior": float(global_prior),
+        },
+    )
+
+
+def build_temporal_rolling_recipe(*, name, entity_cols, value_col, time_col, window, stat, history, global_prior):
+    from .engineered_recipes import EngineeredRecipe
+    return EngineeredRecipe(
+        name=name, kind="temporal_rolling",
+        src_names=tuple(entity_cols) + (value_col,),
+        extra={
+            "entity_cols": [str(c) for c in entity_cols],
+            "value_col": str(value_col),
+            "time_col": str(time_col),
+            "window": str(window),
+            "stat": str(stat),
+            "history": history,
+            "global_prior": float(global_prior),
+        },
+    )
+
+
+def build_temporal_lag_recipe(*, name, entity_cols, value_col, time_col, lag, history, global_prior):
+    from .engineered_recipes import EngineeredRecipe
+    return EngineeredRecipe(
+        name=name, kind="temporal_lag",
+        src_names=tuple(entity_cols) + (value_col,),
+        extra={
+            "entity_cols": [str(c) for c in entity_cols],
+            "value_col": str(value_col),
+            "time_col": str(time_col),
+            "lag": int(lag),
+            "history": history,
+            "global_prior": float(global_prior),
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Replay (transform-time). Reads only X; computes against the stored TRAIN
+# history plus earlier rows within the test frame itself.
+# ---------------------------------------------------------------------------
+
+
+def _coerce_replay_frame(X, entity_cols, value_col, time_col, recipe_name):
+    if isinstance(X, pd.DataFrame):
+        return X
+    cols = list(entity_cols) + [value_col, time_col]
+    try:
+        import polars as _pl
+        if isinstance(X, _pl.DataFrame):
+            return pd.DataFrame({c: X[c].to_numpy() for c in cols})
+    except ImportError:
+        pass
+    if isinstance(X, np.ndarray) and X.dtype.names is not None:
+        return pd.DataFrame({c: X[c] for c in cols})
+    raise TypeError(
+        f"recipe '{recipe_name}': cannot extract temporal columns from X of "
+        f"type {type(X).__name__}"
+    )
+
+
+def _replay_keys_times(X_test, entity_cols, time_col):
+    key = _entity_key_series(X_test, entity_cols).to_numpy()
+    times = X_test[time_col].to_numpy()
+    return key, times
+
+
+def apply_temporal_expanding(X_test: pd.DataFrame, recipe_extra: dict) -> np.ndarray:
+    """Replay an expanding stat for each test row against the stored TRAIN
+    history (all earlier-timestamped train rows of the same entity) PLUS
+    earlier rows of the same entity within the test frame -- never the row's
+    own future."""
+    entity_cols = list(recipe_extra["entity_cols"])
+    value_col = recipe_extra["value_col"]
+    time_col = recipe_extra["time_col"]
+    stat = recipe_extra["stat"]
+    prior = float(recipe_extra["global_prior"])
+    history = recipe_extra["history"]
+    X_test = _coerce_replay_frame(X_test, entity_cols, value_col, time_col, "temporal_expanding")
+    key, times = _replay_keys_times(X_test, entity_cols, time_col)
+    vals = np.asarray(X_test[value_col].to_numpy(), dtype=np.float64)
+    n = len(X_test)
+    out = np.full(n, prior, dtype=np.float64)
+    # Process test rows in time order so within-test history accumulates.
+    order = _stable_time_order(times)
+    # Per-entity accumulated test history (timestamps not needed for expanding,
+    # only the count/values of earlier rows).
+    test_hist: dict[str, list] = {}
+    for idx in order:
+        ent = str(key[idx])
+        train_v = np.asarray(history.get(ent, {}).get("v", []), dtype=np.float64)
+        train_v = train_v[np.isfinite(train_v)]
+        seen = test_hist.get(ent, [])
+        combined = np.concatenate([train_v, np.asarray(seen, dtype=np.float64)]) if seen else train_v
+        if combined.size > 0:
+            out[idx] = _reduce_expanding(combined, stat)
+        v = vals[idx]
+        if np.isfinite(v):
+            test_hist.setdefault(ent, []).append(v)
+    return out
+
+
+def _reduce_expanding(arr: np.ndarray, stat: str) -> float:
+    if stat == "count":
+        return float(arr.size)
+    return _reduce(arr, stat)
+
+
+def apply_temporal_rolling(X_test: pd.DataFrame, recipe_extra: dict) -> np.ndarray:
+    """Replay a rolling time-window stat for each test row against the stored
+    TRAIN history plus earlier within-test rows of the same entity, restricted
+    to the offset window ending strictly before the row's timestamp."""
+    entity_cols = list(recipe_extra["entity_cols"])
+    value_col = recipe_extra["value_col"]
+    time_col = recipe_extra["time_col"]
+    window = recipe_extra["window"]
+    stat = recipe_extra["stat"]
+    prior = float(recipe_extra["global_prior"])
+    history = recipe_extra["history"]
+    X_test = _coerce_replay_frame(X_test, entity_cols, value_col, time_col, "temporal_rolling")
+    key, times = _replay_keys_times(X_test, entity_cols, time_col)
+    vals = np.asarray(X_test[value_col].to_numpy(), dtype=np.float64)
+    is_dt = _is_datetime_like(times)
+    if is_dt:
+        times_num = times.astype("datetime64[ns]").astype(np.int64)
+        td = int(pd.Timedelta(window).value)
+    else:
+        times_num = np.asarray(times, dtype=np.float64)
+        td = _numeric_window(window)
+    n = len(X_test)
+    out = np.full(n, prior, dtype=np.float64)
+    order = _stable_time_order(times_num)
+    test_hist: dict[str, dict] = {}
+    for idx in order:
+        ent = str(key[idx])
+        t = times_num[idx]
+        h = history.get(ent, {})
+        h_t = np.asarray(h.get("t", []), dtype=np.float64)
+        h_v = np.asarray(h.get("v", []), dtype=np.float64)
+        seen = test_hist.get(ent, {"t": [], "v": []})
+        all_t = np.concatenate([h_t, np.asarray(seen["t"], dtype=np.float64)]) if seen["t"] else h_t
+        all_v = np.concatenate([h_v, np.asarray(seen["v"], dtype=np.float64)]) if seen["v"] else h_v
+        if all_t.size:
+            lo = t - td
+            mask = (all_t >= lo) & (all_t < t) & np.isfinite(all_v)
+            if mask.any():
+                out[idx] = _reduce(all_v[mask], stat)
+        if np.isfinite(vals[idx]):
+            d = test_hist.setdefault(ent, {"t": [], "v": []})
+            d["t"].append(float(t))
+            d["v"].append(float(vals[idx]))
+    return out
+
+
+def apply_temporal_lag(X_test: pd.DataFrame, recipe_extra: dict) -> np.ndarray:
+    """Replay a lag feature: the entity's value ``lag`` positions earlier in
+    the merged (train history ++ within-test) time order. Falls back to the
+    global prior when there is no such predecessor."""
+    entity_cols = list(recipe_extra["entity_cols"])
+    value_col = recipe_extra["value_col"]
+    time_col = recipe_extra["time_col"]
+    lag = int(recipe_extra["lag"])
+    prior = float(recipe_extra["global_prior"])
+    history = recipe_extra["history"]
+    X_test = _coerce_replay_frame(X_test, entity_cols, value_col, time_col, "temporal_lag")
+    key, times = _replay_keys_times(X_test, entity_cols, time_col)
+    vals = np.asarray(X_test[value_col].to_numpy(), dtype=np.float64)
+    is_dt = _is_datetime_like(times)
+    times_num = (times.astype("datetime64[ns]").astype(np.int64) if is_dt
+                 else np.asarray(times, dtype=np.float64))
+    n = len(X_test)
+    out = np.full(n, prior, dtype=np.float64)
+    order = _stable_time_order(times_num)
+    # Seed per-entity buffers with the train history (already time-sorted).
+    buffers: dict[str, list] = {}
+    for ent, h in history.items():
+        buffers[ent] = list(np.asarray(h.get("v", []), dtype=np.float64))
+    for idx in order:
+        ent = str(key[idx])
+        buf = buffers.setdefault(ent, [])
+        if len(buf) >= lag:
+            cand = buf[-lag]
+            if np.isfinite(cand):
+                out[idx] = cand
+        buf.append(vals[idx])
+    return out
+
+
+# ---------------------------------------------------------------------------
+# MI gate + end-to-end pipeline
+# ---------------------------------------------------------------------------
+
+
+def _mi_score(col: np.ndarray, y_bin: np.ndarray, n_bins: int = 10) -> float:
+    from ._mi_greedy_cmi_fe import _quantile_bin, _cmi_from_binned
+    x_bin = _quantile_bin(np.asarray(col, dtype=np.float64), nbins=n_bins)
+    return float(_cmi_from_binned(x_bin, y_bin, None))
+
+
+def hybrid_temporal_agg_fe(
+    X: pd.DataFrame,
+    y: np.ndarray,
+    *,
+    entity_cols: Sequence[str],
+    value_cols: Sequence[str],
+    time_col: str,
+    stats: Sequence[str] = ("mean", "std", "count"),
+    windows: Sequence[str] = (),
+    lags: Sequence[int] = (1,),
+    top_k: int = 10,
+    n_bins: int = 10,
+    min_mi: float = 1e-4,
+):
+    """End-to-end leak-safe temporal FE pipeline.
+
+    1. Materialise expanding (always), rolling (if ``windows``), and lag
+       features.
+    2. Score each candidate by ``MI(feature; y)`` (Layer 60 binned-MI
+       primitive) and keep the top ``top_k`` above ``min_mi``.
+    3. Append survivors to X; return ``(X_aug, appended, recipes, scores)``.
+
+    ``y`` is consumed only by the MI gate; the recipes carry no y reference, so
+    transform-time replay is leak-free.
+    """
+    if not isinstance(X, pd.DataFrame):
+        raise TypeError(
+            f"hybrid_temporal_agg_fe: X must be a pandas DataFrame; got "
+            f"{type(X).__name__}"
+        )
+    entity_cols = [c for c in (entity_cols or []) if c in X.columns]
+    value_cols = [c for c in (value_cols or []) if c in X.columns]
+    if not entity_cols or not value_cols or time_col not in X.columns:
+        return X.copy(), [], [], pd.DataFrame()
+
+    enc_exp, rec_exp = generate_expanding_agg_features(
+        X, entity_cols, value_cols, time_col, stats=stats,
+    )
+    enc_parts = [enc_exp]
+    raw_recipes: dict[str, dict] = {}
+    raw_recipes.update({k: ("exp", v) for k, v in rec_exp.items()})
+    if windows:
+        enc_roll, rec_roll = generate_rolling_window_agg_features(
+            X, entity_cols, value_cols, time_col, windows=windows,
+            stats=[s for s in stats if s in ("mean", "std", "count", "min", "max")] or ("mean", "count"),
+        )
+        enc_parts.append(enc_roll)
+        raw_recipes.update({k: ("roll", v) for k, v in rec_roll.items()})
+    if lags:
+        enc_lag, rec_lag = generate_lag_features(
+            X, entity_cols, value_cols, time_col, lags=lags,
+        )
+        enc_parts.append(enc_lag)
+        raw_recipes.update({k: ("lag", v) for k, v in rec_lag.items()})
+
+    enc_df = pd.concat([p for p in enc_parts if p.shape[1]], axis=1) if any(p.shape[1] for p in enc_parts) else pd.DataFrame(index=X.index)
+    if enc_df.empty:
+        return X.copy(), [], [], pd.DataFrame()
+
+    y_arr = np.asarray(y)
+    if not np.issubdtype(y_arr.dtype, np.integer):
+        y_arr = y_arr.astype(np.int64)
+    _, y_bin = np.unique(y_arr, return_inverse=True)
+    y_bin = y_bin.astype(np.int64)
+
+    rows = []
+    for col in enc_df.columns:
+        rows.append({"engineered_col": col, "mi": _mi_score(enc_df[col].to_numpy(), y_bin, n_bins)})
+    scores = pd.DataFrame(rows).sort_values("mi", ascending=False, kind="mergesort").reset_index(drop=True)
+    keep = scores[scores["mi"] >= float(min_mi)]
+    winners = list(keep["engineered_col"].head(int(top_k)))
+    if not winners:
+        return X.copy(), [], [], scores
+
+    from .engineered_recipes import (
+        build_temporal_expanding_recipe,
+        build_temporal_rolling_recipe,
+        build_temporal_lag_recipe,
+    )
+    recipes = []
+    for name in winners:
+        kind, payload = raw_recipes[name]
+        if kind == "exp":
+            recipes.append(build_temporal_expanding_recipe(name=name, **payload))
+        elif kind == "roll":
+            recipes.append(build_temporal_rolling_recipe(name=name, **payload))
+        else:
+            recipes.append(build_temporal_lag_recipe(name=name, **payload))
+    X_aug = pd.concat([X, enc_df[winners]], axis=1)
+    return X_aug, winners, recipes, scores
