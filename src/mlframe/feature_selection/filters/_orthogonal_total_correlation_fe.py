@@ -123,6 +123,99 @@ def _entropy_from_classes(classes: np.ndarray) -> float:
     return float(-(p * np.log(p)).sum())
 
 
+def _factorize_pack(*cols: np.ndarray) -> np.ndarray:
+    """Layer 86: Horner-packed int64 dedup via ``pd.factorize``.
+
+    Mirrors the Layer 84 CMIM optimization (see
+    ``_orthogonal_cmim_fe._factorize_pack``): packs each int64 column
+    into a single int64 key via running multiplication by per-column
+    ``max+1``, then ``pd.factorize(sort=False)`` (a hash-based dedup,
+    ~3x faster than ``np.unique``-chained ``_renumber_joint`` at
+    n=1000+ on multi-fold joins).
+
+    Resulting class ids may be PERMUTED relative to ``_renumber_joint``
+    but the count multiset is identical, and ``_entropy_from_classes``
+    (via ``np.bincount``) is invariant under class-id permutation, so
+    any plug-in entropy / TC built from these codes is bit-equal (up
+    to float summation order) to the canonical path.
+    """
+    if not cols:
+        return np.zeros(0, dtype=np.int64)
+    n = cols[0].size
+    key = np.zeros(n, dtype=np.int64)
+    for c in cols:
+        c64 = np.asarray(c, dtype=np.int64)
+        cmax = int(c64.max()) + 1 if c64.size else 1
+        # Horner pack -- overflow is impossible at the bin counts we use
+        # (<= 16 per col * <= 8 support cols + y).
+        key = key * cmax + c64
+    codes, _ = pd.factorize(key, sort=False)
+    return codes.astype(np.int64, copy=False)
+
+
+def _quantile_bin_batched(arr: np.ndarray, nbins: int) -> np.ndarray:
+    """Vectorised equi-frequency bin of a 2-D (n, k) all-finite float array.
+
+    Mirrors the Layer 86 JMIM ``_quantile_bin_batched``. Computes
+    ``np.quantile(arr, qs, axis=0)`` ONCE for the whole batch so the
+    underlying partition-based selector amortises across columns much
+    better than ``k`` separate ``np.quantile`` calls; then a per-column
+    dedup + ``np.searchsorted`` produces dense int64 bin codes matching
+    the contract of :func:`_quantile_bin` on the all-finite path.
+
+    Bit-equivalent to ``_quantile_bin`` on all-finite numeric input;
+    the per-column path is the fallback for mixed-NaN / Inf data.
+    """
+    n, k = arr.shape
+    out = np.zeros((n, k), dtype=np.int64)
+    if n == 0 or k == 0:
+        return out
+    qs = np.linspace(0.0, 1.0, int(nbins) + 1)
+    edges_all = np.quantile(arr, qs, axis=0)  # shape (nbins+1, k)
+    for j in range(k):
+        col_edges = np.unique(edges_all[:, j])
+        if col_edges.size <= 2:
+            if col_edges.size == 2:
+                out[:, j] = (arr[:, j] >= col_edges[1]).astype(np.int64)
+            continue
+        inner = col_edges[1:-1]
+        out[:, j] = np.searchsorted(inner, arr[:, j], side="right").astype(np.int64)
+    return out
+
+
+def _bin_dataframe_batched(
+    df: pd.DataFrame, nbins: int,
+) -> list[np.ndarray]:
+    """Quantile-bin every column of ``df`` via the batched fast path
+    when possible; fall back to per-column ``_quantile_bin`` for mixed
+    finite / NaN data.
+
+    Returns a list of dense int64 bin arrays (one per column).
+    """
+    cols = list(df.columns)
+    if not cols:
+        return []
+    arr = df.to_numpy()
+    if arr.ndim == 1:
+        arr = arr.reshape(-1, 1)
+    try:
+        arr64 = np.ascontiguousarray(arr, dtype=np.float64)
+    except (TypeError, ValueError):
+        arr64 = None
+    if arr64 is not None and np.isfinite(arr64).all():
+        bins_arr = _quantile_bin_batched(arr64, nbins=int(nbins))
+        return [
+            np.ascontiguousarray(bins_arr[:, j]) for j in range(bins_arr.shape[1])
+        ]
+    return [
+        _quantile_bin(
+            np.ascontiguousarray(df[c].to_numpy(), dtype=np.float64),
+            nbins=int(nbins),
+        )
+        for c in cols
+    ]
+
+
 def total_correlation(
     cols_2d_arr: np.ndarray,
     n_bins: int = 10,
@@ -322,33 +415,48 @@ def score_features_by_tc_uplift(
         raw_X, current_support, n_bins=int(n_bins),
     )
 
-    # Joint of support alone (for the conditional-MI decomposition below).
-    # Empty support -> H(S) = 0 by convention so I(c; S) collapses to 0
-    # and the score reduces to I(c; y) = marginal MI (correct first-round
-    # fallback).
+    # Layer 86 optimization: pre-compute the support-side joints ONCE.
+    # ``_renumber_joint(*sup_bins)`` and ``_renumber_joint(*sup_bins,
+    # y_bin)`` are INVARIANT across the p_eng candidates -- chaining
+    # them per-candidate (the pre-opt path) re-did ``len(sup_bins) + 1``
+    # ``np.unique`` calls each loop iter. We hoist them outside the
+    # loop AND switch the per-candidate fold from sort-based
+    # ``_renumber_joint`` to hash-based ``_factorize_pack``: each
+    # candidate's joint_after = factorize_pack(joint_Sy, cand) and
+    # joint_cS = factorize_pack(joint_S, cand) -- two hash-dedup ops
+    # vs. (len(sup_bins) + 2) chained np.unique folds. Bit-equivalent
+    # (entropy invariant under class-id permutation).
     if sup_bins:
-        joint_s, _ = _renumber_joint(*sup_bins)
-        H_S = _entropy_from_classes(joint_s)
-        joint_sy, _ = _renumber_joint(*sup_bins, y_bin)
-        H_sy = _entropy_from_classes(joint_sy)
+        joint_s_invariant, _ = _renumber_joint(*sup_bins)
+        H_S = _entropy_from_classes(joint_s_invariant)
+        joint_sy_invariant, _ = _renumber_joint(*sup_bins, y_bin)
+        H_sy = _entropy_from_classes(joint_sy_invariant)
         tc_before = sup_sum_H + y_H - H_sy
     else:
-        joint_s = None
+        joint_s_invariant = None
+        joint_sy_invariant = None
         H_S = 0.0
         H_sy = y_H
         tc_before = 0.0
 
+    # Pre-bin all candidate columns via the batched quantile path.
+    eng_bins = _bin_dataframe_batched(engineered_X, nbins=int(n_bins))
+    eng_names_list = list(engineered_X.columns)
+
     rows: list[dict] = []
-    for eng_name in engineered_X.columns:
+    for j, eng_name in enumerate(eng_names_list):
         source = eng_name.split("__", 1)[0] if "__" in eng_name else eng_name
         baseline = float(raw_mi_map.get(source, 0.0))
-        cand_col = engineered_X[eng_name].to_numpy()
-        cand_bin = _quantile_bin(
-            np.ascontiguousarray(cand_col, dtype=np.float64),
-            nbins=int(n_bins),
-        )
+        cand_bin = eng_bins[j]
         cand_H = _entropy_from_classes(cand_bin)
-        joint_after, _ = _renumber_joint(*sup_bins, cand_bin, y_bin)
+        # Build joint(S, c, y) via hash-dedup over the pre-computed
+        # invariant (S, y) joint -- one factorize_pack call instead of
+        # the (len(sup_bins)+1)-fold _renumber_joint chain.
+        if joint_sy_invariant is not None:
+            joint_after = _factorize_pack(joint_sy_invariant, cand_bin)
+        else:
+            # No support: H(c, y) only.
+            joint_after = _factorize_pack(cand_bin, y_bin)
         H_after = _entropy_from_classes(joint_after)
         tc_after = sup_sum_H + cand_H + y_H - H_after
         # Raw TC increment (Watanabe). delta_tc decomposes EXACTLY as
@@ -360,8 +468,8 @@ def score_features_by_tc_uplift(
         # ``I(c; S)`` redundancy contribution -- the OPPOSITE of "new
         # info". We rank by the conditional ``I(c; y | S)`` term,
         # obtained by subtracting ``I(c; joint_S)`` from delta_tc.
-        if sup_bins and joint_s is not None:
-            joint_cs, _ = _renumber_joint(*sup_bins, cand_bin)
+        if joint_s_invariant is not None:
+            joint_cs = _factorize_pack(joint_s_invariant, cand_bin)
             H_cs = _entropy_from_classes(joint_cs)
             # I(c; joint_S) = H(c) + H(S) - H(c, S)
             mi_c_S = cand_H + H_S - H_cs

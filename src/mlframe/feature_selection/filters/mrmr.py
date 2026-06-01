@@ -1394,6 +1394,15 @@ class MRMR(BaseEstimator, TransformerMixin):
         last on every redundant fixture. Callers that do not know which
         scorer to pick should default to the return value of this method.
 
+        Layer 86 (2026-06-01) accelerated JMIM (~2.3x) and TC (~5.0x)
+        via batched quantile binning + invariant support-side joint
+        precompute; the perf improvement does NOT change the L83 AUC
+        leaderboard (CMIM still wins 5/7) because the scorer math is
+        bit-equivalent to the pre-opt path (rtol=1e-9). The recommended
+        default therefore stays ``"cmim"`` -- L86 just makes the runner-
+        up scorers cheap enough to evaluate inside an outer
+        cross-validation without budget pain.
+
         Returns
         -------
         str

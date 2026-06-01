@@ -92,7 +92,7 @@ from typing import Optional, Sequence
 import numpy as np
 import pandas as pd
 
-from ._jmim_scorer import jmim_score
+from ._jmim_scorer import _joint_mi_3d_njit, jmim_score
 from ._mi_greedy_cmi_fe import _quantile_bin
 from ._orthogonal_univariate_fe import (
     _mi_classif_batch,
@@ -127,17 +127,78 @@ def _bin_columns(
     Constant columns collapse to a single bin (``k_j = 1``) -- the JMIM
     scorer then yields zero on that pair, which is the right "no signal"
     reading.
+
+    Layer 86 fast path: routes to :func:`_bin_columns_batched` when the
+    DataFrame has 2+ all-finite numeric columns (the common case for
+    engineered candidate pools) -- batched ``np.quantile`` over the
+    stacked 2-D array amortises the ``np.linspace`` / quantile-edge work
+    that dominated the per-column ``_quantile_bin`` loop (60% of total
+    score_features_by_jmim runtime at p_eng=100, n=1000).
     """
+    names = list(df.columns)
+    if not names:
+        return [], [], []
+    arr = df.to_numpy()
+    if arr.ndim == 1:
+        arr = arr.reshape(-1, 1)
+    # Convert to float64 for the batched quantile; downstream casts to int64.
+    try:
+        arr64 = np.ascontiguousarray(arr, dtype=np.float64)
+    except (TypeError, ValueError):
+        arr64 = None
+    if arr64 is not None and np.isfinite(arr64).all():
+        bins_arr = _quantile_bin_batched(arr64, nbins=int(nbins))
+        ks = [
+            (int(bins_arr[:, j].max()) + 1) if bins_arr.shape[0] else 1
+            for j in range(bins_arr.shape[1])
+        ]
+        ks = [max(1, k) for k in ks]
+        bins = [np.ascontiguousarray(bins_arr[:, j]) for j in range(bins_arr.shape[1])]
+        return bins, ks, names
+    # Fallback: per-column path preserves the NaN / Inf handling of
+    # ``_quantile_bin`` for mixed-finite data.
     bins: list[np.ndarray] = []
     ks: list[int] = []
-    names: list[str] = []
-    for c in df.columns:
+    for c in names:
         b = _quantile_bin(df[c].to_numpy(), nbins=nbins).astype(np.int64)
         k = int(b.max()) + 1 if b.size else 1
         bins.append(b)
         ks.append(max(1, k))
-        names.append(c)
     return bins, ks, names
+
+
+def _quantile_bin_batched(arr: np.ndarray, nbins: int) -> np.ndarray:
+    """Vectorised equi-frequency bin of a 2-D (n, k) all-finite float array.
+
+    Computes ``np.quantile(arr, qs, axis=0)`` ONCE for the whole batch
+    (the underlying partition-based selector amortises across columns
+    much better than ``k`` separate ``np.quantile(col, qs)`` calls). Then
+    a per-column dedup + ``np.searchsorted`` produces dense int64 bin
+    codes matching the contract of :func:`_quantile_bin` on the all-
+    finite path: the same edges (after ``np.unique`` dedup) and the same
+    ``side='right'`` searchsorted convention.
+
+    Bit-equivalent to ``_quantile_bin`` on all-finite numeric input; the
+    per-column fallback handles mixed-NaN / Inf data via the original
+    path.
+    """
+    n, k = arr.shape
+    out = np.zeros((n, k), dtype=np.int64)
+    if n == 0 or k == 0:
+        return out
+    qs = np.linspace(0.0, 1.0, int(nbins) + 1)
+    # Batched quantile: (nbins+1, k). One partition + interpolation per
+    # column under the hood but called via the broadcast path.
+    edges_all = np.quantile(arr, qs, axis=0)  # shape (nbins+1, k)
+    for j in range(k):
+        col_edges = np.unique(edges_all[:, j])
+        if col_edges.size <= 2:
+            if col_edges.size == 2:
+                out[:, j] = (arr[:, j] >= col_edges[1]).astype(np.int64)
+            continue
+        inner = col_edges[1:-1]
+        out[:, j] = np.searchsorted(inner, arr[:, j], side="right").astype(np.int64)
+    return out
 
 
 def score_features_by_jmim(
@@ -250,6 +311,19 @@ def score_features_by_jmim(
         engineered_X, nbins=int(n_bins),
     )
 
+    # Layer 86 optimization: pre-coerce y_bin to int64 ONCE and re-use
+    # across all (cand, support) pairs. The reference ``jmim_score``
+    # path calls ``x.astype(np.int64)`` / ``y.astype(np.int64)`` /
+    # ``col_j.astype(np.int64)`` PER CALL, which forces ``p_eng *
+    # (|S| + 2)`` redundant int64 copies of arrays that are already
+    # int64. We hoist all coercions before the candidate loop and call
+    # the njit kernel ``_joint_mi_3d_njit`` directly so each per-pair
+    # call is a tight C-level invocation with zero per-call boxing.
+    y_bin_c = np.ascontiguousarray(y_bin, dtype=np.int64)
+    sel_bins_c = [np.ascontiguousarray(b, dtype=np.int64) for b in sel_bins]
+    sel_ks_arr = list(sel_ks)
+    has_support = bool(sel_bins_c)
+
     rows: list[dict] = []
     for j, eng_name in enumerate(eng_names):
         source = eng_name.split("__", 1)[0] if "__" in eng_name else eng_name
@@ -263,11 +337,28 @@ def score_features_by_jmim(
         # to roughly ``I(x_dup_a; Y)``, which the min then pins below
         # ``I((He_2(x2), x1); Y)`` -- the redundancy suppression
         # mechanism the paper describes.
-        score = float(jmim_score(
-            eng_bins[j], sel_bins, y_bin,
-            nbins_x=eng_ks[j], nbins_selected=sel_ks,
-            nbins_y=K_y,
-        ))
+        x_c = np.ascontiguousarray(eng_bins[j], dtype=np.int64)
+        K_x = int(eng_ks[j])
+        if not has_support:
+            score = float(_joint_mi_3d_njit(
+                x_c, np.zeros(x_c.size, dtype=np.int64), y_bin_c,
+                K_x, 1, K_y,
+            ))
+        else:
+            best = np.inf
+            for k, z_c in enumerate(sel_bins_c):
+                K_z = int(sel_ks_arr[k])
+                mi = float(_joint_mi_3d_njit(
+                    x_c, z_c, y_bin_c, K_x, K_z, K_y,
+                ))
+                if mi < best:
+                    best = mi
+                if best <= 0.0:
+                    # MI floors at zero in the njit kernel; once a zero is
+                    # observed the min cannot drop further -- early exit.
+                    best = 0.0
+                    break
+            score = float(best) if best != np.inf else 0.0
         uplift = score / (baseline + 1e-12)
         rows.append({
             "engineered_col": eng_name,
