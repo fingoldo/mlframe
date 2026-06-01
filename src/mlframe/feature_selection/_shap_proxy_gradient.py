@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from mlframe.feature_selection._shap_proxy_objective import coalition_margin, proxy_loss, resolve_metric
+from mlframe.feature_selection._shap_proxy_objective import coalition_margin_T, proxy_loss, resolve_metric
 
 
 def torch_available() -> bool:
@@ -50,6 +50,9 @@ def gradient_top_n(
     phi_np = np.ascontiguousarray(phi, dtype=np.float64)
     base_np = np.ascontiguousarray(base, dtype=np.float64)
     y_np = np.ascontiguousarray(y, dtype=np.float64)
+    # Contiguous transpose for the per-candidate coalition gather in ``record`` (phi_np[:, idx] is a
+    # strided column gather; phi_T[idx] is contiguous, ~4x at tall n). Computed once for the run.
+    phi_T_np = np.ascontiguousarray(phi_np.T)
     f = phi_np.shape[1]
 
     gen = torch.Generator(device=device).manual_seed(int(random_state))
@@ -66,7 +69,7 @@ def gradient_top_n(
             return
         key = tuple(sorted(idx_tuple))
         if key not in candidates:
-            candidates[key] = proxy_loss(coalition_margin(phi_np, base_np, list(key)), y_np, metric)
+            candidates[key] = proxy_loss(coalition_margin_T(phi_T_np, base_np, list(key)), y_np, metric)
 
     for it in range(n_iter):
         opt.zero_grad()
