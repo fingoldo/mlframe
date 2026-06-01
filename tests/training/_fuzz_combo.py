@@ -1646,6 +1646,37 @@ AXES: dict[str, tuple[Any, ...]] = {
     # Lipschitz interaction on classifier vs regressor. Gate: 'mlp' in
     # models; canon to False outside.
     "mlp_spectral_norm_output_only_cfg": (False, True),
+    # iter642 audit-pass-15 batch 2. The 6 remaining MRMR hybrid-orth
+    # sub-features the W15 audit identified as MED-leverage; each enables
+    # a distinct numerical path that the master-on axis alone does not
+    # cover. Defaults source-verified at HEAD. All canon-collapse to False
+    # outside (use_mrmr_fs AND mrmr_fe_hybrid_orth_enable_cfg).
+    # H5 fe_hybrid_orth_ensemble_enable (mrmr.py:1044). Layer 69 rank-
+    # fusion combines >=3 scorer rankings via mean_rank/borda;
+    # combinatorial blow-up risk on rare_imbalance + multilabel.
+    "mrmr_fe_hybrid_orth_ensemble_enable_cfg": (False, True),
+    # H6 fe_hybrid_orth_lasso_enable (mrmr.py:784). Layer 81 Lasso
+    # pre-selection inserts an sklearn LinearModel inside the FE loop;
+    # degenerate-col + label-leak + rank-deficient combos are exactly
+    # where Lasso silently blows up.
+    "mrmr_fe_hybrid_orth_lasso_enable_cfg": (False, True),
+    # H7 fe_hybrid_orth_elasticnet_enable (mrmr.py:800). Layer 82
+    # ElasticNet alt path with separate l1_ratio; sibling to Lasso but
+    # different solver/penalty arithmetic.
+    "mrmr_fe_hybrid_orth_elasticnet_enable_cfg": (False, True),
+    # H8 fe_hybrid_orth_adaptive_arity_enable (mrmr.py:749). Layer 78
+    # picks pair/triplet/quadruplet arity per column; one knob exercises
+    # the 3 multi-arity assemblies that triplet_enable / quadruplet_enable
+    # axes only test in isolation.
+    "mrmr_fe_hybrid_orth_adaptive_arity_enable_cfg": (False, True),
+    # H9 fe_hybrid_orth_diff_basis_enable (mrmr.py:845). Layer 59 emits
+    # Hermite-difference basis features only when source-source
+    # correlation > threshold; exercises the unique col-pair branching.
+    "mrmr_fe_hybrid_orth_diff_basis_enable_cfg": (False, True),
+    # H10 fe_semi_supervised_enable (mrmr.py:767). Layer 80 fits orth-poly
+    # bases on unlabeled-pool X; thread-local pool plumbing + leakage-by-
+    # construction claim deserve fuzz coverage.
+    "mrmr_fe_semi_supervised_enable_cfg": (False, True),
 }
 
 
@@ -2308,6 +2339,15 @@ class FuzzCombo:
     mlp_use_lookahead_cfg: bool = False
     mlp_use_mixup_cfg: bool = False
     mlp_spectral_norm_output_only_cfg: bool = False
+    # iter642 audit-pass-15 batch 2 — 6 remaining MRMR hybrid-orth sub-
+    # features. Defaults source-verified at HEAD against MRMR.__init__
+    # (mrmr.py:1044/784/800/749/845/767).
+    mrmr_fe_hybrid_orth_ensemble_enable_cfg: bool = False
+    mrmr_fe_hybrid_orth_lasso_enable_cfg: bool = False
+    mrmr_fe_hybrid_orth_elasticnet_enable_cfg: bool = False
+    mrmr_fe_hybrid_orth_adaptive_arity_enable_cfg: bool = False
+    mrmr_fe_hybrid_orth_diff_basis_enable_cfg: bool = False
+    mrmr_fe_semi_supervised_enable_cfg: bool = False
 
     def canonical_key(self) -> tuple:
         """Hashable tuple used for dedup. Canonicalizes semantically
@@ -4065,6 +4105,38 @@ class FuzzCombo:
                 if (self.use_mrmr_fs and self.mrmr_fe_hybrid_orth_enable_cfg)
                 else False
             ),
+            # iter642 audit-pass-15 batch 2. Six remaining hybrid-orth sub-
+            # features all collapse to False outside the master gate.
+            (
+                self.mrmr_fe_hybrid_orth_ensemble_enable_cfg
+                if (self.use_mrmr_fs and self.mrmr_fe_hybrid_orth_enable_cfg)
+                else False
+            ),
+            (
+                self.mrmr_fe_hybrid_orth_lasso_enable_cfg
+                if (self.use_mrmr_fs and self.mrmr_fe_hybrid_orth_enable_cfg)
+                else False
+            ),
+            (
+                self.mrmr_fe_hybrid_orth_elasticnet_enable_cfg
+                if (self.use_mrmr_fs and self.mrmr_fe_hybrid_orth_enable_cfg)
+                else False
+            ),
+            (
+                self.mrmr_fe_hybrid_orth_adaptive_arity_enable_cfg
+                if (self.use_mrmr_fs and self.mrmr_fe_hybrid_orth_enable_cfg)
+                else False
+            ),
+            (
+                self.mrmr_fe_hybrid_orth_diff_basis_enable_cfg
+                if (self.use_mrmr_fs and self.mrmr_fe_hybrid_orth_enable_cfg)
+                else False
+            ),
+            (
+                self.mrmr_fe_semi_supervised_enable_cfg
+                if (self.use_mrmr_fs and self.mrmr_fe_hybrid_orth_enable_cfg)
+                else False
+            ),
             # iter640 audit-pass-15. F-62/63/68-70/72 MLP options. Gated
             # on 'mlp' in models; canon to False outside so non-MLP combos
             # collapse to one variant per knob.
@@ -5281,6 +5353,25 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         mlp_spectral_norm_output_only_cfg=axes.get(
             "mlp_spectral_norm_output_only_cfg", False
         ),
+        # iter642 audit-pass-15 batch 2.
+        mrmr_fe_hybrid_orth_ensemble_enable_cfg=axes.get(
+            "mrmr_fe_hybrid_orth_ensemble_enable_cfg", False
+        ),
+        mrmr_fe_hybrid_orth_lasso_enable_cfg=axes.get(
+            "mrmr_fe_hybrid_orth_lasso_enable_cfg", False
+        ),
+        mrmr_fe_hybrid_orth_elasticnet_enable_cfg=axes.get(
+            "mrmr_fe_hybrid_orth_elasticnet_enable_cfg", False
+        ),
+        mrmr_fe_hybrid_orth_adaptive_arity_enable_cfg=axes.get(
+            "mrmr_fe_hybrid_orth_adaptive_arity_enable_cfg", False
+        ),
+        mrmr_fe_hybrid_orth_diff_basis_enable_cfg=axes.get(
+            "mrmr_fe_hybrid_orth_diff_basis_enable_cfg", False
+        ),
+        mrmr_fe_semi_supervised_enable_cfg=axes.get(
+            "mrmr_fe_semi_supervised_enable_cfg", False
+        ),
     )
 
 
@@ -5450,6 +5541,14 @@ def build_mrmr_kwargs_from_flat(
     fe_hybrid_orth_meta_enable: bool = False,
     fe_hybrid_orth_bootstrap_enable: bool = False,
     fe_hybrid_orth_three_gate_enable: bool = False,
+    # iter642 audit-pass-15 batch 2. Names match MRMR.__init__ exactly
+    # (filters/mrmr.py:1044/784/800/749/845/767).
+    fe_hybrid_orth_ensemble_enable: bool = False,
+    fe_hybrid_orth_lasso_enable: bool = False,
+    fe_hybrid_orth_elasticnet_enable: bool = False,
+    fe_hybrid_orth_adaptive_arity_enable: bool = False,
+    fe_hybrid_orth_diff_basis_enable: bool = False,
+    fe_semi_supervised_enable: bool = False,
 ) -> Optional[Dict[str, Any]]:
     """Build the mrmr_kwargs dict passed to FeatureSelectionConfig.
     Returns None when use_mrmr_fs=False so the FS step is a no-op.
@@ -5565,6 +5664,14 @@ def build_mrmr_kwargs_from_flat(
         "fe_hybrid_orth_meta_enable": fe_hybrid_orth_meta_enable,
         "fe_hybrid_orth_bootstrap_enable": fe_hybrid_orth_bootstrap_enable,
         "fe_hybrid_orth_three_gate_enable": fe_hybrid_orth_three_gate_enable,
+        # iter642 audit-pass-15 batch 2. Six remaining hybrid-orth sub-
+        # features. Names match MRMR.__init__ verbatim.
+        "fe_hybrid_orth_ensemble_enable": fe_hybrid_orth_ensemble_enable,
+        "fe_hybrid_orth_lasso_enable": fe_hybrid_orth_lasso_enable,
+        "fe_hybrid_orth_elasticnet_enable": fe_hybrid_orth_elasticnet_enable,
+        "fe_hybrid_orth_adaptive_arity_enable": fe_hybrid_orth_adaptive_arity_enable,
+        "fe_hybrid_orth_diff_basis_enable": fe_hybrid_orth_diff_basis_enable,
+        "fe_semi_supervised_enable": fe_semi_supervised_enable,
     }
     # 2026-05-30 audit-pass-7 #3/#4: per_feature_edges.kwargs threaded via
     # MRMR.nbins_strategy_kwargs. Build the dict only when one of these
@@ -5709,6 +5816,13 @@ def build_mrmr_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]:
         fe_hybrid_orth_meta_enable=combo.mrmr_fe_hybrid_orth_meta_enable_cfg,
         fe_hybrid_orth_bootstrap_enable=combo.mrmr_fe_hybrid_orth_bootstrap_enable_cfg,
         fe_hybrid_orth_three_gate_enable=combo.mrmr_fe_hybrid_orth_three_gate_enable_cfg,
+        # iter642 audit-pass-15 batch 2.
+        fe_hybrid_orth_ensemble_enable=combo.mrmr_fe_hybrid_orth_ensemble_enable_cfg,
+        fe_hybrid_orth_lasso_enable=combo.mrmr_fe_hybrid_orth_lasso_enable_cfg,
+        fe_hybrid_orth_elasticnet_enable=combo.mrmr_fe_hybrid_orth_elasticnet_enable_cfg,
+        fe_hybrid_orth_adaptive_arity_enable=combo.mrmr_fe_hybrid_orth_adaptive_arity_enable_cfg,
+        fe_hybrid_orth_diff_basis_enable=combo.mrmr_fe_hybrid_orth_diff_basis_enable_cfg,
+        fe_semi_supervised_enable=combo.mrmr_fe_semi_supervised_enable_cfg,
     )
 
 
