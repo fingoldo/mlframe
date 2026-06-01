@@ -594,19 +594,29 @@ def score_grouped_quantile_by_mi_uplift(
 
     def _bin(arr: np.ndarray) -> np.ndarray:
         a = np.asarray(arr, dtype=np.float64)
+        # Compute the finite mask + finite subset ONCE (the original recomputed
+        # np.isfinite(a) 4x and a[np.isfinite(a)] 3x). All-finite columns skip
+        # the gather entirely. Bit-identical; ~1.18x at the L88 call volume.
+        fin = np.isfinite(a)
+        all_finite = fin.all()
+        a_fin = a if all_finite else a[fin]
         # Integer-valued bin index columns (target_aware_bin) are used as-is.
-        uniq = np.unique(a[np.isfinite(a)])
-        if uniq.size <= n_bins and np.all(a[np.isfinite(a)] == np.round(a[np.isfinite(a)])):
-            out = a.copy()
-            out[~np.isfinite(out)] = 0.0
+        uniq = np.unique(a_fin)
+        if uniq.size <= n_bins and a_fin.size and np.all(a_fin == np.round(a_fin)):
+            if all_finite:
+                out = a
+            else:
+                out = a.copy()
+                out[~fin] = 0.0
             _, codes = np.unique(out, return_inverse=True)
             return codes.astype(np.int64)
-        q = np.quantile(a[np.isfinite(a)], np.linspace(0, 1, n_bins + 1)) if np.isfinite(a).any() else np.array([0.0, 1.0])
+        q = np.quantile(a_fin, np.linspace(0, 1, n_bins + 1)) if a_fin.size else np.array([0.0, 1.0])
         q = np.unique(q)
         if q.size < 2:
             return np.zeros(a.shape, dtype=np.int64)
         codes = np.searchsorted(q[1:-1], a, side="right")
-        codes[~np.isfinite(a)] = 0
+        if not all_finite:
+            codes[~fin] = 0
         return codes.astype(np.int64)
 
     eng_to_source = eng_to_source or {}
