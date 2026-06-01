@@ -92,6 +92,28 @@ def engineered_name_target_aware_bin(num_col: str, group_col: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _broadcast_lookup(g_keys: np.ndarray, lookup: dict, glob: float) -> np.ndarray:
+    """Map each row's group key through ``lookup`` (str-keyed), unseen -> glob.
+
+    Group columns are low-cardinality, so the ``str(key)`` + ``dict.get`` is
+    resolved once per UNIQUE key (np.unique return_inverse) and broadcast back
+    via the inverse index, not once per row -- the per-row listcomp form was a
+    Layer-88 grouped-quantile hotspot (~0.65s x 2 sites / 32 calls each). Bit-
+    identical to the per-row mapping (same str()+get per distinct key). Ravels
+    the inverse (numpy 2.0.0 briefly returned 2-D) and falls back to the per-row
+    path on the TypeError np.unique raises for unorderable mixed-type objects.
+    """
+    g_keys = np.asarray(g_keys)
+    try:
+        uniq, inverse = np.unique(g_keys, return_inverse=True)
+        inverse = np.asarray(inverse).reshape(-1)
+        uniq_vals = np.array([lookup.get(str(_k), glob) for _k in uniq], dtype=np.float64)
+        out = uniq_vals[inverse]
+    except (TypeError, ValueError):
+        out = np.array([lookup.get(str(_k), glob) for _k in g_keys], dtype=np.float64)
+    return np.nan_to_num(out, nan=glob, posinf=glob, neginf=glob)
+
+
 def _pct_rank_in_sorted(sorted_vals: np.ndarray, x: np.ndarray) -> np.ndarray:
     """Empirical CDF position of each ``x`` in ``sorted_vals`` -- the fraction
     of group values ``<= x`` via the midpoint of the left / right insertion
@@ -199,11 +221,7 @@ def generate_grouped_quantile_features(
             }
 
             # IQR spread broadcast.
-            iqr_out = np.array(
-                [iqr_lookup.get(str(k), global_iqr) for k in g_keys],
-                dtype=np.float64,
-            )
-            iqr_out = np.nan_to_num(iqr_out, nan=global_iqr, posinf=global_iqr, neginf=global_iqr)
+            iqr_out = _broadcast_lookup(g_keys, iqr_lookup, global_iqr)
             iqr_name = engineered_name_grouped_iqr(num_col, group_col)
             encoded[iqr_name] = iqr_out
             raw_recipes[iqr_name] = {
@@ -220,11 +238,7 @@ def generate_grouped_quantile_features(
             }
 
             # p90 - p10 spread broadcast.
-            p_out = np.array(
-                [p90p10_lookup.get(str(k), global_p90p10) for k in g_keys],
-                dtype=np.float64,
-            )
-            p_out = np.nan_to_num(p_out, nan=global_p90p10, posinf=global_p90p10, neginf=global_p90p10)
+            p_out = _broadcast_lookup(g_keys, p90p10_lookup, global_p90p10)
             p_name = engineered_name_grouped_p90p10(num_col, group_col)
             encoded[p_name] = p_out
             raw_recipes[p_name] = {
@@ -269,13 +283,11 @@ def apply_grouped_quantile(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     if op == "iqr":
         lookup = dict(recipe["iqr_lookup"])
         glob = float(recipe["global_iqr"])
-        out = np.array([lookup.get(str(k), glob) for k in g_keys], dtype=np.float64)
-        return np.nan_to_num(out, nan=glob, posinf=glob, neginf=glob)
+        return _broadcast_lookup(g_keys, lookup, glob)
     if op == "p90p10":
         lookup = dict(recipe["p90p10_lookup"])
         glob = float(recipe["global_p90p10"])
-        out = np.array([lookup.get(str(k), glob) for k in g_keys], dtype=np.float64)
-        return np.nan_to_num(out, nan=glob, posinf=glob, neginf=glob)
+        return _broadcast_lookup(g_keys, lookup, glob)
     if op == "pct_rank":
         group_sorted = recipe["group_sorted"]
         global_sorted = np.asarray(recipe["global_sorted"], dtype=np.float64)
