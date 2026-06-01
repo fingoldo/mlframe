@@ -29,9 +29,10 @@ Contracts pinned (real numbers, Bayes-feasible fixtures, never xfail):
 from __future__ import annotations
 
 import hashlib
-import json
 import pickle
 import warnings
+
+import orjson
 
 import numpy as np
 import pandas as pd
@@ -151,8 +152,12 @@ def _hash_payload(recipe) -> str:
             "op", "group_col", "num_col",
         )
     }
-    blob = json.dumps(payload, sort_keys=True, default=float)
-    return hashlib.sha256(blob.encode()).hexdigest()
+    # orjson always sorts keys deterministically via OPT_SORT_KEYS; ``default=float``
+    # coerces numpy / pandas scalars to plain float for the JSON encoder. Returns
+    # bytes (no .encode() needed). orjson is the project convention -- the
+    # test_no_stdlib_json_in_tests meta-linter enforces it.
+    blob = orjson.dumps(payload, option=orjson.OPT_SORT_KEYS, default=float)
+    return hashlib.sha256(blob).hexdigest()
 
 
 class TestQuantileCacheLeakSafe:

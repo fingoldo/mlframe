@@ -437,13 +437,22 @@ class TestBuildPipelineIntegration:
 
         assert isinstance(result, Pipeline)
         step_names = [name for name, _ in result.steps]
-        # Order should be: pre (base), ce, imp, scaler, [optional to_float32 tail].
-        # The trailing 'to_float32' step was added to keep linear-model inputs in
-        # float32 (memory-halve the cached transformed train/val/test frames on a
-        # 4M-row pipeline cache). It's optional in earlier branches but present in
-        # the current default config.
-        assert step_names[:4] == ['pre', 'ce', 'imp', 'scaler']
-        assert step_names[4:] in ([], ['to_float32'])
+        # Order should be: pre (base), ce, [inf_to_nan,] imp, scaler, [optional
+        # to_float32 tail]. The ``inf_to_nan`` step was added 2026-06-01 BEFORE
+        # the imputer so inf -> NaN gets filled (SimpleImputer only handles NaN;
+        # this guards inf-intolerant scaler / linear / MLP when global
+        # fix_infinities is off). The trailing 'to_float32' step was added to
+        # keep linear-model inputs in float32 (memory-halve the cached
+        # transformed train/val/test frames on a 4M-row pipeline cache).
+        # Both are optional steps that the strategy adds when its
+        # ``requires_imputation`` / float32-cast flags fire.
+        assert step_names[:3] == ['pre', 'ce', 'inf_to_nan'] or step_names[:3] == ['pre', 'ce', 'imp']
+        if 'inf_to_nan' in step_names:
+            assert step_names[:5] == ['pre', 'ce', 'inf_to_nan', 'imp', 'scaler']
+            assert step_names[5:] in ([], ['to_float32'])
+        else:
+            assert step_names[:4] == ['pre', 'ce', 'imp', 'scaler']
+            assert step_names[4:] in ([], ['to_float32'])
 
     def test_partial_components(self):
         """Test with only some components provided."""

@@ -97,6 +97,23 @@ try:
             return list(cached)  # defensive copy so callers can't mutate cache
 
         _lf_registry._load_external_callbacks = _load_external_callbacks_cached
+        # Modern Lightning ships two distinct package namespaces:
+        #   * ``lightning.fabric.utilities.registry``      (umbrella re-export)
+        #   * ``lightning_fabric.utilities.registry``      (standalone wheel)
+        # They are SEPARATE module objects with their own function objects --
+        # patching only the umbrella leaves the standalone path on the slow
+        # function. ``lightning_fabric.fabric`` imports the standalone copy
+        # via ``from lightning_fabric.utilities.registry import
+        # _load_external_callbacks`` -- without the explicit patch its 12
+        # per-fit calls slipped past the cache. Mirror the wrap on the
+        # standalone module + every importer of the standalone symbol.
+        try:
+            from lightning_fabric.utilities import registry as _lfs_registry
+            if _lfs_registry is not _lf_registry:
+                _lfs_registry._load_external_callbacks = _load_external_callbacks_cached
+                _lfs_registry._mlframe_callback_cache_installed = True
+        except ImportError:
+            pass
         # Rebind in every Lightning module that imported the original by name.
         # Each ``from ... import _load_external_callbacks`` creates a local
         # binding that mutating the source module does not affect. Walk
