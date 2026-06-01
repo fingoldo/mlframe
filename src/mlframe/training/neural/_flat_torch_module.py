@@ -43,6 +43,8 @@ class MLPTorchModel(L.LightningModule):
         use_lookahead: bool = False,
         lookahead_k: int = 5,
         lookahead_alpha: float = 0.5,
+        use_mixup: bool = False,
+        mixup_alpha: float = 0.2,
     ):
         """
         PyTorch Lightning module for MLP training.
@@ -348,6 +350,24 @@ class MLPTorchModel(L.LightningModule):
     def training_step(self, batch, batch_idx: int) -> Dict[str, torch.Tensor]:
         """Training step."""
         features, labels, sample_weight = self._unpack_batch(batch)
+
+        # F-68 (2026-05-31): Mixup augmentation. When enabled, mix features
+        # and targets BEFORE the forward pass; loss is computed against
+        # the interpolated targets (regression / multilabel) or as a
+        # convex combination of two single-target losses (classification).
+        # Off by default; ``use_mixup=True`` opts in. See _mixup.py for
+        # algorithmic detail + sample-weight semantics caveat.
+        _mixup_active = (
+            self.hparams.use_mixup
+            and self.training
+            and features.shape[0] >= 2
+        )
+        if _mixup_active:
+            from ._mixup import mixup_batch
+            features, _y_a, _y_b, _lam = mixup_batch(
+                features, labels, alpha=self.hparams.mixup_alpha,
+            )
+
         raw_predictions = self(features)
 
         # Align prediction and label rank for loss. Pre-fix this squeezed
@@ -367,7 +387,36 @@ class MLPTorchModel(L.LightningModule):
         else:
             raw_predictions_for_loss = raw_predictions
 
-        loss = self._compute_weighted_loss(raw_predictions_for_loss, labels, sample_weight)
+        # F-68 Mixup loss formulation:
+        #   * regression / multilabel (continuous targets): mix the targets
+        #     and apply the loss against the mixed scalar/vector. This is
+        #     algebraically identical to the convex-combination form
+        #     ``lam * L(pred, y_a) + (1-lam) * L(pred, y_b)`` for MSE
+        #     (proof: MSE is quadratic in y, so linearity in y is preserved
+        #     via the cross-term that vanishes in expectation; close-form
+        #     equivalent in finite-sample under the standard mixup recipe).
+        #   * classification (integer-label CE): targets are class indices
+        #     so we use the two-target convex-combination form, which is
+        #     the standard mixup-for-CE recipe (Zhang 2018 eq. 2). Both
+        #     y_a and y_b go through the loss with their respective
+        #     weights lam and (1 - lam).
+        if _mixup_active:
+            _is_int_label = labels.dtype in (torch.int32, torch.int64)
+            if _is_int_label:
+                loss_a = self._compute_weighted_loss(
+                    raw_predictions_for_loss, _y_a, sample_weight,
+                )
+                loss_b = self._compute_weighted_loss(
+                    raw_predictions_for_loss, _y_b, sample_weight,
+                )
+                loss = _lam * loss_a + (1.0 - _lam) * loss_b
+            else:
+                mixed_labels = _lam * _y_a + (1.0 - _lam) * _y_b
+                loss = self._compute_weighted_loss(
+                    raw_predictions_for_loss, mixed_labels, sample_weight,
+                )
+        else:
+            loss = self._compute_weighted_loss(raw_predictions_for_loss, labels, sample_weight)
 
         if self.hparams.l1_alpha > 0:
             # F-07 (2026-05-30): exclude normalisation-layer parameters from
