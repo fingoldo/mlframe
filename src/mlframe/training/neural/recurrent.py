@@ -409,6 +409,32 @@ class _RecurrentWrapperBase(BaseEstimator):
             )
             callbacks.append(checkpoint_callback)
 
+        # F-68 (2026-05-31): exponential moving average of weights. Mirrors
+        # MLP's F-28. Off by default; enable via RecurrentConfig.use_ema.
+        # When on, Lightning's WeightAveraging callback maintains an EMA
+        # copy alongside the live model + swaps it in on on_train_end so
+        # downstream predict() uses the averaged copy transparently. Falls
+        # back to SWA-as-EMA (with constant swa_lrs = config.learning_rate
+        # so no LR-restart phase) when WeightAveraging is unavailable in
+        # the installed Lightning (<2.5).
+        if getattr(self.config, "use_ema", False):
+            from torch.optim.swa_utils import get_ema_avg_fn
+            _ema_decay = getattr(self.config, "ema_decay", 0.999)
+            try:
+                from lightning.pytorch.callbacks import WeightAveraging
+                callbacks.append(
+                    WeightAveraging(avg_fn=get_ema_avg_fn(decay=_ema_decay))
+                )
+            except ImportError:
+                from lightning.pytorch.callbacks import StochasticWeightAveraging
+                callbacks.append(
+                    StochasticWeightAveraging(
+                        swa_lrs=self.config.learning_rate,
+                        swa_epoch_start=0.5,
+                        avg_fn=get_ema_avg_fn(decay=_ema_decay),
+                    )
+                )
+
         # CUDA-broken-host guard: probe a tiny allocation before Lightning
         # opens its CUDA strategy. On hosts with CUDA libs but a broken
         # runtime (CURAND init failure, illegal memory access on first

@@ -134,6 +134,18 @@ class RecurrentConfig:
     lookahead_k: int = 5
     lookahead_alpha: float = 0.5
 
+    # F-68 (2026-05-31): exponential moving average of weights via
+    # Lightning's WeightAveraging callback. Mirrors MLP's F-28; off by
+    # default. When True, Lightning auto-swaps the EMA weights into the
+    # live model on on_train_end -- predict() then uses the EMA copy
+    # transparently (no save/load changes). +0.4% on tabular per
+    # RealMLP-TD ablations. Cheaper than SWA (no LR warm-restart phase).
+    # ema_decay default 0.999 mirrors torch.optim.swa_utils default.
+    # Falls back to SWA-as-EMA shim when WeightAveraging is unavailable
+    # (Lightning < 2.5).
+    use_ema: bool = False
+    ema_decay: float = 0.999
+
     # Output
     num_classes: int = 2  # for classification; ignored for regression
 

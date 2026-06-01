@@ -344,16 +344,76 @@ class RecurrentTorchModel(L.LightningModule):
         if self.config.use_attention:
             return self.attention(rnn_out, safe_lengths)
         else:
-            return self._get_last_hidden(rnn_out, safe_lengths)
+            return self._get_last_hidden(
+                rnn_out, safe_lengths,
+                bidirectional=self.config.bidirectional,
+            )
 
     @staticmethod
-    def _get_last_hidden(rnn_out: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
-        """Extract last valid hidden state for each sequence."""
-        device = rnn_out.device
-        hidden_size = rnn_out.size(2)
+    def _get_last_hidden(
+        rnn_out: torch.Tensor,
+        lengths: torch.Tensor,
+        bidirectional: bool = False,
+    ) -> torch.Tensor:
+        """Extract the last-valid-step hidden state(s) for each sequence.
 
-        last_indices = (lengths - 1).to(device).view(-1, 1, 1).expand(-1, 1, hidden_size)
-        return rnn_out.gather(1, last_indices).squeeze(1)
+        F-J fix (2026-05-31, audit-found silent correctness bug):
+
+        For UNIDIRECTIONAL RNN, ``rnn_out[b, lengths[b]-1, :]`` is the
+        forward-RNN summary of positions [0..lengths[b]-1] -- correct.
+
+        For BIDIRECTIONAL RNN (rnn_out shape (B, T, 2*hidden) with
+        rnn_out[..., :hidden] = forward channel and rnn_out[..., hidden:]
+        = backward channel), the previous implementation gathered
+        ``rnn_out[b, lengths[b]-1, :]`` for BOTH halves. The forward
+        half is correct (summary of [0..length-1]) but the backward half
+        is only the backward RNN's hidden state AT POSITION length-1,
+        which after pack_padded_sequence has processed positions
+        [length-1, length-2, ..., 0] in reverse means h_bwd[length-1]
+        only summarises [length-1..length-1] -- just the LAST token,
+        not the full sequence.
+
+        The semantically correct backward summary lives at h_bwd[0]
+        (the backward RNN's final hidden state in run-order, which is
+        the summary of [0..length-1]). So the fix gathers:
+          fwd_last  = rnn_out[b, length-1, :hidden]   (forward summary)
+          bwd_first = rnn_out[b, 0,        hidden:]   (backward summary)
+        and concatenates them along the channel axis.
+
+        Pre-fix, every bidirectional + use_attention=False recurrent
+        ensemble member was silently feeding the MLPHead a half-padding
+        embedding. Estimated R^2 drop 0.1-0.3 on sequence tasks where
+        the backward-channel summary actually carries signal (typical
+        on tabular sequences with bidirectional defaults).
+        """
+        device = rnn_out.device
+        total_channels = rnn_out.size(2)
+        last_indices = (lengths - 1).to(device).view(-1, 1, 1)
+
+        if not bidirectional:
+            # Unchanged unidirectional path: gather the whole channel block
+            # at position length-1.
+            last_indices_full = last_indices.expand(-1, 1, total_channels)
+            return rnn_out.gather(1, last_indices_full).squeeze(1)
+
+        # Bidirectional: split into fwd / bwd halves, gather each at the
+        # semantically correct position, then re-concatenate.
+        assert total_channels % 2 == 0, (
+            f"bidirectional rnn_out must have even channel count; got {total_channels}"
+        )
+        hidden_size = total_channels // 2
+        fwd = rnn_out[:, :, :hidden_size]   # (B, T, H)
+        bwd = rnn_out[:, :, hidden_size:]   # (B, T, H)
+
+        # fwd_last_idx: (B, 1, H) gather at position lengths-1.
+        fwd_last_idx = last_indices.expand(-1, 1, hidden_size)
+        fwd_summary = fwd.gather(1, fwd_last_idx).squeeze(1)  # (B, H)
+
+        # bwd_first: position 0 across the batch -- single slice is fine,
+        # no gather needed.
+        bwd_summary = bwd[:, 0, :]                              # (B, H)
+
+        return torch.cat([fwd_summary, bwd_summary], dim=1)     # (B, 2H)
 
     def training_step(self, batch: dict, batch_idx: int) -> torch.Tensor:
         """Training step."""
@@ -512,9 +572,17 @@ class RecurrentTorchModel(L.LightningModule):
                 precision = str(self.trainer.precision)
         except Exception:
             pass
+        # F-44 fused-AdamW + grad clipping under ANY mixed precision is
+        # broken by Lightning's AMP plugin (not just 16-mixed): the plugin
+        # routes through `_clip_gradients` which rejects fused optimizers
+        # because they unscale internally. bf16-mixed has no GradScaler
+        # but the same plugin path still fires the rejection. fp32 / no-AMP
+        # is the only safe precision for fused. Observed 2026-05-31 with
+        # CPU+EMA on a CUDA-available host: Lightning auto-promotes
+        # 16-mixed -> bf16-mixed on CPU, then crashes on the first step.
         _safe_for_fused = (
             torch.cuda.is_available()
-            and precision != "16-mixed"
+            and "mixed" not in precision
         )
         _fused_kwarg = {"fused": True} if _safe_for_fused else {}
         optimizer = torch.optim.AdamW(

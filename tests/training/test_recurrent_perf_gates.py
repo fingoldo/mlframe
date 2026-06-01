@@ -81,14 +81,17 @@ def test_f44_fused_adamw_skipped_when_trainer_runs_16_mixed(monkeypatch):
     )
 
 
-def test_f44_fused_adamw_active_when_trainer_runs_bf16_mixed():
-    """F-44 positive case: under bf16-mixed (no GradScaler), fused AdamW
-    is safe and MUST install. This is the path that gives the 1.05-1.15x
-    optim step lift on Ampere+ (where F-49 promotes 16-mixed to bf16-mixed)."""
+def test_f44_fused_adamw_skipped_under_bf16_mixed():
+    """F-44 follow-up (2026-05-31 EMA-test failure on CPU+bf16-mixed):
+    Lightning's AMP precision plugin's ``_clip_gradients`` rejects fused
+    AdamW under ANY mixed precision, not just 16-mixed -- bf16-mixed has
+    no GradScaler but still routes through the same plugin path. Pin the
+    stricter gate that excludes both.
+    """
     from mlframe.training.neural._recurrent_torch_model import RecurrentTorchModel
 
     if not torch.cuda.is_available():
-        pytest.skip("F-44 fused only fires on CUDA")
+        pytest.skip("F-44 fused gate only matters when CUDA is available")
 
     cfg = RecurrentConfig(
         input_mode=InputMode.FEATURES_ONLY,
@@ -105,8 +108,39 @@ def test_f44_fused_adamw_active_when_trainer_runs_bf16_mixed():
     model.trainer = _FakeTrainer()
     out = model.configure_optimizers()
     opt = out["optimizer"] if isinstance(out, dict) else out
+    fused = opt.param_groups[0].get("fused", False)
+    assert fused is not True, (
+        f"F-44 gate failed: fused={fused!r} under bf16-mixed -> AMP plugin "
+        f"grad-clip rejection. The gate must skip fused for any 'mixed' precision."
+    )
+
+
+def test_f44_fused_adamw_active_under_fp32():
+    """F-44 positive case: under 32-true (no AMP plugin), fused AdamW
+    is safe and MUST install. This is the path that gives the 1.05-1.15x
+    optim step lift when the user explicitly disables mixed precision."""
+    from mlframe.training.neural._recurrent_torch_model import RecurrentTorchModel
+
+    if not torch.cuda.is_available():
+        pytest.skip("F-44 fused only fires on CUDA")
+
+    cfg = RecurrentConfig(
+        input_mode=InputMode.FEATURES_ONLY,
+        rnn_type=RNNType.LSTM,
+        hidden_size=8,
+        num_layers=1,
+    )
+    model = RecurrentTorchModel(cfg, aux_input_size=4, is_regression=True)
+
+    class _FakeTrainer:
+        precision = "32-true"
+        estimated_stepping_batches = 0
+
+    model.trainer = _FakeTrainer()
+    out = model.configure_optimizers()
+    opt = out["optimizer"] if isinstance(out, dict) else out
     assert opt.param_groups[0].get("fused", False) is True, (
-        "F-44 expected fused=True under bf16-mixed; got fused=False or unset"
+        "F-44 expected fused=True under 32-true; got fused=False or unset"
     )
 
 
