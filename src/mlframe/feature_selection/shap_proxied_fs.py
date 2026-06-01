@@ -321,6 +321,18 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         self.n_models = n_models
         self.min_features = min_features
         self.max_features = max_features
+        # ``top_n`` (default 30) bounds the number of candidate subsets the search heuristic
+        # forwards for honest revalidation; each candidate gets ``n_revalidation_models`` fits.
+        # Iter96 sweep at C3 (width=10000, n_rows=10000, snr=8.0) over {20, 16, 12, 8}:
+        # 20=baseline (recall=0.95, chosen_loss=0.135456, reval_wall=5.14s),
+        # 16=IDENTICAL chosen subset / recall=0.95 but chosen_loss point-estimate +9.6%
+        # (outside the +-5% gate even on the same subset because revalidation ucb resamples a
+        # smaller candidate set and the point estimate moves),
+        # 12,8=DIFFER (drops inf19, recall regresses to 0.90).
+        # Default kept at 30 (and bench-pinned 20 baseline) because shrinking the ceiling
+        # crosses the honest_loss point-estimate gate even on the bit-identical winner; the
+        # iter50 MMR + iter77 adaptive paths already cut the EVALUATED count below the ceiling
+        # when redundancy exists, so the static top_n is rarely the binding cost driver.
         self.top_n = top_n
         self.holdout_size = holdout_size
         self.revalidate = revalidate
