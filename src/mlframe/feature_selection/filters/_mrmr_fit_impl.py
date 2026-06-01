@@ -3157,6 +3157,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     _temporal_agg_pre_recipes: dict = {}
     _modular_pre_recipes: dict = {}
     _group_distance_pre_recipes: dict = {}
+    _rare_category_pre_recipes: dict = {}
+    _conditional_residual_pre_recipes: dict = {}
+    _rankgauss_pre_recipes: dict = {}
     _ratio_pre_recipes: dict = {}
     _log_ratio_pre_recipes: dict = {}
     _grouped_delta_pre_recipes: dict = {}
@@ -3918,6 +3921,183 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     type(_gd_exc).__name__, _gd_exc,
                 )
 
+    # Layer 104 (2026-06-01): THREE new recipe-based FE families.
+    self.rare_category_features_ = []
+    self.conditional_residual_features_ = []
+    self.rankgauss_features_ = []
+
+    # FAMILY A -- rare-category indicator + frequency-band encoding. A category
+    # being RARE is itself predictive; emit is_rare_{col} + freq_band_{col}.
+    # MI-gated against the raw-baseline floor. Routing piggybacks on
+    # hybrid_orth_features_.
+    if bool(getattr(self, "fe_rare_category_enable", False)):
+        if not isinstance(X, pd.DataFrame):
+            warnings.warn(
+                "MRMR: Layer 104 rare_category FE enabled but X is not a pandas "
+                "DataFrame; the features are skipped. Convert via "
+                "X.to_pandas() before fit() to apply them.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from ._extra_fe_families import hybrid_rare_category_fe
+
+                _y_for_rc = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                _rc_cols = tuple(
+                    getattr(self, "fe_rare_category_cols", ()) or ()
+                )
+                _rc_cols = [c for c in _rc_cols if c in X.columns] or None
+                _X_before_rc_cols = list(X.columns)
+                X_rc, _rc_appended, _rc_recipes, _ = hybrid_rare_category_fe(
+                    X, _y_for_rc,
+                    cat_cols=_rc_cols,
+                    rare_threshold=float(
+                        getattr(self, "fe_rare_category_threshold", 0.01)
+                    ),
+                    top_k=int(getattr(self, "fe_rare_category_top_k", 10)),
+                    mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
+                    mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
+                )
+                _rc_appended = [
+                    c for c in _rc_appended if c not in _X_before_rc_cols
+                ]
+                if _rc_appended:
+                    X = X_rc
+                    self.rare_category_features_ = list(_rc_appended)
+                    self.hybrid_orth_features_ = (
+                        list(self.hybrid_orth_features_ or []) + list(_rc_appended)
+                    )
+                    for _r in _rc_recipes:
+                        if _r.name in _rc_appended:
+                            _rare_category_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit rare_category: appended %d engineered "
+                            "column(s): %s",
+                            len(_rc_appended), _rc_appended[:8],
+                        )
+            except Exception as _rc_exc:
+                logger.warning(
+                    "MRMR.fit rare_category FE raised %s: %s; continuing "
+                    "without rare-category columns.",
+                    type(_rc_exc).__name__, _rc_exc,
+                )
+
+    # FAMILY B -- NUM x NUM conditional residual x_i - E[x_i | bin(x_j)].
+    # Cardinality-bounded by top raw-MI columns; MI-gated. Routing piggybacks on
+    # hybrid_orth_features_.
+    if bool(getattr(self, "fe_conditional_residual_enable", False)):
+        if not isinstance(X, pd.DataFrame):
+            warnings.warn(
+                "MRMR: Layer 104 conditional_residual FE enabled but X is not a "
+                "pandas DataFrame; the features are skipped. Convert via "
+                "X.to_pandas() before fit() to apply them.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from ._extra_fe_families import hybrid_conditional_residual_fe
+
+                _y_for_cr = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                _cr_cols = tuple(
+                    getattr(self, "fe_conditional_residual_cols", ()) or ()
+                )
+                _cr_cols = [c for c in _cr_cols if c in X.columns] or None
+                _X_before_cr_cols = list(X.columns)
+                X_cr, _cr_appended, _cr_recipes, _ = hybrid_conditional_residual_fe(
+                    X, _y_for_cr,
+                    num_cols=_cr_cols,
+                    n_bins=int(getattr(self, "fe_conditional_residual_n_bins", 10)),
+                    top_k=int(getattr(self, "fe_conditional_residual_top_k", 10)),
+                    max_pair_cols=int(
+                        getattr(self, "fe_conditional_residual_max_pair_cols", 6)
+                    ),
+                    mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
+                    mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
+                )
+                _cr_appended = [
+                    c for c in _cr_appended if c not in _X_before_cr_cols
+                ]
+                if _cr_appended:
+                    X = X_cr
+                    self.conditional_residual_features_ = list(_cr_appended)
+                    self.hybrid_orth_features_ = (
+                        list(self.hybrid_orth_features_ or []) + list(_cr_appended)
+                    )
+                    for _r in _cr_recipes:
+                        if _r.name in _cr_appended:
+                            _conditional_residual_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit conditional_residual: appended %d "
+                            "engineered column(s): %s",
+                            len(_cr_appended), _cr_appended[:8],
+                        )
+            except Exception as _cr_exc:
+                logger.warning(
+                    "MRMR.fit conditional_residual FE raised %s: %s; continuing "
+                    "without conditional-residual columns.",
+                    type(_cr_exc).__name__, _cr_exc,
+                )
+
+    # FAMILY C -- RankGauss (rank-Gaussianisation). NOT MI-gated: monotone ->
+    # MI-invariant by the data-processing inequality; the pool is bounded by raw
+    # marginal MI and the value is downstream (linear / NN). Routing piggybacks
+    # on hybrid_orth_features_.
+    if bool(getattr(self, "fe_rankgauss_enable", False)):
+        if not isinstance(X, pd.DataFrame):
+            warnings.warn(
+                "MRMR: Layer 104 rankgauss FE enabled but X is not a pandas "
+                "DataFrame; the features are skipped. Convert via "
+                "X.to_pandas() before fit() to apply them.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from ._extra_fe_families import hybrid_rankgauss_fe
+
+                _y_for_rg = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                _rg_cols = tuple(
+                    getattr(self, "fe_rankgauss_cols", ()) or ()
+                )
+                _rg_cols = [c for c in _rg_cols if c in X.columns] or None
+                _X_before_rg_cols = list(X.columns)
+                X_rg, _rg_appended, _rg_recipes, _ = hybrid_rankgauss_fe(
+                    X, _y_for_rg,
+                    num_cols=_rg_cols,
+                    top_k=int(getattr(self, "fe_rankgauss_top_k", 10)),
+                )
+                _rg_appended = [
+                    c for c in _rg_appended if c not in _X_before_rg_cols
+                ]
+                if _rg_appended:
+                    X = X_rg
+                    self.rankgauss_features_ = list(_rg_appended)
+                    self.hybrid_orth_features_ = (
+                        list(self.hybrid_orth_features_ or []) + list(_rg_appended)
+                    )
+                    for _r in _rg_recipes:
+                        if _r.name in _rg_appended:
+                            _rankgauss_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit rankgauss: appended %d engineered "
+                            "column(s): %s",
+                            len(_rg_appended), _rg_appended[:8],
+                        )
+            except Exception as _rg_exc:
+                logger.warning(
+                    "MRMR.fit rankgauss FE raised %s: %s; continuing without "
+                    "rankgauss columns.",
+                    type(_rg_exc).__name__, _rg_exc,
+                )
+
     # Layer 92 (2026-06-01): temporal leak-safe grouped aggregations. Keyed on
     # a time column, only ever seeing the strict past (expanding / rolling /
     # lag). Each survivor MI-gated against y; recipes store the fit-time
@@ -4233,6 +4413,15 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             for _c in list(_group_distance_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _group_distance_pre_recipes.pop(_c, None)
+            for _c in list(_rare_category_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _rare_category_pre_recipes.pop(_c, None)
+            for _c in list(_conditional_residual_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _conditional_residual_pre_recipes.pop(_c, None)
+            for _c in list(_rankgauss_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _rankgauss_pre_recipes.pop(_c, None)
             for _c in list(_temporal_agg_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _temporal_agg_pre_recipes.pop(_c, None)
@@ -4306,6 +4495,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         "cat_pair_features_", "cat_triple_features_",
                         "numeric_decompose_features_",
                         "modular_features_", "group_distance_features_",
+                        "rare_category_features_",
+                        "conditional_residual_features_", "rankgauss_features_",
                         "temporal_agg_features_",
                     ):
                         setattr(self, _attr, [
@@ -4325,6 +4516,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _cat_triple_pre_recipes,
                         _numeric_decompose_pre_recipes,
                         _modular_pre_recipes, _group_distance_pre_recipes,
+                        _rare_category_pre_recipes,
+                        _conditional_residual_pre_recipes,
+                        _rankgauss_pre_recipes,
                         _temporal_agg_pre_recipes,
                     ):
                         for _c in list(_pre.keys()):
@@ -4610,6 +4804,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # Layer 95 PART B: same routing for per-group distribution-distance recipes.
     if _group_distance_pre_recipes:
         engineered_recipes.update(_group_distance_pre_recipes)
+    # Layer 104: rare-category / conditional-residual / rankgauss recipes.
+    if _rare_category_pre_recipes:
+        engineered_recipes.update(_rare_category_pre_recipes)
+    if _conditional_residual_pre_recipes:
+        engineered_recipes.update(_conditional_residual_pre_recipes)
+    if _rankgauss_pre_recipes:
+        engineered_recipes.update(_rankgauss_pre_recipes)
     # Layer 92: same routing for temporal leak-safe aggregation recipes.
     if _temporal_agg_pre_recipes:
         engineered_recipes.update(_temporal_agg_pre_recipes)

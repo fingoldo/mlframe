@@ -125,7 +125,7 @@ class EngineeredRecipe:
     # (src_names=(c_i, c_j), extra={basis_i, basis_j, deg_a, deg_b}). Replay
     # is closed-form from the source column(s) alone -- no y reference is
     # captured at fit time, so transform() is leakage-free by construction.
-    kind: Literal["unary_binary", "factorize", "hermite_pair", "target_encoding", "cluster_aggregate", "orth_univariate", "orth_pair_cross", "orth_triplet_cross", "orth_quadruplet_cross", "orth_spline", "orth_fourier", "orth_diff_basis", "orth_cluster_basis", "mi_greedy_transform", "kfold_target_encoded", "count_encoded", "frequency_encoded", "cat_num_residual", "missing_indicator", "missingness_count", "missingness_pattern", "pairwise_ratio", "grouped_delta", "lagged_diff", "grouped_agg", "composite_group_agg", "grouped_quantile", "target_aware_group_bin", "cat_pair_cross", "numeric_rounding", "digit_extract", "temporal_expanding", "temporal_rolling", "temporal_lag", "modular", "group_distance"]
+    kind: Literal["unary_binary", "factorize", "hermite_pair", "target_encoding", "cluster_aggregate", "orth_univariate", "orth_pair_cross", "orth_triplet_cross", "orth_quadruplet_cross", "orth_spline", "orth_fourier", "orth_diff_basis", "orth_cluster_basis", "mi_greedy_transform", "kfold_target_encoded", "count_encoded", "frequency_encoded", "cat_num_residual", "missing_indicator", "missingness_count", "missingness_pattern", "pairwise_ratio", "grouped_delta", "lagged_diff", "grouped_agg", "composite_group_agg", "grouped_quantile", "target_aware_group_bin", "cat_pair_cross", "numeric_rounding", "digit_extract", "temporal_expanding", "temporal_rolling", "temporal_lag", "modular", "group_distance", "rare_category", "conditional_residual", "rankgauss"]
     src_names: tuple[str, ...]
     unary_names: tuple[str, ...] = ()
     binary_name: str = ""
@@ -455,6 +455,25 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         # lookup; reads only X. Lazy import keeps this module dependency-light.
         from ._group_distance_fe import _apply_group_distance_recipe
         return _apply_group_distance_recipe(recipe, X)
+    if recipe.kind == "rare_category":
+        # Layer 104 (2026-06-01): rare-category indicator / frequency-band.
+        # Replay maps a row's category through the stored per-category frequency
+        # lookup; reads only X. Lazy import keeps this module dependency-light.
+        from ._extra_fe_families import _apply_rare_category_recipe
+        return _apply_rare_category_recipe(recipe, X)
+    if recipe.kind == "conditional_residual":
+        # Layer 104 (2026-06-01): NUM x NUM conditional residual
+        # x_i - E[x_i | bin(x_j)]. Replay digitises x_j with the stored quantile
+        # edges and subtracts the stored per-bin mean of x_i; reads only X.
+        from ._extra_fe_families import _apply_conditional_residual_recipe
+        return _apply_conditional_residual_recipe(recipe, X)
+    if recipe.kind == "rankgauss":
+        # Layer 104 (2026-06-01): rank-Gaussianisation (RankGauss). Replay
+        # interpolates each test value's rank against the stored sorted fit
+        # values and maps to a Gaussian quantile; reads only X. Monotone ->
+        # MI-invariant by the DPI; value is downstream (linear / NN).
+        from ._extra_fe_families import _apply_rankgauss_recipe
+        return _apply_rankgauss_recipe(recipe, X)
     if recipe.kind in ("temporal_expanding", "temporal_rolling", "temporal_lag"):
         # Layer 92 (2026-06-01): leak-safe temporal aggregations. Replay
         # computes each test row's expanding / rolling / lag stat against the

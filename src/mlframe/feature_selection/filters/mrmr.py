@@ -1381,6 +1381,30 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_group_distance_top_k: int = 6,
         fe_group_distance_group_cols: tuple = (),
         fe_group_distance_num_cols: tuple = (),
+        # 2026-06-01 Layer 104 — THREE new recipe-based FE families. All default
+        # OFF -> byte-identical legacy path.
+        #   A) rare-category indicator + frequency-band: a category being RARE is
+        #      itself predictive (rare merchant = fraud risk). Emits is_rare_{col}
+        #      + freq_band_{col}; MI-gated against the raw-baseline floor.
+        #   B) NUM x NUM conditional residual x_i - E[x_i | bin(x_j)]: conditional
+        #      anomaly (income high FOR this age bracket). Cardinality-bounded by
+        #      top raw-MI columns; MI-gated.
+        #   C) RankGauss (rank-Gaussianisation): rank -> normal quantile. Monotone
+        #      so MI-invariant by the data-processing inequality -> NOT MI-gated;
+        #      the value is DOWNSTREAM (linear / NN). Pool bounded by raw MI.
+        # ``*_cols`` empty => auto-detect.
+        fe_rare_category_enable: bool = False,
+        fe_rare_category_cols: tuple = (),
+        fe_rare_category_threshold: float = 0.01,
+        fe_rare_category_top_k: int = 10,
+        fe_conditional_residual_enable: bool = False,
+        fe_conditional_residual_cols: tuple = (),
+        fe_conditional_residual_n_bins: int = 10,
+        fe_conditional_residual_top_k: int = 10,
+        fe_conditional_residual_max_pair_cols: int = 6,
+        fe_rankgauss_enable: bool = False,
+        fe_rankgauss_cols: tuple = (),
+        fe_rankgauss_top_k: int = 10,
         # 2026-06-01 Layer 92 — TEMPORAL LEAK-SAFE GROUPED AGGREGATIONS. Layer
         # 87 grouped aggregates compute the per-group statistic over the WHOLE
         # train fold; for time-series / transaction data that peeks at a row's
@@ -1965,6 +1989,24 @@ class MRMR(BaseEstimator, TransformerMixin):
             # 2026-06-01 Layer 99 — fe_auto "1-knob" mode. Pre-L99 pickles
             # default to False -> byte-identical legacy path on reload.
             "fe_auto": False,
+            # 2026-06-01 Layer 104 — three new recipe-based FE families.
+            # Master switches OFF preserve legacy pickle byte-equivalence;
+            # fitted-attr lists default empty until the next fit repopulates.
+            "fe_rare_category_enable": False,
+            "fe_rare_category_cols": (),
+            "fe_rare_category_threshold": 0.01,
+            "fe_rare_category_top_k": 10,
+            "fe_conditional_residual_enable": False,
+            "fe_conditional_residual_cols": (),
+            "fe_conditional_residual_n_bins": 10,
+            "fe_conditional_residual_top_k": 10,
+            "fe_conditional_residual_max_pair_cols": 6,
+            "fe_rankgauss_enable": False,
+            "fe_rankgauss_cols": (),
+            "fe_rankgauss_top_k": 10,
+            "rare_category_features_": [],
+            "conditional_residual_features_": [],
+            "rankgauss_features_": [],
         }
         for k, v in defaults.items():
             state.setdefault(k, v)
