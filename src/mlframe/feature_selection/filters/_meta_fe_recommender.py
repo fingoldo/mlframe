@@ -34,7 +34,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Mapping, Optional, Sequence
 
-from mlframe.utils._param_oracle import (
+from mlframe.utils import (
     ParamOracle,
     bucketize_fingerprint,
     default_fingerprint,

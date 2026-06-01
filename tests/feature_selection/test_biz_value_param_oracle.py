@@ -18,9 +18,10 @@ These tests prove the quantitative wins claimed in
 """
 from __future__ import annotations
 
-import json
 import os
 import random
+
+import orjson
 
 import numpy as np
 import pytest
@@ -72,14 +73,21 @@ def test_benchmark_mode_records_all_combos(tmp_path):
     assert len(res) == 4  # 2 x 2 combos
     rows = oracle.store.read_rows()
     combos = {r["param_combo_json"] for r in rows}
+    # orjson with OPT_SORT_KEYS produces byte-identical output to
+    # ``json.dumps(..., sort_keys=True, separators=(",", ":"))`` for
+    # plain-dict primitives -- compact form + sorted keys is orjson's
+    # default. Production storage in ``_param_oracle.py`` still uses
+    # stdlib json (it's prod code, not test code, so the no-stdlib-json
+    # meta-linter doesn't cover it); the test-side comparison is a
+    # string equality check, hence byte-identity matters.
     expected = {
-        json.dumps({"alpha": a, "beta": b}, sort_keys=True, separators=(",", ":"))
+        orjson.dumps({"alpha": a, "beta": b}, option=orjson.OPT_SORT_KEYS).decode()
         for a in (1, 2) for b in (0, 10)
     }
     assert combos == expected
     # Every row carries an objective with the optimised metric.
     for r in rows:
-        obj = json.loads(r["objective_json"])
+        obj = orjson.loads(r["objective_json"])
         assert "elapsed_s" in obj
 
 
@@ -128,7 +136,7 @@ def test_persistence_is_stat_only(tmp_path):
         for col, val in r.items():
             assert not isinstance(val, (list, tuple, dict, np.ndarray)), \
                 f"non-scalar persisted in {col}: {type(val)}"
-        fp_bucket = json.loads(r["fp_bucket_json"])
+        fp_bucket = orjson.loads(r["fp_bucket_json"])
         for v in fp_bucket.values():
             assert isinstance(v, (int, float, str)), f"non-scalar in fp_bucket: {v!r}"
     # The raw data magnitude must NOT be reconstructable: the store size is
@@ -212,10 +220,10 @@ def test_concurrent_writers_do_not_corrupt(tmp_path):
 
     rows = o1.store.read_rows()
     # After aggregation: one row per (combo) -- both writers' combos survive.
-    combos = {json.loads(r["param_combo_json"])["impl"] for r in rows}
+    combos = {orjson.loads(r["param_combo_json"])["impl"] for r in rows}
     assert combos == {"p", "q"}
     # Observation counts preserved (5 each, median-aggregated into 1 row each).
-    by_combo = {json.loads(r["param_combo_json"])["impl"]: r for r in rows}
+    by_combo = {orjson.loads(r["param_combo_json"])["impl"]: r for r in rows}
     assert by_combo["p"]["n_obs"] == 5
     assert by_combo["q"]["n_obs"] == 5
     # Store still parses (not corrupt).

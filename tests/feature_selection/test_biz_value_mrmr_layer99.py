@@ -356,7 +356,7 @@ class TestLearnedRecommender:
     def test_fit_observe_is_stat_only(self, tmp_path):
         """The learned store must persist ONLY scalar fingerprint stats + the
         flag-set + the score -- never raw arrays."""
-        import json
+        import orjson
         store = os.path.join(str(tmp_path), "meta_fe_stat.parquet")
         rec = MetaFERecommender(store)
         X, y = _build_group_fixture(1, n=2000)
@@ -369,7 +369,7 @@ class TestLearnedRecommender:
                 assert not isinstance(val, (list, tuple, dict, np.ndarray)), (
                     f"non-scalar persisted in {col}: {type(val)}"
                 )
-            fp_bucket = json.loads(r["fp_bucket_json"])
+            fp_bucket = orjson.loads(r["fp_bucket_json"])
             for v in fp_bucket.values():
                 assert isinstance(v, (int, float, str)), f"non-scalar fp: {v!r}"
         store_bytes = os.path.getsize(rec.oracle.store._path)
