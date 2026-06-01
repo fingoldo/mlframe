@@ -365,8 +365,15 @@ def test_two_stage_recovery_matches_single_stage_on_main_effect_target():
     from mlframe.feature_selection._shap_proxy_prefilter import prefilter_columns
 
     X, y = _wide_xy(seed=4, width=400, n_informative=5)
+    # Force single-thread fits: xgboost's hist tree builds histograms with a thread-count-dependent
+    # reduction order, so under CPU contention the multi-thread importance ranking can drift enough
+    # to flip recovery past the 1-feature slack -- a scheduler artefact, not a recovery-contract
+    # change. n_jobs=1 is deterministic given random_state, so the comparison tests the funnel, not
+    # the thread pool. (Same robustness motive as the best-of-N timing on the speed gates.)
     model_a = make_default_estimator(classification=True, random_state=0, n_estimators=120)
     model_b = make_default_estimator(classification=True, random_state=0, n_estimators=120)
+    model_a.set_params(n_jobs=1)
+    model_b.set_params(n_jobs=1)
     keep = 40
     informative = set(range(5))
 
