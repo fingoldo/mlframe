@@ -52,6 +52,17 @@ def test_enum_domain_logs_val_only_categories(caplog) -> None:
         text_avg_min_length: float = 100.0
         text_min_unique_count: int = 50
         embedding_min_dim: int = 8
+        # 2026-06-01: align stub with _misc_helpers._auto_detect_feature_types
+        # interface so the helper short-circuits cleanly (returns empty
+        # auto-detection lists) instead of raising AttributeError on a
+        # missing field. Pre-fix the test silently pytest.skipped through
+        # the ``except Exception`` catch-all, hiding the val-only-Enum
+        # log sensor it was supposed to gate.
+        text_features: list = ()
+        embedding_features: list = ()
+        auto_detect_feature_types: bool = False
+        cat_text_cardinality_threshold: int = 1_000
+        use_text_features: bool = False
 
     metadata: dict = {}
     caplog.set_level(logging.INFO, logger="mlframe.training.core._phase_helpers_fit_split")
