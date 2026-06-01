@@ -451,6 +451,13 @@ def _parallel_honest_losses(tasks, model_template, X_tr, y_tr, X_ev, y_ev, class
                              n_estimators_cap=n_estimators_cap, template_id=template_id,
                              disk_cache=disk_cache)
                 for idx, seed in tasks]
+    # bench-attempt-rejected (iter103/iter104): swapping joblib.Parallel(prefer="threads") for
+    # concurrent.futures.ThreadPoolExecutor was attempted on the strength of cProfile attributing
+    # ~13.8s tottime to time.sleep inside joblib's _retrieve polling loop on a 22.4s fit. Microbench
+    # at 60 short xgb fits on 8 cores: trial 1 = +3.2% (futures faster), trial 2 = -7.7% (joblib
+    # faster). Full-fit re-profile after the swap measured +14% wall (regression), but reproducibility
+    # was poor at 1 trial. Both backends are within noise on this workload; the polling overhead is
+    # real in the profile but doesn't translate to measurable end-to-end wall. Keeping joblib.
     from joblib import Parallel, delayed
 
     return Parallel(n_jobs=outer, prefer="threads")(
