@@ -86,6 +86,60 @@ class _Float32CastTransformer(TransformerMixin, BaseEstimator):
         n = getattr(self, "n_features_in_", 0)
         return _np.asarray([f"x{i}" for i in range(n)])
 
+class _InfToNaNTransformer(TransformerMixin, BaseEstimator):
+    """Replace +/-inf with NaN so the downstream SimpleImputer fills them.
+
+    SimpleImputer handles NaN but NOT infinity; StandardScaler / linear /
+    MLP then raise ``Input X contains infinity or a value too large for
+    dtype`` the moment an inf cell survives. mlframe's global
+    ``fix_infinities`` preprocessing neutralises inf for the shared frame,
+    but a caller can disable it (``fix_infinities=False``) for the GBDT
+    backends that tolerate inf -- which leaves the inf-intolerant linear /
+    MLP per-model pipeline exposed. This step makes that pipeline
+    self-sufficient: inf -> NaN -> imputed, independent of the global flag.
+    Inserted only when an imputer follows it (so the introduced NaN is
+    always filled). Elementwise + column-count-preserving, so it does not
+    perturb the pipeline's ``n_features_in_`` input-width contract.
+    Surfaced by fuzz (inject_inf_nan=True + fix_infinities=False + linear/mlp).
+    """
+
+    def fit(self, X, y=None):  # noqa: ARG002 -- sklearn signature
+        import numpy as _np
+        if hasattr(X, "columns"):
+            self.feature_names_in_ = _np.asarray(list(X.columns))
+        _shape = getattr(X, "shape", None)
+        if _shape is not None and len(_shape) >= 2:
+            self.n_features_in_ = int(_shape[1])
+        return self
+
+    @staticmethod
+    def _replace(X):
+        import numpy as _np
+        if hasattr(X, "replace") and hasattr(X, "columns"):  # pandas DataFrame
+            return X.replace([_np.inf, -_np.inf], _np.nan)
+        arr = _np.asarray(X)
+        if arr.dtype.kind == "f":  # float -> safe to test finiteness
+            return _np.where(_np.isfinite(arr), arr, _np.nan)
+        # Non-float (int/bool): no inf possible; pass through unchanged.
+        return X
+
+    def transform(self, X):
+        return self._replace(X)
+
+    def fit_transform(self, X, y=None):  # noqa: ARG002
+        self.fit(X)
+        return self._replace(X)
+
+    def get_feature_names_out(self, input_features=None):
+        import numpy as _np
+        if input_features is not None:
+            return _np.asarray(input_features)
+        if hasattr(self, "feature_names_in_"):
+            return self.feature_names_in_
+        n = getattr(self, "n_features_in_", 0)
+        return _np.asarray([f"x{i}" for i in range(n)])
+
+
 # Pre-compiled slug pattern (MEMORY.md: pre-compile regex at module level).
 # Only allow alnum, dash, underscore; everything else collapses to a single "_".
 _SLUG_PATTERN = re.compile(r"[^A-Za-z0-9_-]+")
@@ -465,6 +519,12 @@ class ModelPipelineStrategy(ABC):
         # Mirrors the requires_encoding WARN above. Root-cause was in caller (ctx.imputer not propagated from _get_pipeline_components); see ef123ff + regression suite in test_strategy_imputer_propagation.py.
         if self.requires_imputation:
             if imputer is not None:
+                # inf -> NaN BEFORE the imputer so the imputer fills inf too
+                # (SimpleImputer only handles NaN). Guards the inf-intolerant
+                # scaler / linear / MLP when the global fix_infinities flag is
+                # off. Paired with the imputer so the introduced NaN is always
+                # filled; no-op on finite data.
+                steps.append(("inf_to_nan", _InfToNaNTransformer()))
                 steps.append(("imp", imputer))
             else:
                 logger.warning(

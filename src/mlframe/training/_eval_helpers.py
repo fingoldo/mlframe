@@ -821,6 +821,24 @@ def run_confidence_analysis(
         )
         return None
 
+    # 0-feature guard: after the text / embedding / object-dtype column
+    # drops above, test_df can be left with no usable feature columns --
+    # e.g. an aggressive MRMR / feature-selection pass confirmed 0 predictors,
+    # or every surviving column was a text/embedding feature. CatBoost then
+    # raises "Input data must have at least one feature" and crashes the whole
+    # confidence pass. The confidence regressor is best-effort diagnostic, so
+    # skip with a WARN -- mirroring the row-mismatch / all-equal-targets skips
+    # above. Surfaced by fuzz (cb_hgb_lgb_mlp combo whose FS dropped all cols).
+    _n_conf_features = test_df.shape[1] if hasattr(test_df, "shape") else None
+    if _n_conf_features is not None and _n_conf_features == 0:
+        logger.warning(
+            "Confidence analysis skipped: test_df has 0 feature columns after "
+            "dropping text / embedding / object-dtype columns (feature selection "
+            "may have confirmed 0 predictors, or all survivors were non-numeric). "
+            "The confidence regressor needs at least one feature to fit."
+        )
+        return None
+
     from .utils import maybe_clean_ram_adaptive as _maybe_clean_ram  # lazy: utils imports from _nan_processing which transitively cycles back
     _maybe_clean_ram()
     try:

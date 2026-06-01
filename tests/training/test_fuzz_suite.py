@@ -677,6 +677,16 @@ def _preprocessing_for_combo(combo: FuzzCombo):
     #     the polars-ds scaler now pre-filters zero-IQR / all-null
     #     columns in ``training/pipeline._select_scalable_numeric_columns``
     #     so ``robust_scale`` never sees a divide-by-zero.
+    #
+    # inject_inf_nan + fix_infinities=False is a self-contradictory combo:
+    # the inject_inf_nan axis exists to verify mlframe CLEANS injected inf,
+    # but fix_infinities=False disables the only cleaning step. With it off,
+    # raw inf reaches inf-intolerant backends -- XGBoost's hist QuantileDMatrix
+    # rejects it ("Input data contains `inf` ... while `missing` is not set
+    # to inf") and crashes the whole suite. Force cleaning whenever inf is
+    # deliberately injected so the axis stays meaningful; fix_infinities=False
+    # is still exercised on the (inf-free) non-injected combos.
+    _fix_inf = bool(combo.fix_infinities_cfg or combo.inject_inf_nan)
     if "linear" in combo.models and combo.cat_feature_count > 0:
         try:
             import category_encoders as ce
@@ -685,7 +695,7 @@ def _preprocessing_for_combo(combo: FuzzCombo):
             return PreprocessingConfig(
                 drop_columns=[],
                 fillna_value=combo.fillna_value_cfg,
-                fix_infinities=combo.fix_infinities_cfg,
+                fix_infinities=_fix_inf,
                 ensure_float32_dtypes=combo.ensure_float32_cfg,
                 remove_constant_columns=combo.remove_constant_columns_cfg,
                 category_encoder=ce.CatBoostEncoder(),
@@ -697,7 +707,7 @@ def _preprocessing_for_combo(combo: FuzzCombo):
     return PreprocessingConfig(
         drop_columns=[],
         fillna_value=combo.fillna_value_cfg,
-        fix_infinities=combo.fix_infinities_cfg,
+        fix_infinities=_fix_inf,
         ensure_float32_dtypes=combo.ensure_float32_cfg,
         remove_constant_columns=combo.remove_constant_columns_cfg,
     )

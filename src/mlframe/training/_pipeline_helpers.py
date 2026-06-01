@@ -59,6 +59,45 @@ from ._pipeline_cache import (  # noqa: F401, E402
 )
 
 
+def _test_df_is_raw_pipeline_input(pre_pipeline, test_df, passthrough_cols, skip_preprocessing) -> bool:
+    """True when ``test_df`` still carries the fitted pipeline's RAW input
+    schema (so a transform is needed), False when it is already the pipeline's
+    transformed OUTPUT (so re-transforming would double-apply).
+
+    The discriminator is the fitted estimator's ``n_features_in_``: a raw
+    frame's effective input width (total columns minus the hidden passthrough
+    columns the transform never sees) equals what the pipeline was fit on; an
+    already-transformed frame's width has diverged (feature selection dropped
+    columns, polynomial/interaction FE added them, etc.).
+
+    Defaults to True (transform) whenever the width can't be determined, so
+    the NaN-to-LinearRegression guard (the original reason the fitted-pipeline
+    override exists) is preserved on any ambiguous frame.
+    """
+    if not hasattr(test_df, "shape"):
+        return True
+    # The estimator whose input width matters is the one the transform feeds:
+    # the feature selector under skip_preprocessing, else the whole pipeline.
+    _est = pre_pipeline
+    if skip_preprocessing:
+        _sel = _extract_feature_selector(pre_pipeline)
+        if _sel is not None:
+            _est = _sel
+    _expected_in = getattr(_est, "n_features_in_", None)
+    if _expected_in is None and hasattr(_est, "named_steps"):
+        # Pipeline: the first step carries the input-width contract.
+        for _step in getattr(_est, "named_steps", {}).values():
+            _expected_in = getattr(_step, "n_features_in_", None)
+            if _expected_in is not None:
+                break
+    if _expected_in is None:
+        return True  # can't tell -> preserve the transform (NaN-guard posture)
+    _n_passthrough = len(passthrough_cols) if passthrough_cols else 0
+    _effective_width = int(test_df.shape[1]) - _n_passthrough
+    # Raw input -> widths match; already-transformed -> diverged.
+    return _effective_width == int(_expected_in)
+
+
 def _prepare_test_split(
     df,
     test_df,
@@ -99,10 +138,36 @@ def _prepare_test_split(
             # apply transform when the pre_pipeline IS fitted.
             _id_equiv = getattr(pre_pipeline, "_mlframe_identity_equivalent", False)
             if not _id_equiv:
-                _do_transform = (
-                    not skip_pre_pipeline_transform
-                    or _is_fitted(pre_pipeline)
-                )
+                # ``skip_pre_pipeline_transform=True`` is set on the pipeline-
+                # cache hit, where the cached test_df is ALREADY the transformed
+                # output (process_model cached train/val/test as one generation).
+                # Re-running the fitted pipeline on that transformed frame
+                # double-transforms it and raises sklearn's "Unexpected input
+                # dimension X, expected Y" (Y = raw input width the pipeline was
+                # fit on, X = the already-reduced output width) -- or, for a
+                # column-count-preserving scaler pipeline, re-scales and trips
+                # the finite check on the already-transformed values. Surfaced
+                # by fuzz (5 linear/mlp combos after a tree model populated the
+                # cache).
+                #
+                # But the override exists for a real prod incident: when skip is
+                # True yet test_df is still RAW (carries the pipeline's input
+                # schema, e.g. NaN cells), a fitted pipeline MUST transform it
+                # or NaN reaches LinearRegression (test_pre_pipeline_applied_to_
+                # test.py). Discriminate the two by feature width: a raw frame
+                # matches the pipeline's fitted ``n_features_in_`` (minus the
+                # hidden passthrough cols); an already-transformed frame does
+                # not. Only re-transform a fitted pipeline under the skip flag
+                # when the frame still looks like raw pipeline input.
+                _fitted = _is_fitted(pre_pipeline)
+                if not skip_pre_pipeline_transform:
+                    _do_transform = True
+                elif _fitted and _test_df_is_raw_pipeline_input(
+                    pre_pipeline, test_df, selector_passthrough_cols, skip_preprocessing,
+                ):
+                    _do_transform = True
+                else:
+                    _do_transform = False
                 if _do_transform:
                     if skip_preprocessing:
                         feature_selector = _extract_feature_selector(pre_pipeline)
