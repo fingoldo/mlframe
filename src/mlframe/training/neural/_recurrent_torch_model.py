@@ -417,12 +417,49 @@ class RecurrentTorchModel(L.LightningModule):
 
     def training_step(self, batch: dict, batch_idx: int) -> torch.Tensor:
         """Training step."""
-        logits = self._forward_batch(batch)
-        loss = self._compute_weighted_loss(
-            logits,
-            batch["labels"],
-            batch.get("sample_weights"),
+        # F-69 (2026-05-31): Mixup augmentation for HYBRID / FEATURES_ONLY
+        # modes (where aux_features exist). For SEQUENCE_ONLY we'd need
+        # to interpolate padded sequences too (lam * seq_a + (1-lam) *
+        # seq_b with lengths = max(l_a, l_b)); the math is straightforward
+        # but the post-pack_padded_sequence behaviour past one of the
+        # original lengths needs careful handling. Deferred to F-70.
+        # When use_mixup=True AND aux_features are present, mix BOTH
+        # the aux features AND the labels by the same lam + idx; the
+        # sequences flow through unchanged (the RNN sees the original
+        # sequence + a mixed downstream aux).
+        _mixup_active = (
+            getattr(self.config, "use_mixup", False)
+            and self.training
+            and batch.get("aux_features") is not None
+            and batch["aux_features"].shape[0] >= 2
         )
+        if _mixup_active:
+            from ._mixup import mixup_batch
+            aux_mixed, _y_a, _y_b, _lam = mixup_batch(
+                batch["aux_features"],
+                batch["labels"],
+                alpha=getattr(self.config, "mixup_alpha", 0.2),
+            )
+            batch = dict(batch)  # shallow copy so we don't mutate the loader's dict
+            batch["aux_features"] = aux_mixed
+
+        logits = self._forward_batch(batch)
+        if _mixup_active:
+            # Same task-specific loss split as MLP F-68: integer labels
+            # use the two-target convex form, float labels mix targets.
+            if batch["labels"].dtype in (torch.int32, torch.int64):
+                loss_a = self._compute_weighted_loss(logits, _y_a, batch.get("sample_weights"))
+                loss_b = self._compute_weighted_loss(logits, _y_b, batch.get("sample_weights"))
+                loss = _lam * loss_a + (1.0 - _lam) * loss_b
+            else:
+                mixed_labels = _lam * _y_a + (1.0 - _lam) * _y_b
+                loss = self._compute_weighted_loss(logits, mixed_labels, batch.get("sample_weights"))
+        else:
+            loss = self._compute_weighted_loss(
+                logits,
+                batch["labels"],
+                batch.get("sample_weights"),
+            )
         self.log("train_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
 
         if self._has_metrics:

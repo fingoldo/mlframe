@@ -134,6 +134,13 @@ class RecurrentConfig:
     lookahead_k: int = 5
     lookahead_alpha: float = 0.5
 
+    # F-69 (2026-05-31): Mixup augmentation. Off by default. When True,
+    # training_step mixes aux_features + labels by a Beta(alpha, alpha)
+    # interpolation; pure SEQUENCE_ONLY mode (no aux_features) is a no-op.
+    # Sequence-aware mixup (mixing padded sequences) is deferred to F-70.
+    use_mixup: bool = False
+    mixup_alpha: float = 0.2
+
     # F-68 (2026-05-31): exponential moving average of weights via
     # Lightning's WeightAveraging callback. Mirrors MLP's F-28; off by
     # default. When True, Lightning auto-swaps the EMA weights into the
