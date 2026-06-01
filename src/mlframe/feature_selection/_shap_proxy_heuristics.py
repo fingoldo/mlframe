@@ -40,6 +40,15 @@ class _Evaluator:
 
     def __init__(self, phi, base, y, metric):
         self.phi = phi
+        # iter107: contiguous transpose for the single-column incremental margin updates. phi is
+        # row-major (n_samples, n_units); a single-column read ``phi[:, j]`` is then strided -- one
+        # element per (n_units * 8)-byte step, a fresh cache line per row, ~505us/call at n=50000.
+        # ``phi_T[j]`` is a contiguous n_samples read (~45us), 11x faster, and the add/sub/swap in
+        # loss_from_parent / loss_from_parent_drop / swap_from_parent (the beam/greedy hot loop,
+        # 3000+ calls/fit at the tall regime) use it. Costs one extra (n_units, n_samples) copy held
+        # for the evaluator's life; n_units is post-prefilter+cluster (bounded), so the doubling is
+        # small. coalition_margin (initial seeds, far fewer calls) keeps the row-major path.
+        self.phi_T = np.ascontiguousarray(phi.T)
         self.base = base
         self.y = y
         self.metric = metric
@@ -141,7 +150,7 @@ class _Evaluator:
         cached_margin = self.margin_cache.get(child_key)
         if cached_loss is not None and cached_margin is not None:
             return cached_loss, child_key, cached_margin
-        child_margin = parent_margin + self.phi[:, new_j]
+        child_margin = parent_margin + self.phi_T[new_j]
         val = self._loss_fast(child_margin)
         self.cache[child_key] = val
         self.margin_cache[child_key] = child_margin
@@ -174,7 +183,7 @@ class _Evaluator:
             child_margin = self.base.copy()
             val = float("inf")
         else:
-            child_margin = parent_margin - self.phi[:, drop_j]
+            child_margin = parent_margin - self.phi_T[drop_j]
             val = self._loss_fast(child_margin)
         self.cache[child_key] = val
         self.margin_cache[child_key] = child_margin
@@ -211,7 +220,7 @@ class _Evaluator:
         if cached_loss is not None and cached_margin is not None:
             return cached_loss, child_key, cached_margin
         # Fused: parent_margin + phi[:, in_j] - phi[:, out_j] in one np-internal pass.
-        child_margin = parent_margin + (self.phi[:, in_j] - self.phi[:, out_j])
+        child_margin = parent_margin + (self.phi_T[in_j] - self.phi_T[out_j])
         val = self._loss_fast(child_margin)
         self.cache[child_key] = val
         self.margin_cache[child_key] = child_margin
