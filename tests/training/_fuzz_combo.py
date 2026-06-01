@@ -1672,6 +1672,33 @@ AXES: dict[str, tuple[Any, ...]] = {
     # bases on unlabeled-pool X; thread-local pool plumbing + leakage-by-
     # construction claim deserve fuzz coverage.
     "mrmr_fe_semi_supervised_enable_cfg": (False, True),
+    # =====================================================================
+    # audit-pass-16: MRMR Layers 87-91 (NVIDIA #1-4 + two-tier IT gates).
+    # 8 new master-enable / mode-selector axes; defaults source-verified at
+    # HEAD against MRMR.__init__. All gate on use_mrmr_fs=True; canon-collapse
+    # to source defaults outside their gate so dedup absorbs phantom variation.
+    # =====================================================================
+    # L87 grouped multi-stat aggregator (mrmr.py:1255). Master switch for the
+    # grouped-agg recipe stage (auto-detect group cols + CMI/uplift gate).
+    "mrmr_fe_grouped_agg_enable_cfg": (False, True),
+    # L88 per-group quantile FE (mrmr.py:1268) + target-aware mode (mrmr.py:1270).
+    # target_aware toggles the OOF-fit supervised MDLP-edge path -- a distinct
+    # leakage-sensitive branch vs unsupervised quantiles.
+    "mrmr_fe_grouped_quantile_enable_cfg": (False, True),
+    "mrmr_fe_grouped_quantile_target_aware_cfg": (False, True),
+    # L89 cat-cat synergy cross (mrmr.py:1285). Interaction-information-filtered
+    # cat-pair cross + cardinality-routed TE/raw-code path.
+    "mrmr_fe_cat_pair_enable_cfg": (False, True),
+    # L90 numeric decomposition (mrmr.py:1300) + digits emitter (mrmr.py:1302).
+    # Empty digits tuple disables the digit_extract emitter (rounding-only path)
+    # vs the default that exercises both emitters -- a distinct branch.
+    "mrmr_fe_numeric_decompose_enable_cfg": (False, True),
+    "mrmr_fe_numeric_decompose_digits_cfg": ((0, 1, 2), ()),
+    # L91 two-tier IT gates. Tier-1 raw-floor MI pruning (mrmr.py:1243) wires
+    # into all four *_with_recipes wrappers; Tier-2 greedy cross-mechanism CMI
+    # dedup pass (mrmr.py:1245) after the L27 Spearman dedup.
+    "mrmr_fe_local_mi_gate_cfg": (False, True),
+    "mrmr_fe_unified_second_pass_gate_cfg": (False, True),
 }
 
 
@@ -2342,6 +2369,16 @@ class FuzzCombo:
     mrmr_fe_hybrid_orth_adaptive_arity_enable_cfg: bool = False
     mrmr_fe_hybrid_orth_diff_basis_enable_cfg: bool = False
     mrmr_fe_semi_supervised_enable_cfg: bool = False
+    # audit-pass-16 — MRMR Layers 87-91. Defaults source-verified at HEAD
+    # against MRMR.__init__ (mrmr.py:1255/1268/1270/1285/1300/1302/1243/1245).
+    mrmr_fe_grouped_agg_enable_cfg: bool = False
+    mrmr_fe_grouped_quantile_enable_cfg: bool = False
+    mrmr_fe_grouped_quantile_target_aware_cfg: bool = False
+    mrmr_fe_cat_pair_enable_cfg: bool = False
+    mrmr_fe_numeric_decompose_enable_cfg: bool = False
+    mrmr_fe_numeric_decompose_digits_cfg: tuple = (0, 1, 2)
+    mrmr_fe_local_mi_gate_cfg: bool = False
+    mrmr_fe_unified_second_pass_gate_cfg: bool = False
 
     def canonical_key(self) -> tuple:
         """Hashable tuple used for dedup. Canonicalizes semantically
@@ -4123,6 +4160,27 @@ class FuzzCombo:
                 if (self.use_mrmr_fs and self.mrmr_fe_hybrid_orth_enable_cfg)
                 else False
             ),
+            # audit-pass-16. MRMR Layers 87-91 FE mechanisms gate on
+            # use_mrmr_fs (independent of hybrid-orth). Master switches
+            # collapse to False outside use_mrmr_fs; the two sub-knobs
+            # (quantile target_aware, decompose digits) collapse outside
+            # their own master gate too.
+            self.mrmr_fe_grouped_agg_enable_cfg if self.use_mrmr_fs else False,
+            self.mrmr_fe_grouped_quantile_enable_cfg if self.use_mrmr_fs else False,
+            (
+                self.mrmr_fe_grouped_quantile_target_aware_cfg
+                if (self.use_mrmr_fs and self.mrmr_fe_grouped_quantile_enable_cfg)
+                else False
+            ),
+            self.mrmr_fe_cat_pair_enable_cfg if self.use_mrmr_fs else False,
+            self.mrmr_fe_numeric_decompose_enable_cfg if self.use_mrmr_fs else False,
+            (
+                self.mrmr_fe_numeric_decompose_digits_cfg
+                if (self.use_mrmr_fs and self.mrmr_fe_numeric_decompose_enable_cfg)
+                else (0, 1, 2)
+            ),
+            self.mrmr_fe_local_mi_gate_cfg if self.use_mrmr_fs else False,
+            self.mrmr_fe_unified_second_pass_gate_cfg if self.use_mrmr_fs else False,
             # iter640 audit-pass-15. F-62/63/68-70/72 MLP options. Gated
             # on 'mlp' in models; canon to False outside so non-MLP combos
             # collapse to one variant per knob.
@@ -5324,6 +5382,15 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         mrmr_fe_semi_supervised_enable_cfg=axes.get(
             "mrmr_fe_semi_supervised_enable_cfg", False
         ),
+        # audit-pass-16 — MRMR Layers 87-91.
+        mrmr_fe_grouped_agg_enable_cfg=axes.get("mrmr_fe_grouped_agg_enable_cfg", False),
+        mrmr_fe_grouped_quantile_enable_cfg=axes.get("mrmr_fe_grouped_quantile_enable_cfg", False),
+        mrmr_fe_grouped_quantile_target_aware_cfg=axes.get("mrmr_fe_grouped_quantile_target_aware_cfg", False),
+        mrmr_fe_cat_pair_enable_cfg=axes.get("mrmr_fe_cat_pair_enable_cfg", False),
+        mrmr_fe_numeric_decompose_enable_cfg=axes.get("mrmr_fe_numeric_decompose_enable_cfg", False),
+        mrmr_fe_numeric_decompose_digits_cfg=axes.get("mrmr_fe_numeric_decompose_digits_cfg", (0, 1, 2)),
+        mrmr_fe_local_mi_gate_cfg=axes.get("mrmr_fe_local_mi_gate_cfg", False),
+        mrmr_fe_unified_second_pass_gate_cfg=axes.get("mrmr_fe_unified_second_pass_gate_cfg", False),
     )
 
 
@@ -5501,6 +5568,18 @@ def build_mrmr_kwargs_from_flat(
     fe_hybrid_orth_adaptive_arity_enable: bool = False,
     fe_hybrid_orth_diff_basis_enable: bool = False,
     fe_semi_supervised_enable: bool = False,
+    # audit-pass-16 — MRMR Layers 87-91. Defaults match MRMR.__init__ exactly
+    # (filters/mrmr.py:1255/1268/1270/1285/1300/1302/1243/1245). All gated
+    # downstream of use_mrmr_fs; canon at FuzzCombo.canonical_key absorbs
+    # phantom variation outside the gate.
+    fe_grouped_agg_enable: bool = False,
+    fe_grouped_quantile_enable: bool = False,
+    fe_grouped_quantile_target_aware: bool = False,
+    fe_cat_pair_enable: bool = False,
+    fe_numeric_decompose_enable: bool = False,
+    fe_numeric_decompose_digits: tuple = (0, 1, 2),
+    fe_local_mi_gate: bool = False,
+    fe_unified_second_pass_gate: bool = False,
 ) -> Optional[Dict[str, Any]]:
     """Build the mrmr_kwargs dict passed to FeatureSelectionConfig.
     Returns None when use_mrmr_fs=False so the FS step is a no-op.
@@ -5624,6 +5703,15 @@ def build_mrmr_kwargs_from_flat(
         "fe_hybrid_orth_adaptive_arity_enable": fe_hybrid_orth_adaptive_arity_enable,
         "fe_hybrid_orth_diff_basis_enable": fe_hybrid_orth_diff_basis_enable,
         "fe_semi_supervised_enable": fe_semi_supervised_enable,
+        # audit-pass-16 — MRMR Layers 87-91. Names match MRMR.__init__ exactly.
+        "fe_grouped_agg_enable": fe_grouped_agg_enable,
+        "fe_grouped_quantile_enable": fe_grouped_quantile_enable,
+        "fe_grouped_quantile_target_aware": fe_grouped_quantile_target_aware,
+        "fe_cat_pair_enable": fe_cat_pair_enable,
+        "fe_numeric_decompose_enable": fe_numeric_decompose_enable,
+        "fe_numeric_decompose_digits": fe_numeric_decompose_digits,
+        "fe_local_mi_gate": fe_local_mi_gate,
+        "fe_unified_second_pass_gate": fe_unified_second_pass_gate,
     }
     # 2026-05-30 audit-pass-7 #3/#4: per_feature_edges.kwargs threaded via
     # MRMR.nbins_strategy_kwargs. Build the dict only when one of these
@@ -5775,6 +5863,15 @@ def build_mrmr_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]:
         fe_hybrid_orth_adaptive_arity_enable=combo.mrmr_fe_hybrid_orth_adaptive_arity_enable_cfg,
         fe_hybrid_orth_diff_basis_enable=combo.mrmr_fe_hybrid_orth_diff_basis_enable_cfg,
         fe_semi_supervised_enable=combo.mrmr_fe_semi_supervised_enable_cfg,
+        # audit-pass-16 — MRMR Layers 87-91.
+        fe_grouped_agg_enable=combo.mrmr_fe_grouped_agg_enable_cfg,
+        fe_grouped_quantile_enable=combo.mrmr_fe_grouped_quantile_enable_cfg,
+        fe_grouped_quantile_target_aware=combo.mrmr_fe_grouped_quantile_target_aware_cfg,
+        fe_cat_pair_enable=combo.mrmr_fe_cat_pair_enable_cfg,
+        fe_numeric_decompose_enable=combo.mrmr_fe_numeric_decompose_enable_cfg,
+        fe_numeric_decompose_digits=combo.mrmr_fe_numeric_decompose_digits_cfg,
+        fe_local_mi_gate=combo.mrmr_fe_local_mi_gate_cfg,
+        fe_unified_second_pass_gate=combo.mrmr_fe_unified_second_pass_gate_cfg,
     )
 
 
