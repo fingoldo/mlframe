@@ -122,7 +122,18 @@ class Lookahead(Optimizer):
         self.base_optimizer.state = value
 
     def add_param_group(self, param_group: dict) -> None:
+        """F-C fix (2026-05-31, audit follow-up): when a new param group
+        is added mid-fit (e.g. by a Lightning callback registering a new
+        head, or by a LoRA adapter swap), eagerly snapshot the new params'
+        initial values into ``_slow_weights`` so the first k-sync after
+        the add runs a real interpolation (rather than the pre-fix
+        snapshot-and-skip branch, which silently lost one full
+        anchor cycle on the new params).
+        """
         self.base_optimizer.add_param_group(param_group)
+        for p in param_group["params"]:
+            if p.requires_grad and id(p) not in self._slow_weights:
+                self._slow_weights[id(p)] = p.data.detach().clone()
 
     def state_dict(self) -> dict:
         """F-A fix (2026-05-31, audit follow-up): serialise slow weights

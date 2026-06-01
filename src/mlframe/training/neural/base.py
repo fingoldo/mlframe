@@ -1169,8 +1169,20 @@ class PytorchLightningEstimator(BaseEstimator):
         datamodule.setup_predict(X, batch_size=pred_batch_size)
 
         if not hasattr(self, "trainer") or self.trainer is None:
+            # F-G fix (2026-05-31, audit follow-up): when self.trainer is
+            # None (either because the wrapper never instantiated one or
+            # because a PRIOR _predict_raw already nulled it), resolve
+            # the accelerator from -- in priority order -- (1) the
+            # cached _last_predict_accelerator from a previous predict,
+            # (2) the original user-supplied trainer_params, (3) "auto".
+            # Pre-fix the only path was "auto" which silently switched
+            # CPU->CUDA whenever CUDA was available on the host, even
+            # if the user originally forced CPU; this broke F-D CUDA-graph
+            # cache and pin_memory assumptions set up in the first call.
+            _cached_acc = getattr(self, "_last_predict_accelerator", None)
+            _user_acc = (self.trainer_params or {}).get("accelerator")
             trainer_params = {
-                "accelerator": "auto",
+                "accelerator": _cached_acc or _user_acc or "auto",
                 "devices": 1,
                 "logger": False,
                 "enable_checkpointing": False,
@@ -1201,6 +1213,17 @@ class PytorchLightningEstimator(BaseEstimator):
                 trainer_params["precision"] = self.trainer.precision
 
             prediction_trainer = L.Trainer(**trainer_params)
+
+        # F-G fix: cache the accelerator the current prediction_trainer
+        # was built with so the next _predict_raw call (after
+        # ``self.trainer = None`` below) can re-resolve to the same
+        # device instead of falling through to accelerator="auto".
+        try:
+            self._last_predict_accelerator = trainer_params.get(
+                "accelerator", "auto",
+            )
+        except Exception:
+            pass
 
         # Unconditional eval() switch - cheap idempotent op, removes the spurious
         # "Model was in training mode during prediction" warning that fired on

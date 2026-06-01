@@ -93,7 +93,18 @@ class RecurrentDataset(Dataset):
         item: dict[str, torch.Tensor] = {"labels": self.labels[idx]}
 
         if self._has_sequences:
-            item["sequence"] = torch.as_tensor(self.sequences[idx], dtype=torch.float32)
+            # F-H fix (2026-05-31, audit follow-up): torch.as_tensor on a
+            # contiguous float32 numpy array does a ZERO-COPY view that
+            # shares storage with self.sequences[idx]. If ANY downstream
+            # subclass introduces an in-place op on the per-sample tensor
+            # (e.g. ``x.relu_()`` in a custom predict_step, or a learned
+            # batchnorm scale that touches inputs via .data.add_), the
+            # mutation silently corrupts the dataset for the NEXT epoch.
+            # Bug LATENT until someone adds an in-place op. Use
+            # torch.tensor (always copies) instead so per-sample tensors
+            # are independent of the source numpy arrays. Per-sample cost
+            # is a single contiguous memcpy; negligible vs the RNN forward.
+            item["sequence"] = torch.tensor(self.sequences[idx], dtype=torch.float32)
 
         if self.aux_features is not None:
             item["aux_features"] = self.aux_features[idx]
