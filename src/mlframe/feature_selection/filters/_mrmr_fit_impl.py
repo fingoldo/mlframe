@@ -3088,6 +3088,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     self.lagged_diff_features_ = []
     self.grouped_agg_features_ = []
     self.grouped_quantile_features_ = []
+    self.cat_pair_features_ = []
+    _cat_pair_pre_recipes: dict = {}
     _ratio_pre_recipes: dict = {}
     _log_ratio_pre_recipes: dict = {}
     _grouped_delta_pre_recipes: dict = {}
@@ -3419,6 +3421,63 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     type(_gq_exc).__name__, _gq_exc,
                 )
 
+    # Layer 89 (2026-06-01): cat x cat synergy cross with II pre-filter.
+    if bool(getattr(self, "fe_cat_pair_enable", False)):
+        if not isinstance(X, pd.DataFrame):
+            warnings.warn(
+                "MRMR: Layer 89 cat_pair FE enabled but X is not a pandas "
+                "DataFrame; the features are skipped. Convert via "
+                "X.to_pandas() before fit() to apply them.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from ._cat_pair_fe import hybrid_cat_pair_fe
+
+                _y_for_cp = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                _cp_cols = tuple(
+                    getattr(self, "fe_cat_pair_cat_cols", ()) or ()
+                )
+                _cp_cols = [c for c in _cp_cols if c in X.columns] or None
+                _cp_min_ii = float(
+                    getattr(self, "fe_cat_pair_min_interaction_info", 0.001)
+                )
+                _cp_top_k = int(getattr(self, "fe_cat_pair_top_k", 5))
+                _X_before_cp_cols = list(X.columns)
+                X_cp, _cp_appended, _cp_recipes, _cp_scores = hybrid_cat_pair_fe(
+                    X, _y_for_cp,
+                    cat_cols=_cp_cols,
+                    min_interaction_info=_cp_min_ii,
+                    top_k=_cp_top_k,
+                    random_state=int(getattr(self, "random_seed", 0) or 0),
+                )
+                _cp_appended = [
+                    c for c in _cp_appended if c not in _X_before_cp_cols
+                ]
+                if _cp_appended:
+                    X = X_cp
+                    self.cat_pair_features_ = list(_cp_appended)
+                    self.hybrid_orth_features_ = (
+                        list(self.hybrid_orth_features_ or []) + list(_cp_appended)
+                    )
+                    for _r in _cp_recipes:
+                        if _r.name in _cp_appended:
+                            _cat_pair_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit cat_pair: appended %d engineered "
+                            "column(s): %s",
+                            len(_cp_appended), _cp_appended[:8],
+                        )
+            except Exception as _cp_exc:
+                logger.warning(
+                    "MRMR.fit cat_pair FE raised %s: %s; continuing without "
+                    "cat-pair-cross columns.",
+                    type(_cp_exc).__name__, _cp_exc,
+                )
+
     # Layer 27 (2026-05-31): cross-stage engineered-column dedup. Hybrid and
     # MI-greedy stages run independently; on signals like ``y = sign(x^2 - 1)``
     # hybrid emits ``x__He2`` and MI-greedy emits ``square(x)`` / ``abs(x)`` /
@@ -3566,6 +3625,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 c for c in (getattr(self, "grouped_quantile_features_", []) or [])
                 if c not in _eng_drop
             ]
+            # Layer 89: mirror cleanup for cat_pair crosses.
+            self.cat_pair_features_ = [
+                c for c in (getattr(self, "cat_pair_features_", []) or [])
+                if c not in _eng_drop
+            ]
             for _c in list(_hybrid_orth_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _hybrid_orth_pre_recipes.pop(_c, None)
@@ -3611,6 +3675,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             for _c in list(_grouped_quantile_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _grouped_quantile_pre_recipes.pop(_c, None)
+            for _c in list(_cat_pair_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _cat_pair_pre_recipes.pop(_c, None)
             if verbose:
                 logger.info(
                     "MRMR.fit engineered-FE dedup: pruned %d near-duplicate "
@@ -3868,6 +3935,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # Layer 88: same routing for grouped-quantile / target-aware-bin recipes.
     if _grouped_quantile_pre_recipes:
         engineered_recipes.update(_grouped_quantile_pre_recipes)
+    # Layer 89: same routing for cat x cat synergy-cross recipes.
+    if _cat_pair_pre_recipes:
+        engineered_recipes.update(_cat_pair_pre_recipes)
     # Reset per fit so a re-fit on the same instance doesn't carry stale cluster-aggregate state.
     self._cluster_aggregate_removals_ = []
     self.cluster_aggregate_ = []  # fitted summary (per-aggregate records) -> meta_info report

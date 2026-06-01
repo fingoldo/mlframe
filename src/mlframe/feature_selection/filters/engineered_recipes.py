@@ -125,7 +125,7 @@ class EngineeredRecipe:
     # (src_names=(c_i, c_j), extra={basis_i, basis_j, deg_a, deg_b}). Replay
     # is closed-form from the source column(s) alone -- no y reference is
     # captured at fit time, so transform() is leakage-free by construction.
-    kind: Literal["unary_binary", "factorize", "hermite_pair", "target_encoding", "cluster_aggregate", "orth_univariate", "orth_pair_cross", "orth_triplet_cross", "orth_quadruplet_cross", "orth_spline", "orth_fourier", "orth_diff_basis", "orth_cluster_basis", "mi_greedy_transform", "kfold_target_encoded", "count_encoded", "frequency_encoded", "cat_num_residual", "missing_indicator", "missingness_count", "missingness_pattern", "pairwise_ratio", "grouped_delta", "lagged_diff", "grouped_agg", "grouped_quantile", "target_aware_group_bin"]
+    kind: Literal["unary_binary", "factorize", "hermite_pair", "target_encoding", "cluster_aggregate", "orth_univariate", "orth_pair_cross", "orth_triplet_cross", "orth_quadruplet_cross", "orth_spline", "orth_fourier", "orth_diff_basis", "orth_cluster_basis", "mi_greedy_transform", "kfold_target_encoded", "count_encoded", "frequency_encoded", "cat_num_residual", "missing_indicator", "missingness_count", "missingness_pattern", "pairwise_ratio", "grouped_delta", "lagged_diff", "grouped_agg", "grouped_quantile", "target_aware_group_bin", "cat_pair_cross"]
     src_names: tuple[str, ...]
     unary_names: tuple[str, ...] = ()
     binary_name: str = ""
@@ -382,6 +382,25 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         # apply helper lives alongside the grouped-agg generator.
         from ._grouped_agg_fe import _apply_grouped_agg_recipe
         return _apply_grouped_agg_recipe(recipe, X)
+    if recipe.kind == "cat_pair_cross":
+        # Layer 89 lazy import: cat x cat synergy cross; replay helper lives
+        # with the generator. Keeps this module under the LOC ceiling.
+        from ._cat_pair_fe import apply_cat_pair_cross
+        cat_i, cat_j = recipe.src_names
+        return apply_cat_pair_cross(
+            X if (pd is not None and isinstance(X, pd.DataFrame))
+            else pd.DataFrame({
+                cat_i: _extract_column(X, cat_i),
+                cat_j: _extract_column(X, cat_j),
+            }),
+            cat_i, cat_j,
+            {tuple(k): int(v) for k, v in recipe.extra["mapping"]},
+            encoding=str(recipe.extra.get("encoding", "raw")),
+            te_lookup={
+                int(k): float(v) for k, v in recipe.extra.get("te_lookup", [])
+            },
+            global_mean=float(recipe.extra.get("global_mean", 0.0)),
+        )
     if recipe.kind in ("grouped_quantile", "target_aware_group_bin"):
         # Layer 88 lazy import: per-group distributional FE (percentile-rank +
         # spread + target-aware supervised bins); replay helpers live with the
@@ -1744,6 +1763,48 @@ def build_cat_num_residual_recipe(
             "smoothing": float(smoothing),
             "num_col": str(num_name),
         },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Layer 89 (2026-06-01): cat x cat synergy cross. The (cat_i, cat_j) value-pair
+# -> code mapping is stored as a list-of-(key, value) pairs so the frozen
+# recipe's array-aware __eq__ / pickle round-trip handle the tuple keys cleanly
+# (tuple-keyed dicts aren't JSON-friendly; a flat pair list is). ``encoding`` is
+# "raw" (emit the integer cell code) or "target" (emit per-cell OOF mean-of-y
+# from ``te_lookup``). The apply helper lives in ``_cat_pair_fe.py``.
+# ---------------------------------------------------------------------------
+
+
+def build_cat_pair_cross_recipe(
+    *, name: str, cat_i: str, cat_j: str, mapping: dict,
+    encoding: str = "raw", te_lookup: dict | None = None,
+    global_mean: float = 0.0,
+) -> EngineeredRecipe:
+    """Frozen recipe for one cat x cat synergy cross.
+
+    ``mapping`` maps each fit-time (str_i, str_j) value pair to its dense int
+    cell code. ``encoding='raw'`` emits the cell code (unseen pairs -> sentinel
+    bin); ``encoding='target'`` emits the per-cell smoothed mean-of-y from
+    ``te_lookup`` (unseen pairs / codes -> ``global_mean``). No y reference is
+    consumed at replay -- ``transform()`` is a pure function of X."""
+    mapping_pairs = [
+        [list(k), int(v)] for k, v in mapping.items()
+    ]
+    extra: dict = {
+        "mapping": mapping_pairs,
+        "encoding": str(encoding),
+    }
+    if encoding == "target":
+        extra["te_lookup"] = [
+            [int(k), float(v)] for k, v in (te_lookup or {}).items()
+        ]
+        extra["global_mean"] = float(global_mean)
+    return EngineeredRecipe(
+        name=name,
+        kind="cat_pair_cross",
+        src_names=(str(cat_i), str(cat_j)),
+        extra=extra,
     )
 
 

@@ -1247,6 +1247,20 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_grouped_quantile_top_k: int = 8,
         fe_grouped_quantile_group_cols: tuple = (),
         fe_grouped_quantile_num_cols: tuple = (),
+        # 2026-06-01 Layer 89 — cat x cat synergy cross with interaction-
+        # information pre-filter. NVIDIA cuDF Kaggle-Grandmaster technique #3:
+        # combine two categorical columns into hash(cat_i || cat_j) then
+        # target-encode it. The IT enhancement pre-filters pairs by interaction
+        # information II(cat_i, cat_j; y) = I(cat_i, cat_j; y) - I(cat_i; y) -
+        # I(cat_j; y); only synergistic pairs (II > threshold, e.g. XOR) are
+        # materialised. High-cardinality crosses (> 0.5*n distinct cells, the
+        # Layer 29 pre-screen) route through K-fold OOF target encoding (Layer
+        # 33) instead of a raw integer code. Default OFF -> byte-identical
+        # legacy path. ``cat_cols`` empty => auto-detect categoricals.
+        fe_cat_pair_enable: bool = False,
+        fe_cat_pair_min_interaction_info: float = 0.001,
+        fe_cat_pair_cat_cols: tuple = (),
+        fe_cat_pair_top_k: int = 5,
         # Artifact retention for cross-selector reuse. When True, after fit() the
         # estimator carries ``su_to_target_``, ``mi_to_target_``, ``cached_MIs``,
         # and (when ``retain_bins=True``) per-column binned arrays so a downstream
