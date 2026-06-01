@@ -1,5 +1,35 @@
 # Changelog
 
+## 2026-06-01 — ShapProxiedFS: ``trust_guard_stratified_anchors`` auto-dispatcher calibration, ship docs-only (iter100)
+
+Tested the hypothesis that a width-aware ``'auto'`` mode for the stratified
+anchor sampler could cleanly route True at wide noise-dominated cohorts and
+False at dense-narrow cohorts -- the natural follow-up to iter99's
+regime-dependent finding. 4x2x2 calibration sweep at n_rows=5000, n_inf=20,
+snr=8.0, seed=0; widths {2000, 4000, 6000, 10000} x {sparse (n_red=0),
+dense (n_red=20 rho=0.85)} x {stratified, uniform}. Per-cell deltas
+(stratified - uniform):
+
+  width  cond     d_sp     d_fid    winner
+   2000 dense   +0.0044  +0.0693    strat
+   2000 sparse  +0.0031  -0.1315    uni
+   4000 dense   +0.0116  +0.0069    strat
+   4000 sparse  -0.0125  -0.1408    uni
+   6000 dense   -0.0102  -0.1395    uni
+   6000 sparse  +0.0022  +0.0013    tie
+  10000 dense   +0.0040  -0.0643    uni
+  10000 sparse  +0.0231  -0.0528    uni
+
+The contour is NOT separable by a single-axis width threshold: width<=4000
+splits dense-cells cleanly (strat below, uni above) but flips for sparse;
+W6K-dense regresses fidelity by -0.14 vs uniform (contradicts iter99's
+W6K-wins at n_rows=3000, traceable to the larger n_rows here). Per the
+iter100 calibration gate ("if the contour cannot be cleanly fit by a simple
+width threshold alone, do not ship auto"), no ``'auto'`` mode shipped --
+the lever remains opt-in (default=False) with the updated calibration table
+recorded inline. Bench reproducer landed at
+``_benchmarks/bench_iter100_stratified_anchors_contour.py``.
+
 ## 2026-06-01 — ShapProxiedFS: ``trust_guard_stratified_anchors`` default-flip audit, keep default=False (iter99)
 
 Re-evaluated the stratified anchor sampler as a candidate default flip

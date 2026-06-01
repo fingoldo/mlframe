@@ -681,10 +681,33 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         # and honest losses agree trivially, compressing the Spearman spread. Default stays OFF
         # because the lever does NOT universally pay -- shipping True as the default would silently
         # regress fidelity for callers running on dense-redundant cohorts (small post-prefilter
-        # widths, high inter-feature correlation). The lever remains exposed for callers whose
-        # cohort is noise-heavy (wide post-prefilter widths, sparse signal); a future width-aware
-        # dispatcher could auto-route, but the current evidence is insufficient for an unconditional
-        # flip.
+        # widths, high inter-feature correlation).
+        #
+        # Iter100 (2026-06-01) tested the width-aware ``'auto'`` dispatcher hypothesis with a
+        # 4x2x2 contour sweep (n_rows=5000, n_inf=20, snr=8.0, seed=0; widths {2k,4k,6k,10k} x
+        # {sparse n_red=0, dense n_red=20 rho=0.85} x {stratified, uniform}). Per-cell deltas
+        # (d_sp / d_fid = stratified - uniform):
+        #
+        #      width   cond     d_sp     d_fid    winner
+        #       2000  dense   +0.0044  +0.0693    strat
+        #       2000 sparse   +0.0031  -0.1315    uni
+        #       4000  dense   +0.0116  +0.0069    strat
+        #       4000 sparse   -0.0125  -0.1408    uni
+        #       6000  dense   -0.0102  -0.1395    uni       <-- contradicts iter99 W6K-wins
+        #       6000 sparse   +0.0022  +0.0013    tie
+        #      10000  dense   +0.0040  -0.0643    uni
+        #      10000 sparse   +0.0231  -0.0528    uni       <-- spearman wins but recall@k loses
+        #
+        # The contour is NOT separable by a single-axis threshold: width=4000 splits dense-cells
+        # cleanly (strat below, uni above) but flips for sparse-cells; a 2-axis (width, redundancy)
+        # rule would still need to canonicalise W6K-dense flipping uniform-wins (a regression vs
+        # iter99's W6K result, traceable to n_rows=5000 here vs n_rows=3000 in iter99). Per the
+        # iter100 calibration gate ("if the contour cannot be cleanly fit by a simple width
+        # threshold alone, do not ship 'auto'"), the lever remains opt-in. Future work: a wider
+        # sweep across n_rows + rho axes (~50 cells) may reveal a separable contour, but the
+        # measured signal is too noisy at the current grid to ship an auto-router that wouldn't
+        # silently regress callers on the contested cells. See
+        # ``_benchmarks/bench_iter100_stratified_anchors_contour.py`` to reproduce.
         self.trust_guard_stratified_anchors = bool(trust_guard_stratified_anchors)
         # ``trust_guard_uniform_tail_frac`` re-audited iter98 (2026-06-01) after iter97 made the
         # softmax scale-invariant. Question: does the calibrated 20% uniform tail still pay now that

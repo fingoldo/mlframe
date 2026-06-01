@@ -333,14 +333,16 @@ def test_biz_val_stratified_anchors_preserve_recovery_at_6k_no_catastrophic_spea
 
 def test_stratified_anchors_default_off_preserves_legacy_trust_report():
     """The iter14 stratified-anchor lever defaulted OFF; iter99 (2026-06-01) re-evaluated as a
-    candidate default flip post the iter97 softmax fix and found regime-dependent behaviour: the
-    lever WINS at W6K/W10K wide noise-dominated regimes (+0.009/+0.012 spearman, +0.005/+0.007
-    fidelity) but REGRESSES at the dense-redundant W2K regime (-0.012 spearman, -0.107 fidelity).
-    Default stays OFF because the lever does not universally pay. This is a fast cheap test that
-    asserts the contract on a small synthetic fit -- if a future change flips the default the
-    report's ``anchor_sampling`` will switch to 'stratified' here and the test fires before it
-    lands in prod. Pairs with the slow 6k biz_val above (which measures the actual Spearman cost
-    under explicit kwargs) -- this one is the cheap structural sentinel."""
+    candidate default flip post the iter97 softmax fix and found regime-dependent behaviour. Iter100
+    (2026-06-01) ran a wider 4x2x2 contour sweep (widths {2k,4k,6k,10k} x {sparse,dense} x {strat,
+    uni}, n_rows=5000) testing whether an ``'auto'`` width-aware dispatcher could route the lever:
+    the win/loss contour was NOT separable by a single-axis width threshold (W6K-dense flipped
+    uniform-wins, contradicting iter99's W6K-strat-wins at n_rows=3000), so the lever remains
+    opt-in. This is a fast cheap test that asserts the contract on a small synthetic fit -- if a
+    future change flips the default the report's ``anchor_sampling`` will switch to 'stratified'
+    here and the test fires before it lands in prod. Pairs with the slow 6k biz_val above (which
+    measures the actual Spearman cost under explicit kwargs) -- this one is the cheap structural
+    sentinel."""
     from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import make_regime_dataset
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
