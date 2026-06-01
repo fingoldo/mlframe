@@ -121,6 +121,28 @@ class SimpleFeaturesAndTargetsExtractor:
                 if arr.dtype == object:
                     return np.stack([np.asarray(c, dtype=np.int8) for c in arr])
                 return arr
+        # Multi-target regression: unpack the (N, K) continuous list column
+        # exactly like multilabel, but keep float dtype (multilabel forces
+        # int8). The fuzz frame builder emits this column only for combos
+        # whose every model natively handles a 2-D continuous target (see
+        # build_frame_for_combo's _NATIVE_MTR_MODELS gate); non-native combos
+        # are downgraded to a 1-D ``target_reg`` column upstream and reach
+        # this method as REGRESSION, never here.
+        if target_type == TargetTypes.MULTI_TARGET_REGRESSION:
+            if not isinstance(df, pd.DataFrame):
+                import polars as pl
+                if isinstance(col.dtype, pl.List) or (hasattr(pl, "Array") and isinstance(col.dtype, pl.Array)):
+                    return np.asarray(col.to_list(), dtype=np.float32)
+                arr = col.to_numpy()
+                if arr.ndim == 2:
+                    return arr.astype(np.float32)
+                return np.stack([np.asarray(c, dtype=np.float32) for c in arr])
+            arr = raw
+            if arr.ndim == 2:
+                return arr.astype(np.float32)
+            if arr.dtype == object:
+                return np.stack([np.asarray(c, dtype=np.float32) for c in arr])
+            return arr
         # Default: 1-D values (regression / binary / multiclass label).
         if self.target_carrier == "native":
             return col

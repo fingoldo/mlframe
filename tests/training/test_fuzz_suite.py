@@ -954,16 +954,28 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
         frame_cols_before = tuple(df.columns) if hasattr(df, "columns") else None
 
     # Resolve target_type for FTE — maps combo's string target_type to
-    # the TargetTypes enum. Multilabel gets explicit TargetTypes to
-    # trigger the 2-D target unpack path in FTE.
+    # the TargetTypes enum. Multilabel + multi_target_regression get
+    # explicit TargetTypes to trigger the 2-D target unpack path in FTE.
+    #
+    # multi_target_regression disambiguation: build_frame_for_combo emits
+    # a 2-D (N, K) list column (target_col == "target") only when every
+    # model in the combo natively handles a 2-D continuous target; for any
+    # non-native combo it downgrades the frame to a 1-D "target_reg" column
+    # (see _NATIVE_MTR_MODELS gate). The emitted target_col is therefore the
+    # authoritative signal for which target_type the FTE should see -- a
+    # downgraded MTR combo is REGRESSION at the data level.
     from mlframe.training.configs import TargetTypes as _TT
+    _effective_target_type = combo.target_type
+    if combo.target_type == "multi_target_regression" and target_col != "target":
+        _effective_target_type = "regression"
     _combo_tt = {
         "regression": _TT.REGRESSION,
         "binary_classification": _TT.BINARY_CLASSIFICATION,
         "multiclass_classification": _TT.MULTICLASS_CLASSIFICATION,
         "multilabel_classification": _TT.MULTILABEL_CLASSIFICATION,
         "learning_to_rank": _TT.LEARNING_TO_RANK,
-    }[combo.target_type]
+        "multi_target_regression": _TT.MULTI_TARGET_REGRESSION,
+    }[_effective_target_type]
     # LTR combos: build_frame_for_combo adds a 'qid' column for queries;
     # surface it as the FTE's group_field so the ranker suite picks it up.
     _is_ltr = combo.target_type == "learning_to_rank"
