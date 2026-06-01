@@ -21,7 +21,7 @@ import numpy as np
 
 from mlframe.feature_selection._shap_proxy_objective import (
     METRIC_CODES,
-    coalition_margin,
+    coalition_margin_T,
     proxy_loss,
     resolve_metric,
     score_margin,
@@ -40,14 +40,15 @@ class _Evaluator:
 
     def __init__(self, phi, base, y, metric):
         self.phi = phi
-        # iter107: contiguous transpose for the single-column incremental margin updates. phi is
-        # row-major (n_samples, n_units); a single-column read ``phi[:, j]`` is then strided -- one
-        # element per (n_units * 8)-byte step, a fresh cache line per row, ~505us/call at n=50000.
-        # ``phi_T[j]`` is a contiguous n_samples read (~45us), 11x faster, and the add/sub/swap in
-        # loss_from_parent / loss_from_parent_drop / swap_from_parent (the beam/greedy hot loop,
-        # 3000+ calls/fit at the tall regime) use it. Costs one extra (n_units, n_samples) copy held
-        # for the evaluator's life; n_units is post-prefilter+cluster (bounded), so the doubling is
-        # small. coalition_margin (initial seeds, far fewer calls) keeps the row-major path.
+        # iter107/iter109: contiguous transpose for every margin read. phi is row-major
+        # (n_samples, n_units); a column read ``phi[:, j]`` / multi-column gather ``phi[:, idx]`` is
+        # then strided -- one element per (n_units * 8)-byte step, a fresh cache line per row,
+        # ~505us per single-column op at n=50000. ``phi_T[j]`` is a contiguous n_samples read (~45us,
+        # 11x); ``phi_T[idx].sum(0)`` is the contiguous multi-column gather (~4x). Both the single-
+        # column incremental updates (loss_from_parent / _drop / swap, the beam/greedy hot loop,
+        # 3000+ calls/fit at the tall regime) AND the non-incremental seed margins (loss /
+        # loss_with_margin via coalition_margin_T) use it. Costs one extra (n_units, n_samples) copy
+        # held for the evaluator's life; n_units is post-prefilter+cluster (bounded), so it's small.
         self.phi_T = np.ascontiguousarray(phi.T)
         self.base = base
         self.y = y
@@ -103,7 +104,7 @@ class _Evaluator:
         if len(key) == 0:
             val = float("inf")  # empty subset is not a valid selection
         else:
-            val = self._loss_fast(coalition_margin(self.phi, self.base, list(key)))
+            val = self._loss_fast(coalition_margin_T(self.phi_T, self.base, list(key)))
         self.cache[key] = val
         self.n_evals += 1
         return val
@@ -122,7 +123,7 @@ class _Evaluator:
             margin = self.base.copy()
             val = float("inf")
         else:
-            margin = coalition_margin(self.phi, self.base, list(key))
+            margin = coalition_margin_T(self.phi_T, self.base, list(key))
             val = self._loss_fast(margin)
         self.cache[key] = val
         self.margin_cache[key] = margin

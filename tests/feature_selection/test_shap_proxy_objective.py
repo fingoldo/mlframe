@@ -25,6 +25,20 @@ def test_coalition_margin_is_base_plus_selected_sum():
     np.testing.assert_allclose(coalition_margin(phi, base, []), base)
 
 
+def test_coalition_margin_T_matches_row_major():
+    """coalition_margin_T (contiguous phi_T gather, summed down axis 0) must equal coalition_margin
+    (row-major phi[:, idx] gather, summed across axis 1). Locks the iter109 layout optimisation."""
+    from mlframe.feature_selection._shap_proxy_objective import coalition_margin, coalition_margin_T
+
+    rng = np.random.default_rng(5)
+    phi = rng.normal(size=(400, 15))
+    phi_T = np.ascontiguousarray(phi.T)
+    base = rng.normal(size=400)
+    for idx in ([0, 2, 4], [7], list(range(15)), [], [3, 9, 14]):
+        np.testing.assert_allclose(
+            coalition_margin_T(phi_T, base, idx), coalition_margin(phi, base, idx), rtol=1e-12, atol=1e-12)
+
+
 def test_score_margin_matches_numpy_references():
     from mlframe.feature_selection._shap_proxy_objective import score_margin
 
