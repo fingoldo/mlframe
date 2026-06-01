@@ -1220,6 +1220,18 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_lagged_diff_time_col: str = None,
         fe_lagged_diff_value_cols: tuple = (),
         fe_lagged_diff_periods: tuple = (1, 2),
+        # 2026-06-01 Layer 87 — grouped multi-stat aggregator with CMI gate.
+        # NVIDIA cuDF Kaggle-Grandmaster technique #1: per-group statistics of
+        # a continuous column broadcast back to rows, plus z-within-group and
+        # ratio-to-group residuals. Each survivor is CMI-gated against the raw
+        # support and uplift-gated against the source num_col's marginal MI.
+        # Default OFF -> byte-identical legacy path. ``group_cols`` /
+        # ``num_cols`` empty => auto-detect (int-as-cat / continuous).
+        fe_grouped_agg_enable: bool = False,
+        fe_grouped_agg_stats: tuple = ("mean", "std", "min", "max", "nunique", "skew", "median"),
+        fe_grouped_agg_group_cols: tuple = (),
+        fe_grouped_agg_num_cols: tuple = (),
+        fe_grouped_agg_top_k: int = 10,
         # Artifact retention for cross-selector reuse. When True, after fit() the
         # estimator carries ``su_to_target_``, ``mi_to_target_``, ``cached_MIs``,
         # and (when ``retain_bins=True``) per-column binned arrays so a downstream

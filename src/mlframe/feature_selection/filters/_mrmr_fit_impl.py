@@ -3086,10 +3086,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     self.pairwise_log_ratio_features_ = []
     self.grouped_delta_features_ = []
     self.lagged_diff_features_ = []
+    self.grouped_agg_features_ = []
     _ratio_pre_recipes: dict = {}
     _log_ratio_pre_recipes: dict = {}
     _grouped_delta_pre_recipes: dict = {}
     _lagged_diff_pre_recipes: dict = {}
+    _grouped_agg_pre_recipes: dict = {}
     if (
         bool(getattr(self, "fe_pairwise_ratio_enable", False))
         or bool(getattr(self, "fe_pairwise_log_ratio_enable", False))
@@ -3265,6 +3267,85 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         type(_ld_exc).__name__, _ld_exc,
                     )
 
+    # Layer 87 (2026-06-01): grouped multi-stat aggregator with CMI gate.
+    # NVIDIA cuDF Kaggle-Grandmaster technique #1. Per-group statistics of a
+    # continuous column broadcast to rows + z-within / ratio residuals, each
+    # CMI-gated against the raw support and uplift-gated against the source
+    # num_col marginal MI. Routing piggybacks on hybrid_orth_features_ (same
+    # Layer 23 remap as Layers 33/34/37/38).
+    if bool(getattr(self, "fe_grouped_agg_enable", False)):
+        if not isinstance(X, pd.DataFrame):
+            warnings.warn(
+                "MRMR: Layer 87 grouped_agg FE enabled but X is not a pandas "
+                "DataFrame; the aggregates are skipped. Convert via "
+                "X.to_pandas() before fit() to apply them.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from ._grouped_agg_fe import hybrid_grouped_agg_fe
+
+                # CMI gate needs a class-typed target; bin continuous y the
+                # same way the Layer 60 CMI-greedy stage does.
+                _y_for_ga = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                if _y_for_ga.dtype.kind in "fc":
+                    _n_unique_ga = int(np.unique(_y_for_ga).size)
+                    if _n_unique_ga <= 32:
+                        _y_for_ga = _y_for_ga.astype(np.int64)
+                    else:
+                        try:
+                            _y_for_ga = pd.qcut(
+                                _y_for_ga, q=10, labels=False, duplicates="drop",
+                            ).astype(np.int64)
+                        except Exception:
+                            _y_for_ga = _y_for_ga.astype(np.int64)
+
+                _ga_groups = tuple(
+                    getattr(self, "fe_grouped_agg_group_cols", ()) or ()
+                )
+                _ga_groups = [c for c in _ga_groups if c in X.columns] or None
+                _ga_nums = tuple(
+                    getattr(self, "fe_grouped_agg_num_cols", ()) or ()
+                )
+                _ga_nums = [c for c in _ga_nums if c in X.columns] or None
+                _ga_stats = tuple(
+                    getattr(self, "fe_grouped_agg_stats", ())
+                    or ("mean", "std", "min", "max", "nunique", "skew", "median")
+                )
+                _ga_top_k = int(getattr(self, "fe_grouped_agg_top_k", 10))
+                _X_before_ga_cols = list(X.columns)
+                X_ga, _ga_appended, _ga_recipes, _ga_scores = hybrid_grouped_agg_fe(
+                    X, _y_for_ga,
+                    group_cols=_ga_groups, num_cols=_ga_nums,
+                    stats=_ga_stats, top_k=_ga_top_k,
+                )
+                _ga_appended = [
+                    c for c in _ga_appended if c not in _X_before_ga_cols
+                ]
+                if _ga_appended:
+                    X = X_ga
+                    self.grouped_agg_features_ = list(_ga_appended)
+                    self.hybrid_orth_features_ = (
+                        list(self.hybrid_orth_features_ or []) + list(_ga_appended)
+                    )
+                    for _r in _ga_recipes:
+                        if _r.name in _ga_appended:
+                            _grouped_agg_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit grouped_agg: appended %d engineered "
+                            "column(s): %s",
+                            len(_ga_appended), _ga_appended[:8],
+                        )
+            except Exception as _ga_exc:
+                logger.warning(
+                    "MRMR.fit grouped_agg FE raised %s: %s; continuing "
+                    "without grouped-aggregate columns.",
+                    type(_ga_exc).__name__, _ga_exc,
+                )
+
     # Layer 27 (2026-05-31): cross-stage engineered-column dedup. Hybrid and
     # MI-greedy stages run independently; on signals like ``y = sign(x^2 - 1)``
     # hybrid emits ``x__He2`` and MI-greedy emits ``square(x)`` / ``abs(x)`` /
@@ -3402,6 +3483,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 c for c in (getattr(self, "lagged_diff_features_", []) or [])
                 if c not in _eng_drop
             ]
+            # Layer 87: mirror cleanup for grouped_agg.
+            self.grouped_agg_features_ = [
+                c for c in (getattr(self, "grouped_agg_features_", []) or [])
+                if c not in _eng_drop
+            ]
             for _c in list(_hybrid_orth_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _hybrid_orth_pre_recipes.pop(_c, None)
@@ -3441,6 +3527,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             for _c in list(_lagged_diff_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _lagged_diff_pre_recipes.pop(_c, None)
+            for _c in list(_grouped_agg_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _grouped_agg_pre_recipes.pop(_c, None)
             if verbose:
                 logger.info(
                     "MRMR.fit engineered-FE dedup: pruned %d near-duplicate "
@@ -3692,6 +3781,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         engineered_recipes.update(_grouped_delta_pre_recipes)
     if _lagged_diff_pre_recipes:
         engineered_recipes.update(_lagged_diff_pre_recipes)
+    # Layer 87: same routing for grouped multi-stat aggregate recipes.
+    if _grouped_agg_pre_recipes:
+        engineered_recipes.update(_grouped_agg_pre_recipes)
     # Reset per fit so a re-fit on the same instance doesn't carry stale cluster-aggregate state.
     self._cluster_aggregate_removals_ = []
     self.cluster_aggregate_ = []  # fitted summary (per-aggregate records) -> meta_info report

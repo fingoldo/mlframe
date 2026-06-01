@@ -125,7 +125,7 @@ class EngineeredRecipe:
     # (src_names=(c_i, c_j), extra={basis_i, basis_j, deg_a, deg_b}). Replay
     # is closed-form from the source column(s) alone -- no y reference is
     # captured at fit time, so transform() is leakage-free by construction.
-    kind: Literal["unary_binary", "factorize", "hermite_pair", "target_encoding", "cluster_aggregate", "orth_univariate", "orth_pair_cross", "orth_triplet_cross", "orth_quadruplet_cross", "orth_spline", "orth_fourier", "orth_diff_basis", "orth_cluster_basis", "mi_greedy_transform", "kfold_target_encoded", "count_encoded", "frequency_encoded", "cat_num_residual", "missing_indicator", "missingness_count", "missingness_pattern", "pairwise_ratio", "grouped_delta", "lagged_diff"]
+    kind: Literal["unary_binary", "factorize", "hermite_pair", "target_encoding", "cluster_aggregate", "orth_univariate", "orth_pair_cross", "orth_triplet_cross", "orth_quadruplet_cross", "orth_spline", "orth_fourier", "orth_diff_basis", "orth_cluster_basis", "mi_greedy_transform", "kfold_target_encoded", "count_encoded", "frequency_encoded", "cat_num_residual", "missing_indicator", "missingness_count", "missingness_pattern", "pairwise_ratio", "grouped_delta", "lagged_diff", "grouped_agg"]
     src_names: tuple[str, ...]
     unary_names: tuple[str, ...] = ()
     binary_name: str = ""
@@ -377,6 +377,11 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         if recipe.kind == "grouped_delta":
             return _apply_grouped_delta_recipe(recipe, X)
         return _apply_lagged_diff_recipe(recipe, X)
+    if recipe.kind == "grouped_agg":
+        # Layer 87 lazy import: keep this module under the LOC ceiling; the
+        # apply helper lives alongside the grouped-agg generator.
+        from ._grouped_agg_fe import _apply_grouped_agg_recipe
+        return _apply_grouped_agg_recipe(recipe, X)
     raise ValueError(f"Unknown recipe kind: {recipe.kind!r}")
 
 
@@ -1840,6 +1845,45 @@ def build_grouped_delta_recipe(
             "group_col": str(group_col),
             "num_col": str(num_col),
             "op": str(op),
+            "lookup_mean": lookup_mean_clean,
+            "lookup_std": lookup_std_clean,
+            "global_mean": float(global_mean),
+            "global_std": float(global_std),
+        },
+    )
+
+
+def build_grouped_agg_recipe(
+    *, name: str, group_col: str, num_col: str, stat: str, op: str,
+    group_lookup_dict: dict, global_value: float,
+    lookup_mean: dict, lookup_std: dict,
+    global_mean: float, global_std: float,
+) -> EngineeredRecipe:
+    """Layer 87 (2026-06-01): frozen recipe for one grouped multi-stat
+    aggregate. ``op='broadcast'`` emits the per-group ``stat`` broadcast back
+    to rows; ``op='z_within'`` emits ``(x - mean(x|group)) / std(x|group)``;
+    ``op='ratio'`` emits ``x / mean(x|group)``. Unseen groups at replay fall
+    back to the fit-time global statistic. Replay reads only X (no y), so
+    transform() is leakage-free."""
+    if op not in ("broadcast", "z_within", "ratio"):
+        raise ValueError(
+            f"grouped_agg op must be 'broadcast', 'z_within', or 'ratio'; "
+            f"got {op!r}"
+        )
+    lookup_clean = {str(k): float(v) for k, v in group_lookup_dict.items()}
+    lookup_mean_clean = {str(k): float(v) for k, v in lookup_mean.items()}
+    lookup_std_clean = {str(k): float(v) for k, v in lookup_std.items()}
+    return EngineeredRecipe(
+        name=name,
+        kind="grouped_agg",
+        src_names=(group_col, num_col),
+        extra={
+            "group_col": str(group_col),
+            "num_col": str(num_col),
+            "stat": str(stat),
+            "op": str(op),
+            "group_lookup_dict": lookup_clean,
+            "global_value": float(global_value),
             "lookup_mean": lookup_mean_clean,
             "lookup_std": lookup_std_clean,
             "global_mean": float(global_mean),

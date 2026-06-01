@@ -63,6 +63,22 @@ def _disable_broken_cupy() -> None:
     except ImportError:
         # cupy not installed - clean state, nothing to disable.
         return
+    except Exception as _imp_exc:
+        # cupy IS installed but its native deps fail to load (e.g. a broken
+        # CUDA toolkit where ``cublasLt64_*.dll`` raises an OSError/RuntimeError
+        # at import via the pathfinder loader, NOT an ImportError). Treat this
+        # exactly like the failed-probe path below: poison the import so every
+        # later ``import cupy`` returns None instead of re-raising the DLL
+        # error and taking down the whole process at ``import mlframe`` time.
+        import logging
+        import sys as _sys_imp
+        logging.getLogger(__name__).warning(
+            "mlframe: cupy import raised %s: %s. Disabling cupy for this "
+            "process. Set MLFRAME_KEEP_BROKEN_CUPY=1 to skip.",
+            type(_imp_exc).__name__, _imp_exc,
+        )
+        _sys_imp.modules["cupy"] = None  # type: ignore[assignment]
+        return
     try:
         _ = _cp.asarray([1.0], dtype=_cp.float32).sum().item()
         # Probe succeeded: cupy is usable. Leave sys.modules alone.
