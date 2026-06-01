@@ -751,6 +751,20 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_hybrid_orth_adaptive_arity_max_degree: int = 1,
         fe_hybrid_orth_adaptive_arity_seed_k: int = 4,
         fe_hybrid_orth_adaptive_arity_top_count: int = 3,
+        # 2026-06-01 Layer 80 — SEMI-SUPERVISED basis-preprocess fitting
+        # (sibling module ``_semi_supervised_fe``). Independent opt-in (does
+        # NOT require fe_hybrid_orth_enable). When True AND the user invokes
+        # ``fit_with_unlabeled(mrmr, X_labeled, y, X_unlabeled)``, the L21 /
+        # L22 / L56 / L77 / L78 orth-poly basis preprocess fits (z-score /
+        # min-max / shift params) consume the concatenated
+        # ``X_labeled + X_unlabeled`` pool per column instead of labeled-only.
+        # MI scoring still consumes the LABELED y only. y is never read by
+        # the augmentation code path, so leakage is impossible by construction.
+        # Default OFF preserves byte-equivalent legacy behaviour (the
+        # thread-local pool stays empty and consumers fall back to the
+        # labeled-only fit). When the flag is on but the wrapper is not used
+        # (plain ``mrmr.fit(X, y)``), behaviour is also byte-identical.
+        fe_semi_supervised_enable: bool = False,
         # 2026-05-31 Layer 57 — ADAPTIVE PER-COLUMN DEGREE selection
         # (sibling module ``_orthogonal_adaptive_degree_fe``). Independent
         # opt-in (does NOT require fe_hybrid_orth_enable). When enabled,
@@ -1490,6 +1504,9 @@ class MRMR(BaseEstimator, TransformerMixin):
             "fe_hybrid_orth_adaptive_arity_max_degree": 1,
             "fe_hybrid_orth_adaptive_arity_seed_k": 4,
             "fe_hybrid_orth_adaptive_arity_top_count": 3,
+            # 2026-06-01 Layer 80 — semi-supervised basis-preprocess fitting.
+            # Master switch OFF preserves legacy pickle byte-equivalence.
+            "fe_semi_supervised_enable": False,
             # 2026-05-31 Layer 57 — adaptive per-column degree defaults.
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_hybrid_orth_adaptive_degree_enable": False,
@@ -2230,3 +2247,9 @@ MRMR.partial_fit = _partial_fit_func
 # heavyweight import at load time.
 from ._mrmr_fe_provenance import get_fe_report as _get_fe_report_func  # noqa: E402
 MRMR.get_fe_report = _get_fe_report_func
+
+# Layer 80 (2026-06-01): semi-supervised fit helper. Importable from the
+# parent ``mrmr`` namespace so callers can ``from mlframe.feature_selection
+# .filters.mrmr import fit_with_unlabeled`` without reaching into the
+# sibling module path. See ``_semi_supervised_fe`` for full docs.
+from ._semi_supervised_fe import fit_with_unlabeled  # noqa: E402,F401

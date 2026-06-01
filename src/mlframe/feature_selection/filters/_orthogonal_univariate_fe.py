@@ -69,7 +69,13 @@ __all__ = [
 _BASIS_CODE = {"hermite": "He", "legendre": "L", "chebyshev": "T", "laguerre": "LL"}
 
 
-def _evaluate_basis_column(x: np.ndarray, basis: str, degree: int) -> np.ndarray:
+def _evaluate_basis_column(
+    x: np.ndarray,
+    basis: str,
+    degree: int,
+    *,
+    aux_for_fit: Optional[np.ndarray] = None,
+) -> np.ndarray:
     """Preprocess x to the basis domain, then evaluate the single basis function
     of given degree via a one-hot coefficient vector. Returns shape (n,).
 
@@ -77,10 +83,30 @@ def _evaluate_basis_column(x: np.ndarray, basis: str, degree: int) -> np.ndarray
     domain-mapped values - reuse z directly rather than calling apply with the
     untyped params dict (which can vary per basis: zscore -> mean/std; minmax
     -> lo/hi; shift -> lo).
+
+    Layer 80 (2026-06-01) -- ``aux_for_fit``: optional auxiliary x values to
+    concatenate with ``x`` BEFORE the basis preprocess fits its params. Used
+    by the semi-supervised FE wrapper (``fe_semi_supervised_enable``) to
+    fit z-score / min-max / shift params on a labeled + unlabeled pool while
+    still emitting basis values only for the labeled rows. y is never read
+    here, so no leakage is introduced. When ``aux_for_fit=None`` (default)
+    the legacy bit-exact path runs.
     """
     basis_info = _POLY_BASES[basis]
     fit_fn = basis_info["fit"]
-    z, _params = fit_fn(x)
+    if aux_for_fit is not None and len(aux_for_fit) > 0:
+        # Build params from the concatenated pool, then apply to ``x`` only.
+        aux = np.asarray(aux_for_fit, dtype=np.float64)
+        finite_aux = aux[np.isfinite(aux)]
+        if finite_aux.size > 0:
+            pool = np.concatenate([np.asarray(x, dtype=np.float64), finite_aux])
+            _z_pool, params = fit_fn(pool)
+            apply_fn = basis_info["apply"]
+            z = apply_fn(np.asarray(x, dtype=np.float64), params)
+        else:
+            z, _params = fit_fn(x)
+    else:
+        z, _params = fit_fn(x)
     z = np.ascontiguousarray(z, dtype=np.float64)
     # One-hot coefficient vector: He_n / L_n / T_n / L^Lag_n at the chosen degree.
     coef = np.zeros(degree + 1, dtype=np.float64)
@@ -332,6 +358,15 @@ def generate_univariate_basis_features(
         cols = _dedup_collinear_source_cols(
             X, list(cols), corr_threshold=dedup_corr_threshold,
         )
+    # Layer 80 (2026-06-01): semi-supervised unlabeled-pool augmentation. When
+    # ``fe_semi_supervised_enable`` is active inside MRMR.fit, the wrapper
+    # pushes a {col_name -> unlabeled_values} mapping into a thread-local; the
+    # mapping is consumed HERE so the per-column basis preprocess (z-score /
+    # min-max / shift) fits on the bigger pool while engineered values are
+    # still emitted only for labeled rows. y is never inspected here, so the
+    # augmentation is leakage-free by construction.
+    from ._semi_supervised_fe import get_unlabeled_pool as _get_unlabeled_pool
+    _aux_pool = _get_unlabeled_pool()
     code = _BASIS_CODE
     out_cols: dict = {}
     for col in cols:
@@ -339,13 +374,32 @@ def generate_univariate_basis_features(
         finite_mask = np.isfinite(x)
         if not finite_mask.all():
             x = np.where(finite_mask, x, np.nanmean(x[finite_mask]) if finite_mask.any() else 0.0)
-        chosen_basis = basis_route_by_moments(x) if basis == "auto" else basis
+        aux_col = None
+        if _aux_pool is not None and col in _aux_pool:
+            aux_col = _aux_pool[col]
+        # For auto-routing, fit the moment fingerprint on the SAME pool so
+        # train and unlabeled augmentation agree on basis selection.
+        if basis == "auto":
+            if aux_col is not None and len(aux_col) > 0:
+                aux_finite = aux_col[np.isfinite(aux_col)]
+                if aux_finite.size > 0:
+                    chosen_basis = basis_route_by_moments(
+                        np.concatenate([x, aux_finite])
+                    )
+                else:
+                    chosen_basis = basis_route_by_moments(x)
+            else:
+                chosen_basis = basis_route_by_moments(x)
+        else:
+            chosen_basis = basis
         if chosen_basis not in _POLY_BASES:
             logger.warning("generate_univariate_basis_features: unknown basis %r for col %r; skipping", chosen_basis, col)
             continue
         for d in degrees:
             try:
-                vals = _evaluate_basis_column(x, chosen_basis, int(d))
+                vals = _evaluate_basis_column(
+                    x, chosen_basis, int(d), aux_for_fit=aux_col,
+                )
                 out_cols[f"{col}__{code.get(chosen_basis, chosen_basis)}{d}"] = vals
             except Exception as exc:
                 logger.warning("generate_univariate_basis_features: basis=%r degree=%d on col=%r raised %r; skipping",
