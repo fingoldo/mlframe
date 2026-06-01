@@ -737,6 +737,20 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_hybrid_orth_quadruplet_max_degree: int = 1,
         fe_hybrid_orth_quadruplet_seed_k: int = 4,
         fe_hybrid_orth_quadruplet_top_count: int = 2,
+        # 2026-06-01 Layer 78 — ADAPTIVE-ARITY cross-basis FE (sibling
+        # module ``_orthogonal_adaptive_arity_fe``). Tries arity 2/3/4
+        # per seed tuple and emits ONLY the winning arity per maximal
+        # signal set, so the caller does not have to pick arity by hand.
+        # Independent opt-in (does NOT require fe_hybrid_orth_enable).
+        # Combinatorial cost O(sum_{k=2..A} C(seed_k, k) * deg^k); with
+        # defaults A=3, seed_k=4, deg=1 the candidate count is C(4,2)+
+        # C(4,3)=10. Recipes route to the per-arity Layer 22 / 56 / 77
+        # builders -- no new recipe kind.
+        fe_hybrid_orth_adaptive_arity_enable: bool = False,
+        fe_hybrid_orth_adaptive_arity_max_arity: int = 3,
+        fe_hybrid_orth_adaptive_arity_max_degree: int = 1,
+        fe_hybrid_orth_adaptive_arity_seed_k: int = 4,
+        fe_hybrid_orth_adaptive_arity_top_count: int = 3,
         # 2026-05-31 Layer 57 — ADAPTIVE PER-COLUMN DEGREE selection
         # (sibling module ``_orthogonal_adaptive_degree_fe``). Independent
         # opt-in (does NOT require fe_hybrid_orth_enable). When enabled,
@@ -1469,6 +1483,13 @@ class MRMR(BaseEstimator, TransformerMixin):
             "fe_hybrid_orth_quadruplet_max_degree": 1,
             "fe_hybrid_orth_quadruplet_seed_k": 4,
             "fe_hybrid_orth_quadruplet_top_count": 2,
+            # 2026-06-01 Layer 78 — adaptive-arity cross-basis FE defaults.
+            # Master switch OFF preserves legacy pickle byte-equivalence.
+            "fe_hybrid_orth_adaptive_arity_enable": False,
+            "fe_hybrid_orth_adaptive_arity_max_arity": 3,
+            "fe_hybrid_orth_adaptive_arity_max_degree": 1,
+            "fe_hybrid_orth_adaptive_arity_seed_k": 4,
+            "fe_hybrid_orth_adaptive_arity_top_count": 3,
             # 2026-05-31 Layer 57 — adaptive per-column degree defaults.
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_hybrid_orth_adaptive_degree_enable": False,

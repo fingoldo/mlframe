@@ -651,6 +651,115 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     "continuing without quadruplet-FE columns.",
                     type(_q_exc).__name__, _q_exc,
                 )
+    # 2026-06-01 Layer 78 — ADAPTIVE-ARITY cross-basis FE stage.
+    # Independent opt-in (does NOT require fe_hybrid_orth_enable). When
+    # active, the stage enumerates arity 2..max_arity per seed tuple and
+    # keeps ONLY the winning arity per maximal signal set (a higher arity
+    # is emitted iff its MI strictly beats every lower-arity prefix).
+    # Recipes route to the per-arity Layer 22 / 56 / 77 builders.
+    if bool(getattr(self, "fe_hybrid_orth_adaptive_arity_enable", False)):
+        _is_pandas_for_aa = isinstance(X, pd.DataFrame)
+        if not _is_pandas_for_aa:
+            warnings.warn(
+                "MRMR: fe_hybrid_orth_adaptive_arity_enable=True but X is "
+                "not a pandas DataFrame; adaptive-arity FE is skipped. "
+                "Convert to pandas via X.to_pandas() before fit() if you "
+                "want adaptive-arity FE applied.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from ._orthogonal_adaptive_arity_fe import (
+                    hybrid_orth_mi_adaptive_arity_fe_with_recipes,
+                )
+                _y_for_aa = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                if _y_for_aa.dtype.kind in "fc":
+                    _n_unique = int(np.unique(_y_for_aa).size)
+                    if _n_unique <= 32:
+                        _y_for_aa = _y_for_aa.astype(np.int64)
+                    else:
+                        try:
+                            _y_for_aa = pd.qcut(
+                                _y_for_aa, q=10, labels=False, duplicates="drop",
+                            ).astype(np.int64)
+                        except Exception:
+                            _y_for_aa = _y_for_aa.astype(np.int64)
+                _hybrid_already_appended = set(
+                    getattr(self, "hybrid_orth_features_", None) or []
+                )
+                _aa_cols: list | None = None
+                if getattr(self, "factors_names_to_use", None):
+                    _aa_cols = [
+                        c for c in self.factors_names_to_use
+                        if c in X.columns and c not in _hybrid_already_appended
+                    ]
+                else:
+                    _aa_cols = [
+                        c for c in X.columns
+                        if c not in _hybrid_already_appended
+                    ]
+                _aa_max_arity = int(
+                    getattr(self, "fe_hybrid_orth_adaptive_arity_max_arity", 3)
+                )
+                _aa_max_degree = int(
+                    getattr(self, "fe_hybrid_orth_adaptive_arity_max_degree", 1)
+                )
+                _aa_seed_k = int(
+                    getattr(self, "fe_hybrid_orth_adaptive_arity_seed_k", 4)
+                )
+                _aa_top_count = int(
+                    getattr(self, "fe_hybrid_orth_adaptive_arity_top_count", 3)
+                )
+                _aa_basis = str(getattr(self, "fe_hybrid_orth_basis", "auto"))
+                _aa_degrees = tuple(
+                    int(d) for d in getattr(self, "fe_hybrid_orth_degrees", (2, 3))
+                )
+                _aa_top_k = int(getattr(self, "fe_hybrid_orth_top_k", 5))
+                _X_before_aa_cols = list(X.columns)
+                X_aa, _aa_uni_sc, _aa_adapt_sc, _aa_recipes = (
+                    hybrid_orth_mi_adaptive_arity_fe_with_recipes(
+                        X, _y_for_aa,
+                        cols=_aa_cols,
+                        degrees=_aa_degrees,
+                        basis=_aa_basis,
+                        top_k=_aa_top_k,
+                        seed_k=_aa_seed_k,
+                        max_arity=_aa_max_arity,
+                        max_degree=_aa_max_degree,
+                        top_count=_aa_top_count,
+                    )
+                )
+                _aa_appended = [
+                    c for c in X_aa.columns if c not in _X_before_aa_cols
+                ]
+                # Only keep TRUE cross columns (arity >= 2 -- one or more '*').
+                _aa_cross_only = [
+                    c for c in _aa_appended
+                    if c.split("__", 1)[0].count("*") >= 1
+                ]
+                if _aa_cross_only:
+                    X = pd.concat([X, X_aa[_aa_cross_only]], axis=1)
+                    self.hybrid_orth_features_ = (
+                        list(self.hybrid_orth_features_ or []) + list(_aa_cross_only)
+                    )
+                    _kept_aa = set(_aa_cross_only)
+                    for _r in _aa_recipes:
+                        if _r.name in _kept_aa:
+                            _hybrid_orth_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit hybrid_orth adaptive-arity: appended %d "
+                            "engineered column(s): %s",
+                            len(_aa_cross_only), _aa_cross_only[:8],
+                        )
+            except Exception as _aa_exc:
+                logger.warning(
+                    "MRMR.fit hybrid_orth adaptive-arity FE raised %s: %s; "
+                    "continuing without adaptive-arity-FE columns.",
+                    type(_aa_exc).__name__, _aa_exc,
+                )
     # 2026-05-31 Layer 57 — ADAPTIVE PER-COLUMN DEGREE FE stage.
     # Independent opt-in (does NOT require fe_hybrid_orth_enable). When
     # active, for each source column we evaluate every degree in
