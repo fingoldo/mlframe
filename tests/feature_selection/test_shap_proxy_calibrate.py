@@ -12,7 +12,8 @@ import numpy as np
 from scipy.stats import spearmanr
 
 from mlframe.feature_selection._shap_proxy_calibrate import (
-    ProxyCorrector, fit_proxy_corrector, rerank_candidates, subset_redundancy)
+    ProxyCorrector, fit_proxy_corrector, rerank_candidates, subset_redundancy,
+    subset_redundancy_many)
 
 
 def test_subset_redundancy_basic():
@@ -25,6 +26,18 @@ def test_subset_redundancy_basic():
     assert subset_redundancy(phi, [0, 1, 2]) > 0.9   # duplicates
     assert subset_redundancy(phi, [3, 4, 5]) < 0.3   # independent
     assert subset_redundancy(phi, [0]) == 0.0        # singleton
+
+
+def test_subset_redundancy_many_matches_single():
+    """The batched helper (transpose-once contiguous gather) must be bit-identical to looping the
+    single subset_redundancy. Locks the iter108 layout optimisation against drift, incl. the
+    singleton (->0.0) and the empty-subset edge cases."""
+    rng = np.random.default_rng(3)
+    phi = rng.normal(size=(800, 20))
+    idx_list = [[0, 1, 2], [5], [3, 7, 11, 15], [], list(range(20)), [4, 4 + 1]]
+    batch = subset_redundancy_many(phi, idx_list)
+    single = np.array([subset_redundancy(phi, idx) for idx in idx_list], dtype=np.float64)
+    np.testing.assert_array_equal(batch, single)
 
 
 def test_biz_val_corrector_beats_raw_proxy_under_redundancy_bias():

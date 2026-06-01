@@ -1586,13 +1586,13 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         # penalty (#7). Focuses the retrain budget on subsets that are honestly-best AND stable.
         score = np.array([c[0] for c in candidates], dtype=np.float64)  # raw proxy loss
         if self.use_bias_corrector and self.trust_guard and report.get("trust", {}).get("_corrector_data"):
-            from mlframe.feature_selection._shap_proxy_calibrate import fit_proxy_corrector, subset_redundancy
+            from mlframe.feature_selection._shap_proxy_calibrate import fit_proxy_corrector, subset_redundancy_many
 
             cd = report["trust"]["_corrector_data"]
             corrector = fit_proxy_corrector(cd["proxy"], cd["honest"], cd["cards"], cd["redund"])
             if not corrector.fallback:
                 cards = np.array([len(c[1]) for c in candidates], dtype=np.float64)
-                redund = np.array([subset_redundancy(phi, c[1]) for c in candidates], dtype=np.float64)
+                redund = subset_redundancy_many(phi, [c[1] for c in candidates])
                 score = corrector.predict(score, cards, redund)
                 report["bias_corrector"] = dict(applied=True, n_anchors=len(cd["proxy"]))
         if self.uncertainty_penalty > 0 and phi_var is not None:

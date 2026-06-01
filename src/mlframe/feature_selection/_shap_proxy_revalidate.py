@@ -781,7 +781,7 @@ def proxy_trust_guard(
                                      weights=weights, uniform_tail_frac=anchor_uniform_tail_frac,
                                      cardinality_dist=cardinality_dist, zipf_alpha=zipf_alpha)
 
-    from mlframe.feature_selection._shap_proxy_calibrate import subset_redundancy
+    from mlframe.feature_selection._shap_proxy_calibrate import subset_redundancy_many
 
     tid = ("trust_cap", int(n_estimators_cap)) if n_estimators_cap is not None else None
     proxy_losses = [proxy_loss(coalition_margin(phi, base, idx), y_search, metric) for idx in anchors]
@@ -796,7 +796,7 @@ def proxy_trust_guard(
         n_estimators_cap=n_estimators_cap, template_id=tid, inner_n_jobs_cap=inner_n_jobs_cap,
         disk_cache=disk_cache)
     cards = np.array([len(a) for a in anchors], dtype=np.float64)
-    redunds = np.array([subset_redundancy(phi, a) for a in anchors], dtype=np.float64)
+    redunds = subset_redundancy_many(phi, anchors)
     proxy_losses = np.asarray(proxy_losses)
     honest_losses = np.asarray(honest_losses)
     ok = np.isfinite(proxy_losses) & np.isfinite(honest_losses)
@@ -1312,7 +1312,7 @@ def active_learning_revalidate(
 
     Returns ``(best_idx, ranked, n_evaluated)``.
     """
-    from mlframe.feature_selection._shap_proxy_calibrate import fit_proxy_corrector, subset_redundancy
+    from mlframe.feature_selection._shap_proxy_calibrate import fit_proxy_corrector, subset_redundancy_many
 
     metric = resolve_metric(classification, metric)
     rng = np.random.default_rng(0) if rng is None else rng
@@ -1326,7 +1326,7 @@ def active_learning_revalidate(
     proxy_all = np.array([c[0] for c in candidates], dtype=np.float64)
     idxs = [c[1] for c in candidates]
     cards_all = np.array([len(i) for i in idxs], dtype=np.float64)
-    redund_all = np.array([subset_redundancy(phi, i) for i in idxs], dtype=np.float64)
+    redund_all = subset_redundancy_many(phi, idxs)
     member_cols = [_expand(i, unit_to_members) for i in idxs]
 
     honest = {}  # candidate index -> mean honest loss
