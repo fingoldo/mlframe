@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-06-01 — ShapProxiedFS: scale-invariant softmax for the F-score-stratified anchor sampler (iter97)
+
+`_softmax_weights` (used by ``trust_guard_stratified_anchors``) defaulted to
+``temperature=1.0``. With raw ANOVA F-statistics (mean ~40, std ~40 on a
+typical post-prefilter cohort) the softmax collapsed to near-one-hot — 96%
+of probability mass on the top entry, effective sample size ~1 of 28 — so
+every weighted anchor draw picked essentially the same column, the
+trust-guard's anchor losses clustered, and the Spearman fidelity signal
+fell to 0.55 (iter14 dev measured 0.88).
+
+Switched the default to ``temperature='auto'``: divide by ``std(scores)``
+so softmax entropy is bounded regardless of input magnitude. Passing a
+numeric ``temperature`` (the existing unit-test fixture) keeps legacy
+fixed-divisor behaviour. Recovers the iter14 biz_val regime
+(stratified Spearman 0.91 vs uniform 0.97, Δ=-0.06, well inside the
+documented -0.20 safety envelope).
+
 ## 2026-05-30 — MRMR Wave 8: 10 research-grade opt-in extensions
 
 Lands 10 sibling modules + opt-in MRMR knobs covering Agent A's research

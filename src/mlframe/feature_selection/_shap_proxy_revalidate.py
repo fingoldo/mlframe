@@ -462,12 +462,21 @@ def _parallel_honest_losses(tasks, model_template, X_tr, y_tr, X_ev, y_ev, class
     )
 
 
-def _softmax_weights(scores, temperature=1.0):
+def _softmax_weights(scores, temperature="auto"):
     """Normalise ``scores`` to a length-N probability vector via softmax with a temperature knob.
 
     ``scores`` is the proxy/unit-space F-score vector (length n_anchor_columns). -inf sentinels for
     constant/degenerate columns sink to zero probability. NaN/non-finite entries get the minimum
     finite score so they remain pickable but at the noise floor (never the high-prior tier).
+
+    ``temperature='auto'`` (default since iter97): set temperature to the std of finite scores so the
+    softmax is scale-invariant. Raw F-statistics span O(1)-O(100+) on real cohorts; a fixed
+    ``temperature=1.0`` then collapses softmax to near-one-hot on the top entry (effective sample size
+    ~1) and the stratified anchor sampler draws essentially identical anchors, killing the trust-guard
+    Spearman signal. Standardising by the score std keeps the softmax entropy bounded regardless of
+    whether the caller passes raw F-scores (std ~40) or log/z-scored values (std ~1). Passing a
+    numeric ``temperature`` restores the legacy fixed-divisor behaviour (used by the unit-test fixture
+    where weights have a calibrated [0,10] range).
 
     Returns a length-N float64 vector that sums to 1; falls back to a uniform vector when every entry
     is non-finite (degenerate input, e.g. all-constant working frame) so callers never crash."""
@@ -478,7 +487,15 @@ def _softmax_weights(scores, temperature=1.0):
     # Replace non-finite entries with the min finite (so they have negligible probability after softmax
     # but never NaN out the normalisation); subtract the max for numerical stability.
     s[~finite] = s[finite].min()
-    s = s / max(1e-12, float(temperature))
+    if isinstance(temperature, str) and temperature == "auto":
+        # Scale-invariant: divide by the std of finite scores (clamped from below so a near-constant
+        # vector doesn't blow up to a one-hot via tiny-number division). With std-normalised input the
+        # softmax entropy is bounded ~ log(n) / e regardless of the raw score magnitude.
+        std = float(np.std(s[finite]))
+        temp = max(1e-3, std)
+    else:
+        temp = max(1e-12, float(temperature))
+    s = s / temp
     s -= s.max()
     w = np.exp(s)
     total = w.sum()

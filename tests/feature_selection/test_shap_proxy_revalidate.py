@@ -673,6 +673,35 @@ def test_stratified_anchor_sampler_overweights_high_f_columns():
         assert len(a) == 5 and len(set(a)) == 5
 
 
+def test_softmax_weights_auto_temperature_is_scale_invariant():
+    """Regression for iter97: ``_softmax_weights`` must keep the softmax entropy bounded regardless
+    of input score magnitude. A length-N vector with std=40 (raw F-scores on a real cohort) MUST give
+    roughly the same effective sample size as the same vector divided by 40 (z-scored). Before iter97
+    the default ``temperature=1.0`` collapsed raw F-scores to a near-one-hot distribution (ESS ~1.1),
+    making the stratified anchor sampler draw essentially identical anchors and killing the
+    trust-guard Spearman signal at iter14's width=6000 biz_val regime (dropped to 0.55 from a
+    measured 0.88)."""
+    from mlframe.feature_selection._shap_proxy_revalidate import _softmax_weights
+
+    rng = np.random.default_rng(0)
+    raw = rng.normal(loc=40.0, scale=40.0, size=28)  # F-statistic-like: mean ~40, std ~40
+    zscored = (raw - raw.mean()) / raw.std()
+    p_raw = _softmax_weights(raw)
+    p_z = _softmax_weights(zscored)
+    ess_raw = 1.0 / float(np.sum(p_raw ** 2))
+    ess_z = 1.0 / float(np.sum(p_z ** 2))
+    # Both should be well above 1 (not one-hot) AND within 5% of each other (scale-invariant).
+    assert ess_raw > 5.0, f"auto-temperature softmax collapsed on raw F-scores: ESS={ess_raw:.2f}"
+    assert ess_z > 5.0, f"auto-temperature softmax collapsed on z-scored input: ESS={ess_z:.2f}"
+    assert abs(ess_raw - ess_z) / ess_z < 0.05, (
+        f"auto-temperature is not scale-invariant: ESS_raw={ess_raw:.2f} ESS_z={ess_z:.2f}")
+    # Explicit numeric temperature still works (legacy callers): high temp -> near-uniform.
+    p_high_temp = _softmax_weights(raw, temperature=100.0)
+    ess_high = 1.0 / float(np.sum(p_high_temp ** 2))
+    assert ess_high > ess_raw * 0.8, (
+        f"explicit-temperature path must still flatten softmax at high T: ESS_high={ess_high:.2f}")
+
+
 def test_stratified_anchor_sampler_falls_back_to_uniform_when_weights_none():
     """When ``weights=None`` the sampler MUST match the legacy (now ``cardinality_dist='uniform'``)
     sampler bit-for-bit (same RNG state -> same anchor list). This is the safety net: non-two-stage
