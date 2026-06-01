@@ -68,6 +68,9 @@ warnings.filterwarnings("ignore")
 # ---------------------------------------------------------------------------
 
 
+_CUPY_OK_CACHE: "bool | None" = None
+
+
 def _cupy_ok() -> bool:
     """True iff cupy imports AND its CUDA stack initialises.
 
@@ -75,20 +78,34 @@ def _cupy_ok() -> bool:
     cuTENSOR / cublas / cusolver DLLs are missing, so any non-trivial
     op raises. We probe with a 1-element kernel-equivalent op and
     treat ANY exception as "no working GPU".
+
+    Cached so the probe runs at most once per session. Deferred to
+    TEST-TIME (called from the skipif lambda) rather than module-level
+    so collection does not trigger cupy's _diagnose_import_error
+    recursion -- on Windows, that DLL-load diagnostic stacks 600+
+    frames deep and overflows the thread stack in batch pytest
+    contexts (where prior module imports have already consumed
+    sklearn/polars/catboost depth).
     """
+    global _CUPY_OK_CACHE
+    if _CUPY_OK_CACHE is not None:
+        return _CUPY_OK_CACHE
     try:
         import cupy as cp  # noqa: F401
         # Force CUDA context init + a trivial kernel launch.
         a = cp.asarray(np.array([1.0, 2.0], dtype=np.float64))
         _ = cp.asnumpy(a * 2.0)
-        return True
-    except Exception:
-        return False
+        _CUPY_OK_CACHE = True
+    except BaseException:
+        # BaseException catches SystemExit / Windows fatal-exception
+        # surfacing through Python; importorskip's normal Exception
+        # filter would let a STATUS_DLL_NOT_FOUND escape.
+        _CUPY_OK_CACHE = False
+    return _CUPY_OK_CACHE
 
 
-_CUPY_OK = _cupy_ok()
 _REQUIRES_CUPY = pytest.mark.skipif(
-    not _CUPY_OK,
+    "not _cupy_ok()",
     reason="cupy not importable or CUDA stack not initialisable on this host",
 )
 
@@ -444,7 +461,7 @@ def test_cupy_availability_reported():
     contracts (TestGPUBitEquivalence, TestGPUSpeedup) actually ran on
     this host. Use ``pytest -v -s`` to see it.
     """
-    if _CUPY_OK:
+    if _cupy_ok():
         msg = "cupy import + CUDA context OK -- GPU contracts will run"
     else:
         msg = (

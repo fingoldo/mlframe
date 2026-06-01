@@ -285,7 +285,15 @@ def screen_predictors(
         # "the seed they would have had if no inner seed call had fired".
         import os as _os, struct as _struct
         _numba_restore_seed = _struct.unpack("<Q", _os.urandom(8))[0]
-        _cp_restore_seed = _struct.unpack("<Q", _os.urandom(8))[0]
+        # Only capture cupy restore-seed when GPU path is actually requested.
+        # Otherwise the finally block below would import cupy purely to
+        # "restore" a seed that was never set, triggering cupy's Windows
+        # DLL-load _diagnose_import_error recursion on hosts where cupy
+        # is installed but its CUDA stack is broken (cuTENSOR/cuBLAS
+        # missing) -- that recursion blows the C stack in batch pytest
+        # contexts and tears down the test runner.
+        if use_gpu:
+            _cp_restore_seed = _struct.unpack("<Q", _os.urandom(8))[0]
         np.random.seed(random_seed)
         set_numba_random_seed(random_seed)
         # 2026-05-30 Wave 9.1 fix (loop iter 25): the prior
