@@ -47,6 +47,7 @@ from .phases import phase
 from ._reporting import (  # noqa: E402
     _canonical_multilabel_y,
     _maybe_display,
+    _style_with_caption,
     DEFAULT_PLOT_SAMPLE_SIZE,
     DEFAULT_REPORT_NDIGITS,
     DEFAULT_CALIB_REPORT_NDIGITS,
@@ -708,7 +709,7 @@ def report_probabilistic_model_perf(
             )
         if fairness_report is not None:
             if print_report:
-                _maybe_display(fairness_report.style.set_caption("ML perf fairness by group"))
+                _maybe_display(_style_with_caption(fairness_report, "ML perf fairness by group"))
             if metrics is not None:
                 metrics.update(dict(fairness_report=fairness_report))
 

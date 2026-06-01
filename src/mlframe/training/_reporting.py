@@ -65,6 +65,24 @@ def _maybe_display(obj):
         _ipython_display(obj)
 
 
+def _style_with_caption(df, caption: str):
+    """Return ``df.style.set_caption(caption)`` when the pandas Styler is
+    usable, else the bare ``df``.
+
+    ``DataFrame.style`` requires the optional ``jinja2`` dependency; pandas
+    raises ``AttributeError: The '.style' accessor requires jinja2`` on import
+    failure. The caption is purely cosmetic Jupyter-HTML decoration, so a
+    headless / CI environment without jinja2 must NOT crash the whole report
+    over it -- fall back to the plain frame (which ``_maybe_display`` /
+    ``display`` render as a normal repr). Surfaced by fuzz c0005 (mlp combo,
+    fairness-report styling) on a box without jinja2 installed.
+    """
+    try:
+        return df.style.set_caption(caption)
+    except (AttributeError, ImportError):
+        return df
+
+
 def _canonical_multilabel_y(targets) -> np.ndarray:
     """Coerce a multilabel-shaped target to a clean ``(N, K) ndarray``.
 
