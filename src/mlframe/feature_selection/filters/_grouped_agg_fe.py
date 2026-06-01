@@ -125,11 +125,32 @@ def _broadcast_lookup(
 ) -> np.ndarray:
     """Map each row's group key through ``lookup`` (str-keyed), unseen ->
     global. Result NaN-scrubbed to ``global_value`` then to 0 as last resort.
+
+    Group columns are low-cardinality, so the ``str(key)`` + ``dict.get`` is
+    resolved once per UNIQUE key and broadcast back via the inverse index
+    rather than once per row. On n=40k with ~8 groups this turns ~40k Python
+    str()/get calls into ~8 (the per-row listcomp dominated the Layer 87
+    grouped-agg profile: 2.9s tottime / 144 calls). Bit-identical to the
+    per-row mapping (same str()+get per distinct key, deduplicated).
     """
-    out = np.array(
-        [lookup.get(str(_k), global_value) for _k in group_keys],
-        dtype=np.float64,
-    )
+    group_keys = np.asarray(group_keys)
+    try:
+        uniq, inverse = np.unique(group_keys, return_inverse=True)
+        # numpy 2.0.0 briefly returned a 2-D inverse; ravel defensively so the
+        # broadcast index is always 1-D and length-n.
+        inverse = np.asarray(inverse).reshape(-1)
+        uniq_vals = np.array(
+            [lookup.get(str(_k), global_value) for _k in uniq],
+            dtype=np.float64,
+        )
+        out = uniq_vals[inverse]
+    except (TypeError, ValueError):
+        # np.unique raises on unorderable mixed-type object arrays; fall back
+        # to the per-row mapping (correct, just slower) so we never crash.
+        out = np.array(
+            [lookup.get(str(_k), global_value) for _k in group_keys],
+            dtype=np.float64,
+        )
     return np.nan_to_num(out, nan=global_value, posinf=global_value, neginf=global_value)
 
 
