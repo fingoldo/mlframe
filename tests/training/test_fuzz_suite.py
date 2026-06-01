@@ -1070,10 +1070,20 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
         _l1_ratio = (
             combo.linear_l1_ratio_cfg if combo.linear_solver_cfg == "saga" else 0.0
         )
+        # liblinear genuinely cannot do multiclass in current sklearn (it
+        # raises "The 'liblinear' solver does not support multiclass
+        # classification (n_classes >= 3)" -- an actionable sklearn
+        # constraint, not an mlframe bug). liblinear+multiclass is therefore
+        # an invalid user choice the fuzz harness must not generate; collapse
+        # it to the multiclass-safe lbfgs default so the linear leg of a
+        # multiclass combo trains instead of crashing the whole suite.
+        _solver = combo.linear_solver_cfg
+        if _solver == "liblinear" and combo.target_type == "multiclass_classification":
+            _solver = "lbfgs"
         _linear_cfg = LinearModelConfig(**_safe_cfg_kwargs(
             LinearModelConfig,
             alpha=combo.linear_alpha_cfg,
-            solver=combo.linear_solver_cfg,
+            solver=_solver,
             l1_ratio=_l1_ratio,
         ))
     # P0-3 feature_handling_config: instantiate with nested sub-config

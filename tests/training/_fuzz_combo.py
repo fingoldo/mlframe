@@ -7151,7 +7151,16 @@ def build_frame_for_combo(combo: FuzzCombo):
     # text-estimator on a small NaN-heavy fold never see a text column
     # in the data — _canonical_text_col_count returns 0 in that window.
     _eff_text_col_count = combo._canonical_text_col_count()
-    want_text = _eff_text_col_count > 0 and "cb" in combo.models
+    # Text columns are only ROUTABLE when auto-detection runs: the suite
+    # classifies them as text_features (CB consumes them, every non-CB model
+    # excludes them via core/_misc_helpers.py:876 supports_text_features
+    # gate). With auto_detect_cats=False the text column is never classified
+    # nor excluded, so in a mixed combo (cb + hgb/lgb/xgb) the raw object
+    # column reaches the non-CB model's numeric pipeline and crashes with
+    # "could not convert string to float". Gate emission on auto_detect_cats
+    # so an unroutable text column is never produced. Surfaced by fuzz
+    # (2 cb+non-cb combos with auto-detect off).
+    want_text = _eff_text_col_count > 0 and "cb" in combo.models and combo.auto_detect_cats
     text_vocab = [
         "python", "rust", "golang", "java", "swift", "kotlin",
         "backend", "frontend", "devops", "mlops", "dataeng", "platform",

@@ -183,6 +183,7 @@ def _xgb_cache_clear() -> None:
 
 def _build_quantile_dmatrix(
     X, y, sample_weight, *, ref_dmatrix=None, enable_categorical: bool = True,
+    max_bin=None,
 ):
     """Build a fresh ``QuantileDMatrix``.
 
@@ -196,12 +197,22 @@ def _build_quantile_dmatrix(
     ``ref_dmatrix`` (when given) is passed as the ``ref`` argument so val
     DMatrices share the train DMatrix's quantile cuts — required by
     XGBoost when using eval_set with QuantileDMatrix.
-    """
+
+    ``max_bin`` MUST match the booster's ``max_bin`` param: XGBoost bakes
+    the histogram bin count into the QuantileDMatrix's quantile cuts and
+    raises ``Check failed: param.max_bin == init.max_bin (X vs. 256):
+    Inconsistent max_bin`` at ``xgb.train`` time when the DMatrix was built
+    with the default (256) but the model sets a different value. Threading
+    the model's max_bin through here keeps the two consistent. ``None``
+    leaves XGBoost at its default. Surfaced by fuzz (hgb_mlp_xgb combo with
+    a non-default xgb max_bin)."""
     kwargs: dict = dict(label=y, enable_categorical=enable_categorical)
     if sample_weight is not None:
         kwargs["weight"] = sample_weight
     if ref_dmatrix is not None:
         kwargs["ref"] = ref_dmatrix
+    if max_bin is not None:
+        kwargs["max_bin"] = int(max_bin)
     return xgb.QuantileDMatrix(X, **kwargs)
 
 
@@ -388,7 +399,14 @@ class _DMatrixReuseMixin:
         #      composite-ensemble OOF refit, with identical content) --
         #      survives the clone-empties-cache problem.
         #   3. Fresh build, populate BOTH caches.
-        train_key = _signature_of(X)
+        # Fold max_bin into the cache key: a QuantileDMatrix bakes the bin
+        # count into its quantile cuts, so two models with the same X but
+        # different max_bin must NOT share a cached DMatrix (xgb.train would
+        # raise "Inconsistent max_bin"). Without max_bin in the key the
+        # module-level cross-clone cache hands a 256-bin matrix to a model
+        # configured for a different bin count.
+        _max_bin = self.get_params().get("max_bin")
+        train_key = (_signature_of(X), _max_bin)
         dtrain = None
         _cache_source: str = "miss"
         if (self._cached_train_key == train_key
@@ -421,6 +439,7 @@ class _DMatrixReuseMixin:
             dtrain = _build_quantile_dmatrix(
                 X, y, sample_weight,
                 enable_categorical=self.get_params().get("enable_categorical", True),
+                max_bin=_max_bin,
             )
             self._cached_train_dmatrix = dtrain
             self._cached_train_key = train_key
@@ -486,6 +505,7 @@ class _DMatrixReuseMixin:
                         enable_categorical=self.get_params().get(
                             "enable_categorical", True
                         ),
+                        max_bin=_max_bin,
                     )
                     self._cached_val_dmatrix = dval
                     self._cached_val_key = val_key

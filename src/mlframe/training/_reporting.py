@@ -60,9 +60,21 @@ except ImportError:  # pragma: no cover
 
 
 def _maybe_display(obj):
-    """Display ``obj`` in Jupyter; no-op in scripts/CI."""
+    """Display ``obj`` in Jupyter; no-op in scripts/CI.
+
+    ``UnicodeEncodeError`` guard: outside Jupyter, IPython's ``display``
+    falls back to printing ``repr(obj)`` to stdout. On a Windows console
+    under the cp1251 / cp1252 code page, a frame carrying non-Latin-1 cell
+    values (emoji, CJK, combining-mark cyrillic -- the ``weird_cat_content``
+    fuzz axis) raises ``UnicodeEncodeError: 'charmap' codec can't encode``
+    and crashes the whole report. The display is cosmetic, so swallow the
+    encode error rather than abort the run. Surfaced by fuzz (4 combos with
+    unicode-heavy categorical columns)."""
     if _ipython_display is not None:
-        _ipython_display(obj)
+        try:
+            _ipython_display(obj)
+        except UnicodeEncodeError:
+            logger.debug("_maybe_display: skipped display() (console encoding cannot represent the object).")
 
 
 def _style_with_caption(df, caption: str):
