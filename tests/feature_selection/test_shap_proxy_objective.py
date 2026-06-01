@@ -25,6 +25,24 @@ def test_coalition_margin_is_base_plus_selected_sum():
     np.testing.assert_allclose(coalition_margin(phi, base, []), base)
 
 
+def test_subset_uncertainty_many_matches_single():
+    """Batched subset_uncertainty_many (transpose-once contiguous gather) must equal looping the
+    single subset_uncertainty, including the phi_var=None (n_models==1 -> all-zeros) and
+    empty/singleton edges. Locks the iter111 layout optimisation."""
+    from mlframe.feature_selection._shap_proxy_objective import (
+        subset_uncertainty, subset_uncertainty_many)
+
+    rng = np.random.default_rng(11)
+    phi_var = np.abs(rng.normal(size=(600, 18)))  # variances are non-negative
+    idx_list = [[0, 1, 2], [7], list(range(18)), [], [3, 9, 17]]
+    batch = subset_uncertainty_many(phi_var, idx_list)
+    single = np.array([subset_uncertainty(phi_var, idx) for idx in idx_list], dtype=np.float64)
+    np.testing.assert_allclose(batch, single, rtol=1e-12, atol=1e-12)
+    # phi_var=None -> all zeros, one per subset
+    none_out = subset_uncertainty_many(None, idx_list)
+    np.testing.assert_array_equal(none_out, np.zeros(len(idx_list)))
+
+
 def test_coalition_margin_T_matches_row_major():
     """coalition_margin_T (contiguous phi_T gather, summed down axis 0) must equal coalition_margin
     (row-major phi[:, idx] gather, summed across axis 1). Locks the iter109 layout optimisation."""

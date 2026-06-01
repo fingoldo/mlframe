@@ -224,8 +224,28 @@ def subset_uncertainty(phi_var: np.ndarray, feature_idx) -> float:
     """Attribution instability of a subset (lever #7): mean over rows of
     ``sqrt(sum_{j in S} Var_models(phi_j))``. Subsets whose SHAP attributions are unstable across the
     config-jittered models get a higher value -> can be penalised so the optimiser prefers subsets the
-    proxy is confident about. Zero when no per-model variance was computed (n_models == 1)."""
+    proxy is confident about. Zero when no per-model variance was computed (n_models == 1).
+
+    For scoring MANY subsets that share one ``phi_var`` prefer :func:`subset_uncertainty_many`."""
     idx = np.asarray(feature_idx, dtype=np.int64)
     if phi_var is None or idx.size == 0:
         return 0.0
     return float(np.sqrt(phi_var[:, idx].sum(axis=1)).mean())
+
+
+def subset_uncertainty_many(phi_var: np.ndarray, idx_list) -> np.ndarray:
+    """Vectorised :func:`subset_uncertainty` over many subsets sharing one ``phi_var``.
+
+    ``phi_var`` is row-major (n_samples, n_units); the per-subset column gather ``phi_var[:, idx]``
+    is strided. Transpose ONCE to contiguous rows so each subset's gather ``phi_var_T[idx]`` is
+    unit-stride and sum down axis 0 -- same layout win as ``subset_redundancy_many`` (~4x at tall n,
+    bit-identical). Returns all-zeros when ``phi_var is None`` (n_models == 1, no per-model variance)."""
+    n = len(idx_list)
+    if phi_var is None:
+        return np.zeros(n, dtype=np.float64)
+    phi_var_T = np.ascontiguousarray(phi_var.T)
+    out = np.empty(n, dtype=np.float64)
+    for i, idx in enumerate(idx_list):
+        ai = np.asarray(idx, dtype=np.int64)
+        out[i] = float(np.sqrt(phi_var_T[ai].sum(axis=0)).mean()) if ai.size else 0.0
+    return out

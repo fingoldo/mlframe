@@ -1596,9 +1596,9 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
                 score = corrector.predict(score, cards, redund)
                 report["bias_corrector"] = dict(applied=True, n_anchors=len(cd["proxy"]))
         if self.uncertainty_penalty > 0 and phi_var is not None:
-            from mlframe.feature_selection._shap_proxy_objective import subset_uncertainty
+            from mlframe.feature_selection._shap_proxy_objective import subset_uncertainty_many
 
-            unc = np.array([subset_uncertainty(phi_var, c[1]) for c in candidates], dtype=np.float64)
+            unc = subset_uncertainty_many(phi_var, [c[1] for c in candidates])
             score = score + self.uncertainty_penalty * unc
             report["uncertainty"] = dict(applied=True, penalty=float(self.uncertainty_penalty))
         order = np.argsort(score, kind="stable")
