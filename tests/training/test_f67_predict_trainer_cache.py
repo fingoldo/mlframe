@@ -102,3 +102,39 @@ def test_predict_trainer_cache_size_stable_across_many_calls(fitted_regressor):
         f"predict() calls; expected 1 (single (accelerator, precision) "
         f"key reused)."
     )
+
+
+def test_f73b_predict_then_pickle_drops_trainer_cache(fitted_regressor):
+    """F-73b regression: pickling the estimator AFTER a predict() (which
+    populates the F-67 trainer cache with live L.Trainer objects holding
+    a non-picklable WarningCache) must NOT carry the cache into the
+    pickle. The restored estimator starts with an empty cache and
+    predicts correctly.
+
+    Pre-fix, the cached Trainer's WarningCache tripped the save_load
+    _SafeUnpickler allowlist -> UnpicklingError on every multiclass
+    classifier round-trip (caught by the full suite run 2026-06-01).
+    """
+    import pickle
+
+    reg, X_te = fitted_regressor
+    pred_before = reg.predict(X_te)
+    # Cache now holds a live Trainer.
+    assert len(reg._prediction_trainer_cache) >= 1
+
+    # __getstate__ must strip the cache.
+    state = reg.__getstate__()
+    assert "_prediction_trainer_cache" not in state, (
+        "F-73b: __getstate__ must drop the runtime trainer cache"
+    )
+    assert state.get("trainer") is None
+
+    # Full pickle round-trip must succeed (no WarningCache leak) and the
+    # restored estimator predicts the same values.
+    blob = pickle.dumps(reg)
+    reg2 = pickle.loads(blob)
+    assert reg2._prediction_trainer_cache == {}, (
+        "F-73b: restored estimator must start with an empty trainer cache"
+    )
+    pred_after = reg2.predict(X_te)
+    np.testing.assert_allclose(pred_before, pred_after, rtol=1e-4, atol=1e-5)

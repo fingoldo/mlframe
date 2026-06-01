@@ -253,6 +253,28 @@ class PytorchLightningEstimator(BaseEstimator):
     Supports early stopping (via eval_set in fit_params).
     """
 
+    def __getstate__(self) -> dict:
+        """F-73b (2026-06-01): drop runtime-only, non-picklable caches on
+        serialise. The F-67 prediction-trainer cache holds live
+        ``lightning.pytorch.Trainer`` objects which reference a
+        ``lightning_utilities.core.rank_zero.WarningCache`` -- a class the
+        mlframe save_load ``_SafeUnpickler`` allowlist (correctly) blocks.
+        These caches exist purely to skip per-predict Trainer
+        re-construction; the next predict() on the restored estimator
+        lazily rebuilds the cache. Also null the live ``trainer`` for the
+        same reason (it's already nulled after every fit/predict, but a
+        mid-lifecycle pickle could still catch a live one).
+        """
+        state = self.__dict__.copy()
+        state.pop("_prediction_trainer_cache", None)
+        state["trainer"] = None
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        self.__dict__.update(state)
+        # Rebuilt lazily on the next predict(); start clean.
+        self._prediction_trainer_cache = {}
+
     def __init__(
         self,
         model_class: object,
