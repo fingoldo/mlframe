@@ -166,6 +166,20 @@ def score_features_by_bootstrap_mi(
     sample_n = max(2, int(round(float(sample_fraction) * n)))
     rng = np.random.default_rng(int(seed))
 
+    # Precompute engineered-col -> raw-col position ONCE so each replicate's
+    # baseline vector is a vectorised gather ``raw_mi_b[src_idx]`` instead of
+    # rebuilding ``dict(zip(raw_cols, raw_mi_b.tolist()))`` + a per-eng-col
+    # Python listcomp every replicate (the per-replicate dict+listcomp was a
+    # measurable slice of this function's self-time at n_boot=10). Engineered
+    # cols whose source is absent from raw_X map to -1 -> 0.0 baseline (matches
+    # the listcomp's ``.get(..., 0.0)`` fallback).
+    _raw_pos = {c: i for i, c in enumerate(raw_cols)}
+    _src_idx = np.array(
+        [_raw_pos.get(src_map[ec], -1) for ec in eng_cols], dtype=np.int64
+    )
+    _src_valid = _src_idx >= 0
+    _src_idx_clipped = np.where(_src_valid, _src_idx, 0)
+
     baseline_replicates: list[np.ndarray] = []  # one (n_eng,) vector per boot
     engineered_replicates: list[np.ndarray] = []
     uplift_replicates: list[np.ndarray] = []
@@ -188,11 +202,9 @@ def score_features_by_bootstrap_mi(
         sub_y = y_arr[idx]
         raw_mi_b = _mi_classif_batch(sub_raw, sub_y, nbins=nbins)
         eng_mi_b = _mi_classif_batch(sub_eng, sub_y, nbins=nbins)
-        raw_mi_map = dict(zip(raw_cols, raw_mi_b.tolist()))
-        baseline_b = np.array(
-            [float(raw_mi_map.get(src_map[ec], 0.0)) for ec in eng_cols],
-            dtype=np.float64,
-        )
+        # Vectorised baseline gather (see _src_idx precompute above).
+        raw_mi_arr = np.asarray(raw_mi_b, dtype=np.float64)
+        baseline_b = np.where(_src_valid, raw_mi_arr[_src_idx_clipped], 0.0)
         engineered_b = np.asarray(eng_mi_b, dtype=np.float64)
         uplift_b = engineered_b / (baseline_b + 1e-12)
         baseline_replicates.append(baseline_b)
