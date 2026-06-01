@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-06-01 — Layer 95: periodic/modular FE (PART A) + per-group distribution-distance FE (PART B)
+
+Two opt-in MRMR feature-engineering extensions, both default OFF (byte-identical legacy path).
+
+PART A — PERIODIC / MODULAR decomposition (``_periodic_fe.py``, extends Layer 90). For each ``(col, period)`` emits ``x mod period`` plus its sin/cos phase encoding ``sin/cos(2*pi*(x mod period)/period)``. Captures cyclic signals (hour-of-day, day-of-week, sensor cycles) that any monotone transform of raw ``x`` is blind to; complements Layer 32 Fourier by capturing periodicity in the residue. The sin/cos pair gives cyclic continuity (phase 0 and ``period - eps`` are neighbours on the unit circle), so a smoothly-cyclic target is a linear function of the pair where raw ``mod`` mis-reads the period-boundary jump. Each candidate gated by the Layer 62 bootstrap-stable MI lower-CB (reused verbatim from Layer 90), which doubles as auto-period detection: the correct period's residue carries the signal and survives, wrong periods scramble it into noise and fall below the floor. New recipe kind ``modular`` (``extra = {period, op}``, op in {mod, sin, cos}); replay is pure arithmetic on the source column, no y reference. MRMR ctor: ``fe_modular_enable=False``, ``fe_modular_periods=(7,12,24,30,365)``, ``fe_modular_top_k=6``.
+
+PART B — PER-GROUP DISTRIBUTION-DISTANCE (``_group_distance_fe.py``, extends Layer 88). For each ``(group, num)`` emits how far the row's GROUP distribution sits from the GLOBAL one: group-level z ``(group_mean-global_mean)/global_std``, per-group KL divergence ``KL(P_group || P_global)``, and per-group Wasserstein-1 distance, all broadcast to rows. A group-anomaly detector orthogonal to Layer 88's within-group percentile rank: rows in distributionally atypical groups (shape / location / spread anomalies) are flagged. Each survivor MI-uplift-gated against the source num_col marginal MI (reuses Layer 88's plug-in MI scorer). New recipe kind ``group_distance`` (per-group scalar lookups + global fallback; unseen groups -> 0); replay reads only X. MRMR ctor: ``fe_group_distance_enable=False``, ``fe_group_distance_top_k=6``, ``fe_group_distance_group_cols=()``, ``fe_group_distance_num_cols=()``.
+
+Tests: ``tests/feature_selection/test_biz_value_mrmr_layer95.py`` (15 cases) pins periodic-signal recovery (MI gain >= +0.15, LogReg AUC lift >= +0.10), cyclic-continuity (sin/cos beats raw mod for a smoothly-cyclic target), auto-period selection (period 24 chosen over 7/12 in >= 4/5 seeds), group-anomaly capture (KL MI gain >= +0.05, AUC lift >= +0.05), no-leakage (replay invariant under shuffled y, no y in recipe extra), default-disabled byte-identical, and pickle/clone round-trip. Full L90 + L88 + L95 suite: 37 passed.
+
 ## 2026-06-01 — ShapProxiedFS: ``trust_guard_stratified_anchors`` 2D contour audit, keep opt-in (iter101)
 
 Iter100 left ``trust_guard_stratified_anchors`` opt-in after a 4x2x2 width-only

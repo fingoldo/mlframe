@@ -1337,6 +1337,33 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_numeric_decompose_digits: tuple = (0, 1, 2),
         fe_numeric_decompose_n_boot: int = 10,
         fe_numeric_decompose_top_k: int = 5,
+        # 2026-06-01 Layer 95 PART A — PERIODIC / MODULAR decomposition FE
+        # (extends Layer 90). For each (col, period) emit x mod period plus its
+        # sin/cos phase encoding sin/cos(2*pi*(x mod period)/period). Captures
+        # cyclic signals (hour-of-day, day-of-week, sensor cycles) that any
+        # monotone transform of raw x is blind to; the sin/cos pair gives cyclic
+        # continuity (phase 0 and period-eps are neighbours on the unit circle).
+        # Each candidate gated by Layer 62 bootstrap-stable MI (lower CB), which
+        # doubles as auto-period detection: the correct period's residue carries
+        # the signal and survives, wrong periods scramble it into noise and fall
+        # below the floor. Default OFF -> byte-identical legacy path. ``cols``
+        # empty => all numeric columns.
+        fe_modular_enable: bool = False,
+        fe_modular_periods: tuple = (7, 12, 24, 30, 365),
+        fe_modular_top_k: int = 6,
+        # 2026-06-01 Layer 95 PART B — PER-GROUP DISTRIBUTION-DISTANCE FE
+        # (extends Layer 88). For each (group, num) emit how far the row's GROUP
+        # distribution sits from the GLOBAL one: group-level z
+        # ((group_mean-global_mean)/global_std), per-group KL divergence, and
+        # per-group Wasserstein-1 distance, broadcast to rows. A group-anomaly
+        # detector (rows in atypical groups flagged), orthogonal to Layer 88's
+        # within-group percentile rank. Each survivor MI-gated against the source
+        # num_col marginal MI. Default OFF -> byte-identical legacy path.
+        # ``group_cols`` / ``num_cols`` empty => auto-detect.
+        fe_group_distance_enable: bool = False,
+        fe_group_distance_top_k: int = 6,
+        fe_group_distance_group_cols: tuple = (),
+        fe_group_distance_num_cols: tuple = (),
         # 2026-06-01 Layer 92 — TEMPORAL LEAK-SAFE GROUPED AGGREGATIONS. Layer
         # 87 grouped aggregates compute the per-group statistic over the WHOLE
         # train fold; for time-series / transaction data that peeks at a row's

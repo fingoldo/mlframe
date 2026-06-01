@@ -125,7 +125,7 @@ class EngineeredRecipe:
     # (src_names=(c_i, c_j), extra={basis_i, basis_j, deg_a, deg_b}). Replay
     # is closed-form from the source column(s) alone -- no y reference is
     # captured at fit time, so transform() is leakage-free by construction.
-    kind: Literal["unary_binary", "factorize", "hermite_pair", "target_encoding", "cluster_aggregate", "orth_univariate", "orth_pair_cross", "orth_triplet_cross", "orth_quadruplet_cross", "orth_spline", "orth_fourier", "orth_diff_basis", "orth_cluster_basis", "mi_greedy_transform", "kfold_target_encoded", "count_encoded", "frequency_encoded", "cat_num_residual", "missing_indicator", "missingness_count", "missingness_pattern", "pairwise_ratio", "grouped_delta", "lagged_diff", "grouped_agg", "composite_group_agg", "grouped_quantile", "target_aware_group_bin", "cat_pair_cross", "numeric_rounding", "digit_extract", "temporal_expanding", "temporal_rolling", "temporal_lag"]
+    kind: Literal["unary_binary", "factorize", "hermite_pair", "target_encoding", "cluster_aggregate", "orth_univariate", "orth_pair_cross", "orth_triplet_cross", "orth_quadruplet_cross", "orth_spline", "orth_fourier", "orth_diff_basis", "orth_cluster_basis", "mi_greedy_transform", "kfold_target_encoded", "count_encoded", "frequency_encoded", "cat_num_residual", "missing_indicator", "missingness_count", "missingness_pattern", "pairwise_ratio", "grouped_delta", "lagged_diff", "grouped_agg", "composite_group_agg", "grouped_quantile", "target_aware_group_bin", "cat_pair_cross", "numeric_rounding", "digit_extract", "temporal_expanding", "temporal_rolling", "temporal_lag", "modular", "group_distance"]
     src_names: tuple[str, ...]
     unary_names: tuple[str, ...] = ()
     binary_name: str = ""
@@ -438,6 +438,23 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
             return apply_rounding(vals, float(recipe.extra["precision"]))
         from ._numeric_decompose_fe import apply_digit_extract
         return apply_digit_extract(vals, int(recipe.extra["digit_position"]))
+    if recipe.kind == "modular":
+        # Layer 95 PART A (2026-06-01): periodic / modular decomposition.
+        # Pure arithmetic (x mod period + sin/cos phase) on the single source
+        # column -- no lazy import needed, no y reference.
+        from ._periodic_fe import apply_modular
+        src_name = recipe.src_names[0]
+        vals = _extract_column(X, src_name)
+        return apply_modular(
+            vals, float(recipe.extra["period"]), str(recipe.extra["op"]),
+        )
+    if recipe.kind == "group_distance":
+        # Layer 95 PART B (2026-06-01): per-group distribution-distance FE
+        # (group-level z / KL / Wasserstein-1 from the global distribution).
+        # Replay maps a row's group key through the stored per-group scalar
+        # lookup; reads only X. Lazy import keeps this module dependency-light.
+        from ._group_distance_fe import _apply_group_distance_recipe
+        return _apply_group_distance_recipe(recipe, X)
     if recipe.kind in ("temporal_expanding", "temporal_rolling", "temporal_lag"):
         # Layer 92 (2026-06-01): leak-safe temporal aggregations. Replay
         # computes each test row's expanding / rolling / lag stat against the
@@ -2237,4 +2254,18 @@ from ._temporal_agg_fe import (  # noqa: E402
     build_temporal_rolling_recipe,
     build_temporal_lag_recipe,
 )
+
+# ---------------------------------------------------------------------------
+# Layer 95 PART A (2026-06-01): periodic / modular decomposition recipe builder
+# re-export. Implementation in sibling ``_periodic_fe`` keeps this module from
+# growing further; the apply path is dispatched inline above (pure arithmetic).
+# ---------------------------------------------------------------------------
+from ._periodic_fe import build_modular_recipe  # noqa: E402
+
+# ---------------------------------------------------------------------------
+# Layer 95 PART B (2026-06-01): per-group distribution-distance recipe builder
+# re-export. Implementation in sibling ``_group_distance_fe`` keeps this module
+# from growing further; the apply path is dispatched inline above.
+# ---------------------------------------------------------------------------
+from ._group_distance_fe import build_group_distance_recipe  # noqa: E402
 

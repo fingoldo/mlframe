@@ -3117,10 +3117,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     self.cat_triple_features_ = []
     self.numeric_decompose_features_ = []
     self.temporal_agg_features_ = []
+    self.modular_features_ = []
+    self.group_distance_features_ = []
     _cat_pair_pre_recipes: dict = {}
     _cat_triple_pre_recipes: dict = {}
     _numeric_decompose_pre_recipes: dict = {}
     _temporal_agg_pre_recipes: dict = {}
+    _modular_pre_recipes: dict = {}
+    _group_distance_pre_recipes: dict = {}
     _ratio_pre_recipes: dict = {}
     _log_ratio_pre_recipes: dict = {}
     _grouped_delta_pre_recipes: dict = {}
@@ -3740,6 +3744,126 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     type(_nd_exc).__name__, _nd_exc,
                 )
 
+    # Layer 95 PART A (2026-06-01): periodic / modular decomposition. For each
+    # (col, period) emit x mod period plus its sin/cos phase encoding; each
+    # candidate gated by Layer 62 bootstrap-stable MI (the gate doubles as
+    # auto-period detection). Routing piggybacks on hybrid_orth_features_.
+    if bool(getattr(self, "fe_modular_enable", False)):
+        if not isinstance(X, pd.DataFrame):
+            warnings.warn(
+                "MRMR: Layer 95 modular FE enabled but X is not a pandas "
+                "DataFrame; the features are skipped. Convert via "
+                "X.to_pandas() before fit() to apply them.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from ._periodic_fe import hybrid_modular_fe_with_recipes
+
+                _y_for_md = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                _md_periods = tuple(
+                    getattr(self, "fe_modular_periods", (7, 12, 24, 30, 365))
+                    or (7, 12, 24, 30, 365)
+                )
+                _md_top_k = int(getattr(self, "fe_modular_top_k", 6))
+                _X_before_md_cols = list(X.columns)
+                X_md, _md_appended, _md_recipes, _md_scores = (
+                    hybrid_modular_fe_with_recipes(
+                        X, _y_for_md,
+                        cols=None,
+                        periods=_md_periods,
+                        top_k=_md_top_k,
+                        seed=int(getattr(self, "random_seed", 0) or 0),
+                    )
+                )
+                _md_appended = [
+                    c for c in _md_appended if c not in _X_before_md_cols
+                ]
+                if _md_appended:
+                    X = X_md
+                    self.modular_features_ = list(_md_appended)
+                    self.hybrid_orth_features_ = (
+                        list(self.hybrid_orth_features_ or []) + list(_md_appended)
+                    )
+                    for _r in _md_recipes:
+                        if _r.name in _md_appended:
+                            _modular_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit modular: appended %d engineered "
+                            "column(s): %s",
+                            len(_md_appended), _md_appended[:8],
+                        )
+            except Exception as _md_exc:
+                logger.warning(
+                    "MRMR.fit modular FE raised %s: %s; continuing without "
+                    "modular columns.",
+                    type(_md_exc).__name__, _md_exc,
+                )
+
+    # Layer 95 PART B (2026-06-01): per-group distribution-distance. For each
+    # (group, num) emit the group-level z / KL / Wasserstein-1 distance from the
+    # global distribution, broadcast to rows; each survivor MI-gated against the
+    # source num_col marginal MI. Routing piggybacks on hybrid_orth_features_.
+    if bool(getattr(self, "fe_group_distance_enable", False)):
+        if not isinstance(X, pd.DataFrame):
+            warnings.warn(
+                "MRMR: Layer 95 group_distance FE enabled but X is not a pandas "
+                "DataFrame; the features are skipped. Convert via "
+                "X.to_pandas() before fit() to apply them.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from ._group_distance_fe import hybrid_group_distance_fe
+
+                _y_for_gd = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                _gd_groups = tuple(
+                    getattr(self, "fe_group_distance_group_cols", ()) or ()
+                )
+                _gd_groups = [c for c in _gd_groups if c in X.columns] or None
+                _gd_nums = tuple(
+                    getattr(self, "fe_group_distance_num_cols", ()) or ()
+                )
+                _gd_nums = [c for c in _gd_nums if c in X.columns] or None
+                _gd_top_k = int(getattr(self, "fe_group_distance_top_k", 6))
+                _X_before_gd_cols = list(X.columns)
+                X_gd, _gd_appended, _gd_recipes, _gd_scores = (
+                    hybrid_group_distance_fe(
+                        X, _y_for_gd,
+                        group_cols=_gd_groups, num_cols=_gd_nums,
+                        top_k=_gd_top_k,
+                    )
+                )
+                _gd_appended = [
+                    c for c in _gd_appended if c not in _X_before_gd_cols
+                ]
+                if _gd_appended:
+                    X = X_gd
+                    self.group_distance_features_ = list(_gd_appended)
+                    self.hybrid_orth_features_ = (
+                        list(self.hybrid_orth_features_ or []) + list(_gd_appended)
+                    )
+                    for _r in _gd_recipes:
+                        if _r.name in _gd_appended:
+                            _group_distance_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit group_distance: appended %d engineered "
+                            "column(s): %s",
+                            len(_gd_appended), _gd_appended[:8],
+                        )
+            except Exception as _gd_exc:
+                logger.warning(
+                    "MRMR.fit group_distance FE raised %s: %s; continuing "
+                    "without group-distance columns.",
+                    type(_gd_exc).__name__, _gd_exc,
+                )
+
     # Layer 92 (2026-06-01): temporal leak-safe grouped aggregations. Keyed on
     # a time column, only ever seeing the strict past (expanding / rolling /
     # lag). Each survivor MI-gated against y; recipes store the fit-time
@@ -4049,6 +4173,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             for _c in list(_numeric_decompose_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _numeric_decompose_pre_recipes.pop(_c, None)
+            for _c in list(_modular_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _modular_pre_recipes.pop(_c, None)
+            for _c in list(_group_distance_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _group_distance_pre_recipes.pop(_c, None)
             for _c in list(_temporal_agg_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _temporal_agg_pre_recipes.pop(_c, None)
@@ -4121,6 +4251,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         "grouped_quantile_features_",
                         "cat_pair_features_", "cat_triple_features_",
                         "numeric_decompose_features_",
+                        "modular_features_", "group_distance_features_",
                         "temporal_agg_features_",
                     ):
                         setattr(self, _attr, [
@@ -4138,7 +4269,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _composite_group_agg_pre_recipes,
                         _grouped_quantile_pre_recipes, _cat_pair_pre_recipes,
                         _cat_triple_pre_recipes,
-                        _numeric_decompose_pre_recipes, _temporal_agg_pre_recipes,
+                        _numeric_decompose_pre_recipes,
+                        _modular_pre_recipes, _group_distance_pre_recipes,
+                        _temporal_agg_pre_recipes,
                     ):
                         for _c in list(_pre.keys()):
                             if _c in _eng_drop_u:
@@ -4417,6 +4550,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         engineered_recipes.update(_cat_triple_pre_recipes)
     if _numeric_decompose_pre_recipes:
         engineered_recipes.update(_numeric_decompose_pre_recipes)
+    # Layer 95 PART A: same routing for periodic / modular recipes.
+    if _modular_pre_recipes:
+        engineered_recipes.update(_modular_pre_recipes)
+    # Layer 95 PART B: same routing for per-group distribution-distance recipes.
+    if _group_distance_pre_recipes:
+        engineered_recipes.update(_group_distance_pre_recipes)
     # Layer 92: same routing for temporal leak-safe aggregation recipes.
     if _temporal_agg_pre_recipes:
         engineered_recipes.update(_temporal_agg_pre_recipes)
