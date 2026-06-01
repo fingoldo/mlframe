@@ -19,7 +19,13 @@ from __future__ import annotations
 
 import numpy as np
 
-from mlframe.feature_selection._shap_proxy_objective import coalition_margin, proxy_loss, resolve_metric
+from mlframe.feature_selection._shap_proxy_objective import (
+    METRIC_CODES,
+    coalition_margin,
+    proxy_loss,
+    resolve_metric,
+    score_margin,
+)
 
 
 class _Evaluator:
@@ -41,6 +47,29 @@ class _Evaluator:
         # greedy callers populate via ``loss_from_margin`` so add-one-feature children are cheap.
         self.margin_cache: dict[tuple[int, ...], np.ndarray] = {}
         self.n_evals = 0
+        # iter102 hot-path optimisation: cache the metric integer code + y (already float64
+        # via ``_prep``) so the per-add/drop/swap step skips ``proxy_loss``'s METRIC_CODES dict
+        # lookup, two ``np.asarray`` no-ops and the wrapper call. score_margin is the njit kernel
+        # ``proxy_loss`` wraps; RMSE wraps the MSE code in ``math.sqrt`` (sqrt is monotone so any
+        # ranker is invariant, but the absolute loss value matters for cache equality and the
+        # corrector fit, so we preserve it). AUC has no njit kernel (per-subset sort), so we
+        # leave that path on ``proxy_loss``. Profiled at width=10000 / n_rows=10000 beam_search:
+        # 3021 loss_from_parent calls -> ``_loss_fast`` saves ~8us / call (~24ms total, ~1% wall
+        # at this regime) by avoiding the wrapper round-trip per child evaluation.
+        self._loss_fast = self._make_fast_loss(y, metric)
+
+    def _make_fast_loss(self, y, metric):
+        """Return a closure(margin) -> float that skips proxy_loss's per-call dispatch.
+
+        Falls back to ``proxy_loss`` for AUC (needs a per-subset sort, not a pointwise loss)."""
+        if metric == "auc":
+            metric_local = metric
+            return lambda margin: proxy_loss(margin, y, metric_local)
+        code = METRIC_CODES[metric]
+        if metric == "rmse":
+            from math import sqrt
+            return lambda margin: sqrt(score_margin(margin, y, 1))
+        return lambda margin: float(score_margin(margin, y, code))
 
     @staticmethod
     def _key(idx) -> tuple[int, ...]:
@@ -58,7 +87,7 @@ class _Evaluator:
         if len(key) == 0:
             val = float("inf")  # empty subset is not a valid selection
         else:
-            val = proxy_loss(coalition_margin(self.phi, self.base, list(key)), self.y, self.metric)
+            val = self._loss_fast(coalition_margin(self.phi, self.base, list(key)))
         self.cache[key] = val
         self.n_evals += 1
         return val
@@ -78,7 +107,7 @@ class _Evaluator:
             val = float("inf")
         else:
             margin = coalition_margin(self.phi, self.base, list(key))
-            val = proxy_loss(margin, self.y, self.metric)
+            val = self._loss_fast(margin)
         self.cache[key] = val
         self.margin_cache[key] = margin
         if cached_loss is None:
@@ -106,7 +135,7 @@ class _Evaluator:
         if cached_loss is not None and cached_margin is not None:
             return cached_loss, child_key, cached_margin
         child_margin = parent_margin + self.phi[:, new_j]
-        val = proxy_loss(child_margin, self.y, self.metric)
+        val = self._loss_fast(child_margin)
         self.cache[child_key] = val
         self.margin_cache[child_key] = child_margin
         if cached_loss is None:
@@ -139,7 +168,7 @@ class _Evaluator:
             val = float("inf")
         else:
             child_margin = parent_margin - self.phi[:, drop_j]
-            val = proxy_loss(child_margin, self.y, self.metric)
+            val = self._loss_fast(child_margin)
         self.cache[child_key] = val
         self.margin_cache[child_key] = child_margin
         if cached_loss is None:
@@ -176,7 +205,7 @@ class _Evaluator:
             return cached_loss, child_key, cached_margin
         # Fused: parent_margin + phi[:, in_j] - phi[:, out_j] in one np-internal pass.
         child_margin = parent_margin + (self.phi[:, in_j] - self.phi[:, out_j])
-        val = proxy_loss(child_margin, self.y, self.metric)
+        val = self._loss_fast(child_margin)
         self.cache[child_key] = val
         self.margin_cache[child_key] = child_margin
         if cached_loss is None:
