@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-06-01 — ShapProxiedFS: ``trust_guard_stratified_anchors`` default-flip audit, keep default=False (iter99)
+
+Re-evaluated the stratified anchor sampler as a candidate default flip
+False -> True after the iter97 scale-invariant softmax fix. 2x2 A/B
+(stratified vs uniform) at three regimes:
+
+  W6K  (width=6000,  n=3000,  n_inf=12, snr=8.0):
+    stratified sp=0.9902 fid=0.9941
+    uniform    sp=0.9813 fid=0.9888  (+sp +fid, jaccard=1.0, recall@k=1.0)
+  W10K (width=10000, n=10000, n_inf=20, snr=8.0):
+    stratified sp=0.9840 fid=0.9904
+    uniform    sp=0.9724 fid=0.9834  (+sp +fid, jaccard=1.0, recall@k=1.0)
+  W2K  (width=2000,  n=2000,  n_inf=20+20red, snr=8.0):
+    stratified sp=0.9684 fid=0.8811
+    uniform    sp=0.9805 fid=0.9883  (REGRESS -0.012 sp, -0.107 fid)
+
+Stratified wins at the noise-dominated wide regimes but regresses at the
+dense-redundant narrow regime (40 signal cols on 2000, rho=0.85). The
+F-score cohort prior concentrates anchors on the head of a tight redundant
+cluster where proxy and honest losses agree trivially, compressing the
+Spearman spread. Default stays OFF; shipping True would silently regress
+fidelity for callers on dense-redundant cohorts. Lever remains exposed as
+opt-in for noise-heavy cohorts; future work: width-aware dispatcher.
+
 ## 2026-06-01 — ShapProxiedFS: scale-invariant softmax for the F-score-stratified anchor sampler (iter97)
 
 `_softmax_weights` (used by ``trust_guard_stratified_anchors``) defaulted to

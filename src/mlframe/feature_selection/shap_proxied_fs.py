@@ -658,22 +658,33 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         self.trust_guard_n_estimators = trust_guard_n_estimators
         # ``trust_guard_stratified_anchors``: opt-in (default OFF) softmax-by-F-score anchor sampler
         # for the trust guard. Activates only when the prefilter cached an F-score vector
-        # (``prefilter_method`` in {two_stage, univariate}). Iter14 benchmarked at width=6000 with the
-        # two_stage funnel narrowing to 400 columns: stratified Spearman 0.877 vs uniform 0.969;
-        # recovery preserved at 10/12 both ways. The post-prefilter cohort is already noise-filtered
-        # so concentrating anchors on the F-score tier compresses the spread that drives the Spearman
-        # signal. Lever-doesn't-pay regime documented; left wired as an opt-in for callers whose
-        # prefilter is itself noise-heavy (e.g. ``prefilter_method='univariate'`` on data where
-        # marginal-only ranking misses interaction informatives, leaving a noise tail in the
-        # surviving cohort that the trust-guard MUST weight away from). ``trust_guard_uniform_tail_frac``
+        # (``prefilter_method`` in {two_stage, univariate}). ``trust_guard_uniform_tail_frac``
         # controls the fraction of each anchor that is uniform-sampled for tail-of-distribution
         # coverage (default 20%; 0 = pure-weighted, 1 = legacy uniform).
-        # iter14-bench-attempt-rejected (2026-05-28, re-confirmed under iter16 composite):
-        # width=6000 regime synthetic, n=3000. Iter14 raw Spearman: stratified 0.877 vs uniform 0.969
-        # (Δ -0.092). Iter16 composite (0.5*spearman + 0.5*recall@k): stratified 0.6974 vs uniform
-        # 0.7791 (Δ -0.082). Combined F-stratified + Zipf alpha=0.25 composite 0.7889 still loses to
-        # plain Zipf alpha=0.25 composite 0.8335. Lever still does not pay at this regime even under
-        # the recall-aware metric; remain opt-in for callers whose prefilter is noise-heavy.
+        #
+        # Iter14 + iter16 originally rejected this lever because ``_softmax_weights`` was NOT
+        # scale-invariant (raw F-scores in 10^2..10^4 collapsed softmax to ~one-hot). Iter97
+        # (2026-06-01) fixed the softmax. Iter99 (2026-06-01) re-evaluated the lever as a default
+        # flip vs uniform, running a 2x2 A/B at two production regimes PLUS the smaller W2K
+        # biz_value regime:
+        #
+        #   W6K  (width=6000,  n=3000,  n_inf=12, snr=8.0): stratified sp=0.9902 fid=0.9941
+        #                                                    uniform    sp=0.9813 fid=0.9888  +sp +fid
+        #   W10K (width=10000, n=10000, n_inf=20, snr=8.0): stratified sp=0.9840 fid=0.9904
+        #                                                    uniform    sp=0.9724 fid=0.9834  +sp +fid
+        #   W2K  (width=2000,  n=2000,  n_inf=20+20red, snr=8.0): stratified sp=0.9684 fid=0.8811
+        #                                                          uniform    sp=0.9805 fid=0.9883  REGRESS
+        #
+        # Stratified wins at the two noise-dominated wide regimes (W6K / W10K) but REGRESSES at the
+        # dense-redundant narrow W2K regime (40 signal cols on 2000 with rho=0.85). The F-score
+        # cohort prior concentrates anchors on the head of a tight redundant cluster where proxy
+        # and honest losses agree trivially, compressing the Spearman spread. Default stays OFF
+        # because the lever does NOT universally pay -- shipping True as the default would silently
+        # regress fidelity for callers running on dense-redundant cohorts (small post-prefilter
+        # widths, high inter-feature correlation). The lever remains exposed for callers whose
+        # cohort is noise-heavy (wide post-prefilter widths, sparse signal); a future width-aware
+        # dispatcher could auto-route, but the current evidence is insufficient for an unconditional
+        # flip.
         self.trust_guard_stratified_anchors = bool(trust_guard_stratified_anchors)
         # ``trust_guard_uniform_tail_frac`` re-audited iter98 (2026-06-01) after iter97 made the
         # softmax scale-invariant. Question: does the calibrated 20% uniform tail still pay now that
