@@ -221,7 +221,6 @@ def generate_mlp(
     output_activation_center: Optional[float] = None,
     spectral_norm: bool = False,
     spectral_norm_n_power_iterations: int = 1,
-    spectral_norm_output_only: bool = False,
     verbose: int = 1,
 ):
     """Generates multilayer perceptron with specific architecture.
@@ -389,29 +388,6 @@ def generate_mlp(
             module, n_power_iterations=spectral_norm_n_power_iterations,
         )
 
-    def _maybe_sn_output(module: nn.Module) -> nn.Module:
-        """F-72 (2026-05-31): spectral norm on the OUTPUT Linear only.
-
-        ``spectral_norm=True`` already wraps every Linear (hidden +
-        output) and gives a full-network Lipschitz bound -- the safest
-        but most expensive setting (~1.2-1.5x training cost from per-step
-        power iteration on every Linear's weight). ``spectral_norm_
-        output_only=True`` wraps ONLY the final output Linear, which
-        bounds the output Lipschitz constant cheaply (~1.01x training
-        cost, single power iteration on one layer) and is enough to
-        prevent the catastrophic OOD blow-up modes the codebase has
-        documented (Identity-MLP R^2=-326 / R^2=-30 on unseen-groups
-        test splits). The hidden layers retain unbounded expressivity.
-
-        Both flags compose: spectral_norm=True implies output is wrapped
-        too. ``output_only`` is a strict subset.
-        """
-        if spectral_norm or spectral_norm_output_only:
-            return nn.utils.spectral_norm(
-                module, n_power_iterations=spectral_norm_n_power_iterations,
-            )
-        return module
-
     layers = []
     layer_sizes = [num_features]  # tracked for verbose logging
 
@@ -541,11 +517,11 @@ def generate_mlp(
         logger.warning("num_classes is None or 0; creating feature extractor (no final layer)")
         model_type = "FE"
     elif num_classes == 1:
-        layers.append(_maybe_sn_output(nn.Linear(prev_layer_neurons, 1)))
+        layers.append(_maybe_sn(nn.Linear(prev_layer_neurons, 1)))
         layer_sizes.append(1)
         model_type = "R"
     else:
-        layers.append(_maybe_sn_output(nn.Linear(prev_layer_neurons, num_classes)))
+        layers.append(_maybe_sn(nn.Linear(prev_layer_neurons, num_classes)))
         layer_sizes.append(num_classes)
         model_type = "C"
 
