@@ -60,7 +60,6 @@ def test_xgb_classifier_eval_metric_differs_with_flag(real_configs):
         configs=gpu, cpu_configs=cpu,
         use_regression=False,
         prefer_cpu_for_xgboost=True,
-        use_flaml_zeroshot=False,
         xgboost_verbose=False,
         metamodel_func=_identity,
     )
@@ -82,7 +81,6 @@ def test_lgb_classifier_fit_params_eval_metric_only_when_calibrated(real_configs
         configs=gpu, cpu_configs=cpu,
         use_regression=False,
         prefer_cpu_for_lightgbm=True,
-        use_flaml_zeroshot=False,
         metamodel_func=_identity,
     )
     out_true = _configure_lightgbm_params(prefer_calibrated_classifiers=True, **kwargs)
@@ -103,7 +101,6 @@ def test_lgb_regressor_ignores_flag(real_configs):
         configs=gpu, cpu_configs=cpu,
         use_regression=True,
         prefer_cpu_for_lightgbm=True,
-        use_flaml_zeroshot=False,
         metamodel_func=_identity,
     )
     out_true = _configure_lightgbm_params(prefer_calibrated_classifiers=True, **kwargs)

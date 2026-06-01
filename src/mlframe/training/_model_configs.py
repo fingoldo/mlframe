@@ -448,8 +448,6 @@ class TrainingBehaviorConfig(BaseConfig):
         Number of bins for continuous features in fairness subgroups.
     cb_fit_params : dict, optional
         Extra kwargs passed to CatBoost .fit() (e.g. early_stopping_rounds, custom callbacks).
-    use_flaml_zeroshot : bool
-        Use FLAML zero-shot models for XGBoost/LightGBM.
     enable_crash_reporting : bool
         Default True. At suite start, enable faulthandler (SIGSEGV /
         SIGABRT -> Python traceback) and on Windows suppress the
@@ -482,7 +480,6 @@ class TrainingBehaviorConfig(BaseConfig):
     default_regression_scoring: Optional[Dict[str, Any]] = None
     callback_params: Optional[Dict[str, Any]] = None
     cb_fit_params: Optional[Dict[str, Any]] = None
-    use_flaml_zeroshot: bool = False
     # Default True: faulthandler + Windows WER suppression are pure
     # diagnostics -- they don't change training behavior, only replace
     # the "Python has stopped working" modal with a Python traceback.

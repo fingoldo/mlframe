@@ -100,7 +100,7 @@ from ._data_helpers import (  # noqa: E402,F401
 from ._model_factories import (  # noqa: E402,F401
     GPU_VRAM_SAFE_FREE_LIMIT_GB, GPU_VRAM_SAFE_SATURATION_LIMIT,
     MODELS_SUBDIR, USE_LGB_DATASET_REUSE_SHIM, USE_XGB_DMATRIX_REUSE_SHIM,
-    _get_flaml_zeroshot, _get_neural_components,
+    _get_neural_components,
     _lgb_classifier_cls as _lgb_classifier_cls_factory,
     _lgb_regressor_cls as _lgb_regressor_cls_factory,
     _patch_dataset_constructors_with_logging,
@@ -123,11 +123,6 @@ try:
 except ImportError:
     NGBClassifier = None  # type: ignore[assignment]
     NGBRegressor = None  # type: ignore[assignment]
-
-try:
-    import flaml.default as flaml_zeroshot
-except (ImportError, OSError):
-    flaml_zeroshot = None  # type: ignore[assignment]
 
 
 logger = logging.getLogger("mlframe.training.trainer")
@@ -254,7 +249,6 @@ def configure_training_params(
     common_params: dict = None,
     config_params: dict = None,
     metamodel_func: callable = None,
-    use_flaml_zeroshot: bool = False,
     _precomputed_fairness_subgroups: dict = None,
     mlframe_models: list = None,
     linear_model_config: LinearModelConfig = None,
@@ -597,7 +591,6 @@ def configure_training_params(
             use_regression=use_regression,
             prefer_cpu_for_xgboost=prefer_cpu_for_xgboost,
             prefer_calibrated_classifiers=prefer_calibrated_classifiers,
-            use_flaml_zeroshot=use_flaml_zeroshot,
             xgboost_verbose=xgboost_verbose,
             metamodel_func=metamodel_func,
         )
@@ -614,7 +607,6 @@ def configure_training_params(
             use_regression=use_regression,
             prefer_cpu_for_lightgbm=prefer_cpu_for_lightgbm,
             prefer_calibrated_classifiers=prefer_calibrated_classifiers,
-            use_flaml_zeroshot=use_flaml_zeroshot,
             metamodel_func=metamodel_func,
         )
         # LGB has no native multilabel -- wrap with MultiOutputClassifier.
@@ -747,9 +739,9 @@ def configure_training_params(
 
     lgb_rfecv = RFECV(
         estimator=(
-            metamodel_func((flaml_zeroshot.LGBMRegressor if use_flaml_zeroshot else LGBMRegressor)(**configs.LGB_GENERAL_PARAMS))
+            metamodel_func(LGBMRegressor(**configs.LGB_GENERAL_PARAMS))
             if use_regression
-            else (flaml_zeroshot.LGBMClassifier if use_flaml_zeroshot else LGBMClassifier)(**configs.LGB_GENERAL_PARAMS)
+            else LGBMClassifier(**configs.LGB_GENERAL_PARAMS)
         ),
         fit_params=lgb_fit_params,
         cat_features=cat_features,
@@ -759,9 +751,9 @@ def configure_training_params(
 
     xgb_rfecv = RFECV(
         estimator=(
-            metamodel_func((flaml_zeroshot.XGBRegressor if use_flaml_zeroshot else XGBRegressor)(**configs.XGB_GENERAL_PARAMS))
+            metamodel_func(XGBRegressor(**configs.XGB_GENERAL_PARAMS))
             if use_regression
-            else (flaml_zeroshot.XGBClassifier if use_flaml_zeroshot else XGBClassifier)(
+            else XGBClassifier(
                 **(configs.XGB_CALIB_CLASSIF if prefer_calibrated_classifiers else configs.XGB_GENERAL_CLASSIF)
             )
         ),

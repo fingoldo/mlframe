@@ -508,7 +508,6 @@ def test_iter502_audit_pass_2_axes_flow_to_kwargs():
     Axes (all from D:/Temp/AUDIT_PASS_2_DONE.md):
       PART A (4 LOW-tier coverage-gap axes, deferred from W11C wave):
         - ensembling_degenerate_class_ratio_cfg (EnsemblingConfig.degenerate_class_ratio)
-        - behavior_use_flaml_zeroshot_cfg (TrainingBehaviorConfig.use_flaml_zeroshot)
         - target_temporal_audit_granularity_cfg (TrainingBehaviorConfig.target_temporal_audit_granularity)
         - prep_ext_dim_n_components_cfg (PreprocessingExtensionsConfig.dim_n_components)
       PART B (6 ShapProxiedFS deep extension knobs):
@@ -526,7 +525,6 @@ def test_iter502_audit_pass_2_axes_flow_to_kwargs():
     new_axes = (
         # PART A
         "ensembling_degenerate_class_ratio_cfg",
-        "behavior_use_flaml_zeroshot_cfg",
         "target_temporal_audit_granularity_cfg",
         "prep_ext_dim_n_components_cfg",
         # PART B
@@ -546,7 +544,6 @@ def test_iter502_audit_pass_2_axes_flow_to_kwargs():
     base_axes = {name: values[0] for name, values in AXES.items()}
     c_default = _build_combo(models=("cb",), axes=base_axes, seed=0)
     assert c_default.ensembling_degenerate_class_ratio_cfg == 0.01
-    assert c_default.behavior_use_flaml_zeroshot_cfg is False
     assert c_default.target_temporal_audit_granularity_cfg == "auto"
     assert c_default.prep_ext_dim_n_components_cfg == 50
     assert c_default.shap_proxied_config_jitter_cfg is False
@@ -642,23 +639,6 @@ def test_iter502_audit_pass_2_axes_flow_to_kwargs():
     assert c_a1_off_a.canonical_key() == c_a1_off_b.canonical_key(), (
         "ensembling_degenerate_class_ratio_cfg must collapse for non-classification targets"
     )
-
-    # A2. behavior_use_flaml_zeroshot_cfg: gate on xgb OR lgb in models.
-    # NOTE: the from_axes canon also drops True->False when `flaml` is not
-    # importable, so on systems without flaml the axis collapses to False
-    # at construction time -- the canon test below only fires when flaml IS
-    # present. Use the as-constructed value so the test is environment-agnostic.
-    on_a2 = dict(base_axes)
-    on_a2.update(behavior_use_flaml_zeroshot_cfg=True)
-    c_a2_xgb = _build_combo(models=("xgb",), axes=on_a2, seed=0)
-    c_a2_cb = _build_combo(models=("cb",), axes=on_a2, seed=0)
-    # When neither xgb nor lgb is in models, canon to False regardless of
-    # the requested value -> distinct canonical key only when flaml is present
-    # AND the request reaches the dataclass intact.
-    if c_a2_xgb.behavior_use_flaml_zeroshot_cfg is True:
-        assert c_a2_xgb.canonical_key() != c_a2_cb.canonical_key(), (
-            "behavior_use_flaml_zeroshot_cfg must surface in canon when xgb is in scope (flaml present)"
-        )
 
     # A3. target_temporal_audit_granularity_cfg: gate on with_datetime_col=True
     # AND target_temporal_audit_column_cfg='ts_col'.
@@ -865,48 +845,6 @@ def test_iter503_audit_pass_3_axes_flow_to_kwargs():
 # ---------------------------------------------------------------------------
 # iter554: short_id() determinism across import-order / env state
 # ---------------------------------------------------------------------------
-
-
-def test_iter554_short_id_independent_of_haflaml_env_state():
-    """FuzzCombo.short_id() must be a pure function of the axis values.
-
-    Prior to the fix, ``_canon_use_flaml_zeroshot(axes[...]) `` was applied at
-    ``from_axes`` resolution time, dropping ``True`` -> ``False`` when the
-    optional ``flaml`` dep was not importable. flaml's import success can
-    flip on transitive sys.path / module-cache state across processes
-    (matplotlib import order observably toggles it on Windows in this repo),
-    which made the same logical combo emit different short_ids across
-    "picker" scripts and ``profile_one_combo.py``. The fix stores the
-    LOGICAL requested value in the FuzzCombo dataclass; the fit-time
-    contract remains the consumer of ``_HAS_FLAML`` for skip / xfail
-    decisions.
-
-    This test pins:
-      (1) Two combos differing ONLY in behavior_use_flaml_zeroshot_cfg
-          have distinct canonical_keys and distinct short_ids regardless
-          of ``_HAS_FLAML`` -- the canon never collapses True -> False.
-      (2) When the requested value is True, the dataclass field is True.
-    """
-    base_axes = {name: values[0] for name, values in AXES.items()}
-    # xgb in models so the canonical_key's flaml gate ("xgb in models or
-    # lgb in models") doesn't short-circuit the axis.
-    axes_false = dict(base_axes, behavior_use_flaml_zeroshot_cfg=False)
-    axes_true = dict(base_axes, behavior_use_flaml_zeroshot_cfg=True)
-
-    c_false = _build_combo(models=("xgb",), axes=axes_false, seed=0)
-    c_true = _build_combo(models=("xgb",), axes=axes_true, seed=0)
-
-    assert c_true.behavior_use_flaml_zeroshot_cfg is True, (
-        "FuzzCombo must store the LOGICAL requested value (True), regardless of _HAS_FLAML env state"
-    )
-    assert c_false.behavior_use_flaml_zeroshot_cfg is False
-
-    assert c_true.canonical_key() != c_false.canonical_key(), (
-        "True and False must produce distinct canonical_keys; canon must NOT collapse to False"
-    )
-    assert c_true.short_id() != c_false.short_id(), (
-        "True and False must produce distinct short_ids; reproducibility across environments"
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -3025,12 +2963,19 @@ def test_iter615_audit_pass_9_axes_flow_to_kwargs():
         mlp_inject_zero_sample_weight_batch_cfg=False,
         use_mrmr_fs=False,
     )
-    c_on8 = _build_combo(models=("mlp",), axes=on8, seed=0)
+    # iter633: the 2-D (N, K) MTR target is emitted ONLY when every model in
+    # the combo natively handles a 2-D continuous target (currently cb via
+    # MultiRMSE). Combos containing a non-native model (mlp/lgb/linear/hgb/xgb)
+    # are downgraded to a 1-D "target_reg" regression surface so the
+    # non-native member doesn't crash with "Unknown label type:
+    # continuous-multioutput". Use a cb-only combo here to exercise the native
+    # 2-D path this assertion was written for.
+    c_on8 = _build_combo(models=("cb",), axes=on8, seed=0)
     df_on8, target_col_on8, _ = build_frame_for_combo(c_on8)
     assert target_col_on8 in df_on8.columns, (
         "#8 frame builder must emit target column for multi_target_regression"
     )
-    # Each cell is a list of K=2 floats.
+    # Each cell is a list of K=2 floats (native cb-only MTR path).
     first_cell = df_on8[target_col_on8].iloc[0]
     assert hasattr(first_cell, "__len__"), (
         f"#8: multi_target_regression target cell must be array-like: {first_cell!r}"

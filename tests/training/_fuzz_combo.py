@@ -707,11 +707,6 @@ AXES: dict[str, tuple[Any, ...]] = {
     # (default 0.01 at _model_configs.py:981); 0.05 widens the degenerate-subset
     # gate. Gated on use_ensembles AND classification target.
     "ensembling_degenerate_class_ratio_cfg": (0.01, 0.05),
-    # behavior_use_flaml_zeroshot: TrainingBehaviorConfig.use_flaml_zeroshot
-    # (default False at _model_configs.py:485). True picks flaml_zeroshot
-    # XGB/LGBM classes vs. vanilla. Gated on xgb/lgb in models AND a working
-    # flaml install (from_axes canonises True -> False if flaml is missing).
-    "behavior_use_flaml_zeroshot_cfg": (False, True),
     # target_temporal_audit_granularity: TrainingBehaviorConfig.target_temporal_audit_granularity
     # (default "auto" at _model_configs.py:561). Drives _phase_temporal_audit
     # bin freq. Gated on target_temporal_audit_column_cfg == 'ts_col'.
@@ -1959,7 +1954,6 @@ class FuzzCombo:
     # PreprocessingExtensionsConfig in src/mlframe/training/_model_configs.py
     # + _preprocessing_configs.py.
     ensembling_degenerate_class_ratio_cfg: float = 0.01
-    behavior_use_flaml_zeroshot_cfg: bool = False
     target_temporal_audit_granularity_cfg: str = "auto"
     prep_ext_dim_n_components_cfg: int = 50
     # 2026-05-28 TextDetectionConfig.text_min_cardinality (default 300)
@@ -3223,14 +3217,6 @@ class FuzzCombo:
                     and self.target_type in ("binary_classification",
                                               "multilabel_classification"))
                 else 0.01
-            ),
-            # use_flaml_zeroshot only meaningful when xgb or lgb is in scope
-            # (it picks flaml_zeroshot.{XGB,LGBM}{Classifier,Regressor}).
-            # Canon to False when neither is in models.
-            (
-                self.behavior_use_flaml_zeroshot_cfg
-                if ("xgb" in self.models or "lgb" in self.models)
-                else False
             ),
             # target_temporal_audit_granularity only meaningful when the
             # temporal-audit phase actually runs (target_temporal_audit_column
@@ -4642,26 +4628,6 @@ def _powerset_nonempty(items: tuple[str, ...]) -> list[tuple[str, ...]]:
 _LTR_NATIVE_RANKERS: frozenset[str] = frozenset({"cb", "xgb", "lgb", "mlp"})
 
 
-# 2026-05-28 audit-pass-2 PART A: behavior_use_flaml_zeroshot needs an optional
-# dep (`flaml`). Probe once at import time; canon True -> False if the dep is
-# missing so the fuzz harness doesn't propose a combo that crashes at fit-time
-# on environments without it (CI matrix without `flaml`). Cached as a module
-# constant so each _build_combo call is cheap.
-try:  # pragma: no cover -- import-time probe, behaviour is identical either way
-    import importlib
-
-    importlib.import_module("flaml")
-    _HAS_FLAML = True
-except Exception:
-    _HAS_FLAML = False
-
-
-def _canon_use_flaml_zeroshot(requested: bool) -> bool:
-    """Canon for behavior_use_flaml_zeroshot_cfg: drop True to False when the
-    `flaml` optional dep is not importable so generated combos stay runnable."""
-    return bool(requested) if _HAS_FLAML else False
-
-
 def _combo_is_runnable(models: tuple[str, ...], target_type: str) -> bool:
     """Cheap structural check: does this (models, target_type) pair have a
     chance of completing training? Returns False for LTR combos whose model
@@ -4997,20 +4963,6 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         ensembling_degenerate_class_ratio_cfg=axes.get(
             "ensembling_degenerate_class_ratio_cfg", 0.01
         ),
-        # behavior_use_flaml_zeroshot: store the LOGICAL requested value so
-        # the canonical_key / short_id are environment-independent. The
-        # _canon_use_flaml_zeroshot env-gating was previously applied here,
-        # but that made FuzzCombo.short_id() depend on whether flaml was
-        # importable at fuzz-combo enumeration time -- and flaml's own
-        # import success can flip based on transitive imports that landed
-        # earlier in the Python process (matplotlib import order surfaced
-        # this on c0001: short_id 906b0add without matplotlib vs c650c3cf
-        # with matplotlib, because flaml import fails / succeeds across
-        # those two states). Keep the requested value here so combo IDs
-        # match across "picker" scripts and profile_one_combo.py regardless
-        # of import order. Tests that need to skip flaml-missing combos
-        # should consult _HAS_FLAML at fit-time and xfail/skip accordingly.
-        behavior_use_flaml_zeroshot_cfg=axes.get("behavior_use_flaml_zeroshot_cfg", False),
         target_temporal_audit_granularity_cfg=axes.get(
             "target_temporal_audit_granularity_cfg", "auto"
         ),

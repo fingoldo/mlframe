@@ -495,10 +495,10 @@ class TestLGBShimIntegrationWithMlframeSuite:
         # Pre-condition for the rest: toggle is on.
         assert USE_LGB_DATASET_REUSE_SHIM is True
 
-        clf = _lgb_classifier_cls(use_flaml_zeroshot=False)
+        clf = _lgb_classifier_cls()
         assert clf is LGBMClassifierWithDatasetReuse
 
-        reg = _lgb_regressor_cls(use_flaml_zeroshot=False)
+        reg = _lgb_regressor_cls()
         assert reg is LGBMRegressorWithDatasetReuse
 
     def test_configure_lightgbm_falls_back_to_vanilla_when_toggle_off(self, monkeypatch):
@@ -510,11 +510,11 @@ class TestLGBShimIntegrationWithMlframeSuite:
         from mlframe.training import trainer as tr_mod
         monkeypatch.setattr(tr_mod, "USE_LGB_DATASET_REUSE_SHIM", False)
 
-        clf = tr_mod._lgb_classifier_cls(use_flaml_zeroshot=False)
+        clf = tr_mod._lgb_classifier_cls()
         assert clf is lgb.LGBMClassifier
         assert clf is not LGBMClassifierWithDatasetReuse
 
-        reg = tr_mod._lgb_regressor_cls(use_flaml_zeroshot=False)
+        reg = tr_mod._lgb_regressor_cls()
         assert reg is lgb.LGBMRegressor
 
 
@@ -603,11 +603,11 @@ class TestLGBShimCacheHandoffInCoreLoop:
             def __init__(self, **kwargs):
                 self.kwargs = kwargs
 
-        def fake_clf_factory(use_flaml_zeroshot):
+        def fake_clf_factory():
             calls["classifier"] += 1
             return _StubClassifier
 
-        def fake_reg_factory(use_flaml_zeroshot):
+        def fake_reg_factory():
             calls["regressor"] += 1
             return _StubRegressor
 
@@ -621,7 +621,7 @@ class TestLGBShimCacheHandoffInCoreLoop:
         out = tr_mod._configure_lightgbm_params(
             configs=configs, cpu_configs=cpu_configs,
             use_regression=False, prefer_cpu_for_lightgbm=True,
-            prefer_calibrated_classifiers=False, use_flaml_zeroshot=False,
+            prefer_calibrated_classifiers=False,
             metamodel_func=lambda m: m,
         )
         assert calls["classifier"] == 1 and calls["regressor"] == 0
@@ -631,7 +631,7 @@ class TestLGBShimCacheHandoffInCoreLoop:
         out = tr_mod._configure_lightgbm_params(
             configs=configs, cpu_configs=cpu_configs,
             use_regression=True, prefer_cpu_for_lightgbm=True,
-            prefer_calibrated_classifiers=False, use_flaml_zeroshot=False,
+            prefer_calibrated_classifiers=False,
             metamodel_func=lambda m: m,
         )
         assert calls["regressor"] == 1

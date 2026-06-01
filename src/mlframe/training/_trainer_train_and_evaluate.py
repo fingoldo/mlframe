@@ -100,7 +100,7 @@ from ._data_helpers import (  # noqa: E402,F401
 from ._model_factories import (  # noqa: E402,F401
     GPU_VRAM_SAFE_FREE_LIMIT_GB, GPU_VRAM_SAFE_SATURATION_LIMIT,
     MODELS_SUBDIR, USE_LGB_DATASET_REUSE_SHIM, USE_XGB_DMATRIX_REUSE_SHIM,
-    _get_flaml_zeroshot, _get_neural_components,
+    _get_neural_components,
     _lgb_classifier_cls as _lgb_classifier_cls_factory,
     _lgb_regressor_cls as _lgb_regressor_cls_factory,
     _patch_dataset_constructors_with_logging,

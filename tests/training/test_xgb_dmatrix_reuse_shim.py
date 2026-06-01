@@ -470,10 +470,10 @@ class TestXGBShimIntegrationWithMlframeSuite:
         # Pre-condition for the rest: toggle is on.
         assert USE_XGB_DMATRIX_REUSE_SHIM is True
 
-        clf = _xgb_classifier_cls(use_flaml_zeroshot=False)
+        clf = _xgb_classifier_cls()
         assert clf is XGBClassifierWithDMatrixReuse
 
-        reg = _xgb_regressor_cls(use_flaml_zeroshot=False)
+        reg = _xgb_regressor_cls()
         assert reg is XGBRegressorWithDMatrixReuse
 
     def test_configure_xgboost_falls_back_to_vanilla_when_toggle_off(self, monkeypatch):
@@ -485,26 +485,12 @@ class TestXGBShimIntegrationWithMlframeSuite:
         from mlframe.training import OutputConfig, PreprocessingConfig, trainer as tr_mod
         monkeypatch.setattr(tr_mod, "USE_XGB_DMATRIX_REUSE_SHIM", False)
 
-        clf = tr_mod._xgb_classifier_cls(use_flaml_zeroshot=False)
+        clf = tr_mod._xgb_classifier_cls()
         assert clf is xgb.XGBClassifier
         assert clf is not XGBClassifierWithDMatrixReuse
 
-        reg = tr_mod._xgb_regressor_cls(use_flaml_zeroshot=False)
+        reg = tr_mod._xgb_regressor_cls()
         assert reg is xgb.XGBRegressor
-
-    def test_configure_xgboost_flaml_path_unchanged(self):
-        """The ``use_flaml_zeroshot=True`` path must always return the
-        FLAML class, regardless of the shim toggle. FLAML has its own
-        zeroshot tuning that the shim doesn't replicate."""
-        try:
-            import flaml.default as flaml_default  # noqa: F401
-        except ImportError:
-            pytest.skip("flaml not installed in this env")
-        from mlframe.training.trainer import _xgb_classifier_cls, _xgb_regressor_cls
-
-        clf = _xgb_classifier_cls(use_flaml_zeroshot=True)
-        # FLAML wrapper subclasses sklearn XGBClassifier, but is NOT our shim.
-        assert not isinstance(clf, type) or clf is not XGBClassifierWithDMatrixReuse
 
     def test_suite_with_xgb_two_weight_schemas_reuses_dmatrix(self, tmp_path):
         """End-to-end: run a 2-target / xgb-only suite and verify that
@@ -723,7 +709,7 @@ class TestXGBShimCacheHandoffInCoreLoop:
         base = {
             "configs": configs, "cpu_configs": configs,
             "use_regression": False, "prefer_cpu_for_xgboost": True,
-            "prefer_calibrated_classifiers": False, "use_flaml_zeroshot": False,
+            "prefer_calibrated_classifiers": False,
             "metamodel_func": lambda m: m,
         }
         kwargs = {k: v for k, v in base.items() if k in sig.parameters}

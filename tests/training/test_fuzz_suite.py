@@ -292,11 +292,6 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
                 else ()  # "empty" -> no skip
             )
         ),
-        # 2026-05-28 audit-pass-2 PART A: TrainingBehaviorConfig.use_flaml_zeroshot
-        # picks flaml_zeroshot.{XGB,LGBM}{Classifier,Regressor} vs vanilla. The
-        # from_axes canon in _fuzz_combo already drops True->False when `flaml`
-        # is unimportable so this is always a safe assignment.
-        "use_flaml_zeroshot": combo.behavior_use_flaml_zeroshot_cfg,
         # 2026-05-28 audit-pass-2 PART A: TrainingBehaviorConfig.target_temporal_audit_granularity
         # drives _phase_temporal_audit bin freq dispatch. Mirrors the existing
         # target_temporal_audit_column wiring elsewhere in the suite.

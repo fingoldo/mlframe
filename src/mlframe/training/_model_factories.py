@@ -1,9 +1,8 @@
 """Model factory functions extracted from ``trainer.py``.
 
-LightGBM monkey-patches, XGB/LGB classifier/regressor factories,
-FLAML zero-shot integration, and neural-component (PyTorch Lightning)
-lazy-loading.  All factories return un-fitted sklearn-compatible
-estimator classes or instances.
+LightGBM monkey-patches, XGB/LGB classifier/regressor factories, and
+neural-component (PyTorch Lightning) lazy-loading.  All factories return
+un-fitted sklearn-compatible estimator classes or instances.
 """
 
 from __future__ import annotations
@@ -357,40 +356,28 @@ except ImportError:  # pragma: no cover
 #   1. Set ``USE_XGB_DMATRIX_REUSE_SHIM = False`` here, or
 #   2. Delete the import block above + ``_xgb_classifier_cls`` /
 #      ``_xgb_regressor_cls`` factories below + this constant, and
-#      replace ``_xgb_classifier_cls(use_flaml_zeroshot)`` calls in
-#      ``_configure_xgboost_params`` with the original inline expression
-#      ``flaml_zeroshot.XGBClassifier if use_flaml_zeroshot else
-#      XGBClassifier``.
+#      replace ``_xgb_classifier_cls()`` calls in
+#      ``_configure_xgboost_params`` with the vanilla ``XGBClassifier``.
 #   3. Delete ``mlframe/training/xgb_shim.py`` and its test counterpart.
 #
 # Either path is intentionally a small, localized change.
 USE_XGB_DMATRIX_REUSE_SHIM: bool = _XGB_SHIM_AVAILABLE
 
 
-def _xgb_classifier_cls(use_flaml_zeroshot: bool):
+def _xgb_classifier_cls():
     """Return the XGBClassifier class to instantiate.
 
     Single dispatch point for the shim toggle -- see
     ``USE_XGB_DMATRIX_REUSE_SHIM`` above for revert instructions.
     """
-    if use_flaml_zeroshot:
-        _fz = _get_flaml_zeroshot()
-        if _fz is None:
-            raise ImportError("use_flaml_zeroshot=True but flaml is not installed")
-        return _fz.XGBClassifier
     if USE_XGB_DMATRIX_REUSE_SHIM and XGBClassifierWithDMatrixReuse is not None:
         return XGBClassifierWithDMatrixReuse
     return XGBClassifier
 
 
-def _xgb_regressor_cls(use_flaml_zeroshot: bool):
+def _xgb_regressor_cls():
     """Return the XGBRegressor class to instantiate. Mirror of
     ``_xgb_classifier_cls``."""
-    if use_flaml_zeroshot:
-        _fz = _get_flaml_zeroshot()
-        if _fz is None:
-            raise ImportError("use_flaml_zeroshot=True but flaml is not installed")
-        return _fz.XGBRegressor
     if USE_XGB_DMATRIX_REUSE_SHIM and XGBRegressorWithDMatrixReuse is not None:
         return XGBRegressorWithDMatrixReuse
     return XGBRegressor
@@ -411,38 +398,26 @@ def _xgb_regressor_cls(use_flaml_zeroshot: bool):
 #   1. Set ``USE_LGB_DATASET_REUSE_SHIM = False`` here, or
 #   2. Delete the import block above + ``_lgb_classifier_cls`` /
 #      ``_lgb_regressor_cls`` factories below + this constant, and
-#      replace ``_lgb_classifier_cls(use_flaml_zeroshot)`` calls in
-#      ``_configure_lightgbm_params`` with the original inline expression
-#      ``flaml_zeroshot.LGBMClassifier if use_flaml_zeroshot else
-#      LGBMClassifier``.
+#      replace ``_lgb_classifier_cls()`` calls in
+#      ``_configure_lightgbm_params`` with the vanilla ``LGBMClassifier``.
 #   3. Delete ``mlframe/training/lgb_shim.py`` and its test counterpart.
 USE_LGB_DATASET_REUSE_SHIM: bool = _LGB_SHIM_AVAILABLE
 
 
-def _lgb_classifier_cls(use_flaml_zeroshot: bool):
+def _lgb_classifier_cls():
     """Return the LGBMClassifier class to instantiate.
 
     Single dispatch point for the shim toggle -- see
     ``USE_LGB_DATASET_REUSE_SHIM`` above for revert instructions.
     """
-    if use_flaml_zeroshot:
-        _fz = _get_flaml_zeroshot()
-        if _fz is None:
-            raise ImportError("use_flaml_zeroshot=True but flaml is not installed")
-        return _fz.LGBMClassifier
     if USE_LGB_DATASET_REUSE_SHIM and LGBMClassifierWithDatasetReuse is not None:
         return LGBMClassifierWithDatasetReuse
     return LGBMClassifier
 
 
-def _lgb_regressor_cls(use_flaml_zeroshot: bool):
+def _lgb_regressor_cls():
     """Return the LGBMRegressor class to instantiate. Mirror of
     ``_lgb_classifier_cls``."""
-    if use_flaml_zeroshot:
-        _fz = _get_flaml_zeroshot()
-        if _fz is None:
-            raise ImportError("use_flaml_zeroshot=True but flaml is not installed")
-        return _fz.LGBMRegressor
     if USE_LGB_DATASET_REUSE_SHIM and LGBMRegressorWithDatasetReuse is not None:
         return LGBMRegressorWithDatasetReuse
     return LGBMRegressor
@@ -452,32 +427,6 @@ try:
     from ngboost import NGBClassifier, NGBRegressor
 except ImportError:  # pragma: no cover
     NGBClassifier = NGBRegressor = None  # type: ignore[assignment]
-# flaml.default is eagerly loaded by ``import flaml.default`` (it pulls in
-# flaml.tune.searcher.suggestion -> optuna -> scipy.stats.qmc), and that
-# import chain takes 30-180 s cold on Windows, blowing past per-test
-# timeouts on the FIRST test of any pytest run that touches the trainer.
-# Defer the import to first-actual-use via ``_get_flaml_zeroshot()`` so
-# typical users / fuzz tests don't pay the cost. Set to ``None`` here as
-# a sentinel; the getter populates it lazily.
-flaml_zeroshot = None  # type: ignore[assignment]
-
-
-def _get_flaml_zeroshot():
-    """Lazy-load ``flaml.default`` on first use.
-
-    Caches the result on the module-level ``flaml_zeroshot`` so subsequent
-    calls are free. Returns ``None`` if flaml is not installed (matching
-    the historical ``except ImportError`` behaviour).
-    """
-    global flaml_zeroshot
-    if flaml_zeroshot is None:
-        try:
-            import flaml.default as _flaml_default
-
-            flaml_zeroshot = _flaml_default
-        except ImportError:  # pragma: no cover
-            return None
-    return flaml_zeroshot
 
 
 try:

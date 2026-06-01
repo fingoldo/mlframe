@@ -102,7 +102,7 @@ from ._data_helpers import (  # noqa: E402,F401
 from ._model_factories import (  # noqa: E402,F401
     GPU_VRAM_SAFE_FREE_LIMIT_GB, GPU_VRAM_SAFE_SATURATION_LIMIT,
     MODELS_SUBDIR, USE_LGB_DATASET_REUSE_SHIM, USE_XGB_DMATRIX_REUSE_SHIM,
-    _get_flaml_zeroshot, _get_neural_components,
+    _get_neural_components,
     _lgb_classifier_cls as _lgb_classifier_cls_factory,
     _lgb_regressor_cls as _lgb_regressor_cls_factory,
     _patch_dataset_constructors_with_logging,
@@ -119,54 +119,34 @@ from ._model_factories import (
 import lightgbm as _lgb_for_factory
 
 
-def _lgb_classifier_cls(use_flaml_zeroshot: bool):
+def _lgb_classifier_cls():
     """Trainer-local wrapper around the factory. Reads
     ``USE_LGB_DATASET_REUSE_SHIM`` from THIS module so test monkeypatches on
     ``trainer.USE_LGB_DATASET_REUSE_SHIM`` flip dispatch as documented."""
-    if use_flaml_zeroshot:
-        _fz = _get_flaml_zeroshot()
-        if _fz is None:
-            raise ImportError("use_flaml_zeroshot=True but flaml is not installed")
-        return _fz.LGBMClassifier
     if USE_LGB_DATASET_REUSE_SHIM and _LGBMClassifierWithDatasetReuse is not None:
         return _LGBMClassifierWithDatasetReuse
     return _lgb_for_factory.LGBMClassifier
 
 
-def _lgb_regressor_cls(use_flaml_zeroshot: bool):
+def _lgb_regressor_cls():
     """Trainer-local wrapper, mirror of ``_lgb_classifier_cls``."""
-    if use_flaml_zeroshot:
-        _fz = _get_flaml_zeroshot()
-        if _fz is None:
-            raise ImportError("use_flaml_zeroshot=True but flaml is not installed")
-        return _fz.LGBMRegressor
     if USE_LGB_DATASET_REUSE_SHIM and _LGBMRegressorWithDatasetReuse is not None:
         return _LGBMRegressorWithDatasetReuse
     return _lgb_for_factory.LGBMRegressor
 
 
-def _xgb_classifier_cls(use_flaml_zeroshot: bool):
+def _xgb_classifier_cls():
     """Trainer-local wrapper around the XGB factory. Reads
     ``USE_XGB_DMATRIX_REUSE_SHIM`` from THIS module so test monkeypatches on
     ``trainer.USE_XGB_DMATRIX_REUSE_SHIM`` flip dispatch as documented (the
     factory's own constant is a different binding)."""
-    if use_flaml_zeroshot:
-        _fz = _get_flaml_zeroshot()
-        if _fz is None:
-            raise ImportError("use_flaml_zeroshot=True but flaml is not installed")
-        return _fz.XGBClassifier
     if USE_XGB_DMATRIX_REUSE_SHIM and _XGBClassifierWithDMatrixReuse is not None:
         return _XGBClassifierWithDMatrixReuse
     return XGBClassifier
 
 
-def _xgb_regressor_cls(use_flaml_zeroshot: bool):
+def _xgb_regressor_cls():
     """Trainer-local wrapper, mirror of ``_xgb_classifier_cls``."""
-    if use_flaml_zeroshot:
-        _fz = _get_flaml_zeroshot()
-        if _fz is None:
-            raise ImportError("use_flaml_zeroshot=True but flaml is not installed")
-        return _fz.XGBRegressor
     if USE_XGB_DMATRIX_REUSE_SHIM and _XGBRegressorWithDMatrixReuse is not None:
         return _XGBRegressorWithDMatrixReuse
     return XGBRegressor
@@ -189,11 +169,6 @@ try:
 except ImportError:
     NGBClassifier = None  # type: ignore[assignment]
     NGBRegressor = None  # type: ignore[assignment]
-
-try:
-    import flaml.default as flaml_zeroshot
-except (ImportError, OSError):  # flaml.automl.time_series.tcn → pytorch_lightning → lightning_fabric → torch DLL chain
-    flaml_zeroshot = None  # type: ignore[assignment]
 
 from .configs import (
     DataConfig, TrainingControlConfig, MetricsConfig, ReportingConfig,
@@ -533,7 +508,6 @@ def _configure_xgboost_params(
     use_regression: bool,
     prefer_cpu_for_xgboost: bool,
     prefer_calibrated_classifiers: bool,
-    use_flaml_zeroshot: bool,
     xgboost_verbose,
     metamodel_func,
 ):
@@ -547,10 +521,10 @@ def _configure_xgboost_params(
     xgb_configs = cpu_configs if prefer_cpu_for_xgboost else configs
 
     if use_regression:
-        model_cls = _xgb_regressor_cls(use_flaml_zeroshot)
+        model_cls = _xgb_regressor_cls()
         model = metamodel_func(model_cls(**xgb_configs.XGB_GENERAL_PARAMS))
     else:
-        model_cls = _xgb_classifier_cls(use_flaml_zeroshot)
+        model_cls = _xgb_classifier_cls()
         xgb_classif_params = xgb_configs.XGB_CALIB_CLASSIF if prefer_calibrated_classifiers else xgb_configs.XGB_GENERAL_CLASSIF
         model = model_cls(**xgb_classif_params)
 
@@ -563,7 +537,6 @@ def _configure_lightgbm_params(
     use_regression: bool,
     prefer_cpu_for_lightgbm: bool,
     prefer_calibrated_classifiers: bool,
-    use_flaml_zeroshot: bool,
     metamodel_func,
 ):
     """Configure LightGBM model parameters.
@@ -576,11 +549,11 @@ def _configure_lightgbm_params(
     lgb_configs = cpu_configs if prefer_cpu_for_lightgbm else configs
 
     if use_regression:
-        model_cls = _lgb_regressor_cls(use_flaml_zeroshot)
+        model_cls = _lgb_regressor_cls()
         model = metamodel_func(model_cls(**lgb_configs.LGB_GENERAL_PARAMS))
         fit_params = {}
     else:
-        model_cls = _lgb_classifier_cls(use_flaml_zeroshot)
+        model_cls = _lgb_classifier_cls()
         model = model_cls(**lgb_configs.LGB_GENERAL_PARAMS)
         fit_params = dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if prefer_calibrated_classifiers else {}
 
@@ -786,7 +759,21 @@ def _configure_mlp_params(
                 if "labels_dtype" in mlp_obj:
                     mlp_general_params["datamodule_params"] = mlp_general_params.get("datamodule_params", {}).copy()
                     mlp_general_params["datamodule_params"]["labels_dtype"] = mlp_obj["labels_dtype"]
-        mlp_model = _cls_cls(network_params=mlp_network_params, **mlp_general_params)
+        # ``output_activation="tanh_train_range"`` is a REGRESSION-head bound
+        # (the default set at :709, the only activation that requires
+        # output_activation_scale/center per flat.py:536). It is meaningless
+        # for a classification head and -- worse -- a binary classifier builds
+        # a 1-output sigmoid head (num_classes==1), which makes generate_mlp
+        # take the bounded-output branch and demand scale/center that the
+        # classifier never computes (the y-derived auto-fill in base.py is
+        # gated on num_classes==1 regression). Drop ONLY the train-range value
+        # so the classifier head uses its native default; an explicit caller
+        # 'linear' (or any future classifier-valid activation) is preserved.
+        # Surfaced by fuzz (7 binary/multiclass mlp combos).
+        _cls_network_params = dict(mlp_network_params)
+        if _cls_network_params.get("output_activation") == "tanh_train_range":
+            _cls_network_params.pop("output_activation")
+        mlp_model = _cls_cls(network_params=_cls_network_params, **mlp_general_params)
 
     return dict(model=metamodel_func(mlp_model))
 

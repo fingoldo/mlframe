@@ -2,7 +2,7 @@
 
 Submodules:
     ensembling    - stacking, blending, voting, weighted ensembles.
-    optimization  - hyperparameter optimization (FLAML, Optuna, GridSearch wrappers).
+    optimization  - hyperparameter optimization (Optuna, GridSearch wrappers).
     tuning        - tuning utilities and CV-aware fit-predict loops.
     selection     - train / test / cv-fold splitting (was model_selection.py).
 """

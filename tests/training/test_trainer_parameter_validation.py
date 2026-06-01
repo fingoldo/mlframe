@@ -50,7 +50,6 @@ def test_xgb_regression_cpu(real_configs):
         use_regression=True,
         prefer_cpu_for_xgboost=True,
         prefer_calibrated_classifiers=False,
-        use_flaml_zeroshot=False,
         xgboost_verbose=False,
         metamodel_func=_identity,
     )
@@ -69,7 +68,6 @@ def test_xgb_classification_calibrated(real_configs):
         use_regression=False,
         prefer_cpu_for_xgboost=True,
         prefer_calibrated_classifiers=True,
-        use_flaml_zeroshot=False,
         xgboost_verbose=0,
         metamodel_func=_identity,
     )
@@ -84,7 +82,6 @@ def test_xgb_classification_non_calibrated(real_configs):
         use_regression=False,
         prefer_cpu_for_xgboost=False,  # try GPU config path
         prefer_calibrated_classifiers=False,
-        use_flaml_zeroshot=False,
         xgboost_verbose=False,
         metamodel_func=_identity,
     )
@@ -101,7 +98,6 @@ def test_lgb_regression(real_configs):
         use_regression=True,
         prefer_cpu_for_lightgbm=True,
         prefer_calibrated_classifiers=False,
-        use_flaml_zeroshot=False,
         metamodel_func=_identity,
     )
     assert "model" in out
@@ -117,7 +113,6 @@ def test_lgb_classification_calibrated_adds_eval_metric(real_configs):
         use_regression=False,
         prefer_cpu_for_lightgbm=True,
         prefer_calibrated_classifiers=True,
-        use_flaml_zeroshot=False,
         metamodel_func=_identity,
     )
     assert "eval_metric" in out["fit_params"]
@@ -132,7 +127,6 @@ def test_lgb_classification_non_calibrated(real_configs):
         use_regression=False,
         prefer_cpu_for_lightgbm=True,
         prefer_calibrated_classifiers=False,
-        use_flaml_zeroshot=False,
         metamodel_func=_identity,
     )
     assert out["fit_params"] == {}
