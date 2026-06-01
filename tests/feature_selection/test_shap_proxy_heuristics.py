@@ -77,3 +77,30 @@ def test_annealing_beats_random(easy_problem):
     top = H.simulated_annealing(phi, base, y, classification=False, metric="rmse",
                                 rng=np.random.default_rng(0), n_iter=1500, top_n=5)
     _check(top, phi, base, y, truth)
+
+
+@pytest.mark.parametrize("metric", ["brier", "logloss", "mae", "rmse", "mse", "auc"])
+def test_evaluator_loss_fast_parity(metric):
+    """_Evaluator._loss_fast must be bit-identical to proxy_loss(margin, y, metric).
+
+    Locks the invariant introduced by the iter102 hot-loop optimisation: the cached
+    closure that pre-resolves METRIC_CODES + y dtype must not drift from the canonical
+    proxy_loss path on any of the 6 supported metrics. Catches the subtle case where a
+    metric branch silently uses the wrong code or skips an output transform (e.g. the
+    rmse path must wrap score_margin's mse output in math.sqrt to preserve the absolute
+    loss value, not just the rank).
+    """
+    rng = np.random.default_rng(2026)
+    n, f = 1000, 30
+    phi = rng.standard_normal((n, f)).astype(np.float64)
+    base = rng.standard_normal(n).astype(np.float64)
+    classification = metric in ("brier", "logloss", "auc")
+    y = ((rng.random(n) > 0.5).astype(np.float64)
+         if classification else rng.standard_normal(n).astype(np.float64))
+    phi_p, base_p, y_p, metric_resolved = H._prep(phi, base, y, classification, metric)
+    ev = H._Evaluator(phi_p, base_p, y_p, metric_resolved)
+    for _ in range(40):
+        k = int(rng.integers(1, 20))
+        idx = tuple(sorted(rng.choice(f, size=k, replace=False).tolist()))
+        margin = coalition_margin(phi_p, base_p, list(idx))
+        assert ev._loss_fast(margin) == proxy_loss(margin, y_p, metric_resolved)
