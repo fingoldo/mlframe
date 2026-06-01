@@ -359,6 +359,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # ``self._engineered_recipes_`` automatically.
     self.hybrid_orth_features_ = []
     _hybrid_orth_pre_recipes: dict = {}
+    # Snapshot the raw input columns BEFORE any FE stage appends engineered
+    # intermediates. The cat_pair / cat_triple auto-detect paths restrict their
+    # candidate members to this set so a cross is never built on an engineered
+    # column (which cannot be replayed at transform time -> KeyError).
+    _raw_input_cols_pre_fe = (
+        list(X.columns) if isinstance(X, pd.DataFrame) else []
+    )
     if bool(getattr(self, "fe_hybrid_orth_enable", False)):
         # Polars frames: skip with a warning -- hybrid FE pipeline operates on
         # pandas. Native polars support would require a separate code path;
@@ -3606,6 +3613,20 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     getattr(self, "fe_cat_pair_cat_cols", ()) or ()
                 )
                 _cp_cols = [c for c in _cp_cols if c in X.columns] or None
+                # When auto-detecting cat-pair members, restrict candidates to
+                # the RAW input columns. By this point X carries engineered
+                # intermediates (count/frequency-encoded integer columns from
+                # the L34 stage) whose low cardinality would otherwise let
+                # auto_detect_cat_pair_cols promote them as pair members. A
+                # cross built on an engineered column cannot be replayed at
+                # transform time (the recipe looks the column up directly in
+                # X_test, where only raw inputs are guaranteed present) and
+                # raises KeyError. Crossing raw categoricals only keeps the
+                # recipe a pure function of X.
+                if _cp_cols is None:
+                    _cp_cols = [
+                        c for c in _raw_input_cols_pre_fe if c in X.columns
+                    ] or None
                 _cp_min_ii = float(
                     getattr(self, "fe_cat_pair_min_interaction_info", 0.001)
                 )
@@ -3664,6 +3685,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     getattr(self, "fe_cat_triple_cat_cols", ()) or ()
                 )
                 _ct_cols = [c for c in _ct_cols if c in X.columns] or None
+                # Same raw-column restriction as the cat_pair stage: auto-
+                # detected triple members must be raw inputs so the cross
+                # recipe replays as a pure function of X (an engineered
+                # intermediate would raise KeyError at transform time).
+                if _ct_cols is None:
+                    _ct_cols = [
+                        c for c in _raw_input_cols_pre_fe if c in X.columns
+                    ] or None
                 _ct_min_ii = float(
                     getattr(self, "fe_cat_triple_min_interaction_info", 0.001)
                 )

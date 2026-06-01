@@ -232,6 +232,18 @@ def _build_kitchen_sink_mrmr():
         dcd_enable=False,
         cluster_aggregate_enable=False,
         build_friend_graph=False,
+        # Disable the Layer-91 local-MI gate for this fixture only. The gate
+        # (default-ON since L91) legitimately prunes engineered columns whose
+        # per-column MI to y is sub-noise; on this synthetic kitchen-sink frame
+        # the count / kfold-TE / pairwise-ratio / grouped-delta / lagged-diff /
+        # missingness-indicator outputs are weak relative to the planted
+        # signal and get trimmed, so they never reach the recipe ledger. This
+        # test pins PROVENANCE-LEDGER COMPLETENESS (every enabled mechanism
+        # contributes a row), an orthogonal concern from the gate's pruning
+        # decision (which has its own L91 biz_value coverage). Turning the gate
+        # off here lets every mechanism's output survive to fe_provenance_ so
+        # the ledger-coverage contract is exercised without fighting the gate.
+        fe_local_mi_gate=False,
         fe_max_steps=1,
         # L21 hybrid orth pair-cross (master + pair already default ON
         # when master is on).
