@@ -742,10 +742,16 @@ def compute_shap_matrix(
         return fold_id, va_idx, pf, bf, vf
 
     if outer > 1:
-        from joblib import Parallel, delayed
+        # iter104: ThreadPoolExecutor over joblib.Parallel(prefer="threads") -- removes the
+        # _retrieve polling loop (~13ms per fit attribution) when many short-ish folds compete
+        # for the pool. xgb/lgbm release the GIL during fit so threads share the large
+        # DataFrames without per-task pickling, same semantics as before. fold_id is carried
+        # in the returned tuple so the downstream concat doesn't depend on completion order.
+        from concurrent.futures import ThreadPoolExecutor
 
-        fold_results = Parallel(n_jobs=outer, prefer="threads")(
-            delayed(_one_fold)(fid, tr, va) for fid, (tr, va) in enumerate(folds))
+        with ThreadPoolExecutor(max_workers=outer) as ex:
+            futs = [ex.submit(_one_fold, fid, tr, va) for fid, (tr, va) in enumerate(folds)]
+            fold_results = [f.result() for f in futs]
     else:
         iter_folds = folds
         if tqdm_desc:
