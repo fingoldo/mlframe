@@ -35,6 +35,97 @@ from sklearn.metrics import make_scorer
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 
+# 2026-06-01 Layer 85 — default-scorer dispatcher for the Layer 21 hybrid
+# orth-poly univariate basis-selection stage. Imports the alternate scorer
+# module lazily so callers paying for "plug_in" (the default) do not pay
+# the import cost. Every alternate scorer's ``*_with_recipes`` returns the
+# same ``(X_aug, scores_df, recipes_list)`` 3-tuple as Layer 21's plain
+# univariate path -- so the caller plumbing in ``_fit_impl`` is unchanged.
+def _dispatch_default_scorer(
+    scorer: str,
+    *,
+    X: pd.DataFrame,
+    y: np.ndarray,
+    cols,
+    degrees,
+    basis: str,
+    top_k: int,
+):
+    """Route a non-``plug_in`` ``fe_hybrid_orth_default_scorer`` value to
+    the matching ``*_with_recipes`` univariate-stage builder.
+
+    Returns the same ``(X_aug, scores_df, recipes_list)`` tuple every
+    alternate scorer's ``with_recipes`` variant exposes. Raises
+    ``ValueError`` on an unrecognised scorer string (defensive: the public
+    validation entry point catches this in ``_validate_string_params``).
+    """
+    if scorer == "cmim":
+        from ._orthogonal_cmim_fe import (
+            hybrid_orth_mi_cmim_fe_with_recipes as _fn,
+        )
+        return _fn(X, y, cols=cols, degrees=degrees, basis=basis, top_k=top_k)
+    if scorer == "jmim":
+        from ._orthogonal_jmim_fe import (
+            hybrid_orth_mi_jmim_fe_with_recipes as _fn,
+        )
+        return _fn(X, y, cols=cols, degrees=degrees, basis=basis, top_k=top_k)
+    if scorer == "tc":
+        from ._orthogonal_total_correlation_fe import (
+            hybrid_orth_mi_tc_fe_with_recipes as _fn,
+        )
+        return _fn(X, y, cols=cols, degrees=degrees, basis=basis, top_k=top_k)
+    if scorer == "ksg":
+        from ._orthogonal_ksg_mi_fe import (
+            hybrid_orth_mi_ksg_fe_with_recipes as _fn,
+        )
+        return _fn(X, y, cols=cols, degrees=degrees, basis=basis, top_k=top_k)
+    if scorer == "copula":
+        from ._orthogonal_copula_mi_fe import (
+            hybrid_orth_mi_copula_fe_with_recipes as _fn,
+        )
+        return _fn(X, y, cols=cols, degrees=degrees, basis=basis, top_k=top_k)
+    if scorer == "dcor":
+        from ._orthogonal_dcor_fe import (
+            hybrid_orth_mi_dcor_fe_with_recipes as _fn,
+        )
+        return _fn(X, y, cols=cols, degrees=degrees, basis=basis, top_k=top_k)
+    if scorer == "hsic":
+        from ._orthogonal_hsic_fe import (
+            hybrid_orth_mi_hsic_fe_with_recipes as _fn,
+        )
+        return _fn(X, y, cols=cols, degrees=degrees, basis=basis, top_k=top_k)
+    if scorer == "lasso":
+        from ._orthogonal_lasso_fe import (
+            hybrid_orth_mi_lasso_fe_with_recipes as _fn,
+        )
+        return _fn(X, y, cols=cols, degrees=degrees, basis=basis, top_k=top_k)
+    if scorer == "elasticnet":
+        from ._orthogonal_elasticnet_fe import (
+            hybrid_orth_mi_elasticnet_fe_with_recipes as _fn,
+        )
+        return _fn(X, y, cols=cols, degrees=degrees, basis=basis, top_k=top_k)
+    if scorer == "auto":
+        from ._orthogonal_scorer_auto_fe import (
+            hybrid_orth_mi_auto_scorer_fe_with_recipes as _fn,
+        )
+        return _fn(X, y, cols=cols, degrees=degrees, basis=basis, top_k=top_k)
+    if scorer == "ensemble":
+        from ._orthogonal_scorer_auto_fe import (
+            hybrid_orth_mi_ensemble_fe_with_recipes as _fn,
+        )
+        return _fn(X, y, cols=cols, degrees=degrees, basis=basis, top_k=top_k)
+    if scorer == "meta":
+        from ._orthogonal_meta_scorer_fe import (
+            hybrid_orth_mi_meta_fe_with_recipes as _fn,
+        )
+        return _fn(X, y, cols=cols, degrees=degrees, basis=basis, top_k=top_k)
+    raise ValueError(
+        f"_dispatch_default_scorer: unrecognised scorer={scorer!r}. "
+        f"This is a defensive bug -- ``_validate_string_params`` should "
+        f"have caught the bad value before fit reached the dispatcher."
+    )
+
+
 def _mrmr_instance_state_size_bytes(instance: Any) -> int:
     """Best-effort byte estimate for a single fitted MRMR instance's selector + engineered-features state.
 
@@ -299,19 +390,43 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         c for c in self.factors_names_to_use if c in X.columns
                     ]
                 _X_before_hybrid_cols = list(X.columns)
-                if _h_pair_enable:
-                    X_h, _uni_sc, _cross_sc, _recipes = hybrid_orth_mi_pair_fe_with_recipes(
-                        X, _y_for_hybrid,
-                        cols=_h_cols,
-                        degrees=_h_degrees,
-                        basis=_h_basis,
-                        top_k=_h_top_k,
-                        top_pair_count=_h_top_k,
-                        pair_max_degree=_h_pair_max_degree,
-                    )
+                # 2026-06-01 Layer 85 — default-scorer routing for the L21
+                # univariate basis-selection stage. Non-"plug_in" values
+                # route the univariate dispatch through one of the alternate
+                # scorers (CMIM, JMIM, KSG, copula, dCor, HSIC, TC, lasso,
+                # elasticnet, auto, ensemble, meta). Recipes still emit as
+                # ``orth_univariate``; only the SELECTION differs. The pair
+                # stage (L22) is skipped under non-default routing because
+                # the alternate scorers operate on univariate columns only.
+                # "plug_in" preserves the master-branch byte-identical
+                # behaviour: pair stage runs IFF ``pair_enable=True``.
+                _default_scorer = str(getattr(
+                    self, "fe_hybrid_orth_default_scorer", "plug_in",
+                ))
+                if _default_scorer == "plug_in":
+                    if _h_pair_enable:
+                        X_h, _uni_sc, _cross_sc, _recipes = hybrid_orth_mi_pair_fe_with_recipes(
+                            X, _y_for_hybrid,
+                            cols=_h_cols,
+                            degrees=_h_degrees,
+                            basis=_h_basis,
+                            top_k=_h_top_k,
+                            top_pair_count=_h_top_k,
+                            pair_max_degree=_h_pair_max_degree,
+                        )
+                    else:
+                        X_h, _uni_sc, _recipes = hybrid_orth_mi_fe_with_recipes(
+                            X, _y_for_hybrid,
+                            cols=_h_cols,
+                            degrees=_h_degrees,
+                            basis=_h_basis,
+                            top_k=_h_top_k,
+                        )
                 else:
-                    X_h, _uni_sc, _recipes = hybrid_orth_mi_fe_with_recipes(
-                        X, _y_for_hybrid,
+                    X_h, _uni_sc, _recipes = _dispatch_default_scorer(
+                        _default_scorer,
+                        X=X,
+                        y=_y_for_hybrid,
                         cols=_h_cols,
                         degrees=_h_degrees,
                         basis=_h_basis,

@@ -135,6 +135,29 @@ def _validate_string_params(self):
                 f"MRMR: {_name}={_val!r} is not a recognised value. "
                 f"Valid values: {_valid}."
             )
+    # 2026-06-01 Layer 85 — validate the orth default-scorer routing flag.
+    # Kept outside the ``_checks`` loop because the attribute lives on the
+    # MRMR class as ``_VALID_FE_HYBRID_ORTH_DEFAULT_SCORERS`` (longer name
+    # than the constants reused by the loop). Invalid value -> ValueError
+    # listing every accepted scorer so the message is actionable.
+    _default_scorer = getattr(self, "fe_hybrid_orth_default_scorer", None)
+    if _default_scorer is not None:
+        _valid_scorers = getattr(
+            self, "_VALID_FE_HYBRID_ORTH_DEFAULT_SCORERS", None,
+        )
+        if _valid_scorers is not None:
+            if not isinstance(_default_scorer, str):
+                raise ValueError(
+                    f"MRMR: fe_hybrid_orth_default_scorer must be a string; "
+                    f"got {type(_default_scorer).__name__}={_default_scorer!r}. "
+                    f"Valid values: {_valid_scorers}."
+                )
+            if _default_scorer not in _valid_scorers:
+                raise ValueError(
+                    f"MRMR: fe_hybrid_orth_default_scorer={_default_scorer!r} "
+                    f"is not a recognised value. "
+                    f"Valid values: {_valid_scorers}."
+                )
     # cluster_aggregate_methods is a sequence; validate each element.
     _methods = getattr(self, "cluster_aggregate_methods", None)
     if _methods is not None:

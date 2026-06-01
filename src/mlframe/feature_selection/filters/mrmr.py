@@ -1067,6 +1067,29 @@ class MRMR(BaseEstimator, TransformerMixin):
         # Default OFF preserves pickle byte-equivalence.
         fe_hybrid_orth_meta_enable: bool = False,
         fe_hybrid_orth_meta_force_scorer: Optional[str] = None,
+        # 2026-06-01 Layer 85 — DEFAULT-SCORER ROUTING flag for the Layer 21
+        # univariate hybrid orth-poly basis-selection stage. Routes the
+        # ``fe_hybrid_orth_enable=True`` univariate dispatch through one of
+        # the Layer 65 / 66 / 67 / 71 / 72 / 73 / 74 / 76 / 81 / 82 / 68 / 69
+        # scorers instead of the plug-in MI default. Recipes still emit as
+        # ``orth_univariate`` (engineered VALUES are bit-identical -- only
+        # the SCORING / SELECTION differs), replay reads X only, no y, so
+        # the replay path is shared with Layer 21. Layer 83's 7-dataset
+        # showdown placed CMIM (5/7 wins) on top of the empirical leader-
+        # board, so callers that want to pick the empirically-best scorer
+        # in one knob can set ``"cmim"`` here without having to know which
+        # specific master flag to toggle. ``"plug_in"`` (default) keeps
+        # behaviour byte-identical to pre-L85 master. Accepted values:
+        # ``"plug_in"`` / ``"cmim"`` / ``"jmim"`` / ``"tc"`` / ``"ksg"`` /
+        # ``"copula"`` / ``"dcor"`` / ``"hsic"`` / ``"auto"`` (Layer 68
+        # bootstrap LCB per-column) / ``"ensemble"`` (Layer 69 rank-fusion)
+        # / ``"meta"`` (Layer 76 cascade) / ``"lasso"`` (Layer 81) /
+        # ``"elasticnet"`` (Layer 82). NOTE: when this flag is non-default,
+        # the pair stage (Layer 22) is skipped because the alternate
+        # scorers operate on the univariate stage only -- callers needing
+        # both should keep ``"plug_in"`` and toggle the per-stage opt-in
+        # flags individually.
+        fe_hybrid_orth_default_scorer: str = "plug_in",
         # 2026-05-31 Layer 32 — extra (non-polynomial) basis FE: B-spline +
         # Fourier. Complementary to the orth-poly path: spline catches sharp
         # local non-linearities (threshold rules ``y = sign(x - tau)``);
@@ -1337,6 +1360,46 @@ class MRMR(BaseEstimator, TransformerMixin):
         "auto", "mean_z", "mean_inv_var", "median", "pca_pc1", "factor_score",
         "pca_pc2", "median_z", "signed_max_abs", "signed_l2_sum",
     )
+
+    # 2026-06-01 Layer 85 — accepted values for
+    # ``fe_hybrid_orth_default_scorer``. "plug_in" preserves Layer 21's
+    # behaviour byte-for-byte; the other 12 entries route the univariate
+    # basis-selection stage through the Layers listed alongside.
+    _VALID_FE_HYBRID_ORTH_DEFAULT_SCORERS = (
+        "plug_in",     # Layer 21 (default)
+        "cmim",        # Layer 74
+        "jmim",        # Layer 72
+        "tc",          # Layer 73
+        "ksg",         # Layer 65
+        "copula",      # Layer 66
+        "dcor",        # Layer 67
+        "hsic",        # Layer 71
+        "auto",        # Layer 68
+        "ensemble",    # Layer 69
+        "meta",        # Layer 76
+        "lasso",       # Layer 81
+        "elasticnet",  # Layer 82
+    )
+
+    @classmethod
+    def recommend_default_scorer(cls) -> str:
+        """Return the empirically-best ``fe_hybrid_orth_default_scorer`` value.
+
+        Layer 83's 7-dataset x 10-mechanism showdown placed CMIM (Layer 74)
+        first on real sklearn data: 5/7 dataset wins on top-AUC of the
+        downstream LogReg over the marginal-MI baseline, including all
+        three high-redundancy fixtures where the conditional-MI
+        redundancy filter dominates. JMIM (Layer 72) is the next-best on
+        2/7 (the heavily-interacting pools), and the plug-in default is
+        last on every redundant fixture. Callers that do not know which
+        scorer to pick should default to the return value of this method.
+
+        Returns
+        -------
+        str
+            ``"cmim"`` -- the Layer 83 leaderboard winner.
+        """
+        return "cmim"
 
     # ``_validate_string_params`` + ``_validate_inputs`` are implemented
     # in ``_mrmr_validate_transform.py`` and bound onto this class at the
