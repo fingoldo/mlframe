@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-06-01 — Layer 103: Param-Oracle <-> kernel_tuning_cache migration POC (polyeval CPU backend)
+
+Wires the FIRST ``kernel_tuning_cache`` consumer through the Layer-98 Param-Oracle, as a proof-of-concept of the migration path from hand-emitted region tables to learned-from-observations dispatch. Scope is deliberately the CPU-side backend choice only.
+
+Bridge (``ParamOracle.read_ktc_regions`` / ``ParamOracle.from_kernel_tuning_cache`` in ``mlframe.utils._param_oracle``). A READ-ONLY importer that turns a ``KernelTuningCache`` kernel's region table into cold-start observations so a migrated consumer inherits the accumulated tuning history instead of starting blind. Each size-capped region (``<axis>_max``) becomes one observation: the cap is the representative fingerprint size, the region's ``param_field`` value (e.g. ``backend``) is the param combo, and the region's ``wall_ms`` (scaled ms -> s) is the objective. Catch-all regions (no size cap) are skipped (no representative size to key a fingerprint on). The bridge calls ONLY ``cache.get_regions`` — it never invokes ``update`` / ``_save`` on the kernel cache; ``pyutilz.system.kernel_tuning_cache`` is unmodified.
+
+CPU-backend wiring (``polyeval_dispatch`` in ``feature_selection/filters/hermite_fe.py``). The njit-vs-njit_par crossover — previously a hardcoded / kernel_tuning_cache threshold (``_PAR_THRESHOLD=50000``) — is routed through a ``ParamOracle`` keyed on the array-size fingerprint with ``param_space={"backend": ["njit", "njit_par"]}`` minimising wall-time. Gated OFF by default (``MLFRAME_POLYEVAL_ORACLE`` unset/``"0"``) so the legacy path is byte-identical; when enabled, the oracle recommends the empirically faster backend per fingerprinted size. ``benchmark_polyeval_cpu_backends(basis, sizes, repeats)`` sweeps both backends at a few sizes and records the wall-times to populate the oracle. The crossover the oracle LEARNS on the dev box: n=200 njit ~2.5us beats njit_par ~44us; n=500k njit_par ~2.17ms beats njit ~13.4ms — so it recommends njit at small n and njit_par at large n, from observed times, not a constant. Output is bit-equivalent regardless of which backend is picked (rtol 1e-12; the only difference is last-ULP Horner rounding).
+
+DEFERRED — GPU threshold migration. The cuda crossover stays EXACTLY on ``kernel_tuning_cache`` (``_lookup_polyeval_thresholds``); the oracle governs ONLY the CPU ``{njit, njit_par}`` choice. cupy is broken on this dev box (DLL load fault 0xc0000139 on ``import cupy``), so the GPU path cannot be benched and migrating it would mean inventing wall-times. It is left untouched until a working CUDA box can populate honest observations.
+
+Tests: ``tests/feature_selection/test_biz_value_mrmr_layer103.py`` (21 cases) — bridge imports KTC regions as cold-start observations (read-only, catch-all skipped), oracle learns the njit/njit_par crossover from wall-times, bit-equivalence across all four bases (rtol 1e-12), default-OFF byte-identical to the legacy threshold path, GPU path untouched (no cupy imported on the CPU path; cuda branch still consults kernel_tuning_cache), and kernel_tuning_cache never written by the bridge. Never xfail. 21 passed.
+
 ## 2026-06-01 — Layers 98/100/101: Param-Oracle + scorer-unify + 100-layer regression (capstone)
 
 This entry summarizes the three layers that bracket the Layer-99 META FE-RECOMMENDER (below): the meta-learning cache it is built on (L98), the scorer-selection unification that reuses it (L100), and the end-of-line verification layer (L101).

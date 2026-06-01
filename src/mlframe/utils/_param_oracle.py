@@ -634,6 +634,125 @@ class ParamOracle:
         }
         self.store.append([row])
 
+    # ----- kernel_tuning_cache import bridge (read-only) -----
+
+    def read_ktc_regions(
+        self,
+        kernel_name: str,
+        *,
+        param_field: str,
+        axis: str = "n_samples",
+        fp_dim: str = "n",
+        objective_metric: str = "elapsed_s",
+        objective_field: str = "wall_ms",
+        objective_scale: float = 1e-3,
+        fixed_fp: Optional[Mapping[str, Any]] = None,
+        n_obs: int = 1,
+        ts: Optional[str] = None,
+        fn_name: str = "<anon>",
+        cache: Any = None,
+    ) -> int:
+        """Import a KernelTuningCache kernel's region table as cold-start
+        observations so a freshly-migrated consumer inherits the tuning
+        history instead of starting blind.
+
+        READ-ONLY bridge: this reads ``kernel_tuning_cache`` and writes only
+        into THIS oracle's own store. It never calls ``update``/``_save`` on
+        the kernel cache.
+
+        Each region in ``cache.get_regions(kernel_name)`` is turned into one
+        observation:
+
+        * the region's single size cap ``<axis>_max`` becomes the fingerprint
+          value for ``fp_dim`` (a region capped at ``axis_max=N`` is treated as
+          representative of arrays of size ``N``; a catch-all region with a
+          ``None`` cap is skipped because it has no representative size);
+        * the region's ``param_field`` value (e.g. ``"variant"`` /
+          ``"backend"``) becomes the recorded param combo
+          ``{param_field: <value>}``;
+        * the region's ``objective_field`` (default ``"wall_ms"``) scaled by
+          ``objective_scale`` (default ms -> s) becomes the objective metric
+          ``objective_metric`` (default ``"elapsed_s"``).
+
+        Regions lacking a usable cap, param value, or objective are skipped.
+        Returns the number of observations imported.
+        """
+        if cache is None:
+            from pyutilz.system.kernel_tuning_cache import KernelTuningCache
+            cache = KernelTuningCache()
+        regions = cache.get_regions(kernel_name)
+        if not regions:
+            return 0
+        cap_key = f"{axis}_max"
+        imported = 0
+        for region in regions:
+            cap = region.get(cap_key)
+            if cap is None:
+                # Catch-all region has no representative size -> nothing to
+                # key a fingerprint on; skip (its variant still surfaces via
+                # the size-capped regions that precede it).
+                continue
+            param_value = region.get(param_field)
+            if param_value is None:
+                continue
+            raw_obj = region.get(objective_field)
+            if not isinstance(raw_obj, (int, float)) or isinstance(raw_obj, bool):
+                continue
+            try:
+                size = float(cap)
+            except (TypeError, ValueError):
+                continue
+            fp = dict(fixed_fp or {})
+            fp[fp_dim] = size
+            objective = {objective_metric: float(raw_obj) * float(objective_scale)}
+            self.record(
+                fp, {param_field: param_value}, objective,
+                ts=ts, fn_name=fn_name,
+            )
+            imported += int(n_obs)
+            # If the caller asked for n_obs > 1 confidence weight, append the
+            # remaining duplicate observations so the imported region clears
+            # the min_observations gate.
+            for _ in range(max(0, int(n_obs) - 1)):
+                self.record(
+                    fp, {param_field: param_value}, objective,
+                    ts=ts, fn_name=fn_name,
+                )
+        return imported
+
+    @classmethod
+    def from_kernel_tuning_cache(
+        cls,
+        store_path: str,
+        kernel_name: str,
+        *,
+        param_field: str,
+        param_space: Mapping[str, Sequence[Any]],
+        axis: str = "n_samples",
+        fp_dim: str = "n",
+        objective_metric: str = "elapsed_s",
+        objective_field: str = "wall_ms",
+        objective_scale: float = 1e-3,
+        n_obs: int = 1,
+        ts: Optional[str] = None,
+        fn_name: str = "<anon>",
+        cache: Any = None,
+        **oracle_kwargs: Any,
+    ) -> "ParamOracle":
+        """Build a ParamOracle and seed it with ``kernel_name``'s KTC region
+        table as cold-start observations. Read-only w.r.t. the kernel cache.
+        Convenience wrapper over :meth:`read_ktc_regions`."""
+        oracle = cls(store_path, param_space=param_space,
+                     minimize=oracle_kwargs.pop("minimize", objective_metric),
+                     **oracle_kwargs)
+        oracle.read_ktc_regions(
+            kernel_name, param_field=param_field, axis=axis, fp_dim=fp_dim,
+            objective_metric=objective_metric, objective_field=objective_field,
+            objective_scale=objective_scale, n_obs=n_obs, ts=ts,
+            fn_name=fn_name, cache=cache,
+        )
+        return oracle
+
     # ----- recommend -----
 
     def recommend(self, fp_dict: Mapping[str, Any], fn_name: str = "<anon>") -> dict:

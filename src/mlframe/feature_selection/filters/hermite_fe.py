@@ -631,26 +631,144 @@ def _lookup_polyeval_thresholds(basis: str, n: int) -> tuple[int, int]:
         return _PAR_THRESHOLD, _CUDA_THRESHOLD
 
 
+# --- Param-Oracle CPU-backend migration (proof-of-concept) -----------------
+# The njit-vs-njit_par CPU crossover is the FIRST kernel_tuning_cache decision
+# migrated to the ParamOracle ("learning to optimize") path. It is gated OFF by
+# default (MLFRAME_POLYEVAL_ORACLE unset/"0") so the legacy threshold path stays
+# byte-identical. When enabled, a ParamOracle keyed on the array-size fingerprint
+# picks njit vs njit_par from RECORDED wall-times instead of a hardcoded crossover.
+#
+# DEFERRED: the GPU (cuda) threshold migration is NOT done -- cupy is broken on
+# this dev box so the CUDA crossover cannot be benched. The cuda branch below
+# stays EXACTLY on kernel_tuning_cache (_lookup_polyeval_thresholds). Migrating it
+# needs a working CUDA box to populate honest wall-times; see PHASE 5 of the
+# migration note. The oracle here governs ONLY the {njit, njit_par} CPU choice.
+
+_POLYEVAL_ORACLE_FN_NAME = "polyeval_cpu_backend"
+_POLYEVAL_ORACLE_PARAM_SPACE = {"backend": ["njit", "njit_par"]}
+_polyeval_oracle_singleton = None
+
+
+def _polyeval_oracle_enabled() -> bool:
+    return _os.environ.get("MLFRAME_POLYEVAL_ORACLE", "0").strip() not in ("", "0")
+
+
+def _polyeval_size_fingerprint(n: int) -> dict:
+    """Stat-only fingerprint for the CPU-backend choice: array length only.
+    Buckets at half-decade resolution (handled downstream by the oracle), so
+    n=200 and n=210 collapse to one region but n=200 and n=500k do not."""
+    return {"n": int(n), "p": 1, "dtype_kind": "f"}
+
+
+def get_polyeval_oracle():
+    """Lazily build (once per process) the ParamOracle that governs the CPU
+    njit/njit_par backend choice. Seeds cold-start observations from the
+    existing ``polyeval`` kernel_tuning_cache regions (read-only bridge) so the
+    migration inherits any HW-tuned history rather than starting blind."""
+    global _polyeval_oracle_singleton
+    if _polyeval_oracle_singleton is not None:
+        return _polyeval_oracle_singleton
+    from mlframe.utils._param_oracle import ParamOracle
+    oracle = ParamOracle(
+        "polyeval_cpu_backend.parquet",
+        param_space=_POLYEVAL_ORACLE_PARAM_SPACE,
+        minimize="elapsed_s",
+        mode="inference",
+        min_observations=1,
+    )
+    # Read-only import of any njit/njit_par history the kernel cache holds. The
+    # legacy 'polyeval' KTC entry stores par_threshold/cuda_threshold, not a
+    # per-size backend label, so this is usually a no-op today; the bridge is
+    # exercised by Layer-103 tests with synthetic KTC data and is ready for the
+    # day a per-size CPU sweep is recorded.
+    try:
+        oracle.read_ktc_regions(
+            "polyeval_cpu_backend", param_field="backend",
+            fixed_fp={"p": 1, "dtype_kind": "f"},
+            fn_name=_POLYEVAL_ORACLE_FN_NAME,
+        )
+    except Exception:
+        pass
+    _polyeval_oracle_singleton = oracle
+    return _polyeval_oracle_singleton
+
+
+def benchmark_polyeval_cpu_backends(basis: str, sizes=(200, 500_000),
+                                    repeats: int = 3, oracle=None) -> dict:
+    """Sweep njit vs njit_par at the given array sizes, timing each, and record
+    the wall-times into the CPU-backend ParamOracle. Populates the oracle so
+    later ``inference`` calls recommend the empirically faster backend per size.
+
+    Returns ``{(n, backend): median_elapsed_s}`` for inspection. CPU-only: never
+    touches the cuda path (unbenchable here)."""
+    import time as _time
+    if oracle is None:
+        oracle = get_polyeval_oracle()
+    c = np.array([0.3, -0.7, 0.2, 0.5, -0.1], dtype=np.float64)
+    funcs = {"njit": _NJIT_FUNCS[basis], "njit_par": _NJIT_PAR_FUNCS[basis]}
+    results: dict = {}
+    for n in sizes:
+        x = np.linspace(-1.0, 1.0, int(n)).astype(np.float64)
+        for backend, fn in funcs.items():
+            fn(x, c)  # warm the numba compile so it doesn't pollute the timing
+            times = []
+            for _ in range(max(1, repeats)):
+                t0 = _time.perf_counter()
+                fn(x, c)
+                times.append(_time.perf_counter() - t0)
+            med = float(sorted(times)[len(times) // 2])
+            fp = _polyeval_size_fingerprint(n)
+            oracle.record(fp, {"backend": backend}, {"elapsed_s": med},
+                          fn_name=_POLYEVAL_ORACLE_FN_NAME)
+            results[(int(n), backend)] = med
+    return results
+
+
+def _polyeval_oracle_pick_cpu_backend(n: int) -> str:
+    """Ask the oracle which CPU backend (njit | njit_par) is faster for size
+    ``n``. Falls back to ``njit`` if the oracle has no usable recommendation."""
+    oracle = get_polyeval_oracle()
+    fp = _polyeval_size_fingerprint(n)
+    combo = oracle.recommend(fp, fn_name=_POLYEVAL_ORACLE_FN_NAME)
+    backend = combo.get("backend") if isinstance(combo, dict) else None
+    return backend if backend in ("njit", "njit_par") else "njit"
+
+
 def polyeval_dispatch(basis: str, x: np.ndarray, c: np.ndarray) -> np.ndarray:
     """Size + hardware-aware polynomial evaluator. Routes to njit / njit_par / cuda backend based on len(x)
     and CUDA availability. Override the chosen backend via MLFRAME_POLYEVAL_BACKEND env var (njit | njit_par | cuda).
 
     Crossover thresholds consult ``kernel_tuning_cache`` first
     (HW-tuned) and fall back to the source-code defaults
-    (env-var-overridable for tests) when no cache entry exists."""
+    (env-var-overridable for tests) when no cache entry exists.
+
+    CPU-backend migration (opt-in): when ``MLFRAME_POLYEVAL_ORACLE`` is truthy,
+    the njit-vs-njit_par CPU choice is delegated to a ParamOracle that learns the
+    crossover from recorded wall-times. The cuda path is unaffected and stays on
+    kernel_tuning_cache (cupy unbenchable on the dev box -- migration DEFERRED).
+    Default (flag unset) is byte-identical to the legacy threshold path."""
     forced = _os.environ.get("MLFRAME_POLYEVAL_BACKEND", "")
     n = x.shape[0]
     _par_threshold, _cuda_threshold = _lookup_polyeval_thresholds(basis, n)
-    if forced == "njit" or n < _par_threshold:
+    if forced == "njit":
         return _NJIT_FUNCS[basis](x, c)
+    # CUDA path: untouched, still kernel_tuning_cache-driven (deferred migration).
     if (forced == "cuda" or
             (forced == "" and n >= _cuda_threshold and _CUDA_AVAILABLE)):
         if _CUDA_AVAILABLE:
             return _polyeval_cuda(basis, x, c)
         # User asked for cuda but it isn't available -- silent fallback.
-    if forced == "njit_par" or n >= _par_threshold:
+    if forced == "njit_par":
         return _NJIT_PAR_FUNCS[basis](x, c)
-    return _NJIT_FUNCS[basis](x, c)
+    # CPU njit/njit_par crossover: oracle-driven when enabled, else the legacy
+    # hardcoded/kernel_tuning_cache threshold.
+    if forced == "" and _polyeval_oracle_enabled():
+        if _polyeval_oracle_pick_cpu_backend(n) == "njit_par":
+            return _NJIT_PAR_FUNCS[basis](x, c)
+        return _NJIT_FUNCS[basis](x, c)
+    if n < _par_threshold:
+        return _NJIT_FUNCS[basis](x, c)
+    return _NJIT_PAR_FUNCS[basis](x, c)
 
 
 # Polynomial basis registry. Each entry maps a name to (eval_func, preprocess_func, expected_input_distribution_doc).
