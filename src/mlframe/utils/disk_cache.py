@@ -288,7 +288,22 @@ class DiskCache:
         try:
             value = safe_load(str(path), allow_unverified=True)
         except PickleVerificationError as exc:
-            logger.debug("DiskCache: sidecar verification failed for %s: %s", path, exc)
+            # Sidecar digest mismatch -- payload bytes diverged from the
+            # hash recorded at put-time. Treat as a corrupt cache entry
+            # (third-party tampering, mid-rename crash on a non-atomic
+            # FS, or just a truncated copy) and drop both files so the
+            # next put rebuilds cleanly. Mirrors the legacy bare-pickle
+            # corrupt-entry handling that the safe_pickle migration
+            # otherwise side-steps.
+            logger.debug("DiskCache: sidecar verification failed for %s: %s; removing", path, exc)
+            try:
+                path.unlink()
+            except OSError:
+                pass
+            try:
+                Path(str(path) + ".sha256").unlink()
+            except OSError:
+                pass
             self.misses += 1
             return None
         except (pickle.UnpicklingError, EOFError, OSError) as exc:
@@ -297,6 +312,10 @@ class DiskCache:
             logger.debug("DiskCache: corrupt entry %s (%s); removing", path, exc)
             try:
                 path.unlink()
+            except OSError:
+                pass
+            try:
+                Path(str(path) + ".sha256").unlink()
             except OSError:
                 pass
             self.misses += 1

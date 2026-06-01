@@ -107,8 +107,12 @@ def test_compute_shap_matrix_per_fold_fit_cache_populated(tmp_path: Path):
         cache_dir=cache_dir,
     )
     files = list(cache_dir.iterdir())
-    fold_fit_files = [f for f in files if f.name.startswith("oof_fold_fit_")]
-    phi_files = [f for f in files if f.name.startswith("shap_phi_")]
+    # safe_pickle (W7) writes a ``<name>.pkl.sha256`` companion next to each
+    # ``.pkl`` payload. Count only the payloads -- the sidecar is an
+    # implementation detail of the verification layer, not a separate cache
+    # entry. ``endswith(".pkl")`` excludes the ``.pkl.sha256`` files.
+    fold_fit_files = [f for f in files if f.name.startswith("oof_fold_fit_") and f.name.endswith(".pkl")]
+    phi_files = [f for f in files if f.name.startswith("shap_phi_") and f.name.endswith(".pkl")]
     # One outer phi entry + one per-fold-fit entry per (fold, model) = 3 * 1 = 3.
     assert len(phi_files) == 1, f"expected 1 shap_phi_ entry, got {len(phi_files)}"
     assert len(fold_fit_files) == 3, f"expected 3 oof_fold_fit_ entries, got {len(fold_fit_files)}"
@@ -135,8 +139,10 @@ def test_compute_shap_matrix_per_fold_cache_hits_on_outer_miss(tmp_path: Path):
         tpl, X, y, classification=True, out_of_fold=True, n_splits=3, n_models=1,
         return_variance=False, rng=rng_a, cache_dir=cache_dir,
     )
+    # Filter ``.pkl.sha256`` sidecars produced by the safe_pickle migration.
     fold_fit_files_after_first = sorted(
-        f.name for f in cache_dir.iterdir() if f.name.startswith("oof_fold_fit_")
+        f.name for f in cache_dir.iterdir()
+        if f.name.startswith("oof_fold_fit_") and f.name.endswith(".pkl")
     )
     assert len(fold_fit_files_after_first) == 3
 
@@ -154,12 +160,16 @@ def test_compute_shap_matrix_per_fold_cache_hits_on_outer_miss(tmp_path: Path):
     np.testing.assert_array_equal(y_a, y_b)
 
     fold_fit_files_after_second = sorted(
-        f.name for f in cache_dir.iterdir() if f.name.startswith("oof_fold_fit_")
+        f.name for f in cache_dir.iterdir()
+        if f.name.startswith("oof_fold_fit_") and f.name.endswith(".pkl")
     )
     # No new per-fold-fit entries: the second call was served entirely from cache.
     assert fold_fit_files_after_second == fold_fit_files_after_first
     # The second call now also seeded its own outer ``shap_phi_`` entry (return_variance=True).
-    phi_files = [f for f in cache_dir.iterdir() if f.name.startswith("shap_phi_")]
+    phi_files = [
+        f for f in cache_dir.iterdir()
+        if f.name.startswith("shap_phi_") and f.name.endswith(".pkl")
+    ]
     assert len(phi_files) == 2
 
 
@@ -181,7 +191,8 @@ def test_compute_shap_matrix_per_fold_cache_invalidates_on_template_change(tmp_p
         rng=rng_a, cache_dir=cache_dir,
     )
     entries_after_a = sorted(
-        f.name for f in cache_dir.iterdir() if f.name.startswith("oof_fold_fit_")
+        f.name for f in cache_dir.iterdir()
+        if f.name.startswith("oof_fold_fit_") and f.name.endswith(".pkl")
     )
 
     tpl_b = make_default_estimator(classification=True, random_state=0, n_estimators=100)
@@ -191,7 +202,8 @@ def test_compute_shap_matrix_per_fold_cache_invalidates_on_template_change(tmp_p
         rng=rng_b, cache_dir=cache_dir,
     )
     entries_after_b = sorted(
-        f.name for f in cache_dir.iterdir() if f.name.startswith("oof_fold_fit_")
+        f.name for f in cache_dir.iterdir()
+        if f.name.startswith("oof_fold_fit_") and f.name.endswith(".pkl")
     )
 
     # Strictly more entries -- B's keys are disjoint from A's because params changed.

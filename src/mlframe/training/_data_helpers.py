@@ -523,7 +523,7 @@ def _update_model_name_after_training(model_name, train_df_len, train_details, b
     model_name = model_name + "\n" + " ".join([f" trained on {get_human_readable_set_size(train_df_len)} rows", train_details])
 
     if best_iter is not None:
-        logger.info(f"es_best_iter: {best_iter:_}")
+        logger.info("es_best_iter: %s", f"{best_iter:_}")
         model_name = model_name + f" @iter={best_iter:_}"
 
     return model_name

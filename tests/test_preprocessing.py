@@ -327,7 +327,13 @@ def test_cat_nan_fill_perf_budget_huge_untrimmed_dict():
     elapsed = time.perf_counter() - t0
 
     assert not df["x"].isna().any()
-    assert elapsed < 2.0, (
+    # Budget raised 2.0 -> 3.0 (2026-06-01) after observed 2.34s on
+    # contended Windows worker; the original astype(str)-restoration
+    # regression detector still fires at ~10x the 2.0s baseline (the
+    # broken path used to scale O(huge_dict_len) = 100k entries to
+    # tens of seconds), so 3.0s preserves the sensor's intent while
+    # absorbing legitimate cross-worker variance.
+    assert elapsed < 3.0, (
         f"prepare_df_for_catboost took {elapsed:.2f}s on a 100k-entry "
         "untrimmed dict — regression of the 2026-04-19 MemoryError fix "
         "(likely someone restored the astype(str) path)."
