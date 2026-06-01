@@ -540,6 +540,117 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     "continuing without triplet-FE columns.",
                     type(_t_exc).__name__, _t_exc,
                 )
+    # 2026-06-01 Layer 77 — QUADRUPLET (4-way) cross-basis FE stage.
+    # Independent opt-in (does NOT require fe_hybrid_orth_enable): captures
+    # genuine 4-way interactions like 4-way XOR (every triplet marginal MI
+    # is zero by symmetry, only the He_1^4 cell carries signal) and
+    # revenue = price*qty*count*discount. O(seed_k^4 * deg^4) candidate
+    # count is bounded by seed_k=4 default. Recipes
+    # (``orth_quadruplet_cross``) replay from X only, no y.
+    if bool(getattr(self, "fe_hybrid_orth_quadruplet_enable", False)):
+        _is_pandas_for_quad = isinstance(X, pd.DataFrame)
+        if not _is_pandas_for_quad:
+            warnings.warn(
+                "MRMR: fe_hybrid_orth_quadruplet_enable=True but X is not a "
+                "pandas DataFrame; quadruplet cross-basis FE is skipped. "
+                "Convert to pandas via X.to_pandas() before fit() if you "
+                "want quadruplet FE applied.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from ._orthogonal_quadruplet_fe import (
+                    hybrid_orth_mi_quadruplet_fe_with_recipes,
+                )
+                _y_for_quad = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                if _y_for_quad.dtype.kind in "fc":
+                    _n_unique = int(np.unique(_y_for_quad).size)
+                    if _n_unique <= 32:
+                        _y_for_quad = _y_for_quad.astype(np.int64)
+                    else:
+                        try:
+                            _y_for_quad = pd.qcut(
+                                _y_for_quad, q=10, labels=False, duplicates="drop",
+                            ).astype(np.int64)
+                        except Exception:
+                            _y_for_quad = _y_for_quad.astype(np.int64)
+                # Restrict the seed pool to RAW source columns -- engineered
+                # columns from prior stages would create recipes whose
+                # src_names reference an engineered column absent at
+                # transform time (KeyError on replay).
+                _hybrid_already_appended = set(
+                    getattr(self, "hybrid_orth_features_", None) or []
+                )
+                _q_cols: list | None = None
+                if getattr(self, "factors_names_to_use", None):
+                    _q_cols = [
+                        c for c in self.factors_names_to_use
+                        if c in X.columns and c not in _hybrid_already_appended
+                    ]
+                else:
+                    _q_cols = [
+                        c for c in X.columns
+                        if c not in _hybrid_already_appended
+                    ]
+                _q_max_degree = int(
+                    getattr(self, "fe_hybrid_orth_quadruplet_max_degree", 1)
+                )
+                _q_seed_k = int(
+                    getattr(self, "fe_hybrid_orth_quadruplet_seed_k", 4)
+                )
+                _q_top_count = int(
+                    getattr(self, "fe_hybrid_orth_quadruplet_top_count", 2)
+                )
+                _q_basis = str(getattr(self, "fe_hybrid_orth_basis", "auto"))
+                _q_degrees = tuple(
+                    int(d) for d in getattr(self, "fe_hybrid_orth_degrees", (2, 3))
+                )
+                _q_top_k = int(getattr(self, "fe_hybrid_orth_top_k", 5))
+                _X_before_quad_cols = list(X.columns)
+                X_q, _q_uni_sc, _q_quad_sc, _q_recipes = (
+                    hybrid_orth_mi_quadruplet_fe_with_recipes(
+                        X, _y_for_quad,
+                        cols=_q_cols,
+                        degrees=_q_degrees,
+                        basis=_q_basis,
+                        top_k=_q_top_k,
+                        quadruplet_max_degree=_q_max_degree,
+                        top_quadruplet_seed_k=_q_seed_k,
+                        top_quadruplet_count=_q_top_count,
+                    )
+                )
+                _q_appended = [
+                    c for c in X_q.columns if c not in _X_before_quad_cols
+                ]
+                # Only keep TRUE quadruplet columns (4 legs joined by '*');
+                # the wrapper may also pass univariate winners through which
+                # the master hybrid stage already handles when enabled.
+                _q_quad_only = [
+                    c for c in _q_appended if c.split("__", 1)[0].count("*") == 3
+                ]
+                if _q_quad_only:
+                    X = pd.concat([X, X_q[_q_quad_only]], axis=1)
+                    self.hybrid_orth_features_ = (
+                        list(self.hybrid_orth_features_ or []) + list(_q_quad_only)
+                    )
+                    _kept = set(_q_quad_only)
+                    for _r in _q_recipes:
+                        if _r.name in _kept:
+                            _hybrid_orth_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit hybrid_orth quadruplet: appended %d "
+                            "engineered column(s): %s",
+                            len(_q_quad_only), _q_quad_only[:8],
+                        )
+            except Exception as _q_exc:
+                logger.warning(
+                    "MRMR.fit hybrid_orth quadruplet FE raised %s: %s; "
+                    "continuing without quadruplet-FE columns.",
+                    type(_q_exc).__name__, _q_exc,
+                )
     # 2026-05-31 Layer 57 — ADAPTIVE PER-COLUMN DEGREE FE stage.
     # Independent opt-in (does NOT require fe_hybrid_orth_enable). When
     # active, for each source column we evaluate every degree in

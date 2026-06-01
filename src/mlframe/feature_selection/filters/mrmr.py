@@ -722,6 +722,21 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_hybrid_orth_triplet_max_degree: int = 1,
         fe_hybrid_orth_triplet_seed_k: int = 4,
         fe_hybrid_orth_triplet_top_count: int = 2,
+        # 2026-06-01 Layer 77 — QUADRUPLET (4-way) cross-basis FE (sibling
+        # module ``_orthogonal_quadruplet_fe``). Captures genuine 4-way
+        # interactions: ``y = sign(x_1 * x_2 * x_3 * x_4)`` (4-way XOR
+        # where every triplet marginal MI is zero by symmetry) and
+        # ``revenue = price * qty * count * discount``.
+        #
+        # Default OFF -- combinatorial enumeration O(p^4 * deg^4) needs
+        # the seed_k cap to stay bounded. With seed_k=4 we get C(4,4)=1
+        # quadruplet * deg^4 cells; seed_k=5 yields C(5,4)=5 quadruplets
+        # * deg^4 cells (~80 candidates at deg=2). Recipe kind
+        # ``orth_quadruplet_cross``; replay reads X only, no y.
+        fe_hybrid_orth_quadruplet_enable: bool = False,
+        fe_hybrid_orth_quadruplet_max_degree: int = 1,
+        fe_hybrid_orth_quadruplet_seed_k: int = 4,
+        fe_hybrid_orth_quadruplet_top_count: int = 2,
         # 2026-05-31 Layer 57 — ADAPTIVE PER-COLUMN DEGREE selection
         # (sibling module ``_orthogonal_adaptive_degree_fe``). Independent
         # opt-in (does NOT require fe_hybrid_orth_enable). When enabled,
@@ -1448,6 +1463,12 @@ class MRMR(BaseEstimator, TransformerMixin):
             "fe_hybrid_orth_triplet_max_degree": 1,
             "fe_hybrid_orth_triplet_seed_k": 4,
             "fe_hybrid_orth_triplet_top_count": 2,
+            # 2026-06-01 Layer 77 — quadruplet (4-way) cross-basis FE defaults.
+            # Master switch OFF preserves legacy pickle byte-equivalence.
+            "fe_hybrid_orth_quadruplet_enable": False,
+            "fe_hybrid_orth_quadruplet_max_degree": 1,
+            "fe_hybrid_orth_quadruplet_seed_k": 4,
+            "fe_hybrid_orth_quadruplet_top_count": 2,
             # 2026-05-31 Layer 57 — adaptive per-column degree defaults.
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_hybrid_orth_adaptive_degree_enable": False,
