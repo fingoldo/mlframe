@@ -1598,7 +1598,8 @@ AXES: dict[str, tuple[Any, ...]] = {
     # invariant copula MI). Gate: use_mrmr_fs=True AND
     # mrmr_fe_hybrid_orth_enable_cfg=True; canon-collapse to "plug_in"
     # outside that compound gate.
-    "mrmr_fe_hybrid_orth_default_scorer_cfg": ("plug_in", "ksg", "copula"),
+    # audit-pass-17: + "auto_oracle" (L100, Param-Oracle-driven scorer pick).
+    "mrmr_fe_hybrid_orth_default_scorer_cfg": ("plug_in", "ksg", "copula", "auto_oracle"),
     # H2 fe_hybrid_orth_meta_enable (mrmr.py:1068, default False). Layer 76
     # meta-scorer signal-fingerprint auto-select drives a per-call dispatcher
     # that picks one of the 8 scorers from data stats; mis-fingerprinting
@@ -1694,11 +1695,36 @@ AXES: dict[str, tuple[Any, ...]] = {
     # vs the default that exercises both emitters -- a distinct branch.
     "mrmr_fe_numeric_decompose_enable_cfg": (False, True),
     "mrmr_fe_numeric_decompose_digits_cfg": ((0, 1, 2), ()),
-    # L91 two-tier IT gates. Tier-1 raw-floor MI pruning (mrmr.py:1243) wires
-    # into all four *_with_recipes wrappers; Tier-2 greedy cross-mechanism CMI
-    # dedup pass (mrmr.py:1245) after the L27 Spearman dedup.
-    "mrmr_fe_local_mi_gate_cfg": (False, True),
+    # L91 two-tier IT gates. Tier-1 raw-floor MI pruning wires into all four
+    # *_with_recipes wrappers; Tier-2 greedy cross-mechanism CMI dedup pass
+    # after the L27 Spearman dedup.
+    # audit-pass-17: L97 (cfe9640b) flipped fe_local_mi_gate default to True
+    # (mrmr.py:1267). Track the source default first in the tuple so the
+    # default-config run exercises the prod gate state; (True, False) still
+    # covers the OFF variant.
+    "mrmr_fe_local_mi_gate_cfg": (True, False),
     "mrmr_fe_unified_second_pass_gate_cfg": (False, True),
+    # =====================================================================
+    # audit-pass-17: MRMR Param-Oracle / fe_auto + FE families L92-104.
+    # Defaults source-verified at HEAD against MRMR.__init__. All gate on
+    # use_mrmr_fs=True; canon-collapse to source defaults outside the gate.
+    # =====================================================================
+    # L99 Meta FE-recommender (mrmr.py:1478). fe_auto=True turns ~50 FE flags
+    # ON via the rule recommender for the fit then restores them. The single
+    # biggest behavioural surface; the per-flag axes are dead while it's on.
+    "mrmr_fe_auto_cfg": (False, True),
+    # L92 temporal leak-safe grouped aggregation (mrmr.py:1426).
+    "mrmr_fe_temporal_agg_enable_cfg": (False, True),
+    # L93 multi-column composite group-key aggregation (mrmr.py:1296).
+    "mrmr_fe_composite_group_agg_enable_cfg": (False, True),
+    # L95 periodic/modular decompose (mrmr.py:1375) + per-group distribution
+    # distance (mrmr.py:1387) -- two distinct generators.
+    "mrmr_fe_modular_enable_cfg": (False, True),
+    "mrmr_fe_group_distance_enable_cfg": (False, True),
+    # L104 rare-category (mrmr.py:1403) + conditional-residual (mrmr.py:1407)
+    # FE families.
+    "mrmr_fe_rare_category_enable_cfg": (False, True),
+    "mrmr_fe_conditional_residual_enable_cfg": (False, True),
 }
 
 
@@ -2377,8 +2403,16 @@ class FuzzCombo:
     mrmr_fe_cat_pair_enable_cfg: bool = False
     mrmr_fe_numeric_decompose_enable_cfg: bool = False
     mrmr_fe_numeric_decompose_digits_cfg: tuple = (0, 1, 2)
-    mrmr_fe_local_mi_gate_cfg: bool = False
+    mrmr_fe_local_mi_gate_cfg: bool = True  # audit-pass-17: source default flipped True (L97)
     mrmr_fe_unified_second_pass_gate_cfg: bool = False
+    # audit-pass-17 — Param-Oracle / fe_auto + FE families L92-104.
+    mrmr_fe_auto_cfg: bool = False
+    mrmr_fe_temporal_agg_enable_cfg: bool = False
+    mrmr_fe_composite_group_agg_enable_cfg: bool = False
+    mrmr_fe_modular_enable_cfg: bool = False
+    mrmr_fe_group_distance_enable_cfg: bool = False
+    mrmr_fe_rare_category_enable_cfg: bool = False
+    mrmr_fe_conditional_residual_enable_cfg: bool = False
 
     def canonical_key(self) -> tuple:
         """Hashable tuple used for dedup. Canonicalizes semantically
@@ -4179,8 +4213,22 @@ class FuzzCombo:
                 if (self.use_mrmr_fs and self.mrmr_fe_numeric_decompose_enable_cfg)
                 else (0, 1, 2)
             ),
-            self.mrmr_fe_local_mi_gate_cfg if self.use_mrmr_fs else False,
+            # audit-pass-17: local_mi_gate source default is now True (L97);
+            # collapse to True (the source default) outside use_mrmr_fs.
+            self.mrmr_fe_local_mi_gate_cfg if self.use_mrmr_fs else True,
             self.mrmr_fe_unified_second_pass_gate_cfg if self.use_mrmr_fs else False,
+            # audit-pass-17. Param-Oracle / fe_auto + FE families L92-104, all
+            # gated on use_mrmr_fs. fe_auto=True turns the per-flag FE switches
+            # ON internally for the fit (the individual flags are then dead),
+            # so it is forwarded as its own axis; the per-flag axes above stay
+            # canon-collapsed by their own gates.
+            self.mrmr_fe_auto_cfg if self.use_mrmr_fs else False,
+            self.mrmr_fe_temporal_agg_enable_cfg if self.use_mrmr_fs else False,
+            self.mrmr_fe_composite_group_agg_enable_cfg if self.use_mrmr_fs else False,
+            self.mrmr_fe_modular_enable_cfg if self.use_mrmr_fs else False,
+            self.mrmr_fe_group_distance_enable_cfg if self.use_mrmr_fs else False,
+            self.mrmr_fe_rare_category_enable_cfg if self.use_mrmr_fs else False,
+            self.mrmr_fe_conditional_residual_enable_cfg if self.use_mrmr_fs else False,
             # iter640 audit-pass-15. F-62/63/68-70/72 MLP options. Gated
             # on 'mlp' in models; canon to False outside so non-MLP combos
             # collapse to one variant per knob.
@@ -5389,8 +5437,16 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         mrmr_fe_cat_pair_enable_cfg=axes.get("mrmr_fe_cat_pair_enable_cfg", False),
         mrmr_fe_numeric_decompose_enable_cfg=axes.get("mrmr_fe_numeric_decompose_enable_cfg", False),
         mrmr_fe_numeric_decompose_digits_cfg=axes.get("mrmr_fe_numeric_decompose_digits_cfg", (0, 1, 2)),
-        mrmr_fe_local_mi_gate_cfg=axes.get("mrmr_fe_local_mi_gate_cfg", False),
+        mrmr_fe_local_mi_gate_cfg=axes.get("mrmr_fe_local_mi_gate_cfg", True),  # audit-pass-17: source default True
         mrmr_fe_unified_second_pass_gate_cfg=axes.get("mrmr_fe_unified_second_pass_gate_cfg", False),
+        # audit-pass-17 — Param-Oracle / fe_auto + FE families L92-104.
+        mrmr_fe_auto_cfg=axes.get("mrmr_fe_auto_cfg", False),
+        mrmr_fe_temporal_agg_enable_cfg=axes.get("mrmr_fe_temporal_agg_enable_cfg", False),
+        mrmr_fe_composite_group_agg_enable_cfg=axes.get("mrmr_fe_composite_group_agg_enable_cfg", False),
+        mrmr_fe_modular_enable_cfg=axes.get("mrmr_fe_modular_enable_cfg", False),
+        mrmr_fe_group_distance_enable_cfg=axes.get("mrmr_fe_group_distance_enable_cfg", False),
+        mrmr_fe_rare_category_enable_cfg=axes.get("mrmr_fe_rare_category_enable_cfg", False),
+        mrmr_fe_conditional_residual_enable_cfg=axes.get("mrmr_fe_conditional_residual_enable_cfg", False),
     )
 
 
@@ -5578,8 +5634,17 @@ def build_mrmr_kwargs_from_flat(
     fe_cat_pair_enable: bool = False,
     fe_numeric_decompose_enable: bool = False,
     fe_numeric_decompose_digits: tuple = (0, 1, 2),
-    fe_local_mi_gate: bool = False,
+    fe_local_mi_gate: bool = True,  # audit-pass-17: source default flipped True (L97)
     fe_unified_second_pass_gate: bool = False,
+    # audit-pass-17 — Param-Oracle / fe_auto + FE families L92-104. Defaults
+    # match MRMR.__init__ (mrmr.py:1478/1426/1296/1375/1387/1403/1407).
+    fe_auto: bool = False,
+    fe_temporal_agg_enable: bool = False,
+    fe_composite_group_agg_enable: bool = False,
+    fe_modular_enable: bool = False,
+    fe_group_distance_enable: bool = False,
+    fe_rare_category_enable: bool = False,
+    fe_conditional_residual_enable: bool = False,
 ) -> Optional[Dict[str, Any]]:
     """Build the mrmr_kwargs dict passed to FeatureSelectionConfig.
     Returns None when use_mrmr_fs=False so the FS step is a no-op.
@@ -5712,6 +5777,14 @@ def build_mrmr_kwargs_from_flat(
         "fe_numeric_decompose_digits": fe_numeric_decompose_digits,
         "fe_local_mi_gate": fe_local_mi_gate,
         "fe_unified_second_pass_gate": fe_unified_second_pass_gate,
+        # audit-pass-17 — Param-Oracle / fe_auto + FE families L92-104.
+        "fe_auto": fe_auto,
+        "fe_temporal_agg_enable": fe_temporal_agg_enable,
+        "fe_composite_group_agg_enable": fe_composite_group_agg_enable,
+        "fe_modular_enable": fe_modular_enable,
+        "fe_group_distance_enable": fe_group_distance_enable,
+        "fe_rare_category_enable": fe_rare_category_enable,
+        "fe_conditional_residual_enable": fe_conditional_residual_enable,
     }
     # 2026-05-30 audit-pass-7 #3/#4: per_feature_edges.kwargs threaded via
     # MRMR.nbins_strategy_kwargs. Build the dict only when one of these
@@ -5872,6 +5945,14 @@ def build_mrmr_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]:
         fe_numeric_decompose_digits=combo.mrmr_fe_numeric_decompose_digits_cfg,
         fe_local_mi_gate=combo.mrmr_fe_local_mi_gate_cfg,
         fe_unified_second_pass_gate=combo.mrmr_fe_unified_second_pass_gate_cfg,
+        # audit-pass-17 — Param-Oracle / fe_auto + FE families L92-104.
+        fe_auto=combo.mrmr_fe_auto_cfg,
+        fe_temporal_agg_enable=combo.mrmr_fe_temporal_agg_enable_cfg,
+        fe_composite_group_agg_enable=combo.mrmr_fe_composite_group_agg_enable_cfg,
+        fe_modular_enable=combo.mrmr_fe_modular_enable_cfg,
+        fe_group_distance_enable=combo.mrmr_fe_group_distance_enable_cfg,
+        fe_rare_category_enable=combo.mrmr_fe_rare_category_enable_cfg,
+        fe_conditional_residual_enable=combo.mrmr_fe_conditional_residual_enable_cfg,
     )
 
 
