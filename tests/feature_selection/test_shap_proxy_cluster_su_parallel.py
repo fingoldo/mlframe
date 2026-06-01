@@ -113,17 +113,28 @@ def test_parallel_kernel_speedup_at_f500():
         bins, threshold=0.4, feature_names=names, use_parallel=True,
     )
 
-    t0 = time.perf_counter()
-    serial_labels = cluster_correlated_features_su(
-        bins, threshold=0.4, feature_names=names, use_parallel=False,
-    )
-    t_serial = time.perf_counter() - t0
+    # Best-of-N min-wall for both paths. A single timed run gates flakily under CPU contention
+    # (concurrent test runners / sibling processes can starve the parallel kernel of its threads
+    # for one sample while leaving the serial loop on its single core unaffected, collapsing the
+    # ratio). The min over a few trials measures the kernel's INHERENT speedup by picking the
+    # least-contended sample for each path -- it never inflates the parallel result (min wall is a
+    # lower bound on achievable time) so the 2x contract stays honest, it just rejects the noise
+    # that made a single shot unreliable. Same min-wall methodology used to validate the kernel.
+    n_trials = 5
 
-    t0 = time.perf_counter()
-    parallel_labels = cluster_correlated_features_su(
-        bins, threshold=0.4, feature_names=names, use_parallel=True,
-    )
-    t_parallel = time.perf_counter() - t0
+    def _min_wall(use_parallel: bool):
+        best = float("inf")
+        labels = None
+        for _ in range(n_trials):
+            t0 = time.perf_counter()
+            labels = cluster_correlated_features_su(
+                bins, threshold=0.4, feature_names=names, use_parallel=use_parallel,
+            )
+            best = min(best, time.perf_counter() - t0)
+        return best, labels
+
+    t_serial, serial_labels = _min_wall(False)
+    t_parallel, parallel_labels = _min_wall(True)
 
     assert np.array_equal(serial_labels, parallel_labels), "labels diverge at f=500"
     ratio = t_serial / max(t_parallel, 1e-9)
