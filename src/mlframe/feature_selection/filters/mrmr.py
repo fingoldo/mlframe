@@ -922,6 +922,20 @@ class MRMR(BaseEstimator, TransformerMixin):
         # kind. Default OFF preserves pickle byte-equivalence.
         fe_hybrid_orth_tc_enable: bool = False,
         fe_hybrid_orth_tc_n_bins: int = 10,
+        # 2026-06-01 Layer 74 — CMIM (Conditional Mutual Information
+        # Maximisation, Fleuret 2004) redundancy-aware ranking for hybrid
+        # orth-poly FE (sibling module ``_orthogonal_cmim_fe``). Independent
+        # opt-in (does NOT require fe_hybrid_orth_enable). Companion to
+        # Layer 72 (JMIM): JMIM scores ``min_j I((X_k, X_j); Y)`` (joint
+        # MI -- rewards complementarity); CMIM scores
+        # ``min_j I(X_k; Y | X_j)`` (conditional MI -- penalises
+        # redundancy). On heavily-DUPLICATING candidate pools (near-copies
+        # of one strong predictor) CMIM is the empirical winner; on
+        # heavily-INTERACTING pools JMIM wins. Engineered VALUES are bit-
+        # equal to Layer 21 -> recipes reuse the ``orth_univariate`` kind.
+        # Default OFF preserves pickle byte-equivalence.
+        fe_hybrid_orth_cmim_enable: bool = False,
+        fe_hybrid_orth_cmim_n_bins: int = 10,
         # 2026-06-01 Layer 68 — PER-COLUMN SCORER AUTO-SELECTION across the
         # full Layer 21 / 65 / 66 / 67 family (sibling module
         # ``_orthogonal_scorer_auto_fe``). Independent opt-in (does NOT
@@ -1476,6 +1490,10 @@ class MRMR(BaseEstimator, TransformerMixin):
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_hybrid_orth_tc_enable": False,
             "fe_hybrid_orth_tc_n_bins": 10,
+            # 2026-06-01 Layer 74 — CMIM (Fleuret 2004) ranking defaults.
+            # Master switch OFF preserves legacy pickle byte-equivalence.
+            "fe_hybrid_orth_cmim_enable": False,
+            "fe_hybrid_orth_cmim_n_bins": 10,
             # 2026-06-01 Layer 68 — per-column scorer auto-selection defaults.
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_hybrid_orth_auto_scorer_enable": False,

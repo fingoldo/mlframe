@@ -1712,6 +1712,99 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     "continuing without TC columns.",
                     type(_tc_exc).__name__, _tc_exc,
                 )
+    # 2026-06-01 Layer 74 — CMIM (Conditional Mutual Information
+    # Maximisation, Fleuret 2004) redundancy-aware ranking for hybrid
+    # orth-poly FE (independent opt-in; does NOT require
+    # fe_hybrid_orth_enable). Each engineered candidate is scored by the
+    # WORST-CASE conditional MI against EACH selected support member
+    # individually: ``min_j CMI(X_cand; Y | X_j)``. Companion to JMIM
+    # (Layer 72): CMIM penalises redundancy via the conditioning
+    # operator while JMIM rewards complementarity via the joint MI.
+    # Selection: same absolute floor as Layers 65 / 66 / 67 / 71 / 72 /
+    # 73. Engineered VALUES bit-equal to Layer 21 -> recipes reuse the
+    # ``orth_univariate`` kind.
+    if bool(getattr(self, "fe_hybrid_orth_cmim_enable", False)):
+        _is_pandas_for_cmim = isinstance(X, pd.DataFrame)
+        if not _is_pandas_for_cmim:
+            warnings.warn(
+                "MRMR: fe_hybrid_orth_cmim_enable=True but X is not a "
+                "pandas DataFrame; CMIM hybrid FE is skipped. "
+                "Convert to pandas via X.to_pandas() before fit() if you "
+                "want the CMIM selection applied.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from ._orthogonal_cmim_fe import (
+                    hybrid_orth_mi_cmim_fe_with_recipes,
+                )
+                _y_for_cmim = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                _hybrid_already_appended = set(
+                    getattr(self, "hybrid_orth_features_", None) or []
+                )
+                if getattr(self, "factors_names_to_use", None):
+                    _cmim_cols = [
+                        c for c in self.factors_names_to_use
+                        if c in X.columns and c not in _hybrid_already_appended
+                    ]
+                else:
+                    _cmim_cols = [
+                        c for c in X.columns
+                        if c not in _hybrid_already_appended
+                    ]
+                _cmim_degrees = tuple(int(d) for d in getattr(
+                    self, "fe_hybrid_orth_degrees", (2, 3),
+                ))
+                _cmim_basis = str(getattr(
+                    self, "fe_hybrid_orth_basis", "auto",
+                ))
+                _cmim_top_k = int(getattr(self, "fe_hybrid_orth_top_k", 5))
+                _cmim_n_bins = int(getattr(
+                    self, "fe_hybrid_orth_cmim_n_bins", 10,
+                ))
+                # Same calibration as Layers 65 / 66 / 67 / 71 / 72 / 73:
+                # 0.95 / 0.05 floor keeps genuine borderline wins.
+                _cmim_min_uplift = 0.95
+                _cmim_min_abs_mi_frac = 0.05
+                _X_before_cmim_cols = list(X.columns)
+                X_cmim, _cmim_scores, _cmim_recipes = (
+                    hybrid_orth_mi_cmim_fe_with_recipes(
+                        X, _y_for_cmim,
+                        cols=_cmim_cols,
+                        degrees=_cmim_degrees,
+                        basis=_cmim_basis,
+                        top_k=_cmim_top_k,
+                        min_uplift=_cmim_min_uplift,
+                        min_abs_mi_frac=_cmim_min_abs_mi_frac,
+                        n_bins=_cmim_n_bins,
+                    )
+                )
+                _cmim_appended = [
+                    c for c in X_cmim.columns
+                    if c not in _X_before_cmim_cols
+                ]
+                if _cmim_appended:
+                    X = X_cmim
+                    self.hybrid_orth_features_ = (
+                        list(self.hybrid_orth_features_ or [])
+                        + list(_cmim_appended)
+                    )
+                    for _r in _cmim_recipes:
+                        _hybrid_orth_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit hybrid_orth CMIM: appended %d "
+                            "engineered column(s): %s",
+                            len(_cmim_appended), _cmim_appended[:8],
+                        )
+            except Exception as _cmim_exc:
+                logger.warning(
+                    "MRMR.fit hybrid_orth CMIM FE raised %s: %s; "
+                    "continuing without CMIM columns.",
+                    type(_cmim_exc).__name__, _cmim_exc,
+                )
     # 2026-06-01 Layer 68 — PER-COLUMN SCORER AUTO-SELECTION across the
     # Layer 21 / 65 / 66 / 67 scorer family (independent opt-in; does NOT
     # require fe_hybrid_orth_enable). For each engineered column the
