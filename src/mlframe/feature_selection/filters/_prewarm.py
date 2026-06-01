@@ -303,6 +303,15 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
     except ImportError:
         pass
 
+    # Layer-60 CMI-greedy plug-in entropy kernel. Called 1000+ times per MRMR
+    # fit from _cmi_from_binned; warm it here so the first-fit JIT compile
+    # (~0.3s) lands outside the timed screening path.
+    try:
+        from ._mi_greedy_cmi_fe import _entropy_from_classes_njit
+        _ = _entropy_from_classes_njit(np.array([0, 1, 1, 2, 0], dtype=np.int64))
+    except Exception:
+        pass
+
     _wall = time.perf_counter() - _t0
     if verbose:
         _log.info("prewarm_fs_numba_cache: warmed FS kernels in %.2fs", _wall)
