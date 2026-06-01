@@ -32,8 +32,35 @@ def _list_transformer_modules() -> list[pathlib.Path]:
 
 
 def _file_does_float32_cast(src: str) -> bool:
-    """True iff the module contains ``np.asarray(..., dtype=np.float32)`` anywhere."""
-    return "dtype=np.float32" in src and "np.asarray" in src
+    """True iff the module casts something to float32 by any common numpy / torch
+    pattern. Previous pattern required BOTH ``dtype=np.float32`` AND ``np.asarray``
+    in the source, which silently passed over every transformer that uses the
+    far more common ``.astype(np.float32, copy=False)`` form (random_features,
+    row_attention, residual_attention, ...). Result: 12 transformer modules
+    skipped the compliance check with "nothing to validate" while their
+    production code DID cast and was NOT calling ``validate_numeric_input``.
+
+    Patterns matched (one is enough):
+      * ``np.asarray(..., dtype=np.float32)`` -- the historical narrow pattern.
+      * ``.astype(np.float32`` / ``.astype('float32')`` / ``.astype("float32")``
+        -- the common in-place dtype-cast form used by most transformers.
+      * ``np.array(..., dtype=np.float32)`` -- alternative array constructor.
+      * ``torch.float32`` -- torch-side cast (transformer modules that emit
+        Tensors).
+    Compatible regression: any module that used to match the old pattern still
+    matches via the literal-``np.asarray`` branch.
+    """
+    if "np.asarray" in src and "dtype=np.float32" in src:
+        return True
+    if "np.array" in src and "dtype=np.float32" in src:
+        return True
+    if ".astype(np.float32" in src:
+        return True
+    if ".astype('float32')" in src or '.astype("float32")' in src:
+        return True
+    if "torch.float32" in src:
+        return True
+    return False
 
 
 def _file_calls_validate_numeric_input(src: str) -> bool:

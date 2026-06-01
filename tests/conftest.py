@@ -24,6 +24,53 @@ os.environ.setdefault("PYTHONUNBUFFERED", "1")
 # Pre-set by operator wins (the alternative ``:16:8`` slot trades workspace for memory).
 os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 
+# Auto-detect CUDA_PATH so cupy's ``_environment`` doesn't warn "CUDA path
+# could not be detected" at import time. CuPy needs CUDA_PATH or CUDA_HOME
+# to locate the toolkit DLLs / shared libs (libcudart, libcublas, libcudnn,
+# nvrtc); without it the import succeeds but ``cuda.runtime.getDeviceCount()``
+# fails -- every gpu-marker test then skips with "no CUDA" even though the
+# device + drivers are present. Pre-set by operator always wins. Probe the
+# documented install roots in order; first hit becomes ``CUDA_PATH``.
+if not (os.environ.get("CUDA_PATH") or os.environ.get("CUDA_HOME")):
+    import glob as _cuda_glob_probe
+    _cuda_candidates = [
+        # Windows installer default
+        r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA",
+        # Common operator-relocated install drives (matches the testbed's
+        # ``D:\CUDA\v12.9`` layout)
+        r"D:\CUDA",
+        r"E:\CUDA",
+        # POSIX standard locations
+        "/usr/local/cuda",
+        "/opt/cuda",
+    ]
+    _cuda_found = None
+    for _root in _cuda_candidates:
+        if not os.path.isdir(_root):
+            continue
+        # Direct hit: the candidate IS a versioned CUDA install
+        # (``D:\CUDA\v12.9`` already contains ``bin/`` + ``include/``).
+        if os.path.isdir(os.path.join(_root, "bin")):
+            _cuda_found = _root
+            break
+        # Two-level hit: ``C:\Program Files\...\CUDA\v12.9``. Pick the
+        # highest-versioned subdir so multiple installs prefer the newest.
+        _versions = sorted(_cuda_glob_probe.glob(os.path.join(_root, "v*")), reverse=True)
+        for _ver in _versions:
+            if os.path.isdir(os.path.join(_ver, "bin")):
+                _cuda_found = _ver
+                break
+        if _cuda_found:
+            break
+    if _cuda_found:
+        os.environ["CUDA_PATH"] = _cuda_found
+        os.environ.setdefault("CUDA_HOME", _cuda_found)
+    del _cuda_glob_probe, _cuda_candidates, _cuda_found
+    try:
+        del _root, _versions, _ver
+    except NameError:
+        pass
+
 import pytest
 
 

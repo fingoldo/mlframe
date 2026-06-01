@@ -80,11 +80,18 @@ def pysr_works() -> bool:
     if not os.environ.get("PATH", "").startswith(bindir):
         os.environ["PATH"] = bindir + os.pathsep + os.environ.get("PATH", "")
     try:
+        # 2026-06-01: bump timeout 60 -> 240. A cold ``import pysr`` on
+        # Windows triggers Julia + PythonCall.jl precompile -- ~80-180s on
+        # the first invocation, well over the previous 60s budget. Cached
+        # precompile runs land in ~5s. Pre-fix the gate flipped to False
+        # for every fresh JULIA_DEPOT_PATH and the 13 PySR-using tests
+        # skipped on a machine that actually had Julia + PythonCall.jl
+        # working, just slow to warm.
         r = subprocess.run(
             [sys.executable, "-c", "import pysr"],
             env=os.environ,
             capture_output=True,
-            timeout=60,
+            timeout=240,
         )
         _PROBE_CACHE = (r.returncode == 0)
     except (subprocess.TimeoutExpired, OSError):
