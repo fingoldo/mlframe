@@ -314,6 +314,13 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
     except Exception:
         pass
 
+    # Layer-90 numeric-decompose digit-extract kernel.
+    try:
+        from ._numeric_decompose_fe import _digit_extract_njit
+        _ = _digit_extract_njit(np.array([1.23, -4.56, np.nan], dtype=np.float64), 100.0)
+    except Exception:
+        pass
+
     _wall = time.perf_counter() - _t0
     if verbose:
         _log.info("prewarm_fs_numba_cache: warmed FS kernels in %.2fs", _wall)
