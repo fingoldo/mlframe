@@ -1,8 +1,8 @@
-"""F-69 (2026-05-31) tests for recurrent Mixup augmentation.
+"""F-69 + F-70 (2026-05-31) tests for recurrent Mixup augmentation.
 
-Verifies that the recurrent training_step honors ``use_mixup`` /
-``mixup_alpha`` on the HYBRID / FEATURES_ONLY paths (where aux_features
-exist) and is a no-op for SEQUENCE_ONLY.
+F-69: HYBRID / FEATURES_ONLY mixup via mixup_batch on aux features.
+F-70: SEQUENCE_ONLY mixup via mixup_sequence_batch on padded sequences
+      with lengths = max(l_a, l_b).
 """
 from __future__ import annotations
 
@@ -77,16 +77,34 @@ def test_recurrent_training_step_with_mixup_off_returns_finite_loss():
     assert torch.isfinite(loss)
 
 
-def test_recurrent_training_step_sequence_only_mixup_is_noop():
-    """SEQUENCE_ONLY mode has no aux_features so mixup is a no-op;
-    loss must still be finite + grad-bearing."""
+def test_recurrent_training_step_sequence_only_mixup_works_after_f70():
+    """F-70 enables mixup on SEQUENCE_ONLY mode: sequences are mixed
+    via mixup_sequence_batch (padded interpolation + lengths=max).
+    Loss must remain finite + grad-bearing."""
     torch.manual_seed(0)
     module = _build_module(InputMode.SEQUENCE_ONLY, use_mixup=True)
     module.train()
-    # SEQUENCE_ONLY: no aux_features in batch
     batch = {
         "sequences": torch.randn(8, 5, 4),
         "lengths": torch.tensor([5] * 8, dtype=torch.long),
+        "labels": torch.randn(8),
+    }
+    loss = module.training_step(batch, batch_idx=0)
+    assert torch.isfinite(loss)
+    assert loss.requires_grad
+
+
+def test_recurrent_training_step_variable_length_sequence_mixup():
+    """F-70 sequence-aware mixup with variable-length sequences. The
+    lengths_mixed tensor must equal max(lengths, lengths[perm]) and
+    the RNN must process the union of the two lengths without crashing."""
+    torch.manual_seed(0)
+    module = _build_module(InputMode.SEQUENCE_ONLY, use_mixup=True)
+    module.train()
+    # Variable lengths: [3, 5, 2, 5, 4, 5, 1, 5]
+    batch = {
+        "sequences": torch.randn(8, 5, 4),
+        "lengths": torch.tensor([3, 5, 2, 5, 4, 5, 1, 5], dtype=torch.long),
         "labels": torch.randn(8),
     }
     loss = module.training_step(batch, batch_idx=0)

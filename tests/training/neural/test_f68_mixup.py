@@ -73,6 +73,61 @@ def test_mixup_preserves_dtypes():
     assert y_b.dtype == torch.float32
 
 
+# --- F-70 mixup_sequence_batch ----------------------------------------------
+
+
+def test_mixup_sequence_batch_lengths_are_pairwise_max():
+    """F-70: ``lengths_mixed[i] = max(lengths[i], lengths[perm[i]])``.
+    Use arange labels so the permutation is recoverable."""
+    from mlframe.training.neural._mixup import mixup_sequence_batch
+    torch.manual_seed(0)
+    seqs = torch.randn(8, 5, 4)
+    lens = torch.tensor([3, 5, 2, 5, 4, 1, 5, 2], dtype=torch.long)
+    y = torch.arange(8, dtype=torch.float32)
+    _, lens_mixed, _, _y_a, y_b, _ = mixup_sequence_batch(
+        seqs, lens, y, alpha=0.2,
+    )
+    perm = y_b.long()
+    expected = torch.maximum(lens, lens[perm])
+    torch.testing.assert_close(lens_mixed, expected)
+
+
+def test_mixup_sequence_batch_mixes_aux_with_same_idx_and_lam():
+    """F-70: when aux supplied, aux is mixed by the SAME (idx, lam)
+    as the sequences, so per-sample identity is preserved across
+    modalities."""
+    from mlframe.training.neural._mixup import mixup_sequence_batch
+    torch.manual_seed(0)
+    seqs = torch.randn(8, 5, 4)
+    lens = torch.full((8,), 5, dtype=torch.long)
+    aux = torch.randn(8, 3)
+    y = torch.arange(8, dtype=torch.float32)
+    seq_mixed, _, aux_mixed, _, y_b, lam = mixup_sequence_batch(
+        seqs, lens, y, alpha=0.2, aux_features=aux,
+    )
+    perm = y_b.long()
+    # Reconstruct aux_mixed from the recovered idx + lam.
+    expected_aux = lam * aux + (1.0 - lam) * aux[perm]
+    torch.testing.assert_close(aux_mixed, expected_aux, atol=1e-5, rtol=1e-5)
+    # Same for sequences.
+    expected_seq = lam * seqs + (1.0 - lam) * seqs[perm]
+    torch.testing.assert_close(seq_mixed, expected_seq, atol=1e-5, rtol=1e-5)
+
+
+def test_mixup_sequence_batch_rejects_zero_alpha():
+    from mlframe.training.neural._mixup import mixup_sequence_batch
+    seqs = torch.randn(8, 5, 4); lens = torch.full((8,), 5); y = torch.randn(8)
+    with pytest.raises(ValueError, match="alpha must be > 0"):
+        mixup_sequence_batch(seqs, lens, y, alpha=0.0)
+
+
+def test_mixup_sequence_batch_rejects_batch_dim_mismatch():
+    from mlframe.training.neural._mixup import mixup_sequence_batch
+    seqs = torch.randn(8, 5, 4); lens = torch.full((7,), 5); y = torch.randn(8)
+    with pytest.raises(ValueError, match="batch dim"):
+        mixup_sequence_batch(seqs, lens, y, alpha=0.2)
+
+
 # --- Integration ---------------------------------------------------------------
 
 

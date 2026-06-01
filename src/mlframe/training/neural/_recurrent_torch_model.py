@@ -417,31 +417,43 @@ class RecurrentTorchModel(L.LightningModule):
 
     def training_step(self, batch: dict, batch_idx: int) -> torch.Tensor:
         """Training step."""
-        # F-69 (2026-05-31): Mixup augmentation for HYBRID / FEATURES_ONLY
-        # modes (where aux_features exist). For SEQUENCE_ONLY we'd need
-        # to interpolate padded sequences too (lam * seq_a + (1-lam) *
-        # seq_b with lengths = max(l_a, l_b)); the math is straightforward
-        # but the post-pack_padded_sequence behaviour past one of the
-        # original lengths needs careful handling. Deferred to F-70.
-        # When use_mixup=True AND aux_features are present, mix BOTH
-        # the aux features AND the labels by the same lam + idx; the
-        # sequences flow through unchanged (the RNN sees the original
-        # sequence + a mixed downstream aux).
-        _mixup_active = (
+        # F-69/F-70 (2026-05-31): Mixup augmentation covering all 3 input
+        # modes: pure SEQUENCE_ONLY (mix padded sequences + lengths),
+        # FEATURES_ONLY (mix aux_features), HYBRID (mix BOTH with the
+        # same lam + idx so per-sample identity is preserved across
+        # modalities). The padded-sequence path uses
+        # ``mixup_sequence_batch`` which sets lengths = max(l_a, l_b)
+        # so pack_padded_sequence drives the RNN over the union of the
+        # two original sequences.
+        _mixup_enabled = (
             getattr(self.config, "use_mixup", False)
             and self.training
-            and batch.get("aux_features") is not None
-            and batch["aux_features"].shape[0] >= 2
+            and batch["labels"].shape[0] >= 2
         )
-        if _mixup_active:
-            from ._mixup import mixup_batch
-            aux_mixed, _y_a, _y_b, _lam = mixup_batch(
-                batch["aux_features"],
-                batch["labels"],
-                alpha=getattr(self.config, "mixup_alpha", 0.2),
-            )
+        _mixup_active = False
+        if _mixup_enabled:
+            from ._mixup import mixup_batch, mixup_sequence_batch
+            _alpha = getattr(self.config, "mixup_alpha", 0.2)
             batch = dict(batch)  # shallow copy so we don't mutate the loader's dict
-            batch["aux_features"] = aux_mixed
+            if batch.get("sequences") is not None:
+                # F-70 sequence-aware path: SEQUENCE_ONLY or HYBRID
+                seq_mixed, lens_mixed, aux_mixed, _y_a, _y_b, _lam = mixup_sequence_batch(
+                    batch["sequences"], batch["lengths"], batch["labels"],
+                    alpha=_alpha,
+                    aux_features=batch.get("aux_features"),
+                )
+                batch["sequences"] = seq_mixed
+                batch["lengths"] = lens_mixed
+                if aux_mixed is not None:
+                    batch["aux_features"] = aux_mixed
+                _mixup_active = True
+            elif batch.get("aux_features") is not None:
+                # F-69 FEATURES_ONLY path
+                aux_mixed, _y_a, _y_b, _lam = mixup_batch(
+                    batch["aux_features"], batch["labels"], alpha=_alpha,
+                )
+                batch["aux_features"] = aux_mixed
+                _mixup_active = True
 
         logits = self._forward_batch(batch)
         if _mixup_active:

@@ -107,3 +107,63 @@ def mixup_batch(
     y_a = y
     y_b = y[idx]
     return x_mixed, y_a, y_b, lam
+
+
+def mixup_sequence_batch(
+    sequences: torch.Tensor,
+    lengths: torch.Tensor,
+    y: torch.Tensor,
+    alpha: float,
+    aux_features: torch.Tensor | None = None,
+):
+    """F-70 (2026-05-31): Mixup over a padded sequence batch + optional
+    aux features + labels.
+
+    Args:
+        sequences: padded sequence tensor of shape (B, T, F)
+        lengths: (B,) integer lengths of the unpadded sequences (each
+            ``lengths[i] <= T``).
+        y: target tensor of shape (B,) or (B, K)
+        alpha: Beta-distribution concentration (> 0)
+        aux_features: optional (B, A) aux tensor mixed with the SAME
+            (idx, lam) draw so the per-sample identity is preserved
+            across modalities
+
+    Returns:
+        sequences_mixed: lam * sequences + (1-lam) * sequences[idx]
+        lengths_mixed: torch.maximum(lengths, lengths[idx])
+        aux_mixed: same convention if aux_features supplied; else None
+        y_a, y_b, lam: see mixup_batch
+
+    Notes on the lengths handling:
+        For each pair (a, b) in the batch, ``lengths_mixed = max(l_a, l_b)``.
+        Positions in [min(l_a, l_b), max(l_a, l_b)) of the SHORTER
+        sequence are padding (zeros) in the source ``sequences`` tensor;
+        the lam * 0 + (1-lam) * seq_long[p] interpolation at those
+        positions is therefore the longer sequence's content scaled by
+        (1-lam). pack_padded_sequence with lengths_mixed correctly drives
+        the RNN to process all max(l_a, l_b) steps; the RNN sees a
+        smoothly-interpolated signal in the overlap region and a scaled
+        version of the longer sequence in the tail. This is the standard
+        recipe (e.g. fairseq, AdaMixup-Seq, Manifold-Mixup-Seq).
+    """
+    if alpha <= 0:
+        raise ValueError(f"mixup alpha must be > 0; got {alpha}")
+    B = sequences.shape[0]
+    if lengths.shape[0] != B or y.shape[0] != B:
+        raise ValueError(
+            f"batch dim mismatch: sequences={B}, lengths={lengths.shape[0]}, y={y.shape[0]}"
+        )
+
+    lam_t = torch.distributions.Beta(alpha, alpha).sample().to(sequences.device)
+    lam = float(lam_t.clamp(min=1e-3, max=1.0 - 1e-3).item())
+    idx = torch.randperm(B, device=sequences.device)
+
+    sequences_mixed = lam * sequences + (1.0 - lam) * sequences[idx]
+    lengths_mixed = torch.maximum(lengths, lengths[idx])
+    y_a = y
+    y_b = y[idx]
+    aux_mixed = None
+    if aux_features is not None:
+        aux_mixed = lam * aux_features + (1.0 - lam) * aux_features[idx]
+    return sequences_mixed, lengths_mixed, aux_mixed, y_a, y_b, lam
