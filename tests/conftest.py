@@ -26,6 +26,47 @@ os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 
 import pytest
 
+
+# ---------------------------------------------------------------------------
+# CatBoost: per-pytest-xdist-worker ``train_dir`` so the widget's background
+# thread can't trip ``PermissionError`` on a shared ``catboost_info`` write.
+#
+# Mechanism: CatBoost's ``_get_train_dir`` reads ``params.get('train_dir',
+# 'catboost_info')`` -- defaulting to a CWD-relative ``catboost_info``. Under
+# ``pytest-xdist`` all workers share the project directory as CWD, so they
+# fight over the same ``catboost_info/catboost_training.json`` file. The
+# widget's background thread (started when ``plot=True`` reaches a
+# ``plot_wrapper``) reads that file every 1 second; if a sibling worker
+# holds the write lock the read raises ``PermissionError`` and the
+# unhandled-thread-exception warning surfaces in the test summary.
+#
+# Surgical autouse fixture that monkeypatches ``catboost.core._get_train_dir``
+# to default to a per-worker tmp directory when the caller didn't pass
+# ``train_dir`` explicitly. Worker isolation = no shared file = no race. No
+# made-up env vars (``CATBOOST_NO_WIDGET`` does not exist in CatBoost), no
+# touching prod source.
+#
+# Scoped to ``function`` (not ``session``) so each test's tmp_path stays
+# unique -- shared session-wide train_dir would still concentrate writes
+# in one directory per worker, just shifted off the project root.
+# ---------------------------------------------------------------------------
+@pytest.fixture(autouse=True)
+def _catboost_per_worker_train_dir(tmp_path, monkeypatch):
+    try:
+        from catboost import core as _cb_core
+    except ImportError:
+        return  # CatBoost not installed -- nothing to isolate.
+    _orig_get_train_dir = _cb_core._get_train_dir
+
+    def _patched_get_train_dir(params):
+        if not isinstance(params, dict) or "train_dir" in params:
+            return _orig_get_train_dir(params)
+        per_worker = tmp_path / "catboost_info"
+        per_worker.mkdir(parents=True, exist_ok=True)
+        return str(per_worker)
+
+    monkeypatch.setattr(_cb_core, "_get_train_dir", _patched_get_train_dir)
+
 # Auto-register synthetic-data fixtures from tests.training.synthetic so they're
 # discoverable from tests outside tests/training (cross-package fixture sharing
 # without per-test from-imports). Plugins listed here are loaded at conftest
