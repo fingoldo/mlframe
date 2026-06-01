@@ -1084,7 +1084,14 @@ class MRMR(BaseEstimator, TransformerMixin):
         # ``"copula"`` / ``"dcor"`` / ``"hsic"`` / ``"auto"`` (Layer 68
         # bootstrap LCB per-column) / ``"ensemble"`` (Layer 69 rank-fusion)
         # / ``"meta"`` (Layer 76 cascade) / ``"lasso"`` (Layer 81) /
-        # ``"elasticnet"`` (Layer 82). NOTE: when this flag is non-default,
+        # ``"elasticnet"`` (Layer 82) / ``"auto_oracle"`` (Layer 100).
+        # ``"auto_oracle"`` UNIFIES the two prior scorer-selection paths:
+        # it uses the L76 cold-start cascade as its prior, the L68 bake-off
+        # (run once via ``OracleScorerSelector.benchmark_all_scorers``) as
+        # the populator, and the Param-Oracle to LEARN the best scorer per
+        # dataset fingerprint over time -- recommending the learned-best
+        # scorer once a fingerprint bucket has confident history and
+        # falling back to the L76 rules until then. NOTE: when this flag is non-default,
         # the pair stage (Layer 22) is skipped because the alternate
         # scorers operate on the univariate stage only -- callers needing
         # both should keep ``"plug_in"`` and toggle the per-stage opt-in
@@ -1566,6 +1573,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         "meta",        # Layer 76
         "lasso",       # Layer 81
         "elasticnet",  # Layer 82
+        "auto_oracle",  # Layer 100 (L76 cold-start + L68 bake-off + Param-Oracle learning)
     )
 
     @classmethod

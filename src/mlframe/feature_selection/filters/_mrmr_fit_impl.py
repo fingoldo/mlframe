@@ -119,6 +119,31 @@ def _dispatch_default_scorer(
             hybrid_orth_mi_meta_fe_with_recipes as _fn,
         )
         return _fn(X, y, cols=cols, degrees=degrees, basis=basis, top_k=top_k)
+    if scorer == "auto_oracle":
+        # 2026-06-01 Layer 100 — UNIFIED scorer-selection. The
+        # OracleScorerSelector resolves a concrete scorer for this
+        # dataset's fingerprint (learned-best when the oracle has confident
+        # history, else the L76 cold-start cascade), then we delegate to
+        # THAT scorer's univariate builder. The bake-off that populates the
+        # oracle (``benchmark_all_scorers``) runs out-of-band, so fit-time
+        # cost is one recommend + one scorer run, not the full L68 sweep.
+        from ._oracle_scorer_select import OracleScorerSelector
+        _selector = OracleScorerSelector()
+        _resolved = _selector.recommend_scorer(X, y)
+        # ``auto_oracle`` never resolves to itself / "plug_in"-by-default is
+        # routed through the plug_in builders below; any other resolved
+        # scorer recurses into its own branch of this dispatcher.
+        if _resolved == "plug_in":
+            from ._orthogonal_univariate_fe import (
+                hybrid_orth_mi_fe_with_recipes as _fn,
+            )
+            return _fn(
+                X, y, cols=cols, degrees=degrees, basis=basis, top_k=top_k,
+            )
+        return _dispatch_default_scorer(
+            _resolved, X=X, y=y, cols=cols, degrees=degrees,
+            basis=basis, top_k=top_k,
+        )
     raise ValueError(
         f"_dispatch_default_scorer: unrecognised scorer={scorer!r}. "
         f"This is a defensive bug -- ``_validate_string_params`` should "
