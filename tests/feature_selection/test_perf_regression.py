@@ -227,10 +227,17 @@ def test_perf_mi_direct_gpu_at_n100k():
         _dev = cupy.cuda.Device(0)
         _major, _minor = _dev.compute_capability[0], _dev.compute_capability[1]
         _vram_total = int(_dev.mem_info[1])  # bytes
-        if (int(_major), int(_minor)) < (6, 0):
+        # 2026-06-01: tighten Pascal (6.0) -> Volta (7.0). The 0.7x parity
+        # floor at n=100k is achievable on Volta+ but not on Pascal: after
+        # iter126/143 CPU rewrites the CPU baseline runs at ~90 ms while
+        # a Pascal-class GPU spends most of the 1.5 s budget on H2D sync.
+        # Volta+ starts winning at this size; Pascal SKIPs cleanly instead
+        # of XFAILing every run (observed 0.18-0.27x soft-band on GTX 1050 Ti).
+        if (int(_major), int(_minor)) < (7, 0):
             pytest.skip(
-                f"GPU compute capability {_major}.{_minor} below Pascal (6.0); "
-                f"perf floors are not calibrated for this generation."
+                f"GPU compute capability {_major}.{_minor} below Volta (7.0); "
+                f"the n=100k 0.7x parity floor is calibrated for Volta+ -- "
+                f"Pascal lands at 0.1-0.3x dominated by H2D sync."
             )
         if _vram_total < 4 * 1024 * 1024 * 1024:
             pytest.skip(

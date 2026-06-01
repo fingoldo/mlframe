@@ -104,13 +104,19 @@ def test_pure_random_classifier_respects_random_state():
 
 
 # ---------------------------------------------------------------------------
-# T3 — check_estimator (xfail: averagers assume X is already prob columns, not
-# arbitrary features, so the generic sklearn smoke suite mis-feeds them)
+# T3 — check_estimator (skip: averagers assume X is already prob columns, not
+# arbitrary features, so the generic sklearn smoke suite mis-feeds them. Was
+# xfail; converted to skip 2026-06-01 -- sklearn's check_estimator does not
+# accept custom data, so the only way it would XPASS is if sklearn changed
+# its synthetic generator, which is not on any roadmap. xfail-then-XPASS
+# alerts would just churn the CI noise budget.)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(
+@pytest.mark.skip(
     reason="Averager classifiers interpret X as pre-computed probability columns, "
-           "not generic features — the sklearn check_estimator synthetic data violates that."
+           "not generic features — the sklearn check_estimator synthetic data violates "
+           "that contract. check_estimator does not accept custom data, so a meaningful "
+           "API-conformance check would require a parallel custom harness."
 )
 @pytest.mark.parametrize("clf_cls", [ArithmAvgClassifier, GeomAvgClassifier, PureRandomClassifier])
 def test_check_estimator_averagers(clf_cls):
