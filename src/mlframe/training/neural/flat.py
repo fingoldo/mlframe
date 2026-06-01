@@ -535,16 +535,34 @@ def generate_mlp(
     if output_activation != "linear" and num_classes == 1:
         if output_activation == "tanh_train_range":
             if output_activation_scale is None or output_activation_center is None:
-                raise ValueError(
+                # 2026-06-01: was a hard raise; soft-fall to ``linear``
+                # with a WARN instead. The caller (typically
+                # ``neural.base._fit_inner_network``) auto-derives
+                # scale/center from y_train at fit time -- if that
+                # derivation didn't fire (multi-target regression flag,
+                # caller bypassed the path, downstream callsite built a
+                # bare ``generate_mlp(...)`` without the derivation),
+                # raising killed the whole fit. Falling to ``linear``
+                # keeps the network trainable; the downstream
+                # envelope-clip remains as the safety net for unbounded
+                # extrapolation. The WARN surfaces the misconfigured
+                # call so the auto-derive can be added at the missing
+                # site rather than silently masked.
+                import warnings as _w_oa
+                _w_oa.warn(
                     "output_activation='tanh_train_range' requires both "
                     "output_activation_scale and output_activation_center "
-                    "to be non-None floats (computed by the caller from "
-                    "y_train range + std)."
+                    "to be non-None floats; falling back to 'linear' "
+                    "head. Set both at the caller (typically auto-derived "
+                    "from y_train range + std).",
+                    UserWarning,
+                    stacklevel=2,
                 )
-            layers.append(_BoundedTanhOutput(
-                scale=output_activation_scale,
-                center=output_activation_center,
-            ))
+            else:
+                layers.append(_BoundedTanhOutput(
+                    scale=output_activation_scale,
+                    center=output_activation_center,
+                ))
         else:
             raise ValueError(
                 f"Unknown output_activation={output_activation!r}; expected "

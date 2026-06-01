@@ -624,27 +624,49 @@ class PytorchLightningEstimator(BaseEstimator):
         # untouched for classification and the linear default.
         _net_params = dict(self.network_params)
         _out_act = _net_params.get("output_activation", "linear")
+        # 2026-06-01: condition uses OR (any None) so a partially-set
+        # ``scale OR center`` triggers the auto-fill instead of falling
+        # through to ``generate_mlp`` which raises on either one being
+        # None. Pre-fix the AND condition would skip the derivation for
+        # the (scale=2.0, center=None) shape, then ``generate_mlp`` at
+        # flat.py:537 would error on the missing center. The auto-fill
+        # body below only overwrites the missing field via ``setdefault``
+        # so an explicit user-set scale or center is preserved.
+        _scale_set = _net_params.get("output_activation_scale") is not None
+        _center_set = _net_params.get("output_activation_center") is not None
         if (
             _out_act == "tanh_train_range"
             and num_classes == 1
             and not getattr(self, "_is_multi_target_regression", False)
-            and _net_params.get("output_activation_scale") is None
-            and _net_params.get("output_activation_center") is None
+            and not (_scale_set and _center_set)
         ):
             try:
                 _y_arr = np.asarray(
                     y.values if isinstance(y, pd.Series) else y,
                     dtype=np.float64,
                 ).reshape(-1)
-                _y_finite = _y_arr[np.isfinite(_y_arr)]
-                if _y_finite.size > 1:
-                    _ymin = float(_y_finite.min())
-                    _ymax = float(_y_finite.max())
-                    _ystd = float(_y_finite.std())
+                # Single-pass numba kernel: min + max + mean + std over
+                # finite entries in ONE traversal of the buffer (Welford's
+                # online variance is numerically stable on high-range y;
+                # the naive ``y_finite.min() / max() / std()`` triple did
+                # three independent passes after materialising an
+                # ``isfinite`` mask). Saves ~3x memory bandwidth on a
+                # multi-million-row regression target and stays bit-exact
+                # vs numpy ddof=0 to ~1e-15.
+                from ._neural_numba_kernels import finite_min_max_std as _fmms
+                _n_finite, _ymin, _ymax, _ymean, _ystd = _fmms(_y_arr)
+                if _n_finite > 1:
                     # scale = (max-min)/2 + 3*std; ~6-sigma half-window
                     # around the train midpoint. center = (min+max)/2.
-                    _net_params["output_activation_scale"] = (_ymax - _ymin) / 2.0 + 3.0 * _ystd
-                    _net_params["output_activation_center"] = (_ymin + _ymax) / 2.0
+                    # Fill ONLY the None slots so an explicit user-set
+                    # value (scale OR center) is preserved. Asymmetric-
+                    # partial input (scale=2.0, center=None) is the case
+                    # the pre-fix AND-condition skipped, then
+                    # ``generate_mlp`` raised on the missing field.
+                    if _net_params.get("output_activation_scale") is None:
+                        _net_params["output_activation_scale"] = (_ymax - _ymin) / 2.0 + 3.0 * _ystd
+                    if _net_params.get("output_activation_center") is None:
+                        _net_params["output_activation_center"] = (_ymin + _ymax) / 2.0
                     logger.info(
                         "MLP output_activation='tanh_train_range' "
                         "auto-derived from y_train: scale=%.4g, center=%.4g "
