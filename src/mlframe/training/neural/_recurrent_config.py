@@ -2,9 +2,26 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Tuple
+
+
+def _default_num_workers() -> int:
+    """F-71 (2026-05-31): OS-aware DataLoader workers default.
+
+    Windows uses spawn semantics for DataLoader workers, which costs
+    ~150-300 ms per worker spawn each epoch. Combined with our F-46
+    persistent_workers + F-51 share_memory_ + F-52 prefetch_factor the
+    spawn cost amortizes after the first epoch, but a user running
+    smoke tests / short fits on Windows would still feel it. Stay at 0
+    on Windows; default to 2 on Linux + macOS where fork semantics make
+    workers nearly free and the per-item ``torch.as_tensor(
+    sequences[idx])`` CPU cost in RecurrentDataset.__getitem__ benefits
+    from parallelism (1.3-1.7x train throughput per Agent B audit P1).
+    """
+    return 0 if os.name == "nt" else 2
 
 
 class RNNType(str, Enum):
@@ -91,16 +108,15 @@ class RecurrentConfig:
 
     # Hardware
     accelerator: str = "auto"
-    # F-52 (2026-05-31): default num_workers stays 0 -- the previous comment
-    # ("0 for Windows compatibility") is overcautious. With share_memory_()
-    # promotion on the dataset tensors (F-51) and persistent_workers wired
-    # on all 4 loader stages (F-46), users SHOULD lift this to 2-4 on Linux
-    # and to 2 on Windows (spawn-fork). The default stays 0 for backward
-    # compat -- production users can override via RecurrentConfig.num_workers.
-    # Recurrent __getitem__ does per-item ``torch.as_tensor(sequences[idx])``
-    # which is a real CPU cost that workers amortize; num_workers=0 leaves
-    # 1.3-1.7x on the table on data-bound recurrent runs (Agent B audit P1).
-    num_workers: int = 0
+    # F-71 (2026-05-31): num_workers default is now OS-aware via
+    # _default_num_workers() -- 2 on Linux/macOS (fork is cheap), 0 on
+    # Windows (spawn semantics costs ~150-300 ms per worker per epoch).
+    # Combined with F-46 persistent_workers, F-51 share_memory_, and F-52
+    # prefetch_factor=4, Linux users now get 1.3-1.7x train throughput
+    # by default without further config. Windows users still need to
+    # explicitly opt in via RecurrentConfig(num_workers=2) to amortize
+    # the spawn cost across enough epochs.
+    num_workers: int = field(default_factory=_default_num_workers)
     # F-52: prefetch_factor only used when num_workers > 0. Default of 2 is
     # fine for in-RAM eager tensors; for recurrent + variable-len padding
     # (pad-on-the-fly via recurrent_collate_fn), 4 smooths GPU starvation

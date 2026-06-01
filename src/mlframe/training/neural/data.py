@@ -490,6 +490,21 @@ class TorchDataModule(LightningDataModule):
         dl_params["drop_last"] = drop_last
         dl_params["pin_memory"] = on_gpu
 
+        # F-71b (2026-05-31): OS-aware num_workers default for MLP, mirrors
+        # F-71's RecurrentConfig.num_workers logic. Windows spawn semantics
+        # cost ~150-300 ms per worker per epoch, so stay at 0. Linux + macOS
+        # fork is cheap; default to 2. With TorchDataset's share_memory_()
+        # promotion (data.py:101) workers attach to the same backing buffer
+        # at zero copy cost, so num_workers=2 is essentially free on Linux
+        # even when the eager-tensor path is in use. Slow-path frames (>2GB
+        # cap, per-batch conversion) benefit from workers more directly.
+        # Only set as a fallback -- the user-supplied ``dataloader_params``
+        # value still wins.
+        import os as _os
+        dl_params.setdefault(
+            "num_workers", 0 if _os.name == "nt" else 2,
+        )
+
         # ``persistent_workers=True`` skips the worker-restart cost between epochs (each restart re-imports torch / lightning / numpy + re-attaches to
         # the shared-memory tensor handle, ~100-300 ms / restart on Windows). At typical 30-100 epoch fits with num_workers>=2 the saving is 3-30 s
         # per fit. Only set when num_workers > 0 - PyTorch warns if you ask for persistent workers with 0 workers.
