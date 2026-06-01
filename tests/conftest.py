@@ -15,6 +15,14 @@ import warnings
 os.environ.setdefault("KMP_WARNINGS", "off")
 # Stream test output line-by-line: by default Python buffers stdout under non-tty pipes (CI tail commands, IDE log panels, tee). Unbuffered output makes `pytest -s` actually-streaming so long-running tests show progress instead of opaque mid-test silence. Operators forcing buffered mode can pre-set the env var to 0.
 os.environ.setdefault("PYTHONUNBUFFERED", "1")
+# Make CuBLAS pickable under ``torch.use_deterministic_algorithms(True)``. Lightning's
+# ``Trainer(deterministic="warn")`` -- used by the recurrent training path -- requests
+# deterministic algorithms but PyTorch ≥ CUDA 10.2 needs ``CUBLAS_WORKSPACE_CONFIG`` set
+# BEFORE CuBLAS loads, otherwise every matmul fires a "Deterministic behavior was enabled
+# but this operation is not deterministic" UserWarning per backward pass. Set the
+# documented ``:4096:8`` workspace size (PyTorch CONTRIBUTING.md + NVIDIA cuBLAS docs).
+# Pre-set by operator wins (the alternative ``:16:8`` slot trades workspace for memory).
+os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 
 import pytest
 

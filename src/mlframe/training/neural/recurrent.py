@@ -340,6 +340,14 @@ class _RecurrentWrapperBase(BaseEstimator):
             _gen_dl = torch.Generator()
             _gen_dl.manual_seed(int(self.random_state))
 
+        # F-47 mirror: pin_memory tracks the trainer accelerator, not just
+        # host CUDA availability. Pinning when the trainer runs on CPU (user
+        # set ``accelerator="cpu"`` on a CUDA box for debugging) emits
+        # "pin_memory is set as true but no accelerator is found" per batch.
+        _pin_memory = (
+            torch.cuda.is_available()
+            and self.config.accelerator in ("auto", "gpu", "cuda")
+        )
         return DataLoader(
             dataset,
             batch_size=batch_size or self.config.batch_size,
@@ -347,7 +355,7 @@ class _RecurrentWrapperBase(BaseEstimator):
             sampler=sampler,
             num_workers=self.config.num_workers,
             collate_fn=recurrent_collate_fn,
-            pin_memory=torch.cuda.is_available(),
+            pin_memory=_pin_memory,
             persistent_workers=self.config.num_workers > 0,
             generator=_gen_dl,
         )
