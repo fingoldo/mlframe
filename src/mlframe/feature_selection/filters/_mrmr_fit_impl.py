@@ -3114,9 +3114,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     self.composite_group_agg_features_ = []
     self.grouped_quantile_features_ = []
     self.cat_pair_features_ = []
+    self.cat_triple_features_ = []
     self.numeric_decompose_features_ = []
     self.temporal_agg_features_ = []
     _cat_pair_pre_recipes: dict = {}
+    _cat_triple_pre_recipes: dict = {}
     _numeric_decompose_pre_recipes: dict = {}
     _temporal_agg_pre_recipes: dict = {}
     _ratio_pre_recipes: dict = {}
@@ -3612,6 +3614,67 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     type(_cp_exc).__name__, _cp_exc,
                 )
 
+    # Layer 94 (2026-06-01): cat x cat x cat TRIPLE synergy cross via beam
+    # search over three-way interaction information (co-information).
+    if bool(getattr(self, "fe_cat_triple_enable", False)):
+        if not isinstance(X, pd.DataFrame):
+            warnings.warn(
+                "MRMR: Layer 94 cat_triple FE enabled but X is not a pandas "
+                "DataFrame; the features are skipped. Convert via "
+                "X.to_pandas() before fit() to apply them.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from ._cat_triple_fe import hybrid_cat_triple_fe
+
+                _y_for_ct = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                _ct_cols = tuple(
+                    getattr(self, "fe_cat_triple_cat_cols", ()) or ()
+                )
+                _ct_cols = [c for c in _ct_cols if c in X.columns] or None
+                _ct_min_ii = float(
+                    getattr(self, "fe_cat_triple_min_interaction_info", 0.001)
+                )
+                _ct_beam = int(getattr(self, "fe_cat_triple_beam_width", 3))
+                _ct_top_k = int(getattr(self, "fe_cat_triple_top_k", 3))
+                _X_before_ct_cols = list(X.columns)
+                X_ct, _ct_appended, _ct_recipes, _ct_scores = hybrid_cat_triple_fe(
+                    X, _y_for_ct,
+                    cat_cols=_ct_cols,
+                    min_interaction_info=_ct_min_ii,
+                    top_k=_ct_top_k,
+                    beam_width=_ct_beam,
+                    top_k_pairs=_ct_beam,
+                    random_state=int(getattr(self, "random_seed", 0) or 0),
+                )
+                _ct_appended = [
+                    c for c in _ct_appended if c not in _X_before_ct_cols
+                ]
+                if _ct_appended:
+                    X = X_ct
+                    self.cat_triple_features_ = list(_ct_appended)
+                    self.hybrid_orth_features_ = (
+                        list(self.hybrid_orth_features_ or []) + list(_ct_appended)
+                    )
+                    for _r in _ct_recipes:
+                        if _r.name in _ct_appended:
+                            _cat_triple_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit cat_triple: appended %d engineered "
+                            "column(s): %s",
+                            len(_ct_appended), _ct_appended[:8],
+                        )
+            except Exception as _ct_exc:
+                logger.warning(
+                    "MRMR.fit cat_triple FE raised %s: %s; continuing without "
+                    "cat-triple-cross columns.",
+                    type(_ct_exc).__name__, _ct_exc,
+                )
+
     # Layer 90 (2026-06-01): numeric decomposition (multi-precision rounding +
     # decimal-digit extraction) with a bootstrap-stable MI gate.
     if bool(getattr(self, "fe_numeric_decompose_enable", False)):
@@ -3919,6 +3982,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 c for c in (getattr(self, "cat_pair_features_", []) or [])
                 if c not in _eng_drop
             ]
+            # Layer 94: mirror cleanup for cat_triple crosses.
+            self.cat_triple_features_ = [
+                c for c in (getattr(self, "cat_triple_features_", []) or [])
+                if c not in _eng_drop
+            ]
             # Layer 90: mirror cleanup for numeric-decomposition columns.
             self.numeric_decompose_features_ = [
                 c for c in (getattr(self, "numeric_decompose_features_", []) or [])
@@ -3975,6 +4043,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             for _c in list(_cat_pair_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _cat_pair_pre_recipes.pop(_c, None)
+            for _c in list(_cat_triple_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _cat_triple_pre_recipes.pop(_c, None)
             for _c in list(_numeric_decompose_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _numeric_decompose_pre_recipes.pop(_c, None)
@@ -4048,7 +4119,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         "grouped_delta_features_", "lagged_diff_features_",
                         "grouped_agg_features_", "composite_group_agg_features_",
                         "grouped_quantile_features_",
-                        "cat_pair_features_", "numeric_decompose_features_",
+                        "cat_pair_features_", "cat_triple_features_",
+                        "numeric_decompose_features_",
                         "temporal_agg_features_",
                     ):
                         setattr(self, _attr, [
@@ -4065,6 +4137,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _lagged_diff_pre_recipes, _grouped_agg_pre_recipes,
                         _composite_group_agg_pre_recipes,
                         _grouped_quantile_pre_recipes, _cat_pair_pre_recipes,
+                        _cat_triple_pre_recipes,
                         _numeric_decompose_pre_recipes, _temporal_agg_pre_recipes,
                     ):
                         for _c in list(_pre.keys()):
@@ -4339,6 +4412,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # Layer 89: same routing for cat x cat synergy-cross recipes.
     if _cat_pair_pre_recipes:
         engineered_recipes.update(_cat_pair_pre_recipes)
+    # Layer 94: same routing for cat x cat x cat triple synergy-cross recipes.
+    if _cat_triple_pre_recipes:
+        engineered_recipes.update(_cat_triple_pre_recipes)
     if _numeric_decompose_pre_recipes:
         engineered_recipes.update(_numeric_decompose_pre_recipes)
     # Layer 92: same routing for temporal leak-safe aggregation recipes.

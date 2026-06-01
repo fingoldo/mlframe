@@ -1304,6 +1304,23 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_cat_pair_min_interaction_info: float = 0.001,
         fe_cat_pair_cat_cols: tuple = (),
         fe_cat_pair_top_k: int = 5,
+        # 2026-06-01 Layer 94 — cat x cat x cat TRIPLE synergy cross via beam
+        # search. Extends the Layer 89 pairwise interaction-information cross to
+        # the THIRD order: II3(a,b,c;y) = I(a,b,c;y) - [I(a,b;y)+I(a,c;y)+
+        # I(b,c;y)] + [I(a;y)+I(b;y)+I(c;y)] (co-information). Positive II3 =
+        # genuine three-way synergy NO pair or single explains (the parity target
+        # y = a XOR b XOR c, where every pairwise II ~ 0 yet the triple is fully
+        # predictive). Beam search seeds from the top-K synergistic PAIRS (Layer
+        # 89) and extends each by the best third cat -> <= beam_width * p triples
+        # evaluated instead of C(p,3). High-cardinality crosses (> 0.5*n distinct
+        # cells, Layer 29 pre-screen) route through K-fold OOF target encoding
+        # (Layer 33). Default OFF -> byte-identical legacy path. ``cat_cols``
+        # empty => auto-detect categoricals.
+        fe_cat_triple_enable: bool = False,
+        fe_cat_triple_min_interaction_info: float = 0.001,
+        fe_cat_triple_cat_cols: tuple = (),
+        fe_cat_triple_beam_width: int = 3,
+        fe_cat_triple_top_k: int = 3,
         # 2026-06-01 Layer 90 — NUMERIC DECOMPOSITION FE. NVIDIA cuDF Kaggle-
         # Grandmaster technique #4: multi-precision rounding (round(x/p)*p for
         # p in precisions) + decimal-digit extraction (floor(x*10^k) mod 10).

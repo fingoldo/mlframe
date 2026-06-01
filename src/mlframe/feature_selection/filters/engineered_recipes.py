@@ -407,6 +407,26 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
             },
             global_mean=float(recipe.extra.get("global_mean", 0.0)),
         )
+    if recipe.kind == "cat_triple_cross":
+        # Layer 94 lazy import: cat x cat x cat synergy cross; replay helper
+        # lives with the generator. Keeps this module under the LOC ceiling.
+        from ._cat_triple_fe import apply_cat_triple_cross
+        cat_a, cat_b, cat_c = recipe.src_names
+        return apply_cat_triple_cross(
+            X if (pd is not None and isinstance(X, pd.DataFrame))
+            else pd.DataFrame({
+                cat_a: _extract_column(X, cat_a),
+                cat_b: _extract_column(X, cat_b),
+                cat_c: _extract_column(X, cat_c),
+            }),
+            cat_a, cat_b, cat_c,
+            {tuple(k): int(v) for k, v in recipe.extra["mapping"]},
+            encoding=str(recipe.extra.get("encoding", "raw")),
+            te_lookup={
+                int(k): float(v) for k, v in recipe.extra.get("te_lookup", [])
+            },
+            global_mean=float(recipe.extra.get("global_mean", 0.0)),
+        )
     if recipe.kind in ("numeric_rounding", "digit_extract"):
         # Layer 90 (2026-06-01): numeric decomposition (multi-precision
         # rounding + decimal-digit extraction). Pure arithmetic on the single
@@ -1837,6 +1857,49 @@ def build_cat_pair_cross_recipe(
         name=name,
         kind="cat_pair_cross",
         src_names=(str(cat_i), str(cat_j)),
+        extra=extra,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Layer 94 (2026-06-01): cat x cat x cat TRIPLE synergy cross. Mirrors the
+# Layer 89 pair recipe -- the value-TRIPLE -> code mapping is stored as a list-
+# of-(key, value) pairs (tuple-keyed dicts aren't JSON-friendly; a flat pair
+# list round-trips cleanly through the frozen recipe's array-aware __eq__ /
+# pickle). ``encoding`` is "raw" (emit the integer cell code) or "target" (emit
+# per-cell OOF mean-of-y from ``te_lookup``). The apply helper lives in
+# ``_cat_triple_fe.py``.
+# ---------------------------------------------------------------------------
+
+
+def build_cat_triple_cross_recipe(
+    *, name: str, cat_a: str, cat_b: str, cat_c: str, mapping: dict,
+    encoding: str = "raw", te_lookup: dict | None = None,
+    global_mean: float = 0.0,
+) -> EngineeredRecipe:
+    """Frozen recipe for one cat x cat x cat synergy cross.
+
+    ``mapping`` maps each fit-time (str_a, str_b, str_c) value triple to its
+    dense int cell code. ``encoding='raw'`` emits the cell code (unseen triples
+    -> sentinel bin); ``encoding='target'`` emits the per-cell smoothed mean-of-y
+    from ``te_lookup`` (unseen triples / codes -> ``global_mean``). No y
+    reference is consumed at replay -- ``transform()`` is a pure function of X."""
+    mapping_pairs = [
+        [list(k), int(v)] for k, v in mapping.items()
+    ]
+    extra: dict = {
+        "mapping": mapping_pairs,
+        "encoding": str(encoding),
+    }
+    if encoding == "target":
+        extra["te_lookup"] = [
+            [int(k), float(v)] for k, v in (te_lookup or {}).items()
+        ]
+        extra["global_mean"] = float(global_mean)
+    return EngineeredRecipe(
+        name=name,
+        kind="cat_triple_cross",
+        src_names=(str(cat_a), str(cat_b), str(cat_c)),
         extra=extra,
     )
 
