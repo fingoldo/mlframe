@@ -765,6 +765,24 @@ class MRMR(BaseEstimator, TransformerMixin):
         # labeled-only fit). When the flag is on but the wrapper is not used
         # (plain ``mrmr.fit(X, y)``), behaviour is also byte-identical.
         fe_semi_supervised_enable: bool = False,
+        # 2026-06-01 Layer 81 — LASSO-BASED PRE-SELECTION (sibling module
+        # ``_orthogonal_lasso_fe``). Independent opt-in (does NOT require
+        # fe_hybrid_orth_enable). Layers 21 / 65-74 score candidates via MI /
+        # dependence metrics (greedy non-parametric); Lasso (L1) is the dual
+        # parametric approach -- fit a single linear model on
+        # ``[raw_X, engineered_X]`` and treat |coef| as the per-column score.
+        # Complements MI on LINEAR-additive signals where the L1 coefficient
+        # path is the natural shrinkage operator. Underperforms MI on
+        # non-monotone targets (e.g. ``y = cos(x)``): a linear model has zero
+        # Pearson correlation there, so |coef|=0 and the column drops out --
+        # this is the expected behaviour, not a regression.
+        #
+        # Recipes still use ``orth_univariate`` kind (engineered VALUES are
+        # bit-equal to Layer 21 -- only the selection metric changes), replay
+        # reads X only, no y. Default OFF preserves legacy pickle byte
+        # equivalence.
+        fe_hybrid_orth_lasso_enable: bool = False,
+        fe_hybrid_orth_lasso_alpha: float = 0.01,
         # 2026-05-31 Layer 57 — ADAPTIVE PER-COLUMN DEGREE selection
         # (sibling module ``_orthogonal_adaptive_degree_fe``). Independent
         # opt-in (does NOT require fe_hybrid_orth_enable). When enabled,
@@ -1507,6 +1525,10 @@ class MRMR(BaseEstimator, TransformerMixin):
             # 2026-06-01 Layer 80 — semi-supervised basis-preprocess fitting.
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_semi_supervised_enable": False,
+            # 2026-06-01 Layer 81 — Lasso-based pre-selection defaults.
+            # Master switch OFF preserves legacy pickle byte-equivalence.
+            "fe_hybrid_orth_lasso_enable": False,
+            "fe_hybrid_orth_lasso_alpha": 0.01,
             # 2026-05-31 Layer 57 — adaptive per-column degree defaults.
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_hybrid_orth_adaptive_degree_enable": False,
