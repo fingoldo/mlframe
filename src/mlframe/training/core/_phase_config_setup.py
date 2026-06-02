@@ -98,6 +98,40 @@ def setup_configuration(
     if verbose:
         log_phase(f"Starting mlframe training suite: {model_name}")
 
+    # Setup-timing scaffolding. The user's observed 5-13 minute zero-CPU gap
+    # between the suite-start log and the cal-plot short-circuit log lives
+    # entirely between this point and the early-INFO block below. The likely
+    # candidates (matplotlib font cache rebuild, plotly lazy template fetch,
+    # ``mlframe.training.evaluation`` first-import cascade, AV scan on each
+    # .pyc) are indistinguishable from outside; one timing log per major step
+    # turns the black box into a labelled punch-list.
+    #
+    # Opt-out: MLFRAME_SETUP_TIMING=0 (default ON; cost ~5 us per checkpoint
+    # via time.perf_counter, fully amortised at the first slow step).
+    import time as _time
+    _setup_timing_on = _os.environ.get("MLFRAME_SETUP_TIMING", "1").strip().lower() not in (
+        "0", "false", "no", "off",
+    )
+    _setup_t_prev = _time.perf_counter()
+    _setup_t_start = _setup_t_prev
+
+    def _step_done(label: str) -> None:
+        nonlocal _setup_t_prev
+        if not _setup_timing_on or not verbose:
+            return
+        _now = _time.perf_counter()
+        _delta = _now - _setup_t_prev
+        # Promote to INFO when a step is genuinely slow (>= 2s) so the loud
+        # checkpoints surface in the prod log; quick steps stay at DEBUG to
+        # keep the suite-start banner uncluttered on fast hosts.
+        _lvl = logging.INFO if _delta >= 2.0 else logging.DEBUG
+        logger.log(
+            _lvl,
+            "[setup-timing] %s in %.2fs (cumulative %.2fs)",
+            label, _delta, _now - _setup_t_start,
+        )
+        _setup_t_prev = _now
+
     if feature_handling_config is not None:
         try:
             from mlframe.training.feature_handling import FeatureHandlingConfig
@@ -111,6 +145,7 @@ def setup_configuration(
                     )
         except ImportError:  # pragma: no cover
             pass
+    _step_done("feature_handling_config validate")
 
     preprocessing_config = _ensure_config(preprocessing_config, PreprocessingConfig, {})
     pipeline_config = _ensure_config(pipeline_config, PreprocessingBackendConfig, {})
@@ -119,6 +154,7 @@ def setup_configuration(
     hyperparams_config = _ensure_config(hyperparams_config, ModelHyperparamsConfig, {})
     behavior_config = _ensure_config(behavior_config, TrainingBehaviorConfig, {})
     reporting_config = _ensure_config(reporting_config, ReportingConfig, {})
+    _step_done("_ensure_config x7 (preprocessing..reporting)")
 
     # Publish the PipelineCache RAM-budget fraction to the env the cache
     # reads (both PipelineCache.__init__ and the eviction re-check resolve
@@ -139,6 +175,7 @@ def setup_configuration(
         _set_residual_audit_enabled as _set_resid_audit,
         _get_residual_audit_enabled as _get_resid_audit,
     )
+    _step_done("import mlframe.training.evaluation")
     _residual_audit_prior = _get_resid_audit()
     _set_resid_audit(getattr(behavior_config, "report_residual_audit", True))
 
@@ -165,6 +202,7 @@ def setup_configuration(
             _set_idm(_inline_display)
         except ImportError:
             pass
+    _step_done("inline_display setup (import mlframe.reporting.renderers.save)")
 
     # Process-wide; None keeps the user's pre-suite matplotlib/plotly settings intact.
     _apply_plot_style_overrides(
@@ -173,6 +211,7 @@ def setup_configuration(
         plotly_template=getattr(reporting_config, "plotly_template", None),
         verbose=bool(verbose),
     )
+    _step_done("_apply_plot_style_overrides (matplotlib + plotly first import / fontcache)")
 
     output_config = _ensure_config(output_config, OutputConfig, {})
     outlier_detection_config = _ensure_config(outlier_detection_config, OutlierDetectionConfig, {})
@@ -181,6 +220,7 @@ def setup_configuration(
     baseline_diagnostics_config = _ensure_config(baseline_diagnostics_config, BaselineDiagnosticsConfig, {})
     dummy_baselines_config = _ensure_config(dummy_baselines_config, DummyBaselinesConfig, {})
     quantile_regression_config = _ensure_config(quantile_regression_config, QuantileRegressionConfig, {})
+    _step_done("_ensure_config x7 (output..quantile)")
 
     # Pre-warm numba kernels so first call doesn't pay 6-10s JIT cold-start.
     if dummy_baselines_config.enabled:
@@ -189,10 +229,12 @@ def setup_configuration(
             _warmup_numba_kernels()
         except Exception:
             pass
+    _step_done("_warmup_numba_kernels (JIT prewarm)")
 
     composite_target_discovery_config = _ensure_config(
         composite_target_discovery_config, CompositeTargetDiscoveryConfig, {}
     )
+    _step_done("_ensure_config(CompositeTargetDiscoveryConfig)")
     if _os.environ.get("MLFRAME_DISABLE_COMPOSITE", "").lower() in {"1", "true", "yes"}:
         composite_target_discovery_config = _ensure_config(
             {"enabled": False}, CompositeTargetDiscoveryConfig, {}
