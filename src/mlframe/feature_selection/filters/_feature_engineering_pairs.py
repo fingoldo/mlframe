@@ -195,6 +195,11 @@ def check_prospective_fe_pairs(
     # to fire on the F-POLY non-monotone inner (measured uplift ~1.42x) while
     # staying silent on linear/monotone/noise (uplift ~1.0x there).
     prewarp_uplift_threshold: float = 1.20,
+    # Held-out floor for the out-of-sample prewarp validation: a warp fit on a
+    # train slice is kept only if its rank-1 reconstruction f(a)*g(b) tracks y on
+    # a held-out slice with |corr| >= this. Rejects supervised overfitting on noise
+    # operands at small n; 0.0 disables (legacy in-sample-only fit).
+    prewarp_min_val_corr: float = 0.08,
     prewarp_specs_out: dict | None = None,
 ):
     # Starting from the most heavily connected pairs, create a big pool of original features + their unary transforms. Individual vars referenced more than once go
@@ -278,6 +283,54 @@ def check_prospective_fe_pairs(
                 return X.iloc[:, original_cols[_var]].values
             return X[:, original_cols[_var]].to_numpy()
 
+        # OUT-OF-SAMPLE PREWARP VALIDATION (2026-06-03). The ALS prewarp is a
+        # SUPERVISED per-operand fit; at small n it overfits noise operands (the
+        # in-sample uplift is inflated by the fit AND by the multiple operand/pair
+        # comparisons), so a noise-paired warp clears the in-sample uplift gate,
+        # gets engineered, and ABSORBS a genuine feature -- the raw column then
+        # reads as redundant and is dropped, leaving a noise-diluted feature
+        # (measured: a genuine X5 dropped at n=500). Guard: fit the warp on a TRAIN
+        # slice and keep it only if its rank-1 reconstruction f(a)*g(b) still tracks
+        # y on a HELD-OUT slice. Genuine synergy (incl. zero-marginal XOR) and
+        # genuine non-monotone inners generalise; overfit-on-noise collapses on the
+        # held-out slice. At large n train ~= full so genuine recovery is untouched.
+        # ``fe_pair_prewarp_min_val_corr`` (default 0.08) is the held-out floor; 0.0
+        # restores the legacy in-sample-only fit.
+        _pw_min_val_corr = float(prewarp_min_val_corr or 0.0)
+        _pw_n = int(_prewarp_y_eff.shape[0]) if hasattr(_prewarp_y_eff, "shape") else len(_prewarp_y_eff)
+        # Deterministic stride split (no RNG): every 3rd row -> validation (~33%).
+        _pw_cv_ok = _pw_min_val_corr > 0.0 and _pw_n >= 60
+        if _pw_cv_ok:
+            _val_mask = (np.arange(_pw_n) % 3 == 0)
+            _tr_mask = ~_val_mask
+            _y_tr = _prewarp_y_eff[_tr_mask]
+            _y_val = _prewarp_y_eff[_val_mask] - float(np.mean(_prewarp_y_eff[_val_mask]))
+
+        def _prewarp_generalises(_va_full, _vb_full):
+            """True if an ALS warp fit on the train slice still tracks y on the
+            held-out slice (rank-1 reconstruction correlation >= floor)."""
+            if not _pw_cv_ok:
+                return True  # CV disabled / n too small -> accept (legacy behaviour)
+            try:
+                _a = np.asarray(_va_full, dtype=np.float64).reshape(-1)
+                _b = np.asarray(_vb_full, dtype=np.float64).reshape(-1)
+                if _a.shape[0] != _pw_n or _b.shape[0] != _pw_n:
+                    return True  # length mismatch (subsample edge) -> don't block
+                _sa_tr, _sb_tr = fit_pair_prewarp_als(
+                    _a[_tr_mask], _b[_tr_mask], _y_tr,
+                    basis=prewarp_basis, max_degree=prewarp_max_degree,
+                )
+                if _sa_tr is None or _sb_tr is None:
+                    return False
+                _wa = apply_operand_prewarp(_a[_val_mask], _sa_tr)
+                _wb = apply_operand_prewarp(_b[_val_mask], _sb_tr)
+                _recon = _wa * _wb
+                if float(np.std(_recon)) < 1e-12 or float(np.std(_y_val)) < 1e-12:
+                    return False
+                return abs(float(np.corrcoef(_recon, _y_val)[0, 1])) >= _pw_min_val_corr
+            except Exception:
+                return True  # validation failure -> fall back to accepting the warp
+
         for (raw_vars_pair, _), _ in prospective_pairs.items():
             _va, _vb = raw_vars_pair[0], raw_vars_pair[1]
             if _va in _prewarp_spec_by_var and _vb in _prewarp_spec_by_var:
@@ -285,6 +338,11 @@ def check_prospective_fe_pairs(
             _vals_a = _operand_vals(_va)
             _vals_b = _operand_vals(_vb)
             if _vals_a is None or _vals_b is None:
+                continue
+            # Reject the warp for this pair if it does not generalise out-of-sample
+            # (overfit-on-noise). Leaves the operands unregistered -> the pair search
+            # falls back to the library unaries, which do not overfit.
+            if not _prewarp_generalises(_vals_a, _vals_b):
                 continue
             _sa, _sb = fit_pair_prewarp_als(
                 _vals_a, _vals_b, _prewarp_y_eff,

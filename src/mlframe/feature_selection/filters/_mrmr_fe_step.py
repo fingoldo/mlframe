@@ -124,6 +124,20 @@ def _run_fe_step(
     if _is_polars_input:
         import polars as pl  # noqa: F401  -- pl is used in the polars dispatch branches below
 
+    # RAW-RETENTION capture (2026-06-03): record the SCREENING-confirmed genuine
+    # raw features on the first FE step. The post-FE re-selection can drop a
+    # screening-confirmed (permutation-validated) weak feature when an engineered
+    # feature absorbs its signal as a redundant near-duplicate (measured: a genuine
+    # X5 / pair operand absorbed into a noise-paired engineered feature, raw column
+    # dropped). ``MRMR.fit`` re-adds these at support finalisation unless a
+    # SINGLE-PARENT engineered child substitutes them (the prefer-engineered case).
+    if num_fs_steps == 0:
+        try:
+            _raw_set = set(self.feature_names_in_)
+            self._prefe_screened_raw_ = [cols[v] for v in selected_vars if cols[v] in _raw_set]
+        except Exception:
+            self._prefe_screened_raw_ = []
+
     n_recommended_features = 0
     if verbose >= 2:
         logger.info("Computing prospective FE pairs...")
@@ -505,6 +519,7 @@ def _run_fe_step(
         _prewarp_basis = str(getattr(self, "fe_pair_prewarp_basis", "chebyshev"))
         _prewarp_max_degree = int(getattr(self, "fe_pair_prewarp_max_degree", 4))
         _prewarp_uplift = float(getattr(self, "fe_pair_prewarp_uplift_threshold", 1.20))
+        _prewarp_min_val_corr = float(getattr(self, "fe_pair_prewarp_min_val_corr", 0.08))
         _prewarp_specs: dict = {}
 
         if len(X) < 50_000 or len(prospective_pairs) < 2:
@@ -539,6 +554,7 @@ def _run_fe_step(
                 prewarp_basis=_prewarp_basis,
                 prewarp_max_degree=_prewarp_max_degree,
                 prewarp_uplift_threshold=_prewarp_uplift,
+                prewarp_min_val_corr=_prewarp_min_val_corr,
                 prewarp_specs_out=_prewarp_specs,
             )
         else:
@@ -599,6 +615,7 @@ def _run_fe_step(
                         prewarp_basis=_prewarp_basis,
                         prewarp_max_degree=_prewarp_max_degree,
                         prewarp_uplift_threshold=_prewarp_uplift,
+                        prewarp_min_val_corr=_prewarp_min_val_corr,
                         prewarp_specs_out=None,  # loky: recovered from result dict below
                     )
                     for chunk in jobs_list

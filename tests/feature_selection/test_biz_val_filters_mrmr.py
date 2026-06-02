@@ -440,8 +440,13 @@ def test_biz_val_mrmr_fe_polynomial_basis_chebyshev_default_runs():
     # in __init__ kwargs.
     sel.fe_polynomial_basis = "chebyshev"
     sel.fit(df, ys)
-    # Must complete and produce a non-empty support_.
-    assert len(sel.support_) > 0
+    # Must complete and produce non-empty OUTPUT. On a (symmetric) polynomial
+    # target the default univariate-basis FE recovers the signal via engineered
+    # features (``x0__He2`` etc.), so ``support_`` (raw-only indices) can be empty
+    # while ``get_feature_names_out()`` (raw + engineered) is non-empty. Assert the
+    # latter -- "the chebyshev basis FE ran and produced features" -- which is the
+    # contract this test pins (basis-registry dispatch), not raw-column survival.
+    assert len(sel.get_feature_names_out()) > 0
 
 
 # ---------------------------------------------------------------------------

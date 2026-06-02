@@ -5358,6 +5358,50 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         _removed_set = set(_ca_removed)
         selected_vars = [v for v in selected_vars if cols[v] not in _removed_set]
 
+    # RAW-RETENTION (2026-06-03): re-add SCREENING-confirmed genuine raw features
+    # that the post-FE re-selection dropped, UNLESS a SINGLE-PARENT engineered child
+    # substitutes them (the prefer-engineered raw->transform swap, which is a
+    # legitimate, intended replacement). Screening permutation-validated these raw
+    # columns as genuine; at small n an engineered feature can absorb a weak genuine
+    # one as a redundant near-duplicate and the re-selection then drops the clean raw
+    # signal entirely (measured: a genuine X5 at n=500, and both operands of a
+    # pair-interaction target, dropped from support_). A raw feature only legitimately
+    # leaves the support when a sole-parent transform of it survives.
+    _prefe_raw = getattr(self, "_prefe_screened_raw_", None)
+    if _prefe_raw and len(selected_vars):
+        from ._confirm_predictor import _extract_single_raw_parent  # noqa: E501
+        _raw_names_set = set(self.feature_names_in_)
+        _cur_names = set(np.asarray(cols)[np.asarray(selected_vars, dtype=np.intp)])
+        # Raw parents already represented by a SOLE-parent engineered survivor:
+        _substituted = set()
+        for _v in selected_vars:
+            if cols[_v] in _raw_names_set:
+                continue
+            _p = _extract_single_raw_parent([_v], cols, _raw_names_set)
+            if _p is not None:
+                _substituted.add(_p)
+        _sv_set = set(selected_vars)
+        _readd = []
+        for _rn in _prefe_raw:
+            if _rn in _cur_names or _rn in _substituted:
+                continue
+            try:
+                _idx = cols.index(_rn)
+            except ValueError:
+                continue
+            if _idx not in _sv_set:
+                _readd.append(_idx)
+                _sv_set.add(_idx)
+        if _readd:
+            selected_vars = list(selected_vars) + _readd
+            if verbose:
+                logger.info(
+                    "MRMR raw-retention: re-added %d screening-confirmed raw feature(s) "
+                    "dropped by the post-FE re-selection (not substituted by a sole-parent "
+                    "engineered child): %s",
+                    len(_readd), [cols[i] for i in _readd],
+                )
+
     # ---------------------------------------------------------------------------------------------------------------
     # selected_vars: cols-indices -> names -> original-frame indices (categorize_dataset may rearrange cat columns).
     # ---------------------------------------------------------------------------------------------------------------
