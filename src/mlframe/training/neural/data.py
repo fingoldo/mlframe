@@ -598,6 +598,14 @@ class TorchDataModule(LightningDataModule):
 
         if batch_size is not None:
             self.batch_size = batch_size
+            # _create_dataloader resolves the batch from
+            # ``dataloader_params['batch_size']`` whenever that key is present
+            # (the suite seeds it with 'auto'), which would shadow this predict
+            # override and route the predict split through the TRAIN batch-size
+            # resolver. Mirror the override into dataloader_params so the predict
+            # dataloader honors the resolved predict batch size. (New dict, so the
+            # shared/original dataloader_params is left untouched.)
+            self.dataloader_params = {**self.dataloader_params, "batch_size": batch_size}
 
         self.setup(stage="predict")
 

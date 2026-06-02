@@ -1275,15 +1275,24 @@ class PytorchLightningEstimator(BaseEstimator):
                 "enable_checkpointing": False,
                 "enable_progress_bar": False,
             }
-            if device is not None:
-                if device.startswith("cuda"):
-                    trainer_params["accelerator"] = "cuda"
-                elif device == "cpu":
-                    trainer_params["accelerator"] = "cpu"
-            if precision is not None:
-                trainer_params["precision"] = precision
-            elif hasattr(self.trainer, "precision"):
+            # Inherit the live trainer's precision when the caller didn't ask for
+            # a specific one; an explicit ``precision`` arg is applied below.
+            if precision is None and hasattr(self.trainer, "precision"):
                 trainer_params["precision"] = self.trainer.precision
+
+        # Honor explicit predict(device=, precision=) overrides in BOTH paths.
+        # These used to live only in the ``else`` (live-trainer) branch, but
+        # ``self.trainer`` is reset to None after fit and after every predict, so
+        # the normal post-fit predict path always took the other branch and
+        # silently dropped the device/precision arguments documented on the
+        # public predict()/predict_proba() API.
+        if device is not None:
+            if device.startswith("cuda"):
+                trainer_params["accelerator"] = "cuda"
+            elif device == "cpu":
+                trainer_params["accelerator"] = "cpu"
+        if precision is not None:
+            trainer_params["precision"] = precision
 
         # F-67 prediction-trainer caching REVERTED (2026-06-02): reusing one
         # L.Trainer across multiple predict() calls accumulates Lightning's
@@ -1617,6 +1626,15 @@ class PytorchLightningClassifier(
             numpy.ndarray: Predicted class labels
         """
         raw = self._predict_raw(X, device=device, precision=precision, batch_size=batch_size)
+        # Multilabel: each of the K labels is an independent sigmoid, so predict()
+        # must return an (N, K) 0/1 indicator matrix (each label thresholded
+        # independently), NOT a single argmax label per row. The multilabel head
+        # sets _is_multilabel=True and leaves _label_encoder/classes_ unset, so
+        # without this guard the code fell through to ``argmax`` -> shape (N,),
+        # breaking the predict() contract and degenerating multilabel
+        # permutation-importance (predict vs 2-D y mismatch).
+        if getattr(self, "_is_multilabel", False):
+            return (np.asarray(raw) >= 0.5).astype(np.int64)
         # F-05 binary path: raw has shape (N, 1) and contains P(y=1).
         # Use ``> 0.5`` (strict) so the predict() / predict_proba contract holds:
         # at raw==0.5 a ``>= 0.5`` threshold returned class 1 while
