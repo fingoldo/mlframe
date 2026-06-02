@@ -540,7 +540,13 @@ class MRMR(BaseEstimator, TransformerMixin):
         # stored in the EngineeredRecipe for leak-safe, y-free replay at
         # transform() time. Orthogonal to ``fe_smart_polynom_iters`` /
         # ``fe_hybrid_orth_enable`` (works with both off).
-        fe_pair_prewarp_enable: bool = False,
+        # 2026-06-02: default flipped False->True. Unlike the orthogonal-poly
+        # path (``fe_smart_polynom_iters``, OFF by default because its CMA/Optuna
+        # search is ~60s/fit), the pre-warp is a single rank-1 ALS least-squares
+        # solve (~5ms/pair, cProfile-confirmed negligible) AND is uplift-gated +
+        # noise/linear-clean, so it is a free accuracy win: ON by default per the
+        # "accuracy-improving mechanisms default-on" policy. Set False to disable.
+        fe_pair_prewarp_enable: bool = True,
         fe_pair_prewarp_basis: str = "chebyshev",
         fe_pair_prewarp_max_degree: int = 4,
         # Minimum (best-prewarp-MI / best-nonprewarp-MI) ratio for the prewarp
