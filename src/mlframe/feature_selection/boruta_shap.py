@@ -123,15 +123,14 @@ class BorutaShap(BaseEstimator, TransformerMixin):
             to reject and accept features.
 
         """
-        if fit_params is None:
-            fit_params = {}
-
-        self.importance_measure = importance_measure.lower()
+        # sklearn contract: __init__ stores params VERBATIM (no mutation / validation), so the estimator is
+        # clone-able (GridSearchCV / Pipeline). importance_measure is lowercased at its comparison sites, fit_params
+        # defaults to {} at use, and model defaulting + validation (check_model) is deferred to fit().
+        self.importance_measure = importance_measure
         self.percentile = percentile
         self.pvalue = pvalue
         self.classification = classification
         self.model = model
-        self.check_model()
 
         # Use a private rng so the suite's global numpy RNG state is not mutated by
         # BorutaShap construction. Prior code seeded np.random globally, leaking the
@@ -198,7 +197,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         elif check_fit is False and check_predict is False:
             raise AttributeError("Model must contain both the fit() and predict() methods")
 
-        elif (check_feature_importance is False and "RandomForest" not in type(self.model).__name__) and self.importance_measure == "gini":
+        elif (check_feature_importance is False and "RandomForest" not in type(self.model).__name__) and str(self.importance_measure).lower() == "gini":
             raise AttributeError("Model must contain the feature_importances_ method to use Gini try Shap instead")
 
         else:
@@ -353,14 +352,14 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         """
 
         if "catboost" in str(type(self.model)).lower():
-            self.model.fit(X, y, cat_features=self.X_categorical, verbose=False, **self.fit_params)
+            self.model.fit(X, y, cat_features=self.X_categorical, verbose=False, **(self.fit_params or {}))
 
         else:
             try:
-                self.model.fit(X, y, verbose=False, **self.fit_params)
+                self.model.fit(X, y, verbose=False, **(self.fit_params or {}))
 
             except TypeError:
-                self.model.fit(X, y, **self.fit_params)
+                self.model.fit(X, y, **(self.fit_params or {}))
 
 
     def transform(
@@ -648,7 +647,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
                 If no Importance measure was specified
         """
 
-        if self.importance_measure == "shap":
+        if str(self.importance_measure).lower() == "shap":
             self.explain()
             vals = self.shap_values
 
@@ -661,7 +660,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
             X_feature_import = vals[: len(self.X.columns)]
             Shadow_feature_import = vals[len(self.X.columns) :]
 
-        elif self.importance_measure == "gini":
+        elif str(self.importance_measure).lower() == "gini":
             feature_importances_ = np.abs(self.model.feature_importances_)
 
             if normalize:

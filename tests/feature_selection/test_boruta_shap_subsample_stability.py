@@ -31,11 +31,29 @@ def test_stability_params_roundtrip_shallow_get_params():
     assert p["stability_subsamples"] == 4
     assert p["stability_subsample_fraction"] == 0.8
     assert p["stability_threshold"] == 0.7
-    # Shallow round-trip must reconstruct (BorutaShap is not sklearn-cloneable due to importance_measure
-    # lowercasing, but the orchestration builds sub-fits via get_params(deep=False) + __class__(**p)).
+    # Shallow round-trip must reconstruct (the orchestration builds sub-fits via get_params(deep=False)+__class__(**p)).
     assert BorutaShap(**p).stability_subsamples == 4
     # Default threshold is intersection (1.0): the only setting that reliably drops a draw-level-spurious column.
     assert BorutaShap(stability_subsamples=2).stability_threshold == 1.0
+
+
+def test_borutashap_is_sklearn_cloneable():
+    """__init__ must store params verbatim so the estimator is clone-able (GridSearchCV / Pipeline). Regression for
+    the prior bug where __init__ lowercased importance_measure, defaulted fit_params None->{}, and ran check_model
+    (None->RandomForest), all of which made sklearn.clone raise 'constructor does not set or modifies parameter'."""
+    pytest.importorskip("sklearn")
+    from sklearn.base import clone
+    from sklearn.ensemble import RandomForestClassifier
+    from mlframe.feature_selection.boruta_shap import BorutaShap
+
+    for kw in (dict(), dict(importance_measure="Shap"), dict(importance_measure="Gini"),
+               dict(model=None, fit_params=None), dict(model=RandomForestClassifier(), stability_subsamples=4)):
+        c = clone(BorutaShap(**kw))  # must not raise
+        assert isinstance(c, BorutaShap)
+    # Params survive verbatim (no __init__ mutation).
+    b = BorutaShap(importance_measure="Shap")
+    assert b.get_params(deep=False)["importance_measure"] == "Shap"
+    assert b.model is None and b.fit_params is None
 
 
 def test_stability_runs_subfits_votes_and_keeps_signal():

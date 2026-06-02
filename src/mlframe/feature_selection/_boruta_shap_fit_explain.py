@@ -206,6 +206,10 @@ def fit(self, X, y):
     if pl is not None and isinstance(y, pl.Series):
         y = y.to_pandas()
 
+    # Deferred from __init__ (sklearn clone-ability): resolve model=None -> default RF and validate fit/predict here,
+    # before either the stability orchestration (which clones self.model) or the single-pass body uses it.
+    self.check_model()
+
     # Cross-subsample stability gate (opt-in). See BorutaShap class docstring: a single-sample shadow
     # comparison leaks the top finite-sample-spurious real-noise column; majority vote across distinct
     # row-subsamples (WITHOUT replacement) removes it. >1 guards against a degenerate single-subsample.
