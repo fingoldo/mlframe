@@ -137,6 +137,27 @@ def _prepare_test_split(
             # cache returned data without fitting).  Otherwise, ALWAYS
             # apply transform when the pre_pipeline IS fitted.
             _id_equiv = getattr(pre_pipeline, "_mlframe_identity_equivalent", False)
+            # ``_mlframe_identity_equivalent`` is computed on the TRAIN transform
+            # and stored on the pipeline object; it can go STALE when a pipeline /
+            # bare feature-selector object is reused across rounds (e.g. a non-FS
+            # round sets it True, then the MRMR round reuses the same tree
+            # pipeline). A fitted feature selector REDUCES the column set, so its
+            # transform is never a no-op: when one is present AND the test frame
+            # still carries the raw input width, force the transform on. The
+            # ``is_raw`` guard means an already-transformed test frame (skip-path
+            # cache hit, narrower than the fitted input width) is left untouched,
+            # so this never double-transforms; unfitted-identity pipelines (the
+            # NotFittedError-dodge case) are excluded by the ``_is_fitted`` check.
+            if _id_equiv and _is_fitted(pre_pipeline):
+                _sel_chk = _extract_feature_selector(pre_pipeline)
+                if (
+                    _sel_chk is not None
+                    and _is_fitted(_sel_chk)
+                    and _test_df_is_raw_pipeline_input(
+                        pre_pipeline, test_df, selector_passthrough_cols, skip_preprocessing
+                    )
+                ):
+                    _id_equiv = False
             if not _id_equiv:
                 # ``skip_pre_pipeline_transform=True`` is set on the pipeline-
                 # cache hit, where the cached test_df is ALREADY the transformed
