@@ -224,6 +224,12 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         revalidate: bool = True,
         n_revalidation_models: int = 3,
         lambda_stab: float = 0.5,
+        # parsimony_tol: within_cluster_refine drops a member while the honest-loss increase stays below this.
+        # MEASURED over-pruning dial (s2/S4 bench, _benchmarks/fs_hybrid): 0.02 EXCEEDS the marginal brier
+        # contribution of 6/7 informative features (drop-one delta median ~0.013 < 0.02), so the refine drops
+        # genuine signal that sits above noise but below the loose tol. Lower it (e.g. 0.005) - or set
+        # within_cluster_refine=False - when a strong downstream benefits from more features. Kept at 0.02 by
+        # default for back-compat; the fs_hybrid benchmark uses within_cluster_refine=False as the over-pruning fix.
         parsimony_tol: float = 0.02,
         min_selected_ratio: float = 0.0,
         trust_guard: bool = True,
