@@ -238,6 +238,19 @@ iterations burn compute without gain. Tracking the streak (not the total
 count) keeps the loop running through productive stretches and ending
 naturally only when it stops being productive.
 
+## pyutilz hotspots are in scope — optimize them too (CRITICAL)
+
+``pyutilz`` (``D:/Upd/Programming/PythonCodeRepository/pyutilz``) is OUR
+first-party library, not a third-party dependency. When a profile attributes
+a hotspot to a ``pyutilz`` function (it shows up as
+``...\pyutilz\src\pyutilz\...\*.py:LINE`` in the cProfile output), optimize it
+in the pyutilz repo with the same standards used for mlframe code: measure
+before/after, require bit-identity (or documented numerical equivalence), add
+a regression test, and always try ``numba.@njit`` on a numpy hotspot before
+declaring it at the floor (see the always-try-njit rule). Commit + push the
+pyutilz change to its own repo (``main`` branch). Do NOT dismiss a pyutilz
+hotspot as "external / out of scope" — it is ours to fix.
+
 ## Profile every new feature with cProfile + optimize hotspots (CRITICAL)
 
 Each new feature added to mlframe must be profiled and its hotspots
@@ -276,6 +289,39 @@ diagnostic passes, new pre-/post-processing transforms, new model
 wrappers, and new pipeline integration points. It does NOT apply to
 trivial helper additions or pure refactors that don't change the
 hot path.
+
+## Gate a big win on its safe condition (CRITICAL)
+
+When an optimization gives a LARGE speedup but is only bit-identical
+under a **detectable** condition (and diverges meaningfully otherwise),
+do not reject it wholesale and do not ship it unconditionally — **gate
+it**: apply the fast path exactly where it is safe, fall back to the
+exact path everywhere else. A conditional win beats no win, and a big
+win is worth conditional bit-identity.
+
+- **Divergence magnitude is the deciding factor.** ~1e-9 (FP
+  reduction-order under `parallel=True`, half-even ULP) is acceptable
+  for a real speedup. **Selection-altering divergence (~1e-3 on an MI /
+  score / gain) is NOT** — it silently changes which features get
+  picked. If the fast path can move a selection decision, it must be
+  gated out of that case, never shipped raw.
+- **Find the exact predicate** separating safe from unsafe inputs, make
+  it a cheap runtime check, and branch on it. Reference: the bootstrap
+  resample-sort in `_orthogonal_bootstrap_mi_fe` — sorting the gather
+  indices is a ~6.7× cache-locality win, bit-identical on continuous
+  (all-distinct) columns but ~1e-3 MI-divergent on discrete columns
+  (equi-frequency `argsort` binning breaks ties **positionally**). Gated
+  per matrix on `_all_columns_distinct`: the wide engineered matrix
+  keeps the win; discrete matrices keep the exact random-order gather.
+- **Verify bit-identity on the UNSAFE case too**, not just the safe one.
+  A check that exercises only continuous/no-tie data will pass while the
+  discrete/tied path silently diverges. Test tied / discrete / low-card
+  inputs explicitly before trusting a "bit-identical" claim.
+- **Ship a regression test pinning BOTH sides**: bit-identical on the
+  gated-in case AND divergent on the gated-out case, so a future "just
+  always do it" cannot slip through unnoticed.
+- Same failure class as the rejected njit rank-binning (MI-divergent on
+  ties): any row reordering or rebinning is suspect on tied data.
 
 ## Every new ML trick gets a `biz_value` synthetic test (CRITICAL)
 
