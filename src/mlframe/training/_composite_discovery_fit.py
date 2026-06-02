@@ -31,8 +31,66 @@ from .composite_transforms import (
     compose_target_name,
     get_transform,
 )
+from ._ram_helpers import (
+    get_process_rss_mb as _rss_mb,
+    maybe_clean_ram_adaptive as _maybe_clean_ram_adaptive,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _phase_ram_report(state: dict, phase_name: str) -> None:
+    """Emit one INFO log line per discovery sub-phase boundary with delta-vs-prev
+    and cumulative delta vs the fit() entry baseline.
+
+    State is a {'baseline_mb': float, 'prev_mb': float} dict the caller threads
+    through the discovery fit. ``maybe_clean_ram_adaptive()`` is invoked AFTER
+    reading the post-phase RSS so the report reflects the unfreed footprint of
+    the sub-phase that just finished; the GC trigger then runs only when growth
+    exceeded the helper's internal threshold (~500 MB).
+
+    Designed for prod-debug: the user's observable was a kernel OOM somewhere
+    inside one discovery call -- with each sub-phase stamped we can attribute
+    the spike to ``_filter_features`` / ``_auto_base`` / per-base loop /
+    ``_tiny_model_rerank`` / ``forward_stepwise`` rather than wave-handing at
+    "discovery used too much RAM".
+    """
+    try:
+        now_mb = _rss_mb()
+    except Exception:
+        return
+    if state.get("baseline_mb") is None:
+        state["baseline_mb"] = now_mb
+        state["prev_mb"] = now_mb
+        logger.info(
+            "[CompositeTargetDiscovery.RAM] phase=%s start RSS=%.0f MB", phase_name, now_mb,
+        )
+        return
+    prev_mb = state.get("prev_mb", now_mb)
+    baseline_mb = state.get("baseline_mb", now_mb)
+    logger.info(
+        "[CompositeTargetDiscovery.RAM] phase=%s RSS=%.0f MB (delta_vs_prev=%+.0f MB, cumulative_vs_baseline=%+.0f MB)",
+        phase_name,
+        now_mb,
+        now_mb - prev_mb,
+        now_mb - baseline_mb,
+    )
+    state["prev_mb"] = now_mb
+    # Defensive adaptive GC. Internal threshold (~500 MB) gates the call so
+    # the cost is paid only when growth justified it. Re-reads RSS afterward
+    # because clean_ram may have reclaimed buffers; the next sub-phase report
+    # then measures delta from the post-GC baseline.
+    try:
+        _maybe_clean_ram_adaptive()
+        post_gc = _rss_mb()
+        if post_gc < now_mb - 100.0:
+            logger.info(
+                "[CompositeTargetDiscovery.RAM] phase=%s post-GC RSS=%.0f MB (reclaimed %.0f MB)",
+                phase_name, post_gc, now_mb - post_gc,
+            )
+            state["prev_mb"] = post_gc
+    except Exception:
+        pass
 
 
 def fit(
@@ -91,6 +149,17 @@ def fit(
         return self
 
     t0 = timer()
+    # Per-fit() RAM telemetry state. Each sub-phase report logs delta vs
+    # prev + cumulative vs entry; opt out by setting
+    # MLFRAME_DISCOVERY_RAM_PROFILER=0 (the helper checks the env once at
+    # entry so the rest of the fit() body never tests the flag again).
+    import os as _os
+    _ram_state: dict = {}
+    _ram_profiler_on = _os.environ.get("MLFRAME_DISCOVERY_RAM_PROFILER", "1").strip().lower() not in (
+        "0", "false", "no", "off",
+    )
+    if _ram_profiler_on:
+        _phase_ram_report(_ram_state, "entry")
 
     # Pull target on train rows. We never touch val/test.
     y_full = _extract_column_array(df, target_col)
@@ -142,11 +211,15 @@ def fit(
 
     # Filter feature_cols by name patterns AND constancy on train.
     usable_features = self._filter_features(df, feature_cols, y_train, train_idx)
+    if _ram_profiler_on:
+        _phase_ram_report(_ram_state, "filter_features_done")
 
     # Resolve base candidates.
     base_candidates = self._resolve_base_candidates(
         df, target_col, usable_features, y_train, train_idx,
     )
+    if _ram_profiler_on:
+        _phase_ram_report(_ram_state, "resolve_base_candidates_done")
     if not base_candidates:
         logger.warning(
             "[CompositeTargetDiscovery] no usable base candidates after "
@@ -208,12 +281,16 @@ def fit(
     _full_x_matrix = self._build_feature_matrix(
         df, _usable_features_list, train_idx_screen,
     )
+    if _ram_profiler_on:
+        _phase_ram_report(_ram_state, "build_full_x_matrix_done")
     _full_x_prebinned = (
         _prebin_feature_columns(
             _full_x_matrix, nbins=int(self.config.mi_nbins),
         )
         if self.config.mi_estimator == "bin" else None
     )
+    if _ram_profiler_on:
+        _phase_ram_report(_ram_state, "prebin_features_done")
 
     _base_contexts: dict[str, dict[str, Any]] = {}
     for base in base_candidates:
@@ -588,6 +665,8 @@ def fit(
     for _r in _results:
         if _r:
             candidates.extend(_r)
+    if _ram_profiler_on:
+        _phase_ram_report(_ram_state, "transforms_evaluated")
 
     # Filter + sort.
     kept_specs: list[CompositeSpec] = []
@@ -792,6 +871,8 @@ def fit(
             train_idx=train_idx,
             y_full=y_full,
         )
+        if _ram_profiler_on:
+            _phase_ram_report(_ram_state, "tiny_model_rerank_done")
 
     if not kept_specs:
         mode = self.config.fail_on_no_gain
@@ -888,6 +969,8 @@ def fit(
                 [(d["candidate_added"], f"{d['marginal_gain'] * 100:.1f}%") for d in _accepted_steps],
             )
         kept_specs = _upgraded_specs
+        if _ram_profiler_on:
+            _phase_ram_report(_ram_state, "forward_stepwise_done")
 
     elapsed = timer() - t0
     logger.info(
@@ -895,6 +978,8 @@ def fit(
         "from %d candidate(s) in %.2fs",
         target_col, len(kept_specs), len(candidates), elapsed,
     )
+    if _ram_profiler_on:
+        _phase_ram_report(_ram_state, "fit_exit")
 
     # Alpha-drift WARNINGs only for the SURVIVING specs. Inline emits during scoring are at DEBUG; the user sees a single, actionable warning at the end of discovery rather than a wall of warnings for specs that the raw-y baseline gate / Wilcoxon filter dropped anyway.
     _drift_flags = getattr(self, "_alpha_drift_flags", {})

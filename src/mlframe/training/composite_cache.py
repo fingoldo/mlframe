@@ -667,6 +667,36 @@ class DiscoveryCache:
         entry.
         """
         path = self._path(key)
+        # Size-clamp: refuse to load a cache entry that exceeds the configured byte
+        # ceiling (default 1 GiB; override via MLFRAME_DISCOVERY_CACHE_MAX_BYTES).
+        # Discovery cache entries SHOULD be small (kB-MB scale: spec lists + scalar
+        # metadata + per-base float32 arrays at screen-sample size). A multi-GB
+        # entry indicates a bug upstream (e.g. an _auto_base_pool entry sized to
+        # FULL train rows leaked into the pickled discovery instance) and loading
+        # it would spike RAM at the worst possible time -- right before composite
+        # discovery starts its own allocations. Treat oversize as a miss so the
+        # caller falls back to a fresh recompute; the stale entry is left on disk
+        # so the operator can inspect / delete it.
+        try:
+            _max_bytes_raw = os.environ.get("MLFRAME_DISCOVERY_CACHE_MAX_BYTES")
+            _max_bytes = int(_max_bytes_raw) if _max_bytes_raw else 1024 * 1024 * 1024
+        except (TypeError, ValueError):
+            _max_bytes = 1024 * 1024 * 1024
+        try:
+            _file_size = os.path.getsize(path)
+        except OSError:
+            _file_size = -1
+        if _file_size > _max_bytes:
+            logger.warning(
+                "DiscoveryCache: skipping oversized entry at %s (%.2f GiB > %.2f GiB ceiling); "
+                "treating as cache miss. Set MLFRAME_DISCOVERY_CACHE_MAX_BYTES to raise the cap "
+                "or delete the file to recompute. An oversized entry usually means an unintended "
+                "full-train ndarray got pickled into the discovery instance upstream.",
+                path,
+                _file_size / 1024 ** 3,
+                _max_bytes / 1024 ** 3,
+            )
+            return default
         # Route the load through safe_pickle so a corrupt-sidecar finding (digest mismatch from
         # tampering or partial write) raises PickleVerificationError instead of silently returning
         # stale data. allow_unverified=True keeps the migration story: legacy entries written before
