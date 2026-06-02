@@ -133,9 +133,9 @@ if _PYDANTIC_AVAILABLE:
         @field_validator("n_features_selection_rule")
         @classmethod
         def _ck_rule(cls, v: str) -> str:
-            if v not in ("auto", "argmax", "one_se_min", "one_se_max"):
+            if v not in ("auto", "argmax", "one_se_min", "one_se_max", "plateau"):
                 raise ValueError(
-                    f"n_features_selection_rule must be 'auto' / 'argmax' / 'one_se_min' / 'one_se_max'; got {v!r}"
+                    f"n_features_selection_rule must be 'auto' / 'argmax' / 'one_se_min' / 'one_se_max' / 'plateau'; got {v!r}"
                 )
             return v
 

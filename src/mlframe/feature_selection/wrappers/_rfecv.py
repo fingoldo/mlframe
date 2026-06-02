@@ -422,10 +422,10 @@ class RFECV(BaseEstimator, TransformerMixin):
                 f"got {leakage_action!r}."
             )
 
-        if n_features_selection_rule not in ("auto", "argmax", "one_se_min", "one_se_max"):
+        if n_features_selection_rule not in ("auto", "argmax", "one_se_min", "one_se_max", "plateau"):
             raise ValueError(
                 f"n_features_selection_rule must be 'auto', 'argmax', "
-                f"'one_se_min', or 'one_se_max'; got {n_features_selection_rule!r}."
+                f"'one_se_min', 'one_se_max', or 'plateau'; got {n_features_selection_rule!r}."
             )
 
         if fi_missing_policy not in ("worst", "median", "skip"):

@@ -11,7 +11,7 @@ Decision rule (CLAUDE.md §6): default = most accurate on the 6-scenario x multi
 - R2r-3 Batched-predict / baseline-reuse permutation (bit-identical, restructure compute) — TODO (S, pure speed, zero accuracy risk)
 - R2r-4 Data-shape + step-1 rank-agreement routing impurity<->permutation (replace flat 4M cap) — TODO (M)
 - R2r-5 Raw-corr cluster collapse as SEARCH-SPACE reduction (rep + free slots, re-expand) — TODO (M, risk: B-extra collapse rejected)
-- R2r-6 Plateau-onset n_features rule (1-SE of plateau-onset, not global max) — TODO (S, OFFLINE-testable on cv_results_; targets one_se_max-keeps-all vs knee-over-prune)
+- R2r-6 Plateau-onset n_features rule — DONE-shipped-as-OPTION (not default): implemented as n_features_selection_rule='plateau' + validators + test. Benched off cv_results_ across 6 scenarios: wins 0/6 on downstream AUC - behaves like one_se_min (same N in 4/6: base 18, manyredundant 15, weakmix 10), over-prunes the noise-robust regimes where one_se_max wins (highnoise 0.795 vs 0.814; manyredundant 0.786 vs 0.823). Agent's predicted 'collapses toward one_se_min on flat GBM tails' confirmed. Kept as an explicit parsimony-oriented option (distinct on rise-then-plateau curves), NOT the default.
 - R2r-7 Early-stopped/reduced-fold interior CV with calibration revert — TODO (M, speed)
 - R2r-8 Permutation memoisation across RFE steps (exact subset+seed key) — TODO (likely-disappointment: MBH revisits N not exact subsets)
 

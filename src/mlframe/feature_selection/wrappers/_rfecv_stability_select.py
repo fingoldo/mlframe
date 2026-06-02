@@ -295,10 +295,23 @@ def select_optimal_nfeatures_(
             best_idx = max(in_band, key=lambda i: nfeatures_arr[i])
         elif rule == "one_se_min":
             best_idx = min(in_band, key=lambda i: nfeatures_arr[i])
+        elif rule == "plateau":
+            # Plateau-onset (round-2 R2r-6): smallest N whose mean is within 1 SE of the BEST mean achievable
+            # at >= that N -- i.e. the point past which adding features yields no SE-significant gain. Sits
+            # between one_se_max (keeps ~all on flat tails) and one_se_min/knee (over-prunes a flat curve to a
+            # tiny N): it stops where the curve flattened, capturing the full achievable score parsimoniously.
+            _se = std_arr[best_mean_idx]
+            _order = sorted(nz_idx, key=lambda i: nfeatures_arr[i])
+            best_idx = _order[-1]
+            for _pos, _i in enumerate(_order):
+                _future_best = max(mean_arr[j] for j in _order[_pos:])
+                if mean_arr[_i] >= _future_best - _se:
+                    best_idx = _i
+                    break
         else:
             raise ValueError(
                 f"n_features_selection_rule={rule!r} not supported. "
-                f"Use 'auto', 'argmax', 'one_se_max', or 'one_se_min'."
+                f"Use 'auto', 'argmax', 'one_se_max', 'one_se_min', or 'plateau'."
             )
     best_top_n = int(nfeatures_arr[best_idx])
 
