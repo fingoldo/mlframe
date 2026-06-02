@@ -48,6 +48,8 @@ from typing import Optional, Sequence
 import numpy as np
 import pandas as pd
 
+from ._internals import group_key_strings
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -159,7 +161,7 @@ def generate_grouped_quantile_features(
         return pd.DataFrame(index=X.index), raw_recipes
 
     for group_col in group_cols:
-        g_keys = X[group_col].astype(object).map(str).to_numpy()
+        g_keys = group_key_strings(X[group_col])
         cur_num_cols = [
             c for c in num_cols
             if c in X.columns and c != group_col
@@ -277,7 +279,7 @@ def apply_grouped_quantile(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
             f"apply_grouped_quantile: missing column(s) {group_col!r}/"
             f"{num_col!r} from X_test"
         )
-    g_keys = X_test[group_col].astype(object).map(str).to_numpy()
+    g_keys = group_key_strings(X_test[group_col])
     x = np.asarray(X_test[num_col].to_numpy(), dtype=np.float64)
 
     if op == "iqr":
@@ -394,7 +396,7 @@ def generate_target_aware_group_bins(
     fold_ids[perm] = np.arange(n) % n_folds
 
     for group_col in group_cols:
-        g_keys = X[group_col].astype(object).map(str).to_numpy()
+        g_keys = group_key_strings(X[group_col])
         cur_num_cols = [
             c for c in num_cols
             if c in X.columns and c != group_col
@@ -470,7 +472,7 @@ def apply_target_aware_group_bin(X_test: pd.DataFrame, recipe: dict) -> np.ndarr
             f"apply_target_aware_group_bin: missing column(s) {group_col!r}/"
             f"{num_col!r} from X_test"
         )
-    g_keys = X_test[group_col].astype(object).map(str).to_numpy()
+    g_keys = group_key_strings(X_test[group_col])
     x = np.asarray(X_test[num_col].to_numpy(), dtype=np.float64)
     group_edges = recipe["group_edges"]
     global_edges = np.asarray(recipe["global_edges"], dtype=np.float64)

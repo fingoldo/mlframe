@@ -40,6 +40,8 @@ from typing import Optional, Sequence
 import numpy as np
 import pandas as pd
 
+from ._internals import group_key_strings
+
 logger = logging.getLogger(__name__)
 
 
@@ -268,7 +270,7 @@ def grouped_delta_features(
     if not num_cols:
         return pd.DataFrame(index=X.index), {}
 
-    g = X[group_col].astype(object).map(str)
+    g = pd.Series(group_key_strings(X[group_col]), index=X.index)
     encoded: dict[str, np.ndarray] = {}
     recipes: dict[str, dict] = {}
     for num_col in num_cols:
@@ -344,7 +346,7 @@ def apply_grouped_delta(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
             f"apply_grouped_delta: missing column(s) {group_col!r}/{num_col!r} "
             f"from X_test"
         )
-    g_vals = X_test[group_col].astype(object).map(str).values
+    g_vals = group_key_strings(X_test[group_col])
     x = np.asarray(X_test[num_col].to_numpy(), dtype=np.float64)
     per_row_mean = np.array(
         [lookup_mean.get(str(_k), global_mean) for _k in g_vals],

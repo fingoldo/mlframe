@@ -47,6 +47,8 @@ from typing import Optional, Sequence
 import numpy as np
 import pandas as pd
 
+from ._internals import group_key_strings
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -184,7 +186,7 @@ def generate_grouped_agg_features(
 
     for group_col in group_cols:
         g = X[group_col]
-        g_keys = g.astype(object).map(str).to_numpy()
+        g_keys = group_key_strings(g)
         cur_num_cols = [
             c for c in num_cols
             if c in X.columns and c != group_col
@@ -291,7 +293,7 @@ def apply_grouped_agg(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
             f"apply_grouped_agg: missing column(s) {group_col!r}/{num_col!r} "
             f"from X_test"
         )
-    g_keys = X_test[group_col].astype(object).map(str).to_numpy()
+    g_keys = group_key_strings(X_test[group_col])
     x = np.asarray(X_test[num_col].to_numpy(), dtype=np.float64)
 
     if op == "broadcast":

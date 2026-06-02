@@ -50,6 +50,8 @@ from typing import Optional, Sequence
 import numpy as np
 import pandas as pd
 
+from ._internals import group_key_strings
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -167,7 +169,7 @@ def generate_group_distance_features(
         return pd.DataFrame(index=X.index), raw_recipes
 
     for group_col in group_cols:
-        g_keys = X[group_col].astype(object).map(str).to_numpy()
+        g_keys = group_key_strings(X[group_col])
         cur_num_cols = [
             c for c in num_cols
             if c in X.columns and c != group_col
@@ -256,7 +258,7 @@ def apply_group_distance(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
             f"apply_group_distance: missing group column {group_col!r} from "
             f"X_test"
         )
-    g_keys = X_test[group_col].astype(object).map(str).to_numpy()
+    g_keys = group_key_strings(X_test[group_col])
     if distance_type == "zdist":
         lookup = dict(recipe["z_lookup"])
     elif distance_type == "kl":
