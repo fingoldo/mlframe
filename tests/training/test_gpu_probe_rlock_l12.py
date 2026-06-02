@@ -80,3 +80,44 @@ def test_cb_gpu_usable_then_cached_gpu_info_no_hang() -> None:
     assert not t.is_alive(), "_cb_gpu_usable hung — reentrant lock missing"
     assert result["error"] is None, f"_cb_gpu_usable raised: {result['error']}"
     assert isinstance(result["value"], bool)
+
+
+def test_cb_gpu_probe_skipped_when_devices_hidden(monkeypatch) -> None:
+    """``CUDA_VISIBLE_DEVICES`` set to "" or "-1" hides every device, so
+    ``_cb_gpu_usable`` must short-circuit to False WITHOUT paying the ~4s
+    CatBoost GPU probe fit (which would just fail finding a device and return
+    False anyway). ``nvidia-smi`` still reports the physical card, so this is
+    simulated by forcing ``_cached_gpu_info`` truthy. A concrete device list or
+    an unset var must still run the probe (guard bypassed)."""
+    monkeypatch.setattr(_cb_pool, "_cached_gpu_info", lambda: [{"index": 0}])
+
+    probe_calls = {"n": 0}
+
+    class _SpyRegressor:
+        def __init__(self, *a, **k):
+            pass
+
+        def fit(self, *a, **k):
+            probe_calls["n"] += 1  # records that the GPU probe actually ran
+
+    import catboost
+    monkeypatch.setattr(catboost, "CatBoostRegressor", _SpyRegressor)
+
+    # Hidden-device signals: probe must be skipped, result False.
+    for hidden in ("", "-1", "  "):
+        _cb_pool._CB_GPU_USABLE_CACHE = None
+        monkeypatch.setenv("CUDA_VISIBLE_DEVICES", hidden)
+        before = probe_calls["n"]
+        assert _cb_pool._cb_gpu_usable() is False
+        assert probe_calls["n"] == before, (
+            f"probe must be skipped when CUDA_VISIBLE_DEVICES={hidden!r}"
+        )
+
+    # Concrete device visible: guard bypassed, probe runs (spy 'succeeds').
+    _cb_pool._CB_GPU_USABLE_CACHE = None
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
+    before = probe_calls["n"]
+    assert _cb_pool._cb_gpu_usable() is True
+    assert probe_calls["n"] == before + 1, "probe must run when a device is visible"
+
+    _cb_pool._CB_GPU_USABLE_CACHE = None

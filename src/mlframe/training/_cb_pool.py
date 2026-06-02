@@ -564,6 +564,18 @@ def _cb_gpu_usable() -> bool:
         if not _cached_gpu_info():
             _CB_GPU_USABLE_CACHE = False
             return False
+        # ``CUDA_VISIBLE_DEVICES`` set to "" or "-1" hides every device from
+        # this process (the standard CPU-only / CI signal). The probe fit below
+        # would spend ~4s spinning up CatBoost's CUDA backend only to fail
+        # finding a device and return False anyway; short-circuit to that same
+        # False result without paying the probe cost. ``nvidia-smi`` still sees
+        # the physical card, so ``_cached_gpu_info`` above can't catch this. A
+        # concrete device list ("0", "0,1") or an unset var falls through to the
+        # real probe unchanged.
+        _cvd = os.environ.get("CUDA_VISIBLE_DEVICES")
+        if _cvd is not None and _cvd.strip() in ("", "-1"):
+            _CB_GPU_USABLE_CACHE = False
+            return False
         try:
             from catboost import CatBoostRegressor
             import numpy as _np
