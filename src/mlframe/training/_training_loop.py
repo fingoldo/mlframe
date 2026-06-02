@@ -475,13 +475,6 @@ def _train_model_with_fallback(
                 elif isinstance(_eval_set_for_align, tuple):
                     fit_params["eval_set"] = (_aligned_val, _eval_set_for_align[1])
 
-        import os as _os_dbg
-        if _os_dbg.environ.get("MLFRAME_DUMP_HOSTILE_NAMES") and hasattr(train_df, "columns"):
-            import re as _re_dbg
-            _hostile = [str(c) for c in train_df.columns if _re_dbg.search(r'[,\[\]{}":<>]', str(c))]
-            if _hostile:
-                print(f"[HOSTILE-NAMES] model={model_type_name} count={len(_hostile)} names={_hostile[:20]}", flush=True)
-
         with phase(
             "model.fit",
             model=model_type_name,

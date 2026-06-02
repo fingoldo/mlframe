@@ -89,6 +89,7 @@ from ._eval_helpers import (  # noqa: E402,F401
     _compute_split_metrics, _decategorise_float_cat_columns,
     _filter_categorical_features, run_confidence_analysis,
 )
+from ._feature_name_sanitize import sanitize_frame_columns as _sanitize_frame_columns  # noqa: E402
 from ._training_loop import (  # noqa: E402,F401
     _SigmoidAdapter, _PostHocCalibratedModel,
     _PostHocMultiCalibratedModel, _PerClassIsotonicCalibrator,
@@ -401,6 +402,14 @@ def train_and_evaluate_model(
         groups=_pre_pipeline_groups,
         sample_weight=_pre_pipeline_sample_weight,
     )
+
+    # The pre-pipeline may add engineered interaction columns whose names embed
+    # JSON-structural characters (e.g. ``mul(log(f2),sin(f3))``); LightGBM/XGBoost
+    # reject those at fit time. Rename the model-facing labels via a pure
+    # deterministic map -- train/val here and test below map identically, so fit
+    # and predict stay consistent. No-op when every name is already clean.
+    train_df = _sanitize_frame_columns(train_df)
+    val_df = _sanitize_frame_columns(val_df)
 
     # Check if feature selection removed all features
     if train_df is not None and train_df.shape[1] == 0:
@@ -849,6 +858,11 @@ def train_and_evaluate_model(
                 skip_preprocessing=skip_preprocessing,
                 selector_passthrough_cols=(list(fit_params.get("text_features") or []) + list(fit_params.get("embedding_features") or [])) or None,
             )
+            # Same engineered-name sanitization as the train/val frames above:
+            # the test frame is transformed here by the same fitted pipeline, so
+            # the pure map reproduces the identical label rename and predict
+            # matches the model's fitted feature names.
+            test_df = _sanitize_frame_columns(test_df)
             if test_df is not None:
                 _orig_test_df = test_df
 
