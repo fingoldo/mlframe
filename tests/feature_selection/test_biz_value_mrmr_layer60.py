@@ -73,6 +73,15 @@ def _make_mrmr(**overrides):
         cat_fe_config=None,
         quantization_nbins=10,
         random_seed=0,
+        # Isolate the mi_greedy_cmi path under test from the default-on
+        # univariate-basis FE: the latter recovers the same |x|-family / square
+        # signal first (e.g. ``x__He2``), so mi_greedy_cmi -- correctly doing its
+        # job of collapsing duplicate signal -- would NOT re-pick the redundant
+        # |x| unary, which is the behaviour these contracts assert. Disabling it
+        # keeps these tests a clean unit test of CMI-greedy ranking (the product
+        # combined behaviour, basis-recovers + greedy-dedups, is exercised by the
+        # univariate-basis FE tests).
+        fe_univariate_basis_enable=False,
     )
     kwargs.update(overrides)
     return MRMR(**kwargs)
