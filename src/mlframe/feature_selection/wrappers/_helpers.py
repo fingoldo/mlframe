@@ -124,8 +124,16 @@ def split_into_train_test(
             fi = np.asarray(features_indices)
             X_train = X[np.ix_(np.asarray(train_index), fi)]
             X_test = X[np.ix_(np.asarray(test_index), fi)]
-        y_train = y[train_index, :] if len(y.shape) > 1 else y[train_index]
-        y_test = y[test_index, :] if len(y.shape) > 1 else y[test_index]
+        # train_index/test_index are POSITIONAL (KFold.split output). A pandas y reaching this
+        # ndarray-X branch (mixed ndarray X + pandas y) must be sliced positionally via .iloc;
+        # raw ``y[idx]`` on a Series with a non-RangeIndex resolves as a label lookup -> KeyError.
+        if isinstance(y, pd.Series):
+            y_train, y_test = y.iloc[train_index], y.iloc[test_index]
+        elif isinstance(y, pd.DataFrame):
+            y_train, y_test = y.iloc[train_index, :], y.iloc[test_index, :]
+        else:
+            y_train = y[train_index, :] if len(y.shape) > 1 else y[train_index]
+            y_test = y[test_index, :] if len(y.shape) > 1 else y[test_index]
 
     return X_train, y_train, X_test, y_test
 

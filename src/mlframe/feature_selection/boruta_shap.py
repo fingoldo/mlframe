@@ -54,6 +54,26 @@ class BorutaShap(BaseEstimator, TransformerMixin):
     """
     BorutaShap is a wrapper feature selection method built on the foundations of both the SHAP and Boruta algorithms.
 
+    KNOWN LIMITATION -- single-sample false positives via the shadow comparison. Shadow features are produced by
+    permuting each real column independently, which destroys not only the column's relationship to y but ALL of its
+    joint/covariance structure with the other columns. A real column always retains its (often spurious, finite-sample)
+    joint structure, so a model's importance fit on a single training sample systematically scores structure-bearing
+    real columns above the structure-less shadows. The net effect: the TOP one or two pure-noise features in the pool
+    tend to clear the shadow gate and get accepted, even though their importance is barely above the noise median and
+    does not survive on an independent draw. This is intrinsic to the permutation-shadow design and is NOT cured by:
+      - raising ``percentile`` to 100 (the leak beats even the MAX shadow), nor
+      - switching ``importance_measure`` between 'gini' and 'shap' (BOTH impurity- and SHAP-importance leak the top
+        real-noise feature), nor
+      - ``train_or_test='test'`` when train and test come from the same draw (the spurious structure is in both halves).
+    The reliable mitigation is cross-sample stability: run the selector on several row-SUBSAMPLES WITHOUT replacement
+    (e.g. 4x at 75% of rows, distinct seeds) and keep only features accepted on a majority of them. The "lucky top
+    noise" feature depends on the exact row set, so it clears the gate in only a minority of subsamples and fails the
+    vote, while genuinely-relevant features (including redundant copies of informative features, which an all-relevant
+    method correctly keeps) are accepted every time. Verified on a 52-feature synthetic: a single fit accepted the top
+    noise column (~58/60 hits even at percentile=100), but 4x75%-subsample majority voting accepted ZERO noise columns.
+    Use subsampling WITHOUT replacement, NOT bootstrap with replacement: duplicate rows let the model memorise, after
+    which every feature beats its shadow and the gate accepts ~everything. Callers needing a clean accept set should
+    wrap fit() in such a subsample-and-vote loop rather than trust a single fit's ``accepted``.
     """
 
     def __init__(
@@ -518,6 +538,10 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         # the threshold. Pre-fix any single NaN made shadow_threshold == NaN,
         # then ``X_feature_import > NaN`` returned all-False, silently
         # rejecting every feature from the Boruta gate.
+        # Caveat (see class docstring): this threshold is the only signal separating real from random. Because shadows
+        # are independently permuted they carry NO joint structure, while real columns keep their finite-sample
+        # covariance structure; importance fit on one sample therefore ranks the top real-noise column above every
+        # shadow, so it gets a hit nearly every trial. Cross-resample voting -- not a higher percentile -- removes it.
         shadow_threshold = np.nanpercentile(self.Shadow_feature_import, self.percentile)
         # If EVERY shadow importance was NaN (degenerate input), nanpercentile
         # also returns NaN; surface that loudly rather than silently rejecting

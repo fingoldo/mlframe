@@ -237,11 +237,14 @@ class RFECV(BaseEstimator, TransformerMixin):
         # feature_groups: maps group_name -> list of column names; support_ then reflects an all-or-nothing decision at the group level (all members in, or all out).
         # Resolves the "5 collinear copies" caveat at configuration level when the operator knows the groups (e.g. one-hot expansions).
         feature_groups: Union[dict, None] = None,
-        # n_features_selection_rule: rule for picking n_features_ from cv_results_.
+        # n_features_selection_rule: rule for picking n_features_ from cv_results_ (resolved in select_optimal_nfeatures_).
         #   'argmax' - argmax of (mean - lambda*std - feature_cost*N). On FLAT score curves around the optimum this collapses to the FIRST N visited near-max, often under-selecting.
-        #   'one_se_max' - LARGEST N within 1 SE of the best mean; more robust on plateau, less likely to drop marginally-informative features.
-        #   'one_se_min' - sklearn-canonical smallest N within 1 SE; parsimonious but vulnerable to plateau collapse.
-        #   'auto' - 'one_se_max' when estimators= is a list (multi-estimator is plateau-prone), else 'argmax'.
+        #   'one_se_max' - LARGEST N within 1 SE of the best mean; robust on plateaus, but NOT parsimonious: on noise-robust learners (GBM / RF) the
+        #       whole N-range can sit inside the 1-SE band, so this keeps ~all features. Set feature_cost>0 (it biases the band toward fewer
+        #       features) or use 'one_se_min' when you want a compact set.
+        #   'one_se_min' - sklearn-canonical SMALLEST N within 1 SE; parsimonious (drops redundant / marginally-informative features) but can under-select on flat curves.
+        #   'auto' (default) - resolves to 'one_se_max' for ALL estimators (single AND multi); deliberately recall-oriented after 'one_se_min' was found to
+        #       under-select on plateau-prone curves. Pass 'one_se_min' explicitly for parsimony.
         n_features_selection_rule: str = "auto",
         # Stability Selection (Meinshausen & Buhlmann 2010, JRSS-B). When True, replaces MBH+CV-fold-voting with bootstrap subsampling: B replicates of n/2 (no
         # replacement), fit estimator on each, count how often each feature appears in the top-K importance ranks. Feature is selected if frequency >= stability_threshold.

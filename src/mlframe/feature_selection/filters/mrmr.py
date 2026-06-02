@@ -297,6 +297,13 @@ class MRMR(BaseEstimator, TransformerMixin):
         # back into the faster dedup-free path on very wide feature sets.
         use_simple_mode: bool = False,
         run_additional_rfecv_minutes: bool = False,
+        # Selection rule for the additional-RFECV rescue pass (run_additional_rfecv_minutes>0). The discarded pool is mostly noise plus a few
+        # synergy-only features (interaction operands with ~zero marginal relevance). RFECV's recall-oriented default rule ('one_se_max') keeps
+        # the LARGEST subset within 1 SE, which on noise-robust boosters re-admits ~the entire discarded pool -- undoing MRMR's parsimony and
+        # re-injecting noise. 'one_se_min' keeps the SMALLEST subset within 1 SE, so the rescue re-adds only features that genuinely lift CV.
+        additional_rfecv_selection_rule: str = "one_se_min",
+        # Extra kwargs merged into (and overriding) the rescue RFECV's params, e.g. {"max_refits": 30, "n_features_selection_rule": "argmax"}.
+        additional_rfecv_kwargs: dict = None,
         # performance
         extra_x_shuffling: bool = True,
         dtype=np.int32,

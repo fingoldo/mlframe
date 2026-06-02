@@ -5389,6 +5389,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # Wire MRMR.cv / cv_shuffle into the additional RFECV pass; pre-fix they were dead constructor params.
             # ``params`` may already carry ``cv`` from configs.COMMON_RFECV_PARAMS; MRMR's explicit setting wins.
             params.update(self._rfecv_cv_kwargs())
+            # Parsimony for the rescue: RFECV's recall-oriented default ('one_se_max') keeps the LARGEST subset within 1 SE, which on a
+            # noise-robust booster re-admits ~the whole discarded pool and undoes MRMR's selection. Pin the smallest-within-1-SE rule so the
+            # rescue re-adds only discarded features that genuinely lift CV. setdefault lets COMMON_RFECV_PARAMS / additional_rfecv_kwargs win.
+            params.setdefault("n_features_selection_rule", getattr(self, "additional_rfecv_selection_rule", "one_se_min"))
+            _extra_rfecv = getattr(self, "additional_rfecv_kwargs", None)
+            if _extra_rfecv:
+                params.update(_extra_rfecv)
 
             # Classifier-vs-regressor detection. Preference order:
             #   1) Explicit ``target_type`` attribute on self (set by the caller / harness).
@@ -5430,7 +5437,18 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # identical support_" contract for any user with
             # ``run_additional_rfecv_minutes`` > 0.
             _sel_names = set(X.columns[selected_vars].tolist())
-            temp_columns = [c for c in X.columns if c not in _sel_names]
+            # Cluster members already folded into a denoised aggregate (post-hoc cluster_aggregate 'replace' mode,
+            # _cluster_aggregate_removals_) or into a DCD PC1/mean_z swap (cluster_members_) are REPRESENTED by that
+            # aggregate. Excluding them from the rescue pool stops RFECV re-admitting the raw members and re-injecting
+            # the very redundancy the aggregation removed -- only features dropped for low marginal/joint relevance get reconsidered.
+            _excluded_from_rescue = set(getattr(self, "_cluster_aggregate_removals_", None) or [])
+            _cm = getattr(self, "cluster_members_", None)
+            if isinstance(_cm, dict):
+                for _anchor, _members in _cm.items():
+                    _excluded_from_rescue.add(_anchor)
+                    if isinstance(_members, (list, tuple, set)):
+                        _excluded_from_rescue.update(_members)
+            temp_columns = [c for c in X.columns if c not in _sel_names and c not in _excluded_from_rescue]
 
             if _is_classification:
                 cb_num_rfecv = RFECV(
