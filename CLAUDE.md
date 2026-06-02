@@ -1,5 +1,26 @@
 # mlframe — project conventions
 
+## Never stop to ask obvious / low-stakes questions — keep working (CRITICAL)
+
+Do NOT pause to ask the user obvious or unimportant questions — execution
+order ("which first?", "in what order?"), or "should I also do the deeper
+fix / the next item?", or any choice with a sensible default. Pick the
+sensible answer yourself and DO ALL the work end-to-end. The cost is
+concrete: every needless question burns a full user round-trip during which
+nothing useful happens — wasted time the user has explicitly and repeatedly
+called out (2026-05-22, 2026-06-02).
+
+In particular, when you finish one thing and there is obvious follow-up work
+— follow-ups you yourself just flagged, the next bug in a list, the deeper
+root cause after shipping a band-aid — **just do it**. "I shipped the safe
+fix; want me to do the deeper one?" is exactly the banned pattern: ship the
+safe fix AND do the deeper one, then report both.
+
+Pause for user input ONLY on: (a) a genuine accuracy/functionality tradeoff
+with no clear winner; (b) a destructive, irreversible operation; (c) touching
+another session's uncommitted WIP or clearly out-of-scope code; (d) a hard
+blocker you cannot proceed past. Everything else: keep going.
+
 ## Enable corrective mechanisms by default (CRITICAL)
 
 When you build a corrective mechanism that fixes a bug class — DCD
