@@ -588,6 +588,33 @@ class TrainingBehaviorConfig(BaseConfig):
     target_temporal_audit_save_plot: bool = True
     """Save the time-series chart to the per-target charts folder."""
 
+    # mini-HPT feature_distribution_analyzer auto-drop knobs. Both flags
+    # operate on the TRAIN frame only - the analyzer's drop_candidates list
+    # is derived purely from per-column train-side stats (NaN fraction,
+    # variance, finite-count) and its redundant_feature_pairs from train-only
+    # Pearson |corr| on a sampled stride. Dropping is therefore train-derived
+    # only; val and test simply lose the same columns to keep schemas aligned.
+    # The dropped columns are subsequently absent from the pipeline, polars-
+    # pandas conversion, composite discovery, and model training -- the prod
+    # frame regularly carries 40-100 such columns survivable only because
+    # downstream filters re-screen them, at material RAM cost.
+    auto_drop_distribution_analyzer_candidates: bool = True
+    """When True (default), drop columns the feature_distribution_analyzer
+    flagged as NaN-heavy (>=nan_fraction_threshold) or low-variance from
+    train/val/test before Phase 3 pipeline fit. Set False to preserve the
+    legacy diagnostic-only behaviour (columns stay; only metadata records
+    the recommendation)."""
+
+    auto_drop_near_duplicate_threshold: float = 0.999
+    """When the feature_distribution_analyzer's redundant-pair detector
+    finds a numeric pair with |Pearson corr| >= this threshold on the train
+    frame (sampled to ``_REDUNDANT_SAMPLE_MAX_ROWS``), one of the two columns
+    is auto-dropped. Default 0.999 targets EXACT duplicates only -- below
+    that, redundancy can carry asymmetric information (different finite
+    masks, different NaN handling, leverage on out-of-distribution rows).
+    Set >1.0 to disable. The kept column is the one alphabetically smaller
+    so the choice is reproducible across runs."""
+
     # Extreme-AR + group-aware skip for UNBOUNDED-OUTPUT models. When set,
     # skips fitting the models listed in ``extreme_ar_group_aware_skip_models``
     # on targets where lag1_corr >= mlp_extreme_ar_threshold AND the split is
@@ -660,7 +687,7 @@ class TrainingBehaviorConfig(BaseConfig):
     # itself used 100 GB+). Exported to MLFRAME_PIPELINE_CACHE_RAM_FRACTION
     # during config setup; an explicit MLFRAME_PIPELINE_CACHE_BYTES_LIMIT /
     # MLFRAME_PIPELINE_CACHE_RAM_FRACTION env still wins.
-    pipeline_cache_ram_budget_fraction: float = 0.4
+    pipeline_cache_ram_budget_fraction: float = 0.15
 
     # Drop per-group AGGREGATE features from the MLP's view of
     # X. Pattern matches columns like

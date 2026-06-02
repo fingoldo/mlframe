@@ -356,16 +356,19 @@ def train_mlframe_models_suite(
     # most-prevalent type, log any detected pathologies, and merge gap-fill
     # recommendations into hyperparams_config. The full report is stamped into
     # metadata for downstream observability regardless of whether anything was merged.
-    hyperparams_config = _run_target_distribution_analyzer(
+    hyperparams_config, train_df, val_df, test_df = _run_target_distribution_analyzer(
         enable_target_distribution_analyzer=enable_target_distribution_analyzer,
         target_by_type=target_by_type,
         train_idx=train_idx,
         group_ids=group_ids,
         timestamps=timestamps,
         train_df=train_df,
+        val_df=val_df,
+        test_df=test_df,
         verbose=verbose,
         metadata=metadata,
         hyperparams_config=hyperparams_config,
+        behavior_config=behavior_config,
         ctx=ctx,
     )
 

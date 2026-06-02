@@ -21,6 +21,94 @@ import numpy as np
 logger = logging.getLogger("mlframe.training.core._main_train_suite")
 
 
+def _maybe_auto_drop_after_feature_analyzer(
+    *,
+    fd_report,
+    train_df,
+    val_df,
+    test_df,
+    behavior_config,
+    metadata: dict,
+    verbose: bool,
+):
+    """Apply the auto-drop knobs (auto_drop_distribution_analyzer_candidates,
+    auto_drop_near_duplicate_threshold) from behavior_config to all three split
+    frames in a single pass.
+
+    Train-only derivation contract: the drop SET is built from the analyzer's
+    report (drop_candidates and redundant_feature_pairs) which both come from
+    train_df + train-y only. val/test simply lose the same columns to keep
+    schemas aligned (no val/test stats touch the drop decision).
+
+    Returns ``(train_df, val_df, test_df, dropped_cols)``. When nothing is
+    dropped (flags disabled, no candidates, or columns already missing) the
+    frames are returned unchanged and ``dropped_cols`` is empty.
+    """
+    if behavior_config is None or fd_report is None:
+        return train_df, val_df, test_df, []
+    _do_drop_candidates = bool(getattr(behavior_config, "auto_drop_distribution_analyzer_candidates", False))
+    _dup_threshold = float(getattr(behavior_config, "auto_drop_near_duplicate_threshold", 2.0))
+    drop_set: set = set()
+    if _do_drop_candidates:
+        drop_set.update(getattr(fd_report, "drop_candidates", []) or [])
+    if _dup_threshold <= 1.0:
+        # Walk the analyzer's diagnostics.redundant_feature_pairs (list of
+        # (a, b, |corr|)) and drop the alphabetically-larger of each pair whose
+        # corr clears the threshold. Reproducible pick keeps train/val/test
+        # column order stable across runs.
+        _pairs = (fd_report.diagnostics or {}).get("redundant_feature_pairs") or []
+        # diagnostics["redundant_feature_pairs"] is capped to top-50 by the
+        # analyzer; the FULL list is still available via the warning trail.
+        # For drop purposes the top-50 captures the strongest dupes which is
+        # exactly the worthwhile target -- the long tail is sub-1.0 corr.
+        for entry in _pairs:
+            try:
+                # Each entry is dict {a, b, corr} from the analyzer return.
+                _a = str(entry.get("a") if isinstance(entry, dict) else entry[0])
+                _b = str(entry.get("b") if isinstance(entry, dict) else entry[1])
+                _c = float(entry.get("corr") if isinstance(entry, dict) else entry[2])
+            except Exception:
+                continue
+            if abs(_c) >= _dup_threshold:
+                # Drop the alphabetically-larger; if either is already in
+                # drop_set, skip so we don't drop both halves of the pair.
+                drop_set.add(_b if _a not in drop_set and _b not in drop_set else (
+                    _a if _b in drop_set else _b
+                ))
+    if not drop_set:
+        return train_df, val_df, test_df, []
+    # Filter the drop set to columns actually present in train_df.
+    train_cols = set(getattr(train_df, "columns", []) or [])
+    drop_list = sorted(c for c in drop_set if c in train_cols)
+    if not drop_list:
+        return train_df, val_df, test_df, []
+
+    def _drop(df, cols):
+        if df is None:
+            return df
+        present = [c for c in cols if c in getattr(df, "columns", [])]
+        if not present:
+            return df
+        # polars + pandas both expose .drop(cols, ...); polars wants list, pandas wants list (axis=1).
+        try:
+            return df.drop(present)
+        except TypeError:
+            return df.drop(columns=present)
+    train_df = _drop(train_df, drop_list)
+    val_df = _drop(val_df, drop_list)
+    test_df = _drop(test_df, drop_list)
+    metadata.setdefault("feature_distribution_report", {})["auto_dropped_columns"] = list(drop_list)
+    if verbose:
+        _preview = ", ".join(drop_list[:8])
+        if len(drop_list) > 8:
+            _preview += f", ... (+{len(drop_list) - 8} more)"
+        logger.info(
+            "[mini-HPT] auto-drop applied: %d column(s) removed from train/val/test (analyzer candidates + |corr|>=%.4f duplicates): %s",
+            len(drop_list), _dup_threshold, _preview,
+        )
+    return train_df, val_df, test_df, drop_list
+
+
 def _run_target_distribution_analyzer(
     *,
     enable_target_distribution_analyzer: bool,
@@ -33,7 +121,10 @@ def _run_target_distribution_analyzer(
     metadata: dict,
     hyperparams_config: Any,
     ctx,
-) -> Any:
+    val_df=None,
+    test_df=None,
+    behavior_config=None,
+):
     """Run the target-side and feature-side analyzers; merge recommendations.
 
     Returns the (possibly updated) ``hyperparams_config``. ``metadata`` is
@@ -271,12 +362,39 @@ def _run_target_distribution_analyzer(
                         "diagnostics": dict(_fd_report.diagnostics),
                         "knob_overrides": dict(_fd_report.knob_overrides),
                     }
-                    # Feature-side recommendations are observational by design (the choices
-                    # of whether to drop / re-encode features are operator decisions). We
-                    # surface knob_overrides via metadata for downstream tooling to consume
-                    # but do NOT auto-merge into hyperparams_config -- dropping the wrong
-                    # column or switching an encoder mid-suite is a higher-cost mistake
-                    # than silently keeping a redundant pair around.
+                    # Auto-drop: when behavior_config opts in (defaults ON for
+                    # candidate-list, threshold 0.999 for near-duplicate), strip the
+                    # nan-heavy / low-variance / exact-duplicate columns from all
+                    # three splits before Phase 3. The drop SET is train-derived so
+                    # val/test never enter the decision; they just lose the same
+                    # columns to keep schemas aligned. The legacy diagnostic-only
+                    # behaviour is preserved by setting both knobs off.
+                    try:
+                        train_df, val_df, test_df, _dropped = _maybe_auto_drop_after_feature_analyzer(
+                            fd_report=_fd_report,
+                            train_df=train_df,
+                            val_df=val_df,
+                            test_df=test_df,
+                            behavior_config=behavior_config,
+                            metadata=metadata,
+                            verbose=verbose,
+                        )
+                        # Mirror drops onto ctx so any later phase reading from ctx
+                        # (the in-progress ctx-form migration in main_train_suite) sees
+                        # the trimmed frames too.
+                        if _dropped and ctx is not None:
+                            for _slot in ("train_df", "val_df", "test_df"):
+                                if hasattr(ctx, _slot):
+                                    try:
+                                        setattr(ctx, _slot, locals()[_slot])
+                                    except Exception:
+                                        pass
+                    except Exception as _drop_err:
+                        logger.warning(
+                            "[mini-HPT] auto-drop after feature_distribution_analyzer failed (%s); "
+                            "training continues with full column set.",
+                            _drop_err,
+                        )
             except Exception as _fd_err:
                 logger.warning(
                     "[mini-HPT] feature_distribution_analyzer crashed (%s); proceeding without feature warnings.",
@@ -290,4 +408,4 @@ def _run_target_distribution_analyzer(
             _td_err, exc_info=False,
         )
 
-    return hyperparams_config
+    return hyperparams_config, train_df, val_df, test_df

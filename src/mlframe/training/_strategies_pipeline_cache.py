@@ -17,7 +17,7 @@ logger = logging.getLogger("mlframe.training.strategies")
 _DEFAULT_PIPELINE_CACHE_BYTES_LIMIT = 2_000_000_000
 
 
-_DEFAULT_PIPELINE_CACHE_RAM_FRACTION = 0.4
+_DEFAULT_PIPELINE_CACHE_RAM_FRACTION = 0.15
 
 
 def _resolve_pipeline_cache_budget(fraction: Optional[float] = None) -> int:
@@ -26,13 +26,15 @@ def _resolve_pipeline_cache_budget(fraction: Optional[float] = None) -> int:
     Priority:
       1. ``MLFRAME_PIPELINE_CACHE_BYTES_LIMIT`` env var (absolute override).
       2. A FRACTION of TOTAL host RAM (``fraction`` arg >
-         ``MLFRAME_PIPELINE_CACHE_RAM_FRACTION`` env > 0.4 default), then
-         clamped to currently-available RAM minus a 4 GB floor so the cache
-         never grabs more than is actually free RIGHT NOW (the previous
-         ``available - 8 GB`` model let the cap drift up to 64 GB and, on a
-         box where model training itself consumed 100 GB+, the cache + the
-         in-flight float64 transforms together overran RAM -> OOM at 174 GB).
-         A fraction of TOTAL is predictable per host and tunable via
+         ``MLFRAME_PIPELINE_CACHE_RAM_FRACTION`` env > 0.15 default), then
+         clamped to currently-available RAM minus a 16 GB floor so the cache
+         never grabs more than is actually free RIGHT NOW. Default 0.15 (was
+         0.4): on hosts where training itself takes 60-80% of RAM, the prior
+         0.4 fraction (54 GB cap on a 137 GB host) collided with a transient
+         peak during composite-discovery + pipeline-fit and triggered OOM.
+         0.15 keeps the cache useful (~20 GB on a 137 GB host) without
+         starving training; users with cache-bound workloads (re-fit-heavy
+         multi-model suites on small data) can opt up via
          ``train_mlframe_models_suite(pipeline_cache_ram_budget_fraction=...)``.
       3. Fallback ``_DEFAULT_PIPELINE_CACHE_BYTES_LIMIT`` if psutil is
          unavailable or raises.
@@ -60,10 +62,15 @@ def _resolve_pipeline_cache_budget(fraction: Optional[float] = None) -> int:
         vm = _psutil.virtual_memory()
         total = int(vm.total)
         available = int(vm.available)
-        floor = 4 * 1024 * 1024 * 1024
+        # 16 GB floor (was 4 GB): on big-frame workloads (4M+ rows x 500+ cols)
+        # the next transient step (polars->pandas materialise, composite-discovery
+        # leak-corr matrix, mini-HPT analyzers) can easily allocate 10-20 GB
+        # transient. A 4 GB floor let the cache budget approach available RAM and
+        # the next transient step OOM'd the process.
+        floor = 16 * 1024 * 1024 * 1024
         budget = int(total * fraction)
-        # Never exceed what is free right now (minus a small floor): training
-        # frames + transient transforms must still fit.
+        # Never exceed what is free right now (minus the headroom floor):
+        # training frames + transient transforms must still fit.
         budget = min(budget, max(0, available - floor))
         budget = max(2 * 1024 * 1024 * 1024, budget)
         return int(budget)

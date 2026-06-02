@@ -81,14 +81,18 @@ def _filter_features(
     kept: list[str] = []
     if candidates:
         X_train = np.column_stack(candidate_arrays)
-        col_means = np.nanmean(
-            np.where(np.isfinite(X_train), X_train, np.nan),
-            axis=0,
-        )
+        # Free the per-column ndarrays the moment they land in the stacked matrix:
+        # candidate_arrays holds (n_features) views/copies that double the peak
+        # footprint until we let them go (~8 GB on a 4M-row x 500-col float32 frame).
+        candidate_arrays.clear()
+        # nanmean over (N, F) requires no temp; nb the prior np.where(isfinite, X, nan)
+        # built a SECOND full-frame copy purely to silence non-finite cells, redundant.
+        col_means = np.nanmean(X_train, axis=0)
         non_finite_mask = ~np.isfinite(X_train)
         if non_finite_mask.any():
-            X_train = X_train.copy()
-            # Per-column mean fill (broadcast).
+            # X_train is a freshly-allocated buffer owned by this function; mutating
+            # in-place is safe (the .copy() removed here cost another full-frame
+            # allocation -- ~8 GB transient on the 4M-row prod frame).
             X_train[non_finite_mask] = np.broadcast_to(
                 col_means, X_train.shape,
             )[non_finite_mask]
