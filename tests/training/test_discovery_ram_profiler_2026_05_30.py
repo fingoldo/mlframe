@@ -28,19 +28,20 @@ def test_1_phase_ram_report_records_baseline_then_delta(caplog):
         _phase_ram_report(state, "entry")
         _phase_ram_report(state, "filter_features_done")
         _phase_ram_report(state, "transforms_evaluated")
-    # New API: state keys carry the uss_mb suffix.
+    # New API: state keys carry the uss_mb suffix + commit.
     assert state.get("baseline_uss_mb") is not None
     assert state.get("prev_uss_mb") is not None
+    assert state.get("baseline_commit_mb") is not None
+    assert state.get("prev_commit_mb") is not None
     # 3 phase lines minimum (entry/filter/transforms).
     phase_lines = [r for r in caplog.records if "CompositeTargetDiscovery.RAM" in r.getMessage()]
     assert len(phase_lines) >= 3, [r.getMessage() for r in phase_lines]
     assert any("phase=entry" in r.getMessage() for r in phase_lines)
     assert any("phase=filter_features_done" in r.getMessage() for r in phase_lines)
-    # Each non-entry line reports BOTH USS and RSS so page-thrashing is visible.
-    non_entry = [r for r in phase_lines if "phase=entry" not in r.getMessage()]
-    for r in non_entry:
+    # Each line reports all three signals so OOM root cause is observable.
+    for r in phase_lines:
         msg = r.getMessage()
-        assert "USS=" in msg and "RSS=" in msg, msg
+        assert "USS=" in msg and "RSS=" in msg and "commit=" in msg, msg
 
 
 def test_1_phase_ram_report_flags_page_thrashing(caplog):
@@ -48,16 +49,31 @@ def test_1_phase_ram_report_flags_page_thrashing(caplog):
     This is the signal the prior version masked entirely by reporting just RSS."""
     from mlframe.training import _composite_discovery_fit as mod
     state: dict = {}
-    # Mock _process_mem_mb to simulate the post-EmptyWorkingSet artefact: USS=60 GB,
-    # RSS=4 MB. The prior version logged this as "reclaimed 60 GB"; the new version
-    # must surface it as page-thrashing.
-    with patch.object(mod, "_process_mem_mb", return_value=(4.0, 60_000.0)):
+    # Post-EmptyWorkingSet artefact: USS=60 GB, RSS=4 MB, commit roughly = USS.
+    with patch.object(mod, "_process_mem_mb", return_value=(4.0, 60_000.0, 60_500.0)):
         mod._phase_ram_report(state, "entry")  # baseline
-    with patch.object(mod, "_process_mem_mb", return_value=(4.0, 60_500.0)):
+    with patch.object(mod, "_process_mem_mb", return_value=(4.0, 60_500.0, 61_000.0)):
         with caplog.at_level(logging.INFO, logger="mlframe.training._composite_discovery_fit"):
             mod._phase_ram_report(state, "after_phase")
     thrash = [r for r in caplog.records if "PAGE_THRASHING" in r.getMessage()]
     assert thrash, "PAGE_THRASHING marker must fire when USS >> RSS"
+
+
+def test_1_phase_ram_report_flags_commit_pressure(caplog):
+    """When commit >> USS the process holds large committed-but-untouched memory.
+    On Windows that consumes the system-wide commit limit and is the proximate
+    OOM-kernel-kill cause even when USS / RSS look benign."""
+    from mlframe.training import _composite_discovery_fit as mod
+    state: dict = {}
+    # Mid-discovery: USS=20 GB, RSS=20 GB, commit=90 GB (private bytes reserved
+    # for committed-but-paged-out buffers from pyarrow / numba intermediate work).
+    with patch.object(mod, "_process_mem_mb", return_value=(20_000.0, 20_000.0, 20_000.0)):
+        mod._phase_ram_report(state, "entry")
+    with patch.object(mod, "_process_mem_mb", return_value=(20_000.0, 20_000.0, 90_000.0)):
+        with caplog.at_level(logging.INFO, logger="mlframe.training._composite_discovery_fit"):
+            mod._phase_ram_report(state, "after_phase")
+    pressure = [r for r in caplog.records if "COMMIT_PRESSURE" in r.getMessage()]
+    assert pressure, "COMMIT_PRESSURE marker must fire when commit >> USS"
 
 
 def test_1_phase_ram_report_tolerates_psutil_failure():

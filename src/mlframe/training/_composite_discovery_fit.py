@@ -38,35 +38,53 @@ from ._ram_helpers import (
 logger = logging.getLogger(__name__)
 
 
-def _process_mem_mb() -> tuple[float, float]:
-    """Return ``(rss_mb, uss_mb)`` for the current process.
+def _process_mem_mb() -> tuple[float, float, float]:
+    """Return ``(rss_mb, uss_mb, commit_mb)`` for the current process.
 
-    Why both: on Windows ``pyutilz.clean_ram()`` invokes ``EmptyWorkingSet``
-    which evicts pages from the working set to the page file. RSS plummets to
-    near-zero even though the virtual memory commit is unchanged and the
-    pages page back in on first touch. The prior profiler trusted RSS only,
-    so the post-GC report read "RSS=4 MB (reclaimed 57907 MB)" right after
-    every clean_ram call -- a wildly misleading line that masked the real
-    discovery-phase footprint and made the page-thrashing problem invisible.
+    Three signals tell a complete Windows memory story:
 
-    USS (Unique Set Size) reflects memory uniquely owned by this process. It
-    is NOT affected by EmptyWorkingSet -- the pages are still committed to
-    this process, only their working-set residency changed. USS is therefore
-    the honest "what this process actually allocated" number on Windows. On
-    Linux USS is also available via the same psutil API; fall back to RSS
-    when ``memory_full_info`` is unavailable (psutil too old / sandboxed).
+    * **RSS** (working set): pages currently in physical RAM. Plummets to
+      near-zero right after ``pyutilz.clean_ram()`` which invokes
+      ``EmptyWorkingSet`` to evict pages to the page file -- the eviction is
+      cosmetic; pages page back in on first touch. RSS alone reads as
+      misleading "reclaimed 57 GB" lines that don't reflect real frees.
+    * **USS** (Unique Set Size): pages this process uniquely owns,
+      regardless of working-set residency. Immune to EmptyWorkingSet, so USS
+      is the honest "what this process actually allocated" number.
+    * **commit / private bytes**: the ``CommitCharge`` Windows uses to gate
+      ``OutOfMemory`` decisions. The Windows commit limit is
+      ``physical_RAM + pagefile_size``; when total committed memory across
+      all processes hits the limit, new allocations fail and OOM-killer
+      fires. USS<commit because USS excludes shared mappings and uncommitted
+      reserved address space. On the user's 128 GB host with 35 GB system
+      baseline, an mlframe process at USS=60 GB / commit=90 GB has only
+      ``128 - 35 - 90 = 3 GB`` of commit-limit headroom -- the next 5 GB
+      LightGBM Dataset triggers kernel-kill. Showing commit alongside USS
+      makes the page-file pressure observable in the prod log.
 
-    Returned tuple: ``(rss_mb, uss_mb)``. Both are floats in MB. uss==rss
-    when the fallback path fires.
+    All three are floats in MB. When ``memory_full_info()`` is unavailable
+    (psutil too old / sandboxed) we fall back through RSS for both USS and
+    commit -- the call still doesn't raise.
     """
     rss = _rss_mb()
+    uss = rss
+    commit = rss
     try:
         import psutil as _psutil
         full = _psutil.Process().memory_full_info()
         uss = float(getattr(full, "uss", rss * 1024 ** 2)) / 1024 ** 2
+        # ``private`` exists on Windows (psutil's MEMORY_PRIVATE_USAGE counter --
+        # the actual CommitCharge); on Linux fall back to VMS minus shared.
+        priv = getattr(full, "private", None)
+        if priv is not None:
+            commit = float(priv) / 1024 ** 2
+        else:
+            vms = float(getattr(full, "vms", rss * 1024 ** 2))
+            shared = float(getattr(full, "shared", 0.0))
+            commit = (vms - shared) / 1024 ** 2
     except Exception:
-        uss = rss
-    return rss, uss
+        pass
+    return rss, uss, commit
 
 
 def _phase_ram_report(state: dict, phase_name: str) -> None:
@@ -86,36 +104,47 @@ def _phase_ram_report(state: dict, phase_name: str) -> None:
     log line that read "reclaimed 57 GB" right after each phase.
     """
     try:
-        rss_mb, uss_mb = _process_mem_mb()
+        rss_mb, uss_mb, commit_mb = _process_mem_mb()
     except Exception:
         return
     if state.get("baseline_uss_mb") is None:
         state["baseline_uss_mb"] = uss_mb
         state["prev_uss_mb"] = uss_mb
+        state["baseline_commit_mb"] = commit_mb
+        state["prev_commit_mb"] = commit_mb
         logger.info(
-            "[CompositeTargetDiscovery.RAM] phase=%s start USS=%.0f MB (RSS=%.0f MB)",
-            phase_name, uss_mb, rss_mb,
+            "[CompositeTargetDiscovery.RAM] phase=%s start USS=%.0f MB (RSS=%.0f MB, commit=%.0f MB)",
+            phase_name, uss_mb, rss_mb, commit_mb,
         )
         return
-    prev_mb = state["prev_uss_mb"]
-    baseline_mb = state["baseline_uss_mb"]
+    prev_uss = state["prev_uss_mb"]
+    baseline_uss = state["baseline_uss_mb"]
+    prev_commit = state.get("prev_commit_mb", commit_mb)
     # When RSS << USS by a non-trivial margin the process is page-thrashing
     # (working-set evicted by EmptyWorkingSet or external memory pressure).
-    # Surface a single hint inline so the operator sees it without crawling
-    # the prior thread of reports.
-    _thrash_hint = ""
+    # When commit >> USS the process holds committed but rarely-touched
+    # memory -- on Windows this consumes the system-wide commit limit and
+    # is the proximate cause of OOM-kernel-kill even when USS itself is
+    # well under physical RAM. Surface both hints inline.
+    _hints = []
     if uss_mb > rss_mb * 2 and uss_mb > 1024:
-        _thrash_hint = f" PAGE_THRASHING(uss/rss={uss_mb/max(rss_mb, 1):.1f}x)"
+        _hints.append(f"PAGE_THRASHING(uss/rss={uss_mb/max(rss_mb, 1):.1f}x)")
+    if commit_mb > uss_mb * 1.4 and commit_mb > 4096:
+        _hints.append(f"COMMIT_PRESSURE(commit/uss={commit_mb/max(uss_mb, 1):.1f}x)")
+    _hint_suffix = (" " + " ".join(_hints)) if _hints else ""
     logger.info(
-        "[CompositeTargetDiscovery.RAM] phase=%s USS=%.0f MB (RSS=%.0f MB; delta_vs_prev=%+.0f MB, cumulative_vs_baseline=%+.0f MB)%s",
+        "[CompositeTargetDiscovery.RAM] phase=%s USS=%.0f MB (RSS=%.0f MB, commit=%.0f MB; delta_uss_vs_prev=%+.0f MB, delta_commit_vs_prev=%+.0f MB, cum_uss=%+.0f MB)%s",
         phase_name,
         uss_mb,
         rss_mb,
-        uss_mb - prev_mb,
-        uss_mb - baseline_mb,
-        _thrash_hint,
+        commit_mb,
+        uss_mb - prev_uss,
+        commit_mb - prev_commit,
+        uss_mb - baseline_uss,
+        _hint_suffix,
     )
     state["prev_uss_mb"] = uss_mb
+    state["prev_commit_mb"] = commit_mb
 
 
 def fit(

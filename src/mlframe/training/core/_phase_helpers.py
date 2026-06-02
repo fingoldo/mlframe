@@ -631,8 +631,19 @@ def _phase_pandas_conversion_and_cat_prep(
     if was_polars_input and needs_polars_pre_clone:
         train_df = val_df = test_df = None
         baseline_rss_mb = maybe_clean_ram_and_gpu(baseline_rss_mb, df_size_mb, verbose=verbose, reason="post-pipeline Polars release")
+        # Force a HARD gc.collect even when maybe_clean_ram_and_gpu short-circuited
+        # (its gate uses RSS growth, which on Windows hides commit-charge pressure --
+        # working-set pages can sit committed but never trip the RSS-based gate). The
+        # downstream composite-discovery step in particular has been measured to enter
+        # with a process commit charge > 80 GB on a 10 GB-input run, with USS<60 GB;
+        # the unbreakable gap is uncollected cycles + pyarrow / numba intermediate
+        # buffers. Two passes are required because the first collect can promote
+        # gen-2 candidates that the second pass actually reclaims.
+        import gc as _gc
+        for _ in range(2):
+            _gc.collect()
         if verbose:
-            logger.info("  Released post-pipeline Polars DFs (pandas views retained)")
+            logger.info("  Released post-pipeline Polars DFs (pandas views retained); forced 2x gc.collect()")
 
     if verbose:
         log_ram_usage()
