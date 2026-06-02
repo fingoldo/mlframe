@@ -387,11 +387,15 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         # not in Layer 23 MVP scope.
         _is_pandas_for_hybrid = isinstance(X, pd.DataFrame)
         if not _is_pandas_for_hybrid:
+            # The block now opens whenever fe_univariate_basis_enable (default
+            # True) OR fe_hybrid_orth_enable is on, so the message must not
+            # blame fe_hybrid_orth_enable -- on the default polars path the user
+            # never set it. Name the actual triggering flag(s).
             warnings.warn(
-                "MRMR: fe_hybrid_orth_enable=True but X is not a pandas "
-                "DataFrame; hybrid orthogonal-polynomial FE is skipped. "
-                "Convert to pandas via X.to_pandas() before fit() if you "
-                "want hybrid FE applied.",
+                "MRMR: univariate/hybrid orthogonal-polynomial FE is enabled "
+                "(fe_univariate_basis_enable / fe_hybrid_orth_enable) but X is "
+                "not a pandas DataFrame; the FE stage is skipped. Convert via "
+                "X.to_pandas() before fit() if you want it applied.",
                 UserWarning, stacklevel=3,
             )
         else:
@@ -533,7 +537,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         except Exception:
                             _y_for_extra = _y_for_extra.astype(np.int64)
             _top_k_for_extra = int(getattr(self, "fe_hybrid_orth_top_k", 5))
-            if _is_pandas_for_hybrid and _extra_bases_cfg:
+            # Gate on _hybrid_on (the master hybrid switch) exactly like the
+            # pair-CROSS-basis stage above (line ~433). Without this, the
+            # default-on univariate-basis path (fe_univariate_basis_enable only,
+            # _hybrid_on=False) would silently activate the extra-basis stage
+            # whenever fe_hybrid_orth_extra_bases is non-empty -- the user expected
+            # a no-op when fe_hybrid_orth_enable=False (pre-default-flip behaviour).
+            if _is_pandas_for_hybrid and _extra_bases_cfg and _hybrid_on:
                 try:
                     from ._orthogonal_univariate_fe import (
                         hybrid_orth_extra_basis_fe_with_recipes,
@@ -5467,6 +5477,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _excluded_from_rescue.add(_anchor)
                     if isinstance(_members, (list, tuple, set)):
                         _excluded_from_rescue.update(_members)
+            # Engineered FE columns (univariate basis a__T2, hybrid/pair/triplet crosses,
+            # MI-greedy) survive in X.columns but were deliberately excluded from
+            # feature_names_in_ (raw columns only, line above). They cannot be indexed
+            # into support_ via feature_names_in_.index() -> ValueError. Exclude them from
+            # the rescue pool so RFECV only reconsiders RAW discarded columns.
+            _excluded_from_rescue.update(getattr(self, "hybrid_orth_features_", None) or [])
+            _excluded_from_rescue.update(getattr(self, "mi_greedy_features_", None) or [])
             temp_columns = [c for c in X.columns if c not in _sel_names and c not in _excluded_from_rescue]
 
             if _is_classification:

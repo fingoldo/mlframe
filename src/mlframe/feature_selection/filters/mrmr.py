@@ -806,6 +806,37 @@ class MRMR(BaseEstimator, TransformerMixin):
         # is no univariate nonlinearity. The heavier pair-CROSS-basis stage stays
         # behind ``fe_hybrid_orth_enable``. Set False for the legacy pair-only FE.
         fe_univariate_basis_enable: bool = True,
+        # 2026-06-02 -- SYNERGY BOOTSTRAP, DEFAULT ON (cap-gated). Pure-synergy
+        # interactions (``y = a*d``, ``sign(a)*sign(d)``, ``log(c)*sin(d)`` ...)
+        # carry ~ZERO MARGINAL MI on each factor (``E[y|a]=E[y|d]=0`` by symmetry),
+        # so the greedy screen never selects either factor and the pair therefore
+        # never enters the FE pool (which is the SELECTED set). The pair-MI
+        # prospective screen ALREADY keeps zero-individual-MI pairs whose JOINT MI
+        # is positive (the canonical XOR branch); it simply never SEES those pairs.
+        # When the raw numeric feature count is <= this cap, the FE step augments
+        # the pair pool with the UNSELECTED raw numeric columns so an all-pairs
+        # joint-MI sweep (O(p^2), cheap at small p; bounded by the batch pair-MI
+        # path's MAX_K=200) screens the synergy pairs. Set 0 to disable; raise to
+        # enable on wider frames after weighing the O(p^2) cost.
+        fe_synergy_screen_max_features: int = 60,
+        # Budget on the number of SYNERGY pairs (>=1 operand is a bootstrap-added
+        # unselected column) that proceed to the EXPENSIVE per-pair unary/binary/
+        # prewarp search. On a signal-drowned-in-noise frame many noise pairs clear
+        # the uplift gate by finite-sample chance; without a budget every one would
+        # be searched, blowing up FE wall-time. The top ``fe_synergy_max_pairs``
+        # synergy pairs by JOINT MI are kept; the rest dropped. Selected-selected
+        # pairs are unaffected (count bounded by the small selected set).
+        fe_synergy_max_pairs: int = 16,
+        # STRICTER joint-MI uplift threshold for SYNERGY pairs than the regular
+        # ``fe_min_pair_mi_prevalence`` (1.05). A synergy pair's operands are
+        # UNSELECTED -- usually noise -- so adding one as a 2nd joint dimension
+        # inflates the finite-sample joint-MI estimate by ~5-15% (more bins =>
+        # more positive bias), which would clear the lenient 1.05 gate and inject
+        # a spurious feature. Genuine synergy (XOR / sign / bilinear) has joint MI
+        # FAR above the marginal sum (uplift >> 1.15), so a 1.15 bar keeps the real
+        # interactions while rejecting bias-only noise pairs. Applies ONLY to
+        # synergy pairs; selected-selected pairs keep ``fe_min_pair_mi_prevalence``.
+        fe_synergy_min_prevalence: float = 1.15,
         fe_hybrid_orth_degrees: tuple = (2, 3),
         fe_hybrid_orth_basis: str = "auto",
         # Combined cap on appended columns (univariate + pair). Top-K is
@@ -1694,6 +1725,12 @@ class MRMR(BaseEstimator, TransformerMixin):
         "auto", "mean_z", "mean_inv_var", "median", "pca_pc1", "factor_score",
         "pca_pc2", "median_z", "signed_max_abs", "signed_l2_sum",
     )
+    # additional_rfecv_selection_rule flows verbatim into RFECV's
+    # n_features_selection_rule (see _mrmr_fit_impl rescue block). Mirror
+    # RFECV's own accepted set (_rfecv.py constructor guard) so a typo fails
+    # at MRMR.fit() start with an actionable message instead of deep inside the
+    # RFECV fit.
+    _VALID_RFECV_SELECTION_RULES = ("auto", "argmax", "one_se_min", "one_se_max")
 
     # 2026-06-01 Layer 85 — accepted values for
     # ``fe_hybrid_orth_default_scorer``. "plug_in" preserves Layer 21's

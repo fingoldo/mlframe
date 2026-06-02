@@ -42,6 +42,10 @@ def _validate_string_params(self):
         # 2026-05-30 Wave 9 — DCD distance / swap-method strings.
         ("dcd_distance", self._VALID_DCD_DISTANCES),
         ("dcd_swap_method", self._VALID_DCD_SWAP_METHODS),
+        # additional_rfecv_selection_rule flows verbatim into RFECV's
+        # n_features_selection_rule; validate it here so a typo fails at
+        # fit() start, consistent with the other MRMR string params.
+        ("additional_rfecv_selection_rule", self._VALID_RFECV_SELECTION_RULES),
     )
     # 2026-05-30 Wave 9 — DCD range checks gated on dcd_enable.
     if bool(getattr(self, "dcd_enable", False)):
