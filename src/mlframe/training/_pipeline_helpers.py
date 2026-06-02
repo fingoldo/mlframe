@@ -280,6 +280,36 @@ def _is_fitted(estimator):
         return False
 
 
+def _is_stale_fit_state_value_error(exc) -> bool:
+    """True for the sklearn ValueErrors that signal a transformer was fitted on a
+    DIFFERENT feature schema than the frame now being transformed -- the two
+    variants are a width/count mismatch and a feature-name mismatch:
+
+      * ``Unexpected input dimension N, expected M`` (_SetOutputMixin)
+      * ``X has N features, but ... is expecting M features``
+      * ``The feature names should match those that were passed during fit ...``
+        / ``Feature names seen at fit time, yet now missing: ...`` /
+        ``Feature names unseen at fit time: ...``
+
+    Both are the same stale-fit-state failure mode as NotFittedError /
+    AttributeError: a pipeline / feature-selector object reused across rounds
+    carries fit state for a different input schema (e.g. fitted on the FS-reduced
+    output of a prior model and now handed the raw frame). They warrant the same
+    fit_transform recovery rather than crashing the run. Unrelated data
+    ValueErrors (NaN, string-to-float, etc.) do NOT match, so they still
+    propagate.
+    """
+    msg = str(exc).lower()
+    return (
+        "unexpected input dimension" in msg
+        or "features, but" in msg
+        or "is expecting" in msg
+        or "feature names should match" in msg
+        or "feature names seen at fit time" in msg
+        or "feature names unseen at fit time" in msg
+    )
+
+
 def _multilabel_target_to_1d_for_supervised_encoders(target):
     """Collapse a 2-D multilabel target to a 1-D signal for supervised encoders.
 
@@ -638,13 +668,16 @@ def _apply_pre_pipeline_transforms(
                                 train_df,
                                 passthrough_cols=selector_passthrough_cols,
                             )
-                        except (NotFittedError, AttributeError) as _selector_state_exc:
+                        except (NotFittedError, AttributeError, ValueError) as _selector_state_exc:
+                            if isinstance(_selector_state_exc, ValueError) and not _is_stale_fit_state_value_error(_selector_state_exc):
+                                raise  # a genuine data ValueError, not a stale-fit-schema mismatch
                             if verbose:
                                 logger.warning(
                                     "Pre-fitted feature selector %s raised %s on transform; "
                                     "falling back to fit_transform with current target+groups. "
                                     "This usually means the cache state transfer didn't replicate "
-                                    "every selector-private attribute (e.g. BorutaShap.selected_features_).",
+                                    "every selector-private attribute (e.g. BorutaShap.selected_features_) "
+                                    "or the selector was fitted on a different input width.",
                                     type(feature_selector).__name__,
                                     type(_selector_state_exc).__name__,
                                 )
@@ -703,13 +736,16 @@ def _apply_pre_pipeline_transforms(
                         train_df,
                         passthrough_cols=selector_passthrough_cols,
                     )
-                except (NotFittedError, AttributeError) as _pipeline_state_exc:
+                except (NotFittedError, AttributeError, ValueError) as _pipeline_state_exc:
+                    if isinstance(_pipeline_state_exc, ValueError) and not _is_stale_fit_state_value_error(_pipeline_state_exc):
+                        raise  # a genuine data ValueError, not a stale-fit-schema mismatch
                     if verbose:
                         logger.warning(
                             "Pre-fitted pre_pipeline raised %s on transform; "
                             "falling back to fit_transform with current target+groups. "
                             "Likely cause: cache state transfer didn't replicate every "
-                            "inner-step attribute (e.g. BorutaShap.selected_features_).",
+                            "inner-step attribute (e.g. BorutaShap.selected_features_) or the "
+                            "pipeline was fitted on a different input width.",
                             type(_pipeline_state_exc).__name__,
                         )
                     _enc_target_recover = _multilabel_target_to_1d_for_supervised_encoders(train_target)
