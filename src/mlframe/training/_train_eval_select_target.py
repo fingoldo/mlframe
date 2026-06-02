@@ -259,7 +259,14 @@ def select_target(
         model_name=model_name,
         common_params=common_params,
         config_params=effective_config_params,
-        use_regression=target_type == TargetTypes.REGRESSION,
+        # All regression flavours (REGRESSION, MULTI_TARGET_REGRESSION,
+        # QUANTILE_REGRESSION) must build REGRESSOR estimators. Keying on the
+        # bare ``== REGRESSION`` left MTR/QR with use_regression=False, so
+        # configure_training_params built CLASSIFIERS for them; the MTR
+        # MultiRMSE loss is then layered on later (only on a regressor), and a
+        # classifier with a classification loss on a 2-D continuous target
+        # crashes at fit ("Target Labels for MultiLogloss must be 0 or 1").
+        use_regression=target_type.is_any_regression,
         mlframe_models=mlframe_models,
         linear_model_config=linear_model_config,
         train_df_size_bytes=train_df_size_bytes,
