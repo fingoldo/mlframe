@@ -151,8 +151,15 @@ class TestRegressionTargets:
         )
 
     def test_continuous_y_quadratic_signal(self):
-        """y = sig^2 + noise (non-monotone). After MDLP-collapsed
-        fallback fix this should work."""
+        """y = sig**2 + noise (non-monotone, SYMMETRIC domain). Raw ``signal`` is
+        ~uncorrelated with sig**2 (an even function -> Pearson/MI ~0), so the
+        DEFAULT univariate-basis FE (``fe_univariate_basis_enable``) recovers the
+        signal via a clean single-source basis feature (``signal__He2`` /
+        ``signal__T2`` ~ sig**2) rather than the raw column. This is the
+        univariate-basis win: pre-FE the raw column was the only candidate and the
+        signal was effectively missed; now a signal-derived feature is selected AND
+        recovers sig**2 at high |corr| (measured ~0.999). Pinned as the better
+        behaviour, not the raw-column presence the old assertion expected."""
         from mlframe.feature_selection.filters.mrmr import MRMR
         rng = np.random.default_rng(74)
         n = 1500
@@ -167,8 +174,26 @@ class TestRegressionTargets:
             warnings.simplefilter("ignore")
             sel = MRMR(verbose=0).fit(X, pd.Series(y_cont))
         names = list(sel.get_feature_names_out())
-        assert "signal" in names, (
-            f"quadratic continuous target: signal missed; support={names}"
+        # The signal is recovered as the raw column OR a signal-derived feature
+        # (basis ``signal__He2`` or a functional form referencing ``signal``).
+        sig_feats = [nm for nm in names if "signal" in nm]
+        assert sig_feats, (
+            f"quadratic continuous target: signal not recovered (neither raw nor a "
+            f"signal-derived basis feature); support={names}"
+        )
+        # ... and that recoverer actually captures sig**2 (the univariate win).
+        Xt = np.asarray(sel.transform(X))
+        true = sig**2 - float(np.mean(sig**2))
+        best = 0.0
+        for i, nm in enumerate(names):
+            if nm not in sig_feats:
+                continue
+            col = Xt[:, i]
+            if np.isfinite(col).all() and float(np.std(col)) > 1e-12:
+                best = max(best, abs(float(np.corrcoef(col, true)[0, 1])))
+        assert best >= 0.85, (
+            f"quadratic continuous target: signal-derived feature did not recover "
+            f"sig**2 (best |corr|={best:.3f}); support={names}"
         )
 
 
