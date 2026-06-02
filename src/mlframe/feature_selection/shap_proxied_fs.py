@@ -266,6 +266,12 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         cluster_su_auto_max_features: int | None = None,
         cluster_su_n_bins: int = 10,
         prescreen_top: int | None = None,
+        # within_cluster_refine drops members while the honest holdout loss stays within ``parsimony_tol`` of best,
+        # measured with ShapProxiedFS's OWN booster on a 25% holdout. When the DOWNSTREAM model is stronger / different
+        # (e.g. a 300-tree LightGBM) it may exploit features this proxy finds within-tol-redundant, so the refine can
+        # over-prune real signal -> downstream loss. If the downstream benefits from more features, disable this
+        # (within_cluster_refine=False) or tighten ``parsimony_tol``. Measured on a 52-feature synthetic: default
+        # over-pruned to 6 feats (downstream LGBM AUC 0.73); within_cluster_refine=False kept 18 (AUC 0.77).
         within_cluster_refine: bool = True,
         refine_n_estimators: int | None = 100,
         refine_ucb_enabled: bool = True,

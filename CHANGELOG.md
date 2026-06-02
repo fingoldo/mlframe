@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-06-02 — ShapProxiedFS over-pruning caveat documented (within_cluster_refine vs strong downstream)
+
+Investigation of ShapProxiedFS under-performing in the FS-hybrid benchmark (selected 6 of 8 base features, downstream LightGBM AUC 0.73 vs 0.79 on all). Root cause: ``within_cluster_refine`` (default on) drops members while the honest-holdout loss stays within ``parsimony_tol`` (0.02) of best, but that loss is measured with ShapProxiedFS's OWN capped booster on a 25% holdout. A stronger / different downstream (300-tree LightGBM) exploits features the proxy finds within-tol-redundant, so the refine over-prunes real signal. Both controlling knobs already exist and are exposed (``within_cluster_refine``, ``parsimony_tol``); no behavior change to defaults (heavily tuned for other workloads). Documented the downstream-mismatch caveat on the ``within_cluster_refine`` param, and set the benchmark's ShapProxiedFS to ``within_cluster_refine=False`` + ``min_features=8`` (measured: 18 feats, LightGBM 0.77 / Logistic 0.74 vs 0.73 / 0.72 with refine on). Recommendation: disable refine or tighten parsimony_tol when the downstream benefits from more features.
+
 ## 2026-06-02 — BorutaShap cross-subsample stability (opt-in) + corrected shadow-leak mitigation claim
 
 Adds an opt-in cross-subsample stability gate to BorutaShap and CORRECTS the mitigation claim documented earlier today (which was based on a single lucky seed).
