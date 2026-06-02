@@ -702,8 +702,30 @@ def evaluate_candidate(
 
 
 def find_best_partial_gain(
-    partial_gains: dict, failed_candidates: set, added_candidates: set, candidates: list, selected_vars: list, skip_indices: tuple = ()
+    partial_gains: dict, failed_candidates: set, added_candidates: set, candidates: list, selected_vars: list, skip_indices: tuple = (),
+    dcd_state=None,
 ) -> float:
+    # 2026-06-02 Wave 9 fix: a DCD-pruned candidate must NOT be returned as a
+    # redirect target. ``partial_gains`` persists across the confirmation
+    # ``while`` retries within one interactions-order; when DCD prunes a
+    # candidate AFTER it was scored (``discover_cluster_members`` sets
+    # ``pool_pruned_mask`` once a same-cluster member is selected), the
+    # candidate is skipped from RE-scoring (``should_skip_candidate``) but its
+    # now-STALE high partial gain stays in the dict. Pre-fix
+    # ``find_best_partial_gain`` had no view of the prune mask, so it kept
+    # returning that pruned candidate's stale gain as "the best other option",
+    # the confirmation loop redirected to it forever (it can never be confirmed
+    # -- it is skipped), and the genuinely-good candidate that DID confirm was
+    # never committed -> the screen stopped early and dropped real signal
+    # (sensor-mesh: 6 features -> 2, -4% downstream AUC). Skipping pruned
+    # candidates here closes the redirect loop. ``None`` dcd_state is the
+    # legacy/bit-stable path (no DCD).
+    _should_be_pruned = None
+    if dcd_state is not None:
+        try:
+            from ._dynamic_cluster_discovery import should_be_pruned as _should_be_pruned
+        except Exception:
+            _should_be_pruned = None
     best_partial_gain = -LARGE_CONST
     best_key = None
     for key, value in partial_gains.items():
@@ -715,6 +737,8 @@ def find_best_partial_gain(
                     break
             if skip_cand:
                 continue
+            if _should_be_pruned is not None and _should_be_pruned(dcd_state, candidates[key]):
+                continue  # DCD-pruned: out of contention, never a valid redirect target.
             partial_gain, _ = value
             if partial_gain > best_partial_gain:
                 best_partial_gain = partial_gain

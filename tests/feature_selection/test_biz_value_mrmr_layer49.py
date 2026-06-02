@@ -303,13 +303,29 @@ class TestLayer49_ScenarioA_SensorMesh:
         )
 
     def test_S5_cluster_members_identify_5_latents(self, fits):
-        """DCD-auto should produce a cluster_members_ map whose 5
-        biggest entries each contain sensors of one latent (the 'L<i>_s*'
-        prefix). Loose: at least 3 of the 5 latents are correctly
-        identified as a cluster of >=2 sensors (absorbs DCD ordering
-        variance).
+        """DCD's CLUSTERING capability: it should produce a cluster_members_
+        map whose entries each contain sensors of one latent (the 'L<i>_s*'
+        prefix). Loose: at least 3 of the 5 latents are correctly identified as
+        a cluster of >=2 sensors (absorbs DCD ordering variance).
+
+        FE OFF here on purpose: this test exercises DCD's intrinsic SU-clustering
+        of the RAW latent sensor packs. Under the realistic full-mode + FE
+        default (the shared ``fits`` fixture), screening selects ENGINEERED
+        cross-sensor combinations rather than the raw sensors, so the cluster
+        ANCHORS are engineered features and the raw-pack identification is
+        confounded -- not a DCD defect but a consequence of the FE default
+        choosing better (engineered) representatives. Disabling FE
+        (``fe_max_steps=0``) lets screening pick raw sensors so DCD's clustering
+        of the 5 packs is measured directly. (The realistic-fixture metric/
+        support contracts are covered by S1-S4, which use ``fits``.)
         """
-        _X, _y, _m_off, _m_on, m_auto = fits
+        from mlframe.feature_selection.filters.mrmr import MRMR
+        X, y = _scenario_A_sensor_mesh(n=1500, seed=49)
+        m_auto = MRMR(
+            dcd_enable=True, dcd_tau_cluster="auto", dcd_distance="auto",
+            dcd_swap_method="auto", fe_max_steps=0,
+            full_npermutations=3, verbose=0, random_seed=0,
+        ).fit(X, y)
         cm = m_auto.cluster_members_ or {}
         latent_clusters_found = 0
         for anchor, members in cm.items():

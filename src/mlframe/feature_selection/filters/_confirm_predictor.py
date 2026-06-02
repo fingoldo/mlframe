@@ -896,6 +896,7 @@ def confirm_one_predictor(
                         added_candidates=added_candidates,
                         candidates=candidates,
                         selected_vars=selected_vars,
+                        dcd_state=getattr(ctx, "dcd_state", None),
                     )
 
                     if best_partial_gain > next_best_gain:
@@ -930,6 +931,7 @@ def confirm_one_predictor(
                         candidates=candidates,
                         selected_vars=selected_vars,
                         skip_indices=(next_best_candidate_idx,),
+                        dcd_state=getattr(ctx, "dcd_state", None),
                     )
                     if best_partial_gain > next_best_gain:
                         if verbose > 2:
