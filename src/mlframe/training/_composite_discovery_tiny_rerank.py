@@ -29,6 +29,33 @@ from .composite_transforms import get_transform
 logger = logging.getLogger(__name__)
 
 
+def _tiny_rerank_ram_checkpoint(label: str) -> None:
+    """Log the current process memory triple right at a tiny-rerank boundary.
+
+    Mirrors the discovery profiler format so the prod log presents a single
+    coherent thread of RAM checkpoints across discovery sub-phases AND the
+    tiny-rerank internals.
+
+    The user observed a kernel-kill INSIDE tiny_model_rerank with ~20 GB of
+    physical RAM still free -- not a classical OOM. Most likely cause on
+    Windows: the system-wide commit-charge limit (physical + pagefile) was
+    exhausted by mlframe + system baseline + the next LightGBM Dataset's
+    transient allocation; the kernel-level C alloc fails, LightGBM doesn't
+    handle it gracefully, and the process crashes with an access violation.
+    Per-step checkpoints pin the exact step that pushed commit over the
+    edge.
+    """
+    try:
+        from ._composite_discovery_fit import _process_mem_mb
+        rss_mb, uss_mb, commit_mb = _process_mem_mb()
+    except Exception:
+        return
+    logger.info(
+        "[CompositeTargetDiscovery.tiny_rerank.RAM] %s USS=%.0f MB (RSS=%.0f MB, commit=%.0f MB)",
+        label, uss_mb, rss_mb, commit_mb,
+    )
+
+
 def _tiny_model_rerank(
     self,
     kept_specs: list[CompositeSpec],
@@ -50,6 +77,25 @@ def _tiny_model_rerank(
        - "borda": Borda-count rank aggregation.
     4. Re-sort, take top-``top_m_after_tiny``.
     """
+    # Emergency-skip path. The user observed kernel-kill INSIDE this function
+    # with ~20 GB physical RAM free on a Windows host, consistent with system
+    # commit-charge limit exhaustion when a LightGBM Dataset transient
+    # allocation pushes the system over (physical + pagefile). Setting
+    # MLFRAME_DISCOVERY_SKIP_TINY_RERANK=1 returns kept_specs unchanged so the
+    # MI-survivor list ships without the y-scale CV rerank. Operators trade
+    # spec-ranking accuracy for the ability to complete discovery at all.
+    import os as _os
+    if _os.environ.get("MLFRAME_DISCOVERY_SKIP_TINY_RERANK", "").strip().lower() in (
+        "1", "true", "yes", "on",
+    ):
+        logger.warning(
+            "[CompositeTargetDiscovery.tiny_rerank] SKIPPED via MLFRAME_DISCOVERY_SKIP_TINY_RERANK=1; "
+            "returning %d MI-ranked spec(s) without y-scale CV rerank. "
+            "Spec ranking accuracy is reduced; set the env var to 0 (or unset) to restore the rerank pass.",
+            len(kept_specs),
+        )
+        return kept_specs
+    _tiny_rerank_ram_checkpoint("entry")
     sample_n = min(self.config.tiny_model_sample_n, train_idx.size)
     # Phase B benefits from stratified sampling on heavy-tail y
     # for the same reason Phase A does -- tiny-model CV-RMSE on a
@@ -135,6 +181,7 @@ def _tiny_model_rerank(
             df, x_remaining, train_idx_screen,
         )
         _per_base_cache[spec.base_column] = (base_screen, x_matrix)
+    _tiny_rerank_ram_checkpoint(f"per_base_cache_built(n_unique_bases={len(_per_base_cache)})")
 
     n_seed_repeats = max(1, int(getattr(
         self.config, "tiny_model_n_seed_repeats", 1,
@@ -248,13 +295,22 @@ def _tiny_model_rerank(
         _rerank_n_jobs = max(1, min(len(kept_specs), _cpu))
     else:
         _rerank_n_jobs = max(1, _rerank_n_jobs_cfg)
+    _tiny_rerank_ram_checkpoint(f"pre_parallel_loop(n_specs={len(kept_specs)}, n_families={len(families)}, rerank_n_jobs={_rerank_n_jobs})")
     if _rerank_n_jobs > 1 and len(kept_specs) > 1:
         from joblib import Parallel as _Parallel, delayed as _delayed
         _rerank_results = _Parallel(
             n_jobs=_rerank_n_jobs, backend="threading", prefer="threads",
         )(_delayed(_rerank_one_spec)(s) for s in kept_specs)
     else:
-        _rerank_results = [_rerank_one_spec(s) for s in kept_specs]
+        # Sequential path: log every other spec so the kill-point is bracketed
+        # without flooding the log on a 100-spec rerank. The parallel path
+        # can't checkpoint mid-loop without contention on the logger.
+        _rerank_results = []
+        for _i, _spec in enumerate(kept_specs):
+            _rerank_results.append(_rerank_one_spec(_spec))
+            if _i % 2 == 1 or _i == len(kept_specs) - 1:
+                _tiny_rerank_ram_checkpoint(f"after_spec[{_i + 1}/{len(kept_specs)}]={_spec.name[:40]}")
+    _tiny_rerank_ram_checkpoint("post_parallel_loop_done")
 
     # Serial reduce — preserve spec order for per_family_scores
     # (joblib.Parallel preserves input order).
@@ -715,5 +771,6 @@ def _tiny_model_rerank(
             "(configured top_m=%d): %s.",
             len(new_top), top_m, new_top,
         )
+    _tiny_rerank_ram_checkpoint("exit")
     return reranked
 
