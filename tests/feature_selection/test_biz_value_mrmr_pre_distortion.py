@@ -164,8 +164,22 @@ def _fit(make_mrmr, df, y):
 
 
 def _unb():
+    # The ELEMENTARY unary/binary pair search ONLY: no smart-polynom, no hybrid
+    # orth, and prewarp OFF. ``fe_pair_prewarp_enable`` defaults to True (it is a
+    # learned compose-then-expand warp that CAN represent a non-monotone inner --
+    # see ``test_fpoly_unary_binary_prewarp_recovers``), so it must be disabled
+    # here for the boundary tests to measure the elementary library-unary search
+    # in isolation, which is what their docstrings describe.
     return MRMR(verbose=0, n_jobs=1, random_seed=0,
-                fe_smart_polynom_iters=0, fe_hybrid_orth_enable=False, **_LEAN)
+                fe_smart_polynom_iters=0, fe_hybrid_orth_enable=False,
+                fe_pair_prewarp_enable=False, **_LEAN)
+
+
+def _unb_prewarp():
+    # Elementary unary/binary search WITH the production-default prewarp on.
+    return MRMR(verbose=0, n_jobs=1, random_seed=0,
+                fe_smart_polynom_iters=0, fe_hybrid_orth_enable=False,
+                fe_pair_prewarp_enable=True, **_LEAN)
 
 
 def _orth_smart_polynom(basis="chebyshev"):
@@ -177,10 +191,17 @@ def _orth_smart_polynom(basis="chebyshev"):
 
 
 def _orth_hybrid_pair():
+    # Prewarp OFF: this config isolates the FIXED-CELL hybrid orthogonal-pair
+    # path's intrinsic behaviour. Prewarp (default on) is a separate
+    # compose-then-expand mechanism that recovers F-POLY via
+    # ``mul(prewarp(a),prewarp(b))`` regardless of the path it rides on (see the
+    # dedicated prewarp recovery test), which would mask what THIS path does on
+    # its own.
     return MRMR(verbose=0, n_jobs=1, random_seed=0,
                 fe_smart_polynom_iters=0, fe_hybrid_orth_enable=True,
                 fe_hybrid_orth_pair_enable=True, fe_hybrid_orth_degrees=(2, 3, 4),
-                fe_hybrid_orth_pair_max_degree=4, fe_hybrid_orth_top_k=8, **_LEAN)
+                fe_hybrid_orth_pair_max_degree=4, fe_hybrid_orth_top_k=8,
+                fe_pair_prewarp_enable=False, **_LEAN)
 
 
 # ---------------------------------------------------------------------------
@@ -221,7 +242,36 @@ def test_fpoly_unary_binary_fails_to_recover():
     _name, corr = _best_engineered_corr(fs, df, true)
     assert corr < 0.30, (
         f"F-POLY/UNB unexpectedly recovered |corr|={corr:.3f} ({_name}); "
-        f"the unary/binary path was expected to fail on the non-monotone inner"
+        f"the elementary unary/binary path (prewarp off) was expected to fail "
+        f"on the non-monotone inner"
+    )
+
+
+def test_fpoly_unary_binary_prewarp_recovers():
+    """RECOVERY via prewarp: the elementary unary/binary pair search AUGMENTED
+    with the production-default ``fe_pair_prewarp_enable`` recovers the
+    non-monotone F-POLY inner that the plain search
+    (``test_fpoly_unary_binary_fails_to_recover``) cannot.
+
+    No single library unary equals ``a**3 - 2a``, so the plain pair search finds
+    nothing (corr ~0). Prewarp is a learned compose-then-expand warp of each
+    operand BEFORE the binary combine, which can approximate the non-monotone
+    inner; the search then engineers ``mul(prewarp(a), prewarp(b))`` highly
+    correlated with the true ``P(a)*Q(b)`` signal. Measured |corr| ~= 0.97;
+    pinned >= 0.70 with margin. This is the elementary-path companion to the
+    smart_polynom recovery -- prewarp (on by default) closes the former
+    unary/binary boundary, so the only way to OBSERVE that boundary now is to
+    explicitly disable prewarp (which ``_unb`` does)."""
+    df, y, true = _make_poly()
+    fs = _fit(_unb_prewarp, df, y)
+    name, corr = _best_engineered_corr(fs, df, true)
+    assert name is not None, (
+        "F-POLY/UNB+prewarp engineered nothing; prewarp is expected to recover "
+        "the non-monotone inner"
+    )
+    assert corr >= 0.70, (
+        f"F-POLY/UNB+prewarp best engineered |corr|={corr:.3f} < 0.70 ({name}); "
+        f"the prewarp recovery of the non-monotone inner regressed"
     )
 
 
@@ -259,13 +309,16 @@ def test_fpoly_orth_smart_polynom_default_recovers(basis):
 def test_fpoly_orth_hybrid_pair_default_does_not_recover():
     """TRUE-NEGATIVE pin: the hybrid orthogonal-pair path (fixed low-degree
     cross-basis cells like ``T2(a)*T1(b)``, a SEPARATE code path from the
-    smart_polynom CMA/ALS optimiser) does not recover F-POLY -- its fixed
-    bilinear cells cannot express the full ``cheb_3(a)*cheb_2(b)`` product. This
-    path was NOT changed by the 2026-06-02 warm-start fix; pinned < 0.30 so a
-    future accidental coupling that made it spuriously "recover" is caught.
+    smart_polynom CMA/ALS optimiser; prewarp OFF) does not recover F-POLY -- its
+    fixed bilinear cells cannot express the full ``cheb_3(a)*cheb_2(b)`` product
+    (verified: with prewarp off, downstream Ridge R^2 stays at the raw baseline
+    in ``test_fpoly_downstream_score_stuck_at_raw_baseline_for_true_negative_paths``).
+    Pinned < 0.30 so a future accidental coupling that made it spuriously
+    "recover" is caught.
 
     Recovery on F-POLY is the job of the smart_polynom path
-    (``test_fpoly_orth_smart_polynom_default_recovers``), not this one."""
+    (``test_fpoly_orth_smart_polynom_default_recovers``) and of prewarp
+    (``test_fpoly_unary_binary_prewarp_recovers``), not this one."""
     df, y, true = _make_poly()
     fs = _fit(_orth_hybrid_pair, df, y)
     _name, corr = _best_engineered_corr(fs, df, true)
@@ -318,11 +371,18 @@ def test_fpoly_downstream_score_recovers_for_smart_polynom():
 
 def test_fpoly_downstream_score_stuck_at_raw_baseline_for_true_negative_paths():
     """TRUE-NEGATIVE pin: the paths that structurally cannot represent the
-    non-monotone inner -- unary/binary function search and the fixed-cell
-    hybrid-orth pair -- leave downstream 5-fold Ridge R^2 at the all-raw
-    baseline (~0.22), far below the true-signal fit (~1.0). Pins the business
-    cost of those paths' representational limit (recovery is the smart_polynom
-    path's job, asserted separately)."""
+    non-monotone inner -- the ELEMENTARY unary/binary function search and the
+    fixed-cell hybrid-orth pair, both with prewarp OFF -- leave downstream 5-fold
+    Ridge R^2 at the all-raw baseline (~0.22), far below the true-signal fit
+    (~1.0). Pins the business cost of those paths' representational limit
+    (recovery is the smart_polynom path's job, and the prewarp augmentation
+    recovers too -- both asserted separately).
+
+    NOTE both makers set ``fe_pair_prewarp_enable=False``: prewarp (default on)
+    is a separate compose-then-expand mechanism that DOES recover F-POLY via
+    ``mul(prewarp(a),prewarp(b))`` on either path, so it is disabled here to
+    measure these two paths' intrinsic limit (the recovery is pinned by
+    ``test_fpoly_unary_binary_prewarp_recovers``)."""
     df, y, true = _make_poly()
     raw_r2 = _ridge_r2(df.values, y)
     true_r2 = _ridge_r2(np.asarray(true), y)

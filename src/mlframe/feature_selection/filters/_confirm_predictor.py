@@ -25,6 +25,7 @@ moved bodies stay byte-for-byte identical to the original inline blocks.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from timeit import default_timer as timer
 from typing import Sequence
@@ -186,6 +187,130 @@ def _prefer_engineered_order(order, expected_gains, ctx) -> np.ndarray:
     # Engineered band-members first (stable), then the raw band-members (stable),
     # then the untouched tail.
     return np.asarray(engineered_in_band + leading + rest, dtype=order.dtype)
+
+
+# Split an engineered name into identifier-ish sub-tokens. ``__`` is a word char
+# so a basis transform ``b__He2`` survives as a single token (its raw parent is
+# the part before the FIRST ``__``); functional / cross forms ``div(sqr(a),b)``,
+# ``c1*c2`` split on the operator/paren/comma punctuation into their operands.
+_PARENT_TOKEN_SPLIT = re.compile(r"[^A-Za-z0-9_]+")
+
+
+def _extract_single_raw_parent(cand, factors_names, raw_names):
+    """Return the raw parent NAME iff candidate ``cand`` (an iterable of column
+    indices) is ENGINEERED and is a function of EXACTLY ONE raw input column;
+    otherwise ``None``.
+
+    A component column counts as raw when its ``factors_names`` entry is in
+    ``raw_names``. An engineered component contributes the raw column(s) it is
+    built from: the operands of a functional/cross form (``div(sqr(a),b)`` ->
+    {a, b}; ``c1*c2`` -> {c1, c2}) and, for a basis transform ``b__He2``, the
+    prefix before the first ``__`` (``b``). Token equality against ``raw_names``
+    is EXACT (``x1`` never matches inside ``x10``); the ``__``-prefix strip only
+    fires when the whole token is not itself a raw name, so a raw column that
+    legitimately contains ``__`` is preserved. Returns the parent only when the
+    candidate references a single distinct raw column -- the unambiguous
+    "transform of one parent" case the substitution is allowed to act on.
+    """
+    parents = set()
+    is_engineered = False
+    for sub in cand:
+        try:
+            name = factors_names[sub]
+        except (IndexError, TypeError, KeyError):
+            return None
+        if name in raw_names:
+            parents.add(name)
+            continue
+        is_engineered = True
+        for tok in _PARENT_TOKEN_SPLIT.split(name):
+            if not tok:
+                continue
+            if tok in raw_names:
+                parents.add(tok)
+            elif "__" in tok:
+                base = tok.split("__", 1)[0]
+                if base in raw_names:
+                    parents.add(base)
+        if len(parents) > 1:
+            return None  # multi-parent -> not a single-parent transform
+    if not is_engineered or len(parents) != 1:
+        return None
+    return next(iter(parents))
+
+
+def _confirmable_engineered_child(ctx, X, winner_idx, winner_gain, expected_gains):
+    """When a RAW single-feature candidate ``X`` just won confirmation, find an
+    engineered single-parent transform of ``X`` that is within the
+    prefer-engineered relative band of the raw winner's gain, and return it as a
+    drop-in substitute. Returns ``(child_idx, child_cand, child_gain)`` or
+    ``None``.
+
+    Why a substitution and not a reorder: by the data-processing inequality an
+    engineered transform ``E = f(P)`` can NEVER carry more mutual information
+    about ``y`` than its raw parent ``P`` (``I(E; y) <= I(P; y)`` for any
+    binning), so an MI/CMIM criterion ALWAYS scores the raw parent at or above
+    its transform and the parent wins every near-tie. Yet ``E`` is strictly
+    richer for a shallow downstream model (a linear model can exploit ``b**2-1``
+    but not raw ``b`` for a quadratic signal) -- the whole point of the
+    engineered feature. ``_prefer_engineered_order`` already encodes this
+    preference, but only within the GLOBAL leader band; a secondary-signal pair
+    (``b`` vs ``b__He2`` while some unrelated feature leads) never enters that
+    band. This applies the SAME preference per-signal at the decision point:
+    when the raw parent is the confirmed winner and its transform sits within
+    ``prefer_engineered_rel_eps`` below it (the only side DPI allows) and the
+    transform independently confirms, prefer the transform.
+
+    Scope is narrow and raw-safe: only fires for a single-feature raw winner
+    with a configured ``prefer_engineered_rel_eps``; the transform must reference
+    exactly this one raw parent, be unselected/unfailed, and clear the band
+    floor. The transform's effective gain is recovered from ``partial_gains``
+    when CMIM pruning zeroed its ``expected_gains`` slot. No-op (returns ``None``)
+    when prefer-engineered is disabled, no raw-name set is threaded, or no such
+    transform exists -- legacy bit-stable.
+    """
+    raw_names = getattr(ctx, "raw_feature_names", None)
+    rel_eps = float(getattr(ctx, "prefer_engineered_rel_eps", 0.0) or 0.0)
+    if not raw_names or rel_eps <= 0.0 or len(X) != 1 or not (winner_gain > 0.0):
+        return None
+    factors_names = ctx.factors_names
+    try:
+        parent_name = factors_names[X[0]]
+    except (IndexError, TypeError, KeyError):
+        return None
+    if parent_name not in raw_names:
+        return None  # the winner is itself engineered -> nothing to substitute
+
+    candidates = ctx.candidates
+    partial_gains = getattr(ctx, "partial_gains", None) or {}
+    added = ctx.added_candidates or set()
+    failed = ctx.failed_candidates or set()
+    selected = ctx.selected_vars or []
+    band_floor = winner_gain * (1.0 - rel_eps)
+
+    best_child = None  # (gain, idx, cand)
+    for idx, cand in enumerate(candidates):
+        if idx == winner_idx or idx in added or idx in failed:
+            continue
+        if any(sub in selected for sub in cand):
+            continue
+        if _extract_single_raw_parent(cand, factors_names, raw_names) != parent_name:
+            continue
+        g = float(expected_gains[idx]) if idx < len(expected_gains) else 0.0
+        pg = partial_gains.get(idx)
+        if pg is not None:
+            try:
+                g = max(g, float(pg[0]))
+            except (TypeError, IndexError, ValueError):
+                pass
+        if g < band_floor or g >= 1e29:
+            continue
+        if best_child is None or g > best_child[0]:
+            best_child = (g, idx, cand)
+
+    if best_child is None:
+        return None
+    return best_child[1], best_child[2], best_child[0]
 
 
 @dataclass
@@ -843,9 +968,33 @@ def confirm_one_predictor(
         # ---------------------------------------------------------------------------------------------------------------
 
         if cand_confirmed:
-            added_candidates.add(next_best_candidate_idx)  # so it won't be selected again
-            best_candidate = X
-            best_gain = next_best_gain
+            # Per-signal prefer-engineered substitution. By the data-processing
+            # inequality a transform E=f(P) cannot out-score its raw parent P on
+            # mutual information, so when a raw feature wins a near-tie against
+            # its own transform the MI criterion always keeps the raw one -- yet
+            # the transform is the representation a shallow downstream actually
+            # needs. If the confirmed winner X is raw and a transform of X sits
+            # within the prefer-engineered band below it AND independently
+            # confirms, select the transform instead (the raw parent then
+            # becomes redundant and is marked accepted so it is not reselected).
+            _sub_idx, _sub_X, _sub_gain = next_best_candidate_idx, X, next_best_gain
+            _child = _confirmable_engineered_child(ctx, X, next_best_candidate_idx, next_best_gain, expected_gains)
+            if _child is not None:
+                _child_idx, _child_X, _child_gain = _child
+                _child_boot, _child_conf = confirm_candidate(ctx, _child_X, _child_gain)
+                if _child_boot > 0:
+                    added_candidates.add(next_best_candidate_idx)  # raw parent now redundant
+                    _sub_idx, _sub_X, _sub_gain = _child_idx, _child_X, _child_gain * _child_conf
+                    if verbose >= 2:
+                        logger.info(
+                            "prefer-engineered substitution: %s -> %s (raw gain %.*f, transform gain %.*f)",
+                            get_candidate_name(X, factors_names=factors_names),
+                            get_candidate_name(_child_X, factors_names=factors_names),
+                            ndigits, next_best_gain, ndigits, _sub_gain,
+                        )
+            added_candidates.add(_sub_idx)  # so it won't be selected again
+            best_candidate = _sub_X
+            best_gain = _sub_gain
             break  # exit confirmation while loop
         else:
             if not any_cand_considered:
