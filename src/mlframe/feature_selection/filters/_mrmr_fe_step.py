@@ -143,6 +143,53 @@ def _run_fe_step(
         allowed = {cols.index(n) for n in self.factors_names_to_use if n in cols}
         numeric_vars_to_consider = numeric_vars_to_consider & allowed
 
+    # 2026-06-02 -- SYNERGY BOOTSTRAP (see ``fe_synergy_screen_max_features`` in
+    # MRMR.__init__). Pure-synergy interactions (a*d, sign products, log(c)*sin(d))
+    # have ~zero marginal MI per factor, so neither factor is screened-in and the
+    # pair never reaches the prospective-pair screen below -- even though that
+    # screen ALREADY keeps a zero-individual-MI pair whose JOINT MI is positive
+    # (the canonical XOR branch). The fix is purely to widen the POOL: when the raw
+    # numeric feature count is within the cap, add the UNSELECTED raw numeric columns
+    # so the all-pairs joint-MI sweep screens the synergy pairs. Two cost/quality
+    # guards live downstream: (1) synergy pairs (>=1 bootstrap-added operand) must
+    # clear the STRICTER ``fe_synergy_min_prevalence`` uplift bar (rejects finite-
+    # sample-bias noise pairs), and (2) the surviving synergy pairs are budget-capped
+    # to ``fe_synergy_max_pairs`` by joint MI (bounds the expensive per-pair search).
+    # Runs only on the FIRST FE step (where the bootstrap matters).
+    _synergy_cap = int(getattr(self, "fe_synergy_screen_max_features", 0) or 0)
+    _synergy_added_idx: set = set()
+    if _synergy_cap > 0 and num_fs_steps == 0:
+        _raw_names = set(getattr(self, "feature_names_in_", []) or [])
+        _target_idx_set = {int(t) for t in np.atleast_1d(target_indices)}
+        _cat_set = set(categorical_vars)
+        _raw_numeric_idx = {
+            i for i, nm in enumerate(cols)
+            if nm in _raw_names and i not in _target_idx_set and i not in _cat_set
+        }
+        if self.factors_to_use is not None:
+            _raw_numeric_idx &= set(self.factors_to_use)
+        if self.factors_names_to_use is not None:
+            _raw_numeric_idx &= {cols.index(n) for n in self.factors_names_to_use if n in cols}
+        if 0 < len(_raw_numeric_idx) <= _synergy_cap:
+            _added = _raw_numeric_idx - numeric_vars_to_consider
+            if _added:
+                _synergy_added_idx = set(_added)
+                numeric_vars_to_consider = numeric_vars_to_consider | _raw_numeric_idx
+                if verbose:
+                    logger.info(
+                        "MRMR FE synergy bootstrap: augmented pair pool with %d unselected raw "
+                        "numeric columns (%d raw <= cap %d) so zero-marginal synergy pairs "
+                        "(a*d / sign products / log*sin) get joint-MI screened.",
+                        len(_added), len(_raw_numeric_idx), _synergy_cap,
+                    )
+        elif len(_raw_numeric_idx) > _synergy_cap and verbose:
+            logger.info(
+                "MRMR FE synergy bootstrap: %d raw numeric columns > cap %d; skipping the "
+                "all-pairs synergy sweep (keeping the selected-only pool). Raise "
+                "fe_synergy_screen_max_features to enable it on this frame.",
+                len(_raw_numeric_idx), _synergy_cap,
+            )
+
     # `combinations(...)` is consumed lazily by tqdmu (small path) or by
     # `_lazy_chunks` (large path). Pair count is closed-form, avoiding
     # `list(combinations(...))` materialisation (O(k^2) tuples, ~300 MB at
@@ -297,7 +344,20 @@ def _run_fe_step(
                         for var in raw_vars_pair:
                             vars_usage_counter[var] += 1
                     continue
-                if pair_mi > ind_elems_mi_sum * fe_min_pair_mi_prevalence:
+                # SYNERGY pairs (>=1 bootstrap-added operand) must clear a STRICTER
+                # uplift bar than selected-selected pairs: their operands are
+                # unselected (usually noise), and adding one as a 2nd joint
+                # dimension inflates the finite-sample joint MI by ~5-15% bias,
+                # which would clear the lenient 1.05 gate and inject a spurious
+                # feature (observed regressing F-MONO). Genuine synergy has joint MI
+                # far above the marginal sum, so the stricter bar keeps it.
+                _is_synergy_pair = bool(_synergy_added_idx) and (
+                    raw_vars_pair[0] in _synergy_added_idx or raw_vars_pair[1] in _synergy_added_idx
+                )
+                _prev_thresh = fe_min_pair_mi_prevalence
+                if _is_synergy_pair:
+                    _prev_thresh = max(fe_min_pair_mi_prevalence, float(getattr(self, "fe_synergy_min_prevalence", 1.15)))
+                if pair_mi > ind_elems_mi_sum * _prev_thresh:
                     uplift = pair_mi / ind_elems_mi_sum
                     if verbose >= 2:
                         logger.info(
@@ -307,6 +367,28 @@ def _run_fe_step(
                     prospective_pairs[(raw_vars_pair, pair_mi)] = vars_usage_counter[raw_vars_pair[0]] + vars_usage_counter[raw_vars_pair[1]]
                     for var in raw_vars_pair:
                         vars_usage_counter[var] += 1
+
+    # SYNERGY-PAIR BUDGET (2026-06-02): cap the synergy pairs (>=1 operand is a
+    # bootstrap-added unselected column) at ``fe_synergy_max_pairs`` top-joint-MI
+    # pairs before the expensive per-pair search, so a noise-heavy frame cannot
+    # flood ``check_prospective_fe_pairs``. Selected-selected pairs are kept in
+    # full. ``key`` is ``(raw_vars_pair, pair_mi)``; rank synergy pairs by pair_mi.
+    if _synergy_added_idx:
+        _synergy_budget = int(getattr(self, "fe_synergy_max_pairs", 16) or 0)
+        _synergy_keys = [k for k in prospective_pairs if (k[0][0] in _synergy_added_idx or k[0][1] in _synergy_added_idx)]
+        if _synergy_budget >= 0 and len(_synergy_keys) > _synergy_budget:
+            _keep_synergy = set(sorted(_synergy_keys, key=lambda k: k[1], reverse=True)[:_synergy_budget])
+            _dropped = 0
+            for k in _synergy_keys:
+                if k not in _keep_synergy:
+                    del prospective_pairs[k]
+                    _dropped += 1
+            if verbose and _dropped:
+                logger.info(
+                    "MRMR FE synergy bootstrap: kept top %d synergy pairs by joint MI, "
+                    "dropped %d below budget (fe_synergy_max_pairs) to bound FE search cost.",
+                    min(_synergy_budget, len(_synergy_keys)), _dropped,
+                )
 
     # Now need to sort prospective_pairs by the uplift, to check most promising pairs within the time budget.
     # Also need to sort them by their members usage frequency+members ids sum. this way, their splitting will benefit more from caching.
@@ -329,6 +411,21 @@ def _run_fe_step(
         from .polynom_pair_fe import run_polynom_pair_fe
         if not hasattr(self, "_hermite_features_"):
             self._hermite_features_ = []
+        # SYNERGY pairs feed the STANDARD unary/binary+prewarp search below, but NOT
+        # this orthogonal-poly optimiser. The synergy bootstrap adds SPECULATIVE
+        # pairs (>=1 unselected, often-noise operand); the cma_batch / optuna
+        # optimiser here is powerful enough to fit a high-MI atan2/poly cell to
+        # PURE NOISE on such a pair (the saturating-penalty relaxation makes that
+        # reachable), fabricating a spurious feature. Every measured synergy WIN
+        # (sign_prod, gauss_prod, ratio_abs, ...) is recovered by the standard
+        # mul/div search, NOT a _polynom_ cell, so withholding synergy pairs from
+        # the optimiser loses no recovery while keeping the pure-noise control clean.
+        _prospective_for_polynom = prospective_pairs
+        if _synergy_added_idx:
+            _prospective_for_polynom = {
+                k: v for k, v in prospective_pairs.items()
+                if not (k[0][0] in _synergy_added_idx or k[0][1] in _synergy_added_idx)
+            }
         # None / 0 / negative all map to "no subsample" (use full data).
         _subsample_raw = getattr(self, "fe_smart_polynom_subsample_n", 0)
         _subsample_n = int(_subsample_raw) if _subsample_raw and _subsample_raw > 0 else 0
@@ -343,7 +440,7 @@ def _run_fe_step(
         _n_cols_before_polynom = len(cols)
         data, nbins, cols, X = run_polynom_pair_fe(
             X=X, is_polars_input=_is_polars_input,
-            prospective_pairs=prospective_pairs,
+            prospective_pairs=_prospective_for_polynom,
             classes_y=classes_y,
             cols=cols, nbins=nbins, data=data,
             engineered_features=engineered_features,
