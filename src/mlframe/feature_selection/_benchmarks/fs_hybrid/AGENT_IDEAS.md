@@ -30,7 +30,7 @@ Decision rule (CLAUDE.md §6): default = most accurate on the wide bench (6 scen
 
 ## ShapProxiedFS
 - S1 Downstream-model honest loss (separate honest model from proxy model) — TODO (model-param proxy = high-variance wash; do proper separate-model version)
-- S2 Interaction-deficit as bias-corrector regression feature — TODO (user favorite)
+- S2 Interaction-deficit as bias-corrector regression feature — DONE-rejected (cheap-test falsified, s2_interaction_deficit_test.py): agent predicted corr(interaction_mass, honest-proxy) NEGATIVE (proxy under-credits synergy); measured POSITIVE +0.49 xor2 / +0.33 base. TreeSHAP folds interaction into MAIN-effect phi, so the additive proxy already absorbs synergy and OVER-credits interaction subsets -> the "down-correct to recover synergy" premise is backwards for a TreeSHAP proxy. (User favorite, but the falsifiable test the user liked did its job.)
 - S3 Fidelity-adaptive search depth / refine aggressiveness — TODO
 - S4 Variance-calibrated parsimony_tol (from holdout-loss std) — TODO
 - S5 Membership->loss surrogate GBM on trust-guard anchors — TODO (agent flagged sample-starved)
