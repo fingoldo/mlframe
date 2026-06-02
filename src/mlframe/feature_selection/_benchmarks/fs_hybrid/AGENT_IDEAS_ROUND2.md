@@ -16,8 +16,8 @@ Decision rule (CLAUDE.md §6): default = most accurate on the 6-scenario x multi
 - R2r-8 Permutation memoisation across RFE steps (exact subset+seed key) — TODO (likely-disappointment: MBH revisits N not exact subsets)
 
 ## BorutaShap (round-2)
-- R2b-1 Wire hetero_vote into roster + test AND/OR stack with cross-subsample stability (the open Q) — TODO (S, HIGHEST; likely ships hetero_vote as cheaper replacement for 10x stability)
-- R2b-2 Cheapen hetero_vote: drop n_shadow_trials 5->1-2 (cross-MODEL is the mechanism, not cross-trial) — TODO (S, speed)
+- R2b-1 Wire hetero_vote + test stack — DONE-doc (benched 6x2): hetero_vote is a PRECISION/parsimony tool, NOT an AUC default. It drives noise to 0 (vs boruta 1.6) + compact (7-9 vs 17 feats) but UNDER-RECOVERS weak signal -> mean AUC 0.742(hetero2)/0.736(hetero5) < boruta 0.764, wins only 2/12. Round-1's 5/7-0/32 was one lucky scenario. Kept as the precision option (docstring corrected); plain boruta wins for downstream AUC. AND/OR-stack-with-stability moot (hetero already over-prunes recall).
+- R2b-2 Cheapen hetero_vote n_shadow_trials — DONE-shipped: benched 2 vs 5 -> n_shadow_trials=2 marginally BEATS 5 (0.742 vs 0.736 mean) at 2.5x speed (cross-MODEL is the mechanism, not cross-trial). Lowered module default 5 -> 3 (robust middle).
 - R2b-3 Shadow-null-calibrated vote-fraction threshold (non-parametric panel-agreement null) — TODO (M, needs larger panel)
 - R2b-4 CV-skill-weighted vote (downweight structurally-blind panel member: linear on monotone) — TODO (M)
 - R2b-5 Drop per-trial SHAP from the Boruta loop; gini/permutation gate driver (SHAP optional/diagnostic) — TODO (M, high-certainty: R-imp showed SHAP worst+slowest)

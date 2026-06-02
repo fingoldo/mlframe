@@ -7,10 +7,14 @@ shadow comparison across a PANEL of estimators (tree / linear / distance by defa
 only if it beats the max-shadow importance in a MAJORITY of the panel. Cross-model disagreement drops the
 model-specific spurious leak while keeping genuinely-relevant features.
 
-Verified on the fs_hybrid synthetic (base): single-tree shadow gate leaks 2 noise columns; the 3-model
-vote (>=2/3) leaks 0/32 noise while keeping 5/7 causal features (the 2 misses are the pure interaction
-operands - the universal marginal blindspot, not specific to this method). This is a cheaper, more robust
-noise-leak fix than 10x cross-subsample stability for the common case.
+POSITIONING (measured on the 6-scenario x 2-seed fs_hybrid bed, round-2): this is a HIGH-PRECISION /
+PARSIMONY selector, NOT a downstream-AUC maximiser. The cross-model majority drives accepted-noise to ~0
+(vs single-fit gini-Boruta's ~1.6) and yields compact sets (~7-9 vs ~17 features), but the same strict
+agreement also drops weakly-relevant features, so its mean honest-holdout AUC (~0.74) trails single-fit
+Boruta (~0.76) and it wins only ~2/12 cells. Use it when you want a clean, compact, low-false-positive
+all-relevant set (e.g. interpretability, or a denoise pre-stage feeding a downstream that tolerates lost
+weak signal); use plain Boruta when downstream AUC is the objective. n_shadow_trials: cross-MODEL
+disagreement is the mechanism (not cross-trial), so 2-3 trials match 5 at lower cost (default 3).
 """
 from __future__ import annotations
 
@@ -56,7 +60,7 @@ def _default_panel(classification: bool):
 
 
 def heterogeneous_relevance_vote(
-    X, y, *, models=None, classification: bool = True, n_shadow_trials: int = 5,
+    X, y, *, models=None, classification: bool = True, n_shadow_trials: int = 3,
     percentile: float = 100.0, per_model_hit_frac: float = 0.5, vote_threshold: float = 0.5,
     random_state: int = 0,
 ):
