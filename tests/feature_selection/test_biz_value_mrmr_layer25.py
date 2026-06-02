@@ -337,16 +337,34 @@ class TestInteractionWithPolynomPair:
         )
 
     @pytest.mark.parametrize("seed", SEEDS)
-    def test_hybrid_disabled_smart_polynom_iters_zero(self, seed):
-        """Baseline: no hybrid, no polynom_pair iters. Only raw columns
-        in support. No engineered __He or * columns can appear.
-        """
+    def test_default_recovers_univariate_without_explicit_hybrid(self, seed):
+        """2026-06-02: with univariate-basis FE default-ON, the DEFAULT (no
+        explicit hybrid opt-in, no polynom_pair iters) RECOVERS the univariate
+        quadratic via an ``x1`` basis feature (``x1__He2`` / ``x1__T2``) -- the
+        win that previously required the hybrid opt-in. (Was a "pure baseline
+        emits no engineered columns" control; the univariate-basis stage is now a
+        default FE, so the genuine no-FE control sets
+        ``fe_univariate_basis_enable=False`` -- see
+        ``test_no_fe_baseline_emits_nothing``.)"""
         X, y = _build_quadratic_for_fe_interaction(seed)
         m = _fit_mrmr(X, y, hybrid=False, fe_smart_polynom_iters=0)
         sup = list(m.get_feature_names_out())
-        engineered = [c for c in sup if ("__He" in c) or ("*" in c)]
+        assert any(str(c).startswith("x1__") for c in sup), (
+            f"C seed={seed}: the DEFAULT should recover the univariate quadratic "
+            f"via an x1 basis feature; got {sup}"
+        )
+
+    @pytest.mark.parametrize("seed", SEEDS)
+    def test_no_fe_baseline_emits_nothing(self, seed):
+        """Genuine no-FE control: hybrid OFF, polynom OFF, AND univariate-basis
+        OFF -> only raw columns, no engineered __He / __T / * columns."""
+        X, y = _build_quadratic_for_fe_interaction(seed)
+        m = _fit_mrmr(X, y, hybrid=False, fe_smart_polynom_iters=0,
+                      fe_univariate_basis_enable=False)
+        sup = list(m.get_feature_names_out())
+        engineered = [c for c in sup if ("__He" in c) or ("__T" in c) or ("*" in c)]
         assert engineered == [], (
-            f"C no-FE seed={seed}: pure-baseline run must not emit "
+            f"C no-FE seed={seed}: pure-baseline run (all FE off) must not emit "
             f"engineered columns; got {engineered}; support={sup}"
         )
 

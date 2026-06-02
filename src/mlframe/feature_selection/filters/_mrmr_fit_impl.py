@@ -366,7 +366,22 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     _raw_input_cols_pre_fe = (
         list(X.columns) if isinstance(X, pd.DataFrame) else []
     )
-    if bool(getattr(self, "fe_hybrid_orth_enable", False)):
+    # 2026-06-02 UNIVARIATE-BASIS FE — DEFAULT ON (closes the univariate-
+    # nonlinearity gap). The pair-FE path (always on) recovers pair interactions
+    # (a*b, a/b, |a-b|) but CANNOT express a single-variable nonlinearity (no
+    # pairing makes a clean a**2 / a**3 / |a| out of one column); on a symmetric
+    # domain raw ``a`` is uninformative about ``a**2`` (corr ~0), so a univariate
+    # quadratic signal was silently MISSED (measured: a**2 corr 0.016, zero
+    # engineered features). The orthogonal-basis univariate stage (``a__T2`` ~
+    # a**2 etc.) closes that -- ``fe_univariate_basis_enable`` (default True)
+    # runs JUST the univariate basis FE, uplift-gated via ``min_uplift`` in
+    # ``hybrid_orth_mi_fe_with_recipes`` so it is near-no-op when there is no
+    # univariate nonlinearity, independent of the heavier pair-CROSS-basis stage
+    # which stays behind ``fe_hybrid_orth_enable``. Recovery pinned in
+    # ``test_biz_value_mrmr_univariate_basis_fe.py``.
+    _hybrid_on = bool(getattr(self, "fe_hybrid_orth_enable", False))
+    _univ_basis_on = bool(getattr(self, "fe_univariate_basis_enable", True))
+    if _hybrid_on or _univ_basis_on:
         # Polars frames: skip with a warning -- hybrid FE pipeline operates on
         # pandas. Native polars support would require a separate code path;
         # not in Layer 23 MVP scope.
@@ -411,7 +426,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _h_degrees = tuple(int(d) for d in self.fe_hybrid_orth_degrees)
                 _h_basis = str(self.fe_hybrid_orth_basis)
                 _h_top_k = int(self.fe_hybrid_orth_top_k)
-                _h_pair_enable = bool(self.fe_hybrid_orth_pair_enable)
+                # The pair-CROSS-basis stage is heavier and only runs under the
+                # explicit ``fe_hybrid_orth_enable`` opt-in; the default-on
+                # univariate-basis path (``fe_univariate_basis_enable`` only) is
+                # univariate-only so it stays cheap + near-no-op (uplift-gated).
+                _h_pair_enable = bool(self.fe_hybrid_orth_pair_enable) and _hybrid_on
                 _h_pair_max_degree = int(self.fe_hybrid_orth_pair_max_degree)
                 # Restrict the source pool to numeric columns the caller passed
                 # via factors_names_to_use (when set); otherwise the hybrid

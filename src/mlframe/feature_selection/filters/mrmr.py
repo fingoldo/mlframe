@@ -797,6 +797,15 @@ class MRMR(BaseEstimator, TransformerMixin):
         # ``MRMR.transform`` replays each engineered column on test data
         # without any leakage risk.
         fe_hybrid_orth_enable: bool = False,
+        # 2026-06-02 — univariate-basis FE, DEFAULT ON. Runs ONLY the
+        # orthogonal-basis univariate stage (``a__T2`` ~ a**2, ``a__T3`` ~ a**3,
+        # ...), which closes the single-variable-nonlinearity gap the pair-FE
+        # path structurally cannot reach (no pairing of two columns makes a clean
+        # a**2 out of one column; on a symmetric domain raw ``a`` is
+        # uninformative about a**2). Uplift-gated, so it is near-no-op when there
+        # is no univariate nonlinearity. The heavier pair-CROSS-basis stage stays
+        # behind ``fe_hybrid_orth_enable``. Set False for the legacy pair-only FE.
+        fe_univariate_basis_enable: bool = True,
         fe_hybrid_orth_degrees: tuple = (2, 3),
         fe_hybrid_orth_basis: str = "auto",
         # Combined cap on appended columns (univariate + pair). Top-K is

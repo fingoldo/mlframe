@@ -227,35 +227,37 @@ def _build_sensor_ushape(seed: int, n: int = 3000):
     return X, pd.Series(y, name="y")
 
 
+def _has_univariate_basis_of(support, var):
+    """True iff ``support`` contains an orthogonal-basis univariate transform of
+    ``var`` (named ``{var}__<basiscode><degree>`` e.g. ``temperature__He2`` /
+    ``temperature__T2``); robust to which basis the ``auto`` selector picks."""
+    return any(str(s).startswith(f"{var}__") for s in support)
+
+
 class TestScenarioB_SensorUShape:
 
     @pytest.mark.parametrize("seed", SEEDS)
-    def test_temperature_he2_lifts_auc(self, seed):
+    def test_default_recovers_temperature_ushape(self, seed):
+        # 2026-06-02: with univariate-basis FE default-ON, the DEFAULT MRMR
+        # recovers the y = sign(temperature^2 - 1) U-shape via a single-source
+        # ``temperature__He2`` detector -- no explicit hybrid opt-in needed.
+        # (Previously the default baseline was weak here and only the hybrid
+        # recovered it; closing the univariate-nonlinearity gap made the default
+        # strong, so this now pins the DEFAULT's recovery.)
         X, y = _build_sensor_ushape(seed)
         Xtr, ytr, Xte, yte = _split(X, y.to_numpy(), n_tr=2000)
         mb = _fit_mrmr(Xtr, pd.Series(ytr), hybrid=False)
-        mh = _fit_mrmr(Xtr, pd.Series(ytr), hybrid=True, pair=False)
         auc_b = _classifier_holdout_auc(mb, Xtr, ytr, Xte, yte)
-        auc_h = _classifier_holdout_auc(mh, Xtr, ytr, Xte, yte)
-        sup_h = list(mh.get_feature_names_out())
+        sup_b = list(mb.get_feature_names_out())
 
-        assert "temperature__He2" in sup_h, (
-            f"B seed={seed}: temperature__He2 (the U-shape detector) must be "
-            f"in hybrid support; got {sup_h}"
+        assert _has_univariate_basis_of(sup_b, "temperature"), (
+            f"B seed={seed}: a temperature univariate basis detector (the "
+            f"U-shape recoverer) must be in the DEFAULT support; got {sup_b}"
         )
-        # Per-task floor +0.05. Empirical lift is ~+0.50 with low variance --
-        # pin the meaningful contract at +0.30 so a regression that quietly
-        # picks the wrong basis or loses the column to redundancy gates
-        # trips the test.
-        lift = auc_h - auc_b
-        assert lift >= 0.30, (
-            f"B seed={seed}: hybrid AUC lift {lift:+.3f} should be >= +0.30 "
-            f"(base={auc_b:.3f}, hybrid={auc_h:.3f}); support={sup_h}"
-        )
-        assert auc_h >= 0.90, (
-            f"B seed={seed}: hybrid AUC {auc_h:.3f} should clear 0.90 -- "
-            f"He_2 captures the y = sign(temp^2-1) shape exactly; "
-            f"support={sup_h}"
+        assert auc_b >= 0.90, (
+            f"B seed={seed}: DEFAULT AUC {auc_b:.3f} should clear 0.90 -- the "
+            f"univariate He_2 basis captures y = sign(temp^2-1) exactly; "
+            f"support={sup_b}"
         )
 
 
@@ -281,31 +283,27 @@ def _build_asymmetric_churn(seed: int, n: int = 3000):
 class TestScenarioC_AsymmetricChurn:
 
     @pytest.mark.parametrize("seed", SEEDS)
-    def test_raw_mrmr_fails_hybrid_recovers(self, seed):
+    def test_default_recovers_asymmetric_churn(self, seed):
+        # 2026-06-02: y = sign(usage^2 - 1) is invisible to a linear model on RAW
+        # usage (usage^2 is even -> raw usage uninformative), which is exactly the
+        # univariate-nonlinearity gap. With univariate-basis FE default-ON the
+        # DEFAULT MRMR now recovers it via ``usage__He2`` -- this used to be the
+        # "raw MRMR fails, only hybrid recovers" pin; the default is now the path
+        # that recovers, so it pins the DEFAULT's recovery.
         X, y = _build_asymmetric_churn(seed)
         Xtr, ytr, Xte, yte = _split(X, y.to_numpy(), n_tr=2000)
         mb = _fit_mrmr(Xtr, pd.Series(ytr), hybrid=False)
-        mh = _fit_mrmr(Xtr, pd.Series(ytr), hybrid=True, pair=False)
         auc_b = _classifier_holdout_auc(mb, Xtr, ytr, Xte, yte)
-        auc_h = _classifier_holdout_auc(mh, Xtr, ytr, Xte, yte)
-        sup_h = list(mh.get_feature_names_out())
+        sup_b = list(mb.get_feature_names_out())
 
-        # Contract C.1: raw MRMR genuinely misses the signal (~random AUC).
-        # If this ever passes, the scenario is no longer challenging -- adjust
-        # noise upwards before relaxing the assertion.
-        assert auc_b <= 0.60, (
-            f"C seed={seed}: baseline AUC {auc_b:.3f} unexpectedly high; "
-            f"y = sign(usage^2 - 1) is meant to be invisible to linear "
-            f"LogReg on raw usage."
+        assert _has_univariate_basis_of(sup_b, "usage"), (
+            f"C seed={seed}: a usage univariate basis detector must enter the "
+            f"DEFAULT support; got {sup_b}"
         )
-        # Contract C.2: He_2 makes the support.
-        assert "usage__He2" in sup_h, (
-            f"C seed={seed}: usage__He2 must enter hybrid support; got {sup_h}"
-        )
-        # Contract C.3: hybrid AUC dominates -- recovers the U-shape signal.
-        assert auc_h >= 0.90, (
-            f"C seed={seed}: hybrid AUC {auc_h:.3f} should clear 0.90; "
-            f"support={sup_h}"
+        assert auc_b >= 0.90, (
+            f"C seed={seed}: DEFAULT AUC {auc_b:.3f} should clear 0.90 -- the "
+            f"univariate basis recovers the sign(usage^2-1) U-shape; "
+            f"support={sup_b}"
         )
 
 
@@ -334,34 +332,26 @@ def _build_quadratic_regression(seed: int, n: int = 3000):
 class TestScenarioD_PolynomialRegression:
 
     @pytest.mark.parametrize("seed", SEEDS)
-    def test_he2_lifts_r2(self, seed):
+    def test_default_recovers_quadratic_regression(self, seed):
+        # 2026-06-02: continuous y = x^2 + 0.2x + noise. Linear regression on raw
+        # x is dominated by the symmetry around 0; the univariate ``x__He2`` basis
+        # breaks it and fits the quadratic. With univariate-basis FE default-ON
+        # the DEFAULT MRMR recovers it (used to need the explicit hybrid). ``ytr``
+        # is continuous -> the univariate stage qcut-bins it for MI scoring.
         X, y = _build_quadratic_regression(seed)
         Xtr, ytr, Xte, yte = _split(X, y.to_numpy(), n_tr=2000)
-        # ``ytr`` is continuous (float). The hybrid stage now qcut-bins it for
-        # MI scoring; see ``_mrmr_fit_impl._prepare_y`` (2026-05-31 fix).
         mb = _fit_mrmr(Xtr, pd.Series(ytr), hybrid=False)
-        mh = _fit_mrmr(Xtr, pd.Series(ytr), hybrid=True, pair=False, degrees=(2, 3))
         r2_b = _regressor_holdout_r2(mb, Xtr, ytr, Xte, yte)
-        r2_h = _regressor_holdout_r2(mh, Xtr, ytr, Xte, yte)
-        sup_h = list(mh.get_feature_names_out())
+        sup_b = list(mb.get_feature_names_out())
 
-        # Contract D.1: x__He2 in support -- the quadratic detector must
-        # have survived MI scoring after the qcut-bin path was wired in.
-        assert "x__He2" in sup_h, (
-            f"D seed={seed}: x__He2 must enter the regression hybrid support; "
-            f"got {sup_h}"
+        assert _has_univariate_basis_of(sup_b, "x"), (
+            f"D seed={seed}: an x univariate basis detector must enter the "
+            f"DEFAULT regression support; got {sup_b}"
         )
-        # Contract D.2: R^2 lift is enormous because raw LR can't model the
-        # quadratic (baseline R^2 ~= 0). Per-task floor is +0.10; pin +0.50.
-        lift = r2_h - r2_b
-        assert lift >= 0.50, (
-            f"D seed={seed}: R^2 lift {lift:+.3f} should be >= +0.50 "
-            f"(base={r2_b:.3f}, hybrid={r2_h:.3f}); support={sup_h}"
-        )
-        assert r2_h >= 0.85, (
-            f"D seed={seed}: hybrid R^2 {r2_h:.3f} should clear 0.85 -- "
-            f"the He_2-augmented LR is essentially fitting a quadratic; "
-            f"support={sup_h}"
+        assert r2_b >= 0.85, (
+            f"D seed={seed}: DEFAULT R^2 {r2_b:.3f} should clear 0.85 -- the "
+            f"univariate-basis-augmented LR essentially fits the quadratic; "
+            f"support={sup_b}"
         )
 
 
@@ -394,42 +384,32 @@ def _build_mixed_bag(seed: int, n: int = 3000):
 class TestScenarioE_MixedBag:
 
     @pytest.mark.parametrize("seed", SEEDS)
-    def test_hybrid_recovers_at_least_two_winners(self, seed):
+    def test_default_recovers_at_least_two_winners(self, seed):
+        # 2026-06-02: mixed bag = two univariate He_2 signals (a, b) + one cross
+        # (c1*c2) + noise. With univariate-basis FE default-ON the DEFAULT MRMR
+        # recovers BOTH univariate winners (``a__He2`` + ``b__He2``) -- the two
+        # the substitution fix made the hybrid recover, now reached by default.
+        # Contract: the DEFAULT recovers >= 2 of the 3 winners + clears 0.80 AUC.
         X, y = _build_mixed_bag(seed)
         Xtr, ytr, Xte, yte = _split(X, y.to_numpy(), n_tr=2000)
         mb = _fit_mrmr(Xtr, pd.Series(ytr), hybrid=False)
-        mh = _fit_mrmr(Xtr, pd.Series(ytr), hybrid=True, pair=True, top_k=8)
         auc_b = _classifier_holdout_auc(mb, Xtr, ytr, Xte, yte)
-        auc_h = _classifier_holdout_auc(mh, Xtr, ytr, Xte, yte)
-        sup_h = list(mh.get_feature_names_out())
+        sup_b = list(mb.get_feature_names_out())
 
-        # Count which expected engineered winners reached the support.
-        # The three winners we hope to see:
-        #   1. a__He2 (univariate quadratic signal in 'a')
-        #   2. b__He2 (univariate quadratic signal in 'b')
-        #   3. ANY c1*c2 cross-basis term (the pair interaction)
-        has_a = "a__He2" in sup_h
-        has_b = "b__He2" in sup_h
-        has_cross = any(
-            ("*" in c) and ("c1" in c) and ("c2" in c)
-            for c in sup_h
-        )
+        # The three winners: univariate He_2 detector for a, for b, and ANY
+        # c1*c2 cross term (the pair interaction).
+        has_a = _has_univariate_basis_of(sup_b, "a")
+        has_b = _has_univariate_basis_of(sup_b, "b")
+        has_cross = any(("*" in c) and ("c1" in c) and ("c2" in c) for c in sup_b)
         recovered = int(has_a) + int(has_b) + int(has_cross)
         assert recovered >= 2, (
-            f"E seed={seed}: hybrid should recover >= 2 of (a__He2, b__He2, "
-            f"c1*c2 cross); got recovered={recovered} (a={has_a}, b={has_b}, "
-            f"cross={has_cross}); support={sup_h}"
+            f"E seed={seed}: DEFAULT should recover >= 2 of (a-univariate, "
+            f"b-univariate, c1*c2 cross); got recovered={recovered} (a={has_a}, "
+            f"b={has_b}, cross={has_cross}); support={sup_b}"
         )
-        # End-to-end downstream lift. Per-task floor reads ">= +0.25"; this
-        # mirrors the calibration range +0.34..+0.49.
-        lift = auc_h - auc_b
-        assert lift >= 0.25, (
-            f"E seed={seed}: hybrid AUC lift {lift:+.3f} should be >= +0.25 "
-            f"(base={auc_b:.3f}, hybrid={auc_h:.3f}); support={sup_h}"
-        )
-        assert auc_h >= 0.80, (
-            f"E seed={seed}: hybrid AUC {auc_h:.3f} should clear 0.80; "
-            f"support={sup_h}"
+        assert auc_b >= 0.80, (
+            f"E seed={seed}: DEFAULT AUC {auc_b:.3f} should clear 0.80; "
+            f"support={sup_b}"
         )
 
 
