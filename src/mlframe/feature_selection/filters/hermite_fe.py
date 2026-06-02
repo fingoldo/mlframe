@@ -1126,6 +1126,131 @@ def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
 
 
 
+def fit_operand_prewarp(
+    x: np.ndarray,
+    y: np.ndarray,
+    *,
+    basis: str = "chebyshev",
+    max_degree: int = 4,
+) -> dict | None:
+    """Fit a per-operand 1-D pre-warp ``f(x)`` that linearises the operand's
+    relationship to the (possibly non-monotone) target ``y`` via a single
+    orthogonal-polynomial least-squares solve.
+
+    This is the lightest sufficient pre-warp for the *unary/binary* pair search:
+    where a single library unary (``sqr``, ``log``, ...) cannot express a
+    within-operand polynomial such as ``a**3 - 2a``, an orthogonal-series fit of
+    ``y ~ poly(x)`` can. It is deliberately the SAME 1-D machinery the
+    orthogonal-poly path warm-starts from (:func:`warm_start_als_seed` is its
+    rank-1 ALS sibling); exposing it here lets BOTH paths share one
+    implementation rather than duplicating the basis fit.
+
+    The fit consumes ``y`` (it is supervised, like the MI scoring), but the
+    returned spec is a CLOSED-FORM function of ``x`` alone -- the stored
+    ``coef`` + basis ``preprocess`` params reproduce ``f(x)`` deterministically
+    at transform() time with NO ``y`` reference (leak-safe replay).
+
+    Returns a dict ``{basis, degree, coef, preprocess}`` consumable by
+    :func:`apply_operand_prewarp`, or ``None`` if the target / operand has no
+    usable variance or the solve fails.
+    """
+    bi = _POLY_BASES.get(basis)
+    if bi is None or bi.get("kind") != "polynomial":
+        # Pre-warp only defined for the orthogonal-polynomial families (closed-
+        # form basis matrix + apply params); non-polynomial bases need per-call
+        # eval closures that are not replay-portable here.
+        return None
+    xf = np.ascontiguousarray(np.asarray(x, dtype=np.float64))
+    yf = np.ascontiguousarray(np.asarray(y, dtype=np.float64))
+    if xf.size == 0 or float(np.std(xf)) < 1e-12 or float(np.std(yf)) < 1e-12:
+        return None
+    deg = max(1, int(max_degree))
+    z, params = bi["fit"](xf)
+    z = np.ascontiguousarray(z, dtype=np.float64)
+    try:
+        B = build_basis_matrix(basis, z, deg)
+        yc = yf - yf.mean()
+        coef, *_ = np.linalg.lstsq(B, yc, rcond=None)
+    except (np.linalg.LinAlgError, ValueError):
+        return None
+    if not np.all(np.isfinite(coef)):
+        return None
+    return {
+        "basis": str(basis),
+        "degree": int(deg),
+        "coef": np.ascontiguousarray(coef, dtype=np.float64),
+        "preprocess": dict(params),
+    }
+
+
+def fit_pair_prewarp_als(
+    x_a: np.ndarray,
+    x_b: np.ndarray,
+    y: np.ndarray,
+    *,
+    basis: str = "chebyshev",
+    max_degree: int = 4,
+) -> tuple:
+    """Jointly fit a per-operand pre-warp for BOTH sides of a pair via the rank-1
+    ALS sweep (:func:`warm_start_als_seed`), returning ``(spec_a, spec_b)`` each
+    consumable by :func:`apply_operand_prewarp`.
+
+    Why joint ALS and not two independent 1-D fits (:func:`fit_operand_prewarp`):
+    for a centred product target ``y ~ P(a) * Q(b)`` the marginal ``E[y | b] ~
+    Q(b) * E[P(a)] ~ 0``, so an INDEPENDENT 1-D fit of ``y`` on the b-basis
+    recovers almost nothing on the b-side (measured corr ~0.1 on the F-POLY
+    fixture). The ALS sweep alternates -- fit ``f`` given the current ``g``, then
+    ``g`` given ``f`` -- and recovers BOTH factors (corr ~1.0 each). This is the
+    SAME mechanism the orthogonal-poly path warm-starts the joint CMA optimiser
+    with; reusing it here gives the elementary unary/binary search a genuine
+    per-operand non-monotone pre-warp for product-structured pairs.
+
+    Returns ``(None, None)`` on no-variance / solve failure or a non-polynomial
+    basis (the closed-form replay needs the polynomial basis-matrix path).
+    """
+    bi = _POLY_BASES.get(basis)
+    if bi is None or bi.get("kind") != "polynomial":
+        return None, None
+    xa = np.ascontiguousarray(np.asarray(x_a, dtype=np.float64))
+    xb = np.ascontiguousarray(np.asarray(x_b, dtype=np.float64))
+    yf = np.ascontiguousarray(np.asarray(y, dtype=np.float64))
+    if (xa.size == 0 or float(np.std(xa)) < 1e-12 or float(np.std(xb)) < 1e-12
+            or float(np.std(yf)) < 1e-12):
+        return None, None
+    deg = max(1, int(max_degree))
+    za, pa = bi["fit"](xa)
+    zb, pb = bi["fit"](xb)
+    za = np.ascontiguousarray(za, dtype=np.float64)
+    zb = np.ascontiguousarray(zb, dtype=np.float64)
+    try:
+        Ba = build_basis_matrix(basis, za, deg)
+        Bb = build_basis_matrix(basis, zb, deg)
+        coef_a, coef_b = warm_start_als_seed(Ba, Bb, yf, iters=3)
+    except (np.linalg.LinAlgError, ValueError):
+        return None, None
+    if coef_a is None or coef_b is None:
+        return None, None
+    spec_a = {"basis": str(basis), "degree": int(deg),
+              "coef": np.ascontiguousarray(coef_a, dtype=np.float64), "preprocess": dict(pa)}
+    spec_b = {"basis": str(basis), "degree": int(deg),
+              "coef": np.ascontiguousarray(coef_b, dtype=np.float64), "preprocess": dict(pb)}
+    return spec_a, spec_b
+
+
+def apply_operand_prewarp(x: np.ndarray, spec: dict) -> np.ndarray:
+    """Replay a per-operand pre-warp ``f(x)`` from a spec produced by
+    :func:`fit_operand_prewarp`. Closed-form in ``x`` (uses the stored basis
+    ``preprocess`` params + ``coef``); no ``y`` reference, so transform()-time
+    replay is bit-identical to fit time given the same ``x``."""
+    basis = str(spec["basis"])
+    bi = _POLY_BASES[basis]
+    xf = np.ascontiguousarray(np.asarray(x, dtype=np.float64))
+    z = np.ascontiguousarray(bi["apply"](xf, dict(spec["preprocess"])), dtype=np.float64)
+    coef = np.ascontiguousarray(spec["coef"], dtype=np.float64)
+    out = bi["eval_dispatch"](z, coef)
+    return np.asarray(out, dtype=np.float64).reshape(-1)
+
+
 def _ksg_mi_1d(x: np.ndarray, y: np.ndarray, *, discrete_target: bool,
                n_neighbors: int = 3) -> float:
     """KSG MI of 1-D x with target -- used as the optimisation objective."""

@@ -74,6 +74,7 @@ def _rebuild_full_survivor_col(
     original_cols: dict,
     unary_transformations: dict,
     binary_transformations: dict,
+    prewarp_spec_by_var: dict | None = None,
 ) -> np.ndarray:
     """Rebuild a survivor column at full n from raw X by re-applying its unary + binary transforms.
 
@@ -94,14 +95,20 @@ def _rebuild_full_survivor_col(
         vals_b = X_full[:, original_cols[var_b_idx]].to_numpy()
     # ``poly_*`` unary keys hold hermval coefficient arrays, not callables;
     # check_prospective_fe_pairs handles them via the same hermval(c=tr_func) path.
-    if "poly_" in unary_a_name:
-        param_a = hermval(vals_a, c=unary_transformations[unary_a_name])
-    else:
-        param_a = unary_transformations[unary_a_name](vals_a)
-    if "poly_" in unary_b_name:
-        param_b = hermval(vals_b, c=unary_transformations[unary_b_name])
-    else:
-        param_b = unary_transformations[unary_b_name](vals_b)
+    # ``prewarp`` is the per-operand learned pseudo-unary (2026-06-02): its fitted
+    # spec lives in ``prewarp_spec_by_var`` and replays closed-form from x alone.
+    _pw = prewarp_spec_by_var or {}
+
+    def _apply_unary(name, var_idx, vals):
+        if name == "prewarp":
+            from .hermite_fe import apply_operand_prewarp
+            return apply_operand_prewarp(vals, _pw[var_idx])
+        if "poly_" in name:
+            return hermval(vals, c=unary_transformations[name])
+        return unary_transformations[name](vals)
+
+    param_a = _apply_unary(unary_a_name, var_a_idx, vals_a)
+    param_b = _apply_unary(unary_b_name, var_b_idx, vals_b)
     col = binary_transformations[bin_func_name](param_a, param_b)
     np.nan_to_num(col, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
     return col.astype(np.float32, copy=False)

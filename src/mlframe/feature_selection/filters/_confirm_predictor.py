@@ -46,9 +46,67 @@ from .evaluation import (
 )
 from .fleuret import get_fleuret_criteria_confidence, get_fleuret_criteria_confidence_parallel
 from .gpu import mi_direct_gpu
+from .info_theory import merge_vars
 from .permutation import mi_direct
 
 logger = logging.getLogger(__name__)
+
+
+def _conditioning_rows_per_cell(ctx, X: tuple) -> float:
+    """Rows-per-nonempty-cell of the conditioning joint ``(X u selected_vars)``.
+
+    RC2 sample-size diagnostic for the Fleuret conditional-MI permutation test.
+    The conditional test estimates ``I(X; Y | Z)`` over the joint ``(X, Y, Z)``
+    histogram; when that joint is severely undersampled (few rows per occupied
+    cell) the plug-in conditional-MI estimate is dominated by finite-sample bias
+    and the SHUFFLED-y null conditional MI is ~= the REAL conditional MI, so the
+    permutation gate over-rejects every genuine feature after the first
+    (proven on sklearn diabetes, n=442, s5 10-bin -> ~0.4 rows/cell).
+
+    We measure the occupied-cell count of the FULL ``(X, Y, selected_vars)``
+    joint - the exact support over which the conditional-MI permutation test
+    operates (``I(X; Y | Z)`` plug-in needs the H(X,Y,Z) histogram). Counting
+    only ``(X, Z)`` is too coarse: on diabetes after MDLP binning the
+    ``(bmi, s5)`` joint occupies ~25 cells (~17.7 rows/cell, looks healthy) but
+    adding the 10-bin target Y fragments it to ~1000 cells (~0.4 rows/cell) -
+    the regime where the shuffled-y null CMI matches the real CMI. ``merge_vars``
+    returns ``current_nclasses`` = number of NON-empty bins after pruning, which
+    is exactly the occupied-cell count. Returns ``+inf`` when the joint is
+    empty/degenerate so the strict conditional path is kept.
+    """
+    factors_data = ctx.factors_data
+    n_samples = len(factors_data)
+    if n_samples == 0:
+        return float("inf")
+    n_cols = factors_data.shape[1] if factors_data.ndim == 2 else 0
+    cond_indices = []
+    cond_indices.extend(int(c) for c in X)
+    # Include the target Y: the conditional-MI estimator histograms (X, Y, Z).
+    # In the standard MRMR setup ``targets_data is factors_data`` so y indexes
+    # into ``factors_data``; guard the (rare) separate-target-array case by
+    # skipping out-of-range y indices (the (X, Z) cell count is then a lower
+    # bound on the support, still a valid undersampling signal).
+    for yi in ctx.y:
+        if 0 <= int(yi) < n_cols:
+            cond_indices.append(int(yi))
+    for z in ctx.selected_vars:
+        if hasattr(z, "__len__"):
+            cond_indices.extend(int(c) for c in z)
+        else:
+            cond_indices.append(int(z))
+    try:
+        _, _, n_nonempty_cells = merge_vars(
+            factors_data=factors_data,
+            vars_indices=cond_indices,
+            var_is_nominal=None,
+            factors_nbins=ctx.factors_nbins,
+            dtype=np.int32,
+        )
+    except Exception:
+        return float("inf")
+    if n_nonempty_cells <= 0:
+        return float("inf")
+    return n_samples / float(n_nonempty_cells)
 
 
 def _candidate_is_engineered(X, factors_names, raw_feature_names) -> bool:
@@ -209,6 +267,16 @@ class ScreenContext:
     # the rel-eps to ``0.0`` restores the legacy pure-index tie-break.
     raw_feature_names: object = None
     prefer_engineered_rel_eps: float = 0.0
+    # 2026-06-02 RC2 — sample-size-aware Fleuret confirmation. When the
+    # conditioning joint ``(X u selected_vars)`` has fewer than this many rows
+    # per occupied cell, the conditional-MI permutation test is finite-sample
+    # unreliable (shuffled-y null CMI ~= real CMI -> over-rejection / premature
+    # stop) so ``confirm_candidate`` falls back to a MARGINAL-MI permutation
+    # test (the X-marginal joint is far better sampled). ``0.0`` restores the
+    # strict legacy conditional test for every candidate. Default ``5.0`` set
+    # by the MRMR ctor (new behaviour ON since ``use_simple_mode=False`` is the
+    # default). Dedup is unaffected (handled by the gain's redundancy term).
+    fe_confirm_undersample_rows_per_cell: float = 0.0
 
 
 def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expected_gains: np.ndarray):
@@ -538,6 +606,43 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float):
 
             if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
                 eval_start = timer()
+
+            # RC2 sample-size-aware confirmation. The Fleuret CONDITIONAL
+            # permutation test estimates ``I(X; Y | Z)`` over the (X, Y, Z)
+            # joint; on a small-n / high-cardinality conditioning joint that
+            # joint is severely undersampled (e.g. diabetes s5 -> ~0.4
+            # rows/cell) so the shuffled-y NULL conditional MI is ~= the REAL
+            # conditional MI and the gate OVER-REJECTS every genuine feature
+            # after the first (premature stop, catastrophic under-selection).
+            # When the conditioning joint has fewer than
+            # ``fe_confirm_undersample_rows_per_cell`` rows per occupied cell,
+            # confirm the candidate by a MARGINAL-MI permutation test instead
+            # (the X-marginal joint is far better sampled). The marginal
+            # bootstrap (``bootstrapped_gain`` / ``confidence`` computed above
+            # via ``mi_direct`` / ``mi_direct_gpu``, which permute y and
+            # compare real vs permuted I(X; y)) IS exactly that test, so the
+            # fallback is simply to keep its verdict and SKIP the unreliable
+            # conditional recheck. Pure noise is still rejected because its
+            # marginal permutation test rejects it; redundant duplicates are
+            # still dropped because the relevance-minus-redundancy GAIN
+            # (``next_best_gain``, already net of the redundancy term) handles
+            # dedup independently of this gate. Set the threshold to 0 (knob
+            # ``fe_confirm_undersample_rows_per_cell=0``) to always use the
+            # strict conditional test (legacy behaviour).
+            _undersample_threshold = float(getattr(ctx, "fe_confirm_undersample_rows_per_cell", 0.0) or 0.0)
+            if _undersample_threshold > 0.0:
+                _rows_per_cell = _conditioning_rows_per_cell(ctx, X)
+                if _rows_per_cell < _undersample_threshold:
+                    if verbose and len(selected_vars) < MAX_ITERATIONS_TO_TRACK:
+                        logger.info(
+                            "confirm %s: conditioning joint undersampled (%.2f rows/cell < %.2f); "
+                            "marginal-MI fallback (conf=%.*f)",
+                            get_candidate_name(X, factors_names=factors_names),
+                            _rows_per_cell, _undersample_threshold, ndigits, confidence,
+                        )
+                    # Keep the marginal bootstrap verdict; do not run the
+                    # unreliable conditional permutation gate.
+                    return bootstrapped_gain, confidence
 
             _fleuret_base_seed = int(((int(random_seed or 0) * 2654435761) + len(selected_vars) + 1) & 0xFFFFFFFFFFFFFFFF)
             if n_workers and n_workers > 1 and full_npermutations > NMAX_NONPARALLEL_ITERS:

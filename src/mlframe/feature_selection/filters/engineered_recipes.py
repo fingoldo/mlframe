@@ -771,12 +771,16 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     name_a, name_b = recipe.src_names
     u_a, u_b = recipe.unary_names
 
-    if u_a not in unary_funcs:
+    # The learned ``prewarp`` pseudo-unary (2026-06-02) is NOT a member of any
+    # preset registry; its closed-form replay reads the fit-time coeffs stored
+    # in ``recipe.extra``. Validate only the REAL unary names against the preset.
+    _PREWARP = "prewarp"
+    if u_a != _PREWARP and u_a not in unary_funcs:
         raise KeyError(
             f"Unary function '{u_a}' not in '{recipe.unary_preset}' preset. "
             f"Replay requires the same preset that was active at fit time."
         )
-    if u_b not in unary_funcs:
+    if u_b != _PREWARP and u_b not in unary_funcs:
         raise KeyError(
             f"Unary function '{u_b}' not in '{recipe.unary_preset}' preset."
         )
@@ -789,8 +793,30 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     vals_a = _extract_column(X, name_a)
     vals_b = _extract_column(X, name_b)
 
-    transformed_a = unary_funcs[u_a](vals_a)
-    transformed_b = unary_funcs[u_b](vals_b)
+    def _apply_side(side: str, uname: str, vals):
+        if uname != _PREWARP:
+            return unary_funcs[uname](vals)
+        # Reconstruct the pre-warp spec from the flat ``extra`` fields and replay
+        # it closed-form (no y) so the warped operand is bit-identical to fit.
+        import orjson as _orjson
+        from .hermite_fe import apply_operand_prewarp
+        for _k in (f"prewarp_{side}_coef", f"prewarp_{side}_basis"):
+            if _k not in recipe.extra:
+                raise KeyError(
+                    f"unary_binary recipe '{recipe.name}' uses the 'prewarp' "
+                    f"pseudo-unary on side {side!r} but '{_k}' is missing from "
+                    f"extra. Re-fit MRMR to regenerate the recipe."
+                )
+        _spec = {
+            "basis": str(recipe.extra[f"prewarp_{side}_basis"]),
+            "degree": int(recipe.extra[f"prewarp_{side}_degree"]),
+            "coef": np.asarray(recipe.extra[f"prewarp_{side}_coef"], dtype=np.float64),
+            "preprocess": _orjson.loads(recipe.extra[f"prewarp_{side}_preprocess"]),
+        }
+        return apply_operand_prewarp(vals, _spec)
+
+    transformed_a = _apply_side("a", u_a, vals_a)
+    transformed_b = _apply_side("b", u_b, vals_b)
     out = binary_funcs[recipe.binary_name](transformed_a, transformed_b)
 
     # Match fit-time NaN/Inf scrubbing in ``feature_engineering.check_prospective_fe_pairs``.
@@ -990,6 +1016,8 @@ def build_unary_binary_recipe(
     quantization_method: str | None,
     quantization_dtype: Any,
     fit_values_for_edges: np.ndarray | None = None,
+    prewarp_a: dict | None = None,
+    prewarp_b: dict | None = None,
 ) -> EngineeredRecipe:
     """Build an ``EngineeredRecipe`` of kind ``"unary_binary"``. ``quantization`` is ``None`` if no discretization, else a dict carrying the binning
     parameters AND, when ``fit_values_for_edges`` is provided, the fit-time bin edges so transform-time replay maps each row to the SAME bin
@@ -998,7 +1026,16 @@ def build_unary_binary_recipe(
     2026-05-30 Wave 9.1 iter 28: ``fit_values_for_edges`` lets the caller pin the quantile boundaries. Without it (legacy code paths) the
     recipe emits a UserWarning at replay time about the train/test leakage risk.
     """
-    if quantization_nbins is None:
+    # Pre-warp recipes emit a CONTINUOUS learned-polynomial product (the same
+    # nature as the orthogonal-poly ``hermite_pair`` recipe, which is NOT
+    # quantised at replay). Quantile-binning the heavy-tailed product to integer
+    # codes throws away most of its correlation with the target (measured: raw
+    # mul-product corr 0.88 vs binned 0.62 on F-POLY). Mirror the hermite_pair
+    # sibling and skip quantization so ``transform()`` returns the raw feature;
+    # the downstream MRMR fit still discretises the fit-time column for its own
+    # MI matrix via ``_mrmr_fe_step`` (unaffected by this replay-only choice).
+    _is_prewarp = prewarp_a is not None or prewarp_b is not None
+    if quantization_nbins is None or _is_prewarp:
         quantization = None
     else:
         quantization = {
@@ -1021,6 +1058,21 @@ def build_unary_binary_recipe(
                 else:
                     _edges = np.linspace(0.0, 0.0, int(quantization_nbins) + 1)
             quantization["edges"] = _edges.tolist()
+
+    # Per-operand pre-warp (2026-06-02): when the unary name on a side is the
+    # learned ``prewarp`` pseudo-unary, persist its fitted spec (basis, degree,
+    # coeffs, basis-preprocess params) FLAT in ``extra`` so replay reproduces
+    # the closed-form 1-D warp from x alone (leak-safe; no y). ``extra`` values
+    # must stay flat ndarray/scalar/str for ``_extra_equal`` -- the nested
+    # ``preprocess`` dict is JSON-stringified (sorted keys, deterministic).
+    extra: dict = {}
+    for _side, _spec in (("a", prewarp_a), ("b", prewarp_b)):
+        if _spec is None:
+            continue
+        extra[f"prewarp_{_side}_basis"] = str(_spec["basis"])
+        extra[f"prewarp_{_side}_degree"] = int(_spec["degree"])
+        extra[f"prewarp_{_side}_coef"] = np.asarray(_spec["coef"], dtype=np.float64).copy()
+        extra[f"prewarp_{_side}_preprocess"] = _orjson_pp(_spec["preprocess"])
     return EngineeredRecipe(
         name=name,
         kind="unary_binary",
@@ -1030,7 +1082,17 @@ def build_unary_binary_recipe(
         unary_preset=unary_preset,
         binary_preset=binary_preset,
         quantization=quantization,
+        extra=extra,
     )
+
+
+def _orjson_pp(d: dict) -> str:
+    """Serialise a flat preprocess-params dict to a deterministic JSON string
+    (sorted keys) for storage in ``EngineeredRecipe.extra``. orjson keeps the
+    recipe pickle-light and the OPT_SORT_KEYS flag makes the stored bytes a
+    stable function of the params (hash-friendly)."""
+    import orjson
+    return orjson.dumps(d, option=orjson.OPT_SORT_KEYS).decode("ascii")
 
 
 # ---------------------------------------------------------------------------

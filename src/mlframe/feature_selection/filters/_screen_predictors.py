@@ -64,6 +64,12 @@ def screen_predictors(
     min_nonzero_confidence: float = 0.99,
     full_npermutations: int = 1_000,
     baseline_npermutations: int = 100,
+    # 2026-06-02 RC2 — sample-size-aware Fleuret confirmation threshold (rows
+    # per occupied cell of the conditioning joint). Below it the conditional-MI
+    # permutation gate is finite-sample unreliable and ``confirm_candidate``
+    # falls back to a marginal-MI permutation test. 0.0 = always use the strict
+    # conditional test (legacy). Threaded into ``ScreenContext``.
+    fe_confirm_undersample_rows_per_cell: float = 0.0,
     # stopping conditions
     min_relevance_gain: float = 0.00001,
     # 2026-05-30: diminishing-returns stop. Stops greedy selection when the
@@ -546,6 +552,7 @@ def screen_predictors(
             baseline_npermutations=baseline_npermutations,
             full_npermutations=full_npermutations,
             min_nonzero_confidence=min_nonzero_confidence,
+            fe_confirm_undersample_rows_per_cell=float(fe_confirm_undersample_rows_per_cell or 0.0),
             max_failed=max_failed,
             min_relevance_gain=min_relevance_gain,
             max_consec_unconfirmed=max_consec_unconfirmed,

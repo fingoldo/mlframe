@@ -4954,6 +4954,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 min_nonzero_confidence=self.min_nonzero_confidence,
                 full_npermutations=self.full_npermutations,
                 baseline_npermutations=self.baseline_npermutations,
+                # 2026-06-02 RC2 — sample-size-aware Fleuret confirmation threshold.
+                fe_confirm_undersample_rows_per_cell=float(getattr(self, "fe_confirm_undersample_rows_per_cell", 5.0) or 0.0),
                 # stopping conditions
                 min_relevance_gain=_effective_min_relevance_gain,
                 min_relevance_gain_relative_to_first=float(getattr(self, "min_relevance_gain_relative_to_first", 0.0)),

@@ -388,6 +388,20 @@ def _run_fe_step(
         original_cols = {i: self.feature_names_in_.index(col) for i, col in enumerate(cols) if col in self.feature_names_in_}
         if verbose >= 1:
             logger.info("Checking %d most prospective_pairs for feature engineering...", len(prospective_pairs))
+
+        # PER-OPERAND PRE-WARP (2026-06-02): read the opt-in flag + knobs off the
+        # MRMR instance (getattr keeps _run_fe_step's signature stable, mirroring
+        # ``fe_check_pairs_subsample_n``). When enabled, the discretised target
+        # (``classes_y`` -- the SAME codes the MI sweep scores against) is handed
+        # to ``check_prospective_fe_pairs`` so it can fit a learned 1-D pre-warp
+        # per operand; ``_prewarp_specs`` collects the fitted coeffs (by cols-space
+        # var index) for leak-safe recipe construction. Default OFF.
+        _prewarp_enable = bool(getattr(self, "fe_pair_prewarp_enable", False))
+        _prewarp_basis = str(getattr(self, "fe_pair_prewarp_basis", "chebyshev"))
+        _prewarp_max_degree = int(getattr(self, "fe_pair_prewarp_max_degree", 4))
+        _prewarp_uplift = float(getattr(self, "fe_pair_prewarp_uplift_threshold", 1.20))
+        _prewarp_specs: dict = {}
+
         if len(X) < 50_000 or len(prospective_pairs) < 2:
             prospective_additions = check_prospective_fe_pairs(
                 prospective_pairs,
@@ -415,6 +429,12 @@ def _run_fe_step(
                 times_spent,
                 verbose,
                 subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                prewarp_enable=_prewarp_enable,
+                prewarp_y=classes_y if _prewarp_enable else None,
+                prewarp_basis=_prewarp_basis,
+                prewarp_max_degree=_prewarp_max_degree,
+                prewarp_uplift_threshold=_prewarp_uplift,
+                prewarp_specs_out=_prewarp_specs,
             )
         else:
 
@@ -469,6 +489,12 @@ def _run_fe_step(
                         times_spent,
                         verbose,
                         subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                        prewarp_enable=_prewarp_enable,
+                        prewarp_y=classes_y if _prewarp_enable else None,
+                        prewarp_basis=_prewarp_basis,
+                        prewarp_max_degree=_prewarp_max_degree,
+                        prewarp_uplift_threshold=_prewarp_uplift,
+                        prewarp_specs_out=None,  # loky: recovered from result dict below
                     )
                     for chunk in jobs_list
                 ],
@@ -478,6 +504,15 @@ def _run_fe_step(
             )
             for next_dict in dicts:
                 prospective_additions.update(next_dict)
+
+        # Extract the reserved pre-warp-specs entry the FE-pair helper stuffs
+        # into its result dict (so loky-parallel chunks can return specs); merge
+        # into ``_prewarp_specs`` and remove it so the pair loop below never
+        # treats it as a ``raw_vars_pair``.
+        from ._feature_engineering_pairs import _PREWARP_SPECS_RESULT_KEY
+        _pw_from_res = prospective_additions.pop(_PREWARP_SPECS_RESULT_KEY, None)
+        if _pw_from_res:
+            _prewarp_specs.update(_pw_from_res)
 
         # ROOT CAUSE 5 fix (2026-06-01): collect the cols-space indices of the
         # engineered columns appended below so they can be added DIRECTLY to
@@ -599,6 +634,11 @@ def _run_fe_step(
                             # distribution drift.
                             _fit_vals = transformed_vals[:, _j] \
                                 if transformed_vals.shape[1] > _j else None
+                            # Per-operand pre-warp: when a side used the learned
+                            # ``prewarp`` pseudo-unary, hand its fitted spec to the
+                            # recipe so replay reproduces the closed-form warp.
+                            _pw_a = _prewarp_specs.get(var_a_idx) if unary_a_name == "prewarp" else None
+                            _pw_b = _prewarp_specs.get(var_b_idx) if unary_b_name == "prewarp" else None
                             engineered_recipes[eng_name] = build_unary_binary_recipe(
                                 name=eng_name,
                                 src_a_name=src_a_name_raw,
@@ -612,6 +652,8 @@ def _run_fe_step(
                                 quantization_method=self.quantization_method,
                                 quantization_dtype=self.quantization_dtype,
                                 fit_values_for_edges=_fit_vals,
+                                prewarp_a=_pw_a,
+                                prewarp_b=_pw_b,
                             )
 
                 n_recommended_features += len(this_pair_features)

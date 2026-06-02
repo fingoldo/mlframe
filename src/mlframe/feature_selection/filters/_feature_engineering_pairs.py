@@ -23,6 +23,18 @@ from pyutilz.pythonlib import sort_dict_by_value
 from pyutilz.system import tqdmu
 
 
+# Pseudo-unary name for the per-operand learned pre-warp (2026-06-02). Lives in
+# the same namespace as the real unary names (``identity``, ``sqr``, ...) so it
+# flows through combination generation, naming, and survivor packing untouched;
+# materialisation and recipe construction special-case it via this constant.
+_PREWARP_UNARY = "prewarp"
+
+# Reserved (never-colliding, length-3) key under which ``check_prospective_fe_pairs``
+# returns the fitted pre-warp specs inside its result dict; real result keys are
+# ``raw_vars_pair`` 2-tuples. Lets the caller recover specs across the loky path.
+_PREWARP_SPECS_RESULT_KEY = ("__prewarp_specs__", -1, -1)
+
+
 def _select_single_best(perf: dict, cols_names: Sequence, secondary: dict | None = None):
     """Pick ONE winning ``config`` from a ``{config: mi}`` mapping.
 
@@ -158,6 +170,32 @@ def check_prospective_fe_pairs(
     # >= 50k on synthetic 3-pair-competition data. 0 = use full data (legacy).
     subsample_n: int = FE_DEFAULT_SUBSAMPLE_N,
     subsample_seed: int = 42,
+    # PER-OPERAND PRE-WARP (2026-06-02). When ``prewarp_enable`` is True the
+    # unary/binary search gains, per raw operand, one extra "pseudo-unary"
+    # ``prewarp(x)`` -- a learned 1-D orthogonal-polynomial warp fit JOINTLY
+    # across the pair via the rank-1 ALS sweep (``hermite_fe.fit_pair_prewarp_als``,
+    # which reuses the orthogonal-poly path's ``warm_start_als_seed``; an
+    # INDEPENDENT 1-D fit cannot recover the b-side of a product target whose
+    # b-marginal is ~0). This lets the elementary unary/binary path represent a
+    # within-operand non-monotone distortion such as ``a**3 - 2a`` that no single
+    # library unary can express, so a target ``F3(F1(a), F2(b))`` with a
+    # non-monotone inner ``F1`` becomes recoverable.
+    # ``prewarp_y`` is the SAME discretised target codes (``classes_y``) the MI
+    # sweep already scores against; the fit is supervised but the produced column
+    # is a closed-form function of ``x`` alone, so replay is leak-safe (the
+    # fitted coeffs are stored in the recipe by ``_mrmr_fe_step``). Default OFF
+    # so behaviour on data that does not need it is byte-identical.
+    prewarp_enable: bool = False,
+    prewarp_y: np.ndarray | None = None,
+    prewarp_basis: str = "chebyshev",
+    prewarp_max_degree: int = 4,
+    # Minimum ratio (best-prewarp-MI / best-nonprewarp-MI) for the alternative
+    # acceptance path. 1.20 = the prewarp must beat the elementary library by
+    # >= 20% engineered MI to be admitted past the joint-prevalence gate. Tuned
+    # to fire on the F-POLY non-monotone inner (measured uplift ~1.42x) while
+    # staying silent on linear/monotone/noise (uplift ~1.0x there).
+    prewarp_uplift_threshold: float = 1.20,
+    prewarp_specs_out: dict | None = None,
 ):
     # Starting from the most heavily connected pairs, create a big pool of original features + their unary transforms. Individual vars referenced more than once go
     # to the global pool, the rest to the local (not stored)?
@@ -210,12 +248,66 @@ def check_prospective_fe_pairs(
                 int(subsample_n), _full_n_rows, 100.0 * subsample_n / _full_n_rows,
             )
 
+    # PER-OPERAND PRE-WARP setup (2026-06-02). When enabled, fit ONE learned
+    # 1-D pre-warp per raw operand against the (subsample-aligned) target, and
+    # expose it as an extra pseudo-unary named ``_PREWARP_UNARY`` so the existing
+    # unary x unary x binary search naturally considers ``binary(prewarp(a),
+    # prewarp(b))``, ``binary(prewarp(a), b)`` etc. The fitted spec per var is
+    # kept in ``_prewarp_spec_by_var`` for survivor recipe construction; warped
+    # values are written into ``transformed_vars`` like any other unary.
+    _prewarp_active = bool(prewarp_enable) and prewarp_y is not None
+    _prewarp_spec_by_var: dict[int, dict] = {}
+    _prewarp_y_eff = None
+    if _prewarp_active:
+        from .hermite_fe import apply_operand_prewarp, fit_pair_prewarp_als
+        _pw_y = np.asarray(prewarp_y)
+        if _use_subsample and _pw_y.shape[0] == _full_n_rows:
+            _pw_y = _pw_y[_sample_idx]
+        _prewarp_y_eff = np.ascontiguousarray(_pw_y, dtype=np.float64)
+
+        # JOINT per-pair ALS pre-fit. For each prospective pair fit BOTH operand
+        # warps together (rank-1 ALS); an independent 1-D fit cannot recover the
+        # b-side of a product target whose b-marginal is ~0. First pairing wins
+        # for a var shared across pairs (pairs are processed most-prospective-
+        # first, so a shared var binds to its strongest interaction). None specs
+        # leave the pseudo-unary unregistered for that var.
+        def _operand_vals(_var):
+            if _var not in original_cols:
+                return None
+            if isinstance(X, pd.DataFrame):
+                return X.iloc[:, original_cols[_var]].values
+            return X[:, original_cols[_var]].to_numpy()
+
+        for (raw_vars_pair, _), _ in prospective_pairs.items():
+            _va, _vb = raw_vars_pair[0], raw_vars_pair[1]
+            if _va in _prewarp_spec_by_var and _vb in _prewarp_spec_by_var:
+                continue
+            _vals_a = _operand_vals(_va)
+            _vals_b = _operand_vals(_vb)
+            if _vals_a is None or _vals_b is None:
+                continue
+            _sa, _sb = fit_pair_prewarp_als(
+                _vals_a, _vals_b, _prewarp_y_eff,
+                basis=prewarp_basis, max_degree=prewarp_max_degree,
+            )
+            if _va not in _prewarp_spec_by_var:
+                _prewarp_spec_by_var[_va] = _sa
+            if _vb not in _prewarp_spec_by_var:
+                _prewarp_spec_by_var[_vb] = _sb
+
+    # Effective unary name list: the real registry plus the pre-warp pseudo-unary
+    # when active. Used everywhere a per-pair combination over unary names is
+    # built so the pseudo-unary participates exactly like a real one.
+    _unary_names_eff = list(unary_transformations.keys())
+    if _prewarp_active:
+        _unary_names_eff = _unary_names_eff + [_PREWARP_UNARY]
+
     # Exact preallocation. ``n_pairs * n_unary * 2`` over-counts because (var, tr_name) keys are de-duplicated in ``vars_transformations``; the unique-key set is the
     # true upper bound.
     unique_keys: set = set()
     for (raw_vars_pair, _), _ in prospective_pairs.items():
         for var in raw_vars_pair:
-            for tr_name in unary_transformations.keys():
+            for tr_name in _unary_names_eff:
                 unique_keys.add((var, tr_name))
 
     if verbose >= 2:
@@ -235,8 +327,8 @@ def check_prospective_fe_pairs(
     for (raw_vars_pair, _), _ in prospective_pairs.items():
         combs = list(
             combinations(
-                [(raw_vars_pair[0], k) for k in unary_transformations.keys()]
-                + [(raw_vars_pair[1], k) for k in unary_transformations.keys()],
+                [(raw_vars_pair[0], k) for k in _unary_names_eff]
+                + [(raw_vars_pair[1], k) for k in _unary_names_eff],
                 2,
             )
         )
@@ -307,11 +399,24 @@ def check_prospective_fe_pairs(
                 vals = X.iloc[:, original_cols[var]].values
             else:
                 vals = X[:, original_cols[var]].to_numpy()
-            for tr_name, tr_func in unary_transformations.items():
+            for tr_name in _unary_names_eff:
+                tr_func = unary_transformations.get(tr_name)
                 key = (var, tr_name)
+                # Per-operand learned pre-warp: the joint ALS spec was pre-fit
+                # above (per pair). When the var has no usable spec (solve failed
+                # / non-polynomial basis) the pseudo-unary is simply not
+                # registered and the search proceeds with the real unaries only.
+                # The fitted spec is stashed for survivor recipe construction
+                # (leak-safe replay from coeffs alone).
+                if tr_name == _PREWARP_UNARY:
+                    if _prewarp_spec_by_var.get(var) is None:
+                        continue
                 if key not in vars_transformations:
                     try:
-                        if "poly_" in tr_name:
+                        if tr_name == _PREWARP_UNARY:
+                            with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+                                transformed_vars[:, i] = apply_operand_prewarp(vals, _prewarp_spec_by_var[var])
+                        elif "poly_" in tr_name:
                             transformed_vars[:, i] = hermval(vals, c=tr_func)
                         else:
                             # WAVE 5 (1/4): if CUDA is available, the
@@ -396,6 +501,20 @@ def check_prospective_fe_pairs(
         best_config, best_mi = None, -1
         this_pair_features = set()
         var_pairs_perf = {}
+        # Pre-warp uplift tracking (2026-06-02): the best engineered MI achievable
+        # with ONLY the elementary library unaries (no ``prewarp`` operand) vs the
+        # best USING a prewarp operand. A 1-D engineered summary of a 2-D pair
+        # cannot retain ``fe_min_engineered_mi_prevalence`` of the 2-D JOINT MI,
+        # so on a non-monotone inner distortion (where the elementary library is
+        # representationally blind) the prewarp winner is rejected by the joint
+        # prevalence gate despite being a large, real uplift over the best the
+        # library can do. The alternative acceptance path below admits a prewarp
+        # winner when it beats the best non-prewarp engineered MI by a margin --
+        # directed (only fires where the prewarp adds representational power) and
+        # noise-safe (on linear/monotone/noise data the prewarp does not beat the
+        # elementary library, so the margin is never cleared).
+        best_nonprewarp_mi = -1.0
+        best_prewarp_config, best_prewarp_mi = None, -1.0
 
         # CRITICAL #2 dispatch: hoist path uses the shared buffer (writes into
         # ``[:, i]``); recompute-fallback path uses a tiny 1D scratch + a
@@ -476,6 +595,21 @@ def check_prospective_fe_pairs(
                     if fe_mi > best_mi:
                         best_mi = fe_mi
                         best_config = config
+                    # Track best-with-prewarp vs best-without so the alternative
+                    # uplift gate below can decide whether the prewarp earned its
+                    # place. A config "uses prewarp" iff either operand's unary
+                    # name is the pseudo-unary.
+                    _uses_pw = (
+                        transformations_pair[0][1] == _PREWARP_UNARY
+                        or transformations_pair[1][1] == _PREWARP_UNARY
+                    )
+                    if _uses_pw:
+                        if fe_mi > best_prewarp_mi:
+                            best_prewarp_mi = fe_mi
+                            best_prewarp_config = config
+                    else:
+                        if fe_mi > best_nonprewarp_mi:
+                            best_nonprewarp_mi = fe_mi
                     if fe_mi > best_mi * 0.85:
                         if not fe_print_best_mis_only or (fe_mi == best_mi):
                             if verbose > 2:
@@ -485,7 +619,41 @@ def check_prospective_fe_pairs(
         if verbose > 2:
             print(f"For pair {raw_vars_pair}, best config is {best_config} with best mi= {best_mi}")
 
-        if best_mi / pair_mi > fe_min_engineered_mi_prevalence * (1.0 if num_fs_steps < 1 else 1.025):  # Best transformation is good enough
+        # Standard acceptance: the best engineered MI clears the configured
+        # fraction of the 2-D pair-joint MI.
+        _passes_joint_gate = best_mi / pair_mi > fe_min_engineered_mi_prevalence * (1.0 if num_fs_steps < 1 else 1.025)
+
+        # Alternative pre-warp acceptance (2026-06-02): the joint-prevalence gate
+        # structurally rejects a 1-D summary of a 2-D pair on a non-monotone inner
+        # distortion. Admit the prewarp winner when it beats the best NON-prewarp
+        # engineered MI by ``prewarp_uplift_threshold`` AND clears the pair-MI
+        # noise floor (its MI must exceed the larger individual operand MI -- the
+        # same notion the smart_polynom baseline uplift uses), so it cannot fire
+        # on noise (where prewarp does not beat the library) or pure-linear data
+        # (where the elementary library already saturates and the prewarp adds no
+        # uplift). When it fires, the prewarp config becomes the winner.
+        _prewarp_accept = False
+        if (
+            _prewarp_active
+            and not _passes_joint_gate
+            and best_prewarp_config is not None
+            and best_nonprewarp_mi > 0.0
+            and best_prewarp_mi >= best_nonprewarp_mi * float(prewarp_uplift_threshold)
+        ):
+            _prewarp_accept = True
+            # Promote the prewarp winner to the pair's winner so the standard
+            # leading-features / single-best materialisation path emits it.
+            best_config, best_mi = best_prewarp_config, best_prewarp_mi
+            if verbose:
+                messages.append(
+                    f"pre-warp uplift gate: best prewarp MI={best_prewarp_mi:.4f} "
+                    f"beats best non-prewarp MI={best_nonprewarp_mi:.4f} by "
+                    f">= {float(prewarp_uplift_threshold):.2f}x (joint-prevalence "
+                    f"gate {best_mi / pair_mi:.3f} < {fe_min_engineered_mi_prevalence:.2f} "
+                    f"would have rejected it); admitting the prewarp feature."
+                )
+
+        if _passes_joint_gate or _prewarp_accept:  # Best transformation is good enough
 
             # If there is a group of leaders with almost the same performance, approve them through one of the other variables.
             # если будут возникать такие группы примерно одинаковых по силе лидеров, их придётся разрешать с помощью одного из других влияющих факторов
@@ -661,6 +829,7 @@ def check_prospective_fe_pairs(
                             _col_full = _rebuild_full_survivor_col(
                                 config, _X_full, original_cols,
                                 unary_transformations, binary_transformations,
+                                prewarp_spec_by_var=_prewarp_spec_by_var,
                             )
                         elif final_transformed_vals is not None:
                             _col_full = final_transformed_vals[:, i]
@@ -721,5 +890,20 @@ def check_prospective_fe_pairs(
                     transformed_vals, new_nbins = None, []
 
             res[raw_vars_pair] = (this_pair_features, transformed_vals, new_cols, new_nbins, messages)
+
+    # Surface the fitted per-operand pre-warp specs (keyed by cols-space var
+    # index) so the caller (``_mrmr_fe_step``) can persist them in each survivor
+    # recipe for leak-safe replay. Only the non-None specs that were actually
+    # fitted are exported. We populate BOTH the optional ``prewarp_specs_out``
+    # side-channel (works for the in-process serial path) AND a reserved key in
+    # the returned ``res`` (survives the loky-parallel path where the side
+    # channel dict cannot be mutated cross-process; the caller merges per-chunk
+    # results). The reserved key is a private 3-tuple that can never collide with
+    # a real ``raw_vars_pair`` (which is always length 2).
+    _fitted_specs = {_v: _s for _v, _s in _prewarp_spec_by_var.items() if _s is not None}
+    if _fitted_specs:
+        if prewarp_specs_out is not None:
+            prewarp_specs_out.update(_fitted_specs)
+        res[_PREWARP_SPECS_RESULT_KEY] = _fitted_specs
 
     return res

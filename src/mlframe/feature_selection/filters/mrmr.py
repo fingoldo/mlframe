@@ -312,6 +312,24 @@ class MRMR(BaseEstimator, TransformerMixin):
         min_nonzero_confidence: float = 0.99,
         full_npermutations: int = 3,
         baseline_npermutations: int = 2,
+        # 2026-06-02 RC2 — sample-size-aware Fleuret confirmation. With the
+        # default ``use_simple_mode=False`` (full Fleuret conditional-MI
+        # redundancy) the conditional permutation-confidence gate OVER-REJECTS
+        # on small-n / high-cardinality data: the (X, Y, Z) conditioning joint
+        # is severely undersampled (e.g. sklearn diabetes n=442, s5 10-bin ->
+        # ~0.4 rows/cell), so the shuffled-y NULL conditional MI is ~= the REAL
+        # conditional MI and every genuine feature after the first is rejected
+        # -> premature stop (diabetes: 1 feature / R2=0.20 vs 9-feat simple-mode
+        # R2=0.39). When the conditioning joint has fewer than this many rows
+        # per OCCUPIED cell the conditional test is unreliable, so the
+        # confirmation falls back to a MARGINAL-MI permutation test (the
+        # X-marginal joint, ~|X| cells, is far better sampled). Dedup is
+        # preserved by the relevance-minus-redundancy gain term (independent of
+        # this gate); pure noise is still rejected (its marginal permutation
+        # test rejects it too). Set to 0.0 to always use the strict conditional
+        # test (legacy behaviour). Default 5.0 (ON), tuned on diabetes: at 5
+        # rows/cell the plug-in CMI bias dominates the estimate.
+        fe_confirm_undersample_rows_per_cell: float = 5.0,
         # stopping conditions
         # min_relevance_gain: absolute MI floor. In ``min_relevance_gain_mode='absolute'`` the screening stops when marginal gain < this value verbatim; in the default ``'relative_to_entropy'`` mode this value is IGNORED and the effective absolute floor is ``min_relevance_gain_frac * H(y)``. The absolute mode is dataset-blind -- 0.0001 is enormous on a low-entropy target (99/1 binary, H(y) ~= 0.056) and tiny on a high-entropy one (uniform 10-class, H(y) ~= 2.30), so the default switched to the relative formulation.
         min_relevance_gain: float = 0.0001,
@@ -505,6 +523,31 @@ class MRMR(BaseEstimator, TransformerMixin):
         # ``hermite_fe._L2_PENALTY_SATURATION_DEFAULT`` (1.0).
         fe_hermite_l2_penalty: float = 0.05,
         fe_polynomial_basis: str = "chebyshev",
+        # 2026-06-02 — PER-OPERAND PRE-WARP for the elementary unary/binary pair
+        # search. Default OFF -> byte-identical legacy path. When True, BEFORE the
+        # unary x unary x binary combination search the engine fits, per raw
+        # operand, one learned 1-D orthogonal-polynomial warp ``f(x)`` of the
+        # target (``hermite_fe.fit_operand_prewarp`` -- the shared 1-D sibling of
+        # the orthogonal-poly path's ALS warm start) and adds it as an extra
+        # ``prewarp`` pseudo-unary alongside ``identity/sqr/log/...``. This lets
+        # the unary/binary path represent a WITHIN-OPERAND non-monotone distortion
+        # (e.g. ``a**3 - 2a``) that no single library unary can express, so a
+        # target ``F3(F1(a), F2(b))`` with a non-monotone inner ``F1`` becomes
+        # recoverable through the cheap function search WITHOUT the full
+        # orthogonal-poly CMA optimiser. The pre-warp is still gated by the
+        # existing MI-prevalence / external-validation machinery (so it never
+        # fabricates a feature on noise / linear data), and its fitted coeffs are
+        # stored in the EngineeredRecipe for leak-safe, y-free replay at
+        # transform() time. Orthogonal to ``fe_smart_polynom_iters`` /
+        # ``fe_hybrid_orth_enable`` (works with both off).
+        fe_pair_prewarp_enable: bool = False,
+        fe_pair_prewarp_basis: str = "chebyshev",
+        fe_pair_prewarp_max_degree: int = 4,
+        # Minimum (best-prewarp-MI / best-nonprewarp-MI) ratio for the prewarp
+        # alternative-acceptance path past the joint-MI-prevalence gate. The
+        # prewarp feature must beat the elementary library by this factor to be
+        # admitted -- directed + noise-safe (uplift ~1.0x on linear/noise data).
+        fe_pair_prewarp_uplift_threshold: float = 1.20,
         fe_mi_estimator: str = "plugin",
         # 2026-05-22: cma_batch is the new default (20.58x faster than
         # optuna, within_1%=1.00 vs all other optimizers on a 12-pair bench).
@@ -1856,6 +1899,12 @@ class MRMR(BaseEstimator, TransformerMixin):
             # 2026-05-31 Layer 23 — hybrid orthogonal-poly FE auto-wire.
             # Defaults preserve legacy behaviour: master switch OFF, so old
             # pickles unpickle to "hybrid FE disabled".
+            # 2026-06-02 — per-operand pre-warp for the unary/binary pair search.
+            # OFF by default; legacy pickles unpickle to "pre-warp disabled".
+            "fe_pair_prewarp_enable": False,
+            "fe_pair_prewarp_basis": "chebyshev",
+            "fe_pair_prewarp_max_degree": 4,
+            "fe_pair_prewarp_uplift_threshold": 1.20,
             "fe_hybrid_orth_enable": False,
             "fe_hybrid_orth_degrees": (2, 3),
             "fe_hybrid_orth_basis": "auto",
