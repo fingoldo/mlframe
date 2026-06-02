@@ -197,6 +197,14 @@ def score_features_by_bootstrap_mi(
             idx = rng.integers(0, n, size=sample_n)
         if np.unique(y_arr[idx]).size < 2:
             idx = np.arange(n)
+        # Sort the resample indices before gathering: MI is order-invariant
+        # (quantile bins + the (bin, y) contingency depend only on the row
+        # multiset, not row order), so the sorted gather yields bit-identical
+        # MI while reading raw_arr/eng_arr near-sequentially instead of in
+        # random with-replacement order - better cache locality on the wide
+        # (sample_n, n_eng) copies that dominate this function's self-time. The
+        # single sort amortises across the raw + eng + y gathers.
+        idx.sort()
         sub_raw = raw_arr[idx, :]
         sub_eng = eng_arr[idx, :]
         sub_y = y_arr[idx]
