@@ -136,7 +136,15 @@ def _run_target_distribution_analyzer(
     training. WARN once so the operator can debug.
     """
     if not (enable_target_distribution_analyzer and target_by_type):
-        return hyperparams_config
+        # Must mirror the 4-tuple contract of the main return below
+        # (hyperparams_config, train_df, val_df, test_df); the frames pass
+        # through unchanged when the analyzer is disabled / has no targets.
+        # Returning the bare ``hyperparams_config`` here (stale from before the
+        # function grew to also thread the frames) made the caller's
+        # ``a, b, c, d = _run_target_distribution_analyzer(...)`` raise
+        # "ValueError: too many values to unpack (expected 4)" on EVERY combo
+        # with the analyzer off or an empty target_by_type.
+        return hyperparams_config, train_df, val_df, test_df
 
     try:
         from .._target_distribution_analyzer import analyze_target_distribution
