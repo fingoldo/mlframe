@@ -34,7 +34,7 @@ Decision rule (CLAUDE.md §6): default = most accurate on the wide bench (6 scen
 - S3 Fidelity-adaptive search depth / refine aggressiveness — TODO
 - S4 Variance-calibrated parsimony_tol (from holdout-loss std) — DONE-doc: cheap-test CONFIRMS premise — fixed parsimony_tol=0.02 exceeds the drop-one brier contribution of 6/7 informative features (median ~0.013 < 0.02) on base + manyredundant, so refine over-prunes real signal. Documented on the param as the over-pruning dial (lower to ~0.005 or refine=False); the shipped within_cluster_refine=False (335ec1e4) already remedies it in the benchmark. Full variance-calibration left as a future refinement (LightGBM holdout brier is near-deterministic here, so a z*std tol would collapse to ~0 = keep-all; needs the holdout-SPLIT std, not model-seed std).
 - S5 Membership->loss surrogate GBM on trust-guard anchors — TODO (agent flagged sample-starved)
-- S6 SHAP-vector (attribution) clustering instead of raw-corr — TODO
+- S6 SHAP-vector (attribution) clustering instead of raw-corr — DONE-rejected (cheap-test): phi-corr clustering merged 0/4 (manyredundant) and 0/1 (xor2) redundant groups vs raw-corr 4/4 & 1/1, and in xor2 even failed to keep interaction operands separate. Correlated copies receive arbitrary/split SHAP credit so their attribution vectors are NOT correlated -> phi-corr can't group redundants (the point of clustering). Raw-value correlation is the right redundancy metric; keep cluster_backend on values.
 - S7 Permutation-shortcut refine (speed) — TODO (agent flagged may worsen over-pruning)
 - S8 Pair-aware anchor sampling — TODO
 - S-extra within_cluster_refine over-pruning caveat — DONE-doc 335ec1e4 (benchmark config refine off)
