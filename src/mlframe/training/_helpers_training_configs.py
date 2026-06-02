@@ -245,7 +245,12 @@ def get_training_configs(
         device=_xgb_device,
         n_jobs=psutil.cpu_count(logical=False),
         early_stopping_rounds=early_stopping_rounds,
-        random_seed=random_seed,
+        # XGBoost's sklearn API + native trainer key the RNG on ``random_state``
+        # (or native ``seed``); ``random_seed`` is silently ignored ("Parameters:
+        # { random_seed } are not used"), so a requested seed was dropped and XGB
+        # ran non-reproducibly while CB (random_seed) / LGB+HGB (random_state)
+        # were correctly seeded.
+        random_state=random_seed,
     )
     XGB_GENERAL_PARAMS.update(xgb_kwargs)
     # 2026-05-26 unified ES surface: XGB regression default eval_metric

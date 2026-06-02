@@ -255,7 +255,11 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         # to +/- 10 * y_std as a conservative T-envelope proxy that still
         # catches order-of-magnitude blow-ups while leaving in-distribution
         # T predictions untouched).
-        if finite.size >= 10 and finite.any():
+        # ``finite`` is a boolean mask, so ``finite.size`` is len(y_train) -- the
+        # gate must count FINITE values (mirror the .fit() path, which sizes the
+        # already-filtered finite array). Using .size let a mostly-NaN y_train
+        # estimate the T-clip envelope from as few as 2 unrepresentative points.
+        if int(finite.sum()) >= 10:
             y_std = float(np.std(y_train[finite]))
             if y_std > 0:
                 t_envelope = 10.0 * y_std

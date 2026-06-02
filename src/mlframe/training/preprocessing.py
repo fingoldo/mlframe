@@ -429,6 +429,21 @@ def preprocess_dataframe(
     return df
 
 
+def _positional_take(obj, idx):
+    """Positional row selection for pandas / polars / numpy.
+
+    ``train_idx``/``val_idx``/``test_idx`` are POSITIONAL integer arrays (the
+    splitter and ``create_split_dataframes`` consume them via ``.iloc`` / polars
+    ``[]``). A bare ``pandas_series[idx]`` is LABEL-based, so on a non-RangeIndex
+    frame it either raises or silently selects the WRONG rows -- saving split
+    artifacts that are misaligned with the rows the model trained on. Use
+    ``.iloc`` for pandas; polars/numpy ``[]`` is already positional.
+    """
+    if isinstance(obj, (pd.Series, pd.DataFrame)):
+        return obj.iloc[idx]
+    return obj[idx]
+
+
 def save_split_artifacts(
     train_idx: np.ndarray,
     val_idx: np.ndarray,
@@ -476,11 +491,11 @@ def save_split_artifacts(
             if timestamps is not None and len(timestamps) > 0:
                 ts_fname = f"{idx_name}_timestamps.parquet"
                 if ts_fname not in _existing:
-                    save_series_or_df(timestamps[idx], join(split_dir, ts_fname), compression, name="ts")
+                    save_series_or_df(_positional_take(timestamps, idx), join(split_dir, ts_fname), compression, name="ts")
             if group_ids_raw is not None and len(group_ids_raw) > 0:
                 gid_fname = f"{idx_name}_group_ids_raw.parquet"
                 if gid_fname not in _existing:
-                    save_series_or_df(group_ids_raw[idx], join(split_dir, gid_fname), compression)
+                    save_series_or_df(_positional_take(group_ids_raw, idx), join(split_dir, gid_fname), compression)
             if artifacts is not None and len(artifacts) > 0:
                 if isinstance(artifacts, dict):
                     # Per-key artifacts: write one parquet file per dict entry.
@@ -489,11 +504,11 @@ def save_split_artifacts(
                             continue
                         art_fname = f"{idx_name}_artifacts_{slugify(str(art_key))}.parquet"
                         if art_fname not in _existing:
-                            save_series_or_df(art_val[idx], join(split_dir, art_fname), compression)
+                            save_series_or_df(_positional_take(art_val, idx), join(split_dir, art_fname), compression)
                 else:
                     art_fname = f"{idx_name}_artifacts.parquet"
                     if art_fname not in _existing:
-                        save_series_or_df(artifacts[idx], join(split_dir, art_fname), compression)
+                        save_series_or_df(_positional_take(artifacts, idx), join(split_dir, art_fname), compression)
 
 
 def create_split_dataframes(
