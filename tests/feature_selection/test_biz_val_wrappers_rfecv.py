@@ -63,7 +63,16 @@ def test_biz_val_rfecv_n_features_selection_rule_one_se_min_picks_smaller():
     """``n_features_selection_rule='one_se_min'`` must pick <= the
     number of features as ``='argmax'`` on a target with 3 strong +
     10 noise. The 1-SE rule trades a tiny mean-score loss for a
-    smaller, more interpretable model."""
+    smaller, more interpretable model.
+
+    The 1-SE guarantee (one_se_min <= argmax) only holds when BOTH rules
+    reference the SAME score: argmax maximises the std-penalised
+    ``ultimate_perf`` (mean - std_perf_weight*std - feature_cost*N), while the
+    1-SE band is built on the RAW cv mean. With the default std_perf_weight=0.1
+    the penalised argmax can land on a different (smaller-variance) N than the
+    raw-mean peak, so one_se_min can legitimately exceed it. Pin both weights to
+    0 here so argmax == raw-mean argmax and the parsimony inequality is provable.
+    """
     pytest.importorskip("sklearn")
     from sklearn.ensemble import RandomForestClassifier
     from mlframe.feature_selection.wrappers import RFECV
@@ -75,6 +84,7 @@ def test_biz_val_rfecv_n_features_selection_rule_one_se_min_picks_smaller():
         estimator=RandomForestClassifier(random_state=42, n_estimators=30),
         cv=3, max_refits=8, verbose=0, random_state=42,
         max_noimproving_iters=3,
+        std_perf_weight=0.0, feature_cost=0.0,
     )
     sel_argmax = RFECV(n_features_selection_rule="argmax", **common)
     sel_one_se = RFECV(n_features_selection_rule="one_se_min", **common)
