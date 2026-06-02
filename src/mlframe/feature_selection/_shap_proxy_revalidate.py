@@ -800,7 +800,9 @@ def proxy_trust_guard(
         n_estimators_cap=n_estimators_cap, template_id=tid, inner_n_jobs_cap=inner_n_jobs_cap,
         disk_cache=disk_cache)
     cards = np.array([len(a) for a in anchors], dtype=np.float64)
-    redunds = subset_redundancy_many(phi, anchors)
+    # Reuse the contiguous _phi_T built above for the coalition margins instead of letting
+    # subset_redundancy_many re-transpose phi (one fewer O(n_samples*n_units) copy per trust_guard call).
+    redunds = subset_redundancy_many(phi, anchors, phi_T=_phi_T)
     proxy_losses = np.asarray(proxy_losses)
     honest_losses = np.asarray(honest_losses)
     ok = np.isfinite(proxy_losses) & np.isfinite(honest_losses)

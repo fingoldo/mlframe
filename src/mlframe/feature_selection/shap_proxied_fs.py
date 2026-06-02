@@ -228,7 +228,11 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         min_selected_ratio: float = 0.0,
         trust_guard: bool = True,
         n_anchors: int = 30,
-        fidelity_floor: float = 0.5,
+        # ``None`` is the "unset" sentinel that resolves to 0.5 at fit time. A real float (incl. an
+        # explicit 0.5) means the user pinned it, so the both-floors-set conflict guard below can
+        # detect ``spearman_floor`` + an explicit ``fidelity_floor=0.5`` instead of mistaking the
+        # explicit value for the default.
+        fidelity_floor: Optional[float] = None,
         spearman_floor: Optional[float] = None,
         run_importance_ablation: bool = True,
         use_bias_corrector: bool = True,
@@ -362,12 +366,15 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         # but the trust SCORE is what downstream consumers (bias corrector, fidelity reporting) read,
         # and degrading its margin to the floor for a sub-second wall cut is the wrong trade.
         self.n_anchors = n_anchors
-        # ``fidelity_floor`` (iter18, default 0.5): below this composite the trust-guard fires LOW.
+        # ``fidelity_floor`` (iter18, effective default 0.5): below this composite the trust-guard
+        # fires LOW. ``None`` is the "unset" sentinel resolved to 0.5 at fit time; storing it raw
+        # (no coercion here) keeps the both-floors-set conflict guard able to distinguish an explicit
+        # ``fidelity_floor=0.5`` from "user did not pin it" and preserves sklearn ``clone()`` identity.
         # The legacy ``spearman_floor`` kwarg name is preserved as a deprecated alias since iter18 --
         # supplying it emits a ``DeprecationWarning`` at fit time and copies into ``fidelity_floor``.
         # The legacy 0.6 default was set against the raw-Spearman scale (pre-iter16); on the composite
         # scale (iter16+) it is too conservative and trips on the partial-recovery ``interaction_heavy``
-        # regime (recovery 6/8). The new 0.5 default cleanly separates regimes with
+        # regime (recovery 6/8). The 0.5 default cleanly separates regimes with
         # ``recovery_rate >= 0.7`` (PASS, min composite 0.5384) from the only failing regime
         # ``xor_interaction`` (recovery_rate 0.333, composite 0.4742). See
         # ``_benchmarks/calib_iter18_fidelity_floor.py``.
@@ -1093,6 +1100,20 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
             # Resolve + validate booster_kind FIRST so a typo (e.g. "bogus") raises ValueError before
             # the expensive prefilter / OOF-SHAP stages start. Auto-detect when None.
             _booster_kind = self._resolve_booster_kind()
+            # The catboost ``cat_features`` template (iter78) is forwarded to the booster, but the
+            # surrounding pipeline is NOT categorical-aware: the prefilter densifies ``X.values``
+            # to float64 (crashes on string/categorical columns inside ``f_classif_chunked``), the
+            # clustering treats columns as numeric, and column-slicing between stages does not
+            # remap name-based ``cat_features``. Fail fast with an actionable message here instead
+            # of the obscure downstream ValueError. Numeric-only fits (cat_features unset) are fine.
+            if _booster_kind == "catboost" and self.cat_features:
+                raise ValueError(
+                    "ShapProxiedFS(booster_kind='catboost', cat_features=...) is not yet supported: "
+                    "the prefilter / clustering / column-slicing stages are not categorical-aware and "
+                    "would crash on densification or mis-route the cat-feature indices. Pre-encode the "
+                    "categorical columns numerically and pass cat_features=None, or supply an explicit "
+                    "fitted-pipeline ``model=`` template that handles categoricals upstream."
+                )
             model_template = make_default_estimator(
                 self.classification, random_state=int(self.random_state),
                 booster_kind=_booster_kind, cat_features=self.cat_features,
@@ -1556,12 +1577,14 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
                                      for u in unit_to_members], dtype=np.float64)
             # iter18: resolve fidelity_floor / spearman_floor (deprecated alias). Supplying both
             # at the facade level is an error; supplying only the legacy name emits a
-            # DeprecationWarning and copies the value through. The default ``spearman_floor=None``
-            # means "user didn't set it"; ``fidelity_floor`` always carries the active value.
-            effective_floor = self.fidelity_floor
+            # DeprecationWarning and copies the value through. ``None`` is the "unset" sentinel for
+            # BOTH floors, so the both-set conflict is detected by ``fidelity_floor is not None``
+            # (an explicit ``fidelity_floor=0.5`` is no longer mistaken for the default). The unset
+            # ``fidelity_floor`` resolves to the effective 0.5 default.
+            effective_floor = self.fidelity_floor if self.fidelity_floor is not None else 0.5
             if self.spearman_floor is not None:
                 import warnings
-                if self.fidelity_floor != 0.5:
+                if self.fidelity_floor is not None:
                     raise ValueError(
                         "ShapProxiedFS: set either `fidelity_floor` (new name) or `spearman_floor` "
                         "(deprecated alias), not both.")

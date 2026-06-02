@@ -45,15 +45,22 @@ def subset_redundancy(phi: np.ndarray, idx) -> float:
     return _mean_abs_offdiag_corr(phi[:, idx].T)
 
 
-def subset_redundancy_many(phi: np.ndarray, idx_list) -> np.ndarray:
+def subset_redundancy_many(phi: np.ndarray, idx_list, *, phi_T: np.ndarray = None) -> np.ndarray:
     """Vectorised :func:`subset_redundancy` over many subsets sharing one ``phi``.
 
     ``phi`` is row-major (n_samples, n_units); a per-subset strided column gather ``phi[:, idx]`` is
     the dominant cost (cache-line miss per row). Transpose ``phi`` ONCE to contiguous rows so each
     subset's gather ``phi_T[idx]`` is unit-stride: measured 2.27x at n=50000 / k=12 vs the per-subset
     row-major gather, bit-identical result. The single transpose is amortised across all subsets (the
-    callers score 20-60 anchors/candidates per fit)."""
-    phi_T = np.ascontiguousarray(phi.T)
+    callers score 20-60 anchors/candidates per fit).
+
+    ``phi_T`` (optional, perf): a precomputed ``np.ascontiguousarray(phi.T)``. When the caller already
+    holds the contiguous transpose (e.g. ``proxy_trust_guard`` builds ``_phi_T`` for its coalition
+    margins), passing it here reuses that single transpose instead of re-transposing ``phi`` -- one
+    fewer O(n_samples*n_units) contiguous copy per call. When ``None`` (default) the transpose is built
+    here, preserving the existing behaviour for all other callers."""
+    if phi_T is None:
+        phi_T = np.ascontiguousarray(phi.T)
     out = np.empty(len(idx_list), dtype=np.float64)
     for i, idx in enumerate(idx_list):
         idx = list(idx)
