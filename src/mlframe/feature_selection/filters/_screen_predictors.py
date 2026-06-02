@@ -140,7 +140,15 @@ def screen_predictors(
     # use). ``None`` raw-name set falls back to the syntactic ``(``/``__``
     # heuristic; rel-eps ``0.0`` restores the legacy pure-index tie-break.
     raw_feature_names: object = None,
-    prefer_engineered_rel_eps: float = 0.01,
+    # 2026-06-02 RC1: widened 0.01 -> 0.15. On non-monotone targets (e.g.
+    # y=sign(x1^2-1)) the binned-MI of the raw parent x1 edges out its engineered
+    # linearizer x1__He2 by more than 1% (estimation noise; in EXACT MI they are
+    # equal because He2 is a deterministic function of x1), so a 1% band left the
+    # raw parent winning and the engineered linearizer pruned -- the downstream a
+    # linear model needs (x1^2-1) was lost (AUC ~0.5 vs ~0.99). A 0.15 band lets
+    # the engineered linearizer win over its near-tied raw parent. Still gated to
+    # the leading band + engineered-only promotion (clear raw winners untouched).
+    prefer_engineered_rel_eps: float = 0.15,
 ) -> float:
     """Finds best predictors for the target. ``factors_data`` must be an n-by-m array of integers (ordinal encoded).
 
