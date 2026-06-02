@@ -79,6 +79,26 @@ def _coerce_y_int64(y) -> np.ndarray:
     return arr.astype(np.int64)
 
 
+def _all_columns_distinct(arr: np.ndarray) -> bool:
+    """True iff every column of ``arr`` (n, k) has all-distinct values.
+
+    Gate for the sorted-resample-gather optimisation in
+    :func:`score_features_by_bootstrap_mi`. The downstream MI uses
+    equi-frequency argsort binning whose tie-breaking is positional, so
+    reordering the bootstrap rows is bit-identical ONLY when there are no tied
+    values to split at a bin boundary - i.e. when each column is all-distinct
+    (continuous). For such matrices the only ties under with-replacement
+    resampling are exact-equal duplicate rows, which bin together. Low-card /
+    discrete columns must keep the original random-order gather (sorting them
+    shifts MI ~1e-3 and drifts selection). Short-circuits on the first column
+    that has a duplicate so discrete matrices bail cheaply."""
+    n = arr.shape[0]
+    for j in range(arr.shape[1]):
+        if np.unique(arr[:, j]).size < n:
+            return False
+    return True
+
+
 def score_features_by_bootstrap_mi(
     raw_X: pd.DataFrame,
     engineered_X: pd.DataFrame,
@@ -162,6 +182,19 @@ def score_features_by_bootstrap_mi(
     raw_arr = raw_X.to_numpy(dtype=np.float64)
     eng_arr = engineered_X.to_numpy(dtype=np.float64)
 
+    # The wide (sample_n, n_eng) gathers in the bootstrap loop dominate this
+    # function's self-time, and a random with-replacement ``idx`` scatters the
+    # reads across the whole matrix (cache-miss bound). Sorting ``idx`` makes
+    # the gather near-sequential (~6-7x faster here), but the downstream MI uses
+    # equi-frequency argsort binning whose tie-breaking is positional, so the
+    # sort is bit-identical only when a matrix's columns are all-distinct (see
+    # _all_columns_distinct). Gate per matrix: the engineered matrix is
+    # continuous by construction (polynomial/basis transforms) so it almost
+    # always qualifies and gets the win; raw_X is narrow (cheap gather either
+    # way) and may carry discrete columns, in which case it keeps random order.
+    raw_sort_safe = _all_columns_distinct(raw_arr)
+    eng_sort_safe = _all_columns_distinct(eng_arr)
+
     n_boot_eff = max(1, int(n_boot))
     sample_n = max(2, int(round(float(sample_fraction) * n)))
     rng = np.random.default_rng(int(seed))
@@ -197,19 +230,17 @@ def score_features_by_bootstrap_mi(
             idx = rng.integers(0, n, size=sample_n)
         if np.unique(y_arr[idx]).size < 2:
             idx = np.arange(n)
-        # Sort the resample indices before gathering: MI is order-invariant
-        # (quantile bins + the (bin, y) contingency depend only on the row
-        # multiset, not row order), so the sorted gather yields bit-identical
-        # MI while reading raw_arr/eng_arr near-sequentially instead of in
-        # random with-replacement order - better cache locality on the wide
-        # (sample_n, n_eng) copies that dominate this function's self-time. The
-        # single sort amortises across the raw + eng + y gathers.
-        idx.sort()
-        sub_raw = raw_arr[idx, :]
-        sub_eng = eng_arr[idx, :]
-        sub_y = y_arr[idx]
-        raw_mi_b = _mi_classif_batch(sub_raw, sub_y, nbins=nbins)
-        eng_mi_b = _mi_classif_batch(sub_eng, sub_y, nbins=nbins)
+        # Sort the resample indices ONLY for matrices whose columns are all
+        # distinct (continuous), where the gather is bit-identical (see the
+        # raw_sort_safe / eng_sort_safe precompute). The two MI calls are
+        # independent, so raw and eng can use different row orders of the same
+        # resample multiset without affecting their pairing in ``uplift_b``.
+        idx_raw = np.sort(idx) if raw_sort_safe else idx
+        idx_eng = np.sort(idx) if eng_sort_safe else idx
+        sub_raw = raw_arr[idx_raw, :]
+        sub_eng = eng_arr[idx_eng, :]
+        raw_mi_b = _mi_classif_batch(sub_raw, y_arr[idx_raw], nbins=nbins)
+        eng_mi_b = _mi_classif_batch(sub_eng, y_arr[idx_eng], nbins=nbins)
         # Vectorised baseline gather (see _src_idx precompute above).
         raw_mi_arr = np.asarray(raw_mi_b, dtype=np.float64)
         baseline_b = np.where(_src_valid, raw_mi_arr[_src_idx_clipped], 0.0)

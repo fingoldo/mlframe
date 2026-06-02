@@ -519,3 +519,74 @@ class TestRecipeReplay:
                 f"{float(np.max(np.abs(replayed - fit_time)))}; "
                 f"extra={dict(r.extra)}"
             )
+
+
+class TestSortedGatherGate:
+    """The bootstrap loop sorts the resample indices before the wide
+    (sample_n, n_eng) gather (cache-locality win, ~6-7x on this function's
+    self-time). MI uses equi-frequency argsort binning whose tie-breaking is
+    POSITIONAL, so the sort is bit-identical ONLY when a matrix's columns are
+    all-distinct (continuous); on tied/discrete columns reordering rows shifts
+    MI ~1e-3 and drifts selection. ``_all_columns_distinct`` gates the sort per
+    matrix. These pin the gate + the bit-identity invariant it protects."""
+
+    def test_all_columns_distinct_gate(self):
+        from mlframe.feature_selection.filters._orthogonal_bootstrap_mi_fe import (
+            _all_columns_distinct,
+        )
+        rng = np.random.default_rng(0)
+        cont = rng.normal(size=(2000, 4))  # all-distinct floats
+        disc = rng.integers(0, 12, size=(2000, 4)).astype(np.float64)  # heavy ties
+        mixed = cont.copy()
+        mixed[:, 2] = rng.integers(0, 12, size=2000)  # one discrete column
+        assert _all_columns_distinct(cont) is True
+        assert _all_columns_distinct(disc) is False
+        assert _all_columns_distinct(mixed) is False, (
+            "one discrete column must disqualify the whole matrix (the gather "
+            "shares a single idx across all columns)"
+        )
+
+    def test_sorted_gather_bit_identical_on_continuous(self):
+        """The optimisation's safety invariant: on all-distinct columns the MI
+        from a sorted resample equals the MI from the unsorted resample."""
+        import os
+        os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
+        from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
+            _mi_classif_batch,
+        )
+        rng = np.random.default_rng(3)
+        n = 6000
+        X = rng.normal(size=(n, 6))  # continuous -> all-distinct
+        y = rng.integers(0, 3, n).astype(np.int64)
+        idx = rng.integers(0, n, size=int(0.8 * n))
+        mi_unsorted = np.asarray(_mi_classif_batch(X[idx, :], y[idx], nbins=10), float)
+        mi_sorted = np.asarray(
+            _mi_classif_batch(X[np.sort(idx), :], y[np.sort(idx)], nbins=10), float
+        )
+        assert np.array_equal(mi_unsorted, mi_sorted), (
+            f"sorted-gather MI must be bit-identical on continuous columns; "
+            f"max|diff|={float(np.max(np.abs(mi_unsorted - mi_sorted)))}"
+        )
+
+    def test_sorted_gather_diverges_on_discrete(self):
+        """Counterpart: on discrete/tied columns the sort is NOT bit-identical
+        (this is WHY the gate exists). Guards against a future 'just always
+        sort' regression slipping through unnoticed."""
+        import os
+        os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
+        from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
+            _mi_classif_batch,
+        )
+        rng = np.random.default_rng(3)
+        n = 6000
+        X = rng.integers(0, 12, size=(n, 6)).astype(np.float64)  # heavy ties
+        y = rng.integers(0, 3, n).astype(np.int64)
+        idx = rng.integers(0, n, size=int(0.8 * n))
+        mi_unsorted = np.asarray(_mi_classif_batch(X[idx, :], y[idx], nbins=10), float)
+        mi_sorted = np.asarray(
+            _mi_classif_batch(X[np.sort(idx), :], y[np.sort(idx)], nbins=10), float
+        )
+        assert not np.array_equal(mi_unsorted, mi_sorted), (
+            "sort SHOULD perturb MI on tied/discrete columns; if this passes, "
+            "the binning became tie-deterministic and the gate may be relaxed"
+        )
