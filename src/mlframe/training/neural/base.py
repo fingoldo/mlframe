@@ -1303,6 +1303,22 @@ class PytorchLightningEstimator(BaseEstimator):
         # the cache saved is negligible against losing every prediction past the
         # first. ``_prediction_trainer_cache`` (pickle-excluded at __getstate__)
         # is left unused.
+        #
+        # Multilabel-MLP predict -> CPU (2026-06-02): the multilabel head + the
+        # per-feature permutation-importance loop (dozens of predicts per fit)
+        # churn the model across devices and intermittently corrupt the CUDA
+        # context -- "Expected all tensors on the same device, cpu and cuda:0"
+        # escalating to "CUDA illegal memory access" and an outright process
+        # crash on some hosts (cu118, observed 2026-06-02). The first GPU attempt
+        # is what poisons the context, so retrying-on-CPU after the fact is not
+        # enough; route the WHOLE multilabel predict to CPU up front. GPU never
+        # gets touched -> the context stays clean -> predictions are stable. GPU
+        # acceleration is marginal for a small-MLP predict anyway, and
+        # binary/regression MLP predict is unaffected (still GPU). 16-mixed
+        # precision is invalid on CPU, so drop it when forcing CPU.
+        if getattr(self, "_is_multilabel", False):
+            trainer_params["accelerator"] = "cpu"
+            trainer_params.pop("precision", None)
         prediction_trainer = L.Trainer(**trainer_params)
 
         # F-G fix: cache the accelerator the current prediction_trainer
