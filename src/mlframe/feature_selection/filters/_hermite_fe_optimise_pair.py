@@ -32,6 +32,7 @@ def optimise_hermite_pair(
     n_trials: int = 200,
     coef_range: tuple = (-2.0, 2.0),
     l2_penalty: float = 0.05,
+    l2_penalty_saturation: float | None = None,
     n_neighbors: int | None = None,
     seed: int = 42,
     sweep_degrees: bool = True,
@@ -42,6 +43,7 @@ def optimise_hermite_pair(
     plugin_n_bins: int = 20,
     optimizer: str = "cma_batch",
     warm_start: bool = True,
+    warm_start_als: bool = True,
     direction_only: bool = False,
     multi_fidelity: bool = True,
     use_trivial_baseline: bool = True,
@@ -57,7 +59,14 @@ def optimise_hermite_pair(
     * basis="chebyshev" (default) wins empirically across 12 regimes (synthetic + UCI California Housing + UCI Diabetes +
       bounded / heavy-tailed) -- never finishes last, highest minimum MI. Pass basis="hermite" for synthetic Gaussian inputs
       or basis="laguerre" for skewed-positive. See _benchmarks/bench_polynomial_bases.py.
-    * l2_penalty=0.05 is good for XOR-like targets where optimum |c| is small. For radial/saddle (|c| ~ 2-3) drop to 0.01.
+    * l2_penalty=0.05 weights a SCALE-SATURATING coefficient penalty (see ``hermite_fe._l2_penalty_value``): it rises toward a constant
+      ``l2_penalty`` ceiling as ``||c||^2`` grows instead of growing without bound, so high-MI / high-coefficient solutions (e.g. a separable
+      Chebyshev reconstruction of a non-monotone product, ``||c||^2`` ~ 86) are not crushed while pure-noise small-||c|| candidates still pay
+      ~full ``l2_penalty``. ``l2_penalty_saturation`` (default ``hermite_fe._L2_PENALTY_SATURATION_DEFAULT`` = 1.0) sets the ||c||^2 scale at
+      which the penalty reaches half its ceiling; pass ``l2_penalty_saturation<=0`` for the legacy raw ``l2_penalty * ||c||^2`` behaviour.
+    * warm_start_als=True (default) seeds the optimiser with a per-operand rank-1 ALS fit of ``y ~ f(x_a)*g(x_b)`` in the basis (see
+      ``hermite_fe.warm_start_als_seed``). This lands the search directly in the true (possibly large-coefficient) basin -- without it cma_batch
+      can be trapped on a deceptive atan2/div plateau for non-monotone inner distortions. Polynomial bases only; factory/KSG paths skip it.
     * n_neighbors (KSG): None auto-picks 3 for n>=5000, 5 for n in [1000,5000), 7 for n<1000.
     * max_degree=4 covers most smooth targets. For high-frequency targets raise to 6-8 (n_trials proportionally).
     * early_stop_no_improve: stop a study early if no improvement in the last N trials.
@@ -70,7 +79,7 @@ def optimise_hermite_pair(
     # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
     # this sibling at its bottom, so a top-level ``from .hermite_fe
     # import ...`` would create a hard cycle the meta-test flags.
-    from .hermite_fe import HermiteResult, _BASIS_BUILDERS, _CUDA_AVAILABLE, _CUDA_THRESHOLD, _DEFAULT_BIN_FUNCS, _NJIT_FUNCS, _NJIT_PAR_FUNCS, _PAR_THRESHOLD, _POLY_BASES, _canonical_seeds, _l2_normalize_pair, _plugin_mi_classif_batch_njit, _plugin_mi_regression_batch_njit, build_basis_matrix
+    from .hermite_fe import HermiteResult, _BASIS_BUILDERS, _CUDA_AVAILABLE, _CUDA_THRESHOLD, _DEFAULT_BIN_FUNCS, _L2_PENALTY_SATURATION_DEFAULT, _NJIT_FUNCS, _NJIT_PAR_FUNCS, _PAR_THRESHOLD, _POLY_BASES, _canonical_seeds, _l2_normalize_pair, _l2_penalty_value, _plugin_mi_classif_batch_njit, _plugin_mi_regression_batch_njit, build_basis_matrix, warm_start_als_seed
     # Sister-sibling import: ``_baseline_mi_pair``, ``_eval_coef_pair``,
     # ``_run_cma_search`` stayed in ``_hermite_fe_optimise``. Sister-to-sister
     # is cycle-free because the parent imports each sibling at its bottom
@@ -85,6 +94,8 @@ def optimise_hermite_pair(
             f"unknown optimizer={optimizer!r}; expected one of "
             f"'optuna', 'cma', 'cma_batch', 'random_batch', 'numba_kernel'"
         )
+    if l2_penalty_saturation is None:
+        l2_penalty_saturation = _L2_PENALTY_SATURATION_DEFAULT
     # Auto-pick n_neighbors based on n.
     n = len(y)
     if n_neighbors is None:
@@ -310,7 +321,7 @@ def optimise_hermite_pair(
                         mi_arr = mutual_info_classif(X_batch, kw["y"], n_neighbors=kw["n_neighbors"], random_state=42, discrete_features=False)
                     else:
                         mi_arr = mutual_info_regression(X_batch, kw["y"], n_neighbors=kw["n_neighbors"], random_state=42, discrete_features=False)
-                penalty = 0.0 if kw.get("direction_only") else kw["l2_penalty"] * (float(np.sum(coef_a**2)) + float(np.sum(coef_b**2)))
+                penalty = 0.0 if kw.get("direction_only") else _l2_penalty_value(coef_a, coef_b, kw["l2_penalty"], kw.get("l2_penalty_saturation"))
                 best_score = -np.inf
                 best_raw = 0.0
                 best_idx = -1
@@ -334,6 +345,7 @@ def optimise_hermite_pair(
             mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins,
             n_neighbors=n_neighbors, discrete_target=discrete_target,
             l2_penalty=l2_penalty,
+            l2_penalty_saturation=l2_penalty_saturation,
             # Precomputed basis matrices for BLAS GEMV fastpath (None when
             # factory-based basis or polynomial basis not in registry).
             B_a=B_a_search, B_b=B_b_search,
@@ -342,6 +354,41 @@ def optimise_hermite_pair(
         # Canonical warm-start: low-degree polynomial identities matching common targets (XOR, saddle, radial).
         # Replicate across both feature slots, then concatenate.
         warm_seeds = []
+        # Per-operand ALS warm-start (data-fit, highest leverage). Fit the rank-1
+        # separable model y ~ f(x_a) * g(x_b) in the basis via 3 alternating
+        # lstsq solves and seed the joint optimiser with the resulting
+        # coefficients. This lands the optimiser directly in the true
+        # (potentially large-coefficient) basin -- the canonical unit-magnitude
+        # seeds below never reach it, which is why the deceptive atan2/div
+        # plateau trapped cma_batch on the F-POLY pre-distortion case. Gated by
+        # ``warm_start_als``; requires a polynomial basis with a precomputed
+        # basis matrix (factory bases / KSG-only paths skip it).
+        if (warm_start_als and B_a_search is not None and B_b_search is not None
+                and ca_size <= B_a_search.shape[1]
+                and cb_size <= B_b_search.shape[1]):
+            try:
+                als_a, als_b = warm_start_als_seed(
+                    np.ascontiguousarray(B_a_search[:, :ca_size]),
+                    np.ascontiguousarray(B_b_search[:, :cb_size]),
+                    y_search_any,
+                )
+            except Exception as _als_err:
+                logger.debug("warm_start_als_seed failed at degree %d: %s", degree, _als_err)
+                als_a = als_b = None
+            if als_a is not None and als_b is not None:
+                # The ALS direction is what matters (mul MI is scale-invariant);
+                # rescale jointly so the largest coefficient lands inside
+                # ``coef_range`` (CMA-ES / optuna suggest within these bounds, so
+                # an un-clipped seed would be silently truncated and lose its
+                # direction). The saturating penalty makes the absolute scale
+                # harmless either way.
+                _max_abs = float(max(np.max(np.abs(als_a)), np.max(np.abs(als_b)), 1e-12))
+                _bound = 0.95 * min(abs(coef_range[0]), abs(coef_range[1]))
+                if _bound > 0 and _max_abs > _bound:
+                    _scale = _bound / _max_abs
+                    als_a = als_a * _scale
+                    als_b = als_b * _scale
+                warm_seeds.append(np.concatenate([als_a, als_b]))
         if warm_start:
             if canonical_seeds_func is not None:
                 # Non-polynomial basis ships its own canonical seeds via the registry.

@@ -79,15 +79,14 @@ class TestApplyRecipeUnaryBinary:
 
     def test_log_sin_mul_replays(self, simple_pair_data):
         """``mul(log(a), sin(b))`` matches numpy reference computation
-        exactly on the same inputs (modulo NaN/Inf scrubbing). The
-        ``"default"`` preset is the one that contains ``log`` and
-        ``sin`` -- ``"minimal"`` carries only ``identity``."""
+        exactly on the same inputs (modulo NaN/Inf scrubbing). ``log``,
+        ``sin`` and ``mul`` all live in the ``"minimal"`` workhorse preset."""
         recipe = build_unary_binary_recipe(
             name="mul(log(a),sin(b))",
             src_a_name="a", src_b_name="b",
             unary_a_name="log", unary_b_name="sin",
             binary_name="mul",
-            unary_preset="default", binary_preset="default",
+            unary_preset="minimal", binary_preset="minimal",
             quantization_nbins=None,
             quantization_method=None,
             quantization_dtype=np.float32,
@@ -97,8 +96,8 @@ class TestApplyRecipeUnaryBinary:
         # Reference: same operations through the registry to guarantee
         # behavioural parity even if registries swap to different log/sin
         # impls in the future.
-        unary = create_unary_transformations(preset="default")
-        binary = create_binary_transformations(preset="default")
+        unary = create_unary_transformations(preset="minimal")
+        binary = create_binary_transformations(preset="minimal")
         expected = binary["mul"](
             unary["log"](simple_pair_data["a"].to_numpy()),
             unary["sin"](simple_pair_data["b"].to_numpy()),
@@ -109,8 +108,8 @@ class TestApplyRecipeUnaryBinary:
     def test_replay_on_test_data_independent_from_fit_data(self):
         """Recipe holds no fit-time data: replaying on a different
         DataFrame with the same column names works and returns values
-        consistent with the formula. ``squared`` lives in the
-        ``"default"`` preset, so the recipe records that preset."""
+        consistent with the formula. ``sqr`` lives in the
+        ``"minimal"`` preset, so the recipe records that preset."""
         rng = np.random.default_rng(0)
         # fit-time frame, 100 rows
         df_fit = pd.DataFrame({"a": rng.uniform(1, 10, 100), "b": rng.uniform(0, 1, 100)})
@@ -118,11 +117,11 @@ class TestApplyRecipeUnaryBinary:
         df_test = pd.DataFrame({"a": rng.uniform(1, 10, 50), "b": rng.uniform(0, 1, 50)})
 
         recipe = build_unary_binary_recipe(
-            name="mul(squared(a),identity(b))",
+            name="mul(sqr(a),identity(b))",
             src_a_name="a", src_b_name="b",
-            unary_a_name="squared", unary_b_name="identity",
+            unary_a_name="sqr", unary_b_name="identity",
             binary_name="mul",
-            unary_preset="default", binary_preset="default",
+            unary_preset="minimal", binary_preset="minimal",
             quantization_nbins=None,
             quantization_method=None,
             quantization_dtype=np.float32,
@@ -177,7 +176,7 @@ class TestRecipePersistence:
             src_a_name="a", src_b_name="b",
             unary_a_name="neg", unary_b_name="identity",
             binary_name="add",
-            unary_preset="default", binary_preset="default",
+            unary_preset="minimal", binary_preset="minimal",
             quantization_nbins=None,
             quantization_method=None,
             quantization_dtype=np.float32,

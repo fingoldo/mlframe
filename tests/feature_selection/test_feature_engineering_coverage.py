@@ -1,9 +1,9 @@
 """Coverage-targeted tests for ``mlframe.feature_selection.filters.feature_engineering``.
 
 Exercises:
-- ``create_unary_transformations`` presets ("minimal" / "default" / "maximal")
+- ``create_unary_transformations`` presets ("minimal" / "medium" / "maximal")
   including the special-function families (polygamma_0/1/2, struve0/1/2, jv0/1/2).
-- ``create_binary_transformations`` presets ("minimal" vs "maximal").
+- ``create_binary_transformations`` presets ("minimal" / "medium" / "maximal").
 - ``UNARY_INPUT_CONSTRAINTS`` module-level dict (keys + tag vocab).
 - ``get_existing_feature_name`` / ``get_new_feature_name`` formatters.
 - ``compute_pairs_mis`` (sorted-dict semantics across full and partial caches).
@@ -46,30 +46,35 @@ class TestUnaryTransformationsPresets:
     (b) compile its registry through ``njit_functions_dict`` without raising."""
 
     @pytest.mark.fast
-    def test_minimal_preset_has_only_identity(self):
+    def test_minimal_preset_is_workhorse_set(self):
+        # The "minimal" preset is a non-degenerate workhorse set (NOT identity-only):
+        # it must carry enough building blocks to engineer common signals like
+        # sqr(a)/b or log(c)*sin(d) on default MRMR settings.
         unary = create_unary_transformations(preset="minimal")
-        assert set(unary.keys()) == {"identity"}
+        assert set(unary.keys()) == {
+            "identity", "neg", "abs", "sqr", "reciproc", "sqrt", "log", "sin",
+        }
         # identity must round-trip a plain array unchanged
         x = np.linspace(-3, 3, 11, dtype=np.float32)
         np.testing.assert_array_equal(unary["identity"](x), x)
 
-    def test_default_preset_superset_of_minimal(self):
-        default = create_unary_transformations(preset="default")
+    def test_medium_preset_superset_of_minimal(self):
+        medium = create_unary_transformations(preset="medium")
         minimal = create_unary_transformations(preset="minimal")
         for k in minimal:
-            assert k in default
-        # A handful of well-known names that must come with the "default" preset:
+            assert k in medium
+        # A handful of well-known names that must come with the "medium" preset:
         for k in (
-            "sign", "neg", "abs", "rint", "squared", "qubed", "reciproc",
+            "sign", "neg", "abs", "rint", "sqr", "qubed", "reciproc",
             "invsquared", "invqubed", "cbrt", "sqrt", "invcbrt", "invsqrt",
             "log", "exp", "sin",
         ):
-            assert k in default, f"default preset missing '{k}'"
+            assert k in medium, f"medium preset missing '{k}'"
 
-    def test_maximal_preset_superset_of_default(self):
+    def test_maximal_preset_superset_of_medium(self):
         maximal = create_unary_transformations(preset="maximal")
-        default = create_unary_transformations(preset="default")
-        for k in default:
+        medium = create_unary_transformations(preset="medium")
+        for k in medium:
             assert k in maximal
         # Maximal-only names per the module docstring / source
         for k in (
@@ -112,15 +117,19 @@ class TestUnaryTransformationsPresets:
 class TestBinaryTransformationsPresets:
     @pytest.mark.fast
     def test_minimal_keys(self):
+        # minimal carries the six arithmetic workhorses, including div + sub
+        # (their prior absence from every tier was the FE regression).
         binary = create_binary_transformations(preset="minimal")
-        assert set(binary.keys()) == {"mul", "add", "max", "min"}
+        assert set(binary.keys()) == {"mul", "add", "sub", "div", "max", "min"}
 
-    def test_default_preset_matches_minimal(self):
-        """The source treats anything not ``"maximal"`` as minimal-equivalent."""
-        default = create_binary_transformations(preset="default")
+    def test_medium_superset_of_minimal(self):
+        """``medium`` is a strict superset of ``minimal`` (adds abs_diff, hypot)."""
+        medium = create_binary_transformations(preset="medium")
         minimal = create_binary_transformations(preset="minimal")
-        # default == minimal because the maximal-only branch is gated on preset=="maximal"
-        assert set(default.keys()) == set(minimal.keys())
+        for k in minimal:
+            assert k in medium, f"medium preset dropped minimal key '{k}'"
+        for k in ("abs_diff", "hypot"):
+            assert k in medium, f"medium preset missing '{k}'"
 
     def test_maximal_superset(self):
         maximal = create_binary_transformations(preset="maximal")
@@ -204,8 +213,8 @@ class TestNameFormatters:
         assert get_new_feature_name(fe, cols) == "mul(log(a),sin(b))"
 
         # Identity on one side
-        fe2 = (((2, "identity"), (3, "squared")), "add", 99)
-        assert get_new_feature_name(fe2, cols) == "add(c,squared(d))"
+        fe2 = (((2, "identity"), (3, "sqr")), "add", 99)
+        assert get_new_feature_name(fe2, cols) == "add(c,sqr(d))"
 
 
 # ---------------------------------------------------------------------------

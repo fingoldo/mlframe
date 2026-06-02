@@ -1020,6 +1020,104 @@ def _l2_normalize_pair(coef_a: np.ndarray, coef_b: np.ndarray,
     return coef_a * scale, coef_b * scale
 
 
+# Default saturation constant for the scale-invariant coefficient penalty (see
+# ``_l2_penalty_value``). When ``l2_penalty_saturation > 0`` the penalty is
+# ``lambda * ||c||^2 / (||c||^2 + saturation)`` -- it rises from 0 toward a
+# CONSTANT ``lambda`` ceiling as ``||c||^2`` grows past ``saturation``, so a
+# genuinely high-MI / high-coefficient solution is never crushed (the failure
+# mode the raw ``lambda * ||c||^2`` penalty caused on the F-POLY pre-distortion
+# fixture, where the true Chebyshev coefficients have ``||c||^2 ~ 86`` and the
+# raw penalty ~4.3 dwarfed the MI peak ~1.5). ``saturation`` sets the coef-norm
+# scale at which the penalty reaches half ``lambda``; 1.0 means small-coef noise
+# solutions (||c||^2 << 1, e.g. an atan2 plateau artifact) still pay almost the
+# full ``lambda``, preserving noise rejection.
+_L2_PENALTY_SATURATION_DEFAULT = 1.0
+
+
+def _l2_penalty_value(coef_a: np.ndarray, coef_b: np.ndarray,
+                       l2_penalty: float,
+                       l2_penalty_saturation: float = _L2_PENALTY_SATURATION_DEFAULT) -> float:
+    """Coefficient-magnitude penalty subtracted from the raw MI objective.
+
+    Two regimes, selected by ``l2_penalty_saturation``:
+
+    * ``l2_penalty_saturation > 0`` (the default / recommended path): a
+      SCALE-SATURATING penalty ``lambda * s / (s + sat)`` where ``s = ||c_a||^2
+      + ||c_b||^2``. As ``s`` grows the penalty saturates toward the constant
+      ``lambda`` instead of growing without bound, so it regularises pure noise
+      (tiny ``s`` -> tiny penalty difference between candidates, plus the
+      constant ceiling discourages adding magnitude for no MI gain) WITHOUT
+      punishing genuinely-high-MI high-coefficient solutions. This is what lets
+      the separable Chebyshev reconstruction of ``(a**3-2a)(b**2-b)`` (||c||^2
+      ~ 86, MI ~ 1.5) win over the deceptive small-||c|| atan2/div plateau.
+
+    * ``l2_penalty_saturation <= 0``: the legacy RAW penalty ``lambda *
+      ||c||^2``. Kept for byte-compatibility / opt-out; this is the formula that
+      crushed large-coefficient solutions.
+
+    ``l2_penalty <= 0`` returns 0.0 in both regimes (penalty disabled).
+    """
+    if l2_penalty <= 0.0:
+        return 0.0
+    s = float(np.sum(coef_a ** 2) + np.sum(coef_b ** 2))
+    if l2_penalty_saturation and l2_penalty_saturation > 0.0:
+        return l2_penalty * (s / (s + l2_penalty_saturation))
+    return l2_penalty * s
+
+
+def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
+                         *, iters: int = 3) -> tuple:
+    """Per-operand warm-start coefficients for the multiplicative pair model
+    ``y ~ f(x_a) * g(x_b)`` via a rank-1 alternating-least-squares (ALS) sweep
+    in the orthogonal-polynomial basis.
+
+    ``B_a`` / ``B_b`` are precomputed basis matrices ``B[i, k] = T_k(z[i])`` of
+    shape ``(n, degree + 1)`` (see :func:`build_basis_matrix`). Returns
+    ``(coef_a, coef_b)`` -- each length ``degree + 1`` -- such that ``B_a @
+    coef_a`` and ``B_b @ coef_b`` are the rank-1 separable factors best fitting
+    the centred target.
+
+    Why ALS and not two independent 1-D fits: for a centred product target the
+    marginal ``E[y | x_b]`` is ~ ``g(x_b) * E[f(x_a)] ~ 0``, so an independent
+    1-D least-squares fit of ``y`` on ``B_b`` recovers almost nothing on the
+    b-side (measured corr 0.49 vs Q on the F-POLY fixture). One ALS sweep -- fit
+    ``f`` given the current ``g`` by regressing ``y`` on ``B_a`` scaled
+    column-wise by ``g``, then symmetrically -- recovers BOTH factors exactly
+    (corr 1.0 each on F-POLY) in three cheap ``lstsq`` solves. This is the
+    highest-leverage, near-free warm start: it lands the joint optimiser
+    directly in the true (large-coefficient) basin that CMA-ES otherwise never
+    finds from the canonical unit-magnitude seeds.
+
+    The returned coefficient SCALE is arbitrary for a ``mul`` combination (MI is
+    scale-invariant under ``mul``); the magnitude is split between the two
+    factors by the ALS normalisation and is intentionally NOT projected -- the
+    saturating penalty (:func:`_l2_penalty_value`) makes that scale harmless.
+
+    Returns ``(None, None)`` if the target has no variance or ``lstsq`` fails.
+    """
+    yc = np.ascontiguousarray(np.asarray(y, dtype=np.float64))
+    yc = yc - yc.mean()
+    if float(np.std(yc)) < 1e-12:
+        return None, None
+    try:
+        # Initialise g(b) from a plain 1-D least-squares fit on the b-basis.
+        cb, *_ = np.linalg.lstsq(B_b, yc, rcond=None)
+        g = B_b @ cb
+        ca = None
+        for _ in range(max(1, int(iters))):
+            g_norm = g / (float(np.std(g)) + 1e-12)
+            ca, *_ = np.linalg.lstsq(B_a * g_norm[:, None], yc, rcond=None)
+            f = B_a @ ca
+            f_norm = f / (float(np.std(f)) + 1e-12)
+            cb, *_ = np.linalg.lstsq(B_b * f_norm[:, None], yc, rcond=None)
+            g = B_b @ cb
+        if ca is None or not (np.all(np.isfinite(ca)) and np.all(np.isfinite(cb))):
+            return None, None
+        return np.ascontiguousarray(ca, dtype=np.float64), np.ascontiguousarray(cb, dtype=np.float64)
+    except (np.linalg.LinAlgError, ValueError):
+        return None, None
+
+
 
 
 

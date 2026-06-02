@@ -70,6 +70,7 @@ FE_ORIGIN_LABELS = (
     "lagged_diff",
     "dcd_aggregate",
     "cluster_aggregate",
+    "unary_binary_pair",
     "engineered_unknown",
 )
 
@@ -96,7 +97,7 @@ _RECIPE_KIND_TO_ORIGIN: dict[str, str] = {
     "lagged_diff": "lagged_diff",
     "cluster_aggregate": "cluster_aggregate",
     "target_encoding": "kfold_te",
-    "unary_binary": "engineered_unknown",
+    "unary_binary": "unary_binary_pair",
     "factorize": "engineered_unknown",
 }
 

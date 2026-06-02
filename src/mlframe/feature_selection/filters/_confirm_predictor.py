@@ -51,6 +51,85 @@ from .permutation import mi_direct
 logger = logging.getLogger(__name__)
 
 
+def _candidate_is_engineered(X, factors_names, raw_feature_names) -> bool:
+    """True iff candidate ``X`` (single index or k-way tuple of cols-indices) is
+    engineered, i.e. at least one of its component columns is NOT a raw input.
+
+    When ``raw_feature_names`` (a set of the original pre-FE column names) is
+    provided, a component is engineered iff its ``factors_names`` entry is not in
+    that set -- the authoritative test. When it is ``None`` (direct callers that
+    don't thread the raw-name set), fall back to the syntactic convention that
+    engineered names contain ``(`` (functional forms like ``add(x0,x2)``,
+    ``div(sqr(a),b)``) or ``__`` (basis transforms like ``x1__He2``); raw column
+    names never contain those tokens in any mlframe FE producer.
+    """
+    for sub in X:
+        try:
+            name = factors_names[sub]
+        except (IndexError, TypeError, KeyError):
+            continue
+        if raw_feature_names is not None:
+            if name not in raw_feature_names:
+                return True
+        else:
+            if ("(" in name) or ("__" in name):
+                return True
+    return False
+
+
+def _prefer_engineered_order(order, expected_gains, ctx) -> np.ndarray:
+    """Reorder the descending-gain ``order`` so that, among the leading run of
+    candidates whose gain is within ``ctx.prefer_engineered_rel_eps`` (relative)
+    of the top gain, engineered candidates precede raw ones.
+
+    Gated and minimal: only the candidates tied (within rel-eps) with the current
+    front-runner are eligible to move, and the relative order INSIDE the
+    engineered group and inside the raw group is preserved (stable), so a clear
+    winner -- one with no engineered peer within eps -- is never displaced. The
+    promotion is deterministic and independent of the scoring backend because it
+    reads only the (backend-identical) ``expected_gains`` array and the static
+    raw-name set. Returns the (possibly) reordered index array.
+    """
+    rel_eps = float(getattr(ctx, "prefer_engineered_rel_eps", 0.0) or 0.0)
+    if rel_eps <= 0.0 or len(order) < 2:
+        return order
+
+    gains = np.asarray(expected_gains, dtype=np.float64)
+    top_idx = order[0]
+    top_gain = gains[top_idx]
+    # Only meaningful when the leader carries a positive gain; near-ties at or
+    # below zero are noise and must keep the legacy (index) ordering.
+    if not (top_gain > 0.0):
+        return order
+
+    factors_names = ctx.factors_names
+    raw_names = getattr(ctx, "raw_feature_names", None)
+    candidates = ctx.candidates
+    tol = rel_eps * abs(top_gain)
+    # An already-engineered leader stays first: it lands at the head of the
+    # stable ``engineered_in_band`` group below, so the order is unchanged.
+
+    leading, engineered_in_band, rest = [], [], []
+    seen_band = True
+    for pos, cand_idx in enumerate(order):
+        if seen_band and (top_gain - gains[cand_idx]) <= tol:
+            # Within the relative-eps band of the leader.
+            if _candidate_is_engineered(candidates[cand_idx], factors_names, raw_names):
+                engineered_in_band.append(cand_idx)
+            else:
+                leading.append(cand_idx)
+        else:
+            seen_band = False
+            rest.append(cand_idx)
+
+    if not engineered_in_band:
+        return order  # no engineered peer in the band -> clear winner, untouched
+
+    # Engineered band-members first (stable), then the raw band-members (stable),
+    # then the untouched tail.
+    return np.asarray(engineered_in_band + leading + rest, dtype=order.dtype)
+
+
 @dataclass
 class ScreenContext:
     """Bundle of shared/static screening state threaded into the confirmation primitives.
@@ -116,6 +195,20 @@ class ScreenContext:
     partial_gains: dict = None
     added_candidates: set = field(default=None)
     failed_candidates: set = field(default=None)
+    # 2026-06-02 — directed-FE tie-break. ``raw_feature_names`` is the set of
+    # ORIGINAL (pre-FE) column names; any ``factors_names[idx]`` not in it is an
+    # engineered transform of its raw parent(s). On a near-tie in selection gain
+    # (within ``prefer_engineered_rel_eps`` relative tolerance) the greedy pick
+    # deterministically prefers the engineered candidate over a raw one: an
+    # engineered column is a function of its parent, so on an MI-tie it dominates
+    # representationally (a shallow downstream can use x1**2-1 but not raw x1),
+    # and the deterministic rule removes the njit-vs-njit_par pick nondeterminism
+    # that the prior index-order tie-break introduced. ``None`` raw-name set
+    # falls back to the syntactic heuristic (a name containing ``(`` or ``__`` is
+    # engineered) so direct callers still get deterministic behaviour. Setting
+    # the rel-eps to ``0.0`` restores the legacy pure-index tie-break.
+    raw_feature_names: object = None
+    prefer_engineered_rel_eps: float = 0.0
 
 
 def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expected_gains: np.ndarray):
@@ -552,9 +645,15 @@ def confirm_one_predictor(
 
         cand_confirmed = False
         any_cand_considered = False
-        for n, next_best_candidate_idx in enumerate(
-            np.lexsort((np.arange(len(expected_gains)), -np.asarray(expected_gains)))
-        ):
+        # Descending-gain order with a stable index tie-break, then the directed-FE
+        # promotion: on a near-tie (gain within ``prefer_engineered_rel_eps`` of the
+        # leader) prefer an engineered candidate over its raw parent. This is the
+        # decisive selection ordering, so the promotion here fixes BOTH the wrong
+        # pick (raw parent winning an MI-tie) AND the backend nondeterminism (the
+        # promotion reads only the backend-identical ``expected_gains`` array).
+        _gain_order = np.lexsort((np.arange(len(expected_gains)), -np.asarray(expected_gains)))
+        _gain_order = _prefer_engineered_order(_gain_order, expected_gains, ctx)
+        for n, next_best_candidate_idx in enumerate(_gain_order):
             next_best_gain = expected_gains[next_best_candidate_idx]
             if next_best_gain >= min_relevance_gain:  # only can consider here candidates fully checked against every Z
 

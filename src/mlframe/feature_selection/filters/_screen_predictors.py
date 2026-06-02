@@ -124,6 +124,17 @@ def screen_predictors(
     # ``cols`` but the remap in _mrmr_fit_impl.py dropped it from
     # ``_engineered_recipes_`` so ``get_feature_names_out`` silently lost it.
     engineered_recipes: dict = None,
+    # 2026-06-02 — directed-FE tie-break (see ScreenContext.raw_feature_names).
+    # ``raw_feature_names`` is the set of ORIGINAL (pre-FE) input column names;
+    # any candidate whose ``factors_names`` entry is not in it is engineered.
+    # On a near-tie in selection gain (within ``prefer_engineered_rel_eps``
+    # relative tolerance) the greedy pick prefers the engineered candidate over a
+    # raw one -- deterministic, and the whole point of directed FE: surface the
+    # nonlinear combination, not its raw parent (which a shallow downstream can't
+    # use). ``None`` raw-name set falls back to the syntactic ``(``/``__``
+    # heuristic; rel-eps ``0.0`` restores the legacy pure-index tie-break.
+    raw_feature_names: object = None,
+    prefer_engineered_rel_eps: float = 0.01,
 ) -> float:
     """Finds best predictors for the target. ``factors_data`` must be an n-by-m array of integers (ordinal encoded).
 
@@ -523,6 +534,11 @@ def screen_predictors(
             use_simple_mode=use_simple_mode,
             extra_x_shuffling=extra_x_shuffling,
             engineered_lineage=engineered_lineage,
+            # 2026-06-02 — directed-FE tie-break inputs. Normalize the raw-name
+            # collection to a set for O(1) membership; ``None`` stays ``None`` so
+            # the confirm primitive falls back to the syntactic heuristic.
+            raw_feature_names=(set(raw_feature_names) if raw_feature_names is not None else None),
+            prefer_engineered_rel_eps=float(prefer_engineered_rel_eps or 0.0),
             dcd_state=dcd_state,  # Wave 9 — forward DCD state into confirm context
             n_workers=n_workers,
             workers_pool=workers_pool,

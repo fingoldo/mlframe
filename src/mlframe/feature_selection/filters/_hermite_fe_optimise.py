@@ -59,6 +59,7 @@ def detect_pair_symmetry(x_a: np.ndarray, x_b: np.ndarray, y: np.ndarray, *,
 def _eval_coef_pair(coef_a, coef_b, *, z_a, z_b, eval_func, bf_callables,
                      bf_names, y, y_njit, mi_estimator, plugin_n_bins,
                      n_neighbors, discrete_target, l2_penalty,
+                     l2_penalty_saturation=None,
                      direction_only=False, eval_func_b=None,
                      B_a=None, B_b=None):
     """Shared inner objective: evaluate one (c_a, c_b) pair across all binary funcs; return best (regularised score, raw MI, bf idx).
@@ -79,7 +80,9 @@ def _eval_coef_pair(coef_a, coef_b, *, z_a, z_b, eval_func, bf_callables,
     # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
     # this sibling at its bottom, so a top-level ``from .hermite_fe
     # import ...`` would create a hard cycle the meta-test flags.
-    from .hermite_fe import _l2_normalize_pair, _plugin_mi_classif_batch_njit, _plugin_mi_regression_batch_njit
+    from .hermite_fe import _L2_PENALTY_SATURATION_DEFAULT, _l2_normalize_pair, _l2_penalty_value, _plugin_mi_classif_batch_njit, _plugin_mi_regression_batch_njit
+    if l2_penalty_saturation is None:
+        l2_penalty_saturation = _L2_PENALTY_SATURATION_DEFAULT
     if direction_only:
         coef_a, coef_b = _l2_normalize_pair(coef_a, coef_b, target_norm=1.0)
     # 2026-05-18 BASIS-MATRIX FASTPATH (kept but disabled by default):
@@ -144,8 +147,8 @@ def _eval_coef_pair(coef_a, coef_b, *, z_a, z_b, eval_func, bf_callables,
         else:
             mi_arr = mutual_info_regression(X_batch, y, n_neighbors=n_neighbors,
                                              random_state=42, discrete_features=False)
-    penalty = 0.0 if direction_only else l2_penalty * (
-        float(np.sum(coef_a ** 2)) + float(np.sum(coef_b ** 2))
+    penalty = 0.0 if direction_only else _l2_penalty_value(
+        coef_a, coef_b, l2_penalty, l2_penalty_saturation,
     )
     best_score = -np.inf
     best_raw = 0.0
@@ -162,6 +165,7 @@ def _eval_coef_pair(coef_a, coef_b, *, z_a, z_b, eval_func, bf_callables,
 def _eval_coef_pair_batch(coefs_a, coefs_b, *, z_a, z_b, eval_func, bf_callables,
                            bf_names, y, y_njit, mi_estimator, plugin_n_bins,
                            n_neighbors, discrete_target, l2_penalty,
+                           l2_penalty_saturation=None,
                            direction_only=False, eval_func_b=None,
                            B_a=None, B_b=None):
     """Batched eval over ``P`` coefficient candidates simultaneously.
@@ -185,7 +189,9 @@ def _eval_coef_pair_batch(coefs_a, coefs_b, *, z_a, z_b, eval_func, bf_callables
     polyeval (cheap numba calls), this is the bulk of the speedup vs
     Optuna's per-trial sequential evaluation.
     """
-    from .hermite_fe import _l2_normalize_pair, _plugin_mi_classif_batch_njit, _plugin_mi_regression_batch_njit
+    from .hermite_fe import _L2_PENALTY_SATURATION_DEFAULT, _l2_normalize_pair, _l2_penalty_value, _plugin_mi_classif_batch_njit, _plugin_mi_regression_batch_njit
+    if l2_penalty_saturation is None:
+        l2_penalty_saturation = _L2_PENALTY_SATURATION_DEFAULT
 
     P = int(coefs_a.shape[0])
     # Direction-only normalisation per candidate. Loop because
@@ -271,8 +277,8 @@ def _eval_coef_pair_batch(coefs_a, coefs_b, *, z_a, z_b, eval_func, bf_callables
     penalties = np.zeros(P, dtype=np.float64)
     if not direction_only and l2_penalty > 0:
         for p in range(P):
-            penalties[p] = l2_penalty * (
-                float(np.sum(coefs_a[p] ** 2)) + float(np.sum(coefs_b[p] ** 2))
+            penalties[p] = _l2_penalty_value(
+                coefs_a[p], coefs_b[p], l2_penalty, l2_penalty_saturation,
             )
     for j, (p, k) in enumerate(col_meta):
         raw = float(mi_arr[j])

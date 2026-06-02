@@ -134,7 +134,7 @@ def _can_hoist_shared_buffer(buffer_bytes: int, budget_ratio: float = _FE_BUFFER
 
 # Domain-validity tags for unary transforms produced by ``create_unary_transformations(preset="maximal")``. Consumers that need to clip / reject inputs before
 # applying these transforms can look them up here. Tag vocabulary: ``-1to1``, ``-pi/2topi/2``, ``1toinf``, ``-0.(9)to0.(9)``, ``pos``, ``nonzero``. Transforms not
-# listed are unconstrained on real inputs (e.g. ``sin``, ``exp``, ``squared``).
+# listed are unconstrained on real inputs (e.g. ``sin``, ``exp``, ``sqr``).
 UNARY_INPUT_CONSTRAINTS: dict[str, str] = {
     # reverse trigonometric
     "arccos": "-1to1",
@@ -239,7 +239,7 @@ def gpu_compatible_unary_names() -> set:
     """Names of unary transformations with a direct CuPy equivalent. Anything outside this set falls back to per-column CPU dispatch."""
     return {
         "identity", "sign", "neg", "abs", "rint",
-        "squared", "qubed", "reciproc", "invsquared", "invqubed",
+        "sqr", "qubed", "reciproc", "invsquared", "invqubed",
         "cbrt", "sqrt", "invcbrt", "invsqrt",
         "log", "exp",
         "sin", "cos", "tan",
@@ -292,7 +292,7 @@ def apply_gpu_unary_batched(
         return cp.abs(sub_gpu)
     if name == "rint":
         return cp.rint(sub_gpu)
-    if name == "squared":
+    if name == "sqr":
         return cp.power(sub_gpu, 2)
     if name == "qubed":
         return cp.power(sub_gpu, 3)
@@ -366,39 +366,76 @@ def apply_gpu_binary_batched(
     raise ValueError(f"GPU dispatch missing for binary {name!r}")
 
 
+_KNOWN_UNARY_PRESETS = ("minimal", "medium", "maximal")
+_KNOWN_BINARY_PRESETS = ("minimal", "medium", "maximal")
+
+
+def _resolve_preset(preset: str) -> str:
+    """Canonicalise a preset name to one of {minimal, medium, maximal}.
+
+    ``rich`` / ``full`` are treated as aliases for ``maximal`` (the richest
+    tier) so callers using the historical loose vocabulary still get a
+    well-defined registry. Any other value raises ValueError so a typo
+    (``mininal``) surfaces loudly rather than silently aliasing to ``medium``.
+    """
+    p = (preset or "").strip().lower()
+    if p in _KNOWN_UNARY_PRESETS:
+        return p
+    if p in ("rich", "full"):
+        return "maximal"
+    raise ValueError(
+        f"unknown FE preset {preset!r}; expected one of "
+        f"{_KNOWN_UNARY_PRESETS} (or aliases 'rich'/'full' -> 'maximal')"
+    )
+
+
 def create_unary_transformations(preset: str = "minimal"):
     # Domain-validity tags for each transform live in the module-level ``UNARY_INPUT_CONSTRAINTS`` dict so callers that need to clip / reject inputs can look them up
     # by transform name (e.g. ``arccos`` requires ``-1to1``).
+    #
+    # Preset ladder (monotone: minimal subset of medium subset of maximal):
+    #   minimal -- non-degenerate workhorse set able to express the common
+    #     algebraic targets (a**2/b, log(c)*sin(d), ...): identity + the
+    #     elementary powers, sqrt, log, sin and their sign/neg/abs companions.
+    #     Every tier MUST have >1 member; an identity-only "minimal" silently
+    #     crippled MRMR's pair FE (it could only form mul(a,b)/add(a,b), never
+    #     sqr(a) or log(c)), so the default fit found ZERO engineered cols.
+    #   medium -- minimal + exp, reciprocal/inverse powers, cbrt, rint.
+    #   maximal -- medium + trig/hyperbolic/special families (below).
+    preset = _resolve_preset(preset)
     unary_transformations = {
         # simplest
         "identity": lambda x: x,
+        # sign / magnitude companions
+        "neg": np.negative,
+        "abs": np.abs,
+        # powers
+        "sqr": lambda x: np.power(x, 2),
+        "reciproc": lambda x: np.power(x, -1),
+        "sqrt": lambda x: np.sqrt(np.abs(x)),
+        # logarithms
+        "log": smart_log,
+        # trigonometric
+        "sin": np.sin,
     }
     if preset != "minimal":
         unary_transformations.update(
             {
                 "sign": np.sign,
-                "neg": np.negative,
-                "abs": np.abs,
                 # outliers removal
                 # Rounding
                 "rint": np.rint,
                 # np.modf Return the fractional and integral parts of an array, element-wise.
                 # clip
                 # powers
-                "squared": lambda x: np.power(x, 2),
                 "qubed": lambda x: np.power(x, 3),
-                "reciproc": lambda x: np.power(x, -1),
                 "invsquared": lambda x: np.power(x, -2),
                 "invqubed": lambda x: np.power(x, -3),
                 "cbrt": np.cbrt,
-                "sqrt": lambda x: np.sqrt(np.abs(x)),
                 "invcbrt": lambda x: np.power(x, -1 / 3),
                 "invsqrt": lambda x: np.power(x, -1 / 2),
                 # logarithms
-                "log": smart_log,
                 "exp": np.exp,
-                # trigonometric
-                "sin": np.sin,
             }
         )
 
@@ -451,16 +488,47 @@ def create_unary_transformations(preset: str = "minimal"):
     return unary_transformations
 
 
+def _safe_div(x, y):
+    """Element-wise division with a sign-stable epsilon so ``x / 0`` does not
+    blow up to +-inf (mirrors hermite_fe._safe_div). Required so the binary
+    registry can express genuine ratio targets (e.g. a**2/b) directly rather
+    than only via reciproc-then-multiply, which loses a representative on tight
+    unary presets."""
+    eps = 1e-9
+    return x / (y + np.sign(y) * eps + eps)
+
+
 def create_binary_transformations(preset: str = "minimal"):
+    # Preset ladder (monotone: minimal subset of medium subset of maximal):
+    #   minimal -- the elementary closed binary algebra: mul, add, sub,
+    #     div, max, min. ``sub`` and ``div`` were absent from EVERY
+    #     prior tier; division was only reachable as reciproc o mul, so a plain
+    #     a/b ratio target could not be formed when the unary preset lacked
+    #     reciproc. Every tier MUST have >1 member.
+    #   medium -- minimal + abs_diff, hypot (richer magnitude combinations).
+    #   maximal -- medium + the full numpy / scipy.special family below.
+    preset = _resolve_preset(preset)
 
     binary_transformations = {
         # Basic
         "mul": np.multiply,
         "add": np.add,
+        "sub": np.subtract,
+        # Safe division (sign-stable eps; never +-inf on divide-by-zero).
+        "div": _safe_div,
         # Extrema
         "max": np.maximum,
         "min": np.minimum,
     }
+
+    if preset != "minimal":
+        binary_transformations.update(
+            {
+                # Richer magnitude combinations available from medium up.
+                "abs_diff": lambda x, y: np.abs(x - y),
+                "hypot": np.hypot,
+            }
+        )
 
     if preset == "maximal":
         binary_transformations.update(

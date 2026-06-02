@@ -4903,6 +4903,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         _effective_min_relevance_gain = float(self.min_relevance_gain)
 
     num_fs_steps = 0
+    # 2026-06-02: tracks whether the post-FE confirming re-screen has run, so it
+    # fires at most once (see the fe_reselect_after_engineering block below). The
+    # re-screen re-selects from the augmented pool (raw + engineered) using the
+    # estimator's own use_simple_mode (now defaulting to False = full Fleuret
+    # conditional-MI redundancy), which is what drops engineered columns redundant
+    # given an already-selected one and records a real gain for every survivor.
+    _did_confirm_rescreen = False
     while True:
         n_recommended_features = 0
         times_spent = defaultdict(float)
@@ -5017,6 +5024,15 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # Pre-fix the dict was inaccessible from screen and the swap
                 # silently dropped the aggregate from ``_engineered_recipes_``.
                 engineered_recipes=engineered_recipes,
+                # 2026-06-02 — directed-FE tie-break: pass the snapshot of the
+                # ORIGINAL user input columns (taken before any FE stage appended
+                # engineered intermediates). screen_predictors uses it to mark
+                # any candidate whose name is not in this set as engineered and,
+                # on a near-tie in selection gain, prefer the engineered transform
+                # over its raw parent (e.g. x1__He2 over x1 for an even-symmetric
+                # target). Applies in BOTH the first screen and the post-FE
+                # confirming re-screen (this same call runs in the while-loop).
+                raw_feature_names=_raw_input_cols_pre_fe,
             )
         )
         # 2026-05-30 Wave 9 — stash DCD summary on the estimator for the
@@ -5211,6 +5227,27 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
         num_fs_steps += 1
         if num_fs_steps >= fe_max_steps:
+            # CONFIRM-RESCREEN (2026-06-02): the FE step appended engineered
+            # columns and (legacy) promoted them into ``selected_vars`` BY FIAT,
+            # bypassing redundancy filtering + gain accounting. Instead of
+            # breaking here, loop ONCE more so the top-of-loop ``screen_predictors``
+            # re-selects from the AUGMENTED pool. The engineered columns are
+            # already quantised bin-code columns in ``data``/``cols``/``nbins``,
+            # so MRMR treats them as ordinary candidates: a redundant engineered
+            # feature (e.g. ``1/b - d**2`` whose conditional MI given an
+            # already-selected ``a**2/b`` is ~0.03) is dropped by the Fleuret
+            # redundancy term, and every surviving column -- raw OR engineered --
+            # earns a real ``mrmr_gain`` / ``support_rank``. The next iteration
+            # hits the ``num_fs_steps >= fe_max_steps`` break at the TOP of the
+            # loop (line ~5085) BEFORE the FE step, so FE never runs again -- no
+            # unbounded recursion, no new engineered columns.
+            if (
+                getattr(self, "fe_reselect_after_engineering", True)
+                and n_recommended_features > 0
+                and not _did_confirm_rescreen
+            ):
+                _did_confirm_rescreen = True
+                continue
             break  # uncomment to avoid recheck of single-rounded FE
 
     if verbose > 2:
@@ -5430,7 +5467,15 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # Assign support
     # ---------------------------------------------------------------------------------------------------------------
 
-    self.support_ = np.array(selected_vars)
+    # ``selected_vars`` holds integer column indices. Force int64 dtype so an
+    # EMPTY selection (all signal folded into engineered recipes under the
+    # full-mode default -> zero raw survivors) stays an integer index array.
+    # ``np.array([])`` defaults to float64, and the ndarray transform path
+    # (``X[:, support_]`` in _mrmr_validate_transform) then raises
+    # ``IndexError: arrays used as indices must be of integer (or boolean)
+    # type`` because a float array can't index. Integer dtype makes the empty
+    # slice a valid no-op on both the DataFrame and the ndarray paths.
+    self.support_ = np.array(selected_vars, dtype=np.int64)
     # Always store ``cached_MIs`` -- the empty-support fallback at the bottom
     # of this function reads ``self.cached_MIs`` to rank by raw MI(X_j, y), so
     # the attribute should exist regardless of ``retain_artifacts``. Cheap (a

@@ -390,7 +390,19 @@ def transform(self, X, y=None):
             base_out = X.iloc[:, support]
         return self._append_engineered(base_out, X, recipes)
     else:
-        base_out = X[:, support]
+        # ``support`` indexes ndarray columns positionally, so it must be an
+        # integer (or boolean) array. An EMPTY full-mode selection (all signal
+        # folded into engineered recipes) stored via ``np.array([])`` is
+        # float64 and would raise ``IndexError: arrays used as indices must be
+        # of integer (or boolean) type`` here -- harmless for fresh fits after
+        # the int64 dtype fix in _mrmr_fit_impl, but old pickles can still carry
+        # a float empty array, so coerce defensively. Boolean masks pass through
+        # untouched (np.intp cast would corrupt them) -- only non-bool arrays
+        # are normalised to an integer index.
+        _support_idx = np.asarray(support)
+        if _support_idx.dtype != bool and not np.issubdtype(_support_idx.dtype, np.integer):
+            _support_idx = _support_idx.astype(np.intp)
+        base_out = X[:, _support_idx]
         out = self._append_engineered(base_out, X, recipes)
         # When X is polars and Pipeline has set_output(transform="pandas"), sklearn's PandasAdapter calls
         # pd.DataFrame(out, ...) which (unlike polars' own .to_pandas()) does NOT preserve Arrow-backed

@@ -298,10 +298,21 @@ class TestRobustness:
             warnings.simplefilter("ignore")
             sel = MRMR(verbose=0, max_runtime_mins=2.0).fit(X, y)
         names = list(sel.get_feature_names_out())
-        # At least one of x0 / x1 (the true signal) must appear.
-        ok = "x0" in names or "x1" in names
-        assert ok, (
-            f"high-dim p>n: true signal missed; support={names}"
+        # At least one of the true signals (x0 / x1) must be RECOVERED --
+        # either as a raw column or folded into an engineered combination.
+        # Rebaselined from the old ``"x0" in names or "x1" in names`` raw-
+        # membership check, which was simple-mode specific: under the new
+        # default (``use_simple_mode=False`` + directed FE) MRMR returns a
+        # compact selection that can fold both signals into a single
+        # engineered column such as ``add(sin(x0),log(x1))``, so raw-name
+        # membership reads False even though both x0 and x1 are used.
+        # ``signal_recovery_count`` credits ``xK`` appearing in ANY selected
+        # feature name (the project's dedup-aware recovery metric).
+        from tests.feature_selection._biz_val_synth import signal_recovery_count
+        recovered = signal_recovery_count(sel, [0, 1], prefix="x")
+        assert recovered >= 1, (
+            f"high-dim p>n: true signal missed; neither x0 nor x1 is "
+            f"recovered (raw or engineered); support={names}"
         )
 
     def test_categorical_with_rare_levels(self):

@@ -178,7 +178,7 @@ BINARY_TRANSFORMS: dict[str, Callable[[np.ndarray, np.ndarray], np.ndarray]] = {
     "add": _bin_add,
     "sub": _bin_sub,
     "mul": _bin_mul,
-    "div_safe": _bin_div_safe,
+    "div": _bin_div_safe,
     "max": _bin_max,
     "min": _bin_min,
     "abs_diff": _bin_abs_diff,
@@ -289,7 +289,7 @@ def iter_candidates(
       ``BINARY_TRANSFORMS``. Pair ordering is canonicalised (lexicographic
       sort of names) so we don't enumerate (a, b) AND (b, a) for
       commutative transforms; non-commutative transforms (``sub``,
-      ``div_safe``, ``ratio_log``) still get both directions because the
+      ``div``, ``ratio_log``) still get both directions because the
       pair tuple is ordered, but they are emitted as two separate
       candidates with the natural column order each.
     """

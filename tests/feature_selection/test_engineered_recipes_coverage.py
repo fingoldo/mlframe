@@ -117,9 +117,12 @@ def test_build_unary_binary_recipe_max():
 
 
 def test_build_unary_binary_recipe_with_log_unary():
-    # 'log' only lives in 'standard'/'maximal' presets; build with the matching preset so the
-    # apply_recipe replay finds the unary function.
-    r = _build_recipe_via_actual_api("mul", "log", "identity", unary_preset="standard")
+    # ``log`` is present in every unary preset (it is part of the 'minimal'
+    # workhorse set); build with a valid preset name so the apply_recipe
+    # replay finds the unary function. ('standard' is NOT a valid preset --
+    # create_unary_transformations accepts only minimal/medium/maximal plus
+    # the rich/full aliases -- so the old 'standard' arg raised ValueError.)
+    r = _build_recipe_via_actual_api("mul", "log", "identity", unary_preset="maximal")
     df = _basic_df()
     out = apply_recipe(r, df)
     assert out is not None and len(out) == len(df)

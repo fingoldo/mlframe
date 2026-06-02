@@ -8,6 +8,8 @@ Tests include:
 - Edge cases and integration tests
 """
 
+import re
+
 import pytest
 import numpy as np
 import pandas as pd
@@ -26,6 +28,29 @@ from mlframe.feature_selection.filters import (
     discretize_array,
     compute_mi_from_classes,
 )
+
+
+_IDENT = re.compile(r"[A-Za-z_]\w*")
+
+
+def _referenced_columns(mrmr) -> set:
+    """Set of identifier tokens that appear anywhere in a fitted selector's
+    ``get_feature_names_out()`` (raw column names AND the names of source
+    columns folded into engineered features such as ``div(a,reciproc(b))``).
+
+    Under the full-mode default a synergy like ``y=a*b`` is recovered as one
+    engineered feature with an empty raw ``support_``; this helper lets the
+    membership assertions credit ``a`` and ``b`` as "selected" because they are
+    genuinely used by the surviving engineered feature. Function-name tokens
+    (div/add/log/...) are also returned but are harmless for an
+    ``expected_feature in referenced`` check since real column names never
+    collide with the FE op vocabulary in these fixtures.
+    """
+    names = list(mrmr.get_feature_names_out())
+    referenced: set = set()
+    for nm in names:
+        referenced |= set(_IDENT.findall(str(nm)))
+    return referenced
 
 class TestMRMRFeatureEngineering:
     """Test MRMR's feature engineering capabilities."""
@@ -75,7 +100,7 @@ class TestMRMRFeatureEngineering:
 
         MRMR should select a, b, c, d and potentially recommend:
         - mul(log(c), sin(d))
-        - mul(squared(a), reciproc(b))
+        - mul(sqr(a), reciproc(b))
         """
         df, y, expected_features = feature_engineering_example_data
 
@@ -119,12 +144,20 @@ class TestMRMRFeatureEngineering:
             warnings.simplefilter("ignore")
             mrmr.fit(X=df, y=y)
 
-        selected_indices = mrmr.support_.tolist()
-        selected_names = [df.columns[i] for i in selected_indices]
-
-        # Both a and b should be selected
+        # Re-baselined for full-mode default (use_simple_mode=False): on the
+        # multiplicative target y=a*b full mode recovers the synergy as a SINGLE
+        # engineered feature (e.g. div(a,reciproc(b)) == a*b) with an EMPTY raw
+        # ``support_``, so the old "a and b both in support_ names" check fails
+        # despite a perfect recovery. Credit both source columns when they are
+        # referenced by ANY selected feature (raw or engineered). Still
+        # falsifiable: if FE failed to combine the pair, neither a nor b would
+        # appear in any survivor.
+        referenced = _referenced_columns(mrmr)
         for feat in expected_features:
-            assert feat in selected_names, f"Feature '{feat}' should be selected"
+            assert feat in referenced, (
+                f"Feature '{feat}' should be selected (raw or engineered); "
+                f"names={list(mrmr.get_feature_names_out())}"
+            )
 
         # Noise feature should ideally not be selected
         # (though with limited permutations it might be)
@@ -144,12 +177,18 @@ class TestMRMRFeatureEngineering:
             warnings.simplefilter("ignore")
             mrmr.fit(X=df, y=y)
 
-        selected_indices = mrmr.support_.tolist()
-        selected_names = [df.columns[i] for i in selected_indices]
-
-        # Both a and b should be selected
+        # Re-baselined for full-mode default (use_simple_mode=False): on the
+        # additive target y=a+b full mode recovers the synergy as a SINGLE
+        # engineered feature add(a,b) with an EMPTY raw ``support_``; the old
+        # "a and b both in support_ names" check then fails despite a perfect
+        # recovery. Credit both source columns when referenced by ANY selected
+        # feature (raw or engineered). Falsifiable as above.
+        referenced = _referenced_columns(mrmr)
         for feat in expected_features:
-            assert feat in selected_names, f"Feature '{feat}' should be selected"
+            assert feat in referenced, (
+                f"Feature '{feat}' should be selected (raw or engineered); "
+                f"names={list(mrmr.get_feature_names_out())}"
+            )
 
     @pytest.mark.parametrize("transform_name,transform_func,feature_gen", [
         ("squared", lambda x: x**2, lambda rng: rng.standard_normal(3000)),

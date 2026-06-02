@@ -9,6 +9,8 @@ Strategies under test:
       true-zero values (biases MI; kept only for reproducibility).
 """
 
+import re
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -24,6 +26,28 @@ def _selected_names(m: MRMR) -> list[str]:
     """Map MRMR's int-index support_ back to feature names."""
     names = list(m.feature_names_in_)
     return [names[i] for i in m.support_]
+
+
+_IDENT = re.compile(r"[A-Za-z_]\w*")
+
+
+def _output_names(m: MRMR) -> list[str]:
+    """transform()-order selected feature names (raw survivors + engineered),
+    the dedup-aware view that survives full-mode redundancy folding."""
+    return [str(n) for n in m.get_feature_names_out()]
+
+
+def _col_referenced(col: str, out_names: list[str]) -> bool:
+    """True iff input column ``col`` is used by ANY selected feature -- either
+    as a raw survivor or folded into an engineered feature whose name embeds it
+    (e.g. ``add(signal_a,signal_b)`` references both ``signal_a`` and
+    ``signal_b``). Under the full-mode default a linear signal pair is routinely
+    de-duplicated into one engineered column, so raw ``support_`` membership
+    undercounts; token-reference membership is the faithful recovery view."""
+    for nm in out_names:
+        if col in set(_IDENT.findall(nm)):
+            return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -118,23 +142,40 @@ class TestSeparateBinDoesNotPickPureNanNoiseOverSignal:
         X, y = df_with_random_nan
         m = MRMR(quantization_nbins=4, nan_strategy="separate_bin", verbose=0)
         m.fit(X, y)
-        selected = _selected_names(m)
-        # Both signal columns must be among MRMR's picks; the noise cols
-        # are tolerated only if they appear after the signal cols.
-        assert "signal_a" in selected, f"signal_a missing from picks: {selected}"
-        assert "signal_b" in selected, f"signal_b missing from picks: {selected}"
-        # Specifically the signal cols must rank BEFORE the noise-with-nan
-        # cols (smaller support_ index = earlier selection).
-        names = list(m.feature_names_in_)
-        order = [names[i] for i in m.support_]
-        first_signal_rank = min(order.index("signal_a"), order.index("signal_b"))
-        nan_noise_ranks = [
-            order.index(c) for c in ("noise_with_nan_30pct", "noise_with_nan_50pct")
-            if c in order
+        # Re-baselined for full-mode default (use_simple_mode=False): on the
+        # linear target y=2*signal_a+1.5*signal_b full mode de-duplicates the
+        # two correlated-to-y signal columns into a SINGLE engineered feature
+        # (e.g. add(signal_a,signal_b)) that lives in get_feature_names_out()
+        # with an EMPTY/partial raw ``support_``, so the old "both signal cols
+        # in support_ names" check fails despite a perfect recovery. Credit a
+        # signal column when it is referenced by ANY selected feature (raw or
+        # engineered). Still falsifiable: a separate_bin regression that
+        # inflated MI on the noise-with-NaN columns would surface those columns
+        # and drop the signal references.
+        out_names = _output_names(m)
+        assert _col_referenced("signal_a", out_names), (
+            f"signal_a not used by any selected feature; out={out_names}"
+        )
+        assert _col_referenced("signal_b", out_names), (
+            f"signal_b not used by any selected feature; out={out_names}"
+        )
+        # The NaN-handling contract this test guards: noise-with-NaN columns
+        # must NOT be selected ahead of the signal. Reframed for dedup -- the
+        # first selected output feature that references signal must precede any
+        # selected noise-with-NaN raw column (a separate_bin bug would surface
+        # the NaN-noise columns first).
+        signal_positions = [
+            i for i, nm in enumerate(out_names)
+            if _col_referenced("signal_a", [nm]) or _col_referenced("signal_b", [nm])
         ]
-        if nan_noise_ranks:
-            assert first_signal_rank < min(nan_noise_ranks), (
-                f"separate_bin must rank signal above noise-with-NaN; got order={order}"
+        nan_noise_positions = [
+            i for i, nm in enumerate(out_names)
+            if nm in ("noise_with_nan_30pct", "noise_with_nan_50pct")
+        ]
+        if nan_noise_positions and signal_positions:
+            assert min(signal_positions) < min(nan_noise_positions), (
+                f"separate_bin must rank signal above noise-with-NaN; "
+                f"got out={out_names}"
             )
 
 

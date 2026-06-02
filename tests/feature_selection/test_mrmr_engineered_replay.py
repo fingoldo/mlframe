@@ -122,7 +122,7 @@ class TestRecipeBuilding:
             baseline_npermutations=5,
             fe_max_steps=2,
             fe_npermutations=5,
-            fe_unary_preset="medium",  # adds squared/log/sin so mul/abs find synergy
+            fe_unary_preset="medium",  # adds sqr/log/sin so mul/abs find synergy
             fe_binary_preset="medium",
             fe_min_pair_mi_prevalence=1.05,
             verbose=0,

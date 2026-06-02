@@ -46,12 +46,21 @@ class TestMRMRClassification:
             warnings.simplefilter("ignore")
             mrmr.fit(X, y)
 
-        selected_indices = set(mrmr.support_.tolist())
-        informative_set = set(informative_indices)
-
-        # At least some informative features should be selected
-        overlap = len(selected_indices & informative_set)
-        assert overlap >= 1, f"No informative features detected"
+        # Re-baselined for full-mode default (use_simple_mode=False): full mode
+        # de-duplicates the correlated informative columns into ENGINEERED
+        # combinations (e.g. add(informative_1,neg(informative_2))) that live in
+        # get_feature_names_out(), NOT in the raw integer ``support_`` array, so
+        # the old ``support_ & informative`` overlap undercounts a correct
+        # selection (it sees support_==[]). Credit engineered features that
+        # reference an informative column. Still falsifiable: an all-noise
+        # selection references none of the informative columns.
+        from tests.feature_selection._biz_val_synth import signal_recovery_count
+        overlap = signal_recovery_count(mrmr, list(informative_indices),
+                                        prefix="informative_")
+        assert overlap >= 1, (
+            f"No informative features detected (raw or engineered); "
+            f"names={list(mrmr.get_feature_names_out())}"
+        )
 
     def test_imbalanced_classes(self, imbalanced_classification_data):
         """Test MRMR on imbalanced classification data.

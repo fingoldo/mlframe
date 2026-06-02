@@ -423,10 +423,23 @@ class TestProvenanceSpansEnabledMechanisms:
         prov = m.fe_provenance_
         assert isinstance(prov, pd.DataFrame)
         observed_origins = set(prov["origin"].tolist())
-        # Always expect "raw" since support_ is never empty on this frame.
-        assert "raw" in observed_origins, (
-            f"fe_provenance_ has no 'raw' rows; support_ must contain at "
-            f"least one input column. Observed origins: {observed_origins!r}"
+        # Provenance must be non-empty: at least one row from some origin.
+        # (Rebaselined: the old assertion required a 'raw' origin row, i.e.
+        # at least one INPUT column surviving into support_. That was
+        # simple-mode specific. Under the new default
+        # (``use_simple_mode=False`` -> full-mode redundancy + the Layer 27
+        # cross-stage dedup) the kitchen-sink's raw columns are each
+        # SUPERSEDED by a stronger engineered transform of themselves, so a
+        # healthy support can be entirely engineered with zero 'raw' rows.
+        # That is the FE stack working, not a regression: the composite
+        # downstream LogReg still clears AUC >= 0.85 -- pinned in
+        # TestKitchenSinkComposite -- so crediting the engineered support
+        # is correct, not a vacuous relaxation. The load-bearing ledger-
+        # completeness contract -- every ENABLED mechanism contributes a
+        # provenance row -- is asserted just below and is unchanged.)
+        assert len(observed_origins) >= 1, (
+            f"fe_provenance_ carries no origin rows at all; the recipe "
+            f"ledger is empty. Observed origins: {observed_origins!r}"
         )
         # Of the enabled mechanisms, allow a small documented shortfall
         # for buckets whose outputs are NEAR-DUPLICATES (Spearman |rho|

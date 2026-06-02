@@ -46,11 +46,20 @@ class TestMRMRRegression:
             warnings.simplefilter("ignore")
             mrmr.fit(X, y)
 
-        selected_indices = set(mrmr.support_.tolist())
-        informative_set = set(informative_indices)
-
-        overlap = len(selected_indices & informative_set)
-        assert overlap >= 1, f"No informative features detected"
+        # Re-baselined for full-mode default (use_simple_mode=False): full mode
+        # de-duplicates the linear informative columns into a single ENGINEERED
+        # combination (e.g. add(informative_0,log(informative_1))) that lives in
+        # get_feature_names_out(), NOT in the raw integer ``support_`` array, so
+        # the old ``support_ & informative`` overlap sees support_==[] and
+        # undercounts. Credit engineered references to informative columns.
+        # Still falsifiable: an all-noise selection references no informative col.
+        from tests.feature_selection._biz_val_synth import signal_recovery_count
+        overlap = signal_recovery_count(mrmr, list(informative_indices),
+                                        prefix="informative_")
+        assert overlap >= 1, (
+            f"No informative features detected (raw or engineered); "
+            f"names={list(mrmr.get_feature_names_out())}"
+        )
 
     def test_nonlinear_regression(self, nonlinear_transform_data):
         """Test MRMR on data with nonlinear relationships."""

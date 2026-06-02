@@ -20,7 +20,7 @@ Contracts pinned
 
 * TestRatioSignalRecovered
     ``y = sign(x_revenue / x_cost > 1)`` -> the engineered column named
-    ``(x_revenue__div_safe__x_cost)`` enters the augmented frame.
+    ``(x_revenue__div__x_cost)`` enters the augmented frame.
 
 * TestSquareSignalRecovered
     ``y = sign(x^2 - 1)`` -> ``square(x)`` enters the augmented frame
@@ -133,7 +133,7 @@ def _build_ratio_signal(seed: int, n: int = 2000):
     """``y = sign(c1 < x_revenue / x_cost < c2)`` -- a NON-MONOTONE BAND on
     the ratio so linear LogReg cannot solve via a half-plane: the in-class
     band is a wedge between two lines through the origin in (rev, cost)
-    space. Augmenting with ratio_log / div_safe collapses the wedge to a
+    space. Augmenting with ratio_log / div collapses the wedge to a
     single 1-D interval, which LogReg solves trivially.
 
     Raw LogReg's best line through (rev, cost) gives AUC ~0.5-0.6; the
@@ -216,10 +216,10 @@ class TestDefaultIsLegacyByteIdentical:
         for c in Xt.columns:
             cstr = str(c)
             # MI-greedy unary names look like "log_abs(...)"; binary like
-            # "(...__div_safe__...)". Neither must appear.
+            # "(...__div__...)". Neither must appear.
             assert "log_abs(" not in cstr
             assert "sqrt_abs(" not in cstr
-            assert "__div_safe__" not in cstr
+            assert "__div__" not in cstr
             assert "__ratio_log__" not in cstr
 
 
@@ -278,7 +278,7 @@ class TestLogSignalRecovered:
 class TestRatioSignalRecovered:
 
     @pytest.mark.parametrize("seed", SEEDS)
-    def test_div_safe_pair_in_engineered(self, seed):
+    def test_div_pair_in_engineered(self, seed):
         X, y = _build_ratio_signal(seed)
         m = _make_mrmr(
             fe_mi_greedy_enable=True,
@@ -289,14 +289,14 @@ class TestRatioSignalRecovered:
         )
         m.fit(X, y)
         appended = list(m.mi_greedy_features_)
-        # The ratio of x_revenue / x_cost is THE signal. Either div_safe or
+        # The ratio of x_revenue / x_cost is THE signal. Either div or
         # ratio_log (both surrogates for the ratio) on the right pair must
         # show up in the engineered columns.
         ratio_like = [
             c for c in appended
             if (
                 ("x_revenue" in c) and ("x_cost" in c)
-                and (("__div_safe__" in c) or ("__ratio_log__" in c))
+                and (("__div__" in c) or ("__ratio_log__" in c))
             )
         ]
         assert ratio_like, (
@@ -587,11 +587,11 @@ class TestCombineWithHybridOrth:
         """Both constructors run, both append columns, the names don't
         collide. The hybrid orth winners carry suffix patterns like
         ``x__He2`` / ``x_a*x_b__He1_He1``; the MI-greedy winners carry
-        ``log_abs(x)`` / ``(a__div_safe__b)``. The two namespaces never
+        ``log_abs(x)`` / ``(a__div__b)``. The two namespaces never
         overlap, so both stages can append independently.
         """
         # Build a frame that has BOTH signals: x_q drives a quadratic
-        # signal (He_2 picks up) AND a ratio signal (div_safe picks up).
+        # signal (He_2 picks up) AND a ratio signal (div picks up).
         rng = np.random.default_rng(seed)
         n = 2000
         x_q = rng.standard_normal(n)
@@ -629,7 +629,7 @@ class TestCombineWithHybridOrth:
         # marginal MI of x_q. The hybrid stage correctly rejects x_q__He2
         # as noise-floor (engineered_mi ~ 0.004 vs noise floor ~ 0.019).
         # The ratio signal still appears strongly enough on x_rev / x_cost
-        # raw cols to drive mi_greedy via its binary (ratio_log / div_safe)
+        # raw cols to drive mi_greedy via its binary (ratio_log / div)
         # transforms. Pre-Layer-27 the hybrid stage produced FALSE-POSITIVE
         # x_q__He2 entries that scored above the lenient old floor; the
         # noise-aware floor fixes that. Contract: at least ONE of the two

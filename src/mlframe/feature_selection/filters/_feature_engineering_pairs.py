@@ -23,6 +23,61 @@ from pyutilz.pythonlib import sort_dict_by_value
 from pyutilz.system import tqdmu
 
 
+def _select_single_best(perf: dict, cols_names: Sequence, secondary: dict | None = None):
+    """Pick ONE winning ``config`` from a ``{config: mi}`` mapping.
+
+    Selection key, in priority order:
+      1. PRIMARY: maximum ``perf[config]`` -- this MUST be the engineered
+         feature's MI WITH THE TARGET. (Regression guard: a prior version
+         passed the external-validation score -- MI of the candidate recombined
+         with an unrelated third factor -- as the primary key here, so the
+         search would discard the true max-target-MI form. e.g. on
+         y = log(c)*sin(d) it picked add(log(c),1/d) at MI=0.25 over the true
+         mul(log(c),sin(d)) at MI=0.32. Primary MUST be target MI.)
+      2. SECONDARY (optional tie-break): maximum ``secondary[config]`` -- the
+         external-validation MI. Only decisive among leaders whose target MI is
+         exactly equal; prefers the representation that also generalises against
+         other approved factors.
+      3. deterministic tie-break by the engineered feature name (ascending).
+
+    Used to collapse the leading-features equivalence class (many near-identical
+    representations of the same algebraic target) down to a single representative
+    per raw pair, restoring the pre-refactor 1-per-pair materialisation. Returns
+    ``None`` when ``perf`` is empty.
+    """
+    if not perf:
+        return None
+    # Lazy import (parent re-imports this module at its bottom -> avoid a
+    # top-level cycle); mirrors the in-function import at the call sites.
+    from .feature_engineering import get_new_feature_name
+    _sec = secondary or {}
+    return max(
+        perf.items(),
+        key=lambda kv: (
+            kv[1],
+            float(_sec.get(kv[0], 0.0)),
+            _neg_name_key(get_new_feature_name(fe_tuple=kv[0], cols_names=cols_names)),
+        ),
+    )[0]
+
+
+class _neg_name_key:
+    """Reverse-ordering wrapper so a HIGHER MI still wins but, on an MI tie, the
+    lexicographically-SMALLEST name wins (we negate the name comparison)."""
+
+    __slots__ = ("s",)
+
+    def __init__(self, s: str):
+        self.s = s
+
+    def __lt__(self, other: "_neg_name_key") -> bool:
+        # Inverted: smaller string sorts as "greater" so max() prefers it.
+        return self.s > other.s
+
+    def __eq__(self, other) -> bool:  # pragma: no cover - completeness
+        return isinstance(other, _neg_name_key) and self.s == other.s
+
+
 # Wave 27 P1 (2026-05-20): ``check_prospective_fe_pairs`` is dispatched via
 # ``parallel_run`` from mrmr.py with backend='threading'. The function
 # accumulates per-binary-transform timings into a shared ``times_spent``
@@ -505,25 +560,40 @@ def check_prospective_fe_pairs(
 
                         valid_pairs_perf[config] = best_valid_mi
 
-                    # Recommend proceeding with top N best transformations.
-                    for j, (config, _valid_mi) in enumerate(sort_dict_by_value(valid_pairs_perf, reverse=True).items()):
-                        if j < fe_max_pair_features:
-                            new_feature_name = get_new_feature_name(fe_tuple=config, cols_names=cols)
-                            if verbose:
-                                messages.append(
-                                    f"{new_feature_name} is recommended to use as a new feature! (won in validation with other factors) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}"
-                                )
-                            this_pair_features.add((config, j))
-                        else:
-                            break
+                    # ONE-BEST-PER-PAIR (2026-06-01): the leading-features
+                    # equivalence class holds many near-identical representations
+                    # of the same algebraic target (a**2/b == div(sqr(a),b) ==
+                    # mul(sqr(a),reciproc(b)) == div(a,sqrt(b)) ...). The
+                    # pre-refactor code materialised EXACTLY ONE per raw pair;
+                    # the refactor regressed to emitting the whole class (~15
+                    # cols on the canonical fixture). Pick the single best by
+                    # TARGET MI (``var_pairs_perf`` -- the primary objective),
+                    # using the external-validation MI (``valid_pairs_perf``)
+                    # only as a tie-break among target-MI-equal leaders. (Prior
+                    # bug: selected by external-validation MI alone, discarding
+                    # the true max-target-MI form -- e.g. picking add(log(c),1/d)
+                    # MI=0.25 over the true mul(log(c),sin(d)) MI=0.32.)
+                    _primary_perf = {c: var_pairs_perf[c] for c in valid_pairs_perf if c in var_pairs_perf}
+                    _winner = _select_single_best(_primary_perf, cols, secondary=valid_pairs_perf)
+                    if _winner is not None:
+                        new_feature_name = get_new_feature_name(fe_tuple=_winner, cols_names=cols)
+                        if verbose:
+                            messages.append(
+                                f"{new_feature_name} is recommended to use as a new feature! (won in validation with other factors) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}"
+                            )
+                        this_pair_features.add((_winner, 0))
                 else:
-                    if verbose:
-                        messages.append(
-                            f"{len(leading_features)} are recommended to use as new features! (can't narrow down the list by validation with other factors) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}"
-                        )
-                    for j, config in enumerate(leading_features):
-                        if j < fe_max_pair_features:
-                            this_pair_features.add((config, j))
+                    # Can't narrow by external validation (only 2 vars total) --
+                    # still emit ONE best representative (highest engineered MI,
+                    # deterministic name tie-break) rather than the whole class.
+                    _lead_perf = {c: var_pairs_perf[c] for c in leading_features if c in var_pairs_perf}
+                    _winner = _select_single_best(_lead_perf, cols)
+                    if _winner is not None:
+                        if verbose:
+                            messages.append(
+                                f"{get_new_feature_name(fe_tuple=_winner, cols_names=cols)} is recommended to use as a new feature! (best of {len(leading_features)} near-equivalent leaders) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}"
+                            )
+                        this_pair_features.add((_winner, 0))
             else:
                 new_feature_name = get_new_feature_name(fe_tuple=best_config, cols_names=cols)
                 if verbose:
@@ -552,19 +622,35 @@ def check_prospective_fe_pairs(
                 # IndexError downstream, or holes (if last_j was large).
                 # Pack each (config, j) into a compact column index
                 # ``idx = 0..len(this_pair_features)-1`` instead.
-                if fe_max_steps > 1:
-                    # Survivor buffer is sized to the FULL X regardless of subsample mode --
-                    # mrmr.py at the consumer side allocates a full-n ``data`` append, so
-                    # caller contract requires ``transformed_vals.shape[0] == len(_X_full)``.
-                    transformed_vals = np.empty(shape=(_full_n_rows, len(this_pair_features)), dtype=quantization_dtype)
-                new_nbins = []
-                new_cols = []
+                #
+                # 2026-06-01 (ROOT CAUSE 5 fix): materialise the survivor
+                # columns whenever FE runs (``fe_max_steps >= 1``), not only on
+                # multi-step (``> 1``). Previously, with the default
+                # ``fe_max_steps=1`` the recommended features were LOGGED but
+                # ``transformed_vals`` stayed ``None`` -- so the consumer
+                # (_mrmr_fe_step) had nothing to append, the columns never
+                # entered ``data``/``selected_vars``, and ``_engineered_features_``
+                # stayed empty. Producing the buffer unconditionally lets the
+                # single-step default actually emit engineered columns.
+                # Materialise each survivor into a temp column FIRST, then apply
+                # the NON-CONSTANT guard (2026-06-01): a column that replays as
+                # constant (std<=1e-9) or non-finite is a DEAD feature and must
+                # never be appended -- it reaches the downstream model carrying
+                # zero variance. Several div(sqr(a),b)-family combos replayed
+                # constant on the canonical fixture (degenerate quantile binning
+                # of the heavy-tailed a**2/b). One-best-per-pair already keeps the
+                # non-constant MI winner; this guard is defence-in-depth and also
+                # compacts ``this_pair_features`` / buffers so the recipe builder
+                # downstream never constructs a recipe for a dropped column.
+                _kept_configs = []   # list[(config, j)] that survived the guard
+                _kept_cols_vals = []  # list[np.ndarray] aligned with _kept_configs
+                _kept_names = []
 
                 for idx, (config, j) in enumerate(this_pair_features):
                     new_feature_name = get_new_feature_name(fe_tuple=config, cols_names=cols)
                     transformations_pair, bin_func_name, i = config
 
-                    if fe_max_steps > 1:
+                    if fe_max_steps >= 1:
                         if _use_subsample:
                             # SUBSAMPLE path: rebuild from raw _X_full so the survivor column
                             # carries the FULL n rows the caller expects (mrmr.py appends it
@@ -572,12 +658,12 @@ def check_prospective_fe_pairs(
                             # subset; the survivor IDENTITIES are correct (bench shows
                             # jaccard=1.0 vs full-n at n_eff>=50k), so we just need to
                             # rematerialise the values at full resolution.
-                            transformed_vals[:, idx] = _rebuild_full_survivor_col(
+                            _col_full = _rebuild_full_survivor_col(
                                 config, _X_full, original_cols,
                                 unary_transformations, binary_transformations,
                             )
                         elif final_transformed_vals is not None:
-                            transformed_vals[:, idx] = final_transformed_vals[:, i]
+                            _col_full = final_transformed_vals[:, i]
                         else:
                             # CRITICAL #2 recompute-fallback (no subsample, tight RAM): rebuild
                             # the survivor column from its (a_key, b_key, bin_func_name)
@@ -588,9 +674,51 @@ def check_prospective_fe_pairs(
                             _pb = transformed_vars[:, vars_transformations[_b_key]]
                             _col = binary_transformations[_bin_name](_pa, _pb)
                             np.nan_to_num(_col, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-                            transformed_vals[:, idx] = _col
-                        new_nbins += [quantization_nbins]
-                    new_cols += [new_feature_name]
+                            _col_full = _col
+
+                        # Keep the RAW (float) engineered values, scrubbed of
+                        # nan/inf. CRITICAL (2026-06-02): do NOT cast to the
+                        # integer ``quantization_dtype`` here. ``transformed_vals``
+                        # feeds two consumers downstream -- (a) ``_mrmr_fe_step``
+                        # discretises it via ``discretize_array(method=quantile)``
+                        # into the ``data`` bin-code matrix, and (b) the recipe
+                        # builder computes its quantile EDGES from these values for
+                        # leak-safe replay. A premature int cast TRUNCATES the
+                        # heavy-tailed engineered values (e.g. mul(log(c),sin(d)) in
+                        # (-inf,0] collapses to ~2 integers), so the subsequent
+                        # quantile binning sees only 2-3 distinct values and the
+                        # column reaches the model with a fraction of its MI
+                        # (measured: 0.14 vs the true 0.32). Keeping float lets the
+                        # downstream quantile discretiser produce the full nbins
+                        # codes and the recipe pin correct edges.
+                        _col_arr = np.nan_to_num(
+                            np.asarray(_col_full, dtype=np.float64),
+                            nan=0.0, posinf=0.0, neginf=0.0,
+                        )
+                        if float(np.std(_col_arr)) <= 1e-9:
+                            if verbose:
+                                messages.append(
+                                    f"{new_feature_name} dropped at materialisation: dead column "
+                                    f"(std={float(np.std(_col_arr)):.2e}, non-constant guard)."
+                                )
+                            continue
+                        _kept_cols_vals.append(_col_arr)
+                    _kept_configs.append((config, j))
+                    _kept_names.append(new_feature_name)
+
+                # Rebuild the survivor set / buffers from ONLY the kept columns so
+                # the recipe builder and the downstream dense consumer stay aligned.
+                this_pair_features = set(_kept_configs)
+                new_cols = list(_kept_names)
+                if fe_max_steps >= 1 and _kept_cols_vals:
+                    # float buffer: holds RAW engineered values (discretised to
+                    # codes downstream; see the non-constant-guard comment above).
+                    transformed_vals = np.empty(shape=(_full_n_rows, len(_kept_cols_vals)), dtype=np.float64)
+                    for _ci, _cv in enumerate(_kept_cols_vals):
+                        transformed_vals[:, _ci] = _cv
+                    new_nbins = [quantization_nbins] * len(_kept_cols_vals)
+                else:
+                    transformed_vals, new_nbins = None, []
 
             res[raw_vars_pair] = (this_pair_features, transformed_vals, new_cols, new_nbins, messages)
 

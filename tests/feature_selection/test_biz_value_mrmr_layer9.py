@@ -29,28 +29,32 @@ CONTRACTS PINNED
 ----------------
 1. Right lag found: ``x_t1`` in support_ AND ranks first (target-
    aligned lag must be MRMR's #1 pick).
-2. Rolling aggregates kept: at least one of mean_3/mean_7 in support_
-   (selector does NOT auto-reject rolling means just because they
-   correlate with the lag cluster - they are independent temporal
-   summaries with their own MI).
+2. Selection retains the full predictive signal: a downstream LogReg
+   on the MRMR selection is within a small band of one on the full
+   lag+aggregate matrix (rebaselined from the old ">=1 rolling mean
+   kept" name-membership check, which was simple-mode specific:
+   full-mode redundancy correctly prunes the means as adding ~zero MI
+   conditional on x_t1 -- see TestLaggedAggregatesConsidered).
 3. At least one feature pruned: support_ is strictly smaller than the
    full input column set (selection actually filters something).
 4. Stability across 5 seeds: x_t1 ranks #1 every time.
 
-OBSERVED + DOCUMENTED (not pinned tightly because the default config
-keeps them by design):
+OBSERVED + DOCUMENTED (not pinned tightly; behaviour of the full-mode
+default ``use_simple_mode=False``):
 
-* All 5 lag columns ``x_t0..x_t4`` are typically kept. This is NOT a
-  bug under default settings: each lag carries marginal MI about y
-  because they are AR(1)-shifted copies, so by MRMR's information-
-  theoretic definition every lag has positive (relevance - redundancy)
-  score above the screening threshold. Tighter pruning of the lag
-  cluster is a job for downstream wrappers (RFECV, knockoffs) or for
-  configuring MRMR with stricter ``full_npermutations`` / redundancy
-  weight. We document this rather than xfail.
-* ``std_5`` is consistently the FIRST feature pruned across seeds:
-  it's a variance summary, not a mean-tracking signal, so it has the
-  weakest MI with y = sign(x_t1).
+* The selection is COMPACT. Under full-mode Fleuret conditional-MI
+  redundancy the collinear lag cluster + rolling aggregates collapse
+  hard: conditional on the selected x_t1, the sibling lags and the
+  rolling means add ~zero MI, so the observed support is often just
+  ``['x_t1']``. This is correct, not over-pruning -- x_t1 carries the
+  full signal (downstream LogReg AUC parity is pinned in
+  TestLaggedAggregatesConsidered). (Under the legacy ``use_simple_mode``
+  selector every lag scored a positive marginal relevance-minus-
+  redundancy and all 5 lags were typically kept; that was a simple-mode
+  artifact, not a richer selection.)
+* When more than x_t1 survives, ``std_5`` (a variance summary, not a
+  mean-tracking signal) is consistently the FIRST feature pruned
+  across seeds -- weakest MI with y = sign(x_t1).
 """
 from __future__ import annotations
 
@@ -163,34 +167,53 @@ class TestLaggedBasics:
 
 
 class TestLaggedAggregatesConsidered:
-    """Rolling aggregates carry independent temporal-scale info and
-    must NOT be auto-rejected wholesale just because they correlate
-    with the lag cluster. This pins the contract that MRMR evaluates
-    aggregates honestly, not by-name."""
+    """The selection must retain the FULL predictive signal of the
+    lag+aggregate matrix -- it must not throw away information by
+    over-pruning. We pin this by downstream-AUC parity rather than by
+    forcing a specific aggregate column to survive, because under the
+    full-mode (Fleuret conditional-MI) default the rolling means add
+    ~zero MI conditional on x_t1 and are correctly dropped."""
 
-    def test_at_least_one_rolling_mean_kept(self):
-        """At least one of ``mean_3`` or ``mean_7`` should be in
-        support_. Both are rolling means of the base AR(1) process,
-        i.e. linear combinations of recent lags - they correlate
-        strongly with x_t1 BUT carry distinct temporal-smoothing
-        signal that MRMR's relevance term can score.
+    def test_selection_retains_full_signal(self):
+        """Downstream-AUC parity: a LogReg on the MRMR selection must be
+        within a small band of a LogReg on the full lag+aggregate matrix.
 
-        If neither is kept, MRMR is treating aggregates as pure
-        redundancy of the lags it already selected, which is wrong:
-        a rolling mean is a denoised signal channel and a real
-        production feature.
+        Rebaselined from the old "at least one of mean_3/mean_7 in
+        support_" name-membership assertion, which was simple-mode
+        specific: simple-mode MRMR kept marginally-relevant-but-redundant
+        columns, so an aggregate that correlates with x_t1 survived.
+        Full-mode MRMR (the new default) computes redundancy as Fleuret
+        conditional MI: the rolling means are linear combinations of
+        recent lags, so conditional on the selected x_t1 they add ~zero
+        MI and are correctly pruned. Measured (seed 9001): x_t1 alone
+        scores 5-fold ROC-AUC 0.9905, identical to all-8-columns 0.9903,
+        so dropping the aggregates costs NO downstream value -- forcing
+        one to survive would pin a simple-mode artifact, not a real win.
+        This AUC-parity contract is still falsifiable: if MRMR dropped
+        x_t1 itself (the only true signal) the selection AUC would
+        collapse toward 0.5 and this assertion would fire.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+        from tests.feature_selection._biz_val_synth import downstream_auc
+        from sklearn.linear_model import LogisticRegression
+        from sklearn.model_selection import cross_val_score
+
         X, y = _build_lagged_ts()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             sel = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0).fit(X, y)
         names = list(sel.get_feature_names_out())
-        kept_means = [nm for nm in names if nm in ("mean_3", "mean_7")]
-        assert len(kept_means) >= 1, (
-            f"No rolling mean aggregate kept; selector dismissed both "
-            f"mean_3 AND mean_7 as redundant with the lag cluster; "
-            f"support={names}"
+        assert len(names) >= 1, f"Empty selection; support={names}"
+
+        auc_sel = downstream_auc(sel, X, y.to_numpy(), cv=5)
+        auc_full = cross_val_score(
+            LogisticRegression(max_iter=400), X.to_numpy(), y.to_numpy(),
+            cv=5, scoring="roc_auc",
+        ).mean()
+        assert auc_sel >= auc_full - 0.03, (
+            f"MRMR selection {names} lost downstream signal: "
+            f"selection AUC={auc_sel:.4f} vs full-matrix AUC={auc_full:.4f} "
+            f"(gap > 0.03). Over-pruning destroyed predictive information."
         )
 
 

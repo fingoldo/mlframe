@@ -338,6 +338,21 @@ class TestNoRegressionLayer41:
         """The Layer 41 ``cluster_members_`` accessor must still report
         the right cluster on the 3-dup fixture after the Layer 42
         validate loosening. Spot-replicates Layer 41 contract C1 / C3.
+
+        Rebaselined to be ANCHOR-AGNOSTIC. The old assertion required
+        ``dup_a`` specifically to be the cluster anchor (with members
+        {dup_b, dup_c}). ``dup_a``/``dup_b``/``dup_c`` are statistically
+        interchangeable duplicates (all = latent + 0.01*noise), so which
+        one DCD anchors on is just a function of greedy selection order.
+        Under the new default (``use_simple_mode=False`` -> full-mode
+        conditional-MI redundancy) the selection order shifted and DCD
+        now anchors the dup cluster on ``dup_b`` (members {dup_a, dup_c})
+        instead of ``dup_a`` -- an equally-correct clustering of the same
+        three columns. We therefore pin the load-bearing, mode-invariant
+        property: EXACTLY ONE cluster is anchored on one of the three
+        dups and lists the OTHER TWO dups as its members. This is still
+        fully falsifiable -- if DCD failed to cluster the duplicates the
+        union {anchor} u members would not equal {dup_a, dup_b, dup_c}.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
         X, y = _three_dups_plus_strong_frame()
@@ -349,16 +364,21 @@ class TestNoRegressionLayer41:
         assert isinstance(cm, dict) and len(cm) >= 1, (
             f"cluster_members_ must be a non-empty dict; got {cm!r}"
         )
-        # The dup_a cluster is the expected anchor.
-        dup_anchor_keys = [k for k in cm if "dup_a" in k]
-        assert len(dup_anchor_keys) == 1, (
-            f"Expected exactly one cluster anchored on dup_a; got "
-            f"{list(cm.keys())}"
+        dups = {"dup_a", "dup_b", "dup_c"}
+        # Find the cluster whose anchor is a dup AND whose members are dups:
+        # the full dup cluster is {anchor} u members == {dup_a, dup_b, dup_c}.
+        dup_clusters = [
+            (k, set(v)) for k, v in cm.items()
+            if k in dups and ({k} | set(v)) == dups
+        ]
+        assert len(dup_clusters) == 1, (
+            f"Expected exactly one dup-anchored cluster covering all three "
+            f"duplicates {dups}; got clusters {cm!r}"
         )
-        # The anchor's cluster must list dup_b and dup_c as members.
-        members = cm[dup_anchor_keys[0]]
-        assert set(members) == {"dup_b", "dup_c"}, (
-            f"dup_a cluster must contain {{dup_b, dup_c}}; got {members}"
+        anchor, members = dup_clusters[0]
+        assert members == (dups - {anchor}), (
+            f"dup cluster anchored on {anchor!r} must list the other two "
+            f"dups as members; got {members}"
         )
         # And cluster_anchors_names mirrors it.
         assert m.dcd_["cluster_anchors_names"] == cm

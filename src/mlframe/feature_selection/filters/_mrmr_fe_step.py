@@ -312,6 +312,11 @@ def _run_fe_step(
     # Also need to sort them by their members usage frequency+members ids sum. this way, their splitting will benefit more from caching.
     prospective_pairs = sort_dict_by_value(prospective_pairs, reverse=True)
 
+    # cols-space indices of polynom-pair engineered columns appended by the
+    # ``run_polynom_pair_fe`` block below; promoted into ``selected_vars``
+    # alongside the unary/binary indices so a polynom feature that cleared the
+    # FE gates actually reaches ``support_`` (see promotion at the bottom).
+    _polynom_engineered_indices: list[int] = []
     if fe_smart_polynom_iters:
         # Orthogonal-polynomial pair FE: Chebyshev default basis (empirically robust); tight coef range [-2, 2],
         # fixed degree per study, L2 regularisation, identity-baseline filter. Override basis via
@@ -327,6 +332,15 @@ def _run_fe_step(
         # None / 0 / negative all map to "no subsample" (use full data).
         _subsample_raw = getattr(self, "fe_smart_polynom_subsample_n", 0)
         _subsample_n = int(_subsample_raw) if _subsample_raw and _subsample_raw > 0 else 0
+        # Capture cols width before the polynom block so we can promote the
+        # polynom-injected engineered column indices into ``selected_vars``
+        # below (same "ROOT CAUSE 5" promotion the unary/binary block does for
+        # its own appended cols). Without this, a polynom-pair feature that
+        # cleared every polynom-FE gate (pair-MI prevalence + engineered-MI
+        # prevalence + uplift) was appended to ``data``/``cols`` and tracked in
+        # ``_hermite_features_`` but never reached ``support_`` under the default
+        # single-step path, because only the unary/binary indices were promoted.
+        _n_cols_before_polynom = len(cols)
         data, nbins, cols, X = run_polynom_pair_fe(
             X=X, is_polars_input=_is_polars_input,
             prospective_pairs=prospective_pairs,
@@ -359,6 +373,9 @@ def _run_fe_step(
             verbose=int(verbose),
             subsample_n=_subsample_n,
         )
+        # Columns appended by the polynom block (its own gates already accepted
+        # them). Promote into selected_vars below so they reach support_.
+        _polynom_engineered_indices = list(range(_n_cols_before_polynom, len(cols)))
 
     # The standard check_prospective_fe_pairs path used to live in
     # ``else:`` of the Hermite block, which meant enabling
@@ -462,6 +479,33 @@ def _run_fe_step(
             for next_dict in dicts:
                 prospective_additions.update(next_dict)
 
+        # ROOT CAUSE 5 fix (2026-06-01): collect the cols-space indices of the
+        # engineered columns appended below so they can be added DIRECTLY to
+        # ``selected_vars`` for the default single-step (``fe_max_steps==1``)
+        # path. The screening re-run that would normally promote appended cols
+        # only happens on the NEXT outer-loop iteration; with the default
+        # ``fe_max_steps=1`` the loop breaks before re-screening, so a recommended
+        # engineered column never reached ``_engineered_features_``. Mirroring the
+        # cluster_aggregate pattern (which already self-selects its aggregate),
+        # we promote the FE survivors here. On multi-step (``> 1``) the next
+        # screening pass re-evaluates them as usual and may drop weak ones.
+        # Seed with the polynom-pair engineered indices captured above so they
+        # are promoted into ``selected_vars`` together with the unary/binary
+        # ones below (ROOT CAUSE 5). They already cleared every polynom-FE gate.
+        _newly_engineered_indices: list[int] = list(_polynom_engineered_indices)
+        # 2026-06-02: a fit() MUST NOT mutate the caller's input. The pandas
+        # branch below appends engineered columns via ``X[col] = ...`` IN PLACE;
+        # without this guard the user's DataFrame silently grows engineered
+        # columns after ``MRMR().fit(df, y)`` (and the leak bled across fits that
+        # reused one frame). Copy ONCE, up front, only when at least one pair
+        # actually produced an engineered column. Polars (``.with_columns``)
+        # already returns a fresh frame, and the ndarray path never appends to X.
+        if (
+            not _is_polars_input
+            and hasattr(X, "columns")
+            and any(v[0] for v in prospective_additions.values())
+        ):
+            X = X.copy()
         for raw_vars_pair, (this_pair_features, transformed_vals, new_cols, new_nbins, messages) in prospective_additions.items():
             if this_pair_features:
                 engineered_features.update(this_pair_features)
@@ -469,7 +513,7 @@ def _run_fe_step(
                     for mes in messages:
                         logger.info(mes)
                     # logger.info(f"Features {new_cols} are recommended to use as new features!")
-                if fe_max_steps > 1:
+                if fe_max_steps >= 1:
                     new_vals = np.empty(shape=(len(X), len(this_pair_features)), dtype=self.quantization_dtype)
                     for j in range(len(this_pair_features)):
                         new_vals[:, j] = discretize_array(
@@ -478,6 +522,7 @@ def _run_fe_step(
                             method=self.quantization_method,
                             dtype=self.quantization_dtype,
                         )
+                    _n_cols_before = len(cols)
                     data = np.append(data, new_vals, axis=1)
                     # ``nbins`` is a numpy.ndarray (returned by categorize_dataset), so plain ``+`` does
                     # element-wise addition / broadcasting, not concatenation. Use np.concatenate so nbins
@@ -488,19 +533,33 @@ def _run_fe_step(
                         np.asarray(new_nbins, dtype=nbins.dtype),
                     ])
                     cols = cols + new_cols
+                    # cols-space indices of the freshly appended engineered columns.
+                    _newly_engineered_indices.extend(range(_n_cols_before, len(cols)))
+                    # Use the DISCRETISED codes (``new_vals``) for the augmented
+                    # output frame, NOT the raw ``transformed_vals``. The fit-time
+                    # frame must match what ``transform()`` reproduces on test data
+                    # (the recipe replay emits quantised bin codes), otherwise a
+                    # consumer reading the fit-time augmented frame would see raw
+                    # floats while transform() emits codes -- a silent fit/transform
+                    # skew. ``transformed_vals`` (raw) is still used below to pin the
+                    # recipe's quantile edges.
                     if _is_polars_input:
                         # Polars is immutable: with_columns returns a new frame sharing buffers; caller's X untouched.
                         _series_to_add = [
-                            pl.Series(col, transformed_vals[:, j])
+                            pl.Series(col, new_vals[:, j])
                             for j, col in enumerate(new_cols)
                         ]
                         X = X.with_columns(_series_to_add)
                     else:
-                        for col in new_cols:
-                            X[col] = transformed_vals[:, j]
+                        # 2026-06-01: index by the per-column position, not the
+                        # leaked loop variable ``j`` (which held len-1 after the
+                        # discretize loop above, so EVERY appended pandas column
+                        # silently received the LAST survivor's values).
+                        for _jc, col in enumerate(new_cols):
+                            X[col] = new_vals[:, _jc]
 
                     # Build EngineeredRecipe for each newly-appended column so transform() can replay it.
-                    # Only runs when columns were added (fe_max_steps > 1). Best-effort: parents that are
+                    # Runs whenever columns were added (fe_max_steps >= 1). Best-effort: parents that are
                     # themselves engineered (higher-order interaction) are skipped (nested replay is future work).
                     if engineered_recipes is not None:
                         from .engineered_recipes import build_unary_binary_recipe
@@ -564,6 +623,21 @@ def _run_fe_step(
             # bookkeeping site. The pair-cache only tracks "raw pair already
             # processed", which is name-agnostic.
             checked_pairs.add(raw_vars_pair)
+
+        # ROOT CAUSE 5 fix (2026-06-01): promote the freshly-appended engineered
+        # columns directly into ``selected_vars`` (cols-space). They already
+        # cleared every FE gate (pair-MI prevalence, engineered-MI prevalence,
+        # external validation) -- the gates ARE the selection criterion for FE
+        # survivors. Without this, the only path to ``support_`` was the
+        # screening re-run at the top of the NEXT outer-loop iteration, which
+        # never executes under the default ``fe_max_steps=1`` (the loop breaks
+        # first), so ``_engineered_features_`` stayed empty. On multi-step the
+        # re-screen still re-evaluates them and may prune weak ones. Mirrors the
+        # cluster_aggregate self-selection pattern below.
+        if _newly_engineered_indices:
+            _sv = list(selected_vars) if not isinstance(selected_vars, list) else selected_vars
+            _sv_set = set(_sv)
+            selected_vars = _sv + [i for i in _newly_engineered_indices if i not in _sv_set]
 
         # Surface WHY FE added 0 features when the operator configured it
         # explicitly. A prod log showed 88 min of Hermite Optuna yielding

@@ -375,7 +375,7 @@ def feature_engineering_example_data():
     Note: 'f' is not in DataFrame, so effectively y = a^2/b + log(c)*sin(d)
     MRMR should select a, b, c, d and recommend:
     - mul(log(c), sin(d))
-    - mul(squared(a), reciproc(b))
+    - mul(sqr(a), reciproc(b))
     """
     rng = np.random.default_rng(42)
     n = 10_000

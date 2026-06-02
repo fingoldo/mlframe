@@ -288,9 +288,14 @@ class MRMR(BaseEstimator, TransformerMixin):
         mrmr_relevance_algo: str = "fleuret",
         mrmr_redundancy_algo: str = "fleuret",
         reduce_gain_on_subelement_chosen: bool = True,
-        # ``use_simple_mode=True`` skips the per-candidate conditional-MI redundancy check, which is fast but allows perfectly-correlated duplicate columns to BOTH be
-        # selected (you'll see e.g. ``support_ = [x, 2*x]`` when both are informative). Set to ``False`` when feature deduplication matters more than wall-time.
-        use_simple_mode: bool = True,
+        # ``use_simple_mode=True`` skips the per-candidate conditional-MI redundancy check: fast, but selects redundant near-duplicate columns (e.g. both ``x`` and
+        # ``2*x``, or a raw column AND an engineered feature that subsumes it). 2026-06-02: default flipped True->False. Conditional-MI (Fleuret) redundancy IS the
+        # point of MRMR; with it ON the selector returns a COMPACT, deduplicated set and -- once FE is in the loop -- prefers the engineered combination over its
+        # redundant raw parents. VERIFIED on an additive target ``y = sign(x0+x1+x2+noise)``: full mode returns ``{x1, add(x0,x2), ...}`` (the engineered sum captures
+        # the additive signal) at downstream LogReg AUC 0.992 == the all-raw baseline, with FEWER features. (An earlier read of this as "drops signal" was a metric
+        # artifact: the raw-index ``signal_overlap`` test does not credit engineered features.) Costs ~2x wall-time vs simple mode; set ``use_simple_mode=True`` to opt
+        # back into the faster dedup-free path on very wide feature sets.
+        use_simple_mode: bool = False,
         run_additional_rfecv_minutes: bool = False,
         # performance
         extra_x_shuffling: bool = True,
@@ -341,6 +346,19 @@ class MRMR(BaseEstimator, TransformerMixin):
         only_unknown_interactions: bool = False,
         # feature engineering settings
         fe_max_steps=1,
+        # 2026-06-02: after the FE step appends engineered columns, run ONE more
+        # screening pass over the AUGMENTED pool (raw + engineered) so the
+        # engineered columns -- which are already quantised bin-code columns --
+        # are selected by the SAME greedy relevance-minus-redundancy machinery as
+        # raw features, rather than promoted into the result by fiat. This (a)
+        # drops engineered features that are redundant given an already-selected
+        # one (e.g. 1/b-d^2 whose conditional MI given a^2/b is ~0.03), and
+        # (b) records a real mrmr_gain / support_rank for every engineered column
+        # in fe_provenance_. Default ON; set False to keep the legacy
+        # promote-by-fiat behaviour (engineered cols appended unconditionally,
+        # no redundancy check, no gain). The re-screen does not run FE again, so
+        # there is no unbounded recursion and no extra engineered columns appear.
+        fe_reselect_after_engineering: bool = True,
         # 2026-05-18 audit-fixes flip #1 (``fe_npermutations`` 0->3):
         # pre-fix value 0 combined with ``fe_min_nonzero_confidence=1.0``
         # made the FE confidence gate STRUCTURALLY UNREACHABLE (confidence
@@ -375,7 +393,14 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_min_nonzero_confidence: float = 0.99,
         fe_min_pair_mi: float = 0.001,
         fe_min_pair_mi_prevalence: float = 1.05,  # transformations of what exactly pairs of factors we consider, at all. mi of entire pair must be at least that higher than the mi of its individual factors.
-        fe_min_engineered_mi_prevalence: float = 0.98,  # mi of transformed pair must be at least that higher than the mi of the entire pair
+        # 2026-06-01 default-flip 0.98 -> 0.90: a 1-D engineered column summarising
+        # a 2-D pair-joint structurally cannot retain 98% of the (finite-sample-bias-
+        # inflated) 2-D joint MI. On the canonical fixture y=a**2/b + f/5 + log(c)*sin(d)
+        # the genuine features mul(sqr(a),reciproc(b)) [rat~0.95] and
+        # mul(log(c),sin(d)) [rat~1.01] cleared 0.90 but not 0.98, so the default fit
+        # found ZERO engineered cols. 0.90 keeps genuine 1-D summaries of real 2-D
+        # interactions while still rejecting noise (which lands well below the pair MI).
+        fe_min_engineered_mi_prevalence: float = 0.90,  # mi of transformed pair must be at least that higher than the mi of the entire pair
         fe_good_to_best_feature_mi_threshold: float = 0.98,  # when multiple good transformations exist for the same factors pair.
         fe_max_external_validation_factors: int = 0,  # how many other factors to validate against
         fe_max_polynoms: int = 0,
@@ -441,7 +466,20 @@ class MRMR(BaseEstimator, TransformerMixin):
         # ``test_biz_cma_es_finds_xor_optimum`` already verified the
         # optimiser converges on degree=2 for XOR when range is open.
         fe_min_polynom_degree: int = 1,
-        fe_max_polynom_degree: int = 8,
+        # 2026-06-02 default-flip 8 -> 6: degree 8 inflated the joint coefficient
+        # search to ~18 dims (9 per operand) for no measured recovery benefit on
+        # the pre-distortion fixtures, while degree 6 (14 dims) recovers every
+        # case the ALS warm-start can reach. Measured at n=4000, cma_batch,
+        # 15 restarts x 300 steps: F-POLY |corr-to-true-signal| 0.97 (deg 4, 6,
+        # and 8 identical -- a cubic*quadratic product is a degree-4 object),
+        # F-OSC sin(a**2)*b 0.95 at deg 6 (deg 4 only reaches 0.005 -- the
+        # oscillation needs the degree-5/6 Chebyshev terms), and a pure-noise
+        # control engineers ZERO columns at every degree. Degree 6 is therefore
+        # the smallest default that recovers BOTH the polynomial and oscillatory
+        # pre-distortion regimes; raise to 8+ only for very high-frequency
+        # targets (scale n_trials proportionally). See
+        # tests/feature_selection/test_biz_value_mrmr_pre_distortion.py.
+        fe_max_polynom_degree: int = 6,
         fe_min_polynom_coeff: float = -10.0,
         fe_max_polynom_coeff: float = 10.0,
         # 2026-05-22: explicit __init__ params for the fe-* knobs that the
@@ -452,6 +490,19 @@ class MRMR(BaseEstimator, TransformerMixin):
         # unknown because they weren't in this signature. Adding here lets
         # users pass them through ``mrmr_kwargs={'fe_optimizer': ...}`` via
         # the suite config.
+        #
+        # ``fe_hermite_l2_penalty`` is the coefficient-magnitude regulariser
+        # weight. 2026-06-02: the penalty SEMANTICS changed from the raw
+        # ``lambda * ||c||^2`` (which grew without bound and crushed genuinely
+        # high-MI / high-coefficient solutions -- e.g. the separable Chebyshev
+        # reconstruction of a non-monotone pre-distortion product, whose true
+        # coefficients have ||c||^2 ~ 86 so the raw penalty ~4.3 dwarfed the MI
+        # peak ~1.5) to a SCALE-SATURATING form ``lambda * ||c||^2 / (||c||^2 +
+        # saturation)`` that rises toward a constant ``lambda`` ceiling instead.
+        # The value 0.05 is unchanged but now harmless to large-coefficient
+        # solutions while still regularising pure noise (tiny ||c||^2 pays
+        # ~full lambda). Set 0 to disable entirely; the saturation scale is
+        # ``hermite_fe._L2_PENALTY_SATURATION_DEFAULT`` (1.0).
         fe_hermite_l2_penalty: float = 0.05,
         fe_polynomial_basis: str = "chebyshev",
         fe_mi_estimator: str = "plugin",
@@ -1117,7 +1168,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # the hybrid orth stage when both are enabled): it enumerates
         # generic unary / binary transforms (log_abs, sqrt_abs, square,
         # cube, reciprocal_safe, tanh, expm1_clip, abs / add, sub, mul,
-        # div_safe, max, min, abs_diff, ratio_log) over the top-N source
+        # div, max, min, abs_diff, ratio_log) over the top-N source
         # columns by raw MI, ranks the candidates by MI uplift, and
         # appends the top-K winners to X. Recipes of kind
         # ``"mi_greedy_transform"`` carry transform name + src cols only
@@ -2062,6 +2113,60 @@ class MRMR(BaseEstimator, TransformerMixin):
             y_rs = np.asarray(y)[idx]
         return X_rs, y_rs
 
+    def _print_fit_summary(self) -> None:
+        """Human-readable end-of-fit summary, printed to STDOUT when ``verbose>=1``.
+
+        Why ``print`` and not ``logger``: MRMR's informative ``logger.info`` calls
+        are swallowed in any script that never configures the ``logging`` module
+        (the common case), while the tqdm progress bars write straight to stderr.
+        The net effect was that a user running ``MRMR(verbose=1).fit(...)`` saw a
+        wall of progress bars and NO statement of what was selected / engineered --
+        the run looked like it did nothing even when directed FE recovered the
+        signal. This summary is the one guaranteed-visible line of truth.
+
+        Pure reporting: never mutates state, never raises (a summary bug must not
+        fail a fit). Built from the already-populated ``fe_provenance_`` /
+        ``support_`` / ``get_feature_names_out`` fitted attributes.
+        """
+        try:
+            if not getattr(self, "verbose", 0):
+                return
+            names = [str(n) for n in self.get_feature_names_out()]
+            eng = [n for n in names if "(" in n]
+            n_raw = len(names) - len(eng)
+            n_in = getattr(self, "n_features_in_", "?")
+            print(
+                f"\n[MRMR] selected {len(names)} feature(s) "
+                f"({n_raw} raw + {len(eng)} engineered) from {n_in} input(s)"
+            )
+            prov = getattr(self, "fe_provenance_", None)
+            if prov is not None and hasattr(prov, "empty") and not prov.empty:
+                disp_cols = [
+                    c for c in ("support_rank", "feature_name", "origin", "mrmr_gain")
+                    if c in prov.columns
+                ]
+                disp = prov[disp_cols].copy()
+                if "support_rank" in disp.columns:
+                    # Show in greedy selection order (rank 0 first), not the raw
+                    # provenance-frame row order.
+                    disp = disp.sort_values("support_rank", kind="stable")
+                if "mrmr_gain" in disp.columns:
+                    disp["mrmr_gain"] = disp["mrmr_gain"].map(
+                        lambda v: f"{float(v):.4f}" if pd.notna(v) else ""
+                    )
+                print(disp.to_string(index=False))
+            else:
+                print("  " + ", ".join(names))
+            if eng:
+                print(f"[MRMR] {len(eng)} engineered feature(s) discovered: " + ", ".join(eng))
+            else:
+                print(
+                    "[MRMR] no engineered features survived the MI-prevalence gate "
+                    "(fe_min_engineered_mi_prevalence); selection is raw-only"
+                )
+        except Exception:
+            pass
+
     def fit(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | np.ndarray, groups: pd.Series | np.ndarray = None, sample_weight: np.ndarray | pd.Series | None = None, **fit_params):
         """Public ``fit`` wrapper. The body (``_fit_impl``) is run inside a try / finally so the
         temporary target columns injected into a caller-supplied pandas frame are always dropped,
@@ -2307,6 +2412,7 @@ class MRMR(BaseEstimator, TransformerMixin):
             # ledger. Pure metadata; never mutates the selection result.
             from ._mrmr_fe_provenance import populate_fe_provenance as _pop_prov
             _pop_prov(self)
+            self._print_fit_summary()
             return result
         finally:
             # 2026-05-28: restore SU thread-local to its pre-fit state (always False

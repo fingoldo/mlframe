@@ -291,21 +291,25 @@ def test_biz_fourier_wins_on_periodic_target():
     )
     assert res_fourier is not None and res_poly is not None
     ratio = res_fourier.mi / max(res_poly.mi, 1e-9)
-    # Floor 1.20x: Fourier reliably beats polynomial on this single-
-    # feature periodic target. Measured 1.27x on commit 7a75f90;
-    # floor leaves 5% margin for measurement noise. A real regression
-    # (e.g. Fourier basis broken) drops the ratio to <1.0.
-    # Shared CI runners (macOS / Linux under concurrent xdist load,
-    # 2026-05-26 observed 1.19x) blow past the 5% margin via CMA-ES
-    # seed roulette. Loosen the CI floor to 1.00x — the qualitative
-    # claim (Fourier >= polynomial) still holds; the 1.20x quantitative
-    # floor remains the local-bench gate.
-    _CI = bool(os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"))
-    _floor = 1.00 if _CI else 1.20
+    # Fourier remains competitive on this single-feature periodic target.
+    # 2026-06-02: the polynomial pair path gained a per-operand ALS warm start
+    # (hermite_fe.warm_start_als_seed), which on this thresholded-sine target
+    # lifts the chebyshev fit from MI ~0.18 to ~0.63 -- the polynomial basis now
+    # represents the periodic structure far better, so Fourier no longer
+    # DOMINATES (measured ratio ~1.07x, Fourier 0.669 vs polynomial 0.626). The
+    # surviving falsifiable claim is "Fourier is not BEATEN by polynomial on a
+    # periodic target": floor 0.95x (a real regression -- broken Fourier basis
+    # -- still drops the ratio well below 0.5x). Both bases must produce a
+    # genuine fit (MI well above the ~0.02 noise floor), pinned below.
+    assert res_fourier.mi > 0.4 and res_poly.mi > 0.4, (
+        f"both bases should genuinely fit the periodic target; got "
+        f"Fourier mi={res_fourier.mi:.4f}, polynomial mi={res_poly.mi:.4f}"
+    )
+    _floor = 0.95
     assert ratio >= _floor, (
-        f"Fourier should beat polynomial by >={_floor:.2f}x on sin target; "
-        f"got Fourier mi={res_fourier.mi:.4f}, polynomial mi={res_poly.mi:.4f}"
-        f" (ratio {ratio:.2f}x)"
+        f"Fourier should not be beaten by polynomial by more than "
+        f"{1 - _floor:.0%} on sin target; got Fourier mi={res_fourier.mi:.4f}, "
+        f"polynomial mi={res_poly.mi:.4f} (ratio {ratio:.2f}x)"
     )
 
 
@@ -362,20 +366,24 @@ def test_biz_pade_wins_on_bump_target():
     )
     assert res_pade is not None and res_poly is not None
     ratio = res_pade.mi / max(res_poly.mi, 1e-9)
-    # The 1.10x floor is reliable on a dedicated workstation but CMA-ES
-    # convergence under shared-runner CPU contention (GitHub-hosted
-    # ubuntu, 2026-05-23) drops both Pade and Hermite into the noise
-    # band where which one "wins" depends on seed roulette: observed
-    # ratios 0.96-1.05x in CI vs ~1.30x locally. Keep the assertion but
-    # loosen the CI floor so the meaningful regressions (catastrophic
-    # Pade failure to fit at all -> ratio << 0.5x) still trip while
-    # the noise-band swap doesn't false-alarm.
-    _CI = bool(os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"))
-    _floor = 0.80 if _CI else 1.10
+    # Pade remains competitive on this Gaussian-bump target. This was always a
+    # noise-band test ("which one wins depends on seed roulette: 0.96-1.05x in
+    # CI vs ~1.30x locally"). 2026-06-02: the polynomial pair path gained a
+    # per-operand ALS warm start (hermite_fe.warm_start_als_seed) that lifts the
+    # Hermite fit enough to edge ahead here (measured Pade 0.594 vs Hermite
+    # 0.657, ratio 0.90x). The surviving falsifiable claim is "Pade is roughly
+    # tied with -- not catastrophically beaten by -- Hermite on a bump target":
+    # floor 0.80x (a real Pade-basis regression still drops the ratio << 0.5x).
+    # Both bases must produce a genuine fit (MI well above the noise floor).
+    assert res_pade.mi > 0.4 and res_poly.mi > 0.4, (
+        f"both bases should genuinely fit the bump target; got "
+        f"pade mi={res_pade.mi:.4f}, hermite mi={res_poly.mi:.4f}"
+    )
+    _floor = 0.80
     assert ratio >= _floor, (
-        f"Pade should beat Hermite by >={_floor:.2f}x on Gaussian-bump target; "
-        f"got pade mi={res_pade.mi:.4f}, hermite mi={res_poly.mi:.4f}"
-        f" (ratio {ratio:.2f}x)"
+        f"Pade should be roughly tied with Hermite (ratio >= {_floor:.2f}x) on "
+        f"Gaussian-bump target; got pade mi={res_pade.mi:.4f}, hermite "
+        f"mi={res_poly.mi:.4f} (ratio {ratio:.2f}x)"
     )
 
 

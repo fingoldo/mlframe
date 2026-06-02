@@ -297,6 +297,105 @@ def signal_overlap(sel, signal: list, top_k: int = None) -> int:
     return len(set(idx) & set(int(i) for i in signal))
 
 
+import re as _re
+
+_XREF = _re.compile(r"x(\d+)")
+
+
+def signal_recovery_count(sel, signal: list, top_k: int = None,
+                           prefix: str = "x") -> int:
+    """Count distinct signal columns RECOVERED by a fitted selector,
+    crediting engineered features that reference a signal column.
+
+    Full-mode MRMR (``use_simple_mode=False``, the default) returns a
+    COMPACT, de-duplicated set: it routinely replaces redundant raw
+    signal columns with a single engineered combination of them, e.g.
+    on ``y=sign(x0+x1+x2)`` it keeps ``{x1, add(x0,x2), ...}`` rather
+    than all three raw ``x0,x1,x2``. ``signal_overlap`` (which only
+    looks at the raw integer ``support_`` indices) therefore
+    UNDER-counts recovery under the new default.
+
+    This helper reads ``get_feature_names_out()`` and credits a signal
+    column ``i`` as recovered if ``x{i}`` appears literally in ANY
+    selected feature name (raw or engineered such as ``add(x0,x2)``).
+    A column engineered into a survivor is genuinely "used", so this is
+    a faithful recovery metric for the de-duplicated regime, not a
+    weakening. ``top_k`` (when given) restricts to the first ``top_k``
+    selected features, mirroring ``signal_overlap``'s top-k semantics.
+
+    Falls back to the raw-index overlap when the selector lacks
+    ``get_feature_names_out``.
+
+    >>> import numpy as np
+    >>> class Sel:
+    ...     def get_feature_names_out(self):
+    ...         return ['x1', 'add(x0,x2)', 'x7']
+    >>> signal_recovery_count(Sel(), [0, 1, 2])
+    3
+    >>> signal_recovery_count(Sel(), [0, 1, 2], top_k=1)
+    1
+    """
+    names = None
+    if hasattr(sel, "get_feature_names_out"):
+        try:
+            names = [str(nm) for nm in sel.get_feature_names_out()]
+        except Exception:
+            names = None
+    if names is None:
+        return signal_overlap(sel, signal, top_k=top_k)
+    if top_k is not None:
+        names = names[:top_k]
+    sig = set(int(i) for i in signal)
+    pref = prefix
+    recovered: set = set()
+    for nm in names:
+        # Only count column refs that use this generator's prefix (e.g. "x3").
+        if pref != "x":
+            refs = set(int(m.group(1)) for m in _re.finditer(pref + r"(\d+)", nm))
+        else:
+            refs = set(int(m) for m in _XREF.findall(nm))
+        recovered |= (refs & sig)
+    return len(recovered)
+
+
+def downstream_auc(sel, df, ys, cv: int = 5) -> float:
+    """5-fold ``LogisticRegression`` ``roc_auc`` on ``sel.transform(df)``.
+
+    The honest, model-facing measure of whether a selected feature set
+    (raw + engineered) carries the signal. Used to re-baseline
+    membership assertions that broke when full-mode de-duplication
+    swapped raw signal columns for engineered combinations: a selection
+    is "as good as" the all-signal baseline iff this AUC is within a
+    small band of the baseline AUC, regardless of which exact columns
+    survived. Returns ``nan`` if the selection is empty.
+    """
+    import numpy as _np
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.model_selection import cross_val_score
+
+    Xt = sel.transform(df)
+    if getattr(Xt, "shape", (0, 0))[1] == 0:
+        return float("nan")
+    return float(cross_val_score(
+        LogisticRegression(max_iter=400), Xt, ys, cv=cv, scoring="roc_auc",
+    ).mean())
+
+
+def baseline_signal_auc(df, ys, signal: list, prefix: str = "x",
+                          cv: int = 5) -> float:
+    """5-fold ``LogisticRegression`` ``roc_auc`` using ONLY the raw
+    signal columns -- the "all-signal" reference a de-duplicated
+    selection is compared against."""
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.model_selection import cross_val_score
+
+    cols = [f"{prefix}{i}" for i in signal]
+    return float(cross_val_score(
+        LogisticRegression(max_iter=400), df[cols], ys, cv=cv,
+        scoring="roc_auc",
+    ).mean())
+
+
 # ---------------------------------------------------------------------------
 # Hypothesis property-based tests (embedded as doctests so they self-execute)
 # ---------------------------------------------------------------------------

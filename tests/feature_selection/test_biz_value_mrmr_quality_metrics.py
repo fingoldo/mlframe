@@ -39,10 +39,36 @@ def _signal_recall(selected: list[str], true_signals: set[str]) -> float:
 
 class TestRankingQuality:
     def test_top_k_precision_5_signals_15_noise(self):
-        """5 truly informative + 15 pure noise. Top-5 of MRMR's
-        support should have precision >= 0.6 (at least 3/5 hits).
+        """5 truly informative + 15 pure noise. The top-5 selected
+        features must be dominated by signal (precision >= 0.4) and at
+        least 40% of the signals must be recovered (recall >= 0.4).
+
+        Rebaselined to credit ENGINEERED composites that fold in signal
+        columns. The old version did exact name-membership of the raw
+        ``sig0..sig4`` columns in ``support_``; that was simple-mode
+        specific. Under the new default (``use_simple_mode=False`` ->
+        full-mode redundancy + directed FE) MRMR returns a COMPACT,
+        de-duplicated selection in which the linear signals are folded
+        into engineered combinations like ``add(neg(sig0),neg(sig1))``
+        rather than kept as raw columns -- so raw-name precision reads
+        0.00 even though every signal is genuinely used. ``signal_recovery_count``
+        (the project's dedup-aware metric) credits a signal column as
+        recovered when ``sigK`` appears in ANY selected feature name, raw
+        or engineered. Measured (seed 200): recovery=5/5 even within the
+        top-5, and downstream 5-fold ROC-AUC on the selection is 0.961 vs
+        0.965 on the five raw signals -- statistically identical, so the
+        engineered selection is NOT a quality loss. We additionally pin
+        that downstream parity so the contract stays falsifiable: if MRMR
+        actually dropped signal (selected noise) recovery and AUC would
+        both collapse and the asserts fire.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
+        from tests.feature_selection._biz_val_synth import (
+            signal_recovery_count, downstream_auc,
+        )
+        from sklearn.linear_model import LogisticRegression
+        from sklearn.model_selection import cross_val_score
+
         rng = np.random.default_rng(200)
         n = 2500
         # 5 independent signals
@@ -61,14 +87,33 @@ class TestRankingQuality:
             warnings.simplefilter("ignore")
             sel = MRMR(verbose=0).fit(X, y)
         selected = list(sel.get_feature_names_out())
-        true_signals = set(sig_cols.keys())
-        prec_at_5 = _top_k_precision(selected, true_signals, k=5)
-        recall = _signal_recall(selected, true_signals)
+        sig_idx = list(range(5))
+        # Top-5 precision: distinct signals recovered among the top-5
+        # selected features (engineered names credited), over the top-5 size.
+        recovered_top5 = signal_recovery_count(sel, sig_idx, top_k=5, prefix="sig")
+        prec_at_5 = recovered_top5 / float(min(5, len(selected))) if selected else 0.0
+        recovered_total = signal_recovery_count(sel, sig_idx, prefix="sig")
+        recall = recovered_total / 5.0
         assert prec_at_5 >= 0.4, (
-            f"top-5 precision too low: {prec_at_5:.2f}; selected={selected}"
+            f"top-5 signal-recovery precision too low: {prec_at_5:.2f} "
+            f"({recovered_top5} signals folded into top-5); selected={selected}"
         )
         assert recall >= 0.4, (
-            f"signal recall too low: {recall:.2f}; selected={selected}"
+            f"signal recovery recall too low: {recall:.2f} "
+            f"({recovered_total}/5 signals recovered); selected={selected}"
+        )
+        # Falsifiability anchor: downstream AUC parity with the all-signal
+        # baseline -- if signal were actually lost this would fail too.
+        auc_sel = downstream_auc(sel, X, y.to_numpy(), cv=5)
+        auc_base = cross_val_score(
+            LogisticRegression(max_iter=400),
+            X[[f"sig{k}" for k in range(5)]].to_numpy(), y.to_numpy(),
+            cv=5, scoring="roc_auc",
+        ).mean()
+        assert auc_sel >= auc_base - 0.03, (
+            f"selection downstream AUC={auc_sel:.4f} vs all-signal baseline "
+            f"{auc_base:.4f} (gap > 0.03); selection lost signal. "
+            f"selected={selected}"
         )
 
     def test_no_noise_in_top_3_with_strong_signal(self):
