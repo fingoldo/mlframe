@@ -65,15 +65,19 @@ class BorutaShap(BaseEstimator, TransformerMixin):
       - switching ``importance_measure`` between 'gini' and 'shap' (BOTH impurity- and SHAP-importance leak the top
         real-noise feature), nor
       - ``train_or_test='test'`` when train and test come from the same draw (the spurious structure is in both halves).
-    The reliable mitigation is cross-sample stability: run the selector on several row-SUBSAMPLES WITHOUT replacement
-    (e.g. 4x at 75% of rows, distinct seeds) and keep only features accepted on a majority of them. The "lucky top
-    noise" feature depends on the exact row set, so it clears the gate in only a minority of subsamples and fails the
-    vote, while genuinely-relevant features (including redundant copies of informative features, which an all-relevant
-    method correctly keeps) are accepted every time. Verified on a 52-feature synthetic: a single fit accepted the top
-    noise column (~58/60 hits even at percentile=100), but 4x75%-subsample majority voting accepted ZERO noise columns.
-    Use subsampling WITHOUT replacement, NOT bootstrap with replacement: duplicate rows let the model memorise, after
-    which every feature beats its shadow and the gate accepts ~everything. Callers needing a clean accept set should
-    wrap fit() in such a subsample-and-vote loop rather than trust a single fit's ``accepted``.
+    Partial mitigation via cross-subsample stability (built in: set ``stability_subsamples`` > 1). Run the selector on
+    several row-subsamples WITHOUT replacement and keep features by their accept FREQUENCY. Measured on a 52-feature
+    synthetic: a single fit accepted the top noise column (~58/60 hits even at percentile=100); over 10 distinct 75%
+    subsamples the strongly-relevant features were accepted 10/10, while that spurious column's frequency was UNSTABLE
+    across seed sets (3/10 .. 8/10) - its spurious correlation is a property of the whole data DRAW, so most subsamples
+    of that draw inherit it. Consequences, both verified: a MAJORITY vote (threshold ~0.6) does NOT reliably drop it;
+    only the INTERSECTION (``stability_threshold=1.0``, the default once stability is enabled) does - the spurious
+    column is never accepted by ALL subsamples (7/10 and 0/10 across seeds -> dropped) while strongly-relevant features
+    are (10/10 -> kept). The cost is recall: intersection also drops weakly / inconsistently-relevant features (e.g.
+    pure interaction operands with ~zero marginal signal). Subsample WITHOUT replacement, NOT bootstrap with
+    replacement (duplicate rows let the model memorise, so every feature beats its shadow and the gate accepts
+    ~everything). FUNDAMENTAL LIMIT: a spurious correlation present throughout the draw cannot be removed by resampling
+    that same draw; only an INDEPENDENT validation draw (or a downstream model robust to a few extra features) resolves it.
     """
 
     def __init__(
@@ -92,6 +96,9 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         stratify=None,
         optimistic: bool = True,
         fit_params: dict = None,
+        stability_subsamples: int = 0,
+        stability_subsample_fraction: float = 0.75,
+        stability_threshold: float = 1.0,
     ):
         """
         Parameters
@@ -142,6 +149,17 @@ class BorutaShap(BaseEstimator, TransformerMixin):
 
         self.optimistic = optimistic
         self.fit_params = fit_params
+
+        # Cross-subsample stability gate (opt-in; see class docstring). When stability_subsamples>1 the fit runs that
+        # many sub-fits on distinct row-subsamples WITHOUT replacement (each of size stability_subsample_fraction*n)
+        # and keeps features ACCEPTED in >= stability_threshold of them. stability_threshold=1.0 (INTERSECTION, the
+        # default once enabled) keeps only features accepted by ALL subsamples: this is the setting that reliably
+        # drops a draw-level-spurious noise column (never accepted by all) while keeping strongly-relevant features;
+        # a MAJORITY threshold (~0.6) is high-variance for such columns. Use >= ~8-10 subsamples so strongly-relevant
+        # features hit the all-accept bar reliably. Default stability_subsamples=0 = off (single-fit, bit-stable).
+        self.stability_subsamples = stability_subsamples
+        self.stability_subsample_fraction = stability_subsample_fraction
+        self.stability_threshold = stability_threshold
 
     def check_model(self):
         """
@@ -541,7 +559,8 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         # Caveat (see class docstring): this threshold is the only signal separating real from random. Because shadows
         # are independently permuted they carry NO joint structure, while real columns keep their finite-sample
         # covariance structure; importance fit on one sample therefore ranks the top real-noise column above every
-        # shadow, so it gets a hit nearly every trial. Cross-resample voting -- not a higher percentile -- removes it.
+        # shadow, so it gets a hit nearly every trial. Raising the percentile does NOT fix it; only INTERSECTION-mode
+        # cross-subsample stability (stability_subsamples>1, stability_threshold=1.0) reliably drops it.
         shadow_threshold = np.nanpercentile(self.Shadow_feature_import, self.percentile)
         # If EVERY shadow importance was NaN (degenerate input), nanpercentile
         # also returns NaN; surface that loudly rather than silently rejecting

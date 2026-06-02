@@ -53,6 +53,7 @@ def build_roster():
     R["mrmr_filter"] = (lambda: S.MRMRSel(fe=False), CORE_SEEDS)
     R["mrmr_fe"] = (lambda: S.MRMRSel(fe=True), CORE_SEEDS)
     R["boruta"] = (lambda: S.BorutaSel(), CORE_SEEDS)
+    R["boruta_stable"] = (lambda: S.BorutaSel(stability_subsamples=10), CORE_SEEDS)
     R["rfecv_lgbm"] = (lambda: S.RFECVSel("lgbm"), CORE_SEEDS)
     R["rfecv_logit"] = (lambda: S.RFECVSel("logit"), CORE_SEEDS)
     # hybrids
@@ -62,6 +63,7 @@ def build_roster():
     R["H_union_mrmr_boruta"] = (lambda: S.Ensemble("Hu", S.MRMRSel(fe=False), S.BorutaSel(), "union"), CORE_SEEDS)
     R["H_intersect_mrmr_boruta"] = (lambda: S.Ensemble("Hi", S.MRMRSel(fe=False), S.BorutaSel(), "intersect"), CORE_SEEDS)
     R["H5_mrmr_boruta__rfecv_lgbm"] = (lambda: S.Cascade("H5", S.MRMRSel(fe=False), S.BorutaSel(), S.RFECVSel("lgbm")), CORE_SEEDS)
+    R["H7_mrmr_borutastable__rfecv_lgbm"] = (lambda: S.Cascade("H7", S.MRMRSel(fe=False), S.BorutaSel(stability_subsamples=10), S.RFECVSel("lgbm")), CORE_SEEDS)
     # shap-proxied (cost-limited)
     R["shap_proxied"] = (lambda: S.ShapSel(), SHAP_SEEDS)
     R["H4_mrmrfilter__shap"] = (lambda: S.Cascade("H4", S.MRMRSel(fe=False), S.ShapSel()), SHAP_SEEDS)

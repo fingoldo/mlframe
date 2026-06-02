@@ -41,9 +41,10 @@ def main():
     agg = ok.groupby("strategy")[num].mean().round(4)
     agg["n_seeds"] = ok.groupby("strategy").size()
     # preserve roster order
-    order = ["all", "mrmr_filter", "mrmr_fe", "boruta", "rfecv_lgbm", "rfecv_logit",
+    order = ["all", "mrmr_filter", "mrmr_fe", "boruta", "boruta_stable", "rfecv_lgbm", "rfecv_logit",
              "H1_mrmrfilter__rfecv_lgbm", "H2_mrmrfe__rfecv_logit", "H3_boruta__rfecv_lgbm",
              "H_union_mrmr_boruta", "H_intersect_mrmr_boruta", "H5_mrmr_boruta__rfecv_lgbm",
+             "H7_mrmr_borutastable__rfecv_lgbm",
              "shap_proxied", "H4_mrmrfilter__shap", "H6_mrmrfe__shap"]
     agg = agg.reindex([s for s in order if s in agg.index])
 

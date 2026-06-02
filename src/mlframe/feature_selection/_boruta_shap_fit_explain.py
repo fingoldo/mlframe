@@ -56,6 +56,80 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _fit_with_subsample_stability(self, X, y):
+    """Run BorutaShap on several distinct row-subsamples (WITHOUT replacement) and keep only features
+    ACCEPTED in >= stability_threshold of them. Removes the finite-sample-spurious top real-noise column
+    that a single fit leaks past the shadow gate (see class docstring), while keeping genuinely-relevant
+    features. Returns self with the usual accepted/rejected/tentative/support_/selected_features_ set.
+    """
+    from sklearn.base import clone as _sk_clone
+
+    # Normalise to pandas for positional subsampling (the per-subsample fit re-handles dtypes/cats).
+    if pl is not None and isinstance(X, pl.DataFrame):
+        try:
+            from mlframe.training.utils import get_pandas_view_of_polars_df
+            X = get_pandas_view_of_polars_df(X)
+        except ImportError:
+            X = X.to_pandas(use_pyarrow_extension_array=True)
+    if pl is not None and isinstance(y, pl.Series):
+        y = y.to_pandas()
+    X = X if isinstance(X, pd.DataFrame) else pd.DataFrame(np.asarray(X))
+    y_arr = y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+
+    all_columns = list(X.columns)
+    n = len(X)
+    n_sub = int(self.stability_subsamples)
+    frac = float(getattr(self, "stability_subsample_fraction", 0.75) or 0.75)
+    thr = float(getattr(self, "stability_threshold", 0.6) or 0.6)
+    size = max(10, min(n, int(round(frac * n))))
+    base_seed = int(getattr(self, "random_state", 0) or 0)
+
+    params = self.get_params(deep=False)  # shallow: deep=True yields model__* nested keys __init__ rejects
+    params["stability_subsamples"] = 0  # recursion guard: each sub-fit is a single pass
+    params["verbose"] = False
+
+    accept_counts: dict = {c: 0 for c in all_columns}
+    for k in range(n_sub):
+        rng = np.random.default_rng(base_seed + 1 + k)
+        idx = rng.choice(n, size=size, replace=False)
+        Xk = X.iloc[idx].reset_index(drop=True)
+        yk = pd.Series(y_arr[idx]).reset_index(drop=True)
+        sub_params = dict(params)
+        _model_k = _sk_clone(self.model) if self.model is not None else None
+        # Vary the estimator's own randomness per subsample too (not just the rows). Without this the cloned
+        # model keeps its fixed random_state, so the finite-sample-spurious noise importance stays CORRELATED
+        # across subsamples and survives the vote; varying it (as in Meinshausen-Buhlmann stability selection)
+        # decorrelates the spurious structure so the lucky-noise column changes per subsample and is voted out.
+        if _model_k is not None:
+            try:
+                if "random_state" in _model_k.get_params(deep=False):
+                    _model_k.set_params(random_state=base_seed + 1 + k)
+            except (TypeError, ValueError):
+                pass
+        sub_params["model"] = _model_k
+        sub_params["random_state"] = base_seed + 1 + k
+        sub = self.__class__(**sub_params)
+        sub.fit(Xk, yk)
+        for c in getattr(sub, "accepted", []) or []:
+            if c in accept_counts:
+                accept_counts[c] += 1
+
+    need = max(1, int(np.ceil(thr * n_sub)))
+    self.accepted = [c for c in all_columns if accept_counts[c] >= need]
+    self.rejected = [c for c in all_columns if accept_counts[c] == 0]
+    self.tentative = [c for c in all_columns if 0 < accept_counts[c] < need]
+    kept = set(self.accepted) | (set(self.tentative) if self.optimistic else set())
+    self.support_ = np.array([c in kept for c in all_columns], dtype=bool)
+    self.selected_features_ = [c for c in all_columns if c in kept]
+    self.feature_names_in_ = np.asarray(all_columns)
+    self.n_features_in_ = int(len(all_columns))
+    self.stability_accept_counts_ = dict(accept_counts)  # diagnostic: per-feature accept frequency
+    if self.verbose:
+        logger.info(
+            "BorutaShap stability: %d subsamples @%.0f%%, threshold>=%d/%d -> %d accepted, %d tentative, %d rejected",
+            n_sub, 100 * frac, need, n_sub, len(self.accepted), len(self.tentative), len(self.rejected),
+        )
+    return self
 
 
 def fit(self, X, y):
@@ -131,6 +205,12 @@ def fit(self, X, y):
             X = X.to_pandas(use_pyarrow_extension_array=True)
     if pl is not None and isinstance(y, pl.Series):
         y = y.to_pandas()
+
+    # Cross-subsample stability gate (opt-in). See BorutaShap class docstring: a single-sample shadow
+    # comparison leaks the top finite-sample-spurious real-noise column; majority vote across distinct
+    # row-subsamples (WITHOUT replacement) removes it. >1 guards against a degenerate single-subsample.
+    if int(getattr(self, "stability_subsamples", 0) or 0) > 1:
+        return _fit_with_subsample_stability(self, X, y)
 
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=FutureWarning, module="sklearn")

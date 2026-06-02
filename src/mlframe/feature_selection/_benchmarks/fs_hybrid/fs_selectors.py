@@ -54,7 +54,9 @@ class MRMRSel:
 
 
 class BorutaSel:
-    name = "boruta"
+    def __init__(self, stability_subsamples: int = 0):
+        self.stability_subsamples = stability_subsamples
+        self.name = "boruta_stable" if stability_subsamples else "boruta"
     def fit(self, X, y):
         from mlframe.feature_selection.boruta_shap import BorutaShap
         from sklearn.ensemble import RandomForestClassifier
@@ -62,6 +64,8 @@ class BorutaSel:
             model=RandomForestClassifier(n_estimators=80, max_depth=None, n_jobs=-1, random_state=0),
             importance_measure="gini", classification=True, n_trials=60, percentile=95,
             pvalue=0.05, verbose=False, random_state=0,
+            stability_subsamples=self.stability_subsamples,
+            stability_subsample_fraction=0.75, stability_threshold=1.0,  # intersection: reliably drops draw-level spurious
         )
         self.b_.fit(X, y)
         self.raw_selected_ = [c for c in self.b_.selected_features_ if c in X.columns]

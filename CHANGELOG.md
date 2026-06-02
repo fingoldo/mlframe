@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-06-02 — BorutaShap cross-subsample stability (opt-in) + corrected shadow-leak mitigation claim
+
+Adds an opt-in cross-subsample stability gate to BorutaShap and CORRECTS the mitigation claim documented earlier today (which was based on a single lucky seed).
+
+New params (default off, bit-stable): ``stability_subsamples`` (>1 enables), ``stability_subsample_fraction`` (0.75), ``stability_threshold`` (1.0). When enabled, fit runs that many sub-fits on distinct row-subsamples WITHOUT replacement (varying both the rows and the estimator's random_state per subsample) and keeps features by accept frequency. Sub-fits are built via ``get_params(deep=False)`` + ``__class__(**p)`` (BorutaShap is not sklearn-cloneable because ``__init__`` lowercases importance_measure). Exposes ``stability_accept_counts_`` for inspection.
+
+Correction of the earlier claim: the prior docstring said "4x75% majority voting accepted ZERO noise columns". Re-measured rigorously, that was a lucky subsample-seed set. The top draw-level-spurious noise column's accept frequency is UNSTABLE across seed sets (3/10 .. 8/10 over 10 subsamples), because its spurious correlation lives in the whole data draw, so most subsamples inherit it. A MAJORITY vote (~0.6) therefore does NOT reliably drop it. Only the INTERSECTION (stability_threshold=1.0) does: the spurious column is never accepted by ALL subsamples (7/10 and 0/10 across seeds -> dropped) while strongly-relevant features are (10/10 -> kept). Cost: intersection also drops weakly/inconsistently-relevant features (e.g. pure interaction operands). FUNDAMENTAL LIMIT documented: a draw-level spurious correlation cannot be removed by resampling that same draw - only an independent validation draw resolves it. Default threshold set to 1.0 accordingly; class docstring + calculate_hits comment rewritten to match the measurements.
+
+
 ## 2026-06-02 — FS hybrid robustness: RFECV numpy input, rescue parsimony + cluster exclusion, BorutaShap shadow-leak doc
 
 A pass on the wrapper/all-relevant selectors surfaced while designing filter-then-wrapper hybrids. Four changes; all bit-stable for existing DataFrame callers and default-off paths.
