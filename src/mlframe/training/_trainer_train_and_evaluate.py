@@ -713,6 +713,16 @@ def train_and_evaluate_model(
                             model.oof_preds = _oof_preds
                         if _oof_probs is not None:
                             model.oof_probs = _oof_probs
+                            # Stamp the train-aligned target so post-hoc OOF
+                            # calibration pairs each OOF prob with its OWN row's
+                            # label. cross_val_predict returns predictions in
+                            # train-row order, so train_target (train_idx order)
+                            # is the row-for-row match. Without this,
+                            # post_calibrate_model fell back to a POSITIONAL
+                            # target_series slice that is correct only when train
+                            # is the leading contiguous block (wrong under
+                            # shuffled / group-aware splits).
+                            model.oof_target = _y_arr
                     except AttributeError:
                         # Some frozen-attribute estimators (sklearn 1.4+ slots) refuse new attrs; stamp on the wrapper carrier instead.
                         pass

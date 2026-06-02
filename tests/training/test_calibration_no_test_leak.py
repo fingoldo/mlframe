@@ -151,3 +151,55 @@ def test_clean_oof_calib_fits_without_assertion():
     assert meta_model.fit_X.shape[0] != test_probs.shape[0]
     # Returned tuple shape is preserved.
     assert len(result) == 8
+
+
+def test_oof_fallback_uses_stamped_oof_target_not_positional_slice():
+    """OOF-fallback calibration must pair OOF probs with the train-aligned
+    ``model.oof_target`` (cross_val_predict row order), NOT the leading-N rows
+    of ``target_series``. The positional slice is correct only when train is the
+    leading contiguous block; under a shuffled / group-aware split it fits the
+    calibrator on mismatched (prob, label) pairs."""
+    from mlframe.training.evaluation import post_calibrate_model
+
+    rng = np.random.default_rng(7)
+    n_total = 100
+    M = 40  # OOF (train) rows
+    test_idx = np.arange(80, 100)
+    val_idx = np.arange(60, 80)
+
+    test_probs = rng.uniform(size=(20, 2))
+    val_probs = rng.uniform(size=(20, 2))
+    test_preds = (test_probs[:, 1] > 0.5).astype(int)
+    val_preds = (val_probs[:, 1] > 0.5).astype(int)
+
+    oof_probs = rng.uniform(size=(M, 2))
+    oof_target = (np.arange(M) % 2)  # train-aligned labels: mixed 0/1
+
+    # target_series leading M rows are DELIBERATELY all 0: if the buggy
+    # positional slice target_series.iloc[:M] were used, fit_y would be all-0.
+    full = np.ones(n_total, dtype=int)
+    full[:M] = 0
+    target_series = pd.Series(full)
+
+    model = SimpleNamespace(oof_probs=oof_probs, oof_target=oof_target)
+    meta_model = _StubMetaModel()
+    original_model = (
+        model, test_preds, test_probs, val_preds, val_probs, ["c0", "c1"], None, {},
+    )
+
+    post_calibrate_model(
+        original_model=original_model,
+        target_series=target_series,
+        target_label_encoder=None,
+        val_idx=val_idx,
+        test_idx=test_idx,
+        configs=_make_configs_stub(),
+        meta_model=meta_model,
+        calib_idx=None,
+    )
+
+    assert meta_model.fit_y is not None, "calibrator was not fit via the OOF fallback"
+    fit_y = meta_model.fit_y.ravel()
+    np.testing.assert_array_equal(fit_y, oof_target[: fit_y.shape[0]])
+    # Pre-fix this was the all-zero target_series leading slice.
+    assert fit_y.sum() > 0, "fit_y is all-zero -> used the buggy positional target_series slice"

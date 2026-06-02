@@ -291,9 +291,20 @@ def post_calibrate_model(
             _oof_probs_mo = getattr(model, "oof_probs", None)
             if _oof_probs_mo is not None:
                 _calib_p = np.asarray(_oof_probs_mo)
-                _train_idx_mo = getattr(target_series, "index", None)
-                # OOF was computed on train rows; pair with the corresponding y_train slice.
-                _calib_y = target_series.iloc[: _calib_p.shape[0]].values if hasattr(target_series, "iloc") else np.asarray(target_series)[: _calib_p.shape[0]]
+                # oof_probs are in train-row order (cross_val_predict); pair each
+                # with its OWN row's label via the train-aligned oof_target. The
+                # old ``target_series.iloc[:len(oof)]`` positional slice is only
+                # correct when train is the leading contiguous block, so under a
+                # shuffled / group-aware split it fit the calibrator on
+                # mismatched (prob, label) pairs.
+                _oof_y_mo = getattr(model, "oof_target", None)
+                if _oof_y_mo is None:
+                    raise ValueError(
+                        "post_calibrate_model (multi-output): model.oof_probs is present but "
+                        "model.oof_target is missing, so OOF probs cannot be aligned to their "
+                        "labels. Retrain so oof_target is stamped, or pass calib_probs+calib_target."
+                    )
+                _calib_y = np.asarray(_oof_y_mo)[: _calib_p.shape[0]]
             else:
                 raise ValueError(
                     "post_calibrate_model (multi-output): no calibration source available. Pass calib_probs+calib_target "
@@ -353,9 +364,19 @@ def post_calibrate_model(
             _binary_fit_X = _oof_arr[:, 1].reshape(-1, 1)
         else:
             _binary_fit_X = _oof_arr.reshape(-1, 1)
-        # OOF y is the train target slice the model was fit on (first ``len(oof)`` rows of target_series).
-        _y_target_arr = target_series.values if hasattr(target_series, "values") else np.asarray(target_series)
-        _binary_fit_y = _y_target_arr[: _binary_fit_X.shape[0]].ravel()
+        # OOF y must be the train-aligned target stamped alongside oof_probs
+        # (cross_val_predict order), NOT a positional ``target_series[:len(oof)]``
+        # slice -- the latter is correct only when train is the leading
+        # contiguous block, so under a shuffled / group-aware split it paired
+        # OOF probs with unrelated rows' labels and learned a scrambled mapping.
+        _oof_y_bin = getattr(model, "oof_target", None)
+        if _oof_y_bin is None:
+            raise ValueError(
+                "post_calibrate_model: model.oof_probs is present but model.oof_target is "
+                "missing, so OOF probs cannot be aligned to their labels. Retrain so "
+                "oof_target is stamped, or pass calib_probs+calib_target."
+            )
+        _binary_fit_y = np.asarray(_oof_y_bin)[: _binary_fit_X.shape[0]].ravel()
 
     # Final leak assertion at the fit boundary: when an explicit calib_idx was passed, the disjointness check above
     # already cleared this. When (calib_probs, calib_target) were passed instead, the caller asserted independence at
