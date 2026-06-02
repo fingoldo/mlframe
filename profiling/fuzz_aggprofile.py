@@ -25,7 +25,11 @@ for _p in (_REPO, os.path.join(_REPO, "src")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
+# Force CPU by default (reproducible orchestration profiling). Opt into the
+# GPU -- and thus the neural/torch combos -- with MLFRAME_FUZZ_GPU=1 in the
+# environment; it propagates to per-combo worker subprocesses automatically.
+if os.environ.get("MLFRAME_FUZZ_GPU", "") != "1":
+    os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 
 _TORCH = {"mlp", "lstm", "gru", "transformer", "tabnet", "ft_transformer", "node", "saint"}
 
@@ -37,16 +41,23 @@ def _is_torch(combo) -> bool:
     return rec not in (None, "none", "None")
 
 
-def _build_pool():
-    """Deterministic shuffled pool of non-torch combos (same in runner + worker)."""
+def _build_pool(include_torch: bool = False, master_seed: int = 20260601, target: int = 150):
+    """Deterministic shuffled combo pool (identical in runner + worker).
+
+    ``include_torch`` keeps neural combos (need a GPU; run with
+    MLFRAME_FUZZ_GPU=1). ``master_seed`` / ``target`` widen exploration into
+    fresh or larger samples of the pairwise-covered axis space. Defaults
+    reproduce the historical non-torch pool exactly (shuffle seed = seed+1).
+    """
     from tests.training._fuzz_combo import enumerate_combos
-    combos = enumerate_combos(target=150, master_seed=20260601)
-    pool = [c for c in combos if not _is_torch(c)]
-    random.Random(20260602).shuffle(pool)
+    combos = enumerate_combos(target=target, master_seed=master_seed)
+    pool = list(combos) if include_torch else [c for c in combos if not _is_torch(c)]
+    random.Random(master_seed + 1).shuffle(pool)
     return pool
 
 
-def _run_one(idx: int, n_rows: int) -> None:
+def _run_one(idx: int, n_rows: int, include_torch: bool = False,
+             master_seed: int = 20260601, target: int = 150) -> None:
     """Profile a single combo by pool index; emit PROF:/ELAPSED:/ERR: lines."""
     from tests.training._fuzz_combo import build_frame_for_combo
     from tests.training.shared import SimpleFeaturesAndTargetsExtractor
@@ -58,7 +69,7 @@ def _run_one(idx: int, n_rows: int) -> None:
     from mlframe.training.core import train_mlframe_models_suite
     from mlframe.training.configs import TargetTypes as _TT
 
-    pool = _build_pool()
+    pool = _build_pool(include_torch=include_torch, master_seed=master_seed, target=target)
     if idx >= len(pool):
         print("ERR:index out of range", flush=True)
         return
@@ -130,14 +141,19 @@ def _run_one(idx: int, n_rows: int) -> None:
         traceback.print_exc()
 
 
-def _run_sweep(n: int, n_rows: int, timeout: float) -> None:
-    pool = _build_pool()
+def _run_sweep(n: int, n_rows: int, timeout: float, include_torch: bool = False,
+               master_seed: int = 20260601, target: int = 150) -> None:
+    pool = _build_pool(include_torch=include_torch, master_seed=master_seed, target=target)
     n = min(n, len(pool))
-    print(f"aggregating profile over {n} random NON-torch combos @ n={n_rows}, per-combo timeout={timeout:.0f}s", flush=True)
+    kind = "ALL (incl torch/GPU)" if include_torch else "NON-torch"
+    print(f"aggregating profile over {n} {kind} combos @ n={n_rows}, seed={master_seed}, target={target}, per-combo timeout={timeout:.0f}s (pool={len(pool)})", flush=True)
     agg = collections.defaultdict(lambda: [0.0, 0])
     fails = []
     for idx in range(n):
-        cmd = [sys.executable, "-u", os.path.abspath(__file__), "--one", str(idx), "--n-rows", str(n_rows)]
+        cmd = [sys.executable, "-u", os.path.abspath(__file__), "--one", str(idx),
+               "--n-rows", str(n_rows), "--master-seed", str(master_seed), "--target", str(target)]
+        if include_torch:
+            cmd.append("--include-torch")
         combo_id = "?"
         try:
             res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=_REPO)
@@ -182,11 +198,19 @@ def main():
     # than n for letting the heavy combos complete and surface their hotspots.
     ap.add_argument("--n-rows", type=int, default=2000)
     ap.add_argument("--timeout", type=float, default=180.0)
+    ap.add_argument("--include-torch", action="store_true",
+                    help="keep neural combos in the pool (run on GPU; set MLFRAME_FUZZ_GPU=1)")
+    ap.add_argument("--master-seed", type=int, default=20260601,
+                    help="combo-generation seed; change it to sample fresh axis combinations")
+    ap.add_argument("--target", type=int, default=150,
+                    help="enumerate_combos target size; larger = more of the axis space")
     a = ap.parse_args()
     if a.one is not None:
-        _run_one(a.one, a.n_rows)
+        _run_one(a.one, a.n_rows, include_torch=a.include_torch,
+                 master_seed=a.master_seed, target=a.target)
     else:
-        _run_sweep(a.n, a.n_rows, a.timeout)
+        _run_sweep(a.n, a.n_rows, a.timeout, include_torch=a.include_torch,
+                   master_seed=a.master_seed, target=a.target)
 
 
 if __name__ == "__main__":
