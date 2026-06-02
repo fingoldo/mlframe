@@ -33,64 +33,89 @@ from .composite_transforms import (
 )
 from ._ram_helpers import (
     get_process_rss_mb as _rss_mb,
-    maybe_clean_ram_adaptive as _maybe_clean_ram_adaptive,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _process_mem_mb() -> tuple[float, float]:
+    """Return ``(rss_mb, uss_mb)`` for the current process.
+
+    Why both: on Windows ``pyutilz.clean_ram()`` invokes ``EmptyWorkingSet``
+    which evicts pages from the working set to the page file. RSS plummets to
+    near-zero even though the virtual memory commit is unchanged and the
+    pages page back in on first touch. The prior profiler trusted RSS only,
+    so the post-GC report read "RSS=4 MB (reclaimed 57907 MB)" right after
+    every clean_ram call -- a wildly misleading line that masked the real
+    discovery-phase footprint and made the page-thrashing problem invisible.
+
+    USS (Unique Set Size) reflects memory uniquely owned by this process. It
+    is NOT affected by EmptyWorkingSet -- the pages are still committed to
+    this process, only their working-set residency changed. USS is therefore
+    the honest "what this process actually allocated" number on Windows. On
+    Linux USS is also available via the same psutil API; fall back to RSS
+    when ``memory_full_info`` is unavailable (psutil too old / sandboxed).
+
+    Returned tuple: ``(rss_mb, uss_mb)``. Both are floats in MB. uss==rss
+    when the fallback path fires.
+    """
+    rss = _rss_mb()
+    try:
+        import psutil as _psutil
+        full = _psutil.Process().memory_full_info()
+        uss = float(getattr(full, "uss", rss * 1024 ** 2)) / 1024 ** 2
+    except Exception:
+        uss = rss
+    return rss, uss
 
 
 def _phase_ram_report(state: dict, phase_name: str) -> None:
     """Emit one INFO log line per discovery sub-phase boundary with delta-vs-prev
     and cumulative delta vs the fit() entry baseline.
 
-    State is a {'baseline_mb': float, 'prev_mb': float} dict the caller threads
-    through the discovery fit. ``maybe_clean_ram_adaptive()`` is invoked AFTER
-    reading the post-phase RSS so the report reflects the unfreed footprint of
-    the sub-phase that just finished; the GC trigger then runs only when growth
-    exceeded the helper's internal threshold (~500 MB).
+    Reports BOTH RSS (working set) and USS (unique set size, immune to
+    EmptyWorkingSet eviction on Windows). When RSS << USS the process is
+    page-thrashing -- a critical signal the prior version masked. State is a
+    ``{'baseline_uss_mb': float, 'prev_uss_mb': float}`` dict the caller
+    threads through the discovery fit.
 
-    Designed for prod-debug: the user's observable was a kernel OOM somewhere
-    inside one discovery call -- with each sub-phase stamped we can attribute
-    the spike to ``_filter_features`` / ``_auto_base`` / per-base loop /
-    ``_tiny_model_rerank`` / ``forward_stepwise`` rather than wave-handing at
-    "discovery used too much RAM".
+    No GC is forced from inside the profiler. ``pyutilz.clean_ram()`` on
+    Windows is harmful here (it evicts the working set without freeing real
+    memory) and the discovery callers run gc collection at suite-level
+    boundaries instead. Removing the call also removes the bogus post-GC
+    log line that read "reclaimed 57 GB" right after each phase.
     """
     try:
-        now_mb = _rss_mb()
+        rss_mb, uss_mb = _process_mem_mb()
     except Exception:
         return
-    if state.get("baseline_mb") is None:
-        state["baseline_mb"] = now_mb
-        state["prev_mb"] = now_mb
+    if state.get("baseline_uss_mb") is None:
+        state["baseline_uss_mb"] = uss_mb
+        state["prev_uss_mb"] = uss_mb
         logger.info(
-            "[CompositeTargetDiscovery.RAM] phase=%s start RSS=%.0f MB", phase_name, now_mb,
+            "[CompositeTargetDiscovery.RAM] phase=%s start USS=%.0f MB (RSS=%.0f MB)",
+            phase_name, uss_mb, rss_mb,
         )
         return
-    prev_mb = state.get("prev_mb", now_mb)
-    baseline_mb = state.get("baseline_mb", now_mb)
+    prev_mb = state["prev_uss_mb"]
+    baseline_mb = state["baseline_uss_mb"]
+    # When RSS << USS by a non-trivial margin the process is page-thrashing
+    # (working-set evicted by EmptyWorkingSet or external memory pressure).
+    # Surface a single hint inline so the operator sees it without crawling
+    # the prior thread of reports.
+    _thrash_hint = ""
+    if uss_mb > rss_mb * 2 and uss_mb > 1024:
+        _thrash_hint = f" PAGE_THRASHING(uss/rss={uss_mb/max(rss_mb, 1):.1f}x)"
     logger.info(
-        "[CompositeTargetDiscovery.RAM] phase=%s RSS=%.0f MB (delta_vs_prev=%+.0f MB, cumulative_vs_baseline=%+.0f MB)",
+        "[CompositeTargetDiscovery.RAM] phase=%s USS=%.0f MB (RSS=%.0f MB; delta_vs_prev=%+.0f MB, cumulative_vs_baseline=%+.0f MB)%s",
         phase_name,
-        now_mb,
-        now_mb - prev_mb,
-        now_mb - baseline_mb,
+        uss_mb,
+        rss_mb,
+        uss_mb - prev_mb,
+        uss_mb - baseline_mb,
+        _thrash_hint,
     )
-    state["prev_mb"] = now_mb
-    # Defensive adaptive GC. Internal threshold (~500 MB) gates the call so
-    # the cost is paid only when growth justified it. Re-reads RSS afterward
-    # because clean_ram may have reclaimed buffers; the next sub-phase report
-    # then measures delta from the post-GC baseline.
-    try:
-        _maybe_clean_ram_adaptive()
-        post_gc = _rss_mb()
-        if post_gc < now_mb - 100.0:
-            logger.info(
-                "[CompositeTargetDiscovery.RAM] phase=%s post-GC RSS=%.0f MB (reclaimed %.0f MB)",
-                phase_name, post_gc, now_mb - post_gc,
-            )
-            state["prev_mb"] = post_gc
-    except Exception:
-        pass
+    state["prev_uss_mb"] = uss_mb
 
 
 def fit(

@@ -28,25 +28,48 @@ def test_1_phase_ram_report_records_baseline_then_delta(caplog):
         _phase_ram_report(state, "entry")
         _phase_ram_report(state, "filter_features_done")
         _phase_ram_report(state, "transforms_evaluated")
-    assert state.get("baseline_mb") is not None
-    assert state.get("prev_mb") is not None
+    # New API: state keys carry the uss_mb suffix.
+    assert state.get("baseline_uss_mb") is not None
+    assert state.get("prev_uss_mb") is not None
     # 3 phase lines minimum (entry/filter/transforms).
     phase_lines = [r for r in caplog.records if "CompositeTargetDiscovery.RAM" in r.getMessage()]
     assert len(phase_lines) >= 3, [r.getMessage() for r in phase_lines]
     assert any("phase=entry" in r.getMessage() for r in phase_lines)
     assert any("phase=filter_features_done" in r.getMessage() for r in phase_lines)
+    # Each non-entry line reports BOTH USS and RSS so page-thrashing is visible.
+    non_entry = [r for r in phase_lines if "phase=entry" not in r.getMessage()]
+    for r in non_entry:
+        msg = r.getMessage()
+        assert "USS=" in msg and "RSS=" in msg, msg
+
+
+def test_1_phase_ram_report_flags_page_thrashing(caplog):
+    """When USS >> RSS by 2x+ on a 1 GB+ process, emit a PAGE_THRASHING marker.
+    This is the signal the prior version masked entirely by reporting just RSS."""
+    from mlframe.training import _composite_discovery_fit as mod
+    state: dict = {}
+    # Mock _process_mem_mb to simulate the post-EmptyWorkingSet artefact: USS=60 GB,
+    # RSS=4 MB. The prior version logged this as "reclaimed 60 GB"; the new version
+    # must surface it as page-thrashing.
+    with patch.object(mod, "_process_mem_mb", return_value=(4.0, 60_000.0)):
+        mod._phase_ram_report(state, "entry")  # baseline
+    with patch.object(mod, "_process_mem_mb", return_value=(4.0, 60_500.0)):
+        with caplog.at_level(logging.INFO, logger="mlframe.training._composite_discovery_fit"):
+            mod._phase_ram_report(state, "after_phase")
+    thrash = [r for r in caplog.records if "PAGE_THRASHING" in r.getMessage()]
+    assert thrash, "PAGE_THRASHING marker must fire when USS >> RSS"
 
 
 def test_1_phase_ram_report_tolerates_psutil_failure():
-    """The profiler must not raise when RSS read fails -- it's diagnostic-only
+    """The profiler must not raise when memory read fails -- it's diagnostic-only
     and must never block a real fit() path."""
     from mlframe.training import _composite_discovery_fit as mod
     state: dict = {}
-    with patch.object(mod, "_rss_mb", side_effect=RuntimeError("psutil down")):
-        mod._phase_ram_report(state, "entry")
-        mod._phase_ram_report(state, "after_phase_A")
-    # No baseline set, no crash.
-    assert state.get("baseline_mb") in (None, 0.0)
+    with patch.object(mod, "_process_mem_mb", side_effect=RuntimeError("psutil down")):
+        try:
+            mod._phase_ram_report(state, "entry")
+        except RuntimeError:
+            pytest.fail("profiler must not propagate psutil errors")
 
 
 # ---------------------------------------------------------------------------
