@@ -283,6 +283,19 @@ def fit(self, X, y):
                 self.hits += hits
                 self.history_hits = np.vstack((self.history_hits, self.hits))
                 self.test_features(iteration=trial + 1)
+                self.n_trials_run_ = trial + 1  # actual trials executed (< n_trials when early-terminated)
+
+                # Early-termination: once NO feature is still tentative (every feature is confirmed or rejected)
+                # the remaining trials only re-test already-confirmed features and cannot change the outcome.
+                # Canonical Boruta stops here; this loop previously always ran all n_trials (the dominant cost).
+                # Mirrors calculate_rejected_accepted_tentative's accepted/rejected/tentative partition exactly,
+                # so the final support_ is identical to running every trial - this is a pure speedup.
+                _acc = set(self.flatten_list(self.accepted_columns))
+                _rej = set(self.flatten_list(self.rejected_columns)) - _acc
+                if len(self.all_columns) - len(_acc) - len(_rej) == 0:
+                    if self.verbose:
+                        logger.info("BorutaShap: all features decided after %d/%d trials; stopping early.", trial + 1, self.n_trials)
+                    break
 
         self.store_feature_importance()
         self.calculate_rejected_accepted_tentative(verbose=self.verbose)

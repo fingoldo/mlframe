@@ -37,6 +37,26 @@ def test_stability_params_roundtrip_shallow_get_params():
     assert BorutaShap(stability_subsamples=2).stability_threshold == 1.0
 
 
+def test_borutashap_early_terminates_when_no_tentatives():
+    """On a clean separable problem every feature is confirmed/rejected well before n_trials; the loop must stop
+    early (n_trials_run_ < n_trials) with no tentatives. Pure speedup: the final partition is unchanged because
+    remaining trials would only re-test already-confirmed features."""
+    pytest.importorskip("sklearn")
+    from sklearn.datasets import make_classification
+    from sklearn.ensemble import RandomForestClassifier
+    from mlframe.feature_selection.boruta_shap import BorutaShap
+
+    X, y = make_classification(n_samples=1500, n_features=12, n_informative=6, n_redundant=0,
+                               n_repeated=0, class_sep=2.0, random_state=0)
+    X = pd.DataFrame(X, columns=[f"f{i}" for i in range(12)])
+    sel = BorutaShap(model=RandomForestClassifier(n_estimators=60, n_jobs=-1, random_state=0),
+                     importance_measure="gini", classification=True, n_trials=150, percentile=100,
+                     verbose=False, random_state=0)
+    sel.fit(X, pd.Series(y))
+    assert sel.n_trials_run_ < 150, f"expected early stop, ran all {sel.n_trials_run_} trials"
+    assert len(sel.tentative) == 0  # early stop only triggers when nothing is tentative
+
+
 def test_borutashap_is_sklearn_cloneable():
     """__init__ must store params verbatim so the estimator is clone-able (GridSearchCV / Pipeline). Regression for
     the prior bug where __init__ lowercased importance_measure, defaulted fit_params None->{}, and ran check_model

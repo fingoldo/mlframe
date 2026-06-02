@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-06-02 — BorutaShap early-termination when no features remain tentative
+
+The trial loop previously always ran all ``n_trials`` (default 150) iterations, re-fitting the surrogate on the doubled [X | shadow] matrix every time - the dominant cost. It now stops as soon as every feature is decided (confirmed or rejected), i.e. no tentatives remain: further trials only re-test already-confirmed features and cannot change the partition, so the final support_ is identical (pure speedup). This is the canonical Boruta stopping rule. Exposes ``n_trials_run_`` (actual trials executed). Measured: a clean separable problem stops at ~104/150 trials (~30% saved); on noisy data where some features stay perpetually tentative it correctly runs the full budget (nothing - here or in any Boruta variant - can decide a perpetually-borderline feature without more trials). Regression test added.
+
 ## 2026-06-02 — Cheap-first dispatch for orthogonal-poly pair FE (2.76x faster, no quality loss)
 
 The expensive CMA/Optuna orthogonal-polynomial pair search (``fe_smart_polynom_iters``) used to run on EVERY prospective pair, even pairs whose signal a trivial library unary/binary feature already captures (monotone inners like ``exp(a)*log(b)`` -- the trivial MI is already at the pair's joint-MI ceiling, and a 1-D polynomial cannot exceed the joint MI, so the search has no headroom there). Only NON-monotone inners (``a**3-2a`` -> trivial MI well below the ceiling) actually need the orthogonal-poly basis.
