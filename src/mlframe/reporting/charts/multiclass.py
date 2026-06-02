@@ -19,6 +19,7 @@ Token catalogue (all 7):
 
 from __future__ import annotations
 
+import warnings
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -50,9 +51,16 @@ def _confusion_panel(y_true, y_proba, classes) -> HeatmapPanelSpec:
     from ...utils.nan_safe import argmax_classes_safe
     y_pred = argmax_classes_safe(y_proba, context="reporting.charts.multiclass")
     K = len(classes)
-    matrix = np.zeros((K, K), dtype=np.float64)
-    for t, p in zip(y_true, y_pred):
-        matrix[int(t), int(p)] += 1.0
+    # Vectorised tally: flatten (true, pred) into a single linear code and
+    # bincount it -- replaces the per-sample Python loop (50x on 200k rows).
+    # Only in-range 0..K-1 pairs are counted: compose_multiclass_figure maps
+    # unseen true labels to -1 (documented "excluded") and argmax may return a
+    # fallback, so mask out-of-range rather than indexing them (the old loop
+    # silently wrapped -1 into the last row via negative indexing).
+    ti = np.asarray(y_true).astype(np.intp)
+    pi = np.asarray(y_pred).astype(np.intp)
+    valid = (ti >= 0) & (ti < K) & (pi >= 0) & (pi < K)
+    matrix = np.bincount(ti[valid] * K + pi[valid], minlength=K * K).reshape(K, K).astype(np.float64)
     row_sums = matrix.sum(axis=1, keepdims=True)
     row_sums[row_sums == 0] = 1.0
     matrix_norm = matrix / row_sums
@@ -175,15 +183,18 @@ def _calib_grid_panel(y_true, y_proba, classes) -> LinePanelSpec:
 
     series: List[np.ndarray] = []
     labels: List[str] = []
+    yt = np.asarray(y_true)
     for k in range(K):
         proba_k = y_proba[:, k]
-        true_k = (np.asarray(y_true) == k).astype(np.float64)
+        true_k = (yt == k).astype(np.float64)
         bin_idx = np.clip(np.digitize(proba_k, edges[1:-1]), 0, n_bins - 1)
+        # Per-bin observed mean via two bincounts (sum / count) instead of an
+        # inner n_bins x O(N) mask loop.
+        counts = np.bincount(bin_idx, minlength=n_bins)
+        sums = np.bincount(bin_idx, weights=true_k, minlength=n_bins)
         observed = np.full(n_bins, np.nan)
-        for b in range(n_bins):
-            mask = bin_idx == b
-            if mask.any():
-                observed[b] = float(true_k[mask].mean())
+        nz = counts > 0
+        observed[nz] = sums[nz] / counts[nz]
         series.append(observed)
         labels.append(str(classes[k]))
     # Plus the perfect-calibration diagonal as the first series.
@@ -326,6 +337,18 @@ def compose_multiclass_figure(
         [_label_to_pos.get(t, -1) for t in np.asarray(y_true).tolist()],
         dtype=np.int64,
     )
+    # A total mismatch (every label unseen) silently empties every one-vs-rest
+    # panel -- the usual cause is y_true holding positional indices 0..K-1 while
+    # classes are display strings. Surface it loudly instead of rendering blanks.
+    if y_true_pos.size and not (y_true_pos >= 0).any():
+        warnings.warn(
+            f"compose_multiclass_figure: none of the {y_true_pos.size} y_true "
+            f"values matched any entry in classes={list(classes)!r}; every "
+            "sample was excluded and the panels will be empty. y_true must hold "
+            "the actual class identifiers (the same domain as classes), not "
+            "positional indices.",
+            UserWarning, stacklevel=2,
+        )
     panels: List[PanelSpec] = [
         _TOKEN_BUILDERS[tok](y_true_pos, y_proba, classes) for tok in tokens
     ]

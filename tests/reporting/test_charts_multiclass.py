@@ -30,13 +30,19 @@ def synth_3class():
     rng = np.random.default_rng(42)
     n = 300
     K = 3
-    y_true = rng.integers(0, K, n)
+    classes = ["cat", "dog", "bird"]
+    pos = rng.integers(0, K, n)
     y_proba = rng.dirichlet(alpha=[1] * K, size=n)
     # Bump true class so signal is non-trivial.
-    for i, t in enumerate(y_true):
+    for i, t in enumerate(pos):
         y_proba[i, t] += 0.7
         y_proba[i] /= y_proba[i].sum()
-    return y_true, y_proba, ["cat", "dog", "bird"]
+    # y_true carries the actual class identifiers (matching ``classes``), per
+    # the sklearn convention compose_multiclass_figure expects -- NOT bare
+    # positional ints (which would all miss the string-keyed label map and be
+    # remapped to -1 / excluded, collapsing every one-vs-rest panel).
+    y_true = np.array([classes[t] for t in pos])
+    return y_true, y_proba, classes
 
 
 @pytest.fixture
@@ -44,12 +50,16 @@ def synth_4class():
     rng = np.random.default_rng(42)
     n = 400
     K = 4
-    y_true = rng.integers(0, K, n)
+    classes = ["a", "b", "c", "d"]
+    pos = rng.integers(0, K, n)
     y_proba = rng.dirichlet(alpha=[1] * K, size=n)
-    for i, t in enumerate(y_true):
+    for i, t in enumerate(pos):
         y_proba[i, t] += 0.7
         y_proba[i] /= y_proba[i].sum()
-    return y_true, y_proba, ["a", "b", "c", "d"]
+    # y_true holds class identifiers matching ``classes`` (sklearn convention),
+    # not positional ints -- see synth_3class.
+    y_true = np.array([classes[t] for t in pos])
+    return y_true, y_proba, classes
 
 
 # ----------------------------------------------------------------------------
