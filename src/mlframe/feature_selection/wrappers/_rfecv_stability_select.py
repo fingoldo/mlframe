@@ -29,15 +29,6 @@ logger = logging.getLogger("mlframe.feature_selection.wrappers._rfecv")
 
 
 def _fit_stability_selection(self, X, y, signature):
-    # E12 (Wave 4, 2026-05-28): floor n_samples for stability selection. With
-    # n<20 the n/2 sub_size becomes <=10 and per-bootstrap FI is noise; the
-    # threshold-based selection then picks essentially-random features.
-    if X.shape[0] < 20:
-        raise ValueError(
-            f"stability_selection requires n_samples >= 20; got n={X.shape[0]}. "
-            f"With n/2 sub_size below 10 the bootstrap FI signal is dominated "
-            f"by sampling noise. Use the regular MBH path or increase n."
-        )
     """Stability Selection (Meinshausen & Buhlmann 2010, JRSS-B).
 
     Bootstrap-based feature selection. For each of B bootstrap subsamples (n/2, no replacement), fit the estimator(s) and record which
@@ -48,6 +39,18 @@ def _fit_stability_selection(self, X, y, signature):
     Particularly robust on small-n / high-p problems where per-fold CV voting is dominated by sampling noise. If ``self.estimators`` is
     set, FI is averaged across them inside each bootstrap.
     """
+    # Docstring must be the FIRST statement to bind to __doc__; the n_samples
+    # guard below was previously placed above it, leaving __doc__ unset and
+    # the literal evaluated-and-discarded on every call.
+    # E12 (Wave 4, 2026-05-28): floor n_samples for stability selection. With
+    # n<20 the n/2 sub_size becomes <=10 and per-bootstrap FI is noise; the
+    # threshold-based selection then picks essentially-random features.
+    if X.shape[0] < 20:
+        raise ValueError(
+            f"stability_selection requires n_samples >= 20; got n={X.shape[0]}. "
+            f"With n/2 sub_size below 10 the bootstrap FI signal is dominated "
+            f"by sampling noise. Use the regular MBH path or increase n."
+        )
     estimators_list = list(self.estimators) if self.estimators else [self.estimator]
     importance_getter = self.importance_getter or "auto"
     rng = np.random.default_rng(self.random_state)

@@ -111,8 +111,10 @@ def _build_mbh_optimizer(self, *, original_features, max_refits, top_predictors_
     if _init_size_param is None:
         _seeded = [min(2, _p)]
     else:
-        if _init_size_param == "auto" or _init_size_param == 5 \
-                or not isinstance(_init_size_param, int):
+        # Key the adaptive branch only on the 'auto' sentinel (or any non-int) so an explicit
+        # integer override -- including the literal 5 that happens to equal the large-p auto K --
+        # falls through to the user-requested _K below instead of being silently re-derived.
+        if _init_size_param == "auto" or not isinstance(_init_size_param, int):
             # 'auto': scale by p AND by evaluation budget so init-seed cost
             # stays small relative to user-driven exploration.
             if _p <= 10:

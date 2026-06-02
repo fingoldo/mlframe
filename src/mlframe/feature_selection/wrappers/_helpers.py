@@ -334,6 +334,7 @@ def get_feature_importances(
     cpi_max_depth: Union[int, None] = None,
     cpi_min_samples_leaf: int = 10,
     n_repeats: int = 5,
+    random_state: int = 0,
 ) -> dict:
     """Compute per-feature importance for a fitted model.
 
@@ -355,10 +356,14 @@ def get_feature_importances(
                     "to score against. Pass target= explicitly."
                 )
             from sklearn.inspection import permutation_importance
+            # Forward the function's own n_repeats + caller-supplied random_state
+            # (default 0 preserves legacy behaviour). Pre-fix these were hardcoded
+            # n_repeats=5 / random_state=0, so the n_repeats kwarg was dead on this
+            # path and the caller's seed never reached the permutation shuffles.
             pi = permutation_importance(
                 model, data, target,
-                n_repeats=5,
-                random_state=0,
+                n_repeats=n_repeats,
+                random_state=random_state,
                 n_jobs=1,
             )
             res = pi.importances_mean
@@ -370,12 +375,15 @@ def get_feature_importances(
                 )
             # F10 (Wave 3, 2026-05-28): cpi_max_depth=None lets the auxiliary tree grow
             # until min_samples_leaf constraint kicks in (Strobl 2008 recommendation).
+            # random_state forwarded (default 0 preserves legacy behaviour); lets
+            # the caller thread a fold-derived seed so CPI shuffles vary per fold
+            # and the run stays reproducible, matching the 'permutation' path.
             res = _conditional_permutation_importance(
                 model, data, target,
                 n_repeats=n_repeats,
                 max_depth=cpi_max_depth,
                 min_samples_leaf=cpi_min_samples_leaf,
-                random_state=0,
+                random_state=random_state,
             )
         elif importance_getter == "drop_column":
             # Drop-column importance: refit ``model`` on data with each column
@@ -448,25 +456,32 @@ def get_feature_importances(
             # consumer treats it like any FI vector.
             res = _real - _shadow_max
         elif importance_getter == "boruta_shap":
-            # L1 (Wave 5, 2026-05-28): Boruta-SHAP via the optional ``arfs`` /
-            # ``BorutaShap`` packages. Returns per-feature shadow-relative
+            # L1 (Wave 5, 2026-05-28): Boruta-SHAP via the optional
+            # ``BorutaShap`` package. Returns per-feature shadow-relative
             # importance: positive => beats max-shadow at the configured
             # p-value level; zero => indistinguishable from shadow.
             if target is None:
                 raise ValueError("importance_getter='boruta_shap' requires target (y_test).")
+            # data (X) is required: BorutaShap.fit needs the feature matrix.
+            # Pre-fix this path fell back to ``X=target`` when data was None,
+            # feeding y in as the feature matrix and silently producing a
+            # nonsensical fit instead of a clear error.
+            if data is None:
+                raise ValueError("importance_getter='boruta_shap' requires data (X) at the call site.")
             try:
                 from BorutaShap import BorutaShap as _BorutaShap
-            except ImportError:
-                try:
-                    from arfs.feature_selection import GrootCV as _BorutaShap  # arfs fallback
-                except ImportError as _exc2:
-                    raise ImportError(
-                        "importance_getter='boruta_shap' requires ``BorutaShap`` or ``arfs``. "
-                        "Install via ``pip install BorutaShap`` or ``pip install arfs``."
-                    ) from _exc2
+            except ImportError as _exc2:
+                # No arfs/GrootCV fallback: GrootCV's constructor + fit signature
+                # (GrootCV(objective=, cutoff=).fit(X, y) -> .selected_features_)
+                # is incompatible with the BorutaShap call shape below, so
+                # aliasing it would crash rather than degrade gracefully.
+                raise ImportError(
+                    "importance_getter='boruta_shap' requires the optional ``BorutaShap`` package. "
+                    "Install via ``pip install BorutaShap``."
+                ) from _exc2
             try:
                 _bs = _BorutaShap(model=model, importance_measure="shap", classification=hasattr(model, "classes_"))
-                _bs.fit(X=data if data is not None else target, y=target, n_trials=15, random_state=0, verbose=False)
+                _bs.fit(X=data, y=target, n_trials=15, random_state=0, verbose=False)
                 # Output: BorutaShap stores accepted/rejected lists; build dense importance with shadow-relative scores.
                 _accepted = set(getattr(_bs, "accepted", []) or [])
                 _tentative = set(getattr(_bs, "tentative", []) or [])

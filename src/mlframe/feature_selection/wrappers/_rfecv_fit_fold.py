@@ -89,6 +89,10 @@ def _eval_fold_body(
         print(f"Train set size={len(y_train):_}, train idx sum={train_index.sum():_}")
 
     _filtered_fit_params: dict = {}
+    # Records the early-stopping val re-split (assigned inside the block below).
+    # Stays None when no re-split runs, so the per-fold sample_weight slicing
+    # knows whether X_train was narrowed to true_train_index.
+    true_train_index = None
     if val_cv and has_early_stopping_support(estimator_type):
 
         # Additional early-stopping split from X_train.
@@ -108,7 +112,12 @@ def _eval_fold_body(
             print(f"Val set size={len(y_val):_}, val idx sum={val_index.sum():_}")
 
         # If the estimator type is known, craft early-stopping fit params tailored to it.
-        temp_cat_features = [current_features.index(var) for var in cat_features if var in current_features] if cat_features else None
+        # Index cat features against fit_features (the ACTUAL X_train/X_val column
+        # order = must_include_resolved + current_features), NOT current_features:
+        # otherwise must_include's prepended columns shift every index by
+        # len(must_include) and any categorical must_include column is dropped,
+        # so CatBoost treats the wrong columns as categorical.
+        temp_cat_features = [fit_features.index(var) for var in cat_features if var in fit_features] if cat_features else None
 
         temp_fit_params = pack_val_set_into_fit_params(
             model=estimator,
@@ -155,7 +164,14 @@ def _eval_fold_body(
     _fold_train_sw = None
     _fold_test_sw = None
     if self._fit_sample_weight_ is not None:
-        _fold_train_sw = self._fit_sample_weight_[train_index]
+        _full_train_sw = self._fit_sample_weight_[train_index]
+        # When val_cv re-split X_train down to true_train_index above, the train
+        # weights MUST follow the same re-slice -- otherwise sample_weight is
+        # longer than the (narrowed) X_train and estimator.fit() raises a
+        # length-mismatch. true_train_index is None when no early-stopping val
+        # re-split ran (both indices are positional; _fit_sample_weight_ is an
+        # ndarray per _rfecv_fit_init).
+        _fold_train_sw = _full_train_sw if true_train_index is None else _full_train_sw[true_train_index]
         _fold_test_sw = self._fit_sample_weight_[test_index]
 
     # Always clone per fold via sklearn.base.clone. copy.copy is a SHALLOW copy that shares mutable state (cat_features list, set_params side effects, warm_start buffers) across folds. clone() returns an unfitted estimator with the same constructor params and NO fitted state.

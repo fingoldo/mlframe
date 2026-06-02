@@ -57,6 +57,27 @@ def is_numba_active() -> bool:
 # Helpers
 
 
+# L7 (Wave 5) fix: a true classification target almost never has more than a few
+# dozen labels, so cap the multiclass branch absolutely (independent of n). The
+# old max(10, sqrt(n)) threshold grew with n (1000 at n=1e6), mis-classifying a
+# high-cardinality integer regression target (counts/ages/integer-coded ordinals
+# with hundreds of distinct values) as 'multiclass' and routing it to Kruskal-
+# Wallis with hundreds of near-singleton groups (meaningless H/p-values). We also
+# keep the cardinality-ratio guard (<= 0.05 * n, mirroring _is_discrete_v2) so a
+# moderate distinct count that is still a large fraction of the rows is treated as
+# continuous. Callers with a genuine >50-class target should pass ml_task explicitly.
+_MULTICLASS_MAX_LABELS = 50
+
+
+def _is_multiclass_cardinality(n_unique: int, n_rows: int) -> bool:
+    """Multiclass iff few distinct labels (absolute cap) AND cardinality << n_rows."""
+    return (
+        n_unique <= _MULTICLASS_MAX_LABELS
+        and n_unique <= max(10, int(np.sqrt(max(n_rows, 1))))
+        and n_unique <= 0.05 * n_rows
+    )
+
+
 def _classify_target(y: np.ndarray) -> str:
     """Return one of 'binary', 'multiclass', 'continuous'."""
     if y.dtype.kind in "iub":
@@ -64,7 +85,7 @@ def _classify_target(y: np.ndarray) -> str:
         uniq = np.unique(y[~_isnan_mask(y)])
         if uniq.size == 2:
             return "binary"
-        if uniq.size <= max(10, int(np.sqrt(len(y)))):
+        if _is_multiclass_cardinality(uniq.size, len(y)):
             return "multiclass"
         return "continuous"
     # Float target: check if it's all integer values in disguise.
@@ -75,7 +96,7 @@ def _classify_target(y: np.ndarray) -> str:
         uniq = np.unique(arr)
         if uniq.size == 2:
             return "binary"
-        if uniq.size <= max(10, int(np.sqrt(len(y)))):
+        if _is_multiclass_cardinality(uniq.size, len(y)):
             return "multiclass"
     return "continuous"
 
@@ -250,6 +271,53 @@ def _kruskal_wallis_h(x: np.ndarray, group: np.ndarray, n_groups: int) -> Tuple[
     return H, n_groups - 1
 
 
+def _regularized_upper_gamma_q(a: float, x: float) -> float:
+    """Regularized upper incomplete gamma Q(a, x) = 1 - P(a, x).
+
+    Numerical-Recipes gammq: series expansion for x < a+1, continued fraction
+    otherwise. Used as the df-aware scipy-free fallback for the chi-squared SF.
+    """
+    if x <= 0.0:
+        return 1.0
+    if a <= 0.0:
+        return 0.0
+    gln = math.lgamma(a)
+    if x < a + 1.0:
+        # Series representation of the lower incomplete gamma P(a, x).
+        ap = a
+        term = 1.0 / a
+        total = term
+        for _ in range(1000):
+            ap += 1.0
+            term *= x / ap
+            total += term
+            if abs(term) < abs(total) * 1e-15:
+                break
+        p = total * math.exp(-x + a * math.log(x) - gln)
+        return 1.0 - p
+    # Continued-fraction (Lentz) for the upper incomplete gamma Q(a, x).
+    tiny = 1e-300
+    b = x + 1.0 - a
+    c = 1.0 / tiny
+    d = 1.0 / b
+    h = d
+    for i in range(1, 1000):
+        an = -i * (i - a)
+        b += 2.0
+        d = an * d + b
+        if abs(d) < tiny:
+            d = tiny
+        c = b + an / c
+        if abs(c) < tiny:
+            c = tiny
+        d = 1.0 / d
+        delta = d * c
+        h *= delta
+        if abs(delta - 1.0) < 1e-15:
+            break
+    return h * math.exp(-x + a * math.log(x) - gln)
+
+
 def _chi2_sf(x: float, df: int) -> float:
     """Survival function of chi-squared. Uses scipy if available, else manual gamma."""
     if not np.isfinite(x) or x <= 0 or df <= 0:
@@ -258,8 +326,11 @@ def _chi2_sf(x: float, df: int) -> float:
         from scipy.stats import chi2 as _c2
         return float(_c2.sf(x, df))
     except ImportError:
-        # Fallback: use math.gamma via series. Crude; users should have scipy.
-        return float(math.erfc(math.sqrt(x / 2.0)))
+        # df-aware fallback: chi-squared SF == Q(df/2, x/2). The previous
+        # erfc(sqrt(x/2)) collapsed every df to the df=1 case, producing wrong
+        # p-values (Kruskal-Wallis/chi-squared independence have df = k-1 or
+        # (r-1)(c-1) >> 1), corrupting the BY-FDR prescreen.
+        return float(_regularized_upper_gamma_q(df / 2.0, x / 2.0))
 
 
 def _kw_p_numeric_multiclass(x: np.ndarray, y: np.ndarray) -> float:
