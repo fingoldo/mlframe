@@ -309,8 +309,24 @@ def explain(self):
         else:
             self.shap_values = np.asarray(_raw_shap)
             if self.shap_values.ndim == 3:
-                self.shap_values = np.abs(self.shap_values).sum(axis=0)
-                self.shap_values = self.shap_values.mean(0)
+                # SHAP's 3-D array layout is version-dependent: legacy
+                # TreeExplainer returns (classes, samples, features); modern
+                # SHAP (>=0.43) returns (samples, features, classes). The old
+                # ``abs.sum(axis=0).mean(0)`` hard-coded classes-first, so on the
+                # modern layout it reduced over (samples, features) and collapsed
+                # to length n_CLASSES instead of n_features -- a too-short
+                # importance vector that left ``Shadow_feature_import`` empty and
+                # crashed update_importance_history with an IndexError (fuzz
+                # c0095 hgb_xgb). Identify the FEATURE axis by matching
+                # ``X_boruta``'s column count (preferring the non-leading axes,
+                # where the feature dim lives in both layouts) and mean |shap|
+                # over the other two axes, so the result is always length
+                # n_features regardless of SHAP's axis order.
+                _arr = np.abs(self.shap_values)
+                _nfeat = self.X_boruta.shape[1]
+                _fax = next((ax for ax in (1, 2, 0) if _arr.shape[ax] == _nfeat), 1)
+                _other = tuple(ax for ax in range(3) if ax != _fax)
+                self.shap_values = _arr.mean(axis=_other)
             else:
                 self.shap_values = np.abs(self.shap_values).mean(0)
 
