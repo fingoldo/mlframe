@@ -7,8 +7,8 @@ Decision rule (CLAUDE.md §6): default = most accurate on the wide bench (6 scen
 ## RFECV
 - R1 SHAP-interaction / H-stat synergy bundling (both-or-neither at search time) — TODO
 - R2 Paired re-add rescue pass at finalize (2-in-as-unit) — TODO
-- R3 OOF permutation as default tree importance — DONE-shipped (opt-in `permutation`, +0.029 base bench; shootout deciding default)
-- R4 Auto conditional-permutation on correlated clusters — DONE-rejected (base: hurts, keeps noise) [revisit on wide bench]
+- R3 OOF permutation as default tree importance — DONE-shipped-as-DEFAULT: shootout (6 scen x 2 seeds) permutation wins 10/12 lgbm cells, best mean AUC 0.7954, cleanest (2.5 vs 6.2 noise). 'auto' now routes to permutation when held-out target present + cells<=4M (cost gate), else impurity. SHAP tested = WORST (0.786) + slowest (153s) -> not default.
+- R4 Auto conditional-permutation on correlated clusters — DONE-rejected (wide bench would-be; base: hurts, keeps 5 noise, lower AUC)
 - R5 Per-downstream-model-class selection tailoring — TODO
 - R6 Stability-gated acquisition (penalize unstable N in MBH target) — TODO
 - R7 Multi-objective Pareto front (AUC, N, stability) + pareto_front_ — TODO (user favorite)

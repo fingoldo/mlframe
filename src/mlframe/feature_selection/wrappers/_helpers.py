@@ -30,6 +30,11 @@ _MULTITHREADED_ESTIMATOR_PATTERNS = (
 # Used only when force_parallel=True to pin each fold's clone to single thread.
 _THREAD_PARAMS = ("thread_count", "n_jobs", "n_threads", "nthread", "num_threads")
 
+# Cell budget (n_rows * n_cols of the per-fold held-out set) below which the unspecified ('auto')
+# importance default routes to PERMUTATION (the accuracy winner on the FS bench); above it 'auto' falls
+# back to impurity for speed. ~40k x 100; tune via the dispatcher rather than hardcoding per call site.
+_PERM_AUTO_CELL_CAP = 4_000_000
+
 
 def _detect_multithreaded(estimator: object) -> bool:
     """True if the estimator's class name matches a known multi-threaded pattern."""
@@ -347,7 +352,28 @@ def get_feature_importances(
           correlated-feature pairs no longer inflate each other's importance.
         - 'shap': shap.Explainer mean-abs values
         - Callable: importance_getter(model, data, reference_data, target)
+
+    Accuracy-first default (CLAUDE.md "Variant defaults: most accurate first"): when the caller leaves
+    importance unspecified (None / 'auto') AND a held-out (data, target) is available, resolve to
+    PERMUTATION importance. On the wide FS bench (6 scenarios x 2 seeds) permutation beat impurity on
+    10/12 cells (best downstream LightGBM AUC 0.795 vs 0.790, and far cleaner: 2.5 vs 6.2 noise features
+    kept), because impurity importance is in-bag and inflates high-variance / structure-bearing noise
+    columns, whereas permutation measures held-out predictive degradation (noise -> ~0). SHAP main-effect
+    importance behaved like impurity (kept noise) and was the slowest, so it is NOT the default. Cost gate:
+    above ``_PERM_AUTO_CELL_CAP`` cells the per-fold permutation cost is prohibitive, so 'auto' falls back
+    to impurity (speed) where it is the only affordable option. Pass importance_getter='feature_importances_'
+    to force impurity, or 'permutation' to force it regardless of size.
     """
+    if importance_getter is None:
+        importance_getter = "auto"
+    if importance_getter == "auto" and target is not None and data is not None:
+        try:
+            _shape = getattr(data, "shape", None)
+            _cells = int(_shape[0]) * (int(_shape[1]) if len(_shape) > 1 else 1) if _shape else 0
+        except Exception:
+            _cells = 0
+        if 0 < _cells <= _PERM_AUTO_CELL_CAP:
+            importance_getter = "permutation"  # accuracy winner; below the cost cap
     if isinstance(importance_getter, str):
         if importance_getter == "permutation":
             if target is None:
