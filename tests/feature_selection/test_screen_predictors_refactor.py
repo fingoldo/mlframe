@@ -102,7 +102,16 @@ def test_confirm_predictor_primitive_wired():
 
 
 def test_greedy_still_selects_signal_after_refactor():
-    """End-to-end smoke: MRMR (greedy) recovers the two informative features post-refactor."""
+    """End-to-end smoke: MRMR (greedy) recovers the x0+x1 signal post-refactor.
+
+    The signal may surface either as the raw features x0/x1 in ``support_`` OR,
+    when the FE layer is on, as a single engineered feature that combines them
+    (e.g. ``add(neg(x0),neg(x1))``) - greedy then prunes the now-redundant raw
+    columns. Both express the same recovered signal, so the contract checks the
+    union of raw + engineered references rather than raw ``support_`` alone.
+    """
+    import re
+
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     rng = np.random.default_rng(0)
@@ -110,4 +119,12 @@ def test_greedy_still_selects_signal_after_refactor():
     y = ((X[:, 0] + X[:, 1]) > 0).astype(np.int64)
     df = pd.DataFrame(X, columns=[f"x{i}" for i in range(6)])
     sel = MRMR(verbose=0, random_seed=42, use_simple_mode=False).fit(df, pd.Series(y, name="y"))
-    assert {0, 1}.issubset(set(int(i) for i in sel.support_))
+
+    names = list(sel.feature_names_in_)
+    referenced = {names[int(i)] for i in sel.support_}  # raw selections
+    for p in getattr(sel, "_predictors_log_", ()):  # raw features inside engineered selections
+        referenced.update(re.findall(r"\bx\d+\b", p.get("name", "")))
+    assert {"x0", "x1"}.issubset(referenced), (
+        f"x0+x1 signal not recovered; referenced={sorted(referenced)}, "
+        f"n_features_={sel.n_features_}"
+    )
