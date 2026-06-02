@@ -791,8 +791,30 @@ results.
    explicit fallback / migration. But default-knob flips on quality
    metrics are fair game.
 
-This rule pairs with the user's general-memory entry
-`feedback_accuracy_perf_over_legacy.md`.
+6. **Variant defaults: most ACCURATE first, then FASTEST at equal
+   accuracy (CRITICAL).** Whenever there are interchangeable variants of
+   an algorithm -- importance metric (impurity / permutation / SHAP),
+   MI estimator, kernel, selection rule, shadow construction, scorer,
+   optimizer backend -- benchmark them across the wider test bed
+   (multi-scenario, multi-seed) and set the DEFAULT to the variant that
+   is most accurate on the metric that matters (honest holdout / OOF).
+   Only when two variants are within statistical noise on accuracy does
+   speed break the tie -> pick the faster one. The accurate-but-slow
+   variant must still be the default path for inputs where it wins; use
+   a size/cost-aware dispatcher (see "Numerical-kernel acceleration
+   ladder") to fall back to the cheaper variant only where it is not
+   measurably worse, never as a blanket default chosen for speed alone.
+   Profile and try to speed up the accuracy winner (numba / cupy /
+   caching / early-stop) BEFORE conceding to a faster-but-worse default.
+   Single-seed "wins" do not count -- a variant must win on the MAJORITY
+   of scenarios/seeds (selectors here are high-variance; one lucky seed
+   has repeatedly misled). Document the benchmark numbers in the
+   CHANGELOG when flipping a default.
+
+This rule pairs with the user's general-memory entries
+`feedback_accuracy_perf_over_legacy.md` and
+`feedback_fastest_default_with_dispatch.md` (accuracy outranks speed;
+speed is the tie-breaker, and the dispatcher routes by input).
 
 ## Every new feature: unit + biz_value tests + cProfile-driven optimization (CRITICAL)
 
