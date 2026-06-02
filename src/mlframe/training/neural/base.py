@@ -1358,6 +1358,14 @@ class PytorchLightningEstimator(BaseEstimator):
                 "out of memory",
                 "CUBLAS_STATUS_",
                 "CUDNN_STATUS_",
+                # Device-placement mismatch (model on cuda:0 but a batch / buffer
+                # left on cpu) surfaces as this RuntimeError whose text carries
+                # only the lowercase device tag ("cuda:0 and cpu"), so it slipped
+                # past the uppercase "CUDA" fingerprint above and propagated as a
+                # hard "Prediction failed" instead of triggering this CPU retry.
+                # The retry resolves it by placing model + data both on cpu.
+                # Observed on the multilabel-MLP GPU predict path (2026-06-02).
+                "Expected all tensors to be on the same device",
             )
             _is_cuda = (
                 trainer_params.get("accelerator") in ("cuda", "gpu", "auto")
