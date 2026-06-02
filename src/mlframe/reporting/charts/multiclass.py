@@ -312,8 +312,22 @@ def compose_multiclass_figure(
             f"Unknown multiclass panel tokens {unknown}. "
             f"Allowed: {sorted(ALLOWED_MULTICLASS_PANEL_TOKENS)}"
         )
+    # ``y_true`` carries the RAW class labels (commonly ``model.classes_``
+    # values), which are NOT guaranteed to be the positions 0..K-1 -- the
+    # target is never label-encoded upstream. Every panel builder indexes a
+    # K-sized structure positionally (``matrix[int(t)]``, ``y_true == k``,
+    # ``labels=range(K)``), so a raw label like 5 or "low" would IndexError
+    # (the figure is then silently dropped by the dispatcher) or land in the
+    # wrong cell. Remap the true labels to their position in ``classes`` once,
+    # up front, so every panel is correct; ``classes`` still supplies the
+    # display labels. Unseen labels map to -1 (matched by no class -> excluded).
+    _label_to_pos = {lbl: i for i, lbl in enumerate(classes)}
+    y_true_pos = np.array(
+        [_label_to_pos.get(t, -1) for t in np.asarray(y_true).tolist()],
+        dtype=np.int64,
+    )
     panels: List[PanelSpec] = [
-        _TOKEN_BUILDERS[tok](y_true, y_proba, classes) for tok in tokens
+        _TOKEN_BUILDERS[tok](y_true_pos, y_proba, classes) for tok in tokens
     ]
     grid = pack_panels(panels, max_cols=max_cols)
     n_rows = len(grid)

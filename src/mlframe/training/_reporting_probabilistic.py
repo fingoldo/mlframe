@@ -567,7 +567,16 @@ def report_probabilistic_model_perf(
             _supports = {}
             if _yt_all is not None and _yt_all.ndim == 1:
                 for cid, _ in _per_class_blocks:
-                    _supports[cid] = int(np.sum(_yt_all == cid))
+                    # ``cid`` is the per-class block's ENUMERATE position
+                    # (0..K-1), but ``_yt_all`` holds the RAW target labels --
+                    # which are not label-encoded to 0..K-1. Counting
+                    # ``_yt_all == cid`` mis-weights any non-0-indexed integer
+                    # multiclass target (e.g. labels [1, 2, 3]): supports shift
+                    # by one and the highest label's count is lost, silently
+                    # corrupting every weighted_* aggregate. Count against the
+                    # actual class label at that position.
+                    _label = classes[cid] if classes is not None and cid < len(classes) else cid
+                    _supports[cid] = int(np.sum(_yt_all == _label))
             # Aggregate every numeric key shared across per-class blocks.
             _all_keys = set()
             for _, blk in _per_class_blocks:
