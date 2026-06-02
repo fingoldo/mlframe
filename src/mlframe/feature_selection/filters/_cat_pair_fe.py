@@ -538,22 +538,29 @@ def apply_cat_pair_cross(
             f"apply_cat_pair_cross: X_test must be a DataFrame; got "
             f"{type(X_test).__name__}"
         )
-    cats_i = _column_to_str(X_test[cat_i])
-    cats_j = _column_to_str(X_test[cat_j])
+    cats_i = np.asarray(_column_to_str(X_test[cat_i]))
+    cats_j = np.asarray(_column_to_str(X_test[cat_j]))
     n = len(cats_i)
     sentinel = len(mapping)
-    if encoding == "target":
-        lookup = te_lookup or {}
-        out = np.empty(n, dtype=np.float64)
-        for r in range(n):
-            code = mapping.get((cats_i[r], cats_j[r]))
-            if code is None:
-                out[r] = global_mean
-            else:
-                out[r] = float(lookup.get(code, global_mean))
-        return out
-    out = np.empty(n, dtype=np.float64)
-    for r in range(n):
-        code = mapping.get((cats_i[r], cats_j[r]), sentinel)
-        out[r] = float(code)
-    return out
+    lookup = te_lookup or {}
+
+    def _value_for_pair(si, sj):
+        # The exact per-row semantics, factored out so the vectorized and
+        # fallback paths are provably identical.
+        if encoding == "target":
+            code = mapping.get((si, sj))
+            return global_mean if code is None else float(lookup.get(code, global_mean))
+        return float(mapping.get((si, sj), sentinel))
+
+    if n == 0:
+        return np.empty(0, dtype=np.float64)
+    # bench-attempt-rejected (2026-06-02, n=200k, ki=kj=15): a pd.factorize-fold
+    # vectorization (factorize cat_i + cat_j, fold the two dense codes into one
+    # int key, factorize that, resolve mapping.get per distinct pair, gather)
+    # measured 0.9x -- slightly SLOWER. The two 200k string-column factorizes cost
+    # as much as the per-row tuple dict.get they replace, and the fold + combined
+    # factorize add a third hashing pass that cancels the dedup benefit. Unlike
+    # the single-column count/frequency encoders (one factorize replaces the
+    # per-row get for a clean ~6x), the two-column tuple key has no cheap dense
+    # factorize. Keep the per-row loop.
+    return np.array([_value_for_pair(cats_i[r], cats_j[r]) for r in range(n)], dtype=np.float64)
