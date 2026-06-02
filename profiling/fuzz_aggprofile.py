@@ -56,6 +56,7 @@ def _run_one(idx: int, n_rows: int) -> None:
     )
     from mlframe.training import FeatureSelectionConfig, OutlierDetectionConfig, OutputConfig
     from mlframe.training.core import train_mlframe_models_suite
+    from mlframe.training.configs import TargetTypes as _TT
 
     pool = _build_pool()
     if idx >= len(pool):
@@ -67,7 +68,30 @@ def _run_one(idx: int, n_rows: int) -> None:
     pr = cProfile.Profile()
     try:
         df, tcol, _ = build_frame_for_combo(combo)
-        fte = SimpleFeaturesAndTargetsExtractor(target_column=tcol, regression=(combo.target_type == "regression"))
+        # Faithful FTE construction mirroring tests/training/test_fuzz_suite.py:
+        # the extractor MUST be told the target_type (+ ts/group/carrier/weight/
+        # extra-target axes), else regression=False collapses multi_target /
+        # multilabel / LTR targets to BINARY_CLASSIFICATION and a continuous
+        # multi-output target is fed to a classifier (false "Unknown label type"
+        # / MultiLogloss failures). multi_target_regression downgrades to
+        # REGRESSION when build_frame_for_combo emitted a 1-D target column.
+        _eff_tt = combo.target_type
+        if combo.target_type == "multi_target_regression" and tcol != "target":
+            _eff_tt = "regression"
+        _combo_tt = {
+            "regression": _TT.REGRESSION, "binary_classification": _TT.BINARY_CLASSIFICATION,
+            "multiclass_classification": _TT.MULTICLASS_CLASSIFICATION,
+            "multilabel_classification": _TT.MULTILABEL_CLASSIFICATION,
+            "learning_to_rank": _TT.LEARNING_TO_RANK, "multi_target_regression": _TT.MULTI_TARGET_REGRESSION,
+        }[_eff_tt]
+        fte = SimpleFeaturesAndTargetsExtractor(
+            target_column=tcol, regression=(combo.target_type == "regression"), target_type=_combo_tt,
+            ts_field=("ts" if getattr(combo, "with_datetime_col", False) else None),
+            group_field=("qid" if combo.target_type == "learning_to_rank" else None),
+            target_carrier=getattr(combo, "target_carrier", "column"),
+            weight_schemas=getattr(combo, "weight_schemas", None),
+            extra_targets=getattr(combo, "extra_targets", None),
+        )
         pr.enable()
         train_mlframe_models_suite(
             df=df, target_name=combo.short_id(), model_name=combo.short_id(),
@@ -152,8 +176,12 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("n", nargs="?", type=int, default=25)
     ap.add_argument("--one", type=int, default=None)
-    ap.add_argument("--n-rows", type=int, default=10000)
-    ap.add_argument("--timeout", type=float, default=120.0)
+    # Small n keeps every branch exercised while letting MRMR finish well under
+    # its 1-min runtime cap; combos are orchestration-bound (MRMR + ensembles +
+    # multi-model), not data-bound, so a generous per-combo timeout matters more
+    # than n for letting the heavy combos complete and surface their hotspots.
+    ap.add_argument("--n-rows", type=int, default=2000)
+    ap.add_argument("--timeout", type=float, default=180.0)
     a = ap.parse_args()
     if a.one is not None:
         _run_one(a.one, a.n_rows)
