@@ -103,6 +103,24 @@ def run_polynom_pair_fe(
     # non-monotone-hard pairs (F-POLY) fall through and optimise. Set to 1.0 to
     # disable (always optimise every prospective pair = legacy behaviour).
     poly_cheap_skip_ratio: float = 0.97,
+    # LINEAR-USABILITY GUARD on the cheap-first skip. MI saturation alone is NOT
+    # sufficient to skip: a trivial feature can capture the pair's joint MI while
+    # being almost LINEARLY USELESS (e.g. ``atan2(a,b)`` reaches MI 0.37 on a
+    # binarised bilinear target yet |corr| to y is ~0.10 -- it encodes the signal
+    # as an angle). The orthogonal-poly optimiser then produces a far more
+    # linearly-usable feature (|corr| ~0.80) that the MI-only skip would discard.
+    # Skip therefore requires the trivial feature to ALSO be linearly useful:
+    # |corr(trivial, y)| >= this floor. Monotone-easy pairs (trivial already
+    # high-corr) still skip; MI-saturated-but-non-linear pairs fall through and
+    # optimise. Set 0.0 to restore the MI-only skip.
+    #
+    # 0.90 (not 0.5): the orthogonal-poly optimiser reshapes a trivial feature for
+    # LINEAR usability even when MI is saturated -- measured the "easy" monotone
+    # pair exp(a)*log(b) lifts from trivial-``mul`` |corr| 0.71 to polynom |corr|
+    # 0.92, and the bilinear xor pair from 0.59 to 0.80. So the skip is only truly
+    # lossless when the trivial is ALREADY near-perfectly linear (|corr| >= 0.90);
+    # below that the optimiser has real linear headroom and must run.
+    poly_cheap_skip_min_corr: float = 0.90,
 ) -> Tuple[np.ndarray, np.ndarray, List[str], Any]:
     """Run polynom-pair FE: parallel evaluate prospective pairs, serially inject survivors.
 
@@ -187,6 +205,7 @@ def run_polynom_pair_fe(
         # numerical result (baseline is a deterministic fn of (x_a, x_b, y)).
         _trivial_baseline = None
         _trivial_name = None
+        _trivial_feat = None
         try:
             from .fe_baselines import best_trivial_pair as _best_trivial_pair
             _t = _best_trivial_pair(
@@ -199,7 +218,7 @@ def run_polynom_pair_fe(
                 n_neighbors=None,
             )
             if _t is not None:
-                _trivial_name, _, _trivial_baseline = _t
+                _trivial_name, _trivial_feat, _trivial_baseline = _t
         except Exception as _e:
             logger.debug(
                 "best_trivial_pair precompute failed for pair %s: %r; "
@@ -227,7 +246,23 @@ def run_polynom_pair_fe(
                 and _ceiling > 0.0
                 and _trivial_baseline >= _ceiling * poly_cheap_skip_ratio
             ):
-                return (raw_vars_pair, _POLY_CHEAP_SKIP, vals_a_full, vals_b_full)
+                # LINEAR-USABILITY GUARD: MI saturation is necessary but not
+                # sufficient. A trivial feature can hit the MI ceiling while being
+                # nearly orthogonal to y in LINEAR terms (atan2 on a bilinear
+                # target: MI 0.37, |corr| 0.10), in which case the orthogonal-poly
+                # optimiser still produces a far more linearly-usable feature.
+                # Only skip when the trivial feature is ALSO linearly useful.
+                _trivial_corr = 0.0
+                if _trivial_feat is not None and poly_cheap_skip_min_corr > 0.0:
+                    try:
+                        _tf = np.asarray(_trivial_feat, dtype=np.float64).reshape(-1)
+                        _yv = np.asarray(classes_y_sub, dtype=np.float64).reshape(-1)
+                        if _tf.size == _yv.size and float(np.std(_tf)) > 1e-12 and float(np.std(_yv)) > 1e-12:
+                            _trivial_corr = abs(float(np.corrcoef(_tf, _yv)[0, 1]))
+                    except Exception:
+                        _trivial_corr = 1.0  # corr unavailable -> fall back to MI-only skip
+                if poly_cheap_skip_min_corr <= 0.0 or _trivial_corr >= poly_cheap_skip_min_corr:
+                    return (raw_vars_pair, _POLY_CHEAP_SKIP, vals_a_full, vals_b_full)
 
         best_res = None
         for seed_offset in range(fe_smart_polynom_iters):

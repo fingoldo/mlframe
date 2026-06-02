@@ -473,6 +473,10 @@ def _run_fe_step(
             # whose trivial baseline already saturates the joint-MI ceiling. getattr
             # default keeps the knob optional (no ctor flag required); 1.0 disables.
             poly_cheap_skip_ratio=float(getattr(self, "fe_poly_cheap_skip_ratio", 0.97)),
+            # Linear-usability guard on the skip: only skip when the trivial feature
+            # is ALSO linearly useful (|corr| to y >= this), so an MI-saturated-but-
+            # non-linear trivial (atan2, etc.) still falls through to the optimiser.
+            poly_cheap_skip_min_corr=float(getattr(self, "fe_poly_cheap_skip_min_corr", 0.90)),
         )
         # Columns appended by the polynom block (its own gates already accepted
         # them). Promote into selected_vars below so they reach support_.
