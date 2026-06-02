@@ -71,25 +71,43 @@ def test_compile_predict_after_failure_caches_sentinel(monkeypatch):
     assert module._maybe_compile_predict_forward(x) is None
 
 
-def test_predict_step_routes_through_compile_then_cuda_graph_then_eager():
-    """The predict_step body should call _maybe_compile_predict_forward
-    FIRST (most powerful), then _maybe_cuda_graph_forward (graph-only),
-    then eager self(x). The order is important: compile mode is strictly
-    more powerful than the manual CUDA graph."""
-    import inspect
-    src = inspect.getsource(MLPTorchModel.predict_step)
-    assert "_maybe_compile_predict_forward" in src, (
-        "predict_step should call _maybe_compile_predict_forward per F-39"
-    )
-    assert "_maybe_cuda_graph_forward" in src, (
-        "predict_step should still call _maybe_cuda_graph_forward per F-38"
-    )
-    # The compile path must be called BEFORE the cuda-graph path.
-    idx_compile = src.index("_maybe_compile_predict_forward")
-    idx_graph = src.index("_maybe_cuda_graph_forward")
-    assert idx_compile < idx_graph, (
-        "compile path must precede CUDA-graph path in predict_step "
-        "(compile is strictly more powerful: graphs + fusion)"
+def test_predict_step_routes_through_compile_then_cuda_graph_then_eager(monkeypatch):
+    """Behavioural: predict_step must consult _maybe_compile_predict_forward
+    FIRST; if that returns None it must fall through to _maybe_cuda_graph_forward;
+    if that also returns None it must finally call eager ``self(x)``. The order
+    is important: torch.compile reduce-overhead is strictly more powerful than
+    a manual CUDA graph (graphs + kernel fusion), so the compile path gets
+    first crack at every predict tensor."""
+    module = _make_module()
+    calls: list[str] = []
+    x = torch.randn(2, 4)
+
+    def fake_compile(self, t):  # type: ignore[no-untyped-def]
+        calls.append("compile")
+        return None
+
+    def fake_graph(self, t):  # type: ignore[no-untyped-def]
+        calls.append("graph")
+        return None
+
+    orig_call = MLPTorchModel.__call__
+
+    def fake_call(self, t):  # type: ignore[no-untyped-def]
+        calls.append("eager")
+        return orig_call(self, t)
+
+    monkeypatch.setattr(MLPTorchModel, "_maybe_compile_predict_forward", fake_compile)
+    monkeypatch.setattr(MLPTorchModel, "_maybe_cuda_graph_forward", fake_graph)
+    monkeypatch.setattr(MLPTorchModel, "__call__", fake_call)
+
+    module.eval()
+    module.predict_step(x, batch_idx=0)
+    assert "compile" in calls, "predict_step must consult compile path"
+    assert "graph" in calls, "predict_step must consult cuda-graph path"
+    assert "eager" in calls, "predict_step must fall through to eager forward"
+    # Order: compile precedes graph precedes eager.
+    assert calls.index("compile") < calls.index("graph") < calls.index("eager"), (
+        f"predict_step path order must be compile -> graph -> eager; got {calls}"
     )
 
 

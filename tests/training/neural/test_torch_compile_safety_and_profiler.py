@@ -104,22 +104,36 @@ def test_compile_proceeds_on_plain_mlp():
 # --- T1.2: torch.inference_mode in predict_step ------------------------------
 
 
-def test_predict_step_uses_inference_mode():
-    """The predict_step body must use torch.inference_mode() instead of
-    torch.no_grad() (Agent A note: no_grad graph-breaks under TorchDynamo
-    in some PyTorch 2.x versions; inference_mode is the modern form).
+def test_predict_step_uses_inference_mode(monkeypatch):
+    """Behavioural: predict_step must enter torch.inference_mode() (not
+    torch.no_grad()). no_grad graph-breaks under TorchDynamo in some PyTorch
+    2.x versions; inference_mode is the modern form. Patch both context
+    managers to counters and assert inference_mode fires + no_grad does not.
+    """
+    module = _make_module()
+    inf_calls = {"n": 0}
+    no_grad_calls = {"n": 0}
 
-    Tightened to check the actual ``with`` statement form, since the
-    F-35 documentation comment intentionally mentions both names."""
-    import inspect
-    src = inspect.getsource(MLPTorchModel.predict_step)
-    assert "with torch.inference_mode():" in src, (
-        "predict_step should USE torch.inference_mode() per F-35 audit; "
-        "current source:\n" + src
-    )
-    assert "with torch.no_grad():" not in src, (
-        "predict_step should NOT USE torch.no_grad() (graph-break form); "
-        "found in source:\n" + src
+    real_inf = torch.inference_mode
+    real_no_grad = torch.no_grad
+
+    class _SpyInf:
+        def __enter__(self): inf_calls["n"] += 1; self._cm = real_inf(); return self._cm.__enter__()
+        def __exit__(self, *a): return self._cm.__exit__(*a)
+
+    class _SpyNo:
+        def __enter__(self): no_grad_calls["n"] += 1; self._cm = real_no_grad(); return self._cm.__enter__()
+        def __exit__(self, *a): return self._cm.__exit__(*a)
+
+    monkeypatch.setattr(torch, "inference_mode", lambda: _SpyInf())
+    monkeypatch.setattr(torch, "no_grad", lambda: _SpyNo())
+
+    module.eval()
+    module.predict_step(torch.randn(2, 4), batch_idx=0)
+    assert inf_calls["n"] >= 1, "predict_step must enter torch.inference_mode() (F-35)"
+    assert no_grad_calls["n"] == 0, (
+        f"predict_step must NOT enter torch.no_grad() (graph-break form); "
+        f"observed {no_grad_calls['n']} no_grad enters"
     )
 
 
