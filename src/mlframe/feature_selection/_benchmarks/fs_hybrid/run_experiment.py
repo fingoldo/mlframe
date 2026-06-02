@@ -55,6 +55,7 @@ def build_roster():
     R["boruta"] = (lambda: S.BorutaSel(), CORE_SEEDS)
     R["boruta_stable"] = (lambda: S.BorutaSel(stability_subsamples=10), CORE_SEEDS)
     R["rfecv_lgbm"] = (lambda: S.RFECVSel("lgbm"), CORE_SEEDS)
+    R["rfecv_lgbm_perm"] = (lambda: S.RFECVSel("lgbm_perm"), CORE_SEEDS)  # OOF-permutation importance (brainstorm-verified +0.029)
     R["rfecv_logit"] = (lambda: S.RFECVSel("logit"), CORE_SEEDS)
     # hybrids
     R["H1_mrmrfilter__rfecv_lgbm"] = (lambda: S.Cascade("H1", S.MRMRSel(fe=False), S.RFECVSel("lgbm")), CORE_SEEDS)

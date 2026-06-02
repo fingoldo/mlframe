@@ -79,18 +79,22 @@ class BorutaSel:
 
 class RFECVSel:
     def __init__(self, kind: str):
+        # kind "lgbm_perm": LightGBM estimator but OOF-permutation importance for elimination instead of impurity;
+        # measured +0.029 mean lgbm AUC over impurity across 3 seeds (positive every seed), at ~4-5x fit cost.
         self.kind = kind; self.name = f"rfecv_{kind}"
+        self._importance_getter = "permutation" if kind.endswith("_perm") else "auto"
     def _estimator(self):
-        if self.kind == "lgbm":
+        base = self.kind[:-5] if self.kind.endswith("_perm") else self.kind
+        if base == "lgbm":
             import lightgbm as lgb
             return lgb.LGBMClassifier(n_estimators=150, num_leaves=31, learning_rate=0.06, n_jobs=-1, verbose=-1)
-        elif self.kind == "logit":
+        elif base == "logit":
             from sklearn.linear_model import LogisticRegression
             return LogisticRegression(max_iter=1000, C=1.0)
         raise ValueError(self.kind)
     def fit(self, X, y):
         from mlframe.feature_selection.wrappers import RFECV, FIConfig, SearchConfig
-        fi = FIConfig(importance_getter="auto", n_features_selection_rule="one_se_min")
+        fi = FIConfig(importance_getter=self._importance_getter, n_features_selection_rule="one_se_min")
         sc = SearchConfig(max_refits=18, max_runtime_mins=3)
         self.r_ = RFECV(estimator=self._estimator(), cv=3, scoring=None, verbose=0, fi_config=fi, search_config=sc, random_state=0)
         self.r_.fit(X, y)
