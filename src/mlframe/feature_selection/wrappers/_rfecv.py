@@ -950,6 +950,74 @@ class RFECV(BaseEstimator, TransformerMixin):
         # Argmax with tie-breaker on smaller N (parsimony when scores tie).
         return int(max(combined.items(), key=lambda kv: (kv[1], -kv[0]))[0])
 
+    def pareto_front_(self, metric: str = "jaccard") -> list:
+        """Non-dominated (cv_mean_perf MAX, n_features MIN, stability MAX) points over the evaluated N grid.
+
+        Replaces the single scalarisation ``mean*w - std*w - cost*N`` (whose weights are arbitrary) with the
+        actual trade-off frontier. Returns a list of dicts ``{n, mean, stability}`` sorted by n, each
+        Pareto-optimal: no other evaluated N is >= on mean AND <= on n AND >= on stability (with one strict).
+        Read-only diagnostic; pairs with ``pareto_knee_``. Empty if no cv_results_.
+        """
+        if not hasattr(self, "cv_results_") or not self.cv_results_.get("nfeatures"):
+            return []
+        nfeat = np.asarray(self.cv_results_["nfeatures"], dtype=int)
+        means = np.asarray(self.cv_results_["cv_mean_perf"], dtype=float)
+        stab_curve = self.stability_vs_n_curve_(metric=metric) or {}
+        pts = []
+        for n, m in zip(nfeat, means):
+            if n > 0 and np.isfinite(m):
+                pts.append({"n": int(n), "mean": float(m), "stability": float(stab_curve.get(int(n), np.nan))})
+        if not pts:
+            return []
+        have_stab = all(np.isfinite(p["stability"]) for p in pts)
+        front = []
+        for a in pts:
+            dominated = False
+            for b in pts:
+                if b is a:
+                    continue
+                ge_mean = b["mean"] >= a["mean"]; le_n = b["n"] <= a["n"]
+                ge_stab = (b["stability"] >= a["stability"]) if have_stab else True
+                strict = (b["mean"] > a["mean"]) or (b["n"] < a["n"]) or (have_stab and b["stability"] > a["stability"])
+                if ge_mean and le_n and ge_stab and strict:
+                    dominated = True; break
+            if not dominated:
+                front.append(a)
+        # dedup by n (keep best mean), sort by n
+        best_by_n = {}
+        for p in front:
+            if p["n"] not in best_by_n or p["mean"] > best_by_n[p["n"]]["mean"]:
+                best_by_n[p["n"]] = p
+        return [best_by_n[k] for k in sorted(best_by_n)]
+
+    def pareto_knee_(self, metric: str = "jaccard") -> int:
+        """N at the knee of the (mean MAX, n MIN[, stability MAX]) Pareto front: the front point closest to the
+        ideal corner after min-max normalising each axis. Weight-free alternative to argmax / 1-SE / elbow.
+        Returns n_features_ fallback when no front.
+
+        DIAGNOSTIC, not an accuracy default. Benchmarked across 6 synthetic scenarios it LOST every cell on
+        downstream LightGBM AUC (0/6) because the knee favours the parsimonious corner (picks ~4-8 features),
+        which under-serves noise-robust downstreams that benefit from more features; argmax / one_se_max won
+        (3/3). Use it only when parsimony is an explicit objective (few-feature deployment / interpretability),
+        NOT to maximise accuracy. On small p the front can also collapse to 1-2 points (then it equals 1-SE)."""
+        front = self.pareto_front_(metric=metric)
+        if not front:
+            return getattr(self, "n_features_", 0)
+        if len(front) == 1:
+            return front[0]["n"]
+        means = np.array([p["mean"] for p in front]); ns = np.array([p["n"] for p in front], dtype=float)
+        stabs = np.array([p["stability"] for p in front])
+        have_stab = np.all(np.isfinite(stabs))
+        def _nrm(v, maximize):
+            lo, hi = np.min(v), np.max(v)
+            u = (v - lo) / (hi - lo) if hi > lo else np.zeros_like(v)
+            return u if maximize else (1.0 - u)
+        # distance to ideal (mean=1, n=0->normalised 1 for "fewest", stability=1)
+        dist = (1 - _nrm(means, True)) ** 2 + (1 - _nrm(ns, False)) ** 2
+        if have_stab:
+            dist = dist + (1 - _nrm(stabs, True)) ** 2
+        return int(front[int(np.argmin(dist))]["n"])
+
     def n_features_bootstrap_ci_(self, n_bootstrap: int = 200, ci: float = 0.9,
                                   random_state: Union[int, None] = None) -> tuple:
         """Parametric bootstrap CI on the optimal n_features_.

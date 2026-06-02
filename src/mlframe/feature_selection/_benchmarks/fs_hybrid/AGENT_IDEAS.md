@@ -11,7 +11,7 @@ Decision rule (CLAUDE.md §6): default = most accurate on the wide bench (6 scen
 - R4 Auto conditional-permutation on correlated clusters — DONE-rejected (wide bench would-be; base: hurts, keeps 5 noise, lower AUC)
 - R5 Per-downstream-model-class selection tailoring — TODO
 - R6 Stability-gated acquisition (penalize unstable N in MBH target) — TODO
-- R7 Multi-objective Pareto front (AUC, N, stability) + pareto_front_ — TODO (user favorite)
+- R7 Multi-objective Pareto front (AUC, N, stability) + pareto_front_ — DONE-doc: shipped pareto_front_/pareto_knee_ as READ-ONLY DIAGNOSTICS + test. Benched as a SELECTION RULE -> REJECTED: knee lost 0/6 scenarios on downstream AUC (over-prunes to ~4-8 feats); argmax/one_se_max won 3/3 (validates current recall default). Knee is a parsimony-only diagnostic, not an accuracy default.
 - R8 Warm-start MBH surrogate with MI/interaction ranking; MI computed OR injected externally (e.g. MRMR) — TODO (user favorite)
 - R-imp Importance shootout impurity/permutation/shap across scenarios -> set best default + profile — TESTING (be00hj5j4)
 
