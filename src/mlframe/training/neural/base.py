@@ -1285,28 +1285,25 @@ class PytorchLightningEstimator(BaseEstimator):
             elif hasattr(self.trainer, "precision"):
                 trainer_params["precision"] = self.trainer.precision
 
-        # F-67 (2026-05-31): cache the prediction trainer keyed by
-        # (accelerator, precision). Pre-fix every _predict_raw call
-        # built a fresh L.Trainer + destroyed it via self.trainer=None,
-        # paying ~236 ms gc.collect per cycle (cProfile 2026-05-31:
-        # 2 calls = 472 ms / 6.94 s profiled wall = 6.8% of total
-        # predict path). For typical ensemble suites with 5-20 predict
-        # calls per fit, that's 1.2-4.7 s of pure GC overhead per fit.
-        # Caching reuses the same Trainer across predicts; Lightning's
-        # ``trainer.predict()`` is idempotent and resets internal state
-        # between calls. Cache invalidates only on (accelerator,
-        # precision) change -- the rare case of mid-suite device flip
-        # rebuilds, the typical homogeneous suite hits the cache.
-        _cache_key = (
-            trainer_params.get("accelerator"),
-            trainer_params.get("precision"),
-        )
-        _trainer_cache = getattr(self, "_prediction_trainer_cache", {})
-        prediction_trainer = _trainer_cache.get(_cache_key)
-        if prediction_trainer is None:
-            prediction_trainer = L.Trainer(**trainer_params)
-            _trainer_cache[_cache_key] = prediction_trainer
-            self._prediction_trainer_cache = _trainer_cache
+        # F-67 prediction-trainer caching REVERTED (2026-06-02): reusing one
+        # L.Trainer across multiple predict() calls accumulates Lightning's
+        # prediction-loop state -- ``predict_loop`` grows ``max_batches`` by one
+        # entry per predict while the (also reused) CombinedLoader keeps a single
+        # iterable, so the SECOND+ predict assigns a length-N list to
+        # ``combined_loader.limits`` against 1 iterable and Lightning raises
+        # "Mismatch in number of limits (N) and number of iterables (1)"
+        # (combined_loader.py:333). That silently broke EVERY multi-predict fit:
+        # val/test/OOF plus the per-feature permutation-importance loop issue
+        # dozens of predicts each, and all but the first failed (each dropped via
+        # the per-model resilience catch, so models reported degraded/no
+        # importances). Lightning Trainers are NOT safe to reuse across
+        # predict() calls -- F-67's "idempotent reset between calls" assumption
+        # was wrong -- and the cache's only benefit case (many predicts per fit)
+        # is exactly its bug case. Build a fresh Trainer per call; the ~236 ms GC
+        # the cache saved is negligible against losing every prediction past the
+        # first. ``_prediction_trainer_cache`` (pickle-excluded at __getstate__)
+        # is left unused.
+        prediction_trainer = L.Trainer(**trainer_params)
 
         # F-G fix: cache the accelerator the current prediction_trainer
         # was built with so the next _predict_raw call (after
