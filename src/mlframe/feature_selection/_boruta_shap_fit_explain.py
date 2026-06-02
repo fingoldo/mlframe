@@ -81,15 +81,29 @@ def _fit_with_subsample_stability(self, X, y):
     n_sub = int(self.stability_subsamples)
     frac = float(getattr(self, "stability_subsample_fraction", 0.75) or 0.75)
     thr = float(getattr(self, "stability_threshold", 0.6) or 0.6)
-    size = max(10, min(n, int(round(frac * n))))
+    # Cap the >=10-row floor by n: with replace=False, np.random.Generator.choice raises when size>n,
+    # so on a tiny frame (n<10) the bare max(10, ...) floor would request more rows than exist and crash.
+    # min(n, max(10, ...)) keeps the intended floor when the data allows it, never exceeding the population.
+    size = min(n, max(10, int(round(frac * n))))
     base_seed = int(getattr(self, "random_state", 0) or 0)
 
     params = self.get_params(deep=False)  # shallow: deep=True yields model__* nested keys __init__ rejects
     params["stability_subsamples"] = 0  # recursion guard: each sub-fit is a single pass
     params["verbose"] = False
 
-    accept_counts: dict = {c: 0 for c in all_columns}
-    for k in range(n_sub):
+    # ``get_params`` copies ``stratify`` verbatim, so every sub-fit would carry the original length-n
+    # stratify array while running on a ``size``-row subsample. When train_or_test='test',
+    # Check_if_chose_train_or_test_and_train_model passes it to train_test_split(X_sub, y_sub, stratify=...)
+    # and the length mismatch raises ValueError. Detect a per-row stratify array here so each sub-fit can
+    # slice it positionally with its own ``idx`` (scalars / None / mismatched lengths are passed through).
+    _stratify = getattr(self, "stratify", None)
+    _stratify_arr = None
+    if _stratify is not None:
+        _strat_candidate = np.asarray(_stratify.to_numpy() if hasattr(_stratify, "to_numpy") else _stratify)
+        if _strat_candidate.ndim == 1 and _strat_candidate.shape[0] == n:
+            _stratify_arr = _strat_candidate
+
+    def _run_one_subfit(k: int):
         rng = np.random.default_rng(base_seed + 1 + k)
         idx = rng.choice(n, size=size, replace=False)
         Xk = X.iloc[idx].reset_index(drop=True)
@@ -108,9 +122,28 @@ def _fit_with_subsample_stability(self, X, y):
                 pass
         sub_params["model"] = _model_k
         sub_params["random_state"] = base_seed + 1 + k
+        # Subsample the per-row stratify array to match this sub-fit's rows; leave scalar/None as-is.
+        if _stratify_arr is not None:
+            sub_params["stratify"] = _stratify_arr[idx]
         sub = self.__class__(**sub_params)
         sub.fit(Xk, yk)
-        for c in getattr(sub, "accepted", []) or []:
+        return list(getattr(sub, "accepted", []) or [])
+
+    # The n_sub sub-fits are fully independent (distinct row-subsamples, distinct seeds, own cloned model)
+    # and each is a full BorutaShap run (the dominant FS cost: up to n_trials model fits + a SHAP
+    # TreeExplainer per trial). Run them concurrently via joblib's in-process threading backend so the
+    # native estimator/SHAP work (which releases the GIL) overlaps; threading avoids the loky pickle /
+    # matplotlib-in-worker hazards of the process backend while still parallelising the dominant cost.
+    _n_jobs = int(getattr(self, "stability_n_jobs", -1) or -1)
+    if n_sub > 1 and _n_jobs != 1:
+        from joblib import Parallel, delayed
+        _per_sub_accepted = Parallel(n_jobs=_n_jobs, backend="threading")(delayed(_run_one_subfit)(k) for k in range(n_sub))
+    else:
+        _per_sub_accepted = [_run_one_subfit(k) for k in range(n_sub)]
+
+    accept_counts: dict = {c: 0 for c in all_columns}
+    for _accepted in _per_sub_accepted:
+        for c in _accepted:
             if c in accept_counts:
                 accept_counts[c] += 1
 
@@ -118,7 +151,16 @@ def _fit_with_subsample_stability(self, X, y):
     self.accepted = [c for c in all_columns if accept_counts[c] >= need]
     self.rejected = [c for c in all_columns if accept_counts[c] == 0]
     self.tentative = [c for c in all_columns if 0 < accept_counts[c] < need]
-    kept = set(self.accepted) | (set(self.tentative) if self.optimistic else set())
+    # Intersection mode (stability_threshold==1.0, the default once stability is enabled) keeps ONLY
+    # features accepted by ALL subsamples -- that is exactly set(self.accepted) with need==n_sub. The
+    # 'tentative' bucket here is 0<count<need, i.e. features accepted by SOME but not all subsamples:
+    # precisely the draw-level-spurious columns intersection is meant to drop. So in intersection mode we
+    # must NOT let optimistic re-add tentative (which would silently keep the spurious column the class
+    # docstring promises to remove). optimistic only applies to majority-vote thresholds (<1.0).
+    if thr >= 1.0:
+        kept = set(self.accepted)
+    else:
+        kept = set(self.accepted) | (set(self.tentative) if self.optimistic else set())
     self.support_ = np.array([c in kept for c in all_columns], dtype=bool)
     self.selected_features_ = [c for c in all_columns if c in kept]
     self.feature_names_in_ = np.asarray(all_columns)
@@ -317,6 +359,11 @@ def fit(self, X, y):
     # asymmetric vs MRMR / RFECV.
     self.feature_names_in_ = np.asarray(self.all_columns)
     self.n_features_in_ = int(len(self.all_columns))
+
+    # sklearn fit-returns-self contract: the stability path already returns self, so this single-fit path
+    # must too, otherwise ``selector.fit(X, y).transform(X)`` (used across this codebase) yields None ->
+    # AttributeError, and breaks only when stability is off -- a config-dependent behavioral divergence.
+    return self
 
 
 def explain(self):

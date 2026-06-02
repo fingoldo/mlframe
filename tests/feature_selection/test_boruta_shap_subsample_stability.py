@@ -98,7 +98,9 @@ def test_stability_runs_subfits_votes_and_keeps_signal():
         assert s in sel.accepted, f"signal feature {s} not accepted by stability vote"
     # sklearn-style outputs stay consistent.
     assert len(sel.support_) == X.shape[1]
-    assert set(sel.selected_features_) == (set(sel.accepted) | (set(sel.tentative) if sel.optimistic else set()))
+    # Intersection mode (threshold==1.0) keeps ONLY all-accept features; optimistic does NOT re-add the
+    # sub-majority 'tentative' bucket (that is the draw-level-spurious bucket intersection exists to drop).
+    assert set(sel.selected_features_) == set(sel.accepted)
 
 
 def test_stability_accepts_no_more_noise_than_single_fit():
