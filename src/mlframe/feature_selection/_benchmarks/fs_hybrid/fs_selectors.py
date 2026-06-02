@@ -115,14 +115,16 @@ class ShapSel:
     def fit(self, X, y):
         from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
         p = X.shape[1]
-        # within_cluster_refine=False: its default honest-loss proxy over-prunes real signal that a strong
-        # downstream uses (measured: 6 feats / LGBM 0.73 vs 18 feats / 0.77 with refine off). See ShapProxiedFS docstring.
+        # within_cluster_refine=True + parsimony_tol=0.005: the measured optimum on this bed (beats refine=False in
+        # 4/6 cells, +~0.6pt downstream LGBM AUC, ~half the features). The old refine=False workaround was for the
+        # loose 0.02 tol, now fixed at the class default. See ShapProxiedFS docstring for the calibration.
         self.s_ = ShapProxiedFS(
             classification=True, n_splits=3, top_n=20, min_features=8,
             prefilter_top=min(40, p), prefilter_n_estimators=60,
             oof_shap_n_estimators=60, revalidation_n_estimators=60,
             n_revalidation_models=2, trust_guard=True, trust_guard_n_estimators=20,
-            cluster_features="auto", within_cluster_refine=False, random_state=0, verbose=False,
+            cluster_features="auto", within_cluster_refine=True, parsimony_tol=0.005,
+            random_state=0, verbose=False,
         )
         self.s_.fit(X, y)
         self.raw_selected_ = [c for c in self.s_.selected_features_ if c in X.columns]

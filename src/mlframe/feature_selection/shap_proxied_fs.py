@@ -224,13 +224,15 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         revalidate: bool = True,
         n_revalidation_models: int = 3,
         lambda_stab: float = 0.5,
-        # parsimony_tol: within_cluster_refine drops a member while the honest-loss increase stays below this.
-        # MEASURED over-pruning dial (s2/S4 bench, _benchmarks/fs_hybrid): 0.02 EXCEEDS the marginal brier
-        # contribution of 6/7 informative features (drop-one delta median ~0.013 < 0.02), so the refine drops
-        # genuine signal that sits above noise but below the loose tol. Lower it (e.g. 0.005) - or set
-        # within_cluster_refine=False - when a strong downstream benefits from more features. Kept at 0.02 by
-        # default for back-compat; the fs_hybrid benchmark uses within_cluster_refine=False as the over-pruning fix.
-        parsimony_tol: float = 0.02,
+        # parsimony_tol: within_cluster_refine drops a member while the honest-loss increase stays below this. It is the
+        # over-pruning dial, calibrated on the fs_hybrid synthetic (3 scenarios x 2 seeds, honest-holdout AUC averaged over
+        # LightGBM / Logistic / kNN). 0.02 exceeds the marginal contribution of features that sit above noise but below the
+        # tol (drop-one brier delta median ~0.013 < 0.02), so it over-prunes to ~6 feats, recovers only 4.3/7 informative,
+        # mean AUC 0.792, and is catastrophic on redundant scenarios. 0.005 is the accuracy optimum and the default: ~11
+        # feats, 5.0/7 informative, mean AUC 0.795 and the best LightGBM AUC 0.808, with no catastrophic cell. Raise toward
+        # 0.02 only when you deliberately want a smaller set and can afford the recovery loss; set within_cluster_refine=False
+        # to skip refinement entirely. (Was 0.02 historically; flipped to the measured optimum, accuracy over back-compat.)
+        parsimony_tol: float = 0.005,
         min_selected_ratio: float = 0.0,
         trust_guard: bool = True,
         n_anchors: int = 30,
@@ -278,10 +280,11 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         prescreen_top: int | None = None,
         # within_cluster_refine drops members while the honest holdout loss stays within ``parsimony_tol`` of best,
         # measured with ShapProxiedFS's OWN booster on a 25% holdout. When the DOWNSTREAM model is stronger / different
-        # (e.g. a 300-tree LightGBM) it may exploit features this proxy finds within-tol-redundant, so the refine can
-        # over-prune real signal -> downstream loss. If the downstream benefits from more features, disable this
-        # (within_cluster_refine=False) or tighten ``parsimony_tol``. Measured on a 52-feature synthetic: default
-        # over-pruned to 6 feats (downstream LGBM AUC 0.73); within_cluster_refine=False kept 18 (AUC 0.77).
+        # (e.g. a 300-tree LightGBM) it may exploit features this proxy finds within-tol-redundant. At the default
+        # parsimony_tol=0.005 refine is net-positive on the fs_hybrid synthetic: it beats within_cluster_refine=False in
+        # 4/6 cells, lifts downstream LightGBM AUC by ~0.6pt, and halves the feature count. The over-pruning previously
+        # seen here was the loose 0.02 tol, not refinement itself. Set within_cluster_refine=False only when a downstream
+        # genuinely needs the redundant set; see ``parsimony_tol`` above for the tol calibration.
         within_cluster_refine: bool = True,
         refine_n_estimators: int | None = 100,
         refine_ucb_enabled: bool = True,

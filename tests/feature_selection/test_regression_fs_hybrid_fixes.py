@@ -139,3 +139,25 @@ def test_mrmr_rescue_excludes_cluster_members_and_uses_parsimony(monkeypatch):
     assert not (cluster_members & pool), f"DCD cluster members leaked into rescue pool: {sorted(cluster_members & pool)}"
     # Guard against a vacuous test: this fixture is designed to produce clusters.
     assert removed or cluster_members, "no cluster members discovered; fixture no longer exercises the exclusion"
+
+
+# --------------------------------------------------------- ShapProxiedFS measured-optimal parsimony default
+def test_shap_proxied_parsimony_default_is_measured_optimum():
+    """ShapProxiedFS ships within_cluster_refine=True with the MEASURED-optimal parsimony_tol=0.005.
+
+    The over-pruning ablation (_benchmarks/fs_hybrid/round2_shap_bench.py, 3 scenarios x 2 seeds) showed the
+    historical 0.02 tol over-prunes (mean honest-holdout AUC 0.792, catastrophic on redundant scenarios) while
+    0.005 is the accuracy optimum (mean 0.795, best downstream LightGBM AUC 0.808). Refine itself is net-positive
+    (refine=False won 0/6 cells). This guards against a silent revert of the default to the worse value.
+    """
+    import inspect
+    from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
+
+    p = inspect.signature(ShapProxiedFS.__init__).parameters
+    assert p["within_cluster_refine"].default is True, "refine must stay ON by default (net-positive on the bench)"
+    assert p["parsimony_tol"].default == 0.005, (
+        "parsimony_tol default regressed away from the measured optimum 0.005 back toward an over-pruning value"
+    )
+    # The constructed estimator must expose the same contract (not just the signature).
+    s = ShapProxiedFS()
+    assert s.within_cluster_refine is True and s.parsimony_tol == 0.005
