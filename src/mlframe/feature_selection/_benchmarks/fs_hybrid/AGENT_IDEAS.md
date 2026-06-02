@@ -18,9 +18,9 @@ Decision rule (CLAUDE.md §6): default = most accurate on the wide bench (6 scen
 ## BorutaShap
 - B1 Model-X knockoff shadows (preserve covariance) — TODO
 - B2 Per-cluster / conditional permutation shadows — TODO
-- B3 SHAP interaction-value importance (catch inf_4) — TODO
-- B4 Gumbel/EVT shadow-max threshold — TODO (agent flagged likely-partial)
-- B5 Independent-draw generalization gate — TODO
+- B3 SHAP interaction-value importance (catch inf_4) — DONE-rejected (grounded by R1 cheap-test): SHAP-interaction surfaces the true operand pair only in interaction-dominated data (xor2 rank 1) and is swamped by spurious pairs otherwise (base rank 10, manyredundant 56). Using it to catch inf_4 in Boruta would be similarly unreliable - promotes spurious pairs except where MRMR-FE already wins.
+- B4 Gumbel/EVT shadow-max threshold — DONE-rejected (grounded): the documented leak beats even the MAX shadow ~58/60 (BorutaShap docstring) - the spurious importance is GENUINELY high (structure), not a threshold-calibration artifact, so a sharper EVT quantile cannot drop it. Agent's own likely-partial flag confirmed.
+- B5 Independent-draw generalization gate — DONE-rejected (already tested): train_or_test='test' (a same-draw held-out split) was measured NOT to fix the leak - the draw-level spurious structure is in BOTH halves of one draw. A genuinely independent draw would resolve it but the selector doesn't have one within a single fit (the fundamental limit already documented in the class docstring).
 - B6 SPRT per-feature early-stop — TODO (note: coarse early-term when no tentatives already DONE-shipped 5dca23ea)
 - B7 Heterogeneous base-model importance ensemble — TODO (agent flagged high-effort/uncertain)
 - B8 Permutation / drop-column (OOB) importance metric — TODO
