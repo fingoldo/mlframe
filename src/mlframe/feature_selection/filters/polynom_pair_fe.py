@@ -38,6 +38,14 @@ from .hermite_fe import optimise_hermite_pair
 
 logger = logging.getLogger(__name__)
 
+# Cheap-first dispatch sentinel: a plain picklable string so it survives the
+# loky process-pool round-trip (a module-level object() would not pickle by
+# identity across processes). ``_eval_one_pair_impl`` returns it in the
+# ``best_res`` slot for a pair whose expensive optimiser was skipped because the
+# cheap trivial baseline already saturated the joint-MI ceiling; the serial
+# reduce counts these for the summary log and treats them as no-injection.
+_POLY_CHEAP_SKIP = "__poly_cheap_skip__"
+
 
 def run_polynom_pair_fe(
     *,
@@ -83,6 +91,18 @@ def run_polynom_pair_fe(
     # train-time precision is lost. 0 = use full data (legacy).
     subsample_n: int = 0,
     subsample_seed: int = 42,
+    # 2026-06-02 CHEAP-FIRST DISPATCH: the expensive CMA/Optuna orthogonal-poly
+    # search only earns its cost on pairs whose signal a trivial library
+    # unary/binary feature CANNOT already capture (non-monotone inners like
+    # ``a**3-2a`` -> trivial MI << joint ceiling). When the cheap trivial
+    # baseline already captures >= this fraction of the pair's joint-MI ceiling
+    # (``pair_mi``, the SAME quantity the prevalence gate uses), a 1-D poly
+    # feature cannot materially beat it (no function of (a,b) exceeds the joint
+    # MI), so the optimiser is SKIPPED for that pair -- the trivial feature is
+    # materialised by the always-on unary/binary path. Monotone-easy pairs skip;
+    # non-monotone-hard pairs (F-POLY) fall through and optimise. Set to 1.0 to
+    # disable (always optimise every prospective pair = legacy behaviour).
+    poly_cheap_skip_ratio: float = 0.97,
 ) -> Tuple[np.ndarray, np.ndarray, List[str], Any]:
     """Run polynom-pair FE: parallel evaluate prospective pairs, serially inject survivors.
 
@@ -108,6 +128,15 @@ def run_polynom_pair_fe(
     _n_pairs_to_eval = len(_pair_keys)
     if _n_pairs_to_eval == 0:
         return data, nbins, cols, X
+    # Cheap-first dispatch: per-pair joint-MI ceiling (``pair_mi`` from the key)
+    # so ``_eval_one_pair_impl`` can skip the expensive optimiser when the cheap
+    # trivial baseline already captures >= ``poly_cheap_skip_ratio`` of it.
+    _pair_mi_ceiling = {}
+    for _k in prospective_pairs.keys():
+        try:
+            _pair_mi_ceiling[_k[0]] = float(_k[1])
+        except (TypeError, ValueError, IndexError):
+            pass
 
     _polynom_n_jobs = int(n_jobs) if n_jobs and n_jobs > 0 else 1
     logger.info(
@@ -177,6 +206,28 @@ def run_polynom_pair_fe(
                 "optimise_hermite_pair will recompute internally.",
                 raw_vars_pair, _e,
             )
+
+        # CHEAP-FIRST DISPATCH: skip the expensive CMA/Optuna search when the
+        # cheap trivial baseline already captures >= ``poly_cheap_skip_ratio`` of
+        # this pair's joint-MI ceiling. A 1-D engineered feature cannot exceed
+        # the pair's joint MI, so once the trivial feature is that close to the
+        # ceiling the optimiser has no headroom -- the trivial feature (which the
+        # always-on unary/binary path materialises) is as good as it gets. Hard
+        # pairs whose non-monotone inner the trivial set cannot express (trivial
+        # MI << ceiling) fall through and DO optimise, so recovery on the cases
+        # that need the orthogonal-poly basis is unaffected.
+        if (
+            poly_cheap_skip_ratio < 1.0
+            and _trivial_baseline is not None
+            and _trivial_baseline > 0.0
+        ):
+            _ceiling = _pair_mi_ceiling.get(raw_vars_pair)
+            if (
+                _ceiling is not None
+                and _ceiling > 0.0
+                and _trivial_baseline >= _ceiling * poly_cheap_skip_ratio
+            ):
+                return (raw_vars_pair, _POLY_CHEAP_SKIP, vals_a_full, vals_b_full)
 
         best_res = None
         for seed_offset in range(fe_smart_polynom_iters):
@@ -265,10 +316,18 @@ def run_polynom_pair_fe(
 
     # Serial reduce: log + uplift gate + inject into data/cols/X.
     _uplift_gate = float(fe_min_engineered_mi_prevalence)
+    _n_cheap_skipped = 0
     for _pair_result in _poly_pair_results:
         if _pair_result is None:
             continue
         raw_vars_pair, best_res, vals_a, vals_b = _pair_result
+        # Cheap-first dispatch skipped the optimiser for this pair (the trivial
+        # baseline already saturated the joint-MI ceiling). Count it for the
+        # summary log; the always-on unary/binary path materialises the trivial
+        # feature, so nothing is lost -- only the expensive search was spared.
+        if best_res is _POLY_CHEAP_SKIP or (isinstance(best_res, str) and best_res == _POLY_CHEAP_SKIP):
+            _n_cheap_skipped += 1
+            continue
         if best_res is not None and verbose:
             logger.info(
                 "Polynomial-pair FE (%s): pair=%s baseline_mi=%.4f best_mi=%.4f "
@@ -349,4 +408,13 @@ def run_polynom_pair_fe(
                     "Standard FE block below still runs.",
                     raw_vars_pair, _inj_err,
                 )
+    if _n_cheap_skipped:
+        logger.info(
+            "Polynomial-pair FE cheap-first dispatch: skipped the optimiser for "
+            "%d/%d pair(s) whose trivial baseline already reached >= %.0f%% of "
+            "the joint-MI ceiling (the always-on unary/binary path materialises "
+            "those); optimised %d hard pair(s).",
+            _n_cheap_skipped, _n_pairs_to_eval, 100.0 * poly_cheap_skip_ratio,
+            _n_pairs_to_eval - _n_cheap_skipped,
+        )
     return data, nbins, cols, X

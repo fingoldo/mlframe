@@ -372,6 +372,10 @@ def _run_fe_step(
             n_jobs=int(n_jobs) if n_jobs and n_jobs > 0 else 1,
             verbose=int(verbose),
             subsample_n=_subsample_n,
+            # Cheap-first dispatch: skip the expensive CMA/Optuna search for pairs
+            # whose trivial baseline already saturates the joint-MI ceiling. getattr
+            # default keeps the knob optional (no ctor flag required); 1.0 disables.
+            poly_cheap_skip_ratio=float(getattr(self, "fe_poly_cheap_skip_ratio", 0.97)),
         )
         # Columns appended by the polynom block (its own gates already accepted
         # them). Promote into selected_vars below so they reach support_.
