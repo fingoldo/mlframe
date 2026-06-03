@@ -21,6 +21,7 @@ def _selector(**kw):
     Shared FI: informative high, inf_2 weak, noise ~0.
     """
     from mlframe.feature_selection._benchmarks.fs_hybrid.hybrid_selector import HybridSelector
+    kw.setdefault("anchor_fe", False)  # these tests exercise the PLAIN cluster-vote; the anchored path has its own test
     h = HybridSelector(**kw)
     h.members_ = {"inf_0": ["inf_0", "red_0", "red_1"], "inf_1": ["inf_1"], "inf_2": ["inf_2"], "noise_0": ["noise_0"]}
     h.cluster_of_ = {f: r for r, ms in h.members_.items() for f in ms}
@@ -74,6 +75,25 @@ def test_fi_guard_default_is_off():
     from mlframe.feature_selection._benchmarks.fs_hybrid.hybrid_selector import HybridSelector
     p = inspect.signature(HybridSelector.__init__).parameters
     assert p["fi_guard"].default is False and p["vote"].default == 1
+
+
+def test_anchored_combine_keeps_mrmr_substrate_and_only_adds():
+    """anchor_fe (the default): the FE substrate (MRMR's picks) is kept VERBATIM and the other members can only ADD
+    clusters MRMR missed -- never drop an MRMR pick. So the selection is a superset of mrmr_selected."""
+    h = _selector(vote=1, anchor_fe=True)
+    sel = set(h._combine(MEMBER_SEL, COLS))
+    assert {"inf_0", "inf_1"} <= sel                  # MRMR's picks kept verbatim
+    assert {"inf_2", "noise_0"} <= sel                # others ADD their vote>=1 clusters MRMR missed
+    assert set(MEMBER_SEL["mrmr"]) <= sel             # superset of the MRMR substrate (the anchor guarantee)
+    # vote=2: each add-cluster has only ONE other voter -> no additions -> exactly the MRMR substrate
+    h2 = _selector(vote=2, anchor_fe=True)
+    assert set(h2._combine(MEMBER_SEL, COLS)) == {"inf_0", "inf_1"}
+
+
+def test_anchor_fe_default_is_on():
+    import inspect
+    from mlframe.feature_selection._benchmarks.fs_hybrid.hybrid_selector import HybridSelector
+    assert inspect.signature(HybridSelector.__init__).parameters["anchor_fe"].default is True
 
 
 def _linear_dataset(n=1200, seed=0):

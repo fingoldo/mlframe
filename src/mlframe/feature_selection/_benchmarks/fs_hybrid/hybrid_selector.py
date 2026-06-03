@@ -51,7 +51,7 @@ class HybridSelector:
 
     def __init__(self, vote: int = 1, prescreen: bool = True, expand_clusters: bool = False,
                  fi_guard: bool = False, corr_thr: float = 0.92, use_mrmr: bool = True,
-                 use_fe: bool = True, fe_max_steps: int = 1, boruta_driver: str = "gini",
+                 use_fe: bool = True, fe_max_steps: int = 1, boruta_driver: str = "gini", anchor_fe: bool = True,
                  random_state: int = 0, name: str = "hybrid"):
         self.vote = vote
         self.prescreen = prescreen
@@ -73,6 +73,12 @@ class HybridSelector:
         # which lifts logit ~0.75->0.85 so residual noise no longer matters. So gini stays the default; permutation
         # remains available as the high-precision option.
         self.boruta_driver = boruta_driver
+        # anchor_fe: when FE is on, ANCHOR the final selection on the MRMR substrate -- keep ALL of MRMR's picks
+        # (raw + engineered) verbatim, then ADD only the raw clusters the OTHER members confirm that MRMR missed.
+        # By construction selected ⊇ mrmr_selected, so the hybrid can never score below its strongest FE-aware member
+        # (the measured defect: the plain cluster-vote could re-emit a raw operand over MRMR's engineered term and so
+        # TRAIL mrmr_fe). The other members thus only ADD complementary recall, never subtract the FE signal.
+        self.anchor_fe = anchor_fe
         self.random_state = random_state
         self.name = name
 
@@ -251,6 +257,8 @@ class HybridSelector:
         cluster contributes its highest-shared-FI member (or all members under ``expand_clusters``). Pure function
         of the shared state (self.fi_ / self.members_ / self.cluster_of_) and the per-member selections, so it is
         unit-testable without the expensive member fits."""
+        if self.anchor_fe and member_sel.get("mrmr"):
+            return self._combine_anchored(member_sel, cols)
         cluster_votes = defaultdict(set)
         for m, sel in member_sel.items():
             for f in sel:
@@ -291,6 +299,31 @@ class HybridSelector:
             else:
                 selected.append(max(ms, key=lambda f: self.fi_.get(f, 0.0)))
         return selected
+
+    def _combine_anchored(self, member_sel, cols):
+        """Anchor on the MRMR/FE substrate (see anchor_fe). Keep ALL of MRMR's picks verbatim (raw + engineered),
+        then ADD the clusters MRMR missed that >= ``vote`` of the OTHER members (shap/boruta) confirm. selected is a
+        superset of mrmr_selected, so AUC >= mrmr_fe by construction; the other members only add complementary recall."""
+        mrmr_sel = [c for c in member_sel.get("mrmr", []) if c in cols]
+        selected = list(dict.fromkeys(mrmr_sel))                 # FE substrate kept verbatim (engineered preserved)
+        anchored_clusters = {self.cluster_of_.get(c) for c in mrmr_sel}
+        others = [m for m in member_sel if m != "mrmr"]
+        votes = defaultdict(set)
+        for m in others:
+            for f in member_sel[m]:
+                r = self.cluster_of_.get(f)
+                if r is not None and r not in anchored_clusters:
+                    votes[r].add(m)
+        for r, voters in votes.items():
+            if len(voters) >= self.vote:                          # add only clusters the other members confirm
+                ms = [m for m in self.members_[r] if m in cols]
+                if not ms:
+                    continue
+                if self.expand_clusters:
+                    selected.extend(ms)
+                else:
+                    selected.append(max(ms, key=lambda f: self.fi_.get(f, 0.0)))
+        return list(dict.fromkeys(selected))
 
     def transform(self, X):
         # replay FE so engineered selections (eng_N) are available, then slice to the selected set
