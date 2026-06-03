@@ -1735,6 +1735,42 @@ def _detect_fourier_freqs_for_col(
     return out
 
 
+# Auto-gate for the adaptive Fourier / chirp operators (2026-06-04): a Fourier or chirp leg only helps where the RAW column is NOT already a strong smooth predictor of y. On a near-step / leak column (``leaky ~ y``) the cubic detrend leaves Gibbs ringing the periodogram mistakes for an oscillation; on a genuinely linear / monotone / heavy-tailed-monotone signal the raw column already carries the usability. In both cases a Fourier/chirp leg adds no generalisable signal -- it only manufactures engineered columns that then evict the raw signal from ``support_``. So when the raw column's held-out cubic R^2 clears this cap, skip the adaptive operators for it; genuine oscillatory / chirp targets (raw cubic R^2 ~ 0) stay below the cap and keep firing.
+_ADAPTIVE_FE_RAW_USABILITY_CAP: float = 0.5
+
+
+def _heldout_smooth_r2(x: np.ndarray, y: np.ndarray) -> float:
+    """Held-out R^2 of y on a cubic in x ([1, x, x^2, x^3]); val = every 3rd row (the same stride the frequency detector uses). Scale/shift-invariant, so it reads identically on raw x or its normalised z. Returns 0.0 on degenerate input."""
+    x = np.asarray(x, dtype=np.float64).ravel()
+    y = np.asarray(y, dtype=np.float64).ravel()
+    n = x.size
+    if n != y.size or n < 32:
+        return 0.0
+    if not (np.all(np.isfinite(x)) and np.all(np.isfinite(y))):
+        return 0.0
+    if float(np.std(x)) < 1e-12 or float(np.std(y)) < 1e-12:
+        return 0.0
+    idx = np.arange(n)
+    va = (idx % 3) == 0
+    tr = ~va
+    if int(tr.sum()) < 16 or int(va.sum()) < 8:
+        return 0.0
+    # Rank-normalise x to [-1, 1] so heavy tails (Cauchy / lognormal outliers) cannot dominate the least-squares fit and understate the raw column's usability. Ranks are a monotone reparametrisation, so a genuine oscillation stays non-cubic (gate keeps letting Fourier fire) while a monotone heavy-tailed signal reads as smooth (gate blocks Fourier on it).
+    ranks = np.argsort(np.argsort(x, kind="stable"), kind="stable").astype(np.float64)
+    zx = (ranks / max(n - 1, 1)) * 2.0 - 1.0
+    try:
+        coef, *_ = np.linalg.lstsq(np.vander(zx[tr], 4), y[tr], rcond=None)
+    except Exception:
+        return 0.0
+    pred = np.vander(zx[va], 4) @ coef
+    yv = y[va]
+    sse = float(np.sum((yv - pred) ** 2))
+    sst = float(np.sum((yv - yv.mean()) ** 2))
+    if sst < 1e-24:
+        return 0.0
+    return 1.0 - sse / sst
+
+
 def _detect_fourier_freq_for_col(
     z01: np.ndarray,
     y: np.ndarray,
@@ -1936,6 +1972,10 @@ def generate_extra_basis_features(
             continue
         if not finite_mask.all():
             x = np.where(finite_mask, x, float(np.nanmean(x[finite_mask])))
+        # Auto-gate: only let the adaptive Fourier/chirp operators fire where the raw column is NOT already a strong smooth predictor of y (see _ADAPTIVE_FE_RAW_USABILITY_CAP).
+        _adaptive_fe_ok = True
+        if _y_adapt is not None and (fourier_adaptive or fourier_chirp):
+            _adaptive_fe_ok = _heldout_smooth_r2(x, _y_adapt) < _ADAPTIVE_FE_RAW_USABILITY_CAP
         if "spline" in extra_bases:
             try:
                 knots, lo, hi, n_basis = _fit_spline_for_col(x, spline_knots)
@@ -1989,7 +2029,7 @@ def generate_extra_basis_features(
                     # we still tag/add the refined freq because the fixed grid
                     # cannot express a non-integer period.
                     _adaptive_freqs: list[float] = []
-                    if _p == 1 and _y_adapt is not None:
+                    if _p == 1 and _y_adapt is not None and _adaptive_fe_ok:
                         # max_freqs=6: a multitone superposition (3-4 genuine
                         # tones) needs enough sin/cos pairs to SPAN the signal
                         # subspace after the per-iteration deflation leaves a
@@ -2048,7 +2088,7 @@ def generate_extra_basis_features(
                 # additive (on a plain linear target the chirp legs are harmless,
                 # Ridge regularises them to ~0). N-gated identically (>= 800 rows
                 # inside the detector); a pure-noise column admits none.
-                if fourier_chirp and _y_adapt is not None:
+                if fourier_chirp and _y_adapt is not None and _adaptive_fe_ok:
                     _c_mean, _c_std, _c_lo, _c_span = _fit_chirp_warp_for_col(x)
                     if _c_span > 1e-12 and _c_std > 1e-12:
                         u_axis = _chirp_axis(x, _c_mean, _c_std, _c_lo, _c_span)
