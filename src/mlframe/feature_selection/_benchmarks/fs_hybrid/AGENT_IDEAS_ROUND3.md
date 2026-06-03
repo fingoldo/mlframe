@@ -66,15 +66,29 @@ Status: TODO | TESTING | DONE-*. Decision rule (CLAUDE.md §6): most accurate fi
 - S3-7 Interaction-mass corrector feature (HIGH RISK: S2 measured corr +0.49 -> may be pre-refuted; test corr first). TODO
 
 ## MRMR (new in scope)
-- M3-1 **Relevance-conditioned DCD pruning** (TOP; diagnostic-first): DCD prunes by unsupervised SU>tau, may drop a
-  true base with distinct conditional signal. Add CMIM guard: prune only if SU>tau AND I(c;y|anchor)<eps. Diagnostic:
-  log (member,SU,I(member;y|anchor)) on make_dataset; KILL if only red_* copies pruned (recall loss is elsewhere). TODO
-- M3-2 Turn the run_additional_rfecv rescue ON for FE config + let it re-include DCD-dropped true bases. TODO
-- M3-3 Richer FE preset/budget (minimal->medium, pairs 10->25) calibration. TODO
-- M3-4 FI-guided synergy bootstrap: seed FE pair-pool with external permutation-FI/shadow (the open R8 external form). TODO
-- M3-5 JMIM aggregator for the post-FE re-selection (preserve synergy operands; risk = readmit copies). TODO
-- M3-6 Calibrate min_relevance_gain_relative_to_first (0.05->0.02) recall dial (scope per-caller like parsimony_tol). TODO
-- M3-7 Finer quantization / Miller-Madow on the FE pair joint-MI gate (de-bias the 2-D baseline). TODO
+- M3-1 Relevance-conditioned DCD pruning — DONE-diagnostic (REFUTED): the cheap diagnostic settled it -- dcd_enable=
+  False AND cluster_aggregate_enable=False give IDENTICAL base_recall (0.667) to default on make_dataset 3 seeds. So
+  DCD pruning / cluster-aggregate are NOT the cause of MRMR's low base_recall; the recall loss is the greedy mRMR
+  selection / FE re-selection preferring engineered features over raw bases (same trade mrmr_fe makes for AUC). No fix.
+- M3-2 Turn the rescue ON — DONE-benched (REJECTED): run_additional_rfecv_minutes=0.5 recovers ALL raw bases
+  (recall 0.667->1.0) but readmits ALL 32 noise columns and LOWERS auc (0.8314->0.8310); also raised a ValueError on
+  one seed (engineered name 'add(prewarp(red_0_1),...)' not in list -- a real rescue+FE-name bug, in concurrent MRMR
+  territory -> flag to owner). The engineered features already carry the signal, so raw-base recovery doesn't help AUC.
+- M3-3 Richer FE preset/budget — DONE-benched (REJECTED, no effect): fe_max_pair_features 10->25 gave IDENTICAL
+  selection/AUC on all 3 seeds (the pair budget is not the binding constraint here).
+- M3-4 FI-guided synergy bootstrap — SUBSUMED by M3-7 (fe_strict): the spurious noise-product problem the probe
+  exposed is fixed more directly by tightening the prevalence gates (M3-7) than by re-seeding the pool. The external-
+  FI seeding remains a future option for harder data; not needed once fe_strict cuts the spurious products.
+- M3-5 JMIM aggregator — DEFERRED (param not top-level): use_jmim is not an exposed MRMR ctor kwarg (internal); needs
+  the MRMR owner to surface it. Risk noted (joint-MI readmits redundant copies). Not benchable via kwargs; coordinate.
+- M3-6 Calibrate min_relevance_gain_relative_to_first — DONE-benched (REJECTED): 0.05->0.02 gave ~no AUC change
+  (0.8314->0.8326) while EXPLODING the set (n 24->34, engineered 15->25, spurious 1->6.7). Net-negative (more spurious
+  for nil AUC). Keep 0.05.
+- M3-7 Tighter FE prevalence gates ("fe_strict") — DONE-SHIPPED (WIN): fe_synergy_min_prevalence 1.15->1.5 +
+  fe_min_engineered_mi_prevalence 0.90->0.97. Measured on make_dataset 3 seeds: standalone mrmr_fe auc 0.8314->0.8365
+  (+0.005, positive every seed), HALVES the engineered set (15->6.7) and cuts spurious noise-products (1.0->0.67).
+  Applied in the fs_hybrid MRMRSel wrapper + the HybridSelector's MRMR member (use_fe). RECOMMEND flipping the MRMR
+  CLASS defaults too -- coordinate with the MRMR-owning session (concurrent file).
 
 ## Cross-cutting reads
 - FE / interaction recovery is the #1 lever for ALL five. The cheapest highest-value first moves: S3-1 (one-line flip),

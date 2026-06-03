@@ -95,8 +95,13 @@ class HybridSelector:
         self._mrmr_member, self._eng_names, self._eng_rename = None, [], {}
         try:
             from mlframe.feature_selection.filters import MRMR
+            # fe_strict (round-3 M3-4/M3-7): tighter synergy + engineered-MI prevalence gates than MRMR's defaults
+            # (1.15 / 0.90). Measured on make_dataset: cuts spurious noise-product engineered features (~1.0 -> 0.67)
+            # and HALVES the engineered set (15 -> 7) while raising standalone mrmr_fe AUC 0.831 -> 0.837 -- a cleaner,
+            # more parsimonious FE substrate to share to the other members.
+            fe_strict = dict(fe_synergy_min_prevalence=1.5, fe_min_engineered_mi_prevalence=0.97) if self.use_fe else {}
             m = MRMR(verbose=0, fe_max_steps=(self.fe_max_steps if self.use_fe else 0), n_jobs=-1,
-                     random_seed=self.random_state, retain_artifacts=True, retain_bins=True)
+                     random_seed=self.random_state, retain_artifacts=True, retain_bins=True, **fe_strict)
             m.fit(X, y)
             selected = [c for c in m.get_feature_names_out() if c in X.columns]
             try:

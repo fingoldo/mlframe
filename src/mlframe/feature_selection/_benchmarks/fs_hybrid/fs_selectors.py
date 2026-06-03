@@ -33,7 +33,10 @@ class MRMRSel:
         self.fe = fe; self.name = "mrmr_fe" if fe else "mrmr_filter"
     def fit(self, X, y):
         from mlframe.feature_selection.filters import MRMR
-        self.m_ = MRMR(verbose=0, fe_max_steps=(1 if self.fe else 0), n_jobs=-1, random_seed=0)
+        # fe_strict (round-3 M3-4/M3-7): tighter FE prevalence gates -> standalone mrmr_fe auc 0.831->0.837, half the
+        # engineered features, fewer spurious noise-products. Applied only when feature-engineering is on.
+        fe_kw = dict(fe_synergy_min_prevalence=1.5, fe_min_engineered_mi_prevalence=0.97) if self.fe else {}
+        self.m_ = MRMR(verbose=0, fe_max_steps=(1 if self.fe else 0), n_jobs=-1, random_seed=0, **fe_kw)
         self.m_.fit(X, y)
         out = self.m_.transform(X.iloc[:5])  # peek output column names
         self.out_cols_ = list(out.columns)
