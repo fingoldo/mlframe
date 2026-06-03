@@ -638,7 +638,7 @@ def screen_predictors(
 
         num_possible_candidates = 0  # needed to refrain from multiprocessing when all direct MIs are in cache already
 
-        for interactions_order in (subsets_pbar := tqdmu(subsets, desc="Interactions order", leave=False)):
+        for interactions_order in (subsets_pbar := tqdmu(subsets, desc="Interactions order", leave=False, disable=not verbose)):
 
             if run_out_of_time:
                 break
@@ -671,7 +671,7 @@ def screen_predictors(
             ctx.failed_candidates = failed_candidates
             ctx.num_possible_candidates = num_possible_candidates
 
-            for _n_confirmed_predictors in (predictors_pbar := tqdmu(range(len(candidates)), leave=False, desc="Confirmed predictors")):
+            for _n_confirmed_predictors in (predictors_pbar := tqdmu(range(len(candidates)), leave=False, desc="Confirmed predictors", disable=not verbose)):
                 if run_out_of_time:
                     break
                 if stop_file and exists(stop_file):

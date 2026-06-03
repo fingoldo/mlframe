@@ -564,7 +564,7 @@ def check_prospective_fe_pairs(
         raw_vars_pair,
         pair_mi,
     ), _uplift in tqdmu(
-        prospective_pairs.items(), desc="pair", leave=False
+        prospective_pairs.items(), desc="pair", leave=False, disable=not verbose
     ):  # better to start considering form the most prospective pairs with highest mis ratio!
 
         messages = []
@@ -789,7 +789,7 @@ def check_prospective_fe_pairs(
                         if fe_max_external_validation_factors and len(external_factors) > fe_max_external_validation_factors:
                             external_factors = np.random.choice(external_factors, fe_max_external_validation_factors)
 
-                        for external_factor in tqdmu(external_factors, desc="external validation factor", leave=False):
+                        for external_factor in tqdmu(external_factors, desc="external validation factor", leave=False, disable=not verbose):
                             if external_factor not in original_cols:
                                 continue
                             if isinstance(X, pd.DataFrame):

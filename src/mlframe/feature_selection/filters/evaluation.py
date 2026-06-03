@@ -220,7 +220,7 @@ def _evaluate_candidates_inner(
 
     classes_y_safe = classes_y.copy()
 
-    for cand_idx, X, nexisting in tqdmu(workload, leave=False, desc="Thread Candidates"):
+    for cand_idx, X, nexisting in tqdmu(workload, leave=False, desc="Thread Candidates", disable=not verbose):
 
         current_gain, sink_reasons = evaluate_candidate(
             cand_idx=cand_idx,

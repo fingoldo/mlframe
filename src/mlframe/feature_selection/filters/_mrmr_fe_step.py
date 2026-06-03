@@ -298,6 +298,7 @@ def _run_fe_step(
                 desc="getting pairs MIs",
                 leave=False,
                 mininterval=5,
+                disable=not verbose,
             ),
             data=data,
             target_indices=target_indices,
