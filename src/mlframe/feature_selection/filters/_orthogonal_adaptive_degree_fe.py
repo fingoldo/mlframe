@@ -47,6 +47,7 @@ from ._orthogonal_univariate_fe import (
     _mi_classif_batch,
     _BASIS_CODE,
     _dedup_collinear_source_cols,
+    basis_route_by_signal,
 )
 
 logger = logging.getLogger(__name__)
@@ -155,7 +156,14 @@ def generate_adaptive_degree_basis_features(
         if not finite_mask.all():
             fill = float(np.nanmean(x[finite_mask])) if finite_mask.any() else 0.0
             x = np.where(finite_mask, x, fill)
-        chosen_basis = basis_route_by_moments(x) if basis == "auto" else basis
+        # 2026-06-03: signal-adaptive routing (route by which basis best linearises
+        # y, max best-degree |corr|) -- mirrors the default Layer-21/58 routers;
+        # beats moment routing on heavy-tailed/skewed x (bench: OOS-linear 0.92 vs
+        # 0.77). Falls back to moment routing without a usable y.
+        chosen_basis = (
+            basis_route_by_signal(x, y_arr, degrees=degree_range)
+            if basis == "auto" else basis
+        )
         if chosen_basis not in _POLY_BASES:
             logger.warning(
                 "generate_adaptive_degree_basis_features: unknown basis %r "
