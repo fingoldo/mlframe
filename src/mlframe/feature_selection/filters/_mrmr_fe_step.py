@@ -340,6 +340,57 @@ def _run_fe_step(
             cached_MIs.update(next_dict)
 
     # ---------------------------------------------------------------------------------------------------------------
+    # ORDER-2 Westfall-Young maxT permutation-null floor on the PROSPECTIVE-PAIR
+    # JOINT MI (2026-06-03). The gating loop below ranks O(p^2) candidate pairs by
+    # JOINT MI(x_i, x_j; y); at high p the MAX joint MI over PURE-NOISE pairs is a
+    # positive order statistic that grows with the pool size -- the same best-of-p
+    # selection bias the order-1 screening floor rejects, now at order 2. The
+    # per-pair prevalence gates (``fe_min_pair_mi_prevalence`` /
+    # ``fe_synergy_min_prevalence``) are PER-PAIR; they do NOT account for the
+    # max-over-pool selection, so a wide noise matrix still surfaces
+    # "synergistic-looking" noise pairs. Compute the floor ONCE here over the WHOLE
+    # candidate pool: shuffle the discretised target K times, take the per-shuffle
+    # MAX joint MI via the SAME batched plug-in estimator the screen scores
+    # ``pair_mi`` with, floor at the q-th quantile. Applied IN ADDITION to the
+    # prevalence gates in BOTH the zero-individual-MI (XOR) branch and the uplift
+    # branch below. SELF-GATING: below ``fe_pair_maxt_min_pairs`` candidate pairs
+    # the floor is 0.0 (no-op => byte-identical narrow pools), mirroring
+    # ``screen_fdr_min_features``. ``fe_pair_maxt_null_permutations=0`` disables.
+    _pair_maxt_floor = 0.0
+    _pair_maxt_perms = int(getattr(self, "fe_pair_maxt_null_permutations", 25) or 0)
+    if _pair_maxt_perms > 0 and len(numeric_vars_to_consider) >= 2 and n_pairs >= int(getattr(self, "fe_pair_maxt_min_pairs", 30)):
+        try:
+            from ._permutation_null import pooled_pair_permutation_null_joint_mi_floor
+
+            _maxt_pairs = list(combinations(numeric_vars_to_consider, 2))
+            _maxt_pa = np.fromiter((p[0] for p in _maxt_pairs), dtype=np.int64, count=len(_maxt_pairs))
+            _maxt_pb = np.fromiter((p[1] for p in _maxt_pairs), dtype=np.int64, count=len(_maxt_pairs))
+            _pair_maxt_floor = pooled_pair_permutation_null_joint_mi_floor(
+                factors_data=data,
+                nbins=nbins,
+                pair_a=_maxt_pa,
+                pair_b=_maxt_pb,
+                classes_y=classes_y,
+                freqs_y=freqs_y,
+                n_permutations=_pair_maxt_perms,
+                quantile=float(getattr(self, "fe_pair_maxt_null_quantile", 0.95)),
+                random_seed=getattr(self, "random_seed", None),
+            )
+            if _pair_maxt_floor > 0.0 and verbose >= 1:
+                logger.info(
+                    "MRMR FE: order-2 maxT permutation-null joint-MI floor=%.5f over %d candidate "
+                    "pairs (q=%.2f, K=%d) - rejects best-of-p chance-max noise pairs.",
+                    _pair_maxt_floor, n_pairs, float(getattr(self, "fe_pair_maxt_null_quantile", 0.95)),
+                    _pair_maxt_perms,
+                )
+        except Exception:
+            logger.warning(
+                "MRMR FE: order-2 maxT permutation-null floor failed; continuing without it.",
+                exc_info=True,
+            )
+            _pair_maxt_floor = 0.0
+
+    # ---------------------------------------------------------------------------------------------------------------
     # For every pair of factors (A,B), select ones having MI((A,B),Y)>MI(A,Y)+MI(B,Y). Such ones must posess more special connection!
     # ---------------------------------------------------------------------------------------------------------------
 
@@ -355,7 +406,14 @@ def _run_fe_step(
                 # (canonical 3-way XOR case: MI(x_i, y) = 0 for all i but the joint signal exists), any positive pair_mi
                 # qualifies as infinite uplift -- keep the pair.
                 if ind_elems_mi_sum <= 0:
-                    if pair_mi > 0:
+                    # ORDER-2 maxT floor (computed once above): a zero-individual-MI
+                    # pair enters via the canonical XOR branch on ANY positive joint
+                    # MI, so on a wide noise matrix a noise pair whose joint MI is
+                    # merely the best chance hit slips through. Require the joint MI
+                    # to clear the pool's permutation-null max before keeping it;
+                    # genuine pure-synergy (XOR / sign product) joint MI is FAR above
+                    # the chance ceiling, so it survives. No-op when floor==0.0.
+                    if pair_mi > 0 and pair_mi >= _pair_maxt_floor:
                         uplift = float("inf")
                         if verbose >= 2:
                             logger.info(
@@ -379,7 +437,11 @@ def _run_fe_step(
                 _prev_thresh = fe_min_pair_mi_prevalence
                 if _is_synergy_pair:
                     _prev_thresh = max(fe_min_pair_mi_prevalence, float(getattr(self, "fe_synergy_min_prevalence", 1.15)))
-                if pair_mi > ind_elems_mi_sum * _prev_thresh:
+                # ORDER-2 maxT floor (computed once above) applied IN ADDITION to the
+                # per-pair prevalence gate: the pair's JOINT MI must clear the pool's
+                # permutation-null max as well, rejecting best-of-p chance-max noise
+                # pairs the per-pair prevalence bar misses. No-op when floor==0.0.
+                if pair_mi > ind_elems_mi_sum * _prev_thresh and pair_mi >= _pair_maxt_floor:
                     uplift = pair_mi / ind_elems_mi_sum
                     if verbose >= 2:
                         logger.info(

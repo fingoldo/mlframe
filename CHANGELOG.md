@@ -1,5 +1,41 @@
 # Changelog
 
+## 2026-06-03 — ORDER-2 Westfall-Young maxT permutation-null floor on prospective-pair joint MI (default ON)
+
+The FE step engineers a WIDE pool of PAIR candidates ranked by JOINT
+MI(x_i, x_j; y) over O(p^2) pairs. At high p the MAXIMUM joint MI over pure-NOISE
+pairs is a positive order statistic that grows with the pool size — the same
+best-of-p selection bias the existing ORDER-1 screening floor
+(``pooled_permutation_null_gain_floor``) rejects, now at order 2. The per-pair
+prevalence gates (``fe_min_pair_mi_prevalence`` / ``fe_synergy_min_prevalence``)
+are PER-PAIR; they centre each pair's own finite-sample bias but do NOT account
+for max-over-pool selection, so a wide noise matrix surfaces
+"synergistic-looking" noise pairs whose joint MI is merely the best chance hit.
+
+New helper ``pooled_pair_permutation_null_joint_mi_floor`` (in
+``_permutation_null.py``), wired into the prospective-pair screen in
+``_mrmr_fe_step.py``: shuffle the discretised target K times, for each shuffle
+take the per-shuffle MAX joint MI over the candidate pair pool via the SAME
+batched plug-in estimator the screen scores ``pair_mi`` with
+(``batch_pair_mi_prange``, so the floor is on the exact same scale), take the
+q-th quantile of the per-shuffle maxes = the floor, and require a prospective
+pair's joint MI to clear it IN ADDITION to the prevalence gates (applied in both
+the zero-individual-MI / XOR branch and the uplift branch). Computed ONCE per FE
+step. SELF-GATING: below ``fe_pair_maxt_min_pairs`` candidate pairs the floor is
+0.0 (no-op ⇒ byte-identical narrow pools, mirroring ``screen_fdr_min_features``).
+
+New ``MRMR`` ctor params: ``fe_pair_maxt_null_permutations=25`` (0 disables),
+``fe_pair_maxt_null_quantile=0.95``, ``fe_pair_maxt_min_pairs=30``. DEFAULT ON
+(matches the order-1 floor). Validated on a wide p=80 / n=2000 frame (3 genuine
+synergy pairs + 74 noise cols): genuine pair joint MIs (0.107 / 0.084 / 0.065)
+sit far above the per-shuffle null-max floor (0.032) while noise-pair joint MIs
+(max 0.030, q0.95 0.021) sit below it; at the prospective-pair gate the floor
+removes ~4000 best-of-p noise pairs the per-pair prevalence bar admits, dropping
+support-level spurious engineered noise-pairs to 0 with genuine synergy fully
+retained — also a per-pair-search cost win. The whole heavy core path is the
+already-numba-compiled batch kernel (cProfile: 99.7% in ``batch_pair_mi_prange``,
+~344 ms for K=25 over 4560 pairs at n=2000).
+
 ## 2026-06-03 — Python 3.14 support
 
 Declare and wire up support for Python 3.14 (current stable, released Oct 2025)

@@ -890,6 +890,26 @@ class MRMR(BaseEstimator, TransformerMixin):
         # needs train-based FE selection (deep rewrite) for marginal gain over this
         # tighter-prevalence cut, so it is deferred.
         fe_synergy_min_prevalence: float = 1.5,
+        # 2026-06-03 — ORDER-2 Westfall-Young maxT permutation-null floor on the
+        # PROSPECTIVE-PAIR JOINT MI. The FE step ranks O(p^2) candidate pairs by
+        # JOINT MI(x_i, x_j; y); at high p the MAX joint MI over PURE-NOISE pairs
+        # is a positive order statistic that grows with the pool size -- the SAME
+        # best-of-p selection bias the order-1 screening floor rejects, now at
+        # order 2. The per-pair prevalence gates above are PER-PAIR and do NOT
+        # account for max-over-pool selection, so a wide noise matrix still
+        # surfaces "synergistic-looking" noise pairs. This floor shuffles the
+        # discretised target K times, takes the per-shuffle MAX joint MI over the
+        # candidate pool via the SAME batched estimator the screen scores
+        # ``pair_mi`` with, and floors prospective-pair selection at the q-th
+        # quantile of those maxes -- a genuine synergy pair clears it, the
+        # best-of-p noise does not. Applied IN ADDITION to the prevalence gates,
+        # computed ONCE per FE step. SELF-GATING: below ``fe_pair_maxt_min_pairs``
+        # candidate pairs the floor is 0.0 (no-op => byte-identical narrow pools).
+        # Set ``fe_pair_maxt_null_permutations=0`` to disable. DEFAULT-ON (mirrors
+        # the order-1 ``screen_predictors`` floor). See ``_permutation_null.py``.
+        fe_pair_maxt_null_permutations: int = 25,
+        fe_pair_maxt_null_quantile: float = 0.95,
+        fe_pair_maxt_min_pairs: int = 30,
         fe_hybrid_orth_degrees: tuple = (2, 3),
         fe_hybrid_orth_basis: str = "auto",
         # Combined cap on appended columns (univariate + pair). Top-K is

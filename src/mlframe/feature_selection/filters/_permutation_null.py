@@ -34,7 +34,11 @@ order 1 cannot prune genuine synergy.
 """
 from __future__ import annotations
 
+import logging
+
 import numpy as np
+
+logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 
 def pooled_permutation_null_gain_floor(
@@ -115,5 +119,77 @@ def pooled_permutation_null_gain_floor(
             if mi > best:
                 best = mi
         maxes[k] = best
+
+    return float(np.quantile(maxes, float(quantile)))
+
+
+def pooled_pair_permutation_null_joint_mi_floor(
+    factors_data: np.ndarray,
+    nbins: np.ndarray,
+    pair_a: np.ndarray,
+    pair_b: np.ndarray,
+    classes_y: np.ndarray,
+    freqs_y: np.ndarray,
+    *,
+    n_permutations: int = 25,
+    quantile: float = 0.95,
+    random_seed=None,
+) -> float:
+    """Return the ORDER-2 maxT permutation-null floor for a prospective-pair pool.
+
+    The FE step ranks prospective engineered PAIRS by the JOINT MI of
+    ``(x_i, x_j; y)`` over an O(p^2) candidate pool. At high p the MAXIMUM joint
+    MI over PURE-NOISE pairs is a positive order statistic that grows with the
+    pool size -- the SAME best-of-p selection bias the order-1 floor rejects, now
+    at order 2. The per-pair prevalence gates (``fe_min_pair_mi_prevalence`` /
+    ``fe_synergy_min_prevalence``) are PER-PAIR; they centre each pair's own
+    finite-sample bias but do NOT account for the max-over-pool selection, so a
+    wide noise matrix still surfaces "synergistic-looking" noise pairs whose
+    joint MI is merely the best chance hit.
+
+    This is the Westfall-Young maxT step-down null on the SELECTION statistic:
+    shuffle the discretised target ``classes_y`` K times (destroying every X-y
+    dependency while preserving each column's marginal distribution AND the pool
+    size), and for each shuffle record the MAXIMUM joint MI over the WHOLE
+    candidate pair pool via the SAME batched plug-in joint-MI estimator the FE
+    screen scores ``pair_mi`` with (:func:`batch_pair_mi_prange`), so the floor
+    is on the exact same scale as the values it gates. The ``quantile``-th
+    quantile of that K-sample max-distribution is a joint-MI floor a genuine
+    synergy pair (XOR / product / bilinear -- joint MI FAR above chance) clears
+    and the best-of-p noise pair does not.
+
+    ``classes_y`` is the per-row ordinal target code (the array the FE joint-MI
+    sweep scores against); ``freqs_y`` its class-probability vector, INVARIANT
+    under permutation (relabelling rows only), so it is reused across shuffles.
+    The floor is applied IN ADDITION to the existing per-pair prevalence gates.
+
+    Returns ``0.0`` (a no-op floor) when the pool is degenerate (n too small,
+    fewer than two candidate pairs, single-class target, or no permutations
+    requested), so callers can unconditionally compare ``pair_mi >= floor``.
+    """
+    n = int(factors_data.shape[0])
+    n_pairs = int(pair_a.shape[0])
+    if n < 8 or n_permutations < 1 or n_pairs < 2:
+        return 0.0
+    if int(np.asarray(freqs_y).shape[0]) < 2:
+        return 0.0
+
+    # Reuse the exact batched plug-in joint-MI kernel the FE pair screen uses
+    # (CPU njit prange -- deterministic, GPU-independent for the floor compute),
+    # so the per-shuffle max is on the same scale as the gated ``pair_mi``.
+    from .info_theory import batch_pair_mi_prange
+
+    pa = np.ascontiguousarray(pair_a, dtype=np.int64)
+    pb = np.ascontiguousarray(pair_b, dtype=np.int64)
+    nb = np.ascontiguousarray(nbins)
+    fy = np.ascontiguousarray(freqs_y, dtype=np.float64)
+
+    rng = np.random.default_rng(random_seed)
+    y_perm = np.ascontiguousarray(classes_y).copy()
+    maxes = np.empty(int(n_permutations), dtype=np.float64)
+    for k in range(int(n_permutations)):
+        rng.shuffle(y_perm)  # in-place uniform permutation of the target codes
+        mis = batch_pair_mi_prange(factors_data, pa, pb, nb, y_perm, fy)
+        maxes[k] = float(np.max(mis)) if mis.size else 0.0
 
     return float(np.quantile(maxes, float(quantile)))
