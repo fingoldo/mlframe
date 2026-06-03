@@ -33,6 +33,7 @@ Notes:
 
 from __future__ import annotations
 
+import re
 import time
 
 import numpy as np
@@ -332,10 +333,47 @@ def test_selected_features_surface_for_inspection(tmp_path):
 
     assert isinstance(selected, list) and len(selected) > 0
     assert all(isinstance(c, str) for c in selected)
-    # Every selected column must exist in the input frame (sanity).
-    assert set(selected).issubset(set(df.columns)), (
-        f"Selected features not a subset of df columns. "
-        f"Extra: {set(selected) - set(df.columns)}"
+    # Feature engineering is default-ON, so the selector LEGITIMATELY creates new
+    # columns (orthogonal-poly bases like ``info_3__sin1``, unary/binary ops like
+    # ``add(info_0_neg(info_1))`` / ``prewarp(...)``) and the downstream model trains
+    # on them. ``selected_features`` therefore reports the model's ACTUAL input
+    # columns: raw passthrough features PLUS engineered features reproducible at
+    # predict time via MRMR's stored recipes. The sanity contract is no longer
+    # "subset of raw df.columns" (that assumed selection picks only input columns,
+    # which FE-default-on invalidated) but a stronger surface-provenance check:
+    #   * every RAW (non-engineered) selected feature is a real input column;
+    #   * every ENGINEERED selected feature traces back to >=1 real input column
+    #     (catches phantom features / a genuine provenance leak);
+    #   * at least one informative signal is represented (directly or via a parent).
+    df_cols = set(df.columns)
+    raw_selected = [c for c in selected if c in df_cols]
+    engineered_selected = [c for c in selected if c not in df_cols]
+
+    # Match a raw column name embedded in an engineered name. Boundary is
+    # "non-alphanumeric" (underscore ALLOWED) so ``info_1`` matches inside
+    # ``info_3__sin1`` / ``add(prewarp(info_1)...)`` but a trailing digit blocks the
+    # match, so ``info_1`` does NOT spuriously match ``info_10`` nor ``noise_2``
+    # match ``noise_29`` (digit-extension false positive).
+    def _parents_in_df(name: str) -> set:
+        return {
+            col for col in df_cols
+            if re.search(r"(?<![A-Za-z0-9])" + re.escape(col) + r"(?![A-Za-z0-9])", name)
+        }
+
+    for name in engineered_selected:
+        assert _parents_in_df(name), (
+            f"Engineered selected feature {name!r} references no real input column "
+            f"-- possible phantom feature / surface-provenance leak. "
+            f"engineered={engineered_selected}"
+        )
+
+    signal = set(INFORMATIVE_NAMES)
+    signal_represented = bool(set(raw_selected) & signal) or any(
+        _parents_in_df(name) & signal for name in engineered_selected
+    )
+    assert signal_represented, (
+        f"No informative signal captured (directly or via an engineered feature's "
+        f"parent). selected={selected}"
     )
 
 
