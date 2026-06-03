@@ -224,15 +224,16 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         revalidate: bool = True,
         n_revalidation_models: int = 3,
         lambda_stab: float = 0.5,
-        # parsimony_tol: within_cluster_refine drops a member while the honest-loss increase stays below this. It is the
-        # over-pruning dial, calibrated on the fs_hybrid synthetic (3 scenarios x 2 seeds, honest-holdout AUC averaged over
-        # LightGBM / Logistic / kNN). 0.02 exceeds the marginal contribution of features that sit above noise but below the
-        # tol (drop-one brier delta median ~0.013 < 0.02), so it over-prunes to ~6 feats, recovers only 4.3/7 informative,
-        # mean AUC 0.792, and is catastrophic on redundant scenarios. 0.005 is the accuracy optimum and the default: ~11
-        # feats, 5.0/7 informative, mean AUC 0.795 and the best LightGBM AUC 0.808, with no catastrophic cell. Raise toward
-        # 0.02 only when you deliberately want a smaller set and can afford the recovery loss; set within_cluster_refine=False
-        # to skip refinement entirely. (Was 0.02 historically; flipped to the measured optimum, accuracy over back-compat.)
-        parsimony_tol: float = 0.005,
+        # parsimony_tol: within_cluster_refine drops a member while the honest-loss increase stays below this. It is a
+        # RECALL-vs-PRECISION dial, NOT a one-way win, so the default is the precision-tuned 0.02 that matches this
+        # selector's native contract (exclude noise + redundant columns): on the biz_val bed 0.02 keeps 0 noise columns,
+        # whereas 0.005 admits 1-2 (it prunes less). The opposite regime holds when you optimise DOWNSTREAM AUC across
+        # models: on the fs_hybrid synthetic (3 scenarios x 2 seeds) 0.005 keeps ~11 feats / recovers 5.0/7 informative /
+        # mean AUC 0.795 vs 0.02's ~6 feats / 4.3/7 / 0.792 (0.02 over-prunes there). So callers that want max recovery
+        # for a downstream model set parsimony_tol=0.005 explicitly (the fs_hybrid ShapSel wrapper and HybridSelector do);
+        # the standalone default stays 0.02 for clean, parsimonious, low-false-positive subsets. within_cluster_refine=
+        # False skips refinement entirely.
+        parsimony_tol: float = 0.02,
         min_selected_ratio: float = 0.0,
         trust_guard: bool = True,
         n_anchors: int = 30,
@@ -279,12 +280,12 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         cluster_su_n_bins: int = 10,
         prescreen_top: int | None = None,
         # within_cluster_refine drops members while the honest holdout loss stays within ``parsimony_tol`` of best,
-        # measured with ShapProxiedFS's OWN booster on a 25% holdout. When the DOWNSTREAM model is stronger / different
-        # (e.g. a 300-tree LightGBM) it may exploit features this proxy finds within-tol-redundant. At the default
-        # parsimony_tol=0.005 refine is net-positive on the fs_hybrid synthetic: it beats within_cluster_refine=False in
-        # 4/6 cells, lifts downstream LightGBM AUC by ~0.6pt, and halves the feature count. The over-pruning previously
-        # seen here was the loose 0.02 tol, not refinement itself. Set within_cluster_refine=False only when a downstream
-        # genuinely needs the redundant set; see ``parsimony_tol`` above for the tol calibration.
+        # measured with ShapProxiedFS's OWN booster on a 25% holdout. At the precision-tuned default parsimony_tol=0.02
+        # refine yields a clean, parsimonious subset (the native contract: exclude noise + redundancy). When the DOWNSTREAM
+        # model is stronger / different (e.g. a 300-tree LightGBM) it can exploit features this proxy finds within-tol-
+        # redundant, so AUC-optimising callers loosen the dial to parsimony_tol=0.005 (keeps ~2x the features, beats
+        # refine=False in 4/6 fs_hybrid cells, +~0.6pt downstream LightGBM AUC) -- see ``parsimony_tol`` above for that
+        # recall-vs-precision tradeoff. Set within_cluster_refine=False to skip refinement entirely.
         within_cluster_refine: bool = True,
         refine_n_estimators: int | None = 100,
         refine_ucb_enabled: bool = True,

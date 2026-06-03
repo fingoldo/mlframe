@@ -142,22 +142,25 @@ def test_mrmr_rescue_excludes_cluster_members_and_uses_parsimony(monkeypatch):
 
 
 # --------------------------------------------------------- ShapProxiedFS measured-optimal parsimony default
-def test_shap_proxied_parsimony_default_is_measured_optimum():
-    """ShapProxiedFS ships within_cluster_refine=True with the MEASURED-optimal parsimony_tol=0.005.
+def test_shap_proxied_parsimony_tol_is_a_recall_vs_precision_dial():
+    """ShapProxiedFS ships within_cluster_refine=True with the PRECISION-tuned default parsimony_tol=0.02.
 
-    The over-pruning ablation (_benchmarks/fs_hybrid/round2_shap_bench.py, 3 scenarios x 2 seeds) showed the
-    historical 0.02 tol over-prunes (mean honest-holdout AUC 0.792, catastrophic on redundant scenarios) while
-    0.005 is the accuracy optimum (mean 0.795, best downstream LightGBM AUC 0.808). Refine itself is net-positive
-    (refine=False won 0/6 cells). This guards against a silent revert of the default to the worse value.
+    parsimony_tol is a recall-vs-precision dial, not a one-way win. The standalone default is 0.02 because this
+    selector's native contract is excluding noise + redundancy: on the biz_val bed 0.02 keeps 0 noise while a
+    looser 0.005 admits 1-2 (it prunes less). The opposite holds when optimising DOWNSTREAM AUC across models:
+    on the fs_hybrid synthetic 0.005 recovers more (5.0/7 vs 4.3/7, mean AUC 0.795 vs 0.792). So AUC-optimising
+    callers (the fs_hybrid ShapSel wrapper + HybridSelector) set parsimony_tol=0.005 EXPLICITLY, while the global
+    default stays 0.02. This guards against re-flipping the global default to the recall setting (which regressed
+    the noise-exclusion biz_val contract).
     """
     import inspect
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     p = inspect.signature(ShapProxiedFS.__init__).parameters
-    assert p["within_cluster_refine"].default is True, "refine must stay ON by default (net-positive on the bench)"
-    assert p["parsimony_tol"].default == 0.005, (
-        "parsimony_tol default regressed away from the measured optimum 0.005 back toward an over-pruning value"
+    assert p["within_cluster_refine"].default is True, "refine must stay ON by default"
+    assert p["parsimony_tol"].default == 0.02, (
+        "global parsimony_tol default must stay the precision-tuned 0.02; the recall-tuned 0.005 belongs only in "
+        "AUC-optimising callers (hybrid/benchmark), set there explicitly"
     )
-    # The constructed estimator must expose the same contract (not just the signature).
     s = ShapProxiedFS()
-    assert s.within_cluster_refine is True and s.parsimony_tol == 0.005
+    assert s.within_cluster_refine is True and s.parsimony_tol == 0.02
