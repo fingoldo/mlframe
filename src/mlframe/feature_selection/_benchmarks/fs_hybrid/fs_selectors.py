@@ -81,10 +81,15 @@ class BorutaSel:
 
 
 class RFECVSel:
-    def __init__(self, kind: str):
+    def __init__(self, kind: str, survivor_fe: bool = False):
         # kind "lgbm_perm": LightGBM estimator but OOF-permutation importance for elimination instead of impurity;
         # measured +0.029 mean lgbm AUC over impurity across 3 seeds (positive every seed), at ~4-5x fit cost.
-        self.kind = kind; self.name = f"rfecv_{kind}"
+        # survivor_fe (round-3 R3-1): after selection, CV-gate pairwise products/squares of the top survivors and
+        # append the ones that lift 3-fold CV AUC > 1 SE. Recovers a pure-interaction term when BOTH operands survive
+        # elimination (measured +0.015 mean AUC; forms the true inf_a*inf_b). Partial: marginal elimination can drop
+        # one operand first, so it cannot match pre-elimination FE (mrmr_fe). Replays the products at transform.
+        self.kind = kind; self.survivor_fe = survivor_fe
+        self.name = f"rfecv_{kind}" + ("_fe" if survivor_fe else "")
         self._importance_getter = "permutation" if kind.endswith("_perm") else "auto"
     def _estimator(self):
         base = self.kind[:-5] if self.kind.endswith("_perm") else self.kind
@@ -95,6 +100,30 @@ class RFECVSel:
             from sklearn.linear_model import LogisticRegression
             return LogisticRegression(max_iter=1000, C=1.0)
         raise ValueError(self.kind)
+    def _survivor_products(self, X, y, survivors, k=8):
+        """CV-gated pairwise products/squares of the top-k survivors (by LightGBM impurity); keep a product only if
+        adding it raises 3-fold CV ROC-AUC over the survivor set by > 1 SE. Returns list of (a, b) operand pairs."""
+        import itertools, lightgbm as lgb
+        from sklearn.model_selection import cross_val_score
+        if len(survivors) < 2:
+            return []
+        m = lgb.LGBMClassifier(n_estimators=200, verbose=-1).fit(X[survivors], y)
+        top = [c for _, c in sorted(zip(m.feature_importances_, survivors), reverse=True)][:k]
+        base = cross_val_score(lgb.LGBMClassifier(n_estimators=120, verbose=-1), X[survivors], y, cv=3, scoring="roc_auc")
+        thr = base.mean() + base.std() / (len(base) ** 0.5)
+        kept = []
+        for a, b in list(itertools.combinations(top, 2)) + [(c, c) for c in top]:
+            aug = pd.concat([X[survivors], (X[a] * X[b]).rename("prod")], axis=1)
+            sc = cross_val_score(lgb.LGBMClassifier(n_estimators=120, verbose=-1), aug, y, cv=3, scoring="roc_auc")
+            if sc.mean() > thr:
+                kept.append((a, b))
+        return kept
+    def _apply_products(self, X):
+        out = X[[c for c in self.all_selected_ if c in X.columns]].copy()
+        for a, b in getattr(self, "products_", []):
+            if a in X.columns and b in X.columns:
+                out[f"prod__{a}__{b}"] = X[a] * X[b]
+        return out
     def fit(self, X, y):
         from mlframe.feature_selection.wrappers import RFECV, FIConfig, SearchConfig
         fi = FIConfig(importance_getter=self._importance_getter, n_features_selection_rule="one_se_min")
@@ -104,13 +133,12 @@ class RFECVSel:
         self.raw_selected_ = [c for c in self.r_.get_feature_names_out() if c in X.columns]
         if not self.raw_selected_:
             self.raw_selected_ = list(X.columns[:1])
-        self.n_engineered_ = sum(1 for c in self.r_.get_feature_names_out() if c not in X.columns)
-        # engineered columns from upstream FE survive as their (renamed-safe) names:
         self.all_selected_ = list(self.r_.get_feature_names_out())
+        self.products_ = self._survivor_products(X, y, self.raw_selected_) if self.survivor_fe else []
+        self.n_engineered_ = sum(1 for c in self.all_selected_ if c not in X.columns) + len(self.products_)
         return self
     def transform(self, X):
-        keep = [c for c in self.all_selected_ if c in X.columns]
-        return X[keep]
+        return self._apply_products(X)
 
 
 class ShapSel:

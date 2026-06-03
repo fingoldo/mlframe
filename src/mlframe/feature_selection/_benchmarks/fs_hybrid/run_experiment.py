@@ -58,7 +58,9 @@ def build_roster():
     R["boruta_stable"] = (lambda: S.BorutaSel(stability_subsamples=10), CORE_SEEDS)
     R["rfecv_lgbm"] = (lambda: S.RFECVSel("lgbm"), CORE_SEEDS)
     R["rfecv_lgbm_perm"] = (lambda: S.RFECVSel("lgbm_perm"), CORE_SEEDS)  # OOF-permutation importance (brainstorm-verified +0.029)
+    R["rfecv_lgbm_perm_fe"] = (lambda: S.RFECVSel("lgbm_perm", survivor_fe=True), CORE_SEEDS)  # R3-1 survivor-FE (+0.015)
     R["rfecv_logit"] = (lambda: S.RFECVSel("logit"), CORE_SEEDS)
+    R["boruta_fe"] = (lambda: S.Cascade("boruta_fe", S.MRMRSel(fe=True), S.BorutaSel()), CORE_SEEDS)  # B3-4 FE-augmented Boruta
     # hybrids
     R["H1_mrmrfilter__rfecv_lgbm"] = (lambda: S.Cascade("H1", S.MRMRSel(fe=False), S.RFECVSel("lgbm")), CORE_SEEDS)
     R["H2_mrmrfe__rfecv_logit"] = (lambda: S.Cascade("H2", S.MRMRSel(fe=True), S.RFECVSel("logit")), CORE_SEEDS)
@@ -75,7 +77,9 @@ def build_roster():
     # vote=1 (any reused member confirms a cluster) is the headline: the members are COMPLEMENTARY so majority
     # (vote=2) drops base features only one member catches (seed-0: vote2 base 6/8 AUC 0.756 vs vote1 base 8/8 AUC
     # 0.774). vote=2 kept as the parsimony/precision variant; expand re-emits all cluster members for downstream.
+    # round-3: use_fe=True is now the default (the +0.046 FE win). "hybrid" = FE; hybrid_nofe = the recall-champion mode.
     R["hybrid"] = (lambda: HybridSelector(vote=1, name="hybrid"), CORE_SEEDS)
+    R["hybrid_nofe"] = (lambda: HybridSelector(vote=1, use_fe=False, name="hybrid_nofe"), CORE_SEEDS)
     R["hybrid_strict"] = (lambda: HybridSelector(vote=2, name="hybrid_strict"), CORE_SEEDS)
     R["hybrid_expand"] = (lambda: HybridSelector(vote=1, expand_clusters=True, name="hybrid_expand"), CORE_SEEDS)
     return R

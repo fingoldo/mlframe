@@ -27,16 +27,31 @@ Status: TODO | TESTING | DONE-*. Decision rule (CLAUDE.md §6): most accurate fi
 - H3-8 Recompute shared permutation-FI on X_aug (honest FI for engineered cols; subsumes H3-7/part of H3-3). TODO
 
 ## RFECV
-- R3-1 **Post-selection pairwise-product augmentation of SURVIVORS** (TOP): after MBH picks support_, form pairwise
-  products/squares of top survivors, keep a product only if CV score rises >1 SE. Avoids the closed interaction-
-  RANKING failure (operates on the ~13 survivors where both operands usually present, gated by honest CV). Test on
-  xor2/base: is true inf_a*inf_b among top CV-improving survivor-products? KILL if survivors lack both operands. TODO
-- R3-2 Audit adapter's forced one_se_min vs library one_se_max on the 3-model auc_mean (recall recovery). TODO
-- R3-3 Held-out-permutation shadow-null noise floor on final support (precision; risk = fi_guard fate). TODO
-- R3-4 Stability-selection equal-N re-ranker (CV-gated swaps, not N-reselection). TODO
-- R3-5 Two-resolution N grid: densely eval integer N inside the 1-SE band (curve resolution, not a new rule). TODO
-- R3-6 Cluster-representative elimination credit (de-dilute split FI across copies; ports R2b-6 win to RFECV vote). TODO
-- R3-7 Bench n_stability_elbow_ (stability x score) as the N-rule (cheapest; likely no-op if stability~1 on small p). TODO
+- R3-1 Post-selection pairwise-product augmentation of SURVIVORS — DONE-benched (WIN, partial): survivor-FE auc_mean
+  0.7882 -> 0.8035 (+0.015) on make_dataset 3 seeds, with noise staying ~0.3. It FORMED the true inf_4*inf_5 on sd2
+  (+0.011 CV gain -> 0.828) via the CV-gated product search, sidestepping the closed interaction-RANKING failure.
+  LIMIT: only forms the product when BOTH operands survive RFECV's marginal elimination (sd2); when one operand is
+  dropped for ~0 marginal (sd0/sd1) it forms 0 or a near-miss (inf_5*red). So it is a genuine but PARTIAL FE win for
+  RFECV -- still below mrmr_fe (0.8365) / the FE-hybrid, which engineer before elimination. Worth shipping as an
+  RFECVSel post-process option; the hybrid/mrmr FE already capture the bigger FE benefit.
+- R3-2 one_se rule audit — DONE-benched (REJECTED): one_se_min (current, 0.7882) is the BEST rule; one_se_max gets
+  recall 1.0 but admits 20.7 noise -> worst AUC 0.7735; argmax 0.7821. The adapter's forced one_se_min is correct.
+- R3-3 Held-out-permutation shadow-null noise floor — DONE-doc (REJECTED, grounded): one_se_min already keeps noise
+  to ~1.0; a noise floor risks the fi_guard fate (cut recall with noise). The +0.015 from R3-1 (add real interaction)
+  dominates the ~0 headroom from removing the last ~1 noise col. Not worth the recall risk.
+- R3-4 Stability-selection equal-N re-ranker — DONE-doc (subsumed): R2r-2 already measured bootstrap support
+  aggregation AUC-NEUTRAL (stability-only). An equal-N CV-gated swap is a marginal refinement of that AUC-neutral
+  lever; R3-1's product augmentation is the RFECV AUC win instead.
+- R3-5 Two-resolution N grid — DONE-doc (DEFERRED, small): a curve-resolution refinement worth at most the gap
+  between adjacent N inside the 1-SE band; on this bed one_se_min already wins and R3-1 captures the real AUC lever.
+  Safe future micro-opt; not benched (low ceiling vs R3-1).
+- R3-6 Cluster-representative elimination credit — DONE-doc (DEFERRED, promising-but-redundant-here): ports the R2b-6
+  premerge win to RFECV's vote to de-dilute split FI across copies. On make_dataset RFECV already keeps noise low and
+  R3-1 supplies the FE win; the premerge mechanism is already validated (R2b-6) + shipped in the hybrid, so RFECV-
+  side cluster-credit is a recall lever for redundant data, worth porting if a redundant-heavy regime needs it.
+- R3-7 n_stability_elbow_ as the N-rule — DONE-doc (REJECTED, grounded): R3-2 showed one_se_min beats one_se_max/
+  argmax; the elbow (stability x score) collapses to ~score-argmax on this bed (stability ~1 across N on small p,
+  the documented R6 finding), so it cannot beat the rule that already won. No headroom.
 
 ## BorutaShap
 - B3-1 **Promote cluster-premerge into the class** (TOP; coordination-flagged): R2b-6 confirmed win (7/12, +recall,
