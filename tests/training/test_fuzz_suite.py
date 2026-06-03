@@ -90,6 +90,12 @@ def _config_for_models(
     cb_border_count: int = 254,
     hgb_max_leaf_nodes: int = 31,
     rfecv_cv_n_splits: int = 2,
+    # 2026-06-03 FS-coverage audit -- RFECV.__init__ knobs threaded into
+    # rfecv_kwargs (-> COMMON_RFECV_PARAMS update -> RFECV ctor in
+    # _trainer_configure.py). Defaults match the RFECV signature so combos
+    # without an RFECV selector are unaffected.
+    rfecv_votes_aggregation: str = "Borda",
+    rfecv_search_method: str = "ModelBasedHeuristic",
     # iter180 DEPTH-4 booster sub-params (depth-3 gate + depth-4 sub-knob pairs).
     lgb_boosting_type: str = "gbdt",
     lgb_dart_drop_rate: float = 0.1,
@@ -174,6 +180,11 @@ def _config_for_models(
         "max_noimproving_iters": 2,
         "cv_n_splits": rfecv_cv_n_splits,
         "max_runtime_mins": 2,
+        # 2026-06-03 FS-coverage audit -- RFECV aggregation + search-method
+        # knobs. Both are str-Enum RFECV ctor params; the string form is
+        # accepted by the enum. Forwarded via COMMON_RFECV_PARAMS.update.
+        "votes_aggregation_method": rfecv_votes_aggregation,
+        "top_predictors_search_method": rfecv_search_method,
     }
     return cfg
 
@@ -1238,6 +1249,9 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
                 cb_border_count=combo.cb_border_count_cfg,
                 hgb_max_leaf_nodes=combo.hgb_max_leaf_nodes_cfg,
                 rfecv_cv_n_splits=combo.rfecv_cv_n_splits_cfg,
+                # 2026-06-03 FS-coverage audit -- RFECV.__init__ knobs.
+                rfecv_votes_aggregation=combo.rfecv_votes_aggregation_cfg,
+                rfecv_search_method=combo.rfecv_search_method_cfg,
                 # iter180 DEPTH-4 booster sub-params.
                 lgb_boosting_type=combo.lgb_boosting_type_cfg,
                 lgb_dart_drop_rate=combo.lgb_dart_drop_rate_cfg,
@@ -1284,7 +1298,14 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
                 # code path (shadow build + SHAP explain + tail test) at
                 # ~15x lower wall.
                 boruta_shap_kwargs=({"n_trials": 10, "verbose": False,
-                                     "importance_measure": combo.boruta_importance_measure_cfg}
+                                     "importance_measure": combo.boruta_importance_measure_cfg,
+                                     # 2026-06-03 FS-coverage audit -- BorutaShap.__init__
+                                     # knobs that were tunable but unfuzzed. All three are
+                                     # valid BorutaShap ctor params so FeatureSelectionConfig's
+                                     # boruta_shap_kwargs validator accepts them.
+                                     "optimistic": combo.boruta_optimistic_cfg,
+                                     "train_or_test": combo.boruta_train_or_test_cfg,
+                                     "premerge_clusters": combo.boruta_premerge_clusters_cfg}
                                    if combo.use_boruta_shap_cfg else None),
                 use_sample_weights_in_fs=combo.use_sample_weights_in_fs_cfg,
                 mrmr_identity_cache_scope=combo.mrmr_identity_cache_scope_cfg,
@@ -1304,6 +1325,16 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
                     # here (the suite already builds the FS config only when
                     # the pre-screen branch fires).
                     pre_screen_null_fraction_threshold=combo.fs_pre_screen_null_fraction_threshold_cfg,
+                    # 2026-06-03 FS-coverage audit -- these two axes were
+                    # sampled + canonicalised (distinct dedup buckets) and
+                    # applied in _build_combo, BUT the value never reached
+                    # FeatureSelectionConfig, so every combo ran with the field
+                    # defaults (pre_screen_unsupervised=True, variance=0.0). The
+                    # False / 0.01 samples were INERT. Thread them through here
+                    # so the unsupervised-prescreen OFF branch + the non-zero
+                    # variance-floor drop branch actually exercise.
+                    pre_screen_unsupervised=combo.fs_pre_screen_unsupervised_cfg,
+                    pre_screen_variance_threshold=combo.fs_pre_screen_variance_threshold_cfg,
                 ),
             ),
             # save_charts=False / show_perf_chart=False / show_fi=False:
