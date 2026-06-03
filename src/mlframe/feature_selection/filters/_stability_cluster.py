@@ -26,10 +26,13 @@ accept dict-style config:
 """
 from __future__ import annotations
 
+import logging
 import math
 from typing import Callable, Dict, List, Optional
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def cluster_stability_selection(
@@ -106,19 +109,38 @@ def cluster_stability_selection(
     cluster_sel_freq = np.zeros(n_clusters, dtype=np.float64)
     feat_sel_freq = np.zeros(p, dtype=np.float64)
     half = n // 2
+    # 2026-06-03 (audit hierarchy-stability-9): divide frequencies by the number
+    # of SUCCESSFUL bootstraps, not the nominal ``n_bootstrap``. A selector_fn
+    # that raises is silently ``continue``d; dividing by the nominal count then
+    # scales every frequency by (n_success / n_bootstrap), systematically
+    # deflating them toward 0 on an effective sample size the caller never sees
+    # -- which invalidates the Faletto-Bien / Shah-Samworth bounds (parameterised
+    # by the number of subsamples). Track and surface n_effective / n_failed.
+    n_success = 0
+    n_failed = 0
     for b in range(int(n_bootstrap)):
         idx = rng.permutation(n)[:half]
         try:
             sel = selector_fn(X[idx], y[idx])
         except Exception:
+            n_failed += 1
             continue
+        n_success += 1
         sel = np.asarray(sel, dtype=np.int64).ravel()
         sel = sel[(sel >= 0) & (sel < p)]
         feat_sel_freq[sel] += 1
         selected_clusters = np.unique(cluster_id[sel])
         cluster_sel_freq[selected_clusters] += 1
-    cluster_sel_freq /= max(float(n_bootstrap), 1.0)
-    feat_sel_freq /= max(float(n_bootstrap), 1.0)
+    if n_failed:
+        logger.warning(
+            "cluster_stability_selection: %d/%d bootstraps failed; frequencies "
+            "are computed over the %d successful runs (effective B), so the "
+            "Faletto-Bien/Shah-Samworth bound is parameterised by %d, not %d.",
+            n_failed, int(n_bootstrap), n_success, n_success, int(n_bootstrap),
+        )
+    _denom = max(float(n_success), 1.0)
+    cluster_sel_freq /= _denom
+    feat_sel_freq /= _denom
     # ---- step 3: keep clusters above threshold ----
     kept_clusters = np.where(cluster_sel_freq >= float(pi_threshold))[0]
     chosen = []
@@ -134,6 +156,10 @@ def cluster_stability_selection(
         "n_kept_clusters": int(kept_clusters.size),
         "cluster_sel_freq": cluster_sel_freq.tolist(),
         "feat_sel_freq": feat_sel_freq.tolist(),
+        # 2026-06-03 (audit hierarchy-stability-9): effective subsample count
+        # the frequencies (and the advertised bound) are actually based on.
+        "n_effective": int(n_success),
+        "n_failed": int(n_failed),
     }
     if return_clusters:
         info["cluster_id"] = cluster_id.tolist()
@@ -167,15 +193,27 @@ def complementary_pairs_stability(
     half = n // 2
     pair_complementary = np.zeros(p, dtype=np.float64)
     union_freq = np.zeros(p, dtype=np.float64)
+    # 2026-06-03 (audit hierarchy-stability-9): count SUCCESSFUL pairs so the
+    # frequencies divide by the effective sample size (see the cluster variant).
+    n_success = 0
+    n_failed = 0
     for b in range(int(n_pairs)):
         idx = rng.permutation(n)
         idx_b = idx[:half]
-        idx_bc = idx[half:2 * half]
+        # 2026-06-03 (audit hierarchy-stability-8): the complement must be the
+        # REST of the permutation (idx[half:]), not idx[half:2*half]. For odd n
+        # the latter drops the middle row, so the two halves are not a true
+        # partition of the sample -- violating the complementary-pair structure
+        # the Shah-Samworth bound assumes (it allows |I| and |I^c| to differ by
+        # one, but requires I ∪ I^c = all rows).
+        idx_bc = idx[half:]
         try:
             sel_b = np.asarray(selector_fn(X[idx_b], y[idx_b]), dtype=np.int64).ravel()
             sel_bc = np.asarray(selector_fn(X[idx_bc], y[idx_bc]), dtype=np.int64).ravel()
         except Exception:
+            n_failed += 1
             continue
+        n_success += 1
         sel_b = sel_b[(sel_b >= 0) & (sel_b < p)]
         sel_bc = sel_bc[(sel_bc >= 0) & (sel_bc < p)]
         # Complementary selection: feature in both halves.
@@ -187,13 +225,23 @@ def complementary_pairs_stability(
             pair_complementary[f] += 1
         for f in union:
             union_freq[f] += 1
-    pair_complementary /= max(float(n_pairs), 1.0)
-    union_freq /= max(float(n_pairs), 1.0)
+    if n_failed:
+        logger.warning(
+            "complementary_pairs_stability: %d/%d pairs failed; frequencies are "
+            "computed over the %d successful pairs (effective B).",
+            n_failed, int(n_pairs), n_success,
+        )
+    _denom = max(float(n_success), 1.0)
+    pair_complementary /= _denom
+    union_freq /= _denom
     chosen = np.where(pair_complementary >= float(pi_threshold))[0]
     info = {
         "n_pairs": int(n_pairs),
         "pair_complementary_freq": pair_complementary.tolist(),
         "union_freq": union_freq.tolist(),
+        # 2026-06-03 (audit hierarchy-stability-9): effective pair count.
+        "n_effective": int(n_success),
+        "n_failed": int(n_failed),
     }
     return chosen, pair_complementary, info
 
