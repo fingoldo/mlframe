@@ -207,6 +207,7 @@ class HybridSelector:
         X_aug = self._augment(X)
         cols = list(X_aug.columns)
         engineered = set(self._eng_rename.values())
+        self._Xaug_, self._y_ = X_aug, y  # stashed for combine-rule variants/diagnostics (benchmark composition class)
 
         # shared artifacts, computed ONCE on the augmented frame (FI honest for engineered cols too)
         self.fi_ = self._shared_perm_fi(X_aug, y)

@@ -16,25 +16,20 @@ Status: TODO | TESTING | DONE-*. Decision rule (CLAUDE.md §6): most accurate fi
   ties rather than beats mrmr_fe ON THIS BED; its distinct value (recall champion 0.96) is the use_fe=False mode.
   Shipped use_fe=True default. Note: under FE the shap member can't reuse MRMR's precomputed MI/SU (artifacts cover
   raw only, not eng_N) so it recomputes -- compute-once still holds for FI+clusters.
-- H3-2 Per-member realized-subset OOF-AUC vote weight — DONE-doc (DEFERRED, low headroom post-FE): now that FE
-  (H3-1) lifts the hybrid to the mrmr_fe ceiling (0.834), the combine rule has little headroom left -- the engineered
-  features dominate the downstream regardless of how raw-member votes are weighted. A genuine mechanism (unlike the
-  rejected R2b-4 standalone-skill weight) but its ceiling is the gap between the FE-hybrid and the best member, which
-  FE already closed. Revisit only if a dataset shows the members strongly disagreeing post-FE.
-- H3-3 FE-protective cluster rep — DONE-doc (mitigated by fe_strict): the risk (collapsing an engineered term into
-  its raw operand at rep-selection) is real, but fe_strict (M3-7) already cut the engineered set to ~4 clean terms,
-  and the shared-FI rep rule prefers the higher-FI engineered product anyway (it carries the signal). The FE-hybrid
-  bench (0.834) shows no evidence the rep rule is losing the engineered terms. Low-value refinement; not pursued.
-- H3-4 Add RFECV as a 4th member — DONE-doc (DEFERRED, at-ceiling): the FE-hybrid already ties the best whole-bed
-  strategy (mrmr_fe 0.834); adding the slow RFECV member (4-5x fit cost) for marginal vote diversity has no AUC
-  headroom on this bed. The big re-benchmark includes rfecv variants separately for comparison. Revisit off-bed.
-- H3-5 Honest internal-validation auto-picker for (vote,expand) — DONE-doc (DEFERRED, big-bench settles it): the big
-  re-benchmark runs hybrid / hybrid_nofe / hybrid_strict(vote=2) / hybrid_expand as fixed configs; if they cluster
-  tightly, a per-dataset auto-picker buys little (and risks internal-split overfit). Decide from the big-bench spread
-  rather than adding an auto-selection layer pre-emptively.
-- H3-6 Decouple vote-unit from emitted-feature — DONE-doc (subsumed by H3-3): only matters inside FE-augmented
-  clusters where an engineered term co-clusters with its raw operand; same low-value regime as H3-3, which the
-  fe_strict + FI-rep behaviour already handles. Not pursued.
+- H3-2 Per-member realized-subset OOF-AUC vote weight — DONE-BENCHED (no win): round3_hybrid_refine_bench.py (3
+  seeds, subclass override). delta vs default +0.0016 -- within cross-seed noise (~0.01) and inconsistent (identical
+  to default on sd0/sd1, only sd2 +0.005). Genuine mechanism, but FE already put the hybrid at the ceiling so the
+  vote-weighting has no real headroom. Not shipped (equal accuracy -> keep the simpler default).
+- H3-3 FE-protective cluster rep — DONE-BENCHED (REJECTED): delta -0.0005 (identical on 2/3 seeds, worse on sd1).
+  The FI-rep rule already emits the high-FI engineered term, so forcing it changes nothing or slightly hurts. No win.
+- H3-4 Add RFECV as a 4th member — DONE-BENCHED (REJECTED): delta -0.0001 (no change). RFECV's picks are subsumed by
+  the existing members on the FE-augmented space; adding it (slowest member) buys nothing on this bed.
+- H3-5 Honest internal auto-picker for (vote,expand) — DONE-BENCHED (no win): delta +0.0020 -- within noise and
+  inconsistent (helps sd0 by picking expand, neutral/worse sd1/sd2). The fixed vote=1 default is within noise of the
+  auto-picker, so the auto-selection layer + its internal-split-overfit risk is not worth it.
+- H3-6 Decouple vote-unit from emitted-feature — DONE-BENCHED (REJECTED): delta -0.0005 (same as H3-3). No win.
+- NOTE (H3-2..6): all five MEASURED within +/-0.002 of the FE-hybrid default (< cross-seed noise), so the combine
+  rule has no headroom once FE is on -- the earlier "low headroom" call is now a measurement, not a hypothesis.
 - H3-7 Prescreen whitelist engineered columns — DONE-SHIPPED (built into H3-1): the prescreen unions engineered cols
   so they are never dropped by the raw-FI gate before voting.
 - H3-8 Recompute shared permutation-FI on X_aug — DONE-SHIPPED (built into H3-1): the shared FI pass runs on the
@@ -98,19 +93,18 @@ Status: TODO | TESTING | DONE-*. Decision rule (CLAUDE.md §6): most accurate fi
   engages an O(P^2) TreeSHAP interaction tensor that is prohibitively slow (~1.6GB, stuck minutes) on ~40 units, so
   the gate at 16 is correct and interaction_aware is NOT a viable default on wide data. It is only usable post-
   aggressive-clustering (units <=16). FE (H3-1) is the recovery mechanism that actually works here instead.
-- S3-2 Auto-calibrate parsimony_tol from holdout-SPLIT variance — DONE-doc (DEFERRED = the R2s-1 future): R2s-1 was
-  already deferred with the verdict "revisit only if the fixed tol mis-scales"; the shipped fixed parsimony_tol=0.02
-  (precision) / 0.005 (recall, AUC callers) is calibrated and works. The adaptive split-variance band adds per-fit
-  variance-estimation machinery for at most the residual gap above a working fixed tol -- the same low-ceiling
-  conclusion. Revisit only on a dataset where the fixed tol demonstrably mis-scales.
-- S3-3 Interaction-augmented prefilter — DONE-doc (not the bottleneck): the S3-1 probe showed an interaction operand
-  DOES partly survive the prefilter (oper 1/2 on make_dataset, 4/4 on xor2 sd1). ShapProxiedFS's recall ceiling is
-  the ADDITIVE-proxy main-effect (it scores a pure-interaction operand ~0 even when present), not the prefilter
-  dropping it. FE (which creates the product as a column) is the fix, captured in the hybrid/mrmr; prefilter-widening
-  does not address the additive-proxy limit.
-- S3-4 Raise n_revalidation_models 2->5 — DONE-doc (DEFERRED, marginal): a variance-reduction on the parsimony winner
-  with adaptive early-stop; on this high-SNR bed the winner is already stable (S3-1 probe: identical selection across
-  configs), so the extra models mostly cost time. Cheap to enable per-caller if a noisy dataset shows winner drift.
+- S3-2 Auto-calibrate parsimony_tol from holdout-SPLIT variance — DONE-BENCHED (REFUTED by the flat tol grid):
+  round3_shap_levers_bench.py swept parsimony_tol {0.02,0.01,0.005,0.002} x 3 seeds -> auc_mean spans only 0.7733..
+  0.7775 (~0.004, within cross-seed noise; tol_0.005 marginally best). An adaptive split-variance band only
+  INTERPOLATES a per-dataset tol within that range, so it is bounded by the grid -> it cannot beat the best fixed tol
+  by more than noise. The band family (= R2s-1/4/5) is refuted by measurement, not deferred.
+- S3-3 Interaction-augmented prefilter — DONE-BENCHED (not the bottleneck): the prefilter report's 'kept' is a count
+  (operands reach selection -- oper 1-2/2 recovered across the grid), so the prefilter is NOT dropping the operands;
+  ShapProxiedFS's recall ceiling is the ADDITIVE-proxy main-effect (scores a pure-interaction operand ~0 even when
+  present). Prefilter-widening cannot address that; FE (product as a column) is the fix, captured in hybrid/mrmr.
+- S3-4 Raise n_revalidation_models 2->5 — DONE-BENCHED (REJECTED, no effect): nreval_5 produced an IDENTICAL result
+  to the default (auc 0.7733, same n=7.7, same recall) -- the parsimony winner is already stable on this bed, so the
+  extra revalidation models only cost time. No win.
 - S3-5 FE-augment ShapProxiedFS candidates — DONE-doc (DOMINATED, captured elsewhere): adding engineered products to
   ShapProxiedFS's candidate pool is the FE lever for the weakest selector, but it duplicates exactly what mrmr_fe and
   the FE-hybrid already deliver (both ~0.83). ShapProxiedFS's distinct value is PRECISION (noise 0, compact); its low
