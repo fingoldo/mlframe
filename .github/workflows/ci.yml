@@ -20,12 +20,25 @@ jobs:
     # got cancelled. Bumped to 90 min and we now use pytest-xdist parallelism
     # to halve the wall-clock per job.
     timeout-minutes: 90
+    # Newest-Python rows are marked experimental so a single optional-extra
+    # that has not yet published a cp314 wheel does not turn a required check
+    # red while the ecosystem finishes catching up. The core stack (numpy /
+    # numba / polars / sklearn / pyarrow / pydantic) already ships cp314 wheels.
+    continue-on-error: ${{ matrix.experimental || false }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
         python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
         include:
+          # Newest Python (3.14): exercised on Linux + Windows, non-blocking
+          # (experimental) until all [all] extras publish cp314 wheels.
+          - os: ubuntu-latest
+            python-version: "3.14"
+            experimental: true
+          - os: windows-latest
+            python-version: "3.14"
+            experimental: true
           # Windows coverage on representative versions only — runner-minute budget.
           - os: windows-latest
             python-version: "3.11"

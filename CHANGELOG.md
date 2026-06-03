@@ -1,5 +1,31 @@
 # Changelog
 
+## 2026-06-03 — Python 3.14 support
+
+Declare and wire up support for Python 3.14 (current stable, released Oct 2025)
+alongside the existing 3.9–3.13 range. No source changes were required: the
+entire unconditionally-imported core stack already ships `cp314` wheels —
+numpy 2.3, **numba 0.63+ / llvmlite 0.46** (numba added 3.14 support in 0.63.0,
+Dec 2025; it is the historic long-pole for a new CPython because it JIT-compiles
+bytecode that changes every release), polars 1.36, scikit-learn 1.7, pyarrow 22,
+pydantic 2.12, scipy, joblib, dill, orjson, psutil, matplotlib — and the heavy
+boosting / calibration extras (catboost 1.2.10, lightgbm 4.6, xgboost, shap 0.52,
+flaml 2.6) resolve on 3.14 as well. Verified on a local 3.14.0 build that
+`import mlframe` succeeds, the numba `@njit` kernels compile and execute, and the
+dependency-light core/metrics test slice passes.
+
+Changes: add the `Programming Language :: Python :: 3.14` classifier and `py314`
+to the Black `target-version`; add a 3.14 row (Linux + Windows) to the CI matrix
+and a 3.14 + latest-sklearn row to the sklearn-matrix workflow. The 3.14 CI rows
+are marked `continue-on-error` (experimental / non-blocking) so a single niche
+optional-extra that has not yet published a `cp314` wheel cannot turn a required
+check red while the wider ecosystem finishes catching up; `fail-fast: false`
+already keeps the other rows independent. `requires-python` stays `>=3.9`
+(3.14 is inside the range; no floor bump needed — pip selects a 3.14-capable
+numba automatically because older numba builds have no `cp314` wheel). The Ruff
+and MyPy `target-version` / `python_version` stay at `3.9` as they encode the
+*minimum* supported version, not the maximum.
+
 ## 2026-06-03 — ADAPTIVE-FREQUENCY Fourier univariate FE (default ON)
 
 The fixed Fourier univariate grid only covers z-space frequencies {1, 2}; an

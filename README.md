@@ -109,7 +109,7 @@ pip install mlframe[all]                  # all runtime extras above
 pip install mlframe[dev]                  # pytest + coverage + ruff + black + mypy + bandit + pre-commit
 ```
 
-Requires Python 3.9+. Tested on 3.9 through 3.13.
+Requires Python 3.9+. Tested on 3.9 through 3.13; Python 3.14 is supported (the full core stack — numpy 2.3, numba 0.63+/llvmlite 0.46, polars, scikit-learn, pyarrow, pydantic — ships `cp314` wheels and the numba JIT kernels compile and run on 3.14). The 3.14 CI row is marked experimental until every optional-extra wheel finishes landing for 3.14.
 
 For development from source:
 

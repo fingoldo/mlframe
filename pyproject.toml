@@ -37,6 +37,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Scientific/Engineering :: Information Analysis",
@@ -369,7 +370,7 @@ show_missing = true
 # ---------------------------------------------------------------------------
 [tool.black]
 line-length = 160
-target-version = ["py39", "py310", "py311", "py312", "py313"]
+target-version = ["py39", "py310", "py311", "py312", "py313", "py314"]
 exclude = '''
 /(
     \.git

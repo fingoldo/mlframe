@@ -56,6 +56,9 @@ jobs:
     name: sklearn ${{ matrix.sklearn-version }} on py${{ matrix.python-version }} / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    # Newest-Python rows are non-blocking until the optional-extra ecosystem
+    # finishes publishing cp314 wheels (see ci.yml for the same rationale).
+    continue-on-error: ${{ matrix.experimental || false }}
     strategy:
       fail-fast: false
       matrix:
@@ -75,6 +78,12 @@ jobs:
           - os: ubuntu-latest
             python-version: "3.13"
             sklearn-version: "1.8.0"
+          # Newest Python (3.14) on the latest sklearn; experimental until the
+          # composite-path optional extras publish cp314 wheels.
+          - os: ubuntu-latest
+            python-version: "3.14"
+            sklearn-version: "1.8.0"
+            experimental: true
           # Cross-OS: Windows on py3.11 + the most-installed sklearn catches
           # filesystem / signal-handling differences that surface in the composite
           # test suite (e.g. tempfile + joblib pickle on Windows).
