@@ -4948,6 +4948,22 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         ranking_ensemble_method=axes.get("ranking_ensemble_method", "rrf"),
         target_temporal_audit_column_cfg=axes.get("target_temporal_audit_column_cfg", None),
         mlp_extreme_ar_group_aware_skip_cfg=axes.get("mlp_extreme_ar_group_aware_skip_cfg", False),
+        # 2026-06-03: 11 CompositeTargetDiscoveryConfig axes that were in AXES +
+        # canonical_key but neither applied here nor passed by the discovery
+        # builder, so they were silently inert. Wired through here + in
+        # build_composite_discovery_config(_from_flat); defaults match the
+        # CompositeTargetDiscoveryConfig dataclass.
+        composite_always_build_ct_ensemble_for_raw_cfg=axes.get("composite_always_build_ct_ensemble_for_raw_cfg", True),
+        composite_ct_ensemble_dummy_floor_enabled_cfg=axes.get("composite_ct_ensemble_dummy_floor_enabled_cfg", True),
+        composite_ct_ensemble_dummy_floor_tolerance_cfg=axes.get("composite_ct_ensemble_dummy_floor_tolerance_cfg", 0.0),
+        composite_extreme_ar_group_aware_skip_cfg=axes.get("composite_extreme_ar_group_aware_skip_cfg", True),
+        composite_extreme_ar_threshold_cfg=axes.get("composite_extreme_ar_threshold_cfg", 0.99),
+        composite_lag_predict_failsafe_tolerance_cfg=axes.get("composite_lag_predict_failsafe_tolerance_cfg", 0.10),
+        composite_oof_holdout_source_cfg=axes.get("composite_oof_holdout_source_cfg", "external_val"),
+        composite_oof_holdout_frac_cfg=axes.get("composite_oof_holdout_frac_cfg", 0.2),
+        composite_stacking_aware_gate_enabled_cfg=axes.get("composite_stacking_aware_gate_enabled_cfg", False),
+        composite_top_m_after_tiny_cfg=axes.get("composite_top_m_after_tiny_cfg", 10),
+        composite_use_baseline_diagnostics_hint_cfg=axes.get("composite_use_baseline_diagnostics_hint_cfg", True),
         use_sample_weights_in_fs_cfg=axes.get("use_sample_weights_in_fs_cfg", False),
         fallback_to_sklearn_cfg=axes.get("fallback_to_sklearn_cfg", True),
         prefer_gpu_configs_cfg=axes.get("prefer_gpu_configs_cfg", True),
@@ -6528,6 +6544,19 @@ def build_composite_discovery_config_from_flat(
     # outside multilabel/MTR target_types already applied at the FuzzCombo
     # canonical_key layer.
     multilabel_strategy: str = "per_target",
+    # 2026-06-03: 11 previously-inert CompositeTargetDiscoveryConfig axes.
+    # Names match the dataclass fields exactly; defaults match the dataclass.
+    always_build_ct_ensemble_for_raw: bool = True,
+    ct_ensemble_dummy_floor_enabled: bool = True,
+    ct_ensemble_dummy_floor_tolerance: float = 0.0,
+    extreme_ar_group_aware_skip: bool = True,
+    extreme_ar_threshold: float = 0.99,
+    lag_predict_failsafe_tolerance: float = 0.10,
+    oof_holdout_source: str = "external_val",
+    oof_holdout_frac: float = 0.2,
+    stacking_aware_gate_enabled: bool = False,
+    top_m_after_tiny: int = 10,
+    use_baseline_diagnostics_hint: bool = True,
 ):
     """Build a CompositeTargetDiscoveryConfig honoring the discovery
     enable + transforms_mode axes + (iter162) nested MI / stacked /
@@ -6603,6 +6632,19 @@ def build_composite_discovery_config_from_flat(
         # 2026-05-31 audit-pass-12 (W12) A1: multilabel_strategy field at
         # _composite_target_discovery_config.py:773 (validator at :940).
         "multilabel_strategy": multilabel_strategy,
+        # 2026-06-03: 11 previously-inert discovery axes (field names verified
+        # against _composite_target_discovery_config.py).
+        "always_build_ct_ensemble_for_raw": always_build_ct_ensemble_for_raw,
+        "ct_ensemble_dummy_floor_enabled": ct_ensemble_dummy_floor_enabled,
+        "ct_ensemble_dummy_floor_tolerance": ct_ensemble_dummy_floor_tolerance,
+        "extreme_ar_group_aware_skip": extreme_ar_group_aware_skip,
+        "extreme_ar_threshold": extreme_ar_threshold,
+        "lag_predict_failsafe_tolerance": lag_predict_failsafe_tolerance,
+        "oof_holdout_source": oof_holdout_source,
+        "oof_holdout_frac": oof_holdout_frac,
+        "stacking_aware_gate_enabled": stacking_aware_gate_enabled,
+        "top_m_after_tiny": top_m_after_tiny,
+        "use_baseline_diagnostics_hint": use_baseline_diagnostics_hint,
     }
     if composite_tiny_screening_mode == "per_family":
         kw["tiny_screening_families"] = ("lightgbm", "linear")
@@ -6654,6 +6696,19 @@ def build_composite_discovery_config(combo: "FuzzCombo"):
         cv_persist_fold_scores=combo.cv_persist_fold_scores_cfg,
         # 2026-05-31 audit-pass-12 (W12) A1.
         multilabel_strategy=combo.composite_target_multilabel_strategy_cfg,
+        # 2026-06-03: 11 previously-inert discovery axes now forwarded. Safe to
+        # pass unconditionally: the enabled=False early-return ignores them.
+        always_build_ct_ensemble_for_raw=combo.composite_always_build_ct_ensemble_for_raw_cfg,
+        ct_ensemble_dummy_floor_enabled=combo.composite_ct_ensemble_dummy_floor_enabled_cfg,
+        ct_ensemble_dummy_floor_tolerance=combo.composite_ct_ensemble_dummy_floor_tolerance_cfg,
+        extreme_ar_group_aware_skip=combo.composite_extreme_ar_group_aware_skip_cfg,
+        extreme_ar_threshold=combo.composite_extreme_ar_threshold_cfg,
+        lag_predict_failsafe_tolerance=combo.composite_lag_predict_failsafe_tolerance_cfg,
+        oof_holdout_source=combo.composite_oof_holdout_source_cfg,
+        oof_holdout_frac=combo.composite_oof_holdout_frac_cfg,
+        stacking_aware_gate_enabled=combo.composite_stacking_aware_gate_enabled_cfg,
+        top_m_after_tiny=combo.composite_top_m_after_tiny_cfg,
+        use_baseline_diagnostics_hint=combo.composite_use_baseline_diagnostics_hint_cfg,
     )
 
 
