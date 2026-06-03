@@ -1587,11 +1587,15 @@ def _apply_orth_fourier(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     lo = float(recipe.extra["lo"])
     span = float(recipe.extra["span"])
     span = max(span, 1e-12)
+    # power defaults to 1 (legacy recipes pre-dating power-argument Fourier).
+    power = int(recipe.extra.get("power", 1))
     vals = np.asarray(_extract_column(X, name), dtype=np.float64)
     finite = np.isfinite(vals)
     if not finite.all():
         fill = float(np.nanmean(vals[finite])) if finite.any() else 0.0
         vals = np.where(finite, vals, fill)
+    if power != 1:
+        vals = np.power(vals, power)
     z = (vals - lo) / span
     ang = 2.0 * np.pi * freq * z
     if kind == "sin":
@@ -1622,10 +1626,14 @@ def build_orth_spline_recipe(
 
 def build_orth_fourier_recipe(
     *, name: str, src_name: str, kind: str, freq: float, lo: float, span: float,
+    power: int = 1,
 ) -> EngineeredRecipe:
     """Frozen recipe for one Fourier basis column ``sin(2*pi*freq*z)`` or
-    ``cos(2*pi*freq*z)`` where ``z = (X[src_name] - lo) / span`` with
-    (lo, span) fixed at fit time."""
+    ``cos(2*pi*freq*z)`` where ``z = (X[src_name]**power - lo) / span`` with
+    (power, lo, span) fixed at fit time. ``power`` > 1 builds the Fourier on the
+    POWER-transformed argument (e.g. power=2 -> Fourier on x**2, recovering chirps
+    like ``sin(a**2)``); the recipe is self-contained (raw src -> power -> Fourier),
+    1-deep, replayable. ``power`` defaults to 1 (legacy linear-argument Fourier)."""
     if kind not in ("sin", "cos"):
         raise ValueError(f"orth_fourier kind must be 'sin' or 'cos'; got {kind!r}")
     return EngineeredRecipe(
@@ -1637,6 +1645,7 @@ def build_orth_fourier_recipe(
             "freq": float(freq),
             "lo": float(lo),
             "span": float(span),
+            "power": int(power),
         },
     )
 

@@ -1269,6 +1269,11 @@ class MRMR(BaseEstimator, TransformerMixin):
         # only, no y leakage.
         fe_hybrid_orth_extra_bases: tuple = (),
         fe_hybrid_orth_fourier_freqs: tuple = (1.0, 2.0),
+        # POWER-arguments for the Fourier basis: build sin/cos on x**p for each p.
+        # p=2 captures even-argument CHIRPS (``sin(a**2)`` etc.) that a Fourier on the
+        # linear argument cannot. Self-contained replayable recipe (raw -> power ->
+        # Fourier). (1,) for linear-argument-only.
+        fe_hybrid_orth_fourier_powers: tuple = (1, 2),
         fe_hybrid_orth_spline_knots: int = 5,
         # 2026-05-31 Layer 26 — generic MI-greedy FE constructor (sibling
         # to the orthogonal-polynomial one). Default OFF -- legacy

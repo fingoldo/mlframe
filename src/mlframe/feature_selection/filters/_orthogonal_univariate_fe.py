@@ -1335,6 +1335,7 @@ def generate_extra_basis_features(
     cols: Optional[Sequence[str]] = None,
     extra_bases: Sequence[str] = ("spline", "fourier"),
     fourier_freqs: Sequence[float] = (1.0, 2.0),
+    fourier_powers: Sequence[int] = (1, 2),
     spline_knots: int = 5,
     dedup_collinear_sources: bool = True,
     dedup_corr_threshold: float = 0.999,
@@ -1426,28 +1427,42 @@ def generate_extra_basis_features(
                 )
         if "fourier" in extra_bases:
             try:
-                lo_f, span_f = _fit_fourier_for_col(x)
-                z = (x - lo_f) / max(span_f, 1e-12)
-                for freq in fourier_freqs:
-                    ang = 2.0 * np.pi * freq * z
-                    s_vals = np.sin(ang)
-                    c_vals = np.cos(ang)
-                    if float(np.std(s_vals)) > 1e-12:
-                        name_s = f"{col}__sin{freq:g}"
-                        out_cols[name_s] = s_vals
-                        meta[name_s] = {
-                            "basis": "fourier", "src": col,
-                            "kind": "sin", "freq": float(freq),
-                            "lo": float(lo_f), "span": float(span_f),
-                        }
-                    if float(np.std(c_vals)) > 1e-12:
-                        name_c = f"{col}__cos{freq:g}"
-                        out_cols[name_c] = c_vals
-                        meta[name_c] = {
-                            "basis": "fourier", "src": col,
-                            "kind": "cos", "freq": float(freq),
-                            "lo": float(lo_f), "span": float(span_f),
-                        }
+                # POWER-ARGUMENT Fourier (2026-06-03): build the Fourier on x**p for
+                # p in fourier_powers, as a SELF-CONTAINED replayable recipe (raw x ->
+                # x**p -> Fourier; 1-deep, no nesting). p=2 captures even-argument
+                # CHIRPS like ``sin(a**2)`` (freq~1 on the a**2 argument reproduces it
+                # exactly) that a Fourier on the linear argument cannot. p=1 keeps the
+                # original ``{col}__sin{freq}`` name (back-compat with prior recipes).
+                for pwr in fourier_powers:
+                    _p = int(pwr)
+                    _xp = x if _p == 1 else np.power(x, _p)
+                    if not np.all(np.isfinite(_xp)) or float(np.std(_xp)) <= 1e-12:
+                        continue
+                    lo_f, span_f = _fit_fourier_for_col(_xp)
+                    z = (_xp - lo_f) / max(span_f, 1e-12)
+                    _pfx = "" if _p == 1 else f"p{_p}"
+                    for freq in fourier_freqs:
+                        ang = 2.0 * np.pi * freq * z
+                        s_vals = np.sin(ang)
+                        c_vals = np.cos(ang)
+                        if float(np.std(s_vals)) > 1e-12:
+                            name_s = f"{col}__{_pfx}sin{freq:g}"
+                            out_cols[name_s] = s_vals
+                            meta[name_s] = {
+                                "basis": "fourier", "src": col,
+                                "kind": "sin", "freq": float(freq),
+                                "lo": float(lo_f), "span": float(span_f),
+                                "power": _p,
+                            }
+                        if float(np.std(c_vals)) > 1e-12:
+                            name_c = f"{col}__{_pfx}cos{freq:g}"
+                            out_cols[name_c] = c_vals
+                            meta[name_c] = {
+                                "basis": "fourier", "src": col,
+                                "kind": "cos", "freq": float(freq),
+                                "lo": float(lo_f), "span": float(span_f),
+                                "power": _p,
+                            }
             except Exception as exc:
                 logger.warning(
                     "generate_extra_basis_features: fourier on col=%r raised "
@@ -1478,6 +1493,7 @@ def _build_recipe_from_meta(name: str, meta_entry: dict):
             freq=float(meta_entry["freq"]),
             lo=float(meta_entry["lo"]),
             span=float(meta_entry["span"]),
+            power=int(meta_entry.get("power", 1)),
         )
     return None
 
@@ -1489,6 +1505,7 @@ def hybrid_orth_extra_basis_fe_with_recipes(
     cols: Optional[Sequence[str]] = None,
     extra_bases: Sequence[str] = ("spline", "fourier"),
     fourier_freqs: Sequence[float] = (1.0, 2.0),
+    fourier_powers: Sequence[int] = (1, 2),
     spline_knots: int = 5,
     top_k: int = 5,
     min_uplift: float = 1.05,
@@ -1506,7 +1523,8 @@ def hybrid_orth_extra_basis_fe_with_recipes(
     """
     engineered, meta = generate_extra_basis_features(
         X, cols=cols, extra_bases=extra_bases,
-        fourier_freqs=fourier_freqs, spline_knots=spline_knots,
+        fourier_freqs=fourier_freqs, fourier_powers=fourier_powers,
+        spline_knots=spline_knots,
     )
     if engineered.empty:
         empty_scores = pd.DataFrame(columns=[

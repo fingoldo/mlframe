@@ -562,6 +562,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _spline_knots = int(
                         getattr(self, "fe_hybrid_orth_spline_knots", 5)
                     )
+                    _fourier_powers = tuple(
+                        int(p) for p in
+                        getattr(self, "fe_hybrid_orth_fourier_powers", (1, 2))
+                    )
                     _X_before_extra_cols = list(X.columns)
                     # Build the extra basis (Fourier/spline) on RAW columns only --
                     # EXCLUDE the already-appended poly-basis columns (``a__T2`` ...).
@@ -586,6 +590,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         cols=_e_cols,
                         extra_bases=_eff_extra_bases,
                         fourier_freqs=_fourier_freqs,
+                        fourier_powers=_fourier_powers,
                         spline_knots=_spline_knots,
                         top_k=_top_k_for_extra,
                     )
