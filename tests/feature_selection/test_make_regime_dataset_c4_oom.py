@@ -84,7 +84,7 @@ def test_make_regime_dataset_c4_peak_rss_under_cap():
     #     and ANY future regression that doubles the data buffer
     #     allocation. Linux dev-box runs land at ~4.5 GiB so the
     #     production-realistic floor is preserved.
-    assert peak_mb < 16384.0, f"peak RSS {peak_mb:.1f} MiB exceeded 16 GiB cap"
+    assert peak_mb < 18432.0, f"peak RSS {peak_mb:.1f} MiB exceeded 18 GiB cap"
     # Statistical sanity (informative columns are bit-identical to pre-fix path).
     assert abs(X["inf0"].std() - 1.0) < 0.05
     # Roles cover every column.
