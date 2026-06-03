@@ -500,6 +500,26 @@ AXES: dict[str, tuple[Any, ...]] = {
     # fuzz coverage. Gated to use_boruta_shap_cfg in canonical_key; wired into
     # boruta_shap_kwargs in test_fuzz_suite.py.
     "boruta_importance_measure_cfg": ("gini", "shap"),
+    # 2026-06-03 FS-coverage audit: BorutaShap.__init__ knobs that were
+    # tunable but never fuzzed. All forwarded into boruta_shap_kwargs in
+    # test_fuzz_suite.py and gated to use_boruta_shap_cfg in canonical_key
+    # so they never split dedup buckets when BorutaShap is off.
+    #   * optimistic (default True): keep tentative features alongside
+    #     accepted. False = strict Boruta semantics (fewer features kept) ->
+    #     distinct selection-finalisation branch in boruta_shap.py.
+    #   * train_or_test (default "train"): SHAP/permutation attributed on the
+    #     training fold ("train") vs an internal held-out split ("test").
+    #     "test" exercises BorutaShap's own train/test carve + the held-out
+    #     importance path that "train" never reaches.
+    #   * premerge_clusters (default False): collapse |corr|>=premerge_corr_thr
+    #     columns to one representative BEFORE the shadow-importance test, then
+    #     re-expand accepted reps. True activates the in-class correlation
+    #     pre-merge path (distinct from the registry's GroupAwareMRMR wrap,
+    #     which the FeatureSelectionConfig.boruta_shap_kwargs validator rejects
+    #     -- see FS-coverage audit notes).
+    "boruta_optimistic_cfg": (True, False),
+    "boruta_train_or_test_cfg": ("train", "test"),
+    "boruta_premerge_clusters_cfg": (False, True),
     # P1-8: FeatureSelectionConfig.use_sample_weights_in_fs. Weight-
     # aware FS (MRMR / RFECV fit with sample_weight). When True AND
     # weight_schemas includes non-uniform, FS refits per weight and the
@@ -529,6 +549,24 @@ AXES: dict[str, tuple[Any, ...]] = {
     # P2-18b: rfecv_mbh_adaptive_threshold. 30 default (CB surrogate
     # crossover), 100 forces ExtraTreesRegressor surrogate longer.
     "rfecv_mbh_adaptive_threshold_cfg": (30, 100),
+    # 2026-06-03 FS-coverage audit: RFECV.__init__ knobs forwarded through the
+    # suite's rfecv_kwargs (-> COMMON_RFECV_PARAMS update -> RFECV ctor). Both
+    # are RFECV constructor params so FeatureSelectionConfig.rfecv_kwargs
+    # validation accepts them; both are str-Enums so the string form works.
+    # Gated to rfecv_estimator_cfg is not None in canonical_key (only meaningful
+    # when an RFECV selector is actually in the pre-pipeline chain).
+    #   * votes_aggregation_method (default Borda): how per-fold feature votes
+    #     combine into the final ranking. "Plurality" / "Copeland" exercise
+    #     distinct aggregators in wrappers/_rfecv.py (different selected sets on
+    #     correlated features). Values validated against VotesAggregation enum
+    #     in wrappers/_enums.py.
+    #   * top_predictors_search_method (default ModelBasedHeuristic): the
+    #     feature-count optimiser. "ExhaustiveDichotomic" replaces the surrogate
+    #     model with a binary search over feature counts -- a different and
+    #     faster (fuzz-budget-friendly) code path the heuristic never reaches.
+    #     Values validated against OptimumSearch enum in wrappers/_enums.py.
+    "rfecv_votes_aggregation_cfg": ("Borda", "Plurality", "Copeland"),
+    "rfecv_search_method_cfg": ("ModelBasedHeuristic", "ExhaustiveDichotomic"),
     # =====================================================================
     # 2026-05-22 iter162 -- nested-config / depth-2 audit fill-in. 28 fields
     # surfaced by the second-pass explore agent; each is a config FIELD
@@ -1909,6 +1947,11 @@ class FuzzCombo:
     calib_size_cfg: "float | None" = None
     use_boruta_shap_cfg: bool = False
     boruta_importance_measure_cfg: str = "gini"
+    # 2026-06-03 FS-coverage audit -- BorutaShap.__init__ knobs (defaults match
+    # BorutaShap signature so default combos are unchanged).
+    boruta_optimistic_cfg: bool = True
+    boruta_train_or_test_cfg: str = "train"
+    boruta_premerge_clusters_cfg: bool = False
     use_sample_weights_in_fs_cfg: bool = False
     fallback_to_sklearn_cfg: bool = True
     prefer_gpu_configs_cfg: bool = True
@@ -1917,6 +1960,10 @@ class FuzzCombo:
     skip_identity_equivalent_pre_pipelines_cfg: bool = True
     rfecv_leakage_corr_threshold_cfg: float = 0.95
     rfecv_mbh_adaptive_threshold_cfg: int = 30
+    # 2026-06-03 FS-coverage audit -- RFECV.__init__ knobs (defaults match the
+    # RFECV signature string-enum defaults so default combos are unchanged).
+    rfecv_votes_aggregation_cfg: str = "Borda"
+    rfecv_search_method_cfg: str = "ModelBasedHeuristic"
     # 2026-05-22 iter162 -- nested-config / depth-2 audit fill-in.
     # All default to the field's library default so combos archived
     # pre-iter162 deserialise without behaviour change.
@@ -2902,6 +2949,18 @@ class FuzzCombo:
             # importance driver only meaningful when BorutaShap is on; otherwise
             # canonicalise to the default so it doesn't split dedup buckets.
             (self.boruta_importance_measure_cfg if self.use_boruta_shap_cfg else "gini"),
+            # 2026-06-03 FS-coverage audit -- BorutaShap.__init__ knobs only
+            # meaningful when BorutaShap is on; collapse to the BorutaShap
+            # signature default otherwise so dedup buckets don't split.
+            (self.boruta_optimistic_cfg if self.use_boruta_shap_cfg else True),
+            (self.boruta_train_or_test_cfg if self.use_boruta_shap_cfg else "train"),
+            (self.boruta_premerge_clusters_cfg if self.use_boruta_shap_cfg else False),
+            # 2026-06-03 FS-coverage audit -- RFECV.__init__ knobs only
+            # meaningful when an RFECV selector is in the pre-pipeline chain
+            # (rfecv_estimator_cfg is not None); collapse to RFECV signature
+            # defaults otherwise.
+            (self.rfecv_votes_aggregation_cfg if self.rfecv_estimator_cfg is not None else "Borda"),
+            (self.rfecv_search_method_cfg if self.rfecv_estimator_cfg is not None else "ModelBasedHeuristic"),
             # P1-8: use_sample_weights_in_fs only meaningful when any FS is
             # enabled (MRMR / RFECV / Boruta) AND weights schema includes
             # something non-uniform (otherwise FS receives all-1s weights
@@ -4938,6 +4997,13 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         calib_size_cfg=axes.get("calib_size_cfg", None),
         use_boruta_shap_cfg=axes.get("use_boruta_shap_cfg", False),
         boruta_importance_measure_cfg=axes.get("boruta_importance_measure_cfg", "gini"),
+        # 2026-06-03 FS-coverage audit -- BorutaShap.__init__ knobs.
+        boruta_optimistic_cfg=axes.get("boruta_optimistic_cfg", True),
+        boruta_train_or_test_cfg=axes.get("boruta_train_or_test_cfg", "train"),
+        boruta_premerge_clusters_cfg=axes.get("boruta_premerge_clusters_cfg", False),
+        # 2026-06-03 FS-coverage audit -- RFECV.__init__ knobs.
+        rfecv_votes_aggregation_cfg=axes.get("rfecv_votes_aggregation_cfg", "Borda"),
+        rfecv_search_method_cfg=axes.get("rfecv_search_method_cfg", "ModelBasedHeuristic"),
         # 2026-06-03: these 5 were in AXES + FuzzCombo + canonical_key + suite-wired
         # but were never applied here in _build_combo, so every combo carried the
         # dataclass default and the axis was silently inert (never fuzzed). Wiring

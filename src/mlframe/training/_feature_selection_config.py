@@ -19,6 +19,17 @@ from pydantic import Field, field_validator, model_validator
 from ._configs_base import BaseConfig
 
 
+# Keys consumed by ``registry._instantiate_rfecv`` / ``_instantiate_boruta_shap``
+# (popped from the kwargs to drive the default-ON GroupAwareMRMR cluster-medoid
+# pre-reduction wrap), NOT forwarded to the underlying RFECV / BorutaShap ctor. The
+# kwargs validators must allow them through -- same rationale as ``cv_n_splits`` for
+# RFECV -- otherwise the (default-ON) cluster-reduce wrap is unreachable via
+# FeatureSelectionConfig: the validator rejects the keys before the registry pops them.
+_REGISTRY_CLUSTER_REDUCE_KEYS = frozenset(
+    {"cluster_reduce", "cluster_corr_threshold", "cluster_min_reduction"}
+)
+
+
 class FeatureSelectionConfig(BaseConfig):
     """Configuration for feature selection methods.
 
@@ -118,7 +129,7 @@ class FeatureSelectionConfig(BaseConfig):
         import inspect
         from mlframe.feature_selection.wrappers import RFECV
         # ``cv_n_splits`` is consumed by get_training_configs to construct a CV splitter; not a direct RFECV.__init__ arg.
-        valid_keys = (set(inspect.signature(RFECV.__init__).parameters) - {"self"}) | {"cv_n_splits"}
+        valid_keys = (set(inspect.signature(RFECV.__init__).parameters) - {"self"}) | {"cv_n_splits"} | _REGISTRY_CLUSTER_REDUCE_KEYS
         unknown = sorted(set(v) - valid_keys)
         if unknown:
             raise ValueError(
@@ -134,7 +145,7 @@ class FeatureSelectionConfig(BaseConfig):
             return v
         import inspect
         from mlframe.feature_selection.boruta_shap import BorutaShap
-        valid_keys = set(inspect.signature(BorutaShap.__init__).parameters) - {"self"}
+        valid_keys = (set(inspect.signature(BorutaShap.__init__).parameters) - {"self"}) | _REGISTRY_CLUSTER_REDUCE_KEYS
         unknown = sorted(set(v) - valid_keys)
         if unknown:
             raise ValueError(
