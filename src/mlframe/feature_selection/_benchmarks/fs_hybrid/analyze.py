@@ -45,8 +45,10 @@ def main():
              "H1_mrmrfilter__rfecv_lgbm", "H2_mrmrfe__rfecv_logit", "H3_boruta__rfecv_lgbm",
              "H_union_mrmr_boruta", "H_intersect_mrmr_boruta", "H5_mrmr_boruta__rfecv_lgbm",
              "H7_mrmr_borutastable__rfecv_lgbm",
-             "shap_proxied", "H4_mrmrfilter__shap", "H6_mrmrfe__shap"]
-    agg = agg.reindex([s for s in order if s in agg.index])
+             "shap_proxied", "H4_mrmrfilter__shap", "H6_mrmrfe__shap",
+             "hybrid", "hybrid_strict", "hybrid_expand"]
+    # never silently drop a strategy that ran but is missing from the manual order list (e.g. a new hybrid):
+    agg = agg.reindex([s for s in order if s in agg.index] + [s for s in agg.index if s not in order])
 
     print("\n================ MEAN over seeds ================")
     print(agg[["n_feat", "n_eng", "fit_s", "base_recall", "base_missed", "noise_sel", "red_sel", "lgbm", "logit", "knn", "auc_mean"]].to_string())
