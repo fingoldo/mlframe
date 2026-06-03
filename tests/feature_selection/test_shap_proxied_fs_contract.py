@@ -123,7 +123,13 @@ def test_facade_spearman_floor_kwarg_deprecated_and_aliased_to_fidelity_floor():
                         trust_guard=True, n_anchors=8, spearman_floor=0.55,
                         random_state=0, verbose=False, n_jobs=1)
     assert sel.spearman_floor == 0.55
-    assert sel.fidelity_floor == 0.5  # the new default is unchanged
+    # iter18 (commit 63a296fd): ``fidelity_floor`` defaults to the ``None`` unset
+    # sentinel, not the literal 0.5 -- this preserves sklearn ``clone()`` identity
+    # and lets the both-floors-set conflict be detected via ``fidelity_floor is not
+    # None`` (an explicit ``fidelity_floor=0.5`` is no longer mistaken for the
+    # default). The EFFECTIVE default is unchanged at 0.5: ``effective_floor =
+    # self.fidelity_floor if self.fidelity_floor is not None else 0.5`` at fit time.
+    assert sel.fidelity_floor is None
 
     # Fit emits the deprecation warning AND the legacy value reaches the trust report.
     with pytest.warns(DeprecationWarning, match="spearman_floor"):
