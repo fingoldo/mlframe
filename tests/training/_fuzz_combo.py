@@ -4938,6 +4938,16 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         calib_size_cfg=axes.get("calib_size_cfg", None),
         use_boruta_shap_cfg=axes.get("use_boruta_shap_cfg", False),
         boruta_importance_measure_cfg=axes.get("boruta_importance_measure_cfg", "gini"),
+        # 2026-06-03: these 5 were in AXES + FuzzCombo + canonical_key + suite-wired
+        # but were never applied here in _build_combo, so every combo carried the
+        # dataclass default and the axis was silently inert (never fuzzed). Wiring
+        # them through makes the sampled value take effect; defaults match the
+        # dataclass so default-valued combos are unchanged.
+        fs_pre_screen_unsupervised_cfg=axes.get("fs_pre_screen_unsupervised_cfg", True),
+        fs_pre_screen_variance_threshold_cfg=axes.get("fs_pre_screen_variance_threshold_cfg", 0.0),
+        ranking_ensemble_method=axes.get("ranking_ensemble_method", "rrf"),
+        target_temporal_audit_column_cfg=axes.get("target_temporal_audit_column_cfg", None),
+        mlp_extreme_ar_group_aware_skip_cfg=axes.get("mlp_extreme_ar_group_aware_skip_cfg", False),
         use_sample_weights_in_fs_cfg=axes.get("use_sample_weights_in_fs_cfg", False),
         fallback_to_sklearn_cfg=axes.get("fallback_to_sklearn_cfg", True),
         prefer_gpu_configs_cfg=axes.get("prefer_gpu_configs_cfg", True),
