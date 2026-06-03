@@ -611,6 +611,22 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             0.15,
                         )
                     )
+                    # ADAPTIVE-CHIRP (2026-06-03): second argument-warp path. Runs
+                    # the same held-out detector on u = sign(z)*z**2 so a growing-
+                    # frequency chirp (sin(2*pi*f*z**2)) the linear-argument
+                    # Fourier cannot express is recovered. Emits __qsin/__qcos
+                    # legs tagged adaptive=True -> captured below + protected past
+                    # the screen + dedup-exempt exactly like the linear legs.
+                    _fourier_chirp = bool(
+                        getattr(self, "fe_univariate_fourier_chirp", True)
+                    )
+                    _fourier_chirp_mvc = float(
+                        getattr(
+                            self,
+                            "fe_univariate_fourier_chirp_min_val_corr",
+                            0.15,
+                        )
+                    )
                     X_e, _e_scores, _e_recipes = hybrid_orth_extra_basis_fe_with_recipes(
                         X, _y_for_extra,
                         cols=_e_cols,
@@ -621,6 +637,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         top_k=_top_k_for_extra,
                         fourier_adaptive=_fourier_adaptive,
                         fourier_adaptive_min_val_corr=_fourier_adaptive_mvc,
+                        fourier_chirp=_fourier_chirp,
+                        fourier_chirp_min_val_corr=_fourier_chirp_mvc,
                     )
                     _e_appended = [
                         c for c in X_e.columns if c not in _X_before_extra_cols

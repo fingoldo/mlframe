@@ -14,7 +14,7 @@ The recipe is a small frozen dataclass (no behaviour bound to ``self``) so it ro
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
 import numpy as np
 
@@ -1603,14 +1603,31 @@ def _apply_orth_fourier(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     span = max(span, 1e-12)
     # power defaults to 1 (legacy recipes pre-dating power-argument Fourier).
     power = int(recipe.extra.get("power", 1))
+    # arg defaults to "linear" (legacy recipes pre-dating the chirp warp).
+    arg = str(recipe.extra.get("arg", "linear"))
     vals = np.asarray(_extract_column(X, name), dtype=np.float64)
     finite = np.isfinite(vals)
     if not finite.all():
         fill = float(np.nanmean(vals[finite])) if finite.any() else 0.0
         vals = np.where(finite, vals, fill)
-    if power != 1:
-        vals = np.power(vals, power)
-    z = (vals - lo) / span
+    if arg == "quadratic":
+        # ADAPTIVE-CHIRP axis: z = (u - lo) / span where u = sign(zs)*zs**2,
+        # zs = (x - mean) / std. mean/std/lo/span are the train-fit warp params,
+        # so this reproduces the fit-time axis byte-for-byte from X alone (no y).
+        mean = recipe.extra.get("mean")
+        std = recipe.extra.get("std")
+        if mean is None or std is None:
+            raise KeyError(
+                f"orth_fourier recipe '{recipe.name}' arg='quadratic' missing "
+                f"'mean'/'std'. Re-fit MRMR to regenerate."
+            )
+        zs = (vals - float(mean)) / max(float(std), 1e-12)
+        u = np.sign(zs) * (zs * zs)
+        z = (u - lo) / span
+    else:
+        if power != 1:
+            vals = np.power(vals, power)
+        z = (vals - lo) / span
     ang = 2.0 * np.pi * freq * z
     if kind == "sin":
         return np.sin(ang)
@@ -1641,6 +1658,7 @@ def build_orth_spline_recipe(
 def build_orth_fourier_recipe(
     *, name: str, src_name: str, kind: str, freq: float, lo: float, span: float,
     power: int = 1, adaptive: bool = False,
+    arg: str = "linear", mean: Optional[float] = None, std: Optional[float] = None,
 ) -> EngineeredRecipe:
     """Frozen recipe for one Fourier basis column ``sin(2*pi*freq*z)`` or
     ``cos(2*pi*freq*z)`` where ``z = (X[src_name]**power - lo) / span`` with
@@ -1649,14 +1667,30 @@ def build_orth_fourier_recipe(
     like ``sin(a**2)``); the recipe is self-contained (raw src -> power -> Fourier),
     1-deep, replayable. ``power`` defaults to 1 (legacy linear-argument Fourier).
 
+    ``arg`` selects the argument WARP applied before the Fourier (2026-06-03):
+    * ``"linear"`` (default) -- ``z = (x**power - lo) / span`` (the legacy axis).
+    * ``"quadratic"`` -- the ADAPTIVE-CHIRP axis ``z = (u - lo) / span`` where
+      ``u = sign(zs)*zs**2`` and ``zs = (x - mean) / std``. Squaring the
+      STANDARDISED, SIGNED z turns a growing-frequency chirp ``sin(2*pi*f*zs**2)``
+      into a stationary-frequency sinusoid that the detector can lock; ``mean`` /
+      ``std`` (the train-fit standardisation) are stored alongside (lo, span) so
+      the warp replays leak-free. ``power`` is ignored for the quadratic arg.
+
     ``adaptive`` (default False) is a pure TAG stored in ``extra`` -- it marks a
     column emitted at an ADAPTIVELY-DETECTED z-space frequency (held-out
-    validated) rather than a fixed-grid one. Replay is identical regardless of
-    the tag (``_apply_orth_fourier`` never reads it); the tag lets MRMR protect
+    validated) rather than a fixed-grid one. Replay reads ``arg``/``mean``/``std``
+    to rebuild the warp but never reads ``adaptive``; the tag lets MRMR protect
     these columns past screening (a single sin/cos has low marginal MI -- phase --
     so the screen would otherwise drop the held-out-validated pair)."""
     if kind not in ("sin", "cos"):
         raise ValueError(f"orth_fourier kind must be 'sin' or 'cos'; got {kind!r}")
+    if arg not in ("linear", "quadratic"):
+        raise ValueError(f"orth_fourier arg must be 'linear' or 'quadratic'; got {arg!r}")
+    if arg == "quadratic" and (mean is None or std is None):
+        raise ValueError(
+            "orth_fourier arg='quadratic' requires both 'mean' and 'std' "
+            "(the train-fit standardisation of the source column)."
+        )
     return EngineeredRecipe(
         name=name,
         kind="orth_fourier",
@@ -1668,6 +1702,9 @@ def build_orth_fourier_recipe(
             "span": float(span),
             "power": int(power),
             "adaptive": bool(adaptive),
+            "arg": str(arg),
+            "mean": (None if mean is None else float(mean)),
+            "std": (None if std is None else float(std)),
         },
     )
 

@@ -846,6 +846,28 @@ class MRMR(BaseEstimator, TransformerMixin):
         # 0.15 admits genuine arbitrary-period oscillations while rejecting
         # noise (whose held-out periodogram power collapses below the floor).
         fe_univariate_fourier_adaptive_min_val_corr: float = 0.15,
+        # 2026-06-03 -- ADAPTIVE-CHIRP Fourier, DEFAULT ON. The linear adaptive
+        # detector above (and the fixed grid) emit Fourier on the LINEAR argument
+        # and therefore cannot represent an oscillation whose frequency GROWS with
+        # the argument -- a "chirp" ``y ~ sin(2*pi*f*z**2)``. Over a bounded
+        # support a SLOW chirp is already spanned by the linear MULTITONE basis,
+        # but a FAST chirp sweeps an instantaneous-frequency band WIDER than the
+        # 6-tone deflation basis can cover and the linear path collapses (Phase-0
+        # bench: linear R^2 0.07-0.53, and NOTHING at f>=4, vs chirp 0.88). When
+        # True, the SAME held-out-validated detector is run on the QUADRATIC-
+        # ARGUMENT warp ``u = sign(z)*z**2`` (z standardised on the column), which
+        # makes the chirp STATIONARY in u; the emitted ``__qsin``/``__qcos`` legs
+        # are tagged adaptive=True and PROTECTED past the screen + EXEMPT from the
+        # Spearman dedup, exactly like the linear adaptive legs. ADDITIVE: on a
+        # plain linear target the chirp legs are harmless (the screen's held-out
+        # gate keeps them only when they genuinely help; combined recovery never
+        # falls below linear-only). N-GATED at >= 800 MI rows like the linear
+        # path, so small-n frames are byte-identical chirp-on vs off. Set False
+        # for the linear-argument-only Fourier path.
+        fe_univariate_fourier_chirp: bool = True,
+        # Held-out validation effective-|corr| floor for the chirp detector
+        # (same semantics + default as the linear adaptive floor above).
+        fe_univariate_fourier_chirp_min_val_corr: float = 0.15,
         # 2026-06-02 -- SYNERGY BOOTSTRAP, DEFAULT ON (cap-gated). Pure-synergy
         # interactions (``y = a*d``, ``sign(a)*sign(d)``, ``log(c)*sin(d)`` ...)
         # carry ~ZERO MARGINAL MI on each factor (``E[y|a]=E[y|d]=0`` by symmetry),
@@ -2255,6 +2277,11 @@ class MRMR(BaseEstimator, TransformerMixin):
             # until the next fit repopulates it).
             "fe_univariate_fourier_adaptive": True,
             "fe_univariate_fourier_adaptive_min_val_corr": 0.15,
+            # 2026-06-03 — ADAPTIVE-CHIRP Fourier. Pre-chirp pickles default to
+            # the on/0.15 contract for re-fits (the chirp legs share the
+            # adaptive-feature capture/protection list above).
+            "fe_univariate_fourier_chirp": True,
+            "fe_univariate_fourier_chirp_min_val_corr": 0.15,
             "_adaptive_fourier_features_": [],
         }
         for k, v in defaults.items():
