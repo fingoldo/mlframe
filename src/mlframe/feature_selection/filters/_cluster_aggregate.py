@@ -470,9 +470,15 @@ def run_cluster_aggregate_step(
 
         agg_mi, recipe, binned, method = best
         # Gate: the denoised aggregate must STRICTLY out-score the best single member (denoising claim).
-        if agg_mi < mi_prevalence * best_member_mi:
+        # 2026-06-03 (audit cluster-aggregate-9): reject on a TIE (``<=``), not
+        # only on a strict loss (``<``). The docstring/contract says "strictly
+        # out-scoring"; with the prior ``<`` an aggregate that merely matches the
+        # best member's MI (mi_prevalence=1.0) was accepted, which in
+        # mode="replace" swaps real members for a no-gain aggregate. A genuine
+        # denoising win must clear the bar with margin.
+        if agg_mi <= mi_prevalence * best_member_mi:
             if verbose > 1:
-                logger.info("cluster_aggregate: rejected %s (MI %.5f < %.2f x best member %.5f)", recipe.name, agg_mi, mi_prevalence, best_member_mi)
+                logger.info("cluster_aggregate: rejected %s (MI %.5f <= %.2f x best member %.5f)", recipe.name, agg_mi, mi_prevalence, best_member_mi)
             continue
 
         # Accept: append the binned aggregate column to the binned matrix `data` / `cols` / `nbins`

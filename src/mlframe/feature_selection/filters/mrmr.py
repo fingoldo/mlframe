@@ -675,7 +675,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         cluster_aggregate_enable: bool = True,
         # 2026-05-30 Wave 8 — default flipped from 'augment' to 'replace'.
         # When a denoised aggregate beats its member MIs (gain threshold per
-        # ``cluster_aggregate_min_gain``), 'replace' drops the raw members from
+        # ``cluster_aggregate_mi_prevalence``), 'replace' drops the raw members from
         # the final selection AND from candidate consideration so they cannot
         # be re-picked downstream. This eliminates the duplicate-vote effect
         # (raw + aggregate both surviving) that the 'augment' mode silently
@@ -828,6 +828,26 @@ class MRMR(BaseEstimator, TransformerMixin):
         # the poly basis uses) so it is near-no-op when there is no oscillation.
         # Set False for poly-only univariate FE.
         fe_univariate_fourier_enable: bool = True,
+        # ADAPTIVE-FREQUENCY Fourier (2026-06-03). The fixed Fourier grid only
+        # covers f in {1,2}; an ARBITRARY-period oscillation (e.g. sin(3.7*x)) lands
+        # at a non-integer z-space frequency invisible to that grid (benched:
+        # sin(3.7x) recovered at |corr| 0.23, sin(5.3x) at 0.02 with fixed freqs).
+        # When True, each column's dominant z-space frequency is detected via a
+        # coarse sweep validated out-of-sample (held-out gate rejects chance freqs
+        # on noise -- held-out |corr| ~0.03 vs a genuine oscillation ~0.98) and added
+        # to that column's Fourier features (recovers e.g. sin(3.7x) 0.23 -> 0.99,
+        # sin(5.3x)/sin(6.8x) -> 0.99). The detected frequency is held-out-validated
+        # by the detector, so the admission gate admits it on THAT validation,
+        # BYPASSING the quantile-binned MI-uplift gate (which aliases a many-cycle
+        # feature and would wrongly drop it). This is the intelligent fix for the
+        # high-freq inconsistency -- honest (the gate is out-of-sample, not in-sample
+        # corr that overfit small n) and surgical (only adaptive-tagged columns
+        # bypass; fixed-grid Fourier + spline keep the unchanged MI gate, so linear /
+        # noise data -- which yields NO detected frequency -- is byte-identical).
+        # DEFAULT ON (accuracy-first): recovers an arbitrary-period oscillation
+        # class the fixed grid cannot express; leak-safe replay; ``False`` disables.
+        fe_univariate_fourier_adaptive: bool = True,
+        fe_univariate_fourier_adaptive_min_val_corr: float = 0.15,
         # 2026-06-02 -- SYNERGY BOOTSTRAP, DEFAULT ON (cap-gated). Pure-synergy
         # interactions (``y = a*d``, ``sign(a)*sign(d)``, ``log(c)*sin(d)`` ...)
         # carry ~ZERO MARGINAL MI on each factor (``E[y|a]=E[y|d]=0`` by symmetry),
@@ -1983,10 +2003,15 @@ class MRMR(BaseEstimator, TransformerMixin):
             "friend_graph_garbage_min_degree": 3,
             "friend_graph_unique_ratio": 1.0,
             "friend_graph_unique_max_degree": 1,
-            # Clustered-feature aggregation (added 2026-05-27). Off by default; legacy pickles refit
-            # with these defaults.
+            # Clustered-feature aggregation (added 2026-05-27). ENABLED by default
+            # (cluster_aggregate_enable=True); legacy pickles refit with these
+            # defaults so an attribute-less pickle behaves like a fresh MRMR.
+            # 2026-06-03 (audit cluster-aggregate-1): mode was "augment" here but
+            # the constructor default is "replace" (the deliberate Wave-8 fix for
+            # the duplicate-vote effect) -- legacy pickles must refit to the
+            # corrected behaviour, not the superseded one.
             "cluster_aggregate_enable": True,
-            "cluster_aggregate_mode": "augment",
+            "cluster_aggregate_mode": "replace",
             "cluster_aggregate_methods": ("mean_z",),
             "cluster_aggregate_mi_prevalence": 1.0,
             "cluster_aggregate_min_member_relevance": 0.0,
