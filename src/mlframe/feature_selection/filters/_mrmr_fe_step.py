@@ -177,6 +177,23 @@ def _run_fe_step(
     # sample-bias noise pairs), and (2) the surviving synergy pairs are budget-capped
     # to ``fe_synergy_max_pairs`` by joint MI (bounds the expensive per-pair search).
     # Runs only on the FIRST FE step (where the bootstrap matters).
+    #
+    # bench-rejected (2026-06-03) -- GAP-3 "poly-feature synergy re-entry": feeding
+    # ENGINEERED univariate poly features (He2(a) etc.) back into THIS bootstrap pool
+    # so a synergy like y=He2(a)*b surfaces was benchmarked and REJECTED. Pool entry
+    # is NOT the blocker -- the raw (a,b) pair already reaches the prospective-pair
+    # screen as the top-joint-MI pair, and the per-pair unary search builds He2(a)*b
+    # from it. poly x raw CLASSIFICATION is already recovered 6/6 via the default-on
+    # prewarp operand (mul(prewarp(a),...)). The genuine miss is poly x raw REGRESSION
+    # (1/6), blocked simultaneously by FOUR noise-control gates -- the 0.97
+    # engineered-MI-prevalence bar vs a finite-sample-inflated 2-D joint MI, the
+    # marginal basis routing (a pure synergy has ~0 marginal corr so Hermite is never
+    # picked for the univariate leg), the cross-pair seed-pool exclusion of a linear
+    # operand, and the noise-aware abs_floor (the lone large signal inflates its own
+    # MAD). Forcing recovery means loosening the exact gates ``test_biz_val_mrmr_
+    # default_filtering.py`` pins (noise frames must engineer ~0 features) for a
+    # fragile 2/6 -- not worth it. Don't re-add poly re-entry here.
+    # (D:/Temp/item4_poly_synergy_findings.md)
     _synergy_cap = int(getattr(self, "fe_synergy_screen_max_features", 0) or 0)
     _synergy_added_idx: set = set()
     # MIN-ROWS guard: a 2-D joint-MI estimate is dominated by finite-sample bias at

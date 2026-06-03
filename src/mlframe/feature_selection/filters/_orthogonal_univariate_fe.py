@@ -884,6 +884,22 @@ def generate_pair_cross_basis_features(
     Returns
     -------
     DataFrame of new pair-cross-basis columns named via ``_pair_eng_col_name``.
+
+    Notes
+    -----
+    bench-rejected (2026-06-03): "product-signal JOINT routing" -- choosing the
+    (basis_a, deg_a, basis_b, deg_b) cell that maximises ``|corr(basis_a(x_i)*
+    basis_b(x_j), y)|`` instead of moment-routing each leg -- was benchmarked and
+    REJECTED. Premise (from a poly-synergy probe) was that per-leg routing never
+    materialises the Hermite leg of a pure-synergy product like ``He2(a)*b``. False
+    for THIS path: moment-routing sends a Gaussian leg to Hermite / a bounded leg to
+    Chebyshev regardless of marginal corr, then the (deg_a,deg_b) sweep + MI-uplift
+    scorer already keeps the synergy cell (``He2(a)*b`` recovered |corr|=0.998,
+    mixed ``He2(a)*T2(b)`` 0.999). The product search gave ZERO lift on the synergy
+    targets, REGRESSED the plain ``a*b`` control (classif |corr| 1.000->0.877, a
+    best-of-144-cells selection-bias swap), and HIJACKED the univariate ``He3(a)``
+    control (manufactured spurious weaker pairs 0.60-0.96, leak-free over-search).
+    Don't re-add joint product routing here. (D:/Temp/item5_product_routing_findings.md)
     """
     if not pairs:
         return pd.DataFrame(index=X.index)
@@ -1848,6 +1864,20 @@ def generate_extra_basis_features(
             ndarray, "idx": int, "lo": float, "hi": float}; fourier ->
             {"basis": "fourier", "src": ..., "kind": "sin"/"cos", "freq":
             float, "lo": float, "span": float, "power": int[, "adaptive": True]}.
+
+    Notes
+    -----
+    bench-rejected (2026-06-03): a per-column "poly-vs-Fourier COMPETITION gate"
+    -- emit only the better of {orth-poly basis, this Fourier path} per column to
+    cut the redundant cross-family features that co-occur in the support -- was
+    benchmarked and REJECTED. The co-occurrence is genuine COMPLEMENTARITY, not
+    redundancy: on kink/step/bump targets (e.g. y=|x|) the Fourier legs carry
+    independent residual R^2 0.16-0.60 that a degree<=4 poly under-fits, so a
+    winner-takes-all gate HURT the |x| target OOS by -0.06; no OOS win on a tree
+    downstream (deltas +/-0.008, inconsistent sign); on a mixed frame the gate
+    declines to fire (different columns have different winners). The existing
+    Fleuret redundancy + Spearman cross-stage dedup already remove the only real
+    redundancy. Don't add a competition gate. (D:/Temp/item3_poly_fourier_findings.md)
     """
     if cols is None:
         cols = [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])]
