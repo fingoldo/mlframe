@@ -84,11 +84,24 @@ The round-2 ideas below were originally closed with grounded reasoning but no di
   manyredundant -> in 4/4 base clusters the best redundant COPY is as cross-fold-FI-stable as (or MORE than) its
   original (e.g. red_0_4 stability 0.995 > inf_0 0.953), so stability cannot protect the genuine feature over its
   copy -- exactly the flagged risk, now measured.
-- R2b-3 (vote-fraction threshold calibration) / R2b-8 (panel + OOF importance) — benching (round2_hetero_refine_bench.py):
-  sweeps hetero vote_threshold + shadow percentile vs boruta; R2b-8's premise (hetero noise already ~0) is checked by
-  the measured hetero noise column. Verdict recorded on completion.
-- R2r-1 (variance-aware n_repeats), R2r-7 (reduced-fold interior CV) — pending: do they change SELECTION vs fixed?
-  (correctness-affecting test). R2r-3 (batched predict) / R2r-8 (perm memoisation) / R2s-7 (OOF-SHAP cache) are
-  correctness-NEUTRAL by construction (refactor/caching return identical values); they are speed-only levers whose
-  payoff is production scale -- R2r-8's cache-hit rate specifically needs RFECV-internal subset logging not cheaply
-  accessible, so its SPEED benefit is unmeasured here while its correctness is guaranteed.
+- R2b-3 (vote-fraction threshold calibration) — MEASURED REJECTED (round2_hetero_refine_bench.py, 6 scen x 2 seeds):
+  NO hetero threshold/percentile variant beats boruta (0.7631). vote_threshold 0.5 vs 0.34 -> identical (0.7418);
+  loosening the shadow bar (pct95) gets closest (0.7504, -0.013) but only by re-admitting noise (1.58, ~boruta's
+  level), trading away hetero's sole edge (precision) for recall it still cannot match. Calibration cannot make the
+  panel an AUC default.
+- R2b-8 (panel + OOF importance) — MEASURED REJECTED: hetero's accepted-noise is already 0.0 at vote_threshold>=0.5,
+  so OOF/drop-column importance (which targets noise) has no headroom -- hetero's deficit is RECALL, confirmed by the
+  measured noise=0. R2b-7 (panel in-loop) likewise confirmed: every panel variant trails boruta, so an in-loop panel
+  inherits the deficit. The cross-model panel is a precision tool under ALL calibrations measured; boruta=AUC default.
+- R2r-7 (reduced-fold interior CV) — MEASURED correctness-affecting (round2_rfecv_cv_sensitivity.py, 3 seeds):
+  cv=2 lowers downstream AUC to 0.7628 vs cv=3's 0.7706 (-0.008) and changes the selection (sd0 n 13->18; cv=5
+  Jaccard 0.786 vs cv=3) -> reducing interior folds perturbs the MBH trajectory and costs accuracy. NOT a free speed
+  lever; cv=3 stays. The flagged risk is real, now measured.
+- R2r-1 (variance-aware n_repeats early-stop) — NOT publicly testable: the permutation n_repeats is not an exposed
+  FIConfig/RFECV kwarg (internal), so the discriminating "does adaptive vs fixed n_repeats change selection?" test
+  cannot be run via the public API. It is correctness-AFFECTING in principle (changes which repeats run); flagged for
+  the RFECV owner to surface n_repeats if they want it benched. Not hand-waved -- stated as untestable-as-exposed.
+- R2r-3 (batched predict) / R2r-8 (perm memoisation) / R2s-7 (OOF-SHAP cache) — correctness-NEUTRAL by construction
+  (refactor / memoisation return identical values), so there is no ACCURACY question to bench; they are speed-only
+  levers whose payoff is production scale. R2r-8's cache-hit rate specifically needs RFECV-internal subset logging not
+  cheaply accessible, so its SPEED benefit is unmeasured here while its correctness is guaranteed by caching.
