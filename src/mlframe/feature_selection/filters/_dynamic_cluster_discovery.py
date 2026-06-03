@@ -432,6 +432,12 @@ def pair_su(state: DCDState, a: int, b: int,
         state.cache_evict_lru()
         return su_combined
     if state.distance == "su":
+        # 2026-06-03 bench-attempt-rejected (bench_miller_madow_su_edges): wiring
+        # a Miller-Madow entropy correction into this SU edge gives NO actionable
+        # win. At DCD's binning cap (~10 bins) and realistic n, independent
+        # high-cardinality pairs already score SU ~0.01-0.03 (far below tau), so
+        # there is no plug-in over-clustering to correct; MM only shaves ~0.01
+        # off true-redundancy SU. Plug-in entropy stays.
         # iter587: avoid the 3-merge_vars cost of calling
         # ``symmetric_uncertainty(x=[a], y=[b], ...)`` for every pair.
         # H(X_a) and H(X_b) are functions of a single column each, so the

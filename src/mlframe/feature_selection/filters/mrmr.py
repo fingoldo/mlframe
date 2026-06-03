@@ -733,19 +733,16 @@ class MRMR(BaseEstimator, TransformerMixin):
         # makes the random sample deterministic per fit.
         dcd_tau_calibration_n_pairs: int = 100,
         dcd_tau_calibration_seed: int = 0,
-        # 2026-05-31 Layer 42: default kept at 4 pending downstream fix.
-        # Lowering to 2 (member count beyond anchor) makes the canonical
-        # 3-feature redundancy cluster (anchor + 2 dups) actually trigger
-        # the PC1 swap that previously was effectively gated OFF, but the
-        # post-swap aggregate is not currently wired into
-        # ``_engineered_recipes_`` / ``support_`` (commit_swap is called
-        # with ``engineered_recipes=None`` at _screen_predictors.py L718),
-        # so the swap silently drops the anchor from the output. Until the
-        # aggregate->recipe propagation lands, threshold=2 net-shrinks
-        # ``support_`` on real data. Layer 42 instead exposes the new
-        # validated lower bound (>=1) + documents the kt-tuned 2-step opt-in:
-        # ``dcd_cluster_size_threshold=2`` + a registered recipe pathway
-        # (next layer). Pin =2 explicitly to enable the new gate.
+        # Cluster must reach this many members (beyond the anchor) before the
+        # PC1/aggregate swap is even evaluated. The Layer-42 blocker that kept
+        # this at 4 (commit_swap called with engineered_recipes=None, so a swap
+        # net-shrank support_) is RESOLVED -- recipe propagation landed in
+        # Layer 43 (_mrmr_fit_impl threads engineered_recipes into screen).
+        # 2026-06-03 bench-attempt-rejected (bench_dcd_cluster_size_threshold):
+        # lowering the DEFAULT to 2 was benchmarked after the swap-null fix and
+        # gives NO actionable win -- swaps fire rarely on small clusters (the
+        # swap GATE, not this threshold, is the binding constraint) and mean OOS
+        # AUC moved +0.0009 (noise). Keep 4 as the default; pin =2 to opt in.
         dcd_cluster_size_threshold: int = 4,
         dcd_swap_gain_threshold: float = 0.05,
         # 2026-05-31 Layer 43 (PART B): default flipped to ``"auto"``. When set
