@@ -595,7 +595,11 @@ AXES: dict[str, tuple[Any, ...]] = {
     "confidence_ensemble_quantile_cfg": (0.1, 0.2),
     "cat_text_card_threshold_pct_cfg": (0.001, 0.01),
     # --- RFECV deep knobs
-    "rfecv_n_features_selection_rule_cfg": ("auto", "argmax", "one_se_max"),
+    # 2026-06-03: + "plateau" (e97b2417, parsimony rule) and "one_se_min"
+    # (parsimonious 1-SE) so the fuzz exercises all 5 RFECV selection rules,
+    # not just 3. All flow verbatim into RFECV.n_features_selection_rule
+    # (validated against the 5-rule set in wrappers/_rfecv.py:425).
+    "rfecv_n_features_selection_rule_cfg": ("auto", "argmax", "one_se_max", "one_se_min", "plateau"),
     "rfecv_stability_selection_cfg": (False, True),
     "rfecv_leakage_action_cfg": ("warn", "exclude"),
     # --- MRMR deep
