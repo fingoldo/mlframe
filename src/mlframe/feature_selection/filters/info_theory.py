@@ -46,6 +46,16 @@ def merge_vars(
     loop into tight machine code; the bincount path pays an int64->
     dtype cast plus an extra .copy() for the no-prune branch. Bench:
     profiling/bench_merge_vars_1var_fastpath.py.
+
+    bench-attempt-rejected (2026-06-03): parallelising the per-row
+    histogram via a chunked per-thread-freqs accumulator + reduction
+    (bit-identical -- integer counts sum associatively, final_classes
+    writes are per-row independent) is memory-bound, not compute-bound,
+    so it does NOT scale: 0.56x at n=50k (prange overhead dominates the
+    tight loop), ~neutral at n=200k, only ~1.34x at n=1M / K=256. The
+    per-thread histograms also multiply the freqs working set by
+    n_threads, which blows up for deep joints (large expected_nclasses).
+    Net loss across the typical n=30k..200k combo sizes.
     """
     if final_classes is None:
         final_classes = np.zeros(len(factors_data), dtype=dtype)
