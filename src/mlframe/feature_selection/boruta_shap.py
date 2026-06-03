@@ -78,12 +78,25 @@ class BorutaShap(BaseEstimator, TransformerMixin):
     replacement (duplicate rows let the model memorise, so every feature beats its shadow and the gate accepts
     ~everything). FUNDAMENTAL LIMIT: a spurious correlation present throughout the draw cannot be removed by resampling
     that same draw; only an INDEPENDENT validation draw (or a downstream model robust to a few extra features) resolves it.
+
+    DRIVER SELECTION (importance_measure), measured on the fs_hybrid bed (6 scenarios x 2 seeds, downstream
+    honest-holdout AUC over LightGBM/Logistic/kNN). The default is 'gini': SHAP is dominated on BOTH axes (worst
+    mean AUC 0.755 AND ~137x slower than gini -- 20-30 min/fit -- because it recomputes per-trial SHAP values),
+    so it is no longer the default. gini (mean 0.762, ~11 s) is the fast, robust default. 'permutation' in its
+    honest held-out mode (train_or_test='test', which permutes on the 30% holdout this class already carves) is
+    the ACCURACY + PRECISION leader: it topped mean AUC (0.766) and drove accepted-noise to ~0 in 10/12 cells
+    (gini leaks 1-5, SHAP up to 11), at ~11x gini's cost; choose it when false-positive control matters. Held-out
+    permutation reduces the generic in-sample-optimism leak but does NOT erase the fundamental same-draw spurious
+    structure above. A further measured win for redundant/monotone data is to collapse raw-correlation clusters to
+    one representative BEFORE the gate and re-expand accepted reps afterward (the gate sees cleaner, fewer columns);
+    this lives naturally in a caller that already computes the clustering (see the fs_hybrid HybridSelector).
     """
 
     def __init__(
         self,
         model=None,
-        importance_measure="Shap",
+        importance_measure="gini",
+        permutation_n_repeats: int = 5,
         classification=True,
         percentile=99,
         pvalue=0.05,
@@ -108,7 +121,10 @@ class BorutaShap(BaseEstimator, TransformerMixin):
             be returned.
 
         importance_measure: String
-            Which importance measure too use either Shap or Gini/Gain
+            Which importance measure to use: "Shap", "gini"/"gain", or "permutation". Permutation uses sklearn's
+            permutation_importance on the held-out 30% split when train_or_test="test" (debiased held-out
+            degradation, the signal that beat impurity/SHAP in the importance shootout), else falls back to
+            in-bag permutation on the full data. permutation_n_repeats controls its repeat count.
 
         classification: Boolean
             if true then the problem is either a binary or multiclass problem otherwise if false then it is regression
@@ -127,6 +143,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         # clone-able (GridSearchCV / Pipeline). importance_measure is lowercased at its comparison sites, fit_params
         # defaults to {} at use, and model defaulting + validation (check_model) is deferred to fit().
         self.importance_measure = importance_measure
+        self.permutation_n_repeats = permutation_n_repeats
         self.percentile = percentile
         self.pvalue = pvalue
         self.classification = classification
@@ -669,8 +686,34 @@ class BorutaShap(BaseEstimator, TransformerMixin):
             X_feature_import = feature_importances_[: len(self.X.columns)]
             Shadow_feature_import = feature_importances_[len(self.X.columns) :]
 
+        elif str(self.importance_measure).lower() == "permutation":
+            from sklearn.inspection import permutation_importance
+
+            # Debiased held-out permutation when a 30% holdout exists (train_or_test="test"): permuting there
+            # measures genuine held-out degradation, the signal that beat in-sample impurity/SHAP in the
+            # importance shootout. With the "train" default no holdout is set, so this falls back to in-bag
+            # permutation on the full X_boruta (still ranks shadows near zero, but inherits the in-sample
+            # optimism gini/SHAP also carry). Negative permutation importances mean "noise" -> clipped to 0 so
+            # they tie with shadows rather than being inflated by abs().
+            X_perm = getattr(self, "X_boruta_test", None)
+            if X_perm is not None:
+                X_perm, y_perm = self.X_boruta_test, self.y_test
+            else:
+                X_perm, y_perm = self.X_boruta, self.y
+            pi = permutation_importance(
+                self.model, X_perm, y_perm, n_repeats=self.permutation_n_repeats,
+                random_state=self.random_state, n_jobs=-1,
+            )
+            feature_importances_ = np.clip(pi.importances_mean, 0.0, None)
+
+            if normalize:
+                feature_importances_ = self.calculate_Zscore(feature_importances_)
+
+            X_feature_import = feature_importances_[: len(self.X.columns)]
+            Shadow_feature_import = feature_importances_[len(self.X.columns) :]
+
         else:
-            raise ValueError("No Importance_measure was specified select one of (shap, gini)")
+            raise ValueError("No Importance_measure was specified select one of (shap, gini, permutation)")
 
         return X_feature_import, Shadow_feature_import
 
