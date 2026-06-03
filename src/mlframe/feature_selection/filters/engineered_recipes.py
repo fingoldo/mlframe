@@ -1626,14 +1626,21 @@ def build_orth_spline_recipe(
 
 def build_orth_fourier_recipe(
     *, name: str, src_name: str, kind: str, freq: float, lo: float, span: float,
-    power: int = 1,
+    power: int = 1, adaptive: bool = False,
 ) -> EngineeredRecipe:
     """Frozen recipe for one Fourier basis column ``sin(2*pi*freq*z)`` or
     ``cos(2*pi*freq*z)`` where ``z = (X[src_name]**power - lo) / span`` with
     (power, lo, span) fixed at fit time. ``power`` > 1 builds the Fourier on the
     POWER-transformed argument (e.g. power=2 -> Fourier on x**2, recovering chirps
     like ``sin(a**2)``); the recipe is self-contained (raw src -> power -> Fourier),
-    1-deep, replayable. ``power`` defaults to 1 (legacy linear-argument Fourier)."""
+    1-deep, replayable. ``power`` defaults to 1 (legacy linear-argument Fourier).
+
+    ``adaptive`` (default False) is a pure TAG stored in ``extra`` -- it marks a
+    column emitted at an ADAPTIVELY-DETECTED z-space frequency (held-out
+    validated) rather than a fixed-grid one. Replay is identical regardless of
+    the tag (``_apply_orth_fourier`` never reads it); the tag lets MRMR protect
+    these columns past screening (a single sin/cos has low marginal MI -- phase --
+    so the screen would otherwise drop the held-out-validated pair)."""
     if kind not in ("sin", "cos"):
         raise ValueError(f"orth_fourier kind must be 'sin' or 'cos'; got {kind!r}")
     return EngineeredRecipe(
@@ -1646,6 +1653,7 @@ def build_orth_fourier_recipe(
             "lo": float(lo),
             "span": float(span),
             "power": int(power),
+            "adaptive": bool(adaptive),
         },
     )
 

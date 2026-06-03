@@ -358,6 +358,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # would populate) and the end-of-fit remap routes them through
     # ``self._engineered_recipes_`` automatically.
     self.hybrid_orth_features_ = []
+    # ADAPTIVE-FREQUENCY Fourier (2026-06-03): names of the held-out-validated
+    # adaptive sin/cos columns the extra-basis stage emitted. Used by the
+    # support-finalisation ADAPTIVE-PROTECTION block to re-add any the MRMR
+    # screen dropped. Always present (empty when no adaptive freq detected) so
+    # transform / pickle / clone never trip on a missing attribute.
+    self._adaptive_fourier_features_ = []
     _hybrid_orth_pre_recipes: dict = {}
     # Snapshot the raw input columns BEFORE any FE stage appends engineered
     # intermediates. The cat_pair / cat_triple auto-detect paths restrict their
@@ -585,6 +591,26 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _e_cols = [
                             c for c in X.columns if c not in _already_eng_for_extra
                         ]
+                    # ADAPTIVE-FREQUENCY Fourier (2026-06-03): default ON. The
+                    # fixed grid {1, 2} misses arbitrary-period oscillations
+                    # (sin(3.7*x), sin(5.3*x)); the adaptive detector sweeps a
+                    # coarse z-space grid + local-refines + held-out-validates
+                    # the dominant frequency per column, n-gated at >= 800 rows
+                    # (smaller n false-positives a chance frequency). The
+                    # emitted adaptive sin/cos recipes are tagged adaptive=True
+                    # and PROTECTED past screening below (a single leg has low
+                    # marginal MI -- phase -- so the screen would drop the
+                    # held-out-validated pair otherwise).
+                    _fourier_adaptive = bool(
+                        getattr(self, "fe_univariate_fourier_adaptive", True)
+                    )
+                    _fourier_adaptive_mvc = float(
+                        getattr(
+                            self,
+                            "fe_univariate_fourier_adaptive_min_val_corr",
+                            0.15,
+                        )
+                    )
                     X_e, _e_scores, _e_recipes = hybrid_orth_extra_basis_fe_with_recipes(
                         X, _y_for_extra,
                         cols=_e_cols,
@@ -593,6 +619,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         fourier_powers=_fourier_powers,
                         spline_knots=_spline_knots,
                         top_k=_top_k_for_extra,
+                        fourier_adaptive=_fourier_adaptive,
+                        fourier_adaptive_min_val_corr=_fourier_adaptive_mvc,
                     )
                     _e_appended = [
                         c for c in X_e.columns if c not in _X_before_extra_cols
@@ -607,6 +635,22 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         )
                         for _r in _e_recipes:
                             _hybrid_orth_pre_recipes[_r.name] = _r
+                        # Capture ADAPTIVE-tagged Fourier feature names so the
+                        # support-finalisation block can re-add any the MRMR
+                        # screen dropped (held-out-validated, must survive).
+                        _adaptive_names = [
+                            _r.name for _r in _e_recipes
+                            if getattr(_r, "kind", None) == "orth_fourier"
+                            and bool(dict(getattr(_r, "extra", {})).get("adaptive", False))
+                            and _r.name in set(_e_appended)
+                        ]
+                        if _adaptive_names:
+                            _prev_adaptive = list(
+                                getattr(self, "_adaptive_fourier_features_", None) or []
+                            )
+                            self._adaptive_fourier_features_ = (
+                                _prev_adaptive + _adaptive_names
+                            )
                         if verbose:
                             logger.info(
                                 "MRMR.fit hybrid_orth extra-basis: appended %d "
@@ -4263,12 +4307,31 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         _c for _c in _eng_cols_appended_raw
         if not (_c in _eng_seen or _eng_seen.add(_c))
     ]
+    # ADAPTIVE-FOURIER columns are NEVER pruned by the cross-stage dedup: the
+    # held-out detector already validated the frequency, and a sin/cos pair at
+    # one frequency is not monotone-equivalent to a fixed-grid twin, so the
+    # Spearman gate would only ever drop them on a spurious near-tie. Keeping
+    # them here guarantees they remain in ``cols`` for the protection block.
+    _adaptive_fourier_keep = set(
+        getattr(self, "_adaptive_fourier_features_", None) or []
+    )
     if len(_eng_cols_appended) >= 2 and isinstance(X, pd.DataFrame):
         _eng_keep: list[str] = []
         _eng_drop: set[str] = set()
         _eng_arrs: dict[str, np.ndarray] = {}
         for _c in _eng_cols_appended:
             if _c in _eng_drop:
+                continue
+            if _c in _adaptive_fourier_keep:
+                # Force-keep adaptive Fourier columns; record their array so
+                # later candidates can still be deduped AGAINST them.
+                _col_view_a = X[_c]
+                if isinstance(_col_view_a, pd.DataFrame):
+                    _col_view_a = _col_view_a.iloc[:, 0]
+                _eng_keep.append(_c)
+                _eng_arrs[_c] = np.asarray(
+                    _col_view_a.to_numpy(), dtype=np.float64
+                )
                 continue
             # Defense in depth: if X carries duplicate column labels (a
             # caller-side data-quality issue we don't want to silently
@@ -5428,6 +5491,39 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     "dropped by the post-FE re-selection (not substituted by a sole-parent "
                     "engineered child): %s",
                     len(_readd), [cols[i] for i in _readd],
+                )
+
+    # ADAPTIVE-FOURIER PROTECTION (2026-06-03): re-add held-out-validated
+    # ADAPTIVE Fourier columns the MRMR screen dropped. The adaptive detector
+    # already confirmed the column's dominant frequency on a held-out slice;
+    # the screen drops it anyway because a SINGLE sin OR cos has low marginal MI
+    # (the phase is split across the two legs, so neither alone clears the
+    # relevance floor and the screen prefers a lower-MI fixed-freq twin). We
+    # re-add the index of every adaptive name that is a column in ``cols`` but
+    # absent from ``selected_vars``; its recipe is already in
+    # ``engineered_recipes`` (merged from ``_hybrid_orth_pre_recipes`` above)
+    # and survives into ``self._engineered_recipes_`` via the remap below, so
+    # transform() replays the fit-time column byte-for-byte. Runs BEFORE the
+    # ``selected_vars_names`` remap so the re-added index is routed correctly.
+    _adaptive_fourier = getattr(self, "_adaptive_fourier_features_", None)
+    if _adaptive_fourier and len(selected_vars):
+        _cols_index = {c: i for i, c in enumerate(cols)}
+        _sv_set = set(selected_vars)
+        _readd_adaptive = []
+        for _an in _adaptive_fourier:
+            _idx = _cols_index.get(_an)
+            if _idx is None:
+                continue
+            if _idx not in _sv_set:
+                _readd_adaptive.append(_idx)
+                _sv_set.add(_idx)
+        if _readd_adaptive:
+            selected_vars = list(selected_vars) + _readd_adaptive
+            if verbose:
+                logger.info(
+                    "MRMR adaptive-fourier protection: re-added %d held-out-"
+                    "validated adaptive Fourier feature(s) dropped by the screen: %s",
+                    len(_readd_adaptive), [cols[i] for i in _readd_adaptive],
                 )
 
     # ---------------------------------------------------------------------------------------------------------------

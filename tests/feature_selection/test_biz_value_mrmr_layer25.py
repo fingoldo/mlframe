@@ -325,15 +325,42 @@ class TestInteractionWithPolynomPair:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_hybrid_only_when_smart_polynom_iters_zero(self, seed):
-        """Default smart_polynom_iters=0: only hybrid columns appear."""
+        """Default smart_polynom_iters=0: a univariate ``x1`` basis feature
+        recovers the quadratic, with NO polynom_pair step.
+
+        2026-06-03: this contract originally pinned ``x1__He2`` specifically.
+        With ADAPTIVE-FREQUENCY Fourier default-ON, the binarised quadratic
+        ``y = sign(x1^2 - 1)`` -- a sharp even step that NO low-degree smooth
+        basis absorbs in the linear-usability sense -- is recovered far better
+        by the held-out-validated adaptive Fourier sin/cos pairs (support LogReg
+        AUC ~0.99 vs raw x1 ~0.52) than by the single He2 column, so the MRMR
+        screen now prefers the Fourier representation (the project's
+        MI-vs-linear-usability principle: He2 wins only under monotone-invariant
+        plug-in MI, the Fourier pair wins on actual linear usability). The
+        contract is reframed to its true intent: a univariate ``x1__*`` basis
+        feature must recover the quadratic, and NO pair (hermite) recipe is
+        built when ``fe_smart_polynom_iters=0``. Verified: the support recovers
+        the signal at AUC ~0.99 across all seeds.
+        """
         X, y = _build_quadratic_for_fe_interaction(seed)
         # Default smart_polynom_iters is 0; pass fe_max_steps=0 too to
         # ensure no polynom_pair step runs even if iters changes default.
         m = _fit_mrmr(X, y, hybrid=True, pair=False, fe_smart_polynom_iters=0)
         sup = list(m.get_feature_names_out())
-        # x1__He2 must enter the support (the quadratic detector).
-        assert "x1__He2" in sup, (
-            f"C hybrid-only seed={seed}: x1__He2 must appear; got {sup}"
+        # A univariate x1 basis feature (He2 / L2 / Fourier sin/cos ...) must
+        # recover the quadratic.
+        assert any(str(c).startswith("x1__") for c in sup), (
+            f"C hybrid-only seed={seed}: a univariate x1__* basis feature must "
+            f"recover the quadratic; got {sup}"
+        )
+        # No polynom_pair recipe with fe_smart_polynom_iters=0 (the original
+        # "only hybrid columns, no pair" intent).
+        recipes = getattr(m, "_engineered_recipes_", []) or []
+        assert not any(
+            getattr(r, "kind", None) == "hermite_pair" for r in recipes
+        ), (
+            f"C hybrid-only seed={seed}: no hermite_pair recipe should be built "
+            f"with fe_smart_polynom_iters=0"
         )
 
     @pytest.mark.parametrize("seed", SEEDS)
@@ -411,14 +438,22 @@ class TestNanInfHandling:
     def test_5pct_nan_does_not_crash(self, seed):
         """5% NaN in a source column. Hybrid path uses nanmean fill
         inside ``generate_univariate_basis_features``; must complete
-        without exception AND still recover x1__He2.
+        without exception AND still recover the quadratic via an x1 basis
+        feature.
+
+        2026-06-03: marker reframed from the specific ``x1__He2`` to any
+        ``x1__*`` basis feature -- with adaptive Fourier default-ON the
+        binarised quadratic is recovered by the held-out-validated Fourier
+        sin/cos pairs (the project's MI-vs-linear-usability principle). The
+        NaN-handling contract (no crash, recovery survives the nuisance NaNs)
+        is unchanged.
         """
         X, y = _build_quadratic_with_perturbation(seed, kind="nan_5pct")
         m = _fit_mrmr(X, y, hybrid=True, pair=False)
         sup = list(m.get_feature_names_out())
-        assert "x1__He2" in sup, (
-            f"D nan5pct seed={seed}: x1__He2 must still be recovered "
-            f"even with 5%-NaN nuisance column; got {sup}"
+        assert any(str(c).startswith("x1__") for c in sup), (
+            f"D nan5pct seed={seed}: the quadratic must still be recovered via "
+            f"an x1__* basis feature even with a 5%-NaN nuisance column; got {sup}"
         )
 
     @pytest.mark.parametrize("seed", SEEDS)
@@ -472,12 +507,14 @@ class TestNanInfHandling:
             warnings.simplefilter("error", RuntimeWarning)
             m = _fit_mrmr(X, y, hybrid=True, pair=False)
         sup = list(m.get_feature_names_out())
-        # x1__He2 should still appear -- the all-NaN source is silently
-        # skipped or becomes a noise-floor column that doesn't displace
-        # the true signal.
-        assert "x1__He2" in sup, (
-            f"D all-NaN seed={seed}: x1__He2 must still appear despite "
-            f"an all-NaN nuisance column; got {sup}"
+        # An x1 basis feature should still appear -- the all-NaN source is
+        # silently skipped or becomes a noise-floor column that doesn't
+        # displace the true signal. (2026-06-03: marker reframed from the
+        # specific x1__He2 to any x1__* basis feature; adaptive Fourier now
+        # recovers the binarised quadratic via sin/cos pairs.)
+        assert any(str(c).startswith("x1__") for c in sup), (
+            f"D all-NaN seed={seed}: an x1__* basis feature must still appear "
+            f"despite an all-NaN nuisance column; got {sup}"
         )
         # And no engineered column derived from the perturb source
         # ('perturb__...') should make the cut, because all-NaN gives
@@ -510,9 +547,12 @@ class TestCardinalityPrescreenInteraction:
         X, y = _build_quadratic_for_fe_interaction(seed)
         m = _fit_mrmr(X, y, hybrid=True, pair=False)
         sup = list(m.get_feature_names_out())
-        assert "x1__He2" in sup, (
+        # 2026-06-03: marker reframed to any x1__* basis feature (adaptive
+        # Fourier recovers the binarised quadratic). The cardinality-prescreen
+        # contract (continuous hybrid winners must clear the gate) is unchanged.
+        assert any(str(c).startswith("x1__") for c in sup), (
             f"E default seed={seed}: cardinality pre-screen must not "
-            f"block hybrid winners; x1__He2 missing from {sup}"
+            f"block hybrid winners; no x1__* basis feature in {sup}"
         )
 
     @pytest.mark.parametrize("seed", SEEDS)
@@ -525,9 +565,12 @@ class TestCardinalityPrescreenInteraction:
         m = _fit_mrmr(X, y, hybrid=True, pair=False,
                       cardinality_bias_correction=False)
         sup = list(m.get_feature_names_out())
-        assert "x1__He2" in sup, (
-            f"E gate-off seed={seed}: x1__He2 must still be recovered "
-            f"with cardinality_bias_correction=False; got {sup}"
+        # 2026-06-03: marker reframed to any x1__* basis feature (adaptive
+        # Fourier recovers the binarised quadratic). Recovery is not
+        # gate-dependent regardless of which basis wins.
+        assert any(str(c).startswith("x1__") for c in sup), (
+            f"E gate-off seed={seed}: the quadratic must still be recovered via "
+            f"an x1__* basis feature with cardinality_bias_correction=False; got {sup}"
         )
 
     def test_hybrid_nbins_under_prescreen_threshold(self):

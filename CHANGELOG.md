@@ -1,5 +1,41 @@
 # Changelog
 
+## 2026-06-03 — ADAPTIVE-FREQUENCY Fourier univariate FE (default ON)
+
+The fixed Fourier univariate grid only covers z-space frequencies {1, 2}; an
+ARBITRARY-period oscillation (``y = sin(3.7*x)``, ``sin(5.3*x)``, ``sin(6.8*x)``)
+lands at a NON-integer z-space frequency and was MISSED (recovered at |corr|
+0.02–0.23 with the fixed freqs). New per-column detector
+``_detect_fourier_freqs_for_col`` (in ``_orthogonal_univariate_fe.py``): a
+coarse z-space periodogram-power sweep (phase-invariant ``corr(sin)²+corr(cos)²``)
++ two-stage local refine + residual deflation for multitone superpositions,
+held-out-validated on a deterministic stride slice (``arange(n)%3==0``). Before
+the search the target is cubic-detrended (train-fit / val-applied) so a monotone
+trend cannot masquerade as a low frequency, and the held-out floor is
+``max(min_val_corr, 0.30)`` — calibrated so finite-sample chance peaks (40-seed
+linear fixture max 0.232) are rejected while genuine oscillations (≥0.96 even at
+n=800) survive. N-gated at ``n ≥ 800`` (smaller n false-positives a chance
+frequency — a naive default-on version regressed 9 tests).
+
+The emitted adaptive sin/cos columns are tagged ``adaptive=True`` on their
+``orth_fourier`` recipes and PROTECTED past the MRMR screen: a single sin OR cos
+has low marginal MI (the phase is split across the two legs), so the screen
+otherwise keeps a lower-MI fixed-freq twin and drops the validated pair. A new
+support-finalisation block re-adds the dropped adaptive feature indices (their
+recipes already merged into ``_engineered_recipes_``, so ``transform()`` replays
+them byte-for-byte). Adaptive columns are also exempt from the cross-stage
+Spearman dedup.
+
+New ctor params on ``MRMR``: ``fe_univariate_fourier_adaptive: bool = True`` and
+``fe_univariate_fourier_adaptive_min_val_corr: float = 0.15``. Verified: Ridge on
+the full selected support recovers a 3-tone arbitrary-period signal at OOS R²
+0.96 (3 seeds); pure-noise frames add no adaptive column; ``transform`` replay is
+bit-identical; no-regression suites (univariate-basis, layer32 incl.
+``TestDefaultDisabledByteIdentical``, default-filtering borderline +
+pair-interaction, layer25) all green. The detector is cProfile-tuned
+(``np.corrcoef`` → centered dot products + cached coarse-grid bases: 3.86s →
+0.57s for 200 noise columns).
+
 ## 2026-06-03 — FE-noise-bloat: tighter prevalence gate defaults (fe_strict by default)
 
 The pair-FE search engineers a feature by trying many operand-transform x pair combos

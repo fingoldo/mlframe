@@ -380,6 +380,15 @@ def _mrmr_hybrid_kw():
         fe_hybrid_orth_basis="hermite",
         fe_hybrid_orth_degrees=(2, 3),
         fe_hybrid_orth_top_k=5,
+        # 2026-06-03: this suite exercises the HERMITE polyeval backend
+        # round-trip (njit / njit_par / cuda determinism), using ``x1__He2``
+        # as the recovered-signal marker. Adaptive Fourier (default ON) now
+        # wins the binarised-quadratic fixture (recovered far better in the
+        # linear-usability sense, support AUC ~0.99) and would crowd He2 out
+        # of the support. Disable the Fourier univariate basis here so the
+        # test scopes to exactly the Hermite backend path it means to verify;
+        # adaptive-Fourier recovery has its own dedicated suite.
+        fe_univariate_fourier_enable=False,
     )
 
 

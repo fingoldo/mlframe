@@ -825,25 +825,26 @@ class MRMR(BaseEstimator, TransformerMixin):
         # the poly basis uses) so it is near-no-op when there is no oscillation.
         # Set False for poly-only univariate FE.
         fe_univariate_fourier_enable: bool = True,
-        # ADAPTIVE-FREQUENCY Fourier (2026-06-03). The fixed Fourier grid only
-        # covers f in {1,2}; an ARBITRARY-period oscillation (e.g. sin(3.7*x)) lands
-        # at a non-integer z-space frequency invisible to that grid (benched:
-        # sin(3.7x) recovered at |corr| 0.23, sin(5.3x) at 0.02 with fixed freqs).
-        # When True, each column's dominant z-space frequency is detected via a
-        # coarse sweep validated out-of-sample (held-out gate rejects chance freqs
-        # on noise -- held-out |corr| ~0.03 vs a genuine oscillation ~0.98) and added
-        # to that column's Fourier features (recovers e.g. sin(3.7x) 0.23 -> 0.99,
-        # sin(5.3x)/sin(6.8x) -> 0.99). The detected frequency is held-out-validated
-        # by the detector, so the admission gate admits it on THAT validation,
-        # BYPASSING the quantile-binned MI-uplift gate (which aliases a many-cycle
-        # feature and would wrongly drop it). This is the intelligent fix for the
-        # high-freq inconsistency -- honest (the gate is out-of-sample, not in-sample
-        # corr that overfit small n) and surgical (only adaptive-tagged columns
-        # bypass; fixed-grid Fourier + spline keep the unchanged MI gate, so linear /
-        # noise data -- which yields NO detected frequency -- is byte-identical).
-        # DEFAULT ON (accuracy-first): recovers an arbitrary-period oscillation
-        # class the fixed grid cannot express; leak-safe replay; ``False`` disables.
+        # 2026-06-03 -- ADAPTIVE-FREQUENCY Fourier, DEFAULT ON. The fixed Fourier
+        # grid (``fe_hybrid_orth_fourier_freqs``, default {1, 2}) only covers a
+        # couple of z-space frequencies; an ARBITRARY-period oscillation
+        # (``y = sin(3.7*x)``, ``sin(5.3*x)``, ``sin(6.8*x)``) lands at a NON-
+        # integer z-space frequency and is missed by the fixed grid (recovered
+        # at |corr| 0.02-0.23 only). When True, each numeric column's dominant
+        # z-space frequency is DETECTED via a coarse periodogram-power sweep +
+        # local refine, CONFIRMED on a held-out stride slice, and (if it clears
+        # ``fe_univariate_fourier_adaptive_min_val_corr``) ADDED to that column's
+        # Fourier frequencies. The emitted sin/cos are tagged adaptive and
+        # PROTECTED past the MRMR screen (a single leg has low marginal MI --
+        # phase -- so the screen would otherwise drop the validated pair).
+        # Detection is N-GATED at >= 800 MI rows: at small n a chance frequency
+        # over a held-out slice false-positives, so smaller frames skip it
+        # entirely (no adaptive column added). Set False for fixed-grid-only.
         fe_univariate_fourier_adaptive: bool = True,
+        # Held-out validation effective-|corr| floor the detected frequency's
+        # sin+cos support must clear on the held-out slice to be admitted.
+        # 0.15 admits genuine arbitrary-period oscillations while rejecting
+        # noise (whose held-out periodogram power collapses below the floor).
         fe_univariate_fourier_adaptive_min_val_corr: float = 0.15,
         # 2026-06-02 -- SYNERGY BOOTSTRAP, DEFAULT ON (cap-gated). Pure-synergy
         # interactions (``y = a*d``, ``sign(a)*sign(d)``, ``log(c)*sin(d)`` ...)
@@ -2228,6 +2229,13 @@ class MRMR(BaseEstimator, TransformerMixin):
             "rare_category_features_": [],
             "conditional_residual_features_": [],
             "rankgauss_features_": [],
+            # 2026-06-03 — ADAPTIVE-FREQUENCY Fourier. Pre-adaptive pickles
+            # default to the on/0.15 contract for re-fits; the fitted-attr
+            # list defaults empty (no adaptive features replayed on reload
+            # until the next fit repopulates it).
+            "fe_univariate_fourier_adaptive": True,
+            "fe_univariate_fourier_adaptive_min_val_corr": 0.15,
+            "_adaptive_fourier_features_": [],
         }
         for k, v in defaults.items():
             state.setdefault(k, v)

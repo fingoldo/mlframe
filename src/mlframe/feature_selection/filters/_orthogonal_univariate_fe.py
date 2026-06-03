@@ -1401,6 +1401,305 @@ def _fit_fourier_for_col(x: np.ndarray):
     return lo, span
 
 
+def _corr_sq_centered(v: np.ndarray, y_centered: np.ndarray, y_ss: float) -> float:
+    """Squared Pearson correlation of ``v`` with a pre-centered ``y`` whose
+    sum-of-squares is ``y_ss``. Avoids ``np.corrcoef`` (2x2-matrix build + two
+    std passes) -- a direct centered dot product. Returns 0.0 on a degenerate
+    ``v``."""
+    vc = v - v.mean()
+    v_ss = float(vc @ vc)
+    if v_ss < 1e-24 or y_ss < 1e-24:
+        return 0.0
+    num = float(vc @ y_centered)
+    return (num * num) / (v_ss * y_ss)
+
+
+def _periodogram_power(z01: np.ndarray, y: np.ndarray, freq: float) -> float:
+    """Phase-invariant periodogram power of ``y`` at z-space frequency ``freq``.
+
+    ``corr(sin(2*pi*freq*z), y)^2 + corr(cos(2*pi*freq*z), y)^2`` -- the sum of
+    the squared linear correlations of the sin and cos projections. Phase-
+    invariant because a pure ``sin(2*pi*freq*z + phi)`` decomposes into a
+    sin + cos mix whose combined power is independent of phi. Returns 0.0 when
+    either projection degenerates (constant), so a frequency whose sin/cos
+    collapse over the slice never wins.
+
+    Convenience wrapper that centers ``y`` once; the hot per-column loops call
+    :func:`_corr_sq_centered` directly with a pre-centered ``y`` to skip the
+    redundant centering on every frequency.
+    """
+    yc = y - y.mean()
+    y_ss = float(yc @ yc)
+    if y_ss < 1e-24:
+        return 0.0
+    ang = 2.0 * np.pi * float(freq) * z01
+    return (
+        _corr_sq_centered(np.sin(ang), yc, y_ss)
+        + _corr_sq_centered(np.cos(ang), yc, y_ss)
+    )
+
+
+def _power_centered(z: np.ndarray, yc: np.ndarray, y_ss: float, freq: float) -> float:
+    """Periodogram power at ``freq`` against a pre-centered ``y`` (``yc``,
+    sum-of-squares ``y_ss``). Hot-loop variant that skips re-centering y."""
+    ang = 2.0 * np.pi * float(freq) * z
+    return (
+        _corr_sq_centered(np.sin(ang), yc, y_ss)
+        + _corr_sq_centered(np.cos(ang), yc, y_ss)
+    )
+
+
+def _refine_peak_freq(
+    z_tr: np.ndarray, yc: np.ndarray, y_ss: float, coarse_f: float,
+) -> float:
+    """Two-stage local-refine of ``coarse_f`` on the TRAIN rows (pre-centered
+    ``yc`` / ``y_ss``), maximising periodogram power.
+
+    Stage 1 scans +-0.25 at 0.05 step (the coarse-grid spacing); stage 2 then
+    scans +-0.05 at 0.0125 step around the stage-1 winner. The finer second
+    pass tightens secondary-peak localisation after deflation -- which widens
+    the downstream Ridge recovery margin on multitone signals (a 0.05-only
+    refine left secondary tones mis-located by up to ~0.3, costing R^2)."""
+    def _scan(center: float, half_width: float, step: float) -> tuple[float, float]:
+        lo_r = max(0.05, center - half_width)
+        hi_r = center + half_width
+        n_steps = int(round((hi_r - lo_r) / step)) + 1
+        best_f = center
+        best_p = _power_centered(z_tr, yc, y_ss, center)
+        for k in range(n_steps):
+            f = lo_r + step * k
+            p = _power_centered(z_tr, yc, y_ss, f)
+            if p > best_p:
+                best_p = p
+                best_f = f
+        return best_f, best_p
+    f1, _ = _scan(coarse_f, 0.25, 0.05)
+    f2, _ = _scan(f1, 0.05, 0.0125)
+    return float(f2)
+
+
+def _deflate_sincos(z: np.ndarray, y: np.ndarray, freq: float) -> np.ndarray:
+    """Residual of ``y`` after least-squares projection onto
+    ``[1, sin(2*pi*freq*z), cos(2*pi*freq*z)]``. Removes the contribution of
+    one detected frequency so the next peak-pick sees the remaining tones."""
+    ang = 2.0 * np.pi * float(freq) * z
+    A = np.column_stack([np.ones_like(z), np.sin(ang), np.cos(ang)])
+    try:
+        coef, *_ = np.linalg.lstsq(A, y, rcond=None)
+        return y - A @ coef
+    except Exception:
+        return y
+
+
+def _detect_fourier_freqs_for_col(
+    z01: np.ndarray,
+    y: np.ndarray,
+    *,
+    f_grid: Sequence[float],
+    min_val_corr: float = 0.15,
+    min_rows: int = 800,
+    max_freqs: int = 4,
+) -> list[float]:
+    """MULTI-FREQUENCY adaptive detector (2026-06-03).
+
+    Returns the list of held-out-validated dominant z-space frequencies of
+    ``y`` as a function of ``z01`` -- the multitone generalisation of
+    :func:`_detect_fourier_freq_for_col`. Real signals routinely superpose
+    several arbitrary-period oscillations (``sin(3.7x) + sin(5.3x) +
+    sin(6.8x)``); detecting only the single dominant frequency leaves a Ridge
+    on the support unable to recover the sum.
+
+    Before any frequency search the target is POLYNOMIAL-DETRENDED: y is
+    regressed on ``[1, z, z^2, z^3]`` (cubic coefficients fit on TRAIN, applied
+    to VAL) and detection runs on the RESIDUAL. A monotone / smooth trend (the
+    linear-additive ``y = sign(x1 + 0.7*x2)``) has high LOW-frequency periodogram
+    power because a sub-1-cycle sinusoid mimics a ramp; the cubic absorbs it so
+    its z-frequency power collapses to ~0, while a genuine oscillation (which a
+    cubic cannot express) is left intact. This is the discriminator that
+    separates "arbitrary-period oscillation" from "trend the poly basis covers".
+
+    Each iteration then:
+
+    * picks the coarse peak by periodogram power on TRAIN, local-refines +-0.25
+      at 0.05 step,
+    * confirms ``sqrt(val-slice power) >= max(min_val_corr, 0.30)`` on the
+      held-out stride slice -- the 0.30 robust floor rejects finite-sample
+      chance peaks (40-seed linear-fixture max spurious 0.232 vs genuine >= 0.96
+      at n=800); ``min_val_corr`` is the user-raisable lower bound,
+    * DEFLATES both the train and val targets by least-squares-projecting out
+      that frequency's ``[1, sin, cos]`` so the next iteration sees the
+      remaining tones,
+
+    stopping at ``max_freqs`` or the first frequency that fails the held-out
+    gate. N-gated at ``n >= min_rows`` (default 800) so a small-n chance
+    frequency never fires. Frequencies already in the running list (within a
+    coarse-grid spacing) are skipped to avoid re-locking the same peak.
+    """
+    z01 = np.asarray(z01, dtype=np.float64).ravel()
+    y = np.asarray(y, dtype=np.float64).ravel()
+    n = z01.size
+    if n != y.size or n < int(min_rows):
+        return []
+    if not np.all(np.isfinite(z01)) or not np.all(np.isfinite(y)):
+        return []
+    if float(np.std(z01)) < 1e-12 or float(np.std(y)) < 1e-12:
+        return []
+    grid = [float(f) for f in f_grid if float(f) > 0.0]
+    if not grid:
+        return []
+    idx = np.arange(n)
+    val_mask = (idx % 3) == 0
+    train_mask = ~val_mask
+    z_tr, z_va = z01[train_mask], z01[val_mask]
+    y_tr = y[train_mask].copy()
+    y_va = y[val_mask].copy()
+    if z_tr.size < 16 or z_va.size < 8:
+        return []
+    if float(np.std(y_tr)) < 1e-12 or float(np.std(y_va)) < 1e-12:
+        return []
+    # POLYNOMIAL DETREND (2026-06-03): regress y on [1, z, z^2, z^3] and run
+    # detection on the RESIDUAL. A monotone / smooth trend (the linear-additive
+    # target ``y = sign(x1 + 0.7*x2)``) has HIGH periodogram power at LOW
+    # frequencies because a sub-1-cycle sinusoid mimics a monotone ramp -- so
+    # the raw periodogram would FALSE-POSITIVE a "frequency" on a non-periodic
+    # target (the linear fixture emitted a spurious ``x1__sin0.75``). A low-
+    # degree polynomial in z ABSORBS any such trend, so its z-frequency power
+    # collapses to ~0 after detrending (measured 0.689 -> 0.002), while a
+    # genuine oscillation -- which a cubic CANNOT express -- is left intact
+    # (sin(5.3x) power 0.94 retained). The cubic coefficients are fit on TRAIN
+    # and APPLIED to VAL (no val leakage); this is the discriminator that
+    # separates "arbitrary-period oscillation" from "smooth trend the poly
+    # basis already covers".
+    _V_tr = np.vander(z_tr, 4)  # [z^3, z^2, z, 1]
+    try:
+        _poly_coef, *_ = np.linalg.lstsq(_V_tr, y_tr, rcond=None)
+        y_tr = y_tr - _V_tr @ _poly_coef
+        y_va = y_va - np.vander(z_va, 4) @ _poly_coef
+    except Exception:
+        pass
+    if float(np.std(y_tr)) < 1e-9 or float(np.std(y_va)) < 1e-9:
+        return []
+    # Effective held-out floor. Even after the polynomial detrend, a FINITE-
+    # SAMPLE chance frequency can clear a lenient floor: across 40 linear-
+    # additive fixtures (``y = sign(x1 + 0.7*x2)``, n=1200) the max spurious
+    # held-out sqrt-power was 0.232, while a genuine oscillation sits at >= 0.96
+    # even at n=800 -- a wide gap. A robust 0.30 floor rejects the chance peaks
+    # without touching genuine recovery (gate-A multitone tones clear 0.6+).
+    # ``min_val_corr`` is honoured as a LOWER bound a caller can RAISE; the
+    # built-in 0.30 is the anti-false-positive guard the small-n regime needs.
+    _eff_min_val_corr = max(float(min_val_corr), 0.30)
+    # Precompute the coarse-grid sin/cos bases on TRAIN once: they depend only
+    # on z, not y, so deflation iterations reuse them (cProfile: the per-freq
+    # np.sin/np.cos + np.corrcoef was the dominant cost at p=200; this drops
+    # the coarse sweep to a centered dot product per cached basis).
+    _coarse_basis = []  # (sin_centered, sin_ss, cos_centered, cos_ss) per grid freq
+    for f in grid:
+        ang = 2.0 * np.pi * f * z_tr
+        s = np.sin(ang); c = np.cos(ang)
+        sc = s - s.mean(); cc = c - c.mean()
+        _coarse_basis.append((sc, float(sc @ sc), cc, float(cc @ cc)))
+    out: list[float] = []
+    for _ in range(max(1, int(max_freqs))):
+        if float(np.std(y_tr)) < 1e-9 or float(np.std(y_va)) < 1e-9:
+            break
+        yc = y_tr - y_tr.mean()
+        y_ss = float(yc @ yc)
+        if y_ss < 1e-24:
+            break
+        best_f = None
+        best_power = -1.0
+        for gi, f in enumerate(grid):
+            sc, s_ss, cc, c_ss = _coarse_basis[gi]
+            num_s = float(sc @ yc)
+            num_c = float(cc @ yc)
+            p = 0.0
+            if s_ss >= 1e-24:
+                p += (num_s * num_s) / (s_ss * y_ss)
+            if c_ss >= 1e-24:
+                p += (num_c * num_c) / (c_ss * y_ss)
+            if p > best_power:
+                best_power = p
+                best_f = f
+        if best_f is None:
+            break
+        refined_f = _refine_peak_freq(z_tr, yc, y_ss, best_f)
+        # Skip a frequency we've already locked (within half a coarse step).
+        if any(abs(refined_f - g) < 0.25 for g in out):
+            # Deflate at the coarse peak anyway so the loop can advance, then
+            # continue searching the remaining spectrum.
+            y_tr = _deflate_sincos(z_tr, y_tr, refined_f)
+            y_va = _deflate_sincos(z_va, y_va, refined_f)
+            continue
+        val_power = _periodogram_power(z_va, y_va, refined_f)
+        if val_power <= 0.0 or np.sqrt(val_power) < _eff_min_val_corr:
+            break
+        out.append(float(refined_f))
+        # Deflate both slices so the next peak-pick sees the residual tones.
+        y_tr = _deflate_sincos(z_tr, y_tr, refined_f)
+        y_va = _deflate_sincos(z_va, y_va, refined_f)
+    return out
+
+
+def _detect_fourier_freq_for_col(
+    z01: np.ndarray,
+    y: np.ndarray,
+    *,
+    f_grid: Sequence[float],
+    min_val_corr: float = 0.15,
+    min_rows: int = 800,
+) -> Optional[float]:
+    """ADAPTIVE-FREQUENCY Fourier detector (2026-06-03).
+
+    The fixed Fourier univariate grid only covers z-space frequencies {1, 2}.
+    An ARBITRARY-period oscillation (e.g. ``y = sin(3.7*x)``, ``sin(5.3*x)``)
+    lands at a non-integer z-space frequency and is missed by the fixed grid
+    (recovered at |corr| 0.02-0.23). This detector sweeps a coarse z-space
+    frequency grid, locally refines around the peak, and returns the dominant
+    frequency ONLY when a held-out validation slice confirms it -- otherwise
+    None (no adaptive column emitted).
+
+    Method
+    ------
+    * Deterministic stride train/val split: ``val = arange(n) % 3 == 0`` (a
+      third held out, no RNG so the recipe replays identically). The frequency
+      is RANKED on train rows and CONFIRMED on the held-out val rows -- a
+      chance frequency that fits a train slice but not the held-out slice is
+      rejected. This is the n-gated false-positive guard: a naive default-on
+      version regressed 9 tests because at small n a chance frequency clears
+      the gate. We require ``n >= min_rows`` (default 800) AND val-slice
+      confirmation.
+    * Rank ``f_grid`` by PERIODOGRAM POWER ``corr(sin)^2 + corr(cos)^2`` on the
+      TRAIN rows (phase-invariant: a single sin or cos alone has low |corr| for
+      a phase-shifted signal, so we must score the sin+cos pair jointly).
+    * Local-refine ``+-0.25`` at ``0.05`` step around the coarse peak (still on
+      train).
+    * KEEP the refined freq only if ``sqrt(val-slice periodogram power) >=
+      max(min_val_corr, 0.30)`` (the held-out effective |corr| of the sin+cos
+      support clears the floor). Otherwise return None.
+
+    Before the search, y is POLYNOMIAL-DETRENDED (cubic in z, train-fit /
+    val-applied) so a monotone / smooth trend cannot masquerade as a low
+    frequency; the 0.30 robust floor then rejects finite-sample chance peaks.
+    See :func:`_detect_fourier_freqs_for_col` for the full rationale.
+
+    ``z01`` is the SAME ``z = (x - lo) / span`` in [0, 1] that the Fourier
+    emitter uses, so the detected frequency drops straight into the emitter's
+    ``fourier_freqs`` for that column. ``y`` may be discrete or continuous;
+    Pearson on y is fine because we only need a phase-invariant linear-usability
+    score, not MI.
+
+    Returns the SINGLE dominant validated frequency (or None). The multitone
+    superposition case is handled by :func:`_detect_fourier_freqs_for_col`,
+    which this delegates to (taking the first detected peak) -- so the coarse-
+    sweep + local-refine + held-out-gate contract is shared verbatim.
+    """
+    freqs = _detect_fourier_freqs_for_col(
+        z01, y, f_grid=f_grid, min_val_corr=min_val_corr,
+        min_rows=min_rows, max_freqs=1,
+    )
+    return float(freqs[0]) if freqs else None
+
+
 def generate_extra_basis_features(
     X: pd.DataFrame,
     *,
@@ -1411,6 +1710,9 @@ def generate_extra_basis_features(
     spline_knots: int = 5,
     dedup_collinear_sources: bool = True,
     dedup_corr_threshold: float = 0.999,
+    y: Optional[np.ndarray] = None,
+    fourier_adaptive: bool = False,
+    fourier_adaptive_min_val_corr: float = 0.15,
 ) -> tuple[pd.DataFrame, dict]:
     """For each column in cols and each requested extra basis, emit the basis
     columns and return them alongside the per-column fit metadata (knot
@@ -1435,6 +1737,21 @@ def generate_extra_basis_features(
     dedup_collinear_sources : bool, default True
         Drop near-duplicate source columns before basis enumeration
         (mirrors the polynomial univariate path).
+    y : array-like, optional
+        Target. Only consulted when ``fourier_adaptive`` is True (and only by
+        the ADAPTIVE-FREQUENCY detector). Never read for the fixed-grid
+        emission, so the legacy path stays leakage-free / y-independent.
+    fourier_adaptive : bool, default False
+        When True and ``y`` is given, run :func:`_detect_fourier_freqs_for_col`
+        on each source column's z (power==1 only) and -- for each held-out-
+        validated dominant frequency found (multitone: several peaks via
+        residual deflation) -- ADD it to that column's Fourier frequency set.
+        The emitted sin/cos meta entries for adaptive frequencies are tagged
+        ``"adaptive": True`` so MRMR can protect them past screening. Covers
+        arbitrary-period oscillations and their superpositions
+        (``sin(3.7*x) + sin(5.3*x) + sin(6.8*x)``) the fixed grid {1, 2} misses.
+    fourier_adaptive_min_val_corr : float, default 0.15
+        Held-out validation effective-|corr| floor for the adaptive detector.
 
     Returns
     -------
@@ -1447,7 +1764,7 @@ def generate_extra_basis_features(
             on basis kind: spline -> {"basis": "spline", "src": ..., "knots":
             ndarray, "idx": int, "lo": float, "hi": float}; fourier ->
             {"basis": "fourier", "src": ..., "kind": "sin"/"cos", "freq":
-            float, "lo": float, "span": float}.
+            float, "lo": float, "span": float, "power": int[, "adaptive": True]}.
     """
     if cols is None:
         cols = [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])]
@@ -1463,6 +1780,20 @@ def generate_extra_basis_features(
     meta: dict = {}
     fourier_freqs = tuple(float(f) for f in fourier_freqs)
     spline_knots = max(2, int(spline_knots))
+    # Adaptive-frequency detection runs only when requested AND y is supplied.
+    # The y array is coerced to float once here (Pearson on y is all the
+    # phase-invariant periodogram needs); detection is gated per-column below.
+    _y_adapt = None
+    if fourier_adaptive and y is not None:
+        _y_adapt = np.asarray(y, dtype=np.float64).ravel()
+        if _y_adapt.size != len(X) or not np.all(np.isfinite(_y_adapt)):
+            _y_adapt = None
+    # Coarse z-space frequency sweep grid for the adaptive detector. Covers a
+    # wide period range (0.5 .. 8.0) at 0.5 stride; local refinement then
+    # snaps to the true non-integer frequency. The set of frequencies the
+    # detector may ADD is disjoint from the fixed grid by construction (a
+    # fixed freq that already recovers the signal needs no adaptive twin).
+    _adaptive_f_grid = tuple(0.5 * k for k in range(1, 17))  # 0.5 .. 8.0
     for col in cols:
         if col not in X.columns or not pd.api.types.is_numeric_dtype(X[col]):
             continue
@@ -1513,7 +1844,42 @@ def generate_extra_basis_features(
                     lo_f, span_f = _fit_fourier_for_col(_xp)
                     z = (_xp - lo_f) / max(span_f, 1e-12)
                     _pfx = "" if _p == 1 else f"p{_p}"
-                    for freq in fourier_freqs:
+                    # ADAPTIVE-FREQUENCY (2026-06-03): for the linear argument
+                    # (power==1) detect the column's dominant z-space frequency
+                    # from a coarse sweep + local refine, held-out validated.
+                    # The detected freq is ADDED to this column's freq set and
+                    # its sin/cos meta is tagged adaptive=True so MRMR protects
+                    # it past screening. Disjoint-by-detection from the fixed
+                    # grid: a fixed freq that already recovers the signal makes
+                    # the periodogram peak land near it, so the detector's
+                    # held-out gate is satisfied by the fixed twin too -- but
+                    # we still tag/add the refined freq because the fixed grid
+                    # cannot express a non-integer period.
+                    _adaptive_freqs: list[float] = []
+                    if _p == 1 and _y_adapt is not None:
+                        # max_freqs=6: a multitone superposition (3-4 genuine
+                        # tones) needs enough sin/cos pairs to SPAN the signal
+                        # subspace after the per-iteration deflation leaves a
+                        # residual -- 4 pairs recovered the 3-tone gate-A signal
+                        # at OOS R^2 ~0.95 but 6 pairs lift it to ~0.985, a far
+                        # safer margin above the 0.9 bar. Each extra freq still
+                        # passes the held-out 0.30 floor, so noise never inflates
+                        # the count (a pure-noise column stops at the first peak).
+                        _adaptive_freqs = _detect_fourier_freqs_for_col(
+                            z, _y_adapt,
+                            f_grid=_adaptive_f_grid,
+                            min_val_corr=float(fourier_adaptive_min_val_corr),
+                            min_rows=800,
+                            max_freqs=6,
+                        )
+                    _freqs_for_col = list(fourier_freqs)
+                    _adaptive_set: set[float] = set()
+                    for _af in _adaptive_freqs:
+                        if not any(abs(_af - f) < 1e-9 for f in _freqs_for_col):
+                            _freqs_for_col.append(_af)
+                            _adaptive_set.add(_af)
+                    for freq in _freqs_for_col:
+                        _is_adaptive = freq in _adaptive_set
                         ang = 2.0 * np.pi * freq * z
                         s_vals = np.sin(ang)
                         c_vals = np.cos(ang)
@@ -1524,7 +1890,7 @@ def generate_extra_basis_features(
                                 "basis": "fourier", "src": col,
                                 "kind": "sin", "freq": float(freq),
                                 "lo": float(lo_f), "span": float(span_f),
-                                "power": _p,
+                                "power": _p, "adaptive": _is_adaptive,
                             }
                         if float(np.std(c_vals)) > 1e-12:
                             name_c = f"{col}__{_pfx}cos{freq:g}"
@@ -1533,7 +1899,7 @@ def generate_extra_basis_features(
                                 "basis": "fourier", "src": col,
                                 "kind": "cos", "freq": float(freq),
                                 "lo": float(lo_f), "span": float(span_f),
-                                "power": _p,
+                                "power": _p, "adaptive": _is_adaptive,
                             }
             except Exception as exc:
                 logger.warning(
@@ -1566,6 +1932,7 @@ def _build_recipe_from_meta(name: str, meta_entry: dict):
             lo=float(meta_entry["lo"]),
             span=float(meta_entry["span"]),
             power=int(meta_entry.get("power", 1)),
+            adaptive=bool(meta_entry.get("adaptive", False)),
         )
     return None
 
@@ -1583,6 +1950,8 @@ def hybrid_orth_extra_basis_fe_with_recipes(
     min_uplift: float = 1.05,
     min_abs_mi_frac: float = 0.1,
     nbins: int = 10,
+    fourier_adaptive: bool = False,
+    fourier_adaptive_min_val_corr: float = 0.15,
 ):
     """Layer 32 hybrid: spline + Fourier univariate basis FE + MI-greedy
     selection. Mirrors :func:`hybrid_orth_mi_fe_with_recipes` for the
@@ -1592,11 +1961,18 @@ def hybrid_orth_extra_basis_fe_with_recipes(
     The selection rule is the same TWO-GATE chain as the polynomial path:
     relative uplift >= min_uplift AND engineered_mi >= max(legacy floor,
     noise-aware floor). See :func:`hybrid_orth_mi_fe` for the rationale.
+
+    ``fourier_adaptive`` (default False) forwards to
+    :func:`generate_extra_basis_features` -- when True, each source column's
+    dominant z-space frequency is detected (held-out validated) and added to
+    its Fourier set, with the emitted sin/cos recipes tagged ``adaptive=True``.
     """
     engineered, meta = generate_extra_basis_features(
         X, cols=cols, extra_bases=extra_bases,
         fourier_freqs=fourier_freqs, fourier_powers=fourier_powers,
         spline_knots=spline_knots,
+        y=y, fourier_adaptive=fourier_adaptive,
+        fourier_adaptive_min_val_corr=fourier_adaptive_min_val_corr,
     )
     if engineered.empty:
         empty_scores = pd.DataFrame(columns=[
@@ -1633,6 +2009,22 @@ def hybrid_orth_extra_basis_fe_with_recipes(
     ]
     winners = qualified.head(int(top_k))
     keep = list(winners["engineered_col"])
+    # FORCE-ADMIT adaptive Fourier columns: a single adaptive sin OR cos has a
+    # LOW marginal |corr| / MI for a phase-shifted oscillation (the phase is
+    # split between the two), so the per-column MI-uplift gate would drop them
+    # even though the sin+cos PAIR recovers the signal. The adaptive detector
+    # already validated the frequency on a held-out slice, so both legs are
+    # admitted unconditionally here; the downstream MRMR adaptive-protection
+    # block then keeps them past screening. Append in deterministic name order.
+    _adaptive_names = [
+        nm for nm, m in meta.items()
+        if m.get("basis") == "fourier" and m.get("adaptive", False)
+    ]
+    _keep_set = set(keep)
+    for nm in _adaptive_names:
+        if nm not in _keep_set and nm in engineered.columns:
+            keep.append(nm)
+            _keep_set.add(nm)
     X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy()
     recipes = []
     for name in keep:
