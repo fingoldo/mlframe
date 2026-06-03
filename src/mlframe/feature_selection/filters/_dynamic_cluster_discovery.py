@@ -141,7 +141,6 @@ class DCDState:
     n_cache_hits: int = 0
     n_cache_misses: int = 0
     # -- gates and runtime flags --
-    pruning_allowed: bool = False                                     # outer-loop two-shot gate
     # -- tunables (forwarded from MRMR ctor) --
     tau_cluster: float = 0.7
     distance: str = "su"
@@ -546,16 +545,32 @@ def pair_su(state: DCDState, a: int, b: int,
         # though the analytical bound holds.
         su = max(0.0, min(1.0, 1.0 - vi / norm)) if norm > 0 else 0.0
     elif state.distance == "sotoca_pla":
-        # Sotoca-Pla 2010 target-aware distance
+        # 2026-06-03 (audit integration-defaults-1): LEAKAGE FIREWALL.
+        # The Sotoca-Pla 2010 distance is TARGET-AWARE -- it reads I(X_i; Y)
+        # and I(X_j; Y):
         #   d(X_i, X_j) = 2 H(X_i, X_j) - I(X_i; X_j) - I(X_i; Y) - I(X_j; Y)
-        # Normalised by 2 H(X_i, X_j) to stay in [0, 1] range.
-        # iter616: same fn_arr + pair_buf caching pattern as the SU /
-        # VI branches above (iter587 / 589 / 590). Pre-fix this branch
-        # paid 5x ``np.asarray(fn, dtype=np.int64)`` + 5x ``np.array(
-        # [a|b|...], dtype=np.int64)`` allocations per pair call -- the
-        # SU branch saved 1.84x with this same pattern; SOTOCA_PLA has
-        # even more redundant allocations per call (5 fn_arr + 5 pair_-
-        # arr) so the saving should be at least as large.
+        # But ``pair_su`` is used ONLY to decide UNSUPERVISED cluster membership
+        # / pool pruning (discover_cluster_members, tau auto-calibration, the
+        # hierarchy analyser). Letting a y-aware score choose which candidates
+        # get pruned lets the target decide the feature support -- and a pruned
+        # candidate never gets a later y-aware accept/reject re-screen, so this
+        # is exactly the leak the rest of the clustering machinery forbids
+        # (_cluster_aggregate.py: "Aggregation is UNSUPERVISED; only the
+        # accept/reject GATE sees y"). So for membership we ALWAYS fall back to
+        # the unsupervised symmetric uncertainty here, regardless of target
+        # availability. A legitimate target-aware comparison belongs in the
+        # swap accept-gate (evaluate_swap_candidate), which is permitted to see
+        # y; it does not route through this distance.
+        if not getattr(state, "_warned_sotoca_membership", False):
+            logger.warning(
+                "DCD distance 'sotoca_pla' is target-aware and cannot drive "
+                "unsupervised cluster membership without leaking y into the "
+                "feature support; using symmetric uncertainty (SU) for pruning "
+                "instead. Set dcd_distance to 'su'/'vi'/'auto' to silence this."
+            )
+            state._warned_sotoca_membership = True
+        from .info_theory import symmetric_uncertainty
+        # iter616 caching pattern (fn_arr + pair_buf scratch) retained.
         fn_arr = state._fn_arr_cached
         if fn_arr is None:
             fn_arr = np.asarray(fn, dtype=np.int64)
@@ -564,57 +579,11 @@ def pair_su(state: DCDState, a: int, b: int,
         if pair_buf is None:
             pair_buf = np.empty(2, dtype=np.int64)
             state._pair_idx_buf = pair_buf
-        # Fallback to SU if target_indices unavailable.
-        if state.target_indices is None or state.target_indices.size == 0:
-            from .info_theory import symmetric_uncertainty
-            pair_buf[0] = a
-            pair_buf[1] = b
-            su = float(symmetric_uncertainty(
-                fd,
-                pair_buf[0:1],
-                pair_buf[1:2],
-                fn_arr,
-                dtype=dtype,
-            ))
-        else:
-            from .info_theory import mi, entropy, merge_vars
-            pair_buf[0] = a
-            pair_buf[1] = b
-            mi_ab = float(mi(fd, pair_buf[0:1], pair_buf[1:2],
-                              fn_arr, dtype=dtype))
-            mi_ay = float(mi(fd, pair_buf[0:1],
-                              state.target_indices,
-                              fn_arr, dtype=dtype))
-            mi_by = float(mi(fd, pair_buf[1:2],
-                              state.target_indices,
-                              fn_arr, dtype=dtype))
-            # H(X_a, X_b) via concatenated vars_indices. pair_buf
-            # already has [a, b]; pass the full 2-element slice.
-            _, freqs_ab, _ = merge_vars(
-                factors_data=fd,
-                vars_indices=pair_buf,
-                var_is_nominal=None,
-                factors_nbins=fn_arr,
-                dtype=dtype,
-            )
-            h_ab = float(entropy(freqs_ab))
-            denom = 2.0 * h_ab if h_ab > 1e-12 else 1.0
-            d = (2.0 * h_ab - mi_ab - mi_ay - mi_by) / denom
-            # Convert distance to similarity-like score (1 - d) so the
-            # threshold check ``score > tau_cluster`` semantics stay
-            # uniform with SU.
-            # 2026-05-30 Wave 9.1 fix (loop iter 32): clamp to [0, 1].
-            # Pre-fix the upper bound was unenforced: when target is
-            # highly informative about both X_a and X_b
-            # (``I(X_a;Y) + I(X_b;Y) > I(X_a;X_b)``, a common and
-            # expected case for target-informative features), ``d`` goes
-            # negative and the score exceeded 1.0 (live demo: 1.5).
-            # The score then triggered the cluster-membership rule
-            # ``score > tau_cluster`` for ANY tau in [0, 1] including
-            # the default 0.7, falsely pruning the very features
-            # sotoca_pla was designed to surface. Comment at line 305
-            # claimed "stay in [0,1] range" - true only after this clamp.
-            su = max(0.0, min(1.0, 1.0 - d))
+        pair_buf[0] = a
+        pair_buf[1] = b
+        su = float(symmetric_uncertainty(
+            fd, pair_buf[0:1], pair_buf[1:2], fn_arr, dtype=dtype,
+        ))
     else:
         raise ValueError(f"DCD: unknown distance {state.distance!r}")
     cache[key] = su
