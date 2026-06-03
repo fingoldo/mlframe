@@ -704,6 +704,18 @@ def check_prospective_fe_pairs(
         if verbose > 2:
             print(f"For pair {raw_vars_pair}, best config is {best_config} with best mi= {best_mi}")
 
+        # experiment-rejected (2026-06-03): a held-out-CV firewall here (score
+        # per-combo MI on a TRAIN stride slice for honest selection, then keep the
+        # winner only if its held-out VAL-slice MI retains >= ratio of train MI) was
+        # implemented and benched END-TO-END on Layer-49 -- NO gain. In an isolated
+        # probe it separated cleanly (genuine synergy val/train 0.90-1.04 vs noise-FE
+        # 0.12-0.36), BUT in the real pipeline the tighter prevalence-gate defaults
+        # (fe_synergy_min_prevalence 1.5 / fe_min_engineered_mi_prevalence 0.97)
+        # already remove the pure noise*noise products, and the RESIDUAL "noise" FE
+        # are signal*noise combos (e.g. max(log(L4_s2),noise_3) -- L4_s2 is a real
+        # sensor) that genuinely generalise (val/train > 0.5) and SHOULD be kept; the
+        # firewall's train-based selection (half the rows) then merely added selection
+        # noise (+1 support). Prevalence gating subsumes the win -> not shipped.
         # Standard acceptance: the best engineered MI clears the configured
         # fraction of the 2-D pair-joint MI.
         _passes_joint_gate = best_mi / pair_mi > fe_min_engineered_mi_prevalence * (1.0 if num_fs_steps < 1 else 1.025)
