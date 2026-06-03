@@ -82,6 +82,7 @@ __all__ = [
     # filters._cluster_aggregate path).
     "derive_cluster_weights",
     "standardize_align_cluster",
+    "apply_cluster_aggregate_nonlinear",
 ]
 
 
@@ -92,6 +93,7 @@ from ._kernel_tuning import get_kernel_tuning_cache  # noqa: E402, F401
 from ._cluster_aggregate import (  # noqa: E402, F401
     _derive_weights as derive_cluster_weights,
     _standardize_align as standardize_align_cluster,
+    _apply_method_nonlinear as apply_cluster_aggregate_nonlinear,
 )
 
 

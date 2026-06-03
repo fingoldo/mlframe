@@ -240,6 +240,7 @@ def build_unit_matrix(
     from mlframe.feature_selection.filters import (
         derive_cluster_weights as _derive_weights,
         standardize_align_cluster as _standardize_align,
+        apply_cluster_aggregate_nonlinear as _apply_nonlinear,
     )
 
     X = np.ascontiguousarray(np.asarray(X, dtype=np.float64))
@@ -261,7 +262,13 @@ def build_unit_matrix(
         M = X[:, members]
         Z, _mean, _std, _signs = _standardize_align(M, 0)  # ref = first member
         w = _derive_weights(Z, weighting)
-        agg = np.median(Z, axis=1) if w is None else (Z @ w)
+        # 2026-06-03 (audit gap-04): when the combiner is non-linear,
+        # _derive_weights returns None for ALL of median/median_z/signed_max_abs/
+        # signed_l2_sum. The old ``np.median`` fallback silently collapsed
+        # signed_max_abs and signed_l2_sum to a plain median, diverging from the
+        # canonical _cluster_aggregate dispatch. Route them through the shared
+        # row-reducer so the requested non-linear aggregator is actually applied.
+        agg = _apply_nonlinear(Z, weighting) if w is None else (Z @ w)
         unit_cols.append(np.ascontiguousarray(agg, dtype=np.float64))
         unit_to_members.append(np.array(members, dtype=np.int64))
         unit_kind.append(f"cluster:{len(members)}")
