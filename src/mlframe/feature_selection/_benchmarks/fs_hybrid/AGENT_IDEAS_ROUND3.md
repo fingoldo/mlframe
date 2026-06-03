@@ -7,9 +7,15 @@ SELECTION method recovers them — only FE creates the term, or an interaction-a
 Status: TODO | TESTING | DONE-*. Decision rule (CLAUDE.md §6): most accurate first, fastest breaks ties.
 
 ## HybridSelector
-- H3-1 **FE-as-shared-substrate** (TOP): run the MRMR member with fe_max_steps=1, build X_aug=[raw|engineered] once
-  (MRMR.transform replays recipes leakage-free), run shap/boruta/vote on X_aug. Expect auc_mean 0.786 -> ~0.83
-  while keeping recall 1.0. Test: hybrid fe on vs off on make_dataset 3 seeds; KILL if auc<0.81 or recall<0.90. TODO
+- H3-1 **FE-as-shared-substrate** (TOP) — DONE-SHIPPED (huge win): implemented use_fe (MRMR member engineers, X_aug=
+  [raw|engineered] built once via leakage-free recipe replay, all members + vote + transform run on X_aug). Benched
+  3 seeds on make_dataset: auc_mean 0.786 -> 0.830 (+0.046), logit 0.7515 -> 0.8486 (+0.097) -- it MATCHES the best
+  whole-bed strategy mrmr_fe (0.831). FE driver gini vs permutation TIED (0.8288 vs 0.8299) so gini (2x faster) is
+  the default. Caveat: with FE the hybrid converges to mrmr_fe behaviour (base_recall 0.96->0.58, the engineered
+  features replace raw bases; mrmr_fe makes the same trade) and costs ~2-4x mrmr_fe for the same AUC -- so FE-hybrid
+  ties rather than beats mrmr_fe ON THIS BED; its distinct value (recall champion 0.96) is the use_fe=False mode.
+  Shipped use_fe=True default. Note: under FE the shap member can't reuse MRMR's precomputed MI/SU (artifacts cover
+  raw only, not eng_N) so it recomputes -- compute-once still holds for FI+clusters.
 - H3-2 Per-member realized-subset OOF-AUC vote weight (NOT the rejected standalone-skill weight): weight each
   member's vote by its selected subset's honest OOF AUC (mrmr_fe~0.835 vs shap~0.75 provably differ). Test: <2/12
   cells change -> KILL. TODO
@@ -35,7 +41,10 @@ Status: TODO | TESTING | DONE-*. Decision rule (CLAUDE.md §6): most accurate fi
 ## BorutaShap
 - B3-1 **Promote cluster-premerge into the class** (TOP; coordination-flagged): R2b-6 confirmed win (7/12, +recall,
   -noise, faster) lives only in the hybrid. Add premerge_clusters= option. Test = round2_boruta_driver bench vs class. TODO
-- B3-2 Flip BorutaSel adapter default to held-out permutation driver (noise 1.3->~0.3; fs_selectors-only, safe now). TODO
+- B3-2 Flip to held-out permutation driver — DONE-benched (REJECTED inside the hybrid): as the hybrid boruta-member
+  driver it was net-negative without FE (noise 2.33->1.33 only, recall 0.96->0.88, auc 0.784->0.779, 2.5x slower) and
+  merely TIED gini with FE on (0.8288 vs 0.8299) at 2x cost -> gini stays the hybrid default. (Permutation as the
+  STANDALONE BorutaSel adapter default vs gini on the big bench is a separate fs_selectors-only question, still open.)
 - B3-3 Enable cross-subsample stability intersection in the adapter default (noise->0; risk recall like fi_guard). TODO
 - B3-4 FE-augmented Boruta cascade MRMRSel(fe=True)->BorutaSel (fs_selectors-only, safe now; close FE gap). TODO
 - B3-5 Trial-progressive shadow percentile (90->99 ramp); risk = shares B4 EVT same-draw ceiling. TODO
@@ -43,10 +52,12 @@ Status: TODO | TESTING | DONE-*. Decision rule (CLAUDE.md §6): most accurate fi
 - (rejected by the agent itself: pruning the dead IsolationForest sample path = speed/hygiene only, no AUC.)
 
 ## ShapProxiedFS
-- S3-1 **Turn ON interaction_aware in the AUC callers** (TOP; one-line, already-wired path, never switched on):
-  additivity coalition base+sum Phi_ik values the pure-interaction operands the additive proxy misses (the reason
-  recall stalls at 5/8). NOT the closed interaction-RANKING (S2/B3/R1) -- it is the coalition OBJECTIVE feeding honest
-  revalidation. Test base/xor2: {inf_4,inf_5} recovered + AUC up; KILL if absent or reval discards. TODO
+- S3-1 Turn ON interaction_aware in the AUC callers — DONE-benched (REJECTED as default): a pure flip is a NO-OP
+  because the path is gated `phi.shape[1] <= max_interaction_features` (=16) and these cells have >16 SHAP units
+  post-prefilter, so it never fires (interaction_on == off in all 4 probe cells). RAISING the gate to 60 to force it
+  engages an O(P^2) TreeSHAP interaction tensor that is prohibitively slow (~1.6GB, stuck minutes) on ~40 units, so
+  the gate at 16 is correct and interaction_aware is NOT a viable default on wide data. It is only usable post-
+  aggressive-clustering (units <=16). FE (H3-1) is the recovery mechanism that actually works here instead.
 - S3-2 Auto-calibrate parsimony_tol from holdout-SPLIT variance (the named R2s-1 fix, split-std not model-seed-std). TODO
 - S3-3 Interaction-augmented prefilter so operands survive to the SHAP stage (prereq for S3-1; check report.prefilter). TODO
 - S3-4 Raise n_revalidation_models 2->5 with adaptive early-stop (stabler winner -> recover dropped base). TODO

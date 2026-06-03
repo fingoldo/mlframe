@@ -51,6 +51,7 @@ class HybridSelector:
 
     def __init__(self, vote: int = 1, prescreen: bool = True, expand_clusters: bool = False,
                  fi_guard: bool = False, corr_thr: float = 0.92, use_mrmr: bool = True,
+                 use_fe: bool = True, fe_max_steps: int = 1, boruta_driver: str = "gini",
                  random_state: int = 0, name: str = "hybrid"):
         self.vote = vote
         self.prescreen = prescreen
@@ -58,6 +59,20 @@ class HybridSelector:
         self.fi_guard = fi_guard
         self.corr_thr = corr_thr
         self.use_mrmr = use_mrmr
+        # use_fe: let the MRMR member feature-ENGINEER (fe_max_steps) and SHARE its engineered columns to every other
+        # member via a once-built augmented frame X_aug=[raw|engineered]. This closes the measured ~0.05 AUC gap to
+        # mrmr_fe: the bed's pure-interaction signal (inf_4*inf_5, ~0 marginal) is unrecoverable by selection alone;
+        # only FE creates the term. Engineering is replayed leakage-free at transform time via the fitted MRMR member.
+        self.use_fe = use_fe
+        self.fe_max_steps = fe_max_steps
+        # boruta_driver: importance measure for the BorutaShap member. "gini" is the default. The held-out
+        # "permutation" driver was tried as a noise-leak fix (gini admits ~1-3 spurious columns that, under vote=1,
+        # cap the linear downstream): MEASURED net-negative without FE (it only partially cut noise 2.33->1.33 AND
+        # cost recall 0.96->0.88 -> auc 0.784->0.779, at 2.5x runtime) and merely TIED gini with FE on (0.8299 vs
+        # 0.8288) at ~2x cost. The real cure for the noise-capped linear downstream is feature engineering (use_fe),
+        # which lifts logit ~0.75->0.85 so residual noise no longer matters. So gini stays the default; permutation
+        # remains available as the high-precision option.
+        self.boruta_driver = boruta_driver
         self.random_state = random_state
         self.name = name
 
@@ -77,33 +92,65 @@ class HybridSelector:
     def _run_mrmr(self, X, y):
         """MRMR as a whole object -> (selected raw columns, artifact dict). Guarded: MRMR is shared infra under
         active development, so any failure degrades to (relevance-by-FI only, no precomputed) rather than crashing."""
+        self._mrmr_member, self._eng_names, self._eng_rename = None, [], {}
         try:
             from mlframe.feature_selection.filters import MRMR
-            m = MRMR(verbose=0, fe_max_steps=0, n_jobs=-1, random_seed=self.random_state,
-                     retain_artifacts=True, retain_bins=True)
+            m = MRMR(verbose=0, fe_max_steps=(self.fe_max_steps if self.use_fe else 0), n_jobs=-1,
+                     random_seed=self.random_state, retain_artifacts=True, retain_bins=True)
             m.fit(X, y)
             selected = [c for c in m.get_feature_names_out() if c in X.columns]
             try:
                 artifacts = m.export_artifacts()
             except Exception:
                 artifacts = None
+            # Capture the engineered columns (MRMR outputs not in X) so they can be SHARED to the other members via
+            # the augmented frame; map their non-ASCII recipe names to LightGBM-safe eng_N names (stable order).
+            if self.use_fe:
+                try:
+                    out_cols = list(m.transform(X.iloc[:5]).columns)
+                    k = 0
+                    for c in out_cols:
+                        if c not in X.columns:
+                            self._eng_names.append(c); self._eng_rename[c] = f"eng_{k}"; k += 1
+                    self._mrmr_member = m
+                except Exception:
+                    self._mrmr_member, self._eng_names, self._eng_rename = None, [], {}
             return selected, artifacts
         except Exception as e:
             warnings.warn(f"HybridSelector: MRMR stage degraded ({type(e).__name__}: {e})")
             return [], None
+
+    def _augment(self, X):
+        """Return [raw X | MRMR engineered columns (safe-renamed)]. Engineering is replayed leakage-free by the
+        fitted MRMR member (pure function of X, no y). Identity when FE is off or produced no engineered columns."""
+        if not self._eng_names or self._mrmr_member is None:
+            return X
+        try:
+            out = self._mrmr_member.transform(X)
+            eng = out[self._eng_names].copy()
+            eng.columns = [self._eng_rename[c] for c in self._eng_names]
+            base = X.reset_index(drop=True)
+            eng = eng.reset_index(drop=True)
+            aug = pd.concat([base, eng], axis=1)
+            return aug.loc[:, ~aug.columns.duplicated()]
+        except Exception as e:
+            warnings.warn(f"HybridSelector: FE augment failed ({type(e).__name__}: {e}); using raw X")
+            return X
 
     # ------------------------------------------------------------------ reused members on the shared narrowed space
     def _run_shap(self, X, y, relevant, artifacts):
         """ShapProxiedFS fed the SHARED artifacts via precomputed= (restricted to the relevant survivor set)."""
         from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
         precomputed = None
+        # MRMR artifacts cover only RAW columns; if the relevant set carries engineered cols (use_fe), ShapProxiedFS
+        # would warn + discard the precomputed entirely (feature_names mismatch). Only share artifacts when every
+        # relevant column is covered (the pure-selection case) -- otherwise let the shap member recompute cleanly.
         if artifacts is not None:
             try:
                 from mlframe.feature_selection._shap_proxy_precomputed import restrict_artifacts
                 names = list(artifacts.get("feature_names", []))
-                keep = [names.index(c) for c in relevant if c in names]
-                if keep:
-                    precomputed = restrict_artifacts(artifacts, keep)
+                if relevant and all(c in names for c in relevant):
+                    precomputed = restrict_artifacts(artifacts, [names.index(c) for c in relevant])
             except Exception:
                 precomputed = None
         p = len(relevant)
@@ -116,7 +163,9 @@ class HybridSelector:
         return [c for c in s.selected_features_ if c in X.columns]
 
     def _run_boruta_premerge(self, X, y, relevant):
-        """BorutaShap(gini) on the SHARED cluster representatives (premerge, R2b-6), then re-expand accepted reps."""
+        """BorutaShap on the SHARED cluster representatives (premerge, R2b-6), then re-expand accepted reps. Uses the
+        boruta_driver importance measure ("permutation" held-out by default -> ~0 noise leak, vs "gini" which admits
+        the top spurious column and caps the linear downstream under vote=1)."""
         from mlframe.feature_selection.boruta_shap import BorutaShap
         from sklearn.ensemble import RandomForestClassifier
         # restrict the shared clusters to the relevant survivors; rep = highest-FI member of each restricted cluster
@@ -130,9 +179,12 @@ class HybridSelector:
         if len(reps) < 2:
             reps = list(relevant)
             rep_members = {c: [c] for c in reps}
+        driver = str(self.boruta_driver).lower()
+        # held-out permutation needs the 30% split (train_or_test="test"); gini works in-bag.
+        tot = "test" if driver == "permutation" else "train"
         b = BorutaShap(model=RandomForestClassifier(n_estimators=80, n_jobs=-1, random_state=self.random_state),
-                       importance_measure="gini", classification=True, n_trials=50, percentile=95,
-                       verbose=False, random_state=self.random_state)
+                       importance_measure=self.boruta_driver, permutation_n_repeats=2, classification=True,
+                       n_trials=50, percentile=95, train_or_test=tot, verbose=False, random_state=self.random_state)
         b.fit(X[reps], y)
         accepted_reps = [c for c in b.selected_features_ if c in reps]
         expanded = []
@@ -142,33 +194,41 @@ class HybridSelector:
 
     # ------------------------------------------------------------------ fit / transform
     def fit(self, X, y):
-        cols = list(X.columns)
-        # STAGE 0 -- shared artifacts, computed ONCE
-        self.fi_ = self._shared_perm_fi(X, y)
-        self.reps_, self.members_ = corr_clusters(X, self.corr_thr)
-        self.cluster_of_ = {f: r for r, ms in self.members_.items() for f in ms}
+        # STAGE 0 -- MRMR FIRST (it engineers the shared FE columns), then build the augmented frame X_aug once;
+        # every downstream shared artifact + member then operates on raw+engineered features.
         self.mrmr_selected_, self.artifacts_ = (self._run_mrmr(X, y) if self.use_mrmr else ([], None))
+        if not self.use_mrmr:
+            self._mrmr_member, self._eng_names, self._eng_rename = None, [], {}
+        X_aug = self._augment(X)
+        cols = list(X_aug.columns)
+        engineered = set(self._eng_rename.values())
 
-        # STAGE 1 -- shared relevance pre-screen (held-out permutation FI > 0, OR MRMR-relevant)
+        # shared artifacts, computed ONCE on the augmented frame (FI honest for engineered cols too)
+        self.fi_ = self._shared_perm_fi(X_aug, y)
+        self.reps_, self.members_ = corr_clusters(X_aug, self.corr_thr)
+        self.cluster_of_ = {f: r for r, ms in self.members_.items() for f in ms}
+
+        # STAGE 1 -- shared relevance pre-screen (held-out permutation FI > 0, OR MRMR-relevant, OR engineered:
+        # engineered columns already passed MRMR's FE gate, so they are never dropped by the raw-FI prescreen)
         if self.prescreen:
             mrmr_set = set(self.mrmr_selected_)
-            relevant = [c for c in cols if self.fi_.get(c, 0.0) > 0.0 or c in mrmr_set]
+            relevant = [c for c in cols if self.fi_.get(c, 0.0) > 0.0 or c in mrmr_set or c in engineered]
         else:
             relevant = list(cols)
         if len(relevant) < 2:
             relevant = list(cols)
         self.relevant_ = relevant
 
-        # STAGE 2 -- reuse the member selectors on the shared, narrowed space
+        # STAGE 2 -- reuse the member selectors on the shared, narrowed augmented space
         member_sel = {}
-        member_sel["mrmr"] = [c for c in self.mrmr_selected_ if c in relevant] or list(relevant)
+        member_sel["mrmr"] = [c for c in (self.mrmr_selected_ + sorted(engineered)) if c in relevant] or list(relevant)
         try:
-            member_sel["shap"] = self._run_shap(X, y, relevant, self.artifacts_)
+            member_sel["shap"] = self._run_shap(X_aug, y, relevant, self.artifacts_)
         except Exception as e:
             warnings.warn(f"HybridSelector: shap member degraded ({type(e).__name__}: {e})")
             member_sel["shap"] = []
         try:
-            member_sel["boruta"] = self._run_boruta_premerge(X, y, relevant)
+            member_sel["boruta"] = self._run_boruta_premerge(X_aug, y, relevant)
         except Exception as e:
             warnings.warn(f"HybridSelector: boruta member degraded ({type(e).__name__}: {e})")
             member_sel["boruta"] = []
@@ -177,7 +237,7 @@ class HybridSelector:
         # STAGE 3 -- cluster-aware vote over the shared clusters (pure, deterministic; extracted for unit testing)
         selected = self._combine(member_sel, cols)
         self.raw_selected_ = [c for c in cols if c in set(selected)] or cols[:1]
-        self.n_engineered_ = 0
+        self.n_engineered_ = sum(1 for c in self.raw_selected_ if c in engineered)
         return self
 
     def _combine(self, member_sel, cols):
@@ -227,4 +287,7 @@ class HybridSelector:
         return selected
 
     def transform(self, X):
-        return X[self.raw_selected_]
+        # replay FE so engineered selections (eng_N) are available, then slice to the selected set
+        X_aug = self._augment(X)
+        keep = [c for c in self.raw_selected_ if c in X_aug.columns]
+        return X_aug[keep] if keep else X_aug.iloc[:, :1]

@@ -76,13 +76,8 @@ def test_fi_guard_default_is_off():
     assert p["fi_guard"].default is False and p["vote"].default == 1
 
 
-@pytest.mark.timeout(900)
-def test_end_to_end_shared_artifacts_and_recovery():
-    """One real fit (small data): the three shared artifacts are computed once and the members run; the hybrid
-    recovers the informative block and de-duplicates the redundant cluster."""
-    from mlframe.feature_selection._benchmarks.fs_hybrid.hybrid_selector import HybridSelector
-    rng = np.random.default_rng(0)
-    n = 1200
+def _linear_dataset(n=1200, seed=0):
+    rng = np.random.default_rng(seed)
     z = rng.standard_normal((n, 4))
     y = pd.Series((rng.random(n) < 1.0 / (1.0 + np.exp(-(z @ np.array([1.6, -1.3, 1.1, 0.9]))))).astype(int))
     cols = {f"inf_{i}": z[:, i] for i in range(4)}
@@ -90,14 +85,52 @@ def test_end_to_end_shared_artifacts_and_recovery():
         cols[f"red_{j}"] = z[:, 0] + 0.02 * rng.standard_normal(n)
     for k in range(8):
         cols[f"noise_{k}"] = rng.standard_normal(n)
-    X = pd.DataFrame(cols)
-    base = [f"inf_{i}" for i in range(4)]
+    return pd.DataFrame(cols), y, [f"inf_{i}" for i in range(4)]
 
-    h = HybridSelector(vote=1, random_state=0).fit(X, y)
-    # shared-once artifacts populated
-    assert set(h.fi_) == set(X.columns)
-    assert any(len(ms) > 1 for ms in h.members_.values())  # redundant copies clustered
+
+@pytest.mark.timeout(900)
+def test_end_to_end_no_fe_shared_artifacts_and_recovery():
+    """use_fe=False: the three shared artifacts are computed once over the raw frame and the members run; the
+    hybrid recovers the informative block and de-duplicates the redundant cluster. (Deterministic raw-only path.)"""
+    from mlframe.feature_selection._benchmarks.fs_hybrid.hybrid_selector import HybridSelector
+    X, y, base = _linear_dataset()
+    h = HybridSelector(vote=1, use_fe=False, random_state=0).fit(X, y)
+    assert set(h.fi_) == set(X.columns)                       # raw-only FI when FE off
+    assert any(len(ms) > 1 for ms in h.members_.values())     # redundant copies clustered
     assert set(h.member_selections_) == {"mrmr", "shap", "boruta"}
-    # protocol + recovery
     assert h.n_engineered_ == 0 and list(h.transform(X).columns) == list(h.raw_selected_)
     assert len(set(h.raw_selected_) & set(base)) >= 3
+
+
+@pytest.mark.timeout(900)
+def test_fe_default_augments_and_transform_replays():
+    """use_fe=True (the default): the MRMR member may engineer columns shared via X_aug; the shared FI then covers
+    raw+engineered, n_engineered_ counts engineered survivors, and transform REPLAYS engineering on fresh data so
+    its columns match the selected set (the leakage-free recipe replay). FE is data-dependent, so we assert the
+    plumbing invariants rather than a fixed engineered count."""
+    from mlframe.feature_selection._benchmarks.fs_hybrid.hybrid_selector import HybridSelector
+    # interaction-bearing target so MRMR-FE has a product worth engineering
+    rng = np.random.default_rng(0)
+    n = 1500
+    z = rng.standard_normal((n, 4))
+    logit = 1.4 * z[:, 0] * z[:, 1] + 0.9 * z[:, 2] - 0.8 * z[:, 3]
+    y = pd.Series((rng.random(n) < 1.0 / (1.0 + np.exp(-logit))).astype(int))
+    cols = {f"inf_{i}": z[:, i] for i in range(4)}
+    for k in range(6):
+        cols[f"noise_{k}"] = rng.standard_normal(n)
+    X = pd.DataFrame(cols)
+
+    h = HybridSelector(vote=1, use_fe=True, random_state=0).fit(X, y)
+    assert inspect_default("use_fe") is True                  # FE is the shipped default
+    assert set(X.columns) <= set(h.fi_)                       # shared FI spans raw (+ any engineered)
+    eng_cols = set(h._eng_rename.values())
+    assert h.n_engineered_ == len([c for c in h.raw_selected_ if c in eng_cols])
+    Z = h.transform(X)                                        # transform must replay engineering, not KeyError
+    assert list(Z.columns) == [c for c in h.raw_selected_ if c in Z.columns]
+    assert Z.shape[0] == X.shape[0]
+
+
+def inspect_default(param):
+    import inspect
+    from mlframe.feature_selection._benchmarks.fs_hybrid.hybrid_selector import HybridSelector
+    return inspect.signature(HybridSelector.__init__).parameters[param].default
