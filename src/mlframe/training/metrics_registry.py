@@ -461,12 +461,21 @@ def _register_builtin_multi_target_regression():
     )
 
     def _coerce_nk(y_true, preds):
-        """Coerce both args to 2-D (N, K). Tolerant of (N,) -> (N, 1)."""
+        """Coerce both args to 2-D (N, K). Tolerant of (N,) -> (N, 1), and of a
+        flattened (N*K,) preds vector -> (N, K) when its element count matches a
+        2-D ``y_true``. Multi-target predictions sometimes reach the reporter
+        C-order-raveled to (N*K,); pre-fix this hit the ``pr.reshape(-1, 1)``
+        fallback -> (N*K, 1), so sklearn saw inconsistent samples [N, N*K] and
+        every MTR metric (rmse_macro / mae_macro / r2_macro / ...) was omitted from
+        the report. reshape(yt.shape) is the exact inverse of the C-order ravel, so
+        the per-row K-vectors are recovered (verified bit-exact vs the (N, K) path)."""
         yt = _np.asarray(y_true)
         pr = _np.asarray(preds)
         if yt.ndim == 1:
             yt = yt.reshape(-1, 1)
-        if pr.ndim == 1:
+        if pr.ndim == 1 and yt.ndim == 2 and yt.shape[1] > 1 and pr.size == yt.size:
+            pr = pr.reshape(yt.shape)
+        elif pr.ndim == 1:
             pr = pr.reshape(-1, 1)
         return yt, pr
 
