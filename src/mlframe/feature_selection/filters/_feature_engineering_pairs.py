@@ -59,6 +59,13 @@ def _select_single_best(perf: dict, cols_names: Sequence, secondary: dict | None
     """
     if not perf:
         return None
+    # measure-experiment-rejected (2026-06-03): a |corr| tie-break among the
+    # MI-leading equivalence class (to prefer the most linearly-usable algebraic
+    # form) was benchmarked and gives NO gain -- the forms within ~5% of the max
+    # target MI are syntactic variants of the SAME function (a2/b == sqr(a)/b),
+    # so their |corr| with y is identical (0/6 cases differed, OOS-Ridge delta
+    # +0.000). Genuinely-different forms (a/b, a2/sqrt|b|) have DIFFERENT MI and
+    # fall outside the band. The MI primary key + external-val secondary is right.
     # Lazy import (parent re-imports this module at its bottom -> avoid a
     # top-level cycle); mirrors the in-function import at the call sites.
     from .feature_engineering import get_new_feature_name
@@ -327,6 +334,14 @@ def check_prospective_fe_pairs(
                 _recon = _wa * _wb
                 if float(np.std(_recon)) < 1e-12 or float(np.std(_y_val)) < 1e-12:
                     return False
+                # measure-experiment-rejected (2026-06-03): a dcor / MI held-out
+                # floor (to recover non-monotone XOR prewarps that |corr| might
+                # under-credit at small n) gives NO gain. The rank-1 reconstruction
+                # f(a)*g(b) is FIT to approximate y, so it is linear-in-y by
+                # construction -> |Pearson| is the right measure and is already
+                # high for genuine synergy (XOR-sign reconstruction |corr| 0.64-0.75
+                # at n=200, far above this 0.08 floor); benched 0/20 cases where
+                # |corr|<floor BUT dcor>=0.15 across mul/xor-sign/sq*abs/a*sin(b).
                 return abs(float(np.corrcoef(_recon, _y_val)[0, 1])) >= _pw_min_val_corr
             except Exception:
                 return True  # validation failure -> fall back to accepting the warp
