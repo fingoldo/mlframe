@@ -95,6 +95,7 @@ if _PYDANTIC_AVAILABLE:
         coef_scale_source: str = "train"
         cpi_max_depth: Optional[int] = None
         cpi_min_samples_leaf: int = 10
+        n_repeats: int = 5  # repeats for 'permutation'/'conditional_permutation' importance (surfaced for tuning)
 
         # Loss-of-trust handling
         keep_loser_subset_fi: bool = False

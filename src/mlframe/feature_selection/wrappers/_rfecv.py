@@ -335,6 +335,9 @@ class RFECV(BaseEstimator, TransformerMixin):
         cpi_max_depth: Union[int, None] = None,
         # F10: min_samples_leaf for the conditional-permutation auxiliary tree. Default 10 (NEW) follows Strobl 2008 (>=5 recommended).
         cpi_min_samples_leaf: int = 10,
+        # repeats for 'permutation' / 'conditional_permutation' importance (forwarded to get_feature_importances at each
+        # fold + the stability bootstraps). Surfaced for tuning; default 5 keeps prior behaviour.
+        n_repeats: int = 5,
         # F6: when False (NEW default), multi-estimator + AM/GM auto-falls-back to Borda. Set True to keep the user's choice for
         # benchmark / A-B purposes.
         allow_unsafe_aggregation: bool = False,

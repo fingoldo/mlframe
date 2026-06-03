@@ -267,6 +267,7 @@ def _eval_fold_body(
             coef_scale_source=getattr(self, "coef_scale_source", "train"),
             cpi_max_depth=getattr(self, "cpi_max_depth", None),
             cpi_min_samples_leaf=int(getattr(self, "cpi_min_samples_leaf", 10)),
+            n_repeats=int(getattr(self, "n_repeats", 5)),
         )
         if must_include_resolved:
             must_set = set(must_include_resolved)
