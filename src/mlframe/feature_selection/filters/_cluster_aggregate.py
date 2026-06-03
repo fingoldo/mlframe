@@ -270,7 +270,15 @@ def _continuous_cols(X, names: Sequence[str]) -> np.ndarray:
 
 
 def _connected_components(n: int, edges: list) -> list:
-    """Union-find connected components over ``edges`` (list of (a,b) into 0..n-1)."""
+    """Union-find connected components over ``edges`` (list of (a,b) into 0..n-1).
+
+    2026-06-03 bench-attempt-rejected (bench_community_vs_single_linkage): replacing
+    this single-linkage CC with modularity/Louvain community detection gives NO win.
+    On the thresholded binned-SU graph the chaining failure mode does not occur --
+    a moderate bridge (corr ~0.6 to two groups) has binned SU ~0.09, far below tau,
+    so it never links groups; single-linkage already recovers planted groups at
+    ARI 1.0. Binning + the SU threshold supply the separation modularity would add.
+    """
     parent = list(range(n))
 
     def find(x):
