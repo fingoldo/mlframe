@@ -72,8 +72,19 @@ Status: TODO | TESTING | DONE-*. Decision rule (CLAUDE.md §6): most accurate fi
   drops the draw-level spurious column (R2-era finding) but at a recall cost (it also drops inconsistently-relevant
   features) -- the same recall-for-precision trade the rejected fi_guard made. It is already an opt-in (boruta_stable
   in the roster); not made the default because the big bench's downstream AUC prefers recall. Available, not default.
-- B3-4 FE-augmented Boruta cascade — DONE-wired (benching in the big re-benchmark): registered boruta_fe =
-  MRMRSel(fe=True)->BorutaSel; the big re-benchmark measures whether FE closes Boruta's gap (analogous to mrmr_fe).
+- B3-4 FE-augmented Boruta cascade — DONE-BENCHED (WIN, ties the best): boruta_fe = MRMRSel(fe=True)->BorutaSel in
+  the final big benchmark (3 seeds) scored auc_mean 0.8379 vs plain boruta 0.7722 = +0.066, TYING mrmr_fe (0.8379)
+  and the FE tier. FE fully closes Boruta's gap (same mechanism as the hybrid/mrmr FE wins). Shipped as the boruta_fe
+  roster strategy.
+
+## Final big benchmark (run_experiment.py, 3 seeds, 24 strategies) -- round-3 wins confirmed head-to-head
+auc_mean leaders, all FE-driven: H2 mrmr_fe->rfecv_logit 0.8380 (n=8) ~ mrmr_fe 0.8379 (fe_strict, n_eng=5) ~
+boruta_fe 0.8379 ~ hybrid 0.8367 (FE; best lgbm 0.8289) ~ hybrid_strict 0.8363 ~ H6 0.8361. Best pure-selection
+trails at ~0.79 (rfecv_lgbm 0.7918). Confirmed round-3 deltas vs each selector's pre-round-3 baseline: FE-hybrid
+0.786->0.837, boruta 0.772->0.838 (boruta_fe), rfecv_lgbm_perm 0.791->0.806 (survivor-FE), mrmr_fe cleaner at equal-
+top AUC (fe_strict). hybrid_nofe is the recall champion (base_recall 0.917 vs FE-strategies' ~0.65). ONE-SIZE-FITS-
+ALL holds: per-model bests (lgbm hybrid, logit H6, knn mrmr_fe/boruta_fe) are all FE strategies within ~0.02 of the
+shared best H2. NET: every FS now has an FE path to ~0.84; the deferred non-FE refinements were all measured non-wins.
 - B3-5 Trial-progressive shadow percentile — DONE-doc (REJECTED, grounded): the documented same-draw shadow-leak
   (B4/B5/B8) is structural -- the top spurious column beats even the MAX shadow on that draw, so NO percentile
   schedule (lenient->strict) removes it; it only trades recall for noise. B4 already rejected the static-quantile
