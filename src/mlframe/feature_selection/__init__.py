@@ -23,6 +23,7 @@ from mlframe.feature_selection.wrappers import (
     OptimumSearch,
     VotesAggregation,
 )
+from mlframe.feature_selection.hybrid_selector import HybridSelector
 
 __all__ = [
     # general
@@ -37,4 +38,6 @@ __all__ = [
     "RFECV",
     "OptimumSearch",
     "VotesAggregation",
+    # hybrid (compute-once-share-many composition of MRMR/RFECV/BorutaShap/ShapProxiedFS)
+    "HybridSelector",
 ]
