@@ -353,6 +353,9 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
         shuffle_test=combo.shuffle_test_cfg,
         wholeday_splitting=combo.wholeday_splitting_cfg,
         val_sequential_fraction=combo.val_sequential_fraction_cfg,
+        # 2026-06-03: composite_cardinality_cap was a fuzz axis but never passed
+        # to the split config (inert). Field default 200, ge=2; axis is (200,50).
+        composite_cardinality_cap=combo.composite_cardinality_cap_cfg,
         # 2026-05-11 Wave 21: group-aware splitting toggle. Only meaningful
         # when wholeday_splitting=True + with_datetime_col=True (the
         # splitter derives groups from the datetime); canonicalised away

@@ -4964,6 +4964,9 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         composite_stacking_aware_gate_enabled_cfg=axes.get("composite_stacking_aware_gate_enabled_cfg", False),
         composite_top_m_after_tiny_cfg=axes.get("composite_top_m_after_tiny_cfg", 10),
         composite_use_baseline_diagnostics_hint_cfg=axes.get("composite_use_baseline_diagnostics_hint_cfg", True),
+        # TrainingSplitConfig.composite_cardinality_cap (Field default 200, ge=2);
+        # was inert (not applied here). Wired into the split_config build below.
+        composite_cardinality_cap_cfg=axes.get("composite_cardinality_cap_cfg", 200),
         use_sample_weights_in_fs_cfg=axes.get("use_sample_weights_in_fs_cfg", False),
         fallback_to_sklearn_cfg=axes.get("fallback_to_sklearn_cfg", True),
         prefer_gpu_configs_cfg=axes.get("prefer_gpu_configs_cfg", True),
