@@ -153,9 +153,18 @@ class GroupAwareMRMR(BaseEstimator, TransformerMixin):
         inner = clone(self.estimator)
         inner.fit(X_medoids, y)
 
-        # ``inner.support_`` indexes into X_medoids columns; map back to clusters.
+        # Map the inner selector's kept medoids back to clusters. Normalise
+        # ``support_`` to integer indices into X_medoids: the mRMR family exposes
+        # an index array, while sklearn-style wrappers (RFECV) expose a boolean
+        # mask. 2026-06-03 (audit integration-defaults-3): this generalisation
+        # lets GroupAwareMRMR wrap ANY wrapper selector (RFECV / BorutaShap),
+        # which on wide correlated data is a MEASURED ~3x wall-clock win with no
+        # OOS loss (bench_cross_selector_cluster_reduction) -- the wrapper runs
+        # on the cluster medoids instead of every redundant column.
+        _sup = np.asarray(inner.support_)
+        sel_idx = np.where(_sup)[0] if _sup.dtype == bool else _sup.astype(np.int64)
         medoid_cluster_ids = self.cluster_assignments_[self.cluster_medoid_indices_]
-        self.selected_clusters_ = sorted(set(int(medoid_cluster_ids[i]) for i in inner.support_))
+        self.selected_clusters_ = sorted(set(int(medoid_cluster_ids[int(i)]) for i in sel_idx))
 
         if self.expand:
             self.support_ = np.array(sorted([
