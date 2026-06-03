@@ -584,11 +584,21 @@ def check_prospective_fe_pairs(
         _config_by_i: dict[int, tuple] = {} if _need_recompute_map else None
 
         i = 0
+        # Per-pair thread-local timing accumulator; merged into the shared
+        # ``times_spent`` under the lock once per pair (see end of pair loop).
+        _local_times: dict = {}
         for transformations_pair in combs:
             if (transformations_pair[0] not in vars_transformations) or (transformations_pair[1] not in vars_transformations):
                 continue
             param_a = transformed_vars[:, vars_transformations[transformations_pair[0]]]
             param_b = transformed_vars[:, vars_transformations[transformations_pair[1]]]
+
+            # A config "uses prewarp" iff either operand's unary name is the
+            # pseudo-unary. Invariant across the bin_func loop -> compute once.
+            _uses_pw = (
+                transformations_pair[0][1] == _PREWARP_UNARY
+                or transformations_pair[1][1] == _PREWARP_UNARY
+            )
 
             for bin_func_name, bin_func in binary_transformations.items():
 
@@ -621,12 +631,13 @@ def check_prospective_fe_pairs(
                 else:
                     np.nan_to_num(_col_view, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
 
-                    # Wave 27 P1: serialise the increment under
-                    # ``_TIMES_SPENT_LOCK``; pre-fix `+=` raced on the
-                    # shared defaultdict under the parallel threading
-                    # dispatch from mrmr.py.
-                    with _TIMES_SPENT_LOCK:
-                        times_spent[bin_func_name] += timer() - start
+                    # Wave 27 P1: ``times_spent`` is shared across mrmr.py's
+                    # parallel threading dispatch. Accumulate this pair's
+                    # per-bin_func timings in a thread-LOCAL dict and merge them
+                    # under ``_TIMES_SPENT_LOCK`` once per pair (below); the old
+                    # per-inner-iteration lock was a serialization point on the
+                    # hot path. Totals are identical.
+                    _local_times[bin_func_name] = _local_times.get(bin_func_name, 0.0) + (timer() - start)
 
                     discretized_transformed_values = discretize_array(
                         arr=_col_view, n_bins=quantization_nbins, method=quantization_method, dtype=quantization_dtype
@@ -655,12 +666,7 @@ def check_prospective_fe_pairs(
                         best_config = config
                     # Track best-with-prewarp vs best-without so the alternative
                     # uplift gate below can decide whether the prewarp earned its
-                    # place. A config "uses prewarp" iff either operand's unary
-                    # name is the pseudo-unary.
-                    _uses_pw = (
-                        transformations_pair[0][1] == _PREWARP_UNARY
-                        or transformations_pair[1][1] == _PREWARP_UNARY
-                    )
+                    # place (``_uses_pw`` hoisted above the bin_func loop).
                     if _uses_pw:
                         if fe_mi > best_prewarp_mi:
                             best_prewarp_mi = fe_mi
@@ -673,6 +679,14 @@ def check_prospective_fe_pairs(
                             if verbose > 2:
                                 print(f"MI of transformed pair {bin_func_name}({transformations_pair})={fe_mi:.4f}, MI of the plain pair {pair_mi:.4f}")
                     i += 1
+
+        # Merge this pair's per-bin_func timings into the shared accumulator in
+        # ONE locked pass (the increment was previously locked per inner
+        # iteration -- a serialization point under the parallel pair dispatch).
+        if _local_times:
+            with _TIMES_SPENT_LOCK:
+                for _bf, _dt in _local_times.items():
+                    times_spent[_bf] += _dt
 
         if verbose > 2:
             print(f"For pair {raw_vars_pair}, best config is {best_config} with best mi= {best_mi}")
