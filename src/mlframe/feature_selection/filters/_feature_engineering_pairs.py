@@ -600,22 +600,20 @@ def check_prospective_fe_pairs(
                 or transformations_pair[1][1] == _PREWARP_UNARY
             )
 
-            for bin_func_name, bin_func in binary_transformations.items():
+            # ``bin_func`` produces NaN/+-inf on extreme Optuna-picked params
+            # (overflow in mul/exp, divide-by-zero in log); the downstream
+            # nan_to_num + MI gate already sanitise, so the bare numpy
+            # RuntimeWarnings carry zero diagnostic value. Suppress them for the
+            # whole binary-transform sweep: entering np.errstate per inner
+            # iteration cost ~6.8us/iter (measured ~490ms over 72k iters),
+            # dwarfing the bin_func work itself; one context per pair-comb
+            # removes that. numba kernels (discretize/mi_direct) ignore errstate
+            # and nan_to_num emits nothing, so the wider scope is value-identical.
+            with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+                for bin_func_name, bin_func in binary_transformations.items():
 
-                start = timer()
-                try:
-                    # 2026-05-22: ``bin_func`` produces NaN/+-inf on extreme
-                    # Optuna-picked params (overflow in mul/exp, divide by
-                    # zero in log). Filtered downstream by ``np.nan_to_num``
-                    # + MI-score gating, but the bare numpy call would have
-                    # raised ``RuntimeWarning`` for every offending row and
-                    # spammed stderr with ``invalid value encountered in
-                    # multiply`` / ``overflow encountered in multiply``.
-                    # Suppress at the call site -- the diagnostic value of
-                    # these warnings is zero (they fire on virtually every
-                    # restart) and the apply-phase output is already
-                    # sanitised by the nan_to_num below.
-                    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+                    start = timer()
+                    try:
                         if final_transformed_vals is not None:
                             final_transformed_vals[:, i] = bin_func(param_a, param_b)
                             _col_view = final_transformed_vals[:, i]
@@ -626,59 +624,59 @@ def check_prospective_fe_pairs(
                             # data. Avoids accumulating one alloc per inner iter.
                             _col_buf_1d[:] = bin_func(param_a, param_b)
                             _col_view = _col_buf_1d
-                except Exception:
-                    logger.error(f"Error when performing {bin_func}")
-                else:
-                    np.nan_to_num(_col_view, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-
-                    # Wave 27 P1: ``times_spent`` is shared across mrmr.py's
-                    # parallel threading dispatch. Accumulate this pair's
-                    # per-bin_func timings in a thread-LOCAL dict and merge them
-                    # under ``_TIMES_SPENT_LOCK`` once per pair (below); the old
-                    # per-inner-iteration lock was a serialization point on the
-                    # hot path. Totals are identical.
-                    _local_times[bin_func_name] = _local_times.get(bin_func_name, 0.0) + (timer() - start)
-
-                    discretized_transformed_values = discretize_array(
-                        arr=_col_view, n_bins=quantization_nbins, method=quantization_method, dtype=quantization_dtype
-                    )
-                    fe_mi, fe_conf = mi_direct(
-                        discretized_transformed_values.reshape(-1, 1),
-                        x=np.array([0], dtype=np.int64),
-                        y=None,
-                        factors_nbins=np.array([quantization_nbins], dtype=np.int64),
-                        classes_y=classes_y,
-                        classes_y_safe=classes_y_safe,
-                        freqs_y=freqs_y,
-                        min_nonzero_confidence=fe_min_nonzero_confidence,
-                        npermutations=fe_npermutations,
-                    )
-
-                    config = (transformations_pair, bin_func_name, i)
-                    var_pairs_perf[config] = fe_mi
-                    if _need_recompute_map:
-                        # Map i -> (a_key, b_key, bin_func_name) for downstream
-                        # rebuild; bin_func is looked up via the original dict.
-                        _config_by_i[i] = (transformations_pair[0], transformations_pair[1], bin_func_name)
-
-                    if fe_mi > best_mi:
-                        best_mi = fe_mi
-                        best_config = config
-                    # Track best-with-prewarp vs best-without so the alternative
-                    # uplift gate below can decide whether the prewarp earned its
-                    # place (``_uses_pw`` hoisted above the bin_func loop).
-                    if _uses_pw:
-                        if fe_mi > best_prewarp_mi:
-                            best_prewarp_mi = fe_mi
-                            best_prewarp_config = config
+                    except Exception:
+                        logger.error(f"Error when performing {bin_func}")
                     else:
-                        if fe_mi > best_nonprewarp_mi:
-                            best_nonprewarp_mi = fe_mi
-                    if fe_mi > best_mi * 0.85:
-                        if not fe_print_best_mis_only or (fe_mi == best_mi):
-                            if verbose > 2:
-                                print(f"MI of transformed pair {bin_func_name}({transformations_pair})={fe_mi:.4f}, MI of the plain pair {pair_mi:.4f}")
-                    i += 1
+                        np.nan_to_num(_col_view, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+
+                        # Wave 27 P1: ``times_spent`` is shared across mrmr.py's
+                        # parallel threading dispatch. Accumulate this pair's
+                        # per-bin_func timings in a thread-LOCAL dict and merge them
+                        # under ``_TIMES_SPENT_LOCK`` once per pair (below); the old
+                        # per-inner-iteration lock was a serialization point on the
+                        # hot path. Totals are identical.
+                        _local_times[bin_func_name] = _local_times.get(bin_func_name, 0.0) + (timer() - start)
+
+                        discretized_transformed_values = discretize_array(
+                            arr=_col_view, n_bins=quantization_nbins, method=quantization_method, dtype=quantization_dtype
+                        )
+                        fe_mi, fe_conf = mi_direct(
+                            discretized_transformed_values.reshape(-1, 1),
+                            x=np.array([0], dtype=np.int64),
+                            y=None,
+                            factors_nbins=np.array([quantization_nbins], dtype=np.int64),
+                            classes_y=classes_y,
+                            classes_y_safe=classes_y_safe,
+                            freqs_y=freqs_y,
+                            min_nonzero_confidence=fe_min_nonzero_confidence,
+                            npermutations=fe_npermutations,
+                        )
+
+                        config = (transformations_pair, bin_func_name, i)
+                        var_pairs_perf[config] = fe_mi
+                        if _need_recompute_map:
+                            # Map i -> (a_key, b_key, bin_func_name) for downstream
+                            # rebuild; bin_func is looked up via the original dict.
+                            _config_by_i[i] = (transformations_pair[0], transformations_pair[1], bin_func_name)
+
+                        if fe_mi > best_mi:
+                            best_mi = fe_mi
+                            best_config = config
+                        # Track best-with-prewarp vs best-without so the alternative
+                        # uplift gate below can decide whether the prewarp earned its
+                        # place (``_uses_pw`` hoisted above the bin_func loop).
+                        if _uses_pw:
+                            if fe_mi > best_prewarp_mi:
+                                best_prewarp_mi = fe_mi
+                                best_prewarp_config = config
+                        else:
+                            if fe_mi > best_nonprewarp_mi:
+                                best_nonprewarp_mi = fe_mi
+                        if fe_mi > best_mi * 0.85:
+                            if not fe_print_best_mis_only or (fe_mi == best_mi):
+                                if verbose > 2:
+                                    print(f"MI of transformed pair {bin_func_name}({transformations_pair})={fe_mi:.4f}, MI of the plain pair {pair_mi:.4f}")
+                        i += 1
 
         # Merge this pair's per-bin_func timings into the shared accumulator in
         # ONE locked pass (the increment was previously locked per inner
