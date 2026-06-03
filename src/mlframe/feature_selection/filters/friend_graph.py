@@ -184,6 +184,12 @@ def pairwise_mi_edge(factors_data, a, b, factors_nbins, n_samples, mi_eps=1e-6, 
     else:
         m = float(mi(factors_data, np.array([a], dtype=np.int64), np.array([b], dtype=np.int64), factors_nbins, dtype=dtype))
     na, nb = int(factors_nbins[a]), int(factors_nbins[b])
+    # INVARIANT (audit friend-graph-7): ``n_samples`` here MUST equal the row
+    # count that ``merge_vars``/``mi`` normalised the entropies/MI by (i.e.
+    # ``len(factors_data)``). The G-test significance floor below mixes the
+    # MI value (a per-row-normalised nats quantity) with this n; if a caller
+    # ever passes a different n the floor silently mis-scales. The sole caller
+    # passes ``factors_data.shape[0]``, so they coincide -- keep it that way.
     floor = max(mi_eps, edge_significance * (na - 1) * (nb - 1) / (2.0 * max(1, int(n_samples))))
     return m if m > floor else None
 

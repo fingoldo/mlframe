@@ -32,9 +32,45 @@ Pickleable: only stdlib + numpy types in the returned dict.
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Optional
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
+
+
+def _component_medoid(comp: list, pair_sus: dict) -> Any:
+    """Pick the cluster representative (super-anchor) as the medoid: the member
+    maximising mean within-component SU to the other members, using the
+    already-computed ``pair_sus`` dict (keys ordered as (a, b) in the original
+    anchor order, so we look up both orderings). Deterministic alphabetical
+    tie-break. Audit hierarchy-stability-12: the prior ``comp[0]`` picked the
+    lexicographically smallest name, so the cluster label carried no statistical
+    meaning. (Mirrors the medoid convention in group_aware / _cluster_aggregate.)
+    """
+    if len(comp) <= 2:
+        return sorted(comp)[0]
+    best_member = None
+    best_score = -1.0
+    for m in comp:
+        total = 0.0
+        cnt = 0
+        for o in comp:
+            if o == m:
+                continue
+            s = pair_sus.get((m, o))
+            if s is None:
+                s = pair_sus.get((o, m))
+            if s is not None:
+                total += float(s)
+                cnt += 1
+        mean_su = (total / cnt) if cnt else 0.0
+        # Strictly-greater keeps the first (alphabetical) winner on ties.
+        if mean_su > best_score:
+            best_score = mean_su
+            best_member = m
+    return best_member if best_member is not None else sorted(comp)[0]
 
 
 # Default super-cluster threshold. Lower than the typical Layer-47 / DCD
@@ -87,7 +123,15 @@ def _quantize_for_su(X) -> tuple:
         for j in range(arr.shape[1]):
             col = arr[:, j].astype(np.float64, copy=False)
             names.append(f"col_{j}")
-            edges = np.quantile(col, np.linspace(0, 1, n_bins + 1))
+            # 2026-06-03 (audit hierarchy-stability-3): mirror the DataFrame
+            # branch's finite-mask. np.quantile over a column containing any
+            # NaN/Inf returns NaN edges -> searchsorted assigns a single bin ->
+            # SU(this anchor, *)=0, so the anchor silently never merges. The
+            # DataFrame path already guards this at the sibling branch above.
+            edges = np.quantile(
+                col[np.isfinite(col)] if np.isfinite(col).any() else col,
+                np.linspace(0, 1, n_bins + 1),
+            )
             edges = np.unique(edges)
             if edges.size < 3:
                 binned = np.zeros(col.shape, dtype=np.int32)
@@ -242,6 +286,11 @@ def build_cluster_hierarchy(
     )
 
     hierarchy: dict = {}
+    # 2026-06-03 (audit hierarchy-stability-7): count SU-dispatch failures so a
+    # systematic error stops masquerading as "clusters stabilised". A pair that
+    # errors defaults to SU=0 (treated as non-redundant -> never merges), so a
+    # silent failure would hide genuine super-structure.
+    n_failed_pairs = 0
     max_levels_eff = max(1, int(max_levels))
     for level in range(1, max_levels_eff + 1):
         if len(level_anchors) < 2:
@@ -270,14 +319,26 @@ def build_cluster_hierarchy(
                 name_pairs.append((a_name, b_name))
         try:
             scores = pair_su_batch(cal_state, index_pairs)
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "build_cluster_hierarchy: batched pair-SU dispatch failed at "
+                "level %d (%r); falling back to per-pair scoring.", level, exc,
+            )
             scores = None
         if scores is None:
             for (a_name, b_name), (a_idx, b_idx) in zip(name_pairs, index_pairs):
                 try:
                     s = pair_su(cal_state, a_idx, b_idx)
-                except Exception:
+                except Exception as exc:
                     s = 0.0
+                    n_failed_pairs += 1
+                    if n_failed_pairs == 1:
+                        logger.warning(
+                            "build_cluster_hierarchy: per-pair SU failed (e.g. "
+                            "(%s,%s): %r); affected pairs default to SU=0 "
+                            "(treated as non-redundant). Further failures "
+                            "suppressed for this build.", a_name, b_name, exc,
+                        )
                 pair_sus[(a_name, b_name)] = (
                     float(s) if np.isfinite(s) else 0.0
                 )
@@ -296,7 +357,11 @@ def build_cluster_hierarchy(
         for comp in components:
             if len(comp) < 2:
                 continue
-            super_anchor = comp[0]  # lexicographically smallest
+            # 2026-06-03 (audit hierarchy-stability-12): pick the cluster
+            # representative as the medoid (most-central anchor by mean
+            # within-component SU) instead of the lexicographically smallest
+            # name, so the super-anchor label carries statistical meaning.
+            super_anchor = _component_medoid(comp, pair_sus)
             sub_anchors = [a for a in comp if a != super_anchor]
             level_dict[super_anchor] = sub_anchors
         if not level_dict:
