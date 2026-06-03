@@ -12,11 +12,16 @@ yields 1.5-2x on the NS path by exploiting:
      the small-K matmuls Newton-Schulz hits (typical Muon parameter
      shape: 256 x 256 to 2048 x 2048).
 
-This module is GATED two ways:
+This module is GATED:
   1. ``mlframe.training.neural._triton_bootstrap.ensure_triton_loaded()``
      must succeed (Triton importable on this host)
-  2. CUDA device + matrix size large enough that Triton's overhead
-     amortises (small matrices stay on torch.matmul)
+  2. CUDA device, 2D, and matrix size large enough that Triton's launch
+     overhead amortises (small matrices stay on torch.matmul)
+  3. A one-shot per-device calibration must show Triton actually beating
+     eager cuBLAS on THIS GPU. Compute capability alone is not trusted:
+     low-end Ampere+/Ada laptop parts have TensorCores but still lose to
+     cuBLAS, so the decision is measured per device and cached, not
+     hardcoded from the compute capability.
 
 Fallback: when either gate fails, returns the original PyTorch impl
 from ``_muon_optimizer._zeropower_via_newtonschulz5``. Muon callers
@@ -25,6 +30,7 @@ don't need to know which backend ran.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Callable, Optional
 
 import torch
@@ -38,26 +44,31 @@ logger = logging.getLogger(__name__)
 _TRITON_NS_FN: Optional[Callable] = None
 _TRITON_LOAD_ATTEMPTED: bool = False
 
-# Below this matrix dim, eager torch.matmul wins (cuBLAS heuristic +
-# Triton compile overhead exceeds the SYRK gain).
+# Below this matrix dim, eager torch.matmul wins on every GPU: the Triton
+# kernel-launch overhead exceeds the SYRK gain on small matrices.
 _MIN_DIM_FOR_TRITON_NS: int = 256
 
-# F-43 honest measurement (2026-05-31, GTX 1050 Ti / Pascal / cc 6.1):
-#   [256x256]   eager 2.67ms vs triton 12.97ms  (0.21x — 5x SLOWER)
-#   [512x512]   eager 3.35ms vs triton 46.98ms  (0.07x — 14x SLOWER)
-#   [1024x1024] eager 22.66ms vs triton 307.78ms (0.07x — 14x SLOWER)
-# Correctness: max_diff 0.002-0.008 (well within BF16 numerical noise).
-#
-# Root cause: Pascal has no TensorCores; cuBLAS's hand-tuned FP16/BF16
-# GEMM kernels are far ahead of a naive Triton kernel. flash-muon's
-# reported 1.5-2x wins are all on Ampere+ (compute capability 8.0+)
-# where TensorCores accelerate the BF16 matmul and the SYRK upper-
-# triangle skip starts paying off.
-#
-# Hard-gate the Triton path to Ampere+ — on Pascal/Turing/Volta-non-
-# tensorcore the eager cuBLAS path wins. Once we have an Ampere+ host
-# for re-bench, lift the gate (or auto-detect via cc>=8).
+# Cheap pre-filter before the (expensive) Triton compile + calibration.
+# Pre-Ampere cards have no TensorCores, so cuBLAS's BF16 GEMM always beats
+# the Triton SYRK kernel there; skip them without paying the compile cost.
+# Ampere+ (cc >= 8.0) is NOT assumed to win: low-end Ada/Ampere laptop parts
+# (few SMs, narrow memory bus) still lose. That call is made empirically per
+# device by the calibration below, never from the compute capability alone.
 _MIN_COMPUTE_CAPABILITY: tuple = (8, 0)
+
+# Triton must beat eager by at least this factor on the one-shot calibration
+# before we route the Muon NS path through it. A bare > 1.0 would flip on
+# near-ties and take on the SYRK NaN-init / launch risk for no real gain.
+_TRITON_WIN_MARGIN: float = 1.10
+
+# Per-(device_index, size_bucket) empirical verdict, measured once per
+# process: True -> Triton was faster on this GPU+shape, use it; False -> eager
+# won, stay on torch.matmul. Cleared between processes; cheap to repopulate.
+_TRITON_VERDICT: dict = {}
+
+# Override the empirical gate: "0"/"off"/"false" force eager, "1"/"on"/"true"
+# force Triton (skips calibration), anything else / unset -> auto-calibrate.
+_TRITON_ENV_VAR: str = "MLFRAME_MUON_TRITON"
 
 
 def _build_triton_ns_fn() -> Optional[Callable]:
@@ -193,44 +204,120 @@ def get_triton_ns_fn() -> Optional[Callable]:
     _TRITON_NS_FN = _build_triton_ns_fn()
     if _TRITON_NS_FN is not None:
         logger.info(
-            "F-43: Triton Newton-Schulz kernel compiled and ready (Muon "
-            "optimizer fast path enabled for matrices >= %d on a side).",
+            "Triton Newton-Schulz kernel compiled; eligible for Muon matrices "
+            ">= %d on a side, subject to the per-device calibration.",
             _MIN_DIM_FOR_TRITON_NS,
         )
     return _TRITON_NS_FN
 
 
+def _size_bucket(min_dim: int) -> int:
+    """Round up to a power-of-two bucket so one calibration is reused across
+    nearby Muon parameter shapes instead of re-measured for every distinct
+    matrix dim."""
+    b = 1
+    while b < min_dim:
+        b <<= 1
+    return b
+
+
+def _env_force() -> Optional[bool]:
+    """Read the ``MLFRAME_MUON_TRITON`` override. True/False force a backend;
+    None means auto-calibrate."""
+    val = os.environ.get(_TRITON_ENV_VAR, "").strip().lower()
+    if val in ("0", "off", "false", "no"):
+        return False
+    if val in ("1", "on", "true", "yes"):
+        return True
+    return None
+
+
+def _calibrate_triton_vs_eager(fn, shape, dtype, device, steps) -> float:
+    """Measure eager vs Triton Newton-Schulz once on a synthetic tensor of the
+    target shape. Returns eager_time / triton_time (> 1 means Triton is faster);
+    0.0 if anything fails, which the caller reads as "use eager"."""
+    import time
+
+    from ._muon_optimizer import _zeropower_via_newtonschulz5
+
+    warmup, iters = 3, 20  # enough to settle clocks; this runs once per device+bucket
+    try:
+        probe = torch.randn(*shape, device=device, dtype=dtype)
+        for _ in range(warmup):  # warm up compile + caches on both paths
+            _zeropower_via_newtonschulz5(probe, steps=steps)
+            fn(probe, steps)
+        torch.cuda.synchronize(device)
+        t0 = time.perf_counter()
+        for _ in range(iters):
+            _zeropower_via_newtonschulz5(probe, steps=steps)
+        torch.cuda.synchronize(device)
+        eager_t = time.perf_counter() - t0
+        t0 = time.perf_counter()
+        for _ in range(iters):
+            fn(probe, steps)
+        torch.cuda.synchronize(device)
+        triton_t = time.perf_counter() - t0
+        return (eager_t / triton_t) if triton_t > 0 else 0.0
+    except Exception as _cal_err:
+        logger.debug("Muon Triton calibration failed (%s); using eager.", _cal_err)
+        return 0.0
+
+
 def maybe_newton_schulz_triton(
     G: torch.Tensor, steps: int = 4,
 ) -> Optional[torch.Tensor]:
-    """Try the Triton Newton-Schulz; return None if not applicable
-    (eager fallback at the caller). Gates:
-      * G must be a 2D CUDA tensor
-      * min(G.shape) >= _MIN_DIM_FOR_TRITON_NS
-      * Triton kernel compiled successfully
+    """Try the Triton Newton-Schulz; return None to tell the caller to use the
+    eager torch.matmul path. Gates, in order:
+
+      * G must be a 2D CUDA tensor with min(shape) >= _MIN_DIM_FOR_TRITON_NS
+      * ``MLFRAME_MUON_TRITON`` override (force eager / force Triton)
+      * compute capability >= 8.0 (cheap pre-filter; pre-Ampere always loses)
+      * a one-shot per-device calibration: Triton runs only if it actually
+        beats eager by _TRITON_WIN_MARGIN on this GPU. Low-end Ampere+/Ada
+        laptop cards measure a loss here and stay on eager.
     """
     if not (G.is_cuda and G.ndim == 2):
         return None
     if min(G.shape) < _MIN_DIM_FOR_TRITON_NS:
         return None
-    # F-43 hardware gate: only fire on Ampere+ where TensorCores
-    # make the Triton path actually faster than cuBLAS (see bench notes
-    # at top of file). Pre-Ampere falls back to torch.matmul.
+
+    forced = _env_force()
+    if forced is False:
+        return None
+
     try:
-        _cc = torch.cuda.get_device_capability(G.device.index)
-        if _cc < _MIN_COMPUTE_CAPABILITY:
-            return None
+        dev_index = G.device.index if G.device.index is not None else torch.cuda.current_device()
+        cc = torch.cuda.get_device_capability(dev_index)
     except Exception:
         return None
+    if forced is not True and cc < _MIN_COMPUTE_CAPABILITY:
+        return None
+
     fn = get_triton_ns_fn()
     if fn is None:
         return None
+
+    if forced is not True:
+        key = (dev_index, _size_bucket(min(G.shape)))
+        verdict = _TRITON_VERDICT.get(key)
+        if verdict is None:
+            speedup = _calibrate_triton_vs_eager(fn, tuple(G.shape), G.dtype, G.device, steps)
+            verdict = speedup >= _TRITON_WIN_MARGIN
+            _TRITON_VERDICT[key] = verdict
+            logger.info(
+                "Muon Triton calibration on %s (bucket %d): %.2fx vs eager -> %s",
+                torch.cuda.get_device_name(dev_index), key[1], speedup,
+                "Triton" if verdict else "eager",
+            )
+        if not verdict:
+            return None
+
     try:
         return fn(G, steps)
     except Exception as _run_err:
         logger.warning(
-            "F-43: Triton Newton-Schulz failed at runtime (%s); falling "
-            "back to eager torch.matmul.",
+            "Muon Triton Newton-Schulz failed at runtime (%s); falling back "
+            "to eager torch.matmul.",
             _run_err,
         )
         return None

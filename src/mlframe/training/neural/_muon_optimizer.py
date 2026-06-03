@@ -34,6 +34,8 @@ from typing import Iterable, List
 import torch
 from torch.optim import Optimizer
 
+from ._muon_triton_kernel import maybe_newton_schulz_triton
+
 
 def _zeropower_via_newtonschulz5(G: torch.Tensor, steps: int = 5) -> torch.Tensor:
     """Newton-Schulz iteration for the matrix orthogonalization step
@@ -59,6 +61,17 @@ def _zeropower_via_newtonschulz5(G: torch.Tensor, steps: int = 5) -> torch.Tenso
     if transposed:
         X = X.transpose(-2, -1)
     return X.to(dtype=G.dtype)
+
+
+def _newton_schulz_dispatch(G: torch.Tensor, steps: int = 5) -> torch.Tensor:
+    """Orthogonalize G, routing through the Triton SYRK kernel when the per-device calibration shows it beating eager cuBLAS on this GPU and shape, otherwise the eager quintic.
+
+    The calibration's own eager baseline calls ``_zeropower_via_newtonschulz5`` directly, so that function stays the pure reference and the dispatch cannot recurse. On CPU / pre-Ampere / low-end GPUs the gate returns None and this is byte-for-byte the eager path.
+    """
+    out = maybe_newton_schulz_triton(G, steps=steps)
+    if out is not None:
+        return out
+    return _zeropower_via_newtonschulz5(G, steps=steps)
 
 
 class Muon(Optimizer):
@@ -123,7 +136,7 @@ class Muon(Optimizer):
                 buf = state["momentum_buffer"]
                 buf.mul_(momentum).add_(g)
                 update = g.add(buf, alpha=momentum) if nesterov else buf
-                update = _zeropower_via_newtonschulz5(update, steps=ns_steps)
+                update = _newton_schulz_dispatch(update, steps=ns_steps)
                 p.add_(update, alpha=-lr)
         return loss
 
