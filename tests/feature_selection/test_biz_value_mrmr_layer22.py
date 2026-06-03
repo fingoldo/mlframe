@@ -471,3 +471,71 @@ class TestNoisePairPruned:
             f"by the absolute MI floor; got {noise_pair_added}; "
             f"cross_sc:\n{cross_sc.head(8)}"
         )
+
+
+class TestMixedBasisPairCrossReplay:
+    """Pair-cross-basis legs are routed INDEPENDENTLY (Gaussian leg -> Hermite,
+    bounded leg -> Chebyshev), so a single engineered product can mix families:
+    ``He_a(x_i) * T_b(x_j)``. The column NAME suffix is cosmetically lossy (it
+    reuses leg-i's basis code for both legs), so the recipe MUST carry the true
+    per-leg bases in ``extra['basis_i']`` / ``extra['basis_j']`` and replay from
+    THERE -- never re-derive the basis from the name. This pins that contract: a
+    future refactor that parses the basis from the (lossy) name would silently
+    replay He(x_j) where fit used T(x_j) -- a transform-time correctness bug.
+    Benched value: mixed-basis recovers a mixed-domain product (He2*T2) at OOS
+    |corr| ~0.98 vs ~0.85 if both legs were forced onto one family.
+    """
+
+    def test_mixed_basis_pair_recipe_replays_exactly(self):
+        from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
+            hybrid_orth_mi_pair_fe_with_recipes,
+        )
+        from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
+
+        rng = np.random.default_rng(0)
+        n = 3000
+        x_i = rng.standard_normal(n)           # Gaussian domain -> Hermite-natural
+        x_j = rng.uniform(-1.0, 1.0, n)        # bounded domain  -> Chebyshev-natural
+        # He_2(x_i) * T_2(x_j): a genuinely mixed-domain product target.
+        y = (((x_i * x_i - 1.0) * (2.0 * x_j * x_j - 1.0)
+              + 0.2 * rng.standard_normal(n)) > 0).astype(int)
+        X = pd.DataFrame({"x_i": x_i, "x_j": x_j})
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            X_aug, _uni, _cross, recipes = hybrid_orth_mi_pair_fe_with_recipes(
+                X, y, degrees=(2,), pair_max_degree=2,
+                pair_min_uplift=1.0, top_pair_count=3,
+            )
+
+        pair_recipes = [r for r in recipes if getattr(r, "kind", None) == "orth_pair_cross"]
+        assert pair_recipes, (
+            "the mixed-domain product target should engineer at least one "
+            "orth_pair_cross feature"
+        )
+        saw_mixed = False
+        for r in pair_recipes:
+            basis_i = r.extra.get("basis_i")
+            basis_j = r.extra.get("basis_j")
+            assert basis_i is not None and basis_j is not None, (
+                f"orth_pair_cross recipe {r.name!r} must carry both per-leg bases "
+                f"in extra (not derive from the lossy name); extra={dict(r.extra)}"
+            )
+            if basis_i != basis_j:
+                saw_mixed = True
+            # Replay must reproduce the fit-time engineered column EXACTLY,
+            # using the per-leg bases from extra (not the name).
+            replay = np.asarray(apply_recipe(r, X), dtype=float)
+            fit_vals = np.asarray(X_aug[r.name], dtype=float)
+            assert np.allclose(replay, fit_vals, rtol=1e-9, atol=1e-12), (
+                f"mixed-basis pair recipe {r.name!r} (basis_i={basis_i}, "
+                f"basis_j={basis_j}) replay drifted from fit: "
+                f"max|d|={float(np.max(np.abs(replay - fit_vals)))}; "
+                f"extra={dict(r.extra)} -- the recipe must replay from the "
+                f"per-leg bases in extra, NOT the cosmetically-lossy name suffix."
+            )
+        assert saw_mixed, (
+            "on a Gaussian x bounded mixed-domain product the two legs should "
+            "route to DIFFERENT bases (Hermite x Chebyshev); got only same-basis "
+            f"recipes: {[(r.extra.get('basis_i'), r.extra.get('basis_j')) for r in pair_recipes]}"
+        )
