@@ -1,5 +1,34 @@
 # Changelog
 
+## 2026-06-03 — FE-noise-bloat: tighter prevalence gate defaults (fe_strict by default)
+
+The pair-FE search engineers a feature by trying many operand-transform x pair combos
+and keeping the max-MI one; that search INFLATES the winner's in-sample MI (selection
+bias), so pure-noise pairs produce optimisation-inflated spurious products
+(``div(log(noise_2),neg(noise_3))``, ``max(log(L4_s2),noise_3)``) that clear the loose
+gates and bloat the support (Layer-49 sensor-mesh: 5 noise-containing engineered cols
+in a 16-col support). The Westfall-Young maxT floor cannot catch these — it shuffles y
+but does not replay the FE's own combinatorial search, so the inflated noise-FE MI
+(0.007–0.017) sits above the floor (0.005).
+
+Raise the two FE prevalence-gate DEFAULTS: ``fe_min_engineered_mi_prevalence`` 0.90 →
+0.97 and ``fe_synergy_min_prevalence`` 1.15 → 1.5. A round-3 FE-quality benchmark
+(3 seeds) found this pair HALVES the engineered set and cuts spurious noise-products
+(layer49 noise-containing cols 5 → 1; engineered 15 → 7) for +~0.005 downstream AUC
+every seed. Crucially the mlframe recovery suite confirms genuine signal is UNTOUCHED:
+synergy (XOR / sign / bilinear, joint-MI uplift ≫ 1.5), univariate-basis, pair, and
+prefer-engineered contracts all green (142-test recovery + core sweep), and the
+Layer-49 ``support`` bound (``test_S2``) now passes (the noise-FE that bloated it is
+gone). Genuine synergy clears the higher bar with wide margin; only the bias-only
+noise pairs (uplift just above the old 1.15) are now rejected.
+
+A more surgical alternative — held-out-CV validation of EVERY engineered feature
+(generalising the prewarp's held-out firewall) — was validated in principle: noise-FE
+MI collapses to 12–36% of its inflated train value on a held-out slice, while genuine
+synergy holds at 90–104% (clean separation, margin 0.90 vs 0.36). It is deferred: an
+honest implementation needs train-based FE selection (a deep rewrite of the selection
+MI flow), for marginal gain over this validated tighter-prevalence cut.
+
 ## 2026-06-03 — Conditional basis routing (Layer 58): route by |corr|, not MI
 
 ``generate_conditional_basis_routing_features`` (the opt-in Layer-58 router that

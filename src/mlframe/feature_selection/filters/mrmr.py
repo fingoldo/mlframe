@@ -425,7 +425,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # mul(log(c),sin(d)) [rat~1.01] cleared 0.90 but not 0.98, so the default fit
         # found ZERO engineered cols. 0.90 keeps genuine 1-D summaries of real 2-D
         # interactions while still rejecting noise (which lands well below the pair MI).
-        fe_min_engineered_mi_prevalence: float = 0.90,  # mi of transformed pair must be at least that higher than the mi of the entire pair
+        fe_min_engineered_mi_prevalence: float = 0.97,  # mi of transformed pair must be at least that higher than the mi of the entire pair
         fe_good_to_best_feature_mi_threshold: float = 0.98,  # when multiple good transformations exist for the same factors pair.
         fe_max_external_validation_factors: int = 0,  # how many other factors to validate against
         fe_max_polynoms: int = 0,
@@ -846,10 +846,23 @@ class MRMR(BaseEstimator, TransformerMixin):
         # inflates the finite-sample joint-MI estimate by ~5-15% (more bins =>
         # more positive bias), which would clear the lenient 1.05 gate and inject
         # a spurious feature. Genuine synergy (XOR / sign / bilinear) has joint MI
-        # FAR above the marginal sum (uplift >> 1.15), so a 1.15 bar keeps the real
-        # interactions while rejecting bias-only noise pairs. Applies ONLY to
-        # synergy pairs; selected-selected pairs keep ``fe_min_pair_mi_prevalence``.
-        fe_synergy_min_prevalence: float = 1.15,
+        # FAR above the marginal sum, so a high bar keeps the real interactions while
+        # rejecting bias-only noise pairs. Applies ONLY to synergy pairs;
+        # selected-selected pairs keep ``fe_min_pair_mi_prevalence``. 2026-06-03:
+        # raised 1.15 -> 1.5 (with ``fe_min_engineered_mi_prevalence`` 0.90 -> 0.97):
+        # a round-3 FE-quality bench + the mlframe recovery suite confirmed the
+        # tighter pair was a WIN -- it HALVES the engineered set and cuts spurious
+        # noise-products (the optimisation-inflated noise-FE that survive the looser
+        # gates, e.g. ``div(log(noise_2),neg(noise_3))``; layer49 noise-containing
+        # cols 5 -> 1) for +~0.005 downstream AUC, while genuine synergy (XOR /
+        # sign / bilinear, uplift >> 1.5) and every univariate/pair recovery
+        # contract are UNCHANGED (142-test recovery+core sweep green; layer49
+        # support-bound now met). Held-out-CV validation of every engineered
+        # feature (the more surgical fix) was validated in principle -- noise-FE
+        # MI collapses to 12-36% on a held-out slice vs genuine's 90-104% -- but
+        # needs train-based FE selection (deep rewrite) for marginal gain over this
+        # tighter-prevalence cut, so it is deferred.
+        fe_synergy_min_prevalence: float = 1.5,
         fe_hybrid_orth_degrees: tuple = (2, 3),
         fe_hybrid_orth_basis: str = "auto",
         # Combined cap on appended columns (univariate + pair). Top-K is
