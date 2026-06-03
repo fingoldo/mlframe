@@ -165,6 +165,7 @@ def generate_conditional_basis_routing_features(
     nbins: int = 10,
     dedup_collinear_sources: bool = True,
     dedup_corr_threshold: float = 0.999,
+    routing_criterion: str = "corr",
 ) -> tuple[pd.DataFrame, dict]:
     """For each source column, evaluate every (pre_transform, basis, degree)
     cell and keep ONLY the per-column argmax. Across all surviving columns
@@ -311,20 +312,43 @@ def generate_conditional_basis_routing_features(
     cand_mat = np.column_stack(cand_values).astype(np.float64, copy=False)
     eng_mi = _mi_classif_batch(cand_mat, y_arr, nbins=nbins)
 
-    # ---- Step 4: per-source argmax over (pre, basis, degree)
+    # ---- Step 3b: routing score. The per-source ARGMAX (which (pre,basis,degree)
+    # cell to keep) is a LINEARISATION decision -- pick the cell a shallow/linear
+    # downstream can best use -- so route by |Pearson corr|, NOT by MI. A 30-class
+    # OOS study over this exact (pre x basis x degree) space (2026-06-03) showed
+    # corr-routing near-oracle (OOS-linear R^2 0.81 vs MI 0.52; MI picks an
+    # informative-but-non-linear cell -- log|x|/tanh+Laguerre -- in 23/30 cases).
+    # Mirrors ``basis_route_by_signal`` (the default Layer-21 router). The KEEP
+    # gate below (uplift + noise floor) stays MI-based: relevance IS an MI
+    # question. ``routing_criterion="mi"`` restores the legacy argmax.
+    if str(routing_criterion).lower() == "corr":
+        _yf = y_arr.astype(np.float64)
+        _ystd = float(_yf.std())
+        if _ystd > 1e-12:
+            _Mz = (cand_mat - cand_mat.mean(axis=0)) / (cand_mat.std(axis=0) + 1e-12)
+            route_score = np.abs(_Mz.T @ ((_yf - _yf.mean()) / _ystd) / _yf.size)
+        else:
+            route_score = eng_mi
+    else:
+        route_score = eng_mi
+
+    # ---- Step 4: per-source argmax over (pre, basis, degree) by route_score;
+    # the selected cell's MI is retained for the (MI-based) keep gate in Step 5.
     best_per_source: dict[str, dict] = {}
     for j, (src, pt, basis_name, deg) in enumerate(cand_meta):
         emi = float(eng_mi[j])
-        if not np.isfinite(emi):
+        rscore = float(route_score[j])
+        if not np.isfinite(emi) or not np.isfinite(rscore):
             continue
         cur = best_per_source.get(src)
-        if cur is None or emi > cur["engineered_mi"]:
+        if cur is None or rscore > cur["route_score"]:
             best_per_source[src] = {
                 "src": src,
                 "pre_transform": pt,
                 "basis": basis_name,
                 "degree": deg,
                 "engineered_mi": emi,
+                "route_score": rscore,
                 "engineered_col": cand_cols[j],
                 "values_idx": j,
             }
@@ -429,6 +453,7 @@ def hybrid_orth_mi_conditional_routing_fe(
     min_uplift: float = 1.10,
     min_abs_mi_frac: float = 0.1,
     nbins: int = 10,
+    routing_criterion: str = "corr",
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Conditional-basis routing hybrid: pick the best (basis, pre_transform,
     degree) cell per source column, drop sources whose best fails the
@@ -453,6 +478,7 @@ def hybrid_orth_mi_conditional_routing_fe(
         min_uplift=min_uplift,
         min_abs_mi_frac=min_abs_mi_frac,
         nbins=nbins,
+        routing_criterion=routing_criterion,
     )
     if engineered.empty:
         scores_empty = pd.DataFrame(columns=[
@@ -492,6 +518,7 @@ def hybrid_orth_mi_conditional_routing_fe_with_recipes(
     min_uplift: float = 1.10,
     min_abs_mi_frac: float = 0.1,
     nbins: int = 10,
+    routing_criterion: str = "corr",
 ):
     """Same as :func:`hybrid_orth_mi_conditional_routing_fe` but additionally
     returns a list of ``EngineeredRecipe`` objects (kind ``orth_univariate``)
@@ -513,6 +540,7 @@ def hybrid_orth_mi_conditional_routing_fe_with_recipes(
         min_uplift=min_uplift,
         min_abs_mi_frac=min_abs_mi_frac,
         nbins=nbins,
+        routing_criterion=routing_criterion,
     )
     appended = [c for c in X_aug.columns if c not in X.columns]
     if not appended:

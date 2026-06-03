@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-06-03 — Conditional basis routing (Layer 58): route by |corr|, not MI
+
+``generate_conditional_basis_routing_features`` (the opt-in Layer-58 router that
+tries every (pre_transform x basis x degree) cell per column and keeps the
+per-source argmax) selected that argmax by MUTUAL INFORMATION — contradicting the
+default Layer-21 router (``basis_route_by_signal``, which routes by |Pearson corr|)
+and the MI-vs-linear-usability evidence. A thorough OOS study over this exact
+(pre_transform x basis x degree) space (route on train, score held-out Ridge AND
+HistGBM R²) showed MI-routing crippled on linear usability: OOS-linear R² 0.52 vs
+corr-routing 0.81 (corr within 0.004 of the oracle 0.814); MI picked a different,
+informative-but-non-linear cell (log|x| / tanh + Laguerre) in 23/30 cases. The
+per-source ARGMAX is a LINEARISATION decision (pick the cell a shallow downstream
+can use), so it now routes by ``routing_criterion="corr"`` (DEFAULT); ``"mi"``
+restores the legacy argmax. The KEEP gate (uplift + noise floor) stays MI-based —
+relevance is correctly an MI question; only the basis-selection argmax changed.
+The two univariate-basis routers (Layer 21 default + Layer 58 conditional) now
+agree on the criterion. Regression: layer58/64/70/104 = 78 passed + 2 new tests
+(default-is-corr; held-out corr-routing generalises ≥ MI-routing on the
+y=f(log|x|) heavy-tail regime).
+
 ## 2026-06-03 — Univariate-FE: signal-adaptive orthogonal-polynomial basis routing
 
 The univariate orthogonal-polynomial FE stage chose its basis (Hermite / Legendre /

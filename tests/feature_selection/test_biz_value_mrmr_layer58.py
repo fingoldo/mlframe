@@ -526,3 +526,55 @@ class TestRecipeReplay:
                 f"{float(np.max(np.abs(replayed - fit_time)))}; "
                 f"extra={dict(r.extra)}"
             )
+
+
+class TestRoutingCriterionCorrDefault:
+    """The per-source ARGMAX routes by linear usability (|Pearson corr|), not MI.
+
+    A 2026-06-03 out-of-sample study over this exact (pre_transform x basis x
+    degree) space showed corr-routing near-oracle (OOS-linear R^2 0.81 vs MI 0.52;
+    MI picks an informative-but-non-linear cell -- log|x|/tanh + Laguerre -- in
+    23/30 cases). This mirrors the default Layer-21 router ``basis_route_by_signal``
+    so the two routers agree. The KEEP gate stays MI-based (relevance IS an MI
+    question); only the argmax switched.
+    """
+
+    def test_default_routing_criterion_is_corr(self):
+        import inspect
+        gen = _import_routing_fe()[0]
+        assert (
+            inspect.signature(gen).parameters["routing_criterion"].default == "corr"
+        ), "the conditional-routing argmax must default to linear-usability (corr)"
+
+    def test_corr_routing_generalises_at_least_as_well_as_mi(self):
+        """Route on a TRAIN slice, replay the chosen (pre,basis,degree) cell on a
+        held-out slice via its recipe, and compare held-out |corr| with y. Routing
+        by corr (linear usability) must generalise at least as well as routing by
+        MI on the y=f(log|x|) heavy-tail regime -- the non-tautological win (the
+        comparison is on data the routing never saw)."""
+        from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
+        _, _, hybrid_with_recipes, _, _ = _import_routing_fe()
+        X, y = _build_heavy_tail(0)
+        half = len(X) // 2
+        Xtr = X.iloc[:half].reset_index(drop=True)
+        ytr = y.iloc[:half].reset_index(drop=True)
+        Xte = X.iloc[half:].reset_index(drop=True)
+        yte = y.iloc[half:].to_numpy().astype(float)
+        held = {}
+        for crit in ("corr", "mi"):
+            _, _, recipes = hybrid_with_recipes(
+                Xtr, ytr.values, cols=["x"], degrees=(2, 3),
+                min_uplift=1.0, top_k=1, routing_criterion=crit,
+            )
+            if not recipes:
+                pytest.skip(f"criterion {crit!r} emitted no column on this fixture")
+            v = np.asarray(apply_recipe(recipes[0], Xte), dtype=float)
+            held[crit] = (
+                abs(float(np.corrcoef(v, yte)[0, 1]))
+                if float(np.std(v)) > 1e-12 else 0.0
+            )
+        assert held["corr"] >= held["mi"] - 1e-6, (
+            f"corr-routing must generalise at least as well as MI-routing on the "
+            f"y=f(log|x|) heavy-tail regime: held-out |corr| "
+            f"corr={held['corr']:.3f} mi={held['mi']:.3f}"
+        )
