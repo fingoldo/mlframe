@@ -135,6 +135,44 @@ def test_confidence_indices_disabled():
     assert confident is None
 
 
+@pytest.mark.parametrize("K", [1, 2, 3])
+def test_multi_target_ensemble_preserves_row_count(K):
+    """Regression (fuzz c0000): multi_target_regression (N, K) member predictions must be
+    reshaped ROW-PRESERVING (-> (N, K)) before ensembling, NOT flattened to (N*K, 1).
+
+    _process_single_ensemble_method (regression branch) used ``p.reshape(-1, 1)``, which on a
+    (N, K) multi-target prediction yields (N*K, 1). ensemble_probabilistic_predictions then saw
+    N*K "rows" and returned an ensembled output + confident_indices spanning [0, N*K) -- which
+    IndexError'd when indexing the per-row test_idx / *_target arrays (size N). The fix uses
+    ``p.reshape(p.shape[0], -1)`` (bit-identical (N,)->(N,1) for single-target; (N,K)->(N,K) for
+    multi-target). The fuzz combo c0000 (cb / multi_target_regression / ensembles) is the
+    end-to-end regression; this guards the underlying shape contract.
+    """
+    N, M = 40, 3
+    rng = np.random.default_rng(0)
+    members = [rng.normal(size=(N, K)).astype(np.float64) for _ in range(M)]
+
+    # The fix's reshape preserves the row axis -> N rows out, per-row confident_indices.
+    ens_good, _, conf_good = ensemble_probabilistic_predictions(
+        *[p.reshape(p.shape[0], -1) for p in members],
+        ensemble_method="arithm", uncertainty_quantile=0.5, verbose=False,
+    )
+    assert ens_good.shape[0] == N, f"row-preserving reshape must keep N={N} rows, got {ens_good.shape}"
+    if conf_good is not None and len(conf_good):
+        assert int(np.max(conf_good)) < N, (
+            f"confident_indices must stay per-row (< {N}); got max {int(np.max(conf_good))} -- "
+            "these index the size-N test_idx / *_target arrays downstream"
+        )
+
+    # Root-cause sanity: the old reshape(-1, 1) flattens (N, K) -> (N*K, 1), so the ensembled
+    # output (and confident_indices range) blows up to N*K rows -- the overflow the fix removes.
+    ens_bad, _, _ = ensemble_probabilistic_predictions(
+        *[p.reshape(-1, 1) for p in members],
+        ensemble_method="arithm", uncertainty_quantile=0.5, verbose=False,
+    )
+    assert ens_bad.shape[0] == N * K, "sanity: reshape(-1,1) flattens (N,K)->(N*K,1) -- the bug"
+
+
 @pytest.mark.parametrize("method", SIMPLE_ENSEMBLING_METHODS)
 def test_all_ensemble_methods_produce_finite_results(method):
     """All ensemble methods should produce finite results for valid input."""
