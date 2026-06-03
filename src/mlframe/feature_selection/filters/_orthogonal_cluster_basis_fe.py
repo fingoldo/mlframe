@@ -289,27 +289,43 @@ def compute_cluster_aggregate(
         )
     if not members:
         return np.zeros(len(X), dtype=np.float64)
-    zs = [_zscore(np.asarray(X[m].to_numpy(), dtype=np.float64)) for m in members]
-    Z = np.column_stack(zs)
-    if aggregator == "mean_z":
-        return Z.mean(axis=1)
-    if aggregator == "median_z":
-        return np.median(Z, axis=1)
-    # pc1
-    # Center then SVD; leading right-singular-vector projection.
-    Zc = Z - Z.mean(axis=0, keepdims=True)
-    try:
-        U, S, Vt = np.linalg.svd(Zc, full_matrices=False)
-    except np.linalg.LinAlgError:
-        return Z.mean(axis=1)
-    if S.size == 0 or float(S[0]) <= 1e-12:
-        return Z.mean(axis=1)
-    pc1 = U[:, 0] * S[0]
-    # Sign-align so the leading correlation with the first member is
-    # positive; deterministic orientation across reruns / pickles.
-    if float(np.dot(pc1, Z[:, 0])) < 0.0:
-        pc1 = -pc1
-    return pc1
+    # 2026-06-03 (audit gap-03): use the canonical SIGN-ALIGNED standardization +
+    # weight derivation shared with filters._cluster_aggregate, not a private
+    # per-member z-score with NO sign alignment. detect_clusters_by_correlation
+    # links on |corr|, so a cluster may legitimately contain an anticorrelated
+    # reflection ({z, -z+eps}). Without alignment those members cancel under
+    # mean_z -> a near-constant (dead) aggregate, and the PC1 orientation was
+    # pinned to the first member only. _standardize_align sign-flips each member
+    # to the reference by its correlation sign (reflections add constructively),
+    # and the PC1 loading uses the sklearn svd_flip convention -- matching the
+    # canonical aggregate path so all subsystems agree. (NOTE: like the prior
+    # code, the per-member mean/std/signs are still fit on the passed frame;
+    # persisting them in the recipe for byte parity under train/test drift is
+    # the separate, still-open cluster-aggregate-6 follow-up.)
+    from ._cluster_aggregate import (
+        _apply_method_nonlinear,
+        _derive_weights,
+        _standardize_align,
+    )
+    # NaN-safe per-column fill (preserve the prior _zscore fill-with-mean
+    # behaviour) before sign-aligned standardisation.
+    cols = []
+    for m in members:
+        a = np.asarray(X[m].to_numpy(), dtype=np.float64)
+        finite = np.isfinite(a)
+        if not finite.all():
+            fill = float(np.nanmean(a[finite])) if finite.any() else 0.0
+            a = np.where(finite, a, fill)
+        cols.append(a)
+    M = np.column_stack(cols)
+    Z, _mean, _std, _signs = _standardize_align(M, 0)  # ref = first member
+    method = "pca_pc1" if aggregator == "pc1" else aggregator
+    weights = _derive_weights(Z, method)
+    if weights is None:
+        # median_z is the only non-linear aggregator in _VALID_AGGREGATORS.
+        return _apply_method_nonlinear(Z, method)
+    agg = Z @ np.asarray(weights, dtype=np.float64)
+    return np.nan_to_num(agg, nan=0.0, posinf=0.0, neginf=0.0)
 
 
 def generate_cluster_basis_features(
