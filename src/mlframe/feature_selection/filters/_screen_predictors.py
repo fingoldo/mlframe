@@ -149,6 +149,23 @@ def screen_predictors(
     # the engineered linearizer win over its near-tied raw parent. Still gated to
     # the leading band + engineered-only promotion (clear raw winners untouched).
     prefer_engineered_rel_eps: float = 0.15,
+    # 2026-06-03 — Westfall-Young maxT permutation-null gain floor. In a wide
+    # candidate pool (embedding / TF-IDF matrices, p >> sqrt(n)) the MAX marginal
+    # MI over p pure-noise columns is a positive order statistic that grows with
+    # p; per-candidate Miller-Madow correction centres each column's EXPECTED
+    # bias near zero but cannot remove this max-over-p selection inflation, so the
+    # best-of-p noise clears the abs/rel floors by chance and the greedy admits a
+    # noise cloud (Layer-20 p=500: 15 noise dims pass a <=15 bound). The null
+    # shuffles y K times, records the per-shuffle MAX corrected marginal MI over
+    # the pool, and floors order-1 selection at the q-th quantile of that
+    # distribution - the chance ceiling for THIS pool. SELF-GATING: tiny at small
+    # p (keeps weak genuine signals), large at high p (rejects the noise cloud).
+    # Only applied when the pool has >= ``screen_fdr_min_features`` candidates so
+    # the narrow tabular suite stays byte-stable. ``screen_fdr_null_permutations=0``
+    # disables. Lives in ``_permutation_null.py``.
+    screen_fdr_null_permutations: int = 25,
+    screen_fdr_null_quantile: float = 0.95,
+    screen_fdr_min_features: int = 30,
 ) -> float:
     """Finds best predictors for the target. ``factors_data`` must be an n-by-m array of integers (ordinal encoded).
 
@@ -490,6 +507,36 @@ def screen_predictors(
         else:
             _cardinality_refused_cols = set()
 
+        # 2026-06-03 — Westfall-Young maxT permutation-null gain floor (computed
+        # ONCE on the finalised order-1 pool, applied at the selection gate). Only
+        # bites when the pool is wide enough for the max-over-p selection bias to
+        # matter; below ``screen_fdr_min_features`` the floor is 0.0 (no-op) so the
+        # narrow tabular suite is untouched. See ``_permutation_null.py``.
+        _fdr_gain_floor = 0.0
+        if screen_fdr_null_permutations and int(screen_fdr_null_permutations) > 0:
+            _fdr_pool = sorted(x) if isinstance(x, set) else list(x)
+            if len(_fdr_pool) >= int(screen_fdr_min_features):
+                from ._permutation_null import pooled_permutation_null_gain_floor
+
+                _y_idx_fdr = int(y[0]) if hasattr(y, "__len__") else int(y)
+                _fdr_gain_floor = pooled_permutation_null_gain_floor(
+                    factors_data,
+                    factors_nbins,
+                    _fdr_pool,
+                    _y_idx_fdr,
+                    n_permutations=int(screen_fdr_null_permutations),
+                    quantile=float(screen_fdr_null_quantile),
+                    cardinality_bias_correction=cardinality_bias_correction,
+                    random_seed=random_seed,
+                )
+                if _fdr_gain_floor > 0.0 and verbose >= 1:
+                    logger.info(
+                        "screen_predictors: maxT permutation-null gain floor=%.5f over p=%d "
+                        "candidates (q=%.2f, K=%d) - rejects chance-max noise at scale.",
+                        _fdr_gain_floor, len(_fdr_pool), float(screen_fdr_null_quantile),
+                        int(screen_fdr_null_permutations),
+                    )
+
         if use_gpu:
             import cupy as cp
 
@@ -719,7 +766,37 @@ def screen_predictors(
                     _first_gain_for_gate = _max_corrected_gain
                     if _max_corrected_gain > 0.0:
                         _rel_floor = _max_corrected_gain * float(min_relevance_gain_relative_to_first)
-                if _best_gain_for_gate >= _abs_floor and _best_gain_for_gate >= _rel_floor:
+                # 2026-06-03 maxT permutation-null floor (order-1 single candidates
+                # only). CRITICAL: compare the candidate's corrected MARGINAL MI -
+                # the exact statistic the null is built on - NOT the Fleuret
+                # conditional gain ``_best_gain_for_gate``. Once the genuine signals
+                # are selected, the conditional gain of a noise column is dominated by
+                # conditioning-bias on the sparse high-dim joint (3 selected x 14-bin
+                # features => ~2700 cells at n=1500): the noise's conditional gain
+                # inflates to ~2x its marginal MI and clears the abs/rel floors, which
+                # is exactly the embedding noise-cloud hijack. The marginal MI carries
+                # no such conditioning bias, so flooring it at the maxT chance ceiling
+                # cleanly separates the 3 genuine signals (marginal >> floor) from the
+                # 497 noise dims (marginal < floor). ``cached_MIs[X]`` is the direct
+                # marginal I(X;Y) computed during candidate scoring (no extra cost).
+                # The floor is 0.0 for narrow pools (< ``screen_fdr_min_features``), so
+                # this is a no-op on the tabular suite; higher-order joints are
+                # untouched (they keep their own ``_abs_floor``).
+                _fdr_floor_eff = _fdr_gain_floor if interactions_order == 1 else 0.0
+                _fdr_pass = True
+                if _fdr_floor_eff > 0.0 and best_candidate is not None and len(best_candidate) == 1:
+                    _cand_marg_raw = cached_MIs.get(best_candidate, None)
+                    if _cand_marg_raw is not None:
+                        _cand_marg_corr = float(_cand_marg_raw)
+                        if cardinality_bias_correction:
+                            _nb_x_fdr = int(factors_nbins[int(best_candidate[0])])
+                            _y_idx_fdr2 = int(y[0]) if hasattr(y, "__len__") else int(y)
+                            _nb_y_fdr = int(factors_nbins[_y_idx_fdr2])
+                            _cand_marg_corr -= (_nb_x_fdr - 1) * (_nb_y_fdr - 1) / (2.0 * int(factors_data.shape[0]))
+                        _fdr_pass = _cand_marg_corr >= _fdr_floor_eff
+                if (_best_gain_for_gate >= _abs_floor
+                        and _best_gain_for_gate >= _rel_floor
+                        and _fdr_pass):
                     for var in best_candidate:
                         if var not in selected_vars:
                             selected_vars.append(var)
