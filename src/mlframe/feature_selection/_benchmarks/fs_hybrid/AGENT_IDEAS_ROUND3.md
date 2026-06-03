@@ -45,19 +45,16 @@ Status: TODO | TESTING | DONE-*. Decision rule (CLAUDE.md §6): most accurate fi
   RFECVSel post-process option; the hybrid/mrmr FE already capture the bigger FE benefit.
 - R3-2 one_se rule audit — DONE-benched (REJECTED): one_se_min (current, 0.7882) is the BEST rule; one_se_max gets
   recall 1.0 but admits 20.7 noise -> worst AUC 0.7735; argmax 0.7821. The adapter's forced one_se_min is correct.
-- R3-3 Held-out-permutation shadow-null noise floor — DONE-doc (REJECTED, grounded): one_se_min already keeps noise
-  to ~1.0; a noise floor risks the fi_guard fate (cut recall with noise). The +0.015 from R3-1 (add real interaction)
-  dominates the ~0 headroom from removing the last ~1 noise col. Not worth the recall risk.
-- R3-4 Stability-selection equal-N re-ranker — DONE-doc (subsumed): R2r-2 already measured bootstrap support
-  aggregation AUC-NEUTRAL (stability-only). An equal-N CV-gated swap is a marginal refinement of that AUC-neutral
-  lever; R3-1's product augmentation is the RFECV AUC win instead.
-- R3-5 Two-resolution N grid — DONE-doc (DEFERRED, small): a curve-resolution refinement worth at most the gap
-  between adjacent N inside the 1-SE band; on this bed one_se_min already wins and R3-1 captures the real AUC lever.
-  Safe future micro-opt; not benched (low ceiling vs R3-1).
-- R3-6 Cluster-representative elimination credit — DONE-doc (DEFERRED, promising-but-redundant-here): ports the R2b-6
-  premerge win to RFECV's vote to de-dilute split FI across copies. On make_dataset RFECV already keeps noise low and
-  R3-1 supplies the FE win; the premerge mechanism is already validated (R2b-6) + shipped in the hybrid, so RFECV-
-  side cluster-credit is a recall lever for redundant data, worth porting if a redundant-heavy regime needs it.
+- R3-3 Held-out-permutation shadow-null noise floor — DONE-BENCHED (REJECTED): round3_rfecv_levers_bench.py (3 seeds)
+  delta -0.0067 vs baseline; it cut base recall (7/8 -> 5/8), the fi_guard fate, now MEASURED not just predicted.
+- R3-4 Stability-selection equal-N re-ranker — DONE-BENCHED (REJECTED): delta -0.0090 (worst of the levers); the
+  bootstrap-frequency top-N diverges from the CV-optimal support and hurts. Confirms R2r-2's stability-not-AUC class.
+- R3-5 Two-resolution N grid — DONE-BENCHED (no win): delta -0.0014 (within noise) -- re-evaluating every N in the
+  band lands essentially the same support; one_se_min's N is already near the local CV-argmax. No headroom.
+- R3-6 Cluster-representative elimination credit (= R2r-5 corr-collapse) — DONE-BENCHED (REJECTED): delta -0.0024;
+  collapsing raw-corr clusters before RFECV's vote and re-expanding does NOT help -- RFECV already eliminates the
+  redundant copies via CV-ranked backward elimination, so de-diluting the vote credit changes nothing positive here
+  (unlike the Boruta gate R2b-6, where premerge did win). Measured, not assumed.
 - R3-7 n_stability_elbow_ as the N-rule — DONE-doc (REJECTED, grounded): R3-2 showed one_se_min beats one_se_max/
   argmax; the elbow (stability x score) collapses to ~score-argmax on this bed (stability ~1 across N on small p,
   the documented R6 finding), so it cannot beat the rule that already won. No headroom.

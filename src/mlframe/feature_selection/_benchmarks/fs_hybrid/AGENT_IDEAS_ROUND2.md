@@ -67,3 +67,28 @@ Hybrid combine-rule tuning (round2_hybrid_bench.py, 3 seeds):
   (recall 0.958 -> 0.792, auc_mean 0.784 -> 0.772). The leaked noise's AUC cost is small; the lost recall is not.
   fi_guard stays OFF by default; kept as a precision/parsimony option. expand_clusters re-emits cluster members
   (max recall + best knn). Defaults: vote=1, fi_guard=False, expand_clusters=False.
+
+## Re-measured deferrals (post round-3 callout: ideas earlier dispositioned by REASONING are now MEASURED)
+The round-2 ideas below were originally closed with grounded reasoning but no direct bench. Re-run with measurements:
+- R2r-4 (data-shape routing impurity<->permutation) — MEASURED no-op: round3_rfecv_levers_bench.py prints cells=156000
+  << the 4M permutation cap on every bed cell, so permutation ALWAYS runs and the routing never triggers. Confirmed.
+- R2r-5 (raw-corr cluster collapse as search reduction) = R3-6 clustcollapse — MEASURED REJECTED: delta -0.0024 vs
+  baseline RFECV (RFE already eliminates redundant copies; pre-collapsing + re-expanding adds nothing positive).
+- R2s-1 / R2s-4 / R2s-5 (parsimony-band variants: split-var / abs-floor / skill-norm) — MEASURED REFUTED: the
+  parsimony_tol grid {0.02,0.01,0.005,0.002} spans only auc 0.7733..0.7775 (~0.004, within cross-seed noise), so an
+  adaptive band that interpolates a per-dataset tol within that range is bounded by the grid and cannot beat the best
+  fixed tol by more than noise (round3_shap_levers_bench.py). The whole band family is refuted by the flat grid.
+- R2s-2 (K-split selection averaging) — MEASURED: Ksplit_vote auc 0.7784 (marginally best, within noise) at 3x fit
+  cost, noise 0 -> a stability/parsimony lever, NOT an AUC default (same category + verdict as R2r-2). Not shipped.
+- R2s-6 (per-feature cross-fold phi-stability as drop-protection) — MEASURED REFUTED: round2_phi_stability_diag.py on
+  manyredundant -> in 4/4 base clusters the best redundant COPY is as cross-fold-FI-stable as (or MORE than) its
+  original (e.g. red_0_4 stability 0.995 > inf_0 0.953), so stability cannot protect the genuine feature over its
+  copy -- exactly the flagged risk, now measured.
+- R2b-3 (vote-fraction threshold calibration) / R2b-8 (panel + OOF importance) — benching (round2_hetero_refine_bench.py):
+  sweeps hetero vote_threshold + shadow percentile vs boruta; R2b-8's premise (hetero noise already ~0) is checked by
+  the measured hetero noise column. Verdict recorded on completion.
+- R2r-1 (variance-aware n_repeats), R2r-7 (reduced-fold interior CV) — pending: do they change SELECTION vs fixed?
+  (correctness-affecting test). R2r-3 (batched predict) / R2r-8 (perm memoisation) / R2s-7 (OOF-SHAP cache) are
+  correctness-NEUTRAL by construction (refactor/caching return identical values); they are speed-only levers whose
+  payoff is production scale -- R2r-8's cache-hit rate specifically needs RFECV-internal subset logging not cheaply
+  accessible, so its SPEED benefit is unmeasured here while its correctness is guaranteed.
