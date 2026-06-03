@@ -104,6 +104,8 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         random_state=0,
         sample: bool = False,
         train_or_test="train",
+        premerge_clusters: bool = False,
+        premerge_corr_thr: float = 0.92,
         normalize: bool = True,
         verbose: bool = True,
         stratify=None,
@@ -159,6 +161,12 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         self.n_trials = n_trials
         self.sample = sample
         self.train_or_test = train_or_test
+        # premerge_clusters (off by default): collapse raw |corr| >= premerge_corr_thr clusters to one representative
+        # BEFORE the shadow gate, then re-expand accepted reps to their members. De-dilutes the shadow comparison on
+        # redundant data -> measured (R2b-6) +recall, -noise, and faster (the gate sees fewer columns). 7/12 cells won
+        # on the fs_hybrid bed; already shipped inside the HybridSelector, now available standalone.
+        self.premerge_clusters = premerge_clusters
+        self.premerge_corr_thr = premerge_corr_thr
         self.stratify = stratify
         self.verbose = verbose
         self.normalize = normalize

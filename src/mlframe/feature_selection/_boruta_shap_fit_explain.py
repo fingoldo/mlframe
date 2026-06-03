@@ -56,6 +56,33 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _premerge_collapse(X, thr):
+    """premerge_clusters: collapse |Pearson| >= thr clusters of X to one representative (first column of each
+    cluster). Returns (X_reps, rep_members) where rep_members maps representative -> [member columns incl. rep]."""
+    cols = list(X.columns)
+    C = np.nan_to_num(np.corrcoef(X.values, rowvar=False))
+    if C.ndim == 0:
+        return X, {cols[0]: [cols[0]]}
+    reps, members, seen = [], {}, set()
+    for i, c in enumerate(cols):
+        if c in seen:
+            continue
+        reps.append(c); members[c] = [c]; seen.add(c)
+        for j in range(i + 1, len(cols)):
+            if cols[j] not in seen and abs(C[i, j]) >= thr:
+                members[c].append(cols[j]); seen.add(cols[j])
+    return X[reps], members
+
+
+def _premerge_expand(accepted_reps, rep_members, original_cols):
+    """Re-expand accepted representative columns to all their cluster members. Returns (kept_set, support_mask)
+    over the ORIGINAL column order."""
+    kept = set()
+    for r in accepted_reps:
+        kept.update(rep_members.get(r, [r]))
+    return kept, np.array([c in kept for c in original_cols], dtype=bool)
+
+
 def _fit_with_subsample_stability(self, X, y):
     """Run BorutaShap on several distinct row-subsamples (WITHOUT replacement) and keep only features
     ACCEPTED in >= stability_threshold of them. Removes the finite-sample-spurious top real-noise column
@@ -161,9 +188,14 @@ def _fit_with_subsample_stability(self, X, y):
         kept = set(self.accepted)
     else:
         kept = set(self.accepted) | (set(self.tentative) if self.optimistic else set())
-    self.support_ = np.array([c in kept for c in all_columns], dtype=bool)
-    self.selected_features_ = [c for c in all_columns if c in kept]
-    self.feature_names_in_ = np.asarray(all_columns)
+    if getattr(self, "_premerge_active_", False):  # re-expand accepted representatives to their cluster members
+        kept, self.support_ = _premerge_expand(kept, self._premerge_members_, self._premerge_original_cols_)
+        self.selected_features_ = [c for c in self._premerge_original_cols_ if c in kept]
+        self.feature_names_in_ = np.asarray(self._premerge_original_cols_)
+    else:
+        self.support_ = np.array([c in kept for c in all_columns], dtype=bool)
+        self.selected_features_ = [c for c in all_columns if c in kept]
+        self.feature_names_in_ = np.asarray(all_columns)
     self.n_features_in_ = int(len(all_columns))
     self.stability_accept_counts_ = dict(accept_counts)  # diagnostic: per-feature accept frequency
     if self.verbose:
@@ -251,6 +283,14 @@ def fit(self, X, y):
     # Deferred from __init__ (sklearn clone-ability): resolve model=None -> default RF and validate fit/predict here,
     # before either the stability orchestration (which clones self.model) or the single-pass body uses it.
     self.check_model()
+
+    # premerge_clusters (opt-in, off by default): collapse raw-corr clusters to one representative BEFORE the shadow
+    # gate, so BOTH the stability path and the single-pass body run on the de-duplicated representative columns; the
+    # finalization re-expands accepted reps to their members. Stored state is consumed at both finalization sites.
+    self._premerge_active_ = bool(getattr(self, "premerge_clusters", False)) and getattr(X, "shape", (0, 0))[1] >= 2
+    if self._premerge_active_:
+        self._premerge_original_cols_ = list(X.columns)
+        X, self._premerge_members_ = _premerge_collapse(X, float(getattr(self, "premerge_corr_thr", 0.92)))
 
     # Cross-subsample stability gate (opt-in). See BorutaShap class docstring: a single-sample shadow
     # comparison leaks the top finite-sample-spurious real-noise column; majority vote across distinct
@@ -351,14 +391,19 @@ def fit(self, X, y):
     kept = set(self.accepted)
     if self.optimistic:
         kept |= set(self.tentative)
-    self.support_ = np.array([c in kept for c in self.all_columns], dtype=bool)
-    self.selected_features_ = [c for c in self.all_columns if c in kept]
+    if getattr(self, "_premerge_active_", False):  # re-expand accepted representatives to their cluster members
+        kept, self.support_ = _premerge_expand(kept, self._premerge_members_, self._premerge_original_cols_)
+        _final_columns = self._premerge_original_cols_
+    else:
+        self.support_ = np.array([c in kept for c in self.all_columns], dtype=bool)
+        _final_columns = self.all_columns
+    self.selected_features_ = [c for c in _final_columns if c in kept]
     # sklearn convention: feature_names_in_ + n_features_in_ are the canonical
     # discoverable attributes for downstream report builders. Without them the
     # FS report's ``dropped_features`` field is None for BorutaShap and
     # asymmetric vs MRMR / RFECV.
-    self.feature_names_in_ = np.asarray(self.all_columns)
-    self.n_features_in_ = int(len(self.all_columns))
+    self.feature_names_in_ = np.asarray(_final_columns)
+    self.n_features_in_ = int(len(_final_columns))
 
     # sklearn fit-returns-self contract: the stability path already returns self, so this single-fit path
     # must too, otherwise ``selector.fit(X, y).transform(X)`` (used across this codebase) yields None ->
