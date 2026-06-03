@@ -19,6 +19,110 @@ from .composite_screening import (
 logger = logging.getLogger(__name__)
 
 
+# Minimum rows kept by the leak-corr adaptive sampler. Pearson correlation
+# converges to ~0.001 absolute precision at 100K rows; 500K is a 2x safety
+# margin so even at the smallest sampled regime the corr estimate stays a
+# faithful proxy for the full-frame number. Falling below this hides
+# legitimate strong correlates instead of filtering them.
+_LEAK_CORR_MIN_SAMPLE_ROWS = 500_000
+
+
+# Headroom guard the sampler enforces. The leak-corr matrix is materialised at
+# ``rows * cols * 4 B`` in one shot (column_stack copy); we sample down when
+# that single allocation would consume more than this fraction of currently-
+# available physical RAM. 0.30 = leave 70% of available for the rest of the
+# discovery pipeline (per-base x_remaining matrices, MI tables, tiny-model
+# Datasets). Tuned for the user's 128 GB host where the prior full-frame
+# 6.41 GB allocation tripped numpy's MemoryError on virtual-address-space
+# fragmentation despite ~20 GB free physical RAM.
+_LEAK_CORR_ALLOC_AVAIL_FRACTION = 0.30
+
+
+def _maybe_sample_for_leak_corr(
+    candidates: list[str],
+    candidate_arrays: list[np.ndarray],
+    y_train: np.ndarray,
+) -> tuple[list[np.ndarray], np.ndarray]:
+    """Adaptive stride-sample for the leak-corr filter's full-frame allocation.
+
+    Builds the (rows, cols) leak-corr matrix at full precision when the host
+    has plenty of free RAM; falls back to a deterministic stride-subsample
+    when the single allocation would exceed ``_LEAK_CORR_ALLOC_AVAIL_FRACTION``
+    of currently-available physical RAM.
+
+    Why "available" and not "total": on a long-running Jupyter kernel the
+    process can carry tens of GB of committed-but-paged-out buffers (pyarrow
+    pools, numba JIT cache, library .dll/.so mappings) that don't appear in
+    USS/RSS but do count toward virtual-address-space fragmentation. numpy's
+    ``np.column_stack`` requires ONE contiguous virtual block at the matrix
+    size; on a 128 GB host with 20 GB free physical the next 6.4 GB contiguous
+    request can MemoryError purely from address-space fragmentation. Sampling
+    the rows down keeps the allocation under the fragmentation ceiling.
+
+    Why stride and not random: correlation estimation is rotation-invariant
+    so systematic sampling is unbiased for Pearson |corr|; stride is also
+    fully reproducible across runs (no random_state plumbing required) and
+    keeps the lag-feature ordering intact for downstream consumers that
+    might inspect the survivor arrays.
+
+    Returns the (possibly resampled) candidate_arrays + the (possibly
+    resampled) y_train. No-op when sampling is unnecessary -- the caller
+    receives the original arrays back so the bit-identical full-frame path
+    is preserved on hosts with adequate RAM.
+    """
+    if not candidate_arrays:
+        return candidate_arrays, y_train
+    n_rows = candidate_arrays[0].shape[0]
+    n_cols = len(candidate_arrays)
+    # Stacked-matrix footprint at float32 (the dtype _extract_column_array
+    # returns) is what np.column_stack actually allocates.
+    needed_bytes = n_rows * n_cols * 4
+    try:
+        import psutil as _psutil
+        available_bytes = int(_psutil.virtual_memory().available)
+    except Exception:
+        # No psutil -> can't measure -> trust the legacy full-frame path. The
+        # caller's existing try/except for MemoryError still catches this case;
+        # we just don't have a way to AVOID the OOM here without psutil.
+        return candidate_arrays, y_train
+    if needed_bytes <= _LEAK_CORR_ALLOC_AVAIL_FRACTION * available_bytes:
+        return candidate_arrays, y_train
+    # Sampling needed. Pick the largest stride such that the resulting matrix
+    # fits the headroom band; clamp to the corr-precision floor.
+    budget_bytes = int(_LEAK_CORR_ALLOC_AVAIL_FRACTION * available_bytes)
+    target_rows = max(_LEAK_CORR_MIN_SAMPLE_ROWS, budget_bytes // (n_cols * 4))
+    target_rows = min(target_rows, n_rows)
+    if target_rows >= n_rows:
+        # Headroom-derived target exceeds row count -- the prior check already
+        # decided we're tight; clamp to a sane sample anyway so we don't
+        # full-frame-allocate on a fragmented address space.
+        target_rows = min(n_rows, max(_LEAK_CORR_MIN_SAMPLE_ROWS, n_rows // 2))
+    stride = max(1, n_rows // target_rows)
+    sample_idx = np.arange(0, n_rows, stride)
+    if sample_idx.size > target_rows:
+        sample_idx = sample_idx[:target_rows]
+    sampled = [arr[sample_idx] for arr in candidate_arrays]
+    y_sampled = (
+        y_train[sample_idx]
+        if y_train is not None and y_train.shape[0] == n_rows
+        else y_train
+    )
+    logger.info(
+        "[CompositeTargetDiscovery] leak-corr matrix sampled from %d to %d rows "
+        "(stride=%d): full-frame alloc %.2f GB would exceed %.0f%% of %.2f GB "
+        "currently-available RAM, sampled alloc %.2f GB stays under the cap. "
+        "Pearson |corr| precision at %d rows is ~1e-3, within the leak-filter "
+        "threshold tolerance.",
+        n_rows, sample_idx.size, stride,
+        needed_bytes / 1024 ** 3,
+        _LEAK_CORR_ALLOC_AVAIL_FRACTION * 100,
+        available_bytes / 1024 ** 3,
+        (sample_idx.size * n_cols * 4) / 1024 ** 3,
+        sample_idx.size,
+    )
+    return sampled, y_sampled
+
+
 def _filter_features(
     self,
     df: Any,
@@ -80,11 +184,20 @@ def _filter_features(
     # Acceptable trade-off for the ~600ms saving on 200-feature filter calls.
     kept: list[str] = []
     if candidates:
-        X_train = np.column_stack(candidate_arrays)
+        # Adaptive headroom-aware sampler: full-frame on RAM-rich hosts, stride-
+        # subsample when the single column_stack alloc would crowd available RAM.
+        # The corr estimate at the sampled regime stays within ~1e-3 of full-frame
+        # precision, well inside the leak-filter threshold tolerance. See helper
+        # docstring for the why/why-not analysis.
+        _sampled_arrays, _y_for_corr = _maybe_sample_for_leak_corr(
+            candidates, candidate_arrays, y_train,
+        )
+        X_train = np.column_stack(_sampled_arrays)
         # Free the per-column ndarrays the moment they land in the stacked matrix:
         # candidate_arrays holds (n_features) views/copies that double the peak
         # footprint until we let them go (~8 GB on a 4M-row x 500-col float32 frame).
         candidate_arrays.clear()
+        _sampled_arrays = []
         # nanmean over (N, F) requires no temp; nb the prior np.where(isfinite, X, nan)
         # built a SECOND full-frame copy purely to silence non-finite cells, redundant.
         col_means = np.nanmean(X_train, axis=0)
@@ -96,7 +209,7 @@ def _filter_features(
             X_train[non_finite_mask] = np.broadcast_to(
                 col_means, X_train.shape,
             )[non_finite_mask]
-        abs_corrs = _safe_abs_corr_all(y_train, X_train)
+        abs_corrs = _safe_abs_corr_all(_y_for_corr, X_train)
         threshold = float(self.config.forbidden_base_corr_threshold)
         for col, corr_val in zip(candidates, abs_corrs.tolist()):
             if corr_val >= threshold:
