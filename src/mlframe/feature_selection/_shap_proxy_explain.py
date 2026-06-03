@@ -110,10 +110,21 @@ def _maybe_patch_shap_xgb_base_score():
     if _SHAP_XGB_PATCHED:
         return
     try:
+        import shap
         from shap.explainers import _tree as _shap_tree
     except Exception:
         _SHAP_XGB_PATCHED = True
         return
+
+    # shap >= 0.52 parses the XGBoost 2.x/3.x base_score array natively (PR #3530) AND its tree loader uses ``float`` as a numpy dtype (``np.asarray(base_score, dtype=float)``); monkeypatching the module-global ``float`` to ``_safe_float`` would make that ``np.asarray`` raise ``TypeError: Cannot interpret ... as a data type``. Only the older, genuinely-broken versions get the workaround.
+    try:
+        _shap_ver = tuple(int(p) for p in shap.__version__.split(".")[:2])
+    except Exception:
+        _shap_ver = (0, 0)
+    if _shap_ver >= (0, 52):
+        _SHAP_XGB_PATCHED = True
+        return
+
     import builtins
     import re
     _orig_float = builtins.float
