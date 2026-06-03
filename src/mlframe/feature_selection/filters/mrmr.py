@@ -1649,6 +1649,16 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_conditional_residual_n_bins: int = 10,
         fe_conditional_residual_top_k: int = 10,
         fe_conditional_residual_max_pair_cols: int = 6,
+        # RankGauss = rank -> Phi^-1(empirical CDF); leak-safe (TRAIN sorted values,
+        # replay via searchsorted + extreme-clip). Stays default-OFF on purpose.
+        # bench-rejected (2026-06-03) flipping it default-ON / adding a duplicate
+        # qrank/qnorm univariate operator: BEYOND the default-on cubic-B-spline
+        # quantile-knot block it adds ~0 information on heavy-tailed monotone x --
+        # |corr(qnorm(x), y)| matches the spline-linear extract to ~3 decimals
+        # (exp/lognorm/pareto reg ~0.950); the lone pareto-reg OOS lift was a fixed-
+        # alpha Ridge artifact (RidgeCV on the baseline spline block closes it). It
+        # DOES beat RAW x for a linear/NN downstream (its existing biz-value test),
+        # so keep the opt-in knob; just don't make it default. (D:/Temp/item6_rank_transform_findings.md)
         fe_rankgauss_enable: bool = False,
         fe_rankgauss_cols: tuple = (),
         fe_rankgauss_top_k: int = 10,
