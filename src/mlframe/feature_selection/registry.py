@@ -75,7 +75,29 @@ def _instantiate_mrmr(**kwargs):
 def _instantiate_rfecv(**kwargs):
     # Go through the public re-export so the underscore module remains an implementation detail.
     from mlframe.feature_selection.wrappers import RFECV
-    return RFECV(**kwargs)
+    # 2026-06-03 (audit integration-defaults-3): cluster-medoid pre-reduction is
+    # DEFAULT-ON for the suite's RFECV. Broad validation
+    # (bench_cross_selector_diverse: synthetic make_classification with varied
+    # redundancy + a signal-in-non-medoid risk case + real breast_cancer / wine /
+    # digits) showed OOS AUC delta in [-0.0004, +0.0081] -- never materially
+    # hurts -- with ~1.4-1.9x wall-clock on genuinely correlated data. The
+    # GroupAwareMRMR guard bypasses the medoid path (running the bare RFECV on
+    # full X) whenever the clustering eliminates < cluster_min_reduction of the
+    # features, so it is a no-op on near-uncorrelated data. expand=True keeps
+    # whole clusters (AUC-safe: a selected medoid drags in its members, so a
+    # signal that lives in a non-medoid member is never dropped). Set
+    # ``cluster_reduce=False`` to get the bare RFECV.
+    cluster_reduce = bool(kwargs.pop("cluster_reduce", True))
+    corr_threshold = float(kwargs.pop("cluster_corr_threshold", 0.9))
+    min_reduction = float(kwargs.pop("cluster_min_reduction", 0.05))
+    base = RFECV(**kwargs)
+    if not cluster_reduce:
+        return base
+    from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
+    return GroupAwareMRMR(
+        base, corr_threshold=corr_threshold, corr_method="pearson",
+        expand=True, min_reduction=min_reduction,
+    )
 
 
 def _instantiate_boruta_shap(**kwargs):

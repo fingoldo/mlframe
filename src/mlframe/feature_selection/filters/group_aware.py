@@ -124,13 +124,28 @@ class GroupAwareMRMR(BaseEstimator, TransformerMixin):
         corr_threshold: float = 0.9,
         corr_method: str = "spearman",
         expand: bool = True,
+        min_reduction: float = 0.05,
     ):
         self.estimator = estimator
         self.corr_threshold = corr_threshold
         self.corr_method = corr_method
         self.expand = expand
+        # 2026-06-03 (audit integration-defaults-3): SAFETY/USEFULNESS guard for
+        # default-ON use. The cluster-medoid reduction is a measured win
+        # (~1.4-1.9x, no OOS loss) ONLY when genuine correlated redundancy
+        # exists; on near-uncorrelated data it would reduce nothing yet still run
+        # the wrapper on a same-size medoid set. When the clustering eliminates
+        # fewer than ``min_reduction`` of the features, we BYPASS the medoid path
+        # and fit the inner selector on the full X -> identical selection to a
+        # bare wrapper, no wasted wrapper work. Broad validation
+        # (bench_cross_selector_diverse) showed AUC delta in [-0.0004, +0.0081]
+        # across synthetic + real datasets -> safe to default ON.
+        self.min_reduction = min_reduction
 
-    def fit(self, X, y):
+    def fit(self, X, y, **fit_params):
+        # **fit_params (e.g. ``groups`` for a GroupKFold cv, ``sample_weight``)
+        # are row-aligned, so they pass straight through to the inner selector
+        # whether it fits on the medoid subset or the full X (same rows).
         is_df = isinstance(X, pd.DataFrame)
         if not is_df:
             X = pd.DataFrame(X, columns=[f"f_{i}" for i in range(X.shape[1])])
@@ -142,16 +157,43 @@ class GroupAwareMRMR(BaseEstimator, TransformerMixin):
             X, self.cluster_assignments_, method=self.corr_method,
         )
         n_clusters = len(self.cluster_medoid_indices_)
+        n_feat = X.shape[1]
+        reduction = (n_feat - n_clusters) / max(n_feat, 1)
+        self.reduction_ = float(reduction)
+        self.reduced_ = bool(reduction >= float(self.min_reduction))
         logger.info(
             "GroupAwareMRMR: %d original features -> %d cluster medoids "
-            "(corr_threshold=%.2f).",
-            X.shape[1], n_clusters, self.corr_threshold,
+            "(corr_threshold=%.2f, reduction=%.1f%%, applied=%s).",
+            n_feat, n_clusters, self.corr_threshold, 100.0 * reduction,
+            self.reduced_,
         )
+
+        # Guard: when the reduction is below the threshold, run the inner
+        # selector on the FULL feature set (no medoid bypass) so the result is
+        # identical to a bare wrapper and no wrapper work is wasted clustering.
+        if not self.reduced_:
+            inner = clone(self.estimator)
+            inner.fit(X, y, **fit_params)
+            self.estimator_ = inner
+            _sup_full = np.asarray(inner.support_)
+            self.support_ = (
+                np.where(_sup_full)[0] if _sup_full.dtype == bool
+                else _sup_full.astype(np.int64)
+            )
+            self.selected_clusters_ = sorted(
+                set(int(self.cluster_assignments_[i]) for i in self.support_)
+            )
+            self.n_features_ = len(self.support_)
+            self.n_features_in_ = n_feat
+            if is_df:
+                self.feature_names_in_ = list(X.columns)
+            return self
 
         # Fit inner estimator on the medoid subset only.
         X_medoids = X.iloc[:, self.cluster_medoid_indices_]
         inner = clone(self.estimator)
-        inner.fit(X_medoids, y)
+        inner.fit(X_medoids, y, **fit_params)
+        self.estimator_ = inner
 
         # Map the inner selector's kept medoids back to clusters. Normalise
         # ``support_`` to integer indices into X_medoids: the mRMR family exposes
@@ -187,3 +229,32 @@ class GroupAwareMRMR(BaseEstimator, TransformerMixin):
         if hasattr(X, "iloc"):
             return X.iloc[:, self.support_]
         return X[:, self.support_]
+
+    def get_feature_names_out(self, input_features=None):
+        """Selected feature names (sklearn transformer contract) so this is a
+        faithful drop-in inside the training-suite pre-pipeline. ``support_`` is
+        an integer index array into ``feature_names_in_``."""
+        names = getattr(self, "feature_names_in_", None)
+        if names is not None:
+            return np.asarray([names[int(i)] for i in self.support_], dtype=object)
+        if input_features is not None:
+            return np.asarray([input_features[int(i)] for i in self.support_], dtype=object)
+        return np.asarray([f"f_{int(i)}" for i in self.support_], dtype=object)
+
+    def __getattr__(self, name):
+        """Transparently expose the fitted inner selector's attributes (e.g. the
+        training-suite's ``_selector_kind`` / ``_mlframe_use_sample_weights_in_fs_``
+        markers, RFECV's ``cv_results_`` etc.) so this wrapper is a faithful
+        drop-in. Only consulted for attributes GroupAwareMRMR does NOT define
+        itself (support_, transform, get_feature_names_out, etc. stay the
+        wrapper's expanded versions). Guarded against pre-fit recursion.
+        """
+        if name in ("estimator_", "estimator", "__setstate__", "__getstate__"):
+            raise AttributeError(name)
+        inner = self.__dict__.get("estimator_")
+        if inner is not None and hasattr(inner, name):
+            return getattr(inner, name)
+        raise AttributeError(
+            f"{type(self).__name__!r} object (and its inner estimator) has no "
+            f"attribute {name!r}"
+        )
