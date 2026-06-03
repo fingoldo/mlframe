@@ -1652,13 +1652,16 @@ class MRMR(BaseEstimator, TransformerMixin):
         # RankGauss = rank -> Phi^-1(empirical CDF); leak-safe (TRAIN sorted values,
         # replay via searchsorted + extreme-clip). Stays default-OFF on purpose.
         # bench-rejected (2026-06-03) flipping it default-ON / adding a duplicate
-        # qrank/qnorm univariate operator: BEYOND the default-on cubic-B-spline
-        # quantile-knot block it adds ~0 information on heavy-tailed monotone x --
-        # |corr(qnorm(x), y)| matches the spline-linear extract to ~3 decimals
-        # (exp/lognorm/pareto reg ~0.950); the lone pareto-reg OOS lift was a fixed-
-        # alpha Ridge artifact (RidgeCV on the baseline spline block closes it). It
-        # DOES beat RAW x for a linear/NN downstream (its existing biz-value test),
-        # so keep the opt-in knob; just don't make it default. (D:/Temp/item6_rank_transform_findings.md)
+        # qrank/qnorm univariate operator: it is REDUNDANT with the cubic-B-spline
+        # quantile-knot block (the spline path is itself opt-in via
+        # ``fe_hybrid_orth_enable`` / extra_bases, NOT default-on) -- with the spline
+        # enabled, |corr(qnorm(x), y)| matches the spline-linear extract to ~3
+        # decimals on heavy-tailed monotone x (exp/lognorm/pareto reg ~0.950); the
+        # lone pareto-reg OOS lift was a fixed-alpha Ridge artifact (RidgeCV on the
+        # spline block closes it). RankGauss DOES beat RAW x for a linear/NN
+        # downstream (its existing biz-value test), so keep the opt-in knob -- just
+        # don't make it default. (D:/Temp/item6_rank_transform_findings.md; the earlier
+        # 05f062d7 commit msg's "default-on spline" wording was inaccurate -- spline is opt-in.)
         fe_rankgauss_enable: bool = False,
         fe_rankgauss_cols: tuple = (),
         fe_rankgauss_top_k: int = 10,

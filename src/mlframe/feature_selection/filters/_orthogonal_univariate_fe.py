@@ -1413,7 +1413,22 @@ _EXTRA_BASIS_KINDS = ("spline", "fourier")
 
 def _fit_spline_for_col(x: np.ndarray, n_inner_knots: int):
     """Returns (knots, lo, hi, num_basis_cols). Lazy delegate to recipes
-    module so the knot-vector layout stays in one place."""
+    module so the knot-vector layout stays in one place.
+
+    Knots are placed at QUANTILES of x (unsupervised). bench-rejected
+    (2026-06-03): a TARGET-SUPERVISED knot strategy (knots at a shallow x->y
+    tree's splits / conditional-mean curvature) was benchmarked and REJECTED.
+    (1) In the real MRMR pipeline NO spline column -- quantile OR supervised --
+    survives the MI-uplift gate, so the support is byte-identical with either
+    strategy (the gate, not knot placement, is the binding constraint; and
+    supervised knots score LOWER at the gate -- narrower, individually-lower-MI
+    basis columns). (2) Even at the raw block level the win reverses by shape:
+    supervised wins a narrow bump (|corr| 0.884 vs 0.614) but LOSES a sharp step
+    (0.793 vs 0.931) and kink (0.719 vs 0.933). (3) The one shape it helps is
+    already recovered by the default-on Fourier multitone. Leak-safety would have
+    held (knots baked into the recipe, replay reads only knots/lo/hi), but moot.
+    Don't add fe_spline_knot_strategy="supervised". (D:/Temp/item7_supervised_knots_findings.md)
+    """
     from .engineered_recipes import _fit_spline_knots, _bspline_basis_values  # noqa: F401
     knots, lo, hi = _fit_spline_knots(x, n_inner_knots, degree=3)
     # Number of cubic B-spline basis functions = len(knots) - degree - 1.
