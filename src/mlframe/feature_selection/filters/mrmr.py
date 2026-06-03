@@ -806,6 +806,19 @@ class MRMR(BaseEstimator, TransformerMixin):
         # is no univariate nonlinearity. The heavier pair-CROSS-basis stage stays
         # behind ``fe_hybrid_orth_enable``. Set False for the legacy pair-only FE.
         fe_univariate_basis_enable: bool = True,
+        # 2026-06-03 -- FOURIER univariate basis, DEFAULT ON. The orthogonal-poly
+        # univariate basis (``a__T2`` / ``a__He2`` ...) recovers polynomial
+        # nonlinearities but a degree<=4 polynomial CANNOT express a full-period
+        # (or higher-frequency) sinusoid, so a pure oscillatory univariate signal
+        # (``y = sin(d)``, ``sin(2d)``, ``sin(a**2)`` ...) was only partially
+        # recovered (measured ``sin(d)`` |corr| ~0.77 via the poly approx). The
+        # extra-basis Fourier stage (sin/cos at ``fe_hybrid_orth_fourier_freqs``)
+        # closes that. It runs in the DEFAULT univariate path (no longer requiring
+        # the heavy ``fe_hybrid_orth_enable`` master switch), uplift+multiple-
+        # comparison gated (the same ``sqrt(2 ln n_cands)`` extreme-value threshold
+        # the poly basis uses) so it is near-no-op when there is no oscillation.
+        # Set False for poly-only univariate FE.
+        fe_univariate_fourier_enable: bool = True,
         # 2026-06-02 -- SYNERGY BOOTSTRAP, DEFAULT ON (cap-gated). Pure-synergy
         # interactions (``y = a*d``, ``sign(a)*sign(d)``, ``log(c)*sin(d)`` ...)
         # carry ~ZERO MARGINAL MI on each factor (``E[y|a]=E[y|d]=0`` by symmetry),

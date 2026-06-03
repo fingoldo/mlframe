@@ -537,13 +537,20 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         except Exception:
                             _y_for_extra = _y_for_extra.astype(np.int64)
             _top_k_for_extra = int(getattr(self, "fe_hybrid_orth_top_k", 5))
-            # Gate on _hybrid_on (the master hybrid switch) exactly like the
-            # pair-CROSS-basis stage above (line ~433). Without this, the
-            # default-on univariate-basis path (fe_univariate_basis_enable only,
-            # _hybrid_on=False) would silently activate the extra-basis stage
-            # whenever fe_hybrid_orth_extra_bases is non-empty -- the user expected
-            # a no-op when fe_hybrid_orth_enable=False (pre-default-flip behaviour).
-            if _is_pandas_for_hybrid and _extra_bases_cfg and _hybrid_on:
+            # Effective extra-basis set. Two independent contributors:
+            #   * the EXPLICIT ``fe_hybrid_orth_extra_bases`` config, but only under
+            #     the heavy ``fe_hybrid_orth_enable`` master switch (legacy gate -- a
+            #     user who set the config but not the master expected a no-op);
+            #   * the DEFAULT-ON Fourier univariate basis (``fe_univariate_fourier_enable``),
+            #     which runs in the univariate path WITHOUT the master switch so a
+            #     pure oscillatory signal (sin/cos) is recovered by default. The
+            #     extra-basis stage is uplift + multiple-comparison gated downstream,
+            #     so adding Fourier is near-no-op when there is no oscillation.
+            _univ_fourier_on = bool(getattr(self, "fe_univariate_fourier_enable", True))
+            _eff_extra_bases = tuple(_extra_bases_cfg) if (_extra_bases_cfg and _hybrid_on) else ()
+            if _univ_fourier_on and _univ_basis_on and "fourier" not in _eff_extra_bases:
+                _eff_extra_bases = _eff_extra_bases + ("fourier",)
+            if _is_pandas_for_hybrid and _eff_extra_bases:
                 try:
                     from ._orthogonal_univariate_fe import (
                         hybrid_orth_extra_basis_fe_with_recipes,
@@ -556,17 +563,28 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         getattr(self, "fe_hybrid_orth_spline_knots", 5)
                     )
                     _X_before_extra_cols = list(X.columns)
-                    # Use the SAME source-column scope as the polynomial stage
-                    # (factors_names_to_use restriction).
-                    _e_cols = None
+                    # Build the extra basis (Fourier/spline) on RAW columns only --
+                    # EXCLUDE the already-appended poly-basis columns (``a__T2`` ...).
+                    # Running Fourier on an engineered column would produce a NESTED
+                    # recipe (``a__T2__sin1``) whose transform-replay needs ``a__T2``
+                    # materialised first; the 1-deep replay path can't order that and
+                    # raises KeyError('a__T2') at transform time. Keeping the source
+                    # scope to raw columns keeps every extra-basis recipe 1-deep and
+                    # replayable (and honours factors_names_to_use when set).
+                    _already_eng_for_extra = set(self.hybrid_orth_features_ or [])
                     if getattr(self, "factors_names_to_use", None):
                         _e_cols = [
-                            c for c in self.factors_names_to_use if c in X.columns
+                            c for c in self.factors_names_to_use
+                            if c in X.columns and c not in _already_eng_for_extra
+                        ]
+                    else:
+                        _e_cols = [
+                            c for c in X.columns if c not in _already_eng_for_extra
                         ]
                     X_e, _e_scores, _e_recipes = hybrid_orth_extra_basis_fe_with_recipes(
                         X, _y_for_extra,
                         cols=_e_cols,
-                        extra_bases=_extra_bases_cfg,
+                        extra_bases=_eff_extra_bases,
                         fourier_freqs=_fourier_freqs,
                         spline_knots=_spline_knots,
                         top_k=_top_k_for_extra,

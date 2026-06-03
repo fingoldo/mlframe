@@ -172,7 +172,15 @@ def _run_fe_step(
     # Runs only on the FIRST FE step (where the bootstrap matters).
     _synergy_cap = int(getattr(self, "fe_synergy_screen_max_features", 0) or 0)
     _synergy_added_idx: set = set()
-    if _synergy_cap > 0 and num_fs_steps == 0:
+    # MIN-ROWS guard: a 2-D joint-MI estimate is dominated by finite-sample bias at
+    # tiny n, so the synergy uplift gate admits a pure-NOISE pair and a spurious
+    # feature is engineered (measured: ``max(neg(a),d)`` on random y at n=100). The
+    # bootstrap needs enough rows for the joint MI to be meaningful; below
+    # ``fe_synergy_min_rows`` it is disabled (genuine synergy is detected with the
+    # samples it needs -- the recovery wins are at n>=2000, unaffected).
+    _synergy_min_rows = int(getattr(self, "fe_synergy_min_rows", 300) or 0)
+    _n_rows_for_synergy = int(data.shape[0]) if hasattr(data, "shape") else 0
+    if _synergy_cap > 0 and num_fs_steps == 0 and _n_rows_for_synergy >= _synergy_min_rows:
         _raw_names = set(getattr(self, "feature_names_in_", []) or [])
         _target_idx_set = {int(t) for t in np.atleast_1d(target_indices)}
         _cat_set = set(categorical_vars)
