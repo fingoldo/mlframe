@@ -58,7 +58,7 @@ verdict appended once measured.
 ## AGENT 4 — RFECV / BorutaShap / ShapProxiedFS standalone
 | # | name | mechanism | disposition |
 |---|------|-----------|-------------|
-|A4-1|`knockoff_fdr` (RFECV)|post-hoc FDR cut: run knockoffs ONCE on the chosen survivor set, W_j=imp(real)−imp(knockoff), select_features_fdr(q=0.1). Draw-INDEPENDENT null. Plumbing exists, unused.|**BENCH-NOW** (re-rank cached 251-survivor support offline, no re-fit)|
+|A4-1|`knockoff_fdr` (RFECV)|post-hoc FDR cut: run knockoffs ONCE on the chosen survivor set, W_j=imp(real)−imp(knockoff), select_features_fdr(q=0.1). Draw-INDEPENDENT null. Plumbing exists, unused.|**MEASURED — KILLED on madelon (flagged degeneracy materialized).** RFECV kept 251 (=all-features 0.689); knockoff W>0 for only 68/251, and select_features_fdr returns EMPTY at q∈{0.05,0.1,0.2} — no Barber-Candes threshold achieves the FDR on madelon's collinear probes (W noise-tail too large). Premerge workaround (corr_thr=0.5) barely collapsed (251→238 reps), still EMPTY. Fought + failed. The tree member is madelon's answer; RFECV-on-madelon is a dead end. (round4_knockoff_fdr_bench.py)|
 |A4-2|`cv_curve_noise_floor` (RFECV)|permuted-y reference CV curve as noise yardstick; stop where real curve's rise exceeds the shuffled-y noise envelope.|BENCH-NEXT (one extra permuted-y pass)|
 |A4-3|`recall_rescue_when_untrusted` (Shap)|use existing `proxy_fidelity_score` to switch parsimony_tol 0.02→0.005 + raise top_n ONLY when proxy fidelity is low (interactions missed).|QUEUE (near parsimony-band; binary regime switch not interp)|
 |A4-4|`su_seeded_interactions` (Shap)|cheap pairwise-SU screen → top-K synergistic pairs → run interaction objective on ONLY those K (avoids O(P²) tensor).|QUEUE|
