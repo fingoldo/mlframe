@@ -138,10 +138,20 @@ def _should_route_su_gpu(
     if n_features < int(gmin):
         return False
     onehot_bytes = int(n_features) * int(max_n_bins) * int(n_samples) * 4
+    # 2026-06-03 (audit shap-proxy-clustering-3): the gate previously sized ONLY
+    # the float32 one-hot and ignored the DOMINANT inner working set -- the
+    # einsum joint tensor (chunk, f, mb, mb) plus its float64 siblings (joint_p,
+    # px_outer, safe_outer, ratio, log_ratio). With the old hardcoded chunk=4096
+    # (>= f) that tensor was the FULL f*f*mb^2*8 bytes (~19 GB at f=2000/mb=10)
+    # while the gate only checked ~120 MB -> guaranteed OOM. The kernel now
+    # auto-shrinks the chunk to fit, but if even a SINGLE i-row's working set
+    # (~10 * f * mb^2 * 8 bytes, budgeting the float32 counts + ~5 float64
+    # temporaries) will not fit, we must route to the CPU kernel instead.
+    joint_row_bytes = 10 * int(n_features) * int(max_n_bins) * int(max_n_bins) * 8
     free_bytes = _gpu_free_memory_bytes()
     if free_bytes <= 0:
         return False
-    return onehot_bytes < int(free_bytes * float(memory_safety_factor))
+    return (onehot_bytes + joint_row_bytes) < int(free_bytes * float(memory_safety_factor))
 
 
 def _pairwise_su_edges_gpu(
@@ -192,6 +202,20 @@ def _pairwise_su_edges_gpu(
 
     flags = cp.zeros((n_features, n_features), dtype=cp.uint8)
 
+    # 2026-06-03 (audit shap-proxy-clustering-3): auto-shrink the i-chunk so the
+    # inner (chunk, f, mb, mb) working set fits in free GPU memory. Budget
+    # ~10 * f * mb^2 * 8 bytes per i-row (float32 joint_counts + the float64
+    # joint_p/px_outer/safe_outer/ratio/log_ratio siblings). The prior hardcoded
+    # 4096 (>= f) allocated the FULL f x f x mb x mb tensor at once -> OOM on any
+    # non-trivial width (~19 GB at f=2000/mb=10 on a 4 GB card). onehot is
+    # already resident, so budget the remaining free memory for the joints.
+    _free = _gpu_free_memory_bytes()
+    _onehot_bytes = n_features * max_nb * n_samples * 4
+    _bytes_per_row = max(1, 10 * n_features * max_nb * max_nb * 8)
+    _budget = max(0, int(_free * 0.4) - _onehot_bytes)
+    _auto_chunk = max(1, _budget // _bytes_per_row)
+    pair_chunk_size = max(1, min(int(pair_chunk_size), int(_auto_chunk), n_features))
+
     # Chunked i-loop so the einsum's working tensor stays bounded. Each chunk computes
     # the SU row for all j > i_start.
     for i_start in range(0, n_features, pair_chunk_size):
@@ -199,12 +223,17 @@ def _pairwise_su_edges_gpu(
         chunk_size = i_end - i_start
 
         # joint[i_local, j, a, b] = sum_s onehot[i_global, a, s] * onehot[j, b, s]
+        # 2026-06-03 (audit shap-proxy-clustering-3): einsum in float32. The joint
+        # COUNTS are integer sums of 0/1 products over <= n_samples (<< 2^24),
+        # exactly representable in float32, so we avoid the prior full float64
+        # copy of the one-hot (onehot.astype(cp.float64) was an unbudgeted
+        # f*mb*n*8 allocation). Cast the integer counts up to float64 for the log.
         joint_counts = cp.einsum(
             "ias,jbs->ijab",
-            onehot[i_start:i_end].astype(cp.float64),
-            onehot.astype(cp.float64),
+            onehot[i_start:i_end],
+            onehot,
         )
-        joint_p = joint_counts * inv_n  # joint probability tensor (chunk, f, mb, mb)
+        joint_p = joint_counts.astype(cp.float64) * inv_n  # (chunk, f, mb, mb)
 
         # mi = sum_{a,b} joint_p * log(joint_p / (px_i_a * px_j_b)) over a, b
         # We need px_outer[i_local, j, a, b] = px[i_global, a] * px[j, b].
