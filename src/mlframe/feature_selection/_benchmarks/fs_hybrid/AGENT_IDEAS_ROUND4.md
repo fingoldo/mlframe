@@ -1,5 +1,20 @@
 # Round-4 FS ideas — 5 agents, 37 ideas, all dispositioned
 
+## SESSION SCOREBOARD (2026-06-04)
+- **SHIPPED:** A1-3/A3-1 tree-importance member (co-occurrence-product FE, synergy-gated, default ON) —
+  madelon +0.038 (3-seed), synthetics within noise; full tests + cProfile + CHANGELOG; committed.
+- **MEASURED, killed/mixed:** A1-1 JMIM (mixed/mild, opt-in only); A4-1 knockoff-FDR (KILLED, degenerate on
+  madelon's collinear probes, raw + premerge both empty); A2-2 residual-relay (regime-specific — hard_synth
+  +0.017 recovers real dropped features via residual-MI, madelon −0.0085; future GATED candidate).
+- **REMAINING (BENCH-NEXT, signals confirmed present, NOT dismissed):** the cross-selector combine-refinements
+  A2-3/A5-1 confidence-prior/stack-confidence, A2-1 disagreement-referee, A5-3 tentative-rescue. Buildable
+  (BorutaShap exposes self.hits/history_hits/tentative; RFECV cv_results_; etc.), but they are sophisticated
+  variants of the MEASURED-FAILED fi_guard / per-member vote-weighting family (round-3 H3-2..6, all ±0.002 on
+  the easy bed). The agents' thesis is that per-FEATURE native confidence on the SPLIT-SIGNAL regime differs
+  from those per-member/FI-median attempts — plausible but weak prior. Build+measure next; don't expect a clean
+  default-on win. The FE-frontier ideas (A1-2 widen-p>60, A3-3 holdout-greedy-FE, A3-5 ratio/threshold ops) are
+  largely SUBSUMED by the shipped tree member for the madelon regime but remain open for MRMR-standalone.
+
 Informed by ALL of rounds 1-3 + real-data (madelon) validation. Decision rule: most accurate first, fastest
 breaks ties; EVERY idea needs a cheap falsifiable test. Disposition column updated as ideas are measured.
 Status legend: BENCH-NOW (zero/near-zero code, run immediately) | BENCH-NEXT (small code, high conviction) |
