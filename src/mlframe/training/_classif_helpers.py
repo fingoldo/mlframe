@@ -540,6 +540,22 @@ class _ChainEnsemble(ClassifierMixin, BaseEstimator):
             chain.fit(_x_for_fit, y)
         # Mirror sklearn estimator API.
         self.classes_ = self.chains_[0].classes_
+        # Prime the predict-time NaN guard with TRAIN-frame stats so a
+        # NaN-bearing predict frame is imputed with train medians/scale rather
+        # than refused (NanGuardNotPrimedError) or fit-on-the-predict-frame
+        # (test-set leak). The chain imputes its OWN fit X above, but the outer
+        # guard (_apply_nan_guard) had no persisted imputer/scaler. Surfaced by
+        # fuzz combo c0146 (multilabel chain + inject_inf_nan). Best-effort: a
+        # priming edge-case must never block an otherwise-successful fit.
+        try:
+            from ._predict_guards import prime_nan_guard_stats
+            prime_nan_guard_stats(self, X)
+        except Exception as _e:  # pragma: no cover - defensive
+            import logging as _lg
+            _lg.getLogger(__name__).warning(
+                "_ChainEnsemble.fit: NaN-guard priming failed (%s); a NaN-bearing "
+                "predict frame may still raise. Non-fatal.", _e,
+            )
         return self
 
     def predict_proba(self, X):
