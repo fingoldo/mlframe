@@ -23,6 +23,7 @@ except ImportError:
     rankdata = None  # type: ignore[assignment]
 
 from .composite_screening import (
+    _mi_from_binned_pair,
     _mi_pair_bin,
     _mi_per_feature_y_fixed,
     _safe_corr,
@@ -380,18 +381,52 @@ def _auto_base(
             int(self.config.random_state) + 7919
         )
         y_finite = y_screen[finite]
+        # Fast null path: np.quantile is shuffle-invariant and np.searchsorted commutes
+        # with the permutation, so binning a *shuffled* NaN-free column is identical to
+        # shuffling that column's bin codes. For the "bin" estimator we therefore bin y +
+        # each clean column ONCE and shuffle the integer codes per permutation
+        # (_mi_from_binned_pair), hoisting the per-perm quantile + searchsorted out of the
+        # inner loop. Bit-identical to the per-call _mi_pair_bin (verified 0.0 MI diff;
+        # _block_shuffle consumes the same RNG draws regardless of dtype, so the null
+        # distribution is unchanged), ~5x faster on n=20k. Columns containing NaN fall back
+        # to _mi_pair_bin, whose internal finite mask makes y-binning shuffle-dependent
+        # (prebinning would not be bit-identical there).
+        _nbins = self.config.mi_nbins
+        _bin_estimator = (self.config.mi_estimator == "bin")
+        _y_codes_null = None
+        if _bin_estimator and n_screen >= 5 * _nbins and np.isfinite(y_finite).all():
+            _qs_null = np.linspace(0.0, 1.0, _nbins + 1)[1:-1]
+            _y_edges_null = np.quantile(y_finite, _qs_null)
+            _y_codes_null = np.searchsorted(
+                _y_edges_null, y_finite, side="right",
+            ).astype(np.int64)
+            np.clip(_y_codes_null, 0, _nbins - 1, out=_y_codes_null)
         null_means = np.zeros(x_matrix.shape[1])
         null_stds = np.zeros(x_matrix.shape[1])
         for j in range(x_matrix.shape[1]):
             col = x_matrix[finite, j]
             null_mis = np.empty(n_perms)
+            # Prebin clean columns once, then shuffle codes instead of values (see note above).
+            col_codes = None
+            if _y_codes_null is not None and np.isfinite(col).all():
+                _x_edges_null = np.quantile(col, _qs_null)
+                col_codes = np.searchsorted(
+                    _x_edges_null, col, side="right",
+                ).astype(np.int64)
+                np.clip(col_codes, 0, _nbins - 1, out=col_codes)
             for p in range(n_perms):
-                shuffled = _block_shuffle(col, rng_perm)
-                if self.config.mi_estimator == "bin":
+                if col_codes is not None:
+                    shuffled_codes = _block_shuffle(col_codes, rng_perm)
+                    null_mis[p] = _mi_from_binned_pair(
+                        shuffled_codes, _y_codes_null, nbins=_nbins,
+                    )
+                elif _bin_estimator:
+                    shuffled = _block_shuffle(col, rng_perm)
                     null_mis[p] = _mi_pair_bin(
-                        shuffled, y_finite, nbins=self.config.mi_nbins,
+                        shuffled, y_finite, nbins=_nbins,
                     )
                 else:
+                    shuffled = _block_shuffle(col, rng_perm)
                     from sklearn.feature_selection import mutual_info_regression
                     null_mis[p] = float(mutual_info_regression(
                         shuffled.reshape(-1, 1), y_finite,
