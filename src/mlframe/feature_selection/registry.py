@@ -103,11 +103,36 @@ def _instantiate_rfecv(**kwargs):
 def _instantiate_boruta_shap(**kwargs):
     # Lazy import: BorutaShap pulls in shap + matplotlib + seaborn (~2s).
     from mlframe.feature_selection.boruta_shap import BorutaShap
-    return BorutaShap(**kwargs)
+    # 2026-06-03 (audit integration-defaults-3): cluster-medoid pre-reduction
+    # default-ON for BorutaShap too. Validated SAFE -- bench_boruta_shap_medoid
+    # (synthetic varied-redundancy + real breast_cancer) gives OOS AUC delta in
+    # [+0.0000, +0.0005] (never hurts; the shadow-importance null behaves --
+    # collapsing redundant copies to one medoid CLEANS the per-feature SHAP test
+    # rather than diluting it across near-duplicates). Speedup is modest here but
+    # grows with redundancy width; the min_reduction guard makes it a no-op (bare
+    # BorutaShap on full X) when clustering reduces little. GroupAwareMRMR reads
+    # BorutaShap's ``accepted`` names via _inner_support_indices. cluster_reduce=
+    # False restores bare BorutaShap.
+    cluster_reduce = bool(kwargs.pop("cluster_reduce", True))
+    corr_threshold = float(kwargs.pop("cluster_corr_threshold", 0.9))
+    min_reduction = float(kwargs.pop("cluster_min_reduction", 0.05))
+    base = BorutaShap(**kwargs)
+    if not cluster_reduce:
+        return base
+    from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
+    return GroupAwareMRMR(
+        base, corr_threshold=corr_threshold, corr_method="pearson",
+        expand=True, min_reduction=min_reduction,
+    )
 
 
 def _instantiate_shap_proxied_fs(**kwargs):
     # Lazy import: ShapProxiedFS pulls in shap + a tree booster on first fit.
+    # 2026-06-03 (audit integration-defaults-3): ShapProxiedFS is intentionally
+    # NOT wrapped in the cluster-medoid reduction -- it ALREADY clusters
+    # internally (cluster_correlated_features_su -> build_unit_matrix collapses
+    # each correlated cluster to one denoised "unit" before the SHAP-proxy
+    # selection; see shap_proxied_fs.py). Wrapping it would double-cluster.
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
     return ShapProxiedFS(**kwargs)
 

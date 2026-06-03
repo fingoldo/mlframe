@@ -42,6 +42,31 @@ def test_compose_multiclass_figure_handles_non_contiguous_labels():
     assert np.allclose(np.diag(conf), 1.0), f"confusion diagonal not all 1.0: {np.diag(conf)}"
 
 
+def test_compose_multiclass_figure_handles_string_and_unseen_labels():
+    """Vectorized label->position remap (argsort + searchsorted) must handle string
+    classes and unseen labels (-> -1, excluded) exactly like the dict.get listcomp
+    it replaced. Guards the large-n optimization on its non-integer / unseen edges."""
+    from mlframe.reporting.charts.multiclass import compose_multiclass_figure
+
+    classes = ["low", "med", "high"]  # non-numeric, non-sorted display labels
+    # 6th sample's TRUE label is UNSEEN -> remaps to -1 -> excluded from every panel.
+    y_true = np.array(["low", "low", "med", "med", "high", "unseen"])
+    # Perfect predictions at each row's true-class POSITION (last row irrelevant: excluded).
+    y_proba = np.eye(3)[[0, 0, 1, 1, 2, 2]].astype(float)
+
+    fig = compose_multiclass_figure(
+        y_true, y_proba, classes,
+        panels_template="CONFUSION PR_F1 ROC PR_CURVES CALIB_GRID PROB_DIST TOP_K_ACC",
+    )
+    assert fig is not None
+    mats = [p for row in fig.panels for p in row if p is not None and hasattr(p, "matrix")]
+    assert mats, "confusion heatmap panel missing"
+    conf = np.asarray(mats[0].matrix)
+    # The 5 seen rows are perfectly predicted at their class position; the unseen
+    # sample is dropped, so every populated class row is the identity.
+    assert np.allclose(np.diag(conf), 1.0), f"confusion diagonal not all 1.0: {np.diag(conf)}"
+
+
 def test_weighted_metric_supports_use_class_label_not_enumerate_index():
     from mlframe.training._reporting_probabilistic import report_probabilistic_model_perf
 

@@ -106,3 +106,50 @@ def test_registry_rfecv_cluster_reduce_false_returns_bare():
     sel = registry.get("RFECV").instantiate(
         estimator=LogisticRegression(max_iter=300), cv=3, cluster_reduce=False)
     assert isinstance(sel, RFECV) and not hasattr(sel, "min_reduction")
+
+
+def test_groupaware_wraps_borutashap_via_accepted_names():
+    # BorutaShap exposes selection via ``accepted`` (names), not support_;
+    # _inner_support_indices must map it back. Validates the BorutaShap drop-in.
+    from mlframe.feature_selection.boruta_shap import BorutaShap
+    from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
+
+    X, y = _wide_corr(n=600)
+    g = GroupAwareMRMR(
+        BorutaShap(importance_measure="gini", n_trials=12, verbose=False, random_state=0),
+        corr_threshold=0.9, corr_method="pearson",
+    ).fit(X, y)
+    assert len(g.support_) >= 1
+    names = list(g.get_feature_names_out())
+    assert len(names) == len(g.support_) and set(names).issubset(set(X.columns))
+
+
+def test_registry_borutashap_is_cluster_reduced_by_default():
+    from mlframe.feature_selection import registry
+    from mlframe.feature_selection.boruta_shap import BorutaShap
+    from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
+
+    sel = registry.get("BorutaShap").instantiate(
+        importance_measure="gini", n_trials=10, verbose=False, random_state=0)
+    assert isinstance(sel, GroupAwareMRMR)
+    bare = registry.get("BorutaShap").instantiate(
+        importance_measure="gini", n_trials=10, cluster_reduce=False)
+    assert isinstance(bare, BorutaShap)
+
+
+def test_groupaware_borutashap_accepted_matches_expanded_selection():
+    # The suite reads ``accepted`` (names) for BorutaShap diagnostics; the wrapper
+    # must report the EXPANDED selection (agreeing with transform/support_), not
+    # the inner's medoid-only accepted list.
+    from mlframe.feature_selection.boruta_shap import BorutaShap
+    from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
+
+    X, y = _wide_corr(n=600)
+    g = GroupAwareMRMR(
+        BorutaShap(importance_measure="gini", n_trials=12, verbose=False, random_state=0),
+        corr_threshold=0.9, corr_method="pearson",
+    ).fit(X, y)
+    assert set(g.accepted) == set(g.get_feature_names_out()), (
+        "GroupAwareMRMR.accepted (BorutaShap report contract) must equal the "
+        "expanded selection, not the inner medoid-only accepted set"
+    )

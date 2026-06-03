@@ -1,5 +1,49 @@
 # Changelog
 
+## 2026-06-03 — ADAPTIVE-CHIRP univariate Fourier operator (quadratic-argument warp, default ON)
+
+The LINEAR-argument adaptive Fourier detector (and the fixed grid) emit
+``sin/cos`` on the LINEAR axis ``z = (x - lo) / span`` and therefore cannot
+represent an oscillation whose frequency GROWS with the argument — a "chirp"
+``y ~ sin(2*pi*f*z**2)``. Over a bounded support a SLOW chirp is already spanned
+by the linear MULTITONE deflation basis, but a FAST chirp sweeps an
+instantaneous-frequency band WIDER than the 6-tone basis can cover and the linear
+path collapses (Phase-0 bench, n=6000, seeds {0,5,11}: linear-only support R^2
+0.07–0.53 on a fast chirp f=2.5, and the linear detector recovers NOTHING at
+f>=4, vs the chirp warp at 0.88).
+
+New WHAT: a second argument-warp path runs the SAME held-out-validated multitone
+detector (``_detect_fourier_freqs_for_col``: periodogram-power coarse sweep +
+local refine + stride-val gate + residual deflation, n-gate 800) on the
+QUADRATIC-ARGUMENT axis ``u = sign(z)*z**2`` where ``z = (x - mean)/std``.
+Squaring the STANDARDISED, SIGNED z (monotone across the whole real line, no
+``x``/``-x`` fold) makes a growing-frequency chirp STATIONARY in ``u``, so the
+detector locks its frequency and the emitted ``sin(2*pi*f*u)`` / ``cos(2*pi*f*u)``
+reconstruct it. New helpers ``_fit_chirp_warp_for_col`` / ``_chirp_axis`` in
+``_orthogonal_univariate_fe.py`` (the single source of truth for the warp, shared
+by fit-time detection and transform-time replay). Emitted legs are named
+``{col}__qsin{f}`` / ``{col}__qcos{f}`` and carry meta ``arg="quadratic"`` +
+``mean``/``std``/``lo``/``span`` + ``adaptive=True``.
+
+Recipe: ``build_orth_fourier_recipe`` gains ``arg`` (``"linear"`` default /
+``"quadratic"``) + ``mean``/``std``; ``_apply_orth_fourier`` replays the
+quadratic warp from the stored params (leak-free: detection uses train y only,
+replay is a pure function of X). Verified bit-identical fit vs transform.
+
+Protection: chirp legs are tagged ``adaptive=True`` so they reuse the EXISTING
+adaptive machinery verbatim — captured into ``_adaptive_fourier_features_``,
+force-admitted past the per-column MI-uplift gate (a single phase-split sin/cos
+has low marginal MI), re-added past the MRMR screen, and EXEMPT from the
+cross-stage Spearman dedup.
+
+New ``MRMR`` ctor knobs (default ON, mirroring the linear adaptive path):
+``fe_univariate_fourier_chirp=True``, ``fe_univariate_fourier_chirp_min_val_corr=0.15``.
+N-GATED at >= 800 MI rows so small-n suites are byte-identical chirp-on vs off.
+ADDITIVE — on a plain linear target the chirp legs are harmless (combined support
+R^2 == linear-only: 0.993 vs 0.992–0.995), and the held-out gate admits NOTHING
+on pure noise. End-to-end through MRMR.fit/transform on a fast chirp f=2.5:
+chirp-ON support R^2 0.92–0.95 vs chirp-OFF 0.01–0.17 (+0.78 to +0.90).
+
 ## 2026-06-03 — ORDER-2 Westfall-Young maxT permutation-null floor on prospective-pair joint MI (default ON)
 
 The FE step engineers a WIDE pool of PAIR candidates ranked by JOINT

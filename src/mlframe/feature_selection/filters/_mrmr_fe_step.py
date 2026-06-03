@@ -95,6 +95,7 @@ def _run_fe_step(
     if verbose:
         logger.info("MRMR+ selected %d out of %d features before the Feature Engineering step.", len(selected_vars), self.n_features_in_)
 
+    _screening_returned_empty = False
     if len(selected_vars) == 0:
         if self.fe_fallback_to_all:
             logger.info("Proceeding with all features though (fe_fallback_to_all=True).")
@@ -117,6 +118,12 @@ def _run_fe_step(
                 "feature_names_in_, not on selected_vars).",
             )
             selected_vars = []
+            # 2026-06-03 (wave-9 follow-up, default_filtering.py:165): screening
+            # selected nothing but we continue (interaction-only signal / cluster
+            # aggregate). Flag this so the smart-polynom optimiser does NOT treat
+            # the raw-seeded pool as "speculative synergy" to withhold (which
+            # would exclude EVERY pair and the polynom search would never fire).
+            _screening_returned_empty = True
         else:
             logger.info("Skipping Feature Engineering (screening returned 0 features and fe_fallback_to_all=False).")
             return None
@@ -506,11 +513,31 @@ def _run_fe_step(
         # mul/div search, NOT a _polynom_ cell, so withholding synergy pairs from
         # the optimiser loses no recovery while keeping the pure-noise control clean.
         _prospective_for_polynom = prospective_pairs
-        if _synergy_added_idx:
-            _prospective_for_polynom = {
+        # Withhold SPECULATIVE synergy pairs from the powerful poly optimiser
+        # (it can fit a high-MI cell to pure noise on a noise-operand pair) --
+        # but ONLY when there was a genuine selected pool to augment. When
+        # screening returned 0 features (interaction-only signal), EVERY operand
+        # is "synergy-added", so this exclusion would withhold every pair and the
+        # polynom search would never fire (default_filtering.py:165). In that
+        # case keep the pairs: they ARE the signal, and the synergy max-pairs cap
+        # + the downstream pair-MI / engineered-MI / uplift gates already bound
+        # the pure-noise risk.
+        if _synergy_added_idx and not _screening_returned_empty:
+            _filtered_for_polynom = {
                 k: v for k, v in prospective_pairs.items()
                 if not (k[0][0] in _synergy_added_idx or k[0][1] in _synergy_added_idx)
             }
+            # 2026-06-03 (wave-9 follow-up, default_filtering.py:165): apply the
+            # speculative-synergy exclusion ONLY if it leaves a non-empty pool.
+            # When the selected pool is too small to form any NON-synergy pair
+            # (screening kept 0-1 features on an interaction-only target, so
+            # every surviving pair has a synergy-added operand), excluding them
+            # would withhold EVERY pair and silently disable the polynom search
+            # -- yet those pairs ARE the signal. Keep them in that case; the
+            # synergy max-pairs cap + the downstream pair-MI / engineered-MI /
+            # uplift gates already bound the pure-noise risk.
+            if _filtered_for_polynom:
+                _prospective_for_polynom = _filtered_for_polynom
         # None / 0 / negative all map to "no subsample" (use full data).
         _subsample_raw = getattr(self, "fe_smart_polynom_subsample_n", 0)
         _subsample_n = int(_subsample_raw) if _subsample_raw and _subsample_raw > 0 else 0

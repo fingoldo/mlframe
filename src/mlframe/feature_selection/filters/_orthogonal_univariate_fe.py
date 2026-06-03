@@ -1417,6 +1417,54 @@ def _fit_fourier_for_col(x: np.ndarray):
     return lo, span
 
 
+def _fit_chirp_warp_for_col(x: np.ndarray):
+    """Fit the QUADRATIC-ARGUMENT ("chirp") warp params on ``x`` (2026-06-03).
+
+    The chirp axis is ``u = sign(z) * z**2`` where ``z = (x - mean) / std``.
+    Squaring the STANDARDISED z (signed, so the map stays monotone and one-to-one
+    across the whole real line rather than folding ``x`` and ``-x`` together)
+    turns an oscillation whose frequency GROWS with the argument
+    (``y ~ sin(2*pi*f*z**2)``) into a STATIONARY-frequency sinusoid in ``u`` --
+    which the existing periodogram peak-search then locks onto. A Fourier on the
+    LINEAR argument cannot represent a frequency that grows with z (Phase-0 bench:
+    linear multitone R^2 0.07-0.53 vs chirp warp 0.88 on a fast chirp f=2.5).
+
+    Returns ``(mean, std, lo, span)``:
+    * ``mean`` / ``std`` -- standardisation of x into z (fit on the finite subset).
+    * ``lo`` / ``span``  -- min / range of ``u`` so ``(u - lo) / span`` lands the
+      warped axis in [0, 1], matching the linear emitter's z normalisation so the
+      same coarse frequency grid applies.
+
+    All four are baked into the recipe at fit time and replayed verbatim at
+    transform time (no y, so leakage-free)."""
+    x = np.asarray(x, dtype=np.float64)
+    finite = np.isfinite(x)
+    if not finite.any():
+        return 0.0, 1.0, 0.0, 1.0
+    xf = x[finite]
+    mean = float(np.mean(xf))
+    std = float(np.std(xf))
+    std = std if std > 1e-12 else 1.0
+    z = (xf - mean) / std
+    u = np.sign(z) * (z * z)
+    lo = float(np.min(u))
+    hi = float(np.max(u))
+    span = max(hi - lo, 1e-12)
+    return mean, std, lo, span
+
+
+def _chirp_axis(x: np.ndarray, mean: float, std: float, lo: float, span: float) -> np.ndarray:
+    """Apply the stored chirp warp: x -> z=(x-mean)/std -> u=sign(z)*z**2 ->
+    (u-lo)/span. Pure function of the fit-time params -- the single source of
+    truth shared by fit-time detection (``generate_extra_basis_features``) and
+    transform-time replay (``_apply_orth_fourier``) so both produce a
+    bit-identical axis."""
+    x = np.asarray(x, dtype=np.float64)
+    z = (x - float(mean)) / max(float(std), 1e-12)
+    u = np.sign(z) * (z * z)
+    return (u - float(lo)) / max(float(span), 1e-12)
+
+
 def _corr_sq_centered(v: np.ndarray, y_centered: np.ndarray, y_ss: float) -> float:
     """Squared Pearson correlation of ``v`` with a pre-centered ``y`` whose
     sum-of-squares is ``y_ss``. Avoids ``np.corrcoef`` (2x2-matrix build + two
@@ -1729,6 +1777,8 @@ def generate_extra_basis_features(
     y: Optional[np.ndarray] = None,
     fourier_adaptive: bool = False,
     fourier_adaptive_min_val_corr: float = 0.15,
+    fourier_chirp: bool = False,
+    fourier_chirp_min_val_corr: float = 0.15,
 ) -> tuple[pd.DataFrame, dict]:
     """For each column in cols and each requested extra basis, emit the basis
     columns and return them alongside the per-column fit metadata (knot
@@ -1768,6 +1818,23 @@ def generate_extra_basis_features(
         (``sin(3.7*x) + sin(5.3*x) + sin(6.8*x)``) the fixed grid {1, 2} misses.
     fourier_adaptive_min_val_corr : float, default 0.15
         Held-out validation effective-|corr| floor for the adaptive detector.
+    fourier_chirp : bool, default False
+        ADAPTIVE-CHIRP path (2026-06-03). When True and ``y`` is given, run the
+        SAME held-out-validated detector on the QUADRATIC-ARGUMENT warp
+        ``u = sign(z) * z**2`` (z standardised on the column) for each source
+        column. A chirp ``y ~ sin(2*pi*f*z**2)`` -- whose frequency GROWS with z
+        -- is STATIONARY in u, so the detector locks its frequency and the
+        emitted ``sin(2*pi*f*u)`` / ``cos(2*pi*f*u)`` reconstruct it; a Fourier on
+        the LINEAR argument cannot express a frequency that grows with z. The
+        emitted sin/cos meta entries carry ``"arg": "quadratic"`` (the warp the
+        recipe replays) AND ``"adaptive": True`` (so MRMR protects them past the
+        screen, identical to the linear adaptive legs). This is an ADDITIVE
+        second path alongside the linear adaptive one -- both fire; on a plain
+        linear target the chirp legs are harmless (Ridge regularises them to ~0,
+        Phase-0 bench: combined R^2 == linear-only on linear targets, +0.3-0.5
+        R^2 on fast chirps). N-gated at >= 800 MI rows like the linear path.
+    fourier_chirp_min_val_corr : float, default 0.15
+        Held-out validation effective-|corr| floor for the chirp detector.
 
     Returns
     -------
@@ -1800,7 +1867,7 @@ def generate_extra_basis_features(
     # The y array is coerced to float once here (Pearson on y is all the
     # phase-invariant periodogram needs); detection is gated per-column below.
     _y_adapt = None
-    if fourier_adaptive and y is not None:
+    if (fourier_adaptive or fourier_chirp) and y is not None:
         _y_adapt = np.asarray(y, dtype=np.float64).ravel()
         if _y_adapt.size != len(X) or not np.all(np.isfinite(_y_adapt)):
             _y_adapt = None
@@ -1810,6 +1877,11 @@ def generate_extra_basis_features(
     # detector may ADD is disjoint from the fixed grid by construction (a
     # fixed freq that already recovers the signal needs no adaptive twin).
     _adaptive_f_grid = tuple(0.5 * k for k in range(1, 17))  # 0.5 .. 8.0
+    # The CHIRP warp (u = sign(z)*z**2) concentrates a growing-frequency signal
+    # at a HIGHER z-space frequency than the linear axis, so the chirp detector
+    # sweeps a WIDER grid (0.5 .. 24.0). Phase-0: fast chirps land at u-space
+    # peaks up to ~12 and the multitone deflation needs headroom above them.
+    _chirp_f_grid = tuple(0.5 * k for k in range(1, 49))  # 0.5 .. 24.0
     for col in cols:
         if col not in X.columns or not pd.api.types.is_numeric_dtype(X[col]):
             continue
@@ -1917,6 +1989,58 @@ def generate_extra_basis_features(
                                 "lo": float(lo_f), "span": float(span_f),
                                 "power": _p, "adaptive": _is_adaptive,
                             }
+                # ADAPTIVE-CHIRP (2026-06-03): a SECOND argument-warp alongside
+                # the linear-adaptive path above. The chirp axis u = sign(z)*z**2
+                # (z standardised on the column) makes a growing-frequency
+                # oscillation ``y ~ sin(2*pi*f*z**2)`` STATIONARY in u, so the
+                # SAME held-out-validated multitone detector locks its frequency
+                # and the emitted sin/cos on u reconstruct it -- which a Fourier
+                # on the linear argument cannot (Phase-0: linear R^2 0.07-0.53 vs
+                # chirp 0.88 on a fast chirp). Emitted legs carry arg="quadratic"
+                # (the warp the recipe replays) + adaptive=True (so MRMR protects
+                # them past the screen, exactly like the linear adaptive legs).
+                # Disjoint by name (``__qsin``/``__qcos``) from the linear legs;
+                # additive (on a plain linear target the chirp legs are harmless,
+                # Ridge regularises them to ~0). N-gated identically (>= 800 rows
+                # inside the detector); a pure-noise column admits none.
+                if fourier_chirp and _y_adapt is not None:
+                    _c_mean, _c_std, _c_lo, _c_span = _fit_chirp_warp_for_col(x)
+                    if _c_span > 1e-12 and _c_std > 1e-12:
+                        u_axis = _chirp_axis(x, _c_mean, _c_std, _c_lo, _c_span)
+                        if np.all(np.isfinite(u_axis)) and float(np.std(u_axis)) > 1e-12:
+                            _chirp_freqs = _detect_fourier_freqs_for_col(
+                                u_axis, _y_adapt,
+                                f_grid=_chirp_f_grid,
+                                min_val_corr=float(fourier_chirp_min_val_corr),
+                                min_rows=800,
+                                max_freqs=6,
+                            )
+                            for _cf in _chirp_freqs:
+                                ang_c = 2.0 * np.pi * _cf * u_axis
+                                sc_vals = np.sin(ang_c)
+                                cc_vals = np.cos(ang_c)
+                                if float(np.std(sc_vals)) > 1e-12:
+                                    name_qs = f"{col}__qsin{_cf:g}"
+                                    out_cols[name_qs] = sc_vals
+                                    meta[name_qs] = {
+                                        "basis": "fourier", "src": col,
+                                        "kind": "sin", "freq": float(_cf),
+                                        "arg": "quadratic",
+                                        "mean": float(_c_mean), "std": float(_c_std),
+                                        "lo": float(_c_lo), "span": float(_c_span),
+                                        "power": 1, "adaptive": True,
+                                    }
+                                if float(np.std(cc_vals)) > 1e-12:
+                                    name_qc = f"{col}__qcos{_cf:g}"
+                                    out_cols[name_qc] = cc_vals
+                                    meta[name_qc] = {
+                                        "basis": "fourier", "src": col,
+                                        "kind": "cos", "freq": float(_cf),
+                                        "arg": "quadratic",
+                                        "mean": float(_c_mean), "std": float(_c_std),
+                                        "lo": float(_c_lo), "span": float(_c_span),
+                                        "power": 1, "adaptive": True,
+                                    }
             except Exception as exc:
                 logger.warning(
                     "generate_extra_basis_features: fourier on col=%r raised "
@@ -1949,6 +2073,9 @@ def _build_recipe_from_meta(name: str, meta_entry: dict):
             span=float(meta_entry["span"]),
             power=int(meta_entry.get("power", 1)),
             adaptive=bool(meta_entry.get("adaptive", False)),
+            arg=str(meta_entry.get("arg", "linear")),
+            mean=(None if meta_entry.get("mean") is None else float(meta_entry["mean"])),
+            std=(None if meta_entry.get("std") is None else float(meta_entry["std"])),
         )
     return None
 
@@ -1968,6 +2095,8 @@ def hybrid_orth_extra_basis_fe_with_recipes(
     nbins: int = 10,
     fourier_adaptive: bool = False,
     fourier_adaptive_min_val_corr: float = 0.15,
+    fourier_chirp: bool = False,
+    fourier_chirp_min_val_corr: float = 0.15,
 ):
     """Layer 32 hybrid: spline + Fourier univariate basis FE + MI-greedy
     selection. Mirrors :func:`hybrid_orth_mi_fe_with_recipes` for the
@@ -1982,6 +2111,12 @@ def hybrid_orth_extra_basis_fe_with_recipes(
     :func:`generate_extra_basis_features` -- when True, each source column's
     dominant z-space frequency is detected (held-out validated) and added to
     its Fourier set, with the emitted sin/cos recipes tagged ``adaptive=True``.
+
+    ``fourier_chirp`` (default False) likewise forwards the ADAPTIVE-CHIRP path:
+    the same held-out detector run on the quadratic-argument warp
+    ``u = sign(z)*z**2``, emitting ``__qsin``/``__qcos`` legs tagged
+    ``arg="quadratic"`` + ``adaptive=True`` (force-admitted past the uplift gate
+    and MRMR-protected identically to the linear adaptive legs).
     """
     engineered, meta = generate_extra_basis_features(
         X, cols=cols, extra_bases=extra_bases,
@@ -1989,6 +2124,8 @@ def hybrid_orth_extra_basis_fe_with_recipes(
         spline_knots=spline_knots,
         y=y, fourier_adaptive=fourier_adaptive,
         fourier_adaptive_min_val_corr=fourier_adaptive_min_val_corr,
+        fourier_chirp=fourier_chirp,
+        fourier_chirp_min_val_corr=fourier_chirp_min_val_corr,
     )
     if engineered.empty:
         empty_scores = pd.DataFrame(columns=[

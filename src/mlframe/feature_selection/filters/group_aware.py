@@ -142,6 +142,35 @@ class GroupAwareMRMR(BaseEstimator, TransformerMixin):
         # across synthetic + real datasets -> safe to default ON.
         self.min_reduction = min_reduction
 
+    @staticmethod
+    def _inner_support_indices(inner, columns):
+        """Integer column indices the inner selector kept, normalising across
+        selector conventions so GroupAwareMRMR wraps any of them:
+          * ``support_`` -- boolean mask OR index array (sklearn RFECV, mRMR);
+          * ``get_support()`` -- sklearn SelectorMixin;
+          * ``accepted`` -- list of kept column NAMES (BorutaShap).
+        ``columns`` is the ordered column names the inner was fit on (X or the
+        medoid subset), used to map ``accepted`` names back to positions.
+        """
+        sup = getattr(inner, "support_", None)
+        if sup is not None:
+            sup = np.asarray(sup)
+            return np.where(sup)[0] if sup.dtype == bool else sup.astype(np.int64)
+        if hasattr(inner, "get_support"):
+            try:
+                sup = np.asarray(inner.get_support())
+                return np.where(sup)[0] if sup.dtype == bool else sup.astype(np.int64)
+            except Exception:
+                pass
+        accepted = getattr(inner, "accepted", None)  # BorutaShap: kept col names
+        if accepted is not None:
+            pos = {str(c): i for i, c in enumerate(columns)}
+            return np.array([pos[str(c)] for c in accepted if str(c) in pos], dtype=np.int64)
+        raise AttributeError(
+            f"{type(inner).__name__} exposes no support_/get_support()/accepted; "
+            f"GroupAwareMRMR cannot map its selection back to clusters."
+        )
+
     def fit(self, X, y, **fit_params):
         # **fit_params (e.g. ``groups`` for a GroupKFold cv, ``sample_weight``)
         # are row-aligned, so they pass straight through to the inner selector
@@ -175,11 +204,7 @@ class GroupAwareMRMR(BaseEstimator, TransformerMixin):
             inner = clone(self.estimator)
             inner.fit(X, y, **fit_params)
             self.estimator_ = inner
-            _sup_full = np.asarray(inner.support_)
-            self.support_ = (
-                np.where(_sup_full)[0] if _sup_full.dtype == bool
-                else _sup_full.astype(np.int64)
-            )
+            self.support_ = self._inner_support_indices(inner, list(X.columns))
             self.selected_clusters_ = sorted(
                 set(int(self.cluster_assignments_[i]) for i in self.support_)
             )
@@ -195,16 +220,14 @@ class GroupAwareMRMR(BaseEstimator, TransformerMixin):
         inner.fit(X_medoids, y, **fit_params)
         self.estimator_ = inner
 
-        # Map the inner selector's kept medoids back to clusters. Normalise
-        # ``support_`` to integer indices into X_medoids: the mRMR family exposes
-        # an index array, while sklearn-style wrappers (RFECV) expose a boolean
-        # mask. 2026-06-03 (audit integration-defaults-3): this generalisation
-        # lets GroupAwareMRMR wrap ANY wrapper selector (RFECV / BorutaShap),
-        # which on wide correlated data is a MEASURED ~3x wall-clock win with no
-        # OOS loss (bench_cross_selector_cluster_reduction) -- the wrapper runs
-        # on the cluster medoids instead of every redundant column.
-        _sup = np.asarray(inner.support_)
-        sel_idx = np.where(_sup)[0] if _sup.dtype == bool else _sup.astype(np.int64)
+        # Map the inner selector's kept medoids back to clusters via the
+        # convention-agnostic helper (support_ index/mask, get_support(), or
+        # BorutaShap's ``accepted`` names). 2026-06-03 (audit integration-
+        # defaults-3): lets GroupAwareMRMR wrap ANY wrapper selector
+        # (RFECV / BorutaShap) -- a MEASURED ~1.4-3x wall-clock win with no OOS
+        # loss -- by running the wrapper on the cluster medoids instead of every
+        # redundant column.
+        sel_idx = self._inner_support_indices(inner, list(X_medoids.columns))
         medoid_cluster_ids = self.cluster_assignments_[self.cluster_medoid_indices_]
         self.selected_clusters_ = sorted(set(int(medoid_cluster_ids[int(i)]) for i in sel_idx))
 
@@ -240,6 +263,21 @@ class GroupAwareMRMR(BaseEstimator, TransformerMixin):
         if input_features is not None:
             return np.asarray([input_features[int(i)] for i in self.support_], dtype=object)
         return np.asarray([f"f_{int(i)}" for i in self.support_], dtype=object)
+
+    @property
+    def accepted(self):
+        """BorutaShap report contract: the training suite reads ``accepted``
+        (kept column NAMES) for BorutaShap diagnostics. Return the EXPANDED
+        selection (cluster members of accepted medoids) -- i.e. the same set
+        ``support_`` / ``transform`` / ``get_feature_names_out`` expose -- so the
+        report agrees with what actually feeds training, NOT the inner's
+        medoid-only accepted list. Falls through (AttributeError -> __getattr__ ->
+        inner) when the wrapper isn't fitted or the inner has no ``accepted``.
+        """
+        inner = self.__dict__.get("estimator_")
+        if inner is not None and hasattr(inner, "accepted") and "support_" in self.__dict__:
+            return list(self.get_feature_names_out())
+        raise AttributeError("accepted")
 
     def __getattr__(self, name):
         """Transparently expose the fitted inner selector's attributes (e.g. the
