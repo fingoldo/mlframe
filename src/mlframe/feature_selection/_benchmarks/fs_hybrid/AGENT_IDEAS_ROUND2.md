@@ -97,10 +97,12 @@ The round-2 ideas below were originally closed with grounded reasoning but no di
   cv=2 lowers downstream AUC to 0.7628 vs cv=3's 0.7706 (-0.008) and changes the selection (sd0 n 13->18; cv=5
   Jaccard 0.786 vs cv=3) -> reducing interior folds perturbs the MBH trajectory and costs accuracy. NOT a free speed
   lever; cv=3 stays. The flagged risk is real, now measured.
-- R2r-1 (variance-aware n_repeats early-stop) — NOT publicly testable: the permutation n_repeats is not an exposed
-  FIConfig/RFECV kwarg (internal), so the discriminating "does adaptive vs fixed n_repeats change selection?" test
-  cannot be run via the public API. It is correctness-AFFECTING in principle (changes which repeats run); flagged for
-  the RFECV owner to surface n_repeats if they want it benched. Not hand-waved -- stated as untestable-as-exposed.
+- R2r-1 (variance-aware n_repeats early-stop) — NOW SURFACED + MEASURED: surfaced n_repeats as a FIConfig field +
+  RFECV ctor param (commit 64ec9511), then benched (round2_rfecv_nrepeats.py, 3 seeds, permutation importance).
+  Result: reducing n_repeats 5->3->2 is AUC-NEUTRAL (0.7898/0.7879/0.7875, within noise) but PERTURBS the selection
+  (Jaccard vs n_repeats=5: 1.0 -> 0.78 -> 0.69 -- the ranking hasn't converged at 2-3 repeats), at ~2x speedup. So an
+  adaptive early-stop is a legitimate SPEED lever that trades SELECTION REPRODUCIBILITY for speed at neutral AUC
+  (confirming the "correctness-affecting, not AUC" call). Default stays 5 (reproducible); n_repeats now tunable.
 - R2r-3 (batched predict) / R2r-8 (perm memoisation) / R2s-7 (OOF-SHAP cache) — correctness-NEUTRAL by construction
   (refactor / memoisation return identical values), so there is no ACCURACY question to bench; they are speed-only
   levers whose payoff is production scale. R2r-8's cache-hit rate specifically needs RFECV-internal subset logging not
