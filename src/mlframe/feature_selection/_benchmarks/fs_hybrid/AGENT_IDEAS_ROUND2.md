@@ -41,3 +41,29 @@ Decision rule (CLAUDE.md §6): default = most accurate on the 6-scenario x multi
 - R2r-1 + R2r-3 (speed the permutation default) - pure wins
 - R2s-3 (refine ablation, config-only) -> gates R2s-1 cluster
 - R2r-6 (plateau-onset rule, offline-testable)
+
+## HybridSelector (final deliverable) — big-benchmark verdict
+Built hybrid_selector.py: compute-once-share-many composition of the real selectors. Computes ONCE and shares:
+MI/SU/bins (MRMR retain_artifacts -> ShapProxiedFS precomputed=), one held-out permutation-FI pass (prescreen +
+cluster tie-break), raw-corr clusters (BorutaShap premerge + final dedup). Members: MRMR, ShapProxiedFS(precomputed),
+BorutaShap(gini)+premerge. Final pick = cluster-aware vote.
+
+BIG benchmark (run_experiment.py, make_dataset, 3 seeds, 21 strategies):
+- Feature ENGINEERING dominates: mrmr_fe auc_mean 0.835, H2_mrmrfe__rfecv_logit 0.833, H6_mrmrfe__shap 0.831 (the
+  pure-interaction signal is only recoverable by FE, not selection). +0.05 over the best pure-selection method.
+- HybridSelector is the RECALL CHAMPION: hybrid_expand base_recall 1.000 (ONLY method to recover every true
+  feature), hybrid 0.958 — vs 0.875 boruta/rfecv, 0.71 mrmr_filter. auc_mean 0.786-0.788, lgbm ~0.816 (== rfecv),
+  knn 0.803 (best among selection-only). The compute-once composition surfaces complementary signal single
+  selectors miss.
+- Best pure-selection auc_mean is rfecv_lgbm(_perm) 0.792 (hybrid trails by ~0.006, but recovers more true signal).
+- ONE-SIZE-FITS-ALL holds: mrmr_fe is within 0.005 AUC of each downstream model's individual best (lgbm/logit/knn),
+  so a single shared FE+selection set is near-optimal for all three families on this bed.
+
+Hybrid combine-rule tuning (round2_hybrid_bench.py, 3 seeds):
+- vote=1 (any reused member confirms a cluster) BEATS vote=2 (majority): members are complementary, so majority
+  drops base features only one member catches (recall 0.96 -> 0.79). vote=1 is the default.
+- FI-credibility guard (single-member clusters must clear the consensus-FI median) TESTED and REJECTED as default:
+  it cuts noise 2.33 -> 0.33 but the single-member BASE features are the weaker-FI ones, so it also cuts them
+  (recall 0.958 -> 0.792, auc_mean 0.784 -> 0.772). The leaked noise's AUC cost is small; the lost recall is not.
+  fi_guard stays OFF by default; kept as a precision/parsimony option. expand_clusters re-emits cluster members
+  (max recall + best knn). Defaults: vote=1, fi_guard=False, expand_clusters=False.

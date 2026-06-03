@@ -49,11 +49,13 @@ def corr_clusters(X: pd.DataFrame, thr: float = 0.92):
 class HybridSelector:
     """Compute-once / share-many hybrid feature selector (see module docstring)."""
 
-    def __init__(self, vote: int = 2, prescreen: bool = True, expand_clusters: bool = False,
-                 corr_thr: float = 0.92, use_mrmr: bool = True, random_state: int = 0, name: str = "hybrid"):
+    def __init__(self, vote: int = 1, prescreen: bool = True, expand_clusters: bool = False,
+                 fi_guard: bool = False, corr_thr: float = 0.92, use_mrmr: bool = True,
+                 random_state: int = 0, name: str = "hybrid"):
         self.vote = vote
         self.prescreen = prescreen
         self.expand_clusters = expand_clusters
+        self.fi_guard = fi_guard
         self.corr_thr = corr_thr
         self.use_mrmr = use_mrmr
         self.random_state = random_state
@@ -172,15 +174,46 @@ class HybridSelector:
             member_sel["boruta"] = []
         self.member_selections_ = member_sel
 
-        # STAGE 3 -- cluster-aware vote: a cluster is kept when >= vote members picked any of its features
+        # STAGE 3 -- cluster-aware vote over the shared clusters (pure, deterministic; extracted for unit testing)
+        selected = self._combine(member_sel, cols)
+        self.raw_selected_ = [c for c in cols if c in set(selected)] or cols[:1]
+        self.n_engineered_ = 0
+        return self
+
+    def _combine(self, member_sel, cols):
+        """Cluster-aware vote: a cluster is kept when >= ``vote`` members picked any of its features; each kept
+        cluster contributes its highest-shared-FI member (or all members under ``expand_clusters``). Pure function
+        of the shared state (self.fi_ / self.members_ / self.cluster_of_) and the per-member selections, so it is
+        unit-testable without the expensive member fits."""
         cluster_votes = defaultdict(set)
         for m, sel in member_sel.items():
             for f in sel:
                 r = self.cluster_of_.get(f)
                 if r is not None:
                     cluster_votes[r].add(m)
-        chosen = [r for r, voters in cluster_votes.items() if len(voters) >= self.vote]
-        if not chosen:  # vote too strict for this dataset -> fall back to any-member union of clusters
+        support = {r: len(voters) for r, voters in cluster_votes.items()}
+
+        def _rep_fi(r):
+            return max((self.fi_.get(m, 0.0) for m in self.members_[r] if m in cols), default=0.0)
+
+        # FI-CREDIBILITY GUARD (off by default -- MEASURED net loss): a cluster confirmed by only ONE member is
+        # admitted only if its shared-permutation-FI clears the credibility floor = the median rep-FI of the
+        # CONSENSUS clusters (>= 2 members). The intent was to drop the single-member noise leak while keeping
+        # real single-member features. Benched (round2_hybrid_bench.py, 3 seeds on make_dataset): it DOES cut
+        # noise 2.33 -> 0.33, but the single-member BASE features are exactly the weaker-FI ones, so they fall
+        # below the consensus-FI median too -> base_recall collapses 0.958 -> 0.792 and auc_mean drops 0.784 ->
+        # 0.772 (it degenerates to the vote=2 consensus set). The leaked noise's AUC cost is small (lgbm tolerates
+        # it) while the lost recall is not. So fi_guard stays OFF by default; keep it only when a downstream needs
+        # a cleaner, lower-recall set. Uses the already-shared FI, no extra compute.
+        consensus_fis = [_rep_fi(r) for r, s in support.items() if s >= 2]
+        floor = float(np.median(consensus_fis)) if (self.fi_guard and consensus_fis) else float("-inf")
+        chosen = []
+        for r, s in support.items():
+            if s >= max(self.vote, 2):           # consensus -> always keep
+                chosen.append(r)
+            elif s >= self.vote and _rep_fi(r) >= floor:   # single-member -> must clear the credibility floor
+                chosen.append(r)
+        if not chosen:  # guard/vote too strict for this dataset -> fall back to any-member union of clusters
             chosen = list(cluster_votes.keys())
         selected = []
         for r in chosen:
@@ -191,9 +224,7 @@ class HybridSelector:
                 selected.extend(ms)
             else:
                 selected.append(max(ms, key=lambda f: self.fi_.get(f, 0.0)))
-        self.raw_selected_ = [c for c in cols if c in set(selected)] or cols[:1]
-        self.n_engineered_ = 0
-        return self
+        return selected
 
     def transform(self, X):
         return X[self.raw_selected_]
