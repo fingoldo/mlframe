@@ -52,6 +52,8 @@ class HybridSelector:
     def __init__(self, vote: int = 1, prescreen: bool = True, expand_clusters: bool = False,
                  fi_guard: bool = False, corr_thr: float = 0.92, use_mrmr: bool = True,
                  use_fe: bool = True, fe_max_steps: int = 1, boruta_driver: str = "gini", anchor_fe: bool = False,
+                 use_tree_member: bool = True, tree_top_k: int = 0, tree_cooccur_pairs: int = 12,
+                 tree_n_estimators: int = 80, tree_max_depth: int = 3, tree_prod_gate: str = "synergy",
                  random_state: int = 0, name: str = "hybrid"):
         self.vote = vote
         self.prescreen = prescreen
@@ -59,6 +61,30 @@ class HybridSelector:
         self.fi_guard = fi_guard
         self.corr_thr = corr_thr
         self.use_mrmr = use_mrmr
+        # use_tree_member (default ON -- MEASURED win on interaction-heavy real data): a cheap shallow-GBM that
+        # contributes a signal the MI-filter members structurally MISS. MRMR's marginal-MI greedy collapses on
+        # interaction-heavy data (madelon: 3 features, lgbm 0.69) because the informative operands have ~0 marginal
+        # MI; a depth-limited GBM branches on them anyway. The member adds two things to the shared composition:
+        #   (1) a VOTE for its top-`tree_top_k` features by split importance, and
+        #   (2) candidate co-occurrence PRODUCT columns (raw[a]*raw[b] for the top-`tree_cooccur_pairs` pairs that
+        #       co-occur within a tree, gain-weighted) folded into the shared augmented frame.
+        # Both are GATED by the shared honest permutation-FI so the member self-regulates by regime: on madelon the
+        # product columns clear the FI floor and lift the hybrid 0.805 -> ~0.84 (beating standalone tree_top20+cooccur
+        # 0.840 measured 3-seed); on the FE-saturated synthetic the raw products do NOT clear the floor (MRMR's
+        # Hermite/prewarp transforms are what win there), so they are not voted and MRMR's win is preserved -- the
+        # two FE styles fail oppositely and the composition keeps both. (round4_tree_seed_bench / _tree_rescue_validate)
+        self.use_tree_member = use_tree_member
+        self.tree_top_k = tree_top_k
+        self.tree_cooccur_pairs = tree_cooccur_pairs
+        self.tree_n_estimators = tree_n_estimators
+        self.tree_max_depth = tree_max_depth
+        # tree_prod_gate: which co-occurrence products earn a vote. The gate is the regime self-regulator -- it must
+        # admit madelon's true interaction products (big win) while rejecting the FE-saturated bed's weak raw products
+        # (which dilute, esp. distance-based downstreams). "synergy" (default): admit prod(a,b) only if its shared-FI
+        # exceeds BOTH operands' FI (a genuine interaction adds information beyond its parts). "relevant_median":
+        # FI >= median FI over the prescreened survivors (a high bar). "raw_median": FI >= median over ALL raw cols
+        # (loose -- regresses the FE-saturated bed because its many noise features drag the median to ~0).
+        self.tree_prod_gate = tree_prod_gate
         # use_fe: let the MRMR member feature-ENGINEER (fe_max_steps) and SHARE its engineered columns to every other
         # member via a once-built augmented frame X_aug=[raw|engineered]. This closes the measured ~0.05 AUC gap to
         # mrmr_fe: the bed's pure-interaction signal (inf_4*inf_5, ~0 marginal) is unrecoverable by selection alone;
@@ -131,22 +157,91 @@ class HybridSelector:
             warnings.warn(f"HybridSelector: MRMR stage degraded ({type(e).__name__}: {e})")
             return [], None
 
-    def _augment(self, X):
-        """Return [raw X | MRMR engineered columns (safe-renamed)]. Engineering is replayed leakage-free by the
-        fitted MRMR member (pure function of X, no y). Identity when FE is off or produced no engineered columns."""
-        if not self._eng_names or self._mrmr_member is None:
-            return X
+    def _tree_signals(self, X, y):
+        """One cheap depth-limited GBM on RAW X -> (importance-ranked feature list, top co-occurring raw pairs).
+        Co-occurrence proxy: within each tree, every pair of split features gets a count weighted by the tree's
+        total split gain -- features the tree branches on together are the interactions it exploits, a supervised
+        operand proposer blind to marginal MI (the exact signal MRMR's marginal-MI greedy discards). Stored on self
+        (ranked features + product pairs) so the product columns replay leakage-free at transform time."""
+        self._tree_ranked_, self._tree_prod_pairs_, self._tree_prod_names_ = [], [], []
+        if not self.use_tree_member:
+            return
         try:
-            out = self._mrmr_member.transform(X)
-            eng = out[self._eng_names].copy()
-            eng.columns = [self._eng_rename[c] for c in self._eng_names]
-            base = X.reset_index(drop=True)
-            eng = eng.reset_index(drop=True)
-            aug = pd.concat([base, eng], axis=1)
-            return aug.loc[:, ~aug.columns.duplicated()]
+            from itertools import combinations
+            from collections import Counter
+            import lightgbm as lgb
+            m = lgb.LGBMClassifier(n_estimators=self.tree_n_estimators, max_depth=self.tree_max_depth,
+                                   num_leaves=2 ** self.tree_max_depth, learning_rate=0.1, n_jobs=-1,
+                                   verbose=-1, random_state=self.random_state)
+            m.fit(X, y)
+            cols = list(X.columns)
+            imp = pd.Series(m.feature_importances_, index=cols)
+            self._tree_ranked_ = [c for c in imp.sort_values(ascending=False).index if imp[c] > 0]
+            tdf = m.booster_.trees_to_dataframe()
+            tdf = tdf[tdf["split_feature"].notna()]
+            pair_w = Counter()
+            for _tid, g in tdf.groupby("tree_index"):
+                feats = sorted(set(g["split_feature"].tolist()))
+                gain = float(g["split_gain"].sum()) + 1e-9
+                for a, b in combinations(feats, 2):
+                    pair_w[(a, b)] += gain
+            # The co-occurrence PRODUCTS are feature engineering -> gate them on use_fe (use_fe=False means no
+            # engineering of ANY kind, raw selection only). The importance RANKING above is kept regardless, so the
+            # top-k selection votes still work under use_fe=False if tree_top_k>0.
+            if self.use_fe:
+                top = [p for p, _ in pair_w.most_common(self.tree_cooccur_pairs)]
+                self._tree_prod_pairs_ = [(a, b) for (a, b) in top if a in cols and b in cols]
+                self._tree_prod_names_ = [f"tprod_{i}" for i in range(len(self._tree_prod_pairs_))]
         except Exception as e:
-            warnings.warn(f"HybridSelector: FE augment failed ({type(e).__name__}: {e}); using raw X")
+            warnings.warn(f"HybridSelector: tree-signal stage degraded ({type(e).__name__}: {e})")
+            self._tree_ranked_, self._tree_prod_pairs_, self._tree_prod_names_ = [], [], []
+
+    def _admit_tree_products(self, relevant, raw_cols):
+        """Apply ``tree_prod_gate`` to decide which co-occurrence product columns earn a tree vote (the regime
+        self-regulator). Uses only the already-shared FI -- no extra compute. Returns a list of admitted tprod names."""
+        if not getattr(self, "_tree_prod_names_", None):
+            return []
+        fi, gate = self.fi_, str(self.tree_prod_gate).lower()
+        prods = self._tree_prod_names_
+        if gate == "raw_median":
+            floor = max(float(np.median([fi.get(c, 0.0) for c in raw_cols])) if raw_cols else 0.0, 1e-12)
+            return [nm for nm in prods if fi.get(nm, 0.0) >= floor]
+        if gate == "relevant_median":
+            rfis = [fi.get(c, 0.0) for c in relevant if c not in set(prods)]   # bar = survivors, excluding products
+            floor = max(float(np.median(rfis)) if rfis else 0.0, 1e-12)
+            return [nm for nm in prods if fi.get(nm, 0.0) >= floor]
+        # default "synergy": a product earns its place only if it is more informative than BOTH operands alone
+        # (FI[a*b] > max(FI[a], FI[b])) -- a genuine interaction adds information beyond its parts. Regime-agnostic:
+        # madelon's true products clear it; the FE-saturated bed's redundant raw products (subsumed by the operands
+        # or by MRMR's transforms) do not.
+        out = []
+        for (a, b), nm in zip(self._tree_prod_pairs_, prods):
+            if fi.get(nm, 0.0) > max(fi.get(a, 0.0), fi.get(b, 0.0)):
+                out.append(nm)
+        return out
+
+    def _augment(self, X):
+        """Return [raw X | MRMR engineered cols | tree co-occurrence product cols], all safe-renamed and replayed
+        leakage-free (MRMR cols via the fitted member; tprod cols as pure raw[a]*raw[b] from the stored pairs).
+        Identity when neither FE source produced columns."""
+        eng_cols, tprod_cols = {}, {}
+        if self._eng_names and self._mrmr_member is not None:
+            try:
+                out = self._mrmr_member.transform(X)
+                for c in self._eng_names:
+                    eng_cols[self._eng_rename[c]] = out[c].values
+            except Exception as e:
+                warnings.warn(f"HybridSelector: FE augment failed ({type(e).__name__}: {e}); skipping MRMR eng cols")
+                eng_cols = {}
+        for (a, b), nm in zip(getattr(self, "_tree_prod_pairs_", []), getattr(self, "_tree_prod_names_", [])):
+            if a in X.columns and b in X.columns:
+                tprod_cols[nm] = X[a].values * X[b].values
+        if not eng_cols and not tprod_cols:
             return X
+        base = X.reset_index(drop=True)
+        extra = pd.DataFrame({**eng_cols, **tprod_cols}, index=base.index)
+        aug = pd.concat([base, extra], axis=1)
+        return aug.loc[:, ~aug.columns.duplicated()]
 
     # ------------------------------------------------------------------ reused members on the shared narrowed space
     def _run_shap(self, X, y, relevant, artifacts):
@@ -210,13 +305,34 @@ class HybridSelector:
         self.mrmr_selected_, self.artifacts_ = (self._run_mrmr(X, y) if self.use_mrmr else ([], None))
         if not self.use_mrmr:
             self._mrmr_member, self._eng_names, self._eng_rename = None, [], {}
-        X_aug = self._augment(X)
+        # tree signals on RAW X (importance ranking + co-occurrence product pairs). The candidate product columns are
+        # folded into the augmented frame and scored by the ONE shared FI pass, THEN GATED: only gate-admitted products
+        # survive -- rejected ones are pruned from the frame AND the replay pairs, so they never reach the clusters,
+        # members, vote, or transform. This makes tree_prod_gate actually BIND (it is the regime self-regulator: on
+        # interaction-heavy data the true products clear synergy/FI; on FE-saturated data the redundant raw products do
+        # not, so they are dropped and MRMR's engineered transforms win unchallenged -- no dilution of that regime).
+        self._tree_signals(X, y)
+        X_aug = self._augment(X)                       # all candidate products present, for honest FI scoring
+        fi_full = self._shared_perm_fi(X_aug, y)       # the single (expensive) shared FI pass
+        if self.use_tree_member and getattr(self, "_tree_prod_names_", None):
+            self.fi_ = fi_full                          # _admit_tree_products reads self.fi_
+            raw_cols = list(X.columns)
+            survivor_proxy = [c for c in raw_cols if fi_full.get(c, 0.0) > 0.0] or raw_cols  # bar for relevant_median
+            admitted = set(self._admit_tree_products(survivor_proxy, raw_cols))
+            rejected = [nm for nm in self._tree_prod_names_ if nm not in admitted]
+            if rejected:
+                kept = [(p, nm) for p, nm in zip(self._tree_prod_pairs_, self._tree_prod_names_) if nm in admitted]
+                self._tree_prod_pairs_ = [p for p, _ in kept]
+                self._tree_prod_names_ = [nm for _, nm in kept]
+                X_aug = X_aug.drop(columns=[c for c in rejected if c in X_aug.columns])
         cols = list(X_aug.columns)
-        engineered = set(self._eng_rename.values())
+        # engineered = MRMR-engineered + the ADMITTED tree products (rejected ones are already pruned). Both are
+        # candidate engineered columns exempt from the raw-FI prescreen (they passed their own FE/synergy gate).
+        engineered = set(self._eng_rename.values()) | set(getattr(self, "_tree_prod_names_", []))
         self._Xaug_, self._y_ = X_aug, y  # stashed for combine-rule variants/diagnostics (benchmark composition class)
 
-        # shared artifacts, computed ONCE on the augmented frame (FI honest for engineered cols too)
-        self.fi_ = self._shared_perm_fi(X_aug, y)
+        # shared artifacts: restrict the already-computed FI to the kept columns (no recompute), cluster the kept frame
+        self.fi_ = {c: fi_full.get(c, 0.0) for c in cols}
         self.reps_, self.members_ = corr_clusters(X_aug, self.corr_thr)
         self.cluster_of_ = {f: r for r, ms in self.members_.items() for f in ms}
 
@@ -244,6 +360,15 @@ class HybridSelector:
         except Exception as e:
             warnings.warn(f"HybridSelector: boruta member degraded ({type(e).__name__}: {e})")
             member_sel["boruta"] = []
+        # TREE member: votes for its top-k features by split importance, plus the (already gate-admitted, already in
+        # the frame) co-occurrence PRODUCT columns. The product gating happened up front (tree_prod_gate), so the
+        # surviving products are exactly the regime-appropriate ones; here the member simply casts their vote.
+        if self.use_tree_member and self._tree_ranked_:
+            tree_votes = [c for c in self._tree_ranked_[: self.tree_top_k] if c in relevant]
+            tree_votes += [nm for nm in getattr(self, "_tree_prod_names_", []) if nm in cols]
+            tree_votes = [c for c in dict.fromkeys(tree_votes) if c in cols]
+            if tree_votes:                          # only register the member when it actually votes (dormant under
+                member_sel["tree"] = tree_votes     # use_fe=False + tree_top_k=0 -> no key, keeps the raw-only contract)
         self.member_selections_ = member_sel
 
         # STAGE 3 -- cluster-aware vote over the shared clusters (pure, deterministic; extracted for unit testing)

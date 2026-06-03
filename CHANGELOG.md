@@ -1,5 +1,45 @@
 # Changelog
 
+## 2026-06-04 — HybridSelector TREE-IMPORTANCE member (co-occurrence-product FE, synergy-gated, default ON)
+
+WHY: MRMR's marginal-MI greedy structurally under-selects on interaction-heavy
+real data — on madelon (2600x500, the standard FS benchmark) it collapses to 3
+features (downstream lgbm 0.69 vs 0.87 on all features) because the informative
+operands have ~0 marginal MI and its synergy bootstrap is skipped on wide frames
+(``p > fe_synergy_screen_max_features=60``). A depth-limited GBM branches on those
+operands regardless of marginal MI, so a cheap tree pass recovers what the filter
+members miss. Measured: a standalone tree-importance + co-occurrence-product
+selector scores 0.840 on madelon (3-seed mean) vs the production hybrid's 0.805 —
+a signal the existing MRMR + ShapProxiedFS + BorutaShap composition lacked.
+
+WHAT: a fourth HybridSelector member. One shallow LightGBM (``tree_n_estimators=80``,
+``tree_max_depth=3``) yields (a) an importance ranking and (b) co-occurrence pairs —
+features that co-occur on the same root-to-leaf path, gain-weighted, are the
+interactions the tree exploits. The member folds the top co-occurrence PRODUCT
+columns (``raw[a]*raw[b]``) into the shared augmented frame and votes for them
+(plus its top-``tree_top_k`` features; default ``tree_top_k=0`` = products-only,
+which beat adding the raw votes).
+
+REGIME SELF-REGULATION: products are admitted by a SYNERGY gate
+(``tree_prod_gate="synergy"``: keep ``a*b`` only if its shared honest-FI exceeds
+BOTH operands' FI — a genuine interaction adds information beyond its parts). On
+interaction-heavy data the true products clear it; on FE-saturated data the
+redundant raw products do not (MRMR's Hermite/prewarp transforms already capture
+that signal), so the member contributes nothing there. Candidate products are
+scored by the single shared FI pass then PRUNED to the admitted set before
+clustering/voting/transform, so the gate actually binds. Products are feature
+engineering, so they are gated by ``use_fe`` (``use_fe=False`` stays raw-only).
+
+MEASURED (3-seed, default config): madelon hybrid +0.038 mean AUC (all 3 seeds
+up; downstream lgbm 0.91–0.94), hard_synth −0.0002 and synth −0.0022 (both within
+seed std = noise). Negligible fit-time cost (the shallow GBM is not a hotspot;
+boruta/perm-FI/MRMR/shap dominate). New params: ``use_tree_member`` (default
+True), ``tree_top_k=0``, ``tree_cooccur_pairs=12``, ``tree_n_estimators=80``,
+``tree_max_depth=3``, ``tree_prod_gate="synergy"``. Pickle-safe (tree replay
+pairs kept; transient ``X_aug``/``y`` dropped). Covered by
+``test_hybrid_tree_member.py`` (gate logic, signals, leakage-free product replay,
+pickle, biz_value lift).
+
 ## 2026-06-03 — ADAPTIVE-CHIRP univariate Fourier operator (quadratic-argument warp, default ON)
 
 The LINEAR-argument adaptive Fourier detector (and the fixed grid) emit
