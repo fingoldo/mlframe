@@ -1,5 +1,40 @@
 # Changelog
 
+## 2026-06-03 — Univariate-FE: signal-adaptive orthogonal-polynomial basis routing
+
+The univariate orthogonal-polynomial FE stage chose its basis (Hermite / Legendre /
+Chebyshev / Laguerre) via ``basis_route_by_moments`` — the marginal distribution of x
+ALONE (skew / kurtosis / spread). That mis-routes whenever the target's best
+LINEARISING basis is not x's distributional "home" basis: a heavy-tailed or skewed x
+whose target is a clean polynomial is far better linearised by the z-scored Hermite
+expansion than by the moment-preferred Chebyshev / Laguerre, whose min-max
+preprocessing is dominated by the outliers.
+
+NEW ``basis_route_by_signal`` routes by which basis best LINEARISES y — argmax over
+candidate bases of the best-degree ``|Pearson corr|`` — and is the DEFAULT for
+``basis="auto"`` whenever y is available (``basis_routing="signal"``); it falls back to
+moment routing without a usable y, so standalone callers are unchanged. The chosen
+basis is fixed into the EngineeredRecipe at fit time and replayed deterministically
+(leakage-free).
+
+Criterion chosen empirically. A 30-signal-class out-of-sample study (route on train,
+score on held-out Ridge AND HistGBM R²) compared Pearson against MI, SU, Spearman,
+Kendall, a grid-MIC approximation, distance correlation, Chatterjee's ξ, four
+ensembles (rank-average, mean-normalised, Pearson+dcor gate, max-of-two), and a
+leave-one-case-out RandomForest meta-router trained on the oracle basis. Pearson |corr|
+won: OOS linear R² 0.876 vs MI 0.702 / dcor 0.863 / rank-ensemble 0.811, within 0.006
+of the oracle; ensembling did not help (the MI / rank / dependence measures reward
+monotone-but-nonlinear association a linear downstream cannot use, diluting the
+ensemble), and the meta-router could not beat Pearson — routing for the tree-oracle
+even drove OOS-linear R² negative. SU was numerically identical to MI (equal-cardinality
+binning makes its normalisation a constant). This is the MI-vs-linear-usability
+principle: for a LINEARISATION FE, linear usability (corr) is the right routing signal,
+not raw informativeness (MI). Moment routing hit the signal-best basis in only 19/30
+cases (mean |corr| gap +0.128, max +0.80; heavy-tailed cubic 0.17→0.93). Routing cost
+~4-6 ms/column once per fit (cProfile: dominated by basis preprocessing); it uses the
+same degree set the FE emits. FE regression suite green (univariate-basis / layer24 /
+layer25 / default-filtering / prefer-engineered: 97 passed).
+
 ## 2026-06-03 — High-dim screening: Westfall-Young maxT permutation-null gain floor
 
 In a wide candidate pool (embedding / TF-IDF matrices, p >> sqrt(n)) the MAX marginal MI over p pure-noise columns is a positive order statistic that grows with p — the classic multiple-comparison selection bias. The per-candidate Miller-Madow correction centres each column's EXPECTED bias near zero but cannot remove this max-over-p inflation, so the best-of-p noise clears the absolute/relative gain floors purely by chance and the greedy admits a noise cloud (Layer-20 p=500, seed=1: 18 selected = 3 genuine signals + 15 Gaussian-noise dims, blowing the ``support_ <= 15`` bound). A second, compounding effect makes it worse: once the genuine signals are selected, a noise column's Fleuret CONDITIONAL gain is dominated by conditioning-bias on the sparse high-dim joint (3 selected × 14-bin features ≈ 2700 cells at n=1500), inflating the noise's conditional gain to ~2× its marginal MI — exactly clearing the relative floor.

@@ -119,3 +119,95 @@ def test_univariate_recovery_is_a_clean_single_source_feature():
         f"univariate basis feature; the univariate-basis stage should produce "
         f"the single-source recoverer"
     )
+
+
+# ---------------------------------------------------------------------------
+# Signal-adaptive basis routing (2026-06-03): route the orthogonal-polynomial
+# basis by which one best LINEARISES y (max |corr| over degrees), not by x's
+# distribution moments alone. The moment router (basis_route_by_moments) sends a
+# heavy-tailed / skewed x to a bounded basis (Chebyshev / Laguerre) whose min-max
+# preprocessing is dominated by the outliers, mis-routing away from the z-scored
+# Hermite that actually linearises the target. Validated against MI / SU /
+# Spearman / Kendall / MIC / distance-correlation / Chatterjee-xi + four
+# ensembles + a leave-one-case-out learned meta-router: Pearson |corr| is the
+# near-oracle AND cheapest routing criterion for a linearisation FE (MI-family /
+# rank / dependence measures reward monotone-but-nonlinear association a linear
+# downstream cannot use; routing for the tree-oracle drove OOS-linear R^2
+# NEGATIVE).
+# ---------------------------------------------------------------------------
+
+_ROUTING_BASES = ["hermite", "legendre", "chebyshev", "laguerre"]
+
+
+def _basis_best_corr(x, y, basis, degrees=(2, 3, 4)):
+    from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
+        _evaluate_basis_column,
+    )
+    best = 0.0
+    for d in degrees:
+        try:
+            v = np.asarray(
+                _evaluate_basis_column(np.asarray(x, float), basis, int(d), aux_for_fit=None),
+                dtype=float,
+            )
+        except Exception:
+            continue
+        if np.all(np.isfinite(v)) and float(np.std(v)) > 1e-12:
+            best = max(best, abs(float(np.corrcoef(v, y)[0, 1])))
+    return best
+
+
+class TestSignalAdaptiveBasisRouting:
+    """``basis_route_by_signal`` picks the basis that best linearises y."""
+
+    def test_routes_to_argmax_corr_basis(self):
+        """The router returns exactly the basis with the highest best-degree
+        |corr| -- the falsifiable definition of signal-adaptive routing."""
+        from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
+            basis_route_by_signal,
+        )
+        rng = np.random.default_rng(0)
+        n = 4000
+        x = np.clip(rng.standard_t(3, n), -8, 8)  # heavy-tailed
+        y = (x * x) + 0.25 * np.std(x * x) * rng.standard_normal(n)  # even, non-monotone
+        chosen = basis_route_by_signal(x, y, degrees=(2, 3, 4))
+        recov = {b: _basis_best_corr(x, y, b) for b in _ROUTING_BASES}
+        assert chosen == max(recov, key=recov.get), (
+            f"signal routing must return the max-|corr| basis; chose {chosen!r}, "
+            f"recov={ {b: round(v, 3) for b, v in recov.items()} }"
+        )
+        assert recov[chosen] >= 0.85, f"chosen basis under-recovers: {recov}"
+
+    def test_fixes_moment_misroute_on_heavy_tail(self):
+        """On a heavy-tailed cubic the moment router picks a bounded basis whose
+        min-max mapping is wrecked by the outliers (|corr| ~0.2); signal routing
+        recovers it via the z-scored Hermite (|corr| ~0.9). This is the
+        boundary-condition the routing change fixes."""
+        from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
+            basis_route_by_signal,
+        )
+        from mlframe.feature_selection.filters.hermite_fe import basis_route_by_moments
+        rng = np.random.default_rng(0)
+        n = 4000
+        x = np.clip(rng.standard_t(3, n), -8, 8)
+        y = (x ** 3) + 0.25 * np.std(x ** 3) * rng.standard_normal(n)
+        b_mom = basis_route_by_moments(x)
+        b_sig = basis_route_by_signal(x, y, degrees=(2, 3, 4))
+        c_mom = _basis_best_corr(x, y, b_mom)
+        c_sig = _basis_best_corr(x, y, b_sig)
+        assert b_sig != b_mom and c_sig >= c_mom + 0.20, (
+            f"signal routing should materially beat moment routing on a heavy-"
+            f"tailed cubic: moment={b_mom}({c_mom:.3f}) signal={b_sig}({c_sig:.3f})"
+        )
+
+    def test_falls_back_to_moments_without_usable_y(self):
+        """Degenerate y (constant) -> fall back to moment routing, so callers
+        without a usable target keep the legacy behaviour."""
+        from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
+            basis_route_by_signal,
+        )
+        from mlframe.feature_selection.filters.hermite_fe import basis_route_by_moments
+        rng = np.random.default_rng(1)
+        x = rng.standard_normal(800)
+        y_const = np.ones(800)
+        assert basis_route_by_signal(x, y_const) == basis_route_by_moments(x)
