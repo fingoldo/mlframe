@@ -256,6 +256,10 @@ def train_mlframe_models_suite(
     # LTR opt-in: helper returns None for non-LTR call sites. Moved AFTER setup_configuration because the helper now reads
     # Pydantic-shape configs from ``ctx`` (output / split / hyperparams / reporting); pre-setup the configs may still be
     # dict-or-None form and would trip ``_cfg_get`` callers downstream.
+    # Capture the RAW (pre-preprocessing) df: the auto-detected-LTR safety net below
+    # re-dispatches to the ranker suite, which re-runs its own load/transform and so
+    # needs the original frame, not the preprocessed one ``df`` gets rebound to later.
+    _raw_df_for_ltr_autoroute = df
     _ltr_result = _maybe_dispatch_to_ltr_ranker_suite(
         ctx,
         target_type=target_type,
@@ -300,6 +304,22 @@ def train_mlframe_models_suite(
     df = ctx.df
     target_by_type = ctx.target_by_type
     warn_on_empty_target_by_type(target_by_type)
+    # Auto-detected-LTR safety net (fuzz c0031): the param-based early dispatch above only
+    # fires for an EXPLICIT target_type=LEARNING_TO_RANK arg. When the caller leaves
+    # target_type=None, build_targets can still classify a target as LEARNING_TO_RANK; that
+    # target would otherwise reach the standard per-target loop and build a tree CLASSIFIER
+    # with a multiclass objective + an LTR eval metric -> LightGBMError ("Multiclass objective
+    # and metrics don't match"). target_by_type is now resolved, so route LTR to the ranker
+    # suite using the raw pre-preprocessing df (it re-transforms internally).
+    if target_type is None and TargetTypes.LEARNING_TO_RANK in target_by_type:
+        _ltr_auto_result = _maybe_dispatch_to_ltr_ranker_suite(
+            ctx,
+            target_type=TargetTypes.LEARNING_TO_RANK,
+            df=_raw_df_for_ltr_autoroute,
+            features_and_targets_extractor=features_and_targets_extractor,
+        )
+        if _ltr_auto_result is not None:
+            return _ltr_auto_result
     group_ids_raw = ctx.group_ids_raw
     group_ids = ctx.group_ids
     timestamps = ctx.timestamps

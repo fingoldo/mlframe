@@ -192,6 +192,35 @@ class TestLTRSuiteValidation:
                 target_type=TargetTypes.LEARNING_TO_RANK,
             )
 
+    def test_autodetected_ltr_routes_to_ranker_without_target_type_arg(self, synthetic_search_data):
+        """Regression (fuzz c0016/c0031): the suite must auto-route LTR even when the caller
+        omits ``target_type`` (leaving it ``None``).
+
+        The early ranker dispatch only fires for an EXPLICIT ``target_type=LEARNING_TO_RANK``
+        arg. When it is None, the FTE's ``build_targets`` can still resolve the target as
+        LEARNING_TO_RANK; pre-fix that target fell through to the standard per-target loop,
+        which built an ``LGBMClassifier`` with a multiclass objective + an LTR eval metric ->
+        ``LightGBMError: Multiclass objective and metrics don't match``. The suite now detects
+        LTR in the resolved ``target_by_type`` and re-dispatches to the ranker suite.
+        """
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            models, meta = train_mlframe_models_suite(
+                df=synthetic_search_data,
+                target_name="relevance",
+                model_name="autoroute_ltr",
+                features_and_targets_extractor=_RankFTE(),
+                # target_type intentionally OMITTED -> None -> must be auto-detected + routed.
+                mlframe_models=["lgb", "xgb"],
+                use_mlframe_ensembles=False,
+                verbose=0,
+            )
+        # Proves the ranker suite handled it (not the classifier path, which would have
+        # crashed with the multiclass-objective error before producing any metadata).
+        assert meta["target_type"] == "learning_to_rank"
+        assert "lgb" in models, "lgb should survive as a native LGBMRanker under auto-routed LTR"
+        assert "ndcg@10" in models["lgb"]["test_metrics"], "ranker should emit a ranking metric"
+
     def test_unsupported_models_dropped_with_warn(self, synthetic_search_data, caplog):
         """HGB / Linear get filtered; only CB/XGB/LGB survive."""
         with warnings.catch_warnings():
