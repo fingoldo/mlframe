@@ -59,9 +59,31 @@ def _default_panel(classification: bool):
     }
 
 
+def _cv_skill(est, X, y, *, classification: bool, folds: int, random_state: int) -> float:
+    """Above-chance CV skill of a panel member: ROC-AUC - 0.5 (classification) or R2 - 0 (regression),
+    clamped to >= 0. Used to downweight a structurally-blind member (e.g. a linear model on monotone-but-
+    nonlinear signal) so its veto cannot sink a feature the rest of the panel confirms."""
+    from sklearn.base import clone
+    from sklearn.model_selection import cross_val_score, StratifiedKFold, KFold
+    if classification:
+        scoring = "roc_auc" if len(np.unique(y)) == 2 else "roc_auc_ovr_weighted"
+        cv = StratifiedKFold(n_splits=folds, shuffle=True, random_state=random_state)
+        chance = 0.5
+    else:
+        scoring = "r2"
+        cv = KFold(n_splits=folds, shuffle=True, random_state=random_state)
+        chance = 0.0
+    try:
+        score = float(np.mean(cross_val_score(clone(est), X, y, cv=cv, scoring=scoring)))
+    except Exception:
+        return 0.0
+    return max(0.0, score - chance)
+
+
 def heterogeneous_relevance_vote(
     X, y, *, models=None, classification: bool = True, n_shadow_trials: int = 3,
     percentile: float = 100.0, per_model_hit_frac: float = 0.5, vote_threshold: float = 0.5,
+    weight_by_cv_skill: bool = False, cv_skill_folds: int = 3, cv_skill_floor: float = 0.05,
     random_state: int = 0,
 ):
     """All-relevant selection by cross-model shadow voting.
@@ -69,8 +91,21 @@ def heterogeneous_relevance_vote(
     For each model in the panel and each of ``n_shadow_trials`` permuted-shadow draws, fit on [X | shadows]
     and mark a feature a "hit" when its importance exceeds the ``percentile`` of the shadow importances. A
     feature PASSES a model if it hits in >= ``per_model_hit_frac`` of that model's trials; it is ACCEPTED if
-    it passes >= ``vote_threshold`` fraction of the panel. Returns ``(accepted, info)`` where ``accepted`` is
-    the kept feature-name list and ``info['vote_fraction']`` maps feature -> fraction of panel passed.
+    its (optionally skill-weighted) panel vote-fraction is >= ``vote_threshold``. Returns ``(accepted, info)``
+    where ``accepted`` is the kept feature-name list and ``info['vote_fraction']`` maps feature -> the panel
+    fraction that passed.
+
+    weight_by_cv_skill : when True, each member's vote is weighted by its above-chance CV skill (clamped to
+        >= ``cv_skill_floor``) instead of counting equally. The intent was to fix the panel's recall failure
+        mode by downweighting a member blind to a feature's functional form. MEASURED (round2_hetero_skillweight
+        _bench.py, 6 scenarios x 2 seeds): it changed the selection in 0/12 cells (mean AUC identical to equal
+        weighting, 0.7418), because on this bed every panel member keeps a BALANCED CV skill (~0.20-0.29) even on
+        monotone / weakmix -- no member is actually near-chance, so there is nothing to downweight. hetero_vote's
+        recall deficit is structural to the cross-model AGREEMENT requirement (a weak feature is not confidently
+        above-shadow in a majority of models), not the fault of one blind voter, so skill-weighting cannot close
+        it. Kept as an off-by-default option for datasets that DO contain a near-chance member; not a recall fix.
+        ``cv_skill_folds`` sets the CV used to estimate skill; ``cv_skill_floor`` keeps a weak-but-not-useless
+        member from being fully silenced. Equal weighting (the default) keeps the cheap, calibration-free path.
 
     models : dict name->estimator (cloned + fit from scratch). Defaults to a tree/linear/distance panel.
     """
@@ -79,7 +114,7 @@ def heterogeneous_relevance_vote(
     yv = np.asarray(y)
     P = Xv.shape[1]
     panel = models if models is not None else _default_panel(classification)
-    pass_count = np.zeros(P)
+    passes, weights = [], []
     for est in panel.values():
         hits = np.zeros(P)
         for tr in range(n_shadow_trials):
@@ -88,7 +123,15 @@ def heterogeneous_relevance_vote(
             imp = _importance(est, np.hstack([Xv, shadow]), yv, random_state=random_state + tr)
             thr = np.percentile(imp[P:], percentile)
             hits += (imp[:P] > thr).astype(float)
-        pass_count += (hits / max(1, n_shadow_trials) >= per_model_hit_frac).astype(float)
-    vote_frac = pass_count / max(1, len(panel))
+        passes.append((hits / max(1, n_shadow_trials) >= per_model_hit_frac).astype(float))
+        if weight_by_cv_skill:
+            weights.append(max(cv_skill_floor, _cv_skill(est, Xv, yv, classification=classification,
+                                                          folds=cv_skill_folds, random_state=random_state)))
+        else:
+            weights.append(1.0)
+    W = np.asarray(weights, dtype=float)
+    vote_frac = (W[:, None] * np.vstack(passes)).sum(axis=0) / max(W.sum(), 1e-12)
     accepted = [cols[i] for i in range(P) if vote_frac[i] >= vote_threshold]
-    return accepted, {"vote_fraction": {cols[i]: float(vote_frac[i]) for i in range(P)}, "n_models": len(panel)}
+    info = {"vote_fraction": {cols[i]: float(vote_frac[i]) for i in range(P)}, "n_models": len(panel),
+            "model_weights": {name: float(w) for name, w in zip(panel.keys(), W)}}
+    return accepted, info

@@ -24,10 +24,12 @@ import lightgbm as lgb
 try:  # runnable both as ``python -m ...fs_hybrid.run_experiment`` and as a plain script
     from .synth import make_dataset
     from . import fs_selectors as S
+    from .hybrid_selector import HybridSelector
 except ImportError:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from synth import make_dataset
     import fs_selectors as S
+    from hybrid_selector import HybridSelector
 
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_results")
 os.makedirs(OUT, exist_ok=True)
@@ -69,6 +71,13 @@ def build_roster():
     R["shap_proxied"] = (lambda: S.ShapSel(), SHAP_SEEDS)
     R["H4_mrmrfilter__shap"] = (lambda: S.Cascade("H4", S.MRMRSel(fe=False), S.ShapSel()), SHAP_SEEDS)
     R["H6_mrmrfe__shap"] = (lambda: S.Cascade("H6", S.MRMRSel(fe=True), S.ShapSel()), SHAP_SEEDS)
+    # compute-once-share-many hybrid (MI/SU/bins + permutation-FI + clusters computed once, shared to reused members).
+    # vote=1 (any reused member confirms a cluster) is the headline: the members are COMPLEMENTARY so majority
+    # (vote=2) drops base features only one member catches (seed-0: vote2 base 6/8 AUC 0.756 vs vote1 base 8/8 AUC
+    # 0.774). vote=2 kept as the parsimony/precision variant; expand re-emits all cluster members for downstream.
+    R["hybrid"] = (lambda: HybridSelector(vote=1, name="hybrid"), CORE_SEEDS)
+    R["hybrid_strict"] = (lambda: HybridSelector(vote=2, name="hybrid_strict"), CORE_SEEDS)
+    R["hybrid_expand"] = (lambda: HybridSelector(vote=1, expand_clusters=True, name="hybrid_expand"), CORE_SEEDS)
     return R
 
 

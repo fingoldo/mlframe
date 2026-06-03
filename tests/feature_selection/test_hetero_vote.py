@@ -35,3 +35,35 @@ def test_hetero_vote_keeps_signal_drops_noise():
     assert info["n_models"] == 3
     assert set(info["vote_fraction"]) == set(X.columns)
     assert all(0.0 <= v <= 1.0 for v in info["vote_fraction"].values())
+
+
+def test_skill_weighting_off_is_exactly_equal_weight():
+    """weight_by_cv_skill=False (default) must reproduce the equal-weight vote EXACTLY: the refactor that added
+    skill weighting must not change the default path. Same accepted set + identical vote fractions."""
+    pytest.importorskip("sklearn")
+    from mlframe.feature_selection.hetero_vote import heterogeneous_relevance_vote
+
+    X, y, _, _ = _data(seed=1)
+    a_off, info_off = heterogeneous_relevance_vote(X, y, classification=True, n_shadow_trials=3,
+                                                   weight_by_cv_skill=False, random_state=0)
+    # explicit-default call path
+    a_def, info_def = heterogeneous_relevance_vote(X, y, classification=True, n_shadow_trials=3, random_state=0)
+    assert a_off == a_def
+    assert info_off["vote_fraction"] == info_def["vote_fraction"]
+    # equal-weight model_weights are all 1.0
+    assert set(info_off["model_weights"].values()) == {1.0}
+
+
+def test_skill_weighting_on_runs_and_reports_weights():
+    """weight_by_cv_skill=True must run, keep the strong signals, and report per-model skill weights in info."""
+    pytest.importorskip("sklearn")
+    from mlframe.feature_selection.hetero_vote import heterogeneous_relevance_vote
+
+    X, y, signal, _ = _data(seed=2)
+    accepted, info = heterogeneous_relevance_vote(X, y, classification=True, n_shadow_trials=3,
+                                                  weight_by_cv_skill=True, cv_skill_folds=3, random_state=0)
+    for s in signal:
+        assert s in set(accepted), f"skill-weighted vote dropped strong signal {s}"
+    w = info["model_weights"]
+    assert set(w) == {"tree", "linear", "distance"}
+    assert all(v >= 0.05 for v in w.values()), f"weights below the floor: {w}"
