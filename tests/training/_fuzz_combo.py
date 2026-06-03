@@ -494,6 +494,12 @@ AXES: dict[str, tuple[Any, ...]] = {
     # no SHAP-driven FS) or True. Boruta-SHAP path (tree feature
     # importance + shadow features) had zero fuzz coverage.
     "use_boruta_shap_cfg": (False, True),
+    # 2026-06-03: BorutaShap importance driver (default flipped to "gini" in
+    # 8b3994da). 'gini' = tree feature_importances_, 'shap' = SHAP values; both
+    # leak the top features but differ in speed/ranking, so both paths need
+    # fuzz coverage. Gated to use_boruta_shap_cfg in canonical_key; wired into
+    # boruta_shap_kwargs in test_fuzz_suite.py.
+    "boruta_importance_measure_cfg": ("gini", "shap"),
     # P1-8: FeatureSelectionConfig.use_sample_weights_in_fs. Weight-
     # aware FS (MRMR / RFECV fit with sample_weight). When True AND
     # weight_schemas includes non-uniform, FS refits per weight and the
@@ -1902,6 +1908,7 @@ class FuzzCombo:
     test_sequential_fraction_cfg: "float | None" = None
     calib_size_cfg: "float | None" = None
     use_boruta_shap_cfg: bool = False
+    boruta_importance_measure_cfg: str = "gini"
     use_sample_weights_in_fs_cfg: bool = False
     fallback_to_sklearn_cfg: bool = True
     prefer_gpu_configs_cfg: bool = True
@@ -2892,6 +2899,9 @@ class FuzzCombo:
             self.calib_size_cfg,
             # P1-7: use_boruta_shap independent.
             self.use_boruta_shap_cfg,
+            # importance driver only meaningful when BorutaShap is on; otherwise
+            # canonicalise to the default so it doesn't split dedup buckets.
+            (self.boruta_importance_measure_cfg if self.use_boruta_shap_cfg else "gini"),
             # P1-8: use_sample_weights_in_fs only meaningful when any FS is
             # enabled (MRMR / RFECV / Boruta) AND weights schema includes
             # something non-uniform (otherwise FS receives all-1s weights
@@ -4927,6 +4937,7 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         test_sequential_fraction_cfg=axes.get("test_sequential_fraction_cfg", None),
         calib_size_cfg=axes.get("calib_size_cfg", None),
         use_boruta_shap_cfg=axes.get("use_boruta_shap_cfg", False),
+        boruta_importance_measure_cfg=axes.get("boruta_importance_measure_cfg", "gini"),
         use_sample_weights_in_fs_cfg=axes.get("use_sample_weights_in_fs_cfg", False),
         fallback_to_sklearn_cfg=axes.get("fallback_to_sklearn_cfg", True),
         prefer_gpu_configs_cfg=axes.get("prefer_gpu_configs_cfg", True),

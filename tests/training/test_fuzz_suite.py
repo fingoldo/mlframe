@@ -1280,7 +1280,8 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
                 # fuzz timeout budget. n_trials=10 still exercises every
                 # code path (shadow build + SHAP explain + tail test) at
                 # ~15x lower wall.
-                boruta_shap_kwargs=({"n_trials": 10, "verbose": False}
+                boruta_shap_kwargs=({"n_trials": 10, "verbose": False,
+                                     "importance_measure": combo.boruta_importance_measure_cfg}
                                    if combo.use_boruta_shap_cfg else None),
                 use_sample_weights_in_fs=combo.use_sample_weights_in_fs_cfg,
                 mrmr_identity_cache_scope=combo.mrmr_identity_cache_scope_cfg,
