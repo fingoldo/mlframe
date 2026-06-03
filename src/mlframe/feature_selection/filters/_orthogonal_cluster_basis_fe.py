@@ -259,7 +259,9 @@ def compute_cluster_aggregate(
     members: Sequence[str],
     *,
     aggregator: str = "mean_z",
-) -> np.ndarray:
+    stats: dict | None = None,
+    return_stats: bool = False,
+):
     """Reduce a cluster of member columns to one column via ``aggregator``.
 
     Parameters
@@ -288,27 +290,46 @@ def compute_cluster_aggregate(
             f"expected one of {_VALID_AGGREGATORS}."
         )
     if not members:
-        return np.zeros(len(X), dtype=np.float64)
-    # 2026-06-03 (audit gap-03): use the canonical SIGN-ALIGNED standardization +
-    # weight derivation shared with filters._cluster_aggregate, not a private
-    # per-member z-score with NO sign alignment. detect_clusters_by_correlation
-    # links on |corr|, so a cluster may legitimately contain an anticorrelated
-    # reflection ({z, -z+eps}). Without alignment those members cancel under
-    # mean_z -> a near-constant (dead) aggregate, and the PC1 orientation was
-    # pinned to the first member only. _standardize_align sign-flips each member
-    # to the reference by its correlation sign (reflections add constructively),
-    # and the PC1 loading uses the sklearn svd_flip convention -- matching the
-    # canonical aggregate path so all subsystems agree. (NOTE: like the prior
-    # code, the per-member mean/std/signs are still fit on the passed frame;
-    # persisting them in the recipe for byte parity under train/test drift is
-    # the separate, still-open cluster-aggregate-6 follow-up.)
+        z = np.zeros(len(X), dtype=np.float64)
+        empty = {"member_mean": [], "member_std": [], "signs": [], "weights": None}
+        return (z, empty) if return_stats else z
     from ._cluster_aggregate import (
-        _apply_method_nonlinear,
-        _derive_weights,
-        _standardize_align,
+        _apply_method_nonlinear as _apply_nl,
+        _derive_weights as _dw,
+        _standardize_align as _sa,
     )
-    # NaN-safe per-column fill (preserve the prior _zscore fill-with-mean
-    # behaviour) before sign-aligned standardisation.
+    method = "pca_pc1" if aggregator == "pc1" else aggregator
+    if stats is not None:
+        # 2026-06-03 (audit cluster-aggregate-6/7): REPLAY. Standardize the test
+        # members with the STORED fit-time per-member mean/std/signs (fill NaNs
+        # with the stored mean -- which equals the fit-time fill), then apply the
+        # STORED combiner weights (or the stateless non-linear row-reducer). No
+        # refit on the (possibly drifted) test distribution -> a given input row
+        # maps to the same aggregate value as at fit.
+        member_mean = np.asarray(stats["member_mean"], dtype=np.float64)
+        member_std = np.asarray(stats["member_std"], dtype=np.float64)
+        signs = np.asarray(stats["signs"], dtype=np.float64)
+        cols = []
+        for i, m in enumerate(members):
+            a = np.asarray(X[m].to_numpy(), dtype=np.float64)
+            fill = float(member_mean[i]) if i < member_mean.size else 0.0
+            cols.append(np.where(np.isfinite(a), a, fill))
+        M = np.column_stack(cols)
+        std_safe = np.where(member_std > 0.0, member_std, 1.0)
+        Z = ((M - member_mean) / std_safe) * signs
+        w = stats.get("weights")
+        out = _apply_nl(Z, method) if w is None else (Z @ np.asarray(w, dtype=np.float64))
+        out = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
+        return (out, stats) if return_stats else out
+    # FIT path. 2026-06-03 (audit gap-03): use the canonical SIGN-ALIGNED
+    # standardization + weight derivation shared with filters._cluster_aggregate
+    # (anticorrelated reflections add constructively; PC1 sign via svd_flip).
+    # 2026-06-03 (audit cluster-aggregate-6/7): capture the fit-time member
+    # mean/std/signs + combiner weights so the recipe can persist them and replay
+    # APPLIES them on test data instead of refitting (byte parity under drift).
+    # NaN-safe per-column fill before sign-aligned standardisation; note the
+    # resulting per-member mean equals the fill value, so replay can fill test
+    # NaNs with the stored mean and stay consistent.
     cols = []
     for m in members:
         a = np.asarray(X[m].to_numpy(), dtype=np.float64)
@@ -318,14 +339,20 @@ def compute_cluster_aggregate(
             a = np.where(finite, a, fill)
         cols.append(a)
     M = np.column_stack(cols)
-    Z, _mean, _std, _signs = _standardize_align(M, 0)  # ref = first member
-    method = "pca_pc1" if aggregator == "pc1" else aggregator
-    weights = _derive_weights(Z, method)
-    if weights is None:
-        # median_z is the only non-linear aggregator in _VALID_AGGREGATORS.
-        return _apply_method_nonlinear(Z, method)
-    agg = Z @ np.asarray(weights, dtype=np.float64)
-    return np.nan_to_num(agg, nan=0.0, posinf=0.0, neginf=0.0)
+    Z, mean, std, signs = _sa(M, 0)  # ref = first member
+    weights = _dw(Z, method)
+    out = _apply_nl(Z, method) if weights is None else (Z @ np.asarray(weights, dtype=np.float64))
+    out = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
+    if return_stats:
+        fit_stats = {
+            "member_mean": [float(v) for v in np.asarray(mean).ravel()],
+            "member_std": [float(v) for v in np.asarray(std).ravel()],
+            "signs": [float(v) for v in np.asarray(signs).ravel()],
+            "weights": ([float(v) for v in np.asarray(weights).ravel()]
+                        if weights is not None else None),
+        }
+        return out, fit_stats
+    return out
 
 
 def generate_cluster_basis_features(
@@ -446,7 +473,12 @@ def generate_cluster_basis_features(
     cand_meta: list[dict] = []
     for anchor, members in cleaned.items():
         try:
-            agg = compute_cluster_aggregate(X, members, aggregator=aggregator)
+            # 2026-06-03 (audit cluster-aggregate-6/7): capture fit-time member
+            # mean/std/signs + combiner weights so the recipe can replay without
+            # refitting on test data.
+            agg, agg_stats = compute_cluster_aggregate(
+                X, members, aggregator=aggregator, return_stats=True,
+            )
         except Exception as exc:
             logger.warning(
                 "generate_cluster_basis_features: aggregator=%r on cluster "
@@ -458,7 +490,10 @@ def generate_cluster_basis_features(
             continue
         for d in degrees:
             try:
-                vals = _evaluate_basis_column(agg, basis, int(d))
+                # capture the basis preprocess params too (z-score mean/std etc.)
+                vals, basis_params = _evaluate_basis_column(
+                    agg, basis, int(d), return_params=True,
+                )
             except Exception as exc:
                 logger.warning(
                     "generate_cluster_basis_features: basis=%r degree=%d on "
@@ -478,6 +513,8 @@ def generate_cluster_basis_features(
                 "basis": str(basis),
                 "degree": int(d),
                 "aggregator": str(aggregator),
+                "agg_stats": agg_stats,
+                "basis_params": dict(basis_params) if basis_params is not None else None,
             })
 
     if not cand_cols:
@@ -547,6 +584,10 @@ def generate_cluster_basis_features(
             "engineered_mi": float(info["engineered_mi"]),
             "baseline_mi": float(info["baseline_mi"]),
             "uplift": float(info["uplift"]),
+            # 2026-06-03 (audit cluster-aggregate-6/7): fit-time stats for
+            # refit-free replay (persisted into the recipe extra).
+            "agg_stats": info.get("agg_stats"),
+            "basis_params": info.get("basis_params"),
         }
     return pd.DataFrame(out_cols, index=X.index), meta
 
@@ -619,6 +660,10 @@ def hybrid_orth_mi_cluster_basis_fe(
             "baseline_mi": info["baseline_mi"],
             "engineered_mi": info["engineered_mi"],
             "uplift": info["uplift"],
+            # 2026-06-03 (audit cluster-aggregate-6/7): carry fit-time stats
+            # through to the recipe builder for refit-free replay.
+            "agg_stats": info.get("agg_stats"),
+            "basis_params": info.get("basis_params"),
         })
     scores = pd.DataFrame(rows)
     if not scores.empty:
@@ -691,6 +736,8 @@ def hybrid_orth_mi_cluster_basis_fe_with_recipes(
             basis=str(row["basis"]),
             degree=int(row["degree"]),
             aggregator=str(row["aggregator"]),
+            agg_stats=row.get("agg_stats") if hasattr(row, "get") else None,
+            basis_params=row.get("basis_params") if hasattr(row, "get") else None,
         ))
     return X_aug, scores, recipes
 
@@ -736,7 +783,26 @@ def _apply_orth_cluster_basis(recipe, X) -> np.ndarray:
     # Build a DataFrame-like dict with stable column order matching
     # recipe.src_names for byte-exact reproducibility.
     frame = pd.DataFrame(member_cols)
+    # 2026-06-03 (audit cluster-aggregate-6/7): replay with the STORED fit-time
+    # aggregate stats + basis preprocess params so the aggregate z-score / PC1
+    # loading and the basis preprocess are APPLIED, not refit on the (possibly
+    # drifted) test distribution -> a given input row maps to the same value as
+    # at fit. Legacy recipes without these keys fall back to the refit path with
+    # a one-time warning (mirroring the Path-A quantile-edges fallback).
+    agg_stats = recipe.extra.get("agg_stats")
+    basis_params = recipe.extra.get("basis_params")
+    if agg_stats is None or basis_params is None:
+        import warnings as _warnings
+        _warnings.warn(
+            f"orth_cluster_basis recipe '{recipe.name}' has no persisted "
+            f"fit-time stats (agg_stats/basis_params); replay re-fits the "
+            f"aggregate z-score / PC1 / basis preprocess on the test data, which "
+            f"shifts values under distribution drift. Re-fit MRMR to regenerate "
+            f"the recipe with persisted stats.",
+            UserWarning, stacklevel=2,
+        )
     agg = compute_cluster_aggregate(
         frame, list(recipe.src_names), aggregator=aggregator,
+        stats=agg_stats,
     )
-    return _evaluate_basis_column(agg, basis, degree)
+    return _evaluate_basis_column(agg, basis, degree, preprocess_params=basis_params)

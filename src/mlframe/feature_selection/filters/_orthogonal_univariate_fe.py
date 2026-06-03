@@ -76,9 +76,12 @@ def _evaluate_basis_column(
     degree: int,
     *,
     aux_for_fit: Optional[np.ndarray] = None,
-) -> np.ndarray:
+    preprocess_params: Optional[dict] = None,
+    return_params: bool = False,
+):
     """Preprocess x to the basis domain, then evaluate the single basis function
-    of given degree via a one-hot coefficient vector. Returns shape (n,).
+    of given degree via a one-hot coefficient vector. Returns shape (n,) -- or
+    ``(values, params)`` when ``return_params=True``.
 
     The preprocess ``fit`` functions return a (z, params) tuple where z is the
     domain-mapped values - reuse z directly rather than calling apply with the
@@ -92,10 +95,22 @@ def _evaluate_basis_column(
     still emitting basis values only for the labeled rows. y is never read
     here, so no leakage is introduced. When ``aux_for_fit=None`` (default)
     the legacy bit-exact path runs.
+
+    2026-06-03 (audit cluster-aggregate-6) -- ``preprocess_params`` / ``return_-
+    params``: persist-and-replay the fit-time preprocess. With ``preprocess_-
+    params`` set, the basis preprocess is APPLIED with the stored params instead
+    of refit on ``x`` -- so a recipe replayed on drifted test data maps a given
+    row to the same engineered value as at fit. With ``return_params=True`` the
+    fit path also returns the params it computed so the caller can persist them.
     """
     basis_info = _POLY_BASES[basis]
     fit_fn = basis_info["fit"]
-    if aux_for_fit is not None and len(aux_for_fit) > 0:
+    if preprocess_params is not None:
+        # REPLAY: apply the stored fit-time params; never refit on test x.
+        apply_fn = basis_info["apply"]
+        z = apply_fn(np.asarray(x, dtype=np.float64), preprocess_params)
+        params = preprocess_params
+    elif aux_for_fit is not None and len(aux_for_fit) > 0:
         # Build params from the concatenated pool, then apply to ``x`` only.
         aux = np.asarray(aux_for_fit, dtype=np.float64)
         finite_aux = aux[np.isfinite(aux)]
@@ -105,14 +120,15 @@ def _evaluate_basis_column(
             apply_fn = basis_info["apply"]
             z = apply_fn(np.asarray(x, dtype=np.float64), params)
         else:
-            z, _params = fit_fn(x)
+            z, params = fit_fn(x)
     else:
-        z, _params = fit_fn(x)
+        z, params = fit_fn(x)
     z = np.ascontiguousarray(z, dtype=np.float64)
     # One-hot coefficient vector: He_n / L_n / T_n / L^Lag_n at the chosen degree.
     coef = np.zeros(degree + 1, dtype=np.float64)
     coef[degree] = 1.0
-    return polyeval_dispatch(basis, z, coef)
+    out = polyeval_dispatch(basis, z, coef)
+    return (out, params) if return_params else out
 
 
 def _dedup_collinear_source_cols(

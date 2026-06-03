@@ -1338,6 +1338,7 @@ def build_orth_diff_basis_recipe(
 def build_orth_cluster_basis_recipe(
     *, name: str, members: tuple[str, ...],
     basis: str, degree: int, aggregator: str = "mean_z",
+    agg_stats: dict | None = None, basis_params: dict | None = None,
 ) -> EngineeredRecipe:
     """Layer 61 (2026-05-31): frozen recipe for one per-cluster shared-
     basis column ``basis_degree(preprocess(aggregator(members)))``.
@@ -1347,21 +1348,34 @@ def build_orth_cluster_basis_recipe(
     one of ``mean_z`` / ``median_z`` / ``pc1`` -- see
     :func:`compute_cluster_aggregate` in the cluster-basis FE module.
     Replay is a pure function of X (no y reference).
+
+    2026-06-03 (audit cluster-aggregate-6/7): persist the fit-time aggregate
+    stats (``agg_stats`` = per-member mean/std/signs + combiner weights) and the
+    basis preprocess params (``basis_params`` = e.g. z-score mean/std) so replay
+    APPLIES them rather than refitting on the test distribution -> byte parity
+    under train/test drift. Both are plain float lists/dicts (recipe-__eq__- and
+    pickle-safe). Omitted when absent so legacy recipes (which fall back to the
+    refit path with a warning) are unaffected.
     """
     if len(members) < 2:
         raise ValueError(
             f"build_orth_cluster_basis_recipe: ``members`` must have >=2 "
             f"entries (cluster, not singleton); got {len(members)}."
         )
+    extra = {
+        "basis": str(basis),
+        "degree": int(degree),
+        "aggregator": str(aggregator),
+    }
+    if agg_stats is not None:
+        extra["agg_stats"] = agg_stats
+    if basis_params is not None:
+        extra["basis_params"] = dict(basis_params)
     return EngineeredRecipe(
         name=name,
         kind="orth_cluster_basis",
         src_names=tuple(str(m) for m in members),
-        extra={
-            "basis": str(basis),
-            "degree": int(degree),
-            "aggregator": str(aggregator),
-        },
+        extra=extra,
     )
 
 
