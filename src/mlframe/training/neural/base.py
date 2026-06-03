@@ -333,6 +333,8 @@ class PytorchLightningEstimator(BaseEstimator):
         # Don't modify swa_params here (e.g., `swa_params or {}`) because sklearn's clone() requires constructor parameters not be
         # modified. Handle None later.
         store_params_in_object(obj=self, params=get_parent_func_args())
+        # Runtime (non-param) attribute, mirrored in __getstate__/__setstate__. F-67 prediction-trainer caching was reverted 2026-06-02 (Lightning Trainer reuse broke multi-predict fits), so this stays empty -- predict() builds a fresh Trainer per call -- but the attribute must exist so introspection and the pickle-state symmetry don't hit AttributeError on a freshly-constructed (never-pickled) estimator.
+        self._prediction_trainer_cache = {}
 
     def _fit_common(
         self,

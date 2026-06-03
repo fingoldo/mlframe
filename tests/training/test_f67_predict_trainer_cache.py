@@ -1,11 +1,11 @@
-"""F-67 (2026-05-31): prediction trainer cache eliminates the per-predict
-L.Trainer construction + ~236 ms gc.collect cycle.
+"""F-67 prediction-trainer caching was REVERTED (2026-06-02): reusing one
+L.Trainer across predict() calls accumulates Lightning's prediction-loop state
+and every predict past the first raised "Mismatch in number of limits". A fresh
+Trainer is now built per predict(); ``_prediction_trainer_cache`` exists only
+for pickle-state symmetry and stays empty.
 
-Verifies that:
-  * Repeated reg.predict() calls with the SAME (accelerator, precision)
-    reuse the cached L.Trainer instance.
-  * Changing accelerator (e.g. user passes device='cuda' on a CPU trainer)
-    rebuilds the trainer for the new key but keeps the old one.
+These tests pin the revert's contract: repeated predicts are correct, the cache
+never populates, and the pickle round-trip stays clean (F-73b).
 """
 from __future__ import annotations
 
@@ -53,88 +53,43 @@ def fitted_regressor():
     return reg, X_te
 
 
-def test_predict_trainer_cache_initialised_after_first_predict(fitted_regressor):
-    """F-67: a single predict() call populates the cache with the
-    resolved (accelerator, precision) key."""
+def test_prediction_trainer_cache_attribute_exists_and_stays_empty(fitted_regressor):
+    """The cache attribute must exist on a freshly-constructed estimator (no
+    AttributeError) and stay empty after predict() -- caching is reverted."""
     reg, X_te = fitted_regressor
-    _ = reg.predict(X_te)
     assert hasattr(reg, "_prediction_trainer_cache")
-    cache = reg._prediction_trainer_cache
-    assert len(cache) >= 1
-    # Key contains (accelerator, precision); accelerator must be "cpu"
-    # since the wrapper was trained that way.
-    keys = list(cache.keys())
-    accelerators = [k[0] for k in keys]
-    assert "cpu" in accelerators
-
-
-def test_predict_trainer_cache_reuses_same_instance_on_repeat_call(fitted_regressor):
-    """F-67 core: the SECOND predict() with the same (accelerator,
-    precision) MUST return the same L.Trainer instance."""
-    reg, X_te = fitted_regressor
+    assert reg._prediction_trainer_cache == {}
     _ = reg.predict(X_te)
-    cache_after_1 = dict(reg._prediction_trainer_cache)
-    trainer_after_1 = next(iter(cache_after_1.values()))
-
-    _ = reg.predict(X_te)
-    cache_after_2 = reg._prediction_trainer_cache
-    trainer_after_2 = next(iter(cache_after_2.values()))
-
-    assert trainer_after_1 is trainer_after_2, (
-        "F-67 expects cached trainer to be REUSED on the second predict; "
-        "got a fresh instance."
-    )
-    # Cache size should remain 1 across repeated calls.
-    assert len(cache_after_2) == 1
+    assert reg._prediction_trainer_cache == {}
 
 
-def test_predict_trainer_cache_size_stable_across_many_calls(fitted_regressor):
-    """F-67: 5 sequential predict() calls with no kwarg variation MUST
-    grow the cache from 0 -> 1 only. Catches a regression where the
-    cache key fails to hash consistently and a fresh trainer gets
-    inserted on every call."""
+def test_repeated_predict_is_consistent_and_uncached(fitted_regressor):
+    """The revert's core guarantee: many predicts in a row all succeed and
+    return identical results (the caching bug failed every predict past the
+    first), and the cache never grows."""
     reg, X_te = fitted_regressor
-    for _ in range(5):
-        _ = reg.predict(X_te)
-    cache = reg._prediction_trainer_cache
-    assert len(cache) == 1, (
-        f"F-67: cache size grew to {len(cache)} across 5 identical "
-        f"predict() calls; expected 1 (single (accelerator, precision) "
-        f"key reused)."
-    )
+    first = reg.predict(X_te)
+    for _ in range(4):
+        np.testing.assert_allclose(reg.predict(X_te), first, rtol=1e-4, atol=1e-5)
+    assert reg._prediction_trainer_cache == {}
 
 
-def test_f73b_predict_then_pickle_drops_trainer_cache(fitted_regressor):
-    """F-73b regression: pickling the estimator AFTER a predict() (which
-    populates the F-67 trainer cache with live L.Trainer objects holding
-    a non-picklable WarningCache) must NOT carry the cache into the
-    pickle. The restored estimator starts with an empty cache and
-    predicts correctly.
-
-    Pre-fix, the cached Trainer's WarningCache tripped the save_load
-    _SafeUnpickler allowlist -> UnpicklingError on every multiclass
-    classifier round-trip (caught by the full suite run 2026-06-01).
+def test_f73b_predict_then_pickle_roundtrips_clean(fitted_regressor):
+    """F-73b regression: pickling the estimator AFTER a predict() must succeed
+    (no live L.Trainer / WarningCache leak) and the restored estimator predicts
+    the same values. __getstate__ drops the cache; the restored estimator starts
+    with an empty cache.
     """
     import pickle
 
     reg, X_te = fitted_regressor
     pred_before = reg.predict(X_te)
-    # Cache now holds a live Trainer.
-    assert len(reg._prediction_trainer_cache) >= 1
 
-    # __getstate__ must strip the cache.
     state = reg.__getstate__()
-    assert "_prediction_trainer_cache" not in state, (
-        "F-73b: __getstate__ must drop the runtime trainer cache"
-    )
+    assert "_prediction_trainer_cache" not in state, "__getstate__ must drop the runtime trainer cache"
     assert state.get("trainer") is None
 
-    # Full pickle round-trip must succeed (no WarningCache leak) and the
-    # restored estimator predicts the same values.
-    blob = pickle.dumps(reg)
-    reg2 = pickle.loads(blob)
-    assert reg2._prediction_trainer_cache == {}, (
-        "F-73b: restored estimator must start with an empty trainer cache"
-    )
+    reg2 = pickle.loads(pickle.dumps(reg))
+    assert reg2._prediction_trainer_cache == {}, "restored estimator must start with an empty trainer cache"
     pred_after = reg2.predict(X_te)
     np.testing.assert_allclose(pred_before, pred_after, rtol=1e-4, atol=1e-5)
