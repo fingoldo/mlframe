@@ -773,6 +773,15 @@ class MRMR(BaseEstimator, TransformerMixin):
         # data because PC1 (continuous, re-binned with finer granularity than
         # the raw anchor) is upward-biased.
         dcd_swap_alpha: float = 0.05,
+        # 2026-06-03 (audit dcd-core-1 / dcd-swap-null-1/2): the swap
+        # permutation null's draw count, decoupled from ``full_npermutations``
+        # (the screening confidence, default 3) which only acts as the on/off
+        # switch. Reusing full_npermutations=3 made the null un-passable
+        # (min-p (0+1)/(3+1)=0.25 >> swap_alpha 0.05), so EVERY DCD swap
+        # (aggregate + member) was silently rejected and the supervised swap
+        # subsystem was dead on the default path. 199 gives min-p 0.005;
+        # evaluate_swap_candidate also auto-raises B to ceil(1/swap_alpha).
+        dcd_swap_npermutations: int = 199,
         # ``dcd_postoc_compose=True`` keeps the post-hoc cluster_aggregate
         # active alongside DCD. Default False auto-suppresses it (DCD
         # already processed clusters during screening; running again would

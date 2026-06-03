@@ -161,6 +161,16 @@ class DCDState:
     min_cluster_size: int = 2
     max_cluster_size: int = 12
     swap_alpha: float = 0.05                                          # permutation-null p-value threshold for swap accept
+    # 2026-06-03 (audit dcd-core-1 / dcd-swap-null-1/2): the swap permutation
+    # null needs its OWN draw count, decoupled from the screening-confidence
+    # ``full_npermutations`` (MRMR default 3). At B=3 the smallest attainable
+    # p-value is (0+1)/(3+1)=0.25, so ``perm_p_value < swap_alpha`` (0.05) was
+    # arithmetically impossible and EVERY swap (aggregate + member) was silently
+    # rejected -- the whole supervised swap subsystem was dead on the default
+    # path. 199 gives a min-p of 1/200=0.005, comfortably resolving alpha=0.05;
+    # ``evaluate_swap_candidate`` also auto-raises it to ceil(1/swap_alpha) as a
+    # backstop so the null can never be structurally un-rejectable.
+    swap_npermutations: int = 199
     # -- references to host MRMR matrix (mutated on swap) --
     X_raw_ref: Any = None                                             # pd.DataFrame or np.ndarray
     quantization_method: str = "quantile"
@@ -290,6 +300,7 @@ def make_dcd_state(
         "tau_cluster", "distance", "cluster_size_threshold",
         "swap_gain_threshold", "swap_method", "pairwise_cache_max",
         "min_cluster_size", "max_cluster_size", "swap_alpha",
+        "swap_npermutations",
         "suppress_legacy_postoc",
     ):
         if key in dcd_config:
@@ -971,10 +982,13 @@ def evaluate_swap_candidate(
 
     The branch with the highest CMI wins (tie-break order: aggregate >
     member > none, because aggregate already passed the explicit
-    permutation null when present). Member-swap skips the permutation
-    null because the member is an already-discretised real column whose
-    CMI is computed against the same factors_data the rest of the
-    pipeline scores, not a continuous aggregate rebinned for the swap.
+    permutation null when present). Both the aggregate AND the member
+    branch run the permutation null when one is requested (B > 0): the
+    Wave 9.1 iter-3 follow-up closed the member-branch side door that
+    previously bypassed it. The null's draw count is sourced from
+    ``state.swap_npermutations`` (NOT the screening-confidence
+    ``full_npermutations``, which only acts as the on/off switch); see the
+    ``swap_npermutations`` field comment for why decoupling is mandatory.
 
     No mutation occurs until ``commit_swap`` is called with the returned
     decision (Critic1/B-2 pre-confirmation guarantee).
@@ -1168,6 +1182,25 @@ def evaluate_swap_candidate(
     prefer_aggregate = aggregate_gate and (
         not member_gate or rep_relevance >= best_member_rel
     )
+    # 2026-06-03 (audit dcd-core-1 / dcd-swap-null-1/2): resolve the effective
+    # permutation-null draw count. ``full_npermutations`` (the screening
+    # confidence, default 3) acts ONLY as the on/off switch -- 0 means the
+    # caller opted out of every null. When a null is requested we source the
+    # actual count from ``state.swap_npermutations`` and auto-raise it to
+    # ceil(1/swap_alpha) so 1/(B+1) < swap_alpha holds; otherwise the gate is
+    # arithmetically un-passable (B=3 -> min-p 0.25 >> 0.05) and every swap is
+    # silently rejected. Both the aggregate and member nulls use this B_eff.
+    if int(full_npermutations or 0) <= 0:
+        B_eff = 0
+    else:
+        B_eff = int(getattr(state, "swap_npermutations", 199) or 0)
+        if B_eff <= 0:
+            B_eff = int(full_npermutations)
+        _swap_alpha = float(state.swap_alpha)
+        if _swap_alpha > 0.0:
+            _min_B = int(np.ceil(1.0 / _swap_alpha))  # 1/(B_eff+1) < swap_alpha
+            if B_eff < _min_B:
+                B_eff = _min_B
     # Wave 9.1 iter-3 follow-up: when the caller requested a permutation
     # null (``full_npermutations > 0``), apply the SAME null to the member
     # candidate too. The point-CMI gate is upward-biased on small/noisy
@@ -1215,8 +1248,8 @@ def evaluate_swap_candidate(
         # Branch B: member swap. Apply permutation null when requested
         # (B>0) -- otherwise this branch silently bypasses the check the
         # caller asked for on the swap as a whole.
-        member_p = _run_member_null(int(best_member_idx), float(best_member_rel), int(full_npermutations or 0))
-        if int(full_npermutations or 0) > 0 and member_p >= float(state.swap_alpha):
+        member_p = _run_member_null(int(best_member_idx), float(best_member_rel), B_eff)
+        if B_eff > 0 and member_p >= float(state.swap_alpha):
             return SwapDecision(
                 accept=False,
                 rep_relevance=rep_relevance,
@@ -1253,7 +1286,7 @@ def evaluate_swap_candidate(
     # given Selected\{anchor}. Reject when observed rep_relevance lies in
     # the upper tail of the shuffled-rep distribution.
     perm_p_value = 0.0
-    B = int(full_npermutations or 0)
+    B = B_eff
     if B > 0:
         try:
             rng = np.random.default_rng(int(getattr(state, "_perm_seed", 0)) + int(anchor))
@@ -1297,8 +1330,8 @@ def evaluate_swap_candidate(
         # follow-up: the prior bypass made the member branch a side door
         # past the null on pure-noise candidates.
         if member_gate and best_member_idx >= 0:
-            member_p2 = _run_member_null(int(best_member_idx), float(best_member_rel), int(full_npermutations or 0))
-            if int(full_npermutations or 0) > 0 and member_p2 >= float(state.swap_alpha):
+            member_p2 = _run_member_null(int(best_member_idx), float(best_member_rel), B_eff)
+            if B_eff > 0 and member_p2 >= float(state.swap_alpha):
                 return SwapDecision(
                     accept=False,
                     rep_relevance=rep_relevance,
@@ -1496,6 +1529,16 @@ def commit_swap(
     state.factors_data = new_data
     state.cols = new_cols
     state.factors_nbins = new_nbins
+    # 2026-06-03 (audit dcd-core-2): invalidate the int64 view of factors_nbins
+    # cached by pair_su / pair_su_batch / pair_vi. It is built lazily at the
+    # PRE-swap length and then reused while IGNORING the passed factors_nbins
+    # (lines 451-454 / 511-514 / 559-562 / 654-657); without this reset, any
+    # pair_su on the new aggregate column index would index the stale, too-short
+    # array and raise IndexError (re-raised as a fit-aborting RuntimeError at
+    # _screen_predictors.py). Invalidating the derived cache where the source
+    # mutates is the runtime-cache contract. The next call rebuilds it at the
+    # new length.
+    state._fn_arr_cached = None
     # Expand pool_pruned_mask to match (new column is implicitly NOT pruned).
     state.pool_pruned_mask = np.concatenate([
         state.pool_pruned_mask, np.zeros(1, dtype=bool),
