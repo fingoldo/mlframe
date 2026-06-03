@@ -157,3 +157,21 @@ shared best H2. NET: every FS now has an FE path to ~0.84; the deferred non-FE r
   big build H3-1 (hybrid FE). B3-2/B3-4 are fs_selectors-only and safe to bench without touching concurrent classes.
 - Coordination flags: B3-1/B3-5/B3-6 touch boruta_shap.py; M3-1/M3-5 touch the MRMR core; both files may be concurrently
   edited -> diagnostic/bench-via-kwargs first, edit only after a lock check.
+
+## Hybrid improvement follow-up (post-callout): anchor_fe + the harder bed
+Two improvements proposed from the final-benchmark reading (hybrid tied mrmr_fe at 4x cost). Both MEASURED:
+- FIX #1 anchor_fe (anchor on the MRMR/FE substrate; others only ADD) — REJECTED: hybrid_anchor 0.8348 <
+  hybrid_noanchor 0.8356 < mrmr_fe 0.8367 on make_dataset, AND 0.7744 < 0.7752 on the hard bed. "selected ⊇ mrmr_fe"
+  gives more FEATURES not higher AUC; the added features dilute the clean set. Default reverted to anchor_fe=False
+  (plain cluster-vote); kept as an option. round3_hybrid_anchor_bench.py.
+- FIX #2 harder bed (hard_synth: 220 feat, signal SPLIT so no single selector wins) — the HYBRID IS VINDICATED here:
+  round3_hard_bed_bench.py (2 seeds) auc_mean: hybrid 0.7752 > mrmr_fe 0.7608 (+0.014) > rfecv_perm 0.7214 (+0.054)
+  > H2 mrmr_fe->rfecv_logit 0.7520 (+0.023, the EASY-bed winner collapses). Per-block recovery explains it: mrmr_fe
+  gets the FE block but only 3.5/8 weak-sparse (greedy drops them); rfecv gets 5.5/8 weak but misses the FE block +
+  selects 68 noisy feats; H2's RFECV-logit trim KILLS the weak block (0.5/8). The hybrid gets BOTH the FE block AND
+  6.5/8 weak-sparse -> it beats every single selector and every simple cascade. This is the bed that justifies
+  compute-once-share-many: when signal is split across regimes no single selector covers, the composition wins.
+- H3-4 (RFECV as a 4th hybrid member) — RE-TESTED on the hard bed, still REJECTED: hybrid_rfecv 0.7717 < hybrid
+  0.7744, at 2-4x cost; the shap/boruta members already recover the weak-sparse block (6.5/8 without RFECV).
+NET: the shipped hybrid (vote=1, anchor_fe=False, use_fe=True, fe_strict, gini boruta) is the right config -- it
+ties the best on FE-saturated data and WINS on split-signal data, which is its reason to exist.

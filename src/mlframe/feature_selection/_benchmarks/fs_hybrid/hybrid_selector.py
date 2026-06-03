@@ -51,7 +51,7 @@ class HybridSelector:
 
     def __init__(self, vote: int = 1, prescreen: bool = True, expand_clusters: bool = False,
                  fi_guard: bool = False, corr_thr: float = 0.92, use_mrmr: bool = True,
-                 use_fe: bool = True, fe_max_steps: int = 1, boruta_driver: str = "gini", anchor_fe: bool = True,
+                 use_fe: bool = True, fe_max_steps: int = 1, boruta_driver: str = "gini", anchor_fe: bool = False,
                  random_state: int = 0, name: str = "hybrid"):
         self.vote = vote
         self.prescreen = prescreen
@@ -73,11 +73,11 @@ class HybridSelector:
         # which lifts logit ~0.75->0.85 so residual noise no longer matters. So gini stays the default; permutation
         # remains available as the high-precision option.
         self.boruta_driver = boruta_driver
-        # anchor_fe: when FE is on, ANCHOR the final selection on the MRMR substrate -- keep ALL of MRMR's picks
-        # (raw + engineered) verbatim, then ADD only the raw clusters the OTHER members confirm that MRMR missed.
-        # By construction selected ⊇ mrmr_selected, so the hybrid can never score below its strongest FE-aware member
-        # (the measured defect: the plain cluster-vote could re-emit a raw operand over MRMR's engineered term and so
-        # TRAIL mrmr_fe). The other members thus only ADD complementary recall, never subtract the FE signal.
+        # anchor_fe (default OFF -- MEASURED net-negative): the idea was to keep ALL of MRMR's picks verbatim and let
+        # the other members only ADD, so selected ⊇ mrmr_selected. But that guarantees more FEATURES, not higher AUC:
+        # benched on make_dataset (anchor 0.8348 < no-anchor 0.8356 < mrmr_fe 0.8367) AND on the hard bed (anchor
+        # 0.7744 < no-anchor 0.7752) -- the kept-then-added features dilute the set. The plain cluster-vote (anchor_fe
+        # =False) is the better default on both beds. Kept as an option; not the fix it was meant to be.
         self.anchor_fe = anchor_fe
         self.random_state = random_state
         self.name = name

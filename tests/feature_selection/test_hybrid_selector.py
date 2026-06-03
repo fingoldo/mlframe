@@ -90,10 +90,12 @@ def test_anchored_combine_keeps_mrmr_substrate_and_only_adds():
     assert set(h2._combine(MEMBER_SEL, COLS)) == {"inf_0", "inf_1"}
 
 
-def test_anchor_fe_default_is_on():
+def test_anchor_fe_default_is_off():
+    """anchor_fe defaults OFF: it was measured net-negative on both beds (the kept+added features dilute), so the
+    plain cluster-vote is the default. Kept as an explicit option, not the default."""
     import inspect
     from mlframe.feature_selection._benchmarks.fs_hybrid.hybrid_selector import HybridSelector
-    assert inspect.signature(HybridSelector.__init__).parameters["anchor_fe"].default is True
+    assert inspect.signature(HybridSelector.__init__).parameters["anchor_fe"].default is False
 
 
 def _linear_dataset(n=1200, seed=0):
