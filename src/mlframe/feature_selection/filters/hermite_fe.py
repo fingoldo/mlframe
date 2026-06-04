@@ -778,13 +778,127 @@ def polyeval_dispatch(basis: str, x: np.ndarray, c: np.ndarray) -> np.ndarray:
 # - laguerre (L_n): orthogonal on [0, +inf) under e^{-x}, best for positive exponentially-distributed data; preprocess = shift to >= 0.
 
 
+# ---------------------------------------------------------------------------
+# Outlier-robust axis normalisation (gated; legacy-bit-identical on clean cols)
+# ---------------------------------------------------------------------------
+#
+# The basis preprocessors below fit their normalisation scale (std for z-score, min/max span for min-max, min for shift)
+# from RAW per-column statistics. On a heavy-tailed / outlier-contaminated column (e.g. 1-5% of values at +/-1000) the
+# raw std / span blows up ~1000x, collapsing 99% of the data into a sliver near the axis centre. The engineered He_n / P_n
+# transform then (a) carries an OUTLIER-INFLATED plug-in MI that can hijack selection, and (b) is SHIFT-FRAGILE -- a new
+# extreme value in production moves the axis and changes every row's engineered value.
+#
+# Fix: estimate the scale from an INNER-QUANTILE / MAD range that excludes the contaminating tail, then CLAMP the mapped
+# axis so the few clipped extreme rows land at the basis-domain edge instead of stretching the scale for everyone. The
+# robust path is GATED on a cheap per-column heavy-tail detector and is byte-identical to the legacy path on clean columns
+# (the gate stays OFF), so the wide byte-stability FE suite is untouched; it engages only where the raw scale is provably
+# corrupted. Default ON (the fastest-correct default); set MLFRAME_ROBUST_AXIS=0 (or pass legacy params) to replay legacy.
+
+# Robust bounds = median +/- _ROBUST_AXIS_K * (1.4826*MAD). MAD is contamination-proof up to ~50% of the column, so the
+# derived span ~ 6*sigma stays anchored to the CLEAN core regardless of how many 1000x spikes are injected -- unlike an
+# inner-quantile trim, which only excludes the tail when the trim fraction exceeds the contamination fraction. k=3 covers
+# ~99.7% of a Gaussian core, matching the legacy intent that the working axis span the bulk of the data.
+_ROBUST_AXIS_K = 3.0
+# Spike-contamination detector parameters. The gate must trip on INJECTED SPIKE contamination (a thin fraction of points
+# orders of magnitude beyond a dense bulk) WITHOUT tripping on a genuinely heavy-tailed-but-clean column (lognormal,
+# Student-t, exponential) -- robustifying those would change engineered byte values on legitimate data. A single
+# half-range/scale ratio cannot separate the two (a heavy lognormal and a 1%-spike column have similar max/MAD ratios), so
+# we test for the SEPARATION SIGNATURE instead: contamination leaves a clear multiplicative GAP between the bulk and the
+# spikes, while a smooth heavy tail is continuous. ``_ROBUST_AXIS_OUTER_K`` is the robust-scale multiple defining the
+# candidate-outlier band; ``_ROBUST_AXIS_GAP`` is the bulk->outer jump that marks a true gap; ``_ROBUST_AXIS_MAX_FRAC``
+# caps the outlier fraction so a column that is >20% beyond 10 sigma is treated as genuinely heavy, not spike-contaminated.
+_ROBUST_AXIS_OUTER_K = 10.0
+_ROBUST_AXIS_GAP = 3.0
+_ROBUST_AXIS_MAX_FRAC = 0.20
+
+
+def _robust_axis_enabled() -> bool:
+    """Default ON. ``MLFRAME_ROBUST_AXIS=0`` forces the legacy raw-scale path for replay / A-B compare."""
+    import os as _os
+    flag = _os.environ.get("MLFRAME_ROBUST_AXIS", "").strip().lower()
+    return flag not in ("0", "false", "off", "no")
+
+
+def _detect_heavy_tail(x: np.ndarray) -> bool:
+    """Cheap per-column SPIKE-contamination gate. True iff a thin fraction of points sit beyond ``_ROBUST_AXIS_OUTER_K``
+    robust scales AND are separated from the bulk by a multiplicative GAP of at least ``_ROBUST_AXIS_GAP``.
+
+    The gap test is what distinguishes injected spike contamination (a dense bulk + a handful of order-of-magnitude
+    outliers with empty space between them) from a genuinely heavy-tailed-but-clean column (lognormal / Student-t /
+    exponential), whose tail is CONTINUOUS with the bulk (gap ~ 1.0-1.3, measured). Only spike contamination corrupts the
+    raw scale; a smooth heavy tail is the legitimate home of the skewed bases and must stay on the byte-identical legacy
+    path. Degenerate columns (<8 finite values, near-constant, all-non-finite) never trip -- there is no scale to corrupt."""
+    xf = x[np.isfinite(x)]
+    if xf.size < 8:
+        return False
+    med = float(np.median(xf))
+    robust_scale = _robust_scale(xf, med)
+    if robust_scale <= 1e-12:
+        return False
+    dev = np.abs(xf - med)
+    thr = _ROBUST_AXIS_OUTER_K * robust_scale
+    outer_mask = dev > thr
+    n_outer = int(np.count_nonzero(outer_mask))
+    if n_outer == 0 or n_outer > _ROBUST_AXIS_MAX_FRAC * xf.size:
+        # No extreme points, or so many that the tail is genuinely heavy rather than a thin contaminating spike.
+        return False
+    # Gap test without a full sort: the bulk edge is the largest deviation still inside the bulk, the outer edge the
+    # smallest deviation in the candidate-outlier band -- two masked reductions (O(n)) instead of an O(n log n) sort.
+    bulk_edge = float(dev[~outer_mask].max())
+    outer_min = float(dev[outer_mask].min())
+    return (outer_min / max(bulk_edge, 1e-12)) >= _ROBUST_AXIS_GAP
+
+
+def _robust_scale(xf: np.ndarray, med: float) -> float:
+    """Contamination-proof scale: 1.4826*MAD, with an IQR fallback when MAD collapses on a discrete / tied core. Returns
+    0.0 only on a genuinely degenerate (near-constant) column, which the caller treats as 'no robust path'."""
+    mad = float(np.median(np.abs(xf - med)))
+    scale = 1.4826 * mad
+    if scale > 1e-12:
+        return scale
+    q25, q75 = np.quantile(xf, [0.25, 0.75])
+    iqr_scale = float(q75 - q25) / 1.349  # IQR/1.349 ~ sigma for a Gaussian; recovers a scale when MAD ties to 0.
+    return iqr_scale if iqr_scale > 1e-12 else 0.0
+
+
+def _robust_lo_hi(x: np.ndarray) -> tuple[float, float]:
+    """MAD-anchored [lo, hi] bounds = median +/- k*(1.4826*MAD) on the finite subset. The span tracks the CLEAN core even
+    under heavy contamination (MAD ignores up to ~50% outliers), unlike a fixed inner-quantile trim which only excludes
+    the tail once the trim fraction exceeds the contamination fraction."""
+    xf = x[np.isfinite(x)]
+    med = float(np.median(xf))
+    scale = _robust_scale(xf, med)
+    if scale <= 1e-12:
+        # Degenerate core: fall back to the actual finite min/max so the caller still gets a usable (non-zero) span.
+        return float(np.min(xf)), float(np.max(xf))
+    return med - _ROBUST_AXIS_K * scale, med + _ROBUST_AXIS_K * scale
+
+
 def _preprocess_zscore(x):
+    if _robust_axis_enabled() and _detect_heavy_tail(x):
+        xf = x[np.isfinite(x)]
+        # Robust centre/scale from the inner-quantile core; map outliers but CLAMP to the Hermite working domain so a
+        # +/-1000 spike lands at the edge rather than producing a huge He_n value that inflates MI and breaks shift-stability.
+        center = float(np.median(xf))
+        lo, hi = _robust_lo_hi(x)
+        std = float((hi - lo) / 6.0)  # inner-quantile range ~ 6 sigma for a Gaussian core; matches z-score scale.
+        std = std if std > 1e-12 else (float(np.std(xf)) + 1e-12)
+        clip = 6.0  # +/-6 robust sigma covers the trimmed core; clipped extremes pin to the working-domain edge.
+        z = np.clip((x - center) / std, -clip, clip)
+        return z, dict(mean=center, std=std, clip=clip)
     mean = float(np.mean(x))
     std = float(np.std(x) + 1e-12)
     return (x - mean) / std, dict(mean=mean, std=std)
 
 
 def _preprocess_minmax_neg1_1(x):
+    if _robust_axis_enabled() and _detect_heavy_tail(x):
+        # Min-max onto [-1, 1] from the inner-quantile bounds; clamp so clipped outliers pin to +/-1 (the basis domain edge)
+        # instead of compressing the core toward 0. clip is implied (the [-1, 1] clamp), recorded so replay matches.
+        lo, hi = _robust_lo_hi(x)
+        span = hi - lo + 1e-12
+        z = np.clip(2 * (x - lo) / span - 1, -1.0, 1.0)
+        return z, dict(lo=lo, hi=hi, clip=1.0)
     lo = float(np.min(x))
     hi = float(np.max(x))
     span = hi - lo + 1e-12
@@ -792,21 +906,40 @@ def _preprocess_minmax_neg1_1(x):
 
 
 def _preprocess_shift_nonneg(x):
+    if _robust_axis_enabled() and _detect_heavy_tail(x):
+        # Shift the inner-quantile lower bound to ~0 and clamp the upper tail to the inner-quantile range so a positive
+        # spike does not push the Laguerre argument far out where L_n explodes. Upper clamp recorded for replay.
+        lo, hi = _robust_lo_hi(x)
+        upper = float(hi - lo)
+        z = np.clip(x - lo + 1e-9, 0.0, upper + 1e-9)
+        return z, dict(lo=lo, clip=upper)
     lo = float(np.min(x))
     return x - lo + 1e-9, dict(lo=lo)
 
 
 def _apply_zscore(x, params):
-    return (x - params["mean"]) / max(params["std"], 1e-12)
+    z = (x - params["mean"]) / max(params["std"], 1e-12)
+    clip = params.get("clip")
+    if clip is not None:
+        z = np.clip(z, -float(clip), float(clip))
+    return z
 
 
 def _apply_minmax(x, params):
     span = params["hi"] - params["lo"] + 1e-12
-    return 2 * (x - params["lo"]) / span - 1
+    z = 2 * (x - params["lo"]) / span - 1
+    clip = params.get("clip")
+    if clip is not None:
+        z = np.clip(z, -float(clip), float(clip))
+    return z
 
 
 def _apply_shift(x, params):
-    return x - params["lo"] + 1e-9
+    z = x - params["lo"] + 1e-9
+    clip = params.get("clip")
+    if clip is not None:
+        z = np.clip(z, 0.0, float(clip) + 1e-9)
+    return z
 
 
 def _make_dispatch(name):

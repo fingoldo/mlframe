@@ -47,7 +47,14 @@ from typing import Optional, Sequence
 import numpy as np
 import pandas as pd
 
-from .hermite_fe import _POLY_BASES, basis_route_by_moments, polyeval_dispatch
+from .hermite_fe import (
+    _POLY_BASES,
+    _detect_heavy_tail,
+    _robust_axis_enabled,
+    _robust_lo_hi,
+    basis_route_by_moments,
+    polyeval_dispatch,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1446,11 +1453,23 @@ def _fit_spline_for_col(x: np.ndarray, n_inner_knots: int):
 
 
 def _fit_fourier_for_col(x: np.ndarray):
-    """Returns (lo, span). Min-max normalise x so one period covers data range."""
+    """Returns (lo, span). Min-max normalise x so one period covers data range.
+
+    OUTLIER-ROBUST (gated): on a heavy-tailed column the raw min/max span blows up ~1000x, so 99% of the data collapses
+    into a sliver of one period near z=0 -- the sin/cos legs go flat there and carry an outlier-inflated MI while a single
+    new extreme value in production shifts the whole axis. When the shared heavy-tail detector trips, fit lo/span from the
+    inner-quantile core instead so the bulk of the data spans a full period; the few clipped extremes fall outside [0, 1]
+    and sin/cos simply wrap them (bounded, harmless), no longer stretching the scale for everyone. Byte-identical to the
+    legacy raw min/max path on clean columns (gate OFF). The returned (lo, span) are baked into the recipe and replayed
+    verbatim at transform time, so fit and replay stay consistent automatically."""
     x = np.asarray(x, dtype=np.float64)
     finite = np.isfinite(x)
     if not finite.any():
         return 0.0, 1.0
+    if _robust_axis_enabled() and _detect_heavy_tail(x):
+        lo, hi = _robust_lo_hi(x)
+        span = max(hi - lo, 1e-12)
+        return lo, span
     lo = float(np.min(x[finite]))
     hi = float(np.max(x[finite]))
     span = max(hi - lo, 1e-12)
