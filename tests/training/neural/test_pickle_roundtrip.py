@@ -10,18 +10,18 @@ Two paths to test:
      from training/io.py. This is what the suite actually uses to
      persist trained models to disk; internally it uses dill but with
      extensive pre-dump stripping (torch.compile state, Lightning
-     Trainer back-refs, DataModule/DataLoader bloat). Direct
-     ``dill.dumps(estimator)`` would fail with ``cannot pickle
-     'ConfigModuleInstance' object`` -- a known torch._dynamo quirk
-     io.py works around at io.py:544-594.
+     Trainer back-refs, DataModule/DataLoader bloat).
+
+  3. **direct dill**: ``dill.dumps(estimator)`` now round-trips on its own.
+     The LightningModule ``__getstate__`` drops the runtime-only torch.compile
+     predict cache (the torch._dynamo ``ConfigModuleInstance`` that previously
+     made bare dill raise ``cannot pickle 'ConfigModuleInstance' object``) and
+     the CUDA-graph cache, so the estimator no longer depends on the io.py
+     strip to serialise.
 
 The tests are PARAMETRIZED across (a) estimator type (regressor vs
 classifier-binary vs classifier-multiclass) and (b) serialization
 path so a single source of truth covers every flavour.
-
-Per the audit (F-22): direct ``dill.dumps`` is NOT a real production
-bug -- prod always goes through ``save_mlframe_model``. The dill-direct
-case is documented as REJECTED-but-known.
 """
 from __future__ import annotations
 
@@ -172,19 +172,25 @@ def test_classifier_pickle_preserves_label_encoder_and_classes():
     assert set(np.asarray(preds).tolist()).issubset({10, 20})
 
 
-def test_direct_dill_dumps_documented_to_fail_outside_io_py():
-    """Direct ``dill.dumps(estimator)`` is KNOWN to fail with
-    ``cannot pickle 'ConfigModuleInstance' object`` because dill walks
-    deeper than stdlib pickle into torch._dynamo config refs. Production
-    save path (``save_mlframe_model``) works around it via name + type
-    based strip at io.py:559-594. This test PINS the current behaviour
-    so a future torch / dill upgrade that fixes the underlying issue
-    surfaces visibly (xfail flip).
+def test_direct_dill_dumps_roundtrips_via_getstate_strip():
+    """Direct ``dill.dumps(estimator)`` round-trips cleanly.
+
+    Historically this raised ``cannot pickle 'ConfigModuleInstance' object``
+    because dill walked into the LightningModule's live ``_compiled_predict_fn``
+    (a torch._dynamo ``ConfigModuleInstance``) and the CUDA-graph predict cache.
+    The module's ``__getstate__`` (``_flat_torch_module.py``) now drops both
+    runtime-only fast-path caches on serialise, so the whole estimator pickles
+    with bare dill -- no longer dependent on the ``save_mlframe_model`` strip.
+    This test PINS the round-trip so a future change that re-introduces a live
+    non-picklable cache into the serialised state surfaces visibly.
     """
     pytest.importorskip("dill")
     import dill
-    X_tr, _, y_tr = _make_data("regression")
+    X_tr, X_te, y_tr = _make_data("regression")
     reg = PytorchLightningRegressor(**_base_params(torch.nn.MSELoss(), torch.float32))
     reg.fit(X_tr, y_tr)
-    with pytest.raises(TypeError, match="ConfigModuleInstance"):
-        dill.dumps(reg)
+    pred_before = reg.predict(X_te)
+
+    reg2 = dill.loads(dill.dumps(reg))
+    pred_after = reg2.predict(X_te)
+    np.testing.assert_array_equal(pred_before, pred_after)

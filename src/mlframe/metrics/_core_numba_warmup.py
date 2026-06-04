@@ -319,14 +319,12 @@ def _prewarm_numba_cache_body():
         # Non-fatal: a bad cache or numba-runtime hiccup; the seq path still works.
         pass
 
-    # Wrap the multilabel prewarm in try/except for the same reason as the
-    # regression block above: ``_fast_hamming_loss_par`` (parallel=True) on
-    # certain numba minor builds (observed numba 0.63.x on the GitHub-hosted
-    # py3.12 / py3.13 ubuntu runners) trips an internal
-    # ``AssertionError: unexpected cycle in lookup()`` deep inside
-    # ``numba/parfors/parfor.py:3886``. The sequential paths still compile
-    # fine and downstream consumers transparently fall back; failing the
-    # whole prewarm here would mask everything that comes after.
+    # Wrapped in try/except for the same defensive reason as the regression block above: a bad numba
+    # cache or runtime hiccup on an exotic build should degrade to seq, not abort the whole prewarm.
+    # The parallel multilabel kernels (``_fast_hamming_loss_par`` / ``_fast_jaccard_score_par``) were
+    # rewritten to a per-row MAP + serial final reduction so they compile cleanly on numba 0.63.x,
+    # which previously aborted them with ``AssertionError: unexpected cycle in lookup()`` from
+    # ``numba/parfors/parfor.py`` (the public dispatcher would then crash on the large-N path).
     try:
         yt_ml = np.array([[0, 1, 1], [1, 0, 1], [1, 1, 0], [0, 0, 1]], dtype=np.uint8)
         yp_ml = np.array([[1, 1, 0], [1, 0, 1], [1, 0, 0], [0, 1, 1]], dtype=np.uint8)
@@ -334,6 +332,7 @@ def _prewarm_numba_cache_body():
         _ = _fast_hamming_loss_par(yt_ml, yp_ml)
         _ = _fast_subset_accuracy_seq(yt_ml, yp_ml)
         _ = _fast_jaccard_score_seq(yt_ml, yp_ml)
+        _ = _fast_jaccard_score_par(yt_ml, yp_ml)
         # Bitmap variant takes packed uint64 + K; prewarm K<=64 path.
         yt_packed = np.array([0b011, 0b101, 0b110, 0b001], dtype=np.uint64)
         yp_packed = np.array([0b110, 0b101, 0b100, 0b011], dtype=np.uint64)

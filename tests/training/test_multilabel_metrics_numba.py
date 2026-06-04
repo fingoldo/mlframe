@@ -20,7 +20,9 @@ from mlframe.metrics.core import (
     _fast_hamming_loss_seq,
     _fast_hamming_loss_par,
     _fast_subset_accuracy_seq,
+    _fast_subset_accuracy_par,
     _fast_jaccard_score_seq,
+    _fast_jaccard_score_par,
 )
 
 
@@ -164,7 +166,12 @@ def test_dtype_coercion(dtype):
 
 
 def test_hamming_par_equivalence_large():
-    """At N*K > 1M, parallel auto-selected. Verify same numeric result as seq."""
+    """At N*K > 1M, parallel auto-selected. Verify same numeric result as seq.
+
+    Regression: the parallel kernels must COMPILE on numba 0.63.1. The pre-fix bodies
+    (inner-loop accumulator read after the loop, then combined with a parfor reduction)
+    aborted compilation with "unexpected cycle in lookup()" before this ever ran.
+    """
     rng = np.random.default_rng(42)
     y_true = rng.integers(0, 2, size=(50_000, 25)).astype(np.uint8)  # N*K = 1.25M
     y_pred = rng.integers(0, 2, size=(50_000, 25)).astype(np.uint8)
@@ -173,4 +180,26 @@ def test_hamming_par_equivalence_large():
     # Welford-style aggregation: par computes mean of per-row means, seq
     # is total mismatches / total cells. These match exactly when all rows
     # have the same K (which they do here).
+    assert abs(seq - par) < 1e-12
+
+
+def test_jaccard_par_equivalence_large():
+    """Parallel Jaccard kernel must compile (numba 0.63.1 parfor cyclic-lookup bug) and
+    match the sequential reference. Avoid empty-union rows so seq/par agree exactly."""
+    rng = np.random.default_rng(7)
+    y_true = rng.integers(0, 2, size=(60_000, 20)).astype(np.uint8)
+    y_pred = rng.integers(0, 2, size=(60_000, 20)).astype(np.uint8)
+    y_true[:, 0] = 1  # guarantee non-empty union per row
+    seq = _fast_jaccard_score_seq(y_true, y_pred)
+    par = _fast_jaccard_score_par(y_true, y_pred)
+    assert abs(seq - par) < 1e-12
+
+
+def test_subset_accuracy_par_equivalence_large():
+    """Parallel subset-accuracy kernel compiles and matches the sequential reference."""
+    rng = np.random.default_rng(11)
+    y_true = rng.integers(0, 2, size=(60_000, 8)).astype(np.uint8)
+    y_pred = rng.integers(0, 2, size=(60_000, 8)).astype(np.uint8)
+    seq = _fast_subset_accuracy_seq(y_true, y_pred)
+    par = _fast_subset_accuracy_par(y_true, y_pred)
     assert abs(seq - par) < 1e-12

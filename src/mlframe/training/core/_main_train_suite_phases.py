@@ -471,3 +471,29 @@ def export_votenrank_leaderboards(
                     logger.warning("votenrank leaderboard CSV export failed: %s", _csv_err)
     except Exception as _vn_err:
         logger.warning("votenrank leaderboard wiring failed: %s", _vn_err)
+
+
+def maybe_autoroute_autodetected_ltr(
+    ctx: Any,
+    target_type: Any,
+    target_by_type: Any,
+    raw_df: Any,
+    features_and_targets_extractor: Any,
+) -> Any:
+    """Auto-detected-LTR safety net: the param-based early dispatch only fires for an EXPLICIT target_type=LEARNING_TO_RANK arg.
+
+    When the caller leaves target_type=None, build_targets can still classify a target as LEARNING_TO_RANK; that target would otherwise reach the standard per-target loop and build a tree CLASSIFIER with a multiclass objective + an LTR eval metric -> LightGBMError ("Multiclass objective and metrics don't match"). target_by_type is resolved by call time, so route LTR to the ranker suite using the raw pre-preprocessing df (it re-transforms internally).
+
+    Returns the ranker-suite result when the auto-route fires, else None (caller falls through to the standard loop).
+    """
+    from ..configs import TargetTypes
+    from .utils import _maybe_dispatch_to_ltr_ranker_suite
+
+    if target_type is None and TargetTypes.LEARNING_TO_RANK in target_by_type:
+        return _maybe_dispatch_to_ltr_ranker_suite(
+            ctx,
+            target_type=TargetTypes.LEARNING_TO_RANK,
+            df=raw_df,
+            features_and_targets_extractor=features_and_targets_extractor,
+        )
+    return None
