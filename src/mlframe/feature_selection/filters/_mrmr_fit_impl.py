@@ -743,6 +743,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         c for c in X.columns
                         if c not in _hybrid_already_appended
                     ]
+                # The triplet stage applies polynomial (Hermite/Legendre) basis transforms that require numeric input; a string / categorical column ('a_1', ...) raises
+                # "could not convert string to float" and the broad guard below would then silently drop the ENTIRE triplet stage. Restrict the seed pool to numeric columns
+                # (categoricals are handled by the dedicated categorical-encoding FE stages instead).
+                _t_cols = [c for c in _t_cols if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
                 _t_max_degree = int(
                     getattr(self, "fe_hybrid_orth_triplet_max_degree", 1)
                 )
@@ -862,6 +866,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         c for c in X.columns
                         if c not in _hybrid_already_appended
                     ]
+                # Numeric-only seed pool: the quadruplet stage applies the same polynomial basis transforms as the triplet stage, so a string / categorical column would raise
+                # "could not convert string to float" and the broad guard below would silently drop the whole quadruplet stage. Categoricals are handled by the dedicated cat FE stages.
+                _q_cols = [c for c in _q_cols if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
                 _q_max_degree = int(
                     getattr(self, "fe_hybrid_orth_quadruplet_max_degree", 1)
                 )
