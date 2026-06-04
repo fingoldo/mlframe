@@ -160,14 +160,17 @@ def screen_predictors(
     # the pool, and floors order-1 selection at the q-th quantile of that
     # distribution - the chance ceiling for THIS pool. SELF-GATING: tiny at small
     # p (keeps weak genuine signals), large at high p (rejects the noise cloud).
-    # Only applied when the pool has >= ``screen_fdr_min_features`` candidates so the narrow tabular suite stays byte-stable. The floor is the chance ceiling for THIS pool: tiny
-    # at small p (keeps weak genuine signals), large at high p (rejects the noise cloud). A heavy-tailed target the supervised binner over-splits into many bins inflates the
-    # (nbins_x-1)*(nbins_y-1)/(2n) plug-in bias on NARROW pools too (the log-normal-noise case), but lowering this threshold globally over-prunes dense-signal narrow regression
-    # pools where every weak feature is genuine (diabetes: 10 features, R^2 0.36 -> 0.25 when pruned to 2). The right fix is a heavy-tail-GATED floor (fire only when the target's
-    # binning is detectably over-split), not a blunt threshold drop; tracked separately. ``screen_fdr_null_permutations=0`` disables. Lives in ``_permutation_null.py``.
+    # Applied when the pool has >= ``screen_fdr_min_features`` candidates (wide pool: embedding / TF-IDF best-of-p bias) OR when a NARROW pool meets the target-over-split gate
+    # (``screen_fdr_target_oversplit_ratio`` / ``screen_fdr_min_rows_per_joint_cell``). The narrow-pool gate catches a distinct finite-sample-bias regime: a heavy-tailed
+    # (log-normal) regression target the supervised MDLP binner over-splits into many bins (~30) while features bin to ~5, lifting pure-noise columns past the abs/rel gain
+    # floors after the genuine signals are picked. The gate fires ONLY when the target is over-split (nbins_y large vs feature nbins, the plug-in-bias source) AND the (X,y)
+    # joint table is dense enough that the floor is itself reliable -- so a dense weak-signal regression pool like sklearn diabetes (nbins_y=53 but ~1.2 rows per joint cell at
+    # n=331) keeps the floor OFF and preserves its 10 weak features. See ``target_oversplit_floor_applies`` in ``_permutation_null.py``. ``screen_fdr_null_permutations=0`` disables.
     screen_fdr_null_permutations: int = 25,
     screen_fdr_null_quantile: float = 0.95,
     screen_fdr_min_features: int = 30,
+    screen_fdr_target_oversplit_ratio: float = 3.0,
+    screen_fdr_min_rows_per_joint_cell: float = 8.0,
     # When MRMR.fit re-screens after a feature-engineering step (confirm-rescreen
     # loop), the DCDState from the prior pass is threaded back in here so cluster
     # discovery accumulates across passes instead of being rebuilt empty each
@@ -515,18 +518,34 @@ def screen_predictors(
         else:
             _cardinality_refused_cols = set()
 
-        # 2026-06-03 — Westfall-Young maxT permutation-null gain floor (computed
-        # ONCE on the finalised order-1 pool, applied at the selection gate). Only
-        # bites when the pool is wide enough for the max-over-p selection bias to
-        # matter; below ``screen_fdr_min_features`` the floor is 0.0 (no-op) so the
-        # narrow tabular suite is untouched. See ``_permutation_null.py``.
+        # 2026-06-03 — Westfall-Young maxT permutation-null gain floor (computed ONCE on the finalised order-1 pool, applied at the selection gate). Fires on a WIDE pool
+        # (>= ``screen_fdr_min_features``, where best-of-p selection bias dominates) OR on a NARROW pool that meets the target-over-split gate -- an MDLP-over-split heavy-tailed
+        # regression target whose plug-in MI bias lifts pure-noise columns past the gain floors after the signals are picked. The narrow-pool gate is itself self-gating: it only
+        # engages where the (X,y) joint table is dense enough that the floor is reliable, so a dense weak-signal pool (diabetes) keeps the floor OFF. Below both gates the floor
+        # is 0.0 (no-op) so the clean low-cardinality tabular suite is untouched. See ``_permutation_null.py``.
         _fdr_gain_floor = 0.0
         if screen_fdr_null_permutations and int(screen_fdr_null_permutations) > 0:
             _fdr_pool = sorted(x) if isinstance(x, set) else list(x)
-            if len(_fdr_pool) >= int(screen_fdr_min_features):
-                from ._permutation_null import pooled_permutation_null_gain_floor
+            from ._permutation_null import (
+                pooled_permutation_null_gain_floor,
+                target_oversplit_floor_applies,
+            )
 
-                _y_idx_fdr = int(y[0]) if hasattr(y, "__len__") else int(y)
+            _y_idx_fdr = int(y[0]) if hasattr(y, "__len__") else int(y)
+            _wide_pool = len(_fdr_pool) >= int(screen_fdr_min_features)
+            _narrow_oversplit = (
+                not _wide_pool
+                and len(_fdr_pool) >= 2
+                and target_oversplit_floor_applies(
+                    factors_nbins,
+                    _fdr_pool,
+                    _y_idx_fdr,
+                    int(factors_data.shape[0]),
+                    oversplit_ratio=float(screen_fdr_target_oversplit_ratio),
+                    min_rows_per_joint_cell=float(screen_fdr_min_rows_per_joint_cell),
+                )
+            )
+            if _wide_pool or _narrow_oversplit:
                 _fdr_gain_floor = pooled_permutation_null_gain_floor(
                     factors_data,
                     factors_nbins,

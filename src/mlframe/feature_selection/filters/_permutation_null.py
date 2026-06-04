@@ -41,6 +41,66 @@ import numpy as np
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 
+def target_oversplit_floor_applies(
+    factors_nbins,
+    candidate_indices,
+    y_index: int,
+    n: int,
+    *,
+    oversplit_ratio: float = 3.0,
+    min_rows_per_joint_cell: float = 8.0,
+) -> bool:
+    """Return ``True`` when the maxT noise floor should fire on a NARROW pool because the target is plug-in-bias-inflated AND the floor is itself statistically reliable.
+
+    The wide-pool gate (``len(pool) >= screen_fdr_min_features``) catches embedding / TF-IDF matrices where best-of-p selection bias dominates. It MISSES a different
+    finite-sample-bias regime that surfaces on narrow tabular pools: a heavy-tailed (log-normal) regression target that the supervised MDLP binner OVER-SPLITS into many
+    bins (~30) while the features bin to ~5. The plug-in MI bias ``(nbins_x-1)*(nbins_y-1)/(2n)`` then lifts pure-noise columns past the abs/rel gain floors AFTER the
+    genuine signals are picked, so a noise column leaks in even though the pool is only ~9 columns wide.
+
+    A blunt pool-size drop cannot separate this from a dense weak-signal regression pool (e.g. sklearn diabetes: 10 genuine-but-weak features) where the SAME narrow pool
+    must keep ALL features -- dropping the size gate there over-prunes 10 -> 2 and regresses R^2. The discriminator is the TARGET, expressed via two cheap, already-computed
+    bin counts:
+
+    * **over-split** -- ``nbins_y >= oversplit_ratio * median(nbins_x)``. The MDLP binner has split the target into many more bins than the features carry, which is the
+      precondition for the ``(nbins_x-1)*(nbins_y-1)/(2n)`` plug-in bias to materially inflate noise MI. Heavy-tailed lognormal trips this (nbins_y~30 vs feat~5, ratio ~6);
+      a linear / bimodal regression target (nbins_y~10-14 vs feat~5, ratio ~2) and any low-cardinality classification target (nbins_y in {2,3}) do NOT.
+
+    * **reliable** -- ``n / (nbins_y * median(nbins_x)) >= min_rows_per_joint_cell``. The maxT floor is the q-quantile of the per-shuffle MAX corrected plug-in MI; when the
+      (X, y) contingency table averages well under a handful of rows per cell the plug-in MI is itself dominated by finite-sample variance, so the floor explodes and would
+      prune genuine weak signal. Diabetes (n=331, nbins_y=53, feat=5 -> ~1.2 rows per joint cell) FAILS this predicate -- so the floor stays OFF there and the legacy
+      narrow-pool behaviour (no floor) is preserved exactly, keeping its 10 weak features. Lognormal (n=2500 -> ~16 rows per joint cell) passes, so the floor is trustworthy
+      and fires.
+
+    Both predicates must hold. The defaults (``oversplit_ratio=3.0``, ``min_rows_per_joint_cell=8.0``) sit with comfortable margin between the fire / no-fire cases measured
+    across the regression + classification benchmark suite (lognormal over-split ratio ~6 and ~16 rows/cell vs the nearest no-fire cases: california_housing ratio 1.5,
+    diabetes 1.2 rows/cell). Returns ``False`` on a degenerate pool (n too small, single-class target, no scorable feature) so the caller can treat it as "floor off".
+    """
+    if n < 8:
+        return False
+    y_idx = int(y_index)
+    nbins_y = int(factors_nbins[y_idx])
+    if nbins_y < 2:
+        return False
+    feat_nbins = []
+    for c in candidate_indices:
+        ci = int(c)
+        if ci == y_idx:
+            continue
+        nb = int(factors_nbins[ci])
+        if nb >= 2:
+            feat_nbins.append(nb)
+    if not feat_nbins:
+        return False
+    median_feat_nbins = float(np.median(feat_nbins))
+    if median_feat_nbins < 1.0:
+        return False
+    over_split = nbins_y >= float(oversplit_ratio) * median_feat_nbins
+    if not over_split:
+        return False
+    rows_per_joint_cell = n / (nbins_y * median_feat_nbins)
+    return rows_per_joint_cell >= float(min_rows_per_joint_cell)
+
+
 def pooled_permutation_null_gain_floor(
     factors_data: np.ndarray,
     factors_nbins,
