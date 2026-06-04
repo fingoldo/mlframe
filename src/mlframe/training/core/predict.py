@@ -693,7 +693,7 @@ def load_mlframe_suite(models_path: str, trusted_root: str | None = None) -> tup
             )
         _dctx = _zstd.ZstdDecompressor()
         with open(metadata_file, "rb") as _f:
-            metadata = _pickle.loads(_dctx.decompress(_f.read()))  # noqa: BARE_PICKLE_OK  in-memory buffer, sidecar already verified above
+            metadata = _pickle.loads(_dctx.decompress(_f.read()))  # BARE_PICKLE_OK: in-memory buffer, sidecar already verified above
     elif _kind == "pkl":
         from mlframe.utils.safe_pickle import safe_load as _sload
         metadata = _sload(metadata_file, allow_unverified=True)

@@ -413,7 +413,7 @@ def _monotonic_residual_fit(
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from .composite_transforms import _MONOTONIC_DEGENERACY_RATIO, _MONOTONIC_RESIDUAL_DEFAULT_MIN_KNOT_N, _MONOTONIC_RESIDUAL_DEFAULT_N_KNOTS
+    from .composite_transforms import _MONOTONIC_RESIDUAL_DEFAULT_MIN_KNOT_N, _MONOTONIC_RESIDUAL_DEFAULT_N_KNOTS
     base_f_for_unique = np.asarray(base, dtype=np.float64).reshape(-1)
     _n_unique_base = int(np.unique(base_f_for_unique[np.isfinite(base_f_for_unique)]).size)
     _auto_knots = max(3, _n_unique_base // 200) if _n_unique_base else n_knots

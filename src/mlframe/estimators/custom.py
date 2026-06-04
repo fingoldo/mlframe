@@ -30,7 +30,7 @@ from sklearn.utils import _safe_indexing, check_array, check_random_state
 from sklearn.utils.validation import check_is_fitted
 from sklearn.exceptions import NotFittedError
 from sklearn.compose import TransformedTargetRegressor
-from sklearn.base import BaseEstimator, RegressorMixin, _fit_context, clone
+from sklearn.base import _fit_context, clone
 
 # ----------------------------------------------------------------------------------------------------------------------------
 # Inits

@@ -213,7 +213,6 @@ def _linear_residual_robust_fit(
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from .composite_transforms import _LINRES_ROBUST_MAD_K, _LINRES_ROBUST_MIN_KEEP_FRAC
     n = len(y)
     if n < 2:
         result = {"alpha": 0.0, "beta": float(np.mean(y)) if n > 0 else 0.0}
@@ -283,7 +282,6 @@ def _linear_residual_multi_fit(
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from .composite_transforms import _MULTI_BASE_COND_NUMBER_MAX
     if base.ndim == 1:
         base = base.reshape(-1, 1)
     n, k = base.shape

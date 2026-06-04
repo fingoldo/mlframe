@@ -468,6 +468,7 @@ __all__ = [
     "get_numeric_columns",
     "get_categorical_columns",
     "remove_constant_columns",
-    "filter_existing",
+    # filter_existing lives in .utils (lazy-imported here to break a cycle); not a
+    # module-level attribute of _nan_processing, so it must not be in this __all__.
     "batch_scan_constants_and_inf_polars",
 ]

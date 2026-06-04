@@ -91,12 +91,9 @@ __all__ = [
     "MLPHead",
     # Lightning Module
     "RecurrentTorchModel",
-    # Sklearn Wrappers
-    "RecurrentClassifierWrapper",
-    "RecurrentRegressorWrapper",
-    # Utilities
-    "extract_sequences",
-    "extract_sequences_chunked",
+    # NOTE: the sklearn wrappers (RecurrentClassifierWrapper/RegressorWrapper) and
+    # sequence utilities (extract_sequences/_chunked) are defined in recurrent.py /
+    # _recurrent_sequences.py and exported from there, not from this impl module.
 ]
 
 

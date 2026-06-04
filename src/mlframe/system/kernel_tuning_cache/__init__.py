@@ -9,13 +9,14 @@ Commands:
   mlframe-tune-kernels clear <kernel>   - Evict cache for one spec
 """
 
+import sys
+
 __all__ = ["main"]
 
 
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point for mlframe-tune-kernels."""
     import argparse
-    import sys
 
     from pyutilz.system.kernel_tuner import discover_tuners, get_registry
 
