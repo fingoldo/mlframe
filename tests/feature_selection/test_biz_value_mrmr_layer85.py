@@ -291,9 +291,6 @@ class TestCmimAucGteDefault:
     """
 
     def test_cmim_auc_geq_plug_in_on_redundant_pool(self):
-        from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
-            generate_univariate_basis_features,
-        )
         aucs_plug, aucs_cmim = [], []
         for s in (1, 7, 13, 42, 101, 202):
             X, y = _build_redundant_multi(s, n=1800)
@@ -320,24 +317,24 @@ class TestCmimAucGteDefault:
                 fe_hybrid_orth_default_scorer="cmim",
             ).fit(X_tr, y_tr)
             cmim_added = list(getattr(m_cmim, "hybrid_orth_features_", []) or [])
-            # Build the test-side engineered columns from raw X_te so we
-            # can score the appended winners on held-out data without
-            # leakage. ``generate_univariate_basis_features`` is a pure
-            # function of X -- no y reference.
-            eng_te_all = generate_univariate_basis_features(
-                X_te, degrees=(2,), basis="hermite",
-            )
+            # Reconstruct the test-side engineered columns by replaying each model's
+            # recipes via ``transform`` -- the SAME path used for the train side. Recipes
+            # are pure functions of X (no y), so this is leakage-free. A Hermite-only
+            # ``generate_univariate_basis_features`` rebuild cannot reproduce the default-on
+            # adaptive-Fourier / chirp legs the plug-in roster also carries, so it would
+            # miss those columns; replaying the model's own recipes keeps the held-out
+            # reconstruction consistent with whatever each scorer actually appended.
             X_plug_tr = pd.concat(
                 [X_tr, m_plug.transform(X_tr)[plug_added]], axis=1,
             ) if plug_added else X_tr
             X_plug_te = pd.concat(
-                [X_te, eng_te_all[plug_added]], axis=1,
+                [X_te, m_plug.transform(X_te)[plug_added]], axis=1,
             ) if plug_added else X_te
             X_cmim_tr = pd.concat(
                 [X_tr, m_cmim.transform(X_tr)[cmim_added]], axis=1,
             ) if cmim_added else X_tr
             X_cmim_te = pd.concat(
-                [X_te, eng_te_all[cmim_added]], axis=1,
+                [X_te, m_cmim.transform(X_te)[cmim_added]], axis=1,
             ) if cmim_added else X_te
             lr_plug = LogisticRegression(
                 max_iter=2000, solver="lbfgs",

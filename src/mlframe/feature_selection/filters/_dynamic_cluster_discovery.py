@@ -257,6 +257,60 @@ from ._dcd_tau_auto import (
 from ._dcd_pair_su_batch import pair_su_batch
 
 
+def _carry_forward_dcd_bookkeeping(state: "DCDState",
+                                   existing_state: "DCDState",
+                                   p_new: int) -> None:
+    """Copy the cluster bookkeeping from a prior screen pass into a freshly
+    built ``state`` whose matrix has ``p_new`` columns (>= the prior width).
+
+    Structures keyed by stable column indices are carried: the anchor→members
+    graph, the member→anchor map, the swap_log, the SU counters AND the
+    pairwise-SU / per-column-entropy caches. The pruned-mask is right-padded so
+    the newly appended FE / aggregate columns start un-pruned while every prior
+    prune is preserved. Carrying the SU/entropy caches is SAFE because raw
+    column indices are stable across passes and any aggregate column the prior
+    pass created is adopted back into the rescreen matrix at the SAME index with
+    the same data — so cached SU(a,b) / H(X_a) values stay bit-correct. It is
+    also REQUIRED: ``dcd_summary`` builds ``cluster_diagnostics`` by looking up
+    each cluster's pairwise SU in ``pairwise_su_cache``; a carried cluster whose
+    SU pairs were computed in the prior pass would report ``n_pairs_evaluated=0``
+    / ``min_pair_su=None`` if the cache were dropped, breaking the
+    diagnostics-consistent-with-tau invariant.
+    """
+    try:
+        prev_mask = existing_state.pool_pruned_mask
+        if prev_mask is not None:
+            prev_mask = np.asarray(prev_mask, dtype=bool)
+            keep = min(int(prev_mask.shape[0]), int(p_new))
+            state.pool_pruned_mask[:keep] = prev_mask[:keep]
+        state.cluster_anchors = {
+            int(k): set(int(v) for v in vs)
+            for k, vs in (existing_state.cluster_anchors or {}).items()
+        }
+        state.member_to_anchor = {
+            int(k): int(v) for k, v in (existing_state.member_to_anchor or {}).items()
+        }
+        state.swap_log = list(existing_state.swap_log or [])
+        state.n_su_calls = int(getattr(existing_state, "n_su_calls", 0) or 0)
+        state.n_cache_hits = int(getattr(existing_state, "n_cache_hits", 0) or 0)
+        state.n_cache_misses = int(getattr(existing_state, "n_cache_misses", 0) or 0)
+        prev_su = getattr(existing_state, "pairwise_su_cache", None)
+        if prev_su:
+            for k, v in prev_su.items():
+                state.pairwise_su_cache[k] = v
+            state.cache_evict_lru()
+        prev_ent = getattr(existing_state, "column_entropy_cache", None)
+        if prev_ent:
+            state.column_entropy_cache.update(prev_ent)
+        # Preserve the rolling permutation seed so re-screen swap nulls do not
+        # reuse the prior pass's exact draws.
+        _ps = getattr(existing_state, "_perm_seed", None)
+        if _ps is not None:
+            state._perm_seed = int(_ps)
+    except Exception as exc:
+        logger.warning("DCD: failed to carry forward prior-pass bookkeeping: %r", exc)
+
+
 def make_dcd_state(
     *,
     X_raw,
@@ -268,6 +322,7 @@ def make_dcd_state(
     quantization_method: str = "quantile",
     quantization_nbins: int = 10,
     quantization_dtype: type = np.int32,
+    existing_state: Optional["DCDState"] = None,
     **dcd_config,
 ) -> DCDState:
     """Construct a DCDState. ``dcd_config`` accepts: ``tau_cluster``,
@@ -279,6 +334,20 @@ def make_dcd_state(
     when the constructor value matches the dev-machine default 0.7 — lets
     per-host calibration override the dev constant without code edits.
     Pass an explicit non-0.7 value to bypass the cache lookup.
+
+    ``existing_state``: when MRMR.fit re-screens after feature engineering
+    (the confirm-rescreen loop), the matrix only GROWS — raw column indices
+    are stable and FE/aggregate columns are appended. Building a fresh
+    DCDState each pass discards the cluster discovery from the prior pass:
+    the dup cluster that screen-1 found (anchor + members pruned) is lost,
+    so the published ``dcd_["cluster_anchors"]`` / ``n_pruned`` / ``swap_log``
+    reflect only the final pass — which on a 3-dup fixture clusters nothing
+    (the FE column selected on the rescreen is not SU-redundant with the raw
+    dups). Threading the prior state forward CARRIES the anchor graph,
+    member→anchor map, pool-pruned mask (extended to the new width), swap_log
+    and SU counters so the summary accumulates across passes. Raw indices are
+    preserved verbatim; only the pruned-mask is right-padded with ``False``
+    for the newly appended columns.
     """
     p_initial = int(factors_data.shape[1]) if factors_data is not None else 0
     state = DCDState(
@@ -294,6 +363,8 @@ def make_dcd_state(
         quantization_nbins=int(quantization_nbins),
         quantization_dtype=quantization_dtype,
     )
+    if existing_state is not None:
+        _carry_forward_dcd_bookkeeping(state, existing_state, p_initial)
     # Forward optional tunables.
     for key in (
         "tau_cluster", "distance", "cluster_size_threshold",
@@ -1663,6 +1734,85 @@ def commit_swap(
     return new_idx
 
 
+def reattach_raw_representative_after_aggregate_swap(
+    state: DCDState,
+    aggregate_idx: int,
+    selected_vars: list,
+) -> int:
+    """After an AGGREGATE swap, ensure the collapsed cluster keeps ONE raw
+    column in ``selected_vars`` (and hence in the raw ``support_``).
+
+    The denoised aggregate is an engineered column that surfaces only via
+    ``get_feature_names_out`` / ``transform`` — it can never live in the raw
+    integer ``support_`` (which indexes ``feature_names_in_``). When the
+    swapped anchor was the cluster's ONLY selected raw column, replacing it
+    with the aggregate index erases the cluster's latent from ``support_``
+    entirely: a consumer that inspects ``support_`` (e.g. the embedding
+    cross-terms contract) sees the latent as completely dropped even though
+    its denoised aggregate survives in the transform output. This re-attaches
+    the cluster's best raw member as the single raw representative so the
+    latent is visible in BOTH views, at the cost of exactly one raw column per
+    orphaned cluster (no net growth over the redundant raw block the aggregate
+    replaced — the other members stay pruned).
+
+    Returns the re-attached raw column index, or -1 when no re-attach was
+    needed (a raw cluster sibling is already selected) or possible (empty
+    cluster).
+    """
+    if state is None:
+        return -1
+    members = state.cluster_anchors.get(int(aggregate_idx), set())
+    if not members:
+        return -1
+    sel = {int(s) for s in selected_vars}
+    # A raw sibling already represents the cluster -> nothing to do.
+    if any(int(m) in sel for m in members):
+        return -1
+    # Pick the member with the highest marginal relevance to the target as the
+    # cluster's raw stand-in; fall back to the smallest index for determinism.
+    target = (state.target_indices if state.target_indices is not None and
+              state.target_indices.size > 0 else None)
+    best_idx = -1
+    best_rel = float("-inf")
+    if target is not None and state.factors_data is not None:
+        try:
+            from .info_theory import mi as _mi_func
+            tgt = np.asarray(target, dtype=np.int64)
+            fn = np.asarray(state.factors_nbins, dtype=np.int64)
+            for m in sorted(members):
+                mi_idx = int(m)
+                if mi_idx < 0 or mi_idx >= state.factors_data.shape[1]:
+                    continue
+                rel = float(_mi_func(
+                    state.factors_data,
+                    np.array([mi_idx], dtype=np.int64), tgt, fn,
+                ))
+                if rel > best_rel:
+                    best_rel = rel
+                    best_idx = mi_idx
+        except Exception as exc:
+            logger.warning("DCD: raw-representative MI ranking failed: %r", exc)
+            best_idx = -1
+    if best_idx < 0:
+        best_idx = min(int(m) for m in members)
+    # Un-prune so the raw stand-in is a legitimate selected column, and record
+    # it in selected_vars right after the aggregate.
+    if 0 <= best_idx < state.pool_pruned_mask.shape[0]:
+        state.pool_pruned_mask[best_idx] = False
+    if best_idx not in sel:
+        try:
+            pos = selected_vars.index(int(aggregate_idx))
+            selected_vars.insert(pos + 1, best_idx)
+        except ValueError:
+            selected_vars.append(best_idx)
+    # Drop the re-attached member from the aggregate's membership set so the
+    # cluster bookkeeping does not double-count it as both a pruned member and
+    # the visible representative.
+    members.discard(best_idx)
+    state.member_to_anchor.pop(best_idx, None)
+    return best_idx
+
+
 # =============================================================================
 # Public summary helper
 # =============================================================================
@@ -1686,9 +1836,18 @@ def dcd_summary(state: Optional[DCDState]) -> Optional[dict]:
     n_pruned = int(state.pool_pruned_mask.sum()) if state.pool_pruned_mask is not None else 0
     cols = list(getattr(state, "cols", []) or [])
     n_cols = len(cols)
-    # Integer-indexed map (legacy contract, preserved bit-identical).
+    # Integer-indexed map. Only REAL clusters (>= 1 member) are reported: an
+    # anchor with an empty member set is a column that was selected but had no
+    # SU-redundant sibling — it is not a cluster, and reporting it pollutes
+    # ``cluster_members_`` / the L48 hierarchy with singleton noise. This also
+    # keeps the count stable across the confirm-rescreen: each pass may select
+    # different (e.g. engineered) columns that each open an empty anchor entry,
+    # and accumulating those empties across passes (now that prior-pass cluster
+    # bookkeeping is carried forward) would otherwise inflate ``n_anchors``.
+    # ``cluster_diagnostics`` already restricts itself to >= 2-member clusters,
+    # so dropping empties here makes the three views mutually consistent.
     int_anchors = {int(k): sorted(int(v) for v in vs)
-                    for k, vs in state.cluster_anchors.items()}
+                    for k, vs in state.cluster_anchors.items() if vs}
     # Layer 41: name-indexed map. Resolve each integer col index against
     # ``state.cols`` (which is kept up-to-date through commit_swap, so
     # post-swap aggregate names like ``_dcd_pc1_*`` resolve naturally).
@@ -1745,7 +1904,9 @@ def dcd_summary(state: Optional[DCDState]) -> Optional[dict]:
                 "n_pairs_evaluated": 0,
             }
     return {
-        "n_anchors": len(state.cluster_anchors),
+        # Count only REAL clusters (>= 1 member); empty singleton anchors are
+        # excluded above and must not inflate the reported anchor count.
+        "n_anchors": len(int_anchors),
         "n_pruned": n_pruned,
         "n_swaps": len(state.swap_log),
         "n_su_calls": int(state.n_su_calls),
@@ -1775,6 +1936,7 @@ __all__ = [
     "discover_cluster_members",
     "evaluate_swap_candidate",
     "commit_swap",
+    "reattach_raw_representative_after_aggregate_swap",
     "dcd_summary",
     "use_dcd", "set_dcd_active",
     # Layer 47 (2026-05-31): tau-auto calibration helpers (exported for

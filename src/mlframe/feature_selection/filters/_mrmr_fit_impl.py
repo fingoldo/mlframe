@@ -5232,6 +5232,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # conditional-MI redundancy), which is what drops engineered columns redundant
     # given an already-selected one and records a real gain for every survivor.
     _did_confirm_rescreen = False
+    # Carries the DCDState from the prior screen pass into the post-FE
+    # confirm-rescreen so cluster discovery (anchor graph, pruned mask,
+    # swap_log) accumulates instead of being rebuilt empty each iteration.
+    _persisted_dcd_state = None
     while True:
         n_recommended_features = 0
         times_spent = defaultdict(float)
@@ -5362,8 +5366,16 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # target). Applies in BOTH the first screen and the post-FE
                 # confirming re-screen (this same call runs in the while-loop).
                 raw_feature_names=_raw_input_cols_pre_fe,
+                # Thread the prior pass's DCDState so cluster discovery
+                # accumulates across the confirm-rescreen (the matrix only
+                # grows; raw indices are stable). Without this the rescreen
+                # rebuilds an empty state and the published dcd_ summary loses
+                # the screen-1 dup cluster (n_pruned/cluster_anchors reset).
+                existing_dcd_state=_persisted_dcd_state,
             )
         )
+        if _dcd_state is not None:
+            _persisted_dcd_state = _dcd_state
         # 2026-05-30 Wave 9 — stash DCD summary on the estimator for the
         # public ``dcd_`` attribute (None when DCD was disabled).
         try:
@@ -5596,6 +5608,40 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         X = X.drop(target_names)  # no-copy lazy op; caller's X untouched
     else:
         X.drop(columns=target_names, inplace=True)  # restores caller's original schema
+
+    # DCD orphaned-cluster raw re-attach. A DCD AGGREGATE swap replaces the raw
+    # anchor with the (engineered, non-support_) aggregate column; when that
+    # anchor was the cluster's only selected raw column the latent disappears
+    # from the raw ``support_`` (which indexes feature_names_in_ only) even
+    # though the denoised aggregate survives in ``get_feature_names_out`` /
+    # ``transform``. Run on the FINAL ``selected_vars`` (after the confirm-
+    # rescreen loop has fully settled, so this can never perturb a subsequent
+    # re-selection) to re-attach one raw cluster member per orphaned aggregate,
+    # keeping each collapsed latent visible in BOTH the raw support and the
+    # transform output. Best-effort; never breaks fit.
+    if _dcd_state is not None and len(selected_vars):
+        try:
+            from ._dynamic_cluster_discovery import (
+                reattach_raw_representative_after_aggregate_swap as _dcd_reattach_raw,
+            )
+            _sv_list = list(selected_vars)
+            _sv_set = {int(s) for s in _sv_list}
+            _agg_indices = [
+                int(e.get("new_col_idx"))
+                for e in (getattr(_dcd_state, "swap_log", None) or [])
+                if str(e.get("branch", "aggregate")) == "aggregate"
+                and e.get("aggregate_name")
+                and e.get("new_col_idx") is not None
+            ]
+            for _agg_idx in _agg_indices:
+                if _agg_idx in _sv_set:
+                    _dcd_reattach_raw(_dcd_state, _agg_idx, _sv_list)
+            selected_vars = _sv_list
+        except Exception as _reattach_exc:
+            logger.warning(
+                "DCD orphaned-cluster raw re-attach failed (%s); continuing.",
+                _reattach_exc,
+            )
 
     # ---------------------------------------------------------------------------------------------------------------
     # Friend-graph post-analysis (diagnostic; optional pruning). Built here, while ``selected_vars``,
