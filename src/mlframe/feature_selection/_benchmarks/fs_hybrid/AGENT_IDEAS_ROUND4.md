@@ -24,7 +24,25 @@
     in _feature_engineering_pairs.py + engineered_recipes.py → recommend to FE-pipeline owner (gate_med = 1 float).
   - **QUEUE (agent): all measured** — A4-4 su_seeded (Shap, opt-in win, recommend) / A4-5 adaptive_n_trials
     (Boruta, margin-gated speed win, recommend) / A2-7, A2-4, A5-5 all NEGATIVE. See rows below.
-  - **Broad real-data validation (agent):** running on 8 OpenML datasets incl. gisette (5000 feats).
+  - **Broad real-data validation (agent): INCONCLUSIVE — OpenML unreachable this run.** fetch_openml failed for
+    gina_agnostic/gisette/etc.; only the breast_cancer offline fallback ran (near-saturated, all strategies ~0.99 =
+    uninformative). madelon (the key real bed) was validated throughout the session. Bench preserved
+    (round4_broad_realdata_bench.py) — re-run when OpenML is reachable to confirm generality on wide real data.
+
+## MEASURED WINS NEEDING SHARED-SUBSYSTEM SURGERY (recipes ready, benches preserved — implement on request)
+These are measured opt-in/niche wins whose CLEAN implementation requires intricate surgery into a hot, validated
+shared subsystem owned elsewhere; deferred WITH a precise recipe + preserved bench (not skipped), per the
+reject/defer-with-numbers principle. The clean/safe/high-value wins are all shipped.
+- **median-gated FE operators (A3-5 follow-up):** gated_med=(a>median_a)*b, thr_and_med — MEASURED +0.0355/+0.0435
+  on skewed operands (median beats threshold-0; agent E + agent confirmed). Recipe: add ONE stateful pseudo-unary
+  `gate_med(x)=(x>train_median_x)` mirroring `prewarp` (1 float/operand: fit train median, store in EngineeredRecipe
+  .extra, replay closed-form) in _feature_engineering_pairs.py + engineered_recipes.py; `mul` then forms the combos.
+  Round-trip + leak-safety proven. (round4_fe_median_gated*_bench.py)
+- **su_seeded interactions (A4-4) → ShapProxiedFS:** opt-in SNR-gated sparse-interaction path (cheap pairwise-SU
+  screen → top-K pairs → interaction objective on only those K, ungating interaction_aware past phi=16, no O(P²)
+  tensor). +0.388/+0.072 on clear-SNR interactions; no-op on noise-buried. (round4_su_seeded_interactions_bench.py)
+- **adaptive_n_trials (A4-5) → BorutaShap:** margin-gated tentative-tail convergence stop (NAIVE stop is a
+  correctness trap). 60-72% wall saved at decision-equivalence. (round4_adaptive_n_trials_bench.py)
 - **SHIPPED #4 (the biggest standalone-MRMR fix): `MRMRTreeRescued`** — fixes MRMR's selection-gate collapse
   (the confirmed root cause: marginal-MI greedy drops zero-marginal interaction operands). A gated tree-importance
   rescue unions a shallow-GBM top-K into `support_` ONLY on the under-selection regime. madelon mrmr_fe 0.6885 →
