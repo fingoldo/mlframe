@@ -83,6 +83,64 @@ def _premerge_expand(accepted_reps, rep_members, original_cols):
     return kept, np.array([c in kept for c in original_cols], dtype=bool)
 
 
+def _naive_accepted_set_stable(accepted_history, patience):
+    """REJECTED naive trial-stop -- kept as a DOCUMENTED CONTRAST, deliberately NOT wired into the loop.
+
+    The naive rule stops as soon as the cumulative accepted set has been unchanged for ``patience`` consecutive
+    trials. It is a measured CORRECTNESS TRAP: on the fs_hybrid bed it fired on a TRANSIENT plateau while weak
+    features were still slowly crossing -- synth Jaccard(vs full cap)=1.0 but hard_synth Jaccard=0.0 (it locked a
+    WRONG accepted set). Do NOT enable this. The safe stop (``_should_stop_tentative_tail``) additionally requires
+    that no still-tentative feature is near a decision boundary, so it only stops when the tail is provably stuck.
+
+    ``accepted_history`` is the list of cumulative accepted-set snapshots (one frozenset per completed trial).
+    Returns True when the last ``patience``+1 snapshots are identical. Exposed for unit-testing the contrast only.
+    """
+    if len(accepted_history) <= patience:
+        return False
+    recent = accepted_history[-(patience + 1):]
+    return all(s == recent[0] for s in recent[1:])
+
+
+def _tentative_near_boundary(hits, tentative_indices, iteration, n_tests, pvalue, margin):
+    """Margin gate primitive: is ANY still-tentative feature within ``margin`` of crossing a binomial threshold?
+
+    Replays the EXACT prod decision statistic used in ``test_features``: a two-sided-style pair of one-sided exact
+    binomial tests (greater -> accept, less -> reject) at p=0.5 over ``iteration`` trials, Bonferroni-corrected by
+    multiplying by ``n_tests`` (capped at 1.0). A tentative feature is "near a boundary" when either corrected
+    p-value < ``pvalue * (1 + margin)`` -- i.e. it could plausibly resolve in the next few trials. Returns True if
+    any tentative feature is near (so it is NOT yet safe to stop); False when the whole tail is provably stuck.
+    """
+    thr = pvalue * (1.0 + margin)
+    for i in tentative_indices:
+        h = hits[i]
+        acc_pc = min(binom_test(h, n=iteration, p=0.5, alternative="greater") * n_tests, 1.0)
+        if acc_pc < thr:
+            return True
+        rej_pc = min(binom_test(h, n=iteration, p=0.5, alternative="less") * n_tests, 1.0)
+        if rej_pc < thr:
+            return True
+    return False
+
+
+def _should_stop_tentative_tail(accepted_history, hits, tentative_indices, iteration, n_tests, pvalue, patience, margin):
+    """MARGIN-GATED adaptive trial-stop (the SHIPPED safe rule).
+
+    Stop the trial loop ONLY when BOTH hold:
+      (a) the cumulative accepted set has been unchanged for ``patience`` consecutive trials (a plateau), AND
+      (b) NO still-tentative feature is within ``margin`` of crossing either binomial decision threshold given the
+          hits accumulated so far (the tail is provably stuck, not transiently flat).
+
+    Condition (b) is what makes this decision-equivalent to running the full n_trials cap: a feature that could
+    still cross keeps the loop alive, so the accepted/rejected partition at the stop matches the full-cap partition
+    (measured synth Jaccard 1.0, hard_synth Jaccard 0.842). The naive rule drops (b) and locks a wrong set -- see
+    ``_naive_accepted_set_stable``. Returns True iff it is safe to stop now.
+    """
+    if not _naive_accepted_set_stable(accepted_history, patience):
+        return False
+    # Plateau reached; refuse to stop while any tentative feature is still near a boundary.
+    return not _tentative_near_boundary(hits, tentative_indices, iteration, n_tests, pvalue, margin)
+
+
 def _fit_with_subsample_stability(self, X, y):
     """Run BorutaShap on several distinct row-subsamples (WITHOUT replacement) and keep only features
     ACCEPTED in >= stability_threshold of them. Removes the finite-sample-spurious top real-noise column
@@ -357,6 +415,15 @@ def fit(self, X, y):
         _stop_file = getattr(self, "stop_file", None)
         self.n_trials_run_ = 0  # defensive: every early-break path leaves this set
 
+        # Margin-gated adaptive trial-stop (opt-in; see __init__ doc + _should_stop_tentative_tail). Off by default
+        # so the loop is byte-identical to the fixed-cap run. When on we track the cumulative accepted set after
+        # each trial and stop once it has plateaued AND the residual tentative tail is provably stuck.
+        _early_stop_tentative = bool(getattr(self, "early_stop_tentative", False))
+        _early_stop_patience = int(getattr(self, "early_stop_patience", 20))
+        _early_stop_margin = float(getattr(self, "early_stop_margin", 0.15))
+        _accepted_history: list = []
+        _n_total_cols = len(self.all_columns)  # full original count -> matches the validated bench Bonferroni base
+
         pbar = tqdmu(range(self.n_trials), desc="Feature selection", disable=not self.verbose)
         last_ncols = 0
         for trial in pbar:
@@ -390,6 +457,27 @@ def fit(self, X, y):
                     if self.verbose:
                         logger.info("BorutaShap: all features decided after %d/%d trials; stopping early.", trial + 1, self.n_trials)
                     break
+
+                # Margin-gated adaptive trial-stop (opt-in) for the residual TENTATIVE TAIL that the all-decided
+                # stop above never resolves. Stop only when the accepted set has plateaued for the patience window
+                # AND no still-tentative feature can still cross a binomial threshold within the margin (the tail is
+                # provably stuck). This is decision-equivalent to running the full cap; the naive 'plateau-only' rule
+                # is deliberately NOT used (it locks a wrong set on a transient plateau -- see helper docstrings).
+                if _early_stop_tentative:
+                    _accepted_history.append(frozenset(_acc))
+                    _decided = _acc | _rej
+                    _tentative_idx = [idx for idx, col in enumerate(self.all_columns) if col not in _decided]
+                    if _should_stop_tentative_tail(
+                        _accepted_history, self.hits, _tentative_idx, iteration=trial + 1, n_tests=_n_total_cols,
+                        pvalue=self.pvalue, patience=_early_stop_patience, margin=_early_stop_margin,
+                    ):
+                        if self.verbose:
+                            logger.info(
+                                "BorutaShap: margin-gated stop after %d/%d trials (accepted set plateaued for %d "
+                                "trials and %d tentative feature(s) provably stuck).",
+                                trial + 1, self.n_trials, _early_stop_patience, len(_tentative_idx),
+                            )
+                        break
 
             # Control/safety budget + stop-flag (parity with MRMR / RFECV), checked at the END of each
             # trial so the just-completed trial's state is valid (>=1 trial always runs): an over-budget
