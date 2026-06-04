@@ -662,7 +662,10 @@ def evaluate_candidate(
             current_gain = direct_gain
             expected_gains[cand_idx] = current_gain
     else:
-        current_gain = 0
+        # Float (not int) so the no-gain return stays type-consistent with the float
+        # ``direct_gain`` path. The empirical-null debiasing can drive ``direct_gain`` to
+        # exactly 0.0, which now routes a non-synergy candidate through this branch.
+        current_gain = 0.0
 
     # 2026-05-30 Wave 8 — BUR additive bonus (Gao 2022). Off by default
     # (``bur_lambda`` thread-local = 0.0). When enabled, adds

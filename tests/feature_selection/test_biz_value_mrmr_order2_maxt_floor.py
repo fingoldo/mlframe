@@ -195,12 +195,25 @@ class TestOrder2MaxTFloorDisabled:
         eng2 = _fit_engineered(perms=0)
         assert eng == eng2, f"floor-disabled run non-deterministic: {eng} vs {eng2}"
 
-    def test_default_gates_floor_is_noop(self):
-        """Under DEFAULT synergy gates the wide frame's noise pairs never clear
-        the per-pair prevalence bar, so the order-2 floor has nothing to reject:
-        the engineered set must be byte-identical with the floor ENABLED (default
-        25) vs DISABLED (0). Proves the floor does not perturb real default-config
-        users -- it only removes pairs the prevalence gate would otherwise admit.
+    def test_default_gates_floor_removes_spurious_keeps_genuine(self):
+        """Under DEFAULT synergy gates the order-2 maxT floor removes the spurious
+        noise pairs the per-pair prevalence bar admits, while keeping every genuine
+        synergy pair.
+
+        REFRAMED (2026-06-05): the original premise was that under default gates the
+        per-pair prevalence bar already rejects all noise pairs, so the floor is a
+        byte-identical no-op. That premise is obsolete since the empirical-null
+        relevance debiasing (Fix B): the debiasing makes the screen select the
+        genuine operand ``x5`` (its marginal is real, just weak), which then lets
+        noise pairs that pair a NOISE column with ``cbrt(x5)`` / ``sign(x5)`` clear
+        the per-pair prevalence gate (the prevalence ratio is computed against the
+        operand-marginal sum, and a real ``x5`` marginal lifts it). Those are exactly
+        the best-of-pool chance-max pairs the order-2 floor exists to backstop -- so
+        the floor is NOT a no-op here, it is doing its job. Measured: floor-OFF admits
+        3 spurious noise pairs (``add(sign(x5),abs(noise_22))`` ...) on top of the 3
+        genuine pairs; floor-ON admits 0 spurious and keeps all 3 genuine. Assert that
+        contract (same shape as Gate A, now demonstrated on the DEFAULT config), which
+        is a strictly STRONGER guarantee than the obsolete byte-identity premise.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
         X, y = _wide_synergy_frame(n_noise=40)
@@ -210,17 +223,24 @@ class TestOrder2MaxTFloorDisabled:
             warnings.simplefilter("ignore")
             m_on = MRMR(fe_pair_maxt_null_permutations=25, **base).fit(X, y)
             m_off = MRMR(fe_pair_maxt_null_permutations=0, **base).fit(X, y)
-        sup_on = list(m_on.get_feature_names_out())
-        sup_off = list(m_off.get_feature_names_out())
         eng_on = list(getattr(m_on, "_engineered_features_", []) or [])
         eng_off = list(getattr(m_off, "_engineered_features_", []) or [])
-        assert sup_on == sup_off, (
-            f"default-config support differs floor-on vs off (should be no-op): "
-            f"ON={sup_on} OFF={sup_off}"
+        gen_on, spur_on = _classify(eng_on)
+        gen_off, spur_off = _classify(eng_off)
+        # Floor-OFF must surface spurious noise pairs (else the test proves nothing).
+        assert len(spur_off) >= 1, (
+            f"floor-off run produced no spurious noise pairs; the fixture no longer "
+            f"exercises the floor. engineered={eng_off}"
         )
-        assert eng_on == eng_off, (
-            f"default-config engineered set differs floor-on vs off: "
-            f"ON={eng_on} OFF={eng_off}"
+        # Floor-ON strictly reduces spurious noise pairs.
+        assert len(spur_on) < len(spur_off), (
+            f"order-2 floor did not reduce spurious noise pairs under default gates: "
+            f"OFF={spur_off} ON={spur_on}"
+        )
+        # Genuine synergy pairs are NOT dropped by the floor.
+        assert len(gen_on) >= len(gen_off) and len(gen_on) >= 3, (
+            f"order-2 floor dropped genuine synergy pairs: "
+            f"OFF genuine={gen_off} ON genuine={gen_on}"
         )
 
 

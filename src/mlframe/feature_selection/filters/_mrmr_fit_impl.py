@@ -6126,6 +6126,17 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     for _tok in _re_aug.split(r"[^0-9A-Za-z_]+", _nm.replace("__", " ")):
                         if _tok:
                             _eng_tokens.add(_tok)
+                # Members folded into a denoised aggregate -- cluster_aggregate 'replace' mode (``_cluster_aggregate_removals_``) or a DCD PC1/mean_z swap (``cluster_members_``) -- are
+                # ALREADY represented by that aggregate and were deliberately removed from the support. The token scan above matches them anyway because the member NAME survives as a
+                # token inside OTHER engineered recipe names (e.g. ``add(refl0,sin(indep))``), so without this exclusion the augmentation resurrects the very members 'replace' mode and
+                # DCD just collapsed, re-injecting the redundancy. Mirror the same exclusion the raw-retention block and the additional-RFECV rescue pool apply.
+                _aug_excluded_names = set(getattr(self, "_cluster_aggregate_removals_", None) or [])
+                _cm_for_aug = getattr(self, "cluster_members_", None)
+                if isinstance(_cm_for_aug, dict):
+                    for _anchor, _members in _cm_for_aug.items():
+                        _aug_excluded_names.add(_anchor)
+                        if isinstance(_members, (list, tuple, set)):
+                            _aug_excluded_names.update(_members)
                 _name_to_cols_idx_aug = {c: i for i, c in enumerate(cols)}
                 _abs_floor_aug = float(getattr(self, "min_relevance_gain", 0.0) or 0.0)
                 _rel_frac_aug = float(getattr(self, "min_relevance_gain_relative_to_first", 0.0) or 0.0)
@@ -6139,7 +6150,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _floor_aug = max(_abs_floor_aug, _max_mi_aug * _rel_frac_aug)
                 _selected_set = set(int(v) for v in selected_vars)
                 _to_add = [i for i, _name, m in sorted(_raw_mi_aug, key=lambda kv: (-kv[2], kv[0]))
-                           if m > _floor_aug and i not in _selected_set and _name in _eng_tokens]
+                           if m > _floor_aug and i not in _selected_set and _name in _eng_tokens
+                           and _name not in _aug_excluded_names]
                 if _to_add:
                     selected_vars.extend(_to_add)
                     self.support_ = np.array(selected_vars, dtype=np.int64)
@@ -6188,27 +6200,86 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _name = self.feature_names_in_[_i] if _i < len(self.feature_names_in_) else None
                     _cols_idx = _name_to_cols_idx.get(_name)
                     _mi = _cached.get((_cols_idx,), 0.0) if _cols_idx is not None else 0.0
-                    _raw_mi.append((_i, float(_mi)))
+                    # Keep the cols-space index alongside the input-space index so the rescue can re-run the permutation-significance / redundancy tests on the screen's own matrices.
+                    _raw_mi.append((_i, float(_mi), _cols_idx))
                 # Sort by MI desc; pick top-K.
                 # Wave 57 (2026-05-20): secondary key on feature index so
                 # tied MI doesn't make the empty-support fallback drift.
                 _raw_mi.sort(key=lambda kv: (-kv[1], kv[0]))
                 _abs_floor = float(getattr(self, "min_relevance_gain", 0.0) or 0.0)
                 _rel_frac = float(getattr(self, "min_relevance_gain_relative_to_first", 0.0) or 0.0)
-                _max_mi = max((m for _, m in _raw_mi), default=0.0)
+                _max_mi = max((m for _, m, _c in _raw_mi), default=0.0)
                 # Rescue EVERY raw feature clearing the relevance floor (the stricter of the absolute floor and the relative-to-strongest floor), not just the top
-                # ``min_features_fallback``. With the empirical-null-debiased ``cached_MIs`` this ranking is honest, so retaining all genuine raw signal (rather than a
-                # single arbitrary top-1) is the correct recovery on a wide engineered pool where multiple real raw signals were each shadowed by an engineered child.
-                # ``min_features_fallback`` still acts as a floor on the rescued count so legacy callers asking for >=K always get at least K. Never-empty guarantee:
-                # a totally-empty screen (nothing clears the floor AND no engineered features) still returns its single highest-MI raw column.
+                # ``min_features_fallback`` -- with the empirical-null-debiased ``cached_MIs`` the ranking is honest, so genuine multi-signal pools (e.g. x1/x2/x3 each shadowed by an
+                # engineered child) recover fully. But two failure modes the debiased-MI floor alone does NOT catch and that the rescue MUST guard against:
+                #   (1) PURE NOISE small-n: the coarse-binning plug-in MI is upward-biased, so a pure-noise leg can leave a tiny residual debiased MI ABOVE the (very small) absolute
+                #       floor and be wrongly rescued. The relevance floor is a magnitude test, not a significance test; gate the rescue on a permutation p-value (re-run on the screen's
+                #       OWN binning so it matches what produced ``cached_MIs``) so a candidate that sits WITHIN its null is dropped. The never-empty guarantee below still returns one
+                #       column when nothing is significant, keeping ``support_`` non-empty.
+                #   (2) ALGEBRAIC REDUNDANCY: a block of re-expressions of one signal (financial margin/profit/cost family; 50 copies of a latent) all clear the floor AND are all
+                #       individually significant, so significance alone would rescue the whole block and BLOAT the support the conditional-MI screen / DCD deliberately collapsed.
+                #       Greedily accept a candidate only when its MI with the already-accepted set is low relative to its own relevance, so a near-duplicate of an accepted column is
+                #       dropped. Independent signals (x1/x2/x3, distinct latents) survive this dedup; algebraic twins collapse to one representative.
                 _floor = max(_abs_floor, _max_mi * _rel_frac)
                 # Cap the floor-based rescue so a pathological pool of many near-identical above-floor raw columns (e.g. 50 copies of one signal, which the empty screen
                 # could not collapse) does not balloon the fallback support. ``min_features_fallback`` sets the requested count; we rescue at most a modest multiple of it
                 # (the genuine multi-signal fixtures that need the floor-based rescue carry only a handful of distinct above-floor signals, well within this bound).
                 _rescue_cap = max(int(_min_fb), 8)
-                _topk = [i for i, _mi in _raw_mi if _mi > _floor][:_rescue_cap]
+                _above_floor = [(i, _mi, _c) for i, _mi, _c in _raw_mi if _mi > _floor]
+
+                # (1) Permutation-significance gate + (2) redundancy dedup, computed on the screen's own ``data`` / ``nbins`` so the binning matches ``cached_MIs``. Both reuse the
+                # CPU permutation / MI njit kernels the screen already uses. Best-effort: if a kernel call fails (degenerate joint, missing cols-space index) the candidate falls
+                # through to the magnitude-only path so the never-empty guarantee still holds.
+                from .permutation import mi_direct as _mi_direct_fb
+                from .info_theory import mi as _mi_pair_fb
+                _signif_alpha = float(os.environ.get("MLFRAME_MRMR_NULL_SIGNIF_ALPHA", "0.05"))
+                _redundancy_frac = float(os.environ.get("MLFRAME_MRMR_FALLBACK_REDUNDANCY_FRAC", "0.5"))
+                _q_dtype = getattr(self, "quantization_dtype", np.int32)
+                _accepted = []           # input-space indices accepted into the rescue
+                _accepted_cols = []      # their cols-space indices (for redundancy MI)
+                # Bound the number of permutation-significance probes: ``_above_floor`` is sorted by debiased MI desc, so the genuine signal sits at the top; on a pathological
+                # all-noise wide pool where every candidate fails significance, examining the whole list would run one 32-perm test PER column. Scan at most a modest multiple of the
+                # rescue cap (the genuine multi-signal fixtures carry only a handful of distinct above-floor signals, well inside this window).
+                _scan_limit = max(int(_rescue_cap) * 4, 16)
+                for _i, _mi, _cols_idx in _above_floor[:_scan_limit]:
+                    if len(_accepted) >= _rescue_cap:
+                        break
+                    if _cols_idx is None:
+                        continue
+                    # Significance gate (#1): keep only candidates that sit ABOVE their permutation null. Pure-noise legs sit within it (p >= alpha) and are dropped.
+                    try:
+                        _sig = _mi_direct_fb(
+                            data, x=np.array([_cols_idx], dtype=np.int64), y=target_indices,
+                            factors_nbins=nbins, npermutations=32, min_nonzero_confidence=0.0,
+                            return_null_mean=True, parallelism="none", dtype=_q_dtype, prefer_gpu=False,
+                        )
+                        _p_value = float(_sig[3])
+                    except Exception:
+                        _p_value = 0.0  # significance unavailable -> fall back to the magnitude-only decision (keep)
+                    if _p_value >= _signif_alpha:
+                        continue
+                    # Redundancy dedup (#2): drop a candidate whose MI with an already-accepted column is a large fraction of its own relevance (an algebraic / near-duplicate twin).
+                    _is_redundant = False
+                    for _acc_cols in _accepted_cols:
+                        try:
+                            _pair_mi = float(_mi_pair_fb(
+                                factors_data=data, x=np.array([_cols_idx], dtype=np.int64),
+                                y=np.array([_acc_cols], dtype=np.int64), factors_nbins=nbins, dtype=_q_dtype,
+                            ))
+                        except Exception:
+                            _pair_mi = 0.0
+                        if _pair_mi >= _redundancy_frac * max(_mi, 1e-12):
+                            _is_redundant = True
+                            break
+                    if _is_redundant:
+                        continue
+                    _accepted.append(_i)
+                    _accepted_cols.append(_cols_idx)
+                _topk = list(_accepted)
+                # ``min_features_fallback`` count floor: if the significance/redundancy gates left fewer than the requested K, top up from the remaining above-absolute-floor
+                # candidates (magnitude order) so legacy callers asking for >=K always get at least K. The never-empty guarantee then keeps one column even on a fully-null pool.
                 if len(_topk) < _min_fb:
-                    for i, _mi in _raw_mi:
+                    for i, _mi, _c in _raw_mi:
                         if i not in _topk and _mi > _abs_floor:
                             _topk.append(i)
                         if len(_topk) >= _min_fb:
