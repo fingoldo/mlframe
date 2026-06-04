@@ -4732,6 +4732,34 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     self.feature_names_in_ = [c for c in _all_cols if c not in _engineered_names_set]
     self.n_features_in_ = len(self.feature_names_in_)
 
+    # Accuracy gate (single point, after every setup FE stage, before screening): drop engineered columns that add NO held-out downstream uplift over their raw source. Covers every default-on FE stage (univariate basis He, adaptive Fourier/chirp sin/qsin, ...) in one place using the raw values in X + the real target y. A hijacker (transform of a monotone / MNAR / leak column) is removed so it cannot evict the raw signal from support_; a genuine win (He2 on a quadratic target, adaptive Fourier on an oscillation) keeps its positive uplift and stays. Also un-protects dropped adaptive Fourier names + drops their recipes. Opt out via fe_accuracy_gate=False.
+    if _engineered_names_set and bool(getattr(self, "fe_accuracy_gate", True)) and isinstance(X, pd.DataFrame):
+        try:
+            from ._fe_accuracy_gate import keep_engineered_over_source
+            _gy = _target_to_numpy_values(y)
+            _rawset = set(self.feature_names_in_)
+            _xset = set(X.columns)
+            _drop_eng = []
+            for _en in list(_engineered_names_set):
+                _s = str(_en).split("__", 1)[0] if "__" in str(_en) else None
+                if _s is None or _s not in _rawset or _en not in _xset or _s not in _xset:
+                    continue
+                if not keep_engineered_over_source(np.asarray(X[_s].to_numpy()), np.asarray(X[_en].to_numpy()), _gy):
+                    _drop_eng.append(_en)
+            if _drop_eng:
+                _dset = set(_drop_eng)
+                X = X.drop(columns=_drop_eng)
+                _all_cols = [c for c in _all_cols if c not in _dset]
+                _engineered_names_set = _engineered_names_set - _dset
+                self.hybrid_orth_features_ = [c for c in (getattr(self, "hybrid_orth_features_", None) or []) if c not in _dset]
+                self._adaptive_fourier_features_ = [c for c in (getattr(self, "_adaptive_fourier_features_", None) or []) if c not in _dset]
+                for _dn in _drop_eng:
+                    _hybrid_orth_pre_recipes.pop(_dn, None)
+                if verbose:
+                    logger.info("MRMR accuracy gate: dropped %d engineered column(s) with no held-out uplift over their raw source: %s", len(_drop_eng), _drop_eng[:8])
+        except Exception as _agexc:
+            logger.debug("MRMR accuracy gate (setup) failed (%s); keeping all engineered", _agexc)
+
     # ---------------------------------------------------------------------------------------------------------------
     # Temporarily inject targets
     # ---------------------------------------------------------------------------------------------------------------
@@ -5245,6 +5273,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
         # Feature engineering iteration delegated to ``_run_fe_step`` (testable / experiment-friendly outside
         # the screening loop). Returns updated state + n_recommended_features; zero breaks the outer loop.
+        _n_cols_before_fe = len(cols)  # accuracy gate: engineered columns added this step live at indices >= this
         fe_result = self._run_fe_step(
             data=data, cols=cols, nbins=nbins, X=X,
             target_names=target_names, target_indices=target_indices,
@@ -5361,6 +5390,45 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         "MRMR FE adaptive retry produced %d engineered features.",
                         n_recommended_features,
                     )
+
+        # Accuracy gate (post-FE-step): drop engineered candidates that do NOT add held-out downstream uplift over their raw source column. The scorer routing inside _run_fe_step already ran, so this only filters which engineered columns COMPETE in the screen -- a hijacker (Fourier/chirp/He/unary of a monotone / MNAR / leak column) is removed so it cannot evict the raw signal from support_, while a genuine win (He2 on a quadratic target, the routed adaptive Fourier on an oscillation) keeps its positive uplift and stays. Probes raw values from X over the injected target. Opt out via fe_accuracy_gate=False.
+        if len(cols) > _n_cols_before_fe and target_names and bool(getattr(self, "fe_accuracy_gate", True)) and hasattr(X, "columns"):
+            try:
+                from ._fe_accuracy_gate import keep_engineered_over_source
+                _gate_y = np.asarray(X[target_names[0]].to_numpy())   # raw target (probe label)
+                _raw_set = set(self.feature_names_in_)
+                _sv_set = set(int(s) for s in selected_vars)
+                _col_to_idx = {str(c): k for k, c in enumerate(cols)}
+                _data_arr = np.asarray(data, dtype=np.float64)
+                _drop_idx = []
+                for _i in range(_n_cols_before_fe, len(cols)):
+                    if _i in _sv_set:
+                        continue
+                    _nm = str(cols[_i])
+                    _src = _nm.split("__", 1)[0] if "__" in _nm else None
+                    if _src is None or _src not in _raw_set:
+                        continue
+                    _src_idx = _col_to_idx.get(_src)
+                    if _src_idx is None:
+                        continue
+                    if not keep_engineered_over_source(_data_arr[:, _src_idx], _data_arr[:, _i], _gate_y):
+                        _drop_idx.append(_i)
+                if _drop_idx:
+                    _drop = set(_drop_idx)
+                    _ds = sorted(_drop)
+                    _drop_names = [str(cols[j]) for j in _drop_idx]
+                    _keep = [j for j in range(len(cols)) if j not in _drop]
+                    _x_cols = set(X.columns)
+                    X = X.drop([c for c in _drop_names if c in _x_cols]) if _is_polars_input else X.drop(columns=[c for c in _drop_names if c in _x_cols])
+                    data = data[:, _keep]
+                    nbins = nbins[_keep] if isinstance(nbins, np.ndarray) else [nbins[j] for j in _keep]
+                    cols = [cols[j] for j in _keep]
+                    selected_vars = [int(s) - sum(1 for d in _ds if d < int(s)) for s in selected_vars]
+                    n_recommended_features = max(0, n_recommended_features - len(_drop_idx))
+                    if verbose:
+                        logger.info("MRMR accuracy gate: dropped %d engineered candidate(s) with no held-out uplift over their raw source: %s", len(_drop_idx), _drop_names[:8])
+            except Exception as _agexc:
+                logger.debug("MRMR accuracy gate failed (%s); keeping all engineered candidates", _agexc)
 
         if n_recommended_features == 0:
             break

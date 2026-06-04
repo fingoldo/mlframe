@@ -395,7 +395,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # ``full_npermutations=3``; cost ~3% FE wall time.
         fe_npermutations=3,
         fe_ntop_features=0,
-        fe_unary_preset="minimal",
+        fe_unary_preset="medium",
         fe_binary_preset="minimal",
         # 2026-05-18 audit-fixes flip #2 (``fe_max_pair_features`` 1->10):
         # pre-fix only ONE pair per FE step was evaluated. On a dataset
@@ -812,6 +812,8 @@ class MRMR(BaseEstimator, TransformerMixin):
         # is no univariate nonlinearity. The heavier pair-CROSS-basis stage stays
         # behind ``fe_hybrid_orth_enable``. Set False for the legacy pair-only FE.
         fe_univariate_basis_enable: bool = True,
+        # 2026-06-04 -- ACCURACY GATE, DEFAULT ON. After every FE stage, drop engineered columns that add no held-out downstream uplift over their raw source (a Fourier/Hermite/chirp of a monotone / MNAR / leak column that would otherwise evict the raw signal from support_). Opt out for legacy byte-stability / benchmarks.
+        fe_accuracy_gate: bool = True,
         # 2026-06-03 -- FOURIER univariate basis, DEFAULT ON. The orthogonal-poly
         # univariate basis (``a__T2`` / ``a__He2`` ...) recovers polynomial
         # nonlinearities but a degree<=4 polynomial CANNOT express a full-period

@@ -67,7 +67,7 @@ def _run_fe_step(
     # Preset-name snapshot so recipes can rebuild the correct registry at replay time. Default "minimal"
     # matches MRMR.__init__ defaults; callers that override via self.fe_unary_preset / self.fe_binary_preset
     # get the actual values threaded through by fit().
-    fe_unary_preset: str = "minimal",
+    fe_unary_preset: str = "medium",
     fe_binary_preset: str = "minimal",
 ):
     """One Feature Engineering iteration. Extracted from ``MRMR.fit`` for testability and FE experimentation.

@@ -390,6 +390,8 @@ def _resolve_preset(preset: str) -> str:
         return p
     if p in ("rich", "full"):
         return "maximal"
+    if p in ("basic", "default"):
+        return "minimal"
     raise ValueError(
         f"unknown FE preset {preset!r}; expected one of "
         f"{_KNOWN_UNARY_PRESETS} (or aliases 'rich'/'full' -> 'maximal')"

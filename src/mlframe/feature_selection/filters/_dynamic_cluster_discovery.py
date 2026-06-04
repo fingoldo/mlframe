@@ -735,6 +735,10 @@ def discover_cluster_members(
     n_cols = state.pool_pruned_mask.shape[0]
     if 0 <= anchor < n_cols and bool(state.pool_pruned_mask[anchor]):
         return set()
+    # Exclude the temporarily-injected target column(s) from cluster membership: a leak/decoy column (``decoy ~ y``) gives the target SU ~ 1.0, so the target would be clustered and folded into a PC1-aggregate recipe whose ``src_names`` reference ``targ_<id>`` -- which is dropped after fit, so transform() KeyErrors on replay (layer6 / layer49).
+    _tgt_set = set(int(t) for t in state.target_indices) if state.target_indices is not None else set()
+    if anchor in _tgt_set:
+        return set()
     anchors = state.cluster_anchors.setdefault(anchor, set())
     newly_added: set = set()
     for c in candidate_pool:
@@ -742,7 +746,7 @@ def discover_cluster_members(
             c_int = int(c)
         except (TypeError, ValueError):
             continue
-        if c_int == anchor:
+        if c_int == anchor or c_int in _tgt_set:
             continue
         if c_int < 0 or c_int >= n_cols:
             continue
