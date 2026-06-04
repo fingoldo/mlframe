@@ -259,6 +259,30 @@ iterations burn compute without gain. Tracking the streak (not the total
 count) keeps the loop running through productive stretches and ending
 naturally only when it stops being productive.
 
+## REJECTED ≠ DELETED: keep the bench, the verdict, and the option (CRITICAL)
+
+When an idea / optimization / parameter is **REJECTED** after measurement, that
+verdict means exactly ONE thing: **it did not go into the defaults**. It does NOT
+mean delete the code. Today's reject is tomorrow's win on different hardware /
+data / scale — and the reproducible *negative* result is as valuable as a
+positive. Every rejected idea KEEPS all of:
+
+1. **The measuring bench / prototype, COMMITTED** (`*/_benchmarks/.../round*_*.py`),
+   runnable in one command — INCLUDING agent-created benches (commit them; never
+   leave a measured-and-rejected bench uncommitted and lost).
+2. **A tracker row with the verdict + the exact numbers + the bench filename** —
+   so re-test = re-run the named bench. Never a bare "rejected" without the deltas.
+3. **Where the idea was a tunable, the OPTION stays in prod** (e.g.
+   `redundancy_aggregator='jmim'`, `tree_rich_ops=("mul",)`, `mrmr_synergy_cap=None`);
+   only the DEFAULT is unchanged. Combinatorial ideas tested via bench-local
+   subclasses stay in the committed bench, not prod.
+4. **Never silent-revert / silent-delete.** If code at a call-site was touched,
+   leave a `# bench-attempt-rejected (date): X->Y, reason` note there.
+
+User directive (2026-06-04): "под reject ты понимаешь, что параметр не пошёл в
+дефолты, но сам код-то остался — на случай если захотим перетестировать потом" —
+yes, and commit the rejected benches too.
+
 ## pyutilz hotspots are in scope — optimize them too (CRITICAL)
 
 ``pyutilz`` (``D:/Upd/Programming/PythonCodeRepository/pyutilz``) is OUR

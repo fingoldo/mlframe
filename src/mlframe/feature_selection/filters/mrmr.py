@@ -880,9 +880,21 @@ class MRMR(BaseEstimator, TransformerMixin):
         # When the raw numeric feature count is <= this cap, the FE step augments
         # the pair pool with the UNSELECTED raw numeric columns so an all-pairs
         # joint-MI sweep (O(p^2), cheap at small p; bounded by the batch pair-MI
-        # path's MAX_K=200) screens the synergy pairs. Set 0 to disable; raise to
-        # enable on wider frames after weighing the O(p^2) cost.
-        fe_synergy_screen_max_features: int = 60,
+        # path's MAX_K=200) screens the synergy pairs. Set 0 to disable.
+        # 2026-06-04: raised 60 -> 250. The old 60 SKIPPED the bootstrap on any
+        # frame wider than 60 cols, so moderate-width frames (e.g. 220 cols) never
+        # got their interaction products engineered. MEASURED: enabling it on a
+        # 220-col frame lifts standalone MRMR downstream AUC +0.045 (and the hybrid
+        # +0.030); it is a no-op below 60 (already ran) and a no-op above 250 (still
+        # skipped). The downstream cost is bounded -- the synergy SWEEP is O(p^2)
+        # joint-MI but only the top ``fe_synergy_max_pairs`` (16) pairs proceed to
+        # the expensive per-pair search, and the sweep uses the GPU/batch pair-MI
+        # path. 250 is the cost/benefit sweet spot: it covers moderate-p frames while
+        # still skipping very-wide ones (e.g. 500+) where the O(p^2) sweep is the
+        # cost wall AND the interactions are typically not pairwise-bilinear anyway.
+        # On a VERY large n with p in (60, 250] the sweep is heavier -- lower this
+        # cap (or set 0) if FE wall-time on such a frame matters.
+        fe_synergy_screen_max_features: int = 250,
         # Budget on the number of SYNERGY pairs (>=1 operand is a bootstrap-added
         # unselected column) that proceed to the EXPENSIVE per-pair unary/binary/
         # prewarp search. On a signal-drowned-in-noise frame many noise pairs clear

@@ -1,5 +1,128 @@
 # Changelog
 
+## 2026-06-04 — MRMRTreeRescued: fix MRMR's selection-gate collapse on interaction-heavy data
+
+WHY: MRMR's marginal-MI greedy STRUCTURALLY under-selects on interaction-heavy
+data. A pure-interaction operand (``y = a*b``, XOR, sign products) has ~zero
+MARGINAL MI per operand (``E[y|a] = E[y|b] = 0`` by symmetry), so the greedy
+never selects either and the feature is lost. This is the SELECTION gate, not FE
+or binning — confirmed by the MDLP-collapse diagnostic (operands reach the greedy
+with live multi-bin representations and are still dropped) and the FE-cap bench
+(raising the synergy cap / injecting tree products does NOT help; the greedy
+discards them). On the standard madelon FS benchmark MRMR collapses to <=3
+features (downstream lgbm 0.69 vs 0.87 on all features).
+
+WHAT: a new ``MRMRTreeRescued(MRMR)`` subclass (sibling module
+``filters/_mrmr_tree_rescue.py``, re-exported from ``filters``) that adds a
+cheap, GATED rescue. After a normal MRMR fit, when the selection is small
+relative to a WIDE pool (the under-selection regime), it fits ONE shallow
+gradient-boosted tree — which branches on the informative operands regardless of
+their marginal MI — and UNIONS its top-K importance features into ``support_``.
+The rescue extends ``support_`` only, so ``transform`` / ``get_feature_names_out``
+/ ``get_support`` flow it through unchanged. New params ``tree_rescue`` ("auto"
+default — fires only on under-selection; True/"always"; False/"off" = plain
+MRMR), ``tree_rescue_top_k=20``, ``tree_rescue_min_p=60``,
+``tree_rescue_min_ratio=0.04`` / ``tree_rescue_min_features=5`` (the auto
+threshold), ``tree_rescue_n_estimators=80`` / ``tree_rescue_max_depth=3``. Task
+(classification/regression) is inferred via ``type_of_target``; the rescue
+degrades to a no-op on any error.
+
+MEASURED (3-seed, madelon): mrmr_fe 0.6885 -> +rescue 0.7999 (+0.111 mean; all
+seeds +0.10..0.12; std 0.0084; recovers the zero-marginal operands). BYTE-IDENTICAL
+no-op on synth and hard_synth (the gate does not fire where MRMR selects well) and
+on narrow frames (p <= 60). Negligible cost (one shallow GBM, ~0.4s, only when the
+gate fires). Covered by test_mrmr_tree_rescue.py (fires + recovers operands,
+narrow no-op, tree_rescue=False == MRMR, transform/pickle, biz_value lift).
+
+## 2026-06-04 — HybridSelector tree member: RICH co-occurrence operators (absdiff/signed/ratio, not just products)
+
+WHY: the tree-importance member engineered only the PRODUCT ``a*b`` of each
+co-occurrence pair. But a bilinear product cannot linearize non-product
+interactions — measured on designed beds, a linear model gets logit 0.49 on
+``y=-|a-b|`` with the product but 0.88 with ``|a-b|``, and 0.79 vs 0.88 on
+``y=sign(a)*|b|``. A capacity control (products + N noise columns DROP AUC while
+products + N rich-operator columns RAISE it) confirms the gain is the OPERATOR
+CLASS, not column count.
+
+WHAT: the tree member now engineers a small set of operators per co-occurrence
+pair (new param ``tree_rich_ops``, default ``("mul","absd","sign","rat")``):
+``a*b``, ``|a-b|``, ``sign(a)*|b|``, ``a/(|b|+1)`` (all leak-free pure functions
+of X, nan/inf-sanitised, replayed exactly at transform time). Each op-column is
+synergy-gated INDEPENDENTLY (kept only if more informative than both operands),
+so the regime self-regulation is preserved — the gate keeps the operators that
+help and drops the rest. Set ``tree_rich_ops=("mul",)`` for the prior
+products-only behaviour. Columns are named ``t{op}_{i}`` (e.g. ``tabsd_3``).
+
+MEASURED (3-seed, on top of the tree member + mrmr_synergy_cap=250): madelon
+**+0.020** mean AUC AND variance halved (std 0.0216 -> 0.0098 — it recovers the
+bad-draw seeds), hard_synth +0.004, synth -0.002 (within noise, same as the
+products-only member). Covered by test_hybrid_tree_member.py (op expansion,
+leak-free per-op replay, pickle of the (a,b,op) specs).
+
+## 2026-06-04 — HybridSelector mrmr_synergy_cap=250 default (enable the MRMR synergy bootstrap on moderate-width frames)
+
+WHY: MRMR's ``fe_synergy_screen_max_features`` defaults to 60 — its synergy
+bootstrap (which adds unselected raw columns so zero-marginal interaction pairs
+get joint-MI screened) is SKIPPED on any frame wider than 60 columns. So on a
+moderate-width frame (e.g. 220 columns) the MRMR member never engineers the
+interaction products its bootstrap would find, and the hybrid leaves that signal
+on the table.
+
+WHAT: the HybridSelector now passes ``fe_synergy_screen_max_features=mrmr_synergy_cap``
+(new param, default 250) to its MRMR member. 250 is the cost/benefit sweet spot:
+it ENABLES the bootstrap on moderate-p frames (where the O(p^2) pair sweep is
+affordable and finds real products), stays a no-op on narrow frames (<= the cap,
+the bootstrap already ran), and SKIPS the bootstrap on very-wide frames (> 250)
+where the O(p^2) cost is prohibitive and — on madelon's 5-dim XOR structure — it
+finds nothing anyway (madelon's signal is not bilinear ``a*b``).
+
+MEASURED (3-seed): hybrid hard_synth (220 cols) +0.030 mean AUC (all 3 seeds up;
+std tightens 0.0075 -> 0.0023), ADDITIVE on top of the tree-importance member.
+Byte-identical no-op on synth (52 cols) and madelon (500 > 250, cost-skipped).
+Set ``mrmr_synergy_cap=None`` to restore MRMR's own default. (Standalone MRMR
+sees the same lever — +0.045 on hard_synth — recommended to the MRMR owner to
+raise the class default.)
+
+## 2026-06-04 — HybridSelector TREE-IMPORTANCE member (co-occurrence-product FE, synergy-gated, default ON)
+
+WHY: MRMR's marginal-MI greedy structurally under-selects on interaction-heavy
+real data — on madelon (2600x500, the standard FS benchmark) it collapses to 3
+features (downstream lgbm 0.69 vs 0.87 on all features) because the informative
+operands have ~0 marginal MI and its synergy bootstrap is skipped on wide frames
+(``p > fe_synergy_screen_max_features=60``). A depth-limited GBM branches on those
+operands regardless of marginal MI, so a cheap tree pass recovers what the filter
+members miss. Measured: a standalone tree-importance + co-occurrence-product
+selector scores 0.840 on madelon (3-seed mean) vs the production hybrid's 0.805 —
+a signal the existing MRMR + ShapProxiedFS + BorutaShap composition lacked.
+
+WHAT: a fourth HybridSelector member. One shallow LightGBM (``tree_n_estimators=80``,
+``tree_max_depth=3``) yields (a) an importance ranking and (b) co-occurrence pairs —
+features that co-occur on the same root-to-leaf path, gain-weighted, are the
+interactions the tree exploits. The member folds the top co-occurrence PRODUCT
+columns (``raw[a]*raw[b]``) into the shared augmented frame and votes for them
+(plus its top-``tree_top_k`` features; default ``tree_top_k=0`` = products-only,
+which beat adding the raw votes).
+
+REGIME SELF-REGULATION: products are admitted by a SYNERGY gate
+(``tree_prod_gate="synergy"``: keep ``a*b`` only if its shared honest-FI exceeds
+BOTH operands' FI — a genuine interaction adds information beyond its parts). On
+interaction-heavy data the true products clear it; on FE-saturated data the
+redundant raw products do not (MRMR's Hermite/prewarp transforms already capture
+that signal), so the member contributes nothing there. Candidate products are
+scored by the single shared FI pass then PRUNED to the admitted set before
+clustering/voting/transform, so the gate actually binds. Products are feature
+engineering, so they are gated by ``use_fe`` (``use_fe=False`` stays raw-only).
+
+MEASURED (3-seed, default config): madelon hybrid +0.038 mean AUC (all 3 seeds
+up; downstream lgbm 0.91–0.94), hard_synth −0.0002 and synth −0.0022 (both within
+seed std = noise). Negligible fit-time cost (the shallow GBM is not a hotspot;
+boruta/perm-FI/MRMR/shap dominate). New params: ``use_tree_member`` (default
+True), ``tree_top_k=0``, ``tree_cooccur_pairs=12``, ``tree_n_estimators=80``,
+``tree_max_depth=3``, ``tree_prod_gate="synergy"``. Pickle-safe (tree replay
+pairs kept; transient ``X_aug``/``y`` dropped). Covered by
+``test_hybrid_tree_member.py`` (gate logic, signals, leakage-free product replay,
+pickle, biz_value lift).
+
 ## 2026-06-03 — ADAPTIVE-CHIRP univariate Fourier operator (quadratic-argument warp, default ON)
 
 The LINEAR-argument adaptive Fourier detector (and the fixed grid) emit

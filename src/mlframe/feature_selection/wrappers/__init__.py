@@ -19,10 +19,13 @@ from ._helpers import (
     store_averaged_cv_scores,
     suppress_irritating_3rdparty_warnings,
 )
+from ._noise_floor import select_features_noise_floor, noise_floor_plateau
 from ._rfecv import RFECV
 from ._rfecv_configs import SearchConfig, FIConfig, RobustnessConfig
 
 __all__ = [
+    "select_features_noise_floor",
+    "noise_floor_plateau",
     "OptimumSearch",
     "VotesAggregation",
     "RFECV",

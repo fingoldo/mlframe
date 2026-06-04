@@ -536,6 +536,12 @@ def create_binary_transformations(preset: str = "minimal"):
                 # Richer magnitude combinations available from medium up.
                 "abs_diff": lambda x, y: np.abs(x - y),
                 "hypot": np.hypot,
+                # Interaction shapes a bilinear product cannot linearize (measured: a linear downstream gets logit
+                # 0.49 on y=-|a-b| with the product vs 0.88 with abs_diff; 0.79 vs 0.88 on y=sign(a)*|b|; a capacity
+                # control confirms the gain is the OPERATOR CLASS, not column count). Both are leak-free pure functions
+                # (no fit) and NON-SYMMETRICAL, so the pair search must try both operand orders.
+                "signed": lambda x, y: np.sign(x) * np.abs(y),   # signed magnitude: sign(a)*|b|  (non-symmetrical!)
+                "ratio_abs": lambda x, y: x / (np.abs(y) + 1.0),  # standardized ratio a/(|b|+1), inf-safe (non-symmetrical!)
             }
         )
 

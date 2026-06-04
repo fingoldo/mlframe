@@ -235,3 +235,40 @@ def test_builtin_metrics_yield_finite_values():
     for name in ("hamming_loss", "subset_accuracy", "jaccard_samples"):
         assert name in out, f"built-in {name} must surface"
         assert np.isfinite(out[name]), f"built-in {name} must yield a finite value; got {out[name]!r}"
+
+
+def test_mtr_metrics_recover_flattened_preds(caplog):
+    """Regression: multi_target_regression metrics must compute when preds arrive
+    C-order-flattened to (N*K,) alongside a (N, K) y_true.
+
+    The reporter sometimes passes a raveled (N*K,) preds vector; pre-fix _coerce_nk
+    hit the (N,)->(N,1) fallback -> (N*K, 1), so sklearn raised "inconsistent samples
+    [N, N*K]" and every MTR metric was silently omitted from the report. _coerce_nk
+    now recovers (N, K) from the size-matched flat vector (inverse of the C-order
+    ravel), so the metrics compute and equal the values of the (N, K) path.
+    """
+    from sklearn.metrics import mean_squared_error
+
+    rng = np.random.default_rng(0)
+    N, K = 200, 3
+    y_true = rng.normal(size=(N, K))
+    preds_nk = y_true + rng.normal(scale=0.5, size=(N, K))
+    expected_rmse_macro = float(np.sqrt(mean_squared_error(y_true, preds_nk, multioutput="raw_values")).mean())
+
+    with caplog.at_level(logging.WARNING):
+        out = dict(mr.iter_extra_metrics(
+            TargetTypes.MULTI_TARGET_REGRESSION, y_true, None, preds_nk.ravel(),
+        ))
+
+    # No "omitted from report" warning -- the metrics ran rather than being skipped.
+    assert not any("omitted from report" in r.message for r in caplog.records), (
+        "MTR metrics must not be omitted when preds arrive flattened"
+    )
+    for name in ("rmse_macro", "rmse_max", "mae_macro", "r2_macro"):
+        assert name in out, f"MTR metric {name} must surface from a flattened-preds call"
+        assert np.isfinite(out[name]), f"{name} must be finite; got {out[name]!r}"
+    # Value matches the (N, K) computation -> the per-row pairing was recovered correctly.
+    assert abs(out["rmse_macro"] - expected_rmse_macro) < 1e-9, (
+        f"rmse_macro from flattened preds ({out['rmse_macro']}) must equal the (N,K) value "
+        f"({expected_rmse_macro}); a mismatch means the flat->(N,K) recovery mis-paired rows"
+    )

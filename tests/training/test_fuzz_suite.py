@@ -185,6 +185,13 @@ def _config_for_models(
         # accepted by the enum. Forwarded via COMMON_RFECV_PARAMS.update.
         "votes_aggregation_method": rfecv_votes_aggregation,
         "top_predictors_search_method": rfecv_search_method,
+        # 2026-06-04: do NOT add "cluster_reduce" (the GroupAwareMRMR cluster-medoid
+        # wrap toggle) here. It is a registry meta-param popped by
+        # registry._instantiate_rfecv before RFECV(**kwargs); but this fuzz path forwards
+        # rfecv_kwargs via COMMON_RFECV_PARAMS.update -> RFECV(**...) DIRECTLY (no registry),
+        # so cluster_reduce reaches RFECV.__init__ -> TypeError. The cluster-medoid wrap is
+        # only reachable/fuzzable via the production FeatureSelectionConfig.rfecv_models ->
+        # registry path, not this trainer-config path. (Attempted + reverted 2026-06-04.)
     }
     return cfg
 

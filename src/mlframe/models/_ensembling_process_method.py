@@ -129,7 +129,12 @@ def _process_single_ensemble_method(
     else:
         _val_mask = [el.val_preds is not None for el in level_models_and_predictions]
         _val_preds = [el.val_preds for el in level_models_and_predictions if el.val_preds is not None]
-        predictions = (p.reshape(-1, 1) for p in _val_preds)
+        # reshape(shape[0], -1) keeps the ROW axis: (N,)->(N,1) for single-target regression
+        # (bit-identical to the old reshape(-1,1)), (N,K)->(N,K) for multi_target_regression.
+        # The old reshape(-1,1) flattened (N,K)->(N*K,1), so ensemble_probabilistic_predictions
+        # saw N*K "rows" and returned confident_indices up to N*K, which then IndexError'd when
+        # indexing the per-row test_idx / *_target / *_ensembled_predictions arrays (size N).
+        predictions = (p.reshape(p.shape[0], -1) for p in _val_preds)
 
     val_ensembled_predictions, _, val_confident_indices = ensemble_probabilistic_predictions(
         *predictions,
@@ -156,7 +161,7 @@ def _process_single_ensemble_method(
     else:
         _test_mask = [el.test_preds is not None for el in level_models_and_predictions]
         _test_preds = [el.test_preds for el in level_models_and_predictions if el.test_preds is not None]
-        predictions = (p.reshape(-1, 1) for p in _test_preds)
+        predictions = (p.reshape(p.shape[0], -1) for p in _test_preds)  # preserve row axis for multi-target (see val-branch note)
 
     test_ensembled_predictions, _, test_confident_indices = ensemble_probabilistic_predictions(
         *predictions,
@@ -208,7 +213,7 @@ def _process_single_ensemble_method(
         # Re-walk so every member's fallback decision is recorded (probe call above counts index 0 only if it fell back; clear and re-probe symmetrically across all members).
         _fallback_used.clear()
         predictions = [_oof_or_train(el, "oof_preds", "train_preds", _i) for _i, el in enumerate(level_models_and_predictions)]
-        predictions = [el.reshape(-1, 1) if (el is not None) else el for el in predictions]
+        predictions = [el.reshape(el.shape[0], -1) if (el is not None) else el for el in predictions]  # preserve row axis for multi-target (see val-branch note)
     else:
         predictions = []
 

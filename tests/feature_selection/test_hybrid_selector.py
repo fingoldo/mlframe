@@ -145,7 +145,9 @@ def test_fe_default_augments_and_transform_replays():
     h = HybridSelector(vote=1, use_fe=True, random_state=0).fit(X, y)
     assert inspect_default("use_fe") is True                  # FE is the shipped default
     assert set(X.columns) <= set(h.fi_)                       # shared FI spans raw (+ any engineered)
-    eng_cols = set(h._eng_rename.values())
+    # engineered = MRMR-engineered cols + the tree member's co-occurrence PRODUCT cols (both folded into X_aug and
+    # counted by n_engineered_); the tree member is default-ON and also FE-gated, so its products count as engineered.
+    eng_cols = set(h._eng_rename.values()) | set(getattr(h, "_tree_prod_names_", []))
     assert h.n_engineered_ == len([c for c in h.raw_selected_ if c in eng_cols])
     Z = h.transform(X)                                        # transform must replay engineering, not KeyError
     assert list(Z.columns) == [c for c in h.raw_selected_ if c in Z.columns]
