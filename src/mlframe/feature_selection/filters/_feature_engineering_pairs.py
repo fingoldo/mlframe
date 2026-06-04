@@ -62,6 +62,39 @@ _FE_MARGINAL_UPLIFT_MIN_RATIO: float = 1.30
 # either much lower or -- when high -- comes with a marginal uplift that fails the bar above).
 _FE_MARGINAL_UPLIFT_MIN_JOINT_RATIO: float = 0.82
 
+# MEDIAN-GATE pseudo-unary (2026-06-04). Mirrors ``_PREWARP_UNARY`` exactly: it
+# lives in the same namespace as the real unary names (``identity``, ``sqr``, ...)
+# so it flows through combination generation, naming, and survivor packing
+# untouched; materialisation and recipe construction special-case it via this
+# constant. ``gate_med(x) = (x > train_median_x).astype(float)`` -- a STATEFUL
+# pseudo-unary whose only fitted state is one float (the TRAIN median of the
+# operand). Combined with the existing ``mul`` binary it expresses the
+# median-gated operators ``(a > median_a) * b`` (gated_med) and
+# ``(a > median_a) & (b > median_b)`` -> via ``mul(gate_med(a), gate_med(b))``
+# (thr_and_med). Measured (skew bench) gated_med +0.0355 / thr_and_med +0.0435
+# downstream-AUC d_mean vs raw, beating plain products (+0.022/+0.020) and
+# threshold-0 gates (+0.009/+0.0001) -- the median adapts the split to each
+# operand's distribution. The fit is a single ``np.median`` (no overfit risk,
+# no held-out validation needed), the produced column is a closed-form function
+# of ``x`` + the stored median, so replay is leak-safe; the gate still passes
+# every existing FE prevalence / MI acceptance gate like any engineered feature.
+_GATE_MED_UNARY = "gate_med"
+
+# Reserved (never-colliding, length-3) key for the fitted median specs in the
+# result dict (loky-parallel recovery path). Distinct from the prewarp key.
+_GATE_MED_SPECS_RESULT_KEY = ("__gate_med_specs__", -1, -1)
+
+
+def _gate_med_apply(vals: np.ndarray, median: float) -> np.ndarray:
+    """Replay the median-gate pseudo-unary closed-form: ``(x > train_median).astype(float)``.
+
+    NaN inputs (``x > median`` is False for NaN) collapse to 0.0, matching the
+    downstream nan_to_num scrubbing. Returns float64 so the binary combine + MI
+    discretisation see a continuous-typed 0/1 column (same dtype contract as the
+    real unaries). The ``median`` is the TRAIN-fitted float; passing it in keeps
+    this function pure (no y, no recompute) -> leak-safe at transform time."""
+    return (np.asarray(vals, dtype=np.float64) > float(median)).astype(np.float64)
+
 
 def _select_single_best(perf: dict, cols_names: Sequence, secondary: dict | None = None):
     """Pick ONE winning ``config`` from a ``{config: mi}`` mapping.
@@ -236,6 +269,28 @@ def check_prospective_fe_pairs(
     # operands at small n; 0.0 disables (legacy in-sample-only fit).
     prewarp_min_val_corr: float = 0.08,
     prewarp_specs_out: dict | None = None,
+    # PER-OPERAND MEDIAN GATE (2026-06-04). When ``fe_gate_med_enable`` is True the
+    # unary/binary search gains, per raw operand, one extra "pseudo-unary"
+    # ``gate_med(x) = (x > train_median_x).astype(float)``. Combined with the
+    # existing ``mul`` binary this lets the elementary path represent the
+    # median-gated operators ``(a > median_a) * b`` (``mul(gate_med(a), b)``) and
+    # the conjunction ``(a > median_a) & (b > median_b)``
+    # (``mul(gate_med(a), gate_med(b))``) that a bilinear product cannot -- the
+    # signal is non-product / conditional. Unlike a fixed threshold-0 gate, the
+    # median ADAPTS the split to each operand's distribution, so it recovers the
+    # gate on shifted / skewed operands where threshold-0 is useless (measured
+    # skew-bench: gated_med +0.0355 / thr_and_med +0.0435 downstream-AUC d_mean
+    # vs raw, beating products +0.022/+0.020 and threshold-0 +0.009/+0.0001).
+    # The fitted state is ONE float per operand (the TRAIN median), stored in the
+    # recipe by ``_mrmr_fe_step`` for leak-safe closed-form replay (no y, no
+    # test-time recompute). The median does not overfit, so -- unlike prewarp --
+    # NO held-out validation is needed; the gate is still subject to the same
+    # MI-prevalence / external-validation acceptance gates every engineered
+    # feature passes (it competes on equal footing in the per-pair MI sweep and
+    # wins via ``best_mi`` only where the conditional form genuinely beats the
+    # library). Default OFF so behaviour is byte-identical when not requested.
+    fe_gate_med_enable: bool = False,
+    gate_med_specs_out: dict | None = None,
 ):
     # Starting from the most heavily connected pairs, create a big pool of original features + their unary transforms. Individual vars referenced more than once go
     # to the global pool, the rest to the local (not stored)?
@@ -396,12 +451,44 @@ def check_prospective_fe_pairs(
             if _vb not in _prewarp_spec_by_var:
                 _prewarp_spec_by_var[_vb] = _sb
 
+    # PER-OPERAND MEDIAN GATE setup (2026-06-04). When enabled, fit ONE TRAIN
+    # median per raw operand (on the subsample-aligned slice, exactly like the
+    # operand values the unary search consumes) and expose it as an extra
+    # pseudo-unary named ``_GATE_MED_UNARY``. The fit is a single ``np.median``
+    # per operand -- no supervision, no held-out validation (a median does not
+    # overfit). The fitted float per var is kept in ``_gate_med_median_by_var``
+    # for survivor recipe construction; the gated 0/1 column is written into
+    # ``transformed_vars`` like any other unary. Operands missing from
+    # ``original_cols`` or with no usable variance leave the pseudo-unary
+    # unregistered for that var (search falls back to the real unaries).
+    _gate_med_active = bool(fe_gate_med_enable)
+    _gate_med_median_by_var: dict[int, float] = {}
+    if _gate_med_active:
+        for (raw_vars_pair, _), _ in prospective_pairs.items():
+            for _gv in raw_vars_pair:
+                if _gv in _gate_med_median_by_var:
+                    continue
+                if _gv not in original_cols:
+                    continue
+                if isinstance(X, pd.DataFrame):
+                    _gvals = X.iloc[:, original_cols[_gv]].values
+                else:
+                    _gvals = X[:, original_cols[_gv]].to_numpy()
+                _gf = np.asarray(_gvals, dtype=np.float64)
+                # Reject no-variance operands (a constant gate is dead).
+                _gmed = float(np.nanmedian(_gf)) if _gf.size else 0.0
+                if not np.isfinite(_gmed):
+                    continue
+                _gate_med_median_by_var[_gv] = _gmed
+
     # Effective unary name list: the real registry plus the pre-warp pseudo-unary
     # when active. Used everywhere a per-pair combination over unary names is
     # built so the pseudo-unary participates exactly like a real one.
     _unary_names_eff = list(unary_transformations.keys())
     if _prewarp_active:
         _unary_names_eff = _unary_names_eff + [_PREWARP_UNARY]
+    if _gate_med_active:
+        _unary_names_eff = _unary_names_eff + [_GATE_MED_UNARY]
 
     # Exact preallocation. ``n_pairs * n_unary * 2`` over-counts because (var, tr_name) keys are de-duplicated in ``vars_transformations``; the unique-key set is the
     # true upper bound.
@@ -512,11 +599,20 @@ def check_prospective_fe_pairs(
                 if tr_name == _PREWARP_UNARY:
                     if _prewarp_spec_by_var.get(var) is None:
                         continue
+                # Median-gate pseudo-unary: skip vars with no fitted median (no
+                # variance / not in original_cols). The fitted float is stashed
+                # in ``_gate_med_median_by_var`` for survivor recipe construction
+                # (leak-safe replay from the stored median alone).
+                if tr_name == _GATE_MED_UNARY:
+                    if var not in _gate_med_median_by_var:
+                        continue
                 if key not in vars_transformations:
                     try:
                         if tr_name == _PREWARP_UNARY:
                             with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
                                 transformed_vars[:, i] = apply_operand_prewarp(vals, _prewarp_spec_by_var[var])
+                        elif tr_name == _GATE_MED_UNARY:
+                            transformed_vars[:, i] = _gate_med_apply(vals, _gate_med_median_by_var[var])
                         elif "poly_" in tr_name:
                             transformed_vars[:, i] = hermval(vals, c=tr_func)
                         else:
@@ -1041,6 +1137,7 @@ def check_prospective_fe_pairs(
                                 config, _X_full, original_cols,
                                 unary_transformations, binary_transformations,
                                 prewarp_spec_by_var=_prewarp_spec_by_var,
+                                gate_med_median_by_var=_gate_med_median_by_var,
                             )
                         elif final_transformed_vals is not None:
                             _col_full = final_transformed_vals[:, i]
@@ -1116,5 +1213,14 @@ def check_prospective_fe_pairs(
         if prewarp_specs_out is not None:
             prewarp_specs_out.update(_fitted_specs)
         res[_PREWARP_SPECS_RESULT_KEY] = _fitted_specs
+
+    # Same dual-channel export for the fitted per-operand TRAIN medians so the
+    # caller can persist them in each survivor recipe for leak-safe replay. The
+    # value is a single float per cols-space var index.
+    _fitted_medians = {_v: float(_m) for _v, _m in _gate_med_median_by_var.items()}
+    if _fitted_medians:
+        if gate_med_specs_out is not None:
+            gate_med_specs_out.update(_fitted_medians)
+        res[_GATE_MED_SPECS_RESULT_KEY] = _fitted_medians
 
     return res

@@ -653,6 +653,15 @@ def _run_fe_step(
         _prewarp_min_val_corr = float(getattr(self, "fe_pair_prewarp_min_val_corr", 0.08))
         _prewarp_specs: dict = {}
 
+        # PER-OPERAND MEDIAN GATE (2026-06-04): opt-in flag off the MRMR instance
+        # (getattr keeps the signature stable, mirroring the prewarp wiring). When
+        # enabled, ``check_prospective_fe_pairs`` fits one TRAIN median per operand
+        # and exposes a ``gate_med`` pseudo-unary; ``_gate_med_specs`` collects the
+        # fitted medians (by cols-space var index) for leak-safe recipe
+        # construction. Default OFF -> byte-identical legacy path.
+        _gate_med_enable = bool(getattr(self, "fe_gate_med_enable", False))
+        _gate_med_specs: dict = {}
+
         if len(X) < 50_000 or len(prospective_pairs) < 2:
             prospective_additions = check_prospective_fe_pairs(
                 prospective_pairs,
@@ -687,6 +696,8 @@ def _run_fe_step(
                 prewarp_uplift_threshold=_prewarp_uplift,
                 prewarp_min_val_corr=_prewarp_min_val_corr,
                 prewarp_specs_out=_prewarp_specs,
+                fe_gate_med_enable=_gate_med_enable,
+                gate_med_specs_out=_gate_med_specs,
             )
         else:
 
@@ -748,6 +759,8 @@ def _run_fe_step(
                         prewarp_uplift_threshold=_prewarp_uplift,
                         prewarp_min_val_corr=_prewarp_min_val_corr,
                         prewarp_specs_out=None,  # loky: recovered from result dict below
+                        fe_gate_med_enable=_gate_med_enable,
+                        gate_med_specs_out=None,  # loky: recovered from result dict below
                     )
                     for chunk in jobs_list
                 ],
@@ -762,10 +775,14 @@ def _run_fe_step(
         # into its result dict (so loky-parallel chunks can return specs); merge
         # into ``_prewarp_specs`` and remove it so the pair loop below never
         # treats it as a ``raw_vars_pair``.
-        from ._feature_engineering_pairs import _PREWARP_SPECS_RESULT_KEY
+        from ._feature_engineering_pairs import _PREWARP_SPECS_RESULT_KEY, _GATE_MED_SPECS_RESULT_KEY
         _pw_from_res = prospective_additions.pop(_PREWARP_SPECS_RESULT_KEY, None)
         if _pw_from_res:
             _prewarp_specs.update(_pw_from_res)
+        # Same recovery for the per-operand TRAIN medians (loky-parallel path).
+        _gm_from_res = prospective_additions.pop(_GATE_MED_SPECS_RESULT_KEY, None)
+        if _gm_from_res:
+            _gate_med_specs.update(_gm_from_res)
 
         # ROOT CAUSE 5 fix (2026-06-01): collect the cols-space indices of the
         # engineered columns appended below so they can be added DIRECTLY to
@@ -892,6 +909,12 @@ def _run_fe_step(
                             # recipe so replay reproduces the closed-form warp.
                             _pw_a = _prewarp_specs.get(var_a_idx) if unary_a_name == "prewarp" else None
                             _pw_b = _prewarp_specs.get(var_b_idx) if unary_b_name == "prewarp" else None
+                            # Per-operand median gate: when a side used the
+                            # ``gate_med`` pseudo-unary, hand its fitted TRAIN
+                            # median to the recipe so replay reproduces the
+                            # closed-form ``(x > median)`` gate.
+                            _gm_a = _gate_med_specs.get(var_a_idx) if unary_a_name == "gate_med" else None
+                            _gm_b = _gate_med_specs.get(var_b_idx) if unary_b_name == "gate_med" else None
                             engineered_recipes[eng_name] = build_unary_binary_recipe(
                                 name=eng_name,
                                 src_a_name=src_a_name_raw,
@@ -907,6 +930,8 @@ def _run_fe_step(
                                 fit_values_for_edges=_fit_vals,
                                 prewarp_a=_pw_a,
                                 prewarp_b=_pw_b,
+                                gate_med_a=_gm_a,
+                                gate_med_b=_gm_b,
                             )
 
                 n_recommended_features += len(this_pair_features)

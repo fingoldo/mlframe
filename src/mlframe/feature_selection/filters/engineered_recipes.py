@@ -771,16 +771,20 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     name_a, name_b = recipe.src_names
     u_a, u_b = recipe.unary_names
 
-    # The learned ``prewarp`` pseudo-unary (2026-06-02) is NOT a member of any
-    # preset registry; its closed-form replay reads the fit-time coeffs stored
-    # in ``recipe.extra``. Validate only the REAL unary names against the preset.
+    # The learned ``prewarp`` (2026-06-02) and ``gate_med`` (2026-06-04)
+    # pseudo-unaries are NOT members of any preset registry; their closed-form
+    # replay reads the fit-time state stored in ``recipe.extra`` (prewarp: poly
+    # coeffs; gate_med: the TRAIN median). Validate only the REAL unary names
+    # against the preset.
     _PREWARP = "prewarp"
-    if u_a != _PREWARP and u_a not in unary_funcs:
+    _GATE_MED = "gate_med"
+    _PSEUDO = (_PREWARP, _GATE_MED)
+    if u_a not in _PSEUDO and u_a not in unary_funcs:
         raise KeyError(
             f"Unary function '{u_a}' not in '{recipe.unary_preset}' preset. "
             f"Replay requires the same preset that was active at fit time."
         )
-    if u_b != _PREWARP and u_b not in unary_funcs:
+    if u_b not in _PSEUDO and u_b not in unary_funcs:
         raise KeyError(
             f"Unary function '{u_b}' not in '{recipe.unary_preset}' preset."
         )
@@ -794,6 +798,19 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     vals_b = _extract_column(X, name_b)
 
     def _apply_side(side: str, uname: str, vals):
+        if uname == _GATE_MED:
+            # Median-gate pseudo-unary: replay closed-form ``(x > train_median)``
+            # from the single fit-time median float stored in ``extra`` (no y, no
+            # test-time recompute -> leak-safe and bit-identical to fit).
+            _mkey = f"gate_med_{side}_median"
+            if _mkey not in recipe.extra:
+                raise KeyError(
+                    f"unary_binary recipe '{recipe.name}' uses the 'gate_med' "
+                    f"pseudo-unary on side {side!r} but '{_mkey}' is missing from "
+                    f"extra. Re-fit MRMR to regenerate the recipe."
+                )
+            from ._feature_engineering_pairs import _gate_med_apply
+            return _gate_med_apply(vals, float(recipe.extra[_mkey]))
         if uname != _PREWARP:
             return unary_funcs[uname](vals)
         # Reconstruct the pre-warp spec from the flat ``extra`` fields and replay
@@ -1018,6 +1035,8 @@ def build_unary_binary_recipe(
     fit_values_for_edges: np.ndarray | None = None,
     prewarp_a: dict | None = None,
     prewarp_b: dict | None = None,
+    gate_med_a: float | None = None,
+    gate_med_b: float | None = None,
 ) -> EngineeredRecipe:
     """Build an ``EngineeredRecipe`` of kind ``"unary_binary"``. ``quantization`` is ``None`` if no discretization, else a dict carrying the binning
     parameters AND, when ``fit_values_for_edges`` is provided, the fit-time bin edges so transform-time replay maps each row to the SAME bin
@@ -1073,6 +1092,14 @@ def build_unary_binary_recipe(
         extra[f"prewarp_{_side}_degree"] = int(_spec["degree"])
         extra[f"prewarp_{_side}_coef"] = np.asarray(_spec["coef"], dtype=np.float64).copy()
         extra[f"prewarp_{_side}_preprocess"] = _orjson_pp(_spec["preprocess"])
+    # Per-operand median gate (2026-06-04): when a side used the ``gate_med``
+    # pseudo-unary, persist its single TRAIN-median float FLAT in ``extra`` so
+    # replay reproduces ``(x > median)`` from x alone (leak-safe; no y). A plain
+    # float is JSON-friendly and ``_extra_equal``-comparable as a scalar.
+    for _side, _med in (("a", gate_med_a), ("b", gate_med_b)):
+        if _med is None:
+            continue
+        extra[f"gate_med_{_side}_median"] = float(_med)
     return EngineeredRecipe(
         name=name,
         kind="unary_binary",

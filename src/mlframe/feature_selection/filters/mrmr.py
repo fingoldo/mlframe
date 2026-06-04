@@ -556,6 +556,29 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_pair_prewarp_enable: bool = True,
         fe_pair_prewarp_basis: str = "chebyshev",
         fe_pair_prewarp_max_degree: int = 4,
+        # 2026-06-04 — PER-OPERAND MEDIAN GATE for the elementary unary/binary
+        # pair search. Default OFF -> byte-identical legacy path. When True, the
+        # unary/binary search gains, per raw operand, a ``gate_med`` pseudo-unary
+        # ``(x > train_median_x).astype(float)`` alongside ``identity/sqr/log/...``.
+        # Combined with the existing ``mul`` binary it expresses the median-gated
+        # operators the bilinear product cannot: ``(a > median_a) * b`` (gated_med,
+        # via ``mul(gate_med(a), b)``) and the conjunction
+        # ``(a > median_a) & (b > median_b)`` (thr_and_med, via
+        # ``mul(gate_med(a), gate_med(b))``). The median ADAPTS the split to each
+        # operand's distribution, so it recovers the gate on shifted / skewed
+        # operands where a fixed threshold-0 gate is useless (measured skew-bench:
+        # gated_med +0.0355 / thr_and_med +0.0435 downstream-AUC d_mean vs raw,
+        # beating products +0.022/+0.020 and threshold-0 +0.009/+0.0001). The
+        # fitted state is ONE float per operand (the TRAIN median) -- it cannot
+        # overfit, so (unlike the prewarp) no held-out validation is needed; the
+        # gate still passes every existing MI-prevalence / external-validation
+        # acceptance gate (it competes on equal footing in the per-pair MI sweep
+        # and wins only where the conditional form beats the library). The median
+        # is stored in the EngineeredRecipe for leak-safe, y-free closed-form
+        # replay at transform() time. Orthogonal to every other FE knob.
+        # Default OFF (opt-in): the rich-ops cost finding says do not tax the
+        # default minimal path; opt-in is correct.
+        fe_gate_med_enable: bool = False,
         # Minimum (best-prewarp-MI / best-nonprewarp-MI) ratio for the prewarp
         # alternative-acceptance path past the joint-MI-prevalence gate. The
         # prewarp feature must beat the elementary library by this factor to be
@@ -2102,6 +2125,9 @@ class MRMR(BaseEstimator, TransformerMixin):
             "fe_pair_prewarp_basis": "chebyshev",
             "fe_pair_prewarp_max_degree": 4,
             "fe_pair_prewarp_uplift_threshold": 1.20,
+            # 2026-06-04 — per-operand median gate for the unary/binary pair
+            # search. OFF by default; legacy pickles unpickle to "gate disabled".
+            "fe_gate_med_enable": False,
             "fe_hybrid_orth_enable": False,
             "fe_hybrid_orth_degrees": (2, 3),
             "fe_hybrid_orth_basis": "auto",
