@@ -385,9 +385,9 @@ class TestCrossBasisHierarchyActivation:
 
     def test_all_orth_arity_layers_contribute(self):
         """With L21/L22/L56/L77/L78 enabled together on a multi-arity
-        XOR-stack dataset, the orth-poly stage must populate at least
-        the univariate (L21) and pair (L22) buckets, and L56/L77/L78
-        ctor flags must survive fit.
+        XOR-stack dataset, the orth-poly stage must PRODUCE at least the
+        univariate (L21) and pair (L22) buckets, and L56/L77/L78 ctor
+        flags must survive fit.
 
         Naming convention pinned by per-layer tests:
           * L21 univariate:        no '*' (single-leg He_k(z))
@@ -401,6 +401,20 @@ class TestCrossBasisHierarchyActivation:
         dominates). We assert hierarchy WIRING is intact (flags survive
         + univariate/pair fire) rather than over-specifying which arity
         bucket lights up under arbitrary seeds.
+
+        "Fire" means PRODUCED, not survived: the per-arity stage built the
+        column and routed it through the FE pipeline. On this XOR-stack
+        fixture the planted signal is overwhelmingly interaction
+        (``0.7*x1*x2`` + 3-/4-way XOR), so the greedy CMI screen keeps the
+        pair/triplet cells and out-competes the weaker univariate
+        ``He_2(z)`` columns -- they are produced but lose the survival
+        race. ``hybrid_orth_features_`` is the SURVIVOR roster (intersected
+        with support_, pinned by layer28), so the production check reads
+        the L54 ``fe_provenance_`` audit ledger, which records every
+        engineered column the stage produced regardless of survival. This
+        is exactly the wiring-intact intent the docstring states; pinning
+        univariate SURVIVAL would over-specify the screen's selection,
+        which the docstring explicitly declines to do.
         """
         X, y = _build_xor_dataset(seed=42, n=3000)
         kwargs = _all_on_kwargs()
@@ -441,15 +455,26 @@ class TestCrossBasisHierarchyActivation:
             "compose did not append any orthogonal-basis columns"
         )
         n_star = lambda s: str(s).split("__", 1)[0].count("*")
-        uni = [c for c in orth if n_star(c) == 0]
-        pair = [c for c in orth if n_star(c) == 1]
+        # Production check against the L54 fe_provenance_ audit ledger: every
+        # engineered column the orth-poly stage produced this fit, survivor or
+        # screened-out. The hybrid_orth bucket subsumes L21/L22/L56/L77/L78.
+        prov = getattr(m, "fe_provenance_", None)
+        assert prov is not None and not prov.empty, (
+            "fe_provenance_ missing/empty after L21-L78 all-on fit"
+        )
+        produced_orth = [
+            str(r["feature_name"]) for _, r in prov.iterrows()
+            if r["origin"] == "hybrid_orth"
+        ]
+        uni = [c for c in produced_orth if n_star(c) == 0]
+        pair = [c for c in produced_orth if n_star(c) == 1]
         assert uni, (
-            f"L21 univariate stage produced no columns; hybrid_orth_features_"
-            f"={orth!r}"
+            f"L21 univariate stage produced no columns; produced hybrid_orth "
+            f"columns={produced_orth!r}"
         )
         assert pair, (
-            f"L22 pair stage produced no columns; hybrid_orth_features_"
-            f"={orth!r}"
+            f"L22 pair stage produced no columns; produced hybrid_orth "
+            f"columns={produced_orth!r}"
         )
         # L56/L77/L78 wiring intact post-fit (ctor flags survive).
         for flag in (

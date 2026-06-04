@@ -14,8 +14,17 @@ contribution?". Pre-Layer-54 the answer required querying ~13 scattered
 DESIGN
 ------
 ``fe_provenance_`` is a pandas DataFrame populated at the very end of
-``fit()`` with one row per name that survives into the final transform
-output (raw selected + engineered with replayable recipe). Columns:
+``fit()``. It is an AUDIT TRAIL: one row per raw column that survived into
+support_ PLUS one row per engineered column the FE pipeline PRODUCED this
+fit -- including columns the greedy CMI screen / accuracy gate / cross-stage
+dedup dropped before support finalisation. Survivors carry their real greedy
+gain + support_rank; screened-out engineered columns carry NaN gain /
+support_rank -1 but DO carry their mechanism origin, so a downstream audit /
+pickle-replay can recover which mechanism produced every engineered column
+even when it lost the greedy competition. (The user-facing survivor rosters
+``hybrid_orth_features_`` etc. stay intersected with support_ -- pinned by
+layer28 -- so this produced-set completeness lives in fe_provenance_ alone.)
+Columns:
 
 - ``feature_name`` : the column name in ``support_`` / engineered output.
 - ``origin`` : a categorical label drawn from the
@@ -253,18 +262,13 @@ def _greedy_rank_for_name(name: str, predictors: Iterable[Any]) -> int:
 
 
 def _final_feature_order(mrmr_self: Any) -> list[str]:
-    """Return ``support_`` raw names followed by engineered names in the
-    order they appear in ``_engineered_recipes_``. Mirrors the column
-    order produced by ``transform()`` so the provenance DataFrame can be
-    zipped against transform output positionally.
+    """Return ``support_`` raw names followed by every engineered name the FE pipeline PRODUCED this fit (in production order). Survivor names come first (mirroring ``transform()`` column order so the
+    provenance DataFrame zips positionally against transform output), then any engineered column the greedy CMI screen / accuracy gate / cross-stage dedup dropped before support finalisation.
 
-    Layer 64 (2026-05-31): also drain every roster attribute the
-    transform path replays (L34 count/freq/cat-num, L37 missingness
-    indicator/count/pattern, L38 pairwise_ratio / pairwise_log_ratio /
-    grouped_delta / lagged_diff) so each enabled mechanism contributes
-    at least one row to ``fe_provenance_``. Without this, downstream
-    audit / replay paths see "engineered_unknown" or no row at all for
-    every roster-driven (non-recipe) mechanism."""
+    The dropped-but-produced names are drained from ``_produced_recipes_`` -- the read-only audit ledger snapshotted in ``_mrmr_fit_impl`` before the screen ran. They are REQUIRED for the audit / pickle-
+    replay paths to recover which mechanism produced each engineered column even when it lost the greedy competition; without them a healthy fit on a kitchen-sink frame where the screen keeps only the
+    strongest ~5 of ~18 produced columns would mislabel the ledger as "only 3-5 mechanisms fired" when in fact ~12 did. The survivor-only rosters (``hybrid_orth_features_`` etc.) stay intersected with
+    support_ (pinned by layer28), so this completeness is carried by fe_provenance_ alone, not by the user-facing rosters."""
     names: list[str] = []
     seen: set[str] = set()
 
@@ -289,11 +293,8 @@ def _final_feature_order(mrmr_self: Any) -> list[str]:
     engineered_recipes = getattr(mrmr_self, "_engineered_recipes_", None) or ()
     for recipe in engineered_recipes:
         _append(getattr(recipe, "name", None))
-    # Drain every roster attribute the transform path replays so each
-    # enabled mechanism shows up in fe_provenance_ even when no recipe
-    # object was emitted by the FE step (the L34/L37/L38 stages store
-    # their outputs as roster names + replay logic, not as
-    # EngineeredRecipe instances).
+    # Drain every survivor roster the transform path replays so each surviving mechanism shows up even when no recipe object was emitted by the FE step (the L34/L37/L38 stages store their outputs as
+    # roster names + replay logic, not as EngineeredRecipe instances). Rosters are post-reconciliation (survivor-only), so this never adds a screened-out name.
     for attr, _label in _ROSTER_ATTR_TO_ORIGIN:
         roster = getattr(mrmr_self, attr, None)
         if roster is None:
@@ -303,6 +304,11 @@ def _final_feature_order(mrmr_self: Any) -> list[str]:
                 _append(nm)
         except Exception:
             continue
+    # Audit-trail completion: append every engineered column the FE stages PRODUCED but the screen / gate / dedup dropped. These carry no greedy rank (rank -1, NaN gain) but DO carry their origin so the
+    # ledger reflects the full set of mechanisms that fired, not just the survivors.
+    produced = getattr(mrmr_self, "_produced_recipes_", None) or ()
+    for recipe in produced:
+        _append(getattr(recipe, "name", None))
     return names
 
 
@@ -322,11 +328,19 @@ def compute_fe_provenance(mrmr_self: Any) -> pd.DataFrame:
 
     feature_names_in = list(mrmr_self.feature_names_in_)
     engineered_recipes = list(getattr(mrmr_self, "_engineered_recipes_", []) or [])
+    # Index BOTH the survivor recipes and the full produced-recipes ledger by name so every engineered column -- survivor or screened-out -- resolves to its true origin via its recipe.kind rather than
+    # falling through to "engineered_unknown". Survivor recipes take precedence (same object when both contain a name); the produced ledger only ADDS the dropped names.
+    produced_recipes = list(getattr(mrmr_self, "_produced_recipes_", []) or [])
     recipe_by_name = {
+        str(getattr(r, "name", "")): r
+        for r in produced_recipes
+        if getattr(r, "name", None) is not None
+    }
+    recipe_by_name.update({
         str(getattr(r, "name", "")): r
         for r in engineered_recipes
         if getattr(r, "name", None) is not None
-    }
+    })
     predictors = getattr(mrmr_self, "_predictors_log_", None) or ()
     # mrmr_gains_ is in greedy selection order (set in _mrmr_fit_impl ~line
     # 2169). Index by position when the name lines up; fall back to NaN.

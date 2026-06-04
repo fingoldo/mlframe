@@ -5821,6 +5821,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     len(_readd_miss), [cols[i] for i in _readd_miss],
                 )
 
+    # PRODUCED-RECIPES AUDIT LEDGER: ``engineered_recipes`` at this point holds EVERY recipe the FE stages produced this fit, before the greedy CMI screen / accuracy gate / cross-stage dedup drop the
+    # weaker candidates. ``self._engineered_recipes_`` (built just below) carries only the survivors -- it is intersected with support_ so the user-facing rosters stay a subset of get_feature_names_out()
+    # (pinned by layer28). The audit / pickle-replay paths, however, need to recover WHICH mechanism produced each engineered column even when the screen dropped it, so snapshot the full produced set here
+    # as a separate read-only ledger. fe_provenance_ reads this to emit one row per produced engineered column (survivors get their real greedy gain/rank, screened-out ones get NaN gain / rank -1).
+    self._produced_recipes_ = list(engineered_recipes.values())
+
     # ---------------------------------------------------------------------------------------------------------------
     # selected_vars: cols-indices -> names -> original-frame indices (categorize_dataset may rearrange cat columns).
     # ---------------------------------------------------------------------------------------------------------------

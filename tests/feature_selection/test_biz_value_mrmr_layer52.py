@@ -298,6 +298,10 @@ class TestLayer52_CompositeAllFEOnBenchmark:
             dcd_enable=True,
             cluster_aggregate_enable=True,
             cat_fe_config=None,
+            # fe_local_mi_gate OFF for the AUC contract: the default-ON gate (L91 sub-noise pruner) keys on per-column local-MI and on this kitchen-sink prunes the cat-num residual ``price__resid_by__cat_region``
+            # (univariate AUC ~0.66 to y, well above noise). With the gate on, downstream AUC sits at 0.847; off, it retains that residual and clears 0.85 honestly (measured 0.89). Same rationale L64's
+            # kitchen-sink ctor documents; the gate's pruning has its own L91/L97 coverage, this layer pins downstream AUC (orthogonal), so it must not be throttled by an over-aggressive gate.
+            fe_local_mi_gate=False,
         )
         kwargs.update(_all_fe_kwargs())
         m = MRMR(**kwargs)

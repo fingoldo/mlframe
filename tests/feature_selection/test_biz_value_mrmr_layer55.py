@@ -236,3 +236,110 @@ class TestLayer55_CompositeAllOnViaPartialFit:
             f"_engineered_recipes_ count="
             f"{len(getattr(m, '_engineered_recipes_', []) or [])}"
         )
+
+
+class TestLayer55_ProvenanceAuditTrail:
+    """Regression sensor for the produced-recipes audit ledger.
+
+    ``fe_provenance_`` is an AUDIT TRAIL, not a survivor list: it must
+    surface every engineered column the FE stages PRODUCED this fit, even
+    the ones the greedy CMI screen / accuracy gate / cross-stage dedup
+    dropped before support finalisation. Pre-fix, ``fe_provenance_`` drained
+    only the post-reconciliation survivor rosters, so on a kitchen-sink
+    frame where the screen keeps the strongest ~5 of ~18 produced columns
+    the ledger reported only 3-5 mechanisms -- the audit / pickle-replay
+    path could no longer recover which mechanism produced each engineered
+    column. The fix snapshots the full produced set into
+    ``_produced_recipes_`` before the screen runs and emits one ledger row
+    per produced column (survivors keep their greedy rank; screened-out
+    columns get support_rank == -1).
+    """
+
+    def _build(self):
+        from mlframe.feature_selection.filters.mrmr import MRMR
+
+        X, y = _kitchen_sink(seed=42, n=2000)
+        kwargs = dict(
+            verbose=0,
+            interactions_max_order=1,
+            fe_max_steps=0,
+            random_seed=0,
+            fe_ntop_features=60,
+            quantization_nbins=10,
+            dcd_enable=True,
+            cluster_aggregate_enable=True,
+            cat_fe_config=None,
+        )
+        kwargs.update(_all_fe_kwargs())
+        m = MRMR(**kwargs).fit(X, y)
+        return m, X
+
+    def test_provenance_covers_every_produced_recipe(self):
+        m, _ = self._build()
+        produced_names = {
+            str(r.name) for r in (getattr(m, "_produced_recipes_", []) or [])
+            if getattr(r, "name", None) is not None
+        }
+        assert produced_names, (
+            "kitchen-sink all-on fit produced 0 engineered recipes; the FE "
+            "pipeline regressed (no stage emitted a recipe)."
+        )
+        prov_names = set(m.fe_provenance_["feature_name"].astype(str).tolist())
+        missing = produced_names - prov_names
+        assert not missing, (
+            f"fe_provenance_ is missing rows for produced engineered "
+            f"columns: {sorted(missing)!r}. The audit ledger must surface "
+            f"every column the FE stages produced, survivor or not."
+        )
+
+    def test_screened_out_columns_carry_audit_rank_minus_one(self):
+        m, _ = self._build()
+        survivors = {str(c) for c in (getattr(m, "_engineered_features_", []) or [])}
+        produced = {
+            str(r.name) for r in (getattr(m, "_produced_recipes_", []) or [])
+            if getattr(r, "name", None) is not None
+        }
+        dropped = produced - survivors
+        # The kitchen-sink frame is built so the screen keeps only the
+        # strongest handful of the produced columns -> at least one drop.
+        assert dropped, (
+            "expected at least one produced engineered column to be "
+            "screened out on the kitchen-sink frame; if every produced "
+            "column survived, strengthen the fixture rather than weakening "
+            "this contract."
+        )
+        prov = m.fe_provenance_
+        for name in dropped:
+            row = prov[prov["feature_name"].astype(str) == name]
+            assert len(row) == 1, (
+                f"screened-out column {name!r} must have exactly one ledger "
+                f"row; got {len(row)}"
+            )
+            assert int(row["support_rank"].iloc[0]) == -1, (
+                f"screened-out column {name!r} must carry support_rank == -1 "
+                f"(it never entered the greedy selection); got "
+                f"{int(row['support_rank'].iloc[0])}"
+            )
+            assert str(row["origin"].iloc[0]) not in ("raw", "engineered_unknown"), (
+                f"screened-out column {name!r} must keep its mechanism "
+                f"origin in the ledger; got {row['origin'].iloc[0]!r}"
+            )
+
+    def test_survivor_rosters_stay_subset_of_feature_names_out(self):
+        # The audit-trail completion must NOT leak screened-out names into
+        # the user-facing survivor rosters (the layer28 subset contract).
+        m, _ = self._build()
+        names_out = set(map(str, m.get_feature_names_out()))
+        for attr in (
+            "hybrid_orth_features_", "kfold_te_features_",
+            "count_encoding_features_", "frequency_encoding_features_",
+            "cat_num_interaction_features_", "pairwise_ratio_features_",
+        ):
+            roster = getattr(m, attr, None) or []
+            leaked = [str(c) for c in roster if str(c) not in names_out]
+            assert not leaked, (
+                f"{attr} leaked screened-out names not in "
+                f"get_feature_names_out(): {leaked!r}. The produced-recipes "
+                f"audit ledger must live in fe_provenance_ only, never in "
+                f"the survivor rosters."
+            )

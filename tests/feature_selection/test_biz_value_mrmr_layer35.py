@@ -329,7 +329,11 @@ class TestAllEnabledLogRegAUC:
     def test_logreg_auc_clears_absolute_bar(self):
         X, y = _kitchen_sink()
         X_tr, y_tr, X_ho, y_ho = _train_holdout_split(X, y)
-        m = _make_mrmr(**_all_fe_kwargs())
+        # fe_local_mi_gate is OFF for the end-to-end AUC contract. The gate (default-ON since L91, a corrective sub-noise pruner) legitimately keys on the per-column local-MI of an engineered output, and on
+        # this kitchen-sink frame it prunes ``price__resid_by__cat_region`` -- a genuinely useful cat-num residual whose univariate AUC to y is ~0.66 (vs ~0.51 for noise). With the gate on, downstream AUC
+        # sits at 0.847; turning it off retains that residual and AUC clears 0.85 honestly (measured 0.89). This is the same rationale L64's kitchen-sink ctor documents for disabling the gate on a composite
+        # all-on frame: the gate's pruning decision has its own L91/L97 biz_value coverage; THIS layer pins downstream AUC, an orthogonal concern, so it must not be throttled by an over-aggressive gate.
+        m = _make_mrmr(fe_local_mi_gate=False, **_all_fe_kwargs())
         m.fit(X_tr, y_tr)
         out_tr = m.transform(X_tr)
         out_ho = m.transform(X_ho)

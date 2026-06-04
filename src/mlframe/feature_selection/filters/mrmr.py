@@ -2309,6 +2309,9 @@ class MRMR(BaseEstimator, TransformerMixin):
             # the next fit() repopulates from the live greedy run.
             "fe_provenance_": None,
             "_predictors_log_": (),
+            # Produced-recipes audit ledger: every EngineeredRecipe the FE stages emitted this fit (pre-screen). fe_provenance_ reads it so the audit / pickle-replay paths recover which mechanism
+            # produced each engineered column even when the greedy CMI screen dropped it. Legacy pickles default to [] and the next fit() repopulates from the live FE run.
+            "_produced_recipes_": [],
             # 2026-06-01 Layer 99 — fe_auto "1-knob" mode. Pre-L99 pickles
             # default to False -> byte-identical legacy path on reload.
             "fe_auto": False,
