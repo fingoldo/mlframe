@@ -251,6 +251,26 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         uncertainty_penalty: float = 0.0,
         interaction_aware: bool = False,
         max_interaction_features: int = 16,
+        # su_seeded_interactions (lever A4-4, OPT-IN, default OFF -- mirrors ``interaction_aware``):
+        # a CHEAP pairwise-SU SYNERGY screen ranks candidate interaction PAIRS at O(P)+O(K) cost, then
+        # the interaction objective runs on ONLY the top-K synergistic pairs (a sparse product-column
+        # augmentation), NEVER the O(P^2) TreeSHAP interaction tensor that gates ``interaction_aware``
+        # to phi<=16 (a no-op on wide proxies). The screen scores
+        # ``synergy(a,b;y) = SU(joint_bin(a,b);y) - max(SU(a;y), SU(b;y))`` -- HIGH exactly for pure
+        # interactions whose operands have ~0 marginal SU (XOR / sign(a*b)). A permutation-null SNR
+        # GATE skips pairs whose synergy sits below the spurious-pair floor, so noise-buried
+        # interactions (hard_synth's ia*ib among 200 noise cols) are correctly NOT seeded and the path
+        # NO-OPs cleanly (the additive default is never regressed). Measured win (clear-SNR beds):
+        # +0.388 AUC on pure-interaction, +0.072 on synth; no-op on hard_synth. See
+        # ``_shap_proxy_interactions.su_synergy_screen`` / ``sparse_interaction_candidates``.
+        su_seeded_interactions: bool = False,
+        su_seeded_top_k: int = 8,
+        su_seeded_n_bins: int = 8,
+        su_seeded_max_screen_cols: int = 120,
+        su_seeded_snr_z: float = 3.0,
+        su_seeded_snr_null_quantile: float = 0.99,
+        su_seeded_snr_abs_floor: float = 1e-3,
+        su_seeded_n_permutations: int = 3,
         beam_width: int = 8,
         brute_force_max_features: int | None = None,
         adaptive_prescreen_by_stability: bool = False,
@@ -400,6 +420,14 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         self.uncertainty_penalty = uncertainty_penalty
         self.interaction_aware = interaction_aware
         self.max_interaction_features = max_interaction_features
+        self.su_seeded_interactions = su_seeded_interactions
+        self.su_seeded_top_k = int(su_seeded_top_k)
+        self.su_seeded_n_bins = int(su_seeded_n_bins)
+        self.su_seeded_max_screen_cols = int(su_seeded_max_screen_cols)
+        self.su_seeded_snr_z = float(su_seeded_snr_z)
+        self.su_seeded_snr_null_quantile = float(su_seeded_snr_null_quantile)
+        self.su_seeded_snr_abs_floor = float(su_seeded_snr_abs_floor)
+        self.su_seeded_n_permutations = int(su_seeded_n_permutations)
         self.beam_width = beam_width
         # ``brute_force_max_features`` (iter56): raised default 22 -> 28. This is the prescreen
         # cap on ``phi.shape[1]``, NOT a direct guarantee that brute force runs at the dispatched
@@ -1126,6 +1154,9 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         self.n_features_in_ = int(X.shape[1])
         n_features = self.n_features_in_
         y = self._coerce_target(y)
+        # Reset per-fit su_seeded_interactions scratch so a re-fit never reuses a prior fit's pairs.
+        self._su_seeded_pairs_orig = None
+        self._su_seeded_screen_info = {}
 
         if self.model is not None:
             model_template = self.model
@@ -1304,6 +1335,56 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
                         n_features=n_features, n_estimators_cap=self.prefilter_n_estimators,
                         stage1_keep=effective_stage1_keep,
                         univariate_batch_size=self.prefilter_univariate_batch_size)
+                # su_seeded_interactions RESCUE (#5b, OPT-IN): the native-importance / F-statistic
+                # prefilter ranks by MARGINAL signal, so a PURE-interaction operand pair (op_a, op_b
+                # with ~0 marginal -- the exact regime the additive proxy is blind to) sits in the
+                # tail the prefilter drops, and the downstream search can never pair them. Run the
+                # CHEAP pairwise-SU synergy screen on the FULL pre-prefilter X_search HERE (operands
+                # still present), SNR-gate it, and RESCUE the surviving operand columns into
+                # working_cols so they flow through clustering / SHAP / search as normal columns. The
+                # screen is O(P)+O(K) (no O(P^2) tensor) and NO-OPs cleanly (rescues nothing) when the
+                # gate clears no pair. The kept pairs (by original column name) drive the post-search
+                # sparse interaction objective. Skipped when the prefilter kept everything already.
+                if self.su_seeded_interactions and len(working_cols) < n_features:
+                    from mlframe.feature_selection._shap_proxy_interactions import su_synergy_screen
+
+                    with _stage("su_seeded_interactions"):
+                        # ISOLATED rng (NOT self._rng): the screen's permutation-null shuffles must not
+                        # advance the selector's shared RNG stream, or a no-op (gate clears nothing)
+                        # would still perturb the downstream stochastic revalidation and silently
+                        # change the additive default's selection. A fixed offset keeps it
+                        # deterministic + reproducible while leaving self._rng byte-untouched.
+                        _su_rng = np.random.default_rng(int(self.random_state) + 7919)
+                        _kept_pairs_orig, _su_prefilter_info = su_synergy_screen(
+                            X_search, y_search,
+                            n_bins=self.su_seeded_n_bins,
+                            top_k=self.su_seeded_top_k,
+                            max_screen_cols=self.su_seeded_max_screen_cols,
+                            snr_z=self.su_seeded_snr_z,
+                            snr_null_quantile=self.su_seeded_snr_null_quantile,
+                            snr_abs_floor=self.su_seeded_snr_abs_floor,
+                            n_permutations=self.su_seeded_n_permutations,
+                            importance=None, rng=_su_rng)
+                        # X_search columns at this point are the FULL original names (prefilter slice
+                        # below has not run yet); map operand names -> original feature indices.
+                        _name_to_orig = {str(c): i for i, c in enumerate(X_cols)}
+                        _rescue_orig: set[int] = set()
+                        self._su_seeded_pairs_orig = []
+                        for _syn, _jsu, _ca, _cb in _kept_pairs_orig:
+                            if str(_ca) in _name_to_orig and str(_cb) in _name_to_orig:
+                                _rescue_orig.add(_name_to_orig[str(_ca)])
+                                _rescue_orig.add(_name_to_orig[str(_cb)])
+                                self._su_seeded_pairs_orig.append(
+                                    (float(_syn), str(_ca), str(_cb)))
+                        if _rescue_orig:
+                            _wc_set = set(int(c) for c in working_cols)
+                            _added = sorted(_rescue_orig - _wc_set)
+                            if _added:
+                                working_cols = np.sort(np.concatenate(
+                                    [np.asarray(working_cols, dtype=np.int64),
+                                     np.asarray(_added, dtype=np.int64)]))
+                        self._su_seeded_screen_info = dict(_su_prefilter_info)
+                        self._su_seeded_screen_info["n_rescued_orig"] = len(_rescue_orig)
                 if len(working_cols) < n_features:
                     X_search = X_search.iloc[:, working_cols]
                 report["prefilter"] = pf_info
@@ -1491,6 +1572,70 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
             )
             report["adaptive_prescreen"] = adaptive_info
 
+        # su_seeded_interactions screen (#5b, OPT-IN) -- resolve the synergistic operand pairs in
+        # PROXY-column space BEFORE the importance pre-screen, so their operand proxy-columns can be
+        # RESCUED past the prescreen (pure-interaction operands have ~0 mean|phi|, the regime the
+        # additive proxy is blind to, so they sit in the tail the prescreen drops). The prefilter
+        # stage already ran the cheap screen + rescued the operands past the PREFILTER when the
+        # prefilter narrowed the frame (storing ``self._su_seeded_pairs_orig``); if it did NOT run
+        # (narrow data, no prefilter) we run the screen on X_proxy here. Either way the cost is the
+        # O(P)+O(K) screen, never the O(P^2) tensor, and it NO-OPs cleanly when the SNR gate clears
+        # nothing. Operand columns are keyed by ORIGINAL feature name and mapped to proxy columns via
+        # unit_to_members so clustering's unit-rename does not break the pairing.
+        _su_kept_pairs: list = []  # list of (synergy, proxy_col_name_a, proxy_col_name_b)
+        _su_screen_info: dict = {}
+        _su_rescue_proxy_idx: set[int] = set()
+        if self.su_seeded_interactions and phi.shape[1] >= 2:
+            from mlframe.feature_selection._shap_proxy_interactions import su_synergy_screen
+
+            with _stage("su_seeded_interactions"):
+                proxy_names = [str(c) for c in X_proxy.columns]
+                # Build ORIGINAL-feature-name -> proxy-column index. Clustering renames proxy columns
+                # to ``unitK`` whose members are WORKING-positions (unit_to_members); map each member
+                # working-position -> original index -> name. When clustering is off X_proxy columns
+                # ARE the post-prefilter original names, so the identity map applies.
+                orig_name_to_proxy: dict[str, int] = {}
+                if unit_to_members is not None:
+                    for _u, _members in enumerate(unit_to_members):
+                        for _m in _members:
+                            _orig_idx = int(working_cols[int(_m)])
+                            orig_name_to_proxy[str(X_cols[_orig_idx])] = _u
+                else:
+                    for _u, _nm in enumerate(proxy_names):
+                        orig_name_to_proxy[_nm] = _u
+
+                pairs_orig = getattr(self, "_su_seeded_pairs_orig", None)
+                if pairs_orig is None:
+                    # Prefilter screen did not run (no prefilter narrowing) -> run it on X_proxy now.
+                    _kp, _su_screen_info = su_synergy_screen(
+                        X_proxy, y_phi,
+                        n_bins=self.su_seeded_n_bins, top_k=self.su_seeded_top_k,
+                        max_screen_cols=self.su_seeded_max_screen_cols,
+                        snr_z=self.su_seeded_snr_z,
+                        snr_null_quantile=self.su_seeded_snr_null_quantile,
+                        snr_abs_floor=self.su_seeded_snr_abs_floor,
+                        n_permutations=self.su_seeded_n_permutations,
+                        importance=np.abs(phi).mean(axis=0),
+                        rng=np.random.default_rng(int(self.random_state) + 7919))
+                    # X_proxy column names are the proxy-space keys directly here.
+                    for _syn, _jsu, _ca, _cb in _kp:
+                        _ia = proxy_names.index(str(_ca)) if str(_ca) in proxy_names else None
+                        _ib = proxy_names.index(str(_cb)) if str(_cb) in proxy_names else None
+                        if _ia is not None and _ib is not None and _ia != _ib:
+                            _su_kept_pairs.append((float(_syn), str(_ca), str(_cb)))
+                            _su_rescue_proxy_idx.add(_ia)
+                            _su_rescue_proxy_idx.add(_ib)
+                else:
+                    # Use the prefilter-stage screen result (operand ORIGINAL names) mapped to proxy.
+                    _su_screen_info = dict(getattr(self, "_su_seeded_screen_info", {}))
+                    for _syn, _ca, _cb in pairs_orig:
+                        _ia = orig_name_to_proxy.get(str(_ca))
+                        _ib = orig_name_to_proxy.get(str(_cb))
+                        if _ia is not None and _ib is not None and _ia != _ib:
+                            _su_kept_pairs.append((float(_syn), proxy_names[_ia], proxy_names[_ib]))
+                            _su_rescue_proxy_idx.add(_ia)
+                            _su_rescue_proxy_idx.add(_ib)
+
         # Importance pre-screen: when the proxy still has more columns than the exact-search budget,
         # keep the top-K by SHAP importance (mean |phi|) so exhaustive-approx stays feasible.
         n_proxy = phi.shape[1]
@@ -1501,7 +1646,10 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         if prescreen_top is not None and prescreen_top < n_proxy:
             with _stage("prescreen"):
                 importance = np.abs(phi).mean(axis=0)
-                keep = np.sort(np.argsort(-importance)[:prescreen_top])
+                keep_set = set(int(i) for i in np.argsort(-importance)[:prescreen_top])
+                # Rescue su_seeded synergistic operands the marginal-|phi| ranking would discard.
+                keep_set |= {int(i) for i in _su_rescue_proxy_idx if 0 <= int(i) < n_proxy}
+                keep = np.sort(np.fromiter(keep_set, dtype=np.int64))
                 phi = np.ascontiguousarray(phi[:, keep])
                 proxy_cols_kept = keep
                 if phi_var is not None:
@@ -1510,7 +1658,9 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
                     unit_to_members = [unit_to_members[i] for i in keep]
                 else:
                     unit_to_members = [np.array([int(i)], dtype=np.int64) for i in keep]
-                report["prescreen"] = dict(kept=int(len(keep)), of=int(n_proxy))
+                report["prescreen"] = dict(
+                    kept=int(len(keep)), of=int(n_proxy),
+                    su_rescued=int(len(_su_rescue_proxy_idx)))
 
         optimizer = self._resolve_optimizer(phi.shape[1])
         with _stage("search"):
@@ -1536,6 +1686,79 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
                 merged.setdefault(tuple(sorted(c)), l)
             candidates = sorted(((l, c) for c, l in merged.items()), key=lambda t: t[0])
             report["interaction_aware"] = dict(applied=True, n_proxy=int(phi.shape[1]), n_interaction_candidates=len(icands))
+
+        # su_seeded_interactions merge (#5b, OPT-IN): the CHEAP sparse alternative to
+        # ``interaction_aware``'s O(P^2) tensor. The synergy screen + SNR gate ran above (operands
+        # already rescued past the prescreen, so they are present in ``phi``). Here the interaction
+        # objective runs on ONLY the surviving K pairs -- a sparse product-column augmentation, never
+        # the dense P x P tensor. Each surviving product candidate is expanded into its two OPERAND
+        # proxy-columns so the merged coalition lives in plain phi-column space (selecting the product
+        # == recovering both operands); honest re-validation downstream still retrains only on real
+        # columns. Runs at ANY phi width (no max_interaction_features gate). When the screen kept no
+        # pair this whole block is skipped (the SNR-gate no-op).
+        if self.su_seeded_interactions:
+            from mlframe.feature_selection._shap_proxy_interactions import (
+                sparse_interaction_candidates)
+
+            with _stage("su_seeded_interactions"):
+                # Map proxy-column NAMES -> phi-column indices (X_proxy_kept aligns 1:1 with phi).
+                X_proxy_kept = X_proxy.iloc[:, list(proxy_cols_kept)]
+                name_to_phi_idx = {str(c): i for i, c in enumerate(X_proxy_kept.columns)}
+                # Keep only pairs whose BOTH operand proxy-columns survived into phi (the prescreen
+                # rescue should guarantee this for every kept pair; the filter is defensive).
+                usable_pairs = [
+                    (s, a, b) for s, a, b in _su_kept_pairs
+                    if str(a) in name_to_phi_idx and str(b) in name_to_phi_idx
+                ]
+                n_seed_cands = 0
+                if usable_pairs:
+                    # ISOLATED rng (NOT self._rng): keep the sparse-interaction refit off the shared
+                    # RNG stream so the additive default stays byte-identical in the no-op case and the
+                    # win-path stays reproducible.
+                    icands_sparse, prod_to_operands = sparse_interaction_candidates(
+                        model_template, X_proxy_kept, y_search, usable_pairs,
+                        classification=self.classification, metric=self.metric,
+                        min_card=self.min_features, max_card=self.max_features,
+                        top_n=self.top_n,
+                        rng=np.random.default_rng(int(self.random_state) + 7919))
+                    # Expand augmented-index candidates back into phi-column space: a product index is
+                    # replaced by its two operand phi-columns (selecting the product recovers both).
+                    merged = {tuple(sorted(c)): l for l, c in candidates}
+                    for l, c in icands_sparse:
+                        expanded: set[int] = set()
+                        for idx in c:
+                            idx = int(idx)
+                            if idx in prod_to_operands:
+                                a_i, b_i = prod_to_operands[idx]
+                                expanded.add(int(a_i))
+                                expanded.add(int(b_i))
+                            elif idx < phi.shape[1]:
+                                expanded.add(idx)
+                        if not expanded:
+                            continue
+                        key = tuple(sorted(expanded))
+                        if key not in merged or l < merged[key]:
+                            merged[key] = l
+                            n_seed_cands += 1
+                    # Always inject the bare operand pair of EVERY surviving synergistic pair as a
+                    # candidate coalition (so even when the augmented search prefers larger subsets,
+                    # the minimal interacting pair is still revalidated honestly on real columns).
+                    for syn, col_a, col_b in usable_pairs:
+                        key = tuple(sorted((name_to_phi_idx[str(col_a)], name_to_phi_idx[str(col_b)])))
+                        merged.setdefault(key, float(candidates[0][0]) if candidates else 0.0)
+                    candidates = sorted(((l, c) for c, l in merged.items()), key=lambda t: t[0])
+                report["su_seeded_interactions"] = dict(
+                    applied=True,
+                    n_proxy=int(phi.shape[1]),
+                    n_kept_pairs=len(_su_kept_pairs),
+                    n_usable_pairs=len(usable_pairs),
+                    n_seed_candidates=int(n_seed_cands),
+                    kept_pairs=[(round(float(s), 6), str(a), str(b))
+                                for s, a, b in _su_kept_pairs],
+                    snr_gate=round(float(_su_screen_info.get("gate", float("nan"))), 6),
+                    best_synergy=round(float(_su_screen_info.get("best_synergy", float("nan"))), 6),
+                    n_screened_cols=int(_su_screen_info.get("n_screened_cols", 0)),
+                    n_pairs=int(_su_screen_info.get("n_pairs", 0)))
 
         # min_selected_ratio guard: the proxy degrades for small subsets (the <50% wall). Ratio is in
         # proxy-column space (units/pre-screened columns).

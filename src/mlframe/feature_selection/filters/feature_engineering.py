@@ -75,6 +75,7 @@ def _rebuild_full_survivor_col(
     unary_transformations: dict,
     binary_transformations: dict,
     prewarp_spec_by_var: dict | None = None,
+    gate_med_median_by_var: dict | None = None,
 ) -> np.ndarray:
     """Rebuild a survivor column at full n from raw X by re-applying its unary + binary transforms.
 
@@ -98,11 +99,18 @@ def _rebuild_full_survivor_col(
     # ``prewarp`` is the per-operand learned pseudo-unary (2026-06-02): its fitted
     # spec lives in ``prewarp_spec_by_var`` and replays closed-form from x alone.
     _pw = prewarp_spec_by_var or {}
+    # ``gate_med`` is the per-operand median-gate pseudo-unary (2026-06-04): its
+    # only fitted state is one TRAIN-median float in ``gate_med_median_by_var``;
+    # replays closed-form as ``(x > stored_median).astype(float)`` from x alone.
+    _gm = gate_med_median_by_var or {}
 
     def _apply_unary(name, var_idx, vals):
         if name == "prewarp":
             from .hermite_fe import apply_operand_prewarp
             return apply_operand_prewarp(vals, _pw[var_idx])
+        if name == "gate_med":
+            from ._feature_engineering_pairs import _gate_med_apply
+            return _gate_med_apply(vals, _gm[var_idx])
         if "poly_" in name:
             return hermval(vals, c=unary_transformations[name])
         return unary_transformations[name](vals)

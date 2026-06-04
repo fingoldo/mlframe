@@ -520,6 +520,27 @@ AXES: dict[str, tuple[Any, ...]] = {
     "boruta_optimistic_cfg": (True, False),
     "boruta_train_or_test_cfg": ("train", "test"),
     "boruta_premerge_clusters_cfg": (False, True),
+    # 2026-06-04 FS-coverage follow-up: BorutaShap margin-gated adaptive
+    # trial-stop knobs (BorutaShap.__init__ early_stop_*). All forwarded into
+    # boruta_shap_kwargs in test_fuzz_suite.py.
+    #   * early_stop_tentative (default False): master toggle. True activates
+    #     the residual-tentative-tail stop -- the trial loop ends before the
+    #     n_trials cap once the accepted set is unchanged for
+    #     early_stop_patience trials AND no still-tentative feature is within
+    #     early_stop_margin of a binomial decision threshold. This exercises a
+    #     distinct loop-termination branch in _boruta_shap_fit_explain that the
+    #     fixed-cap default never reaches.
+    #   * early_stop_patience (default 20): consecutive-unchanged trial count
+    #     before the margin gate is evaluated. Only meaningful when
+    #     early_stop_tentative=True; collapsed to 20 otherwise in canonical_key.
+    #     5 makes the stop reachable inside the fuzz n_trials=10 budget.
+    #   * early_stop_margin (default 0.15): relative slack on the binomial
+    #     decision threshold. Only meaningful when early_stop_tentative=True;
+    #     collapsed to 0.15 otherwise. 0.5 widens the "near a boundary" band so
+    #     the stop is refused more often (the conservative branch).
+    "boruta_early_stop_tentative_cfg": (False, True),
+    "boruta_early_stop_patience_cfg": (20, 5),
+    "boruta_early_stop_margin_cfg": (0.15, 0.5),
     # P1-8: FeatureSelectionConfig.use_sample_weights_in_fs. Weight-
     # aware FS (MRMR / RFECV fit with sample_weight). When True AND
     # weight_schemas includes non-uniform, FS refits per weight and the
@@ -1954,6 +1975,11 @@ class FuzzCombo:
     boruta_optimistic_cfg: bool = True
     boruta_train_or_test_cfg: str = "train"
     boruta_premerge_clusters_cfg: bool = False
+    # 2026-06-04 FS-coverage follow-up -- BorutaShap.__init__ early_stop_* knobs
+    # (defaults match the BorutaShap signature so default combos are unchanged).
+    boruta_early_stop_tentative_cfg: bool = False
+    boruta_early_stop_patience_cfg: int = 20
+    boruta_early_stop_margin_cfg: float = 0.15
     use_sample_weights_in_fs_cfg: bool = False
     fallback_to_sklearn_cfg: bool = True
     prefer_gpu_configs_cfg: bool = True
@@ -2957,6 +2983,24 @@ class FuzzCombo:
             (self.boruta_optimistic_cfg if self.use_boruta_shap_cfg else True),
             (self.boruta_train_or_test_cfg if self.use_boruta_shap_cfg else "train"),
             (self.boruta_premerge_clusters_cfg if self.use_boruta_shap_cfg else False),
+            # 2026-06-04 FS-coverage follow-up -- BorutaShap.__init__ early_stop_*
+            # knobs. The master toggle is only meaningful when BorutaShap is on;
+            # patience/margin only bite when the master toggle is also on (they
+            # are read solely inside the early_stop branch of
+            # _boruta_shap_fit_explain), so collapse them to the BorutaShap
+            # signature defaults outside that compound gate -- otherwise they'd
+            # split dedup buckets for runs that behave identically.
+            (self.boruta_early_stop_tentative_cfg if self.use_boruta_shap_cfg else False),
+            (
+                self.boruta_early_stop_patience_cfg
+                if (self.use_boruta_shap_cfg and self.boruta_early_stop_tentative_cfg)
+                else 20
+            ),
+            (
+                self.boruta_early_stop_margin_cfg
+                if (self.use_boruta_shap_cfg and self.boruta_early_stop_tentative_cfg)
+                else 0.15
+            ),
             # 2026-06-03 FS-coverage audit -- RFECV.__init__ knobs only
             # meaningful when an RFECV selector is in the pre-pipeline chain
             # (rfecv_estimator_cfg is not None); collapse to RFECV signature
@@ -5003,6 +5047,10 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         boruta_optimistic_cfg=axes.get("boruta_optimistic_cfg", True),
         boruta_train_or_test_cfg=axes.get("boruta_train_or_test_cfg", "train"),
         boruta_premerge_clusters_cfg=axes.get("boruta_premerge_clusters_cfg", False),
+        # 2026-06-04 FS-coverage follow-up -- BorutaShap.__init__ early_stop_* knobs.
+        boruta_early_stop_tentative_cfg=axes.get("boruta_early_stop_tentative_cfg", False),
+        boruta_early_stop_patience_cfg=axes.get("boruta_early_stop_patience_cfg", 20),
+        boruta_early_stop_margin_cfg=axes.get("boruta_early_stop_margin_cfg", 0.15),
         # 2026-06-03 FS-coverage audit -- RFECV.__init__ knobs.
         rfecv_votes_aggregation_cfg=axes.get("rfecv_votes_aggregation_cfg", "Borda"),
         rfecv_search_method_cfg=axes.get("rfecv_search_method_cfg", "ModelBasedHeuristic"),
@@ -6456,6 +6504,20 @@ def build_shap_proxied_fs_kwargs_from_flat(
         # verbatim (param name matches ShapProxiedFS.__init__ at
         # shap_proxied_fs.py:258 exactly).
         "cluster_backend": cluster_backend,
+        # 2026-06-04 FS-coverage follow-up -- ShapProxiedFS budget parity with
+        # MRMR / RFECV (commit 79779dca control knob). FIXED 5-min wall-clock cap
+        # (NOT a fuzz axis), mirroring the rfecv_kwargs/mrmr_kwargs
+        # max_runtime_mins=5 budget so a runaway ShapProxiedFS fit is bounded;
+        # stop_file is deliberately left at its "stop" default (never set) so a
+        # stray stop-flag is never tripped. Param name matches
+        # ShapProxiedFS.__init__ (shap_proxied_fs.py) verbatim. NOTE: this builder
+        # is currently consumed only by the cross-axis builder tests
+        # (test_fuzz_combo_cross_axis_W11C.py) -- ShapProxiedFS is not yet wired
+        # into train_mlframe_models_suite (no FeatureSelectionConfig field; it is
+        # only reachable via custom_pre_pipelines, which the fuzz suite does not
+        # populate for it), so the budget reaches the kwargs dict + builder tests
+        # but not a live suite fit until ShapProxiedFS gains a suite entry point.
+        "max_runtime_mins": 5,
     }
 
 

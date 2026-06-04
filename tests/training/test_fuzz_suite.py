@@ -659,6 +659,57 @@ def _custom_pre_pipelines_for_combo(combo: FuzzCombo):
     return None
 
 
+# 2026-06-04 FS-coverage follow-up: which BorutaShap.__init__ knobs the *live*
+# class actually exposes. The early_stop_* family (margin-gated adaptive trial
+# stop) and the budget knob landed in separate waves; the FeatureSelectionConfig
+# .boruta_shap_kwargs validator rejects any key not on the live ctor signature.
+# We therefore probe the signature once and only pass a knob when it exists, so
+# the fuzz wiring is correct regardless of which knobs are committed yet (the
+# axes still vary + drive dedup; they simply no-op into BorutaShap until the knob
+# is available). Mirrors the validator's own inspect.signature(BorutaShap.__init__).
+def _live_boruta_shap_params() -> set[str]:
+    import inspect
+    from mlframe.feature_selection.boruta_shap import BorutaShap
+    return set(inspect.signature(BorutaShap.__init__).parameters) - {"self"}
+
+
+def _boruta_shap_kwargs_for_combo(combo: FuzzCombo):
+    """Build the boruta_shap_kwargs dict for ``combo`` (or None when BorutaShap
+    is off). Fuzz-speed knobs + the FS-coverage axes are threaded in; any knob
+    not present on the live BorutaShap signature is dropped so a clean checkout
+    where a knob is not yet committed never produces an invalid config."""
+    if not combo.use_boruta_shap_cfg:
+        return None
+    live = _live_boruta_shap_params()
+    # n_trials=10 keeps the SHAP-per-trial cost ~15x lower than the 150 default
+    # while still exercising shadow build + SHAP explain + tail test every run.
+    kw = {
+        "n_trials": 10,
+        "verbose": False,
+        "importance_measure": combo.boruta_importance_measure_cfg,
+        # 2026-06-03 FS-coverage audit -- previously-unfuzzed BorutaShap ctor knobs.
+        "optimistic": combo.boruta_optimistic_cfg,
+        "train_or_test": combo.boruta_train_or_test_cfg,
+        "premerge_clusters": combo.boruta_premerge_clusters_cfg,
+    }
+    # 2026-06-04 FS-coverage follow-up -- margin-gated adaptive trial-stop axes.
+    # Guarded on the live signature (the early_stop_* family may land after the
+    # budget knob), so a not-yet-committed knob is simply skipped.
+    for _k, _v in (
+        ("early_stop_tentative", combo.boruta_early_stop_tentative_cfg),
+        ("early_stop_patience", combo.boruta_early_stop_patience_cfg),
+        ("early_stop_margin", combo.boruta_early_stop_margin_cfg),
+        # FIXED 5-min wall-clock cap (NOT a fuzz axis): MRMR/RFECV parity so a
+        # runaway BorutaShap fit on any combo is bounded. stop_file is left at its
+        # "stop" default (never set) so the fuzz never trips a stray stop-flag.
+        # Mirrors rfecv_kwargs/mrmr_kwargs max_runtime_mins=5 (commit 592b8a60).
+        ("max_runtime_mins", 5),
+    ):
+        if _k in live:
+            kw[_k] = _v
+    return kw
+
+
 def _maybe_to_parquet(combo: FuzzCombo, df, tmp_path):
     """Convert ``df`` to a parquet file path when
     ``combo.input_storage == "parquet"``; otherwise pass through.
@@ -1299,21 +1350,11 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
                 # FS-related fill-ins from the audit. Each canonicalised in
                 # FuzzCombo.canonical_key when the gating axis is off.
                 use_boruta_shap=combo.use_boruta_shap_cfg,
-                # 2026-05-21 iter151: BorutaShap fuzz-speed knobs.
-                # Default n_trials=150 + SHAP per trial is too slow for the
-                # fuzz timeout budget. n_trials=10 still exercises every
-                # code path (shadow build + SHAP explain + tail test) at
-                # ~15x lower wall.
-                boruta_shap_kwargs=({"n_trials": 10, "verbose": False,
-                                     "importance_measure": combo.boruta_importance_measure_cfg,
-                                     # 2026-06-03 FS-coverage audit -- BorutaShap.__init__
-                                     # knobs that were tunable but unfuzzed. All three are
-                                     # valid BorutaShap ctor params so FeatureSelectionConfig's
-                                     # boruta_shap_kwargs validator accepts them.
-                                     "optimistic": combo.boruta_optimistic_cfg,
-                                     "train_or_test": combo.boruta_train_or_test_cfg,
-                                     "premerge_clusters": combo.boruta_premerge_clusters_cfg}
-                                   if combo.use_boruta_shap_cfg else None),
+                # 2026-05-21 iter151: BorutaShap fuzz-speed knobs + 2026-06-03/04
+                # FS-coverage axes + 5-min budget, built by the signature-guarded
+                # helper so a knob that is not yet committed is dropped rather than
+                # rejected by the boruta_shap_kwargs validator. None when off.
+                boruta_shap_kwargs=_boruta_shap_kwargs_for_combo(combo),
                 use_sample_weights_in_fs=combo.use_sample_weights_in_fs_cfg,
                 mrmr_identity_cache_scope=combo.mrmr_identity_cache_scope_cfg,
                 skip_identity_equivalent_pre_pipelines=combo.skip_identity_equivalent_pre_pipelines_cfg,
