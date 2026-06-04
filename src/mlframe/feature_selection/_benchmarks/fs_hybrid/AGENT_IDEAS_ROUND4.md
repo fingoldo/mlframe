@@ -1,8 +1,16 @@
 # Round-4 FS ideas — 5 agents, 37 ideas, all dispositioned
 
 ## SESSION SCOREBOARD (2026-06-04)
-- **SHIPPED:** A1-3/A3-1 tree-importance member (co-occurrence-product FE, synergy-gated, default ON) —
+- **SHIPPED #1:** A1-3/A3-1 tree-importance member (co-occurrence-product FE, synergy-gated, default ON) —
   madelon +0.038 (3-seed), synthetics within noise; full tests + cProfile + CHANGELOG; committed.
+- **SHIPPED #2:** hybrid `mrmr_synergy_cap=250` default (raises the MRMR member's synergy-bootstrap cap from
+  MRMR's default 60) — enables the bootstrap on moderate-width frames → hybrid hard_synth **+0.030** (3-seed,
+  all seeds up, ADDITIVE to the tree member), byte-identical no-op on narrow (synth 52) AND very-wide (madelon
+  500>250, cost-skipped) frames. The 250 cap is the cost/benefit sweet spot. (round4_hybrid_mrmrcap_bench.py)
+- **WIN to recommend (A3-5 rich FE operators):** absdiff/signed/ratio/median-gated operators recover signal
+  products miss (capacity-controlled real-add on madelon +0.026, hard_synth logit +0.031). Recommend to FE owner;
+  tree-member follow-up (engineer rich ops from co-occurrence pairs) being tested next.
+- **A4-2 RFECV noise-floor SHIP (standalone) + A1-2 MRMR-cap raise:** recommend to RFECV / MRMR owners.
 - **MEASURED, killed/mixed:** A1-1 JMIM (mixed/mild, opt-in only); A4-1 knockoff-FDR (KILLED, degenerate on
   madelon's collinear probes, raw + premerge both empty); A2-2 residual-relay (regime-specific — hard_synth
   +0.017 recovers real dropped features via residual-MI, madelon −0.0085; future GATED candidate).
@@ -70,7 +78,7 @@ verdict appended once measured.
 |A3-2|`fe_synergy_wide_p`|= A1-2 (independent). Scale synergy bootstrap past p=60 via top-M prefilter instead of skipping.|**BENCH-NEXT** (conv. A1-2; A3 traced exact bug)|
 |A3-3|`fe_holdout_greedy_pairs`|iterative greedy FE accept on HELD-OUT engineered-feature gain (forward selection), replacing one-shot prevalence gate. (The deferred "train-based FE selection" deep rewrite.)|QUEUE|
 |A3-4|`fe_xselector_confirm`|gate engineered cols through a cheap confirmer (perm-FI/Boruta-shadow) before promotion; FI-gate is SAFE on engineered cols (no recall obligation).|QUEUE (conv. A2-5)|
-|A3-5|`fe_ratio_threshold_ops`|add conditional/threshold/ratio binary operators ((a>t)*b, |a−b|<t, signed-mag) the registry lacks.|QUEUE (operator-class gap; cheap synthetic test)|
+|A3-5|`fe_ratio_threshold_ops`|add conditional/threshold/ratio binary operators ((a>t)*b, |a−b|<t, signed-mag) the registry lacks.|**MEASURED — WIN (recommend to FE owner; tree-member follow-up next).** Designed beds CONFIRM the mechanism: products CANNOT linearize |a−b| (logit 0.49→absdiff 0.88) or sign(a)|b| (0.79→0.88). Real beds: products+ALLrich madelon 0.8648 vs products-only 0.8389 (+0.026 mean, +0.054 logit); hard_synth +absdiff logit +0.031. CAPACITY CONTROL decisive: products+96 noise cols DROPS AUC (0.839→0.773), products+96 rich-op cols RAISES it → gain is the OPERATOR CLASS, not column count. Recommend ops (priority): absdiff |a−b|, signed sign(a)|b|, ratio a/(|b|+eps), gated_med (median-threshold), thr_and_med. Use MEDIAN thresholds (threshold-0 weak); gate behind FE prevalence/MI. (fe_richops_bench.py / _control_bench.py)|
 |A3-6|`fe_residual_target`|run the FE pair-MI sweep against the residual after linear removal → interaction signal stands out (SNR amplification).|QUEUE|
 |A3-7|`fe_gradient_outer_screen`|gradient outer-product (Hessian-diagonal proxy) flags loss-coupled feature pairs to seed FE.|LIKELY-DEAD (per-sample tree grads not first-class; likely dominated by A3-1)|
 |A3-8|`fe_seed_from_hybrid_disagreement`|= A1-8. {MRMR-dropped}×{Boruta/Shap-kept} cross-product seeds FE pairs.|QUEUE (conv. A1-8)|
@@ -92,6 +100,6 @@ verdict appended once measured.
 |A5-1|`stack_confidence`|per-feature logistic/shallow meta-learner over member confidence channels (Boruta hits, RFECV elim-rank+CV-delta, Shap |OOF-SHAP|, MRMR gain, perm-FI, cluster size); killed on honest test only.|**BENCH-NEXT** (agent's #1; conv. A2-3)|
 |A5-2|`cluster_oof_gain`|honest forward selection over CLUSTERS (not features): consensus clusters free, single-member clusters admitted by held-out OOF AUC gain + one-SE guard.|BENCH-NEXT|
 |A5-3|`tentative_rescue`|readmit Boruta-tentative/MRMR-margin-dropped features when a DIFFERENT member ranks them confidently (two-channel gate).|**MEASURED — regime-specific, NOT default.** Readmit Boruta-tentative whose cluster a different member also picked OR FI top-quartile. vs tree-member hybrid: hard_synth +0.0066 (recall-add recovers weak features, lgbm 0.768→0.789), madelon −0.0112 (over-adds → dilutes; tree member already captured signal), synth 0.0. Same recall-add pattern as A2-2 residual-relay → future GATED candidate (needs a "signal-already-captured" gate to avoid the madelon regression). (round4_synergy_combine_bench.py)|
-|A5-4|`per_model_emit`|emit DIFFERENT feature sets for linear vs tree downstreams (test the one-size-fits-all assumption on split signal).|QUEUE (invasive API; valuable even as negative result)|
+|A5-4|`per_model_emit`|emit DIFFERENT feature sets for linear vs tree downstreams (test the one-size-fits-all assumption on split signal).|**MEASURED — NEGATIVE (valuable).** Cross-table (each model × each set, 3-seed) falsifies the premise: a SINGLE set is best for ALL three downstreams on each bed; the best set varies by BED not by FAMILY (lgbm wants the clean set on madelon but full-S on hard_synth). The apparent +0.016 madelon "win" was an artifact of handing each model that bed's good set. NO per-family API. The transferable finding: vote=1 S is over-inclusive of single-vote noise on real data, but data-adaptive noise-cleaning of the SHARED set is the fi_guard/noise-floor family already rejected for the hybrid. (round4_permodel_emit_bench.py)|
 |A5-5|`conf_rep`|cluster rep chosen by cross-member confidence rank-agg instead of perm-FI alone.|QUEUE (cheap, low ceiling; ship-if-positive)|
 |A5-6|`union_backward`|one honest RFECV `one_se_min` backward pass over the small UNION of member picks (prune, not re-discover).|QUEUE (moderate H3-4 subsumption risk)|

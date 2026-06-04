@@ -54,7 +54,16 @@ class HybridSelector:
                  use_fe: bool = True, fe_max_steps: int = 1, boruta_driver: str = "gini", anchor_fe: bool = False,
                  use_tree_member: bool = True, tree_top_k: int = 0, tree_cooccur_pairs: int = 12,
                  tree_n_estimators: int = 80, tree_max_depth: int = 3, tree_prod_gate: str = "synergy",
+                 mrmr_synergy_cap: int = 250,
                  random_state: int = 0, name: str = "hybrid"):
+        # mrmr_synergy_cap (default 250 -- MEASURED win): the MRMR member's fe_synergy_screen_max_features. MRMR's
+        # default (60) SKIPS the synergy bootstrap on frames wider than 60 cols, so on a moderate-width frame
+        # (e.g. hard_synth, 220 cols) MRMR never engineers the interaction products its bootstrap would find. Raising
+        # to 250 enables the bootstrap on moderate-p frames -> hybrid hard_synth +0.030 (3-seed, all seeds up,
+        # ADDITIVE to the tree member), byte-identical no-op on narrow frames (synth 52<=cap, bootstrap already ran)
+        # AND on very-wide frames (madelon 500>250, bootstrap still skipped -> avoids its O(p^2) cost where it finds
+        # nothing: madelon's 5-dim XOR is not bilinear). 250 is the cost/benefit sweet spot. (round4_hybrid_mrmrcap_bench)
+        self.mrmr_synergy_cap = mrmr_synergy_cap
         self.vote = vote
         self.prescreen = prescreen
         self.expand_clusters = expand_clusters
@@ -132,6 +141,11 @@ class HybridSelector:
             # and HALVES the engineered set (15 -> 7) while raising standalone mrmr_fe AUC 0.831 -> 0.837 -- a cleaner,
             # more parsimonious FE substrate to share to the other members.
             fe_strict = dict(fe_synergy_min_prevalence=1.5, fe_min_engineered_mi_prevalence=0.97) if self.use_fe else {}
+            # mrmr_synergy_cap (default 250; see __init__): raise the MRMR member's fe_synergy_screen_max_features so
+            # its synergy bootstrap RUNS on moderate-width frames (e.g. 220 cols) where MRMR's default (60) skips it.
+            # MEASURED additive to the tree member: hybrid hard_synth +0.030 (3-seed), no-op on narrow + very-wide frames.
+            if self.use_fe and getattr(self, "mrmr_synergy_cap", None) is not None:
+                fe_strict["fe_synergy_screen_max_features"] = int(self.mrmr_synergy_cap)
             m = MRMR(verbose=0, fe_max_steps=(self.fe_max_steps if self.use_fe else 0), n_jobs=-1,
                      random_seed=self.random_state, retain_artifacts=True, retain_bins=True, **fe_strict)
             m.fit(X, y)

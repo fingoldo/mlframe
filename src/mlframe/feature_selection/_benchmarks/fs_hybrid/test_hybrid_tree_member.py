@@ -136,5 +136,31 @@ def test_bizvalue_tree_member_lifts_interaction_auc():
     assert a_on >= a_off + 0.03, f"tree member should lift linear-downstream AUC on wide interaction data: {a_off:.3f} -> {a_on:.3f}"
 
 
+# ----------------------------------------------------------------- mrmr_synergy_cap (default-raise of MRMR's bootstrap cap)
+def test_mrmr_synergy_cap_default_is_250():
+    import inspect
+    assert inspect.signature(HybridSelector.__init__).parameters["mrmr_synergy_cap"].default == 250
+
+
+def test_mrmr_synergy_cap_does_not_regress_on_wide_interaction_frame():
+    """The default-raise (60 -> 250) enables MRMR's synergy bootstrap on moderate-width frames. On a wide (>60 col)
+    interaction frame it must NOT regress vs MRMR's own default cap of 60 (the 3-seed bench shows +0.030 on
+    hard_synth; here the safety property: raising the cap never meaningfully hurts)."""
+    from sklearn.model_selection import train_test_split
+    from sklearn.metrics import roc_auc_score
+    import lightgbm as lgb
+    X, y = _interaction_frame(n=2500, seed=2, p_noise=75)   # 78 cols > 60 -> default would skip the bootstrap
+    Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.4, random_state=2, stratify=y)
+
+    def auc(cap):
+        h = HybridSelector(vote=1, use_fe=True, mrmr_synergy_cap=cap, random_state=2).fit(Xtr, ytr)
+        Ztr, Zte = h.transform(Xtr), h.transform(Xte)
+        m = lgb.LGBMClassifier(n_estimators=200, verbose=-1).fit(Ztr, ytr)
+        return roc_auc_score(yte, m.predict_proba(Zte)[:, 1])
+
+    a60, a250 = auc(60), auc(250)
+    assert a250 >= a60 - 0.01, f"raising mrmr_synergy_cap must not regress on a wide interaction frame: cap60={a60:.3f} cap250={a250:.3f}"
+
+
 if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-v", "-s", "--no-cov", "-p", "no:cacheprovider"]))
+    sys.exit(pytest.main([__file__, "-v", "-s", "--no-cov", "-p", "no:cacheprovider", "-p", "no:randomly"]))

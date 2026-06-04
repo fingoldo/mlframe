@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-06-04 — HybridSelector mrmr_synergy_cap=250 default (enable the MRMR synergy bootstrap on moderate-width frames)
+
+WHY: MRMR's ``fe_synergy_screen_max_features`` defaults to 60 — its synergy
+bootstrap (which adds unselected raw columns so zero-marginal interaction pairs
+get joint-MI screened) is SKIPPED on any frame wider than 60 columns. So on a
+moderate-width frame (e.g. 220 columns) the MRMR member never engineers the
+interaction products its bootstrap would find, and the hybrid leaves that signal
+on the table.
+
+WHAT: the HybridSelector now passes ``fe_synergy_screen_max_features=mrmr_synergy_cap``
+(new param, default 250) to its MRMR member. 250 is the cost/benefit sweet spot:
+it ENABLES the bootstrap on moderate-p frames (where the O(p^2) pair sweep is
+affordable and finds real products), stays a no-op on narrow frames (<= the cap,
+the bootstrap already ran), and SKIPS the bootstrap on very-wide frames (> 250)
+where the O(p^2) cost is prohibitive and — on madelon's 5-dim XOR structure — it
+finds nothing anyway (madelon's signal is not bilinear ``a*b``).
+
+MEASURED (3-seed): hybrid hard_synth (220 cols) +0.030 mean AUC (all 3 seeds up;
+std tightens 0.0075 -> 0.0023), ADDITIVE on top of the tree-importance member.
+Byte-identical no-op on synth (52 cols) and madelon (500 > 250, cost-skipped).
+Set ``mrmr_synergy_cap=None`` to restore MRMR's own default. (Standalone MRMR
+sees the same lever — +0.045 on hard_synth — recommended to the MRMR owner to
+raise the class default.)
+
 ## 2026-06-04 — HybridSelector TREE-IMPORTANCE member (co-occurrence-product FE, synergy-gated, default ON)
 
 WHY: MRMR's marginal-MI greedy structurally under-selects on interaction-heavy
