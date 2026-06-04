@@ -183,7 +183,7 @@ def test_ensure_joint_hist_tuning_saves_expected_schema(tmp_path, monkeypatch):
     assert os.path.isfile(path), f"sweep did not persist {path}"
     with open(path, "rb") as f:
         data = orjson.loads(f.read())
-    assert data["schema_version"] == 1
+    assert data["schema_version"] == 2  # v2: code-versioned, categorical axes (was 1)
     assert "joint_hist_batched" in data["kernels"]
     entry = data["kernels"]["joint_hist_batched"]
     assert entry["axes"] == ["n_samples", "joint_size"]
