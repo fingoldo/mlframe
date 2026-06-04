@@ -53,9 +53,11 @@ from ._legacy import (  # explicit re-exports, kept stable
     parallel_mi,
     distribute_permutations,
 )
+from ._mrmr_tree_rescue import MRMRTreeRescued
 
 __all__ = [
     "MRMR",
+    "MRMRTreeRescued",
     "entropy",
     "mi",
     "conditional_mi",

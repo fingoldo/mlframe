@@ -1,5 +1,39 @@
 # Changelog
 
+## 2026-06-04 — MRMRTreeRescued: fix MRMR's selection-gate collapse on interaction-heavy data
+
+WHY: MRMR's marginal-MI greedy STRUCTURALLY under-selects on interaction-heavy
+data. A pure-interaction operand (``y = a*b``, XOR, sign products) has ~zero
+MARGINAL MI per operand (``E[y|a] = E[y|b] = 0`` by symmetry), so the greedy
+never selects either and the feature is lost. This is the SELECTION gate, not FE
+or binning — confirmed by the MDLP-collapse diagnostic (operands reach the greedy
+with live multi-bin representations and are still dropped) and the FE-cap bench
+(raising the synergy cap / injecting tree products does NOT help; the greedy
+discards them). On the standard madelon FS benchmark MRMR collapses to <=3
+features (downstream lgbm 0.69 vs 0.87 on all features).
+
+WHAT: a new ``MRMRTreeRescued(MRMR)`` subclass (sibling module
+``filters/_mrmr_tree_rescue.py``, re-exported from ``filters``) that adds a
+cheap, GATED rescue. After a normal MRMR fit, when the selection is small
+relative to a WIDE pool (the under-selection regime), it fits ONE shallow
+gradient-boosted tree — which branches on the informative operands regardless of
+their marginal MI — and UNIONS its top-K importance features into ``support_``.
+The rescue extends ``support_`` only, so ``transform`` / ``get_feature_names_out``
+/ ``get_support`` flow it through unchanged. New params ``tree_rescue`` ("auto"
+default — fires only on under-selection; True/"always"; False/"off" = plain
+MRMR), ``tree_rescue_top_k=20``, ``tree_rescue_min_p=60``,
+``tree_rescue_min_ratio=0.04`` / ``tree_rescue_min_features=5`` (the auto
+threshold), ``tree_rescue_n_estimators=80`` / ``tree_rescue_max_depth=3``. Task
+(classification/regression) is inferred via ``type_of_target``; the rescue
+degrades to a no-op on any error.
+
+MEASURED (3-seed, madelon): mrmr_fe 0.6885 -> +rescue 0.7999 (+0.111 mean; all
+seeds +0.10..0.12; std 0.0084; recovers the zero-marginal operands). BYTE-IDENTICAL
+no-op on synth and hard_synth (the gate does not fire where MRMR selects well) and
+on narrow frames (p <= 60). Negligible cost (one shallow GBM, ~0.4s, only when the
+gate fires). Covered by test_mrmr_tree_rescue.py (fires + recovers operands,
+narrow no-op, tree_rescue=False == MRMR, transform/pickle, biz_value lift).
+
 ## 2026-06-04 — HybridSelector tree member: RICH co-occurrence operators (absdiff/signed/ratio, not just products)
 
 WHY: the tree-importance member engineered only the PRODUCT ``a*b`` of each

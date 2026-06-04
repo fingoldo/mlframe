@@ -13,6 +13,12 @@
   synth −0.002 (noise). Each op-column synergy-gated independently. (round4_rich_tree_bench.py)
 - **Also recommend to FE owner:** the same operators added to MRMR's FE registry (Agent E's standalone result).
 - **A4-2 RFECV noise-floor SHIP (standalone) + A1-2 MRMR-cap raise:** recommend to RFECV / MRMR owners.
+- **SHIPPED #4 (the biggest standalone-MRMR fix): `MRMRTreeRescued`** — fixes MRMR's selection-gate collapse
+  (the confirmed root cause: marginal-MI greedy drops zero-marginal interaction operands). A gated tree-importance
+  rescue unions a shallow-GBM top-K into `support_` ONLY on the under-selection regime. madelon mrmr_fe 0.6885 →
+  **0.7999 (+0.111, 3-seed, all seeds, std 0.0084)**, recovers the operands; byte-identical no-op on synth/hard_synth/
+  narrow frames. New sibling module `filters/_mrmr_tree_rescue.py` (re-exported); full tests + CHANGELOG.
+  (round4_mrmr_tree_rescue_bench.py / round4_mrmr_rescue_confirm.py)
 - **MEASURED, killed/mixed:** A1-1 JMIM (mixed/mild, opt-in only); A4-1 knockoff-FDR (KILLED, degenerate on
   madelon's collinear probes, raw + premerge both empty); A2-2 residual-relay (regime-specific — hard_synth
   +0.017 recovers real dropped features via residual-MI, madelon −0.0085; future GATED candidate).
