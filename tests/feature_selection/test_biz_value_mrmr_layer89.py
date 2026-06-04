@@ -381,6 +381,17 @@ class TestDefaultDisabledByteIdentical:
         )
 
     def test_mrmr_enabled_adds_cat_pair(self):
+        # The cat-pair cross IS materialised and competes for selection; on the
+        # cat-XOR fixture the default-on general FE families (smart-polynom pair
+        # engineering ``div(exp(cat_a),abs(cat_b))``, the univariate Fourier
+        # basis) independently recover the SAME XOR signal and rank ahead of the
+        # cross, so the post-selection ``cat_pair_features_`` roster is reconciled
+        # empty -- NOT because the mechanism failed but because a redundant
+        # sibling won. Isolate the family under test (the sibling Layer-91/97
+        # fixtures disable the same competitors via ``fe_max_steps=0``) so the
+        # roster reflects the cat-pair mechanism's own output: with the
+        # general-FE competitors off, the synergy cross is the selected
+        # engineered column.
         from mlframe.feature_selection.filters.mrmr import MRMR
         X, y = _build_cat_xor(42, n=3000)
         Xi = X.copy()
@@ -391,6 +402,9 @@ class TestDefaultDisabledByteIdentical:
             fe_cat_pair_enable=True,
             fe_cat_pair_cat_cols=("cat_a", "cat_b"),
             fe_cat_pair_top_k=3,
+            fe_max_steps=0,
+            fe_univariate_basis_enable=False,
+            fe_univariate_fourier_enable=False,
         )
         m.fit(Xi, pd.Series(y, name="y"))
         cp_feats = list(getattr(m, "cat_pair_features_", []) or [])

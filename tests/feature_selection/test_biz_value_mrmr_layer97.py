@@ -196,24 +196,46 @@ class TestSignalSurvivesNewDefault:
 
 class TestPoolShrinksUnderNewDefault:
     @pytest.mark.parametrize("seed", (1, 7))
-    def test_default_gate_shrinks_count_pool(self, seed: int):
+    def test_default_gate_shrinks_count_pool(self, seed: int, monkeypatch):
         """41 cats (1 predictive + 40 noise). The ungated count-encoding emits
         one column per cat; the NEW-default gate (top_k=20) keeps strictly
-        fewer, and never more than top_k -- the speed / precision win."""
+        fewer, and never more than top_k -- the speed / precision win.
+
+        The shrink is on the engineered candidate POOL the count-encoding stage
+        hands to the MRMR screen, NOT on the post-selection
+        ``count_encoding_features_`` roster: this fixture has exactly ONE
+        predictive cat, so the MRMR relevance screen drops every noise
+        count-encoding regardless of the gate and the roster is 1 either way,
+        masking the gate. Observe the gate where it operates by capturing the
+        appended pool size from the genuine in-fit ``count_encode_with_recipes``
+        call."""
+        import mlframe.feature_selection.filters._count_freq_interaction_fe as _cfi
         X, y = _build_bounded_many_cat_signal(seed, n=3000, n_noise_cats=40)
 
+        _orig_count_enc = _cfi.count_encode_with_recipes
+        _pool = {}
+
+        def _capture(tag):
+            def _wrapped(Xarg, **kw):
+                res = _orig_count_enc(Xarg, **kw)
+                _pool[tag] = len(res[1])
+                return res
+            return _wrapped
+
+        monkeypatch.setattr(_cfi, "count_encode_with_recipes", _capture("off"))
         m_off = _make_mrmr(
             fe_count_encoding_enable=True, fe_local_mi_gate=False,
             fe_ntop_features=5,
         )
         m_off.fit(X, y)
-        n_off = len(m_off.count_encoding_features_)
+        n_off = _pool["off"]
 
+        monkeypatch.setattr(_cfi, "count_encode_with_recipes", _capture("def"))
         m_def = _make_mrmr(
             fe_count_encoding_enable=True, fe_ntop_features=5,
         )
         m_def.fit(X, y)
-        n_def = len(m_def.count_encoding_features_)
+        n_def = _pool["def"]
 
         assert n_def <= m_def.fe_local_mi_gate_top_k, (
             f"seed={seed}: default-gated pool {n_def} exceeds top_k"

@@ -134,6 +134,13 @@ def _build_mbh_optimizer(self, *, original_features, max_refits, top_predictors_
                 _seeded = [2] + _seeded
             _seeded = sorted(set(_seeded))[:_K]
 
+    # Thread RFECV's deterministic RNG into the optimizer. Without this the MBHOptimizer constructs its own
+    # ``np.random.default_rng(None)``, reseeding from system entropy on every instance -- so two RFECV fits with the
+    # SAME random_state propose DIFFERENT candidate subsets (the surrogate's exploration sampling diverges), breaking
+    # the "same data + same random_state -> same support_" guarantee. Derive a stable child seed from self._rng so the
+    # optimizer seed co-varies with random_state but does not collide with the per-fold seeds drawn elsewhere.
+    _opt_seed = int(self._rng.integers(0, 2**31 - 1)) if getattr(self, "_rng", None) is not None else None
+
     _mbh_kwargs = dict(
         search_space=(
             np.array(np.arange(min(self.max_nfeatures, _p) + 1).tolist() + [_p])
@@ -148,6 +155,7 @@ def _build_mbh_optimizer(self, *, original_features, max_refits, top_predictors_
         seeded_inputs=_seeded,
         model_name=_model_name,
         model_params=_user_model_params,
+        random_state=_opt_seed,
     )
     # Apply the rest of optimizer_config last so user's explicit kwargs (plotting=..., direction=..., etc.) override our defaults.
     _mbh_kwargs.update(_user_cfg)

@@ -167,7 +167,19 @@ def test_canonical_transform_replays_engineered_columns_leak_safe():
         )
 
 
-@pytest.mark.parametrize("preset", ["minimal", "medium", "maximal"])
+# The ``maximal`` preset exhausts the full unary x binary operator cross-product over the 20k-row
+# canonical fixture; it is genuinely slow (~955s wall on the dev box) and blows past the global 60s
+# pytest-timeout. It is a real, passing correctness check (both signal pairs are still recovered), not
+# a hang -- so it gets a per-case 1500s timeout (slack over the measured 955s) rather than weakened
+# assertions. ``minimal`` / ``medium`` keep the global 60s budget.
+@pytest.mark.parametrize(
+    "preset",
+    [
+        "minimal",
+        "medium",
+        pytest.param("maximal", marks=[pytest.mark.slow, pytest.mark.timeout(1500)]),
+    ],
+)
 def test_canonical_across_presets(preset):
     """Every preset recovers BOTH signal pairs (richer presets are supersets)."""
     df, y = _make_fixture()

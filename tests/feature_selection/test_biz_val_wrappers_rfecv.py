@@ -383,21 +383,26 @@ def test_biz_val_rfecv_use_last_fi_run_only_ignores_history():
 
 @pytest.mark.parametrize("seed", [1, 7, 42, 123])
 def test_biz_val_rfecv_random_state_reproducibility(seed):
-    """``random_state=<seed>`` must produce identical support_ across
-    two independent fits. Catches regressions where internal sampling
-    drifts beyond random_state's control."""
+    """``random_state=<seed>`` must produce identical support_ across two independent fits.
+
+    The search space is deliberately wide (p_noise=8, max_refits=8): on a wide grid the MBH
+    optimizer's RNG-driven candidate sampling is the divergence source -- with the optimizer
+    left unseeded (``np.random.default_rng(None)``) two same-seed fits propose different subsets
+    and the supports disagree by a borderline noise feature. RFECV now threads its deterministic
+    ``self._rng`` into the optimizer's ``random_state`` so the proposal sequence co-varies with
+    ``random_state`` only. A regression in that seeding fails this assertion."""
     pytest.importorskip("sklearn")
     from sklearn.ensemble import RandomForestClassifier
     from mlframe.feature_selection.wrappers import RFECV
     from tests.feature_selection._biz_val_synth import (
         make_signal_plus_noise, as_df,
     )
-    X, y, _ = make_signal_plus_noise(n=600, p_signal=3, p_noise=5, seed=seed)
+    X, y, _ = make_signal_plus_noise(n=800, p_signal=3, p_noise=8, seed=seed)
     df, _ys = as_df(X, y)
     common = dict(
         estimator=RandomForestClassifier(random_state=42, n_estimators=20),
-        cv=3, max_refits=4, verbose=0,
-        max_noimproving_iters=2, random_state=seed,
+        cv=3, max_refits=8, verbose=0,
+        max_noimproving_iters=3, random_state=seed,
     )
     sel_a = RFECV(**common)
     sel_b = RFECV(**common)
@@ -838,7 +843,6 @@ def test_biz_val_rfecv_checkpoint_resume_produces_same_support(tmp_path):
     off, AND (b) produce identical support_ vs running through to
     completion in one call. Catches regressions in the
     save / load / signature-check logic."""
-    import os
     pytest.importorskip("sklearn")
     from sklearn.ensemble import RandomForestClassifier
     from mlframe.feature_selection.wrappers import RFECV
@@ -862,33 +866,15 @@ def test_biz_val_rfecv_checkpoint_resume_produces_same_support(tmp_path):
     sel_resume.fit(df, y)
     full_set = set(_support_indices(sel_full))
     resume_set = set(_support_indices(sel_resume))
-    # Both must converge on the same support set on a deterministic
-    # seed; the checkpoint mechanism must not change the result.
-    # On shared CI runners (verified GitHub-hosted ubuntu 3.10 + windows
-    # 3.11, 2026-05-24), RandomForest training under joblib's
-    # default-thread-pool with concurrent xdist workers occasionally
-    # produces a different feature-importance ranking than the same fit
-    # in isolation (tree-fit thread races on the per-process numpy RNG
-    # state inside joblib parallel). The full vs ckpt sets then disagree
-    # by exactly one borderline noise feature (e.g. ``[0, 1, 2, 6]`` vs
-    # ``[0, 1, 2]``). Soften to a structural check on CI: the SIGNAL
-    # features (0, 1, 2 -- first three columns of ``_signal_plus_noise``)
-    # must be in both runs; any extra noise features that drift between
-    # runs are CI-noise, not a checkpoint-resume regression.
-    _CI = bool(os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"))
-    if _CI:
-        _signal = {0, 1, 2}
-        assert _signal.issubset(full_set), (
-            f"full fit must recover signal features; got {sorted(full_set)}"
-        )
-        assert _signal.issubset(resume_set), (
-            f"resume fit must recover signal features; got {sorted(resume_set)}"
-        )
-    else:
-        assert full_set == resume_set, (
-            f"checkpoint-enabled fit must produce same support; "
-            f"full={sorted(full_set)}, ckpt={sorted(resume_set)}"
-        )
+    # Both must converge on the SAME support set on a deterministic seed; the checkpoint mechanism must not change the
+    # result. Bit-identity holds because RFECV threads its deterministic ``self._rng`` into the MBH optimizer's
+    # ``random_state`` -- without that the optimizer reseeds from system entropy per instance and proposes a different
+    # candidate sequence, so two same-seed fits (with OR without a checkpoint) would diverge by a borderline noise
+    # feature. Pin the strict equality so a regression in that seeding (or in the save/load/signature path) fails loudly.
+    assert full_set == resume_set, (
+        f"checkpoint-enabled fit must produce same support; "
+        f"full={sorted(full_set)}, ckpt={sorted(resume_set)}"
+    )
 
 
 # ---------------------------------------------------------------------------

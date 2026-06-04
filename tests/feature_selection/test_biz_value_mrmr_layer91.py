@@ -259,26 +259,51 @@ class TestTier2CrossMechanism:
 
 class TestMRMRIntegration:
     @pytest.mark.parametrize("seed", (1, 7))
-    def test_local_gate_bounds_count_encoding_features(self, seed: int):
+    def test_local_gate_bounds_count_encoding_features(self, seed: int, monkeypatch):
+        # The gate bounds the engineered candidate POOL the count-encoding stage
+        # hands to the MRMR screen (51 cats -> <= top_k columns). It does NOT
+        # bound the post-selection ``count_encoding_features_`` ROSTER: this
+        # fixture has exactly ONE predictive cat (``pred_cat``), so the MRMR
+        # relevance screen drops every noise count-encoding regardless of the
+        # gate -- the roster is 1 with the gate ON or OFF, masking the gate's
+        # effect. Observe the gate where it actually operates: capture the
+        # appended pool size from the genuine in-fit ``count_encode_with_recipes``
+        # call so the shrink (off == one-per-cat vs on <= top_k) is visible.
+        import mlframe.feature_selection.filters._count_freq_interaction_fe as _cfi
         X, y = _build_bounded_many_cat_signal(seed, n=3000, n_noise_cats=40)
+
+        _orig_count_enc = _cfi.count_encode_with_recipes
+        _pool = {}
+
+        def _capture(tag):
+            def _wrapped(Xarg, **kw):
+                res = _orig_count_enc(Xarg, **kw)
+                _pool[tag] = len(res[1])
+                return res
+            return _wrapped
+
+        monkeypatch.setattr(_cfi, "count_encode_with_recipes", _capture("off"))
         m_off = _make_mrmr(
             fe_count_encoding_enable=True, fe_local_mi_gate=False,
             fe_ntop_features=5,
         )
         m_off.fit(X, y)
-        n_off = len(m_off.count_encoding_features_)
+        n_off = _pool["off"]
 
+        monkeypatch.setattr(_cfi, "count_encode_with_recipes", _capture("on"))
         m_on = _make_mrmr(
             fe_count_encoding_enable=True, fe_local_mi_gate=True,
             fe_local_mi_gate_top_k=5, fe_ntop_features=5,
         )
         m_on.fit(X, y)
-        n_on = len(m_on.count_encoding_features_)
+        n_on = _pool["on"]
         assert n_off > n_on, (
             f"seed={seed}: local gate did not shrink the count pool "
             f"(off={n_off}, on={n_on})"
         )
         assert n_on <= 5
+        # The genuinely predictive count-encoding clears the gate's MI floor and
+        # is the column the screen ultimately selects.
         assert "pred_cat__count" in m_on.count_encoding_features_, (
             f"seed={seed}: predictive count-encoding dropped by MRMR local gate"
         )

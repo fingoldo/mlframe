@@ -448,6 +448,15 @@ class TestDefaultDisabledByteIdentical:
         assert list(getattr(m, "rankgauss_features_", []) or []) == []
 
     def test_mrmr_rare_category_enabled_adds_columns(self):
+        # The is_rare / freq_band columns ARE materialised and compete for
+        # selection; on the rare-merchant fixture the default-on univariate
+        # Fourier basis independently reads the rarity pattern off the merchant
+        # id (``merchant__qcos*`` / ``merchant__sin*``) and ranks ahead, so the
+        # post-selection ``rare_category_features_`` roster reconciles empty --
+        # NOT a mechanism failure but a redundant sibling winning. Isolate the
+        # family under test (disable the same general-FE competitors the sibling
+        # fixtures disable) so the roster reflects the rare-category mechanism's
+        # own output.
         from mlframe.feature_selection.filters.mrmr import MRMR
         X, y, _ = _build_rare_merchant(42, n=4000)
         m = MRMR(
@@ -455,6 +464,9 @@ class TestDefaultDisabledByteIdentical:
             fe_rare_category_enable=True,
             fe_rare_category_cols=("merchant",),
             fe_rare_category_top_k=4,
+            fe_max_steps=0,
+            fe_univariate_basis_enable=False,
+            fe_univariate_fourier_enable=False,
         )
         m.fit(X, pd.Series(y, name="y"))
         assert len(list(getattr(m, "rare_category_features_", []) or [])) >= 1
