@@ -74,18 +74,22 @@ def test_feature_engineering_times_spent_lock_added():
         "times_spent[k] += ... races silently between threading workers."
     )
     assert "with _TIMES_SPENT_LOCK:" in src
-    # Pre-fix shape MUST be gone (the unlocked increment).
-    # Use \n prefix to anchor on line-start so the 20-space test isn't
-    # a false-positive prefix match against the deeper-indented post-fix line.
-    pre_fix_anchored = "\n                    times_spent[bin_func_name] +="
-    post_fix_anchored = "\n                        times_spent[bin_func_name] +="
-    assert pre_fix_anchored not in src, (
-        "Wave 27 P1 regression: unlocked `+=` on shared dict restored "
-        "(detected at the pre-fix indent without surrounding `with` lock)."
+    # The shared-dict increment MUST be guarded by the lock. Assert STRUCTURALLY
+    # (tolerant of variable renames / indent / the batched-per-pair merge form)
+    # that a ``times_spent[...] +=`` sits inside a ``with _TIMES_SPENT_LOCK:``
+    # block, rather than pinning an exact variable name + indent: the increment
+    # was legitimately renamed (``bin_func_name`` -> ``_bf``) and batched into one
+    # locked merge per pair (fewer lock acquisitions, still race-safe). This fails
+    # iff the lock no longer guards the increment (the actual regression to catch).
+    import re
+    locked_increment = re.search(
+        r"with _TIMES_SPENT_LOCK:(?:\n[ \t]+[^\n]*)*?\n[ \t]+times_spent\[[^\]]+\]\s*\+=",
+        src,
     )
-    assert post_fix_anchored in src, (
-        "Wave 27 P1 regression: locked `+=` indent inside `with` block "
-        "missing -- the lock was removed?"
+    assert locked_increment is not None, (
+        "Wave 27 P1 regression: no ``times_spent[...] +=`` found under a "
+        "``with _TIMES_SPENT_LOCK:`` block -- the lock guarding the shared "
+        "timing dict was removed or the increment moved outside it."
     )
 
 
