@@ -1,5 +1,30 @@
 # Changelog
 
+## 2026-06-04 — MRMR FE pair-search: batch the per-candidate quantile discretization (profiled hotspot)
+
+WHY: a broad real-data sweep hit a 3.75h MRMR-FE fit on near-saturated wide data (scene, 2407x299) with the CPU
+almost idle. cProfile (warm-JIT) showed the MI kernel is NOT the cost (njit ``parallel_mi_prange`` ~1.9s) -- the
+hotspot is the PER-CANDIDATE numpy discretization in the FE pair-search inner loop: every engineered candidate
+(pair x unary x binary-op) calls ``discretize_array`` (``np.linspace`` + ``np.nanpercentile``->partition +
+``searchsorted``). On a 299-feature frame that is MILLIONS of tiny per-column numpy calls -> serial dispatch-bound,
+one core, idle CPU.
+
+WHAT: new ``discretize_2d_quantile_batch`` (discretization.py) + a 3-phase restructure of ``check_prospective_fe_pairs``
+on the HOIST path with the quantile method: (1) materialise ALL of a raw-pair's candidate columns into the shared
+buffer + nan_to_num + record (config, idx); (2) discretise the whole buffer slice in ONE call -- the NaN-free FE
+buffer lets ``np.percentile(..., axis=0)`` use the vectorised C partition (no per-column python loop) instead of the
+per-column ``nanpercentile``, with a NaN-guard fallback to ``nanpercentile(axis=0)`` for general callers; (3) replay
+the per-candidate ``mi_direct`` + best/prewarp/config tracking in identical order. MI stays per-candidate (its
+permutation confidence is NOT batched). The recompute-fallback (no buffer) and the uniform method keep the original
+per-candidate path verbatim.
+
+BIT-IDENTICAL: ``np.percentile``/``np.nanpercentile`` with ``axis=0`` partition each column independently with the
+same estimator as the 1-D path, and the float32 buffer is not cast -> per-column edges + searchsorted codes match
+exactly. Verified 4213/4213 columns identical to per-column ``discretize_array`` (gaussian / tie-heavy / constant /
+skewed / float32), and the deterministic FE-recovery + fe_form_selection pins are unchanged. Micro-bench
+(n=400 x 300 cols): batch discretisation 3.8ms vs 48ms per-column loop (~12x on the binning) -- the dispatch
+amortisation that was the idle-CPU bottleneck.
+
 ## 2026-06-04 — Outlier-robust univariate-basis FE axis (gated, default ON)
 
 WHY: the univariate-basis FE preprocessors fit their normalisation scale from RAW per-column statistics — the Fourier axis from ``min/max``, the Hermite z-score from raw ``std``, the Legendre/Chebyshev min-max from raw ``min/max``. On a heavy-tailed / spike-contaminated column (e.g. 5% of values at +/-1000) the raw span/std blows up ~1000x, collapsing 99% of the data into a sliver of the axis (one bin). The engineered transform then (a) carries an OUTLIER-INFLATED, erratic plug-in MI that can hijack selection, and (b) is SHIFT-FRAGILE — a single new extreme value at fit time shifts the axis and changes every row's engineered value (measured drift up to 0.88 of the sin's [-1,1] range). A genuine production robustness gap for ALL heavy-tailed columns.
