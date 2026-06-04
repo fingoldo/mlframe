@@ -319,6 +319,64 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     if importance_getter is None:
         importance_getter = "auto"
 
+    # Wide-data perm-FI cost guard (2026-06-04). Permutation / conditional-permutation importance rescore the model
+    # O(p * n_repeats) times PER FOLD. On wide frames one RFECV iteration can exceed the whole runtime budget (measured:
+    # madelon p=500, n_repeats=5 -> ~208s/iter > a 180s budget), so only 2-3 iters complete, the CV curve has ~3 points,
+    # and the N-rule (e.g. one_se_min) lands at the over-selection. When ``wide_data_fi_fallback`` (default True) and the
+    # search universe exceeds ``wide_data_fi_threshold``, fall back to the estimator's native (gain/impurity) importance
+    # for the elimination ranking so the outer loop can build a REAL multi-point curve in budget; below the threshold cap
+    # n_repeats at ``wide_data_fi_n_repeats`` to soften the cliff. The fallback only changes the ELIMINATION RANKING that
+    # picks the next candidate subset -- the CV SCORE that drives the optimum is unaffected -- so on wide noisy frames it
+    # trades perm-FI's debiasing (a small-p win) for a usable curve. Opt out with wide_data_fi_fallback=False (and a
+    # generous max_runtime_mins) to keep exact permutation FI regardless of p.
+    _perm_getters = ("permutation", "conditional_permutation")
+    _n_candidates = len(original_features)
+    _eff_n_repeats = int(getattr(self, "n_repeats", 5))
+    self._wide_data_fi_applied_ = None
+    if (
+        getattr(self, "wide_data_fi_fallback", True)
+        and isinstance(importance_getter, str)
+        and importance_getter in _perm_getters
+    ):
+        _threshold = int(getattr(self, "wide_data_fi_threshold", 200))
+        if _n_candidates > _threshold:
+            self._wide_data_fi_applied_ = {
+                "reason": "fallback_to_native",
+                "n_candidates": _n_candidates,
+                "threshold": _threshold,
+                "from_importance_getter": importance_getter,
+                "to_importance_getter": "auto",
+            }
+            if verbose:
+                logger.info(
+                    "RFECV wide-data guard: %d candidate features > wide_data_fi_threshold=%d; "
+                    "falling back from importance_getter=%r to native 'auto' for the elimination ranking "
+                    "(permutation FI is ~O(p*n_repeats) rescores/fold and would blow the runtime budget). "
+                    "Set wide_data_fi_fallback=False to keep exact permutation FI.",
+                    _n_candidates, _threshold, importance_getter,
+                )
+            importance_getter = "auto"
+        else:
+            _cap = int(getattr(self, "wide_data_fi_n_repeats", 2))
+            if _eff_n_repeats > _cap and _n_candidates > max(1, _threshold // 4):
+                self._wide_data_fi_applied_ = {
+                    "reason": "capped_n_repeats",
+                    "n_candidates": _n_candidates,
+                    "threshold": _threshold,
+                    "from_n_repeats": _eff_n_repeats,
+                    "to_n_repeats": _cap,
+                }
+                if verbose:
+                    logger.info(
+                        "RFECV wide-data guard: %d candidate features; capping permutation n_repeats %d -> %d "
+                        "to keep per-iteration cost in budget.",
+                        _n_candidates, _eff_n_repeats, _cap,
+                    )
+                _eff_n_repeats = _cap
+    # Effective n_repeats consumed by the per-fold permutation FI + stability bootstraps; read via the private attr so
+    # the user-facing self.n_repeats is never mutated by the guard.
+    self._effective_n_repeats = _eff_n_repeats
+
     state = OuterLoopState(
         evaluated_scores_mean=evaluated_scores_mean,
         evaluated_scores_std=evaluated_scores_std,

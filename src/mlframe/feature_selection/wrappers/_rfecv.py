@@ -338,6 +338,16 @@ class RFECV(BaseEstimator, TransformerMixin):
         # repeats for 'permutation' / 'conditional_permutation' importance (forwarded to get_feature_importances at each
         # fold + the stability bootstraps). Surfaced for tuning; default 5 keeps prior behaviour.
         n_repeats: int = 5,
+        # Wide-data perm-FI cost guard (2026-06-04). Permutation / conditional-permutation importance rescore the model
+        # O(p * n_repeats) times PER FOLD. On wide frames a single RFECV iteration can exceed the whole runtime budget
+        # (measured madelon p=500, n_repeats=5 -> ~208s/iter > a 180s budget), so only 2-3 iters complete, the CV curve
+        # is ~3 points, and the N-rule lands at the over-selection. When True (NEW default) and the search universe
+        # exceeds ``wide_data_fi_threshold``, RFECV falls back to the estimator's native (gain/impurity) importance for
+        # the elimination ranking so the outer loop can build a REAL multi-point curve in budget; ``wide_data_fi_n_repeats``
+        # caps n_repeats just under the threshold to soften the cliff. False = exact permutation FI regardless of p.
+        wide_data_fi_fallback: bool = True,
+        wide_data_fi_threshold: int = 200,
+        wide_data_fi_n_repeats: int = 2,
         # F6: when False (NEW default), multi-estimator + AM/GM auto-falls-back to Borda. Set True to keep the user's choice for
         # benchmark / A-B purposes.
         allow_unsafe_aggregation: bool = False,
