@@ -6102,12 +6102,15 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # n_features_ reports the column count produced by transform() = raw selected + engineered (replayable via _engineered_recipes_). Higher-order
     # engineered features without a replayable recipe were already warned about above and are NOT counted (they don't appear in transform output).
     n_engineered_out = len(self._engineered_recipes_)
-    if selected_vars or n_engineered_out:
+    if selected_vars:
         self.n_features_ = len(selected_vars) + n_engineered_out
     else:
-        self.n_features_ = 0
-        # Empty support_ fallback: rank by raw MI(X_j, y) so downstream pipelines don't crash on 0-feature
-        # transform output. Only triggers when min_features_fallback >= 1 (off by default).
+        # No RAW feature survived selection. Engineered-only support (or empty support) lacks a raw signal anchor:
+        # on a WIDE engineered candidate pool the top raw signal is frequently out-ranked by overfit-in-sample-MI
+        # engineered / high-card columns that do not generalise, leaving 0 raw features despite recoverable signal.
+        # Rescue the top-K raw feature(s) clearing the relevance floor (below); a pure-interaction fixture whose raw
+        # marginals are all ~0 stays engineered-only. Only triggers when min_features_fallback >= 1.
+        self.n_features_ = n_engineered_out
         _min_fb = int(getattr(self, "min_features_fallback", 0) or 0)
         # 2026-05-30 Wave 9.1 fix (loop iter 39): hoist the
         # ``warnings.warn`` OUT of the try block. Pre-fix the warning
@@ -6138,10 +6141,16 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # Wave 57 (2026-05-20): secondary key on feature index so
                 # tied MI doesn't make the empty-support fallback drift.
                 _raw_mi.sort(key=lambda kv: (-kv[1], kv[0]))
-                _topk = [i for i, _ in _raw_mi[:_min_fb]]
+                _rel_floor = float(getattr(self, "min_relevance_gain", 0.0) or 0.0)
+                # Rescue only raw features clearing the absolute relevance floor (genuine signal out-ranked by overfit
+                # engineered MI). Never-empty guarantee: a totally-empty screen (nothing clears the floor AND no
+                # engineered features) still returns its single highest-MI raw column so downstream transform isn't 0-width.
+                _topk = [i for i, _mi in _raw_mi[:_min_fb] if _mi > _rel_floor]
+                if not _topk and n_engineered_out == 0 and _raw_mi:
+                    _topk = [_raw_mi[0][0]]
                 if _topk:
                     self.support_ = np.array(_topk)
-                    self.n_features_ = len(_topk)
+                    self.n_features_ = len(_topk) + n_engineered_out
                     self.fallback_used_ = True
                     _top_mi = float(_raw_mi[0][1]) if _raw_mi else 0.0
                     _uninformative = _top_mi <= 0.0
