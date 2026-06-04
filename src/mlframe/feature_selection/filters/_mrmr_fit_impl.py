@@ -5724,6 +5724,17 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             _p = _extract_single_raw_parent([_v], cols, _raw_names_set)
             if _p is not None:
                 _substituted.add(_p)
+        # Cluster members folded into a denoised MULTI-parent aggregate (cluster_aggregate 'replace' mode -> _cluster_aggregate_removals_, or a DCD PC1/mean_z swap -> cluster_members_) are
+        # ALREADY represented by that aggregate. _extract_single_raw_parent only recognises a SOLE-parent transform substitute, so without this exclusion raw-retention would resurrect the
+        # very members 'replace' mode just removed and re-inject the redundancy the aggregation collapsed. Same exclusion the additional-RFECV rescue pool applies below.
+        for _ca_member in (getattr(self, "_cluster_aggregate_removals_", None) or []):
+            _substituted.add(_ca_member)
+        _cm_for_raw_retention = getattr(self, "cluster_members_", None)
+        if isinstance(_cm_for_raw_retention, dict):
+            for _anchor, _members in _cm_for_raw_retention.items():
+                _substituted.add(_anchor)
+                if isinstance(_members, (list, tuple, set)):
+                    _substituted.update(_members)
         _sv_set = set(selected_vars)
         _readd = []
         for _rn in _prefe_raw:

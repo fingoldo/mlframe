@@ -216,6 +216,29 @@ def test_mrmr_replace_substitutes_members():
     s.transform(Xte)  # must not raise
 
 
+def test_replace_members_not_resurrected_by_raw_retention():
+    """Regression: the 2026-06-03 raw-retention block re-adds screening-confirmed
+    raw features the post-FE re-selection dropped, UNLESS a sole-parent engineered
+    child substitutes them. A cluster aggregate is a MULTI-parent substitute, so
+    raw-retention did not recognise it and resurrected the very ``refl*`` members
+    that 'replace' mode had just folded into the aggregate. Pin that the members
+    flagged in ``_cluster_aggregate_removals_`` stay OUT of the support."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    X, y, _z = _reflection_frame(seed=6)
+    s = MRMR(cluster_aggregate_enable=True, cluster_aggregate_mode="replace",
+             cluster_aggregate_methods=("mean_z", "pca_pc1"), **_MRMR_KW).fit(
+                 X.iloc[:2000], y.iloc[:2000])
+    removed = set(getattr(s, "_cluster_aggregate_removals_", None) or [])
+    assert removed, "replace mode should have flagged cluster members for removal"
+    out = set(s.get_feature_names_out())
+    leaked = removed & out
+    assert not leaked, (
+        f"raw-retention resurrected cluster-aggregate-replaced members: {sorted(leaked)}; "
+        f"_cluster_aggregate_removals_={sorted(removed)}; out={sorted(out)}"
+    )
+
+
 def test_explicit_disable_adds_no_aggregate():
     from mlframe.feature_selection.filters.mrmr import MRMR
 
