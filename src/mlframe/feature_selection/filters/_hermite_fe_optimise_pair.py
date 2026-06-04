@@ -6,9 +6,12 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from .hermite_fe import HermiteResult
 from numpy.polynomial.hermite_e import hermeval
 from numpy.polynomial.legendre import legval
 from numpy.polynomial.chebyshev import chebval

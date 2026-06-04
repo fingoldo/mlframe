@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # ----------------------------------------------------------------------------------------------------------------------------
 
-from typing import *
+from typing import Callable
 
 import numpy as np
 from sklearn.base import BaseEstimator

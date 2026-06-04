@@ -18,6 +18,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
+from ._profile_fuzz_1m import _build_composite_discovery_config_for_1m_inline, _make_synthetic_frame
+
 logging.basicConfig(level=logging.WARNING, format="%(message)s")
 
 

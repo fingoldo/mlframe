@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
-from typing import *  # noqa: F401 pylint: disable=wildcard-import,unused-wildcard-import
+from typing import Optional, Sequence
 # No direct references to mlframe.config names remain in this module. If you
 # need one, import it explicitly rather than reintroducing the wildcard.
 

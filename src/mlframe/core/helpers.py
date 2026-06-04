@@ -18,7 +18,6 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
-from typing import *  # noqa: F401 pylint: disable=wildcard-import,unused-wildcard-import
 from mlframe.config import XGBOOST_MODEL_TYPES, LGBM_MODEL_TYPES, CATBOOST_MODEL_TYPES
 
 import psutil

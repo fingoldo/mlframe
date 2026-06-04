@@ -20,7 +20,6 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # ----------------------------------------------------------------------------------------------------------------------------
 
-from typing import *
 
 from numba import njit
 import pandas as pd, numpy as np

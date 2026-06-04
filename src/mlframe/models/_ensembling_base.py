@@ -35,7 +35,7 @@ logger = logging.getLogger("mlframe.models.ensembling")
 # Normal Imports
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
-from typing import *  # noqa: F401 pylint: disable=wildcard-import,unused-wildcard-import
+from typing import Optional, Sequence
 
 import copy
 import os

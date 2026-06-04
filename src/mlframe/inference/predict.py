@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # ----------------------------------------------------------------------------------------------------------------------------
 
-from typing import *
+from typing import Iterable, Optional
 
 import hashlib
 import joblib

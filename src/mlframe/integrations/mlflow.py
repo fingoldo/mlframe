@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
-from typing import *  # noqa: F401 pylint: disable=wildcard-import,unused-wildcard-import
+from typing import Tuple
 import html
 import re
 import pandas as pd, numpy as np

@@ -13,7 +13,6 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # ----------------------------------------------------------------------------------------------------------------------------
 
-from typing import *
 
 import numpy as np, pandas as pd
 import polars as pl, polars.selectors as cs

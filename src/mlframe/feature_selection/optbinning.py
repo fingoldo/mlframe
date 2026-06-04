@@ -17,7 +17,6 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # ----------------------------------------------------------------------------------------------------------------------------
 
-from typing import *
 import pandas as pd
 
 import category_encoders as ce

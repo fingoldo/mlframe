@@ -583,14 +583,14 @@ def _build_cross_target_ensemble_for_target(
                 )
                 _component_specs.append(_matching)
         # Thread ctx.timestamps + per-target sample_weight so the OOF holdout split becomes time-aware (trailing-slice past-only train) rather than random shuffle. ``ctx`` is not bound in the original function frame either; the ``if "ctx" in dir()`` guard always evaluated to False so these always resolved to None.
-        _ctx_ts_full = getattr(ctx, "timestamps", None) if "ctx" in dir() else None
+        _ctx_ts_full = getattr(ctx, "timestamps", None) if "ctx" in dir() else None  # noqa: F821 (guarded; ctx never bound -> always None)
         _time_ordering = None
         if _ctx_ts_full is not None:
             try:
                 _time_ordering = np.asarray(_ctx_ts_full)[filtered_train_idx]
             except (TypeError, IndexError):
                 _time_ordering = None
-        _ctx_sw_dict = getattr(ctx, "sample_weights", None) if "ctx" in dir() else None
+        _ctx_sw_dict = getattr(ctx, "sample_weights", None) if "ctx" in dir() else None  # noqa: F821 (guarded; ctx never bound -> always None)
         _sw_for_oof = None
         if isinstance(_ctx_sw_dict, dict) and _ctx_sw_dict:
             _sw_raw = _ctx_sw_dict.get(_orig_tname)
@@ -634,7 +634,7 @@ def _build_cross_target_ensemble_for_target(
                     _orig_tname,
                 )
         _group_ids_for_oof = None
-        _ctx_groups = getattr(ctx, "group_ids", None) if "ctx" in dir() else None
+        _ctx_groups = getattr(ctx, "group_ids", None) if "ctx" in dir() else None  # noqa: F821 (guarded; ctx never bound -> always None)
         if _ctx_groups is not None:
             try:
                 _group_ids_for_oof = (

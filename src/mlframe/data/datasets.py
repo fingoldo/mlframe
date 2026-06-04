@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # ----------------------------------------------------------------------------------------------------------------------------
 
-from typing import *
+from typing import Tuple
 
 import scipy
 from scipy import stats

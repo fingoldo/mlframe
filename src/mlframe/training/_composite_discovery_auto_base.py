@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import math
 import re
+from typing import Any, Sequence
 
 import numpy as np
 

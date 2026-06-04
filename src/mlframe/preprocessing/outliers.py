@@ -15,7 +15,6 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # ----------------------------------------------------------------------------------------------------------------------------
 
-from typing import *
 
 from sklearn.ensemble import IsolationForest
 

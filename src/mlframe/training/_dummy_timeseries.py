@@ -16,7 +16,7 @@ What lives here:
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Sequence
 
 import numpy as np
 import pandas as pd

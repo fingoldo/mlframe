@@ -30,12 +30,18 @@ repos:
   # documented ignore list) already lives in pyproject.toml -- the hook
   # consumes that config so behaviour stays identical between local commit
   # and CI lint step. No --select / --ignore CLI args here on purpose.
+  # Auto-fix / auto-format are MANUAL-stage only: they rewrite files (churn that
+  # collides with concurrent work). On commit they're replaced by the warn-only
+  # ``format-lint-warn`` hook below. Apply explicitly with
+  # ``pre-commit run --hook-stage manual ruff`` / ``... ruff-format`` / ``... black``.
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.6.9
     hooks:
       - id: ruff
         args: ['--fix']
+        stages: [manual]
       - id: ruff-format
+        stages: [manual]
 
   # Black: formatting pass with line-length=160 (project standard, see
   # [tool.black] in pyproject.toml). target-version matches setup.cfg /

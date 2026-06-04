@@ -54,7 +54,9 @@ import logging
 import math
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Literal, Optional, Sequence, TYPE_CHECKING, Tuple
+if TYPE_CHECKING:
+    from .target_temporal_audit import ChangePointMethod
 
 import numpy as np
 import pandas as pd

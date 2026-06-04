@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # ----------------------------------------------------------------------------------------------------------------------------
 
-from typing import *
+from typing import Optional, Sequence, Union
 from scipy.stats import uniform, loguniform, randint
 
 from scipy.stats._distn_infrastructure import rv_continuous_frozen, rv_discrete_frozen
@@ -416,17 +416,9 @@ class ParamsOptimizer:
         self._rng = np.random.default_rng(random_state)
         self._stdlib_rng = _stdlib_random.Random(int(self._rng.integers(0, 2**32 - 1)))
         self._random_state = random_state
-        if False:
-            db.connect_to_db(
-                m_db_name=db_name,
-                m_db_host=db_host,
-                m_db_port=db_port,
-                m_db_username=db_username,
-                m_db_pwd=db_pwd,
-                m_init_params_fn=None,
-                m_db_schema=db_schema,
-                m_db_sslmode="require",
-            )
+        # (removed a dead ``if False:`` db.connect_to_db block that referenced
+        # commented-out constructor params db_name/db_host/...; it never executed
+        # and the names were undefined -- surfaced by the star-import removal.)
 
     def create_study(self, task_id: str, stydy_type: str = "ml_estimator_hyperparameters"):
         pass

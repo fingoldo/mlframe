@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # ----------------------------------------------------------------------------------------------------------------------------
 
-from typing import *
+from typing import Union
 
 import pandas as pd, numpy as np
 from sklearn.base import is_classifier, is_regressor

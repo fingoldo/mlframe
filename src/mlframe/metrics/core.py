@@ -6,7 +6,6 @@ import sys
 
 logger = logging.getLogger(__name__)
 
-from typing import *
 
 import numba
 from math import floor

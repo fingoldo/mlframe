@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 import re
-from typing import *  # noqa: F401 pylint: disable=wildcard-import,unused-wildcard-import
+from typing import Sequence
 
 from os.path import join
 from matplotlib import pyplot as plt

@@ -18,7 +18,10 @@ import os
 from os import sep as os_sep
 from os.path import join, exists
 from types import SimpleNamespace
-from typing import Optional, Tuple, Union, Callable, Sequence, List, Any, Dict
+from typing import Any, Callable, Dict, List, Optional, Sequence, TYPE_CHECKING, Tuple, Union
+if TYPE_CHECKING:
+    from ._configs_base import TargetTypes
+    from ._model_configs import LinearModelConfig, MultilabelDispatchConfig
 
 import numpy as np
 import pandas as pd

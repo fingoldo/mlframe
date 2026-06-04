@@ -15,7 +15,6 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # ----------------------------------------------------------------------------------------------------------------------------
 
-from typing import *
 
 import numpy as np
 from numba import njit

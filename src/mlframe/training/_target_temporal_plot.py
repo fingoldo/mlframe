@@ -8,7 +8,9 @@ so existing imports continue to work.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, TYPE_CHECKING, Tuple
+if TYPE_CHECKING:
+    from .target_temporal_audit import TemporalAuditResult
 
 import numpy as np
 import pandas as pd

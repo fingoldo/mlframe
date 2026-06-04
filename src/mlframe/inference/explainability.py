@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # ----------------------------------------------------------------------------------------------------------------------------
 
-from typing import *
+from typing import Tuple
 
 import numpy as np, pandas as pd
 from pyutilz.system import tqdmu

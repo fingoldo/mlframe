@@ -17,7 +17,6 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # ----------------------------------------------------------------------------------------------------------------------------
 
-from typing import *  # pylint: disable=wildcard-import,unused-wildcard-import
 
 import numpy as np
 from functools import lru_cache

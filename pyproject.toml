@@ -389,7 +389,7 @@ exclude = '''
 [tool.ruff]
 line-length = 160
 target-version = "py39"
-exclude = ["tests", "scripts", ".git", "__pycache__", "build", "dist", "legacy", "benchmarks", "profiling"]
+exclude = ["tests", "scripts", ".git", "__pycache__", "build", "dist", "legacy", "benchmarks", "_benchmarks", "profiling"]
 
 [tool.ruff.lint]
 select = [
@@ -418,6 +418,10 @@ ignore = [
     "UP007",  # use ``X | Y`` over Union: same 3.9 concern; ``Union`` evaluates eagerly without ``from __future__ import annotations``
     "UP045",  # use ``X | None`` over Optional: same 3.9 concern
     "UP037",  # quoted annotation: leave because we use forward references in dataclass slots heavily
+    "F403",   # ``from x import *``: intentional in several namespace modules
+    "F405",   # name may be undefined / from star-import: consequence of intentional F403, not a bug
+    "B904",   # raise ... from inside except: stylistic, not a correctness issue
+    "B009",   # getattr(x, "const"): stylistic
 ]
 
 [tool.ruff.lint.per-file-ignores]
