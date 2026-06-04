@@ -554,7 +554,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             #     so adding Fourier is near-no-op when there is no oscillation.
             _univ_fourier_on = bool(getattr(self, "fe_univariate_fourier_enable", True))
             _eff_extra_bases = tuple(_extra_bases_cfg) if (_extra_bases_cfg and _hybrid_on) else ()
-            if _univ_fourier_on and _univ_basis_on and "fourier" not in _eff_extra_bases:
+            # The default-on Fourier univariate basis is part of the plug-in univariate dispatch. Under an alternate ``fe_hybrid_orth_default_scorer`` (cmim / jmim / ksg / ...) the routing
+            # runs ONLY the univariate basis-selection for that scorer (the pair stage is likewise skipped above); the Fourier extra basis is a plug-in-path addition, so adding it under
+            # alternate routing would emit columns the routed scorer never selected and diverge from a direct call to that scorer. Gate it to plug-in routing.
+            try:
+                _extra_basis_scorer_ok = _default_scorer == "plug_in"
+            except NameError:
+                _extra_basis_scorer_ok = True
+            if _univ_fourier_on and _univ_basis_on and _extra_basis_scorer_ok and "fourier" not in _eff_extra_bases:
                 _eff_extra_bases = _eff_extra_bases + ("fourier",)
             if _is_pandas_for_hybrid and _eff_extra_bases:
                 try:
@@ -3145,11 +3152,17 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _y_for_ind = (
                         y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
                     )
+                    # Anchor the indicator's MI noise floor on the RAW input columns, not the engineered-polluted X: an earlier adaptive-Fourier stage appended high-(plug-in)-MI hijacker columns that would otherwise inflate the floor above a genuine MNAR indicator's MI and drop it (a >2%-missing source's signal lives in the NaN pattern the Fourier MI inflates).
+                    _raw_floor_X = (
+                        X[[c for c in _raw_input_cols_pre_fe if c in X.columns]]
+                        if _raw_input_cols_pre_fe else None
+                    )
                     X_i, _ind_appended, _ind_recipes = missing_indicator_with_recipes(
                         X, cols=_ind_cols,
                         mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
                         mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
                         y=_y_for_ind,
+                        raw_X=_raw_floor_X,
                     )
                     _ind_appended = [
                         c for c in _ind_appended if c not in _X_before_ind_cols
@@ -4296,6 +4309,119 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     "temporal-aggregate columns.",
                     type(_ta_exc).__name__, _ta_exc,
                 )
+
+    # ACCURACY GATE (2026-06-04, default ON via ``fe_accuracy_gate``). The MI-uplift gates inside the FE generators are fooled by plug-in MI's bias inflation: a Fourier / chirp / Hermite transform of a strong RAW signal earns an inflated MI estimate and out-ranks (then evicts) the raw column even when it adds NO real predictive value. The adaptive-Fourier PROTECTION block at support-finalisation then force-readds those hijackers past the MRMR screen, so they survive into support_ AND leak into ``hybrid_orth_features_`` / ``_adaptive_fourier_features_`` even when a genuine raw signal (or its is_missing__ MNAR indicator) carries the information. This gate runs a held-out multivariate linear-probe uplift check per engineered column against its raw source: a column that adds no held-out uplift over its source -- or whose source is >2%-missing (MNAR fail-closed, the signal lives in the NaN pattern the probe cannot see) -- is dropped here so it can neither evict the raw signal nor leak into the roster. Only orth_* engineered columns with a single resolvable raw source are gated; the is_missing__ / missingness_* indicators are exempt by construction (their recipes live in ``_miss_*_pre_recipes``, never ``_hybrid_orth_pre_recipes``, so they are never routed here). y is read only at fit; transform replays the survivors without y. Best-effort: any failure falls back to keeping the column.
+    if (
+        bool(getattr(self, "fe_accuracy_gate", True))
+        and isinstance(X, pd.DataFrame)
+        and (self.hybrid_orth_features_ or [])
+        and _hybrid_orth_pre_recipes
+    ):
+        try:
+            from ._fe_accuracy_gate import (
+                _FE_UPLIFT_MIN,
+                infer_classification,
+                keep_engineered_over_source,
+                measure_feature_uplift,
+            )
+
+            _y_for_gate = y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+            _gate_seed = int(getattr(self, "random_seed", 0) or 0)
+            _gate_classif = infer_classification(_y_for_gate)
+            _hybrid_set_now = set(self.hybrid_orth_features_ or [])
+            _adaptive_set_now = set(getattr(self, "_adaptive_fourier_features_", None) or [])
+
+            def _gate_col_arr(_name):
+                _v = X[_name]
+                if isinstance(_v, pd.DataFrame):
+                    _v = _v.iloc[:, 0]
+                return np.asarray(_v.to_numpy(), dtype=np.float64)
+
+            # Resolve each engineered column to its single raw source; split into the polynomial/base columns and the adaptive-Fourier/chirp columns (the latter are gated CONDITIONALLY
+            # against their surviving base siblings, since a Fourier of x captures the SAME x**2 signal as its He2 sibling and must not dilute the support when the He2 already carries it).
+            _gate_cols: list[tuple[str, str, bool]] = []
+            for _gc in list(self.hybrid_orth_features_ or []):
+                if _gc not in X.columns:
+                    continue
+                _rec = _hybrid_orth_pre_recipes.get(_gc)
+                # No hybrid-orth recipe => not an orth_* engineered column (missingness / TE / count / etc.): exempt.
+                _src_names = tuple(getattr(_rec, "src_names", ()) or ()) if _rec is not None else ()
+                if len(_src_names) != 1:
+                    continue
+                _src = _src_names[0]
+                if _src not in X.columns or _src in _hybrid_set_now:
+                    continue
+                _is_fourier = (_gc in _adaptive_set_now) or (str(getattr(_rec, "kind", "")) == "orth_fourier")
+                _gate_cols.append((_gc, _src, _is_fourier))
+
+            _gate_drop: list[str] = []
+            _gate_drop_set: set[str] = set()
+            # Pass 1: base (non-Fourier) columns -- uplift over the raw source alone (also the MNAR fail-closed for >2%-missing sources).
+            _surviving_base_by_src: dict[str, list[str]] = {}
+            for _gc, _src, _is_fourier in _gate_cols:
+                if _is_fourier:
+                    continue
+                _src_arr = _gate_col_arr(_src)
+                _eng_arr = _gate_col_arr(_gc)
+                if keep_engineered_over_source(_src_arr, _eng_arr, _y_for_gate, seed=_gate_seed):
+                    _surviving_base_by_src.setdefault(_src, []).append(_gc)
+                else:
+                    _gate_drop.append(_gc)
+                    _gate_drop_set.add(_gc)
+            # Pass 2: adaptive-Fourier / chirp columns -- uplift over [raw source + surviving base siblings of that source]. A Fourier redundant with a He2 sibling (both encode x**2)
+            # adds ~0 here and is dropped; a genuine oscillation no polynomial sibling captures clears the floor and is kept. MNAR fail-closed first (the probe drops NaN rows).
+            for _gc, _src, _is_fourier in _gate_cols:
+                if not _is_fourier:
+                    continue
+                _src_arr = _gate_col_arr(_src)
+                if float(np.mean(~np.isfinite(_src_arr))) > 0.02:
+                    _gate_drop.append(_gc)
+                    _gate_drop_set.add(_gc)
+                    continue
+                _base_sibs = _surviving_base_by_src.get(_src, [])
+                _base_mat = np.column_stack(
+                    [_src_arr] + [_gate_col_arr(_b) for _b in _base_sibs]
+                )
+                _eng_arr = _gate_col_arr(_gc)
+                _n = _base_mat.shape[0]
+                if _n > 5000:
+                    _rng_g = np.random.default_rng(_gate_seed)
+                    _idx_g = _rng_g.choice(_n, 5000, replace=False)
+                    _base_probe, _eng_probe, _y_probe = _base_mat[_idx_g], _eng_arr[_idx_g], _y_for_gate[_idx_g]
+                else:
+                    _base_probe, _eng_probe, _y_probe = _base_mat, _eng_arr, _y_for_gate
+                _cond_uplift = measure_feature_uplift(
+                    _base_probe, _eng_probe, _y_probe, classification=_gate_classif, seed=_gate_seed,
+                )
+                if _cond_uplift < _FE_UPLIFT_MIN:
+                    _gate_drop.append(_gc)
+                    _gate_drop_set.add(_gc)
+            if _gate_drop:
+                _gate_drop_set = set(_gate_drop)
+                X = X.drop(columns=[c for c in _gate_drop if c in X.columns])
+                self.hybrid_orth_features_ = [
+                    c for c in (self.hybrid_orth_features_ or []) if c not in _gate_drop_set
+                ]
+                self._adaptive_fourier_features_ = [
+                    c for c in (getattr(self, "_adaptive_fourier_features_", None) or [])
+                    if c not in _gate_drop_set
+                ]
+                for _c in list(_hybrid_orth_pre_recipes.keys()):
+                    if _c in _gate_drop_set:
+                        _hybrid_orth_pre_recipes.pop(_c, None)
+                if verbose:
+                    logger.info(
+                        "MRMR.fit accuracy gate: dropped %d engineered column(s) "
+                        "adding no held-out uplift over their raw source (or MNAR "
+                        "source): %s",
+                        len(_gate_drop), sorted(_gate_drop),
+                    )
+        except Exception as _gate_exc:
+            logger.warning(
+                "MRMR.fit accuracy gate raised %s: %s; continuing without the "
+                "accuracy gate (engineered columns kept).",
+                type(_gate_exc).__name__, _gate_exc,
+            )
 
     # Layer 27 (2026-05-31): cross-stage engineered-column dedup. Hybrid and
     # MI-greedy stages run independently; on signals like ``y = sign(x^2 - 1)``
@@ -5607,6 +5733,37 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     len(_readd_adaptive), [cols[i] for i in _readd_adaptive],
                 )
 
+    # MISSINGNESS-INDICATOR PROTECTION (2026-06-04): re-add the clean ``is_missing__{col}`` indicator the MRMR screen dropped IN FAVOUR OF its raw source. Under ``nan_strategy='separate_bin'``
+    # the raw column's NaN bin already encodes the MNAR pattern, so the binned MI of the indicator and the raw source are near-identical (a true tie); the greedy screen keeps the raw column
+    # and discards the indicator as redundant. But the raw column is mostly NaN -- the downstream model cannot consume the missingness signal from it, only from the standalone numeric
+    # indicator (the whole point of Layer 37). When the raw source IS selected, the indicator carries the SAME signal in a clean, model-ready form, so we re-add it. Gating on "the raw source
+    # survived the screen" keeps a pure-noise indicator (MAR column the screen never selects) out of support. The count / pattern encoders have no single raw source and are screened normally.
+    _miss_indicators = list(getattr(self, "missingness_indicator_features_", None) or [])
+    if _miss_indicators and len(selected_vars):
+        _cols_index = {c: i for i, c in enumerate(cols)}
+        _sv_set = set(selected_vars)
+        _sel_names_now = {cols[i] for i in selected_vars if 0 <= i < len(cols)}
+        _readd_miss = []
+        for _mn in _miss_indicators:
+            _idx = _cols_index.get(_mn)
+            if _idx is None or _idx in _sv_set:
+                continue
+            _rec_mi = _miss_ind_pre_recipes.get(_mn)
+            _src_mi = tuple(getattr(_rec_mi, "src_names", ()) or ())
+            # Re-add only when the indicator's raw source survived the screen (i.e. the signal is real and the screen kept the redundant raw twin in its place).
+            if _src_mi and _src_mi[0] in _sel_names_now:
+                _readd_miss.append(_idx)
+                _sv_set.add(_idx)
+        if _readd_miss:
+            selected_vars = list(selected_vars) + _readd_miss
+            if verbose:
+                logger.info(
+                    "MRMR missingness-indicator protection: re-added %d clean "
+                    "is_missing__ indicator(s) the screen dropped in favour of "
+                    "the redundant raw NaN-bin source: %s",
+                    len(_readd_miss), [cols[i] for i in _readd_miss],
+                )
+
     # ---------------------------------------------------------------------------------------------------------------
     # selected_vars: cols-indices -> names -> original-frame indices (categorize_dataset may rearrange cat columns).
     # ---------------------------------------------------------------------------------------------------------------
@@ -5781,6 +5938,29 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # type`` because a float array can't index. Integer dtype makes the empty
     # slice a valid no-op on both the DataFrame and the ndarray paths.
     self.support_ = np.array(selected_vars, dtype=np.int64)
+
+    # ROSTER RECONCILIATION (2026-06-04): the per-stage engineered rosters (``hybrid_orth_features_``, ``_adaptive_fourier_features_``, the Layer-33/34/37/38/87+ family lists) are
+    # populated as each FE stage APPENDS its columns, but the MRMR screen / accuracy gate / dedup then drop a subset before support is finalised. ``self._engineered_features_`` is the
+    # authoritative set of engineered columns that actually survived into the output (reachable via ``get_feature_names_out``). Intersect every roster with it so a column the screen
+    # dropped (and the adaptive-protection block did NOT re-add) no longer leaks into the user-facing roster. Runs AFTER the additional_rfecv rescue (which reads the FULL rosters to
+    # exclude engineered columns from its raw-only rescue pool); the rescue never adds engineered columns, so ``_engineered_features_`` is final here. Order-preserving per roster.
+    _surviving_eng = set(self._engineered_features_ or [])
+    for _roster_attr in (
+        "hybrid_orth_features_", "_adaptive_fourier_features_", "mi_greedy_features_",
+        "kfold_te_features_", "count_encoding_features_", "frequency_encoding_features_",
+        "cat_num_interaction_features_", "missingness_indicator_features_",
+        "missingness_count_features_", "missingness_pattern_features_",
+        "pairwise_ratio_features_", "pairwise_log_ratio_features_",
+        "grouped_delta_features_", "lagged_diff_features_", "grouped_agg_features_",
+        "composite_group_agg_features_", "grouped_quantile_features_",
+        "cat_pair_features_", "cat_triple_features_", "numeric_decompose_features_",
+        "modular_features_", "group_distance_features_", "rare_category_features_",
+        "conditional_residual_features_", "rankgauss_features_", "temporal_agg_features_",
+    ):
+        _roster = getattr(self, _roster_attr, None)
+        if _roster:
+            setattr(self, _roster_attr, [c for c in _roster if c in _surviving_eng])
+
     # Always store ``cached_MIs`` -- the empty-support fallback at the bottom
     # of this function reads ``self.cached_MIs`` to rank by raw MI(X_j, y), so
     # the attribute should exist regardless of ``retain_artifacts``. Cheap (a

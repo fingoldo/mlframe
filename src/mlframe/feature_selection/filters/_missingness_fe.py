@@ -390,6 +390,7 @@ def missing_indicator_with_recipes(
     mi_gate: bool = False,
     mi_gate_top_k: Optional[int] = None,
     y: Optional[np.ndarray] = None,
+    raw_X: Optional[pd.DataFrame] = None,
 ):
     """Append ``is_missing__{col}`` columns to X and emit one recipe per col.
 
@@ -397,6 +398,13 @@ def missing_indicator_with_recipes(
     per-source indicator columns are the explosion-prone L37 emitter (one
     column per source), so the floor drops indicators that carry no signal on y
     (the common MAR case) and keeps top-``mi_gate_top_k`` informative ones.
+
+    ``raw_X`` anchors that noise floor on the RAW input columns. When ``X`` has
+    already had earlier-stage engineered columns appended (e.g. the adaptive
+    Fourier basis), their plug-in-MI-inflated values would push the floor far
+    above a genuine MNAR indicator's MI and silently drop it; pass the pre-FE
+    raw frame here so the floor reflects the true raw-MI distribution. Defaults
+    to ``X`` when not supplied (back-compat).
     """
     from .engineered_recipes import build_missing_indicator_recipe
 
@@ -409,7 +417,8 @@ def missing_indicator_with_recipes(
     if mi_gate and y is not None and not enc_df.empty:
         from ._unified_fe_gate import local_mi_gate
 
-        keep = set(local_mi_gate(enc_df, y, raw_X=X, top_k=mi_gate_top_k))
+        _floor_ref = raw_X if isinstance(raw_X, pd.DataFrame) and raw_X.shape[1] else X
+        keep = set(local_mi_gate(enc_df, y, raw_X=_floor_ref, top_k=mi_gate_top_k))
         if not keep:
             return X.copy(), [], []
         cols = [c for c in cols if engineered_name_missing_indicator(c) in keep]
