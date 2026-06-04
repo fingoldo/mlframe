@@ -97,6 +97,18 @@ if _PYDANTIC_AVAILABLE:
         cpi_min_samples_leaf: int = 10
         n_repeats: int = 5  # repeats for 'permutation'/'conditional_permutation' importance (surfaced for tuning)
 
+        # Wide-data perm-FI cost guard (2026-06-04). Permutation / conditional-permutation importance rescore the model
+        # O(p * n_repeats) times PER FOLD, so on wide frames a single RFECV iteration can exceed the whole runtime budget
+        # (measured: madelon p=500, n_repeats=5 -> ~208s/iter > the 180s budget -> only 2-3 iters complete -> a 3-point CV
+        # curve -> one_se_min lands at the over-selection N). When ``wide_data_fi_fallback`` is True (NEW default) and the
+        # search universe exceeds ``wide_data_fi_threshold`` features, RFECV falls back to the estimator's native (gain /
+        # impurity) importance for the elimination ranking so the outer loop can build a REAL multi-point curve in budget;
+        # ``wide_data_fi_n_repeats`` caps n_repeats just below the threshold to soften the cliff. Set the flag False to keep
+        # exact permutation FI regardless of p (and a generous max_runtime_mins).
+        wide_data_fi_fallback: bool = True
+        wide_data_fi_threshold: int = 200
+        wide_data_fi_n_repeats: int = 2
+
         # Loss-of-trust handling
         keep_loser_subset_fi: bool = False
         drop_nan_score_fi: bool = True

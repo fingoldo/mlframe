@@ -59,6 +59,23 @@ bad-draw seeds), hard_synth +0.004, synth -0.002 (within noise, same as the
 products-only member). Covered by test_hybrid_tree_member.py (op expansion,
 leak-free per-op replay, pickle of the (a,b,op) specs).
 
+## 2026-06-04 — MRMR synergy bootstrap: n-aware cost gate (fe_synergy_max_sweep_cost) + raise default cap to 250
+
+Two coupled changes to MRMR's synergy bootstrap (the all-pairs joint-MI sweep that lets zero-marginal interaction
+operands get screened):
+
+1. **Raise ``fe_synergy_screen_max_features`` default 60 -> 250** so the bootstrap runs on moderate-width frames
+   (e.g. 220 cols) instead of being skipped. Measured: standalone MRMR hard_synth +0.045; no-op below 60 and
+   above 250.
+2. **New ``fe_synergy_max_sweep_cost`` (default 5e8) — an N-AWARE cost gate.** The sweep is O(p^2) pairs x O(n)
+   each, so it grows SUPER-LINEARLY in n; the feature cap alone does not bound wall-time. Measured at p=200:
+   n=5k +108% (35s), n=20k +300% (180s), n=100k effectively unbounded (>24 min). The bootstrap now fires only
+   when ``n * p^2 <= fe_synergy_max_sweep_cost``: 5e8 fires on the measured WINS (hard_synth n=5000 p=220 ->
+   2.4e8) but SKIPS the large-n blow-ups (n=20k p=200 -> 8e8 skip, verified 180s -> 58s; n=100k p=200 -> 4e9).
+   Set to ``float("inf")`` to disable (cap-only behaviour). This makes the cap=250 default safe at any n.
+
+(The HybridSelector member also passes ``mrmr_synergy_cap=250``; see the entry below for its +0.030 hard_synth win.)
+
 ## 2026-06-04 — HybridSelector mrmr_synergy_cap=250 default (enable the MRMR synergy bootstrap on moderate-width frames)
 
 WHY: MRMR's ``fe_synergy_screen_max_features`` defaults to 60 — its synergy

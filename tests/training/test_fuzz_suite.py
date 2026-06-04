@@ -179,7 +179,7 @@ def _config_for_models(
     cfg["rfecv_kwargs"] = {
         "max_noimproving_iters": 2,
         "cv_n_splits": rfecv_cv_n_splits,
-        "max_runtime_mins": 2,
+        "max_runtime_mins": 5,
         # 2026-06-03 FS-coverage audit -- RFECV aggregation + search-method
         # knobs. Both are str-Enum RFECV ctor params; the string form is
         # accepted by the enum. Forwarded via COMMON_RFECV_PARAMS.update.

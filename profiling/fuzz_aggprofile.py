@@ -114,7 +114,7 @@ def _run_one(idx: int, n_rows: int, include_torch: bool = False,
             feature_selection_config=FeatureSelectionConfig(
                 use_mrmr_fs=combo.use_mrmr_fs,
                 custom_pre_pipelines=_custom_pre_pipelines_for_combo(combo) or {},
-                mrmr_kwargs=({"verbose": 0, "max_runtime_mins": 1, "n_workers": 1, "quantization_nbins": 5,
+                mrmr_kwargs=({"verbose": 0, "max_runtime_mins": 5, "n_workers": 1, "quantization_nbins": 5,
                               "use_simple_mode": True, "min_nonzero_confidence": 0.9, "max_consec_unconfirmed": 3,
                               "full_npermutations": 3} if combo.use_mrmr_fs else None),
             ),

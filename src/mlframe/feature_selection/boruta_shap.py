@@ -114,6 +114,8 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         stability_subsamples: int = 0,
         stability_subsample_fraction: float = 0.75,
         stability_threshold: float = 1.0,
+        max_runtime_mins: float = None,
+        stop_file: str = "stop",
     ):
         """
         Parameters
@@ -184,6 +186,14 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         self.stability_subsamples = stability_subsamples
         self.stability_subsample_fraction = stability_subsample_fraction
         self.stability_threshold = stability_threshold
+
+        # Control/safety knobs mirroring MRMR / RFECV: a wall-clock budget and a
+        # filesystem stop-flag, both honoured inside the trial loop (see ``_fit_func``
+        # in ``_boruta_shap_fit_explain``). ``max_runtime_mins=None`` disables the time
+        # budget; ``stop_file`` is checked for existence each trial (touch it to abort
+        # the run cleanly, returning the features classified so far).
+        self.max_runtime_mins = max_runtime_mins
+        self.stop_file = stop_file
 
     def check_model(self):
         """

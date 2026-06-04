@@ -59,6 +59,33 @@ def _fit_stability_selection(self, X, y, signature):
     n_features = X.shape[1]
     feature_names = X.columns.tolist() if is_df else [str(i) for i in range(n_features)]
 
+    # Wide-data perm-FI cost guard (2026-06-04): mirror RFECV.fit's MBH-path guard on the stability-selection path.
+    # Permutation / conditional-permutation importance rescore the model O(p * n_repeats) times PER BOOTSTRAP; over
+    # stability_n_bootstrap replicates of a wide frame this is prohibitive. When wide_data_fi_fallback (default True) and
+    # p exceeds wide_data_fi_threshold, fall back to native (gain/impurity) importance for the per-bootstrap top-K ranking;
+    # below the threshold cap n_repeats. Stability selection ranks by importance regardless of estimator, so the native
+    # importance is a valid substitute here too.
+    _eff_n_repeats = int(getattr(self, "n_repeats", 5))
+    if (
+        getattr(self, "wide_data_fi_fallback", True)
+        and isinstance(importance_getter, str)
+        and importance_getter in ("permutation", "conditional_permutation")
+    ):
+        _threshold = int(getattr(self, "wide_data_fi_threshold", 200))
+        if n_features > _threshold:
+            if self.verbose:
+                logger.info(
+                    "stability_selection wide-data guard: %d features > wide_data_fi_threshold=%d; "
+                    "falling back from importance_getter=%r to native 'auto'.",
+                    n_features, _threshold, importance_getter,
+                )
+            importance_getter = "auto"
+        else:
+            _cap = int(getattr(self, "wide_data_fi_n_repeats", 2))
+            if _eff_n_repeats > _cap and n_features > max(1, _threshold // 4):
+                _eff_n_repeats = _cap
+    self._effective_n_repeats = _eff_n_repeats
+
     top_k = self.stability_top_k
     if top_k is None:
         # Top quartile - generous enough that informative features clearly above the noise floor will hit threshold.
@@ -105,7 +132,7 @@ def _fit_stability_selection(self, X, y, signature):
                     model=est_clone, current_features=feature_names,
                     data=X_sub, target=y_sub,
                     importance_getter=importance_getter,
-                    n_repeats=int(getattr(self, "n_repeats", 5)),
+                    n_repeats=int(getattr(self, "_effective_n_repeats", None) or getattr(self, "n_repeats", 5)),
                 )
             except Exception as exc:
                 if self.verbose:

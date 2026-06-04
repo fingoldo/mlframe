@@ -895,6 +895,12 @@ class MRMR(BaseEstimator, TransformerMixin):
         # On a VERY large n with p in (60, 250] the sweep is heavier -- lower this
         # cap (or set 0) if FE wall-time on such a frame matters.
         fe_synergy_screen_max_features: int = 250,
+        # N-AWARE COST GATE on the synergy bootstrap's all-pairs joint-MI sweep (O(p^2) pairs x O(n) each). The
+        # feature cap above does NOT bound wall-time -- a wide-but-not-too-wide frame at large n blows up
+        # super-linearly (measured p=200: n=5k +108%, n=20k +300%, n=100k >24min). The bootstrap fires only when
+        # n * p^2 <= this budget. 5e8 fires on the measured WINS (hard_synth n=5000 p=220 -> 2.4e8) but SKIPS the
+        # large-n blow-ups (n=100k p=200 -> 4e9). Set to float("inf") to disable the cost gate (cap-only behaviour).
+        fe_synergy_max_sweep_cost: float = 5e8,
         # Budget on the number of SYNERGY pairs (>=1 operand is a bootstrap-added
         # unselected column) that proceed to the EXPENSIVE per-pair unary/binary/
         # prewarp search. On a signal-drowned-in-noise frame many noise pairs clear
