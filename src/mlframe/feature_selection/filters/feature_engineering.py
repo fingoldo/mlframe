@@ -169,7 +169,7 @@ UNARY_INPUT_CONSTRAINTS: dict[str, str] = {
 }
 
 from ._internals import njit_functions_dict, smart_log
-from .discretization import discretize_array
+from .discretization import discretize_array, discretize_2d_quantile_batch
 from .permutation import mi_direct
 
 logger = logging.getLogger(__name__)
