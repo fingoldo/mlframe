@@ -16,9 +16,13 @@ A. **GridSearchCV over FE hyperparameters**
    ``GridSearchCV(MRMR, {'fe_hybrid_orth_enable': [False, True],
    'fe_hybrid_orth_basis': ['hermite', 'chebyshev']}, cv=3).fit(X, y)``
    on a quadratic-signal target completes WITHOUT crashing on any
-   candidate, ``cv_results_`` has 2x2=4 rows, and the best estimator
-   has ``fe_hybrid_orth_enable=True`` (the legacy linear path cannot
-   solve the quadratic target).
+   candidate, ``cv_results_`` has 2x2=4 rows, and the search surfaces a
+   config that SOLVES the quadratic (best CV >= 0.95) far above the legacy
+   linear baseline. (The winner is NOT pinned on
+   ``fe_hybrid_orth_enable=True``: the univariate He_2 recovery is
+   default-on via ``fe_univariate_basis_enable``, so with
+   ``fe_hybrid_orth_pair_enable=False`` the master switch is inert and the
+   score is driven by the BASIS axis -- see the test's docstring.)
 
 B. **Pipeline with non-trivial downstream**
    ``Pipeline([(MRMR(fe_hybrid_orth_enable=True), StandardScaler(),
@@ -175,10 +179,26 @@ class TestGridSearchCVOverFEParams:
             f"{grid.cv_results_['mean_test_score']}"
         )
 
-    def test_gridsearch_picks_hybrid_enabled_on_quadratic(self):
-        """The best candidate on a quadratic target MUST have
-        ``fe_hybrid_orth_enable=True`` - raw linear LogReg cannot beat
-        the engineered He_2 column on this signal.
+    def test_gridsearch_finds_config_that_solves_quadratic(self):
+        """GridSearch over the FE knobs MUST surface a config that solves the
+        quadratic via an engineered basis column, far above the legacy linear
+        baseline (raw LogReg on x1/x2 is symmetric in x1, so it only guesses).
+
+        Contract note (why this is NOT pinned on ``fe_hybrid_orth_enable=True``):
+        the univariate orthogonal-basis FE that recovers the He_2 column is
+        DEFAULT-ON (``fe_univariate_basis_enable=True``, landed 2026-06-02),
+        independent of the heavy ``fe_hybrid_orth_enable`` master switch. That
+        master switch additionally gates ONLY the pair-CROSS-basis stage
+        (``_h_pair_enable = fe_hybrid_orth_pair_enable AND fe_hybrid_orth_enable``,
+        ``_mrmr_fit_impl.py``). This pipeline sets ``fe_hybrid_orth_pair_enable=
+        False``, so the master switch toggles nothing here: enable=False and
+        enable=True produce BIT-IDENTICAL CV scores (measured 0.9827==0.9827 for
+        hermite, 0.9087==0.9087 for chebyshev). The grid's score variance is
+        driven entirely by the BASIS axis -- hermite's degree-2 column is exactly
+        x1**2-1 (corr 1.00 with x1**2 -> CV 0.983) while chebyshev's saturated
+        ``p2cos1`` is a weaker quadratic proxy (corr -0.93 -> CV 0.909). Pinning
+        the winner to enable=True was the stale premise; the honest contract is
+        that SOME engineered config clears the legacy baseline by a wide margin.
         """
         X, y = _build_quadratic_binary(seed=13, n=1500)
         pipe = Pipeline([
@@ -200,12 +220,32 @@ class TestGridSearchCVOverFEParams:
             refit=True,
         )
         grid.fit(X, y)
-        best_enable = grid.best_params_["mrmr__fe_hybrid_orth_enable"]
-        assert best_enable is True, (
-            f"GridSearch should prefer fe_hybrid_orth_enable=True on a "
-            f"quadratic target (legacy linear path cannot solve it). "
-            f"Got best_params={grid.best_params_}, "
+        # Legacy linear baseline: univariate-basis FE OFF -> only raw x1/x2 are
+        # available, and E[y|x1] is symmetric in x1, so a linear logit cannot
+        # separate the classes (measured CV ~0.5-0.7, train acc 0.695).
+        legacy = _make_mrmr(
+            fe_univariate_basis_enable=False,
+            fe_univariate_fourier_enable=False,
+            fe_hybrid_orth_enable=False,
+        )
+        legacy_pipe = Pipeline([("mrmr", legacy),
+                                ("clf", LogisticRegression(max_iter=300))])
+        legacy_score = float(
+            cross_val_score(legacy_pipe, X, y, cv=3).mean()
+        )
+        best_score = float(grid.best_score_)
+        # The engineered path solves the quadratic; measured best 0.983.
+        assert best_score >= 0.95, (
+            f"GridSearch should find a config that solves the quadratic via an "
+            f"engineered basis column (measured best ~0.983). Got "
+            f"best_score={best_score:.4f}, best_params={grid.best_params_}, "
             f"mean_test_scores={grid.cv_results_['mean_test_score']}"
+        )
+        # And it must crush the legacy linear baseline (no symmetric-in-x1 fix).
+        assert best_score >= legacy_score + 0.15, (
+            f"Engineered FE must clear the legacy linear baseline by a wide "
+            f"margin on the quadratic; best={best_score:.4f}, "
+            f"legacy={legacy_score:.4f}"
         )
 
     def test_gridsearch_best_estimator_serializes(self):
