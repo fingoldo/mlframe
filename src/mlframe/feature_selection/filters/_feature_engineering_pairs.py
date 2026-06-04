@@ -34,6 +34,34 @@ _PREWARP_UNARY = "prewarp"
 # ``raw_vars_pair`` 2-tuples. Lets the caller recover specs across the loky path.
 _PREWARP_SPECS_RESULT_KEY = ("__prewarp_specs__", -1, -1)
 
+# MARGINAL-UPLIFT alternative acceptance for the per-pair engineered winner. The
+# primary joint-prevalence gate (``best_mi / pair_mi > fe_min_engineered_mi_prevalence``)
+# rejects a genuine signal pair whenever the 2-D JOINT MI is finite-sample-inflated
+# ABOVE what any 1-D engineered summary can retain -- and that inflation is severe when
+# the target is discretised into many bins (the adaptive ``categorize_dataset`` routinely
+# produces 25-30 target bins) while the engineered column is binned to ``quantization_nbins``
+# (~10). On the canonical ``y = a**2/b + log(c)*sin(d)`` fixture the genuine ``a**2/b`` pair
+# recovers only 0.83-0.97 of its inflated joint and is dropped, leaving a single engineered
+# feature, and on the uniform-input variant a cross-pair artefact wins instead of the true
+# ``mul(log(c),sin(d))``. A 1-D summary of a 2-D pair structurally cannot retain >~0.90 of
+# the inflated joint, so requiring 0.97 asks the impossible for genuine algebraic recovery.
+#
+# The MARGINAL-UPLIFT criterion is scale-robust: a genuine joint pair's engineered column
+# clears the LARGER individual-operand marginal MI by a wide margin (the synergy is real),
+# whereas a cross-pair artefact -- whose engineered form mostly recapitulates one operand's
+# marginal plus noise -- barely beats it. Measured on both fixtures the genuine pairs sit at
+# uplift 1.36-2.32 while the artefacts sit at 1.03-1.44 BUT only ever with a LOW joint-recovery
+# ratio; pairing the uplift bar with a relaxed joint floor admits the genuine pairs and keeps
+# the artefacts out. This is the SAME notion the prewarp acceptance path and the smart_polynom
+# baseline-uplift use ("engineered MI must beat the larger operand marginal"); noise pairs never
+# clear it (the upstream pair screen + order-2 maxT floor already removed structureless pairs).
+_FE_MARGINAL_UPLIFT_MIN_RATIO: float = 1.30
+# Relaxed joint-recovery floor that pairs with the marginal-uplift bar. A 1-D engineered
+# summary can recover ~0.82+ of even a heavily over-binned joint when the structure is genuine;
+# cross-pair artefacts that DO clear the uplift bar are gated out here (their joint recovery is
+# either much lower or -- when high -- comes with a marginal uplift that fails the bar above).
+_FE_MARGINAL_UPLIFT_MIN_JOINT_RATIO: float = 0.82
+
 
 def _select_single_best(perf: dict, cols_names: Sequence, secondary: dict | None = None):
     """Pick ONE winning ``config`` from a ``{config: mi}`` mapping.
@@ -559,6 +587,37 @@ def check_prospective_fe_pairs(
     if verbose >= 2:
         logger.info("Created. For every pair from the pool, trying all known functions...")
 
+    # Per-operand marginal MI cache for the MARGINAL-UPLIFT alternative acceptance gate.
+    # The marginal MI is the discretised RAW operand (its ``identity`` unary, already
+    # materialised in ``transformed_vars``) scored against the target with the SAME
+    # estimator the engineered columns use, so the uplift ratio is apples-to-apples.
+    # Operands recur across pairs, so memoise by cols-space var index.
+    _operand_marginal_mi_cache: dict = {}
+
+    def _operand_marginal_mi(_var) -> float:
+        if _var in _operand_marginal_mi_cache:
+            return _operand_marginal_mi_cache[_var]
+        _mi_val = 0.0
+        _idx = vars_transformations.get((_var, "identity"))
+        if _idx is not None:
+            try:
+                _disc = discretize_array(
+                    arr=transformed_vars[:, _idx], n_bins=quantization_nbins,
+                    method=quantization_method, dtype=quantization_dtype,
+                )
+                _m, _ = mi_direct(
+                    _disc.reshape(-1, 1),
+                    x=np.array([0], dtype=np.int64), y=None,
+                    factors_nbins=np.array([quantization_nbins], dtype=np.int64),
+                    classes_y=classes_y, classes_y_safe=classes_y_safe, freqs_y=freqs_y,
+                    min_nonzero_confidence=fe_min_nonzero_confidence, npermutations=fe_npermutations,
+                )
+                _mi_val = float(_m)
+            except Exception:
+                _mi_val = 0.0
+        _operand_marginal_mi_cache[_var] = _mi_val
+        return _mi_val
+
     # For every pair from the pool, try all known functions of 2 variables (not storing results in persistent RAM). Record best pairs.
     for (
         raw_vars_pair,
@@ -587,6 +646,7 @@ def check_prospective_fe_pairs(
         # noise-safe (on linear/monotone/noise data the prewarp does not beat the
         # elementary library, so the margin is never cleared).
         best_nonprewarp_mi = -1.0
+        best_nonprewarp_config = None
         best_prewarp_config, best_prewarp_mi = None, -1.0
 
         # CRITICAL #2 dispatch: hoist path uses the shared buffer (writes into
@@ -687,6 +747,7 @@ def check_prospective_fe_pairs(
                         else:
                             if fe_mi > best_nonprewarp_mi:
                                 best_nonprewarp_mi = fe_mi
+                                best_nonprewarp_config = config
                         if fe_mi > best_mi * 0.85:
                             if not fe_print_best_mis_only or (fe_mi == best_mi):
                                 if verbose > 2:
@@ -750,13 +811,66 @@ def check_prospective_fe_pairs(
                     f"would have rejected it); admitting the prewarp feature."
                 )
 
-        if _passes_joint_gate or _prewarp_accept:  # Best transformation is good enough
+        # MARGINAL-UPLIFT alternative acceptance: admit a pair the joint-prevalence
+        # gate rejects when its best ELEMENTARY-LIBRARY (non-prewarp) engineered column
+        # beats the LARGER individual operand marginal MI by ``_FE_MARGINAL_UPLIFT_MIN_RATIO``
+        # AND still recovers at least ``_FE_MARGINAL_UPLIFT_MIN_JOINT_RATIO`` of the inflated
+        # 2-D joint. Rationale + thresholds: see the module-level constants. Genuine synergy
+        # pairs (a**2/b, log(c)*sin(d)) clear both; cross-pair artefacts that merely recapture
+        # one operand's marginal fail the uplift bar, and structureless noise pairs never reach
+        # here (the upstream pair screen + order-2 maxT floor remove them). Only fires when the
+        # primary joint gate AND the prewarp path both declined, so it is purely additive recall
+        # for genuine pairs the strict joint bar drops. We score + promote the best NON-PREWARP
+        # winner: the prewarp pseudo-unary has its own dedicated acceptance path above
+        # (``_prewarp_accept``), and promoting a prewarp form here would require the per-operand
+        # warp spec to round-trip into the recipe -- which is only guaranteed on the prewarp path.
+        _marginal_uplift_accept = False
+        if (
+            not _passes_joint_gate
+            and not _prewarp_accept
+            and best_nonprewarp_config is not None
+            and best_nonprewarp_mi > 0.0
+            and pair_mi > 0.0
+        ):
+            _max_operand_marginal = max(
+                _operand_marginal_mi(raw_vars_pair[0]),
+                _operand_marginal_mi(raw_vars_pair[1]),
+            )
+            _joint_ratio = best_nonprewarp_mi / pair_mi
+            if (
+                _max_operand_marginal > 0.0
+                and best_nonprewarp_mi >= _max_operand_marginal * _FE_MARGINAL_UPLIFT_MIN_RATIO
+                and _joint_ratio >= _FE_MARGINAL_UPLIFT_MIN_JOINT_RATIO
+            ):
+                _marginal_uplift_accept = True
+                # Promote the best non-prewarp form so the standard single-best
+                # materialisation path emits a recipe-replayable winner.
+                best_config, best_mi = best_nonprewarp_config, best_nonprewarp_mi
+                if verbose:
+                    messages.append(
+                        f"marginal-uplift gate: best non-prewarp engineered MI={best_nonprewarp_mi:.4f} "
+                        f"beats the larger operand marginal MI={_max_operand_marginal:.4f} by "
+                        f">= {_FE_MARGINAL_UPLIFT_MIN_RATIO:.2f}x and recovers {_joint_ratio:.3f} "
+                        f"of the 2-D joint (joint-prevalence gate "
+                        f"{fe_min_engineered_mi_prevalence:.2f} would have rejected it); "
+                        f"admitting the genuine synergy pair."
+                    )
+
+        if _passes_joint_gate or _prewarp_accept or _marginal_uplift_accept:  # Best transformation is good enough
 
             # If there is a group of leaders with almost the same performance, approve them through one of the other variables.
             # если будут возникать такие группы примерно одинаковых по силе лидеров, их придётся разрешать с помощью одного из других влияющих факторов
+            # When the pair was admitted ONLY via the marginal-uplift path (the joint /
+            # prewarp gates declined), the winner MUST be a non-prewarp form so the recipe
+            # is replayable -- restrict the leaders to elementary-library configs.
+            _restrict_to_nonprewarp = _marginal_uplift_accept and not (_passes_joint_gate or _prewarp_accept)
             leading_features = []
             for next_config, next_mi in sort_dict_by_value(var_pairs_perf).items():
                 if next_mi > best_mi * fe_good_to_best_feature_mi_threshold:
+                    if _restrict_to_nonprewarp and (
+                        next_config[0][0][1] == _PREWARP_UNARY or next_config[0][1][1] == _PREWARP_UNARY
+                    ):
+                        continue
                     leading_features.append(next_config)
 
             if len(leading_features) > 1:
