@@ -664,7 +664,14 @@ class MLPTorchModel(L.LightningModule):
             except Exception:
                 _any_cuda = False
             # A fused Adam/AdamW unscales gradients internally, so under AMP Lightning's automatic gradient clipping raises "optimizer does not allow for gradient clipping". When the trainer will clip, skip fused — the per-param launch cost is negligible next to losing clip safety.
-            _trainer_clip = getattr(getattr(self, "trainer", None), "gradient_clip_val", None)
+            # ``self.trainer`` is a Lightning PROPERTY that RAISES RuntimeError("not attached to a Trainer") when the
+            # module is used standalone (unit tests / configure_optimizers called before fit). getattr's default only
+            # swallows AttributeError, not RuntimeError, so it propagated and crashed; guard explicitly and treat
+            # "no trainer" as "no clip configured" (fused stays eligible).
+            try:
+                _trainer_clip = getattr(self.trainer, "gradient_clip_val", None)
+            except (RuntimeError, AttributeError):
+                _trainer_clip = None
             if _any_cuda and torch.cuda.is_available() and not _trainer_clip:
                 optimizer_kwargs.setdefault("fused", True)
 
