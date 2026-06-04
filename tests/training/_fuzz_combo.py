@@ -825,7 +825,9 @@ AXES: dict[str, tuple[Any, ...]] = {
     "reporting_plotly_template_cfg": (None, "ggplot2"),
     "reporting_matplotlib_style_cfg": (None, "ggplot"),
     # --- BaselineDiagnostics deep
-    "baseline_quick_model_n_estimators_cfg": (200, 50),
+    # 2026-06-04 profiling-budget: cap the baseline quick-model size to 5 (was 200/50) so the
+    # baseline-diagnostics floor stays cheap at n=100k. It's a quick-floor model, not a tuned one.
+    "baseline_quick_model_n_estimators_cfg": (5,),
     "baseline_quick_model_num_leaves_cfg": (31, 15),
     "baseline_quick_model_learning_rate_cfg": (0.05, 0.1),
     "baseline_sample_n_cfg": (50_000, 10_000),
@@ -6681,6 +6683,10 @@ def build_composite_discovery_config_from_flat(
         "require_beats_raw_baseline": composite_require_beats_raw_baseline,
         "per_bin_n_bins": composite_per_bin_n_bins,
         "tiny_screening_models": composite_tiny_screening_mode,
+        # 2026-06-04 profiling-budget: cap the Phase-B tiny-rerank model size (default 60).
+        # Composite discovery has no wall-clock budget of its own, so small tiny models keep
+        # the per-combo tiny-rerank (the top composite hotspot) bounded under the per-combo timeout.
+        "tiny_model_n_estimators": 5,
         # 2026-05-28 deep knobs (3 of the 4; multi_base_max_k handled above
         # because it also gates multi_base_enabled). These names match the
         # CompositeTargetDiscoveryConfig dataclass fields exactly.
