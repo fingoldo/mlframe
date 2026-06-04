@@ -270,6 +270,9 @@ dev = [
     "ipython>=8.0",
 ]
 
+[project.scripts]
+mlframe-tune-kernels = "mlframe.system.kernel_tuning_cache:main"
+
 [project.urls]
 Homepage = "https://github.com/fingoldo/mlframe"
 Repository = "https://github.com/fingoldo/mlframe.git"
