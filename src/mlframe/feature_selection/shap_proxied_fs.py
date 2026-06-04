@@ -331,6 +331,8 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         # SHAP-attribution input unchanged. The cache is content-addressable, multi-process safe,
         # LRU-evicted; see ``mlframe.utils.disk_cache``.
         cache_dir: str | None = None,
+        max_runtime_mins: float = None,
+        stop_file: str = "stop",
     ):
         self.model = model
         self.classification = classification
@@ -841,6 +843,11 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         self.inner_n_jobs_cap = bool(inner_n_jobs_cap)
         self.random_state = random_state
         self.verbose = verbose
+        # Control/safety knobs (parity with MRMR / RFECV): wall-clock budget + filesystem
+        # stop-flag, honoured at the top of the elimination loop in fit(). max_runtime_mins=None
+        # disables the budget; touch stop_file to abort cleanly with the current best subset.
+        self.max_runtime_mins = max_runtime_mins
+        self.stop_file = stop_file
         self.tqdm = tqdm
         # iter66: precomputed cross-selector artifacts; validated + aligned to
         # X.columns at fit() time via ``align_precomputed_to_X``. Stored as-is
@@ -1096,6 +1103,22 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
                 yield
             finally:
                 _timings[name] = _timings.get(name, 0.0) + (time.perf_counter() - t0)
+
+        # Control/safety budget (parity with MRMR / RFECV). The OOF-SHAP + proxy-search core always
+        # runs (it produces the candidate subsets), but the OPTIONAL expensive refinement phases
+        # below -- honest revalidation, importance ablation, within-cluster refine -- are each gated
+        # on this budget. When the wall-clock budget is exceeded OR ``stop_file`` exists, they are
+        # skipped and fit() finalises with the proxy-best subset (a valid selection). ``getattr``
+        # keeps old pickled instances (without the new attrs) working.
+        from os.path import exists as _stop_file_exists
+        _budget_t0 = time.perf_counter()
+        _budget_max_mins = getattr(self, "max_runtime_mins", None)
+        _budget_stop_file = getattr(self, "stop_file", None)
+
+        def _budget_exhausted() -> bool:
+            if _budget_max_mins and (time.perf_counter() - _budget_t0) > _budget_max_mins * 60.0:
+                return True
+            return bool(_budget_stop_file) and _stop_file_exists(_budget_stop_file)
 
         X = self._to_pandas(X).reset_index(drop=True)
         X.columns = [str(c) for c in X.columns]
@@ -1678,7 +1701,12 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
 
         # Honest re-validation of the top-N on the disjoint holdout (active-learning variant when the
         # corrector anchors are available, else the static top-N retrain).
-        if self.revalidate:
+        _reval_budget_skip = self.revalidate and _budget_exhausted()
+        if _reval_budget_skip:
+            report["budget_skipped"] = dict(phase="revalidation", max_runtime_mins=_budget_max_mins, stop_file=_budget_stop_file)
+            if self.verbose:
+                logger.info("ShapProxiedFS: budget/stop reached; skipping honest revalidation, finalising with proxy-best subset.")
+        if self.revalidate and not _reval_budget_skip:
             cdata = report.get("trust", {}).get("_corrector_data")
             with _stage("revalidation"):
                 if self.active_learning and cdata:
@@ -1712,7 +1740,7 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
             best_idx = tuple(candidates[0][1])
 
         # Importance-top-k ablation (unique-value gate vs plain SHAP importance).
-        if self.run_importance_ablation and best_idx:
+        if self.run_importance_ablation and best_idx and not _budget_exhausted():
             from mlframe.feature_selection._shap_proxy_revalidate import importance_topk_ablation
 
             with _stage("importance_ablation"):
@@ -1726,7 +1754,7 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
             member_cols = sorted({int(c) for u in best_idx for c in unit_to_members[int(u)]})
         else:
             member_cols = sorted(int(i) for i in best_idx)
-        if self.within_cluster_refine and unit_to_members is not None and len(member_cols) > 1:
+        if self.within_cluster_refine and unit_to_members is not None and len(member_cols) > 1 and not _budget_exhausted():
             from mlframe.feature_selection._shap_proxy_objective import resolve_metric
             from mlframe.feature_selection._shap_proxy_revalidate import (
                 _honest_loss, _open_disk_cache, within_cluster_refine,

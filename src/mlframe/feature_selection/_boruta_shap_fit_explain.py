@@ -345,6 +345,18 @@ def fit(self, X, y):
         if self.sample:
             self.preds = self.isolation_forest(self.X)
 
+        # Control/safety budget (parity with MRMR / RFECV): a wall-clock timer + a
+        # filesystem stop-flag, both checked at the top of each trial below so an
+        # over-budget or stop-flagged run returns the features classified so far rather
+        # than running the remaining (dominant-cost) trials. ``getattr`` keeps old
+        # pickled instances (without the new attrs) working.
+        from os.path import exists as _stop_file_exists
+        from time import perf_counter as _budget_timer
+        _fit_start_t = _budget_timer()
+        _max_runtime_mins = getattr(self, "max_runtime_mins", None)
+        _stop_file = getattr(self, "stop_file", None)
+        self.n_trials_run_ = 0  # defensive: every early-break path leaves this set
+
         pbar = tqdmu(range(self.n_trials), desc="Feature selection", disable=not self.verbose)
         last_ncols = 0
         for trial in pbar:
@@ -378,6 +390,19 @@ def fit(self, X, y):
                     if self.verbose:
                         logger.info("BorutaShap: all features decided after %d/%d trials; stopping early.", trial + 1, self.n_trials)
                     break
+
+            # Control/safety budget + stop-flag (parity with MRMR / RFECV), checked at the END of each
+            # trial so the just-completed trial's state is valid (>=1 trial always runs): an over-budget
+            # or stop-flagged run returns the features decided so far rather than starting the next
+            # (dominant-cost) trial. ``n_trials_run_`` was set above to the count completed.
+            if _max_runtime_mins and (_budget_timer() - _fit_start_t) > _max_runtime_mins * 60.0:
+                if self.verbose:
+                    logger.info("BorutaShap: runtime budget %.1f min exceeded after trial %d/%d; stopping with features decided so far.", _max_runtime_mins, trial + 1, self.n_trials)
+                break
+            if _stop_file and _stop_file_exists(_stop_file):
+                if self.verbose:
+                    logger.info("BorutaShap: stop_file %r found after trial %d/%d; stopping with features decided so far.", _stop_file, trial + 1, self.n_trials)
+                break
 
         self.store_feature_importance()
         self.calculate_rejected_accepted_tentative(verbose=self.verbose)
