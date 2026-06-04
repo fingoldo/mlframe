@@ -84,6 +84,32 @@ repos:
         always_run: false
         stages: [pre-commit]
 
+  # Real-bug gate: pyflakes (undefined names, redefinitions, undefined exports)
+  # + syntax errors. Blocks the commit (exit 1 on finding any). False-positive
+  # rate is near-zero after the de-star cleanup (F821/F822 are genuine bugs).
+  # Stylistic rules (format, import order, naming) are WARN-ONLY via format-lint-warn.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        name: "ruff (real bugs block)"
+        entry: python -m ruff check --select F,E9
+        language: system
+        types: [python]
+        stages: [pre-commit]
+
+  # Warn-only style gate: formatting + style lint (E/W/N/UP/I), never blocks.
+  # Runs after the blocking gate. See scripts/format_warn.py for the wrapper.
+  - repo: local
+    hooks:
+      - id: format-lint-warn
+        name: "ruff format + style lint (warn-only)"
+        entry: python scripts/format_warn.py
+        language: system
+        types: [python]
+        verbose: true
+        stages: [pre-commit]
+
   # Optional: a "fast" alias that runs the static (non-Hypothesis) meta-
   # tests only — useful for ``pre-commit run --hook-stage=manual fast-meta``
   # in tight inner-loop work.
