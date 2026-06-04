@@ -204,6 +204,13 @@ def _run_fe_step(
     # samples it needs -- the recovery wins are at n>=2000, unaffected).
     _synergy_min_rows = int(getattr(self, "fe_synergy_min_rows", 300) or 0)
     _n_rows_for_synergy = int(data.shape[0]) if hasattr(data, "shape") else 0
+    # N-AWARE COST GATE (2026-06-04): the all-pairs joint-MI sweep is O(p^2) pairs x O(n) per pair, so it grows
+    # SUPER-LINEARLY in n once the feature cap is raised. Measured at p=200: n=5k +108% (35s), n=20k +300% (180s),
+    # n=100k effectively unbounded (>24 min, killed). The feature ``fe_synergy_screen_max_features`` cap alone does
+    # NOT bound this (a wide-but-not-too-wide frame with large n is the blow-up). Gate the bootstrap on a sweep-cost
+    # budget ``fe_synergy_max_sweep_cost`` ~ n * p^2: default 5e8 fires on the measured WINS (hard_synth n=5000 p=220
+    # -> 2.4e8) but SKIPS the large-n blow-ups (n=100k p=200 -> 4e9). Set to inf to disable the cost gate.
+    _synergy_max_sweep_cost = float(getattr(self, "fe_synergy_max_sweep_cost", 5e8) or float("inf"))
     if _synergy_cap > 0 and num_fs_steps == 0 and _n_rows_for_synergy >= _synergy_min_rows:
         _raw_names = set(getattr(self, "feature_names_in_", []) or [])
         _target_idx_set = {int(t) for t in np.atleast_1d(target_indices)}
@@ -216,7 +223,9 @@ def _run_fe_step(
             _raw_numeric_idx &= set(self.factors_to_use)
         if self.factors_names_to_use is not None:
             _raw_numeric_idx &= {cols.index(n) for n in self.factors_names_to_use if n in cols}
-        if 0 < len(_raw_numeric_idx) <= _synergy_cap:
+        _n_raw = len(_raw_numeric_idx)
+        _sweep_cost = _n_rows_for_synergy * (_n_raw ** 2)
+        if 0 < _n_raw <= _synergy_cap and _sweep_cost <= _synergy_max_sweep_cost:
             _added = _raw_numeric_idx - numeric_vars_to_consider
             if _added:
                 _synergy_added_idx = set(_added)
@@ -226,14 +235,21 @@ def _run_fe_step(
                         "MRMR FE synergy bootstrap: augmented pair pool with %d unselected raw "
                         "numeric columns (%d raw <= cap %d) so zero-marginal synergy pairs "
                         "(a*d / sign products / log*sin) get joint-MI screened.",
-                        len(_added), len(_raw_numeric_idx), _synergy_cap,
+                        len(_added), _n_raw, _synergy_cap,
                     )
-        elif len(_raw_numeric_idx) > _synergy_cap and verbose:
+        elif 0 < _n_raw <= _synergy_cap and _sweep_cost > _synergy_max_sweep_cost and verbose:
+            logger.info(
+                "MRMR FE synergy bootstrap: %d raw numeric cols <= cap %d but sweep cost n*p^2=%.2g exceeds "
+                "fe_synergy_max_sweep_cost=%.2g (O(p^2*n) blow-up on large n); skipping the all-pairs sweep. "
+                "Raise fe_synergy_max_sweep_cost to force it.",
+                _n_raw, _synergy_cap, float(_sweep_cost), _synergy_max_sweep_cost,
+            )
+        elif _n_raw > _synergy_cap and verbose:
             logger.info(
                 "MRMR FE synergy bootstrap: %d raw numeric columns > cap %d; skipping the "
                 "all-pairs synergy sweep (keeping the selected-only pool). Raise "
                 "fe_synergy_screen_max_features to enable it on this frame.",
-                len(_raw_numeric_idx), _synergy_cap,
+                _n_raw, _synergy_cap,
             )
 
     # `combinations(...)` is consumed lazily by tqdmu (small path) or by
