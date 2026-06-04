@@ -215,26 +215,23 @@ def test_gated_med_unary_binary_recovers_with_gate():
     )
 
 
-def test_gate_med_is_the_lever_vs_no_gate_control():
-    """MECHANISM PROOF: the SAME unary/binary path WITHOUT the gate cannot recover
-    the conjunction on SKEWED operands -- no fixed threshold the elementary
-    library expresses (rint / sign / threshold-0) matches the adaptive median
-    split, so it engineers nothing (corr ~0). The gate -- not anything else in
-    the path -- is the lever. Single-knob A/B on ``fe_gate_med_enable``."""
+def test_gate_med_recovers_skewed_conjunction_via_the_median_gate():
+    """gate_med ON recovers the SKEWED conjunction via the per-operand median gate (high |corr|).
+
+    HISTORY (2026-06-04 merge): this was originally a UNIQUENESS proof -- the no-gate control was expected to FAIL
+    on the skewed conjunction (no fixed threshold the elementary library expresses matches the adaptive median
+    split). A CONCURRENT FE change landed on master in the same window -- the marginal-uplift alternative acceptance
+    (``_FE_MARGINAL_UPLIFT_MIN_RATIO`` in _feature_engineering_pairs.py) -- which independently relaxes acceptance
+    enough that the elementary library now ALSO recovers the skewed conjunction via a different algebraic form
+    (e.g. ``min(qubed(a), log(b))``). So gate_med is no longer the UNIQUE lever; it remains a VALID, direct,
+    distribution-ADAPTIVE one. The positive mechanism proof (recovery is attributable to a ``gate_med`` feature)
+    is covered by the test above; here we assert the median-gate path recovers the skewed conjunction at all."""
     df, y, true = _make_and_skew()
     fs_on = _fit(lambda: _unb(gate_med=True), df, y)
-    fs_off = _fit(lambda: _unb(gate_med=False), df, y)
     _n_on, corr_on = _best_engineered_corr(fs_on, df, true)
-    _n_off, corr_off = _best_engineered_corr(fs_off, df, true)
-    assert corr_off < 0.30, (
-        f"AND-skew/UNB WITHOUT gate unexpectedly recovered |corr|={corr_off:.3f} "
-        f"({_n_off}); the no-gate control was expected to fail on the skewed "
-        f"conjunction (no library threshold matches the median split)"
-    )
-    assert corr_on >= corr_off + 0.20, (
-        f"gate ON (corr={corr_on:.3f}) did not beat gate OFF (corr={corr_off:.3f}) "
-        f"by the expected margin; the gate-is-the-lever hypothesis would be "
-        f"falsified ({_n_on} vs {_n_off})"
+    assert corr_on >= 0.50, (
+        f"gate ON failed to recover the skewed conjunction via the median gate "
+        f"(|corr|={corr_on:.3f}, {_n_on}); the median-gate recovery regressed"
     )
 
 
@@ -251,12 +248,12 @@ def test_gated_med_downstream_score_recovers_with_gate():
         f"baseline {raw_r2:.3f}; the engineered feature did not deliver a "
         f"predictive lift"
     )
-    fs_off = _fit(lambda: _unb(gate_med=False), df, y)
-    sel_r2_off = _ridge_r2(np.asarray(fs_off.transform(df)), y)
-    assert sel_r2 >= sel_r2_off, (
-        f"gate ON downstream R^2={sel_r2:.3f} did not beat OFF {sel_r2_off:.3f}; "
-        f"the median gate added no predictive value over the no-gate control"
-    )
+    # NOTE (2026-06-04 merge): the gate ON path delivers a clear lift over the all-raw baseline (asserted above) --
+    # that is gate_med's value. We do NOT assert ON > OFF here: a concurrent FE change (the marginal-uplift
+    # alternative acceptance) independently lets the no-gate path recover this particular skewed conjunction via a
+    # different algebraic form (e.g. min(qubed(a),log(b))), so on THIS fixture OFF is competitive (sometimes higher).
+    # gate_med's measured net win is on the skew bench (+0.0355/+0.0435 over products); the load-bearing assertions
+    # are the standalone lift above + the leak-safe gate_med recovery in the other tests.
 
 
 # ---------------------------------------------------------------------------
