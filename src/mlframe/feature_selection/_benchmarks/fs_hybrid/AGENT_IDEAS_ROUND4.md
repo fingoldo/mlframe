@@ -6,14 +6,15 @@
 - **MEASURED, killed/mixed:** A1-1 JMIM (mixed/mild, opt-in only); A4-1 knockoff-FDR (KILLED, degenerate on
   madelon's collinear probes, raw + premerge both empty); A2-2 residual-relay (regime-specific — hard_synth
   +0.017 recovers real dropped features via residual-MI, madelon −0.0085; future GATED candidate).
-- **REMAINING (BENCH-NEXT, signals confirmed present, NOT dismissed):** the cross-selector combine-refinements
-  A2-3/A5-1 confidence-prior/stack-confidence, A2-1 disagreement-referee, A5-3 tentative-rescue. Buildable
-  (BorutaShap exposes self.hits/history_hits/tentative; RFECV cv_results_; etc.), but they are sophisticated
-  variants of the MEASURED-FAILED fi_guard / per-member vote-weighting family (round-3 H3-2..6, all ±0.002 on
-  the easy bed). The agents' thesis is that per-FEATURE native confidence on the SPLIT-SIGNAL regime differs
-  from those per-member/FI-median attempts — plausible but weak prior. Build+measure next; don't expect a clean
-  default-on win. The FE-frontier ideas (A1-2 widen-p>60, A3-3 holdout-greedy-FE, A3-5 ratio/threshold ops) are
-  largely SUBSUMED by the shipped tree member for the madelon regime but remain open for MRMR-standalone.
+- **MEASURED (combine-refinements, all built + benched vs the tree-member hybrid):** A2-3/A5-1 confidence-prior
+  REJECTED (−0.002 to −0.0026 all beds; confidence floor cuts recall like fi_guard — agents' thesis falsified);
+  A2-1 disagreement-referee REJECTED (±0.002, within noise); A5-3 tentative-rescue regime-specific (hard_synth
+  +0.0066, madelon −0.0112) — same recall-add shape as A2-2 residual-relay. CONVERGENT FINDING: a real
+  recoverable weak-feature recall gap on split-signal data that recall-adds exploit (+0.006..0.017) but that
+  HURTS madelon (signal already captured) → any recall-add needs a "signal-already-captured" gate. Pursuing the
+  GATED SYNTHESIS (permutation-null residual-MI recall-add) as the shippable form. The FE-frontier ideas
+  (A1-2 widen-p>60, A3-3 holdout-greedy-FE, A3-5 ratio/threshold ops) are largely SUBSUMED by the shipped tree
+  member for the madelon regime but remain open for MRMR-standalone.
 
 Informed by ALL of rounds 1-3 + real-data (madelon) validation. Decision rule: most accurate first, fastest
 breaks ties; EVERY idea needs a cheap falsifiable test. Disposition column updated as ideas are measured.
@@ -49,9 +50,9 @@ verdict appended once measured.
 ## AGENT 2 — cross-selector synergy
 | # | name | mechanism | disposition |
 |---|------|-----------|-------------|
-|A2-1|`disagreement_referee`|partition clusters by member agreement; route ONLY contested clusters (1-of-N) through a held-out forward-AUC referee. Unanimous keep, zero-vote drop.|**BENCH-NEXT** (agent's #1; cheap on hard_synth)|
+|A2-1|`disagreement_referee`|partition clusters by member agreement; route ONLY contested clusters (1-of-N) through a held-out forward-AUC referee. Unanimous keep, zero-vote drop.|**MEASURED — REJECTED.** vs tree-member hybrid: hard_synth +0.0022, madelon −0.0026, synth +0.0013 — all within noise; the forward-AUC referee on contested clusters does not beat the binary vote (confirms the H3-2..6 combine-refinement ±0.002 ceiling). (round4_synergy_combine_bench.py)|
 |A2-2|`residual_relay`|fit MRMR member → OOF residuals → run Boruta/Shap on MRMR's DROPPED columns vs the residualized target. Boosting logic for FS; covers complementary signal.|**MEASURED — regime-specific, NOT default.** Tested as: hybrid→OOF residual→screen DROPPED cols by MI/corr with residual→add top-k. hard_synth: residual-MI screen recovered REAL dropped features (str_0, sq, red_0_0), +0.0173 within-run (lgbm 0.734→0.783) — the MI variant works, corr variant picks noise. madelon: −0.0085 (residual is noise; tree member already captured signal). Confounded by high hybrid run-to-run variance on hard_synth (0.736 vs 0.78). Mechanism genuine but mixed → FUTURE gated candidate (admit residual features only when their residual-MI clears a signal floor), needs multi-seed + regime gate. (round4_residual_relay_bench.py)|
-|A2-3|`confidence_prior_vote`|replace binary vote with summed per-feature confidence (Boruta hits/n, RFECV retention, Shap fidelity, MRMR gain), rank-normalized.|BENCH-NEXT (conv. A5-1)|
+|A2-3|`confidence_prior_vote`|replace binary vote with summed per-feature confidence (Boruta hits/n, RFECV retention, Shap fidelity, MRMR gain), rank-normalized.|**MEASURED — REJECTED.** Multi-signal per-feature confidence (Boruta accepted/tentative tier + distinct-member votes + normalized FI), single-member clusters gated on the consensus-confidence floor. vs tree-member hybrid: hard_synth −0.0022, madelon −0.0026, synth −0.0004 — NEGATIVE/flat everywhere; the confidence floor cuts recall like fi_guard. The per-feature native confidence did NOT beat the binary vote even on split-signal — the agents' thesis falsified. (round4_synergy_combine_bench.py)|
 |A2-4|`prior_protected_rfecv`|warm-start RFECV's elimination with must_include = high-confidence core from Boruta/MRMR; RFECV only trims the tail.|QUEUE (RFECV-member was rejected H3-4; must beat that)|
 |A2-5|`fe_firstclass_gated`|make engineered cols CONTESTABLE — Boruta/Shap rank them vs shadows; emit only if ≥2 members confirm OR own hit-rate clears shadow.|QUEUE (conv. A3-4)|
 |A2-6|`regime_meta_combiner`|pre-calibrated threshold on cross-selector cardinality divergence routes high-divergence→recall rule, low→consensus.|QUEUE (near H3-5 overfit; pre-calibrated not learned)|
@@ -86,7 +87,7 @@ verdict appended once measured.
 |---|------|-----------|-------------|
 |A5-1|`stack_confidence`|per-feature logistic/shallow meta-learner over member confidence channels (Boruta hits, RFECV elim-rank+CV-delta, Shap |OOF-SHAP|, MRMR gain, perm-FI, cluster size); killed on honest test only.|**BENCH-NEXT** (agent's #1; conv. A2-3)|
 |A5-2|`cluster_oof_gain`|honest forward selection over CLUSTERS (not features): consensus clusters free, single-member clusters admitted by held-out OOF AUC gain + one-SE guard.|BENCH-NEXT|
-|A5-3|`tentative_rescue`|readmit Boruta-tentative/MRMR-margin-dropped features when a DIFFERENT member ranks them confidently (two-channel gate).|BENCH-NEXT (conv. A2-7; the madelon under-selection cure)|
+|A5-3|`tentative_rescue`|readmit Boruta-tentative/MRMR-margin-dropped features when a DIFFERENT member ranks them confidently (two-channel gate).|**MEASURED — regime-specific, NOT default.** Readmit Boruta-tentative whose cluster a different member also picked OR FI top-quartile. vs tree-member hybrid: hard_synth +0.0066 (recall-add recovers weak features, lgbm 0.768→0.789), madelon −0.0112 (over-adds → dilutes; tree member already captured signal), synth 0.0. Same recall-add pattern as A2-2 residual-relay → future GATED candidate (needs a "signal-already-captured" gate to avoid the madelon regression). (round4_synergy_combine_bench.py)|
 |A5-4|`per_model_emit`|emit DIFFERENT feature sets for linear vs tree downstreams (test the one-size-fits-all assumption on split signal).|QUEUE (invasive API; valuable even as negative result)|
 |A5-5|`conf_rep`|cluster rep chosen by cross-member confidence rank-agg instead of perm-FI alone.|QUEUE (cheap, low ceiling; ship-if-positive)|
 |A5-6|`union_backward`|one honest RFECV `one_se_min` backward pass over the small UNION of member picks (prune, not re-discover).|QUEUE (moderate H3-4 subsumption risk)|
