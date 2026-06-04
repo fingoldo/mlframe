@@ -170,9 +170,11 @@ class TestExtraBasisGatedOnHybridEnable:
         return X, y
 
     def test_extra_basis_skipped_when_hybrid_disabled(self, monkeypatch):
-        """With fe_hybrid_orth_enable=False (default) but
-        fe_hybrid_orth_extra_bases set, the extra-basis FE function must NOT be
-        called -- the default-on univariate path stays univariate-only."""
+        """With fe_hybrid_orth_enable=False (default) but fe_hybrid_orth_extra_bases set, the
+        CONFIG extra-basis (bspline) must NOT reach the extra-basis FE function -- it stays gated
+        on the master hybrid switch. The default-on adaptive-Fourier univariate path
+        (fe_univariate_fourier_enable=True) legitimately calls the same function independently of
+        the master switch, so it is turned off here to isolate the master-switch gate under test."""
         import mlframe.feature_selection.filters._orthogonal_univariate_fe as ofe
 
         calls = {"n": 0}
@@ -188,12 +190,13 @@ class TestExtraBasisGatedOnHybridEnable:
         m = _make_cheap_mrmr(
             fe_hybrid_orth_enable=False,
             fe_univariate_basis_enable=True,
+            fe_univariate_fourier_enable=False,
             fe_hybrid_orth_extra_bases=("bspline",),
         )
         m.fit(X, y)
         assert calls["n"] == 0, (
-            "extra-basis FE ran with fe_hybrid_orth_enable=False; it must stay "
-            "gated on the master hybrid switch"
+            "config extra-basis FE ran with fe_hybrid_orth_enable=False; the bspline extra-basis "
+            "must stay gated on the master hybrid switch"
         )
 
     def test_extra_basis_runs_when_hybrid_enabled(self, monkeypatch):

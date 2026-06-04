@@ -82,7 +82,17 @@ def test_run_fe_step_does_not_materialise_full_pair_list():
         N = 60  # >50 triggers the large (parallel) path
         n_samples = 200
         X = pd.DataFrame(rng.standard_normal((n_samples, N)), columns=[f"f{i}" for i in range(N)])
-        y = (rng.standard_normal(n_samples) > 0).astype(int)
+        # Plant a clear pair signal in f0/f1 so screening keeps >=2 vars and the pair-FE
+        # ``combinations(..., 2)`` step actually iterates the probe. A pure-noise y collapses
+        # screening to a top-1 fallback (one selected var -> no pairs -> the probe never iterates).
+        # Both legs carry strong marginal relevance (so neither is dropped at screening) plus an
+        # interaction term so the PAIR is a meaningful FE candidate -- exactly what the lazy
+        # pair-FE step iterates over.
+        f0 = X["f0"].to_numpy()
+        f1 = X["f1"].to_numpy()
+        logit = 3.0 * f0 + 3.0 * f1 + 2.0 * f0 * f1
+        prob = 1.0 / (1.0 + np.exp(-logit))
+        y = (rng.random(n_samples) < prob).astype(int)
 
         m = _mrmr_mod.MRMR(
             full_npermutations=2,

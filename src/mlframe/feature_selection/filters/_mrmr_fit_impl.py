@@ -4333,6 +4333,59 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     _adaptive_fourier_keep = set(
         getattr(self, "_adaptive_fourier_features_", None) or []
     )
+    # Keep-higher-MI dedup policy: when a near-duplicate cluster spans stages, the survivor must be the column carrying the MOST information about y, NOT merely the first-appended one.
+    # The default-on univariate-basis stage writes into ``hybrid_orth_features_`` and is appended BEFORE ``mi_greedy_features_``, so a first-appended policy silently sacrifices a genuine
+    # mi_greedy ``|x|``-family signal (``log_abs(x)`` / ``sqrt_abs(x)`` / ``square(x)`` / ``abs(x)``) to a monotone-equivalent basis twin (``x__L2`` / ``x__cos1`` / ...). We score every appended
+    # engineered column once with the SAME plug-in MI scorer + quantile binning the FE stages used, then break dedup ties by higher MI, with the mi_greedy / constructor-requested column winning
+    # exact MI ties (a monotone twin bins identically, so MI is numerically equal -- prefer the explicitly-requested constructor output). MI scoring is best-effort: any failure falls back to the
+    # order-preserving first-appended policy so the dedup never crashes a fit.
+    _mig_set = set(self.mi_greedy_features_ or [])
+    _eng_mi: dict[str, float] = {}
+    try:
+        from ._orthogonal_univariate_fe import _mi_classif_batch
+        _y_for_eng_mi = y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+        if _y_for_eng_mi.dtype.kind in "fc":
+            _n_unique_eng = int(np.unique(_y_for_eng_mi).size)
+            if _n_unique_eng <= 32:
+                _y_for_eng_mi = _y_for_eng_mi.astype(np.int64)
+            else:
+                try:
+                    _y_for_eng_mi = pd.qcut(_y_for_eng_mi, q=10, labels=False, duplicates="drop").astype(np.int64)
+                except Exception:
+                    _y_for_eng_mi = _y_for_eng_mi.astype(np.int64)
+        else:
+            _y_for_eng_mi = _y_for_eng_mi.astype(np.int64)
+        if isinstance(X, pd.DataFrame) and len(_eng_cols_appended) >= 2:
+            _mi_cols = [_c for _c in _eng_cols_appended if _c in X.columns]
+            if _mi_cols:
+                _mi_mat = X[_mi_cols].to_numpy(dtype=np.float64)
+                _mi_vals = _mi_classif_batch(_mi_mat, _y_for_eng_mi, nbins=10)
+                _eng_mi = {_name: float(_v) for _name, _v in zip(_mi_cols, _mi_vals)}
+    except Exception:
+        _eng_mi = {}
+
+    def _eng_dedup_prefer(cand: str, kept: str) -> bool:
+        """Return True when ``cand`` should DISPLACE the already-kept ``kept`` on a near-duplicate collision.
+
+        Only CROSS-STAGE collisions (exactly one of the pair is an mi_greedy / constructor-requested column) ever flip the survivor: within a single stage we preserve the original
+        first-appended policy byte-for-byte, so the dedup stays deterministic on the monotone-twin families a single basis stage emits (a quantile-binned MI tie between ``x__He2`` /
+        ``x__cos1`` / ``x__L2`` would otherwise reshuffle non-deterministically). Across stages we keep the column carrying more MI about y, and the explicitly-requested mi_greedy column
+        wins an exact MI tie (a monotone twin bins identically, so its MI is numerically equal -- without this the default-on basis twin would silently evict the genuine ``|x|``-family signal).
+        """
+        _cand_mig = cand in _mig_set
+        _kept_mig = kept in _mig_set
+        if _cand_mig == _kept_mig:
+            return False
+        _mi_cand = _eng_mi.get(cand)
+        _mi_kept = _eng_mi.get(kept)
+        if _mi_cand is None or _mi_kept is None:
+            return False
+        if _mi_cand > _mi_kept + 1e-12:
+            return True
+        if _mi_cand >= _mi_kept - 1e-12:
+            return _cand_mig and not _kept_mig
+        return False
+
     if len(_eng_cols_appended) >= 2 and isinstance(X, pd.DataFrame):
         _eng_keep: list[str] = []
         _eng_drop: set[str] = set()
@@ -4375,7 +4428,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # catches the full monotone-equivalent family that MRMR's
             # downstream gate cannot distinguish.
             _ranks_c = pd.Series(_arr_c).rank(method="average").to_numpy()
-            _is_dup = False
+            _colliding_kept: list[str] = []
             for _kept in _eng_keep:
                 _arr_k = _eng_arrs[_kept]
                 _mask = _fin_c & np.isfinite(_arr_k)
@@ -4390,10 +4443,20 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     continue
                 _rank_corr = abs(float(np.corrcoef(_ranks_a, _ranks_b)[0, 1]))
                 if np.isfinite(_rank_corr) and _rank_corr >= 0.99:
-                    _is_dup = True
-                    break
-            if _is_dup:
-                _eng_drop.add(_c)
+                    _colliding_kept.append(_kept)
+            if _colliding_kept:
+                # Keep-higher-MI: the candidate displaces every colliding kept column it out-scores, and is itself dropped only if some colliding kept column wins.
+                # ``_eng_dedup_prefer`` returns False when MI is unavailable, so an unscored cluster degrades exactly to the original first-appended policy (candidate dropped).
+                _cand_loses = any(not _eng_dedup_prefer(_c, _kept) for _kept in _colliding_kept)
+                if _cand_loses:
+                    _eng_drop.add(_c)
+                else:
+                    for _kept in _colliding_kept:
+                        _eng_drop.add(_kept)
+                        _eng_keep.remove(_kept)
+                        _eng_arrs.pop(_kept, None)
+                    _eng_keep.append(_c)
+                    _eng_arrs[_c] = _arr_c
             else:
                 _eng_keep.append(_c)
                 _eng_arrs[_c] = _arr_c
@@ -4731,34 +4794,6 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             )
     self.feature_names_in_ = [c for c in _all_cols if c not in _engineered_names_set]
     self.n_features_in_ = len(self.feature_names_in_)
-
-    # Accuracy gate (single point, after every setup FE stage, before screening): drop engineered columns that add NO held-out downstream uplift over their raw source. Covers every default-on FE stage (univariate basis He, adaptive Fourier/chirp sin/qsin, ...) in one place using the raw values in X + the real target y. A hijacker (transform of a monotone / MNAR / leak column) is removed so it cannot evict the raw signal from support_; a genuine win (He2 on a quadratic target, adaptive Fourier on an oscillation) keeps its positive uplift and stays. Also un-protects dropped adaptive Fourier names + drops their recipes. Opt out via fe_accuracy_gate=False.
-    if _engineered_names_set and bool(getattr(self, "fe_accuracy_gate", True)) and isinstance(X, pd.DataFrame):
-        try:
-            from ._fe_accuracy_gate import keep_engineered_over_source
-            _gy = _target_to_numpy_values(y)
-            _rawset = set(self.feature_names_in_)
-            _xset = set(X.columns)
-            _drop_eng = []
-            for _en in list(_engineered_names_set):
-                _s = str(_en).split("__", 1)[0] if "__" in str(_en) else None
-                if _s is None or _s not in _rawset or _en not in _xset or _s not in _xset:
-                    continue
-                if not keep_engineered_over_source(np.asarray(X[_s].to_numpy()), np.asarray(X[_en].to_numpy()), _gy):
-                    _drop_eng.append(_en)
-            if _drop_eng:
-                _dset = set(_drop_eng)
-                X = X.drop(columns=_drop_eng)
-                _all_cols = [c for c in _all_cols if c not in _dset]
-                _engineered_names_set = _engineered_names_set - _dset
-                self.hybrid_orth_features_ = [c for c in (getattr(self, "hybrid_orth_features_", None) or []) if c not in _dset]
-                self._adaptive_fourier_features_ = [c for c in (getattr(self, "_adaptive_fourier_features_", None) or []) if c not in _dset]
-                for _dn in _drop_eng:
-                    _hybrid_orth_pre_recipes.pop(_dn, None)
-                if verbose:
-                    logger.info("MRMR accuracy gate: dropped %d engineered column(s) with no held-out uplift over their raw source: %s", len(_drop_eng), _drop_eng[:8])
-        except Exception as _agexc:
-            logger.debug("MRMR accuracy gate (setup) failed (%s); keeping all engineered", _agexc)
 
     # ---------------------------------------------------------------------------------------------------------------
     # Temporarily inject targets
@@ -5273,7 +5308,6 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
         # Feature engineering iteration delegated to ``_run_fe_step`` (testable / experiment-friendly outside
         # the screening loop). Returns updated state + n_recommended_features; zero breaks the outer loop.
-        _n_cols_before_fe = len(cols)  # accuracy gate: engineered columns added this step live at indices >= this
         fe_result = self._run_fe_step(
             data=data, cols=cols, nbins=nbins, X=X,
             target_names=target_names, target_indices=target_indices,
@@ -5390,45 +5424,6 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         "MRMR FE adaptive retry produced %d engineered features.",
                         n_recommended_features,
                     )
-
-        # Accuracy gate (post-FE-step): drop engineered candidates that do NOT add held-out downstream uplift over their raw source column. The scorer routing inside _run_fe_step already ran, so this only filters which engineered columns COMPETE in the screen -- a hijacker (Fourier/chirp/He/unary of a monotone / MNAR / leak column) is removed so it cannot evict the raw signal from support_, while a genuine win (He2 on a quadratic target, the routed adaptive Fourier on an oscillation) keeps its positive uplift and stays. Probes raw values from X over the injected target. Opt out via fe_accuracy_gate=False.
-        if len(cols) > _n_cols_before_fe and target_names and bool(getattr(self, "fe_accuracy_gate", True)) and hasattr(X, "columns"):
-            try:
-                from ._fe_accuracy_gate import keep_engineered_over_source
-                _gate_y = np.asarray(X[target_names[0]].to_numpy())   # raw target (probe label)
-                _raw_set = set(self.feature_names_in_)
-                _sv_set = set(int(s) for s in selected_vars)
-                _col_to_idx = {str(c): k for k, c in enumerate(cols)}
-                _data_arr = np.asarray(data, dtype=np.float64)
-                _drop_idx = []
-                for _i in range(_n_cols_before_fe, len(cols)):
-                    if _i in _sv_set:
-                        continue
-                    _nm = str(cols[_i])
-                    _src = _nm.split("__", 1)[0] if "__" in _nm else None
-                    if _src is None or _src not in _raw_set:
-                        continue
-                    _src_idx = _col_to_idx.get(_src)
-                    if _src_idx is None:
-                        continue
-                    if not keep_engineered_over_source(_data_arr[:, _src_idx], _data_arr[:, _i], _gate_y):
-                        _drop_idx.append(_i)
-                if _drop_idx:
-                    _drop = set(_drop_idx)
-                    _ds = sorted(_drop)
-                    _drop_names = [str(cols[j]) for j in _drop_idx]
-                    _keep = [j for j in range(len(cols)) if j not in _drop]
-                    _x_cols = set(X.columns)
-                    X = X.drop([c for c in _drop_names if c in _x_cols]) if _is_polars_input else X.drop(columns=[c for c in _drop_names if c in _x_cols])
-                    data = data[:, _keep]
-                    nbins = nbins[_keep] if isinstance(nbins, np.ndarray) else [nbins[j] for j in _keep]
-                    cols = [cols[j] for j in _keep]
-                    selected_vars = [int(s) - sum(1 for d in _ds if d < int(s)) for s in selected_vars]
-                    n_recommended_features = max(0, n_recommended_features - len(_drop_idx))
-                    if verbose:
-                        logger.info("MRMR accuracy gate: dropped %d engineered candidate(s) with no held-out uplift over their raw source: %s", len(_drop_idx), _drop_names[:8])
-            except Exception as _agexc:
-                logger.debug("MRMR accuracy gate failed (%s); keeping all engineered candidates", _agexc)
 
         if n_recommended_features == 0:
             break

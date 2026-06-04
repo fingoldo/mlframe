@@ -195,8 +195,9 @@ def test_shap_proxied_fs_catboost_end_to_end():
 
 
 def test_shap_proxied_fs_catboost_cat_features_pass_through():
-    """``cat_features=['catN']`` reaches the catboost template and the FS run completes; the chosen
-    subset stays a subset of the input columns (basic round-trip sanity)."""
+    """``booster_kind='catboost'`` with a non-empty ``cat_features`` must fail fast: the surrounding
+    prefilter / clustering / column-slicing pipeline is NOT categorical-aware, so this combination
+    raises ValueError early with an actionable message instead of crashing deep in densification."""
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
     rng = np.random.default_rng(0)
@@ -215,11 +216,8 @@ def test_shap_proxied_fs_catboost_cat_features_pass_through():
         n_jobs=1, random_state=0, cluster_features=False, trust_guard=False,
         run_importance_ablation=False, revalidate=False, prefilter_method="univariate",
     )
-    fs.fit(X, y)
-    # Confirm the template carries the sentinel for downstream stages.
-    assert hasattr(fs, "feature_names_in_")
-    chosen = set(fs.get_support(indices=True).tolist())
-    assert chosen and chosen.issubset(set(range(X.shape[1])))
+    with pytest.raises(ValueError, match="not yet supported"):
+        fs.fit(X, y)
 
 
 def test_shap_proxied_fs_unknown_booster_kind_raises():

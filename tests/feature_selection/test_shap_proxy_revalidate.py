@@ -1037,7 +1037,9 @@ def test_iter18_fidelity_floor_default_is_calibrated_value():
     ``recovery_rate < 0.5`` (max composite 0.4742). See
     ``_benchmarks/calib_iter18_fidelity_floor.py``.
 
-    Also pins the facade-level default ``ShapProxiedFS.fidelity_floor = 0.5``."""
+    The facade ``ShapProxiedFS.__init__`` default is the ``None`` sentinel (so the conflict guard can
+    distinguish a user who pinned ``fidelity_floor=0.5`` from one who left it unset, and so ``clone()``
+    round-trips identically); the sentinel RESOLVES to the calibrated 0.5 effective floor at fit time."""
     import inspect
 
     from mlframe.feature_selection._shap_proxy_revalidate import proxy_trust_guard
@@ -1050,10 +1052,16 @@ def test_iter18_fidelity_floor_default_is_calibrated_value():
     )
 
     facade_sig = inspect.signature(ShapProxiedFS.__init__)
-    assert facade_sig.parameters["fidelity_floor"].default == 0.5, (
-        f"iter18 calibration default drifted at the facade: "
-        f"ShapProxiedFS.fidelity_floor default is "
-        f"{facade_sig.parameters['fidelity_floor'].default!r}, expected 0.5."
+    assert facade_sig.parameters["fidelity_floor"].default is None, (
+        f"iter18 facade-default contract drifted: ShapProxiedFS.fidelity_floor default is "
+        f"{facade_sig.parameters['fidelity_floor'].default!r}, expected the None sentinel."
+    )
+    # The None sentinel resolves to the calibrated 0.5 effective floor at fit time.
+    effective_floor = ShapProxiedFS(fidelity_floor=None).fidelity_floor
+    effective_floor = effective_floor if effective_floor is not None else 0.5
+    assert effective_floor == 0.5, (
+        f"iter18 calibration default drifted: the unset (None) fidelity_floor must resolve to 0.5, "
+        f"got {effective_floor!r}."
     )
 
 

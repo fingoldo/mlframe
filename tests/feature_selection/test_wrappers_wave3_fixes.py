@@ -130,17 +130,19 @@ class TestCoefScaleSource:
         y_train = X_train @ beta + rng.normal(scale=0.1, size=n)
         y_test = X_test @ beta + rng.normal(scale=0.1, size=n)
         model = Ridge().fit(X_train, y_train)
-        # Default coef_scale_source='train' uses X_train stds.
+        # Default coef_scale_source='train' uses X_train stds. Force importance_getter='coef_'
+        # explicitly: 'auto' now resolves to permutation importance on small data (accuracy-first
+        # default), which bypasses the coef-rescale branch this test validates.
         fi_train = get_feature_importances(
             model=model, current_features=list(range(p)),
             data=X_test, train_data=X_train, target=y_test,
-            importance_getter="auto", coef_scale_source="train",
+            importance_getter="coef_", coef_scale_source="train",
         )
         # Now ask for 'test' rescale.
         fi_test = get_feature_importances(
             model=model, current_features=list(range(p)),
             data=X_test, train_data=X_train, target=y_test,
-            importance_getter="auto", coef_scale_source="test",
+            importance_getter="coef_", coef_scale_source="test",
         )
         # Results should differ because train/test stds are different.
         assert any(abs(fi_train[i] - fi_test[i]) > 1e-9 for i in range(p)), \
@@ -166,15 +168,18 @@ class TestMulticlassCoefAggregation:
         class _Wrap:
             coef_ = coefs
         model = _Wrap()
+        # Force importance_getter='coef_' explicitly: 'auto' now resolves to permutation importance
+        # on small data (accuracy-first default), which bypasses the multiclass coef-aggregation
+        # branch this test validates. (The _Wrap object only exposes coef_, not feature_importances_.)
         fi_max = get_feature_importances(
             model=model, current_features=list(range(p)),
             data=X, train_data=X, target=y,
-            importance_getter="auto", multiclass_coef_aggregation="max",
+            importance_getter="coef_", multiclass_coef_aggregation="max",
         )
         fi_sum = get_feature_importances(
             model=model, current_features=list(range(p)),
             data=X, train_data=X, target=y,
-            importance_getter="auto", multiclass_coef_aggregation="sum",
+            importance_getter="coef_", multiclass_coef_aggregation="sum",
         )
         # The two aggregations MUST produce different orderings or different magnitudes for at least one feature.
         assert any(abs(fi_max[i] - fi_sum[i]) > 1e-9 for i in range(p))
