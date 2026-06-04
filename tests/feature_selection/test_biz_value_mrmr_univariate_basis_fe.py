@@ -211,3 +211,56 @@ class TestSignalAdaptiveBasisRouting:
         x = rng.standard_normal(800)
         y_const = np.ones(800)
         assert basis_route_by_signal(x, y_const) == basis_route_by_moments(x)
+
+
+class TestIntAsCatBasisSkip:
+    """Regression sensor: the orthogonal-polynomial AND adaptive-Fourier univariate bases must NOT fire on an integer-valued
+    low-cardinality categorical group key. ``T_n`` / sin/cos of an arbitrary label code (region 0..9) is spurious periodicity that
+    floods the candidate pool and displaces the genuinely-useful grouped aggregates of that key (the fe_auto grouped_agg failure)."""
+
+    def test_is_int_as_cat_axis_classifies_correctly(self):
+        from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
+            _is_int_as_cat_axis,
+        )
+        rng = np.random.default_rng(0)
+        assert _is_int_as_cat_axis(np.tile(np.arange(10), 60).astype(float)) is True
+        assert _is_int_as_cat_axis(rng.standard_normal(600)) is False  # continuous
+        assert _is_int_as_cat_axis(np.arange(600).astype(float)) is False  # high-card int (counts)
+        assert _is_int_as_cat_axis(np.array([0.0, 1.0] * 200)) is False  # binary card 2 < 3
+        assert _is_int_as_cat_axis(np.array([1.0, 2.0, 3.0])) is False  # n < 8
+
+    def test_basis_expansion_skips_int_as_cat_column(self):
+        from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
+            generate_univariate_basis_features,
+        )
+        rng = np.random.default_rng(1)
+        n = 2000
+        region = rng.integers(0, 10, n).astype(np.int64)  # int-as-cat group key
+        x = rng.standard_normal(n)  # continuous
+        X = pd.DataFrame({"region": region, "x": x})
+        out = generate_univariate_basis_features(X, degrees=(2, 3), basis="chebyshev")
+        assert not any(c.startswith("region__") for c in out.columns), (
+            f"basis expansion fired on the int-as-cat key 'region': {list(out.columns)}"
+        )
+        assert any(c.startswith("x__") for c in out.columns), (
+            f"basis expansion must still fire on the continuous 'x': {list(out.columns)}"
+        )
+
+    def test_adaptive_fourier_skips_int_as_cat_column(self):
+        from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
+            generate_extra_basis_features,
+        )
+        rng = np.random.default_rng(2)
+        n = 2000
+        region = rng.integers(0, 10, n).astype(np.int64)
+        x = rng.standard_normal(n)
+        # y correlates with both so the adaptive detector is tempted to fire.
+        y = (region % 2 == 0).astype(float) + 0.3 * x
+        X = pd.DataFrame({"region": region, "x": x})
+        out, _meta = generate_extra_basis_features(
+            X, cols=["region", "x"], extra_bases=("fourier",), y=y,
+            fourier_adaptive=True, fourier_chirp=True,
+        )
+        assert not any(str(c).startswith("region__") for c in out.columns), (
+            f"adaptive Fourier fired on the int-as-cat key 'region': {list(out.columns)}"
+        )

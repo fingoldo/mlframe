@@ -529,6 +529,10 @@ def _auto_detect_num_cols(
     for c in X.columns:
         if c in group_set:
             continue
+        # Skip already-engineered grouped columns (grpagg/grpz/grpratio/... from an earlier grouped-FE stage). They are constant
+        # within group, so aggregating them again is degenerate, and the nested recipe cannot replay from raw X at transform time.
+        if str(c).startswith("grp"):
+            continue
         col = X[c]
         if not pd.api.types.is_numeric_dtype(col):
             continue
@@ -539,6 +543,42 @@ def _auto_detect_num_cols(
         if int(col.nunique(dropna=True)) > 500:
             out.append(str(c))
     return out[:max_cols]
+
+
+def _filter_num_cols_by_relevance(
+    X: pd.DataFrame, y, num_cols: Sequence[str], *, n_bins: int = 10,
+    rel_ratio: float = 0.10, abs_floor: float = 0.01,
+) -> list[str]:
+    """Keep auto-detected ``num_cols`` that carry marginal information about ``y``; drop those indistinguishable from noise.
+
+    A grouped aggregate of a source independent of y re-encodes only the group key's own marginal info (constant within group), so
+    it adds nothing the group identity already provides -- but its in-sample CMI ties the genuine signal aggregate, letting the
+    screen pick a noise aggregate. A column is kept when its marginal MI(x; y) clears BOTH a relative bar (``rel_ratio`` x the most
+    relevant column's MI, so a few weak-but-real columns survive alongside the strongest) AND a small absolute floor (``abs_floor``,
+    above the plug-in binning-bias noise level). Best-effort: on any failure return the input unchanged (never lose real columns)."""
+    cols = [c for c in num_cols if c in X.columns]
+    if len(cols) <= 1:
+        return cols
+    try:
+        from ._mi_greedy_cmi_fe import _quantile_bin, _cmi_from_binned
+        y_arr = np.asarray(y)
+        if not np.issubdtype(y_arr.dtype, np.integer):
+            y_arr = y_arr.astype(np.int64)
+        _, y_bin = np.unique(y_arr, return_inverse=True)
+        y_bin = y_bin.astype(np.int64)
+        mis = {}
+        for c in cols:
+            xb = _quantile_bin(X[c].to_numpy(), nbins=n_bins)
+            mis[c] = float(_cmi_from_binned(xb, y_bin, None))
+        m_max = max(mis.values())
+        if m_max <= 0.0:
+            return cols
+        thr = max(float(abs_floor), float(rel_ratio) * m_max)
+        kept = [c for c in cols if mis[c] >= thr]
+        return kept or cols
+    except Exception as _e:
+        logger.debug("grouped_agg num_col relevance filter failed (%s); using unfiltered auto set.", _e)
+        return cols
 
 
 def hybrid_grouped_agg_fe(
@@ -576,8 +616,16 @@ def hybrid_grouped_agg_fe(
         group_cols = [c for c in group_cols if c in X.columns]
     if not group_cols:
         return X.copy(), [], [], pd.DataFrame()
-    if num_cols is None or len(num_cols) == 0:
+    _num_cols_auto = num_cols is None or len(num_cols) == 0
+    if _num_cols_auto:
         num_cols = _auto_detect_num_cols(X, group_cols)
+        # y-aware relevance filter (auto-detect only). A grouped aggregate of a source column that is INDEPENDENT of y can only
+        # re-encode the group key's own marginal info about y (the aggregate is constant within each group), so it adds nothing the
+        # group identity does not already carry -- yet its in-sample CMI ties the genuine signal aggregate, letting the downstream
+        # screen pick a pure-noise aggregate by chance. Restrict the auto-detected sources to those with marginal MI about y above a
+        # noise floor so only columns carrying real signal (e.g. a per-group-mean-driven x) get aggregated. Manual num_cols (caller
+        # supplied) are trusted as-is and never filtered. Best-effort: any failure falls back to the unfiltered auto set.
+        num_cols = _filter_num_cols_by_relevance(X, y, num_cols, n_bins=n_bins)
     else:
         num_cols = [c for c in num_cols if c in X.columns]
     if not num_cols:

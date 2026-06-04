@@ -160,14 +160,14 @@ def screen_predictors(
     # the pool, and floors order-1 selection at the q-th quantile of that
     # distribution - the chance ceiling for THIS pool. SELF-GATING: tiny at small
     # p (keeps weak genuine signals), large at high p (rejects the noise cloud).
-    # Only applied when the pool has >= ``screen_fdr_min_features`` candidates. The floor is the chance ceiling for THIS pool, so on a clean low-cardinality target it is ~0
-    # and every genuine signal clears it (self-gating, verified on the linear-y regression suite); it only bites when the plug-in MI is inflated -- either by a wide noise cloud
-    # (high p) OR by a heavy-tailed target the supervised binner over-splits into many bins (e.g. a log-normal price target binned into ~30 levels vs 5-bin features: the
-    # (nbins_x-1)*(nbins_y-1)/(2n) plug-in bias then lifts pure-noise columns past the abs/rel gain floors). A handful of candidates suffices for that max-over-pool inflation to
-    # matter, so the threshold sits just above the degenerate two-candidate guard rather than the old wide-pool-only 30. ``screen_fdr_null_permutations=0`` disables. Lives in ``_permutation_null.py``.
+    # Only applied when the pool has >= ``screen_fdr_min_features`` candidates so the narrow tabular suite stays byte-stable. The floor is the chance ceiling for THIS pool: tiny
+    # at small p (keeps weak genuine signals), large at high p (rejects the noise cloud). A heavy-tailed target the supervised binner over-splits into many bins inflates the
+    # (nbins_x-1)*(nbins_y-1)/(2n) plug-in bias on NARROW pools too (the log-normal-noise case), but lowering this threshold globally over-prunes dense-signal narrow regression
+    # pools where every weak feature is genuine (diabetes: 10 features, R^2 0.36 -> 0.25 when pruned to 2). The right fix is a heavy-tail-GATED floor (fire only when the target's
+    # binning is detectably over-split), not a blunt threshold drop; tracked separately. ``screen_fdr_null_permutations=0`` disables. Lives in ``_permutation_null.py``.
     screen_fdr_null_permutations: int = 25,
     screen_fdr_null_quantile: float = 0.95,
-    screen_fdr_min_features: int = 8,
+    screen_fdr_min_features: int = 30,
     # When MRMR.fit re-screens after a feature-engineering step (confirm-rescreen
     # loop), the DCDState from the prior pass is threaded back in here so cluster
     # discovery accumulates across passes instead of being rebuilt empty each

@@ -611,3 +611,44 @@ def test_noise_control_optimiser_uplift_is_rejected_by_gate():
             f"noise pair produced uplift {res.uplift:.2f}x (> 1.10x); the warm "
             f"start is manufacturing signal on a target independent of (a, b)"
         )
+
+
+def test_noise_floor_permutation_guard_is_the_lever():
+    """MECHANISM PROOF: the permutation-null noise floor is what rejects the fabricated polynom feature on a discrete (MRMR-style)
+    noise target. On the EXACT MRMR code path (discrete quantised y, coef_range (-10, 10) -- the widest-capacity overfit case) the
+    optimiser can clear both the trivial baseline and ``baseline_uplift_threshold`` on pure noise across the restart sweep; the
+    permutation-null guard (default ON, ``noise_floor_perm_ratio=1.50``) re-checks the winning column's MI against shuffled y and
+    rejects it. Disabling the guard (``noise_floor_perm_ratio=0``) lets at least one restart fabricate a feature, isolating the
+    guard as the lever -- not the uplift gate alone."""
+    pytest.importorskip("cma")
+    from mlframe.feature_selection.filters.hermite_fe import optimise_hermite_pair
+    from mlframe.feature_selection.filters.discretization import discretize_array
+    df, y, _ = _make_noise()
+    a = df["a"].values
+    e = df["e"].values  # the fabricated pair in the regression was (a, e), both pure noise
+    y_disc = discretize_array(
+        arr=np.asarray(y, dtype=np.float64), n_bins=10, method="quantile", dtype=np.int32,
+    ).reshape(-1).astype(np.int64)
+
+    def _sweep(noise_floor_perm_ratio):
+        n_pass = 0
+        for so in range(20):
+            res = optimise_hermite_pair(
+                x_a=a, x_b=e, y=y_disc, discrete_target=True,
+                max_degree=6, min_degree=1, n_trials=400, coef_range=(-10.0, 10.0),
+                l2_penalty=0.05, seed=42 + so, sweep_degrees=True, basis="chebyshev",
+                mi_estimator="plugin", optimizer="cma_batch", warm_start=True,
+                multi_fidelity=True, noise_floor_perm_ratio=noise_floor_perm_ratio,
+            )
+            if res is not None:
+                n_pass += 1
+        return n_pass
+
+    # Guard ON (default): every restart is rejected on pure noise.
+    assert _sweep(1.50) == 0, (
+        "noise-floor guard ON still let a restart fabricate a feature on a pair independent of y"
+    )
+    # Guard OFF: at least one restart slips a spurious feature through -- the guard is the lever.
+    assert _sweep(0.0) >= 1, (
+        "disabling the noise-floor guard did NOT surface the fabricated feature; the guard is not the lever the regression needs"
+    )

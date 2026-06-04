@@ -430,6 +430,7 @@ def generate_univariate_basis_features(
     DataFrame of new columns named ``"{col}__{basis_code}{degree}"`` (e.g.
     ``"x1__He2"``, ``"x2__T3"``).
     """
+    _cols_auto = cols is None
     if cols is None:
         cols = [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])]
     if dedup_collinear_sources:
@@ -449,6 +450,14 @@ def generate_univariate_basis_features(
     out_cols: dict = {}
     for col in cols:
         x = np.asarray(X[col].to_numpy(), dtype=np.float64)
+        # Skip orthogonal-polynomial expansion on integer-valued low-cardinality categorical group keys: T_n / He_n of an
+        # arbitrary label code (region 0..9) is spurious -- it fits the label->target mapping, floods the candidate pool, and
+        # displaces the genuinely useful grouped aggregates of that key. Continuous / high-card columns keep the expansion. The
+        # skip applies ONLY when ``cols`` was auto-detected (the default-on MRMR scan over every column): an EXPLICIT caller-
+        # provided ``cols`` is trusted as-is, because a 3-level ORDINAL integer (a binned threshold) is a legitimate basis-FE
+        # axis the caller asked for -- only the auto scan over arbitrary group-key labels needs protecting.
+        if _cols_auto and _is_int_as_cat_axis(x):
+            continue
         finite_mask = np.isfinite(x)
         if not finite_mask.all():
             x = np.where(finite_mask, x, np.nanmean(x[finite_mask]) if finite_mask.any() else 0.0)
@@ -1738,6 +1747,28 @@ def _detect_fourier_freqs_for_col(
 # Auto-gate for the adaptive Fourier / chirp operators (2026-06-04): a Fourier or chirp leg only helps where the RAW column is NOT already a strong smooth predictor of y. On a near-step / leak column (``leaky ~ y``) the cubic detrend leaves Gibbs ringing the periodogram mistakes for an oscillation; on a genuinely linear / monotone / heavy-tailed-monotone signal the raw column already carries the usability. In both cases a Fourier/chirp leg adds no generalisable signal -- it only manufactures engineered columns that then evict the raw signal from ``support_``. So when the raw column's held-out cubic R^2 clears this cap, skip the adaptive operators for it; genuine oscillatory / chirp targets (raw cubic R^2 ~ 0) stay below the cap and keep firing.
 _ADAPTIVE_FE_RAW_USABILITY_CAP: float = 0.5
 
+# Cardinality ceiling for treating an integer-valued column as a categorical group key (NOT a continuous axis). A column whose
+# distinct integer values number <= this is an arbitrary-label categorical -- sin/cos of the label code is spurious periodicity
+# (the "frequency" the adaptive detector finds is just fitting the arbitrary label->target mapping, not a real oscillation). Mirrors
+# the int-as-cat group-key band used by the grouped-agg auto-detector + recommender (min 3); kept low (50) so an ordinal integer
+# axis with many levels (counts, ages) still gets Fourier.
+_FOURIER_INT_AS_CAT_MAX_CARD: int = 50
+
+
+def _is_int_as_cat_axis(x: np.ndarray, *, max_card: int = _FOURIER_INT_AS_CAT_MAX_CARD) -> bool:
+    """True iff ``x`` is an integer-valued low-cardinality column that reads as a categorical group key rather than a continuous
+    axis. Fourier sin/cos of such a column's arbitrary integer labels is spurious (region code 0..9 has no periodicity), so the
+    adaptive-Fourier basis must skip it -- otherwise it floods the support with label-fitting sin/cos pairs that crowd out the
+    genuinely useful grouped aggregates of that key. Continuous columns (floats, high-card ints) return False and keep Fourier."""
+    x = np.asarray(x, dtype=np.float64).ravel()
+    finite = x[np.isfinite(x)]
+    if finite.size < 8:
+        return False
+    if not np.all(np.equal(np.mod(finite, 1.0), 0.0)):
+        return False
+    card = int(np.unique(finite).size)
+    return 3 <= card <= max_card
+
 
 def _heldout_smooth_r2(x: np.ndarray, y: np.ndarray) -> float:
     """Held-out R^2 of y on a cubic in x ([1, x, x^2, x^3]); val = every 3rd row (the same stride the frequency detector uses). Scale/shift-invariant, so it reads identically on raw x or its normalised z. Returns 0.0 on degenerate input."""
@@ -2001,7 +2032,9 @@ def generate_extra_basis_features(
                     "%r; skipping spline for that column.",
                     col, exc,
                 )
-        if "fourier" in extra_bases:
+        # Skip Fourier on integer-valued low-cardinality categorical group keys: sin/cos of an arbitrary label code (region 0..9)
+        # is spurious periodicity that floods the support and displaces the genuinely useful grouped aggregates of that key.
+        if "fourier" in extra_bases and not _is_int_as_cat_axis(x):
             try:
                 # POWER-ARGUMENT Fourier (2026-06-03): build the Fourier on x**p for
                 # p in fourier_powers, as a SELF-CONTAINED replayable recipe (raw x ->

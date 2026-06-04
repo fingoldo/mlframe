@@ -1,5 +1,55 @@
 # Changelog
 
+## 2026-06-04 — FE-quality fixes: noise-floor guard for smart_polynom + grouped-agg vs spurious basis FE
+
+WHY: three independent FE-quality defects, each surfaced by a biz_value contract.
+
+1. ``smart_polynom`` fabricated a polynomial feature on PURE NOISE. The plug-in MI
+   estimator has a binning-bias floor (~0.05 at 20 bins) that the high-capacity
+   CMA/ALS optimiser can overfit on a target independent of the inputs: the best
+   engineered MI then sits just above the trivial baseline and clears
+   ``baseline_uplift_threshold``, so the uplift gate alone passed it through.
+2. ``fe_auto`` enabled grouped-aggregate FE but the aggregates never reached
+   ``support_``: the DEFAULT-ON univariate Fourier + orthogonal-polynomial bases
+   fired on the int-as-cat group key ``region`` (a 10-level categorical), producing
+   force-protected ``region__sin/cos`` / ``region__T3`` features that fit the
+   arbitrary label->target mapping and crowded out the genuinely useful grouped
+   aggregates. When the aggregates did survive, the auto-detected ``num_cols``
+   included pure-noise columns whose per-group aggregates re-encode the group key
+   and tied the signal aggregate on in-sample CMI, so the screen sometimes picked a
+   noise aggregate. A nested grouped-quantile-of-grouped-agg recipe also raised
+   ``KeyError`` at transform-replay.
+3. layer83's "at least one mechanism matches the all-features baseline" contract
+   was too tight for iris: every one of the 10 mechanisms selects the single
+   highest-MI feature ``petal width`` (0.9474, 0.026 below the 4-feature baseline)
+   -- a single-feature-vs-four-feature selection-budget gap on n=150, not an
+   FE-quality failure (petal length alone would score 1.0 but is a near-MI-tie the
+   in-sample estimator resolves the other way).
+
+WHAT:
+1. ``optimise_hermite_pair`` gains a permutation-null noise floor (default ON,
+   ``noise_floor_perm_ratio=1.50``, ``noise_floor_n_perms=50``): re-evaluate the
+   winning engineered column's MI against shuffles of y and REJECT when
+   ``mi_real < null_p95 * ratio``. Genuine signal beats its null by 40x+; noise by
+   ~1.2x. Separation measured on the F-POLY/F-OSC recovery fixtures (pass) vs pure
+   noise (reject) with comfortable margin both ways.
+2. The univariate Fourier + polynomial bases now SKIP integer-valued low-cardinality
+   categorical group keys (card 3..50) -- the polynomial skip applies only to the
+   auto-detected (``cols=None``) scan so an explicitly-requested discrete ordinal
+   axis still expands. The grouped-agg auto-detected ``num_cols`` are y-relevance
+   filtered (drop sources with marginal MI indistinguishable from noise) and
+   ``grp*``-prefixed already-engineered columns are excluded from grouped-agg /
+   grouped-quantile auto-detect (degenerate + un-replayable nested recipe).
+3. layer83 reframed: the tight tolerance applies in the FE-comparable regime; a
+   selection-budget-limited dataset (best mechanism's support < half of n_raw) is
+   held to a wider documented ``CATASTROPHIC_TOLERANCE=0.05`` that still trips a
+   genuine engineered-noise crash (>= 0.10 regression).
+
+Also fixed an unrelated pre-existing layer85 test bug: it rebuilt held-out
+engineered columns via the polynomial-only basis generator, which KeyError'd on the
+adaptive-Fourier chirp legs the fit appended; now replays via the model's own
+``transform`` (leakage-free).
+
 ## 2026-06-04 — MRMRTreeRescued: fix MRMR's selection-gate collapse on interaction-heavy data
 
 WHY: MRMR's marginal-MI greedy STRUCTURALLY under-selects on interaction-heavy

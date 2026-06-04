@@ -445,3 +445,56 @@ class TestPickleClone:
         assert tuple(c.fe_grouped_agg_group_cols) == ("region",)
         assert tuple(c.fe_grouped_agg_num_cols) == ("x",)
         assert int(c.fe_grouped_agg_top_k) == 7
+
+
+class TestAutoDetectNumColRelevance:
+    """Regression sensor: auto-detected ``num_cols`` are y-relevance-filtered so the screen does not pick a pure-noise aggregate
+    over the genuine signal aggregate (the displacement that left ``grouped_agg_features_`` carrying a useless noise aggregate
+    under ``fe_auto``)."""
+
+    def test_relevance_filter_keeps_signal_drops_noise(self):
+        from mlframe.feature_selection.filters._grouped_agg_fe import (
+            _filter_num_cols_by_relevance,
+        )
+        X, y = _build_group_mean_signal(1)
+        kept = _filter_num_cols_by_relevance(
+            X[["x", "noise_0", "noise_1"]], y, ["x", "noise_0", "noise_1"],
+        )
+        assert kept == ["x"], (
+            f"relevance filter should keep only the signal source 'x'; got {kept}"
+        )
+
+    def test_auto_detect_picks_signal_aggregate_not_noise(self):
+        """With ``num_cols`` auto-detected (None), the surviving grouped aggregate must be of the SIGNAL source ``x`` -- never a
+        pure-noise source. Pre-fix the unfiltered auto set let a noise aggregate (e.g. ``grpagg_max(noise_1|region)``) win the
+        screen on an in-sample CMI tie."""
+        from mlframe.feature_selection.filters._grouped_agg_fe import (
+            hybrid_grouped_agg_fe,
+        )
+        for s in (1, 7, 13):
+            X, y = _build_group_mean_signal(s)
+            _, appended, _, _ = hybrid_grouped_agg_fe(
+                X, y, group_cols=["region"], num_cols=None, top_k=10,
+            )
+            assert appended, f"seed={s}: auto-detect produced no aggregates"
+            sources = {a.split("|")[0].split("(")[-1] for a in appended}
+            assert sources == {"x"}, (
+                f"seed={s}: auto-detected aggregates of non-signal sources {sources}; "
+                f"the y-relevance filter should restrict to 'x'. appended={appended}"
+            )
+
+    def test_auto_detect_skips_already_engineered_grp_columns(self):
+        """A ``grp*``-prefixed column already engineered by an earlier grouped-FE stage must NOT be re-aggregated: it is constant
+        within group (degenerate) and its nested recipe cannot replay from raw X at transform time (the KeyError that crashed the
+        ``fe_auto`` group fixture)."""
+        from mlframe.feature_selection.filters._grouped_agg_fe import (
+            _auto_detect_num_cols,
+        )
+        X, _ = _build_group_mean_signal(1)
+        X = X.copy()
+        X["grpagg_mean(x|region)"] = X["x"]  # simulate an upstream grouped-agg column
+        nums = _auto_detect_num_cols(X, ["region"])
+        assert "grpagg_mean(x|region)" not in nums, (
+            f"auto-detect must skip already-engineered grp* columns; got {nums}"
+        )
+        assert "x" in nums, f"auto-detect must still keep raw 'x'; got {nums}"

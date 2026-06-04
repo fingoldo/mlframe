@@ -684,6 +684,13 @@ def _auto_detect_num_cols(
     for c in X.columns:
         if c in group_set:
             continue
+        # Skip already-engineered grouped columns (grpagg/grpz/grpratio/grpiqr/grpp90p10/... appended by an EARLIER grouped-FE
+        # stage). A per-group quantile of one of these builds a nested recipe whose transform-replay needs the intermediate
+        # engineered column materialised first -- but transform() replays from raw X only, so it raises KeyError on the missing
+        # source. The grouped aggregates are also constant within group, so a quantile of them is degenerate. Keep the source scope
+        # to raw columns so every grouped-quantile recipe is 1-deep and replayable.
+        if str(c).startswith("grp"):
+            continue
         col = X[c]
         if not pd.api.types.is_numeric_dtype(col):
             continue

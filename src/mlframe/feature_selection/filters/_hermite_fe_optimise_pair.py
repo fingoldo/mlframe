@@ -49,6 +49,8 @@ def optimise_hermite_pair(
     use_trivial_baseline: bool = True,
     precomputed_trivial_baseline: float | None = None,
     precomputed_trivial_name: str | None = None,
+    noise_floor_perm_ratio: float = 1.50,
+    noise_floor_n_perms: int = 50,
 ) -> HermiteResult | None:
     """Find polynomial coefficients c_a, c_b that maximise MI(bin_func(P(x_a, c_a), P(x_b, c_b)), y) over the requested
     Optuna/CMA budget. Standardises inputs, regularises coefficients, and only returns a result when the engineered MI
@@ -73,6 +75,15 @@ def optimise_hermite_pair(
     * mi_estimator="plugin" (default) uses an njit plug-in estimator on quantile-binned values -- ~50-100x faster than
       sklearn's KSG, rank-equivalent for optimization (constant entropy bias). Pass "ksg" for sklearn's KSG.
     * plugin_n_bins=20 (default): ~sqrt(n) rule-of-thumb; larger bins reduce bias, raise variance.
+    * noise_floor_perm_ratio=1.50 (default): a permutation-null guard against the high-capacity optimiser fabricating an
+      engineered feature on a target INDEPENDENT of the inputs. The plug-in MI estimator has a binning-bias floor that the
+      optimiser can overfit on pure noise -- on a noise target the best engineered MI barely clears both the trivial baseline
+      and ``baseline_uplift_threshold``, so the uplift gate alone passes it through. The permutation null measures that floor
+      directly: re-evaluate the winning engineered column's MI against ``noise_floor_n_perms`` shuffles of y (destroys any real
+      dependence, keeps the binning bias) and reject (return None) when ``mi_real < perm_null_p95 * noise_floor_perm_ratio``.
+      A genuine feature beats its own permutation-null p95 by 40x+; a noise feature by only ~1.2x. Set ``noise_floor_perm_ratio<=0``
+      (or ``noise_floor_n_perms<=0``) to disable. Measured separation in the MRMR discrete path (n=4000, 20 restarts x 3 noise
+      pairs): pure-noise max ratio 1.235 (reject), F-POLY 40.8x / F-OSC 61.7x (pass) -- 1.50 has comfortable margin both ways.
 
     Returns HermiteResult or None if the search failed to beat the baseline.
     """
@@ -590,4 +601,38 @@ def optimise_hermite_pair(
     if best is None or best.mi <= baseline * baseline_uplift_threshold:
         # Failed to beat baseline by enough -- don't recommend an engineered feature.
         return None
+
+    # Permutation-null noise floor. The high-capacity optimiser can overfit the plug-in MI estimator's binning-bias floor on a
+    # target independent of (x_a, x_b): the winning engineered MI then sits just above the trivial baseline and clears the uplift
+    # gate, fabricating a spurious feature. Re-evaluate the winning column's MI against shuffles of y (which destroy any real
+    # dependence but preserve the binning bias) and reject when the real MI does not clear the null p95 by ``noise_floor_perm_ratio``.
+    if noise_floor_perm_ratio > 0.0 and noise_floor_n_perms > 0 and mi_estimator == "plugin":
+        try:
+            from .hermite_fe import _plugin_mi_classif_njit, _plugin_mi_regression_njit
+            comb = np.ascontiguousarray(best.transform(x_a, x_b), dtype=np.float64).reshape(-1)
+            if np.all(np.isfinite(comb)) and float(np.std(comb)) > 1e-12:
+                if discrete_target:
+                    y_perm_src = np.asarray(y, dtype=np.int64)
+                    mi_real = float(_plugin_mi_classif_njit(comb, y_perm_src, plugin_n_bins))
+                    mi_fn = _plugin_mi_classif_njit
+                else:
+                    y_perm_src = np.asarray(y, dtype=np.float64)
+                    mi_real = float(_plugin_mi_regression_njit(comb, y_perm_src, plugin_n_bins))
+                    mi_fn = _plugin_mi_regression_njit
+                rng_null = np.random.default_rng(seed if seed and seed > 0 else 0)
+                nlen = comb.shape[0]
+                null_mis = np.empty(int(noise_floor_n_perms), dtype=np.float64)
+                for _p in range(int(noise_floor_n_perms)):
+                    yp = np.ascontiguousarray(y_perm_src[rng_null.permutation(nlen)])
+                    null_mis[_p] = float(mi_fn(comb, yp, plugin_n_bins))
+                null_p95 = float(np.quantile(null_mis, 0.95))
+                if mi_real < null_p95 * noise_floor_perm_ratio:
+                    logger.debug(
+                        "noise-floor reject: engineered MI %.4f < null p95 %.4f * %.2f (%s on independent target)",
+                        mi_real, null_p95, noise_floor_perm_ratio, best.bin_func_name,
+                    )
+                    return None
+        except Exception as _nf_err:
+            logger.debug("noise-floor permutation guard skipped: %s", _nf_err)
+
     return best
