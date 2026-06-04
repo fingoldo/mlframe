@@ -7,9 +7,11 @@
   MRMR's default 60) — enables the bootstrap on moderate-width frames → hybrid hard_synth **+0.030** (3-seed,
   all seeds up, ADDITIVE to the tree member), byte-identical no-op on narrow (synth 52) AND very-wide (madelon
   500>250, cost-skipped) frames. The 250 cap is the cost/benefit sweet spot. (round4_hybrid_mrmrcap_bench.py)
-- **WIN to recommend (A3-5 rich FE operators):** absdiff/signed/ratio/median-gated operators recover signal
-  products miss (capacity-controlled real-add on madelon +0.026, hard_synth logit +0.031). Recommend to FE owner;
-  tree-member follow-up (engineer rich ops from co-occurrence pairs) being tested next.
+- **SHIPPED #3:** A3-5 rich FE operators INTO the tree member (`tree_rich_ops=("mul","absd","sign","rat")` default).
+  Agent E proved the operator class (not column count) is the lever; integrated into the hybrid tree member and
+  3-seed measured: madelon **+0.020** (variance halved 0.0216→0.0098, recovers bad-draw seeds), hard_synth +0.004,
+  synth −0.002 (noise). Each op-column synergy-gated independently. (round4_rich_tree_bench.py)
+- **Also recommend to FE owner:** the same operators added to MRMR's FE registry (Agent E's standalone result).
 - **A4-2 RFECV noise-floor SHIP (standalone) + A1-2 MRMR-cap raise:** recommend to RFECV / MRMR owners.
 - **MEASURED, killed/mixed:** A1-1 JMIM (mixed/mild, opt-in only); A4-1 knockoff-FDR (KILLED, degenerate on
   madelon's collinear probes, raw + premerge both empty); A2-2 residual-relay (regime-specific — hard_synth

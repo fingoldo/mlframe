@@ -1,5 +1,30 @@
 # Changelog
 
+## 2026-06-04 — HybridSelector tree member: RICH co-occurrence operators (absdiff/signed/ratio, not just products)
+
+WHY: the tree-importance member engineered only the PRODUCT ``a*b`` of each
+co-occurrence pair. But a bilinear product cannot linearize non-product
+interactions — measured on designed beds, a linear model gets logit 0.49 on
+``y=-|a-b|`` with the product but 0.88 with ``|a-b|``, and 0.79 vs 0.88 on
+``y=sign(a)*|b|``. A capacity control (products + N noise columns DROP AUC while
+products + N rich-operator columns RAISE it) confirms the gain is the OPERATOR
+CLASS, not column count.
+
+WHAT: the tree member now engineers a small set of operators per co-occurrence
+pair (new param ``tree_rich_ops``, default ``("mul","absd","sign","rat")``):
+``a*b``, ``|a-b|``, ``sign(a)*|b|``, ``a/(|b|+1)`` (all leak-free pure functions
+of X, nan/inf-sanitised, replayed exactly at transform time). Each op-column is
+synergy-gated INDEPENDENTLY (kept only if more informative than both operands),
+so the regime self-regulation is preserved — the gate keeps the operators that
+help and drops the rest. Set ``tree_rich_ops=("mul",)`` for the prior
+products-only behaviour. Columns are named ``t{op}_{i}`` (e.g. ``tabsd_3``).
+
+MEASURED (3-seed, on top of the tree member + mrmr_synergy_cap=250): madelon
+**+0.020** mean AUC AND variance halved (std 0.0216 -> 0.0098 — it recovers the
+bad-draw seeds), hard_synth +0.004, synth -0.002 (within noise, same as the
+products-only member). Covered by test_hybrid_tree_member.py (op expansion,
+leak-free per-op replay, pickle of the (a,b,op) specs).
+
 ## 2026-06-04 — HybridSelector mrmr_synergy_cap=250 default (enable the MRMR synergy bootstrap on moderate-width frames)
 
 WHY: MRMR's ``fe_synergy_screen_max_features`` defaults to 60 — its synergy

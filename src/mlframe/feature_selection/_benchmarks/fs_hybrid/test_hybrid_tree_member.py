@@ -86,17 +86,34 @@ def test_tree_signals_finds_interaction_pair():
     assert frozenset({"a", "b"}) in flat, "the true a*b pair should be among co-occurrence pairs"
 
 
-def test_augment_replays_products_leakage_free():
+def test_augment_replays_tree_ops_leakage_free():
+    from mlframe.feature_selection.hybrid_selector import _TREE_OPS
     X, y = _interaction_frame()
     h = HybridSelector(use_tree_member=True).fit(X, y)
-    # products present in the augmented frame
+    # tree op columns present in the augmented frame (named t{op}_N: tmul_/tabsd_/tsign_/trat_)
     aug = h._augment(X)
-    tprods = [c for c in aug.columns if c.startswith("tprod_")]
-    assert tprods, "augmented frame should carry tree product columns"
-    # replay on a fresh slice equals raw[a]*raw[b] exactly (pure function of X, no leakage)
-    for (a, b), nm in zip(h._tree_prod_pairs_, h._tree_prod_names_):
+    tcols = [c for c in aug.columns if any(c.startswith(f"t{op}_") for op in _TREE_OPS)]
+    assert tcols, "augmented frame should carry tree co-occurrence op columns"
+    # replay on a fresh slice equals the exact op of raw[a], raw[b] (pure function of X, no leakage)
+    for nm in h._tree_prod_names_:
         if nm in aug.columns:
-            np.testing.assert_allclose(aug[nm].values[:50], (X[a].values * X[b].values)[:50], rtol=1e-6)
+            a, b, op = h._tree_op_[nm]
+            expected = np.nan_to_num(_TREE_OPS[op](X[a].values.astype(float), X[b].values.astype(float)), nan=0.0, posinf=0.0, neginf=0.0)
+            np.testing.assert_allclose(aug[nm].values[:50], expected[:50], rtol=1e-6)
+
+
+def test_tree_signals_expands_rich_ops():
+    """Default tree_rich_ops engineers one candidate column PER operator per co-occurrence pair, each tagged with
+    its (a, b, op) in _tree_op_ so _augment replays it. products-only (tree_rich_ops=('mul',)) yields just tmul_."""
+    X, y = _interaction_frame()
+    h = HybridSelector(use_tree_member=True, tree_rich_ops=("mul", "absd", "sign", "rat"))
+    h.random_state = 0
+    h._tree_signals(X, y)
+    ops_seen = {h._tree_op_[nm][2] for nm in h._tree_prod_names_}
+    assert ops_seen == {"mul", "absd", "sign", "rat"}, f"all rich ops should be engineered, got {ops_seen}"
+    h2 = HybridSelector(use_tree_member=True, tree_rich_ops=("mul",)); h2.random_state = 0
+    h2._tree_signals(X, y)
+    assert {h2._tree_op_[nm][2] for nm in h2._tree_prod_names_} == {"mul"}
 
 
 def test_pickle_keeps_tree_attrs_drops_transient():
@@ -104,8 +121,9 @@ def test_pickle_keeps_tree_attrs_drops_transient():
     X, y = _interaction_frame()
     h = HybridSelector(use_tree_member=True).fit(X, y)
     h2 = pickle.loads(pickle.dumps(h))
-    assert h2._tree_prod_pairs_ == h._tree_prod_pairs_     # needed to replay products at transform
+    assert h2._tree_prod_pairs_ == h._tree_prod_pairs_     # needed to replay tree op cols at transform
     assert h2._tree_prod_names_ == h._tree_prod_names_
+    assert h2._tree_op_ == h._tree_op_                     # the (a,b,op) spec per column
     assert not hasattr(h2, "_Xaug_") and not hasattr(h2, "_y_")   # transient training data dropped
     # transform still works after roundtrip
     assert list(h2.transform(X.iloc[:10]).columns) == list(h.transform(X.iloc[:10]).columns)
@@ -118,9 +136,11 @@ def test_bizvalue_tree_member_lifts_interaction_auc():
     from sklearn.preprocessing import StandardScaler
     from sklearn.linear_model import LogisticRegression
     from sklearn.metrics import roc_auc_score
-    # WIDE frame (78 raw cols > MRMR's 60-feature synergy cap): MRMR's bootstrap is skipped and it cannot engineer
-    # a*b (zero-marginal operands), so the tree member is the ONLY source of the product -- the madelon-like regime.
-    X, y = _interaction_frame(n=3000, seed=1, p_noise=75)
+    # VERY-WIDE frame (303 raw cols > the hybrid's mrmr_synergy_cap=250): MRMR's synergy bootstrap is SKIPPED, so the
+    # MRMR member cannot engineer a*b (zero-marginal operands) and the tree member is the ONLY source of the product --
+    # the madelon-like regime. (At <=250 cols MRMR's own bootstrap now engineers it too, so the tree member's marginal
+    # lift shrinks -- which is why this frame must exceed the cap to isolate the tree member's contribution.)
+    X, y = _interaction_frame(n=3000, seed=1, p_noise=300)
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.4, random_state=1, stratify=y)
 
     def auc(sel):
