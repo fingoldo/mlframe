@@ -1312,7 +1312,23 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
                                      # boruta_shap_kwargs validator accepts them.
                                      "optimistic": combo.boruta_optimistic_cfg,
                                      "train_or_test": combo.boruta_train_or_test_cfg,
-                                     "premerge_clusters": combo.boruta_premerge_clusters_cfg}
+                                     "premerge_clusters": combo.boruta_premerge_clusters_cfg,
+                                     # 2026-06-04 FS-coverage follow-up -- BorutaShap.__init__
+                                     # margin-gated adaptive trial-stop knobs (commit 79779dca
+                                     # family). All three are valid BorutaShap ctor params, so
+                                     # the boruta_shap_kwargs validator (which reads the live
+                                     # BorutaShap.__init__ signature) accepts them.
+                                     "early_stop_tentative": combo.boruta_early_stop_tentative_cfg,
+                                     "early_stop_patience": combo.boruta_early_stop_patience_cfg,
+                                     "early_stop_margin": combo.boruta_early_stop_margin_cfg,
+                                     # 2026-06-04 FS-coverage follow-up -- BorutaShap budget
+                                     # parity with MRMR / RFECV (commit 79779dca control knob).
+                                     # FIXED 5-min wall-clock cap (NOT a fuzz axis) so a runaway
+                                     # BorutaShap fit on any combo is bounded; stop_file is left
+                                     # at its "stop" default (never set) so the fuzz never trips a
+                                     # stray stop-flag. Mirrors rfecv_kwargs/mrmr_kwargs
+                                     # max_runtime_mins=5 (commit 592b8a60).
+                                     "max_runtime_mins": 5}
                                    if combo.use_boruta_shap_cfg else None),
                 use_sample_weights_in_fs=combo.use_sample_weights_in_fs_cfg,
                 mrmr_identity_cache_scope=combo.mrmr_identity_cache_scope_cfg,
