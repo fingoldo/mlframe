@@ -6104,6 +6104,48 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     n_engineered_out = len(self._engineered_recipes_)
     if selected_vars:
         self.n_features_ = len(selected_vars) + n_engineered_out
+        # RAW-SIGNAL-RETENTION augmentation (Fix B). On a wide composite-FE pool the screen often confirms an ENGINEERED derivative of a strong raw signal (e.g.
+        # ``x1__resid_by__cat_a`` whose cat-residual MI exceeds raw ``x1``), which then conditionally redundifies the raw column so raw ``x1`` is dropped from
+        # ``support_`` even though it is genuine, generalising signal. The empirical-null debiasing makes the per-feature ``cached_MIs`` an honest relevance ranking
+        # (cardinality / heavy-tail / monotone in-sample inflation removed), so a raw feature that clears the relevance floor AND is the SOURCE of a confirmed
+        # engineered child is genuine signal that the greedy step merely shadowed behind its derivative -- we re-attach it. The augmentation is deliberately narrow:
+        # it rescues ONLY columns whose name appears as a source token in some engineered recipe name, so it can never re-inflate a redundant block of near-duplicate
+        # raw columns (those have no engineered child) and never overrides DCD / cluster-aggregate redundancy collapse. ``min_features_fallback==0`` opts out.
+        _min_fb_aug = int(getattr(self, "min_features_fallback", 0) or 0)
+        if _min_fb_aug >= 1 and self.n_features_in_ > 0 and hasattr(self, "cached_MIs") and n_engineered_out > 0:
+            try:
+                # Source tokens referenced by any confirmed engineered recipe (split on the engineered-name separators ``__``, ``(``, ``|``, ``)``, ``,``).
+                import re as _re_aug
+                _eng_names = []
+                for _r in (self._engineered_recipes_ or []):
+                    _nm = getattr(_r, "output_name", None) or getattr(_r, "name", None) or (_r.get("name") if isinstance(_r, dict) else None)
+                    if _nm:
+                        _eng_names.append(str(_nm))
+                _eng_tokens = set()
+                for _nm in _eng_names:
+                    for _tok in _re_aug.split(r"[^0-9A-Za-z_]+", _nm.replace("__", " ")):
+                        if _tok:
+                            _eng_tokens.add(_tok)
+                _name_to_cols_idx_aug = {c: i for i, c in enumerate(cols)}
+                _abs_floor_aug = float(getattr(self, "min_relevance_gain", 0.0) or 0.0)
+                _rel_frac_aug = float(getattr(self, "min_relevance_gain_relative_to_first", 0.0) or 0.0)
+                _raw_mi_aug = []
+                for _i in range(self.n_features_in_):
+                    _name = self.feature_names_in_[_i] if _i < len(self.feature_names_in_) else None
+                    _ci = _name_to_cols_idx_aug.get(_name)
+                    _mi = self.cached_MIs.get((_ci,), 0.0) if _ci is not None else 0.0
+                    _raw_mi_aug.append((_i, _name, float(_mi)))
+                _max_mi_aug = max((m for _, _, m in _raw_mi_aug), default=0.0)
+                _floor_aug = max(_abs_floor_aug, _max_mi_aug * _rel_frac_aug)
+                _selected_set = set(int(v) for v in selected_vars)
+                _to_add = [i for i, _name, m in sorted(_raw_mi_aug, key=lambda kv: (-kv[2], kv[0]))
+                           if m > _floor_aug and i not in _selected_set and _name in _eng_tokens]
+                if _to_add:
+                    selected_vars.extend(_to_add)
+                    self.support_ = np.array(selected_vars, dtype=np.int64)
+                    self.n_features_ = len(selected_vars) + n_engineered_out
+            except Exception as _exc_aug:
+                logger.warning("MRMR raw-signal-retention augmentation failed: %s; keeping greedy support.", _exc_aug)
     else:
         # No RAW feature survived selection. Engineered-only support (or empty support) lacks a raw signal anchor:
         # on a WIDE engineered candidate pool the top raw signal is frequently out-ranked by overfit-in-sample-MI
@@ -6125,27 +6167,52 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             try:
                 # Rank by cached confident MI with the target; take top-K. cached_MIs may not be populated;
                 # re-compute from the original frame as a last resort.
+                #
+                # CRITICAL index-space translation: ``cached_MIs`` is keyed by
+                # the candidate index in COLS-SPACE (the screen's working matrix,
+                # which ``categorize_dataset`` reorders whenever categoricals
+                # exist and which carries the injected target + engineered
+                # columns), NOT by the original ``feature_names_in_`` position
+                # ``_i``. Reading ``cached_MIs[(_i,)]`` directly mis-aligns every
+                # column once the screen reorders (observed: input feature 15
+                # ``num_pos_a`` resolving to ``group_id``'s MI 0.075, so the
+                # fallback rescued a pure-noise column over the genuine signal).
+                # Map original name -> cols-space index exactly as
+                # ``compute_mrmr_artifacts`` does (``name_to_data_col``), then
+                # look the cached MI up in cols-space while keeping ``support_``
+                # in original ``feature_names_in_`` space.
+                _name_to_cols_idx = {c: i for i, c in enumerate(cols)}
+                _cached = self.cached_MIs if hasattr(self, "cached_MIs") else {}
                 _raw_mi = []
                 for _i in range(self.n_features_in_):
-                    # ``cached_MIs`` is keyed by the candidate variable-index
-                    # tuple (see evaluation.py: ``cached_MIs[X] = direct_gain``,
-                    # where ``X`` is the tuple of variable indices). For
-                    # single-variable candidates the key is ``(_i,)``. The prior
-                    # ``(_i, -1)`` lookup never matched any key, so every
-                    # entry resolved to 0.0 and the fallback's top-K ranking
-                    # was a no-op (picked index 0 regardless of signal).
-                    _key = (_i,)
-                    _mi = self.cached_MIs.get(_key, 0.0) if hasattr(self, "cached_MIs") else 0.0
+                    _name = self.feature_names_in_[_i] if _i < len(self.feature_names_in_) else None
+                    _cols_idx = _name_to_cols_idx.get(_name)
+                    _mi = _cached.get((_cols_idx,), 0.0) if _cols_idx is not None else 0.0
                     _raw_mi.append((_i, float(_mi)))
                 # Sort by MI desc; pick top-K.
                 # Wave 57 (2026-05-20): secondary key on feature index so
                 # tied MI doesn't make the empty-support fallback drift.
                 _raw_mi.sort(key=lambda kv: (-kv[1], kv[0]))
-                _rel_floor = float(getattr(self, "min_relevance_gain", 0.0) or 0.0)
-                # Rescue only raw features clearing the absolute relevance floor (genuine signal out-ranked by overfit
-                # engineered MI). Never-empty guarantee: a totally-empty screen (nothing clears the floor AND no
-                # engineered features) still returns its single highest-MI raw column so downstream transform isn't 0-width.
-                _topk = [i for i, _mi in _raw_mi[:_min_fb] if _mi > _rel_floor]
+                _abs_floor = float(getattr(self, "min_relevance_gain", 0.0) or 0.0)
+                _rel_frac = float(getattr(self, "min_relevance_gain_relative_to_first", 0.0) or 0.0)
+                _max_mi = max((m for _, m in _raw_mi), default=0.0)
+                # Rescue EVERY raw feature clearing the relevance floor (the stricter of the absolute floor and the relative-to-strongest floor), not just the top
+                # ``min_features_fallback``. With the empirical-null-debiased ``cached_MIs`` this ranking is honest, so retaining all genuine raw signal (rather than a
+                # single arbitrary top-1) is the correct recovery on a wide engineered pool where multiple real raw signals were each shadowed by an engineered child.
+                # ``min_features_fallback`` still acts as a floor on the rescued count so legacy callers asking for >=K always get at least K. Never-empty guarantee:
+                # a totally-empty screen (nothing clears the floor AND no engineered features) still returns its single highest-MI raw column.
+                _floor = max(_abs_floor, _max_mi * _rel_frac)
+                # Cap the floor-based rescue so a pathological pool of many near-identical above-floor raw columns (e.g. 50 copies of one signal, which the empty screen
+                # could not collapse) does not balloon the fallback support. ``min_features_fallback`` sets the requested count; we rescue at most a modest multiple of it
+                # (the genuine multi-signal fixtures that need the floor-based rescue carry only a handful of distinct above-floor signals, well within this bound).
+                _rescue_cap = max(int(_min_fb), 8)
+                _topk = [i for i, _mi in _raw_mi if _mi > _floor][:_rescue_cap]
+                if len(_topk) < _min_fb:
+                    for i, _mi in _raw_mi:
+                        if i not in _topk and _mi > _abs_floor:
+                            _topk.append(i)
+                        if len(_topk) >= _min_fb:
+                            break
                 if not _topk and n_engineered_out == 0 and _raw_mi:
                     _topk = [_raw_mi[0][0]]
                 if _topk:
@@ -6156,7 +6223,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _uninformative = _top_mi <= 0.0
                     _fallback_msg = (
                         f"MRMR: screening returned 0 features; falling "
-                        f"back to top-{self.n_features_} by raw "
+                        f"back to the {self.n_features_} raw feature(s) "
+                        f"clearing the relevance floor by debiased "
                         f"MI(X_j, y). Set min_features_fallback=0 to "
                         f"disable. fallback_used_=True is set on the "
                         f"estimator."

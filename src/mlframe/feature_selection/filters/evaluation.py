@@ -40,6 +40,17 @@ from .permutation import mi_direct
 
 logger = logging.getLogger(__name__)
 
+# Significance level for the permutation-null debiasing of the relevance MI. A candidate whose relevance permutation p-value is BELOW this alpha is SIGNIFICANT -- it sits
+# above its own null distribution -- and keeps its FULL observed MI (no subtraction); a candidate at/above alpha is NOT significant and has the empirical null mean subtracted
+# (``max(0, observed - null_mean)``), demoting it toward zero. This replaces the earlier fixed keep-fraction clamp with the textbook discriminator the clamp was a proxy for:
+# the null MEAN alone cannot tell a WEAK GENUINE signal (whose coarse-binning null is a large fraction of its observed MI) apart from SPURIOUS NOISE (whose null is high because
+# it IS noise) -- but the permutation p-value can, because weak genuine signal sits ABOVE its null (significant) while noise sits WITHIN its null (not significant). alpha=0.05 is
+# a STANDARD statistical level, not a fixture-tuned coefficient; the selection is stable across a wide alpha range (0.02-0.10) precisely because real signal clears p ~ 0 and
+# noise sits near p ~ 1, far from any alpha in that band. Subtraction is scale-preserving (stays in MI units) so the downstream min_relevance_gain / relative-gain / FDR floors
+# need no recalibration. Override via the ``MLFRAME_MRMR_NULL_SIGNIF_ALPHA`` env var.
+import os as _os
+_MRMR_NULL_SIGNIF_ALPHA = float(_os.environ.get("MLFRAME_MRMR_NULL_SIGNIF_ALPHA", "0.05"))
+
 
 def get_candidate_name(candidate_indices: list, factors_names: list) -> str:
     cand_name = "-".join([factors_names[el] for el in candidate_indices])
@@ -565,7 +576,11 @@ def evaluate_candidate(
                     dtype=dtype,
                 )
             else:
-                direct_gain, _ = mi_direct(
+                # Significance-gated empirical-null debiasing of the relevance MI. On a wide composite-FE candidate pool the in-sample plug-in MI is upward-biased for
+                # high-cardinality (50-level categoricals), heavy-tailed (Student-t), monotone-datetime and engineered columns, so they out-rank genuine lower-cardinality signal
+                # (e.g. a strong Gaussian leg) and get selected while the real signal is dropped. ``return_null_mean=True`` runs the relevance null and returns BOTH the per-feature
+                # null mean (the average MI of X against y-PERMUTATIONS the kernel already computes) AND the permutation p-value (the fraction of shuffles that tied/beat observed).
+                direct_gain, _, null_mean, p_value = mi_direct(
                     factors_data,
                     x=X,
                     y=y,
@@ -577,7 +592,15 @@ def evaluate_candidate(
                     max_failed=_bnp,
                     npermutations=_bnp,
                     dtype=dtype,
+                    return_null_mean=True,
                 )
+                # Gate the subtraction on permutation SIGNIFICANCE. The null mean alone cannot distinguish a WEAK GENUINE signal (whose coarse-binning null is a large fraction of
+                # its observed MI) from SPURIOUS NOISE (whose null is high because it IS noise) -- subtracting the full null would over-correct the weak signal below the
+                # relative-gain floor and drop it. The permutation p-value IS that discriminator: a significant feature (``p_value < alpha``) sits ABOVE its null and keeps its
+                # full observed MI; a non-significant feature (``p_value >= alpha``) sits WITHIN its null and gets the full null mean subtracted, collapsing toward 0. alpha is a
+                # textbook level (0.05), not a fixture-tuned fraction, and the selection is stable across a wide alpha band because real signal clears p ~ 0 and noise sits at p ~ 1.
+                if p_value >= _MRMR_NULL_SIGNIF_ALPHA:
+                    direct_gain = max(0.0, direct_gain - null_mean)
             cached_MIs[X] = direct_gain
 
     # Synergy candidates can have direct_gain == 0 (pure XOR, parity, etc.: the

@@ -40,7 +40,7 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
         from .discretization import discretize_2d_array, discretize_array
         # Screening-path permutation kernels. ``mi_direct`` (called once per candidate during screening) dispatches to either ``parallel_mi_prange``
         # (parallel=True) or ``parallel_mi`` (sequential joblib worker); both pay full JIT-compile cost on first call (~17s).
-        from .permutation import parallel_mi_prange, parallel_mi, shuffle_arr
+        from .permutation import parallel_mi_prange, parallel_mi_prange_with_null, parallel_mi, shuffle_arr
         # Info-theory primitives used by screen.py. ``merge_vars`` / ``entropy`` / ``mi`` / ``conditional_mi`` / ``entropy_miller_madow`` each pay 1-3s JIT
         # compile on first call; ``screen_predictors`` calls them tens of times per fit.
         from .info_theory import (
@@ -209,6 +209,16 @@ def prewarm_fs_numba_cache(verbose: bool = False) -> None:
             classes_x=classes_pair, freqs_x=freqs_pair,
             classes_y=classes_y, freqs_y=freqs_y,
             npermutations=2, original_mi=0.0, max_failed=10, dtype=dtype,
+        )
+    except Exception:
+        pass
+    # Null-mean-accumulating prange twin -- the kernel ``mi_direct(return_null_mean=True)`` runs for the MRMR relevance debiasing. Separate njit signature => separate compile.
+    try:
+        _ = parallel_mi_prange_with_null(
+            classes_x=classes_pair, freqs_x=freqs_pair,
+            classes_y=classes_y, freqs_y=freqs_y,
+            npermutations=2, original_mi=0.0,
+            base_seed=np.uint64(7), dtype=dtype,
         )
     except Exception:
         pass

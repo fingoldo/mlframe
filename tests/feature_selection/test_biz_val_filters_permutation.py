@@ -217,3 +217,119 @@ def test_biz_val_permutation_zero_permutations_returns_zero_no_crash():
     assert nf == 0 and nt == 0, (
         f"npermutations=0 must return (0, 0); got ({nf}, {nt})"
     )
+
+
+# ---------------------------------------------------------------------------
+# Empirical permutation-null relevance debiasing (the *_with_null kernels +
+# mi_direct(return_null_mean=True)). The screen subtracts the per-feature null
+# mean from the observed MI to demote spuriously-inflated columns; these tests
+# pin (a) the null kernels are bit-identical to the legacy kernels on
+# (nfailed, nchecked) and additionally return the per-permutation MI sum, and
+# (b) the null mean separates genuine signal from noise.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("kernel_pair", ["prange", "bc", "worker"])
+def test_biz_val_null_kernels_bit_identical_to_legacy(kernel_pair):
+    """The ``*_with_null`` siblings MUST return ``(nfailed, nchecked)`` bit-identical to their legacy counterparts (same LCG stream, same exceedance/early-stop logic)
+    and additionally a finite non-negative per-permutation MI sum. Guards against a future edit that lets the null accumulation perturb the confidence contract."""
+    from mlframe.feature_selection.filters.permutation import (
+        parallel_mi, parallel_mi_with_null,
+        parallel_mi_prange, parallel_mi_prange_with_null,
+        parallel_mi_besag_clifford, parallel_mi_besag_clifford_with_null,
+    )
+    cx, fx, cy, fy, mi = _classes_and_mi(*_make_strong_signal(n=1500, seed=11))
+    if kernel_pair == "prange":
+        a = parallel_mi_prange(cx, fx, cy, fy, 40, mi, np.uint64(123), dtype=np.int32)
+        b = parallel_mi_prange_with_null(cx, fx, cy, fy, 40, mi, np.uint64(123), dtype=np.int32)
+    elif kernel_pair == "bc":
+        a = parallel_mi_besag_clifford(cx, fx, cy, fy, 1000, mi, np.uint64(0), dtype=np.int32)
+        b = parallel_mi_besag_clifford_with_null(cx, fx, cy, fy, 1000, mi, np.uint64(0), dtype=np.int32)
+    else:
+        a = parallel_mi(cx, fx, cy, fy, 40, mi, max_failed=100, dtype=np.int32, base_seed=np.uint64(123))
+        b = parallel_mi_with_null(cx, fx, cy, fy, 40, mi, max_failed=100, dtype=np.int32, base_seed=np.uint64(123))
+    assert a == b[:2], f"{kernel_pair}: (nfailed, nchecked) diverged: legacy {a} vs with_null {b[:2]}"
+    assert len(b) == 3 and np.isfinite(b[2]) and b[2] >= 0.0, f"{kernel_pair}: null MI sum invalid: {b}"
+
+
+def test_biz_val_mi_direct_return_null_mean_backward_compatible():
+    """``mi_direct`` default (``return_null_mean=False``) returns the legacy 2-tuple; ``return_null_mean=True`` returns a 4-tuple ``(observed, confidence, null_mean, p_value)``
+    whose first two elements match the legacy call. Pins the contract so the screen caller and any future consumer reading the p-value are unaffected by an accidental reshape."""
+    from mlframe.feature_selection.filters.permutation import mi_direct
+    x_bin, y = _make_strong_signal(n=1500, seed=7)
+    factors = np.column_stack([x_bin, y]).astype(np.int32)
+    factors_nbins = np.array([10, 2], dtype=np.int64)
+    legacy = mi_direct(factors, x=(0,), y=(1,), factors_nbins=factors_nbins,
+                       npermutations=16, base_seed=3, prefer_gpu=False)
+    assert isinstance(legacy, tuple) and len(legacy) == 2
+    quad = mi_direct(factors, x=(0,), y=(1,), factors_nbins=factors_nbins,
+                     npermutations=16, base_seed=3, prefer_gpu=False, return_null_mean=True)
+    assert len(quad) == 4
+    obs, conf, null_mean, p_value = quad
+    assert obs == pytest.approx(legacy[0]), "observed MI must match legacy call"
+    assert np.isfinite(null_mean) and null_mean >= 0.0, f"null mean must be finite >=0; got {null_mean}"
+    assert 0.0 <= p_value <= 1.0, f"p_value must be a probability; got {p_value}"
+    assert conf == pytest.approx(1.0 - p_value), "confidence and p_value must be complementary"
+    # On strong signal the observed MI must dominate the null mean (so debiasing keeps the relevance) AND the feature is permutation-significant (p_value ~ 0).
+    assert obs > 5.0 * null_mean, f"strong signal: observed {obs:.4f} should be >> null mean {null_mean:.4f}"
+    assert p_value < 0.05, f"strong signal must be permutation-significant; got p_value={p_value:.4f}"
+
+
+def test_biz_val_null_mean_demotes_noise_keeps_signal():
+    """The empirical null mean must separate genuine signal from noise: a strong-signal column has ``observed >> null_mean`` (relevance survives debiasing) while a
+    no-signal column has ``observed ~ null_mean`` (debiased relevance collapses toward 0). This is the core ranking-correction the screen relies on."""
+    from mlframe.feature_selection.filters.permutation import mi_direct
+    fnb = np.array([10, 2], dtype=np.int64)
+
+    xs, ys = _make_strong_signal(n=2000, seed=5)
+    sig = np.column_stack([xs, ys]).astype(np.int32)
+    obs_s, _, null_s, _ = mi_direct(sig, x=(0,), y=(1,), factors_nbins=fnb,
+                                    npermutations=16, base_seed=1, prefer_gpu=False, return_null_mean=True)
+
+    xn, yn = _make_no_signal(n=2000, seed=5)
+    noise = np.column_stack([xn, yn]).astype(np.int32)
+    obs_n, _, null_n, _ = mi_direct(noise, x=(0,), y=(1,), factors_nbins=fnb,
+                                    npermutations=16, base_seed=1, prefer_gpu=False, return_null_mean=True)
+
+    debiased_sig = max(0.0, obs_s - null_s)
+    debiased_noise = max(0.0, obs_n - null_n)
+    assert debiased_sig > 10.0 * max(debiased_noise, 1e-9), (
+        f"debiased signal relevance ({debiased_sig:.5f}) must dominate debiased noise ({debiased_noise:.5f})"
+    )
+
+
+def test_biz_val_significance_gate_keeps_weak_signal_demotes_noise():
+    """SIGNIFICANCE-GATED debiasing: the permutation p-value separates weak-but-real signal from spurious noise EVEN when both carry a high null mean. A weak genuine signal
+    sits ABOVE its null distribution (few/no permutations beat observed => small p => SIGNIFICANT => keep full observed MI), while pure noise sits WITHIN its null (many
+    permutations beat observed => large p => NOT significant => subtract null mean). This is the discriminator the null mean alone cannot provide; the screen relies on it to
+    protect weak signal the flat null-mean subtraction would over-correct away."""
+    from mlframe.feature_selection.filters.permutation import mi_direct
+    fnb = np.array([10, 2], dtype=np.int64)
+    alpha = 0.05
+
+    # A weak (low-coefficient) genuine signal: observed MI is modest and the coarse-binning null mean is a sizable fraction of it, yet it is permutation-significant.
+    rng = np.random.default_rng(17)
+    n = 3000
+    z = rng.standard_normal(n)
+    logit = 0.45 * z  # weak but real
+    yw = (rng.uniform(0, 1, n) < 1.0 / (1.0 + np.exp(-logit))).astype(np.int32)
+    xw = np.clip((z - z.min()) / (z.max() - z.min()) * 10, 0, 9).astype(np.int32)
+    weak = np.column_stack([xw, yw]).astype(np.int32)
+    obs_w, _, null_w, p_w = mi_direct(weak, x=(0,), y=(1,), factors_nbins=fnb,
+                                      npermutations=64, base_seed=2, prefer_gpu=False, return_null_mean=True)
+
+    xn, yn = _make_no_signal(n=n, seed=5)
+    noise = np.column_stack([xn, yn]).astype(np.int32)
+    obs_n, _, null_n, p_n = mi_direct(noise, x=(0,), y=(1,), factors_nbins=fnb,
+                                      npermutations=64, base_seed=2, prefer_gpu=False, return_null_mean=True)
+
+    assert p_w < alpha, f"weak genuine signal must be significant (p<{alpha}); got p={p_w:.4f}, obs={obs_w:.5f}, null={null_w:.5f}"
+    assert p_n >= alpha, f"pure noise must be non-significant (p>={alpha}); got p={p_n:.4f}"
+
+    # Significance-gated relevance: keep full observed when significant, subtract null when not.
+    rel_w = obs_w if p_w < alpha else max(0.0, obs_w - null_w)
+    rel_n = obs_n if p_n < alpha else max(0.0, obs_n - null_n)
+    assert rel_w == pytest.approx(obs_w), "weak-but-real signal must keep its FULL observed MI under the significance gate"
+    assert rel_w > 5.0 * max(rel_n, 1e-9), (
+        f"significance-gated weak signal relevance ({rel_w:.5f}) must dominate gated noise ({rel_n:.5f})"
+    )

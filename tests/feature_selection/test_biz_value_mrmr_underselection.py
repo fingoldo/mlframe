@@ -74,20 +74,6 @@ def test_composite_fe_support_is_never_empty(seed):
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "OWED DEEP FIX (Fix B, scoped 2026-06-05): under composite all-FE-on, raw x1 (strongest signal) is "
-        "out-ranked by engineered / high-cardinality (cat_b, 50 levels) / monotone-datetime (ts) columns whose "
-        "IN-SAMPLE plug-in binned MI is finite-sample-inflated. The correct fix wires a Miller-Madow / held-out "
-        "bias correction into the CORE screen relevance MI (today raw plug-in; the existing `mi_correction` knob "
-        "is stored-but-unwired, mrmr.py:222) and flips it default-on per the enable-corrective-mechanisms rule -- "
-        "a maximum-blast-radius core change deliberately deferred from this pass to avoid rushing core "
-        "destabilization (it shifts selection across the whole MRMR suite). Fix A1 (non-empty raw-support fallback "
-        "on 0-raw) already landed. strict=True so this XPASS-flags the moment the debiasing lands and the marker "
-        "must be removed."
-    ),
-)
 @pytest.mark.parametrize("seed", COLLAPSE_SEEDS)
 def test_composite_fe_retains_strongest_signal(seed):
     """Fix B (deferred, xfail-tracked): the strongest raw signal x1 must survive composite FE -- as raw x1 or an x1-derived column."""
@@ -111,4 +97,24 @@ def test_composite_fe_no_highcard_noise_over_signal(seed):
         assert "x1" in srcs, (
             f"seed={seed}: high-card noise cat_b was selected while real signal x1 was dropped -- its 50-level "
             f"in-sample binned MI is finite-sample-inflated above genuine signal. support={names}"
+        )
+
+
+@pytest.mark.parametrize("seed", COLLAPSE_SEEDS)
+def test_composite_fe_fallback_rescues_real_signal_not_pure_noise(seed):
+    """Index-space fix: the empty-support fallback ranks raw features by ``cached_MIs``, which is keyed in COLS-SPACE (categorize_dataset reorders columns when
+    categoricals exist), NOT in ``feature_names_in_`` space. Pre-fix the fallback read ``cached_MIs[(input_idx,)]`` directly, mis-aligning every column once the
+    screen reordered, so it rescued a pure-noise positive leg (``num_pos_a``, raw MI ~0) whose slot happened to carry a strong signal's MI. Pin that the rescued
+    support carries genuine signal (one of the planted ``x*`` legs / group / cat effects) and never the known pure-noise legs while a real signal is absent."""
+    X, y = _build_mega(seed)
+    m = _make_mega_mrmr(random_seed=seed).fit(X, y)
+    srcs = _sources(_support_names(m))
+    real_signal = {"x1", "x2", "x3", "group_id", "cat_a"}
+    pure_noise = {"num_pos_a", "num_pos_b", "num_heavy"}
+    assert srcs & real_signal, f"seed={seed}: support carries no planted signal at all: {sorted(srcs)}"
+    leaked_noise = srcs & pure_noise
+    if leaked_noise:
+        assert srcs & real_signal, (
+            f"seed={seed}: pure-noise leg(s) {sorted(leaked_noise)} rescued while no real signal present "
+            f"-- the cols-space index translation in the fallback regressed. support_sources={sorted(srcs)}"
         )

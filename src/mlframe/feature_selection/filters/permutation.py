@@ -30,6 +30,16 @@ from .info_theory import (
 
 logger = logging.getLogger(__name__)
 
+# Number of y-permutations used by ``mi_direct(return_null_mean=True)`` to estimate BOTH the empirical relevance null mean AND the permutation p-value that gates the
+# significance-aware debiasing in ``evaluate_candidate``. The MRMR screen's exceedance budget (``baseline_npermutations``, default 2) is far too few shuffles for either
+# purpose -- 2 samples give a null-mean estimate with ~70% relative noise and a p-value that resolves only to {0, 0.5, 1.0}. 32 serves two needs: (a) it brings the null-mean
+# standard error down ~4x, and (b) it makes the p-value resolve to 1/32 ~ 0.031, FINE ENOUGH for a textbook alpha=0.05 significance cut to cleanly separate weak-but-real
+# signal (sits above its null, p ~ 0) from spurious noise (sits within its null, p large) -- at 16 perms the p-resolution (1/16 ~ 0.0625) is coarser than alpha and the gate
+# would have to demand ZERO exceedances, which is too strict for a genuinely-weak leg whose null occasionally ties it. 32 of these per candidate is still microseconds on the
+# screening hot path (each is one ``compute_relevance_score`` call). Tunable via the ``MLFRAME_MRMR_NULL_PERMS`` env var for users who want a tighter/looser null estimate.
+import os as _os
+_NULL_MEAN_MIN_PERMS = max(2, int(_os.environ.get("MLFRAME_MRMR_NULL_PERMS", "32")))
+
 
 @njit(cache=True)
 def distribute_permutations(npermutations: int, n_workers: int) -> list:
@@ -141,6 +151,69 @@ def parallel_mi_besag_clifford(
     return nfailed, i + 1
 
 
+@njit(cache=True)
+def parallel_mi_besag_clifford_with_null(
+    classes_x: np.ndarray,
+    freqs_x: np.ndarray,
+    classes_y: np.ndarray,
+    freqs_y: np.ndarray,
+    npermutations: int,
+    original_mi: float,
+    base_seed: np.uint64,
+    p_low: float = 0.01,
+    p_high: float = 0.05,
+    min_perms: int = 30,
+    dtype=np.int32,
+    use_su: bool = False,
+) -> tuple:
+    """Null-mean-accumulating twin of :func:`parallel_mi_besag_clifford`.
+
+    Bit-identical ``(nfailed, nchecked)`` to the legacy kernel (same LCG stream, same early-stop logic) but ALSO accumulates the sum of the per-permutation MIs it
+    already computes and returns ``(nfailed, nchecked, sum_perm_mi)``. The empirical permutation-null mean is ``sum_perm_mi / max(1, nchecked)`` -- it costs nothing
+    extra because ``mi_perm`` is computed regardless; the legacy kernel simply discarded it. Kept as a sibling (not an in-place edit) so the 2-tuple contract every
+    existing caller and test relies on stays untouched.
+    """
+    if npermutations == 0:
+        return 0, 0, 0.0
+
+    n = len(classes_y)
+    nfailed = 0
+    i = 0
+    sum_perm_mi = 0.0
+
+    state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(1)
+    local = classes_y.copy()
+
+    for i in range(npermutations):
+        for j in range(n - 1, 0, -1):
+            state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
+            k = int(state >> np.uint64(33)) % (j + 1)
+            tmp = local[j]
+            local[j] = local[k]
+            local[k] = tmp
+
+        mi_perm = compute_relevance_score(
+            use_su, classes_x, freqs_x, local, freqs_y, dtype=dtype,
+        )
+        sum_perm_mi += mi_perm
+        if mi_perm >= original_mi:
+            nfailed += 1
+
+        n_done = i + 1
+        if n_done >= min_perms:
+            phat = nfailed / n_done
+            z = 1.96
+            denom = 1.0 + z * z / n_done
+            center = (phat + z * z / (2 * n_done)) / denom
+            half = (z / denom) * np.sqrt(phat * (1 - phat) / n_done + z * z / (4 * n_done * n_done))
+            ci_low = center - half
+            ci_high = center + half
+            if ci_high < p_low or ci_low > p_high:
+                break
+
+    return nfailed, i + 1, sum_perm_mi
+
+
 @njit(parallel=True, nogil=True, cache=True)
 def parallel_mi_prange(
     classes_x: np.ndarray,
@@ -192,6 +265,53 @@ def parallel_mi_prange(
             nfailed_arr[i] = 1
 
     return int(nfailed_arr.sum()), npermutations
+
+
+@njit(parallel=True, nogil=True, cache=True)
+def parallel_mi_prange_with_null(
+    classes_x: np.ndarray,
+    freqs_x: np.ndarray,
+    classes_y: np.ndarray,
+    freqs_y: np.ndarray,
+    npermutations: int,
+    original_mi: float,
+    base_seed: np.uint64,
+    dtype=np.int32,
+    use_su: bool = False,
+) -> tuple:
+    """Null-mean-accumulating twin of :func:`parallel_mi_prange`.
+
+    Bit-identical ``(nfailed, npermutations)`` to the legacy prange kernel (same per-iter LCG seeding, same exceedance count) but ALSO returns the sum of the
+    per-permutation MIs as a third element ``(nfailed, npermutations, sum_perm_mi)``. The mean permutation-null MI is ``sum_perm_mi / npermutations``; subtracting it
+    from the observed MI debiases the in-sample plug-in inflation that out-ranks genuine low-cardinality signal on a wide engineered pool. The per-iter ``mi_perm``
+    is already computed by the legacy kernel and discarded; here it is accumulated into a private reduction array so the parallel reduction stays deterministic.
+    """
+    if npermutations == 0:
+        return 0, 0, 0.0
+
+    n = len(classes_y)
+    nfailed_arr = np.zeros(npermutations, dtype=np.int64)
+    mi_perm_arr = np.zeros(npermutations, dtype=np.float64)
+
+    for i in prange(npermutations):
+        state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(i + 1)
+
+        local = classes_y.copy()
+        for j in range(n - 1, 0, -1):
+            state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
+            k = int(state >> np.uint64(33)) % (j + 1)
+            tmp = local[j]
+            local[j] = local[k]
+            local[k] = tmp
+
+        mi_perm = compute_relevance_score(
+            use_su, classes_x, freqs_x, local, freqs_y, dtype=dtype,
+        )
+        mi_perm_arr[i] = mi_perm
+        if mi_perm >= original_mi:
+            nfailed_arr[i] = 1
+
+    return int(nfailed_arr.sum()), npermutations, float(mi_perm_arr.sum())
 
 
 @njit(cache=True)
@@ -261,6 +381,55 @@ def parallel_mi(
     return nfailed, _i + 1
 
 
+@njit(cache=True)
+def parallel_mi_with_null(
+    classes_x: np.ndarray,
+    freqs_x: np.ndarray,
+    classes_y: np.ndarray,
+    freqs_y: np.ndarray,
+    npermutations: int,
+    original_mi: float,
+    max_failed: int,
+    dtype=np.int32,
+    base_seed: np.uint64 = np.uint64(0),
+    use_su: bool = False,
+    perm_offset: int = 0,
+) -> tuple:
+    """Null-mean-accumulating twin of :func:`parallel_mi` (joblib worker).
+
+    Returns ``(nfailed, nchecked, sum_perm_mi)``; the first two are bit-identical to the legacy worker for the same ``(base_seed, perm_offset, npermutations)``. Note the
+    ``max_failed`` early break is preserved, so on a clearly-non-significant candidate the worker stops early and ``nchecked < npermutations`` -- the null mean is then the
+    average over the perms actually run (``sum_perm_mi / nchecked``), which is the correct empirical estimate for the perms drawn. Used only by the ``return_null_mean`` path,
+    which always runs the full budget (``max_failed`` set to a no-trip sentinel) so the null mean is over all ``npermutations`` shuffles.
+    """
+    if npermutations == 0:
+        return 0, 0, 0.0
+
+    nfailed = 0
+    sum_perm_mi = 0.0
+    classes_y_safe = np.asarray(classes_y).copy()
+    n = classes_y_safe.shape[0]
+    _i = 0
+    for _i in range(npermutations):
+        state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(perm_offset + _i + 1)
+        for j in range(n - 1, 0, -1):
+            state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
+            k = int(state >> np.uint64(33)) % (j + 1)
+            tmp = classes_y_safe[j]
+            classes_y_safe[j] = classes_y_safe[k]
+            classes_y_safe[k] = tmp
+        mi = compute_relevance_score(
+            use_su, classes_x, freqs_x, classes_y_safe, freqs_y, dtype=dtype,
+        )
+        sum_perm_mi += mi
+        if mi >= original_mi:
+            nfailed += 1
+            if nfailed >= max_failed:
+                break
+        classes_y_safe = np.asarray(classes_y).copy()
+    return nfailed, _i + 1, sum_perm_mi
+
+
 def mi_direct(
     factors_data,
     x: tuple,
@@ -280,8 +449,17 @@ def mi_direct(
     parallelism: str = "outer",
     base_seed: int = 0,
     prefer_gpu: bool = True,
+    return_null_mean: bool = False,
 ) -> tuple:
     """CPU mutual-information + permutation-test wrapper.
+
+    ``return_null_mean`` (default ``False``, fully backward-compatible): when ``True`` the call returns a 4-tuple ``(original_mi, confidence, null_mean, p_value)`` instead of
+    the 2-tuple. ``null_mean`` is the EMPIRICAL permutation-null mean MI -- the average of the ``mi_perm`` values the permutation kernels already compute -- and ``p_value`` is
+    the permutation p-value ``nfailed / nchecked`` (the fraction of shuffles whose MI tied or beat the observed MI). The MRMR screen uses BOTH for SIGNIFICANCE-GATED debiasing:
+    a feature that is permutation-SIGNIFICANT (``p_value < alpha``) keeps its full observed MI (protecting weak-but-real signal that sits above its own null), while a feature
+    that is NOT significant (``p_value >= alpha``) has the null mean subtracted (``relevance = max(0, observed - null_mean)``), demoting spurious high-cardinality / heavy-tailed
+    / monotone columns toward zero. The p-value is the correct discriminator the null mean alone cannot provide: weak genuine signal and pure noise can BOTH carry a high null
+    mean (coarse binning inflates the plug-in null), but only noise sits WITHIN its null distribution. Default ``False`` so every existing caller is unaffected.
 
     ``parallelism`` modes:
     * ``"outer"`` (default): joblib-process pool runs full ``parallel_mi`` workers.
@@ -315,10 +493,14 @@ def mi_direct(
     #     not consume the CPU pre-warm. Passing ``classes_y_safe=None``
     #     to ``mi_direct_gpu`` lets it allocate / reuse its own GPU
     #     buffers.
+    # ``return_null_mean=True`` is forced onto the CPU permutation kernels (the only ones that accumulate the per-permutation MI sum). The GPU permutation path does not
+    # surface the empirical null, and the screen's relevance-baseline budget (``npermutations<32``) never reaches the GPU branch anyway, so routing-to-CPU here costs nothing
+    # in practice; it only guards the unusual case of a caller asking for the null mean with a large budget on a CUDA host.
     if (
         prefer_gpu
         and npermutations >= 32
         and parallelism in ("outer", "none")
+        and not return_null_mean
     ):
         try:
             from pyutilz.core.pythonlib import is_cuda_available
@@ -366,6 +548,40 @@ def mi_direct(
     original_mi = compute_relevance_score(
         _use_su, classes_x, freqs_x, classes_y, freqs_y, dtype=dtype,
     )
+
+    if return_null_mean:
+        # Dedicated empirical-null sub-path, isolated from the legacy branch tree so it can never perturb existing ``return_null_mean=False`` behaviour. The relevance debiasing
+        # needs a STABLE null mean AND a usable permutation p-value, so we run a larger null budget (``_NULL_MEAN_MIN_PERMS``, default 32) than the screen's tiny exceedance budget
+        # (``npermutations``, default 2), then average the per-permutation MIs the kernel already computes and count the exceedances. The exceedance/rejection contract is preserved
+        # on a RATE basis: a candidate is rejected (``original_mi -> 0``) only when the null-failure RATE meets the caller's ``1 - min_nonzero_confidence`` floor -- equivalent to the
+        # legacy budget-absolute ``nfailed >= max_failed`` test at ``n_checked == npermutations``, but correct when the null budget is larger. The screen calls with
+        # ``min_nonzero_confidence=0.0`` so the rate floor is 1.0 (reject only if EVERY shuffle ties/beats observed -- pure noise), keeping the Wave-9.1 unanimous-rejection semantics
+        # intact. ``p_value = nfailed / n_checked`` is surfaced so the screen can SIGNIFICANCE-GATE the null-mean subtraction (subtract only when the feature is NOT significant).
+        null_mean = 0.0
+        confidence = 0.0
+        p_value = 1.0  # default for the original_mi == 0 / no-perm path: an uninformative feature is maximally non-significant.
+        if original_mi > 0 and npermutations > 0:
+            _null_nperms = max(int(npermutations), _NULL_MEAN_MIN_PERMS)
+            _cy = classes_y_safe if classes_y_safe is not None else classes_y
+            nfailed, n_checked, sum_perm_mi = parallel_mi_prange_with_null(
+                classes_x=classes_x,
+                freqs_x=freqs_x,
+                classes_y=_cy,
+                freqs_y=freqs_y,
+                npermutations=_null_nperms,
+                original_mi=original_mi,
+                base_seed=np.uint64(base_seed),
+                dtype=dtype,
+                use_su=_use_su,
+            )
+            if n_checked > 0:
+                null_mean = sum_perm_mi / float(n_checked)
+                p_value = nfailed / float(n_checked)
+                confidence = 1.0 - p_value
+                _rate_floor = float(1.0 - float(min_nonzero_confidence))
+                if p_value >= _rate_floor:
+                    original_mi = 0.0
+        return original_mi, confidence, null_mean, p_value
 
     confidence = 0.0
     i = -1  # caller-side guard: if no inner branch runs, n_total stays 0.
