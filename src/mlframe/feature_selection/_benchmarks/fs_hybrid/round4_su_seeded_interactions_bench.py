@@ -163,7 +163,17 @@ def run_bed(name, X, y, truth):
         return rec
 
     rows = []
-    for tag, add_products in (("plain", False), ("su_seeded", True)):
+    # plain      : additive default selector, no products.
+    # su_seeded  : PROTOTYPE proof -- top-8 SU pairs pre-engineered as product cols, plain selector.
+    # su_inclass : PRODUCTION in-class path -- selector runs its OWN SNR-gated SU synergy screen
+    #              (su_seeded_interactions=True) on the RAW frame; no externally-seeded columns. This
+    #              is the path shipped in ShapProxiedFS; it must reproduce the prototype's win on the
+    #              clear-SNR beds and NO-OP (== plain) on hard_synth where the SNR gate clears nothing.
+    for tag, add_products, inclass in (
+        ("plain", False, False),
+        ("su_seeded", True, False),
+        ("su_inclass", False, True),
+    ):
         Xtr2, Xte2 = Xtr.copy(), Xte.copy()
         added = []
         if add_products:
@@ -173,7 +183,7 @@ def run_bed(name, X, y, truth):
                 Xte2[nm] = Xte[a].values * Xte[b].values
                 added.append(nm)
         t1 = time.time()
-        sel = S.ShapSel(); sel.fit(Xtr2, ytr)
+        sel = S.ShapSel(su_seeded_interactions=inclass); sel.fit(Xtr2, ytr)
         fit_s = round(time.time() - t1, 1)
         chosen = list(sel.all_selected_)
         rec = recall_of(chosen)
@@ -208,14 +218,18 @@ def main():
 
     df = pd.DataFrame(allrows)
     print("\n=== ALL ===\n" + df.to_string(index=False), flush=True)
-    print("\n=== A4-4 VERDICT ===", flush=True)
+    print("\n=== A4-4 VERDICT (proto = externally-seeded prototype; inclass = production in-class path) ===", flush=True)
     for bed in df.bed.unique():
         b = df[df.bed == bed].set_index("variant")
         d_rec = int(b.loc["su_seeded", "op_recall"]) - int(b.loc["plain", "op_recall"])
         d_auc = round(float(b.loc["su_seeded", "auc"]) - float(b.loc["plain", "auc"]), 4)
+        d_rec_ic = int(b.loc["su_inclass", "op_recall"]) - int(b.loc["plain", "op_recall"])
+        d_auc_ic = round(float(b.loc["su_inclass", "auc"]) - float(b.loc["plain", "auc"]), 4)
         rk = ranks[bed]
         print(f"  {bed:18s} screen_rank_of_true_pair="
-              f"{'MISS' if rk is None else '#'+str(rk):5s}  d_op_recall={d_rec:+d}  d_auc={d_auc:+}", flush=True)
+              f"{'MISS' if rk is None else '#'+str(rk):5s}  "
+              f"proto[d_recall={d_rec:+d} d_auc={d_auc:+}]  "
+              f"inclass[d_recall={d_rec_ic:+d} d_auc={d_auc_ic:+}]", flush=True)
     df.to_csv("D:/Temp/round4_su_seeded_rows.csv", index=False)
     ck("A4-4 DONE")
 

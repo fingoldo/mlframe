@@ -143,6 +143,12 @@ class RFECVSel:
 
 class ShapSel:
     name = "shap_proxied"
+    def __init__(self, su_seeded_interactions: bool = False):
+        # su_seeded_interactions (A4-4): flip the IN-CLASS opt-in SNR-gated sparse-interaction path.
+        # When True the selector runs its OWN pairwise-SU synergy screen + SNR gate internally (no
+        # externally-seeded product columns), so the bench can compare the prototype seeding against
+        # the production in-class path. Default False preserves the legacy additive selector.
+        self.su_seeded_interactions = bool(su_seeded_interactions)
     def fit(self, X, y):
         from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
         p = X.shape[1]
@@ -155,6 +161,7 @@ class ShapSel:
             oof_shap_n_estimators=60, revalidation_n_estimators=60,
             n_revalidation_models=2, trust_guard=True, trust_guard_n_estimators=20,
             cluster_features="auto", within_cluster_refine=True, parsimony_tol=0.005,
+            su_seeded_interactions=self.su_seeded_interactions,
             random_state=0, verbose=False,
         )
         self.s_.fit(X, y)

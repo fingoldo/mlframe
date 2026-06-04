@@ -1,5 +1,40 @@
 # Changelog
 
+## 2026-06-04 — ShapProxiedFS su_seeded_interactions: cheap SNR-gated sparse-interaction path (opt-in)
+
+WHY: ShapProxiedFS's additive coalition proxy (base + sum phi_j) scores pure-interaction operands ~0, so it MISSES
+interactions; ``interaction_aware`` engages an O(P^2) TreeSHAP tensor that is prohibitive (gated to phi<=16).
+
+WHAT: new opt-in ``su_seeded_interactions`` (default OFF) ungates interaction recovery past phi=16 WITHOUT the
+O(P^2) tensor. A cheap pairwise SYNERGY-SU screen over the top mean-|phi| columns —
+``synergy(a,b;y) = SU(joint_bin(a,b);y) - max(SU(a;y),SU(b;y))`` (reuses the 33x-tuned cluster-SU kernel, O(P)+O(K^2),
+no TreeSHAP) — ranks candidate interaction pairs; a PERMUTATION-NULL SNR gate
+(``max(abs_floor, q(null,0.99)+3*std)``) drops sub-floor pairs so noise-buried interactions seed NOTHING; the
+interaction objective then runs on ONLY the surviving K pairs (O(K)). Empty kept-set => clean no-op.
+
+MEASURED (round4_su_seeded_interactions_bench): pure-interaction y=sign(a*b) 0.515 -> 0.881 (+0.366, op-recall +2);
+synth inf_4*inf_5 0.745 -> 0.806 (+0.060); hard_synth (interaction buried below the noise floor) EXACT no-op
+(0.7634 -> 0.7634 — the SNR gate converts the ungated -0.0096 regression to 0.0). Default OFF byte-identical. Tests:
+4 new pass (screen ranks true pair #0, SNR gate no-ops on noise, recovers both operands, default-OFF identical) +
+ShapProxiedFS core/search/objective suites green.
+
+## 2026-06-04 — MRMR median-gated FE operators (gate_med pseudo-unary, opt-in)
+
+WHY: a bilinear product ``a*b`` cannot represent a conditional/threshold interaction; threshold-0 gates
+``(a>0)*b`` are useless on SKEWED operands (median != 0).
+
+WHAT: new opt-in stateful pseudo-unary ``gate_med(x) = (x > train_median_x)`` (param ``fe_gate_med_enable``,
+default OFF), mirroring the ``prewarp`` template — ONE float of fitted state (the TRAIN median) per operand, stored
+in ``EngineeredRecipe.extra`` and replayed closed-form at transform (leak-safe: median from the fit/subsample slice,
+no y, no test recompute). Combined with the existing ``mul`` it forms ``gated_med = (a>median_a)*b`` and
+``thr_and_med = (a>median_a)&(b>median_b)``; registered as a pseudo-unary in the unary x unary x binary pair search,
+behind the existing FE prevalence/MI acceptance gates.
+
+MEASURED (round4_fe_median_gated_skew_bench, skewed operands): gated_med +0.0355 / thr_and_med +0.0435 (vs product
++0.022 / +0.020; threshold-0 +0.009 / +0.0001 useless) — the median adapts the split to the operand distribution.
+Default OFF byte-identical to current MRMR. Tests: 7 new pass (incl. leak-free deterministic recipe replay) +
+test_fe_fe + the prewarp suite green.
+
 ## 2026-06-04 — MRMRTreeRescued: fix MRMR's selection-gate collapse on interaction-heavy data
 
 WHY: MRMR's marginal-MI greedy STRUCTURALLY under-selects on interaction-heavy
