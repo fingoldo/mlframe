@@ -101,11 +101,12 @@ def test_column_order_normalised_before_transform() -> None:
     assert out.shape == (60, 5)
 
 
-def test_missing_fit_col_warns_and_returns_unchanged(caplog) -> None:
-    """Predict frame missing a fit-time col -> WARN naming it; transform
-    will still fail at sklearn's check (we can't fabricate the col), so
-    df returns unchanged. Downstream-model failure is the legitimate
-    surface in this case."""
+def test_missing_fit_col_warns_then_hard_fails(caplog) -> None:
+    """Predict frame missing a fit-time col -> WARN naming it; transform then fails at
+    sklearn's check (we can't fabricate the col). A2-10: the failure now HARD-FAILS
+    (raises RuntimeError) instead of silently returning the raw frame -- serving raw
+    columns the model was not trained on produces wrong predictions, so a loud error
+    is the correct surface."""
     from mlframe.training.core.predict import _apply_extensions_pipeline
     pipe, train_like = _build_fitted_pipeline()
     rng = np.random.default_rng(3)
@@ -115,8 +116,9 @@ def test_missing_fit_col_warns_and_returns_unchanged(caplog) -> None:
         for c in train_like.columns if c != "x0"
     })
     with caplog.at_level(logging.WARNING, logger="mlframe.training.core.predict"):
-        out = _apply_extensions_pipeline(df, pipe, verbose=0)
-    # The "missing fit-time column" WARN must have fired.
+        with pytest.raises(RuntimeError, match="transform failed at predict time"):
+            _apply_extensions_pipeline(df, pipe, verbose=0)
+    # The "missing fit-time column" WARN must have fired before the hard-fail.
     assert any(
         "missing" in rec.message and "fit-time" in rec.message
         and "x0" in rec.message

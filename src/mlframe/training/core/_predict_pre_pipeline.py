@@ -131,8 +131,15 @@ def _apply_extensions_pipeline(df: Any, ext_pipeline: Any, verbose: int = 0):
     try:
         _arr = ext_pipeline.transform(df)
     except Exception as _exc:
-        logger.error("[extensions_pipeline] transform failed: %s. Predict frame returned unchanged; downstream model will see RAW columns and almost certainly produce nonsense -- retrain or restore the saved pipeline.", _exc)
-        return df
+        # Hard-fail: returning the raw frame here would silently serve predictions on un-transformed columns (the model was trained on the post-extension feature space), producing wrong outputs with no error. Re-raise so the caller sees the failure instead of getting nonsense predictions. Soft-fail is gated behind the explicit MLFRAME_EXTENSIONS_SOFT_FAIL escape hatch, defaulting OFF.
+        if os.environ.get("MLFRAME_EXTENSIONS_SOFT_FAIL", "").lower() in ("1", "true", "yes"):
+            logger.error("[extensions_pipeline] transform failed: %s. MLFRAME_EXTENSIONS_SOFT_FAIL is set -> returning RAW frame; downstream model will see un-transformed columns and almost certainly produce nonsense.", _exc)
+            return df
+        raise RuntimeError(
+            f"[extensions_pipeline] transform failed at predict time: {_exc}. "
+            "The model was trained on the post-extension feature space; serving raw columns would produce wrong predictions. "
+            "Restore the saved pipeline / retrain, or set MLFRAME_EXTENSIONS_SOFT_FAIL=1 to (unsafely) fall back to the raw frame."
+        ) from _exc
     try:
         _names = list(ext_pipeline.get_feature_names_out())
     except (AttributeError, ValueError, NotImplementedError):

@@ -11,7 +11,7 @@ Both feature blocks output ``polars.DataFrame`` with deterministic column names 
 from __future__ import annotations
 
 import logging
-from typing import Literal, Union
+from typing import Any, Literal, Optional, Union
 
 import numpy as np
 import polars as pl
@@ -28,6 +28,96 @@ from ._utils import (
 logger = logging.getLogger(__name__)
 
 
+class RFFState:
+    """Fitted RFF projection state (train-only): RobustScaler + random matrix W + phase b + scale.
+
+    Returned by ``compute_rff_features(..., return_state=True)`` so a caller can apply the SAME train-fitted projection to held-out / predict frames via ``rff_apply_state`` -- the leakage-safe contract (fit on train, apply to query). The state is small (``W`` is d x m float32) and picklable for predict-time replay.
+    """
+
+    __slots__ = ("scaler", "W", "b", "scale", "n_features", "column_prefix", "dtype")
+
+    def __init__(self, scaler, W, b, scale, n_features, column_prefix, dtype):
+        self.scaler = scaler
+        self.W = W
+        self.b = b
+        self.scale = scale
+        self.n_features = n_features
+        self.column_prefix = column_prefix
+        self.dtype = dtype
+
+
+def _rff_fit_state(X_arr, *, seed, n_features, sigma, standardize, column_prefix, dtype) -> RFFState:
+    """Fit the RFF projection (scaler + W + b) on ``X_arr`` ONLY. No query rows touch this fit."""
+    if standardize:
+        from sklearn.preprocessing import RobustScaler
+        # Median / IQR-based; robust to heavy tails (financial data, etc.). NOT QuantileTransformer because we want a single shift+scale per col, not a non-linear remapping that would destroy the random-feature interpretation.
+        scaler = RobustScaler().fit(X_arr)
+        X_std = scaler.transform(X_arr).astype(dtype, copy=False)
+    else:
+        scaler = None
+        X_std = X_arr.astype(dtype, copy=False)
+
+    _n, d = X_std.shape
+    m = n_features // 2
+    if sigma == "median":
+        median_dist = sigma_median_heuristic(X_std, seed=seed)
+        # Rahimi-Recht: gamma = 1 / (2 * sigma_RBF^2); the standard "median trick" sets sigma_RBF = median_dist. So W ~ N(0, 1 / median_dist^2). Pre-scale W's std.
+        sigma_w = float(1.0 / max(median_dist, np.finfo(np.float64).tiny))
+    elif isinstance(sigma, (int, float)):
+        if sigma <= 0:
+            raise ValueError(f"sigma must be positive; got {sigma}.")
+        sigma_w = float(sigma)
+    else:
+        raise TypeError(f"sigma must be 'median' or a positive float; got {type(sigma).__name__}={sigma!r}.")
+
+    rng = np.random.default_rng(seed)
+    W = (rng.standard_normal((d, m)) * sigma_w).astype(dtype, copy=False)
+    b = (rng.random(m) * 2.0 * np.pi).astype(dtype, copy=False)
+    scale = float(np.sqrt(2.0 / n_features))
+    return RFFState(scaler, W, b, scale, n_features, column_prefix, dtype)
+
+
+def _rff_project(state: RFFState, X_arr, *, use_gpu, gpu_threshold, batch_rows, release_memory_after) -> np.ndarray:
+    """Apply a fitted ``RFFState`` to ``X_arr``; returns the ``(n, n_features)`` cos/sin feature matrix."""
+    if state.scaler is not None:
+        X_std = state.scaler.transform(X_arr).astype(state.dtype, copy=False)
+    else:
+        X_std = X_arr.astype(state.dtype, copy=False)
+    n, d = X_std.shape
+    out = np.empty((n, state.n_features), dtype=state.dtype)
+    use_gpu_resolved = _resolve_use_gpu(use_gpu, work=n * d * state.n_features, threshold=gpu_threshold)
+    if use_gpu_resolved:
+        try:
+            from ._kernels_cupy import rff_matmul_cupy
+            rff_matmul_cupy(X_std, state.W, state.b, out, state.scale, batch_rows=batch_rows)
+            if release_memory_after:
+                free_gpu_memory_pool()
+        except Exception as exc:  # pragma: no cover - environment fallback
+            logger.warning("rff_matmul_cupy failed (%s: %s); falling back to CPU.", type(exc).__name__, exc)
+            rff_matmul_njit(X_std, state.W, state.b, out, state.scale)
+    else:
+        rff_matmul_njit(X_std, state.W, state.b, out, state.scale)
+    return out
+
+
+def rff_apply_state(
+    state: RFFState,
+    X: Union[pl.DataFrame, np.ndarray],
+    *,
+    use_gpu: Union[bool, Literal["auto"]] = "auto",
+    gpu_threshold: int | None = None,
+    batch_rows: int = 100_000,
+    release_memory_after: bool = True,
+) -> pl.DataFrame:
+    """Apply a train-fitted ``RFFState`` to a held-out / predict frame (leakage-safe replay)."""
+    X_arr, _ = _coerce_input(X, dtype=state.dtype)
+    validate_numeric_input(X_arr, name="X", allow_fp16=True)
+    out = _rff_project(state, X_arr, use_gpu=use_gpu, gpu_threshold=gpu_threshold, batch_rows=batch_rows, release_memory_after=release_memory_after)
+    m = state.n_features // 2
+    col_names = [f"{state.column_prefix}_cos_{i}" for i in range(m)] + [f"{state.column_prefix}_sin_{i}" for i in range(m)]
+    return pl.DataFrame({name: out[:, idx] for idx, name in enumerate(col_names)})
+
+
 def compute_rff_features(
     X: Union[pl.DataFrame, np.ndarray],
     *,
@@ -41,28 +131,32 @@ def compute_rff_features(
     batch_rows: int = 100_000,
     column_prefix: str = "rff",
     release_memory_after: bool = True,
-) -> pl.DataFrame:
+    X_query: Optional[Union[pl.DataFrame, np.ndarray]] = None,
+    splitter: Optional[Any] = None,
+    return_state: bool = False,
+):
     """Approximate-kernel features via Random Fourier Features (Rahimi & Recht 2007).
 
     Output: ``sqrt(2 / n_features) * [cos(X @ W + b), sin(X @ W + b)]`` with ``W[d, m] ~ N(0, sigma^-2)`` and ``b[m] ~ U[0, 2 * pi)``, ``m = n_features // 2``.
     The bandwidth ``sigma`` defaults to the median-pairwise-distance heuristic on a 2048-row subsample (call site can override with a float).
 
-    GPU path uses streaming cupy with pinned-memory double-buffer for input batches; CPU path is ``numba.njit(parallel=True)``. ``use_gpu="auto"`` dispatches
-    to GPU when cupy is available AND total work ``N * d * n_features`` exceeds the calibrated threshold (None default -> first-call micro-bench cached per
-    shape bucket).
+    Train-only-fit contract (mirrors ``compute_local_lift_features`` / ``compute_class_distance_features``):
+      * Mode B (``X_query`` given): fit scaler + bandwidth + W/b on ``X`` (train) ONLY, then project ``X_query`` -- the leakage-safe path for held-out / predict frames. ``X`` itself is NOT projected.
+      * Mode A (``splitter`` given, ``X_query=None``): OOF -- for each fold, fit on the train indices and project the held-out indices, assembling a full ``(len(X), n_features)`` matrix with no row's own data informing its own scaler / bandwidth.
+      * Default (both None): fit AND project on the full ``X`` (the historical behaviour). This is IN-SAMPLE -- the scaler and median bandwidth see every row they then encode, a mild leak when the output feeds a supervised model. Prefer Mode A / Mode B when the RFF block feeds a downstream learner.
 
-    Returns a polars DataFrame ``(N, n_features)`` with column names ``{column_prefix}_cos_{i}`` / ``{column_prefix}_sin_{i}``. The cos / sin split makes the
-    output interpretable for feature-importance plots.
+    ``return_state=True`` additionally returns the fitted ``RFFState`` (Mode B / default only) so the caller can replay the projection on later frames via ``rff_apply_state``.
+
+    GPU path uses streaming cupy with pinned-memory double-buffer for input batches; CPU path is ``numba.njit(parallel=True)``. ``use_gpu="auto"`` dispatches to GPU when cupy is available AND total work ``N * d * n_features`` exceeds the calibrated threshold.
+
+    Returns a polars DataFrame ``(N, n_features)`` with column names ``{column_prefix}_cos_{i}`` / ``{column_prefix}_sin_{i}`` (or ``(df, state)`` when ``return_state``).
 
     Validation: input must be 2-D numeric with no NaN / Inf (use ``polars.fill_null`` upstream); dense (no sparse). Hard cap ``d <= 32768``.
     """
     seed = require_seed(seed)
     if n_features < 2 or n_features % 2 != 0:
         raise ValueError(f"n_features must be even and >= 2; got {n_features}.")
-    # Wave 28 P0 fix (2026-05-20): the strict ``is not True and is not False``
-    # type-guard rejected ``np.bool_(True)`` / ``numpy.True_`` / ``int(1)``
-    # from upstream config or sklearn output, all of which are semantically
-    # valid bools. isinstance covers Python bool + numpy bool uniformly.
+    # Wave 28 P0 fix (2026-05-20): the strict ``is not True and is not False`` type-guard rejected ``np.bool_(True)`` / ``numpy.True_`` / ``int(1)`` from upstream config or sklearn output, all of which are semantically valid bools. isinstance covers Python bool + numpy bool uniformly.
     import numpy as _np_for_bool
     if not isinstance(standardize, (bool, _np_for_bool.bool_)):
         raise TypeError(
@@ -72,55 +166,35 @@ def compute_rff_features(
     X_arr, _input_names = _coerce_input(X, dtype=dtype)
     validate_numeric_input(X_arr, name="X", allow_fp16=True)
 
-    if standardize:
-        from sklearn.preprocessing import RobustScaler
-        # Median / IQR-based; robust to heavy tails (financial data, etc.). NOT QuantileTransformer because we want a single shift+scale per col,
-        # not a non-linear remapping that would destroy the random-feature interpretation.
-        scaler = RobustScaler().fit(X_arr)
-        X_std = scaler.transform(X_arr).astype(dtype, copy=False)
-    else:
-        X_std = X_arr.astype(dtype, copy=False)
-
-    n, d = X_std.shape
     m = n_features // 2
-
-    # Bandwidth estimation.
-    if sigma == "median":
-        median_dist = sigma_median_heuristic(X_std, seed=seed)
-        # Rahimi-Recht: gamma = 1 / (2 * sigma_RBF^2); the standard "median trick" sets sigma_RBF = median_dist.
-        # So W ~ N(0, 1 / sigma_RBF^2) = N(0, 1 / median_dist^2). Pre-scale W's std.
-        sigma_w = float(1.0 / max(median_dist, np.finfo(np.float64).tiny))
-    elif isinstance(sigma, (int, float)):
-        if sigma <= 0:
-            raise ValueError(f"sigma must be positive; got {sigma}.")
-        sigma_w = float(sigma)
-    else:
-        raise TypeError(f"sigma must be 'median' or a positive float; got {type(sigma).__name__}={sigma!r}.")
-
-    # Generate W and b once. seed is the user-supplied seed; the RNG state is independent here (no SeedSequence.spawn needed - RFF has no concept of multi-head).
-    rng = np.random.default_rng(seed)
-    W = (rng.standard_normal((d, m)) * sigma_w).astype(dtype, copy=False)
-    b = (rng.random(m) * 2.0 * np.pi).astype(dtype, copy=False)
-    scale = float(np.sqrt(2.0 / n_features))
-
-    use_gpu_resolved = _resolve_use_gpu(use_gpu, work=n * d * n_features, threshold=gpu_threshold)
-
-    out = np.empty((n, n_features), dtype=dtype)
-    if use_gpu_resolved:
-        try:
-            from ._kernels_cupy import rff_matmul_cupy
-            rff_matmul_cupy(X_std, W, b, out, scale, batch_rows=batch_rows)
-            if release_memory_after:
-                free_gpu_memory_pool()
-        except Exception as exc:  # pragma: no cover - environment fallback
-            logger.warning("rff_matmul_cupy failed (%s: %s); falling back to CPU.", type(exc).__name__, exc)
-            rff_matmul_njit(X_std, W, b, out, scale)
-    else:
-        rff_matmul_njit(X_std, W, b, out, scale)
-
-    # Build polars output with stable column naming. cos columns first, sin columns second.
     col_names = [f"{column_prefix}_cos_{i}" for i in range(m)] + [f"{column_prefix}_sin_{i}" for i in range(m)]
-    return pl.DataFrame({name: out[:, idx] for idx, name in enumerate(col_names)})
+
+    # Mode A: OOF over a splitter. Each fold fits on its train slice, projects its held-out slice -- no row's own data informs its own scaler/bandwidth.
+    if splitter is not None:
+        if X_query is not None:
+            raise ValueError("Pass either X_query (Mode B) or splitter (Mode A), not both.")
+        if return_state:
+            raise ValueError("return_state is not supported in Mode A (each fold fits its own state).")
+        n = X_arr.shape[0]
+        out = np.zeros((n, n_features), dtype=dtype)
+        for fold_idx, (train_idx, val_idx) in enumerate(splitter.split(X_arr)):
+            _state = _rff_fit_state(X_arr[train_idx], seed=seed, n_features=n_features, sigma=sigma, standardize=standardize, column_prefix=column_prefix, dtype=dtype)
+            out[val_idx] = _rff_project(_state, X_arr[val_idx], use_gpu=use_gpu, gpu_threshold=gpu_threshold, batch_rows=batch_rows, release_memory_after=release_memory_after)
+        return pl.DataFrame({name: out[:, idx] for idx, name in enumerate(col_names)})
+
+    # Mode B / default: fit on X (train) only.
+    state = _rff_fit_state(X_arr, seed=seed, n_features=n_features, sigma=sigma, standardize=standardize, column_prefix=column_prefix, dtype=dtype)
+    if X_query is not None:
+        Xq_arr, _ = _coerce_input(X_query, dtype=dtype)
+        validate_numeric_input(Xq_arr, name="X_query", allow_fp16=True)
+        proj_input = Xq_arr
+    else:
+        proj_input = X_arr
+    out = _rff_project(state, proj_input, use_gpu=use_gpu, gpu_threshold=gpu_threshold, batch_rows=batch_rows, release_memory_after=release_memory_after)
+    df = pl.DataFrame({name: out[:, idx] for idx, name in enumerate(col_names)})
+    if return_state:
+        return df, state
+    return df
 
 
 def compute_positional_encoding(

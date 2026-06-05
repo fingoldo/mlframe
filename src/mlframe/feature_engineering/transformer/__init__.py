@@ -103,10 +103,13 @@ from .quantile_band_attention import compute_quantile_band_attention_features
 from .quantile_neighbours import compute_quantile_neighbours
 from .stacked_qnn import compute_stacked_quantile_neighbours
 from .random_features import (
+    RFFState,
     compute_positional_encoding,
     compute_rff_features,
     positions_within_group,
+    rff_apply_state,
 )
+from ._suite_adapter import ShortlistTransformerAdapter
 from .residual_attention import compute_residual_attention
 from .residual_band_attention import compute_residual_band_attention_features
 from .rf_proximity import compute_rf_proximity_attention
@@ -134,6 +137,8 @@ from .trust_score_oof import compute_trust_score_oof_features
 from .variance_baseline import compute_variance_baseline_features
 
 __all__ = [
+    "RFFState",
+    "ShortlistTransformerAdapter",
     "attend",
     "build_key_bank",
     "compute_active_virtual_features",
@@ -241,6 +246,7 @@ __all__ = [
     "compute_stacked_row_attention",
     "compute_target_quantile_attention",
     "positions_within_group",
+    "rff_apply_state",
     "is_gpu_available",
 ]
 

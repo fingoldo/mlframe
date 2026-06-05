@@ -63,6 +63,19 @@ Flagged for the operator's consideration (high information density, OOF-discipli
 
 Honest framing: wiring any of these requires either (a) adding a new `PreprocessingExtensionsConfig` stage that runs them with the same OOF / train-only-key-bank discipline `apply_preprocessing_extensions` already enforces for sklearn steps, or (b) a documented extractor recipe. Option (a) needs a per-algorithm "is this safe under k-fold CV without leakage" sign-off; option (b) is zero-suite-change and the current shipping path.
 
+### Opt-in adapter (`ShortlistTransformerAdapter`)
+
+`transformer.ShortlistTransformerAdapter` wraps any `(X_train, y_train, X_query, splitter, ...)` shortlist transformer (`compute_rff_features`, `compute_class_distance_features`, `compute_local_lift_features`, `compute_bgmm_*`, RSD-kNN, ...) as a leakage-safe sklearn `fit`/`transform` estimator. It can be passed into the suite via `custom_pre_pipelines`:
+
+```python
+from mlframe.feature_engineering.transformer import ShortlistTransformerAdapter, compute_rff_features
+
+adapter = ShortlistTransformerAdapter(compute_rff_features, needs_y=False, compute_kwargs={"n_features": 64})
+models, meta = train_mlframe_models_suite(..., custom_pre_pipelines={"rff": adapter})
+```
+
+`fit(X, y)` stashes the train fold; `transform(X)` runs the wrapped function in Mode B (`X_query=X`) so the internal scaler / bandwidth / class banks are fit on the train fold ONLY and applied to train/val/test/predict consistently. **Research-only remains the DEFAULT** — the adapter is an explicit opt-in, not an auto-wire, because stacking already subsumes most of these blocks.
+
 ## Out-of-scope research notes
 
 Per the module-level docstring of `transformer/__init__.py`: "the 'transformer' name is structural, not algorithmic — no learnable attention weights are involved." These are random-projection + softmax-weighted kNN-TE blocks, not gradient-trained attention layers; don't expect transformer-scale wins on small tabular.

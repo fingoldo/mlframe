@@ -315,10 +315,36 @@ def _apply_pysr_fe(
     return new_cols
 
 
-def _filter_to_numeric(_df):
+def _has_active_extension_stage(config) -> bool:
+    """True iff ``config`` activates at least one extension stage (PySR / TF-IDF / sklearn-bridge).
+
+    Used to short-circuit ``apply_preprocessing_extensions`` BEFORE the polars->pandas down-convert: with zero active stages the conversion is pure cost (and OOM risk on 100+GB polars frames) for a function that would return the inputs unchanged anyway.
+    """
+    if config is None:
+        return False
+    if getattr(config, "pysr_enabled", False):
+        return True
+    if getattr(config, "tfidf_columns", None):
+        return True
+    return any(
+        getattr(config, _attr, None) is not None
+        for _attr in (
+            "scaler",
+            "binarization_threshold",
+            "kbins",
+            "polynomial_degree",
+            "nonlinear_features",
+            "dim_reducer",
+        )
+    )
+
+
+def _filter_to_numeric(_df, keep_cols=None):
     """Drop non-numeric columns and bool-to-int8 promote in place, returning ``(filtered_view, dropped_names)``.
 
     Module-level (not nested inside ``apply_preprocessing_extensions``) so the regression sensor for the 100GB no-copy rule can import it directly. Caller-frame mutation contract: bool columns ARE promoted to int8 in the caller's frame -- this is the documented price of obeying the no-full-frame-copy rule on 100+GB workloads. The float / numeric columns are exposed via a column-subset view; ``_df[_num_cols]`` returns a view that shares the underlying block buffers with the caller's frame for the unchanged columns.
+
+    Cross-split parity: ``keep_cols`` pins the column set decided on TRAIN so val/test keep exactly the same columns (mirrors the ``_all_null_cols`` cross-split alignment). Without it, a per-split ``select_dtypes`` recompute can diverge (a column numeric on train but object on val, or vice versa) and break the downstream sklearn ``transform`` with an opaque feature-count mismatch. The caller passes ``list(train_filtered.columns)`` as ``keep_cols`` for the val/test calls.
     """
     if _df is None:
         return _df, []
@@ -336,14 +362,22 @@ def _filter_to_numeric(_df):
                 return _df, []
         except ImportError:
             return _df, []
+    import numpy as _np_local
+    # When ``keep_cols`` is pinned (val/test follow train), promote only the pinned bool columns then select exactly the pinned set, preserving cross-split column parity even if a column's per-split dtype differs.
+    if keep_cols is not None:
+        _keep = [c for c in keep_cols if c in _df.columns]
+        for _c in _keep:
+            if _df[_c].dtype == bool:
+                _df[_c] = _df[_c].astype(_np_local.int8)
+        _dropped = [c for c in _df.columns if c not in set(_keep)]
+        return _df[_keep], _dropped
     # Bool columns are numerically valid for sklearn KBins / StandardScaler / PolynomialFeatures (False=0, True=1) but ``select_dtypes(include="number")`` EXCLUDES bool dtype - the default code path silently drops useful binary features (e.g. ``is_after_ps`` event-membership flags). Cast bool -> int8 so they pass the "number" gate; int8 is the smallest dtype that round-trips True/False without precision loss.
     # The CRITICAL no-df.copy() rule (CLAUDE.md "Memory / RAM constraints") forbids a full-frame clone here -- on a 100+ GB frame that would OOM the host. Pre-2026-05-24 fix did ``_df = _df.copy()``; replaced with a per-column in-place dtype mutation. Single-column assignment is a block-level dtype swap, so the unchanged numeric columns keep their original buffers (the regression sensor asserts ``np.shares_memory`` on the float columns).
-    import numpy as _np_local
     _bool_cols = _df.select_dtypes(include="bool").columns.tolist()
     for _c in _bool_cols:
         _df[_c] = _df[_c].astype(_np_local.int8)
     _num_cols = _df.select_dtypes(include="number").columns.tolist()
-    _dropped = [c for c in _df.columns if c not in _num_cols]
+    _dropped = [c for c in _df.columns if c not in set(_num_cols)]
     return _df[_num_cols], _dropped
 
 
@@ -368,6 +402,9 @@ def apply_preprocessing_extensions(
     # import ...`` would create a hard cycle the meta-test flags.
     from .pipeline import PreprocessingExtensionsBundle, _build_extension_steps
     if config is None:
+        return train_df, val_df, test_df, None
+    # Fastpath: zero active stages -> no work to do. Return inputs UNTOUCHED (no polars->pandas down-convert). Without this gate the function paid the full Arrow->pandas conversion on every frame even when nothing was configured, defeating the polars fastpath and risking OOM on 100+GB polars frames for a no-op call.
+    if not _has_active_extension_stage(config):
         return train_df, val_df, test_df, None
     # Polars input -> convert to pandas (extensions use sklearn; mixing with the polars-native fastpath
     # would defeat the point if user opted in). Bare ``df.to_pandas()`` collapses pl.Enum / pl.Categorical
@@ -515,6 +552,7 @@ def apply_preprocessing_extensions(
                 max_features=config.tfidf_max_features,
                 ngram_range=tuple(config.tfidf_ngram_range),
             )
+            # bench-attempt-rejected (_benchmarks/bench_tfidf_input_path.py): feeding the Series directly or .to_numpy(object, na_value="") instead of .values is within ~1% (noise) at n=5k/50k; .values stays.
             train_text = train[col].fillna("").astype(str).values
             tfidf_train = vec.fit_transform(train_text)
             tfidf_pipes[col] = vec
@@ -537,9 +575,11 @@ def apply_preprocessing_extensions(
     #
     # Note: the cat-encoder pre-pipeline normally runs BEFORE this function, so under standard configs this drop is a no-op. The gate exists to keep production callers + the 1M profiler harness robust against axis combinations where cat_encoding canonicalised to a path that bypassed the encoder.
 
+    # Decide the kept-numeric column set ONCE on train, then pin val/test to the SAME list so a column that is numeric on train but object on val (or vice versa) can't silently diverge the per-split schema and break the downstream sklearn transform.
     train, _dropped_train = _filter_to_numeric(train)
-    val, _ = _filter_to_numeric(val)
-    test, _ = _filter_to_numeric(test)
+    _kept_train = list(train.columns) if isinstance(train, pd.DataFrame) else None
+    val, _ = _filter_to_numeric(val, keep_cols=_kept_train)
+    test, _ = _filter_to_numeric(test, keep_cols=_kept_train)
     if _dropped_train:
         logger.warning(
             "apply_preprocessing_extensions: dropped %d non-numeric column(s) "
@@ -599,9 +639,9 @@ def apply_preprocessing_extensions(
             try:
                 config = config.model_copy(update={"dim_n_components": _clamp_max})
             except AttributeError:
-                # Older pydantic / plain-attribute fallback: mutate a shallow copy.
+                # Older pydantic / plain-attribute fallback: deepcopy so nested mutable config fields aren't aliased back to the caller's object.
                 import copy as _copy
-                config = _copy.copy(config)
+                config = _copy.deepcopy(config)
                 config.dim_n_components = _clamp_max
             logger.warning(
                 "apply_preprocessing_extensions: clamped dim_n_components "
@@ -681,11 +721,13 @@ def apply_preprocessing_extensions(
                 })
             except AttributeError:
                 import copy as _copy
-                config = _copy.copy(config)
+                config = _copy.deepcopy(config)
                 config.polynomial_degree = None if _eff_skip else _eff_degree
                 config.polynomial_interaction_only = _eff_interaction
 
-    steps = _build_extension_steps(config, n_features=n_features)
+    # Thread the suite seed into RBFSampler / Nystroem / dim-reducer so their random projections are reproducible across reruns (was hardcoded 42).
+    _ext_random_state = int(getattr(config, "random_seed", 42) or 42)
+    steps = _build_extension_steps(config, n_features=n_features, random_state=_ext_random_state)
     if not steps:
         if _pysr_transformer is not None or tfidf_pipes:
             # PySR / TF-IDF applied but no sklearn pipeline. Bundle so predict-time

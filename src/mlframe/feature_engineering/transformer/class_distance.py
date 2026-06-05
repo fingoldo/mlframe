@@ -113,6 +113,7 @@ def compute_class_distance_features(
     q_high: float = 0.8,
     column_prefix: str = "cdist",
     dtype: np.dtype = np.float32,
+    exclude_self_ids: Optional[np.ndarray] = None,
 ) -> pl.DataFrame:
     """Class-distance / quantile-distance attention features.
 
@@ -120,6 +121,8 @@ def compute_class_distance_features(
     or top/bottom y-quantile for regression.
 
     Mode A: per-class slices refit per fold from y_train[train_idx]. Mode B: slices from full y_train.
+
+    Self-label leakage (Mode B only): when the query rows are a SUBSET of (or overlap) the training rows, a query row finds ITSELF as its own nearest class-mate (distance 0), leaking its own label. Pass ``exclude_self_ids`` -- a 1-D boolean mask of length ``len(X_train)`` that is True for the training rows ALSO present as query rows -- to drop those rows from the class banks before the kNN search. Mode B's documented precondition is a disjoint query set; ``exclude_self_ids`` is the explicit opt-out when that cannot be guaranteed. (Mode A is already leakage-safe via per-fold class slices.)
     """
     seed = require_seed(seed)
     try_patch_sklearn()
@@ -163,11 +166,22 @@ def compute_class_distance_features(
 
     if X_query is not None:
         Xq = np.asarray(X_query, dtype=np.float32)
-        pos_d, neg_d, log_gap = _process(X_train_f, Xq, y_train_f)
+        Xt_bank = X_train_f
+        yt_bank = y_train_f
+        if exclude_self_ids is not None:
+            _mask = np.asarray(exclude_self_ids).ravel()
+            if _mask.shape[0] != X_train_f.shape[0]:
+                raise ValueError(f"exclude_self_ids length {_mask.shape[0]} != len(X_train) {X_train_f.shape[0]}.")
+            _keep = ~_mask.astype(bool)
+            Xt_bank = X_train_f[_keep]
+            yt_bank = y_train_f[_keep]
+        pos_d, neg_d, log_gap = _process(Xt_bank, Xq, yt_bank)
         return pl.DataFrame(_make_df(pos_d, neg_d, log_gap))
 
     if splitter is None:
         raise ValueError("Mode A (X_query=None) requires a splitter.")
+    if exclude_self_ids is not None:
+        raise ValueError("exclude_self_ids is only meaningful in Mode B (X_query given); Mode A is leakage-safe via per-fold class slices.")
     n_train = X_train_f.shape[0]
     out_pos = np.zeros((n_train, len(_K_SCALES)), dtype=dtype)
     out_neg = np.zeros((n_train, len(_K_SCALES)), dtype=dtype)

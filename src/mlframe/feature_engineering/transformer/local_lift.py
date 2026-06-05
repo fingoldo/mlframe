@@ -7,7 +7,7 @@ Boostings on top of these features can split on "row is in a 20× local-positive
 
 Three frozen features per row:
 1. ``local_lift`` = mean(y_kNN(i)) / global_pos_rate. Encoding strength of positive concentration locally.
-2. ``local_pr_auc`` = trapezoidal PR_AUC computed on the sorted (distance, y) sequence of top-k neighbours. Captures the ranking quality of distance-as-classifier.
+2. ``local_pr_auc`` = local Average Precision (sklearn AP / step-PR convention, NOT trapezoidal) over the sorted (distance, y) sequence of top-k neighbours. Captures the ranking quality of distance-as-classifier.
 3. ``local_top1_y`` = y of the closest neighbour (sharp marker; signal-rich for nearest-neighbour structure).
 
 For regression target: ``local_lift`` becomes ``mean(y_kNN) / mean(y_global)`` (so values >1 mean above-average, <1 below); ``local_pr_auc`` becomes a Spearman-rank
@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 
 def _local_lift_and_pr_auc(y_neighbors: np.ndarray, dists: np.ndarray, y_global_mean: float, task: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Per-query: local lift, local PR_AUC (or Spearman for regression), local top-1 y.
+    """Per-query: local lift, local Average Precision (or Spearman for regression), local top-1 y.
 
     y_neighbors: (n_q, k) — sorted by ascending distance (closest first).
     dists: (n_q, k) — corresponding distances.
@@ -61,7 +61,7 @@ def _local_lift_and_pr_auc(y_neighbors: np.ndarray, dists: np.ndarray, y_global_
         i_arange = (np.arange(k) + 1).astype(np.float32)
         precision = cum_pos / i_arange[None, :]
         recall = np.where(total_pos[:, None] > 0, cum_pos / np.maximum(total_pos[:, None], 1e-9), 0.0)
-        # Trapezoidal area: difference in recall × average precision.
+        # Local AVERAGE PRECISION (sklearn ``average_precision_score`` convention): AP = sum_n (R_n - R_{n-1}) * P_n -- a step / left-Riemann sum, deliberately NOT trapezoidal (trapezoidal interpolation between PR points is optimistic and is the reason sklearn dropped ``auc(recall, precision)``). The neighbours are already ranked by ascending distance == descending similarity, so this is exactly AP over the local neighbourhood.
         d_recall = np.diff(recall, axis=1, prepend=0.0)
         pr_auc = (d_recall * precision).sum(axis=1)
         # Queries with no positives in their neighborhood get pr_auc = 0; mark with local_mean (sentinel: zero local mean correlates with zero PR_AUC).

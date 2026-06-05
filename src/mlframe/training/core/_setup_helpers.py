@@ -284,6 +284,7 @@ def _get_pipeline_components(
 
     if category_encoder is None and cat_features:
         _seed = int(random_seed) if random_seed is not None else 42
+        # LEAKAGE-CRITICAL: the default target encoder MUST be ordered / CV-style (CatBoostEncoder uses ordered TS). A naive global-mean target encoder leaks the row's own label into its encoding, inflating train-fold scores and overfitting. Do not swap this default for a non-ordered mean encoder. See tests/training/test_target_encoder_leakage_sensor.py.
         category_encoder = ce.CatBoostEncoder(random_state=_seed)
 
     if imputer is None:
