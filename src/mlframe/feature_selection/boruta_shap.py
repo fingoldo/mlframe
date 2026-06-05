@@ -20,6 +20,20 @@ try:
         return _binomtest(int(x), n=int(n), p=p, alternative=alternative).pvalue
 except ImportError:  # SciPy < 1.7 fallback
     from scipy.stats import binom_test  # type: ignore
+
+import functools as _functools
+
+
+@_functools.lru_cache(maxsize=None)
+def _binom_test_cached(x_int: int, n: int, p: float, alternative: str = "two-sided"):
+    """Memoized ``binom_test``: BorutaShap runs it per FEATURE per iteration (tens of thousands of
+    calls on a wide frame), but ``(n, p, alternative)`` are fixed within a step and the hit count
+    ``x`` is a small integer, so the distinct ``(x, n, p, alternative)`` set is tiny. Caching
+    collapses ~36k per-call scipy ``binomtest`` constructions (profiled ~7s = 21% of a 299-feature
+    fit) to a handful -- bit-identical p-values."""
+    return binom_test(x_int, n=n, p=p, alternative=alternative)
+
+
 from scipy.stats import ks_2samp
 import matplotlib.pyplot as plt
 import random
@@ -820,7 +834,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         This is an exact, two-sided test of the null hypothesis
         that the probability of success in a Bernoulli experiment is p
         """
-        return [binom_test(x, n=n, p=p, alternative=alternative) for x in array]
+        return [_binom_test_cached(int(x), n, p, alternative) for x in array]
 
     @staticmethod
     def symetric_difference_between_two_arrays(array_one, array_two):
