@@ -98,6 +98,7 @@ def dispatch_recursion_backend(
             axes=["n_samples", "n_groups"],
             fallback={"backend_choice": _fallback_backend(kernel_name, n_samples, n_groups)},
             code_version=recursion_code_version(kernel_name),
+            async_sweep=True,  # FIT-TIME: measure off the hot path (when run_auto_tune drives a real sweep)
         )
         backend = str((result or {}).get("backend_choice", "")) if not isinstance(result, str) else result
         if backend in ("serial", "parallel"):

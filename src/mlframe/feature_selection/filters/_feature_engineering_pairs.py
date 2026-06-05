@@ -106,6 +106,7 @@ def _dispatch_batch_mi_with_noise_gate(
             axes=["n_rows", "n_cols"],
             fallback={"backend_choice": _batch_mi_noise_gate_fallback_choice(int(n), int(K))},
             code_version=_BATCH_MI_NOISE_GATE_CODE_VERSION,
+            async_sweep=True,  # FIT-TIME: never block the FE pair-search on the sweep; measure in the background
         )
         if isinstance(_res, str):
             backend = _res
