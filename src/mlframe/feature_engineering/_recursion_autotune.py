@@ -29,6 +29,23 @@ _SWEEP_GRID = [
     (1024, 500),
 ]
 _N_ITERS = 3
+# Bump when the bayesian recursion kernels or the sweep grid/semantics change,
+# so cached tunings re-validate (the code_version hash already tracks the kernel
+# source; salt covers grid/threshold changes the hash can't see).
+_RECURSION_SALT = 1
+
+
+def recursion_code_version(kernel_name: str):
+    """code_version for a recursion kernel: hashes the bayesian kernel body +
+    salt. None if pyutilz/code-versioning is unavailable."""
+    try:
+        from pyutilz.dev.code_versioning import compute_code_version
+        from . import bayesian as _B
+
+        fn = _B.bocpd_features if kernel_name == "fe_bocpd" else _B.online_bayesian_linear_regression
+        return compute_code_version(fn, salt=_RECURSION_SALT)
+    except Exception:
+        return None
 
 
 def _make_data(n_groups: int, rows_per_group: int, seed: int = 0):
@@ -122,4 +139,32 @@ if __name__ == "__main__":
     _cli()
 
 
-__all__ = ["ensure_recursion_tuning"]
+# Register both recursion kernels with the @kernel_tuner registry so
+# retune_all / ``mlframe-tune-kernels`` discover + batch-tune them. CPU-only
+# (serial vs parallel njit; no GPU variant). Wrapped so a missing pyutilz /
+# circular import never breaks the dispatcher.
+try:
+    from pyutilz.system.kernel_tuner import kernel_tuner as _kernel_tuner
+    from . import bayesian as _B
+
+    _RECURSION_VARIANTS = {
+        "fe_bocpd": (_B.bocpd_features,),
+        "fe_oblr": (_B.online_bayesian_linear_regression,),
+    }
+    for _kn in ("fe_bocpd", "fe_oblr"):
+        _kernel_tuner(
+            kernel_name=_kn,
+            variant_fns=_RECURSION_VARIANTS[_kn],
+            tuner=(lambda kn=_kn: _run_sweep(kn)),
+            axes={"n_samples": [n * r for n, r in _SWEEP_GRID], "n_groups": [g for g, _ in _SWEEP_GRID]},
+            fallback={"backend_choice": "serial"},
+            env_key="MLFRAME_FE_RECURSION_BACKEND",
+            gpu_capable=False,
+            salt=_RECURSION_SALT,
+            cli_label=_kn,
+        )(lambda: None)
+except Exception:  # pyutilz absent / circular import -> dispatcher still works
+    pass
+
+
+__all__ = ["ensure_recursion_tuning", "recursion_code_version"]

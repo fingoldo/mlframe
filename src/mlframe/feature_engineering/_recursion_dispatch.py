@@ -75,6 +75,9 @@ def dispatch_recursion_backend(
     can carry its own measured crossover in the cache. Env override wins;
     then the kernel_tuning_cache; then the measurement-backed fallback.
     """
+    # env override + the n_groups<=1 short-circuit stay FIRST (env must win even
+    # at n_groups<=1, and a single group can never use prange) -- so env_key is
+    # NOT delegated to get_or_tune below; it is handled here to preserve order.
     forced = _env_override()
     if forced is not None:
         return forced
@@ -82,22 +85,25 @@ def dispatch_recursion_backend(
         return "serial"
     try:
         from pyutilz.system.kernel_tuning_cache import KernelTuningCache
-        cache = KernelTuningCache()
-        choice = cache.lookup(kernel_name, n_samples=n_samples, n_groups=n_groups)
-        if choice is not None:
-            backend = str(choice.get("backend_choice", ""))
-            if backend in ("serial", "parallel"):
-                return backend
-        if run_auto_tune:
-            from ._recursion_autotune import ensure_recursion_tuning
-            ensure_recursion_tuning(kernel_name, force=False)
-            choice = cache.lookup(kernel_name, n_samples=n_samples, n_groups=n_groups)
-            if choice is not None:
-                backend = str(choice.get("backend_choice", ""))
-                if backend in ("serial", "parallel"):
-                    return backend
+        from ._recursion_autotune import _run_sweep, recursion_code_version
+
+        # Shared orchestrator: per-host cache (code-version checked) -> on-miss
+        # sweep (only when run_auto_tune, once/process, cross-process locked) ->
+        # measurement-backed fallback. Replaces the hand-rolled
+        # lookup/miss/sweep/re-lookup dance.
+        result = KernelTuningCache().get_or_tune(
+            kernel_name,
+            dims={"n_samples": n_samples, "n_groups": n_groups},
+            tuner=(lambda: _run_sweep(kernel_name)) if run_auto_tune else (lambda: None),
+            axes=["n_samples", "n_groups"],
+            fallback={"backend_choice": _fallback_backend(kernel_name, n_samples, n_groups)},
+            code_version=recursion_code_version(kernel_name),
+        )
+        backend = str((result or {}).get("backend_choice", "")) if not isinstance(result, str) else result
+        if backend in ("serial", "parallel"):
+            return backend
     except Exception as e:  # pyutilz missing / cache error -> fallback
-        logger.debug("recursion dispatch cache lookup failed: %s", e)
+        logger.debug("recursion dispatch get_or_tune failed: %s", e)
     return _fallback_backend(kernel_name, n_samples, n_groups)
 
 
