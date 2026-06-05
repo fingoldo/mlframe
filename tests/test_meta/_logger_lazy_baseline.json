@@ -27,8 +27,7 @@
   "models/tuning.py:275",
   "models/tuning.py:277",
   "models/tuning.py:333",
-  "models/tuning.py:543",
-  "models/tuning.py:551",
+  "models/tuning.py:544",
   "training/_cb_pool.py:692",
   "training/_extractors_showcase.py:50",
   "training/_nan_processing.py:109",
@@ -45,6 +44,5 @@
   "training/automl.py:224",
   "training/automl.py:409",
   "training/automl.py:97",
-  "training/pipeline.py:711",
   "training/preprocessing.py:267"
 ]

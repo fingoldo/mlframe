@@ -40,6 +40,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests.conftest import running_under_xdist
+
 from mlframe.training.configs import TargetTypes
 from mlframe.training.core import train_mlframe_models_suite
 from mlframe.training import FeatureSelectionConfig, OutputConfig, ReportingConfig
@@ -309,9 +311,12 @@ def test_mrmr_preserves_auroc_and_speeds_up_wide_training(tmp_path, seed):
     #     "FS must not catastrophically slow training", not "MRMR must
     #     run faster than its absolute floor on a 1k-row toy".
     if t_baseline >= 2.0:
-        assert t_fs <= t_baseline * 10.0, (
+        # 10x catastrophic-slowdown guard standalone; widened under the full ``-n`` run where the FS stage can be
+        # starved relative to the baseline boosting fit (the accuracy contract above is the load-robust gate).
+        bound = 25.0 if running_under_xdist() else 10.0
+        assert t_fs <= t_baseline * bound, (
             f"FS run took disproportionately longer: baseline={t_baseline:.2f}s "
-            f"fs={t_fs:.2f}s. MRMR overhead should not exceed 10x on wide data."
+            f"fs={t_fs:.2f}s. MRMR overhead should not exceed {bound:.0f}x on wide data."
         )
 
 

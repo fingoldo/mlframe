@@ -700,7 +700,7 @@ def batch_mi_with_noise_gate(
     base_seed: np.uint64,
     min_nonzero_confidence: float,
     use_su: bool,
-    dtype=np.int32,
+    dtype: type = np.int32,
 ) -> np.ndarray:
     """Batched FE-candidate MI + permutation noise-gate, BIT-IDENTICAL to a per-column
     ``mi_direct`` loop on the default FE path (``parallelism='outer'``, ``n_workers=1``,

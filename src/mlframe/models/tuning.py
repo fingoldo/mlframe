@@ -533,7 +533,8 @@ class ParamsOptimizer:
                                     bad_indices = np.where(predictions >= desired_objective)[0]
 
                                     logging.info(
-                                        f"Best and worst observed trial's objectives: {y.min()}, {y.max()}. Skipping {len(bad_indices)} candidates with predicted objective over {desired_objective}"
+                                        "Best and worst observed trial's objectives: %s, %s. Skipping %s candidates with predicted objective over %s",
+                                        y.min(), y.max(), len(bad_indices), desired_objective,
                                     )
 
                                 else:
