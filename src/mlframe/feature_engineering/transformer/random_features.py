@@ -291,7 +291,7 @@ def _resolve_use_gpu(
     # matmul ``work`` via the shared get_or_tune orchestrator; measurement-backed
     # threshold fallback. We still gate on live ``is_gpu_available()`` above, so a
     # ``cupy`` choice here only routes to GPU when the device is actually usable.
-    return _rff_backend_choice(int(work)) == "cupy"
+    return _RFF_SPEC.choose(work=int(work)) == "cupy"
 
 
 # ---------------------------------------------------------------------
@@ -371,55 +371,24 @@ def _run_rff_sweep() -> list:
     )
 
 
-def _rff_code_version():
-    """code_version over the matmul variant bodies; re-tunes on a kernel edit."""
-    try:
-        from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
-
-        return compute_code_version(_rff_matmul_numpy, _rff_matmul_cupy, salt=1)
-    except Exception:
-        return None
-
-
 def _rff_fallback_choice(work: int) -> str:
-    """Pre-sweep heuristic (the old work_threshold + GPU availability)."""
+    """Pre-sweep heuristic (the spec's dynamic fallback callable): cupy above the
+    work threshold when a GPU is available, else numpy."""
     if is_gpu_available() and work >= _RFF_DEFAULT_WORK_THRESHOLD:
         return "cupy"
     return "numpy"
-
-
-def _rff_backend_choice(work: int) -> str:
-    """Per-host backend (numpy/cupy) for this matmul ``work`` via the shared
-    get_or_tune orchestrator; measurement-backed threshold fallback."""
-    try:
-        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
-
-        result = KernelTuningCache.load_or_create().get_or_tune(
-            "rff_matmul",
-            dims={"work": int(work)},
-            tuner=_run_rff_sweep,
-            axes=["work"],
-            fallback={"backend_choice": _rff_fallback_choice(work)},
-            code_version=_rff_code_version(),
-        )
-        bc = result if isinstance(result, str) else str((result or {}).get("backend_choice", ""))
-        if bc in ("numpy", "cupy"):
-            return bc
-    except Exception as e:
-        logger.debug("rff_matmul get_or_tune failed: %s", e)
-    return _rff_fallback_choice(work)
 
 
 # Register with the @kernel_tuner registry so retune_all / mlframe-tune-kernels
 # discover + batch-tune rff_matmul. GPU-capable (numpy CPU vs cupy matmul).
 from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
-kernel_tuner(
+_RFF_SPEC = kernel_tuner(
     kernel_name="rff_matmul",
-    variant_fns=(_rff_matmul_numpy,),  # reference; cupy variant covered by salt
+    variant_fns=(_rff_matmul_numpy, _rff_matmul_cupy),  # both always-defined -> auto-invalidate
     tuner=_run_rff_sweep,
     axes={"work": list(_RFF_SWEEP_WORK)},
-    fallback={"backend_choice": "numpy"},
+    fallback=_rff_fallback_choice,  # callable (work) -> str
     gpu_capable=True,
     salt=1,
     cli_label="rff_matmul",

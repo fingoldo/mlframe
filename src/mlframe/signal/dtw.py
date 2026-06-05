@@ -339,23 +339,9 @@ def _run_dtw_sweep() -> list:
     )
 
 
-def _dtw_code_version():
-    """code_version over the available backend bodies; re-tunes on a kernel edit."""
-    try:
-        from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
-
-        fns = [dtw_cpu]
-        if _HAS_NB_CUDA:
-            fns.append(dtw_cuda)
-        if _HAS_CUPY:
-            fns.append(dtw_cupy)
-        return compute_code_version(*fns, salt=1)
-    except Exception:
-        return None
-
-
 def _dtw_fallback_choice(n_cells: int) -> str:
-    """Pre-sweep heuristic (the old gpu_min_cells threshold + availability)."""
+    """Pre-sweep heuristic (the old gpu_min_cells threshold + availability). Used
+    as the spec's dynamic fallback callable."""
     if _HAS_CUPY and n_cells >= _DEFAULT_GPU_MIN_CELLS:
         return "cupy"
     if _HAS_NB_CUDA and n_cells >= _DEFAULT_GPU_MIN_CELLS:
@@ -363,30 +349,10 @@ def _dtw_fallback_choice(n_cells: int) -> str:
     return "cpu"
 
 
-@lru_cache(maxsize=256)
-def _dtw_backend_choice(n_cells: int) -> str:
-    """Per-host backend (cpu/cuda/cupy) for this n_cells via the shared
-    get_or_tune orchestrator; measurement-backed threshold fallback. Memoized
-    because dtw_dispatch is called many times per well (the old code memoized a
-    threshold for the same reason)."""
-    try:
-        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
-
-        autotune = _os.environ.get("MLFRAME_DTW_AUTOTUNE", "1").strip() != "0"
-        result = KernelTuningCache.load_or_create().get_or_tune(
-            "dtw_dispatch",
-            dims={"n_cells": int(n_cells)},
-            tuner=_run_dtw_sweep if autotune else (lambda: None),
-            axes=["n_cells"],
-            fallback={"backend_choice": _dtw_fallback_choice(n_cells)},
-            code_version=_dtw_code_version(),
-        )
-        bc = result if isinstance(result, str) else str((result or {}).get("backend_choice", ""))
-        if bc in ("cpu", "cuda", "cupy"):
-            return bc
-    except Exception as e:
-        logger.debug("dtw get_or_tune failed: %s", e)
-    return _dtw_fallback_choice(n_cells)
+def _dtw_tuner():
+    """The registered tuner, env-gated: MLFRAME_DTW_AUTOTUNE=0 disables the
+    on-miss sweep (choose() then returns the fallback)."""
+    return _run_dtw_sweep() if _os.environ.get("MLFRAME_DTW_AUTOTUNE", "1").strip() != "0" else []
 
 
 def dtw_dispatch(
@@ -431,9 +397,9 @@ def dtw_dispatch(
     if psi > 0:
         return dtw_cpu(x, y, window=window, psi=psi)
     n_cells = len(x) * len(y)
-    # Per-host backend from the kernel_tuning_cache (cpu/cuda/cupy), guarded by
-    # live availability (the tuning host had the backend; a reader may not).
-    choice = _dtw_backend_choice(n_cells)
+    # Per-host backend (cpu/cuda/cupy) via the spec's one-call choose(), guarded
+    # by live availability (the tuning host had the backend; a reader may not).
+    choice = _DTW_SPEC.choose(n_cells=n_cells)
     if choice == "cupy" and _HAS_CUPY:
         return dtw_cupy(x, y, window=window)
     if choice == "cuda" and _HAS_NB_CUDA:
@@ -445,12 +411,12 @@ def dtw_dispatch(
 # discover + batch-tune dtw. GPU-capable (cupy/numba.cuda backends).
 from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
-kernel_tuner(
+_DTW_SPEC = kernel_tuner(
     kernel_name="dtw_dispatch",
-    variant_fns=(dtw_cpu,),  # reference; the cuda/cupy backends are covered by salt
-    tuner=_run_dtw_sweep,
+    variant_fns=(dtw_cpu, dtw_cuda, dtw_cupy),  # all always-defined -> any backend edit auto-invalidates
+    tuner=_dtw_tuner,
     axes={"n_cells": [10_000, 40_000, 160_000, 640_000, 2_560_000]},
-    fallback={"backend_choice": "cpu"},
+    fallback=_dtw_fallback_choice,  # dynamic heuristic (callable) -> spec.choose() uses it
     gpu_capable=True,
     salt=1,
     cli_label="dtw_dispatch",

@@ -45,6 +45,8 @@ def _eval_fold_body(
     must_include_resolved,
     X,
     y,
+    X_estimator,
+    col_pos,
     val_cv,
     estimator_type,
     groups,
@@ -83,7 +85,8 @@ def _eval_fold_body(
     else:
         fit_features = current_features
     X_train, y_train, X_test, y_test = split_into_train_test(
-        X=X, y=y, train_index=train_index, test_index=test_index, features_indices=fit_features
+        X=X, y=y, train_index=train_index, test_index=test_index, features_indices=fit_features,
+        X_estimator=X_estimator, col_pos=col_pos,
     )
     if verbose > 2:
         print(f"Train set size={len(y_train):_}, train idx sum={train_index.sum():_}")

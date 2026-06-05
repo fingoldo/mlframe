@@ -94,17 +94,9 @@ def _run_unary_sweep() -> list:
     )
 
 
-def _unary_code_version():
-    """code_version over BOTH variant bodies (both always-defined) -> a numpy OR
-    cupy kernel edit auto-invalidates the cached tuning."""
-    from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
-
-    return compute_code_version(_unary_numpy, _unary_cupy, salt=_UNARY_SALT)
-
-
 def _unary_fallback_choice(n_samples: int, location: str) -> str:
-    """Pre-sweep heuristic: VRAM-resident -> cupy (no transfer to pay);
-    DRAM-resident -> cupy only above the old 500k-cell breakeven."""
+    """Pre-sweep heuristic (the spec's dynamic fallback callable): VRAM-resident ->
+    cupy (no transfer to pay); DRAM-resident -> cupy only above the 500k breakeven."""
     if not _HAS_CUPY:
         return "numpy"
     if location == "device":
@@ -112,45 +104,25 @@ def _unary_fallback_choice(n_samples: int, location: str) -> str:
     return "cupy" if n_samples >= _UNARY_DEFAULT_MIN_CELLS else "numpy"
 
 
-@lru_cache(maxsize=256)
 def unary_elementwise_backend_choice(n_samples: int, location: str = "host") -> str:
     """Per-host, residency-aware backend ("numpy"/"cupy") for an elementwise unary
-    on ``n_samples`` cells whose input lives in ``location`` ("host"/"device").
-
-    env -> per-host cache (code-version checked, keyed by n_samples + location) ->
-    measurement-backed fallback, via the shared get_or_tune orchestrator. Memoized
-    (the dispatch is hot). The caller MUST still gate a "cupy" result on live CUDA
-    + per-op cupy-compatibility before routing to GPU."""
-    n_samples = int(n_samples)
-    try:
-        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
-
-        result = KernelTuningCache.load_or_create().get_or_tune(
-            "unary_elementwise",
-            dims={"n_samples": n_samples, "location": location},
-            tuner=_run_unary_sweep,
-            axes=["n_samples", "location"],
-            fallback={"backend_choice": _unary_fallback_choice(n_samples, location)},
-            code_version=_unary_code_version(),
-        )
-        bc = result if isinstance(result, str) else str((result or {}).get("backend_choice", ""))
-        if bc in ("numpy", "cupy"):
-            return bc
-    except Exception as e:
-        logger.debug("unary_elementwise get_or_tune failed: %s", e)
-    return _unary_fallback_choice(n_samples, location)
+    on ``n_samples`` cells whose input lives in ``location`` ("host"/"device"), via
+    the spec's one-call choose() (env -> code-version-checked cache -> on-miss sweep
+    -> the _unary_fallback_choice heuristic; memoized per dims). The caller MUST
+    still gate a "cupy" result on live CUDA + per-op compatibility before GPU."""
+    return _UNARY_SPEC.choose(n_samples=int(n_samples), location=location)
 
 
 # Register with the kernel-tuner registry so retune_all / mlframe-tune-kernels
 # discover + batch-tune unary_elementwise (GPU-capable; residency-aware).
 from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
-kernel_tuner(
+_UNARY_SPEC = kernel_tuner(
     kernel_name="unary_elementwise",
     variant_fns=(_unary_numpy, _unary_cupy),  # both always-defined -> auto-invalidate
     tuner=_run_unary_sweep,
     axes={"n_samples": list(_UNARY_SWEEP_N), "location": ["host", "device"]},
-    fallback={"backend_choice": "numpy"},
+    fallback=_unary_fallback_choice,  # callable (n_samples, location) -> str
     gpu_capable=True,
     salt=_UNARY_SALT,
     cli_label="unary_elementwise",

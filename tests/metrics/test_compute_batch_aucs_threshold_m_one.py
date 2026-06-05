@@ -47,13 +47,15 @@ def test_aucs_fallback_picks_cpu_at_m_one_n_large(monkeypatch, tmp_path):
     # deterministically (no real GPU / no live sweep needed).
     monkeypatch.setenv("PYUTILZ_KERNEL_CACHE_DIR", str(tmp_path))
     monkeypatch.setattr(gm, "_run_batch_metric_sweep", lambda metric: [])
-    gm._batch_metric_backend_choice.cache_clear()
+    gm._BATCH_RMSE_SPEC._choice_cache.clear()
+    gm._BATCH_AUCS_SPEC._choice_cache.clear()
     try:
         assert gm._batch_metric_backend_choice("batch_aucs", 1_000_000, 1) == "cpu"
         assert gm._batch_metric_backend_choice("batch_aucs", 5_000_000, 1) == "cpu"
         assert gm._batch_metric_backend_choice("batch_aucs", 1_000_000, 5) == "gpu"
     finally:
-        gm._batch_metric_backend_choice.cache_clear()
+        gm._BATCH_RMSE_SPEC._choice_cache.clear()
+    gm._BATCH_AUCS_SPEC._choice_cache.clear()
 
 
 def test_compute_batch_aucs_m_one_matches_sklearn():

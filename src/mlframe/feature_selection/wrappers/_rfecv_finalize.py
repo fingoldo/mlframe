@@ -30,6 +30,8 @@ def _finalize_fit_results(
     *,
     X,
     y,
+    X_estimator=None,
+    col_pos=None,
     estimator,
     cv,
     scoring,
@@ -82,7 +84,7 @@ def _finalize_fit_results(
             and (not _has_val_cv or _allow_swap_without_es):
         try:
             self._sffs_swap_pass(
-                X=X, y=y, estimator=estimator, cv=cv, scoring=scoring,
+                X=X, y=y, X_estimator=X_estimator, col_pos=col_pos, estimator=estimator, cv=cv, scoring=scoring,
                 best_nfeatures=best_nfeatures, best_score_ref=best_score,
                 selected_features_per_nfeatures=selected_features_per_nfeatures,
                 feature_importances=feature_importances,

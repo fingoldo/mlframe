@@ -15,7 +15,7 @@ def test_fallback_is_residency_aware():
 
 
 def test_public_choice_returns_valid_backend():
-    u.unary_elementwise_backend_choice.cache_clear()
+    u._UNARY_SPEC._choice_cache.clear()  # the dispatch now memoizes via the spec
     for loc in ("host", "device"):
         assert u.unary_elementwise_backend_choice(1000, loc) in ("numpy", "cupy")
 

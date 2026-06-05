@@ -91,7 +91,7 @@ def knn_search(
     # AVX-512 boxes cross over earlier, low-core ARM later. An explicit
     # prefer_hnsw_at_n override still wins (keeps the threshold semantics).
     if prefer_hnsw_at_n == 50_000:
-        use_hnsw = _check_hnsw_available() and _knn_backend_choice(n_sub, int(X_subset.shape[1])) == "hnsw"
+        use_hnsw = _check_hnsw_available() and _KNN_SPEC.choose(n_subset=n_sub, d=int(X_subset.shape[1])) == "hnsw"
     else:
         use_hnsw = n_sub >= prefer_hnsw_at_n and _check_hnsw_available()
     if use_hnsw:
@@ -159,45 +159,22 @@ def _run_knn_sweep() -> list:
     )
 
 
-def _knn_code_version():
-    try:
-        from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
-        return compute_code_version(knn_search, _sklearn_fallback, salt=_KNN_SALT)
-    except Exception:
-        return None
-
-
-@lru_cache(maxsize=256)
-def _knn_backend_choice(n_subset: int, d: int) -> str:
-    """Per-host exact/hnsw choice for kNN at (n_subset, d) via get_or_tune; fallback
-    = the documented 50_000-row crossover. Memoized (the dispatch is hot)."""
-    n_subset = int(n_subset)
-    fallback = "hnsw" if n_subset >= 50_000 else "exact"
-    try:
-        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
-        result = KernelTuningCache.load_or_create().get_or_tune(
-            "knn_hnsw_crossover", dims={"n_subset": n_subset, "d": int(d)},
-            tuner=_run_knn_sweep, axes=["n_subset", "d"],
-            fallback={"backend_choice": fallback}, code_version=_knn_code_version(),
-        )
-        bc = result if isinstance(result, str) else str((result or {}).get("backend_choice", ""))
-        if bc in ("exact", "hnsw"):
-            return bc
-    except Exception as _e:
-        logger.debug("knn_hnsw_crossover get_or_tune failed: %s", _e)
-    return fallback
+def _knn_fallback_choice(n_subset: int, d: int) -> str:
+    """Pre-sweep heuristic (the spec's dynamic fallback callable): hnsw at/above the
+    documented 50k-row crossover, else exact."""
+    return "hnsw" if int(n_subset) >= 50_000 else "exact"
 
 
 # Register with the kernel-tuner registry. CPU-only (gpu_capable=False); approximate
 # hnsw vs exact sklearn, so retune_all / mlframe-tune-kernels can tune the crossover.
 from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
-kernel_tuner(
+_KNN_SPEC = kernel_tuner(
     kernel_name="knn_hnsw_crossover",
-    variant_fns=(knn_search,),  # reference body; the hnsw branch is covered by salt
+    variant_fns=(knn_search, _sklearn_fallback),  # both bodies -> edits auto-invalidate
     tuner=_run_knn_sweep,
     axes={"n_subset": list(_KNN_SWEEP_N), "d": list(_KNN_SWEEP_D)},
-    fallback={"backend_choice": "exact"},
+    fallback=_knn_fallback_choice,  # callable (n_subset, d) -> str
     gpu_capable=False,
     salt=_KNN_SALT,
     cli_label="knn_hnsw_crossover",

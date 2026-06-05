@@ -790,39 +790,10 @@ def _run_discretize_sweep() -> list:
     )
 
 
-def _discretize_code_version():
-    """code_version over the njit + cupy bodies; re-tunes on a kernel edit."""
-    try:
-        from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
-        return compute_code_version(_discretize_2d_array_njit, discretize_2d_array_cuda, salt=_DISCRETIZE_SALT)
-    except Exception:
-        return None
-
-
-@lru_cache(maxsize=256)
-def _discretize_backend_choice(n_cells: int) -> str:
-    """Per-host cpu/cuda choice for discretize_2d_array at ``n_cells`` via the
-    SINGLETON cache's get_or_tune (a fresh KernelTuningCache would re-run
-    _build_provenance / nvidia-smi ~48ms per call -- observed 6x in fuzz c0143);
-    fallback = the hand-tuned 500k breakeven. Memoized (the dispatch is hot)."""
-    n_cells = int(n_cells)
-    fallback = "cuda" if n_cells >= _DISCRETIZE_2D_CUDA_MIN_CELLS else "cpu"
-    from ._kernel_tuning import get_kernel_tuning_cache
-    _cache = get_kernel_tuning_cache()
-    if _cache is None:
-        return fallback
-    try:
-        result = _cache.get_or_tune(
-            "discretize_2d_array", dims={"n_cells": n_cells},
-            tuner=_run_discretize_sweep, axes=["n_cells"],
-            fallback={"backend_choice": fallback}, code_version=_discretize_code_version(),
-        )
-        bc = result if isinstance(result, str) else str((result or {}).get("backend_choice", ""))
-        if bc in ("cpu", "cuda"):
-            return bc
-    except Exception:
-        pass
-    return fallback
+def _discretize_fallback_choice(n_cells: int) -> str:
+    """Pre-sweep heuristic (the spec's dynamic fallback callable): cuda above the
+    hand-tuned 500k-cell breakeven, else cpu."""
+    return "cuda" if int(n_cells) >= _DISCRETIZE_2D_CUDA_MIN_CELLS else "cpu"
 
 
 def discretize_2d_array(
@@ -869,7 +840,7 @@ def discretize_2d_array(
         and min_values is None
         and max_values is None
         and arr.ndim == 2
-        and _discretize_backend_choice(int(arr.size)) == "cuda"
+        and _DISCRETIZE_SPEC.choose(n_cells=int(arr.size)) == "cuda"
     ):
         try:
             from pyutilz.core.pythonlib import is_cuda_available
@@ -1361,12 +1332,12 @@ def categorize_dataset(
 # discover + batch-tune discretize_2d_array (GPU-capable; cpu njit vs cuda cupy).
 from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
-kernel_tuner(
+_DISCRETIZE_SPEC = kernel_tuner(
     kernel_name="discretize_2d_array",
-    variant_fns=(_discretize_2d_array_njit,),  # reference; cuda covered by salt
+    variant_fns=(_discretize_2d_array_njit, discretize_2d_array_cuda),  # both -> auto-invalidate
     tuner=_run_discretize_sweep,
     axes={"n_cells": list(_DISCRETIZE_SWEEP_CELLS)},
-    fallback={"backend_choice": "cpu"},
+    fallback=_discretize_fallback_choice,  # callable (n_cells) -> str
     gpu_capable=True,
     salt=_DISCRETIZE_SALT,
     cli_label="discretize_2d_array",
