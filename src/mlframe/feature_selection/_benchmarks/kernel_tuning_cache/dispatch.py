@@ -214,30 +214,33 @@ def lookup_mi_classif_backend(n_samples: int, k: int,
     ``joint_hist_batched``.
     """
     cache = _get_cache()
+    fb = _fallback_mi_backend(n_samples, k)
     if cache is False or cache is None:
-        return _fallback_mi_backend(n_samples, k)
+        return fb
 
-    choice = cache.lookup(
-        "plugin_mi_classif_dispatch", n_samples=n_samples, k=k,
-    )
-    if choice is not None:
-        return str(choice.get("backend_choice", _fallback_mi_backend(n_samples, k)))
+    # get_or_tune: code-version-checked lookup -> on-miss (locked) sweep when
+    # run_auto_tune, else fallback. salt=1 matches the @kernel_tuner registration,
+    # so a kernel edit invalidates stale regions on the dispatch path.
+    try:
+        from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
 
-    if run_auto_tune:
-        try:
-            from . import auto_tune as _auto_tune
-            _auto_tune.ensure_mi_classif_dispatch_tuning(force=False)
-            choice = cache.lookup(
-                "plugin_mi_classif_dispatch", n_samples=n_samples, k=k,
-            )
-            if choice is not None:
-                return str(choice.get(
-                    "backend_choice", _fallback_mi_backend(n_samples, k),
-                ))
-        except Exception as e:
-            logger.debug("mi_classif_dispatch auto_tune failed: %s", e)
+        from ._auto_tune_sweeps_a import _run_sweep_mi_classif_dispatch
 
-    return _fallback_mi_backend(n_samples, k)
+        tuner = (lambda: _run_sweep_mi_classif_dispatch(n_iters=5)) if run_auto_tune else (lambda: [])
+        result = cache.get_or_tune(
+            "plugin_mi_classif_dispatch",
+            dims={"n_samples": n_samples, "k": k},
+            tuner=tuner, axes=["n_samples", "k"],
+            fallback={"backend_choice": fb},
+            code_version=compute_code_version(_run_sweep_mi_classif_dispatch, salt=1),
+        )
+        bc = result if isinstance(result, str) else str((result or {}).get("backend_choice", ""))
+        if bc in ("njit", "cuda"):
+            return bc
+    except Exception as e:
+        logger.debug("lookup_mi_classif_backend get_or_tune failed: %s", e)
+
+    return fb
 
 
 def _fallback_mi_backend(n_samples: int, k: int) -> str:
