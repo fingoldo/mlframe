@@ -28,9 +28,13 @@ forced at the boundaries anyway).
 """
 from __future__ import annotations
 
+import logging
+from functools import lru_cache
 from typing import List, Optional, Tuple
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 try:
     import cupy as cp  # type: ignore
@@ -308,49 +312,81 @@ def set_dtw_dispatch_threshold(n_cells: int) -> None:
     _DEFAULT_GPU_MIN_CELLS = int(n_cells)
 
 
-_KERNEL_TUNING_CACHE = None  # populated lazily by _lookup_dtw_threshold
-_KERNEL_TUNING_CACHE_LOAD_FAILED = False  # sticky so we don't re-attempt
-_LOOKUP_DTW_THRESHOLD_MEMO: dict[int, int] = {}
+def _make_dtw_inputs(n_cells: int):
+    """Two random float32 sequences whose cost matrix has ~n_cells cells."""
+    L = max(8, int(n_cells ** 0.5))
+    rng = np.random.default_rng(0)
+    return (rng.standard_normal(L).astype(np.float32), rng.standard_normal(L).astype(np.float32))
 
 
-def _lookup_dtw_threshold(n_cells: int) -> int:
-    """Consult ``kernel_tuning_cache`` for the per-HW crossover.
+def _run_dtw_sweep() -> list:
+    """Benchmark cpu/cuda/cupy DTW across an n_cells grid -> backend_choice
+    regions (fastest equivalent backend per band). GPU variants are included
+    only when available on this host. float32 GPU vs CPU diagonal sweeps agree
+    to a small relative tolerance, so equiv_rtol is loosened from the default."""
+    from pyutilz.dev.benchmarking import sweep_backend_crossover
 
-    Mirror of the polyeval / joint_hist_batched dispatcher pattern:
-    cache lookup wins, source-code default is the fallback. Cache key
-    schema: ``dtw_dispatch`` kernel, region keyed by ``n_cells``;
-    region returns ``{"gpu_min_cells": int}``.
+    W = 200
+    variants = {"cpu": lambda x, y: dtw_cpu(x, y, window=W)[0]}
+    if _HAS_NB_CUDA:
+        variants["cuda"] = lambda x, y: dtw_cuda(x, y, window=W)[0]
+    if _HAS_CUPY:
+        variants["cupy"] = lambda x, y: dtw_cupy(x, y, window=W)[0]
+    sizes = [10_000, 40_000, 160_000, 640_000, 2_560_000]
+    return sweep_backend_crossover(
+        variants, sizes, _make_dtw_inputs, "n_cells",
+        reference="cpu", repeats=5, equiv_rtol=1e-3, equiv_atol=1e-3,
+    )
 
-    Two-tier memoization (2026-05-25):
-    * Per-call cache lookup was 270 ms hot / ~6 s cold per dispatch.
-      Refined-typewell calls ``dtw_dispatch`` many times per well, so
-      we now load the ``KernelTuningCache`` ONCE at module level and
-      memoize the threshold per (n_cells) key.
-    * Sticky ``_KERNEL_TUNING_CACHE_LOAD_FAILED`` so a missing
-      pyutilz.kernel_tuning_cache module doesn't re-raise on every
-      call.
-    """
-    global _KERNEL_TUNING_CACHE, _KERNEL_TUNING_CACHE_LOAD_FAILED
-    memo = _LOOKUP_DTW_THRESHOLD_MEMO.get(int(n_cells))
-    if memo is not None:
-        return memo
-    if _KERNEL_TUNING_CACHE is None and not _KERNEL_TUNING_CACHE_LOAD_FAILED:
-        try:
-            from pyutilz.system.kernel_tuning_cache import KernelTuningCache
-            _KERNEL_TUNING_CACHE = KernelTuningCache.load_or_create()
-        except Exception:
-            _KERNEL_TUNING_CACHE_LOAD_FAILED = True
-    if _KERNEL_TUNING_CACHE is not None:
-        try:
-            _entry = _KERNEL_TUNING_CACHE.lookup("dtw_dispatch", n_cells=int(n_cells))
-            if _entry and "gpu_min_cells" in _entry:
-                result = int(_entry["gpu_min_cells"])
-                _LOOKUP_DTW_THRESHOLD_MEMO[int(n_cells)] = result
-                return result
-        except Exception:
-            pass
-    _LOOKUP_DTW_THRESHOLD_MEMO[int(n_cells)] = _DEFAULT_GPU_MIN_CELLS
-    return _DEFAULT_GPU_MIN_CELLS
+
+def _dtw_code_version():
+    """code_version over the available backend bodies; re-tunes on a kernel edit."""
+    try:
+        from pyutilz.dev.code_versioning import compute_code_version
+
+        fns = [dtw_cpu]
+        if _HAS_NB_CUDA:
+            fns.append(dtw_cuda)
+        if _HAS_CUPY:
+            fns.append(dtw_cupy)
+        return compute_code_version(*fns, salt=1)
+    except Exception:
+        return None
+
+
+def _dtw_fallback_choice(n_cells: int) -> str:
+    """Pre-sweep heuristic (the old gpu_min_cells threshold + availability)."""
+    if _HAS_CUPY and n_cells >= _DEFAULT_GPU_MIN_CELLS:
+        return "cupy"
+    if _HAS_NB_CUDA and n_cells >= _DEFAULT_GPU_MIN_CELLS:
+        return "cuda"
+    return "cpu"
+
+
+@lru_cache(maxsize=256)
+def _dtw_backend_choice(n_cells: int) -> str:
+    """Per-host backend (cpu/cuda/cupy) for this n_cells via the shared
+    get_or_tune orchestrator; measurement-backed threshold fallback. Memoized
+    because dtw_dispatch is called many times per well (the old code memoized a
+    threshold for the same reason)."""
+    try:
+        from pyutilz.system.kernel_tuning_cache import KernelTuningCache
+
+        autotune = _os.environ.get("MLFRAME_DTW_AUTOTUNE", "1").strip() != "0"
+        result = KernelTuningCache().get_or_tune(
+            "dtw_dispatch",
+            dims={"n_cells": int(n_cells)},
+            tuner=_run_dtw_sweep if autotune else (lambda: None),
+            axes=["n_cells"],
+            fallback={"backend_choice": _dtw_fallback_choice(n_cells)},
+            code_version=_dtw_code_version(),
+        )
+        bc = result if isinstance(result, str) else str((result or {}).get("backend_choice", ""))
+        if bc in ("cpu", "cuda", "cupy"):
+            return bc
+    except Exception as e:
+        logger.debug("dtw get_or_tune failed: %s", e)
+    return _dtw_fallback_choice(n_cells)
 
 
 def dtw_dispatch(
@@ -395,9 +431,35 @@ def dtw_dispatch(
     if psi > 0:
         return dtw_cpu(x, y, window=window, psi=psi)
     n_cells = len(x) * len(y)
-    gpu_min_cells = _lookup_dtw_threshold(n_cells)
-    if _HAS_CUPY and n_cells >= gpu_min_cells:
+    # Per-host backend from the kernel_tuning_cache (cpu/cuda/cupy), guarded by
+    # live availability (the tuning host had the backend; a reader may not).
+    choice = _dtw_backend_choice(n_cells)
+    if choice == "cupy" and _HAS_CUPY:
         return dtw_cupy(x, y, window=window)
-    if _HAS_NB_CUDA and n_cells >= gpu_min_cells:
+    if choice == "cuda" and _HAS_NB_CUDA:
         return dtw_cuda(x, y, window=window)
     return dtw_cpu(x, y, window=window, psi=psi)
+
+
+# Register with the @kernel_tuner registry so retune_all / mlframe-tune-kernels
+# discover + batch-tune dtw. GPU-capable (cupy/numba.cuda backends).
+try:
+    from pyutilz.system.kernel_tuner import kernel_tuner as _kernel_tuner
+
+    _dtw_variant_fns = [dtw_cpu]
+    if _HAS_NB_CUDA:
+        _dtw_variant_fns.append(dtw_cuda)
+    if _HAS_CUPY:
+        _dtw_variant_fns.append(dtw_cupy)
+    _kernel_tuner(
+        kernel_name="dtw_dispatch",
+        variant_fns=tuple(_dtw_variant_fns),
+        tuner=_run_dtw_sweep,
+        axes={"n_cells": [10_000, 40_000, 160_000, 640_000, 2_560_000]},
+        fallback={"backend_choice": "cpu"},
+        gpu_capable=True,
+        salt=1,
+        cli_label="dtw_dispatch",
+    )(lambda: None)
+except Exception:  # pyutilz absent / circular import -> dispatcher still works
+    pass
