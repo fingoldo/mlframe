@@ -277,6 +277,6 @@ def test_bridge_never_writes_kernel_tuning_cache(tmp_path):
 def test_kernel_tuning_cache_public_api_intact():
     """The KernelTuningCache public API the POC relies on (get_regions /
     lookup) is unchanged -- the migration is additive, KTC is untouched."""
-    from pyutilz.system.kernel_tuning_cache import KernelTuningCache
+    from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
     for name in ("get_regions", "lookup", "update", "has", "reset"):
         assert hasattr(KernelTuningCache, name)

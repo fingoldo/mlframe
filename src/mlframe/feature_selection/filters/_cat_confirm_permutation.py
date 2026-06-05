@@ -377,7 +377,7 @@ def _run_perm_kernel_sweep() -> list:
 def _perm_kernel_code_version():
     """code_version over the available backend bodies; re-tunes on a kernel edit."""
     try:
-        from pyutilz.dev.code_versioning import compute_code_version
+        from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
 
         fns = [_count_nfailed_joint_indep_prange]
         if _CUPY_AVAIL:
@@ -395,7 +395,7 @@ def _perm_kernel_backend_choice(n_samples: int, n_perms: int) -> str:
         return "cupy" if (_CUPY_AVAIL and n_samples >= _GPU_PERM_KERNEL_THRESHOLD_N) else "cpu"
 
     try:
-        from pyutilz.system.kernel_tuning_cache import KernelTuningCache
+        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
 
         result = KernelTuningCache().get_or_tune(
             "cat_fe_perm_kernel",
@@ -1019,7 +1019,7 @@ def _confirm_pairs_via_permutation(
 
 # Register with the @kernel_tuner registry so retune_all / mlframe-tune-kernels
 # discover + batch-tune the cat-FE permutation kernel. GPU-capable (cupy backend).
-from pyutilz.system.kernel_tuner import kernel_tuner
+from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
 kernel_tuner(
     kernel_name="cat_fe_perm_kernel",

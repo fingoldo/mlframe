@@ -35,7 +35,7 @@ _EXACT_OPTIMIZERS = {"bruteforce", "bruteforce_gpu"}
 _HEURISTIC_OPTIMIZERS = {"beam", "greedy_forward", "greedy_backward", "multistart", "genetic", "annealing", "gradient"}
 
 # Brute-force dispatcher gates (iter56 + iter57 audit). Both are overridable per HW via
-# ``pyutilz.system.kernel_tuning_cache`` so a wider/narrower box can shift the boundary without
+# ``pyutilz.performance.kernel_tuning.cache`` so a wider/narrower box can shift the boundary without
 # touching code.
 #
 # Two distinct knobs, two distinct effects:
@@ -111,7 +111,7 @@ _ADAPTIVE_PRESCREEN_FLOOR = 16  # never narrow below this regardless of stabilit
 
 
 def _resolve_brute_force_max_features(default: int = _DEFAULT_BRUTE_FORCE_MAX_FEATURES) -> int:
-    """Per-HW brute-force cap from ``pyutilz.system.kernel_tuning_cache`` (key
+    """Per-HW brute-force cap from ``pyutilz.performance.kernel_tuning.cache`` (key
     ``mlframe.shap_proxied_fs.brute_force_max_features``), falling back to the module default."""
     try:
         from pyutilz.system import kernel_tuning_cache
@@ -437,7 +437,7 @@ class ShapProxiedFS(BaseEstimator, TransformerMixin):
         # at n=28. To actually run brute force at n=28 the caller must pin
         # ``max_features<=12`` (sum C(28,1..12)=76.7M < 80M gate). See the module-level comment on
         # ``_DEFAULT_BRUTE_FORCE_MAX_FEATURES`` for the full dispatcher truth table. RAM is
-        # constant (~1MB). ``None`` consults ``pyutilz.system.kernel_tuning_cache`` (key
+        # constant (~1MB). ``None`` consults ``pyutilz.performance.kernel_tuning.cache`` (key
         # ``mlframe.shap_proxied_fs.brute_force_max_features``) for per-HW override, falling back
         # to the module default. Explicit int pins always win.
         self.brute_force_max_features = (

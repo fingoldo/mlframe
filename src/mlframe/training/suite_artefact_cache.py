@@ -8,7 +8,7 @@ Critical CLAUDE.md gates honoured:
 * default ``bytes_limit=2_000_000_000`` (2 GB) -- the project-wide ceiling for in-RAM cached artefacts. Above this the cache REFUSES to store, returning the caller's computed value untouched so the hot path keeps running. Operators with a different storage budget set ``MLFRAME_SUITE_CACHE_MAX_BYTES`` or pass ``bytes_limit=`` explicitly.
 * size_estimate-aware ``put`` -- callers that already know the artefact byte size (frames via ``df.estimated_size("b")`` / ndarrays via ``.nbytes``) pass it in to avoid the cache having to re-walk the structure with ``sys.getsizeof``.
 * disk-persistent via ``safe_pickle.safe_dump`` -- every cached artefact gets the same sha256 sidecar fail-closed verification that the rest of the package uses for pickle on disk. Direct ``pickle.dump`` is NOT used here: the surrounding cache directory is attacker-reachable on shared CI hosts.
-* ``pyutilz.system.kernel_tuning_cache``-style env-var override pattern -- no hardcoded thresholds outside the documented defaults, every cap is operator-tunable.
+* ``pyutilz.performance.kernel_tuning.cache``-style env-var override pattern -- no hardcoded thresholds outside the documented defaults, every cap is operator-tunable.
 
 Public surface:
 * :class:`SuiteKeyBuilder` -- ``.build(...)`` returns a 32-char hex digest.
@@ -73,7 +73,7 @@ DEFAULT_BYTES_LIMIT_ENV: str = "MLFRAME_SUITE_CACHE_MAX_BYTES"
 def _default_cache_dir() -> str:
     """Operator-overridable cache directory; default ``~/.mlframe/cache/suite/``.
 
-    Honours the same env-var convention as ``pyutilz.system.kernel_tuning_cache``. The directory is created lazily on first ``put``; ``get`` against a non-existent dir is a clean miss.
+    Honours the same env-var convention as ``pyutilz.performance.kernel_tuning.cache``. The directory is created lazily on first ``put``; ``get`` against a non-existent dir is a clean miss.
     """
     override = os.environ.get(DEFAULT_CACHE_DIR_ENV, "").strip()
     if override:

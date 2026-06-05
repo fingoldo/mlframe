@@ -13,7 +13,7 @@ and on the workload shape ``(n_samples, n_groups)``:
 
 Hardcoding the crossover is wrong on any machine other than the one it
 was measured on, so the choice routes through the per-host
-``pyutilz.system.kernel_tuning_cache`` (same infra as
+``pyutilz.performance.kernel_tuning.cache`` (same infra as
 ``joint_hist_batched`` / ``plugin_mi_classif_dispatch``). Until an
 auto-tune sweep has populated the cache for the live host, a
 measurement-backed fallback heuristic is used.
@@ -84,7 +84,7 @@ def dispatch_recursion_backend(
     if n_groups <= 1:
         return "serial"
     try:
-        from pyutilz.system.kernel_tuning_cache import KernelTuningCache
+        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
         from ._recursion_autotune import _run_sweep, recursion_code_version
 
         # Shared orchestrator: per-host cache (code-version checked) -> on-miss

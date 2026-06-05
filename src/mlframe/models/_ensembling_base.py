@@ -261,7 +261,7 @@ def _per_member_use_numba(elements_per_member: int, n_groups: int, ndim: int = 2
     if env in ("numpy", "numba"):
         return env == "numba"
     try:
-        from pyutilz.system.kernel_tuning_cache import KernelTuningCache
+        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
         from ._per_member_tuning import run_per_member_sweep, per_member_code_version
         autotune = os.environ.get("MLFRAME_PER_MEMBER_AUTOTUNE", "1").strip() != "0"
         # Shared orchestrator: env override -> per-host cache (code-version

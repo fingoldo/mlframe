@@ -1,4 +1,4 @@
-"""Shared module-singleton wrapper around ``pyutilz.system.kernel_tuning_cache.KernelTuningCache``.
+"""Shared module-singleton wrapper around ``pyutilz.performance.kernel_tuning.cache.KernelTuningCache``.
 
 Building a fresh KernelTuningCache instance per call re-runs ``_load`` ->
 ``_build_provenance`` -> ``gpu_capability_summary`` -> ``nvidia-smi`` subprocess
@@ -40,11 +40,11 @@ def get_kernel_tuning_cache() -> Optional[object]:
             return None
         if _CACHE_SINGLETON is None:
             try:
-                from pyutilz.system.kernel_tuning_cache import KernelTuningCache
+                from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
                 _CACHE_SINGLETON = KernelTuningCache()
             except ImportError:
                 logger.debug(
-                    "pyutilz.system.kernel_tuning_cache unavailable; "
+                    "pyutilz.performance.kernel_tuning.cache unavailable; "
                     "filters will use hand-tuned fallbacks"
                 )
                 _CACHE_SINGLETON = False

@@ -69,7 +69,7 @@ def per_member_code_version():
     bump) invalidates stale cached tunings deterministically. None if pyutilz
     code-versioning is unavailable (cache then falls back to no-version-check)."""
     try:
-        from pyutilz.dev.code_versioning import compute_code_version
+        from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
         return compute_code_version(_numpy_2d, _per_member_mae_std_njit, salt=_PER_MEMBER_SALT)
     except Exception:
         return None
@@ -157,7 +157,7 @@ def ensure_per_member_tuning(observed_elements: int | None = None, observed_grou
     this process (so repeated misses for different sizes don't re-benchmark)."""
     global _AUTOTUNE_ATTEMPTED
     try:
-        from pyutilz.system.kernel_tuning_cache import KernelTuningCache, cache_path
+        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache, cache_path
     except Exception as e:
         logger.debug("kernel_tuning_cache unavailable; skip per_member tuning: %s", e)
         return
@@ -184,7 +184,7 @@ def ensure_per_member_tuning(observed_elements: int | None = None, observed_grou
 # only (no GPU variant -- a CPU-resident axis-1 reduction; cupy was measured and
 # lost). 3-D is intentionally absent: 3-D numba computes a different statistic
 # (per-class vs pooled std), so only numpy is correct there -- not a tunable axis.
-from pyutilz.system.kernel_tuner import kernel_tuner
+from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
 kernel_tuner(
     kernel_name=_PER_MEMBER_KERNEL_NAME,

@@ -614,7 +614,7 @@ def ensure_knn_hnsw_crossover_tuning(force: bool = False) -> Optional[list[dict]
     # gates on is_cuda_available. Fall back to a direct cache create here.
     if cache is None:
         try:
-            from pyutilz.system.kernel_tuning_cache import KernelTuningCache
+            from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
             cache = KernelTuningCache.load_or_create()
         except Exception as exc:
             logger.info(

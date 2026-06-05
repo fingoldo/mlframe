@@ -26,7 +26,7 @@ Subcommands::
     refresh-discretize-2d-array     force-rerun discretize_2d_array
     refresh-all                     force-rerun every registered kernel sweep
 
-The cache lives at ``pyutilz.system.kernel_tuning_cache.cache_path()``
+The cache lives at ``pyutilz.performance.kernel_tuning.cache.cache_path()``
 (``~/.pyutilz/kernel_tuning/{hw_fingerprint}.json`` by default; override
 with ``$PYUTILZ_KERNEL_CACHE_DIR``).
 """
@@ -40,7 +40,7 @@ import sys
 
 
 def _cmd_show(args) -> int:
-    from pyutilz.system.kernel_tuning_cache import cache_path
+    from pyutilz.performance.kernel_tuning.cache import cache_path
     path = cache_path()
     # Wave 48 (2026-05-20): drop the redundant isfile precheck; just try-open.
     try:
@@ -55,7 +55,7 @@ def _cmd_show(args) -> int:
 
 
 def _cmd_where(args) -> int:
-    from pyutilz.system.kernel_tuning_cache import (
+    from pyutilz.performance.kernel_tuning.cache import (
         cache_dir, cache_path, hw_fingerprint,
     )
     print(f"hw_fingerprint: {hw_fingerprint()}")
@@ -66,7 +66,7 @@ def _cmd_where(args) -> int:
 
 
 def _cmd_clear(args) -> int:
-    from pyutilz.system.kernel_tuning_cache import cache_path
+    from pyutilz.performance.kernel_tuning.cache import cache_path
     path = cache_path()
     if not os.path.isfile(path):
         print(f"# no cache to clear at {path}", file=sys.stderr)

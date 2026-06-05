@@ -84,7 +84,7 @@ def _resolve_bitmap_min_features(default: int = 200) -> int:
     ``n_features * n_samples`` int32 reads writing ``n_features * n_bins * ceil(n_samples/64)``
     uint64 cells) dominates the saved per-pair work. Above it the f^2 pair count amortizes
     the pack and the per-pair POPCNT speedup wins. Dispatcher-tunable per HW via
-    ``pyutilz.system.kernel_tuning_cache`` (key
+    ``pyutilz.performance.kernel_tuning.cache`` (key
     ``mlframe.shap_proxied_fs.cluster_su.bitmap_min_features``).
     """
     try:

@@ -342,7 +342,7 @@ def _run_dtw_sweep() -> list:
 def _dtw_code_version():
     """code_version over the available backend bodies; re-tunes on a kernel edit."""
     try:
-        from pyutilz.dev.code_versioning import compute_code_version
+        from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
 
         fns = [dtw_cpu]
         if _HAS_NB_CUDA:
@@ -370,7 +370,7 @@ def _dtw_backend_choice(n_cells: int) -> str:
     because dtw_dispatch is called many times per well (the old code memoized a
     threshold for the same reason)."""
     try:
-        from pyutilz.system.kernel_tuning_cache import KernelTuningCache
+        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
 
         autotune = _os.environ.get("MLFRAME_DTW_AUTOTUNE", "1").strip() != "0"
         result = KernelTuningCache().get_or_tune(
@@ -443,7 +443,7 @@ def dtw_dispatch(
 
 # Register with the @kernel_tuner registry so retune_all / mlframe-tune-kernels
 # discover + batch-tune dtw. GPU-capable (cupy/numba.cuda backends).
-from pyutilz.system.kernel_tuner import kernel_tuner
+from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
 kernel_tuner(
     kernel_name="dtw_dispatch",

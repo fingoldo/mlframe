@@ -9,7 +9,7 @@ Python loop inside ``_mi_classif_batch``.
 Layer 31 (2026-05-31) routes ``_mi_classif_batch`` through
 ``plugin_mi_classif_batch_dispatch`` (hermite_fe) — the same prange-over-columns
 numba batch kernel already used by polynom-pair FE / Hermite MI scoring.
-The KTC dispatcher (``pyutilz.system.kernel_tuning_cache``) picks njit-CPU
+The KTC dispatcher (``pyutilz.performance.kernel_tuning.cache``) picks njit-CPU
 (default) or cupy-batch (GPU when present and amortising) per (n, k) cell.
 
 Measured at p=200 n=2000 nbins=10 (warm numba cache):

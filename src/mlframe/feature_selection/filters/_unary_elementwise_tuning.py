@@ -95,7 +95,7 @@ def _run_unary_sweep() -> list:
 def _unary_code_version():
     """code_version over BOTH variant bodies (both always-defined) -> a numpy OR
     cupy kernel edit auto-invalidates the cached tuning."""
-    from pyutilz.dev.code_versioning import compute_code_version
+    from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
 
     return compute_code_version(_unary_numpy, _unary_cupy, salt=_UNARY_SALT)
 
@@ -121,7 +121,7 @@ def unary_elementwise_backend_choice(n_samples: int, location: str = "host") -> 
     + per-op cupy-compatibility before routing to GPU."""
     n_samples = int(n_samples)
     try:
-        from pyutilz.system.kernel_tuning_cache import KernelTuningCache
+        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
 
         result = KernelTuningCache().get_or_tune(
             "unary_elementwise",
@@ -141,7 +141,7 @@ def unary_elementwise_backend_choice(n_samples: int, location: str = "host") -> 
 
 # Register with the kernel-tuner registry so retune_all / mlframe-tune-kernels
 # discover + batch-tune unary_elementwise (GPU-capable; residency-aware).
-from pyutilz.system.kernel_tuner import kernel_tuner
+from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
 kernel_tuner(
     kernel_name="unary_elementwise",

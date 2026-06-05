@@ -546,7 +546,7 @@ def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10) ->
 
     Defers to ``plugin_mi_classif_batch_dispatch`` from ``hermite_fe``, which
     routes (n, k) to the njit prange kernel (CPU) or cupy batch kernel (GPU)
-    via ``pyutilz.system.kernel_tuning_cache`` and uses argsort-based
+    via ``pyutilz.performance.kernel_tuning.cache`` and uses argsort-based
     equi-frequency binning. Bench at p=200 n=2000: ~6ms vs ~317ms for the
     per-column sklearn loop (~53x speedup).
 

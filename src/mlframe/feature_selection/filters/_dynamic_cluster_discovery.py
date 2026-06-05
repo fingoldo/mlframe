@@ -207,7 +207,7 @@ def _kernel_tuning_cache_lookup_tau(factors_data, factors_nbins,
     Looks up a calibrated tau by ``(n_samples, n_features, mean_pairwise_su_proxy)``
     fingerprint. Falls back to the constructor-supplied value when the cache
     is cold / unavailable. Per memory rule: hardcoded thresholds should route
-    through ``pyutilz.system.kernel_tuning_cache`` so per-host calibration
+    through ``pyutilz.performance.kernel_tuning.cache`` so per-host calibration
     persists across runs.
     """
     try:

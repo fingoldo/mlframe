@@ -65,7 +65,7 @@ def test_sweep_is_bounded_and_records_max_abs_diff():
 
 @pytest.mark.skipif(not eb._HAS_NUMBA_PER_MEMBER, reason="numba unavailable")
 def test_ensure_tuning_populates_cache_and_dispatch_reads_it():
-    from pyutilz.system.kernel_tuning_cache import KernelTuningCache
+    from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
     pmt.ensure_per_member_tuning(force=True, observed_elements=50_000, observed_groups=4, repeats=5)
     assert KernelTuningCache().has(pmt._PER_MEMBER_KERNEL_NAME)
     # dispatch now reads the persisted region (autotune already ran this process)

@@ -6,7 +6,7 @@ on cache miss + ``run_auto_tune=True``.
 
 The auto-tune walks a small (n_samples, nbins, block_size) grid. Once
 the cache JSON is on disk, every future process loads it in ~1 ms via
-``pyutilz.system.kernel_tuning_cache.KernelTuningCache``.
+``pyutilz.performance.kernel_tuning.cache.KernelTuningCache``.
 """
 from __future__ import annotations
 

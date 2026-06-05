@@ -1,7 +1,7 @@
 """Regression test for the shared KernelTuningCache singleton.
 
 A profile of fuzz combo c0143 attributed ~290ms / 6 calls to
-``pyutilz.system.kernel_tuning_cache._build_provenance`` (which spawns
+``pyutilz.performance.kernel_tuning.cache._build_provenance`` (which spawns
 nvidia-smi via gpu_capability_summary) reached through
 ``discretize_2d_array``. Root cause: each call instantiated a fresh
 ``KernelTuningCache()``, defeating its in-instance ``_loaded`` cache and
@@ -68,7 +68,7 @@ def test_dispatch_module_shares_filters_singleton():
     """dispatch.py's _get_cache must delegate to the same singleton so that
     benchmarks and the production filters share ONE KernelTuningCache instance.
     """
-    pytest.importorskip("pyutilz.system.kernel_tuning_cache")
+    pytest.importorskip("pyutilz.performance.kernel_tuning.cache")
 
     from mlframe.feature_selection.filters import _kernel_tuning
     from mlframe.feature_selection._benchmarks.kernel_tuning_cache import dispatch as _disp

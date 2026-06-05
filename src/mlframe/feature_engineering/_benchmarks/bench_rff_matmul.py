@@ -117,7 +117,7 @@ def main() -> int:
         return 1
     print(f"\nGPU crossover threshold: work >= {threshold} (writing to kernel_tuning_cache)")
     try:
-        from pyutilz.system.kernel_tuning_cache import KernelTuningCache
+        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
         cache = KernelTuningCache.load_or_create()
         cache.store("rff_matmul", {"work_threshold": int(threshold), "calibrated_at": time.time()})
         print("Cache updated. random_features._should_use_gpu_rff will use this value next call.")

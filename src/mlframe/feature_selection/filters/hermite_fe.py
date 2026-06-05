@@ -168,7 +168,7 @@ def _plugin_mi_classif_cuda(x: np.ndarray, y: np.ndarray,
 
 
 # MI dispatcher backend choice. The 2026-05-20 fix routes through the
-# ``pyutilz.system.kernel_tuning_cache`` infrastructure (already used for
+# ``pyutilz.performance.kernel_tuning.cache`` infrastructure (already used for
 # joint_hist_batched) instead of hardcoded global thresholds. The KTC
 # pipeline:
 #   1. ``lookup_mi_classif_backend(n, k)`` -> consults the per-host JSON
@@ -621,7 +621,7 @@ def _lookup_polyeval_thresholds(basis: str, n: int) -> tuple[int, int]:
     (par_threshold, cuda_threshold) crossovers; fall back to the
     source-code defaults (which are env-var-overridable for tests)."""
     try:
-        from pyutilz.system.kernel_tuning_cache import KernelTuningCache
+        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
         _cache = KernelTuningCache.load_or_create()
         _entry = _cache.lookup("polyeval", basis=basis, n_samples=n)
         _par = int(_entry["par_threshold"]) if _entry and "par_threshold" in _entry else _PAR_THRESHOLD

@@ -374,7 +374,7 @@ def _run_rff_sweep() -> list:
 def _rff_code_version():
     """code_version over the matmul variant bodies; re-tunes on a kernel edit."""
     try:
-        from pyutilz.dev.code_versioning import compute_code_version
+        from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
 
         return compute_code_version(_rff_matmul_numpy, _rff_matmul_cupy, salt=1)
     except Exception:
@@ -392,7 +392,7 @@ def _rff_backend_choice(work: int) -> str:
     """Per-host backend (numpy/cupy) for this matmul ``work`` via the shared
     get_or_tune orchestrator; measurement-backed threshold fallback."""
     try:
-        from pyutilz.system.kernel_tuning_cache import KernelTuningCache
+        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
 
         result = KernelTuningCache().get_or_tune(
             "rff_matmul",
@@ -412,7 +412,7 @@ def _rff_backend_choice(work: int) -> str:
 
 # Register with the @kernel_tuner registry so retune_all / mlframe-tune-kernels
 # discover + batch-tune rff_matmul. GPU-capable (numpy CPU vs cupy matmul).
-from pyutilz.system.kernel_tuner import kernel_tuner
+from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
 kernel_tuner(
     kernel_name="rff_matmul",

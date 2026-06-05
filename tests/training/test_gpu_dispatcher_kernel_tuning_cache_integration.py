@@ -2,11 +2,11 @@
 
 Wave 23 audit (2026-05-20) found 6 P1 + 2 P2 sites where hardcoded
 CUDA / threshold / block-size constants determined dispatcher
-behaviour without consulting ``pyutilz.system.kernel_tuning_cache``.
+behaviour without consulting ``pyutilz.performance.kernel_tuning.cache``.
 Per memory rule ``feedback_use_kernel_tuning_cache_for_gpu``:
 
 > "never hardcode CUDA thresholds / block sizes / kernel variants;
-> integrate with pyutilz.system.kernel_tuning_cache (mirror
+> integrate with pyutilz.performance.kernel_tuning.cache (mirror
 > joint_hist_batched / plugin_mi_classif_dispatch). Hardcoded
 > defaults are wrong on any HW other than dev machine - 2026-05-20
 > incident left 2-4x speedups on the table."
@@ -16,7 +16,7 @@ The 8 sites now all share the same pattern:
 2. Read the relevant per-HW tuned parameter from the result dict
 3. Fall back to the source-code default (which IS the pre-wave-23
    hardcoded value) when:
-   - pyutilz.system.kernel_tuning_cache is not importable, OR
+   - pyutilz.performance.kernel_tuning.cache is not importable, OR
    - lookup returns None (no entry for live HW yet), OR
    - the lookup raises (corrupt sidecar etc.)
 
@@ -118,7 +118,7 @@ def test_gpu_dispatcher_consults_kernel_tuning_cache(rel, marker, site):
 def test_wave23_falls_back_to_source_default_when_cache_unavailable():
     """The cache-lookup pattern at each site MUST be wrapped in a
     try/except that falls back to the pre-wave-23 default. Otherwise
-    a missing pyutilz.system.kernel_tuning_cache module would break
+    a missing pyutilz.performance.kernel_tuning.cache module would break
     every GPU-dispatching call site."""
     import mlframe as _mlframe
     root = pathlib.Path(_mlframe.__file__).resolve().parent
@@ -146,7 +146,7 @@ def test_wave23_falls_back_to_source_default_when_cache_unavailable():
         # being missing doesn't break the dispatcher. Accept either the
         # direct pyutilz import OR the project-local _kernel_tuning shim
         # that wraps pyutilz's cache with named project semantics.
-        has_direct = "from pyutilz.system.kernel_tuning_cache import KernelTuningCache" in src
+        has_direct = "from pyutilz.performance.kernel_tuning.cache import KernelTuningCache" in src
         has_shim = "from ._kernel_tuning import get_kernel_tuning_cache" in src
         has_pkg_shim = "from .._kernel_tuning import get_kernel_tuning_cache" in src
         has_uplevel_shim = "from .._kernel_tuning_cache.dispatch import" in src

@@ -60,12 +60,12 @@ def main() -> None:
     print("=== mlframe GPU pipeline end-to-end bench ===")
     # Sanity: where is the kernel_tuning_cache?
     try:
-        from pyutilz.system.kernel_tuning_cache import cache_path, hw_fingerprint
+        from pyutilz.performance.kernel_tuning.cache import cache_path, hw_fingerprint
         print(f"hw_fingerprint: {hw_fingerprint()}")
         print(f"cache_path:     {cache_path()}")
         print(f"cache present:  {os.path.isfile(cache_path())}")
     except ImportError:
-        print("pyutilz.system.kernel_tuning_cache unavailable")
+        print("pyutilz.performance.kernel_tuning.cache unavailable")
 
     # Prewarm once for the cold phase (numba + cupy).
     try:
@@ -119,7 +119,7 @@ def main() -> None:
 
     # Dump the cache for the report.
     try:
-        from pyutilz.system.kernel_tuning_cache import cache_path
+        from pyutilz.performance.kernel_tuning.cache import cache_path
         path = cache_path()
         if os.path.isfile(path):
             with open(path, "r", encoding="utf-8") as f:

@@ -209,7 +209,7 @@ def gpu_multiple_rmse_scores(actual, predicted):
         # back to 256 when the cache helper is unavailable or no entry
         # exists for the live HW yet.
         try:
-            from pyutilz.system.kernel_tuning_cache import KernelTuningCache
+            from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
             _cache = KernelTuningCache.load_or_create()
             _choice = _cache.lookup(
                 "rmse_partial_sum", n_samples=int(N), n_cols=int(M),

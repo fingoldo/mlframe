@@ -781,7 +781,7 @@ def discretize_2d_array(
     is only for tests + benches.
     """
     # CUDA-eligibility gate. ``min_cells`` comes from the per-host kernel
-    # tuning cache (pyutilz.system.kernel_tuning_cache + auto_tune sweep)
+    # tuning cache (pyutilz.performance.kernel_tuning.cache + auto_tune sweep)
     # when available; else the hand-tuned 500k default. Lets the dispatcher
     # adapt to faster GPUs (cc 8+ wins at smaller sizes) without code edits.
     # Uses the module-singleton cache; building a fresh KernelTuningCache here

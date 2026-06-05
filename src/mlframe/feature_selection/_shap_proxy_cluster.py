@@ -136,7 +136,7 @@ def _resolve_gpu_min_features(default: int = 2000) -> int:
     Below this width the cold cupy/CUDA load + NVRTC kernel compile (~17s on the dev box) dwarfs
     even a single-threaded CPU `Z.T @ Z` on the bench (~0.3s at f=704/n=10000, ~50ms multithreaded).
     The blocked CPU path picks up >`max_dense_features`. The threshold is dispatcher-tunable per
-    HW via ``pyutilz.system.kernel_tuning_cache`` (key:
+    HW via ``pyutilz.performance.kernel_tuning.cache`` (key:
     ``mlframe.shap_proxied_fs.cluster_corr.gpu_min_features``).
     """
     try:
@@ -166,7 +166,7 @@ def cluster_correlated_features(
     ``gpu_min_features`` (iter46): below this feature count the dense correlation runs on CPU even
     when a GPU is available, because the cupy/CUDA cold-start cost (one-time per process, ~17s on
     the dev box) is far larger than the CPU GEMM at small ``f``. ``None`` consults
-    ``pyutilz.system.kernel_tuning_cache`` (key
+    ``pyutilz.performance.kernel_tuning.cache`` (key
     ``mlframe.shap_proxied_fs.cluster_corr.gpu_min_features``); the default (2000) was calibrated
     on C4 (f=704 / n=10000 / cold cupy) where CPU dense ran in 0.3s vs the GPU path's 26.7s
     cumulative. After warm cupy is loaded for the process, the GPU path runs in ~50ms; users who

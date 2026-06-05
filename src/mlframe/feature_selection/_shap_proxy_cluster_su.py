@@ -41,7 +41,7 @@ def _resolve_parallel_min_features(default: int = 50) -> int:
     Below this width the per-pair work is small enough that prange thread-spawn dwarfs
     the saved CPU time. Above it, the O(f^2) pair count scales the wall and parallel
     pays off. The default (50) is dispatcher-tunable per HW via
-    ``pyutilz.system.kernel_tuning_cache`` (key
+    ``pyutilz.performance.kernel_tuning.cache`` (key
     ``mlframe.shap_proxied_fs.cluster_su.parallel_min_features``).
     """
     try:
@@ -59,7 +59,7 @@ def _resolve_gpu_min_features(default: int = 500) -> int:
 
     Below this width the cupy/CUDA launch overhead + onehot-pack allocation dwarfs even the
     parallel CPU kernel's wall (~0.14s at f=500 / n_bins=10 / n=1500 on iter69's bench).
-    Dispatcher-tunable per HW via ``pyutilz.system.kernel_tuning_cache`` (key
+    Dispatcher-tunable per HW via ``pyutilz.performance.kernel_tuning.cache`` (key
     ``mlframe.shap_proxied_fs.cluster_su.gpu_min_features``); default 500.
     """
     try:
@@ -673,7 +673,7 @@ def cluster_correlated_features_su(
         chosen path at small widths where prange thread-spawn dominates).
     parallel_min_features
         Smallest ``n_features`` at which the parallel kernel is selected.
-        ``None`` consults ``pyutilz.system.kernel_tuning_cache`` (key
+        ``None`` consults ``pyutilz.performance.kernel_tuning.cache`` (key
         ``mlframe.shap_proxied_fs.cluster_su.parallel_min_features``);
         default 50.
     use_gpu
@@ -685,7 +685,7 @@ def cluster_correlated_features_su(
     gpu_min_features
         Smallest ``n_features`` at which the GPU pairwise-SU kernel beats the
         CPU prange kernel (cupy launch overhead amortises only above this
-        width). ``None`` consults ``pyutilz.system.kernel_tuning_cache`` (key
+        width). ``None`` consults ``pyutilz.performance.kernel_tuning.cache`` (key
         ``mlframe.shap_proxied_fs.cluster_su.gpu_min_features``); default 500.
     gpu_pair_chunk_size
         Maximum number of i-rows processed per GPU einsum batch; bounds peak
@@ -702,14 +702,14 @@ def cluster_correlated_features_su(
         path only - GPU path takes priority when both apply.
     bitmap_min_features
         Smallest ``n_features`` at which the bitmap kernel beats the scalar
-        prange kernel. ``None`` consults ``pyutilz.system.kernel_tuning_cache``
+        prange kernel. ``None`` consults ``pyutilz.performance.kernel_tuning.cache``
         (key ``mlframe.shap_proxied_fs.cluster_su.bitmap_min_features``);
         default 200.
     bitmap_max_n_bins
         Upper ``max(n_bins)`` at which the bitmap kernel still wins. Above this
         the ``n_bins^2`` per-pair work overwhelms the 64-wide POPCNT speedup
         and the scalar kernel is faster. ``None`` consults
-        ``pyutilz.system.kernel_tuning_cache``
+        ``pyutilz.performance.kernel_tuning.cache``
         (key ``mlframe.shap_proxied_fs.cluster_su.bitmap_max_n_bins``);
         default 16.
 

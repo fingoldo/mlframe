@@ -25,10 +25,10 @@ loop. It:
    disk, so the meta-model gets better every run, across processes and
    across sessions.
 
-Relationship to ``pyutilz.system.kernel_tuning_cache``
+Relationship to ``pyutilz.performance.kernel_tuning.cache``
 ------------------------------------------------------
 This is an **additive sibling**, NOT a replacement, of
-``pyutilz.system.kernel_tuning_cache.KernelTuningCache``. We deliberately
+``pyutilz.performance.kernel_tuning.cache.KernelTuningCache``. We deliberately
 *reuse* its proven patterns rather than reinvent them:
 
 * ``hw_fingerprint()`` -- the exact same per-host key (CPU+GPU+cc) keys our
@@ -104,7 +104,7 @@ _LINEAR_BUCKET_DIMS = ("sparsity", "mean_abs_corr", "mean_abs_skew", "mean_kurto
 
 
 # ---------------------------------------------------------------------------
-# Host key + store path (reuse pyutilz.system.kernel_tuning_cache patterns)
+# Host key + store path (reuse pyutilz.performance.kernel_tuning.cache patterns)
 # ---------------------------------------------------------------------------
 
 def _host_key() -> str:
@@ -113,7 +113,7 @@ def _host_key() -> str:
     cache); falls back to the node name otherwise so the oracle still
     works without pyutilz."""
     try:
-        from pyutilz.system.kernel_tuning_cache import hw_fingerprint
+        from pyutilz.performance.kernel_tuning.cache import hw_fingerprint
         return hw_fingerprint()
     except Exception:
         import platform
@@ -678,7 +678,7 @@ class ParamOracle:
         Returns the number of observations imported.
         """
         if cache is None:
-            from pyutilz.system.kernel_tuning_cache import KernelTuningCache
+            from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
             cache = KernelTuningCache()
         regions = cache.get_regions(kernel_name)
         if not regions:

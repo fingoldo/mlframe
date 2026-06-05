@@ -13,8 +13,8 @@ import argparse
 import json
 import sys
 
-from pyutilz.system.kernel_tuner import discover_tuners, get_registry, retune_all, tune_spec
-from pyutilz.system.kernel_tuning_cache import KernelTuningCache
+from pyutilz.performance.kernel_tuning.registry import discover_tuners, get_registry, retune_all, tune_spec
+from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
 
 __all__ = ["main"]
 
@@ -164,8 +164,10 @@ def cmd_refresh(specs: dict, kernel: str) -> int:
 def cmd_refresh_all(specs: dict) -> int:
     """Tune all discovered specs (force=True) across unique GPU models."""
     print(f"Refreshing all {len(specs)} spec(s) (force=True)...")
-    for kernel_name, n in sorted(retune_all(package="mlframe", force=True).items()):
-        print(f"  {kernel_name}: {n} region(s)")
+    # retune_all returns {(model, kernel_name): n_regions} -- one row per (GPU
+    # model / "cpu", kernel) so multi-model hosts aren't clobbered.
+    for (model, kernel_name), n in sorted(retune_all(package="mlframe", force=True).items()):
+        print(f"  [{model}] {kernel_name}: {n} region(s)")
     return 0
 
 

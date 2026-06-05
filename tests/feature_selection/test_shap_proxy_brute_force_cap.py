@@ -2,7 +2,7 @@
 
 The lever raises the default ``brute_force_max_features`` from 22 -> 28 and the dispatcher's
 ``n_sub`` feasibility gate from 2M -> 80M. Both are overridable per-HW via
-``pyutilz.system.kernel_tuning_cache``. The iter57 boundary tests pin the dispatcher's actual
+``pyutilz.performance.kernel_tuning.cache``. The iter57 boundary tests pin the dispatcher's actual
 truth table at default ``max_features=None`` (brute force fires at n<=26, beam at n in {27, 28}).
 The iter58 sweep (``bench_iter58_beam_width_sweep``) measured caps {22, 28, 32, 40} at C3 + C3_hard
 and confirmed 28 as the recall-maximising sweet spot across both regimes; 32 lost a recall hit at

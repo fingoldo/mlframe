@@ -95,7 +95,7 @@ def knn_search(
     # still wins (kwarg value preserved).
     if prefer_hnsw_at_n == 50_000:
         try:
-            from pyutilz.system.kernel_tuning_cache import KernelTuningCache
+            from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
             _cache = KernelTuningCache.load_or_create()
             _e = _cache.lookup("knn_hnsw_crossover", n_subset=n_sub, d=int(X_subset.shape[1]))
             if _e and "n_threshold" in _e:

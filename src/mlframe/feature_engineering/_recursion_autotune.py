@@ -3,7 +3,7 @@
 Mirrors ``mlframe.feature_selection._benchmarks.kernel_tuning_cache``: on
 first use for a host, measure serial vs parallel njit at a grid of
 ``(n_samples, n_groups)`` points and persist the winning backend per
-region into the shared ``pyutilz.system.kernel_tuning_cache`` JSON. The
+region into the shared ``pyutilz.performance.kernel_tuning.cache`` JSON. The
 dispatcher then reads those regions instead of the pre-sweep fallback.
 
 Triggered lazily (``run_auto_tune=True`` on the dispatcher) or via the
@@ -39,7 +39,7 @@ def recursion_code_version(kernel_name: str):
     """code_version for a recursion kernel: hashes the bayesian kernel body +
     salt. None if pyutilz/code-versioning is unavailable."""
     try:
-        from pyutilz.dev.code_versioning import compute_code_version
+        from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
         from . import bayesian as _B
 
         fn = _B.bocpd_features if kernel_name == "fe_bocpd" else _B.online_bayesian_linear_regression
@@ -113,7 +113,7 @@ def ensure_recursion_tuning(kernel_name: str, *, force: bool = False) -> None:
     dispatcher silently falls back to its heuristic.
     """
     try:
-        from pyutilz.system.kernel_tuning_cache import KernelTuningCache
+        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
         cache = KernelTuningCache()
         if not force and cache.has(kernel_name):
             return
@@ -143,7 +143,7 @@ if __name__ == "__main__":
 # retune_all / ``mlframe-tune-kernels`` discover + batch-tune them. CPU-only
 # (serial vs parallel njit; no GPU variant). Wrapped so a missing pyutilz /
 # circular import never breaks the dispatcher.
-from pyutilz.system.kernel_tuner import kernel_tuner
+from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 from . import bayesian as _B
 
 for _kn, _ref in (("fe_bocpd", _B.bocpd_features), ("fe_oblr", _B.online_bayesian_linear_regression)):

@@ -156,7 +156,7 @@ def test_ensure_joint_hist_tuning_saves_expected_schema(tmp_path, monkeypatch):
     expected axes + region keys."""
     import orjson
     monkeypatch.setenv("PYUTILZ_KERNEL_CACHE_DIR", str(tmp_path))
-    from pyutilz.system.kernel_tuning_cache import hw_fingerprint
+    from pyutilz.performance.kernel_tuning.cache import hw_fingerprint
     hw_fingerprint.cache_clear()
     # The mlframe-side singleton in ``_kernel_tuning._CACHE_SINGLETON`` is
     # built lazily from the env var seen at the time of FIRST call. Earlier
@@ -178,7 +178,7 @@ def test_ensure_joint_hist_tuning_saves_expected_schema(tmp_path, monkeypatch):
     assert regions, "sweep returned no regions"
 
     # Read the persisted JSON.
-    from pyutilz.system.kernel_tuning_cache import cache_path
+    from pyutilz.performance.kernel_tuning.cache import cache_path
     path = cache_path()
     assert os.path.isfile(path), f"sweep did not persist {path}"
     with open(path, "rb") as f:
@@ -218,7 +218,7 @@ def _proc_update(cache_dir: str, kernel_name: str, payload: dict) -> None:
     ``multiprocessing.Process``."""
     import os
     os.environ["PYUTILZ_KERNEL_CACHE_DIR"] = cache_dir
-    from pyutilz.system.kernel_tuning_cache import (
+    from pyutilz.performance.kernel_tuning.cache import (
         KernelTuningCache, hw_fingerprint,
     )
     hw_fingerprint.cache_clear()
@@ -243,7 +243,7 @@ def test_concurrent_update_preserves_kernels(tmp_path):
 
     # Read directly via a fresh KTC instance.
     os.environ["PYUTILZ_KERNEL_CACHE_DIR"] = str(tmp_path)
-    from pyutilz.system.kernel_tuning_cache import (
+    from pyutilz.performance.kernel_tuning.cache import (
         KernelTuningCache, hw_fingerprint,
     )
     hw_fingerprint.cache_clear()

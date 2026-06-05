@@ -429,7 +429,7 @@ def batch_pair_mi_cupy(
 # Wave 23 P1 (2026-05-20): the 4 hardcoded thresholds below are
 # "measured on GTX 1050 Ti cc 6.1" defaults; per
 # `feedback_use_kernel_tuning_cache_for_gpu` they should be lookup-
-# driven via ``pyutilz.system.kernel_tuning_cache`` so that consumer
+# driven via ``pyutilz.performance.kernel_tuning.cache`` so that consumer
 # Ampere GPUs (~5-10x lower cuda crossover) and high-VRAM cards don't
 # leave 2-4x on the table.
 #
@@ -503,7 +503,7 @@ def _run_batch_pair_mi_sweep() -> list:
 def _batch_pair_mi_code_version():
     """code_version over the available backend bodies; re-tunes on a kernel edit."""
     try:
-        from pyutilz.dev.code_versioning import compute_code_version
+        from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
 
         fns = [batch_pair_mi_njit_prange]
         if _CUDA_AVAIL:
@@ -529,7 +529,7 @@ def _batch_pair_mi_backend_choice(n_samples: int, n_pairs: int) -> str:
     get_or_tune orchestrator; measurement-backed threshold fallback. ``n_samples`` is the
     swept (primary) axis; ``n_pairs`` is passed in the dims so the cache key is complete."""
     try:
-        from pyutilz.system.kernel_tuning_cache import KernelTuningCache
+        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
 
         result = KernelTuningCache().get_or_tune(
             "batch_pair_mi",
@@ -599,7 +599,7 @@ def dispatch_batch_pair_mi(
 
 # Register with the @kernel_tuner registry so retune_all / mlframe-tune-kernels
 # discover + batch-tune batch_pair_mi. GPU-capable (cuda/cupy backends).
-from pyutilz.system.kernel_tuner import kernel_tuner
+from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
 kernel_tuner(
     kernel_name="batch_pair_mi",

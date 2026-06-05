@@ -1,7 +1,7 @@
 """Runtime dispatcher for the mlframe joint-hist kernels.
 
 Thin wrapper that delegates storage + lookup to the generic
-``pyutilz.system.kernel_tuning_cache.KernelTuningCache``. This module
+``pyutilz.performance.kernel_tuning.cache.KernelTuningCache``. This module
 keeps the mlframe-specific entry point ``lookup_joint_hist`` so
 ``filters/gpu.py:mi_direct_gpu_batched`` doesn't need to know about the
 generic backing storage; it also owns the hand-tuned fallbacks used
