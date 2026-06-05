@@ -81,19 +81,24 @@ def _dispatch_batch_mi_with_noise_gate(
     factors_nbins = np.full(K, int(quantization_nbins), dtype=np.int64)
 
     # Per-host CPU/GPU backend choice via the canonical ``get_or_tune`` orchestrator
-    # (per-host cache, code-version checked -> on-miss tuner -> measurement-backed
-    # fallback; no hardcoded threshold). The GPU twin (``batch_mi_noise_gate_gpu``)
-    # is bit-identical (GPU does only the integer counting; entropy stays on the CPU
-    # bit-exact path), so the tuner runs a real CPU-vs-GPU sweep and the cache routes
-    # large (n_rows x n_cols) batches to GPU where it measurably wins on this host.
+    # (per-host cache, code-version checked -> measurement-backed fallback). The GPU twin
+    # (``batch_mi_noise_gate_gpu``) is bit-identical (GPU does only the integer counting;
+    # entropy stays on the CPU bit-exact path).
+    #
+    # tuner=lambda:None DURING FITS (critical): the real CPU-vs-GPU sweep is EXPENSIVE
+    # (benchmarks every (n,K) bucket x backend) and must NEVER run synchronously inside a
+    # user fit -- a cold-cache miss would hang the fit for minutes (observed: the sibling
+    # batch_pair_mi sweep cost 509s = 52% of a Hybrid fit). So fits resolve the backend from
+    # the per-host cache if populated, else the measurement-backed FALLBACK heuristic (which
+    # already encodes the measured crossover -> GPU for large n*K, CPU otherwise). The real
+    # sweep runs ONLY out-of-band via the @kernel_tuner registry + ``mlframe-tune-kernels``,
+    # which refines the per-host crossover offline. Mirrors the recursion-FE dispatch
+    # (run_auto_tune-gated tuner). The GPU is still used for large batches via the fallback.
     backend = "cpu"
     try:
         from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
 
-        from .batch_mi_noise_gate_gpu import (
-            _run_batch_mi_noise_gate_sweep,
-            _batch_mi_noise_gate_fallback_choice,
-        )
+        from .batch_mi_noise_gate_gpu import _batch_mi_noise_gate_fallback_choice
 
         # load_or_create() returns the MEMOIZED per-host cache singleton (~0ms/call); a bare
         # KernelTuningCache() ctor re-loads cache state from disk EVERY call (~0.75ms), which
@@ -102,7 +107,7 @@ def _dispatch_batch_mi_with_noise_gate(
         _res = KernelTuningCache.load_or_create().get_or_tune(
             "batch_mi_noise_gate",
             dims={"n_rows": int(n), "n_cols": int(K)},
-            tuner=_run_batch_mi_noise_gate_sweep,  # real CPU-vs-GPU sweep (bit-identical GPU)
+            tuner=lambda: None,  # NO synchronous sweep during fit; sweep runs via mlframe-tune-kernels
             axes=["n_rows", "n_cols"],
             fallback={"backend_choice": _batch_mi_noise_gate_fallback_choice(int(n), int(K))},
             code_version=_BATCH_MI_NOISE_GATE_CODE_VERSION,
