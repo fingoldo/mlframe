@@ -18,6 +18,7 @@ N_ROWS = int(os.environ.get("SCENE_N", "700"))
 
 
 def load_scene(n_rows):
+    """Load the OpenML 'scene' dataset (binarised to the majority-class target), optionally subsampled to n_rows rows."""
     from sklearn.datasets import fetch_openml
     d = fetch_openml(name="scene", version=1, as_frame=True, parser="auto")
     X = d.data.apply(pd.to_numeric, errors="coerce").fillna(0.0)
@@ -31,6 +32,7 @@ def load_scene(n_rows):
 
 
 def make_selector(fs):
+    """Construct the benchmark feature-selector wrapper for the given FS name (rfecv/boruta/shap/mrmr/mrmr_fe/hybrid)."""
     import fs_selectors as S
     if fs == "rfecv":
         return S.RFECVSel("lgbm_perm")  # permutation-importance path (~4-5x cost; the RFECV hotspot)
@@ -51,6 +53,7 @@ def make_selector(fs):
 
 
 def main():
+    """Run the per-FS cProfile campaign on a scene subsample (warm-JIT) and print the top mlframe-side hotspots by tottime + cumtime."""
     X, y = load_scene(N_ROWS)
     print(f"[FS={FS}] scene subsample: shape={X.shape} pos={float(y.mean()):.3f}", flush=True)
     # warm JIT/imports on a tiny fit (discarded), so the profiled fit shows the TRUE per-fit hotspot.

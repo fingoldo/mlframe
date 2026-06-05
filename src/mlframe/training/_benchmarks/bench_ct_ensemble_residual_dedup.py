@@ -79,6 +79,7 @@ def _bench_seed(seed: int, corr_threshold: float = 0.95) -> dict:
 
 
 def main() -> None:
+    """Benchmark the residual-correlation diversity-dedup gate against the full cross-target stack across seeds; writes the OFF/ON verdict JSON to _results/."""
     seeds = list(range(10))
     rows = [_bench_seed(s) for s in seeds]
     wins = sum(r["dedup_wins"] for r in rows)

@@ -130,6 +130,7 @@ def _bench_seed(seed: int) -> dict:
 
 
 def main() -> None:
+    """Benchmark MTR per-column NNLS weights fit on honest K-fold OOF vs equal_mean vs val-fit across seeds; writes the verdict JSON to _results/."""
     seeds = list(range(8))
     rows = [_bench_seed(s) for s in seeds]
     mean_eq = float(np.mean([r["rmse_equal_mean"] for r in rows]))

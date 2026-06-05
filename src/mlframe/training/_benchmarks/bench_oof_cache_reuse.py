@@ -82,6 +82,7 @@ def _bench_oof_cost(n: int = 4000, k_components: int = 4, kfold: int = 5) -> dic
 
 
 def main() -> None:
+    """Benchmark OOF-refit cache hit vs miss to decide whether wiring the module-level OOF cache on the suite path is worthwhile; writes the JSON to _results/."""
     rows = [_bench_oof_cost(n=n) for n in (2000, 4000, 8000)]
     print("OOF refit cost + cache-hit speedup (external callers that pass a stable cache_key)\n")
     print("| n | k | kfold | oof_refit_ms | keyed_first_ms | keyed_hit_ms | hit_speedup |")
