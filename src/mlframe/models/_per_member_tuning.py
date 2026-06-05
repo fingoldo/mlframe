@@ -58,7 +58,8 @@ _EQUIV_ATOL = 1e-9
 # Bump when _SWEEP_K or the _EQUIV_* tolerances change -- sweep semantics the
 # source hash can't see -- so cached tunings re-validate on the next call.
 # 2: 3-D njit std fixed to per-column form + ndim threaded into the cache key.
-_PER_MEMBER_SALT = 2
+# 3: sweep now measures ndim=2 AND ndim=3 separately -> ndim_eq-tagged regions.
+_PER_MEMBER_SALT = 3
 
 _AUTOTUNE_ATTEMPTED = False  # process-scoped guard: sweep at most once per process
 
@@ -80,6 +81,18 @@ def _numpy_2d(arr, med):
     return diffs.mean(axis=1), np.sqrt(np.var(diffs, axis=1))
 
 
+def _numpy_3d(arr, med):
+    """3-D (K, N, C) numpy reference matching the njit 3-D branch: per-column MAE
+    & std (std anchored at each column's own mean), then averaged across C."""
+    diffs = np.abs(arr - med[np.newaxis, :, :])
+    mae_per_col = diffs.mean(axis=1)
+    std_per_col = np.sqrt(diffs.var(axis=1))
+    return mae_per_col.mean(axis=1), std_per_col.mean(axis=1)
+
+
+_SWEEP_C = 3  # 3-D column count for the ndim=3 sweep (small -- hardest case for numba)
+
+
 def _resolve_max_elements(observed_elements, max_elements) -> int:
     """Bound the sweep to relevant sizes: explicit ``max_elements`` if given,
     else ~2x the observed triggering size, always within [2k, ceiling]."""
@@ -90,12 +103,55 @@ def _resolve_max_elements(observed_elements, max_elements) -> int:
     return 300_000  # no usage info -> modest default
 
 
+def _measure_per_member_crossover(ndim: int, grid: list, repeats: int, rng) -> tuple:
+    """Measure numpy-vs-numba per-member MAE/std across the element grid for one
+    ``ndim`` (2 or 3); return ``(crossover_elements_or_None, worst_abs_diff)``. A
+    variant that diverges from the numpy reference is never trusted (forces numpy).
+    n_groups is held at _SWEEP_K (the parallelism axis; the crossover is dominated
+    by elements_per_member)."""
+    ref = _numpy_2d if ndim == 2 else _numpy_3d
+    crossover = None
+    worst_diff = 0.0
+    for e in grid:
+        if ndim == 2:
+            arr = rng.standard_normal((_SWEEP_K, e))
+            med = rng.standard_normal(e)
+        else:
+            n = max(1, e // _SWEEP_C)
+            arr = rng.standard_normal((_SWEEP_K, n, _SWEEP_C))
+            med = rng.standard_normal((n, _SWEEP_C))
+        out_np = ref(arr, med)
+        out_nb = _per_member_mae_std_njit(arr, med)
+        diff = float(max(np.abs(out_np[0] - out_nb[0]).max(), np.abs(out_np[1] - out_nb[1]).max()))
+        worst_diff = max(worst_diff, diff)
+        equivalent = (np.allclose(out_np[0], out_nb[0], rtol=_EQUIV_RTOL, atol=_EQUIV_ATOL)
+                      and np.allclose(out_np[1], out_nb[1], rtol=_EQUIV_RTOL, atol=_EQUIV_ATOL))
+        # Steady-state prewarm of BOTH variants on this exact array before timing.
+        ref(arr, med)
+        _per_member_mae_std_njit(arr, med)
+        t_np = timeit.timeit(lambda: ref(arr, med), number=repeats) / repeats
+        t_nb = timeit.timeit(lambda: _per_member_mae_std_njit(arr, med), number=repeats) / repeats
+        if not equivalent:
+            logger.warning("per_member sweep ndim=%d e=%d K=%d: numba DIVERGES from numpy "
+                           "(maxdiff=%.2e > tol) -> forcing numpy regardless of speed", ndim, e, _SWEEP_K, diff)
+            winner = "numpy"
+        else:
+            winner = "numba" if t_nb < t_np else "numpy"
+            logger.info("per_member sweep ndim=%d e=%d K=%d: numpy=%.3fms numba=%.3fms maxdiff=%.2e -> %s",
+                        ndim, e, _SWEEP_K, t_np * 1e3, t_nb * 1e3, diff, winner)
+        if winner == "numba" and crossover is None:
+            crossover = e
+    return crossover, worst_diff
+
+
 def run_per_member_sweep(observed_elements: int | None = None, max_elements: int | None = None,
                          repeats: int = 25) -> list[dict]:
-    """Benchmark numpy vs numba across a bounded element grid on THIS host; return
-    an ordered region list for ``kernel_tuning_cache`` (numpy below the measured
-    crossover, numba at/above it). Logs per-size wall-time + max-abs-diff and
-    refuses any variant that diverges from the numpy reference."""
+    """Benchmark numpy vs numba across a bounded element grid on THIS host, for BOTH
+    ndim=2 and ndim=3 (separate crossovers -- the 3-D per-column reduction has a
+    different cost profile than the 2-D one). Returns ``ndim_eq``-tagged regions for
+    ``kernel_tuning_cache`` (numpy below the measured crossover, numba at/above it).
+    n_groups is fixed at _SWEEP_K (carried in the dispatch key but not swept; the
+    crossover is dominated by elements_per_member)."""
     if not _HAS_NUMBA_PER_MEMBER:
         logger.info("per_member sweep: numba unavailable -> numpy everywhere")
         return [{"elements_per_member_max": None, "backend_choice": "numpy"}]
@@ -105,46 +161,24 @@ def run_per_member_sweep(observed_elements: int | None = None, max_elements: int
     if not grid:
         grid = [_SWEEP_ELEMENTS[0]]
     rng = np.random.default_rng(0)
-    # Prewarm the numba per-signature JIT / disk-cache once for the (2-D, float64)
-    # signature before any timing, so even the first swept size never pays compile.
+    # Prewarm the numba JIT / disk-cache for BOTH the 2-D and 3-D float64 signatures.
     _per_member_mae_std_njit(rng.standard_normal((2, 16)), rng.standard_normal(16))
-    crossover = None
-    worst_diff = 0.0
-    for n in grid:
-        arr = rng.standard_normal((_SWEEP_K, n))
-        med = rng.standard_normal(n)
-        out_np = _numpy_2d(arr, med)
-        out_nb = _per_member_mae_std_njit(arr, med)
-        diff = float(max(np.abs(out_np[0] - out_nb[0]).max(), np.abs(out_np[1] - out_nb[1]).max()))
-        worst_diff = max(worst_diff, diff)
-        equivalent = (np.allclose(out_np[0], out_nb[0], rtol=_EQUIV_RTOL, atol=_EQUIV_ATOL)
-                      and np.allclose(out_np[1], out_nb[1], rtol=_EQUIV_RTOL, atol=_EQUIV_ATOL))
-        # Per-size prewarm: an extra steady-state pass of BOTH variants on this
-        # exact array so the timed loop measures steady state (warm CPU caches,
-        # warm numba code path), not the cold first iteration.
-        _numpy_2d(arr, med)
-        _per_member_mae_std_njit(arr, med)
-        t_np = timeit.timeit(lambda: _numpy_2d(arr, med), number=repeats) / repeats
-        t_nb = timeit.timeit(lambda: _per_member_mae_std_njit(arr, med), number=repeats) / repeats
-        if not equivalent:
-            # Faster-but-different -> never trust it; force the reference path.
-            logger.warning("per_member sweep n=%d K=%d: numba DIVERGES from numpy "
-                           "(maxdiff=%.2e > tol) -> forcing numpy regardless of speed", n, _SWEEP_K, diff)
-            winner = "numpy"
+    _per_member_mae_std_njit(rng.standard_normal((2, 8, _SWEEP_C)), rng.standard_normal((8, _SWEEP_C)))
+    regions: list[dict] = []
+    for ndim in (2, 3):
+        crossover, worst_diff = _measure_per_member_crossover(ndim, grid, repeats, rng)
+        if crossover is None:  # numba never won (or always diverged) for this ndim
+            regions.append({"ndim_eq": ndim, "elements_per_member_max": None,
+                            "backend_choice": "numpy", "max_abs_diff": worst_diff})
+        elif crossover <= grid[0]:  # numba won from the smallest swept size
+            regions.append({"ndim_eq": ndim, "elements_per_member_max": None,
+                            "backend_choice": "numba", "max_abs_diff": worst_diff})
         else:
-            winner = "numba" if t_nb < t_np else "numpy"
-            logger.info("per_member sweep n=%d K=%d: numpy=%.3fms numba=%.3fms maxdiff=%.2e -> %s",
-                        n, _SWEEP_K, t_np * 1e3, t_nb * 1e3, diff, winner)
-        if winner == "numba" and crossover is None:
-            crossover = n
-    if crossover is None:  # numba never won (or always diverged) on this HW
-        return [{"elements_per_member_max": None, "backend_choice": "numpy", "max_abs_diff": worst_diff}]
-    if crossover <= grid[0]:  # numba won from the smallest swept size
-        return [{"elements_per_member_max": None, "backend_choice": "numba", "max_abs_diff": worst_diff}]
-    return [
-        {"elements_per_member_max": crossover - 1, "backend_choice": "numpy", "max_abs_diff": worst_diff},
-        {"elements_per_member_max": None, "backend_choice": "numba", "max_abs_diff": worst_diff},
-    ]
+            regions.append({"ndim_eq": ndim, "elements_per_member_max": crossover - 1,
+                            "backend_choice": "numpy", "max_abs_diff": worst_diff})
+            regions.append({"ndim_eq": ndim, "elements_per_member_max": None,
+                            "backend_choice": "numba", "max_abs_diff": worst_diff})
+    return regions
 
 
 def ensure_per_member_tuning(observed_elements: int | None = None, observed_groups: int | None = None,
@@ -173,7 +207,7 @@ def ensure_per_member_tuning(observed_elements: int | None = None, observed_grou
         regions = run_per_member_sweep(observed_elements=observed_elements,
                                        max_elements=max_elements, repeats=repeats)
         cache.update(_PER_MEMBER_KERNEL_NAME,
-                     axes=["elements_per_member", "n_groups"], regions=regions)
+                     axes=["elements_per_member", "n_groups", "ndim"], regions=regions)
         logger.info("per_member auto-tune winners persisted to %s: %s", cache_path(), regions)
     except Exception as e:  # never let calibration break a training run
         logger.debug("per_member auto-tune failed (using fallback): %s", e)
@@ -182,11 +216,11 @@ def ensure_per_member_tuning(observed_elements: int | None = None, observed_grou
 # Register with the kernel-tuner registry so ``mlframe-tune-kernels`` /
 # ``retune_all`` can discover + batch-tune this kernel on a quiet machine. CPU
 # only (no GPU variant -- a CPU-resident axis-1 reduction; cupy was measured and
-# lost under both residencies on this HW). ``n_groups``/``ndim`` are carried in
-# the cache key so 2-D and 3-D CAN tune separately, but the current sweep varies
-# only the dominant ``elements_per_member`` axis -- 2-D and 3-D share that one
-# crossover. (The 3-D njit was fixed to per-column std, bit-identical to numpy,
-# so numba is a valid speed swap for BOTH ndims; see _per_member_use_numba.)
+# lost under both residencies on this HW). The sweep measures ndim=2 AND ndim=3
+# separately -> ``ndim_eq``-tagged regions, so the two get their own crossovers
+# (the 3-D njit was fixed to per-column std, bit-identical to numpy). ``n_groups``
+# is carried in the dispatch key but held at _SWEEP_K in the sweep (the parallelism
+# axis; the crossover is dominated by elements_per_member).
 from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
 kernel_tuner(
