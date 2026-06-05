@@ -347,7 +347,7 @@ def get_training_configs(
             verbose=verbose,
         )
         if verbose:
-            print(len(y_true), "integral_calibration_error=", err)
+            logger.debug("integral_calibration_error=%s (n=%d)", err, len(y_true))
         return err
 
     def make_robust_ts_metric(

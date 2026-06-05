@@ -76,14 +76,119 @@ DEFAULT_PROBABILITY_THRESHOLD = 0.5
 ConfigT = TypeVar("ConfigT")
 
 
+def tune_decision_threshold(
+    y_true: np.ndarray,
+    pos_proba: np.ndarray,
+    *,
+    metric: str = "f1",
+    default: float = DEFAULT_PROBABILITY_THRESHOLD,
+    n_candidates: int = 200,
+) -> float:
+    """Tune a binary decision threshold on a NON-TEST split (val or OOF) by maximising a label metric.
+
+    LEAKAGE-CRITICAL: callers MUST pass val/OOF labels + probabilities only -- never the honest
+    test holdout. This function has no knowledge of which split it received; the leak-safety
+    contract lives at the call site (the suite stamps the result into metadata from val/OOF).
+
+    For imbalanced / cost-asymmetric targets a fixed 0.5 produces poor hard labels even when the
+    probabilities are well-calibrated; sweeping the threshold on val/OOF recovers F1 / balanced
+    accuracy. Returns ``default`` (0.5) when the input is degenerate (single class present, empty,
+    or non-finite probabilities) so the leak-safe fallback always holds.
+
+    Parameters
+    ----------
+    y_true : array of {0, 1}
+        Ground-truth labels from a val/OOF split.
+    pos_proba : array, same length
+        Predicted P(y=1) on the same split.
+    metric : {"f1", "balanced_accuracy"}
+        Objective to maximise over the candidate grid.
+    default : float
+        Returned unchanged when tuning is not applicable (leak-safe 0.5).
+    n_candidates : int
+        Number of evenly spaced thresholds in the open interval (0, 1) to evaluate.
+    """
+    y = np.asarray(y_true).ravel()
+    p = np.asarray(pos_proba, dtype=np.float64).ravel()
+    if y.shape[0] == 0 or y.shape[0] != p.shape[0] or not np.all(np.isfinite(p)):
+        return float(default)
+    classes = np.unique(y)
+    if classes.shape[0] < 2:
+        # Single-class val/OOF: nothing to tune, 0.5 is as good as any.
+        return float(default)
+
+    if metric == "f1":
+        from sklearn.metrics import f1_score
+        scorer = lambda yt, yp: f1_score(yt, yp, zero_division=0)
+    elif metric == "balanced_accuracy":
+        from sklearn.metrics import balanced_accuracy_score
+        scorer = balanced_accuracy_score
+    else:
+        raise ValueError(f"tune_decision_threshold: unsupported metric {metric!r}; use 'f1' or 'balanced_accuracy'.")
+
+    candidates = np.linspace(0.0, 1.0, n_candidates + 2)[1:-1]
+    best_thr = float(default)
+    best_score = scorer(y, (p >= default).astype(np.int8))
+    for thr in candidates:
+        s = scorer(y, (p >= thr).astype(np.int8))
+        if s > best_score:
+            best_score = s
+            best_thr = float(thr)
+    return best_thr
+
+
+def get_decision_threshold(metadata: dict | None, target_key: str | None = None, default: float = DEFAULT_PROBABILITY_THRESHOLD) -> float:
+    """Read a per-target tuned decision threshold stamped into metadata, falling back to 0.5.
+
+    The suite stamps thresholds under ``metadata["decision_thresholds"][target_key]`` (tuned on
+    val/OOF by :func:`tune_decision_threshold`). Predict paths call this so they reuse the tuned
+    threshold instead of the hardcoded 0.5; an absent / malformed entry yields the leak-safe default.
+    """
+    if not isinstance(metadata, dict):
+        return float(default)
+    table = metadata.get("decision_thresholds")
+    if not isinstance(table, dict):
+        return float(default)
+    if target_key is None:
+        return float(default)
+    val = table.get(target_key)
+    try:
+        thr = float(val)
+    except (TypeError, ValueError):
+        return float(default)
+    if not np.isfinite(thr) or not (0.0 < thr < 1.0):
+        return float(default)
+    return thr
+
+
 def _ensure_config(
     config: ConfigT | dict[str, Any] | None,
     config_class: type,
     kwargs: dict[str, Any],
 ) -> ConfigT:
-    """Convert dict/None to Pydantic config object."""
+    """Convert dict/None to Pydantic config object.
+
+    Dict path is STRICT: a user-supplied config dict that carries a key which
+    is neither a declared field nor a whitelisted ``_known_extras`` pass-through
+    raises ``ValueError`` so typos (``iteratoins=100``) fail loud instead of
+    being silently absorbed by ``extra="allow"``. The None path keeps filtering
+    the ambient kwargs to declared fields (those kwargs are the suite's own
+    superset, not a user-typed dict, so unknown ones are expected and dropped).
+    """
     if isinstance(config, dict):
-        return config_class(**config)
+        obj = config_class(**config)
+        extras = getattr(obj, "model_extra", None) or {}
+        if extras:
+            known = getattr(config_class, "_known_extras", frozenset()) or frozenset()
+            unknown = sorted(k for k in extras if k not in known)
+            if unknown:
+                raise ValueError(
+                    f"{config_class.__name__} received unknown config key(s) {unknown}. "
+                    f"These are not declared fields and not whitelisted pass-through extras "
+                    f"({sorted(known) or '(none)'}). Likely a typo -- fix the key or add it "
+                    f"to the model. Declared fields: {sorted(config_class.model_fields)}."
+                )
+        return obj
     elif config is None:
         return config_class(**{k: v for k, v in kwargs.items() if k in config_class.model_fields})
     return config

@@ -480,14 +480,13 @@ class TrainingBehaviorConfig(BaseConfig):
     default_regression_scoring: Optional[Dict[str, Any]] = None
     callback_params: Optional[Dict[str, Any]] = None
     cb_fit_params: Optional[Dict[str, Any]] = None
-    # Default True: faulthandler + Windows WER suppression are pure
-    # diagnostics -- they don't change training behavior, only replace
-    # the "Python has stopped working" modal with a Python traceback.
-    # Users who rely on the WER popup (rare) can opt out.
+    # Default True: faulthandler + Windows WER suppression are pure diagnostics -- they don't change training behavior, only replace the "Python has stopped working" modal with a Python traceback. Users who rely on the WER popup (rare) can opt out.
     enable_crash_reporting: bool = True
-    # Default False: silently skipping a failed model is a semantic
-    # shift that users must opt into explicitly.
+    # Default False: silently skipping a failed model is a semantic shift that users must opt into explicitly.
     continue_on_model_failure: bool = False
+    # Per-target binary decision-threshold tuning on val/OOF (NEVER test). When True the suite sweeps the threshold maximising ``tune_decision_threshold_metric`` on the val slice per binary target and stamps it into ``metadata["decision_thresholds"]`` so predict reuses it; 0.5 stays the leak-safe fallback. Default False -- it changes hard-label ``preds`` (and confusion-matrix metrics), an accuracy tradeoff users opt into; probabilities are unaffected.
+    tune_decision_threshold: bool = False
+    tune_decision_threshold_metric: str = "f1"  # "f1" or "balanced_accuracy"
 
     # Curve-shape ES detector (default ON).
     # Triggers when, starting from the best-known iteration, the monitored val metric

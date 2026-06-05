@@ -979,6 +979,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             cur_target_name=cur_target_name,
             current_common_params=locals().get("current_common_params"),
             common_params=common_params,
+            current_val_target=current_val_target,
             pre_pipeline_name=pre_pipeline_name,
             models=models,
             target_type=target_type,

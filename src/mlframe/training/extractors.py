@@ -137,7 +137,7 @@ class FeaturesAndTargetsExtractor:
         self, df: Union[pd.DataFrame, pl.DataFrame], target_by_type: dict
     ) -> None:
         """Display information about processed data and targets."""
-        print("Processed data:")
+        logger.info("Processed data:")
         showcase_features_and_targets(df, target_by_type)
         log_ram_usage()
 

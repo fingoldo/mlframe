@@ -76,9 +76,10 @@ def _align_xgb_cat_categories(model_type_name, train_df, val_df=None, test_df=No
     # harmless for CB/HGB/LGB (they tolerate unseen cats but accept the
     # union dtype identically). Cost: one cat-column scan per frame.
     if os.environ.get("MLFRAME_CAT_DIAG"):
-        print(
-            f"[CAT-DIAG-ENTER] model={model_type_name}, train_df type={type(train_df).__name__}, is_pandas={isinstance(train_df, pd.DataFrame)}, is_polars={isinstance(train_df, pl.DataFrame)}",
-            flush=True,
+        logger.debug(
+            "[CAT-DIAG-ENTER] model=%s, train_df type=%s, is_pandas=%s, is_polars=%s",
+            model_type_name, type(train_df).__name__,
+            isinstance(train_df, pd.DataFrame), isinstance(train_df, pl.DataFrame),
         )
 
     # Polars frames: alignment is now done UPSTREAM by
@@ -123,9 +124,9 @@ def _align_xgb_cat_categories(model_type_name, train_df, val_df=None, test_df=No
                     if _c in _df.columns:
                         _cats = list(_df[_c].cat.categories)
                         _vals_unique = sorted(set(str(v) for v in _df[_c].dropna()))
-                        print(f"[CAT-DIAG] model={model_type_name} {_df_name}.{_c}: dtype.categories={_cats}, actual_unique={_vals_unique}", flush=True)
+                        logger.debug("[CAT-DIAG] model=%s %s.%s: dtype.categories=%s, actual_unique=%s", model_type_name, _df_name, _c, _cats, _vals_unique)
         except Exception as _exc:
-            print(f"[CAT-DIAG] failed: {_exc}", flush=True)
+            logger.debug("[CAT-DIAG] failed: %s", _exc)
 
     if not cat_cols_to_align:
         return train_df, val_df, test_df

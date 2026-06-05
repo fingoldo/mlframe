@@ -29,6 +29,7 @@ from .._cb_pool import _predict_with_fallback
 from ..utils import drop_columns_from_dataframe, get_pandas_view_of_polars_df
 from .utils import (
     DEFAULT_PROBABILITY_THRESHOLD,
+    get_decision_threshold,
     _drop_cols_df,
     _setup_model_directories,
     _validate_input_columns_against_metadata,
@@ -494,9 +495,11 @@ def predict_from_models(
                         all_calib_flags.append(_is_cal)
                         per_target_calib_flags.setdefault((target_type, target_name), []).append(_is_cal)
 
+                        # Binary threshold from val/OOF-tuned metadata (never test); 0.5 fallback.
+                        _bin_thr = get_decision_threshold(metadata, f"{target_type}|{target_name}", DEFAULT_PROBABILITY_THRESHOLD)
                         if probs.ndim == 2:
                             if probs.shape[1] == 2:
-                                preds = (probs[:, 1] > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
+                                preds = (probs[:, 1] >= _bin_thr).astype(int)
                             else:
                                 # Wave 21 P2: nan-safe argmax (second predict
                                 # entry point; symmetric to L964 fix).
@@ -505,7 +508,7 @@ def predict_from_models(
                                     probs, context=f"predict_from_models.{model_name}",
                                 )
                         else:
-                            preds = (probs > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
+                            preds = (probs >= _bin_thr).astype(int)
                         results["predictions"][model_name] = preds
                         all_preds.append(preds)
                         per_target_preds.setdefault((target_type, target_name), []).append(preds)
@@ -566,9 +569,10 @@ def predict_from_models(
                     except Exception as _qe:
                         logger.warning("predict_from_models: fix_quantile_crossing failed: %s", _qe)
             results["per_target_probabilities"][_key] = _combined
+            _ens_thr = get_decision_threshold(metadata, f"{_tt}|{_tname}", DEFAULT_PROBABILITY_THRESHOLD)
             if _combined.ndim == 2:
                 if _combined.shape[1] == 2:
-                    _t_preds = (_combined[:, 1] > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
+                    _t_preds = (_combined[:, 1] >= _ens_thr).astype(int)
                 else:
                     # NaN-safe argmax: _combine_probs can emit NaN rows; plain
                     # np.argmax routes them silently to class 0.
@@ -577,7 +581,7 @@ def predict_from_models(
                         _combined, context=f"predict_from_models.per_target.{_key}",
                     )
             else:
-                _t_preds = (_combined > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
+                _t_preds = (_combined >= _ens_thr).astype(int)
             results["per_target_predictions"][_key] = _t_preds
 
         # Suite-wide ensemble: resolve a single flavour when one was chosen across the suite, else arithmetic mean.

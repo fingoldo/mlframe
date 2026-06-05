@@ -19,6 +19,9 @@ logger = logging.getLogger(__name__)
 def _canonical_predict_proba_shape(probs, classes_=None):
     """Force a classifier's ``predict_proba`` output into ``(N, K)`` shape.
 
+    Public alias: ``mlframe.training.canonical_predict_proba_shape`` (re-exported
+    without the leading underscore; that name carries the stability contract).
+
     Handles every form a classifier might return:
     - ``np.ndarray`` shape ``(N, K)`` (sklearn binary, CB native, etc.) → pass-through
     - ``List[np.ndarray]`` of length K, each shape ``(N, 2)`` (``MultiOutputClassifier``)
@@ -89,6 +92,9 @@ def _canonical_predict_proba_shape(probs, classes_=None):
 
 def _predict_from_probs(probs_NK, target_type, classes_=None, threshold=0.5):
     """Decision rule converting an (N, K) probability matrix to predictions.
+
+    Public alias: ``mlframe.training.predict_from_probs`` (re-exported without
+    the leading underscore; that name carries the stability contract).
 
     Parameters
     ----------

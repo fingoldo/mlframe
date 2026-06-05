@@ -175,6 +175,26 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         self.runtime_stats_callback = runtime_stats_callback
 
     # ------------------------------------------------------------------
+    # Predict family -- thin in-body delegating stubs.
+    #
+    # The implementations live in ``_composite_target_estimator_predict`` and
+    # were historically bound only via runtime class-attribute assignment at
+    # this module's bottom, which made them invisible to mypy / IDEs / help().
+    # These stubs make the public predict surface discoverable while the heavy
+    # bodies stay carved out.
+    # ------------------------------------------------------------------
+
+    def predict(self, X: Any) -> "np.ndarray":
+        """y-scale point prediction (inner predict on T-scale, then invert). See ``_composite_target_estimator_predict.predict``."""
+        from . import _composite_target_estimator_predict as _pred
+        return _pred.predict(self, X)
+
+    def predict_quantile(self, X: Any, alpha: "float | Sequence[float]" = 0.5) -> "np.ndarray":
+        """y-scale quantile prediction by inverting the inner's T-scale quantile. See ``_composite_target_estimator_predict.predict_quantile``."""
+        from . import _composite_target_estimator_predict as _pred
+        return _pred.predict_quantile(self, X, alpha)
+
+    # ------------------------------------------------------------------
     # Alternate constructor: post-hoc wrapping
     # ------------------------------------------------------------------
 
@@ -684,8 +704,9 @@ CompositeTargetEstimator.n_features_in_ = property(_utils.n_features_in_)
 
 CompositeTargetEstimator._predict_unclipped = _pred._predict_unclipped
 CompositeTargetEstimator.predict_pre_clip = _pred.predict_pre_clip
-CompositeTargetEstimator.predict = _pred.predict
-CompositeTargetEstimator.predict_quantile = _pred.predict_quantile
+# ``predict`` / ``predict_quantile`` are now defined as in-body delegating stubs
+# on the class (discoverable to mypy / IDE / help()); the heavy implementations
+# stay in ``_pred`` and are reached via those stubs.
 
 CompositeTargetEstimator.update = _upd.update
 CompositeTargetEstimator.get_buffer_state = _upd.get_buffer_state

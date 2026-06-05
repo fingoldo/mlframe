@@ -29,6 +29,7 @@ from .._cb_pool import _predict_with_fallback
 from ..utils import drop_columns_from_dataframe, get_pandas_view_of_polars_df
 from .utils import (
     DEFAULT_PROBABILITY_THRESHOLD,
+    get_decision_threshold,
     _drop_cols_df,
     _setup_model_directories,
     _validate_input_columns_against_metadata,
@@ -363,9 +364,12 @@ def predict_mlframe_models_suite(
 
                 # Shape-aware decision rule: 1-D = sigmoid threshold; (N,2) = threshold class-1;
                 # (N,K>2) = argmax. Multilabel cannot be inferred from shape; caller must hold that contract.
+                # Binary threshold is the per-target tuned value stamped into metadata (val/OOF-tuned,
+                # never test); falls back to 0.5 when no tuned threshold is present.
+                _bin_thr = get_decision_threshold(metadata, f"{_tt}|{_tn}", DEFAULT_PROBABILITY_THRESHOLD)
                 if probs.ndim == 2:
                     if probs.shape[1] == 2:
-                        preds = (probs[:, 1] > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
+                        preds = (probs[:, 1] >= _bin_thr).astype(int)
                     else:
                         # Wave 21 P2: nan-safe argmax. Pre-fix np.argmax
                         # on a NaN-bearing proba row silently classified
@@ -376,7 +380,7 @@ def predict_mlframe_models_suite(
                             probs, context=f"predict.{model_name}",
                         )
                 else:
-                    preds = (probs > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
+                    preds = (probs >= _bin_thr).astype(int)
                 results["predictions"][model_name] = preds
                 all_preds.append(preds)
                 per_target_preds.setdefault((_tt, _tn), []).append(preds)
@@ -441,9 +445,10 @@ def predict_mlframe_models_suite(
                     except Exception as _qe:
                         logger.warning("predict_mlframe_models_suite: fix_quantile_crossing failed: %s", _qe)
             results["per_target_probabilities"][_key] = _combined
+            _ens_thr = get_decision_threshold(metadata, f"{_tt_k}|{_tn_k}", DEFAULT_PROBABILITY_THRESHOLD)
             if _combined.ndim == 2:
                 if _combined.shape[1] == 2:
-                    _t_preds = (_combined[:, 1] > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
+                    _t_preds = (_combined[:, 1] >= _ens_thr).astype(int)
                 else:
                     # NaN-safe argmax: _combine_probs (RRF / geomean / harmonic) can emit
                     # NaN when a member row was NaN; plain np.argmax silently routes the
@@ -453,7 +458,7 @@ def predict_mlframe_models_suite(
                         _combined, context=f"predict_mlframe_models_suite.per_target.{_key}",
                     )
             else:
-                _t_preds = (_combined > DEFAULT_PROBABILITY_THRESHOLD).astype(int)
+                _t_preds = (_combined >= _ens_thr).astype(int)
             results["per_target_predictions"][_key] = _t_preds
 
         # Suite-wide ensemble: resolve a single flavour when one was chosen across the suite, else arithmetic mean.

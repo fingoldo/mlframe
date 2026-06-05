@@ -160,6 +160,61 @@ def _signature_of(X, categorical_feature=None) -> tuple:
     return compute_signature(X, extra=(cat_key,))
 
 
+def _is_pair_item(obj: Any) -> bool:
+    """True when ``obj`` looks like an X/y array (DataFrame / ndarray / polars / Series), i.e. one element of a bare (X, y[, w]) bundle."""
+    if isinstance(obj, (str, bytes)) or isinstance(obj, (list, tuple)):
+        return False
+    return bool(
+        hasattr(obj, "shape") or hasattr(obj, "columns")
+        or hasattr(obj, "iloc") or hasattr(obj, "dtypes")
+    )
+
+
+def normalize_eval_set(eval_set: Any) -> Optional[List[tuple]]:
+    """Canonicalize an LGBM ``eval_set`` to a list-of-tuples once at the fit boundary.
+
+    Accepts and returns:
+      * ``None`` -> ``None``
+      * a bare ``(X, y)`` / ``(X, y, w)`` tuple -> ``[(X, y[, w])]``
+      * a bare ``[X, y]`` / ``[X, y, w]`` list (array-like items) -> ``[(X, y[, w])]``
+      * a proper list of ``(X, y[, w])`` pairs -> the same list (items coerced to tuples)
+
+    The bare 2/3-element forms are ambiguous with a genuine list of feature matrices;
+    the disambiguator is ``_is_pair_item`` (first element is array-like) plus a guard
+    that a real (X, y) bundle has y strictly lower-rank than X. Downstream code can
+    then assume a clean list-of-tuples and assert that invariant.
+    """
+    if eval_set is None:
+        return None
+
+    # Bare tuple form: (X, y) or (X, y, w) where the first element is array-like.
+    if isinstance(eval_set, tuple):
+        if len(eval_set) in (2, 3) and _is_pair_item(eval_set[0]):
+            return [tuple(eval_set)]
+        # Otherwise treat as an iterable of pairs.
+        return [tuple(p) for p in eval_set]
+
+    if isinstance(eval_set, list):
+        # Bare list form [X, y] / [X, y, w]: first element is array-like, not a pair.
+        if len(eval_set) in (2, 3) and _is_pair_item(eval_set[0]) and not isinstance(eval_set[1], (list, tuple)):
+            _first, _second = eval_set[0], eval_set[1]
+            _first_shape = getattr(_first, "shape", None)
+            _second_shape = getattr(_second, "shape", None)
+            # A genuine list of feature matrices has both elements 2-D with matching ncols;
+            # a real (X, y) bundle has y of rank 1 (or fewer cols). Only wrap the latter.
+            _is_list_of_matrices = (
+                _second_shape is not None and len(_second_shape) >= 2
+                and _first_shape is not None and len(_first_shape) >= 2
+                and _second_shape[1] == _first_shape[1]
+            )
+            if not _is_list_of_matrices:
+                return [tuple(eval_set)]
+        # Proper list of pairs.
+        return [tuple(p) for p in eval_set]
+
+    raise TypeError(f"lgb_shim: unsupported eval_set type {type(eval_set).__name__}; expected None, tuple, or list.")
+
+
 def _build_dataset(
     X, y, sample_weight,
     *,
@@ -450,63 +505,22 @@ class _DatasetReuseMixin:
             )
 
         # ---- Eval Dataset(s): cache-or-build -------------------------
-        # LightGBM's lgb.train() accepts valid_sets as a list and
-        # valid_names as a parallel list of names.
-        # mlframe (and vanilla LGBM sklearn) sometimes pass a bare
-        # ``(X_val, y_val)`` 2-tuple instead of ``[(X_val, y_val)]``
-        # for the single-eval-set case (see trainer.py:3041 for the
-        # bare-tuple normalization). Without this guard, iterating
-        # over the bare tuple would yield X_val on the first pass and
-        # y_val on the second -- with X_val a DataFrame, the unpack
-        # ``X_val, y_val_raw = pair`` would silently destructure its
-        # column names and feed ``np.str_('col_name')`` into the
-        # LabelEncoder. Normalize to a list-of-tuples up front.
-        if eval_set is not None and isinstance(eval_set, tuple):
-            # Heuristic: a 2- or 3-tuple whose first element is array-like
-            # (DataFrame / ndarray / similar) is the bare-tuple form.
-            if len(eval_set) in (2, 3) and not isinstance(eval_set[0], (list, tuple)):
-                eval_set = [eval_set]
-        # Same bare-2/3-LIST form ``[X_val, y_val]``: iterating yields X then
-        # y, and ``pair_seq[0]`` then returns the first column of the DataFrame
-        # (label-name aliasing). Detect by checking the first element is
-        # array-like rather than a (X, y) tuple/list-pair.
-        if eval_set is not None and isinstance(eval_set, list) and len(eval_set) in (2, 3):
-            _first = eval_set[0]
-            # A real list-of-pairs has tuple/list items; a bare list-pair has
-            # array-like items (DataFrame, ndarray, polars frame, Series).
-            if not isinstance(_first, (list, tuple)) and hasattr(_first, "__len__") and not isinstance(_first, (str, bytes)):
-                _looks_like_pair_item = (
-                    hasattr(_first, "shape") or hasattr(_first, "columns")
-                    or hasattr(_first, "iloc") or hasattr(_first, "dtypes")
-                )
-                if _looks_like_pair_item:
-                    # Second arm: confirm shape-shape disagreement consistent
-                    # with a (X, y[, w]) bundle rather than a list of equal-
-                    # rank feature matrices. y has shape (N,) or (N, K) and is
-                    # almost always strictly lower-rank than X. If the second
-                    # element is ALSO 2-D + matches X's ncols, treat as a
-                    # legit list of N feature matrices and DO NOT wrap.
-                    _second = eval_set[1]
-                    _first_ncols = getattr(_first, "shape", (None, None))
-                    _second_shape = getattr(_second, "shape", None)
-                    _is_legit_list_of_matrices = (
-                        _second_shape is not None
-                        and len(_second_shape) >= 2
-                        and _first_ncols
-                        and len(_first_ncols) >= 2
-                        and _second_shape[1] == _first_ncols[1]
-                    )
-                    if not _is_legit_list_of_matrices:
-                        eval_set = [tuple(eval_set)]
+        # Normalize eval_set to a canonical list-of-tuples ONCE at the boundary.
+        # LightGBM's lgb.train() takes valid_sets as a list + parallel valid_names.
+        # mlframe / vanilla LGBM sklearn sometimes pass a bare ``(X_val, y_val)``
+        # tuple (or ``[X_val, y_val]`` list) for the single-eval-set case; left
+        # un-normalized, iterating yields X then y and the (X, y) unpack would
+        # destructure DataFrame column names into the LabelEncoder.
+        eval_set = normalize_eval_set(eval_set)
         valid_sets: list[Any] = []
         valid_names: list[str] = []
         if eval_set:
             for i, pair in enumerate(eval_set):
-                # eval_set items follow LightGBM convention but in
-                # practice arrive as 2-tuple (X, y), 3-tuple (X, y, w),
-                # OR longer if downstream wraps them with extras. Take
-                # the first 2-3 elements robustly.
-                pair_seq = tuple(pair)
+                assert isinstance(pair, tuple) and len(pair) in (2, 3), (
+                    f"lgb_shim: normalized eval_set item {i} is {type(pair).__name__} "
+                    f"len {len(pair) if hasattr(pair, '__len__') else '?'}; expected a 2/3-tuple."
+                )
+                pair_seq = pair
                 X_val, y_val_raw = pair_seq[0], pair_seq[1]
                 # Same Arrow split-blocks bridge as train X: keeps Categorical dtype intact, avoids the ``__array__`` numpy fallthrough.
                 X_val = _maybe_bridge_polars_to_pandas(X_val)
@@ -748,6 +762,7 @@ if _LGB_AVAILABLE:
 
 __all__ = [
     "lgb_dataset_reuse_capable",
+    "normalize_eval_set",
     "LGBMClassifierWithDatasetReuse",
     "LGBMRegressorWithDatasetReuse",
 ]

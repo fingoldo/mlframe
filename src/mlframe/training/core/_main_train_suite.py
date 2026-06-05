@@ -12,6 +12,22 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 logger = logging.getLogger(__name__)
 
+# Suite return contract: ``(models_dict, metadata_dict)``. ``models_dict`` maps
+# per-target/per-model keys to fitted estimators; ``metadata_dict`` carries the
+# run's reports, splits, and provenance. The LTR-dispatch passthrough must
+# return this same 2-tuple shape (asserted by ``_assert_suite_return_shape``).
+SuiteResult = Tuple[Dict[str, Any], Dict[str, Any]]
+
+
+def _assert_suite_return_shape(result: Any, *, source: str) -> SuiteResult:
+    """Verify an LTR-dispatch passthrough matches the suite's ``(models, metadata)`` contract."""
+    if not (isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], dict) and isinstance(result[1], dict)):
+        raise TypeError(
+            f"{source} returned {type(result).__name__} not matching the suite "
+            f"(models_dict, metadata_dict) 2-tuple contract."
+        )
+    return result
+
 import numpy as np
 import pandas as pd
 import polars as pl
@@ -139,7 +155,7 @@ def train_mlframe_models_suite(
     # (legacy behaviour). See ``_target_distribution_analyzer.py``.
     enable_target_distribution_analyzer: bool = True,
     verbose: int = 1,
-) -> Tuple[Dict, Dict]:
+) -> SuiteResult:
     """
     Train a suite of ML models on a dataset.
 
@@ -176,7 +192,34 @@ def train_mlframe_models_suite(
         output_config: Filesystem destinations - ``data_dir``, ``models_dir``, ``plot_file``, ``save_charts``.
         outlier_detection_config: Outlier-detector + ``apply_to_val``.
 
-        verbose: Verbosity level (0=silent, 1=info, 2=debug)
+        target_type: Explicit ``TargetTypes`` override. None auto-detects from the extractor;
+            LEARNING_TO_RANK routes to the ranker suite. See ``TargetTypes``.
+        ranking_config: LTR-only dispatch knobs (objectives, eval cutoffs, rank fusion). See ``LearningToRankConfig``.
+        preprocessing_extensions: Optional FE-extension transforms (PySR, polynomial, etc.). See ``PreprocessingExtensionsConfig``.
+        feature_types_config: Numeric/categorical/text type-detection overrides. See ``FeatureTypesConfig``.
+        linear_model_config: Linear-model family hyperparameters. See ``LinearModelConfig``.
+        multilabel_dispatch_config: Multilabel-only strategy (wrapper/chain/native). See ``MultilabelDispatchConfig``.
+        confidence_analysis_config: SHAP-based confidence-of-correct-prediction analysis. See ``ConfidenceAnalysisConfig``.
+        baseline_diagnostics_config: Baseline ablation / quick-model diagnostics. See ``BaselineDiagnosticsConfig``.
+        dummy_baselines_config: Per-target dummy-baseline computation. See ``DummyBaselinesConfig``.
+        quantile_regression_config: Quantile-regression alphas / crossing-fix / coverage. See ``QuantileRegressionConfig``.
+        composite_target_discovery_config: Composite-target (diff/ratio/linres) discovery. ``MLFRAME_DISABLE_COMPOSITE=1`` forces off. See ``CompositeTargetDiscoveryConfig``.
+        feature_handling_config: Feature-handling / caching config bundle (advanced). See the feature_handling package.
+        enable_target_distribution_analyzer: When True (default), run the mini-HPT target-distribution analyzer
+            (heavy-tail / multi-modal / strong-AR / imbalance detection) and merge gap-fill hyperparameter recommendations.
+
+        verbose: Verbosity level (0=silent, 1=info, 2=debug). Mapped to a root logging level at entry
+            (1->INFO, 2->DEBUG); per-site gates still distinguish only silent vs non-silent.
+
+    Side effects (process-wide, irreversible):
+        Running this suite installs idempotent monkeypatches on installed third-party libraries that persist
+        for the process lifetime and affect EVERY consumer of those libraries in the same process (not just
+        mlframe): a patched ``lightgbm.sklearn.LGBMModel.feature_names_in_`` property, logging wrappers on
+        ``catboost.Pool`` / ``xgboost.DMatrix`` / ``lightgbm.Dataset`` constructors, and a
+        ``joblib.externals.loky`` physical-core override. There is no un-patch path. Bare
+        ``import mlframe.training`` does NOT patch anything (the patches are lazy, applied on first suite call).
+        Where mlframe controls the call site, prefer the ``make_pool`` / ``make_dmatrix`` / ``make_lgb_dataset``
+        factories in ``_model_factories`` over the global constructor wrapping.
 
         precomputed: Opt-in ``TrainMlframeSuitePrecomputed`` bundle for repeated-suite-on-same-train
             benchmarking. When supplied, each non-None field skips the matching in-suite compute step:
@@ -209,8 +252,11 @@ def train_mlframe_models_suite(
         ```
     """
 
+    # Map the 0/1/2 verbose contract to a logging level once at entry so
+    # ``verbose=2`` actually surfaces DEBUG output (the per-site ``if verbose:``
+    # gates only distinguish silent vs non-silent; the level does the 1-vs-2 work).
     if verbose:
-        _ensure_logging_visible()
+        _ensure_logging_visible(level=logging.DEBUG if verbose >= 2 else logging.INFO)
 
     import sys as _sys
     apply_module_global_patches(_sys.modules[__name__])
@@ -268,7 +314,7 @@ def train_mlframe_models_suite(
         features_and_targets_extractor=features_and_targets_extractor,
     )
     if _ltr_result is not None:
-        return _ltr_result
+        return _assert_suite_return_shape(_ltr_result, source="_maybe_dispatch_to_ltr_ranker_suite")
 
     preprocessing_config = ctx.preprocessing_config
     pipeline_config = ctx.pipeline_config
@@ -313,7 +359,7 @@ def train_mlframe_models_suite(
         features_and_targets_extractor=features_and_targets_extractor,
     )
     if _ltr_auto_result is not None:
-        return _ltr_auto_result
+        return _assert_suite_return_shape(_ltr_auto_result, source="maybe_autoroute_autodetected_ltr")
     group_ids_raw = ctx.group_ids_raw
     group_ids = ctx.group_ids
     timestamps = ctx.timestamps
@@ -586,7 +632,8 @@ def train_mlframe_models_suite(
     try:
         if data_dir:
             _discovery_cache_dir = str(_P(data_dir) / ".discovery_cache")
-    except Exception:
+    except (TypeError, OSError) as e:
+        logger.debug("discovery cache dir disabled (data_dir=%r): %s", data_dir, e)
         _discovery_cache_dir = None
     if not maybe_apply_composite_target_specs_precomputed(
         _precomp_fp_ok=_precomp_fp_ok,

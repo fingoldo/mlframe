@@ -18,7 +18,7 @@ from sklearn.exceptions import NotFittedError
 try:
     import polars as pl  # type: ignore
     _HAS_POLARS = True
-except Exception:  # pragma: no cover - polars optional dep
+except ImportError:  # pragma: no cover - polars optional dep
     pl = None  # type: ignore
     _HAS_POLARS = False
 

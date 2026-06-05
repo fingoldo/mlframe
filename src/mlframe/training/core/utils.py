@@ -17,6 +17,8 @@ from ._setup_helpers import (  # noqa: E402,F401
     _create_initial_metadata,
     _initialize_training_defaults,
     _finalize_and_save_metadata,
+    tune_decision_threshold,
+    get_decision_threshold,
 )
 
 from ._phase_helpers import (  # noqa: E402,F401

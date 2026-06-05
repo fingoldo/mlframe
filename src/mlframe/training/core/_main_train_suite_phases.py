@@ -429,49 +429,52 @@ def export_votenrank_leaderboards(
 
     CSV export lands under ``output_config.data_dir/.leaderboard.csv`` when data_dir is set. The wire is read-only on ``ctx.ensembles`` so it can't reach back into the per-target loop and is safe to skip when F2 has not emitted any leaderboard yet (forward-compat with older score_ensemble builds).
     """
-    try:
-        _leaderboards = {}
-        for _tt, _by_name in (ctx.ensembles or {}).items():
-            for _tname, _ens_dict in (_by_name or {}).items():
-                if not isinstance(_ens_dict, dict):
-                    continue
-                _lb = _ens_dict.get("_leaderboard")
-                if _lb is None:
-                    continue
-                _leaderboards.setdefault(str(_tt), {})[_tname] = _lb
-        if _leaderboards:
-            ctx.metadata["votenrank_leaderboard"] = _leaderboards
-            if data_dir:
-                from pathlib import Path as _P
-                _csv_path = _P(data_dir) / ".leaderboard.csv"
-                try:
-                    # Concatenate per-(type, target) frames with two index columns so a reader can
-                    # filter back to one slice. Honour pl.DataFrame vs pd.DataFrame via .write_csv /
-                    # .to_csv duck typing; mixed cases concat after a unified to_pandas hop.
-                    import pandas as _pd
-                    _frames = []
-                    for _tt_s, _by_name in _leaderboards.items():
-                        for _tname, _lb in _by_name.items():
-                            if isinstance(_lb, pl.DataFrame):
-                                # Route through Arrow split-blocks bridge (~32x vs default to_pandas, preserves Enum/Categorical/datetime dtypes); the prior pl->CSV->pandas re-read densified all dtypes to string.
-                                from ..utils import get_pandas_view_of_polars_df as _get_pandas_view
-                                _frame = _get_pandas_view(_lb)
-                            elif isinstance(_lb, _pd.DataFrame):
-                                _frame = _lb
-                            else:
-                                _frame = _pd.DataFrame(_lb)
-                            _frame.insert(0, "target_type", _tt_s)
-                            _frame.insert(1, "target_name", _tname)
-                            _frames.append(_frame)
-                    if _frames:
-                        _all_lb = _pd.concat(_frames, ignore_index=True)
-                        _all_lb.to_csv(_csv_path, index=False)
-                        if verbose:
-                            logger.info("votenrank leaderboard exported: %s (%d rows)", _csv_path, len(_all_lb))
-                except Exception as _csv_err:
-                    logger.warning("votenrank leaderboard CSV export failed: %s", _csv_err)
-    except Exception as _vn_err:
-        logger.warning("votenrank leaderboard wiring failed: %s", _vn_err)
+    # Collection loop is NOT wrapped in a broad except: an AttributeError / KeyError
+    # here is a real wiring bug (ctx.ensembles shape drift) that must surface, not a
+    # WARN. Only ctx.ensembles being absent (older builds) is tolerated.
+    _leaderboards = {}
+    for _tt, _by_name in (getattr(ctx, "ensembles", None) or {}).items():
+        for _tname, _ens_dict in (_by_name or {}).items():
+            if not isinstance(_ens_dict, dict):
+                continue
+            _lb = _ens_dict.get("_leaderboard")
+            if _lb is None:
+                continue
+            _leaderboards.setdefault(str(_tt), {})[_tname] = _lb
+    if _leaderboards:
+        ctx.metadata["votenrank_leaderboard"] = _leaderboards
+        if data_dir:
+            from pathlib import Path as _P
+            _csv_path = _P(data_dir) / ".leaderboard.csv"
+            # Only the CSV export (file I/O + pandas concat) stays broadly guarded:
+            # an export failure must not abort the run, but the leaderboard payload
+            # is already stamped into metadata above.
+            try:
+                # Concatenate per-(type, target) frames with two index columns so a reader can
+                # filter back to one slice. Honour pl.DataFrame vs pd.DataFrame via .write_csv /
+                # .to_csv duck typing; mixed cases concat after a unified to_pandas hop.
+                import pandas as _pd
+                _frames = []
+                for _tt_s, _by_name in _leaderboards.items():
+                    for _tname, _lb in _by_name.items():
+                        if isinstance(_lb, pl.DataFrame):
+                            # Route through Arrow split-blocks bridge (~32x vs default to_pandas, preserves Enum/Categorical/datetime dtypes); the prior pl->CSV->pandas re-read densified all dtypes to string.
+                            from ..utils import get_pandas_view_of_polars_df as _get_pandas_view
+                            _frame = _get_pandas_view(_lb)
+                        elif isinstance(_lb, _pd.DataFrame):
+                            _frame = _lb
+                        else:
+                            _frame = _pd.DataFrame(_lb)
+                        _frame.insert(0, "target_type", _tt_s)
+                        _frame.insert(1, "target_name", _tname)
+                        _frames.append(_frame)
+                if _frames:
+                    _all_lb = _pd.concat(_frames, ignore_index=True)
+                    _all_lb.to_csv(_csv_path, index=False)
+                    if verbose:
+                        logger.info("votenrank leaderboard exported: %s (%d rows)", _csv_path, len(_all_lb))
+            except (OSError, ValueError, ImportError) as _csv_err:
+                logger.warning("votenrank leaderboard CSV export failed: %s", _csv_err)
 
 
 def maybe_autoroute_autodetected_ltr(
