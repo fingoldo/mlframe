@@ -341,11 +341,48 @@ def _build_cache_stats(ctx) -> dict:
     }
 
 
+def _auto_calibrate_on_calib_slice(ctx: "TrainingContext") -> None:
+    """Auto-fit post-hoc calibrators for every per-target model that carries a disjoint calib slice.
+
+    Active only when ``TrainingSplitConfig.calib_size > 0`` carved a calib slice (``ctx.calib_idx``) and
+    the trainer stamped ``entry.calib_probs`` / ``entry.calib_target`` (base-model predict_proba on the
+    carved slice + aligned labels). The slice is leakage-free: carved from train, base model fit on
+    train-minus-calib, disjoint from val/test by the splitter's hard asserts. Skips models without a
+    stamped calib slice (no-op), so calib_size==0 runs are unaffected.
+    """
+    _calib_idx = getattr(ctx, "calib_idx", None)
+    if _calib_idx is None or len(_calib_idx) == 0:
+        return
+    from .._calibration_models import calibrate_namespace_model
+    _n = 0
+    for _ttype, _by_name in (ctx.models or {}).items():
+        if not isinstance(_by_name, dict):
+            continue
+        for _tname, _entries in _by_name.items():
+            if not isinstance(_entries, list):
+                continue
+            for _entry in _entries:
+                try:
+                    if calibrate_namespace_model(_entry, target_type=_ttype):
+                        _n += 1
+                except Exception as _cal_err:
+                    logger.warning("[calib] auto-calibration failed for %s/%s: %s", _ttype, _tname, _cal_err)
+    if _n and getattr(ctx, "verbose", 0):
+        logger.info("[calib] auto-calibrated %d per-target model(s) on the disjoint calib slice.", _n)
+
+
 def finalize_suite(ctx: TrainingContext) -> dict:
     """Aggregate fairness reports, save metadata, emit phase/rendering summaries, surface selected features.
 
     Returns ``ctx.metadata`` (also mutated in-place) so legacy callers keeping a ``metadata = finalize_suite(ctx)`` rebind keep working.
     """
+    # Auto-calibrate per-target models on the disjoint calib slice (calib_size>0) BEFORE the metadata /
+    # ensemble-composition walks so they see the calibrated wrappers + stamped calibrated_<split>_probs.
+    try:
+        _auto_calibrate_on_calib_slice(ctx)
+    except Exception as _cal_err:
+        logger.warning("[calib] auto-calibration pass failed: %s", _cal_err)
+
     # Single pass over ctx.models that collects BOTH the per-split fairness reports
     # (lifted from model.metrics) AND the per-entry selected-features list (mirrored to
     # entry.selected_features_). The earlier code walked the same nested dict twice;

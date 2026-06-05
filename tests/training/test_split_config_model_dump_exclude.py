@@ -25,9 +25,10 @@ import inspect
 # they configure surrounding logic but are NOT make_train_test_split
 # kwargs. Adding to this list requires updating
 # _phase_helpers_fit_split.py's exclude={} set on the model_dump call.
+# ``calib_size`` is NOT here: the splitter now consumes it directly (carves a disjoint calib slice via
+# return_calib=True), so it is a legitimate splitter kwarg, not a caller-side-only field.
 _CALLER_SIDE_FIELDS = (
     "use_groups",  # derived into _groups upstream
-    "calib_size",  # downstream post-train carve
     "composite_cardinality_cap",  # bucket-stratify gate (consumed pre-call)
 )
 

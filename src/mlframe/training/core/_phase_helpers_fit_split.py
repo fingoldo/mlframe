@@ -70,6 +70,8 @@ class TrainValTestSplitResult(NamedTuple):
     val_sequences: Any
     test_sequences: Any
     baseline_rss_mb: Any
+    calib_idx: Any = None
+    calib_details: Any = None
 
 
 class FitPipelineResult(NamedTuple):
@@ -324,22 +326,23 @@ def _phase_train_val_test_split(
         # then bucket_stratify) because new caller-side fields shipped
         # without exclude updates. Caller-side fields documented:
         #   use_groups -- derives _groups upstream
-        #   calib_size -- reserved/sum-validated only; no calibration slice is carved yet (manual post_calibrate_model path)
+        #   calib_size -- carves a disjoint calibration slice from train (return_calib=True below)
         #   composite_cardinality_cap -- bucket-stratify gate (line ~139)
         #   bucket_stratify -- selects the bucket-stratify branch
         # Signature-derived filtering catches future additions automatically.
         import inspect as _inspect
         _splitter_kwargs = set(_inspect.signature(make_train_test_split).parameters)
-        _explicit_kwargs = {"df", "timestamps", "stratify_y", "groups"}
+        _explicit_kwargs = {"df", "timestamps", "stratify_y", "groups", "return_calib"}
         _cfg_dict = {
             k: v for k, v in split_config.model_dump().items()
             if k in _splitter_kwargs and k not in _explicit_kwargs
         }
-        train_idx, val_idx, test_idx, train_details, val_details, test_details = make_train_test_split(
+        train_idx, val_idx, test_idx, train_details, val_details, test_details, calib_idx, calib_details = make_train_test_split(
             df=df,
             timestamps=timestamps,
             stratify_y=_stratify_y,
             groups=_groups,
+            return_calib=True,
             **_cfg_dict,
         )
     if verbose:
@@ -369,6 +372,9 @@ def _phase_train_val_test_split(
             "test_size": len(test_idx),
         }
     )
+    if calib_idx is not None and len(calib_idx) > 0:
+        metadata["calib_details"] = calib_details
+        metadata["calib_size_rows"] = len(calib_idx)
 
     # Compute fairness subgroups from full df BEFORE splitting.
     fairness_subgroups, fairness_features = _compute_fairness_subgroups(df, behavior_config)
@@ -422,6 +428,8 @@ def _phase_train_val_test_split(
         val_sequences=val_sequences,
         test_sequences=test_sequences,
         baseline_rss_mb=baseline_rss_mb,
+        calib_idx=calib_idx,
+        calib_details=calib_details,
     )
 
 

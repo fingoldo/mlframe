@@ -295,3 +295,90 @@ def _maybe_apply_posthoc_calibration(model, fit_params, model_type_name, verbose
         # Slot-only / read-only estimators refuse new attrs; metadata consumers fall back to getattr(..., None).
         pass
     return model
+
+
+def calibrate_namespace_model(entry, *, target_type=None) -> bool:
+    """Fit a post-hoc isotonic calibrator on a per-target model's DISJOINT calib slice and wrap it.
+
+    ``entry`` is a per-target model namespace object as built by the trainer: it carries ``.model`` plus
+    ``.calib_probs`` / ``.calib_target`` (the base model's predict_proba on the carved calib slice +
+    aligned labels) when ``TrainingSplitConfig.calib_size > 0``. The calib slice is leakage-free by
+    construction: the splitter carves it from train and the base model is fit on train-minus-calib.
+
+    Leakage-safety re-checked here (raise, not warn): the calib slice must NOT equal the model's stamped
+    test slice -- reuses the same ``np.array_equal`` guard the disjoint paths use. Fits binary isotonic
+    (or per-class isotonic for multi-output), wraps ``entry.model`` in the matching post-hoc wrapper,
+    and stamps ``calibrated_<split>_probs`` for the ensembling read-side. Returns True when calibration
+    was applied, False when no calib slice was present (no-op).
+    """
+    import numpy as _np
+
+    calib_probs = getattr(entry, "calib_probs", None)
+    calib_target = getattr(entry, "calib_target", None)
+    if calib_probs is None or calib_target is None:
+        return False
+
+    _cp = _np.asarray(calib_probs)
+    _cy = _np.asarray(calib_target)
+    if _cp.shape[0] == 0 or _cp.shape[0] != _cy.shape[0]:
+        raise ValueError(
+            f"calibrate_namespace_model: calib_probs/calib_target row mismatch {_cp.shape[0]} vs {_cy.shape[0]}"
+        )
+
+    # Hard leak guard: calib must not be the honest test slice. The base model never trained on calib
+    # (carved from train), so the remaining hazard is a caller wiring calib == test by mistake.
+    _test_target = getattr(entry, "test_target", None)
+    if _test_target is not None:
+        _tt = _np.asarray(_test_target.values if hasattr(_test_target, "values") else _test_target)
+        if _tt.shape == _cy.shape and _np.array_equal(_tt, _cy):
+            raise ValueError(
+                "calibrate_namespace_model: calib_target is identical to the model's test_target; "
+                "refusing to fit the calibrator on the honest holdout slice."
+            )
+
+    base = getattr(entry, "model", None)
+    if base is None:
+        return False
+
+    _is_multi = _cp.ndim == 2 and _cp.shape[1] != 2
+    if _is_multi:
+        from .configs import TargetTypes
+        _ttype = target_type if target_type is not None else getattr(entry, "target_type", None)
+        if isinstance(_ttype, str):
+            _ttype = getattr(TargetTypes, _ttype, None) or (
+                TargetTypes.MULTILABEL_CLASSIFICATION if _cy.ndim == 2 else TargetTypes.MULTICLASS_CLASSIFICATION
+            )
+        if _ttype is None:
+            _ttype = TargetTypes.MULTILABEL_CLASSIFICATION if _cy.ndim == 2 else TargetTypes.MULTICLASS_CLASSIFICATION
+        calibrator = _PerClassIsotonicCalibrator.fit(_cp, _cy, _ttype)
+        wrapped = _PostHocMultiCalibratedModel(base, calibrator, _ttype, classes_=getattr(base, "classes_", None))
+    else:
+        _pos = _cp[:, 1] if _cp.ndim == 2 else _cp.ravel()
+        iso = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
+        iso.fit(_pos, _cy.ravel())
+        wrapped = _PostHocCalibratedModel(base, iso)
+
+    # Stamp calibrated probs for the existing ensembling read-side (_select_member_probs).
+    for _split in ("val", "test"):
+        _raw = getattr(entry, f"{_split}_probs", None)
+        if _raw is None:
+            continue
+        try:
+            _cal = wrapped._calibrator.predict_proba(_np.asarray(_raw)) if _is_multi else None
+            if not _is_multi:
+                _p1 = _np.clip(wrapped._calibrator.predict(_np.asarray(_raw)[:, 1] if _np.asarray(_raw).ndim == 2 else _np.asarray(_raw).ravel()), 0.0, 1.0)
+                _cal = _np.column_stack([1.0 - _p1, _p1])
+            for _obj in (entry, base):
+                try:
+                    setattr(_obj, f"calibrated_{_split}_probs", _cal)
+                except (AttributeError, TypeError):
+                    pass
+        except Exception as _stamp_err:
+            logger.warning("calibrate_namespace_model: %s-probs stamp failed: %s", _split, _stamp_err)
+
+    try:
+        entry.model = wrapped
+    except (AttributeError, TypeError):
+        logger.warning("calibrate_namespace_model: could not replace entry.model with calibrated wrapper.")
+        return False
+    return True

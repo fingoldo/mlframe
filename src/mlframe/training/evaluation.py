@@ -166,9 +166,10 @@ def post_calibrate_model(
 
     1. ``(calib_probs, calib_target)`` supplied directly -- typical for OOF-train probs produced by the trainer's
        ``cross_val_predict`` step. No row leakage by construction.
-    2. ``calib_idx`` -- a caller-supplied calibration slice (must be disjoint from ``test_idx``; we assert the
-       intersection is empty before any ``meta_model.fit(...)`` call). NOTE: ``TrainingSplitConfig.calib_size`` does
-       NOT yet auto-carve this slice -- pass ``calib_idx`` explicitly until the end-to-end carve+auto-calibrate is wired.
+    2. ``calib_idx`` -- a calibration slice (must be disjoint from ``test_idx``; we assert the intersection is
+       empty before any ``meta_model.fit(...)`` call). ``TrainingSplitConfig.calib_size>0`` now auto-carves this
+       slice from train (group-aware, time-ordered) and the suite auto-calibrates per-target models at finalize;
+       this manual entry point remains for ad-hoc / single-model calibration.
 
     Parameters
     ----------
@@ -195,8 +196,8 @@ def post_calibrate_model(
     meta_model : Any, optional
         Custom meta-model. If None, uses CatBoostClassifier with GPU.
     calib_idx : np.ndarray, optional
-        Indices of the reserved calibration slice (typically reserved from the train split via
-        ``TrainingSplitConfig.calib_size``). Must be disjoint from ``test_idx``; intersection -> ValueError.
+        Indices of the disjoint calibration slice carved from the train split via
+        ``TrainingSplitConfig.calib_size``. Must be disjoint from ``test_idx``; intersection -> ValueError.
     calib_probs : np.ndarray, optional
         Probability vector (OOF-train preferred) to fit the meta-calibrator on. Shape (M, 2) for binary.
     calib_target : np.ndarray, optional

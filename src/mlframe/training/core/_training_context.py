@@ -91,9 +91,11 @@ class TrainingContext:
     train_idx: np.ndarray | None = None
     val_idx: np.ndarray | None = None
     test_idx: np.ndarray | None = None
+    calib_idx: np.ndarray | None = None
     train_details: Any | None = None
     val_details: Any | None = None
     test_details: Any | None = None
+    calib_details: Any | None = None
     fairness_subgroups: dict | None = None
     fairness_features: list[str] | None = None
 

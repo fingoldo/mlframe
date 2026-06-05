@@ -76,6 +76,72 @@ def _stratified_split(
     return indices[left_pos], indices[right_pos]
 
 
+def _carve_calib_from_train(
+    train_idx: np.ndarray,
+    calib_size: float,
+    *,
+    n_total: int,
+    timestamps: Optional[pd.Series],
+    groups: Optional[np.ndarray],
+    rng: np.random.Generator,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Carve a disjoint calibration slice from ``train_idx`` ONLY (never val/test).
+
+    ``calib_size`` is a fraction of the WHOLE dataset (same convention as
+    ``test_size`` / ``val_size``); the slice is taken from the train portion so
+    the base model -- fit on the returned ``train_idx`` -- never sees calib rows.
+
+    Group-aware: when ``groups`` is supplied, whole groups move to calib (no
+    group spans the calib/train boundary). Time-ordered: with ``timestamps`` the
+    calib slice is the OLDEST train rows so the remaining (newer) train rows stay
+    adjacent to val/test on the timeline.
+
+    Returns ``(new_train_idx, calib_idx)`` (both unsorted; caller sorts).
+    """
+    n_calib_target = int(round(n_total * calib_size))
+    if n_calib_target <= 0 or len(train_idx) == 0:
+        return train_idx, np.array([], dtype=train_idx.dtype)
+    n_calib_target = min(n_calib_target, len(train_idx))
+
+    if groups is not None:
+        # Move whole groups (oldest-first under timestamps, else random) until the
+        # row budget is met. A group never straddles the calib/train boundary.
+        _groups_arr = np.asarray(groups)
+        train_groups = _groups_arr[train_idx]
+        if timestamps is not None:
+            _ts_vals = pd.Series(timestamps).values
+            _order = np.argsort(_ts_vals[train_idx], kind="stable")
+        else:
+            _order = rng.permutation(len(train_idx))
+        seen: dict = {}
+        for _pos in _order:
+            seen.setdefault(train_groups[_pos], []).append(_pos)
+        chosen_local: list = []
+        for _g, _positions in seen.items():
+            if len(chosen_local) >= n_calib_target:
+                break
+            chosen_local.extend(_positions)
+        chosen_local_arr = np.array(sorted(chosen_local), dtype=np.intp)
+        calib_idx = train_idx[chosen_local_arr]
+        _mask = np.ones(len(train_idx), dtype=bool)
+        _mask[chosen_local_arr] = False
+        return train_idx[_mask], calib_idx
+
+    if timestamps is not None:
+        # Oldest train rows form the calib slice; newer train rows stay adjacent
+        # to val/test (temporal honesty preserved).
+        _ts_vals = pd.Series(timestamps).values
+        _order = np.argsort(_ts_vals[train_idx], kind="stable")
+        calib_local = _order[:n_calib_target]
+        train_local = _order[n_calib_target:]
+        return train_idx[train_local], train_idx[calib_local]
+
+    perm = rng.permutation(len(train_idx))
+    calib_local = perm[:n_calib_target]
+    train_local = perm[n_calib_target:]
+    return train_idx[train_local], train_idx[calib_local]
+
+
 def make_train_test_split(
     df: pd.DataFrame,
     test_size: float = 0.1,
@@ -91,6 +157,8 @@ def make_train_test_split(
     val_placement: Literal["forward", "backward"] = "forward",
     stratify_y: Optional[np.ndarray] = None,
     groups: Optional[np.ndarray] = None,
+    calib_size: Optional[float] = None,
+    return_calib: bool = False,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, str, str, str]:
     """
     Split data into train, validation, and test sets with flexible sequential/shuffled control.
@@ -131,9 +199,17 @@ def make_train_test_split(
               argument is ignored (caller gets a plain sklearn shuffle
               split). Also a no-op when ``val_size`` is 0.
 
+        calib_size: Fraction of the WHOLE dataset to carve as a disjoint calibration slice
+            from the TRAIN portion only (never val/test). The base model is fit on the
+            returned (shrunk) train_idx, so it never sees calib rows -- the calibrator can
+            then be fit on calib leakage-free. Group-aware (whole groups move to calib) and
+            time-ordered (oldest train rows) when applicable. None/0 -> no carve.
+        return_calib: When True, the return tuple is extended with (calib_idx, calib_details).
+
     Returns:
         Tuple of (train_idx, val_idx, test_idx, train_details, val_details, test_details)
         where *_idx are sorted numpy arrays of indices and *_details are description strings.
+        When ``return_calib=True``, two extra elements are appended: (calib_idx, calib_details).
     """
     # Local RNG -- never mutate global numpy random state (policy).
     rng = np.random.default_rng(random_seed)
@@ -923,14 +999,43 @@ def make_train_test_split(
             test_size,
         )
 
+    # Calibration carve: take a disjoint slice from train ONLY, after all
+    # train/val/test + group-spanning resolution, so it inherits the same
+    # group-integrity / temporal-ordering guarantees. Base model is fit on the
+    # shrunk train_idx -> calib rows are leakage-free for the calibrator.
+    calib_idx = np.array([], dtype=train_idx.dtype)
+    calib_details = ""
+    _calib = calib_size if calib_size is not None else 0.0
+    if _calib > 0:
+        if not (0.0 < _calib < 1.0):
+            raise ValueError(f"calib_size must be in (0, 1), got {calib_size}")
+        train_idx, calib_idx = _carve_calib_from_train(
+            train_idx, _calib, n_total=len(df), timestamps=timestamps, groups=groups, rng=rng,
+        )
+        # Hard leakage asserts (raise, not warn): calib must be disjoint from val AND test.
+        if len(calib_idx) > 0:
+            if np.intersect1d(calib_idx, test_idx, assume_unique=False).size > 0:
+                raise RuntimeError("calib_size carve produced calib rows overlapping test_idx")
+            if np.intersect1d(calib_idx, val_idx, assume_unique=False).size > 0:
+                raise RuntimeError("calib_size carve produced calib rows overlapping val_idx")
+            if np.intersect1d(calib_idx, train_idx, assume_unique=False).size > 0:
+                raise RuntimeError("calib_size carve left calib rows still inside train_idx")
+        if len(calib_idx) == 0:
+            logger.warning("calib_size=%s requested but calib slice came out empty (n*calib_size<1 or train too small).", calib_size)
+        elif timestamps is not None:
+            calib_details = f"{len(calib_idx)} calib rows (oldest-train)"
+        else:
+            calib_details = f"{len(calib_idx)} calib rows"
+
     logger.info(
-        "%d train rows %s, %d val rows %s, %d test rows %s.",
+        "%d train rows %s, %d val rows %s, %d test rows %s%s.",
         len(train_idx), train_details,
         len(val_idx), val_details,
         len(test_idx), test_details,
+        f", {len(calib_idx)} calib rows" if len(calib_idx) > 0 else "",
     )
 
-    return (
+    _base = (
         np.sort(train_idx),
         np.sort(val_idx),
         np.sort(test_idx),
@@ -938,6 +1043,9 @@ def make_train_test_split(
         val_details,
         test_details,
     )
+    if return_calib:
+        return (*_base, np.sort(calib_idx), calib_details)
+    return _base
 
 
-__all__ = ["make_train_test_split"]
+__all__ = ["make_train_test_split", "_carve_calib_from_train"]

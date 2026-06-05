@@ -118,11 +118,11 @@ class TrainingSplitConfig(BaseConfig):
 
     test_size: float = Field(default=0.1, ge=0.0, le=1.0)
     val_size: float = Field(default=0.1, ge=0.0, le=1.0)
-    # Reserved fraction intended for a disjoint calibration slice carved out of train (for ``post_calibrate_model``,
-    # which must not touch test=holdout nor val=early-stop budget). Currently SUM-VALIDATED ONLY: the splitter does not
-    # yet carve a ``calib_idx`` and the suite does not auto-invoke post-hoc calibration on it. Use OOF-train probs via
-    # ``post_calibrate_model.calib_probs`` (or the trainer's stamped ``model.oof_probs``), or pass an explicit
-    # ``calib_idx``, until the end-to-end carve+auto-calibrate is wired.
+    # Fraction of the whole dataset carved as a DISJOINT calibration slice from the TRAIN portion only
+    # (never val=early-stop budget, never test=honest holdout). The splitter (make_train_test_split with
+    # return_calib=True) carves a group-aware, time-ordered ``calib_idx``; the base model is fit on the
+    # shrunk train (train-minus-calib) so calib rows are leakage-free, and finalize auto-fits a post-hoc
+    # isotonic calibrator per per-target model on this slice. None/0 -> no carve, behaviour unchanged.
     calib_size: Optional[float] = Field(default=None, ge=0.0, lt=1.0)
     shuffle_val: bool = False
     shuffle_test: bool = False

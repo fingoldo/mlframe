@@ -330,7 +330,7 @@ def train_mlframe_models_suite(
         train_df, val_df, test_df,
         fairness_subgroups, fairness_features,
         train_sequences, val_sequences, test_sequences,
-        baseline_rss_mb,
+        baseline_rss_mb, calib_idx, calib_details,
     ) = _phase_train_val_test_split(
         df=df,
         target_by_type=target_by_type,
@@ -363,7 +363,7 @@ def train_mlframe_models_suite(
         "train_idx", "val_idx", "test_idx", "train_details", "val_details",
         "test_details", "train_df", "val_df", "test_df", "fairness_subgroups",
         "fairness_features", "train_sequences", "val_sequences", "test_sequences",
-        "baseline_rss_mb",
+        "baseline_rss_mb", "calib_idx", "calib_details",
     ), locals())
 
     # mini-HPT target distribution analyzer. Inspect the FIRST target of the
