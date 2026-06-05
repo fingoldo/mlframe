@@ -687,3 +687,194 @@ def batch_pair_mi_prange(
         out[p] = total
 
     return out
+
+
+@njit(parallel=True, nogil=True, cache=True)
+def batch_mi_with_noise_gate(
+    disc_2d: np.ndarray,
+    factors_nbins: np.ndarray,
+    classes_y: np.ndarray,
+    classes_y_safe: np.ndarray,
+    freqs_y: np.ndarray,
+    npermutations: int,
+    base_seed: np.uint64,
+    min_nonzero_confidence: float,
+    use_su: bool,
+    dtype=np.int32,
+) -> np.ndarray:
+    """Batched FE-candidate MI + permutation noise-gate, BIT-IDENTICAL to a per-column
+    ``mi_direct`` loop on the default FE path (``parallelism='outer'``, ``n_workers=1``,
+    which routes to ``parallel_mi_prange``, ``base_seed=0``).
+
+    For each candidate column ``k`` of ``disc_2d[:, k]`` (ordinal-encoded into
+    ``factors_nbins[k]`` bins) this returns ``fe_mi[k]`` -- the plug-in (or SU) MI of the
+    densified column against ``y``, ZEROED when the permutation noise-gate rejects it.
+
+    The bit-identity hinges on the per-permutation shuffle in ``parallel_mi_prange`` being
+    seeded ONLY by ``(base_seed, i)`` -- never by the candidate's ``classes_x``. So every
+    candidate is tested against the SAME ``npermutations`` shuffles of ``y``. This kernel
+    exploits that: for each permutation ``i`` it shuffles ``classes_y_safe`` ONCE with the
+    identical LCG/Fisher-Yates, then scores ALL ``K`` columns against that single shuffled
+    ``y`` -- amortising both the shuffle and the per-permutation MI across the batch.
+
+    Rejection contract (matches ``mi_direct`` non-null path exactly):
+      * ``max_failed = max(int(npermutations * (1 - min_nonzero_confidence)), 1)`` when
+        ``npermutations > 0``.
+      * ``fe_mi[k] = 0.0`` iff ``original_mi[k] > 0`` AND ``npermutations > 0`` AND
+        ``nfailed[k] >= max_failed`` (where ``nfailed[k]`` counts permutations whose
+        ``mi_perm >= original_mi[k]``). Otherwise ``fe_mi[k] = original_mi[k]``.
+
+    NOTE: ``original_mi[k]`` is computed against ``classes_y`` + ``freqs_y`` (mirroring
+    ``mi_direct``'s observed-MI line), while the permutations shuffle ``classes_y_safe``
+    (mirroring the ``classes_y_safe if not None else classes_y`` arg ``parallel_mi_prange``
+    receives). In normal FE operation those two arrays are value-equal copies.
+
+    Densified columns are materialised into flat padded buffers (``classes_dense`` of
+    shape ``(n, K)`` and ``freqs_dense`` of shape ``(K, max_nbins)`` with per-column lengths
+    ``kx``) rather than a typed list of arrays, so the parallel-reduction columns stay
+    contiguous and prange-safe.
+    """
+    n = disc_2d.shape[0]
+    K = disc_2d.shape[1]
+    fe_mi = np.zeros(K, dtype=np.float64)
+
+    if K == 0 or n == 0:
+        return fe_mi
+
+    max_nbins = 1
+    for k in range(K):
+        nb_k = int(factors_nbins[k])
+        if nb_k > max_nbins:
+            max_nbins = nb_k
+
+    # Per-column densified codes + dense marginals, replicating ``merge_vars`` for a single
+    # variable: histogram, prune empty bins, renumber to a dense 0..Kx-1 range.
+    classes_dense = np.zeros((n, K), dtype=dtype)
+    freqs_dense = np.zeros((K, max_nbins), dtype=np.float64)
+    kx = np.zeros(K, dtype=np.int64)
+    original_mi = np.zeros(K, dtype=np.float64)
+
+    for k in prange(K):
+        nb_k = int(factors_nbins[k])
+        counts = np.zeros(nb_k, dtype=np.int64)
+        col = disc_2d[:, k]
+        for r in range(n):
+            counts[col[r]] += 1
+        # Dense remap: lookup_table[c] = c - (#empty bins below c).
+        lookup = np.empty(nb_k, dtype=np.int64)
+        nzeros = 0
+        for c in range(nb_k):
+            if counts[c] == 0:
+                nzeros += 1
+            lookup[c] = c - nzeros
+        n_dense = nb_k - nzeros
+        kx[k] = n_dense
+        # Write dense codes + dense marginals.
+        wpos = 0
+        for c in range(nb_k):
+            if counts[c] != 0:
+                # ``counts[c] / n`` (NOT ``counts[c] * (1/n)``) to be bit-identical to
+                # ``merge_vars``' ``freqs / len(factors_data)`` array division.
+                freqs_dense[k, wpos] = counts[c] / n
+                wpos += 1
+        for r in range(n):
+            classes_dense[r, k] = lookup[col[r]]
+
+        original_mi[k] = _relevance_from_dense(
+            use_su, classes_dense, k, freqs_dense, n_dense, classes_y, freqs_y, dtype,
+        )
+
+    if npermutations <= 0:
+        for k in range(K):
+            fe_mi[k] = original_mi[k]
+        return fe_mi
+
+    max_failed = int(npermutations * (1.0 - min_nonzero_confidence))
+    if max_failed <= 1:
+        max_failed = 1
+
+    nfailed = np.zeros(K, dtype=np.int64)
+    ny = classes_y_safe.shape[0]
+
+    for i in range(npermutations):
+        # EXACT same per-permutation LCG seed + Fisher-Yates as parallel_mi_prange.
+        state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(i + 1)
+        local = classes_y_safe.copy()
+        for j in range(ny - 1, 0, -1):
+            state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
+            kk = int(state >> np.uint64(33)) % (j + 1)
+            tmp = local[j]
+            local[j] = local[kk]
+            local[kk] = tmp
+
+        # Score ALL columns against this single shuffled y, in parallel.
+        for k in prange(K):
+            if original_mi[k] <= 0.0:
+                continue
+            mi_perm = _relevance_from_dense(
+                use_su, classes_dense, k, freqs_dense, int(kx[k]), local, freqs_y, dtype,
+            )
+            if mi_perm >= original_mi[k]:
+                nfailed[k] += 1
+
+    for k in range(K):
+        om = original_mi[k]
+        if om > 0.0 and nfailed[k] >= max_failed:
+            fe_mi[k] = 0.0
+        else:
+            fe_mi[k] = om
+
+    return fe_mi
+
+
+@njit(nogil=True, cache=True)
+def _relevance_from_dense(
+    use_su: bool,
+    classes_dense: np.ndarray,
+    k: int,
+    freqs_dense: np.ndarray,
+    K_x: int,
+    classes_y: np.ndarray,
+    freqs_y: np.ndarray,
+    dtype,
+) -> float:
+    """MI (or SU) of densified column ``k`` against ``y`` -- inlined twin of
+    ``compute_relevance_score`` reading the column from the padded ``classes_dense`` /
+    ``freqs_dense`` buffers. Numerically identical to calling
+    ``compute_relevance_score(use_su, classes_dense[:, k], freqs_dense[k, :K_x], ...)``:
+    same indexed joint-count pass, same ``jf * log(jf / (px * py))`` accumulation order.
+    """
+    n = classes_dense.shape[0]
+    K_y = len(freqs_y)
+    joint_counts = np.zeros((K_x, K_y), dtype=dtype)
+    for r in range(n):
+        joint_counts[classes_dense[r, k], classes_y[r]] += 1
+    inv_n = 1.0 / n
+
+    mi_xy = 0.0
+    for i in range(K_x):
+        prob_x = freqs_dense[k, i]
+        for j in range(K_y):
+            jc = joint_counts[i, j]
+            if jc != 0:
+                prob_y = freqs_y[j]
+                jf = jc * inv_n
+                mi_xy += jf * math.log(jf / (prob_x * prob_y))
+
+    if not use_su:
+        return mi_xy
+
+    h_x = 0.0
+    for i in range(K_x):
+        p = freqs_dense[k, i]
+        if p > 0:
+            h_x -= p * math.log(p)
+    h_y = 0.0
+    for j in range(K_y):
+        p = freqs_y[j]
+        if p > 0:
+            h_y -= p * math.log(p)
+    denom = h_x + h_y
+    if denom <= 1e-12:
+        return 0.0
+    return 2.0 * mi_xy / denom
