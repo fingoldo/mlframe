@@ -140,7 +140,7 @@ def _resolve_gpu_min_features(default: int = 2000) -> int:
     ``mlframe.shap_proxied_fs.cluster_corr.gpu_min_features``).
     """
     try:
-        from pyutilz.system import kernel_tuning_cache
+        from pyutilz.performance.kernel_tuning import cache as kernel_tuning_cache
 
         value = kernel_tuning_cache.get(
             "mlframe.shap_proxied_fs.cluster_corr.gpu_min_features", default=default)

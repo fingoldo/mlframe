@@ -88,7 +88,7 @@ def _resolve_bitmap_min_features(default: int = 200) -> int:
     ``mlframe.shap_proxied_fs.cluster_su.bitmap_min_features``).
     """
     try:
-        from pyutilz.system import kernel_tuning_cache
+        from pyutilz.performance.kernel_tuning import cache as kernel_tuning_cache
 
         value = kernel_tuning_cache.get(
             "mlframe.shap_proxied_fs.cluster_su.bitmap_min_features", default=default,
@@ -118,7 +118,7 @@ def _resolve_bitmap_max_n_bins(default: int = 12) -> int:
     ``mlframe.shap_proxied_fs.cluster_su.bitmap_max_n_bins``.
     """
     try:
-        from pyutilz.system import kernel_tuning_cache
+        from pyutilz.performance.kernel_tuning import cache as kernel_tuning_cache
 
         value = kernel_tuning_cache.get(
             "mlframe.shap_proxied_fs.cluster_su.bitmap_max_n_bins", default=default,
@@ -136,7 +136,7 @@ def _resolve_bitmap_min_samples(default: int = 256) -> int:
     ``mlframe.shap_proxied_fs.cluster_su.bitmap_min_samples``; default 256.
     """
     try:
-        from pyutilz.system import kernel_tuning_cache
+        from pyutilz.performance.kernel_tuning import cache as kernel_tuning_cache
 
         value = kernel_tuning_cache.get(
             "mlframe.shap_proxied_fs.cluster_su.bitmap_min_samples", default=default,

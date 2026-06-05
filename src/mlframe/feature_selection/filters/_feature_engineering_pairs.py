@@ -82,7 +82,7 @@ def _dispatch_batch_mi_with_noise_gate(
     # cache will route large batches to GPU automatically.
     backend = "cpu"
     try:
-        from pyutilz.system.kernel_tuning_cache import KernelTuningCache
+        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
 
         _res = KernelTuningCache().get_or_tune(
             "batch_mi_noise_gate",

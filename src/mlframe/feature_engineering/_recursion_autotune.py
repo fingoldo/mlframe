@@ -35,7 +35,7 @@ _N_ITERS = 3
 _RECURSION_SALT = 1
 
 
-def recursion_code_version(kernel_name: str):
+def recursion_code_version(kernel_name: str) -> str | None:
     """code_version for a recursion kernel: hashes the bayesian kernel body +
     salt. None if pyutilz/code-versioning is unavailable."""
     try:

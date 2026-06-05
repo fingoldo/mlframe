@@ -64,7 +64,7 @@ _PER_MEMBER_SALT = 3
 _AUTOTUNE_ATTEMPTED = False  # process-scoped guard: sweep at most once per process
 
 
-def per_member_code_version():
+def per_member_code_version() -> str | None:
     """code_version for the per_member dispatch: hashes the two variant bodies
     (_numpy_2d + the njit kernel) + _PER_MEMBER_SALT. A kernel edit (or a salt
     bump) invalidates stale cached tunings deterministically. None if pyutilz
