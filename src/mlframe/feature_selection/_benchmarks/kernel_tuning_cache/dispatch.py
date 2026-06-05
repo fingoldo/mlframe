@@ -90,36 +90,38 @@ def lookup_joint_hist(n_samples: int, joint_size: int,
     pyutilz is unavailable or the kernel hasn't been tuned yet.
     """
     cache = _get_cache()
+    fb = _fallback_for_joint_size(joint_size)
     if cache is False or cache is None:
         # pyutilz missing entirely -> source-code fallback.
-        return _fallback_for_joint_size(joint_size)
+        return fb
 
-    choice = cache.lookup("joint_hist_batched", n_samples=n_samples, joint_size=joint_size)
-    if choice is not None:
-        result = {
-            "kernel_variant": choice["kernel_variant"],
-            "block_size": choice["block_size"],
-        }
-        _maybe_online_relearn(n_samples, joint_size, result)
-        return result
+    # get_or_tune orchestrates env -> code-version-checked lookup -> on-miss
+    # (locked, once-per-process) sweep -> persist -> re-lookup -> fallback. The
+    # tuner only sweeps when run_auto_tune (else a no-op so a miss falls straight
+    # to the fallback, preserving the prior gating). code_version (salt=1, matching
+    # the @kernel_tuner registration) invalidates stale regions after a kernel edit
+    # -- the win over the old bare lookup. Multi-field payload {kernel_variant,
+    # block_size} passes through unchanged.
+    payload = fb
+    try:
+        from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
 
-    # Cache miss; optionally auto-tune.
-    if run_auto_tune:
-        try:
-            from . import auto_tune as _auto_tune
-            _auto_tune.ensure_joint_hist_tuning(force=False)
-            choice = cache.lookup(
-                "joint_hist_batched", n_samples=n_samples, joint_size=joint_size,
-            )
-            if choice is not None:
-                return {
-                    "kernel_variant": choice["kernel_variant"],
-                    "block_size": choice["block_size"],
-                }
-        except Exception as e:
-            logger.debug("auto_tune sweep failed: %s", e)
+        from ._auto_tune_sweeps_a import _run_sweep_joint_hist
 
-    return _fallback_for_joint_size(joint_size)
+        tuner = (lambda: _run_sweep_joint_hist(n_iters=5)) if run_auto_tune else (lambda: [])
+        result = cache.get_or_tune(
+            "joint_hist_batched",
+            dims={"n_samples": n_samples, "joint_size": joint_size},
+            tuner=tuner, axes=["n_samples", "joint_size"],
+            fallback=fb, code_version=compute_code_version(_run_sweep_joint_hist, salt=1),
+        )
+        if isinstance(result, dict) and "kernel_variant" in result:
+            payload = {"kernel_variant": result["kernel_variant"], "block_size": result["block_size"]}
+    except Exception as e:
+        logger.debug("lookup_joint_hist get_or_tune failed: %s", e)
+
+    _maybe_online_relearn(n_samples, joint_size, payload)
+    return payload
 
 
 def _maybe_online_relearn(n_samples: int, joint_size: int, current_choice: dict) -> None:
@@ -252,16 +254,18 @@ def _fallback_mi_backend(n_samples: int, k: int) -> str:
 
 
 def reset_cache() -> None:
-    """Drop the in-memory cache singleton; next lookup re-loads from disk
-    (or re-runs auto-tune if forced). For tests + driver-update hooks."""
-    global _CACHE_SINGLETON
-    with _LOAD_LOCK:
-        if _CACHE_SINGLETON not in (None, False):
+    """Drop the in-memory cache singleton; next lookup re-loads from disk. The
+    singleton lives in ``filters._kernel_tuning`` (``_get_cache`` delegates there),
+    so reset it at its source. For tests + driver-update hooks."""
+    from mlframe.feature_selection.filters import _kernel_tuning as _kt
+
+    with _kt._LOAD_LOCK:
+        if _kt._CACHE_SINGLETON not in (None, False):
             try:
-                _CACHE_SINGLETON.reset()
+                _kt._CACHE_SINGLETON.reset()
             except Exception:
                 pass
-        _CACHE_SINGLETON = None
+        _kt._CACHE_SINGLETON = None
 
 
 __all__ = ["lookup_joint_hist", "lookup_mi_classif_backend", "reset_cache"]
