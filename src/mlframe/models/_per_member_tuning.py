@@ -4,7 +4,7 @@ Mirrors the ``joint_hist_batched`` sweep pattern (measure the live machine, pers
 the winning regions to the per-host pyutilz ``kernel_tuning_cache``), but for a
 single CPU kernel with two variants instead of the FS GPU-RawKernel package.
 
-It runs **automatically on the first cache miss** (see ``_per_member_use_numba_2d``
+It runs **automatically on the first cache miss** (see ``_per_member_use_numba``
 in ``_ensembling_base``): the first time the kernel is dispatched on a machine with
 no cached entry, the numpy and numba backends are benchmarked across an
 ``elements_per_member`` grid, each size's wall-time AND max-abs-diff-vs-reference
@@ -55,8 +55,24 @@ _SWEEP_CEILING = 2_000_000  # never benchmark above this many elements (cost + r
 # orders larger and must force the reference path).
 _EQUIV_RTOL = 1e-6
 _EQUIV_ATOL = 1e-9
+# Bump when _SWEEP_K or the _EQUIV_* tolerances change -- sweep semantics the
+# source hash can't see -- so cached tunings re-validate on the next call.
+# 2: 3-D njit std fixed to per-column form + ndim threaded into the cache key.
+_PER_MEMBER_SALT = 2
 
 _AUTOTUNE_ATTEMPTED = False  # process-scoped guard: sweep at most once per process
+
+
+def per_member_code_version():
+    """code_version for the per_member dispatch: hashes the two variant bodies
+    (_numpy_2d + the njit kernel) + _PER_MEMBER_SALT. A kernel edit (or a salt
+    bump) invalidates stale cached tunings deterministically. None if pyutilz
+    code-versioning is unavailable (cache then falls back to no-version-check)."""
+    try:
+        from pyutilz.dev.code_versioning import compute_code_version
+        return compute_code_version(_numpy_2d, _per_member_mae_std_njit, salt=_PER_MEMBER_SALT)
+    except Exception:
+        return None
 
 
 def _numpy_2d(arr, med):
@@ -163,4 +179,29 @@ def ensure_per_member_tuning(observed_elements: int | None = None, observed_grou
         logger.debug("per_member auto-tune failed (using fallback): %s", e)
 
 
-__all__ = ["run_per_member_sweep", "ensure_per_member_tuning"]
+# Register with the kernel-tuner registry so ``mlframe-tune-kernels`` /
+# ``retune_all`` can discover + batch-tune this kernel on a quiet machine. CPU
+# only (no GPU variant -- a CPU-resident axis-1 reduction; cupy was measured and
+# lost). 3-D is intentionally absent: 3-D numba computes a different statistic
+# (per-class vs pooled std), so only numpy is correct there -- not a tunable axis.
+try:
+    from pyutilz.system.kernel_tuner import kernel_tuner
+
+    @kernel_tuner(
+        kernel_name=_PER_MEMBER_KERNEL_NAME,
+        variant_fns=(_numpy_2d, _per_member_mae_std_njit),
+        tuner=run_per_member_sweep,
+        axes={"elements_per_member": list(_SWEEP_ELEMENTS), "n_groups": [_SWEEP_K], "ndim": [2, 3]},
+        fallback={"backend_choice": "numpy"},
+        salt=_PER_MEMBER_SALT,
+        env_key="MLFRAME_PER_MEMBER_BACKEND",
+        gpu_capable=False,
+        cli_label="per_member_mae_std",
+    )
+    def _per_member_tuner_spec():
+        """Marker for the @kernel_tuner registry (not called)."""
+except Exception:  # pyutilz absent / registry unavailable -> dispatch still works
+    pass
+
+
+__all__ = ["run_per_member_sweep", "ensure_per_member_tuning", "per_member_code_version"]

@@ -93,31 +93,43 @@ try:  # pragma: no cover -- env-dependent
                 out_mae[k] = mae
                 out_std[k] = _var ** 0.5
         else:
-            # 3-D (K, N, C) -- flatten N*C in the inner loop, treat as one sample series.
+            # 3-D (K, N, C): per-COLUMN MAE & std over the N axis, then averaged
+            # across the C columns -- matches the numpy path exactly
+            # (mae_per_col / std_per_col -> mean over C). The std MUST be
+            # computed per column (anchored at that column's own mean) and only
+            # then averaged: a pooled N*C series anchored at the global mean is a
+            # DIFFERENT statistic (it folds in between-column variance), which is
+            # the ~1e-4 disagreement that previously kept 3-D off the numba path.
+            # MAE is unaffected (pooled mean == per-column-then-averaged), but it
+            # is accumulated per column here for symmetry. Two-pass per column
+            # (mean, then sum of squared deviations) keeps the same
+            # no-catastrophic-cancellation guarantee as the 2-D branch.
             C = arr.shape[2]
-            tot = N * C
             for k in _numba.prange(K):
-                # Pass 1: compute mean(|d|).
-                _s_diff = 0.0
-                for i in range(N):
-                    for c in range(C):
+                mae_acc = 0.0
+                std_acc = 0.0
+                for c in range(C):
+                    # Pass 1: this column's mean of |d| over N.
+                    _s_diff = 0.0
+                    for i in range(N):
                         d = arr[k, i, c] - median_preds[i, c]
                         if d < 0:
                             d = -d
                         _s_diff += d
-                mae = _s_diff / tot
-                # Pass 2: deviation sum-of-squares.
-                _s_dev_sq = 0.0
-                for i in range(N):
-                    for c in range(C):
+                    mae_c = _s_diff / N
+                    # Pass 2: this column's deviation sum-of-squares anchored at
+                    # its own mean (each summand non-negative -> stable).
+                    _s_dev_sq = 0.0
+                    for i in range(N):
                         d = arr[k, i, c] - median_preds[i, c]
                         if d < 0:
                             d = -d
-                        dev = d - mae
+                        dev = d - mae_c
                         _s_dev_sq += dev * dev
-                _var = _s_dev_sq / tot
-                out_mae[k] = mae
-                out_std[k] = _var ** 0.5
+                    mae_acc += mae_c
+                    std_acc += (_s_dev_sq / N) ** 0.5
+                out_mae[k] = mae_acc / C
+                out_std[k] = std_acc / C
         return out_mae, out_std
 
     _HAS_NUMBA_PER_MEMBER = True
@@ -202,15 +214,15 @@ def _stacked_corrcoef(M: np.ndarray) -> np.ndarray:
     return np.corrcoef(M)
 
 
-_PER_MEMBER_KERNEL_NAME = "per_member_mae_std_2d"
+_PER_MEMBER_KERNEL_NAME = "per_member_mae_std"
 # Below this element count (= N for the 2-D path) numpy and numba are a sub-ms
 # wash, so skip the one-time numba cache-load; at/above it numba wins decisively.
 _PER_MEMBER_NUMBA_FLOOR_ELEMENTS = 10_000
 
 
 @lru_cache(maxsize=256)
-def _per_member_use_numba_2d(elements_per_member: int, n_groups: int) -> bool:
-    """Pick the numba-vs-numpy backend for the 2-D ``_per_member_mae_std`` path.
+def _per_member_use_numba(elements_per_member: int, n_groups: int, ndim: int = 2) -> bool:
+    """Pick the numba-vs-numpy backend for the ``_per_member_mae_std`` path (2-D or 3-D).
 
     The crossover is HW-dependent, so this follows the project dispatch
     convention (mirrors ``feature_engineering._recursion_dispatch``): env
@@ -225,9 +237,18 @@ def _per_member_use_numba_2d(elements_per_member: int, n_groups: int) -> bool:
     tie only below ~N=5k). 2-D numba == numpy to ~1e-14 (both two-pass), so this
     is a pure-speed swap. The prior ``K>20 or elements>500k`` gate was a
     single-machine artifact that hid the win for the common ensembling sizes
-    (K~3-10, N~10-100k). cupy was measured and rejected for this kernel (a
-    CPU-resident axis-1 reduction; H2D transfer ~6x slower than numba), so no
-    GPU variant is dispatched here.
+    (K~3-10, N~10-100k).
+
+    3-D (K, N, C) dispatches here too (``ndim`` keys a separate cache region):
+    the per-column njit is bit-identical to numpy (max abs diff 0.0) and 12-22x
+    faster (measured 2026-06-05), so numba is the default above the same floor.
+
+    GPU: cupy was measured and rejected for the 2-D path with DRAM-RESIDENT input
+    -- H2D transfer made it ~6x slower than numba for this axis-1 reduction. That
+    rejection is residency-specific: a VRAM-resident input (data already on the
+    GPU) skips the transfer and has NOT been measured -- the residency-axis
+    tuning (``location`` host/device) is where that variant would be captured. No
+    GPU variant is dispatched here yet.
     """
     if not _HAS_NUMBA_PER_MEMBER:
         return False
@@ -236,25 +257,30 @@ def _per_member_use_numba_2d(elements_per_member: int, n_groups: int) -> bool:
         return env == "numba"
     try:
         from pyutilz.system.kernel_tuning_cache import KernelTuningCache
-        choice = KernelTuningCache().lookup(
-            _PER_MEMBER_KERNEL_NAME, elements_per_member=elements_per_member, n_groups=n_groups
+        from ._per_member_tuning import run_per_member_sweep, per_member_code_version
+        autotune = os.environ.get("MLFRAME_PER_MEMBER_AUTOTUNE", "1").strip() != "0"
+        # Shared orchestrator: env override -> per-host cache (code-version
+        # checked) -> on-miss sweep (once/process, cross-process locked, logs
+        # winners + persists to ~/.pyutilz/kernel_tuning/<fp>.json) ->
+        # measurement-backed fallback. Replaces the hand-rolled
+        # lookup/miss/sweep/re-lookup dance + the module-level _AUTOTUNE guard
+        # (get_or_tune keys its once-per-process guard on (kernel, cache-path)).
+        result = KernelTuningCache().get_or_tune(
+            _PER_MEMBER_KERNEL_NAME,
+            dims={"elements_per_member": elements_per_member, "n_groups": n_groups, "ndim": ndim},
+            tuner=(lambda: run_per_member_sweep(observed_elements=elements_per_member)) if autotune else (lambda: None),
+            axes=["elements_per_member", "n_groups", "ndim"],
+            fallback={"backend_choice": "numba" if elements_per_member >= _PER_MEMBER_NUMBA_FLOOR_ELEMENTS else "numpy"},
+            env_key="MLFRAME_PER_MEMBER_BACKEND",
+            code_version=per_member_code_version(),
         )
-        backend = str((choice or {}).get("backend_choice", ""))
-        if backend not in ("numpy", "numba") and os.environ.get("MLFRAME_PER_MEMBER_AUTOTUNE", "1").strip() != "0":
-            # No entry for this host yet -> benchmark numpy-vs-numba once, log the
-            # winners, and persist to ~/.pyutilz/kernel_tuning/<hw_fingerprint>.json
-            # (logger.debug on the miss, logger.info on the winners). Best-effort:
-            # any failure leaves backend empty and drops to the fallback below.
-            from ._per_member_tuning import ensure_per_member_tuning
-            ensure_per_member_tuning(observed_elements=elements_per_member, observed_groups=n_groups)
-            choice = KernelTuningCache().lookup(
-                _PER_MEMBER_KERNEL_NAME, elements_per_member=elements_per_member, n_groups=n_groups
-            )
-            backend = str((choice or {}).get("backend_choice", ""))
-        if backend in ("numpy", "numba"):
-            return backend == "numba"
+        # env_key short-circuits to the raw string "numpy"/"numba"; the sweep or
+        # fallback return a region dict with "backend_choice".
+        if isinstance(result, str):
+            return result.strip().lower() == "numba"
+        return str((result or {}).get("backend_choice", "")) == "numba"
     except Exception as e:  # pyutilz missing / cache error -> measurement-backed fallback
-        logger.debug("per_member backend cache lookup failed: %s", e)
+        logger.debug("per_member backend get_or_tune failed: %s", e)
     return elements_per_member >= _PER_MEMBER_NUMBA_FLOOR_ELEMENTS
 
 
@@ -264,26 +290,28 @@ def _per_member_mae_std(arr: np.ndarray, median_preds: np.ndarray) -> tuple:
     Semantics match the prior Python loop: per-column MAE first (mean over the N axis), then mean
     across remaining columns; per-column std uses the per-column mean as anchor and is then averaged
     across columns. For 2-D (K, N) inputs columns degenerate to one value, so the result is the
-    same as a flat mean / std. The 2-D backend is HW-calibrated by
-    ``_per_member_use_numba_2d`` (env -> per-host kernel_tuning_cache -> measured
-    fallback); on multi-core HW numba wins 5-18x across the whole 2-D regime, so
-    it is the default above a small element floor (the old ``K>20 or
-    elements>500k`` gate was a single-machine artifact). The numpy path here is
-    the fallback / sub-floor tier and the only path for 3-D (the numba 3-D branch
-    computes a different std -- see the dispatch note below).
+    same as a flat mean / std. Both 2-D and 3-D are HW-calibrated by
+    ``_per_member_use_numba`` (env -> per-host kernel_tuning_cache -> measured
+    fallback); on multi-core HW numba wins 5-18x (2-D) / 12-22x (3-D) so it is
+    the default above a small element floor (the old ``K>20 or elements>500k``
+    gate was a single-machine artifact). The 3-D numba branch was fixed to the
+    per-column std so it is now bit-identical to numpy; the numpy path here is
+    the fallback / sub-floor tier.
     """
     K = arr.shape[0]
     elements_per_member = int(arr.size // max(K, 1))
-    # 2-D only: the numba 3-D branch pools std over all N*C as one series, a
-    # DIFFERENT statistic than the numpy per-class-then-mean-across-C path
-    # (verified ~1e-4 disagreement, not float noise), so 3-D stays on numpy until
-    # that semantic mismatch is reconciled. The 2-D backend is HW-calibrated via
-    # _per_member_use_numba_2d (env -> kernel_tuning_cache -> measured fallback).
+    # Both 2-D and 3-D dispatch to numba now. The 3-D njit branch was fixed to
+    # the per-COLUMN std (matching numpy's per-class-then-mean-across-C path)
+    # instead of the old pooled N*C std -- so it is bit-identical (max abs diff
+    # 0.0, verified 2026-06-05) and 12-22x faster, even larger than the 2-D win.
+    # ``ndim`` is threaded into the cache key so 2-D and 3-D can tune separately.
+    # HW-calibrated via _per_member_use_numba (env -> kernel_tuning_cache ->
+    # measured fallback).
     use_numba = (
         _HAS_NUMBA_PER_MEMBER
         and arr.dtype == np.float64
-        and arr.ndim == 2
-        and _per_member_use_numba_2d(elements_per_member, K)
+        and arr.ndim in (2, 3)
+        and _per_member_use_numba(elements_per_member, K, arr.ndim)
     )
     if use_numba:
         return _per_member_mae_std_njit(arr, median_preds)
