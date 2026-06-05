@@ -385,49 +385,20 @@ def _run_perm_kernel_sweep() -> list:
     )
 
 
-def _perm_kernel_code_version():
-    """code_version over the CPU bodies (serial + parallel share one source) + the
-    cupy body; re-tunes on a kernel edit."""
-    try:
-        from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
-
-        fns = [_count_nfailed_joint_indep_serial, _count_nfailed_joint_indep_prange]
-        if _CUPY_AVAIL:
-            fns.append(_count_nfailed_joint_indep_cupy)
-        return compute_code_version(*fns, salt=_PERM_SALT)
-    except Exception:
-        return None
+def _perm_kernel_fallback_choice(n_samples: int, n_perms: int) -> str:
+    """Pre-sweep heuristic (the spec's dynamic fallback callable): cupy above the old
+    ``_GPU_PERM_KERNEL_THRESHOLD_N``; on CPU, parallel above a modest row count, else
+    serial."""
+    if _CUPY_AVAIL and n_samples >= _GPU_PERM_KERNEL_THRESHOLD_N:
+        return "cupy"
+    return "cpu_parallel" if n_samples >= 300_000 else "cpu_serial"
 
 
 def _perm_kernel_backend_choice(n_samples: int, n_perms: int) -> str:
-    """Per-host backend (cpu_serial/cpu_parallel/cupy) for this (n_samples, n_perms)
-    via the shared get_or_tune orchestrator; measurement-backed fallback (cupy above
-    the old ``_GPU_PERM_KERNEL_THRESHOLD_N``; on CPU, parallel above a modest row
-    count, else serial)."""
-    def _fallback() -> str:
-        if _CUPY_AVAIL and n_samples >= _GPU_PERM_KERNEL_THRESHOLD_N:
-            return "cupy"
-        return "cpu_parallel" if n_samples >= 300_000 else "cpu_serial"
-
-    try:
-        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
-
-        result = KernelTuningCache.load_or_create().get_or_tune(
-            "cat_fe_perm_kernel",
-            dims={"n_samples": int(n_samples), "n_perms": int(n_perms)},
-            tuner=_run_perm_kernel_sweep,
-            axes=["n_samples", "n_perms"],
-            fallback={"backend_choice": _fallback()},
-            code_version=_perm_kernel_code_version(),
-        )
-        bc = result if isinstance(result, str) else str((result or {}).get("backend_choice", ""))
-        if bc == "cpu":  # legacy region from before the serial/parallel split
-            bc = "cpu_parallel"
-        if bc in ("cpu_serial", "cpu_parallel", "cupy"):
-            return bc
-    except Exception as e:
-        logger.debug("cat_fe_perm_kernel get_or_tune failed: %s", e)
-    return _fallback()
+    """Per-host backend (cpu_serial/cpu_parallel/cupy) via the spec's choose(); maps a
+    legacy 'cpu' region (pre serial/parallel split) to cpu_parallel."""
+    bc = _CAT_PERM_SPEC.choose(n_samples=int(n_samples), n_perms=int(n_perms))
+    return "cpu_parallel" if bc == "cpu" else bc
 
 
 def _perm_kernel_dispatch_use_gpu(
@@ -1044,12 +1015,12 @@ def _confirm_pairs_via_permutation(
 # discover + batch-tune the cat-FE permutation kernel. GPU-capable (cupy backend).
 from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
-kernel_tuner(
+_CAT_PERM_SPEC = kernel_tuner(
     kernel_name="cat_fe_perm_kernel",
     variant_fns=(_count_nfailed_joint_indep_serial, _count_nfailed_joint_indep_prange),  # CPU bodies; cupy via salt
     tuner=_run_perm_kernel_sweep,
     axes={"n_samples": list(_PERM_SWEEP_N_SAMPLES), "n_perms": list(_PERM_SWEEP_N_PERMS_GRID)},
-    fallback={"backend_choice": "cpu_serial"},
+    fallback=_perm_kernel_fallback_choice,  # callable (n_samples, n_perms) -> str
     gpu_capable=True,
     salt=_PERM_SALT,
     cli_label="cat_fe_perm_kernel",
