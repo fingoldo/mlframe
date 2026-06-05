@@ -527,44 +527,17 @@ def _run_batch_metric_sweep(metric: str) -> list:
     )
 
 
-def _batch_metric_code_version(kernel_name: str):
-    """code_version over the CPU reference + the GPU primitive(s) for this metric."""
-    try:
-        from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
-        if kernel_name == "batch_rmse":
-            fns = [gpu_multiple_rmse_scores]
-        else:
-            fns = [gpu_multiple_roc_auc_scores, gpu_multiple_pr_auc_scores]
-        return compute_code_version(*fns, salt=_BATCH_METRIC_SALT)
-    except Exception:
-        return None
+def _batch_metric_fallback_choice(n_samples: int, n_targets: int) -> str:
+    """Pre-sweep heuristic (the specs' dynamic fallback callable): the old N>=100k
+    AND M>=5 threshold."""
+    return "gpu" if (n_samples >= _GPU_BATCH_THRESHOLD_N and n_targets >= _GPU_BATCH_THRESHOLD_M) else "cpu"
 
 
-@lru_cache(maxsize=512)
 def _batch_metric_backend_choice(kernel_name: str, N: int, M: int) -> str:
-    """Per-host cpu/gpu choice for a batch-metric kernel at (N, M) via get_or_tune;
-    fallback = the old N>=100k AND M>=5 threshold. Memoized (eval calls it per fold)."""
-    def _fallback() -> str:
-        return "gpu" if (N >= _GPU_BATCH_THRESHOLD_N and M >= _GPU_BATCH_THRESHOLD_M) else "cpu"
-
-    try:
-        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
-        metric = "rmse" if kernel_name == "batch_rmse" else "aucs"
-        result = KernelTuningCache.load_or_create().get_or_tune(
-            kernel_name,
-            dims={"n_samples": N, "n_targets": M},
-            tuner=(lambda m=metric: _run_batch_metric_sweep(m)),
-            axes=["n_samples", "n_targets"],
-            fallback={"backend_choice": _fallback()},
-            code_version=_batch_metric_code_version(kernel_name),
-        )
-        bc = result if isinstance(result, str) else str((result or {}).get("backend_choice", ""))
-        if bc in ("cpu", "gpu"):
-            return bc
-    except Exception as _e:
-        import logging
-        logging.getLogger(__name__).debug("%s get_or_tune failed: %s", kernel_name, _e)
-    return _fallback()
+    """Per-host cpu/gpu choice for a batch-metric kernel at (N, M) via the matching
+    spec's choose() (memoized per dims)."""
+    spec = _BATCH_RMSE_SPEC if kernel_name == "batch_rmse" else _BATCH_AUCS_SPEC
+    return spec.choose(n_samples=int(N), n_targets=int(M))
 
 
 # Register the two batch-metric dispatchers with the kernel-tuner registry so
@@ -572,23 +545,23 @@ def _batch_metric_backend_choice(kernel_name: str, N: int, M: int) -> str:
 # GPU-capable; CPU reference covered by salt. Inputs host-resident -> no residency.
 from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
-kernel_tuner(
+_BATCH_RMSE_SPEC = kernel_tuner(
     kernel_name="batch_rmse",
     variant_fns=(gpu_multiple_rmse_scores,),  # GPU primitive; CPU ref + edits covered by salt
     tuner=(lambda: _run_batch_metric_sweep("rmse")),
     axes={"n_samples": list(_BATCH_METRIC_SWEEP_N), "n_targets": list(_BATCH_METRIC_SWEEP_M)},
-    fallback={"backend_choice": "cpu"},
+    fallback=_batch_metric_fallback_choice,  # callable (n_samples, n_targets) -> str
     gpu_capable=True,
     salt=_BATCH_METRIC_SALT,
     cli_label="batch_rmse",
 )
 
-kernel_tuner(
+_BATCH_AUCS_SPEC = kernel_tuner(
     kernel_name="batch_aucs",
     variant_fns=(gpu_multiple_roc_auc_scores, gpu_multiple_pr_auc_scores),
     tuner=(lambda: _run_batch_metric_sweep("aucs")),
     axes={"n_samples": list(_BATCH_METRIC_SWEEP_N), "n_targets": list(_BATCH_METRIC_SWEEP_M)},
-    fallback={"backend_choice": "cpu"},
+    fallback=_batch_metric_fallback_choice,  # callable (n_samples, n_targets) -> str
     gpu_capable=True,
     salt=_BATCH_METRIC_SALT,
     cli_label="batch_aucs",
