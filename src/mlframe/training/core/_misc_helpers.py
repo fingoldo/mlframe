@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from timeit import default_timer as timer
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -963,6 +964,9 @@ def _prep_polars_df(_df, strategy, cat_features, category_map):
     return strategy.prepare_polars_dataframe(_df, cat_features)
 
 
+_CTX_STRICT = os.environ.get("MLFRAME_CTX_STRICT", "").strip().lower() in ("1", "true", "yes", "on")
+
+
 def _bulk_setattr_to_ctx(ctx, names: tuple[str, ...], values: dict) -> None:
     """Bulk-assign each name from ``values`` onto ``ctx``. Raises KeyError on missing name.
 
@@ -970,9 +974,18 @@ def _bulk_setattr_to_ctx(ctx, names: tuple[str, ...], values: dict) -> None:
     the phase->ctx migration. Fails loudly when a slot name is missing from ``values`` so
     partial-migration bugs (like the prior ``train_df_pandas_pre`` slot miss) surface at
     call time instead of as ``AttributeError: 'NoneType' has no attribute 'foo'`` later.
+
+    Under ``MLFRAME_CTX_STRICT=1`` each migrated slot is identity-checked against its local
+    after the copy, so a future slot-miss (slot name typo, stale dataclass) surfaces here
+    rather than as a silent stale-value downstream. Identity-only (no value compare / hash)
+    keeps the check safe on 100+GB frames.
     """
     missing = [n for n in names if n not in values]
     if missing:
         raise KeyError(f"_bulk_setattr_to_ctx: names missing from values dict: {missing}")
     for n in names:
         setattr(ctx, n, values[n])
+    if _CTX_STRICT:
+        mismatched = [n for n in names if getattr(ctx, n) is not values[n]]
+        if mismatched:
+            raise AssertionError(f"_bulk_setattr_to_ctx: ctx slot(s) diverged from locals after copy: {mismatched}")

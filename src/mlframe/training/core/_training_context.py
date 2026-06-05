@@ -14,6 +14,29 @@ if TYPE_CHECKING:
     from sklearn.base import TransformerMixin
     from sklearn.pipeline import Pipeline
 
+    from ..configs import (
+        BaselineDiagnosticsConfig,
+        CompositeTargetDiscoveryConfig,
+        ConfidenceAnalysisConfig,
+        DummyBaselinesConfig,
+        FeatureSelectionConfig,
+        FeatureTypesConfig,
+        LearningToRankConfig,
+        LinearModelConfig,
+        ModelHyperparamsConfig,
+        MultilabelDispatchConfig,
+        OutlierDetectionConfig,
+        OutputConfig,
+        PreprocessingBackendConfig,
+        PreprocessingConfig,
+        PreprocessingExtensionsConfig,
+        QuantileRegressionConfig,
+        ReportingConfig,
+        TrainingBehaviorConfig,
+        TrainingSplitConfig,
+    )
+    from ..neural._recurrent_config import RecurrentConfig
+
 
 # ``slots=True`` on @dataclass landed in Python 3.10. On 3.9 we lose the
 # performance + typo-catching benefits but the class still works (attribute
@@ -35,25 +58,25 @@ class TrainingContext:
     model_name: str = ""
     target_name: str = ""
 
-    preprocessing_config: Any = None
-    pipeline_config: Any = None
-    feature_types_config: Any = None
-    split_config: Any = None
-    hyperparams_config: Any = None
-    behavior_config: Any = None
-    reporting_config: Any = None
-    output_config: Any = None
-    outlier_detection_config: Any = None
-    feature_selection_config: Any = None
-    confidence_analysis_config: Any = None
-    baseline_diagnostics_config: Any = None
-    dummy_baselines_config: Any = None
-    quantile_regression_config: Any = None
-    composite_target_discovery_config: Any = None
-    linear_model_config: Any = None
-    multilabel_dispatch_config: Any = None
-    ranking_config: Any = None
-    recurrent_config: Any = None
+    preprocessing_config: PreprocessingConfig | None = None
+    pipeline_config: PreprocessingBackendConfig | None = None
+    feature_types_config: FeatureTypesConfig | None = None
+    split_config: TrainingSplitConfig | None = None
+    hyperparams_config: ModelHyperparamsConfig | None = None
+    behavior_config: TrainingBehaviorConfig | None = None
+    reporting_config: ReportingConfig | None = None
+    output_config: OutputConfig | None = None
+    outlier_detection_config: OutlierDetectionConfig | None = None
+    feature_selection_config: FeatureSelectionConfig | None = None
+    confidence_analysis_config: ConfidenceAnalysisConfig | None = None
+    baseline_diagnostics_config: BaselineDiagnosticsConfig | None = None
+    dummy_baselines_config: DummyBaselinesConfig | None = None
+    quantile_regression_config: QuantileRegressionConfig | None = None
+    composite_target_discovery_config: CompositeTargetDiscoveryConfig | None = None
+    linear_model_config: LinearModelConfig | None = None
+    multilabel_dispatch_config: MultilabelDispatchConfig | None = None
+    ranking_config: LearningToRankConfig | None = None
+    recurrent_config: RecurrentConfig | None = None
     recurrent_models: list[str] | None = None
 
     verbose: int = 1
@@ -123,7 +146,7 @@ class TrainingContext:
     # time so any subsequent mutation on train_df cannot corrupt the auto-detect view. The val/test
     # pandas-pre slots are no longer carried -- auto-detect only ever reads train.
     train_df_pandas_pre_meta: dict | None = None
-    preprocessing_extensions: Any = None
+    preprocessing_extensions: PreprocessingExtensionsConfig | None = None
 
     cat_features: list[str] = field(default_factory=list)
     cat_features_polars: list[str] = field(default_factory=list)
