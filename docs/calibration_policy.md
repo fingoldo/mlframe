@@ -1,19 +1,38 @@
 # Calibration policy guide (AP12)
 
-Probability calibration in mlframe is governed by ``pick_best_calibrator`` (``src/mlframe/calibration/quality.py``), a small policy that selects between ``Sigmoid`` (Platt scaling), ``Isotonic`` (PAV), and ``NoCal`` (pass-through) by comparing **out-of-fold Expected Calibration Error (ECE)** with bootstrap confidence intervals.
+Probability calibration in mlframe is governed by ``pick_best_calibrator`` (``src/mlframe/calibration/policy.py``), a small policy that selects between ``Sigmoid`` (Platt scaling), ``Isotonic`` (PAV), and ``NoCal`` (pass-through) by comparing **out-of-fold Expected Calibration Error (ECE)** with bootstrap confidence intervals.
 
 ## When this fires
 
-The policy is consulted at end-of-training, after the OOF predictions for every classifier in the ensemble are available. Defaults are picked so the policy works out-of-the-box without requiring user configuration; advanced users override via ``ReportingConfig``.
+The policy is consulted at end-of-training, after the OOF predictions for every classifier in the ensemble are available. Defaults are picked so the policy works out-of-the-box without requiring user configuration.
+
+## Signature
+
+```python
+from mlframe.calibration.policy import pick_best_calibrator
+
+result = pick_best_calibrator(
+    probs, y,                 # optional diagnostic-only held-out probs/labels (not used for the decision)
+    oof_probs, oof_y,         # OOF probs/labels that drive the selection
+    candidates=None,          # default: all of NoCal / Sigmoid / Isotonic
+    n_bootstrap=...,          # bootstrap reps for the ECE CI
+    n_bins=15,                # ECE bin count (DEFAULT_ECE_NBINS)
+    random_state=0,
+)
+# -> {"chosen": <name>, "ece_mean": float, "ece_ci": (lo, hi),
+#     "alternatives": {...}, "rule": <selection-rule>, "n_oof": int, "plot_path": Optional[str]}
+```
+
+ECE itself is computed by ``_ece_score(y_true, p_pred, n_bins=15)`` in the same module; the full Brier reliability / resolution / uncertainty decomposition is available via ``mlframe.metrics.core.compute_ece_and_brier_decomposition``.
 
 ## Decision rule
 
-Given OOF ``y_true`` and ``y_pred_proba`` for each candidate calibrator C in ``{NoCal, Sigmoid, Isotonic}``:
+Given OOF ``oof_y`` and ``oof_probs`` for each candidate calibrator C in ``{NoCal, Sigmoid, Isotonic}``:
 
-1. Compute ``ece_C = expected_calibration_error(y_true, y_pred_proba_C, n_bins=10)``.
-2. Bootstrap a 95% CI on ``ece_C`` via ``evaluation.bootstrap.bootstrap_metric`` (``n_bootstrap=1000``, percentile method).
+1. Compute ``ece_C = _ece_score(oof_y, calibrated_probs_C, n_bins=15)``.
+2. Bootstrap a CI on ``ece_C``.
 3. Pick the calibrator whose **upper CI bound** is lowest. This is the conservative choice: prefer the calibrator that statistically dominates on calibration without overfitting to a single OOF realisation.
-4. Tie-breaker (within 1 standard error): prefer ``NoCal > Sigmoid > Isotonic`` (Occam — fewer learned parameters wins on ties).
+4. Tie-breaker (overlapping CIs): prefer ``NoCal > Sigmoid > Isotonic`` (Occam — fewer learned parameters wins on ties).
 
 ## Why ECE-with-CI rather than point ECE
 
@@ -21,28 +40,7 @@ Point-ECE on n<~5000 OOF rows is noisy; calibrators that fit a few extra paramet
 
 ## Reliability plot
 
-Every selection generates a reliability plot rendered via ``reporting/renderers/matplotlib.py``. The plot overlays the three candidate calibration curves alongside the ideal diagonal, and annotates the chosen calibrator. The plot is included in standard reporting output (controlled by ``ReportingConfig.render_calibration_plot``; default ``True``).
-
-## Configuration
-
-```python
-from mlframe.training.configs import ReportingConfig
-
-config = ReportingConfig(
-    pick_calibrator_policy="oof_ece_bootstrap_ci",   # default
-    pick_calibrator_n_bins=10,                        # default
-    pick_calibrator_n_bootstrap=1000,                  # default
-    pick_calibrator_alpha=0.05,                        # 95% CI default
-    render_calibration_plot=True,                      # default
-)
-```
-
-To opt out and pin a specific calibrator:
-
-```python
-config = ReportingConfig(pick_calibrator_policy="force_sigmoid")
-# or "force_isotonic" / "force_nocal"
-```
+A reliability plot can be emitted by ``pick_best_calibrator`` when ``emit_plot=True`` (with an optional ``plot_path=``); the resolved path is returned under the ``plot_path`` key of the result dict. The plot overlays the candidate calibration curves alongside the ideal diagonal and annotates the chosen calibrator.
 
 ## Limitations
 
@@ -52,7 +50,8 @@ config = ReportingConfig(pick_calibrator_policy="force_sigmoid")
 
 ## Related modules
 
-- ``src/mlframe/calibration/quality.py`` — ``pick_best_calibrator``, ``expected_calibration_error``, ``make_custom_calibration_plot``.
+- ``src/mlframe/calibration/policy.py`` — ``pick_best_calibrator``, ``_ece_score``, the reliability-plot emitter.
+- ``src/mlframe/metrics/core.py`` — ``compute_ece_and_brier_decomposition`` (Brier REL/RES/UNC decomposition).
 - ``src/mlframe/calibration/post.py`` — post-hoc ``Sigmoid``/``Isotonic`` wrappers around the chosen calibrator.
 - ``src/mlframe/evaluation/bootstrap.py`` — generic ``bootstrap_metric`` + ``delong_test`` consumed by the policy.
 - ``src/mlframe/training/honest_diagnostics.py`` — aggregator that surfaces the calibration verdict alongside the rest of the honest-OOF diagnostics. See ``docs/honest_diagnostics_guide.md``.

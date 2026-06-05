@@ -1,5 +1,15 @@
 # Changelog
 
+## [Unreleased]
+
+### Documentation
+
+- Corrected the README quickstart and feature examples to the real public API: `train_mlframe_models_suite` now shown returning a `(models, metadata)` tuple with a `SimpleFeaturesAndTargetsExtractor`; `CompositeTargetEstimator` example fixed to `base_estimator=` / `transform_name=` / `base_column=` (single transformed-target regressor); calibration example switched to `fast_calibration_report`; feature-selection imports to `MRMR` / `RFECV`; financial FE to `create_ohlcv_wholemarket_features`; `create_aggregated_features` to its real in-place signature; inference section to `read_trained_models` / `get_models_raw_predictions`; post-hoc calibration to `pick_best_calibrator`.
+- Fixed `docs/examples/composite_targets.md` (default `mi_estimator="bin"`, `screening="hybrid"`, kNN now opt-in; benchmark commands point at the real `benchmarks/` scripts) and `docs/composite_targets_tutorial.ipynb` (real extractor import + `pip install -e .`).
+- Repointed stale module references in the research / audit docs: `pick_best_calibrator` to `calibration/policy.py`, removed phantom `ReportingConfig` knobs, repointed the numba moment kernels to `_numerical_numba.py`, the PySR FE worker to `_pipeline_extensions.py`, and annotated shipped items (MRMR scorers/estimators, PySR operator presets, `add_cyclical=True` default, 3-wise + metamorphic fuzz suites). Stated that `FeatureHandlingConfig` is consumed via `feature_handling_config=`.
+- Added `docs/README.md` (guide index) and `scripts/README.md` (per-script reference), and a `tests/test_docs_examples_smoke.py` import-only sensor that pins every documented public symbol so the docs cannot silently rot.
+- Removed `scripts/repros/` (one-off 2026-05 bug repros now covered by the fuzz suite and `tests/training/test_mrmr_polars_fe.py`).
+
 ## 2026-06-04 — MRMR FE pair-search: batch the per-candidate quantile discretization (profiled hotspot)
 
 WHY: a broad real-data sweep hit a 3.75h MRMR-FE fit on near-saturated wide data (scene, 2407x299) with the CPU

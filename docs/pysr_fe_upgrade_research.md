@@ -72,7 +72,7 @@ Pulled directly from the PySRRegressor `__init__` signature at master
 | `output_jax_format` | False |
 | `output_torch_format` | False |
 
-Side-by-side with `mlframe/training/pipeline.py:_apply_pysr_fe`:
+Side-by-side with `mlframe/training/_pipeline_extensions.py:_apply_pysr_fe`:
 
 - We override `populations=15` (~half PySR default 31) -- under-parallel for modern CPUs.
 - We override `population_size=33` (vs default 27) -- bigger diversity per pop.
@@ -119,7 +119,7 @@ and discussion #233 ([gh discussion](https://github.com/MilesCranmer/PySR/discus
 
 - **Issue #441** "running out of RAM suddenly" ([gh discussion](https://github.com/MilesCranmer/PySR/discussions/441)): Julia GC is too passive on long PySR runs. Fix: set `heap_size_hint_in_bytes` (or `JULIA_HEAP_SIZE_HINT`); ~1 GB hint stabilised a 25-feature search that was creeping to 15 GB at hour 10. Maintainer plans to default this to ~10% of RAM.
 - **Issue #706** "memory leak with batching at >450K rows" ([gh issue](https://github.com/MilesCranmer/PySR/issues/706)): unresolved upstream; reproducible at 460K rows -> 15.5 GB / 1.5h. Workaround: cap pool below ~400K. Our current `_apply_pysr_fe` logs at >1M but doesn't cap; we should expose this knob clearly.
-- **Discussion #873** "overloading CPUs on HPC" ([gh discussion](https://github.com/MilesCranmer/PySR/discussions/873)): the right env var is `PYTHON_JULIACALL_THREADS`, not `JULIA_NUM_THREADS`, when launching PySR via the default juliacall bridge. `JULIA_NUM_THREADS` only matters if Julia is started by hand. **Our pipeline.py sets `JULIA_NUM_THREADS` which is ignored under juliacall.** Worth setting both.
+- **Discussion #873** "overloading CPUs on HPC" ([gh discussion](https://github.com/MilesCranmer/PySR/discussions/873)): the right env var is `PYTHON_JULIACALL_THREADS`, not `JULIA_NUM_THREADS`, when launching PySR via the default juliacall bridge. `JULIA_NUM_THREADS` only matters if Julia is started by hand. **Shipped:** `pipeline.py` now sets both — `PYTHON_JULIACALL_THREADS="auto"` plus a numeric `JULIA_NUM_THREADS` for the legacy path — at module import.
 
 ## 6. Tuning guide synthesis
 
@@ -194,6 +194,8 @@ Legend: KEEP / CHANGE / ADD / SKIP. "Blast radius" = how disruptive a flip is.
 | `select_k_features` | None | None | author explicitly says don't use it | SKIP | n/a |
 
 ## 9. Operator-preset design
+
+**Shipped:** the named operator-preset system described here is implemented — the safe operators live in `mlframe/feature_engineering/pysr_operators.py` and the `pysr_operator_preset` knob is consumed by the in-suite PySR FE path.
 
 Goal: replace the current `[log, inv]` (which has the un-safe `log` bug) with
 three named presets the caller can pick via `pysr_operator_preset`. All custom
@@ -284,10 +286,9 @@ plumbing PySR state across the suite's per-target loop -- noted as future work.
 
 ## 12. Practical caveats for the in-suite path
 
-- `JULIA_NUM_THREADS` is currently set in `pipeline.py` at module import. Under
-  juliacall (the default Julia bridge for PySR >= 1.0), the right env var is
-  `PYTHON_JULIACALL_THREADS` ([gh discussion #873](https://github.com/MilesCranmer/PySR/discussions/873)).
-  Set both for forward/backward compat.
+- **Shipped:** `pipeline.py` sets both `PYTHON_JULIACALL_THREADS="auto"` (the correct
+  var under the juliacall bridge for PySR >= 1.0, [gh discussion #873](https://github.com/MilesCranmer/PySR/discussions/873))
+  and a numeric `JULIA_NUM_THREADS` for the legacy hand-started-Julia path, at module import.
 - Julia first-run compile cost is ~30-60 s on a cold cache and dominates the
   wall-clock of any fit shorter than ~2 min. Disclose in the docs section so
   users don't conclude "PySR is broken" on first run.

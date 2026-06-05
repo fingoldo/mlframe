@@ -94,73 +94,91 @@ pytest
 
 **One-call multi-model training and evaluation.** Each model is trained with its
 native preprocessing strategy (CatBoost / LightGBM / XGBoost on raw frames; linear
-and neural pipelines get encoded, imputed, and scaled). The suite returns per-model
-predictions, fit-time metrics, calibration diagnostics, and a reporting spec.
+and neural pipelines get encoded, imputed, and scaled). The suite returns a
+`(models, metadata)` tuple: `models` is a per-target-type dict of trained model
+entries, `metadata` carries fit-time metrics, calibration diagnostics, baseline
+diagnostics, and the reporting spec. The features and targets are pulled from the
+frame by a caller-supplied extractor (see `SimpleFeaturesAndTargetsExtractor`).
 
 ```python
-from mlframe.training import train_mlframe_models_suite
+from mlframe.training.core import train_mlframe_models_suite
+from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
 
-result = train_mlframe_models_suite(
+fte = SimpleFeaturesAndTargetsExtractor(regression_targets=["y"])
+
+models, metadata = train_mlframe_models_suite(
     df=df,
-    target="y",
-    models=["cb", "lgb", "xgb", "hgb", "mlp"],
-    regression=False,
-    cv_folds=5,
-    early_stopping_rounds=50,
-    use_polars=True,
+    target_name="y",
+    model_name="exp_quickstart",
+    features_and_targets_extractor=fte,
+    mlframe_models=["cb", "lgb", "xgb", "hgb", "mlp"],
 )
 
-result.models["cb"].metrics["holdout_brier"]
-result.models["lgb"].calibration_plot()
-result.ensemble("stack").predict_proba(X_new)
+# `models` is keyed by target-type, then model name; each entry exposes the fitted model.
+entry = models["regression"]["lgb"][0]
+y_pred = entry.model.predict(X_new)
+
+# Diagnostics live in `metadata` (per target-type, per target).
+print(metadata["baseline_diagnostics"]["regression"]["y"])
 ```
 
-**Composite-target stacking.** Train K base learners on `y`, then fit a
-meta-learner on out-of-fold residuals to capture targeted error structure. The
-estimator is scikit-learn-compatible (clone, `get_params`, `sample_weight`, runtime
-stats callback), with cross-version behaviour pinned by CI.
+**Composite-target regression.** A scikit-learn-compatible wrapper that fits a
+single inner regressor on a *transformed* target (e.g. `T = y - alpha*base`) and
+inverts the transform at predict time, exposing residual structure the raw target
+buries. Pick the transform by name (`list_transforms()` enumerates them) and name
+the base-feature column it residualises against. The wrapper clones the inner
+estimator, delegates `feature_importances_` / `get_booster()` / other attributes
+transparently, and pins cross-version behaviour in CI.
 
 ```python
-from mlframe.estimators.custom import CompositeTargetEstimator
+from sklearn.linear_model import Ridge
+from mlframe.training.composite_estimator import CompositeTargetEstimator
 
 est = CompositeTargetEstimator(
-    base_estimator="lgb",
-    meta_estimator="ridge",
-    cv=5,
-    target_transform="residual",
+    base_estimator=Ridge(),
+    transform_name="linear_residual",
+    base_column="y_prev",
 )
 est.fit(X_train, y_train)
-est.feature_importances_       # aggregated across folds
+est.predict(X_new)
+est.feature_importances_       # delegated from the fitted inner estimator
 ```
 
-**Per-target metric panel.** Computes the Brier reliability / resolution /
-uncertainty decomposition, ICE bands, ECE, and CMAEW, with handling for class
-imbalance and small-bin variance.
+**Per-target metric panel.** `fast_calibration_report` computes the Brier
+reliability / resolution / uncertainty decomposition, ICE bands, ECE, ROC/PR AUC,
+and the classification scores in one numba-accelerated pass, returning them as a
+flat tuple (and, optionally, the calibration figure).
 
 ```python
-from mlframe.metrics import compute_calibration_report
+from mlframe.metrics import fast_calibration_report
 
-report = compute_calibration_report(
+(brier_loss, cal_mae, cal_std, cal_coverage,
+ ece, brier_rel, brier_res, brier_unc,
+ roc_auc, pr_auc, ice, ll, precision, recall, f1,
+ metrics_string, fig) = fast_calibration_report(
     y_true=y_test,
-    y_proba=clf.predict_proba(X_test)[:, 1],
-    n_bins=15,
-    method="quantile",
+    y_pred=clf.predict_proba(X_test)[:, 1],
+    nbins=15,
+    show_plots=False,
 )
-print(report.brier_rel, report.brier_res, report.brier_unc, report.ece)
+print(brier_rel, brier_res, brier_unc, ece)
 ```
 
 **MRMR / RFECV feature selection.** Several MRMR variants (FCQ, MID, FCD, plus
 n-way interaction extensions) and an RFECV wrapper that reads LightGBM / XGBoost /
-CatBoost feature importances correctly.
+CatBoost feature importances correctly. Both are scikit-learn `fit` / `transform`
+estimators; the selected columns land on the fitted estimator after `fit(X, y)`.
 
 ```python
-from mlframe.feature_selection.filters.mrmr import mrmr_classif
-from mlframe.feature_selection.wrappers import RFECVCustom
+from lightgbm import LGBMClassifier
+from mlframe.feature_selection.filters.mrmr import MRMR
+from mlframe.feature_selection.wrappers import RFECV
 
-selected = mrmr_classif(X, y, K=30, scheme="fcq")
+mrmr = MRMR(max_runtime_mins=1.0).fit(X, y)
+X_mrmr = mrmr.transform(X)
 
-rfe = RFECVCustom(estimator=LGBMClassifier(), step=0.1, cv=5)
-rfe.fit(X, y)
+rfe = RFECV(estimator=LGBMClassifier()).fit(X, y)
+X_rfe = rfe.transform(X)
 ```
 
 **SHAP-proxied feature selection (`ShapProxiedFS`).** Trains one model on all
@@ -269,47 +287,71 @@ def my_kernel(X, variant="njit", block=128):
 ACF, Hurst exponent, TA-Lib indicators, and market-wide rolling features. Most
 extraction paths run Polars-native without copying to pandas.
 
+`create_aggregated_features` is the per-window worker: it appends numeric / categorical
+aggregates (raw, diffs, ratios, robust, EWMA, rolling, wavelets, ...) computed over the
+rows of one window into the caller-supplied `row_features` list (and, when
+`create_features_names=True`, the parallel `features_names` list). It mutates those
+lists in place and returns `None`.
+
 ```python
 from mlframe.feature_engineering.timeseries import create_aggregated_features
-from mlframe.feature_engineering.financial import compute_market_features
 
-agg = create_aggregated_features(
-    df, value_col="price", time_col="ts",
-    windows=[5, 15, 60],
-    aggs=["mean", "std", "min", "max", "acf1"],
+row_features: list = []
+features_names: list = []
+create_aggregated_features(
+    window_df=window_df,           # one rolling window of rows
+    row_features=row_features,     # appended to in place
+    create_features_names=True,
+    features_names=features_names, # appended to in place
+    dataset_name="prices",
+    differences_features=True,
+    ratios_features=True,
+    ewma_alphas=(0.1, 0.5),
 )
+```
 
-market = compute_market_features(df, ohlc_cols=("open", "high", "low", "close"))
+`create_ohlcv_wholemarket_features` builds cross-ticker market-wide aggregates
+(min / max / std / mean / quantiles plus value-weighted variants) per timestamp on a
+Polars OHLCV frame:
+
+```python
+from mlframe.feature_engineering.financial import create_ohlcv_wholemarket_features
+
+market = create_ohlcv_wholemarket_features(ohlcv, timestamp_column="date")
 ```
 
 **Post-hoc probability calibration.** Compare Venn-Abers, isotonic, Platt, beta, and
-per-class isotonic on the same out-of-fold predictions and pick the calibrator that
-minimises Brier reliability without inflating resolution.
+per-class isotonic on out-of-fold predictions and pick the calibrator that minimises
+OOF ECE (with a bootstrap-CI tiebreak). Selection is OOF-only to keep the estimate
+honest; the returned dict carries the chosen calibrator name, its fitted object, and
+the per-candidate ECE scores.
 
 ```python
-from mlframe.calibration.post import select_best_calibrator
+from mlframe.calibration.policy import pick_best_calibrator
 
-best, scores = select_best_calibrator(
-    y_true=y_val,
-    y_proba=oof_proba,
+result = pick_best_calibrator(
+    probs=None, y=None,                 # optional diagnostic-only held-out probs/labels
+    oof_probs=oof_proba, oof_y=y_val,   # OOF probs/labels drive the selection
     candidates=["isotonic", "platt", "beta", "venn_abers"],
-    objective="brier_rel",
+    n_bins=15,
 )
-calibrated = best.transform(test_proba)
+print(result["chosen"], result["ece_mean"], result["alternatives"])
 ```
 
-**Batch inference with adaptive worker count.** Worker count adapts to available
-RAM; results stream back with exception propagation.
+**Inference from saved models.** `read_trained_models` loads a featureset's saved
+models from an inference folder (with optional `trusted_root` path-traversal guard and
+SHA-256 sidecar verification), returning `(models, X)` aligned to the required feature
+order; `get_models_raw_predictions` then evaluates each loaded model on `X`.
 
 ```python
-from mlframe.inference.predict import batch_predict
+from mlframe.inference.predict import read_trained_models, get_models_raw_predictions
 
-preds = batch_predict(
-    model=clf,
-    X=large_frame,
-    batch_size=10_000,
-    n_workers="auto",
+models, X_aligned = read_trained_models(
+    featureset="my_featureset",
+    X=X_new,
+    inference_folder="infer",
 )
+preds = get_models_raw_predictions(models, X_aligned, Y=None)
 ```
 
 ## Caching strategy

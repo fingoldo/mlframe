@@ -1,8 +1,8 @@
 # `FeatureHandlingConfig` cookbook
 
-Practical recipes for the 2026-05 feature-handling overhaul. Status: 11 phases shipped, infrastructure live, end-to-end consumer wiring into `train_mlframe_models_suite` lands in a follow-up.
+Practical recipes for the feature-handling layer.
 
-All examples below construct + describe the `FeatureHandlingConfig`. Until consumer wiring lands, the FHC is built and validated but the existing `train_mlframe_models_suite` ignores it; treat these as the contract for what's coming.
+All examples below construct a `FeatureHandlingConfig` and pass it to `train_mlframe_models_suite` via the `feature_handling_config=` keyword; the suite consumes it per target / per model when building each model's feature-handling plan.
 
 ## 1. Zero-config defaults
 

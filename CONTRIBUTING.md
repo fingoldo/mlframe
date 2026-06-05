@@ -19,7 +19,7 @@ pip install -e ".[boosting,calibration,viz,dev]"
 pre-commit install
 ```
 
-Python 3.9 is the floor. CI verifies 3.9 through 3.13.
+Python 3.9 is the floor. CI verifies 3.9 through 3.14.
 
 ## Running tests
 

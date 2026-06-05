@@ -1,7 +1,7 @@
 """Exploratory bench: 4 synthetic constructions for slice-stable ES value-prop.
 
 Run from mlframe root:
-    D:/ProgramData/anaconda3/python.exe scripts/bench_slice_es_synthetics.py
+    python scripts/bench_slice_es_synthetics.py
 
 For each construction we run baseline (single-val ES) vs slice-stable (K random and K temporal)
 across N seeds, paired Wilcoxon one-sided test. Picks the construction with the strongest

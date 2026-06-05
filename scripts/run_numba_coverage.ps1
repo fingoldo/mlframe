@@ -52,7 +52,7 @@ if ($TestSelector) {
 Write-Host "[numba-coverage] NUMBA_DISABLE_JIT=1 active; running pytest..."
 Write-Host "[numba-coverage] args: $($pytestArgs -join ' ')"
 
-& "D:/ProgramData/anaconda3/python.exe" @pytestArgs
+& python @pytestArgs
 $exit = $LASTEXITCODE
 Write-Host "[numba-coverage] pytest exit code: $exit"
 exit $exit

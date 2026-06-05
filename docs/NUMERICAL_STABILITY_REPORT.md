@@ -6,6 +6,8 @@
 and numerical precision issues. Companion to the recent multi-output
 landing's Welford ensembling refactor.
 
+> Note: the numba moment kernels referenced as `numerical.py:NNN` below have since moved into the sibling `mlframe/feature_engineering/_numerical_numba.py` (re-exported from `numerical.py`). Current homes: `compute_numerical_aggregates_numba` at `_numerical_numba.py:~449`, `compute_moments_slope_mi` at `_numerical_numba.py:~596` (including the weighted-moments bug-fix site). `compute_simple_stats_numba` remains in `numerical.py`.
+
 ## TL;DR
 
 - **Kahan-Babuška-Neumaier compensated 2-pass variance is the clear winner**

@@ -44,20 +44,17 @@ The aggregator returns a ``dict`` of the following shape (one entry per trained 
 }
 ```
 
-The structured dict is rendered into a one-pager text table at the bottom of the standard reporting output, and persisted to ``honest_diagnostics.json`` next to the model bundle if ``ReportingConfig.persist_honest_diagnostics_json`` is True (default).
+The structured dict is rendered into a one-pager text table at the bottom of the standard reporting output.
 
 ## Configuration
+
+The single knob is the on/off toggle ``ReportingConfig.honest_estimator_diagnostics`` (default ON):
 
 ```python
 from mlframe.training.configs import ReportingConfig
 
 config = ReportingConfig(
-    honest_estimator_diagnostics=True,                    # AP13 default ON
-    honest_gap_warn_threshold=0.10,                       # default 10%
-    honest_diagnostics_n_bootstrap=1000,                   # default
-    honest_diagnostics_alpha=0.05,                         # 95% CI
-    honest_diagnostics_delong_top_k=2,                     # top-2 pairs per slot
-    persist_honest_diagnostics_json=True,                  # default
+    honest_estimator_diagnostics=True,   # default ON
 )
 ```
 
@@ -85,13 +82,13 @@ The ``WARN`` line is the actionable signal: the ensemble gate will drop this est
 
 - **Multiclass calibration ECE**: surfaced as ``None`` pending the multiclass calibration policy fix-up (Wave-10+).
 - **DeLong test requires binary** ``y_true``. Multiclass classification gets per-class one-vs-rest DeLong only if the caller explicitly asks; default behaviour skips DeLong for multiclass.
-- **Bootstrap CI cost**: ~50-200ms per estimator at default ``n_bootstrap=1000``. For very large suites (20+ targets × 5 classifiers) this adds ~10-20s to finalize. Reduce ``honest_diagnostics_n_bootstrap`` to 200 if wall-time matters.
+- **Bootstrap CI cost**: ~50-200ms per estimator. For very large suites (20+ targets × 5 classifiers) this adds ~10-20s to finalize; disable the aggregator (``honest_estimator_diagnostics=False``) if wall-time matters.
 
 ## Related modules
 
 - ``src/mlframe/training/honest_diagnostics.py`` — the aggregator.
 - ``src/mlframe/evaluation/bootstrap.py`` — ``bootstrap_metric`` + ``delong_test``.
-- ``src/mlframe/calibration/quality.py`` — ``pick_best_calibrator``. See ``docs/calibration_policy.md``.
+- ``src/mlframe/calibration/policy.py`` — ``pick_best_calibrator``. See ``docs/calibration_policy.md``.
 - ``src/mlframe/training/provenance.py`` — provenance trail (AP14).
 - ``src/mlframe/training/dummy_baselines.py`` — dummy floor producers. See ``docs/dummy_baselines_guide.md``.
 

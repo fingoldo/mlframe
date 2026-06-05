@@ -181,9 +181,9 @@ The implementation in `basic.py` reflects these conclusions:
 - New helper `add_cyclical_date_features(df, cols, periods=(...))`
   emits sin/cos pairs for `hour` / `day` / `weekday` / `month` /
   `day_of_year` by default.
-- New `add_cyclical: bool = False` kwarg on `create_date_features`
-  lets callers opt in to "everything at once" without two function
-  calls.
+- The `add_cyclical: bool = True` kwarg on `create_date_features` (default ON)
+  emits the sin/cos cyclical pairs alongside the calendar features in one call;
+  pass `add_cyclical=False` to opt out.
 - Mixed-tz columns trigger a single explicit warning listing every
   observed tz (including `"naive"`), but never auto-convert.
 - Sin/cos outputs are float32 normalised to `[-1, 1]`.

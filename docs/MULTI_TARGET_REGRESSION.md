@@ -117,57 +117,14 @@ target `k`.
 
 ## Suite-integration roadmap
 
-Ordered by dependency. Each step is a separate PR.
+Dependency-ordered outline of the work to wire multi-target regression (MTR) end-to-end:
 
-### Phase 1 — Detection & target-type wiring
-
-1. Auto-detect MTR in `trainer.py::_resolve_target_type`: when `y.ndim == 2 and y.shape[1] >= 2 and y.dtype.kind == "f"`, return `TargetTypes.MULTI_TARGET_REGRESSION`.
-2. Confirm `train_mlframe_models_suite` propagates the new target type through `target_type_dispatch` to every per-model factory.
-3. Add `MULTI_TARGET_REGRESSION` to `_strategies_base.py::is_supported_target_type` allow/skip-lists per strategy (any strategy NOT in the matrix above raises `NotImplementedError` with a clear message — same pattern LTR uses).
-
-### Phase 2 — Per-strategy native paths
-
-4. **CatBoostStrategy**: when `target_type.is_multi_target_regression`, override `loss_function="MultiRMSE"` in `get_native_kwargs`.
-5. **XGBoostStrategy**: override `multi_strategy="multi_output_tree"` + `tree_method="hist"`.
-6. **LinearStrategy / SklearnNativeStrategies**: no override needed; sklearn passes `(N, K)` y through.
-7. **MLPStrategy**: no override needed; F-24 covers it.
-
-### Phase 3 — Wrappers for non-native strategies
-
-8. **LightGBMStrategy / HistGradientBoostingStrategy / NGBStrategy**: wrap the per-target regressor in `sklearn.multioutput.MultiOutputRegressor(base, n_jobs="auto")`. Mirror the `MultilabelDispatchConfig.wrapper_n_jobs` convention.
-9. Add `MultiTargetDispatchConfig` (parallel to `MultilabelDispatchConfig`): `strategy="auto" | "wrapper" | "native"`, `n_jobs="auto"`, `force_native_xgb=False`.
-
-### Phase 4 — Metrics
-
-10. Add per-target metric variants: `MultiTargetMetricSpec(per_target_fn, aggregator="mean" | "max" | "min")` that loops a single-target metric over `K` columns. Default aggregator `mean` returns one scalar for ranking; `max` for worst-case monitoring.
-11. Register in `metrics_registry`: `val_R2_mean`, `val_R2_min`, `val_RMSE_mean`, `val_RMSE_max` etc. — all min-direction except R2_mean / R2_min which are max-direction.
-
-### Phase 5 — Reporting
-
-12. `_reporting_regression.py`: add per-target tables (one row per K target) alongside the aggregated summary. Reuse the per-class table layout from multilabel reporting.
-13. `feature_importance` per target: SHAP / built-in importances per target column.
-14. `composite_target_*`: composite targets (linear residual / per-group residual) are 1-D; explicit `NotImplementedError` for MTR (sane default — composite needs per-target design).
-
-### Phase 6 — Ensembling
-
-15. `CT_ENSEMBLE`: the cross-target ensemble logic assumes single y per fit. Either:
-    - **a)** Per-target ensembling: K independent CT_ENSEMBLE calls, stacked.
-    - **b)** Joint multi-target ensemble: average per-model (N, K) preds, then per-target R² for the ensemble score.
-    Default to (a); (b) as opt-in via `MultiTargetDispatchConfig.ensemble_mode`.
-16. `composite_post_xt_ensemble`: similarly per-target, then stack.
-
-### Phase 7 — TTR-on-y / scaling
-
-17. `_ttr_eval_set_scaling`: sklearn `TransformedTargetRegressor(transformer=StandardScaler())` already supports `(N, K)` natively. Verify our `_TTRWithEvalSetScaling` subclass passes through. The bench-attempt-rejected note from base.py around output_activation skips MTR explicitly — good.
-
-### Phase 8 — Dummy baselines
-
-18. `dummy_baselines.py`: per-target `DummyRegressor(strategy="mean")` over K targets. Mean-per-target baseline R² is what users compare against.
-
-### Phase 9 — Documentation & tests
-
-19. Update `train_mlframe_models_suite` docstring with MTR example.
-20. End-to-end biz_value test: synthetic K=3 MTR → suite trains all strategies → reports per-target metrics → CT_ENSEMBLE aggregates correctly.
+- **Detection & target-type wiring** — auto-detect MTR (`y.ndim == 2 and y.shape[1] >= 2 and y.dtype.kind == "f"`) into a `MULTI_TARGET_REGRESSION` target type, propagate it through the per-model dispatch, and add per-strategy allow/skip-lists (unsupported strategies raise a clear `NotImplementedError`, same pattern LTR uses).
+- **Per-strategy native paths** — CatBoost `loss_function="MultiRMSE"`, XGBoost `multi_strategy="multi_output_tree"`; linear / sklearn-native / MLP pass `(N, K)` y through unchanged.
+- **Wrappers for non-native strategies** — wrap LightGBM / HistGradientBoosting / NGB in `sklearn.multioutput.MultiOutputRegressor`, mirroring the `MultilabelDispatchConfig` n_jobs convention.
+- **Metrics & reporting** — per-target metric variants (`R2_mean`, `R2_min`, `RMSE_mean`, `RMSE_max`, ...) and per-target reporting tables / feature importances. Composite targets stay 1-D (explicit `NotImplementedError` for MTR).
+- **Ensembling, TTR/scaling, dummy baselines** — per-target ensembling stacked across K (joint multi-target average as an opt-in), verify `TransformedTargetRegressor` passes `(N, K)` through, per-target `DummyRegressor(strategy="mean")` baselines.
+- **Docs & tests** — MTR example in the suite docstring plus an end-to-end biz_value test (synthetic K=3 → all strategies → per-target metrics → ensemble aggregation).
 
 ## Cross-cutting risks
 

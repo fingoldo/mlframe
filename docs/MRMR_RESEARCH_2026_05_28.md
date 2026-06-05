@@ -2,10 +2,7 @@
 
 Three parallel research agents produced findings for the next sprint of MRMR / feature-selection improvements. Below: clean markdown extracts of each agent's final report, with priorities + cross-references.
 
-Raw JSONL transcripts (full tool-call traces) are at:
-- `D:\Temp\AppData\Local\Temp\claude\C--Users-TheLocalCommander\ac1b6fe1-3f12-43b8-b816-c02d477bb84d\tasks\ab1e5b00c36519779.output` (Agent A)
-- `D:\Temp\AppData\Local\Temp\claude\C--Users-TheLocalCommander\ac1b6fe1-3f12-43b8-b816-c02d477bb84d\tasks\a63d66fd79c861a50.output` (Agent B)
-- `D:\Temp\AppData\Local\Temp\claude\C--Users-TheLocalCommander\ac1b6fe1-3f12-43b8-b816-c02d477bb84d\tasks\a6406d4fbc04cbe7e.output` (Agent C)
+**Status update:** several of the items below have since shipped and are no longer "next sprint" — JMIM, RelaxMRMR (3-way redundancy), Chao-Shen and KSG MI estimators, CPT (conditional permutation test), PID (partial information decomposition), the per-feature adaptive bin-count chooser, and cluster-stability selection are all implemented. The remaining items stay as forward research.
 
 This file consolidates the final reports for easier reading.
 

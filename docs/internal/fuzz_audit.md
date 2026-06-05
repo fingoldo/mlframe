@@ -2,9 +2,10 @@
 
 This document describes how the combinatorial fuzz-testing harness in
 `tests/training/test_fuzz_suite.py` and `_fuzz_combo.py` works, what it
-covers today, and the planned upgrades (property invariants, metamorphic
+covers today, and the upgrade roadmap (property invariants, metamorphic
 assertions, seed rotation, adversarial axes, 3-wise coverage, Hypothesis
-leaves, coverage-feedback).
+leaves, coverage-feedback). The 3-wise covering array and the metamorphic
+dual-runs have since shipped (`test_fuzz_3way_suite.py`, `test_fuzz_metamorphic.py`).
 
 ## 1. Motivation
 
@@ -99,7 +100,9 @@ Real bugs caught since 2026-04:
 
 Labels track the discussion in the jolly-wishing-deer plan.
 
-### A. 3-wise coverage (`test_fuzz_3way_suite.py`)
+### A. 3-wise coverage (`test_fuzz_3way_suite.py`) — DONE
+
+Shipped as `tests/training/test_fuzz_3way_suite.py`.
 
 - Upgrade from pairwise to **3-wise** covering array.
 - ≈ 1500–3000 combos (10–20× pairwise). Scale via `pytest -n 8`.
@@ -132,7 +135,9 @@ Beyond "it didn't crash", every succeeded combo must satisfy:
 Invariants C1/C4 run on every combo. C2/C3 are costlier and gated by an
 env flag (`MLFRAME_FUZZ_INVARIANTS=all`).
 
-### D. Metamorphic dual-runs
+### D. Metamorphic dual-runs — DONE
+
+Shipped as `tests/training/test_fuzz_metamorphic.py`.
 
 For a subset of combos (pairs), assert equivalences:
 

@@ -90,8 +90,8 @@ y_pred = ensemble_entry.model.predict(X_new)
 ```
 
 Inside the defaults: `base_candidates="auto"`, `transforms=["diff", "ratio",
-"logratio", "linear_residual"]`, kNN MI, MI-only screening,
-`auto_skip_on_baseline_optimal=False`.
+"logratio", "linear_residual"]`, bin-based MI (`mi_estimator="bin"`), hybrid
+screening (`screening="hybrid"`), `auto_skip_on_baseline_optimal=False`.
 
 ## Tier 2: production config (all optimisations on)
 
@@ -105,8 +105,8 @@ cfg = CompositeTargetDiscoveryConfig(
     auto_skip_on_baseline_optimal=True,
 
     # Two-stage screening: cheap MI prefilter -> tiny-model rerank.
-    screening="hybrid",
-    mi_estimator="bin",                 # 38x faster MI than Kraskov default
+    screening="hybrid",                 # default; "mi" for MI-only, "tiny_model" for rerank-only
+    mi_estimator="bin",                 # default; 38x faster MI than the opt-in kNN Kraskov path
     tiny_model_n_jobs=3,                # parallel CV folds (Phase B)
     top_k_after_mi=8,
     top_m_after_tiny=3,
@@ -124,10 +124,10 @@ cfg = CompositeTargetDiscoveryConfig(
 
 Notes:
 
-- `mi_estimator="bin"` is the bin-based MI; 38x faster than the kNN
-  Kraskov default but biased low on heavy-tail distributions. For
-  near-Gaussian targets it picks the same dominant base. Stick with
-  `"knn"` (default) if you have power-law / heavy-tail targets.
+- `mi_estimator="bin"` is the default bin-based MI; 38x faster than the
+  opt-in kNN Kraskov path but biased low on heavy-tail distributions. For
+  near-Gaussian targets it picks the same dominant base. Opt into
+  `mi_estimator="knn"` if you have power-law / heavy-tail targets.
 - `oof_holdout_frac=0.2` re-fits a clone of every component on 80% of
   train and predicts on the held-out 20%. Honest holdout drives the
   ensemble weights / stacking and the validation gate. Cost: one
@@ -276,12 +276,12 @@ infrastructure.
 ## Benchmarks + profiling
 
 ```bash
-# Run the synthetic benchmark suite (5 scenarios, JSON + Markdown leaderboard)
-python -m mlframe.benchmarks.composite_target_benchmark --fast
+# Run the synthetic benchmark suite (S1-S16 scenarios, JSON + Markdown leaderboard)
+python benchmarks/composite_target_benchmark.py --fast
 
 # Profile every composite-target feature with cProfile + wall-time calibration
-python -m mlframe.benchmarks.composite_profile --feature all --reps 5
-python -m mlframe.benchmarks.composite_profile --feature wrapper_predict --batch 1000
+python benchmarks/composite_profile.py --feature all --reps 5
+python benchmarks/composite_profile.py --feature wrapper_predict
 ```
 
 ## End-to-end example: TVT walkthrough
