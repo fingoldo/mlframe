@@ -51,6 +51,13 @@ _SKIP_PATH_FRAGMENTS = (
     "tests",
     "__pycache__",
     "legacy",
+    # ``_benchmarks`` holds standalone dev benches + bench-local test_* probes
+    # (e.g. ``fs_hybrid/test_hybrid_tree_member.py``) that are test-adjacent by
+    # design -- their ``def test_*`` / ``def bench_*`` bodies have no production
+    # consumer because they ARE the consumers. Treated like ``tests`` so the
+    # dead-helper sensor scopes to the real internal pipeline. Mirrors the
+    # ``_benchmarks`` exemption in ``test_no_underscore_imports_cross_package``.
+    "_benchmarks",
 )
 _SKIP_FILENAME_PREFIXES = ("bench_", "profile_", "_")
 _SKIP_FILENAMES = {
@@ -128,6 +135,19 @@ _USER_DEFERRED_DEAD_HELPERS: set[str] = {
     # cannot read the thread-local in the @njit kernel hot path. Surface as
     # public API once at least one external caller materialises.
     "feature_selection/filters/info_theory.py::mi_or_su",
+    # 2026-06-05 -- empirical-null permutation kernels added alongside the
+    # ``mi_direct(return_null_mean=True)`` path. The prange twin
+    # (``parallel_mi_prange_with_null``) is the one ``mi_direct`` currently
+    # dispatches; these two are the joblib-outer and Besag-Clifford twins kept
+    # for parity so a future ``return_null_mean`` wiring of the ``outer`` / ``bc``
+    # parallelism modes reuses the same accumulate-sum-of-perm-MI contract rather
+    # than re-deriving it. Surface as consumed once those modes route null means.
+    "feature_selection/filters/permutation.py::parallel_mi_with_null",
+    "feature_selection/filters/permutation.py::parallel_mi_besag_clifford_with_null",
+    # Bench-populate helper for the polyeval CPU-backend ParamOracle: callable on
+    # demand to seed the oracle with measured njit-vs-njit_par crossovers; no
+    # production caller by design (the oracle is consulted, not benched, in prod).
+    "feature_selection/filters/hermite_fe.py::benchmark_polyeval_cpu_backends",
 }
 
 

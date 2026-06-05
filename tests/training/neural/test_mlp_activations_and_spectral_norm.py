@@ -160,7 +160,7 @@ def test_snake_periodic_fit_finite_and_no_worse_than_tanh() -> None:
             opt.zero_grad()
             loss.backward()
             opt.step()
-        return float(loss), net
+        return float(loss.detach()), net
 
     loss_tanh, _ = _train(nn.Tanh)
     loss_snake, _ = _train(Snake)

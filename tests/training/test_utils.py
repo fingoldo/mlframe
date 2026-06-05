@@ -461,21 +461,21 @@ class TestGetPandasViewOfPolarsDF:
 # ================================================================================================
 
 class TestPolarsSliceDictionaryDiffers:
-    """Documents current Polars slice-over-Categorical semantics — the test
-    class name is historical. Relevant for the shared-dict optimisation
-    attempted on 2026-04-19 and abandoned because Polars (at the time,
-    ≤ 1.32) trimmed each slice's dictionary to exactly the values present
-    in that slice, making a shared Arrow-level cache pointless.
+    """Documents Polars slice-over-Categorical semantics across versions and
+    pins the only contract ``get_pandas_view_of_polars_df`` actually depends
+    on: each call rebuilds the pandas Categorical from THAT frame's own Arrow
+    chunk, so a sliced frame's pandas view is correct regardless of whether
+    polars trims the dictionary on slice.
 
-    Polars ≥ 1.33 changed that: slicing a ``pl.Categorical`` column now
-    preserves the parent's full dictionary on each slice (verified with
-    polars 1.33.1 on 2026-04-23 — ``head.to_arrow().chunks[0].dictionary``
-    equals the source's dictionary byte-for-byte, even though the slice
-    only materialises 127/198 categories). The behavioural test below
-    locks this in as the *current* contract. The previous failure mode
-    was the trigger that made shared-dict caching worth revisiting; the
-    new behaviour makes it viable — see the 2026-04-23 notes in
-    ``get_pandas_view_of_polars_df`` for whether / how to re-enable.
+    History: the shared-dict optimisation attempted on 2026-04-19 assumed a
+    sliced ``pl.Categorical`` keeps the parent's full dictionary; it was
+    abandoned because polars (≤ 1.32, and again ≥ 1.4x — verified on polars
+    1.41.2) trims each slice's dictionary to exactly the values present in
+    that slice, so a shared Arrow-level cache is unsound. polars 1.33.x briefly
+    preserved the parent dictionary on slice; that is version-specific and NOT
+    something the converter relies on. The shared-dict codepath stays gated off
+    (the ``shared_dict_cache`` parameter was never restored — see the
+    2026-04-19 notes in ``get_pandas_view_of_polars_df``).
     """
 
     def test_high_cardinality_conversion_perf_budget(self):
@@ -511,21 +511,29 @@ class TestPolarsSliceDictionaryDiffers:
         out = get_pandas_view_of_polars_df(df)
         assert out.shape == (0, 0)
 
-    def test_slice_preserves_parent_categorical_dictionary(self):
-        """Polars ≥ 1.33 preserves the parent's full Categorical dictionary
-        across slices (``.head()``, ``df[a:b]``, ``.filter()``, etc.).
+    def test_slice_categorical_dictionary_is_not_shared_across_slices(self):
+        """Regression sensor for the shared-dict gate in
+        ``get_pandas_view_of_polars_df``.
 
-        Why we check this:
-          * shared-dict caching in ``get_pandas_view_of_polars_df`` is
-            sound iff sliced frames carry the same dict object as their
-            source — this test is the proof it still holds.
-          * if a future polars upgrade regresses back to per-slice dict
-            trimming (old behaviour), the first assert will start failing
-            and the shared-dict codepath will need to be gated off.
+        The converter MUST NOT share a single Categorical ``categories`` array
+        across sliced train/val/test calls, because the installed polars
+        (1.41.2, verified) trims each slice's Arrow dictionary to exactly the
+        values present in that slice — so the parent and its slices carry
+        *different* dictionaries. The sensor:
 
-        The test is "inverted" relative to its 2026-04-19 ancestor
-        (``test_slice_trims_categorical_dictionary``), which asserted the
-        opposite because at the time polars DID trim on slice.
+          1. Confirms the trim behaviour is still in force (slice dict is a
+             strict subset of the parent dict). If a future polars upgrade
+             preserves the full parent dict on slice again (as 1.33.x did),
+             this branch flips to the equal-length contract instead of red-
+             failing — either way the converter's per-slice rebuild is correct.
+          2. Proves the converter rebuilds each frame's pandas Categorical from
+             that frame's OWN dictionary: the pandas view of a slice round-trips
+             that slice's values exactly, independent of the parent.
+
+        Renamed from ``test_slice_preserves_parent_categorical_dictionary``
+        (the 2026-04-23 polars-1.33 contract): the shared-dict caching it
+        guarded was never re-enabled, so the binding contract is the per-slice
+        rebuild, not the polars dict-sharing detail.
         """
         rng = np.random.default_rng(0)
         pool = np.array([f"c_{i}" for i in range(200)])
@@ -539,19 +547,35 @@ class TestPolarsSliceDictionaryDiffers:
         head_dict = head.to_arrow().column(0).chunks[0].dictionary
         tail_dict = tail.to_arrow().column(0).chunks[0].dictionary
 
-        # Same size — parent palette preserved on each slice, regardless
-        # of how many of those categories the slice actually materialises.
-        assert len(head_dict) == len(full_dict), (
-            "polars slice trimmed the Categorical dict — behaviour reverted "
-            "to the pre-1.33 model; shared-dict caching in "
-            "get_pandas_view_of_polars_df must be gated off."
-        )
-        assert len(tail_dict) == len(full_dict)
-        # Parent ↔ slice equality (stronger guarantee than equal length).
-        assert head_dict.equals(full_dict)
-        assert tail_dict.equals(full_dict)
-        # And the two slices share the same palette too.
-        assert head_dict.equals(tail_dict)
+        # Document whichever slice-dict behaviour the installed polars has.
+        # The shared-dict cache is gated off regardless, so both are fine; the
+        # converter never relies on dict sharing.
+        full_vals = set(full_dict.to_pylist())
+        head_vals = set(head_dict.to_pylist())
+        tail_vals = set(tail_dict.to_pylist())
+        if len(head_dict) != len(full_dict):
+            # Trim behaviour (polars ≤ 1.32 and ≥ 1.4x): each slice carries a
+            # strict subset of the parent palette — shared-dict caching unsound.
+            assert head_vals <= full_vals and len(head_vals) < len(full_vals)
+            assert tail_vals <= full_vals
+        else:
+            # Preserve behaviour (polars 1.33.x): slices keep the full parent
+            # palette. The converter still rebuilds per-slice, so this is fine.
+            assert head_dict.equals(full_dict)
+            assert tail_dict.equals(full_dict)
+
+        # The binding contract: each frame's pandas view reflects that frame's
+        # own values exactly — the converter rebuilds from the local dict and
+        # does NOT splice in a shared parent palette.
+        pd_full = get_pandas_view_of_polars_df(src)
+        pd_head = get_pandas_view_of_polars_df(head)
+        pd_tail = get_pandas_view_of_polars_df(tail)
+        assert pd_full["x"].astype(str).tolist() == src["x"].cast(pl.String).to_list()
+        assert pd_head["x"].astype(str).tolist() == head["x"].cast(pl.String).to_list()
+        assert pd_tail["x"].astype(str).tolist() == tail["x"].cast(pl.String).to_list()
+        # The converter exposes no shared-dict knob — the optimisation stays gated off.
+        import inspect
+        assert "shared_dict_cache" not in inspect.signature(get_pandas_view_of_polars_df).parameters
 
 
 # ================================================================================================

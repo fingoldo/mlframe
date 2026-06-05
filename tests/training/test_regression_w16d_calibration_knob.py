@@ -173,9 +173,13 @@ def _build_synthetic_binary_artifacts(n_train: int = 400, n_test: int = 200, n_v
     test_preds = (test_probs[:, 1] > 0.5).astype(int)
 
     # OOF on train (use predict_proba on train as a placeholder; post_calibrate_model accepts any
-    # OOF source so a held-out clone here is sufficient for the contract test).
+    # OOF source so a held-out clone here is sufficient for the contract test). oof_target must be
+    # stamped alongside oof_probs in the SAME train-row order: post_calibrate_model pairs each OOF
+    # prob with its own row's label via model.oof_target (never a positional target_series slice),
+    # so the calibrator learns the correct prob->label mapping under shuffled / group-aware splits.
     oof_probs = clf.predict_proba(X[train_idx])
     setattr(clf, "oof_probs", oof_probs)
+    setattr(clf, "oof_target", y[train_idx])
 
     target_series = pd.Series(y[: n_train], index=range(n_train))
     target_series_full = pd.Series(y, index=range(n))

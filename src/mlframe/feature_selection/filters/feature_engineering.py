@@ -385,15 +385,22 @@ _KNOWN_UNARY_PRESETS = ("minimal", "medium", "maximal")
 _KNOWN_BINARY_PRESETS = ("minimal", "medium", "maximal")
 
 
-def _resolve_preset(preset: str) -> str:
+def _resolve_preset(preset: str | None) -> str:
     """Canonicalise a preset name to one of {minimal, medium, maximal}.
 
     ``rich`` / ``full`` are treated as aliases for ``maximal`` (the richest
     tier) so callers using the historical loose vocabulary still get a
-    well-defined registry. Any other value raises ValueError so a typo
-    (``mininal``) surfaces loudly rather than silently aliasing to ``medium``.
+    well-defined registry. ``None`` (and the empty string) mean "use the
+    default tier" and resolve to ``medium`` -- callers pass ``None`` to opt
+    into the standard preset without naming it. Any other value raises
+    ValueError so a typo (``mininal``) surfaces loudly rather than silently
+    aliasing to ``medium``.
     """
-    p = (preset or "").strip().lower()
+    if preset is None:
+        return "medium"
+    p = preset.strip().lower()
+    if not p:
+        return "medium"
     if p in _KNOWN_UNARY_PRESETS:
         return p
     if p in ("rich", "full"):

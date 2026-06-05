@@ -668,7 +668,7 @@ def get_polyeval_oracle():
     global _polyeval_oracle_singleton
     if _polyeval_oracle_singleton is not None:
         return _polyeval_oracle_singleton
-    from mlframe.utils._param_oracle import ParamOracle
+    from mlframe.utils import ParamOracle
     oracle = ParamOracle(
         "polyeval_cpu_backend.parquet",
         param_space=_POLYEVAL_ORACLE_PARAM_SPACE,
@@ -1039,7 +1039,13 @@ class HermiteResult:
 def _safe_div(a, b):
     """Element-wise division with sign-stable epsilon; avoids the x_a / 0 blowup that prevents polynomials from capturing ratio targets."""
     eps = 1e-9
-    return a / (b + np.sign(b) * eps + eps)
+    # Push the denominator at least eps away from zero in its own sign direction (eps when b==0). The prior
+    # ``b + sign(b)*eps + eps`` cancelled to exactly ``b`` for negative b (no protection -> divide-by-zero blowup
+    # on small negative denominators); this guarantees |denom| >= eps for every b, sign-stable on both branches.
+    b = np.asarray(b, dtype=np.float64)
+    denom = np.where(b >= 0, b + eps, b - eps)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return a / denom
 
 
 def _atan2(a, b):

@@ -308,13 +308,11 @@ def test_shap_xgb_base_score_patch_handles_bracketed_array_string():
     Exercised in isolation (no real shap call) so the test runs on any host
     regardless of whether the local xgboost build triggers the array path.
     """
-    pytest.importorskip("shap")
-    from mlframe.feature_selection._shap_proxy_explain import (
-        _maybe_patch_shap_xgb_base_score, _SHAP_XGB_PATCHED,  # noqa: F401
-    )
-    _maybe_patch_shap_xgb_base_score()
-    from shap.explainers import _tree as _shap_tree
-    coerce = _shap_tree.float
+    # Test the bracket-aware coercer DIRECTLY. On shap>=0.52 the patch is a STRICT no-op (shap parses the array
+    # base_score natively and uses ``float`` as a numpy dtype, so ``_shap_tree.float`` must NOT be replaced -- see
+    # test_patch_is_noop_on_shap_ge_052), hence the coercer is no longer reachable via ``_shap_tree.float`` there.
+    # The bracket-handling logic itself (the contract under test) lives in the module-level ``_safe_float``.
+    from mlframe.feature_selection._shap_proxy_explain import _safe_float as coerce
     assert coerce("[0.5]") == 0.5
     assert abs(coerce("[5.0666666E-1]") - 0.50666666) < 1e-6
     # Multi-element array: take the first.

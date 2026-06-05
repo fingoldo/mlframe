@@ -177,6 +177,29 @@ def fast_subset(values, *, representative=None, keep: int = 1):
     return values[:keep]
 
 
+def running_under_xdist() -> bool:
+    """True when executing inside a pytest-xdist worker (i.e. the full ``-n`` parallel run)."""
+    return bool(os.environ.get("PYTEST_XDIST_WORKER"))
+
+
+def perf_time_budget(base_seconds: float, *, xdist_factor: float = 4.0) -> float:
+    """Wall-clock time budgets are unreliable under ``-n`` parallel contention: a 2h full-suite run can starve any one
+    worker for seconds, so a quiet-box budget that is correct standalone flakes under load. Multiply the budget when
+    running under xdist so it still trips on a gross (order-of-magnitude) regression without flaking on transient
+    scheduler stalls; standalone keeps the tight budget. Use for absolute ``elapsed <= budget`` assertions."""
+    return base_seconds * xdist_factor if running_under_xdist() else base_seconds
+
+
+def perf_speedup_floor(base_ratio: float, *, xdist_factor: float = 0.6) -> float:
+    """Speedup-ratio floors compress under ``-n`` contention. A ratio is measured from two arms run back-to-back in the
+    same process, so contention hits both and the ratio is more load-robust than an absolute time -- but small absolute
+    times still add noise. Relax the floor under xdist so a real win still passes; standalone keeps the full ratio.
+    Never drops below 1.0x: a speedup test must still prove the fast path is at least not slower under load."""
+    if not running_under_xdist():
+        return base_ratio
+    return max(1.0, base_ratio * xdist_factor)
+
+
 def require_polars_ds():
     """Skip the calling test when ``polars-ds`` is not importable. Single source of truth so the 8x duplicated
     `pytest.importorskip("polars_ds")` calls in `tests/inference/`, `tests/training/test_pipeline.py`, and

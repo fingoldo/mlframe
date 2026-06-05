@@ -58,16 +58,27 @@ def _fast_hamming_loss_seq(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 
 @numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
 def _fast_hamming_loss_par(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    """Parallel variant. Auto-selected by hamming_loss() when N*K > 1M."""
+    """Parallel variant. Auto-selected by hamming_loss() when N*K > 1M.
+
+    The prange body is a pure per-row MAP (writes one independent ``err_per_row[i]`` per iteration,
+    no scalar accumulator crossing iterations); the final ``sum/N`` runs in a separate plain ``range``
+    loop. This shape is required to dodge numba 0.63.1's parfor reduction-analysis bug ("unexpected
+    cycle in lookup()"): an inner-loop accumulator that is read AFTER the loop and combined with a
+    reduction (the old ``err_per_row[i] = local/K`` then ``.mean()``) builds a cyclic def-use chain
+    that aborts compilation. Keeping the reduction out of the parfor avoids the analysis entirely.
+    """
     N, K = y_true.shape
-    err_per_row = np.zeros(N, dtype=np.float64)
+    err_per_row = np.empty(N, dtype=np.float64)
     for i in numba.prange(N):
-        local = 0.0
+        c = 0.0
         for j in range(K):
             if y_true[i, j] != y_pred[i, j]:
-                local += 1.0
-        err_per_row[i] = local / K
-    return err_per_row.mean()
+                c += 1.0
+        err_per_row[i] = c / K
+    total = 0.0
+    for i in range(N):
+        total += err_per_row[i]
+    return total / N
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
@@ -128,9 +139,15 @@ def _fast_jaccard_score_seq(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 @numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
 def _fast_jaccard_score_par(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """Parallel per-row Jaccard. ~6.2x faster than seq at N=1M.
-    Public ``jaccard_score_multilabel`` wrapper auto-selects above N=50k."""
+    Public ``jaccard_score_multilabel`` wrapper auto-selects above N=50k.
+
+    Same numba 0.63.1 parfor workaround as ``_fast_hamming_loss_par``: the prange body writes one
+    independent ``row_score[i]`` per iteration (pure map, no cross-iteration scalar reduction); the
+    final sum runs in a separate plain ``range`` loop. A direct ``total += intersect/union`` scalar
+    reduction inside the conditional aborts compilation with "unexpected cycle in lookup()".
+    """
     N, K = y_true.shape
-    total = 0.0
+    row_score = np.empty(N, dtype=np.float64)
     for i in numba.prange(N):
         intersect = 0.0
         union = 0.0
@@ -142,9 +159,12 @@ def _fast_jaccard_score_par(y_true: np.ndarray, y_pred: np.ndarray) -> float:
             if t == 1 or p == 1:
                 union += 1.0
         if union > 0:
-            total += intersect / union
+            row_score[i] = intersect / union
         else:
-            total += 1.0
+            row_score[i] = 1.0  # both empty -- perfect by definition
+    total = 0.0
+    for i in range(N):
+        total += row_score[i]
     return total / N
 
 

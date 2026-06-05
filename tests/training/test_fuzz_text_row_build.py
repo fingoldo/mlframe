@@ -67,14 +67,19 @@ def test_build_frame_for_combo_with_text_col_does_not_oom_at_50k():
     from tests.training._fuzz_combo import build_frame_for_combo, enumerate_combos
 
     combos = enumerate_combos(target=150, master_seed=20260422)
-    # Pick any combo where text gets built (text_col_count > 0 AND cb in models).
+    # Pick a combo where the builder actually emits a text column. The builder gates emission on the
+    # full ``want_text`` condition (_fuzz_combo.build_frame_for_combo): text_col_count>0 AND cb in
+    # models AND auto_detect_cats. The auto_detect_cats clause is required because a text column is
+    # only routable when auto-detection classifies it as a text_feature (CB consumes it, non-CB
+    # models exclude it); with auto_detect_cats=False the raw object column would reach a non-CB
+    # numeric pipeline and crash, so emission is suppressed. Match that gate here.
     text_combo = None
     for c in combos:
-        if c.text_col_count > 0 and "cb" in c.models:
+        if c.text_col_count > 0 and "cb" in c.models and c.auto_detect_cats:
             text_combo = c
             break
     if text_combo is None:
-        pytest.skip("no combo with text_col_count>0 + cb in 150-combo pool")
+        pytest.skip("no combo with text_col_count>0 + cb + auto_detect_cats in 150-combo pool")
 
     import dataclasses
     small = dataclasses.replace(text_combo, n_rows=50_000)

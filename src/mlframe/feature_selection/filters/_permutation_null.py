@@ -42,8 +42,8 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 
 def target_oversplit_floor_applies(
-    factors_nbins,
-    candidate_indices,
+    factors_nbins: np.ndarray,
+    candidate_indices: np.ndarray,
     y_index: int,
     n: int,
     *,
@@ -103,14 +103,14 @@ def target_oversplit_floor_applies(
 
 def pooled_permutation_null_gain_floor(
     factors_data: np.ndarray,
-    factors_nbins,
-    candidate_indices,
+    factors_nbins: np.ndarray,
+    candidate_indices: np.ndarray,
     y_index: int,
     *,
     n_permutations: int = 25,
     quantile: float = 0.95,
     cardinality_bias_correction: bool = True,
-    random_seed=None,
+    random_seed: int | None = None,
 ) -> float:
     """Return the maxT permutation-null gain floor for an order-1 candidate pool.
 
@@ -193,7 +193,7 @@ def pooled_pair_permutation_null_joint_mi_floor(
     *,
     n_permutations: int = 25,
     quantile: float = 0.95,
-    random_seed=None,
+    random_seed: int | None = None,
 ) -> float:
     """Return the ORDER-2 maxT permutation-null floor for a prospective-pair pool.
 

@@ -21,6 +21,15 @@ _SRC_ROOT = _REPO_ROOT / "src" / "mlframe"
 # Express the whitelist as POSIX-rel paths so the test runs identically on Windows.
 WHITELIST: set[str] = {
     "src/mlframe/utils/safe_pickle.py",  # the helper that implements safe_load
+    # round4 fs_hybrid benchmark scripts: standalone dev benches (never imported by prod) that load
+    # ONLY their own self-produced local checkpoint caches under a fixed bench dir -- the file path is
+    # author-controlled, never attacker-controlled, so the safe_pickle sidecar gate adds no security value here.
+    "src/mlframe/feature_selection/_benchmarks/fs_hybrid/round4_fe_median_gated_recipe_proof.py",
+    "src/mlframe/feature_selection/_benchmarks/fs_hybrid/round4_gated_recall_bench.py",
+    "src/mlframe/feature_selection/_benchmarks/fs_hybrid/round4_knockoff_fdr_bench.py",
+    "src/mlframe/feature_selection/_benchmarks/fs_hybrid/round4_noise_floor_bench.py",
+    "src/mlframe/feature_selection/_benchmarks/fs_hybrid/round4_union_backward_bench.py",
+    "src/mlframe/feature_selection/_benchmarks/fs_hybrid/test_hybrid_tree_member.py",
 }
 
 # Per-call line whitelist for ``pickle.loads`` (in-memory buffer form, not file load) where

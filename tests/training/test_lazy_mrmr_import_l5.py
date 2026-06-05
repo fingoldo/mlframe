@@ -62,13 +62,20 @@ def _restore_filters_sysmodules_snapshot():
     # Restore originals so module-level ``from ... import MRMR`` references
     # in other test files (and the lazy import inside _mrmr_fit_impl.py)
     # keep pointing at the same MRMR class instance after this test ends.
-    for name in list(sys.modules):
-        if (name == _FILTERS_MODULE or name.startswith(_FILTERS_MODULE + ".")
-                or name == "mlframe.training.core._setup_helpers"):
-            if name in snapshot:
-                sys.modules[name] = snapshot[name]
-            else:
-                del sys.modules[name]
+    # Iterate the union of snapshot keys and current keys: the ``use_mrmr_fs=False``
+    # path deletes the filters subgraph and never re-imports it, so a current-keys-only
+    # loop would never re-insert the snapshotted (OLD) module objects -- leaving filters
+    # absent and forcing the NEXT test's import to bind a fresh NEW class (the identity
+    # split that breaks pickling + MRMR._FIT_CACHE asserts in sibling tests).
+    relevant = lambda name: (name == _FILTERS_MODULE or name.startswith(_FILTERS_MODULE + ".")
+                             or name == "mlframe.training.core._setup_helpers")
+    for name in set(sys.modules) | set(snapshot):
+        if not relevant(name):
+            continue
+        if name in snapshot:
+            sys.modules[name] = snapshot[name]
+        elif name in sys.modules:
+            del sys.modules[name]
 
 
 def test_setup_helpers_module_has_no_top_level_mrmr_attribute():

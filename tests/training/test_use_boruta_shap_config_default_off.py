@@ -11,6 +11,26 @@ from __future__ import annotations
 import pytest
 
 
+def _unwrap_boruta_shap(obj):
+    """Return the inner ``BorutaShap`` for a pre-pipeline entry, or ``None``.
+
+    Since 2026-06-03 the BorutaShap selector ships behind a default-ON
+    cluster-medoid pre-reduction (``GroupAwareMRMR(BorutaShap(...))``; validated
+    OOS-neutral-to-positive, see ``registry._instantiate_boruta_shap``). The
+    suite-wiring contract is unchanged -- exactly one BorutaShap selector,
+    appended after the cheaper selectors -- so the test unwraps the wrapper
+    rather than asserting against the raw class.
+    """
+    from mlframe.feature_selection.boruta_shap import BorutaShap
+
+    if isinstance(obj, BorutaShap):
+        return obj
+    inner = getattr(obj, "estimator", None)
+    if isinstance(inner, BorutaShap):
+        return inner
+    return None
+
+
 def test_build_pre_pipelines_no_boruta_shap_by_default():
     from mlframe.training.core._setup_helpers import _build_pre_pipelines
 
@@ -25,6 +45,8 @@ def test_build_pre_pipelines_no_boruta_shap_by_default():
     for p in pipelines:
         cls_name = type(p).__name__
         assert cls_name != "BorutaShap", f"BorutaShap leaked into default pipelines: {names!r}"
+        inner_name = type(getattr(p, "estimator", None)).__name__
+        assert inner_name != "BorutaShap", f"wrapped BorutaShap leaked into default pipelines: {names!r}"
     # Just the ordinary (None) branch.
     assert pipelines == [None]
     assert names == [""]
@@ -45,14 +67,14 @@ def test_build_pre_pipelines_appends_boruta_shap_when_enabled():
         boruta_shap_kwargs={"n_trials": 3, "verbose": False},
     )
 
-    # Exactly one BorutaShap; appended (not prepended).
-    boruta_indices = [i for i, p in enumerate(pipelines) if isinstance(p, BorutaShap)]
+    # Exactly one BorutaShap selector (possibly behind the cluster-medoid wrapper); appended (not prepended).
+    boruta_indices = [i for i, p in enumerate(pipelines) if _unwrap_boruta_shap(p) is not None]
     assert len(boruta_indices) == 1, f"expected exactly one BorutaShap entry; got pipelines={pipelines!r}"
     assert boruta_indices[0] == len(pipelines) - 1, "BorutaShap must be appended after the cheaper selectors"
     assert "BorutaShap " in names
 
     # Kwargs forwarded to the constructor.
-    boruta_instance = pipelines[boruta_indices[0]]
+    boruta_instance = _unwrap_boruta_shap(pipelines[boruta_indices[0]])
     assert boruta_instance.n_trials == 3
     assert boruta_instance.verbose is False
 
@@ -76,4 +98,4 @@ def test_build_pre_pipelines_boruta_shap_after_mrmr():
 
     assert len(pipelines) == 2, f"expected 2 entries (MRMR + BorutaShap); got {pipelines!r}"
     assert isinstance(pipelines[0], MRMR), f"MRMR must come first; got {type(pipelines[0]).__name__}"
-    assert isinstance(pipelines[1], BorutaShap), f"BorutaShap must follow MRMR; got {type(pipelines[1]).__name__}"
+    assert _unwrap_boruta_shap(pipelines[1]) is not None, f"BorutaShap must follow MRMR; got {type(pipelines[1]).__name__}"

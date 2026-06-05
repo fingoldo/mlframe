@@ -138,6 +138,22 @@ def _apply_prescreen(self, *, X, y, candidate_features, verbose):
 
 
 def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Series, np.ndarray], groups: Union[pd.Series, np.ndarray] = None, sample_weight: Union[np.ndarray, pd.Series, None] = None, **fit_params):
+    # scipy.sparse X is not first-class across the dense-frame-centric FS pipeline; densify at the boundary so the
+    # existing ndarray path handles it. Gated on dense size per the project RAM rule -- a sparse matrix whose dense
+    # form would exceed ~2 GB is refused with a clear error rather than silently doubling host memory.
+    try:
+        from scipy.sparse import issparse as _issparse
+    except Exception:
+        _issparse = None
+    if _issparse is not None and _issparse(X):
+        _dense_bytes = int(X.shape[0]) * int(X.shape[1]) * 8
+        if _dense_bytes > 2 * 1024 ** 3:
+            raise NotImplementedError(
+                f"RFECV does not accept scipy.sparse X whose dense form would be {_dense_bytes / 1024 ** 3:.1f} GB "
+                f"(> 2 GB); densify a representative subset or pass a DataFrame/ndarray that fits in RAM."
+            )
+        X = np.asarray(X.toarray())
+
     # TODO A (Wave 6 prelim, 2026-05-28): auto-tune. Compute a DataFingerprint
     # then push the rule-based suggestion into self.<flat-knob> for every
     # flat kwarg the caller didn't explicitly override. Stored decision lives

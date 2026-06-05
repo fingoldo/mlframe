@@ -34,6 +34,22 @@ from joblib import Parallel, delayed
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 
+def _synergy_bootstrap_can_supply_pool(self, num_fs_steps: int, data) -> bool:
+    """Whether the synergy bootstrap (below) would seed a non-empty interaction-only pair pool.
+
+    Mirrors the bootstrap's own gating (``fe_synergy_screen_max_features`` enabled, first FE step, enough rows) so the empty-screen branch can decide to CONTINUE into the FE
+    step on a pure-interaction target whose marginals all screen out -- rather than returning None and engineering nothing. The actual per-frame caps (feature count, sweep cost)
+    are re-checked at the bootstrap site; this is the cheap necessary-condition probe.
+    """
+    if int(getattr(self, "fe_synergy_screen_max_features", 0) or 0) <= 0:
+        return False
+    if num_fs_steps != 0:
+        return False
+    _min_rows = int(getattr(self, "fe_synergy_min_rows", 300) or 0)
+    _n_rows = int(data.shape[0]) if hasattr(data, "shape") else 0
+    return _n_rows >= _min_rows
+
+
 def _run_fe_step(
     self,
     *,
@@ -123,6 +139,19 @@ def _run_fe_step(
             # aggregate). Flag this so the smart-polynom optimiser does NOT treat
             # the raw-seeded pool as "speculative synergy" to withhold (which
             # would exclude EVERY pair and the polynom search would never fire).
+            _screening_returned_empty = True
+        elif _synergy_bootstrap_can_supply_pool(self, num_fs_steps, data):
+            # INTERACTION-ONLY SIGNAL (2026-06-05): screening returned 0 features because every operand of a pure-interaction target (a*b + c*d + ...) has ~0 MARGINAL MI -- and the
+            # empirical-null debiasing (Fix B) now correctly demotes those near-zero marginals to exactly 0, so even the weak pre-debiasing marginal that used to slip one operand
+            # through the screen no longer does. The signal is entirely in the PAIRS, which the synergy bootstrap below surfaces by seeding the all-pairs joint-MI sweep with the raw
+            # numeric columns. Continue into the FE step (rather than skipping it) so that sweep + the smart-polynom / pair search can recover the interaction features. Without this,
+            # the default-on DCD suppresses the cluster_aggregate fallback branch above, so a pure-interaction frame would silently engineer NOTHING. ``_screening_returned_empty``
+            # disables the speculative-synergy withhold downstream (every operand is bootstrap-added here, so the withhold would otherwise drop every pair).
+            logger.info(
+                "Screening returned 0 features but the synergy bootstrap can seed an interaction-only pool "
+                "(fe_synergy_screen_max_features>0); running the FE pair / smart-polynom search anyway.",
+            )
+            selected_vars = []
             _screening_returned_empty = True
         else:
             logger.info("Skipping Feature Engineering (screening returned 0 features and fe_fallback_to_all=False).")

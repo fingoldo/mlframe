@@ -22,6 +22,10 @@ from scipy import special as sp
 from pyutilz.pythonlib import sort_dict_by_value
 from pyutilz.system import tqdmu
 
+# Module-level logger for module-scope helpers (e.g. _dispatch_batch_mi_with_noise_gate).
+# ``check_prospective_fe_pairs`` still lazy-imports the parent's ``logger`` for its own body.
+_module_logger = logging.getLogger(__name__)
+
 
 # Pseudo-unary name for the per-operand learned pre-warp (2026-06-02). Lives in
 # the same namespace as the real unary names (``identity``, ``sqr``, ...) so it
@@ -33,6 +37,133 @@ _PREWARP_UNARY = "prewarp"
 # returns the fitted pre-warp specs inside its result dict; real result keys are
 # ``raw_vars_pair`` 2-tuples. Lets the caller recover specs across the loky path.
 _PREWARP_SPECS_RESULT_KEY = ("__prewarp_specs__", -1, -1)
+
+
+# Hand-tuned fallback for the CPU-njit vs GPU split of the batched FE-candidate
+# MI+permutation noise-gate, keyed on the work size ``n * K`` (rows x candidate
+# columns). The CPU njit-prange kernel wins for small/medium batches (its joint-hist
+# pass is tiny and the H2D copy of the discretized frame would dominate on GPU); GPU
+# pays off only for very large K at large n. The CPU/GPU backend is resolved per-host via
+# the canonical ``KernelTuningCache.get_or_tune`` orchestrator (no hardcoded threshold).
+# Bump this code version whenever the kernel's numerics change so stale per-host cache
+# entries are invalidated.
+_BATCH_MI_NOISE_GATE_CODE_VERSION = "batch_mi_noise_gate-v1"
+
+
+def _dispatch_batch_mi_with_noise_gate(
+    disc_2d: np.ndarray,
+    quantization_nbins: int,
+    classes_y: np.ndarray,
+    classes_y_safe: np.ndarray,
+    freqs_y: np.ndarray,
+    npermutations: int,
+    min_nonzero_confidence: float,
+    use_su: bool,
+    batch_mi_kernel,
+) -> np.ndarray:
+    """Route the batched FE-candidate MI + permutation noise-gate to the CPU njit kernel
+    or (best-effort) a GPU batched path, by work size ``n * K`` via the per-host
+    kernel_tuning_cache. The CPU kernel is the required win and the always-correct
+    fallback; the GPU branch is gated behind ``is_cuda_available`` + try/except so any
+    failure transparently falls back to CPU (mirrors ``mi_direct``'s GPU fastpath).
+
+    Returns ``fe_mi[K]`` -- the per-column observed MI, zeroed where the permutation gate
+    rejects. Bit-identical to a per-candidate ``mi_direct`` loop on the default FE path.
+    """
+    n = disc_2d.shape[0]
+    K = disc_2d.shape[1]
+    factors_nbins = np.full(K, int(quantization_nbins), dtype=np.int64)
+
+    # Per-host CPU/GPU backend choice via the canonical ``get_or_tune`` orchestrator
+    # (per-host cache, code-version checked -> on-miss tuner -> measurement-backed
+    # fallback; no hardcoded threshold). The GPU twin is deferred (returns None), so the
+    # tuner offers no sweep yet and ``get_or_tune`` resolves to the CPU fallback; when a
+    # bit-identical GPU kernel lands, swap in a tuner that sweeps the n*K crossover and the
+    # cache will route large batches to GPU automatically.
+    backend = "cpu"
+    try:
+        from pyutilz.system.kernel_tuning_cache import KernelTuningCache
+
+        _res = KernelTuningCache().get_or_tune(
+            "batch_mi_noise_gate",
+            dims={"n_rows": int(n), "n_cols": int(K)},
+            tuner=lambda: None,  # no GPU sweep until a bit-identical GPU kernel lands
+            axes=["n_rows", "n_cols"],
+            fallback={"backend_choice": "cpu"},
+            code_version=_BATCH_MI_NOISE_GATE_CODE_VERSION,
+        )
+        if isinstance(_res, str):
+            backend = _res
+        elif _res:
+            backend = str(_res.get("backend_choice", "cpu"))
+    except Exception:  # pyutilz missing / cache error -> CPU (always correct)
+        backend = "cpu"
+
+    if backend == "gpu":
+        try:
+            from pyutilz.core.pythonlib import is_cuda_available
+            _gpu_ok = is_cuda_available()
+        except Exception:
+            _gpu_ok = False
+        if _gpu_ok:
+            try:
+                _res = _batch_mi_with_noise_gate_gpu(
+                    disc_2d=disc_2d,
+                    factors_nbins=factors_nbins,
+                    classes_y=classes_y,
+                    classes_y_safe=classes_y_safe,
+                    freqs_y=freqs_y,
+                    npermutations=npermutations,
+                    min_nonzero_confidence=min_nonzero_confidence,
+                    use_su=use_su,
+                )
+                if _res is not None:
+                    return _res
+            except Exception as _exc:  # pragma: no cover - GPU optional
+                _module_logger.debug(
+                    "batch_mi_with_noise_gate GPU path failed (%s: %s); CPU fallback",
+                    type(_exc).__name__, _exc,
+                )
+
+    # CPU njit-prange kernel (the required win and always-correct fallback).
+    return batch_mi_kernel(
+        disc_2d=disc_2d,
+        factors_nbins=factors_nbins,
+        classes_y=classes_y,
+        classes_y_safe=classes_y_safe,
+        freqs_y=freqs_y,
+        npermutations=int(npermutations),
+        base_seed=np.uint64(0),
+        min_nonzero_confidence=float(min_nonzero_confidence),
+        use_su=bool(use_su),
+        dtype=np.int32,
+    )
+
+
+def _batch_mi_with_noise_gate_gpu(
+    disc_2d,
+    factors_nbins,
+    classes_y,
+    classes_y_safe,
+    freqs_y,
+    npermutations,
+    min_nonzero_confidence,
+    use_su,
+):
+    """Best-effort GPU twin of ``batch_mi_with_noise_gate`` (returns ``None`` to signal
+    "fall back to CPU").
+
+    TODO(2026-06-05): a clean cupy joint-hist + per-permutation-shuffle batched path
+    reusing ``filters/gpu.py``'s ``compute_joint_hist`` infra is NOT yet implemented --
+    the bit-identity constraint requires the GPU shuffle to reproduce the CPU LCG
+    Fisher-Yates stream EXACTLY (``base_seed*2654435761 + (i+1)`` then PCG steps), and the
+    existing GPU permutation kernels in ``gpu.py`` use an independent stream. Until a
+    bit-identical GPU shuffle lands, this returns ``None`` so the dispatcher uses the CPU
+    njit kernel, which is the required and shipped win. The CPU/GPU threshold default
+    (``_BATCH_MI_GPU_NK_FALLBACK``) keeps the GPU branch dormant unless the
+    kernel_tuning_cache explicitly enables it.
+    """
+    return None
 
 # MARGINAL-UPLIFT alternative acceptance for the per-pair engineered winner. The
 # primary joint-prevalence gate (``best_mi / pair_mi > fe_min_engineered_mi_prevalence``)
@@ -299,6 +430,9 @@ def check_prospective_fe_pairs(
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
     from .feature_engineering import FE_DEFAULT_SUBSAMPLE_N, _FE_BUFFER_RAM_BUDGET_RATIO, _can_hoist_shared_buffer, _estimate_fe_shared_buffer_bytes, _rebuild_full_survivor_col, discretize_array, discretize_2d_quantile_batch, get_new_feature_name, gpu_compatible_unary_names, logger, mi_direct
+    # 2026-06-05: batched FE-candidate MI + permutation noise-gate (bit-identical to the
+    # per-candidate mi_direct on the default outer/n_workers=1 path -- see kernel docstring).
+    from .info_theory import batch_mi_with_noise_gate, use_su_normalization
     res = {}
 
     # SUBSAMPLE-SETUP: when caller asks for subsample_n > 0 AND len(X) exceeds it,
@@ -809,20 +943,35 @@ def check_prospective_fe_pairs(
                     final_transformed_vals[:, :i], n_bins=quantization_nbins, dtype=quantization_dtype
                 )
 
-                # Phase 3: replay per-candidate MI + best/prewarp/config tracking, in the
-                # SAME order candidates were produced -> identical tie-break behaviour.
+                # Phase 3: BATCHED MI + permutation noise-gate across ALL K candidate
+                # columns in ONE kernel call. Bit-identical to the per-candidate
+                # ``mi_direct`` loop on the default FE path (parallelism='outer',
+                # n_workers=1 -> parallel_mi_prange, base_seed=0): every candidate is
+                # tested against the SAME npermutations shuffles of y (the shuffle is
+                # seeded by (base_seed, perm_index) ONLY, never by classes_x), so a single
+                # batched kernel can shuffle y once per permutation and score all columns
+                # against it -- amortising both the MI compute and the shuffle across K.
+                # ``_dispatch_batch_mi_with_noise_gate`` routes CPU-njit vs a GPU batched
+                # path by n*K via the kernel_tuning_cache (no hardcoded threshold).
+                _fe_mi_arr = _dispatch_batch_mi_with_noise_gate(
+                    disc_2d=_disc_2d,
+                    quantization_nbins=quantization_nbins,
+                    classes_y=classes_y,
+                    classes_y_safe=classes_y_safe,
+                    freqs_y=freqs_y,
+                    npermutations=fe_npermutations,
+                    min_nonzero_confidence=fe_min_nonzero_confidence,
+                    use_su=use_su_normalization(),
+                    batch_mi_kernel=batch_mi_with_noise_gate,
+                )
+
+                # Replay best/prewarp/config tracking in the SAME order candidates were
+                # produced -> identical tie-break behaviour.
                 for transformations_pair, bin_func_name, _ci, _uses_pw in _batch_candidates:
-                    fe_mi, fe_conf = mi_direct(
-                        _disc_2d[:, _ci].reshape(-1, 1),
-                        x=np.array([0], dtype=np.int64),
-                        y=None,
-                        factors_nbins=np.array([quantization_nbins], dtype=np.int64),
-                        classes_y=classes_y,
-                        classes_y_safe=classes_y_safe,
-                        freqs_y=freqs_y,
-                        min_nonzero_confidence=fe_min_nonzero_confidence,
-                        npermutations=fe_npermutations,
-                    )
+                    # Cast to Python float so ``var_pairs_perf`` / downstream tracking see
+                    # the same scalar type ``mi_direct`` returned (numba njit returns a
+                    # python float at the call boundary). Value is bit-identical.
+                    fe_mi = float(_fe_mi_arr[_ci])
 
                     config = (transformations_pair, bin_func_name, _ci)
                     var_pairs_perf[config] = fe_mi

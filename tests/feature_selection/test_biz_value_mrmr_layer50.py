@@ -54,6 +54,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests.conftest import perf_time_budget, perf_speedup_floor
+
 warnings.filterwarnings("ignore")
 
 
@@ -125,8 +127,11 @@ class TestLayer50_PerfBudget:
         # Sanity: fit actually produced a non-empty support.
         n_sel = len(list(m.get_feature_names_out()))
         assert n_sel >= 1, f"Layer 50: empty support_? got {n_sel}"
-        assert elapsed <= 30.0, (
-            f"Layer 50 DCD all-auto fit took {elapsed:.2f}s > 30s budget "
+        # 30s quiet-box budget (un-contended fit ~2s); xdist-relaxed under full-suite ``-n`` parallel contention where
+        # a single worker can be starved for tens of seconds. Either way this still trips a genuine algorithmic blow-up.
+        budget = perf_time_budget(30.0)
+        assert elapsed <= budget, (
+            f"Layer 50 DCD all-auto fit took {elapsed:.2f}s > {budget:.0f}s budget "
             f"(p=200, n=5000, 10 latents); selected={n_sel}"
         )
 
@@ -268,12 +273,14 @@ class TestLayer50_SVDCacheSpeedup:
             for _ in range(3)
         )
         speedup = t_without / max(t_with, 1e-9)
-        # 1.5x floor per the Layer 50 charter; observed ~1.9-2.4x on dev box.
-        assert speedup >= 1.5, (
+        # 1.5x floor per the Layer 50 charter (observed ~1.9-2.4x standalone); xdist-relaxed because the with/without
+        # micro-bench ratio compresses under full-suite ``-n`` contention. Still trips a genuine cache regression.
+        floor = perf_speedup_floor(1.5)
+        assert speedup >= floor, (
             f"Layer 50: SVD-cache speedup regressed to {speedup:.2f}x "
             f"(with_cache={t_with*1000:.1f}ms, "
             f"without_cache={t_without*1000:.1f}ms); "
-            f"floor is 1.5x"
+            f"floor is {floor:.2f}x"
         )
 
 
