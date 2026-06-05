@@ -23,6 +23,7 @@ FE features are statistical aggregates and 99% recall is plenty for the signal t
 from __future__ import annotations
 
 import logging
+from functools import lru_cache
 from typing import Tuple
 
 import numpy as np
@@ -84,25 +85,15 @@ def knn_search(
         )
     k_request = min(k, n_sub)
 
-    # Wave 23 follow-up (Low, 2026-05-20): the prefer_hnsw_at_n=50_000
-    # default is documented as 'matches the empirical crossover on a
-    # 16-core AVX2 box'. CPU dispatch is not strictly the
-    # kernel_tuning_cache target (which the memory rule scopes to GPU),
-    # BUT the same dev-box-tuning pathology applies: AVX-512 boxes
-    # crossover earlier, low-core ARM boxes later. Consult the cache
-    # opportunistically; fall back to the documented 50_000 when no
-    # entry exists yet. Caller's prefer_hnsw_at_n=... explicit override
-    # still wins (kwarg value preserved).
+    # The prefer_hnsw_at_n=50_000 default is the documented empirical crossover.
+    # When left at that sentinel, defer to the per-host tuned backend_choice (exact
+    # sklearn vs approximate hnsw) from the kernel_tuning_cache via get_or_tune --
+    # AVX-512 boxes cross over earlier, low-core ARM later. An explicit
+    # prefer_hnsw_at_n override still wins (keeps the threshold semantics).
     if prefer_hnsw_at_n == 50_000:
-        try:
-            from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
-            _cache = KernelTuningCache.load_or_create()
-            _e = _cache.lookup("knn_hnsw_crossover", n_subset=n_sub, d=int(X_subset.shape[1]))
-            if _e and "n_threshold" in _e:
-                prefer_hnsw_at_n = int(_e["n_threshold"])
-        except Exception:
-            pass  # keep the 50_000 default
-    use_hnsw = n_sub >= prefer_hnsw_at_n and _check_hnsw_available()
+        use_hnsw = _check_hnsw_available() and _knn_backend_choice(n_sub, int(X_subset.shape[1])) == "hnsw"
+    else:
+        use_hnsw = n_sub >= prefer_hnsw_at_n and _check_hnsw_available()
     if use_hnsw:
         import hnswlib
         d = X_subset.shape[1]
@@ -128,3 +119,86 @@ def _sklearn_fallback(X_subset: np.ndarray, X_query: np.ndarray, k: int) -> Tupl
     nn = NearestNeighbors(n_neighbors=k, algorithm="auto", n_jobs=-1).fit(X_subset)
     dists, ids = nn.kneighbors(X_query)
     return dists.astype(np.float32, copy=False), ids.astype(np.int64, copy=False)
+
+
+# Per-host tuned crossover for exact (sklearn kd/ball-tree) vs approximate (hnsw)
+# kNN. The two backends are NOT equivalent by design (hnsw is approximate -- we
+# accept the recall tradeoff above the crossover), so the sweep's equivalence
+# gate is DISABLED (equiv tol = inf); only wall-time decides. CPU-only (no GPU).
+# Spans the ~50k crossover; capped (n<=50k, d<=32) so the one-time cold-start
+# sweep is ~15s, not minutes -- sklearn ball_tree query at d=50/n=200k is slow.
+# The catch-all extrapolates the largest-cell winner beyond the grid.
+_KNN_SWEEP_N = [2_000, 10_000, 50_000]
+_KNN_SWEEP_D = [8, 32]
+_KNN_SALT = 1
+
+
+def _make_knn_inputs(dims: dict):
+    """(X_subset, X_query, k) for the crossover sweep at ``n_subset`` rows x ``d`` dims."""
+    rng = np.random.default_rng(0)
+    n_sub = int(dims["n_subset"])
+    d = int(dims["d"])
+    X_subset = rng.standard_normal((n_sub, d)).astype(np.float32)
+    X_query = rng.standard_normal((min(n_sub, 1000), d)).astype(np.float32)
+    return (X_subset, X_query, 10)
+
+
+def _run_knn_sweep() -> list:
+    """Full (n_subset x d) grid sweep, exact vs hnsw, fastest per cell. The
+    variants reuse ``knn_search`` with a forced ``prefer_hnsw_at_n`` (1 = hnsw,
+    huge = exact), which also dodges recursion into _knn_backend_choice (those
+    values != the 50_000 sentinel). Equivalence gate OFF -- hnsw is approximate."""
+    from pyutilz.dev.benchmarking import sweep_backend_grid
+
+    variants = {"exact": lambda xs, xq, k: knn_search(xs, xq, k, prefer_hnsw_at_n=10**12)[0]}
+    if _check_hnsw_available():
+        variants["hnsw"] = lambda xs, xq, k: knn_search(xs, xq, k, prefer_hnsw_at_n=1)[0]
+    return sweep_backend_grid(
+        variants, {"n_subset": _KNN_SWEEP_N, "d": _KNN_SWEEP_D}, _make_knn_inputs,
+        reference="exact", equiv_rtol=float("inf"), equiv_atol=float("inf"), repeats=3,
+    )
+
+
+def _knn_code_version():
+    try:
+        from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
+        return compute_code_version(knn_search, _sklearn_fallback, salt=_KNN_SALT)
+    except Exception:
+        return None
+
+
+@lru_cache(maxsize=256)
+def _knn_backend_choice(n_subset: int, d: int) -> str:
+    """Per-host exact/hnsw choice for kNN at (n_subset, d) via get_or_tune; fallback
+    = the documented 50_000-row crossover. Memoized (the dispatch is hot)."""
+    n_subset = int(n_subset)
+    fallback = "hnsw" if n_subset >= 50_000 else "exact"
+    try:
+        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
+        result = KernelTuningCache.load_or_create().get_or_tune(
+            "knn_hnsw_crossover", dims={"n_subset": n_subset, "d": int(d)},
+            tuner=_run_knn_sweep, axes=["n_subset", "d"],
+            fallback={"backend_choice": fallback}, code_version=_knn_code_version(),
+        )
+        bc = result if isinstance(result, str) else str((result or {}).get("backend_choice", ""))
+        if bc in ("exact", "hnsw"):
+            return bc
+    except Exception as _e:
+        logger.debug("knn_hnsw_crossover get_or_tune failed: %s", _e)
+    return fallback
+
+
+# Register with the kernel-tuner registry. CPU-only (gpu_capable=False); approximate
+# hnsw vs exact sklearn, so retune_all / mlframe-tune-kernels can tune the crossover.
+from pyutilz.performance.kernel_tuning.registry import kernel_tuner
+
+kernel_tuner(
+    kernel_name="knn_hnsw_crossover",
+    variant_fns=(knn_search,),  # reference body; the hnsw branch is covered by salt
+    tuner=_run_knn_sweep,
+    axes={"n_subset": list(_KNN_SWEEP_N), "d": list(_KNN_SWEEP_D)},
+    fallback={"backend_choice": "exact"},
+    gpu_capable=False,
+    salt=_KNN_SALT,
+    cli_label="knn_hnsw_crossover",
+)
