@@ -88,20 +88,26 @@ class TestDtwGpuBackends:
 
 
 class TestDispatcher:
-    def test_small_n_routes_to_cpu(self):
-        """Below the threshold the auto-dispatch path uses CPU. We
-        bump the threshold above the input size and assert that the
-        return matches dtw_cpu exactly."""
+    def test_small_n_routes_to_cpu(self, monkeypatch, tmp_path):
+        """Below the threshold the FALLBACK routes to CPU. ``set_dtw_dispatch_threshold``
+        governs the fallback only -- the dispatch (spec.choose) prefers a tuned cache
+        entry over the threshold -- so we exercise the fallback path deterministically:
+        an isolated empty cache + autotune off (no on-miss sweep) -> fallback -> the
+        raised threshold -> CPU, matching dtw_cpu exactly."""
         pytest.importorskip("dtaidistance")
+        monkeypatch.setenv("PYUTILZ_KERNEL_CACHE_DIR", str(tmp_path))
+        monkeypatch.setenv("MLFRAME_DTW_AUTOTUNE", "0")
         from mlframe.signal.dtw import (
-            dtw_dispatch, dtw_cpu, set_dtw_dispatch_threshold,
+            dtw_dispatch, dtw_cpu, set_dtw_dispatch_threshold, _DTW_SPEC,
         )
-        set_dtw_dispatch_threshold(10_000_000)  # force CPU
+        _DTW_SPEC._choice_cache.clear()  # drop any memoized choice from earlier tests
+        set_dtw_dispatch_threshold(10_000_000)  # force CPU via the fallback
         x, y = _gen_pair(n=200, m=150)
         d_disp, path_disp = dtw_dispatch(x, y, window=50)
         d_cpu, path_cpu = dtw_cpu(x, y, window=50)
         assert d_disp == d_cpu
         assert path_disp == path_cpu
+        _DTW_SPEC._choice_cache.clear()
 
     def test_large_n_routes_to_gpu_when_available(self):
         pytest.importorskip("cupy")
@@ -152,16 +158,17 @@ class TestDispatcher:
 
 
 class TestKernelTuningCacheLookup:
-    def test_cache_lookup_falls_back_gracefully(self):
-        """When kernel_tuning_cache is unavailable or has no entry
-        for ``dtw_dispatch``, the lookup must return the source-code
-        default. Exercised by calling ``_lookup_dtw_threshold`` with
-        a fresh cell-count -- the cache miss is expected and the
-        function must not raise."""
-        from mlframe.signal.dtw import (
-            _lookup_dtw_threshold, _DEFAULT_GPU_MIN_CELLS,
-        )
-        result = _lookup_dtw_threshold(n_cells=123_456)
-        assert isinstance(result, int)
-        # Default fallback path returns the source-code constant.
-        assert result == _DEFAULT_GPU_MIN_CELLS or result > 0
+    def test_cache_lookup_falls_back_gracefully(self, monkeypatch, tmp_path):
+        """On a cache miss (no tuned entry for ``dtw_dispatch``), the dispatch
+        falls back gracefully to a valid source-code-default backend without
+        raising. Exercised via the spec's choose() with an isolated empty cache +
+        autotune off (so no on-miss sweep) -> the _dtw_fallback_choice heuristic."""
+        monkeypatch.setenv("PYUTILZ_KERNEL_CACHE_DIR", str(tmp_path))
+        monkeypatch.setenv("MLFRAME_DTW_AUTOTUNE", "0")
+        from mlframe.signal.dtw import _DTW_SPEC, _dtw_fallback_choice
+
+        _DTW_SPEC._choice_cache.clear()
+        result = _DTW_SPEC.choose(n_cells=123_456)
+        assert result in ("cpu", "cuda", "cupy")
+        assert result == _dtw_fallback_choice(123_456)  # fallback path on a miss
+        _DTW_SPEC._choice_cache.clear()
