@@ -17,6 +17,24 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 N_ROWS = int(os.environ.get("SCENE_N", "500"))
 
+# Profile the FE SERIAL hotspot, not the kernel-tuning sweep. The CPU-vs-GPU sweep runs synchronously on a
+# cold/invalidated cache and (worse) blocks on a cross-process tuning lock that a killed process leaves stale.
+# Monkeypatch get_or_tune to return the measurement-backed fallback (no sweep, no lock). TunerSpec.choose routes
+# through get_or_tune too, so this covers every kernel (batch_mi, batch_pair_mi, joint_hist, mi_classif, ...).
+def _disable_kernel_tuning_sweep():
+    try:
+        import pyutilz.performance.kernel_tuning.cache as _M
+
+        def _no_sweep(self, kernel_name, *, dims, tuner, axes, fallback, **kw):
+            return fallback
+        _M.KernelTuningCache.get_or_tune = _no_sweep
+        print("[kernel-tuning sweep DISABLED for profiling -> fallback heuristic]", flush=True)
+    except Exception as e:
+        print(f"[no-sweep patch failed: {e}]", flush=True)
+
+
+_disable_kernel_tuning_sweep()
+
 
 def load_scene(n_rows):
     from sklearn.datasets import fetch_openml
