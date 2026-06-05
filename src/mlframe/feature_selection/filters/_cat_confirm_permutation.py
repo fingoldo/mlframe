@@ -316,25 +316,31 @@ _GPU_PERM_KERNEL_THRESHOLD_N: int = 1_000_000
 # source-code fallback, applied verbatim when the cache has no entry yet (mirrors
 # ``signal/dtw.py``).
 #
-# 2-D axes: ``n_samples`` (dominant; primary sweep axis) and ``n_perms`` (held at a
-# representative value -- 50, mid-band of the measured 3-100-perm bench -- and threaded
-# through as an extra region key so the cached regions stay keyed on both axes). The
-# crossover sits at ~N=1M regardless of n_perms (see bench above), so a fixed
-# representative n_perms in the sweep is faithful.
-_PERM_SWEEP_N_PERMS = 50
+# 2-D axes, BOTH swept (full grid, not a fixed-n_perms 1-D crossover): ``n_samples``
+# (dominant) x ``n_perms``. n_perms is a kernel argument, so it is carried in the
+# inputs tuple and varies per grid cell.
+_PERM_SWEEP_N_PERMS_GRID = [10, 50, 200]  # full n_perms axis (was a single fixed 50)
 _PERM_SWEEP_N_SAMPLES = [100_000, 300_000, 1_000_000, 3_000_000, 5_000_000]
 _PERM_SWEEP_K_PAIR = 10
 _PERM_SWEEP_K_X = 5
 _PERM_SWEEP_K_Y = 3
-_PERM_SALT = 1
+_PERM_SALT = 2  # serial-njit variant added + full 2-D (n_samples x n_perms) grid
+
+# Serial CPU variant: recompile the prange body WITHOUT ``parallel`` (prange -> range).
+# The tuner picks cpu_serial (small n: no thread-spawn overhead) vs cpu_parallel vs
+# cupy per region. getattr fallback for NUMBA_DISABLE_JIT=1 (no .py_func).
+_count_nfailed_joint_indep_serial = njit(cache=True)(
+    getattr(_count_nfailed_joint_indep_prange, "py_func", _count_nfailed_joint_indep_prange)
+)
 
 
-def _make_perm_kernel_inputs(n_samples: int):
-    """Synthetic args for the perm-kernel crossover sweep at ``n_samples`` rows and
-    ``_PERM_SWEEP_N_PERMS`` perms. Returns the shared positional args (sans the CPU-only
-    ``dtype`` / per-variant ``base_seed``, which the variant wrappers append)."""
+def _make_perm_kernel_inputs(dims: dict):
+    """Synthetic args for the perm-kernel grid sweep at ``dims['n_samples']`` rows.
+    ``n_perms`` (a kernel argument) is carried as the last positional so it varies
+    per cell; the variant wrappers append only ``base_seed`` / ``dtype``."""
     rng = np.random.default_rng(0)
-    n = int(n_samples)
+    n = int(dims["n_samples"])
+    n_perms = int(dims["n_perms"])
     classes_pair = rng.integers(0, _PERM_SWEEP_K_PAIR, size=n).astype(np.int64)
     freqs_pair = np.bincount(classes_pair, minlength=_PERM_SWEEP_K_PAIR).astype(np.float64) / max(1, n)
     classes_x1 = rng.integers(0, _PERM_SWEEP_K_X, size=n).astype(np.int64)
@@ -343,43 +349,49 @@ def _make_perm_kernel_inputs(n_samples: int):
     freqs_x2 = np.bincount(classes_x2, minlength=_PERM_SWEEP_K_X).astype(np.float64) / max(1, n)
     classes_y = rng.integers(0, _PERM_SWEEP_K_Y, size=n).astype(np.int64)
     freqs_y = np.bincount(classes_y, minlength=_PERM_SWEEP_K_Y).astype(np.float64) / max(1, n)
-    ii_obs = 0.0  # count all perms -> identical work on both backends, equiv-comparable
+    ii_obs = 0.0  # count all perms -> identical work on all backends, equiv-comparable
     return (classes_pair, freqs_pair, classes_x1, freqs_x1, classes_x2, freqs_x2,
-            classes_y, freqs_y, ii_obs)
+            classes_y, freqs_y, ii_obs, n_perms)
 
 
 def _run_perm_kernel_sweep() -> list:
-    """Benchmark cpu(njit prange) vs cupy perm-kernel across an ``n_samples`` grid ->
-    backend_choice regions for a representative n_perms. cupy is included only when
-    available. Both count ``#{II_perm >= ii_obs}``; with ii_obs=0 every perm counts on
-    both backends, so the integer ``n_failed`` outputs match exactly (equiv gate trivially
-    satisfied -- the kernels are statistically, not bit-, equivalent on real ii_obs)."""
-    from pyutilz.dev.benchmarking import sweep_backend_crossover
+    """Full (n_samples x n_perms) grid sweep -> backend_choice regions: cpu_serial /
+    cpu_parallel / cupy, fastest EQUIVALENT per cell. Both axes are swept (n_perms is
+    a kernel arg carried in the inputs). Inputs are host-resident, so no residency
+    axis. cupy included only when available. With ii_obs=0 every perm counts on all
+    backends, so the integer ``n_failed`` outputs match exactly."""
+    from pyutilz.dev.benchmarking import sweep_backend_grid
 
     _seed = 7
 
-    def _cpu(*a):
-        return _count_nfailed_joint_indep_prange(*a, _PERM_SWEEP_N_PERMS, _seed, np.int32)
+    def _cpu_serial(*a):
+        return _count_nfailed_joint_indep_serial(*a, _seed, np.int32)
 
-    variants = {"cpu": _cpu}
+    def _cpu_parallel(*a):
+        return _count_nfailed_joint_indep_prange(*a, _seed, np.int32)
+
+    variants = {"cpu_serial": _cpu_serial, "cpu_parallel": _cpu_parallel}
     if _CUPY_AVAIL:
         def _gpu(*a):
-            return _count_nfailed_joint_indep_cupy(*a, _PERM_SWEEP_N_PERMS, _seed)
+            return _count_nfailed_joint_indep_cupy(*a, base_seed=_seed)
         variants["cupy"] = _gpu
 
-    return sweep_backend_crossover(
-        variants, _PERM_SWEEP_N_SAMPLES, _make_perm_kernel_inputs, "n_samples",
-        reference="cpu", extra_region_keys={"n_perms": _PERM_SWEEP_N_PERMS},
+    return sweep_backend_grid(
+        variants,
+        {"n_samples": _PERM_SWEEP_N_SAMPLES, "n_perms": _PERM_SWEEP_N_PERMS_GRID},
+        _make_perm_kernel_inputs,
+        reference="cpu_serial",
         repeats=5, equiv_rtol=1e-3, equiv_atol=1e-3,
     )
 
 
 def _perm_kernel_code_version():
-    """code_version over the available backend bodies; re-tunes on a kernel edit."""
+    """code_version over the CPU bodies (serial + parallel share one source) + the
+    cupy body; re-tunes on a kernel edit."""
     try:
         from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
 
-        fns = [_count_nfailed_joint_indep_prange]
+        fns = [_count_nfailed_joint_indep_serial, _count_nfailed_joint_indep_prange]
         if _CUPY_AVAIL:
             fns.append(_count_nfailed_joint_indep_cupy)
         return compute_code_version(*fns, salt=_PERM_SALT)
@@ -388,11 +400,14 @@ def _perm_kernel_code_version():
 
 
 def _perm_kernel_backend_choice(n_samples: int, n_perms: int) -> str:
-    """Per-host backend (cpu/cupy) for this (n_samples, n_perms) via the shared
-    get_or_tune orchestrator; measurement-backed threshold fallback (the old
-    ``_GPU_PERM_KERNEL_THRESHOLD_N``). ``n_samples`` is the swept (primary) axis."""
+    """Per-host backend (cpu_serial/cpu_parallel/cupy) for this (n_samples, n_perms)
+    via the shared get_or_tune orchestrator; measurement-backed fallback (cupy above
+    the old ``_GPU_PERM_KERNEL_THRESHOLD_N``; on CPU, parallel above a modest row
+    count, else serial)."""
     def _fallback() -> str:
-        return "cupy" if (_CUPY_AVAIL and n_samples >= _GPU_PERM_KERNEL_THRESHOLD_N) else "cpu"
+        if _CUPY_AVAIL and n_samples >= _GPU_PERM_KERNEL_THRESHOLD_N:
+            return "cupy"
+        return "cpu_parallel" if n_samples >= 300_000 else "cpu_serial"
 
     try:
         from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
@@ -406,7 +421,9 @@ def _perm_kernel_backend_choice(n_samples: int, n_perms: int) -> str:
             code_version=_perm_kernel_code_version(),
         )
         bc = result if isinstance(result, str) else str((result or {}).get("backend_choice", ""))
-        if bc in ("cpu", "cupy"):
+        if bc == "cpu":  # legacy region from before the serial/parallel split
+            bc = "cpu_parallel"
+        if bc in ("cpu_serial", "cpu_parallel", "cupy"):
             return bc
     except Exception as e:
         logger.debug("cat_fe_perm_kernel get_or_tune failed: %s", e)
@@ -980,7 +997,13 @@ def _confirm_pairs_via_permutation(
                         base_seed=int(j) * 1000003 + 7, dtype=dtype,
                     )
             else:
-                n_failed = _count_nfailed_joint_indep_prange(
+                # CPU: serial vs parallel njit per the tuned per-host choice.
+                _cpu_fn = (
+                    _count_nfailed_joint_indep_serial
+                    if _perm_kernel_backend_choice(_kernel_n, n_perms) == "cpu_serial"
+                    else _count_nfailed_joint_indep_prange
+                )
+                n_failed = _cpu_fn(
                     _k_cls_pair, _k_fq_pair, _k_cls_x1, _k_fq_x1,
                     _k_cls_x2, _k_fq_x2,
                     _ss_classes_y, _ss_freqs_y, ii_obs, n_perms,
@@ -1023,10 +1046,10 @@ from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
 kernel_tuner(
     kernel_name="cat_fe_perm_kernel",
-    variant_fns=(_count_nfailed_joint_indep_prange,),  # reference; cupy covered by salt
+    variant_fns=(_count_nfailed_joint_indep_serial, _count_nfailed_joint_indep_prange),  # CPU bodies; cupy via salt
     tuner=_run_perm_kernel_sweep,
-    axes={"n_samples": list(_PERM_SWEEP_N_SAMPLES), "n_perms": [_PERM_SWEEP_N_PERMS]},
-    fallback={"backend_choice": "cpu"},
+    axes={"n_samples": list(_PERM_SWEEP_N_SAMPLES), "n_perms": list(_PERM_SWEEP_N_PERMS_GRID)},
+    fallback={"backend_choice": "cpu_serial"},
     gpu_capable=True,
     salt=_PERM_SALT,
     cli_label="cat_fe_perm_kernel",

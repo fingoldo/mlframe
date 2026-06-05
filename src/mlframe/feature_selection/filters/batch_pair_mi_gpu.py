@@ -454,58 +454,77 @@ CUPY_MIN_PAIRS = 200
 # representative value for the sweep -- 64, above CUDA_MIN_PAIRS=16 and below
 # CUPY_MIN_PAIRS=200, matching the measured 28-120-pair bench band -- and threaded
 # through as an extra region key so the cached regions stay keyed on both axes).
-_BPMI_SWEEP_N_PAIRS = 64
+_BPMI_SWEEP_N_PAIRS_GRID = [16, 64, 256]  # full n_pairs axis (was a single fixed 64)
 _BPMI_SWEEP_N_SAMPLES = [200_000, 500_000, 1_000_000, 2_000_000, 5_000_000]
 _BPMI_SWEEP_N_CLASSES_Y = 4
 _BPMI_SWEEP_N_BINS = 8  # joint card = 8*8 = 64 <= MAX_JOINT_BINS_CUDA fallback (128)
-_BPMI_SALT = 1
+_BPMI_SALT = 2  # serial-njit variant added + full 2-D (n_samples x n_pairs) grid
+
+# Serial CPU variant: recompile the SAME prange body WITHOUT ``parallel`` -> numba
+# treats prange as range. The tuner now picks njit_serial (small n: no thread-spawn
+# overhead) vs njit_parallel per region, not just CPU-vs-GPU.
+from numba import njit as _njit
+
+# getattr fallback: under NUMBA_DISABLE_JIT=1 the kernel is a plain function (no
+# .py_func) and njit is a pass-through, so serial == the same callable.
+batch_pair_mi_njit_serial = _njit(nogil=True, cache=True)(
+    getattr(batch_pair_mi_njit_prange, "py_func", batch_pair_mi_njit_prange)
+)
 
 
-def _make_batch_pair_mi_inputs(n_samples: int):
-    """Synthetic (factors_data, pair_a, pair_b, nbins, classes_y, freqs_y) for the
-    crossover sweep at ``n_samples`` rows and ``_BPMI_SWEEP_N_PAIRS`` pairs. Bins are
-    capped so the per-pair joint cardinality stays inside the CUDA shared-mem budget
-    (so the cuda variant is actually exercised, not guard-rejected)."""
+def _make_batch_pair_mi_inputs(dims: dict):
+    """Synthetic (factors_data, pair_a, pair_b, nbins, classes_y, freqs_y) at
+    ``dims['n_samples']`` rows x ``dims['n_pairs']`` pairs. Bins are capped so the
+    per-pair joint cardinality stays inside the CUDA shared-mem budget (so the cuda
+    variant is exercised, not guard-rejected)."""
     rng = np.random.default_rng(0)
-    n_pairs = _BPMI_SWEEP_N_PAIRS
+    n_samples = int(dims["n_samples"])
+    n_pairs = int(dims["n_pairs"])
     nbins_val = _BPMI_SWEEP_N_BINS
-    # Need enough feature columns that n_pairs distinct (a, b) pairs exist.
-    n_features = 16
-    factors_data = rng.integers(0, nbins_val, size=(int(n_samples), n_features)).astype(np.int32)
+    n_features = 32  # enough columns for up to 256 distinct (a, b) pairs
+    factors_data = rng.integers(0, nbins_val, size=(n_samples, n_features)).astype(np.int32)
     nbins = np.full(n_features, nbins_val, dtype=np.int32)
     pair_a = rng.integers(0, n_features, size=n_pairs).astype(np.int64)
     pair_b = (pair_a + 1 + rng.integers(0, n_features - 1, size=n_pairs)) % n_features
     pair_b = pair_b.astype(np.int64)
-    classes_y = rng.integers(0, _BPMI_SWEEP_N_CLASSES_Y, size=int(n_samples)).astype(np.int32)
-    freqs_y = np.bincount(classes_y, minlength=_BPMI_SWEEP_N_CLASSES_Y).astype(np.float64) / max(1, int(n_samples))
+    classes_y = rng.integers(0, _BPMI_SWEEP_N_CLASSES_Y, size=n_samples).astype(np.int32)
+    freqs_y = np.bincount(classes_y, minlength=_BPMI_SWEEP_N_CLASSES_Y).astype(np.float64) / max(1, n_samples)
     return (factors_data, pair_a, pair_b, nbins, classes_y, freqs_y)
 
 
 def _run_batch_pair_mi_sweep() -> list:
-    """Benchmark njit/cuda/cupy batch-pair-MI across an ``n_samples`` grid -> backend_choice
-    regions (fastest equivalent backend per band) for a representative n_pairs. GPU variants
-    are included only when available on this host. cupy/cuda fp reductions agree with the CPU
-    njit reference to a loosened relative tolerance (last-bit log() reassociation)."""
-    from pyutilz.dev.benchmarking import sweep_backend_crossover
+    """Full (n_samples x n_pairs) grid sweep -> backend_choice regions: njit_serial /
+    njit_parallel / cuda / cupy, fastest EQUIVALENT per cell. Both n_samples and
+    n_pairs are swept (not a fixed-n_pairs 1-D crossover). Inputs are host-resident
+    (the FS pipeline feeds the host dataframe) so there is no residency axis. GPU
+    variants only when available; cupy/cuda fp reductions agree with njit to a
+    loosened rtol (last-bit log() reassociation)."""
+    from pyutilz.dev.benchmarking import sweep_backend_grid
 
-    variants = {"njit": lambda *a: batch_pair_mi_njit_prange(*a)}
+    variants = {
+        "njit_serial": lambda *a: batch_pair_mi_njit_serial(*a),
+        "njit_parallel": lambda *a: batch_pair_mi_njit_prange(*a),
+    }
     if _CUDA_AVAIL:
         variants["cuda"] = lambda *a: batch_pair_mi_cuda(*a)
     if _CUPY_AVAIL:
         variants["cupy"] = lambda *a: batch_pair_mi_cupy(*a)
-    return sweep_backend_crossover(
-        variants, _BPMI_SWEEP_N_SAMPLES, _make_batch_pair_mi_inputs, "n_samples",
-        reference="njit", extra_region_keys={"n_pairs": _BPMI_SWEEP_N_PAIRS},
+    return sweep_backend_grid(
+        variants,
+        {"n_samples": _BPMI_SWEEP_N_SAMPLES, "n_pairs": _BPMI_SWEEP_N_PAIRS_GRID},
+        _make_batch_pair_mi_inputs,
+        reference="njit_serial",
         repeats=5, equiv_rtol=1e-3, equiv_atol=1e-3,
     )
 
 
 def _batch_pair_mi_code_version():
-    """code_version over the available backend bodies; re-tunes on a kernel edit."""
+    """code_version over the CPU bodies (serial + parallel share one source) + the
+    available GPU bodies; re-tunes on a kernel edit."""
     try:
         from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
 
-        fns = [batch_pair_mi_njit_prange]
+        fns = [batch_pair_mi_njit_serial, batch_pair_mi_njit_prange]
         if _CUDA_AVAIL:
             fns.append(batch_pair_mi_cuda)
         if _CUPY_AVAIL:
@@ -516,12 +535,14 @@ def _batch_pair_mi_code_version():
 
 
 def _batch_pair_mi_fallback_choice(n_samples: int, n_pairs: int) -> str:
-    """Pre-sweep heuristic: the old CUDA_/CUPY_MIN_* thresholds + availability."""
+    """Pre-sweep heuristic: the old CUDA_/CUPY_MIN_* GPU thresholds + availability;
+    on CPU, parallel njit above a modest row count (below it the thread-spawn
+    overhead loses to serial)."""
     if _CUPY_AVAIL and n_samples >= CUPY_MIN_ROWS and n_pairs >= CUPY_MIN_PAIRS:
         return "cupy"
     if _CUDA_AVAIL and n_samples >= CUDA_MIN_ROWS and n_pairs >= CUDA_MIN_PAIRS:
         return "cuda"
-    return "njit"
+    return "njit_parallel" if n_samples >= 100_000 else "njit_serial"
 
 
 def _batch_pair_mi_backend_choice(n_samples: int, n_pairs: int) -> str:
@@ -540,7 +561,9 @@ def _batch_pair_mi_backend_choice(n_samples: int, n_pairs: int) -> str:
             code_version=_batch_pair_mi_code_version(),
         )
         bc = result if isinstance(result, str) else str((result or {}).get("backend_choice", ""))
-        if bc in ("njit", "cuda", "cupy"):
+        if bc == "njit":  # legacy region from before the serial/parallel split
+            bc = "njit_parallel"
+        if bc in ("njit_serial", "njit_parallel", "cuda", "cupy"):
             return bc
     except Exception as e:
         import logging
@@ -594,6 +617,9 @@ def dispatch_batch_pair_mi(
             # Shape guard tripped or runtime fault -> fall back to CPU.
             pass
 
+    # CPU: serial vs parallel njit per the tuned choice (tag stays "njit").
+    if choice == "njit_serial":
+        return batch_pair_mi_njit_serial(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "njit"
     return batch_pair_mi_njit_prange(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "njit"
 
 
@@ -603,10 +629,10 @@ from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
 kernel_tuner(
     kernel_name="batch_pair_mi",
-    variant_fns=(batch_pair_mi_njit_prange,),  # reference; cuda/cupy covered by salt
+    variant_fns=(batch_pair_mi_njit_serial, batch_pair_mi_njit_prange),  # CPU bodies; GPU covered by salt
     tuner=_run_batch_pair_mi_sweep,
-    axes={"n_samples": list(_BPMI_SWEEP_N_SAMPLES), "n_pairs": [_BPMI_SWEEP_N_PAIRS]},
-    fallback={"backend_choice": "njit"},
+    axes={"n_samples": list(_BPMI_SWEEP_N_SAMPLES), "n_pairs": list(_BPMI_SWEEP_N_PAIRS_GRID)},
+    fallback={"backend_choice": "njit_serial"},
     gpu_capable=True,
     salt=_BPMI_SALT,
     cli_label="batch_pair_mi",
