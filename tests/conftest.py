@@ -24,6 +24,21 @@ os.environ.setdefault("PYTHONUNBUFFERED", "1")
 # Pre-set by operator wins (the alternative ``:16:8`` slot trades workspace for memory).
 os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 
+# Isolate the per-host kernel_tuning_cache from the developer's real ``~/.pyutilz`` cache for the whole test session.
+# Cache-dependent dispatch tests (per_member / dtw / cat-perm / batch_pair_mi backend choice) assert the un-tuned
+# FALLBACK behaviour; on a dev box whose real cache was populated by a prior production sweep they would instead read
+# the swept ``backend_choice`` (e.g. numpy-wins) and fail. Routing to a per-process tmp dir also stops the suite from
+# polluting the real cache. ``load_or_create()`` binds the dir at first construction, so the companion
+# ``_reset_kernel_tuning_singleton`` autouse fixture resets the singleton per test so a test's own override takes effect.
+import tempfile as _tempfile  # noqa: E402
+_kt_worker = os.environ.get("PYTEST_XDIST_WORKER", "main")
+os.environ["PYUTILZ_KERNEL_CACHE_DIR"] = os.path.join(_tempfile.gettempdir(), f"mlframe_test_kt_cache_{os.getpid()}_{_kt_worker}")
+# Skip the on-miss auto-sweep during tests: with the cache isolated to an empty tmp dir, every cache-dependent dispatch
+# would otherwise trigger a real (multi-second) kernel sweep on first call -- which both slows the suite and times out
+# fallback-path tests. The caller's measurement-backed fallback is what those tests assert anyway. Dedicated sweep tests
+# call ``run_*_sweep`` / ``ensure_*_tuning`` directly (unaffected by this gate).
+os.environ.setdefault("PYUTILZ_KERNEL_DISABLE_SWEEP", "1")
+
 # Auto-detect CUDA_PATH so cupy's ``_environment`` doesn't warn "CUDA path
 # could not be detected" at import time. CuPy needs CUDA_PATH or CUDA_HOME
 # to locate the toolkit DLLs / shared libs (libcudart, libcublas, libcudnn,
@@ -198,6 +213,26 @@ def perf_speedup_floor(base_ratio: float, *, xdist_factor: float = 0.6) -> float
     if not running_under_xdist():
         return base_ratio
     return max(1.0, base_ratio * xdist_factor)
+
+
+@pytest.fixture(autouse=True)
+def _reset_kernel_tuning_singleton():
+    """``KernelTuningCache.load_or_create()`` returns a process singleton that binds its cache dir at first
+    construction, so a per-test ``PYUTILZ_KERNEL_CACHE_DIR`` override (or the session-default isolation set at the top
+    of this file) is otherwise ignored once any earlier test has constructed it. Reset the module singleton around each
+    test so the isolated dir actually takes effect and cache-dependent dispatch tests see a clean per-host cache."""
+    try:
+        from pyutilz.performance.kernel_tuning import cache as _ktc
+    except Exception:
+        _ktc = None
+    if _ktc is not None:
+        _ktc._DEFAULT_INSTANCE = None
+    yield
+    if _ktc is not None:
+        try:
+            _ktc._DEFAULT_INSTANCE = None
+        except Exception:
+            pass
 
 
 def require_polars_ds():

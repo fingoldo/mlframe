@@ -73,11 +73,11 @@ def test_per_member_std_3d_branch_precision():
     median_preds = np.zeros((N, C), dtype=np.float64)
     arr = (1000.0 + rng.normal(0, 0.001, size=(K, N, C))).astype(np.float64)
     out_mae, out_std = _per_member_mae_std_njit(arr, median_preds)
-    # Ground truth flattens (N, C) into one series per member, matching the kernel.
-    expected_std = np.std(
-        np.abs(arr - median_preds[None, :, :]).reshape(K, N * C),
-        axis=1, ddof=0,
-    )
+    # Ground truth matches the kernel + the _numpy_3d reference: per-COLUMN std over the N axis (anchored at each
+    # column's own mean), then averaged across C. A pooled (N*C)-flattened std folds in the between-column mean scatter
+    # and is a DIFFERENT statistic (the ~5e-6 finite-sample gap the kernel comment documents), not a precision loss.
+    diffs = np.abs(arr - median_preds[None, :, :])
+    expected_std = np.std(diffs, axis=1, ddof=0).mean(axis=1)
     rel_err = np.abs(out_std - expected_std) / expected_std
     assert rel_err.max() < 1e-10, (
         f"Wave 25 P1 regression (3-D branch): std precision degraded to "
