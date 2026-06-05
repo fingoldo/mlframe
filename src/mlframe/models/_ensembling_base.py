@@ -243,12 +243,17 @@ def _per_member_use_numba(elements_per_member: int, n_groups: int, ndim: int = 2
     the per-column njit is bit-identical to numpy (max abs diff 0.0) and 12-22x
     faster (measured 2026-06-05), so numba is the default above the same floor.
 
-    GPU: cupy was measured and rejected for the 2-D path with DRAM-RESIDENT input
-    -- H2D transfer made it ~6x slower than numba for this axis-1 reduction. That
-    rejection is residency-specific: a VRAM-resident input (data already on the
-    GPU) skips the transfer and has NOT been measured -- the residency-axis
-    tuning (``location`` host/device) is where that variant would be captured. No
-    GPU variant is dispatched here yet.
+    GPU: cupy was measured under BOTH residencies (2026-06-05, GTX 1050 Ti, with
+    per-call synchronize). DRAM-resident loses badly (H2D transfer-bound: 31 ms
+    vs numba 6 ms at K=8/N=1M). VRAM-resident (data already on device) skips the
+    transfer and is ~3x faster than DRAM cupy -- but STILL loses to numba on this
+    GPU (11 vs 6 ms): a 768-core 2014 card can't out-compute multi-core prange on
+    an axis-1 reduction. So no GPU variant is dispatched here. This is
+    residency-AND-HW-dependent, though: on a modern GPU (10-100x this compute)
+    VRAM-resident cupy would likely win, which is exactly what the cache's
+    ``location`` (host/device) residency axis is built to capture per host.
+    (Caution: an earlier async measurement timed kernel *launch* not completion
+    and falsely showed cupy_VRAM winning 16x -- always synchronize GPU timings.)
     """
     if not _HAS_NUMBA_PER_MEMBER:
         return False
