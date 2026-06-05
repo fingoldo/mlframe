@@ -239,9 +239,11 @@ def _per_member_use_numba(elements_per_member: int, n_groups: int, ndim: int = 2
     single-machine artifact that hid the win for the common ensembling sizes
     (K~3-10, N~10-100k).
 
-    3-D (K, N, C) dispatches here too (``ndim`` keys a separate cache region):
-    the per-column njit is bit-identical to numpy (max abs diff 0.0) and 12-22x
-    faster (measured 2026-06-05), so numba is the default above the same floor.
+    3-D (K, N, C) dispatches here too -- ``ndim`` is carried in the cache key so
+    2-D and 3-D CAN tune separately, though the current sweep varies only
+    ``elements_per_member`` and both share that crossover. The 3-D per-column njit
+    is bit-identical to numpy (max abs diff 0.0) and 12-22x faster (measured
+    2026-06-05), so numba is the default above the same floor.
 
     GPU: cupy was measured under BOTH residencies (2026-06-05, GTX 1050 Ti, with
     per-call synchronize). DRAM-resident loses badly (H2D transfer-bound: 31 ms
@@ -309,9 +311,10 @@ def _per_member_mae_std(arr: np.ndarray, median_preds: np.ndarray) -> tuple:
     # the per-COLUMN std (matching numpy's per-class-then-mean-across-C path)
     # instead of the old pooled N*C std -- so it is bit-identical (max abs diff
     # 0.0, verified 2026-06-05) and 12-22x faster, even larger than the 2-D win.
-    # ``ndim`` is threaded into the cache key so 2-D and 3-D can tune separately.
-    # HW-calibrated via _per_member_use_numba (env -> kernel_tuning_cache ->
-    # measured fallback).
+    # ``ndim`` is threaded into the cache key so 2-D and 3-D CAN tune separately,
+    # but the current sweep varies only elements_per_member, so both share that
+    # crossover. HW-calibrated via _per_member_use_numba (env ->
+    # kernel_tuning_cache -> measured fallback).
     use_numba = (
         _HAS_NUMBA_PER_MEMBER
         and arr.dtype == np.float64

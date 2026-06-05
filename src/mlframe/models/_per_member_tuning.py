@@ -182,8 +182,11 @@ def ensure_per_member_tuning(observed_elements: int | None = None, observed_grou
 # Register with the kernel-tuner registry so ``mlframe-tune-kernels`` /
 # ``retune_all`` can discover + batch-tune this kernel on a quiet machine. CPU
 # only (no GPU variant -- a CPU-resident axis-1 reduction; cupy was measured and
-# lost). 3-D is intentionally absent: 3-D numba computes a different statistic
-# (per-class vs pooled std), so only numpy is correct there -- not a tunable axis.
+# lost under both residencies on this HW). ``n_groups``/``ndim`` are carried in
+# the cache key so 2-D and 3-D CAN tune separately, but the current sweep varies
+# only the dominant ``elements_per_member`` axis -- 2-D and 3-D share that one
+# crossover. (The 3-D njit was fixed to per-column std, bit-identical to numpy,
+# so numba is a valid speed swap for BOTH ndims; see _per_member_use_numba.)
 from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
 kernel_tuner(
