@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 import math
 import warnings
+from functools import lru_cache
 from typing import Sequence
 
 import numpy as np
@@ -749,6 +750,79 @@ def _discretize_2d_array_njit(
 # the prange wall. Measured on GTX 1050 Ti: at n_rows * n_cols = 500_000 the
 # CUDA path is ~5x faster than warm CPU prange; below 100_000 cells CPU wins.
 _DISCRETIZE_2D_CUDA_MIN_CELLS = 500_000
+# Spans the ~500k crossover; capped at 2M (the catch-all extrapolates beyond) to
+# keep the one-time cold-start sweep cheap -- discretize is a hot dispatch.
+_DISCRETIZE_SWEEP_CELLS = [50_000, 200_000, 500_000, 2_000_000]
+_DISCRETIZE_SALT = 1
+
+
+def _make_discretize_inputs(dims: dict):
+    """A 2-D float64 frame of ~``n_cells`` cells (fixed 8 columns) -- the operand
+    discretize_2d_array bins per column."""
+    rng = np.random.default_rng(0)
+    cols = 8
+    rows = max(1, int(dims["n_cells"]) // cols)
+    return (rng.standard_normal((rows, cols)).astype(np.float64),)
+
+
+def _run_discretize_sweep() -> list:
+    """Full n_cells grid sweep -> backend_choice regions: cpu (njit prange) vs cuda
+    (cupy), fastest EQUIVALENT per band. quantile method, no min/max (the cuda path
+    computes its own percentiles). Inputs host-resident -> no residency axis. The
+    cupy + cpu percentile binning use the same algorithm, so the int8 bins match."""
+    from pyutilz.core.pythonlib import is_cuda_available
+    from pyutilz.dev.benchmarking import sweep_backend_grid
+
+    def _cpu(arr):
+        return _discretize_2d_array_njit(
+            arr=arr, n_bins=10, method="quantile", min_ncats=50,
+            min_values=None, max_values=None, dtype=np.int8,
+        )
+
+    variants = {"cpu": _cpu}
+    if is_cuda_available():
+        def _cuda(arr):
+            return discretize_2d_array_cuda(arr=arr, n_bins=10, method="quantile", dtype=np.int8)
+        variants["cuda"] = _cuda
+    return sweep_backend_grid(
+        variants, {"n_cells": _DISCRETIZE_SWEEP_CELLS}, _make_discretize_inputs,
+        reference="cpu", repeats=2, equiv_rtol=1e-6, equiv_atol=1e-6,
+    )
+
+
+def _discretize_code_version():
+    """code_version over the njit + cupy bodies; re-tunes on a kernel edit."""
+    try:
+        from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
+        return compute_code_version(_discretize_2d_array_njit, discretize_2d_array_cuda, salt=_DISCRETIZE_SALT)
+    except Exception:
+        return None
+
+
+@lru_cache(maxsize=256)
+def _discretize_backend_choice(n_cells: int) -> str:
+    """Per-host cpu/cuda choice for discretize_2d_array at ``n_cells`` via the
+    SINGLETON cache's get_or_tune (a fresh KernelTuningCache would re-run
+    _build_provenance / nvidia-smi ~48ms per call -- observed 6x in fuzz c0143);
+    fallback = the hand-tuned 500k breakeven. Memoized (the dispatch is hot)."""
+    n_cells = int(n_cells)
+    fallback = "cuda" if n_cells >= _DISCRETIZE_2D_CUDA_MIN_CELLS else "cpu"
+    from ._kernel_tuning import get_kernel_tuning_cache
+    _cache = get_kernel_tuning_cache()
+    if _cache is None:
+        return fallback
+    try:
+        result = _cache.get_or_tune(
+            "discretize_2d_array", dims={"n_cells": n_cells},
+            tuner=_run_discretize_sweep, axes=["n_cells"],
+            fallback={"backend_choice": fallback}, code_version=_discretize_code_version(),
+        )
+        bc = result if isinstance(result, str) else str((result or {}).get("backend_choice", ""))
+        if bc in ("cpu", "cuda"):
+            return bc
+    except Exception:
+        pass
+    return fallback
 
 
 def discretize_2d_array(
@@ -780,38 +854,22 @@ def discretize_2d_array(
     routes to the fastest backend by default; manual backend selection
     is only for tests + benches.
     """
-    # CUDA-eligibility gate. ``min_cells`` comes from the per-host kernel
-    # tuning cache (pyutilz.performance.kernel_tuning.cache + auto_tune sweep)
-    # when available; else the hand-tuned 500k default. Lets the dispatcher
-    # adapt to faster GPUs (cc 8+ wins at smaller sizes) without code edits.
-    # Uses the module-singleton cache; building a fresh KernelTuningCache here
-    # would re-trigger _load + _build_provenance (nvidia-smi subprocess) on
-    # every call (~48ms each, observed 6x in fuzz combo c0143 profile).
-    min_cells = _DISCRETIZE_2D_CUDA_MIN_CELLS
-    from ._kernel_tuning import get_kernel_tuning_cache
-    _cache = get_kernel_tuning_cache()
-    if _cache is not None:
-        try:
-            _entry = _cache.lookup(
-                "discretize_2d_array",
-                arr_size=int(arr.size) if hasattr(arr, "size") else 0,
-            )
-            if _entry is not None and "min_cells" in _entry:
-                min_cells = int(_entry["min_cells"])
-        except Exception:
-            pass  # lookup error -> hand-tuned default
-
-    # 2026-05-28: uniform method gained a CUDA path in this batch (single-pass
-    # vectorised arithmetic + RawKernel searchsorted). Both methods can now
-    # route to GPU when min_values/max_values are not provided (the CUDA
-    # uniform path computes col_min/col_max itself).
+    # CUDA-eligibility: per-host backend_choice (cpu/cuda) from the kernel tuning
+    # cache via get_or_tune (the hand-tuned 500k breakeven is the fallback), so the
+    # dispatcher adapts to faster GPUs without code edits. _discretize_backend_choice
+    # uses the module-singleton cache + is lru_cached, so it does NOT re-trigger
+    # _build_provenance (nvidia-smi ~48ms) per call.
+    #
+    # 2026-05-28: uniform method gained a CUDA path (single-pass vectorised
+    # arithmetic + RawKernel searchsorted). Both methods route to GPU when
+    # min_values/max_values are absent (the CUDA uniform path computes col_min/max).
     if (
         prefer_gpu
         and method in ("quantile", "uniform")
         and min_values is None
         and max_values is None
         and arr.ndim == 2
-        and arr.size >= min_cells
+        and _discretize_backend_choice(int(arr.size)) == "cuda"
     ):
         try:
             from pyutilz.core.pythonlib import is_cuda_available
@@ -1297,3 +1355,19 @@ def categorize_dataset(
     nbins = data.max(axis=0).astype(np.int64) + 1
 
     return data, numerical_cols + categorical_cols, nbins
+
+
+# Register with the kernel-tuner registry so retune_all / mlframe-tune-kernels
+# discover + batch-tune discretize_2d_array (GPU-capable; cpu njit vs cuda cupy).
+from pyutilz.performance.kernel_tuning.registry import kernel_tuner
+
+kernel_tuner(
+    kernel_name="discretize_2d_array",
+    variant_fns=(_discretize_2d_array_njit,),  # reference; cuda covered by salt
+    tuner=_run_discretize_sweep,
+    axes={"n_cells": list(_DISCRETIZE_SWEEP_CELLS)},
+    fallback={"backend_choice": "cpu"},
+    gpu_capable=True,
+    salt=_DISCRETIZE_SALT,
+    cli_label="discretize_2d_array",
+)
