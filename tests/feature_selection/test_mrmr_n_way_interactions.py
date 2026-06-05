@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests.conftest import perf_time_budget
 from mlframe.feature_selection.filters.mrmr import MRMR
 
 
@@ -162,8 +163,10 @@ def test_n_way_runtime_scales_polynomially(order):
     sel = MRMR(interactions_max_order=order, verbose=0, random_seed=42)
     sel.fit(X_df, y_ser)
     dt = time.perf_counter() - t0
-    # Honest cap: under 60s on any sane CI runner.
-    assert dt < 60.0, (
-        f"interactions_max_order={order} took {dt:.1f}s on "
+    # 30s quiet-box cap (real measurement <5s); xdist-relaxed under full-suite ``-n`` contention. This still trips a
+    # true O(p^order) exponential blow-up (which would be minutes), just not transient scheduler starvation.
+    budget = perf_time_budget(30.0)
+    assert dt < budget, (
+        f"interactions_max_order={order} took {dt:.1f}s > {budget:.0f}s on "
         f"n=1500, p=8 -- runtime regression"
     )

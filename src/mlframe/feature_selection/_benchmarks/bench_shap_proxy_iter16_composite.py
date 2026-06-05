@@ -1,4 +1,4 @@
-"""iter16 composite-fidelity bench: measure spearman + recall@k + proxy_fidelity_score across
+r"""iter16 composite-fidelity bench: measure spearman + recall@k + proxy_fidelity_score across
 the iter14/iter15 levers (uniform / F-stratified / Zipf alpha sweep) on the width=6000 regime so
 we can decide whether to FLIP iter14's F-stratified default and/or iter15's Zipf alpha=0.25 default.
 

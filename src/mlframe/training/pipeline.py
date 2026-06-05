@@ -374,16 +374,19 @@ def prepare_dfs_for_catboost_joint(
         categories = real_categories + ([nullable_sentinel] if nullable_sentinel in union_values else [])
         joint_dtype = pd.api.types.CategoricalDtype(categories=categories, ordered=False)
 
-        train_df[col] = train_s.astype(joint_dtype)
-        if val_df is not None and col in val_df.columns:
-            val_df[col] = val_s.astype(joint_dtype)
-        if test_df is not None and col in test_df.columns:
-            # Test must NOT enlarge the union (see docstring). Use the same
-            # dtype; pd.Categorical's astype maps OOV strings to NaN, which
-            # matches the polars ``cast(enum_dt, strict=False)`` semantics in
-            # apply_polars_categorical_fixes.
-            test_s = _stringify(test_df[col])
-            test_df[col] = test_s.astype(joint_dtype)
+        # The docstring contract is explicit in-place mutation of the caller's frames; option_context silences the
+        # conservative SettingWithCopy heuristic (fires when a caller hands in a sliced view) without any frame copy.
+        with pd.option_context("mode.chained_assignment", None):
+            train_df[col] = train_s.astype(joint_dtype)
+            if val_df is not None and col in val_df.columns:
+                val_df[col] = val_s.astype(joint_dtype)
+            if test_df is not None and col in test_df.columns:
+                # Test must NOT enlarge the union (see docstring). Use the same
+                # dtype; pd.Categorical's astype maps OOV strings to NaN, which
+                # matches the polars ``cast(enum_dt, strict=False)`` semantics in
+                # apply_polars_categorical_fixes.
+                test_s = _stringify(test_df[col])
+                test_df[col] = test_s.astype(joint_dtype)
 
 
 def _select_scalable_numeric_columns(

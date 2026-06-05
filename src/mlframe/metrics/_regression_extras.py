@@ -248,7 +248,10 @@ def fast_mdape(y_true: np.ndarray, y_pred: np.ndarray) -> float:
         return np.nan
     eps = np.finfo(np.float64).eps
     denom = np.maximum(np.abs(yt), eps)
-    ape = np.abs(yp - yt) / denom
+    # denom >= eps by construction, so this never divides by zero; the errstate guards the inf/inf -> nan case
+    # when y_true itself carries non-finite values (then denom is inf), letting the nan flow into the median.
+    with np.errstate(invalid="ignore", divide="ignore"):
+        ape = np.abs(yp - yt) / denom
     return float(np.median(ape))
 
 

@@ -68,6 +68,17 @@ class TestInputTypes:
         except (TypeError, ValueError, AttributeError) as exc:
             pytest.xfail(f"mlframe RFECV does not yet accept scipy.sparse X (sklearn does): {type(exc).__name__}")
 
+    def test_sparse_X_dense_over_2gb_refused(self):
+        """The boundary densify is RAM-guarded: a sparse matrix whose DENSE form would exceed 2 GB is refused with a
+        clear NotImplementedError rather than silently doubling host memory (project RAM rule). An empty (0-nnz) huge-
+        shape matrix exercises the guard without allocating anything."""
+        from scipy.sparse import csr_matrix
+        X_huge = csr_matrix((20000, 20000))  # dense = 20000*20000*8 = 3.2 GB > 2 GB, but 0 nnz so nothing allocated
+        y = np.zeros(20000, dtype=int); y[:50] = 1
+        rfecv = RFECV(estimator=LogisticRegression(max_iter=50), cv=3, max_refits=2, random_state=0)
+        with pytest.raises(NotImplementedError, match="2 GB"):
+            rfecv.fit(X_huge, y)
+
     def test_list_y_accepted(self):
         """sklearn regression test: bare Python list as y must be accepted."""
         X, y = make_classification(n_samples=120, n_features=8, n_informative=4, random_state=0)

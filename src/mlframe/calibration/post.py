@@ -358,7 +358,7 @@ def compare_postcalibrators(
 
         with config_context(transform_output="default"):
 
-            """
+            r"""
             config_context needed here to avoid:
 
             R:\ProgramData\anaconda3\Lib\site-packages\netcal\binning\IsotonicRegression.py:183, in IsotonicRegression.transform(self, X)

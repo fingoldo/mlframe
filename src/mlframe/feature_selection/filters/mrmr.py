@@ -2743,7 +2743,10 @@ class MRMR(BaseEstimator, TransformerMixin):
                 present = [c for c in names if c in frame.columns]
                 if present:
                     try:
-                        frame.drop(columns=present, inplace=True)
+                        # Restore the caller's frame in place (it stored this exact object for cleanup); option_context
+                        # silences the conservative SettingWithCopy heuristic on a possibly-viewed frame, no copy.
+                        with pd.option_context("mode.chained_assignment", None):
+                            frame.drop(columns=present, inplace=True)
                     except Exception:
                         pass
             self._pandas_frame_for_target_cleanup = None
