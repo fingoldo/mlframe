@@ -300,9 +300,14 @@ def _slice_rows(X, mask: np.ndarray):
     return X[mask]
 
 
-# Module-level memo cache for compute_oof_holdout_predictions. OOF-K-NOT-CACHED: keyed by
-# (cache_key, kfold, random_state). The cache_key argument is opaque -- callers pass a hashable
-# tuple summarising the (component, X, y, sw) identity.
+# Module-level memo cache for compute_oof_holdout_predictions. Keyed by (cache_key, kfold, random_state).
+# The cache_key argument is opaque -- callers pass a hashable tuple summarising the (component, X, y, sw) identity.
+#
+# Intentionally UNWIRED on the suite path: the cross-target ensemble builder computes each target's OOF exactly
+# once per suite call on a fresh train frame, so there is no reuse to capture, and a content key on a TB-scale
+# frame is forbidden by the RAM rule. The cache exists for EXTERNAL callers that legitimately repeat an identical
+# OOF call with a cheap stable key (huge hit-speedup; see _benchmarks/bench_oof_cache_reuse.py). Do not wire a
+# frame-hash key into the suite to "use" it -- that buys zero hits at the cost of a forbidden hash.
 #
 # C-P2-2: DO NOT include ``id(train_X)`` in the cache_key. Python recycles object IDs across the
 # lifecycle of a long-lived suite, so two frames with disjoint content can end up sharing the same
@@ -764,28 +769,18 @@ def compute_oof_holdout_predictions(
             group_ids=group_ids,
         )
 
-    # Decide whether to do a time-aware split. We use the explicit
-    # ``time_ordering`` signal when supplied; absent that we attempt
-    # to detect monotone-time from base columns (a common shape when
-    # base is a lagged timestamp). Random shuffle is the safe fallback.
+    # Decide whether to do a time-aware split. Only the EXPLICIT ``time_ordering`` signal (the suite threads
+    # ctx.timestamps here) flips to a trailing-slice holdout. The old behaviour also probed every base column and
+    # auto-switched if ANY was monotone -- a false positive on sorted-but-non-temporal bases (sorted ids, binned
+    # features) that silently turned a random holdout into a trailing slice and changed the OOF leakage profile.
+    # Random shuffle is the safe default when no explicit time signal is given.
     use_time_split = False
     if time_ordering is not None:
         use_time_split = _is_monotone_nondecreasing(time_ordering)
         if use_time_split:
             logger.info(
-                "composite OOF: time_ordering signal is monotone non-decreasing; using trailing-slice holdout instead of random K-fold."
+                "composite OOF: time_ordering signal is monotone non-decreasing; using trailing-slice holdout instead of random shuffle."
             )
-    else:
-        # Probe each base column; first monotone one switches the strategy. The col name is logged so an operator can
-        # trace which base induced the switch (random-shuffle vs trailing-slice changes OOF leakage characteristics).
-        for _base_col, _base in base_train_full_per_spec.items():
-            if _is_monotone_nondecreasing(_base):
-                use_time_split = True
-                logger.info(
-                    "composite OOF auto-detected time-ordered base column %s; switching from random K-fold to trailing-slice",
-                    _base_col,
-                )
-                break
 
     n_holdout = max(int(round(n_train * holdout_frac)), 1)
     if use_time_split:
@@ -814,6 +809,18 @@ def compute_oof_holdout_predictions(
 
     y_stack = y_train_full[train_idx].astype(np.float64)
     y_holdout = y_train_full[holdout_idx].astype(np.float64)
+
+    # Group-aware inner eval-carve parity with the raw branch + kfold path: subset the caller-supplied group_ids
+    # to the stack rows so neither the composite nor the raw inner-eval carve splits a group across fit/eval
+    # (within-group leakage under-stops the booster and degrades OOF RMSE on group-aware splits).
+    _group_stack = None
+    if group_ids is not None:
+        try:
+            _g_arr = np.asarray(group_ids)
+            if _g_arr.shape[0] >= int(np.max(train_idx)) + 1:
+                _group_stack = _g_arr[train_idx]
+        except (TypeError, IndexError, ValueError):
+            _group_stack = None
 
     holdout_cols: list[np.ndarray] = []
     surviving_names: list[str] = []
@@ -850,8 +857,12 @@ def compute_oof_holdout_predictions(
                 else:
                     X_stack_valid = X_stack_t[valid]
                 _sw_stack_valid = None if sample_weight is None else sample_weight[train_idx][valid]
+                _group_stack_valid = None
+                if _group_stack is not None and _group_stack.shape[0] == valid.shape[0]:
+                    _group_stack_valid = _group_stack[valid]
                 _X_fit_c, _t_fit_c, _X_ev_c, _t_ev_c = _carve_inner_eval_split(
                     X_stack_valid, t_stack, random_state=0,
+                    group_ids=_group_stack_valid,
                 )
                 _eval_set_c = (_X_ev_c, _t_ev_c) if _X_ev_c is not None else None
                 _sw_fit_c = (
@@ -885,6 +896,7 @@ def compute_oof_holdout_predictions(
                 _sw_stack = None if sample_weight is None else sample_weight[train_idx]
                 _X_fit_r, _y_fit_r, _X_ev_r, _y_ev_r = _carve_inner_eval_split(
                     X_stack_t, y_stack, random_state=0,
+                    group_ids=_group_stack,
                 )
                 _eval_set_r = (_X_ev_r, _y_ev_r) if _X_ev_r is not None else None
                 _sw_fit_r = (

@@ -86,33 +86,40 @@ def test_m2_oof_cache_eviction_is_lru_not_fifo(monkeypatch):
     assert ("k4",) in _cen._OOF_HOLDOUT_CACHE
 
 
-def test_m2_refit_cache_eviction_is_lru_not_fifo():
-    """Per-instance refit cache on ``CompositeCrossTargetEnsemble``:
-    same LRU semantics as the module-level OOF cache.
+def test_m2_dropout_predict_is_deterministic_no_refit():
+    """Predict-time member dropout is a pure no-refit function of inputs.
+
+    The non-convex stacks (linear_stack / nnls_stack) previously refit a solver on a stashed train matrix
+    when a component failed at predict; that made predict batch-order-dependent and forced a multi-GB stash to
+    survive pickle. The deployed policy drops the failed column's weight and recombines deterministically.
     """
+    import numpy as np
+    from mlframe.training.composite_ensemble import CompositeCrossTargetEnsemble
 
-    # Build a minimal CompositeCrossTargetEnsemble without going through
-    # fit machinery. We just need the per-instance cache helpers.
-    class _Stub:
-        pass
+    class _Const:
+        def __init__(self, v):
+            self.v = float(v)
 
-    inst = _Stub()
-    # Re-use the real implementation's get/put as bound methods.
-    from collections import OrderedDict
-    inst._refit_cache = OrderedDict()
-    inst._refit_cache_capacity = 3
-    get_fn = _cen.CompositeCrossTargetEnsemble._refit_cache_get
-    put_fn = _cen.CompositeCrossTargetEnsemble._refit_cache_put
+        def predict(self, X):
+            return np.full(len(X), self.v, dtype=np.float64)
 
-    put_fn(inst, "nnls", (0,), (np.array([1.0]), 0.5))
-    put_fn(inst, "nnls", (1,), (np.array([1.0]), 0.5))
-    put_fn(inst, "nnls", (2,), (np.array([1.0]), 0.5))
-    # Re-access (0,) so it's MRU.
-    _ = get_fn(inst, "nnls", (0,))
-    put_fn(inst, "nnls", (3,), (np.array([1.0]), 0.5))
+    class _Fail:
+        def predict(self, X):
+            raise RuntimeError("component down this batch")
 
-    assert ("nnls", (0,)) in inst._refit_cache, "Recently-used entry evicted - still FIFO."
-    assert ("nnls", (1,)) not in inst._refit_cache, "LRU entry not evicted."
+    ens = CompositeCrossTargetEnsemble(
+        component_models=[_Const(1.0), _Fail(), _Const(3.0)],
+        component_names=["a", "b", "c"],
+        weights=np.array([0.5, 0.25, 0.5]),
+        strategy="nnls_stack",
+        is_convex=False,
+    )
+    X = np.zeros((7, 2))
+    p1 = ens.predict(X)
+    p2 = ens.predict(X)
+    np.testing.assert_array_equal(p1, p2)
+    # Surviving columns a (w=0.5) and c (w=0.5) -> 0.5*1 + 0.5*3 = 2.0, no refit.
+    np.testing.assert_allclose(p1, np.full(7, 2.0))
 
 
 # ---------------------------------------------------------------------------

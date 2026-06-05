@@ -125,10 +125,13 @@ def run_composite_post_processing(
     reporting_config,
     plot_file: str | None,
     verbose: bool,
+    ctx: Any = None,
 ) -> tuple[dict, dict]:
     """Run composite wrapping, cross-target ensemble, and suite-end summary.
 
-    Returns updated (models, metadata).
+    ``ctx`` (the suite TrainingContext) carries ``timestamps`` / ``sample_weights`` / ``group_ids`` aligned to
+    full-data row indices; the cross-target ensemble builder subsets them by ``filtered_train_idx`` so the honest
+    OOF split can be time-aware, weighted, and group-aware. Returns updated (models, metadata).
     """
     # Composite-target wrapping: T-scale inner models get wrapped so predict() returns y-scale.
     composite_specs_by_target_type = metadata.get("composite_target_specs", {}) or {}
@@ -252,6 +255,7 @@ def run_composite_post_processing(
                     reporting_config=reporting_config,
                     plot_file=plot_file,
                     _train_pred_cache=_train_pred_cache,
+                    ctx=ctx,
                 )
 
     _run_suite_end_dummy_baselines_summary(

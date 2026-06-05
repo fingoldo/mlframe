@@ -87,9 +87,12 @@ def test_time_ordering_signal_produces_contiguous_future_holdout() -> None:
     assert surviving == ["c0"]
 
 
-def test_monotone_base_column_auto_detected_when_no_explicit_time() -> None:
-    """Even without explicit time_ordering, a monotone base column triggers
-    the time-aware split."""
+def test_monotone_base_column_no_longer_auto_switches() -> None:
+    """A monotone base column with no explicit ``time_ordering`` must NOT flip to a trailing-slice split.
+
+    The base-column auto-probe was removed: only an explicit ``time_ordering`` signal turns on the time-aware
+    holdout, so a sorted-but-non-temporal base no longer silently changes the OOF leakage profile.
+    """
     rng = np.random.default_rng(1)
     n = 400
     base = np.arange(n, dtype=np.float64)  # monotone "timestamp-like" base
@@ -110,10 +113,11 @@ def test_monotone_base_column_auto_detected_when_no_explicit_time() -> None:
         random_state=42,
         time_ordering=None,
     )
-    # 25% tail.
     expected = int(round(n * 0.25))
     assert holdout_preds.shape == (expected, 1)
-    np.testing.assert_array_equal(y_holdout, y[-expected:])
+    # Random shuffle: the holdout is NOT the contiguous tail.
+    tail = y[-expected:]
+    assert not np.array_equal(np.sort(y_holdout), np.sort(tail))
 
 
 def test_random_split_fallback_when_not_monotone() -> None:

@@ -11,7 +11,6 @@ import hashlib
 import logging
 import math
 import warnings
-from collections import OrderedDict
 from typing import (
     Any, Dict, List, Optional, Sequence, Tuple, Union,
 )
@@ -98,29 +97,6 @@ class CompositeCrossTargetEnsemble:
         self.strategy = strategy
         self.is_convex = bool(is_convex)
         self.notes = dict(notes or {})
-        # REFIT-NNLS / REFIT-RIDGE: small LRU cache for surviving-subset refits. 32 entries is plenty
-        # for the handful of distinct member-dropout patterns a production session sees. Backed by
-        # ``OrderedDict`` + ``move_to_end`` so the eviction order tracks ACCESS, not just insertion
-        # (the pre-fix dict-only impl was FIFO despite the LRU label).
-        self._refit_cache: OrderedDict[tuple[str, tuple[int, ...]], tuple[np.ndarray, float]] = OrderedDict()
-        self._refit_cache_capacity: int = 32
-
-    def _refit_cache_get(self, kind: str, surviving_key: tuple[int, ...]):
-        key = (kind, surviving_key)
-        if key not in self._refit_cache:
-            return None
-        self._refit_cache.move_to_end(key)
-        return self._refit_cache[key]
-
-    def _refit_cache_put(self, kind: str, surviving_key: tuple[int, ...], value):
-        key = (kind, surviving_key)
-        if key in self._refit_cache:
-            self._refit_cache.move_to_end(key)
-            self._refit_cache[key] = value
-            return
-        if len(self._refit_cache) >= self._refit_cache_capacity:
-            self._refit_cache.popitem(last=False)
-        self._refit_cache[key] = value
 
     # ------------------------------------------------------------------
     # Constructors / factory methods
@@ -547,84 +523,31 @@ class CompositeCrossTargetEnsemble:
         weights = np.array([w for _, w in ok], dtype=np.float64)
 
         if not getattr(self, "is_convex", True):
-            # Non-convex strategies (linear_stack, nnls_stack): weights are the raw solver
-            # output, possibly negative (Ridge) or with arbitrary sum (NNLS). Refit the
-            # appropriate solver on the surviving columns of the stashed training matrix
-            # when any component drops out -- the alternative (drop the column but reuse
-            # the original intercept / coefficient mix) is biased. The all-present fast
-            # path skips the refit and uses the stored weights directly.
+            # Non-convex strategies (linear_stack, nnls_stack): weights are the raw solver output,
+            # possibly negative (Ridge) or with arbitrary sum (NNLS). When every component is present
+            # predict is the exact deployed stack. When a component drops out at predict time we keep
+            # only the surviving columns' raw weights (plus the linear_stack intercept) -- a NO-REFIT
+            # policy so predict stays a pure deterministic function of the inputs: the same input yields
+            # the same output across repeated / batched calls. The earlier behaviour refit a fresh
+            # solver on a stashed (n_train, K) train matrix, which (a) made predict depend on which
+            # columns dropped, (b) was non-deterministic across batches when different batches lost
+            # different components, and (c) forced a multi-GB stash to survive every pickle. Dropping a
+            # column from a linear stack is a sensible, deterministic fallback; the alternative refit was
+            # not worth the leakage/RAM/non-determinism cost.
             full_weights = np.asarray(self.weights, dtype=np.float64)
             full_intercept = float(getattr(self, "_linear_stack_intercept", 0.0))
             if len(surviving_idx) == len(self.component_models):
                 return (preds_matrix * full_weights[None, :]).sum(axis=1) + full_intercept
 
-            # REFIT-NNLS / REFIT-RIDGE: cache the solver output keyed by the sorted surviving_idx
-            # tuple. Member-dropout patterns are few in practice (a handful at most across a
-            # production session); a 32-entry LRU is plenty and keeps memory predictable.
-            surviving_key = tuple(sorted(surviving_idx))
-
-            if self.strategy == "linear_stack":
-                train_preds = getattr(self, "_linear_stack_train_preds", None)
-                train_y = getattr(self, "_linear_stack_train_y", None)
-                if train_preds is None or train_y is None:
-                    raise RuntimeError(
-                        "CompositeCrossTargetEnsemble.predict: linear_stack lost component(s) "
-                        f"({len(self.component_models) - len(surviving_idx)} of "
-                        f"{len(self.component_models)}) but no training matrix is available "
-                        "to refit Ridge. Refusing to predict to avoid intercept-induced bias."
-                    )
-                alpha = float(getattr(self, "_linear_stack_ridge_alpha", 1.0))
-                _cached = self._refit_cache_get("ridge", surviving_key)
-                if _cached is None:
-                    refit = Ridge(alpha=alpha, fit_intercept=True)
-                    refit.fit(np.asarray(train_preds)[:, surviving_idx], np.asarray(train_y))
-                    new_w = np.asarray(refit.coef_, dtype=np.float64)
-                    new_intercept = float(refit.intercept_)
-                    self._refit_cache_put("ridge", surviving_key, (new_w, new_intercept))
-                    logger.warning(
-                        "[CompositeCrossTargetEnsemble] linear_stack: %d of %d components dropped "
-                        "out at predict time; refit Ridge on surviving subset (alpha=%g).",
-                        len(self.component_models) - len(surviving_idx),
-                        len(self.component_models),
-                        alpha,
-                    )
-                else:
-                    new_w, new_intercept = _cached
-                return (preds_matrix * new_w[None, :]).sum(axis=1) + new_intercept
-
-            if self.strategy == "nnls_stack":
-                train_preds = getattr(self, "_nnls_stack_train_preds", None)
-                train_y = getattr(self, "_nnls_stack_train_y", None)
-                if train_preds is None or train_y is None:
-                    raise RuntimeError(
-                        "CompositeCrossTargetEnsemble.predict: nnls_stack lost component(s) "
-                        f"({len(self.component_models) - len(surviving_idx)} of "
-                        f"{len(self.component_models)}) but no training matrix is available "
-                        "to refit NNLS. Refusing to predict to avoid biased dropout."
-                    )
-                from scipy.optimize import nnls as _nnls
-
-                _cached = self._refit_cache_get("nnls", surviving_key)
-                if _cached is None:
-                    new_w, _ = _nnls(
-                        np.asarray(train_preds)[:, surviving_idx], np.asarray(train_y)
-                    )
-                    new_w = np.asarray(new_w, dtype=np.float64)
-                    self._refit_cache_put("nnls", surviving_key, (new_w, 0.0))
-                    logger.warning(
-                        "[CompositeCrossTargetEnsemble] nnls_stack: %d of %d components dropped "
-                        "out at predict time; refit NNLS on surviving subset.",
-                        len(self.component_models) - len(surviving_idx),
-                        len(self.component_models),
-                    )
-                else:
-                    new_w, _ = _cached
-                return (preds_matrix * new_w[None, :]).sum(axis=1)
-
-            # Other non-convex strategy without a training-matrix stash -- pass through as
-            # a raw linear combination (rare; only hit if a future caller adds a strategy
-            # without stashing the training data).
-            return (preds_matrix * full_weights[None, :]).sum(axis=1)
+            surviving_weights = full_weights[surviving_idx]
+            _intercept = full_intercept if self.strategy == "linear_stack" else 0.0
+            logger.warning(
+                "[CompositeCrossTargetEnsemble] %s: %d of %d components dropped out at predict time; "
+                "combining surviving columns with their original weights (no refit, deterministic).",
+                self.strategy, len(self.component_models) - len(surviving_idx),
+                len(self.component_models),
+            )
+            return (preds_matrix * surviving_weights[None, :]).sum(axis=1) + _intercept
 
         # Convex strategies (mean / oof_weighted): re-normalise across surviving components.
         if weights.sum() <= 0:
@@ -741,4 +664,32 @@ class CompositeCrossTargetEnsemble:
                 delattr(self, _attr)
         self.notes["train_matrix_discarded"] = True
         return self
+
+    # Names of the (n_train, K) stash attributes that must never reach a pickle: at TB scale they
+    # dominate the serialized blob (~8 * n_train * (K+1) bytes) and survive every save round-trip.
+    _TRAIN_MATRIX_ATTRS = (
+        "_linear_stack_train_preds",
+        "_linear_stack_train_y",
+        "_nnls_stack_train_preds",
+        "_nnls_stack_train_y",
+    )
+
+    def __getstate__(self) -> dict[str, Any]:
+        """Strip the (n_train, K) training-prediction stash from the pickle.
+
+        The dropout-refit path is the only consumer of these arrays and the deployed default is no-refit
+        renormalisation (predict falls back when they are absent), so persisting them just bloats every save by
+        GBs on large frames. The unpickled instance keeps predicting; only the deprecated refit-on-dropout path
+        becomes unavailable, which is the intended trade.
+        """
+        state = dict(self.__dict__)
+        for _attr in self._TRAIN_MATRIX_ATTRS:
+            state.pop(_attr, None)
+        notes = dict(state.get("notes") or {})
+        notes["train_matrix_discarded"] = True
+        state["notes"] = notes
+        return state
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        self.__dict__.update(state)
 

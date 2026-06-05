@@ -1,7 +1,7 @@
-"""Auto-detect log for time-aware OOF split: when ``compute_oof_holdout_predictions`` probes the base columns and finds a
-monotone non-decreasing one, it silently swaps the random K-fold for a trailing-slice holdout. The strategy switch changes
-the OOF leakage characteristics fundamentally - operators must see which base column triggered it so they can audit whether
-the auto-detection was correct (a monotone non-time column triggers a false positive that biases weights).
+"""Time-aware OOF split is driven ONLY by the explicit ``time_ordering`` signal. The earlier behaviour probed base
+columns and auto-switched to a trailing slice on ANY monotone base -- a false positive on sorted-but-non-temporal
+bases (sorted ids, binned features) that silently changed the OOF leakage profile. These tests pin that a monotone
+base column NO LONGER flips the split, while an explicit ``time_ordering`` still does.
 """
 
 from __future__ import annotations
@@ -14,8 +14,8 @@ import pandas as pd
 from mlframe.training.composite_ensemble import compute_oof_holdout_predictions
 
 
-def test_monotone_base_column_logs_switch_with_name(caplog) -> None:
-    """A monotone base column triggers the trailing-slice path AND an INFO log naming the column."""
+def test_monotone_base_column_does_not_auto_switch(caplog) -> None:
+    """A monotone base column must NOT trigger the trailing-slice path or any auto-detect log (no base-column probe)."""
     n = 200
     train_X = pd.DataFrame({"f": np.arange(n, dtype=np.float64)})
     y_train_full = np.linspace(0.0, 1.0, n)
@@ -24,7 +24,7 @@ def test_monotone_base_column_logs_switch_with_name(caplog) -> None:
 
     with caplog.at_level(logging.INFO, logger="mlframe.training.composite_ensemble"):
         compute_oof_holdout_predictions(
-            component_models=[],  # empty -> the per-component loop is a no-op, but the time-split log fires before it
+            component_models=[],
             component_names=[],
             component_specs=[],
             train_X=train_X,
@@ -35,12 +35,8 @@ def test_monotone_base_column_logs_switch_with_name(caplog) -> None:
             time_ordering=None,
             kfold=1,
         )
-    log_messages = [r.getMessage() for r in caplog.records if "auto-detected" in r.getMessage()]
-    assert log_messages, "expected INFO log line on monotone base column auto-detect"
-    msg = log_messages[0]
-    assert "monotone_ts" in msg, f"expected base column name 'monotone_ts' in log message, got: {msg!r}"
-    assert "trailing-slice" in msg
-    assert "random K-fold" in msg
+    auto = [r.getMessage() for r in caplog.records if "auto-detected" in r.getMessage()]
+    assert not auto, f"monotone base column must not auto-switch the split; got: {auto!r}"
 
 
 def test_non_monotone_base_does_not_log(caplog) -> None:

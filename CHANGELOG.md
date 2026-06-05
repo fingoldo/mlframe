@@ -10,6 +10,15 @@
 - Added `docs/README.md` (guide index) and `scripts/README.md` (per-script reference), and a `tests/test_docs_examples_smoke.py` import-only sensor that pins every documented public symbol so the docs cannot silently rot.
 - Removed `scripts/repros/` (one-off 2026-05 bug repros now covered by the fuzz suite and `tests/training/test_mrmr_polars_fe.py`).
 
+### Ensembling correctness
+
+- Cross-target stack weights and the honest-OOF gate now default to true K-fold OOF (`oof_holdout_source="kfold"`) instead of the early-stopping val frame. The booster components are early-stopped against val, so weighting on val double-dips a biased surface and over-weights whichever component best fit the val noise; this changes which ensemble wins on real data by removing that optimistic bias. `external_val` is retained as an opt-in (one-time WARN) for a representativeness cross-check; `train_tail` for when val is unavailable.
+- Group ids / time ordering / sample weights now actually reach the OOF refit (previously read off an unbound name and silently always `None`, disabling the group-aware honest-OOF carve).
+- `CompositeCrossTargetEnsemble` now drops its stashed `(n_train, K)` train-prediction matrix from the pickle (`__getstate__`), so saving a fitted suite no longer serializes gigabytes of train predictions.
+- Predict-time stacking is now a pure function of inputs (no non-deterministic per-batch dropout refit); the per-build prediction cache is scoped to a single build call rather than keyed on object `id()` (no full-frame hashing — safe on TB-scale frames).
+- The OOF gate now evaluates the exact predictor that `predict` deploys (no weight renormalisation mismatch for `nnls_stack`); `oof_weighted` uses the real dummy/lag floor as its gain baseline; the composite-branch eval carve is group-aware; auto time-split only triggers on an explicit time column.
+- Multi-target-regression per-column NNLS ensemble now fits weights on honest K-fold OOF (`nnls_oof`), the new default — beats `equal_mean` on 8/8 benchmark seeds (mean RMSE 1.811 vs 2.000). Benches committed under `training/_benchmarks/` (residual-dedup diversity gate measured and left OFF — noise on 9/10 seeds; OOF-cache reuse documented unwired on the suite path).
+
 ## 2026-06-04 — MRMR FE pair-search: batch the per-candidate quantile discretization (profiled hotspot)
 
 WHY: a broad real-data sweep hit a 3.75h MRMR-FE fit on near-saturated wide data (scene, 2407x299) with the CPU

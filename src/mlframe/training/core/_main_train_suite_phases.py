@@ -415,6 +415,7 @@ def run_recurrent_finalize_and_composite_post(
         reporting_config=reporting_config,
         plot_file=None,
         verbose=bool(verbose),
+        ctx=ctx,
     )
     return models, metadata
 

@@ -81,6 +81,62 @@ def max_off_diagonal_correlation(corr_matrix: np.ndarray) -> float:
     return 0.0 if not np.isfinite(val) else val
 
 
+def residual_dedup_indices(
+    residuals: np.ndarray,
+    oof_rmses: np.ndarray,
+    *,
+    corr_threshold: float = 0.95,
+    min_keep: int = 2,
+) -> tuple[list[int], list[int]]:
+    """Greedily drop near-duplicate members by residual correlation, keeping the stronger of each redundant pair.
+
+    Parameters
+    ----------
+    residuals
+        ``(n_rows, K)`` matrix of per-member honest-OOF residuals (pred - y). Columns align with ``oof_rmses``.
+    oof_rmses
+        ``(K,)`` honest-OOF RMSE per member; the LOWER-RMSE member of a redundant pair is kept.
+    corr_threshold
+        Members whose |Pearson(residual_i, residual_j)| exceeds this are considered redundant.
+    min_keep
+        Never drop below this many members (the stack needs at least 2 to be a stack).
+
+    Returns
+    -------
+    (keep_idx, dropped_idx): sorted column indices to keep and to drop. Degenerate / too-few-rows inputs keep all.
+    """
+    residuals = np.asarray(residuals, dtype=np.float64)
+    if residuals.ndim != 2:
+        residuals = residuals.reshape(residuals.shape[0], -1)
+    K = residuals.shape[1]
+    oof_rmses = np.asarray(oof_rmses, dtype=np.float64).reshape(-1)
+    if K <= min_keep:
+        return list(range(K)), []
+    finite_rows = np.all(np.isfinite(residuals), axis=1)
+    if finite_rows.sum() < 3:
+        return list(range(K)), []
+    with np.errstate(invalid="ignore"):
+        corr = np.corrcoef(residuals[finite_rows], rowvar=False)
+    # Process members worst-RMSE-first so a dropped weak member never evicts a strong one it duplicates.
+    order = list(np.argsort(oof_rmses)[::-1])  # worst first
+    kept: list[int] = []
+    dropped: list[int] = []
+    # Iterate best-first for the "kept" reference set; check each candidate (worst-first) against already-kept.
+    keep_pref = list(np.argsort(oof_rmses))  # best first
+    for cand in keep_pref:
+        redundant = False
+        for k in kept:
+            c = corr[cand, k]
+            if np.isfinite(c) and abs(c) > corr_threshold:
+                redundant = True
+                break
+        if redundant and (K - len(dropped)) > min_keep:
+            dropped.append(cand)
+        else:
+            kept.append(cand)
+    return sorted(kept), sorted(dropped)
+
+
 def stacking_aware_gate(
     transform_predictions: dict[str, np.ndarray],
     y_train: np.ndarray,

@@ -805,28 +805,29 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     oof_holdout_frac: float = 0.2
     oof_random_state: int = DEFAULT_RANDOM_SEED
 
-    # OOF holdout source for the cross-target ensemble stacker. Two
-    # modes:
+    # OOF holdout source for the cross-target ensemble stacker / weights / gate. Three modes:
     #
-    # - ``"external_val"`` (default): fit each component clone on the
-    #   FULL train slice, predict on the suite's val frame. Skips the
-    #   train-tail carving entirely. Eliminates the train-tail-vs-test
-    #   distribution mismatch that biased NNLS on group-aware splits
-    #   of strong-AR targets (observed in prod: train-tail
-    #   lag_predict RMSE 15.18 vs test 11.58; NNLS underweighted the
-    #   dominant zero-parameter baseline because it looked bad on the
-    #   train-tail slice that the stacker minimised against). Val is
-    #   the natural honest holdout: components used val for early-
-    #   stopping during initial training, but the OOF clones are
-    #   re-fit on full train (no val rows) before predicting on val,
-    #   so val rows are unseen by the re-fitted estimator.
+    # - ``"kfold"`` (default): true train-K-fold OOF. Each component is re-fit on K-1 folds and predicts the
+    #   held-out fold; the concatenated (n_train, K) OOF matrix drives stack weights, gain-over-naive weighting,
+    #   and the honest-OOF gate. This is the only source that never reuses the early-stopping (val) surface for
+    #   weighting: the booster components were early-stopped against val, so weighting on val double-dips a biased
+    #   surface and systematically over-weights whichever component fit the val noise best. K-fold OOF is the
+    #   standard "stacking on OOF" cure (Sill et al. 2009). Cost: K-1 extra fits per component on (K-1)/K of train.
     #
-    # - ``"train_tail"``: legacy single-slice carve from the trailing
-    #   ``oof_holdout_frac`` of train (time-aware when ``time_ordering``
-    #   is monotone, random shuffle otherwise). Use when val is
-    #   unavailable or when the suite is run without group-aware /
-    #   AR-heavy targets.
-    oof_holdout_source: str = "external_val"
+    # - ``"external_val"``: fit each component clone on the FULL train slice, predict on the suite's val frame.
+    #   Cheaper (one fit per component) but the val frame was the early-stopping surface for the booster
+    #   components, so the resulting weights/gate are optimistically biased toward components that overfit val.
+    #   A one-time WARN is emitted. Keep this for a representativeness cross-check against the kfold source, or
+    #   when K-fold is too expensive; do not use it as the production weighting surface for early-stopped models.
+    #
+    # - ``"train_tail"``: legacy single-slice carve from the trailing ``oof_holdout_frac`` of train (time-aware
+    #   when ``time_ordering`` is monotone, random shuffle otherwise). Use when val is unavailable / single fit
+    #   is required and the train-tail distribution matches test.
+    oof_holdout_source: str = "kfold"
+
+    # Number of folds for ``oof_holdout_source="kfold"``. 5 is the standard stacking default; higher K gives a
+    # larger per-component training fraction (less pessimistic OOF) at linear extra fit cost.
+    oof_kfold: int = 5
 
     # Stacking-aware gate (measure-first NNLS gate). When True AND
     # ``cross_target_ensemble_strategy`` is ``linear_stack`` or
@@ -838,6 +839,15 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
     # stacker handles single-component falls back on its own).
     stacking_aware_gate_enabled: bool = False
     stacking_aware_gate_min_weight: float = 0.05
+
+    # Residual-correlation dedup. Before weighting / stacking, compute the pairwise Pearson correlation of the
+    # honest-OOF residuals (``residual_correlation_matrix``) and, for any pair whose |corr| exceeds
+    # ``ct_ensemble_dedup_corr_threshold``, drop the WEAKER member (higher OOF RMSE). Near-duplicate components
+    # otherwise split the NNLS weight between themselves and let a redundant pair dominate the stack. Always keeps
+    # at least 2 members. Default OFF pending the committed bench
+    # (training/_benchmarks/bench_ct_ensemble_residual_dedup.py); flip ON only if it wins on the majority of seeds.
+    ct_ensemble_dedup_enabled: bool = False
+    ct_ensemble_dedup_corr_threshold: float = 0.95
 
     # AR(1) failsafe: when ``lag_predict`` is injected into the
     # CompositeCrossTargetEnsemble component pool and its OOF holdout
@@ -915,6 +925,17 @@ class CompositeTargetDiscoveryConfig(BaseConfig):
         if v_lower not in valid:
             raise ValueError(
                 f"cross_target_ensemble_strategy must be one of {valid}, got '{v}'"
+            )
+        return v_lower
+
+    @field_validator("oof_holdout_source", mode="before")
+    @classmethod
+    def _normalise_oof_holdout_source(cls, v: str) -> str:
+        v_lower = str(v).lower()
+        valid = {"kfold", "external_val", "train_tail"}
+        if v_lower not in valid:
+            raise ValueError(
+                f"oof_holdout_source must be one of {valid}, got '{v}'"
             )
         return v_lower
 

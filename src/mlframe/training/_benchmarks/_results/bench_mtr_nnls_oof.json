@@ -1,0 +1,76 @@
+{
+  "bench": "mtr_nnls_oof",
+  "decision_default": "nnls_oof",
+  "mean_equal_mean": 2.000501121868788,
+  "mean_oof_fit": 1.811175888780871,
+  "mean_val_fit": 1.813210718314167,
+  "n_seeds": 8,
+  "oof_wins": 8,
+  "rows": [
+    {
+      "oof_beats_equal": true,
+      "oof_beats_val": true,
+      "rmse_equal_mean": 1.8979555291695493,
+      "rmse_oof_fit": 1.7649440150108289,
+      "rmse_val_fit": 1.7663660743136864,
+      "seed": 0
+    },
+    {
+      "oof_beats_equal": true,
+      "oof_beats_val": true,
+      "rmse_equal_mean": 1.8193100018188415,
+      "rmse_oof_fit": 1.589684350193825,
+      "rmse_val_fit": 1.6029761465795171,
+      "seed": 1
+    },
+    {
+      "oof_beats_equal": true,
+      "oof_beats_val": true,
+      "rmse_equal_mean": 1.9226241243682705,
+      "rmse_oof_fit": 1.6888773437788411,
+      "rmse_val_fit": 1.6894941104321262,
+      "seed": 2
+    },
+    {
+      "oof_beats_equal": true,
+      "oof_beats_val": true,
+      "rmse_equal_mean": 2.311916056581884,
+      "rmse_oof_fit": 2.0962384412296293,
+      "rmse_val_fit": 2.104890655213897,
+      "seed": 3
+    },
+    {
+      "oof_beats_equal": true,
+      "oof_beats_val": true,
+      "rmse_equal_mean": 1.8428449432058578,
+      "rmse_oof_fit": 1.6299545571811893,
+      "rmse_val_fit": 1.6333360006774178,
+      "seed": 4
+    },
+    {
+      "oof_beats_equal": true,
+      "oof_beats_val": false,
+      "rmse_equal_mean": 1.825325933504726,
+      "rmse_oof_fit": 1.683742893025488,
+      "rmse_val_fit": 1.6808285881270104,
+      "seed": 5
+    },
+    {
+      "oof_beats_equal": true,
+      "oof_beats_val": false,
+      "rmse_equal_mean": 2.277246775274117,
+      "rmse_oof_fit": 2.1060176639873744,
+      "rmse_val_fit": 2.1000400036441533,
+      "seed": 6
+    },
+    {
+      "oof_beats_equal": true,
+      "oof_beats_val": false,
+      "rmse_equal_mean": 2.1067856110270564,
+      "rmse_oof_fit": 1.9299478458397923,
+      "rmse_val_fit": 1.927754167525528,
+      "seed": 7
+    }
+  ],
+  "timestamp": "2026-06-06T00:53:51"
+}

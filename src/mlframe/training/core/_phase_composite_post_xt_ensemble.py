@@ -1,8 +1,6 @@
 """Cross-target ensemble per-target helper carved out of ``_phase_composite_post.run_composite_post_processing``.
 
-Holds the body of the inner ``for _orig_tname, _spec_list in _tt_specs.items()`` loop. Behavioural-equivalent extract: every closure-captured local from the parent is passed in explicitly and mutations on ``models``/``metadata``/``_train_pred_cache`` happen on the caller-owned dicts (mutation is the existing contract).
-
-Undefined ``ctx`` references in the original body (e.g. ``getattr(ctx, "timestamps", None) if "ctx" in dir() else None``) evaluated to ``None`` because ``ctx`` is not bound inside the function frame; preserved verbatim here so the new path retains the same behaviour.
+Holds the body of the inner ``for _orig_tname, _spec_list in _tt_specs.items()`` loop. The suite TrainingContext is passed in as ``ctx`` so the honest OOF split can read ``timestamps`` / ``sample_weights`` / ``group_ids`` (full-data-indexed, subset by ``filtered_train_idx``).
 """
 from __future__ import annotations
 
@@ -21,7 +19,6 @@ from ._phase_composite_post_lag_predict import _LagPredictDeployableModel
 logger = logging.getLogger("mlframe.training.core._phase_composite_post")
 
 _DEFAULT_OOF_RANDOM_STATE = 42
-_PROB_NORM_EPS = 1e-12
 
 
 class MTRPerColumnEqualMeanEnsemble:
@@ -218,20 +215,15 @@ class MTRPerColumnEqualMeanEnsemble:
 
 def _build_mtr_per_column_ensemble(
     *, _tt_e, _orig_tname, models, metadata, target_by_type,
-    fit_X=None, fit_y=None,
+    oof_weights=None,
 ) -> None:
-    """E2 + E3 helper: build a per-column ensemble for an MTR target.
+    """Build a per-column ensemble for an MTR target.
 
     Strategy auto-selected:
-      * ``fit_X`` + ``fit_y`` provided AND len(components) >= 2 -> NNLS
-        per-column weights learned from the (fit_X, fit_y) hold-out
-        (E3). The held-out preds the ensemble's .fit() consumes are
-        in-sample by default unless the caller passes a CV / OOF
-        stack; future PR will route true honest-OOF here.
-      * Otherwise -> equal_mean (the E2 default).
+      * ``oof_weights`` (n_components, n_targets) supplied -> inject honest train-K-fold OOF NNLS weights.
+      * Otherwise -> equal_mean default.
 
-    Mutates ``models`` and ``metadata`` in place to mirror the
-    single-target CT_ENSEMBLE registration shape.
+    Mutates ``models`` and ``metadata`` in place to mirror the single-target CT_ENSEMBLE registration shape.
     """
     _orig_entries = (models or {}).get(_tt_e, {}).get(_orig_tname, []) or []
     _components: list[Any] = []
@@ -261,34 +253,23 @@ def _build_mtr_per_column_ensemble(
     except Exception:
         _K = 1
 
-    # E3 (2026-05-31): auto-pick strategy. NNLS when held-out data is
-    # provided; equal_mean otherwise.
-    _use_nnls = fit_X is not None and fit_y is not None
-    _strategy_label = "per_column_nnls" if _use_nnls else "per_column_equal_mean"
+    # Honest-OOF NNLS when valid precomputed weights are supplied; equal_mean otherwise.
+    _use_nnls = (
+        oof_weights is not None
+        and getattr(oof_weights, "shape", None) == (len(_components), _K)
+    )
+    if oof_weights is not None and not _use_nnls:
+        logger.warning(
+            "[MTR CT_ENSEMBLE] target='%s': supplied OOF weights shape %s != (%d, %d); using equal-mean.",
+            _orig_tname, getattr(oof_weights, "shape", None), len(_components), _K,
+        )
+    _strategy_label = "per_column_nnls_oof" if _use_nnls else "per_column_equal_mean"
     _ensemble_model = MTRPerColumnEqualMeanEnsemble(
         components=_components,
         component_names=_component_names,
         n_targets=_K,
-        strategy=("nnls" if _use_nnls else "equal_mean"),
+        weights=(oof_weights if _use_nnls else None),
     )
-    if _use_nnls:
-        try:
-            _ensemble_model.fit(fit_X, fit_y)
-        except Exception as _nnls_err:
-            # NNLS failed (singular A_k, scipy bug, etc.) -- log + fall
-            # back to equal_mean instead of crashing the whole suite.
-            logger.warning(
-                "[MTR CT_ENSEMBLE] target='%s': NNLS weight-learning "
-                "failed (%s); falling back to equal-mean weights.",
-                _orig_tname, _nnls_err,
-            )
-            _ensemble_model = MTRPerColumnEqualMeanEnsemble(
-                components=_components,
-                component_names=_component_names,
-                n_targets=_K,
-                strategy="equal_mean",
-            )
-            _strategy_label = "per_column_equal_mean"
     _ens_entry = SimpleNamespace(
         model=_ensemble_model,
         pre_pipeline=None,
@@ -343,11 +324,33 @@ def _build_cross_target_ensemble_for_target(
     reporting_config,
     plot_file: str | None,
     _train_pred_cache: dict,
+    ctx: Any = None,
 ) -> None:
     """Build CT_ENSEMBLE for one (target_type, original_target_name).
 
-    Mutates ``models``, ``metadata``, and ``_train_pred_cache`` in place; same contract as the original inline loop body.
+    Mutates ``models`` and ``metadata`` in place; same contract as the original inline loop body. ``ctx`` is the
+    suite TrainingContext: its ``timestamps`` / ``sample_weights`` / ``group_ids`` (full-data-indexed) drive the
+    time-aware, weighted, group-aware honest OOF split when present.
     """
+    # Build-scoped train-prediction cache. The shared ``_train_pred_cache`` carries wrap-pass entries keyed by
+    # ``(id(inner_model),) + frame_key``; ``id()``-based keys are only meaningful while the underlying objects are
+    # alive, so we never let a builder-computed prediction leak to a sibling build. Reads consult the build-local
+    # dict first (this build's own writes), then the shared wrap-pass cache for this exact live frame; all writes go
+    # to the build-local dict, which is discarded when this call returns. This makes a stale cross-build hit
+    # impossible without hashing the (potentially TB-scale) frame.
+    _build_pred_cache: dict[tuple, np.ndarray] = {}
+
+    def _get_train_pred(_comp, _frame_key):
+        _inner = getattr(_comp, "model", _comp)
+        _key = (id(_inner),) + _frame_key
+        _p = _build_pred_cache.get(_key)
+        if _p is None:
+            _p = _train_pred_cache.get(_key)
+        if _p is None:
+            _p = np.asarray(_comp.predict(filtered_train_df), dtype=np.float64).reshape(-1)
+            _build_pred_cache[_key] = _p
+        return _p
+
     # F-34 (2026-05-31) + E2 (2026-05-31): MULTI_TARGET_REGRESSION
     # cross-target ensemble path. The general CT_ENSEMBLE flow below
     # assumes 1-D y per component (uses sklearn metrics that expect 1-D
@@ -370,41 +373,54 @@ def _build_cross_target_ensemble_for_target(
         _is_mtr = False
 
     if _is_mtr:
-        # E3 (2026-05-31): pass the val-fold (X, y) hold-out so the
-        # per-column ensemble learns NNLS weights instead of using
-        # equal-mean. The val fold is the closest stand-in for an
-        # honest-OOF set in the current dispatcher signature; a future
-        # PR can route true OOF stacks here without changing the
-        # ensemble's .fit() contract.
-        _fit_X = filtered_val_df if filtered_val_df is not None else val_df_pd
+        # Honest train-K-fold OOF NNLS weights (bench: bench_mtr_nnls_oof.py -- beats equal_mean on 8/8 seeds,
+        # leak-free vs the old val-fold fit). The val fold was the early-stopping surface for the components, so
+        # fitting per-column NNLS on it double-dipped a biased surface; we now derive the weights from a true
+        # train-K-fold OOF stack on the TRAIN rows and inject them. Falls back to equal-mean if OOF fails.
         _fit_y_full = (target_by_type or {}).get(_tt_e, {}).get(_orig_tname)
-        _fit_y_val = None
-        if _fit_X is not None and _fit_y_full is not None:
+        _oof_weights = None
+        if (filtered_train_df is not None and _fit_y_full is not None
+                and filtered_train_idx is not None):
             try:
-                _y_arr = np.asarray(_fit_y_full)
-                _val_idx_eff = filtered_val_idx if filtered_val_idx is not None else val_idx
-                if _val_idx_eff is not None:
-                    _fit_y_val = _y_arr[_val_idx_eff]
-                else:
-                    # No explicit val index -- if the full y rows align
-                    # with the val-frame row count, use that directly.
-                    if _y_arr.shape[0] == len(_fit_X):
-                        _fit_y_val = _y_arr
-            except Exception as _val_y_err:
+                _y_arr_mtr = np.asarray(_fit_y_full)[filtered_train_idx]
+                # Build the same component shims the equal-mean path uses, then OOF-fit NNLS over them.
+                _mtr_entries = (models or {}).get(_tt_e, {}).get(_orig_tname, []) or []
+                _mtr_components: list[Any] = []
+                for _mi, _mentry in enumerate(_mtr_entries):
+                    _minner = getattr(_mentry, "model", None) or _mentry
+                    if not hasattr(_minner, "predict"):
+                        continue
+                    _mpp = getattr(_mentry, "pre_pipeline", None)
+                    _mtr_components.append(
+                        PrePipelinePredictShim(_minner, _mpp, f"raw#{_mi}")
+                    )
+                if len(_mtr_components) >= 2:
+                    from ._phase_composite_post_xt_mtr_oof import compute_mtr_oof_nnls_weights
+                    _oof_random_state = int(getattr(
+                        composite_target_discovery_config,
+                        "oof_random_state", _DEFAULT_OOF_RANDOM_STATE,
+                    ))
+                    _oof_kfold_mtr = int(getattr(
+                        composite_target_discovery_config, "oof_kfold", 5,
+                    ))
+                    _oof_weights = compute_mtr_oof_nnls_weights(
+                        _mtr_components, filtered_train_df, _y_arr_mtr,
+                        kfold=_oof_kfold_mtr, random_state=_oof_random_state,
+                    )
+            except Exception as _mtr_oof_err:
                 logger.debug(
-                    "[MTR CT_ENSEMBLE] target='%s': val y extraction failed (%s); "
+                    "[MTR CT_ENSEMBLE] target='%s': honest-OOF NNLS weighting failed (%s); "
                     "falling back to equal-mean.",
-                    _orig_tname, _val_y_err,
+                    _orig_tname, _mtr_oof_err,
                 )
-                _fit_y_val = None
+                _oof_weights = None
         _build_mtr_per_column_ensemble(
             _tt_e=_tt_e,
             _orig_tname=_orig_tname,
             models=models,
             metadata=metadata,
             target_by_type=target_by_type,
-            fit_X=_fit_X if _fit_y_val is not None else None,
-            fit_y=_fit_y_val,
+            oof_weights=_oof_weights,
         )
         return
 
@@ -481,21 +497,10 @@ def _build_cross_target_ensemble_for_target(
     _component_train_rmses: list[float] = []
     if _y_full_for_rmse is not None:
         _y_train_for_rmse = np.asarray(_y_full_for_rmse)[filtered_train_idx]
-        # Frame-content key (id(frame)+shape) shields against id() recycling: wrap-pass objects may be GC'd before we look up here.
         _frame_key = (id(filtered_train_df), getattr(filtered_train_df, "shape", None))
         for _comp, _name in zip(_components, _component_names):
             try:
-                # Cache key is the INNER model id; shims are built per-pass so id(_comp) never hits the wrap-pass cache.
-                _inner_for_cache = getattr(_comp, "model", _comp)
-                _pred = _train_pred_cache.get((id(_inner_for_cache),) + _frame_key)
-                if _pred is None:
-                    _pred = _train_pred_cache.get((id(_comp),) + _frame_key)
-                if _pred is None:
-                    _pred = np.asarray(
-                        _comp.predict(filtered_train_df),
-                        dtype=np.float64,
-                    ).reshape(-1)
-                    _train_pred_cache[(id(_inner_for_cache),) + _frame_key] = _pred
+                _pred = _get_train_pred(_comp, _frame_key)
                 _diff = _pred - _y_train_for_rmse.astype(np.float64)
                 _component_train_rmses.append(
                     float(np.sqrt(np.mean(_diff * _diff)))
@@ -582,15 +587,15 @@ def _build_cross_target_ensemble_for_target(
                      if s["name"] == _comp_name), None,
                 )
                 _component_specs.append(_matching)
-        # Thread ctx.timestamps + per-target sample_weight so the OOF holdout split becomes time-aware (trailing-slice past-only train) rather than random shuffle. ``ctx`` is not bound in the original function frame either; the ``if "ctx" in dir()`` guard always evaluated to False so these always resolved to None.
-        _ctx_ts_full = getattr(ctx, "timestamps", None) if "ctx" in dir() else None  # noqa: F821 (guarded; ctx never bound -> always None)
+        # Thread ctx.timestamps + per-target sample_weight + group_ids (full-data-indexed) so the honest OOF split becomes time-aware / weighted / group-aware. All three are subset by filtered_train_idx to the train rows the components were fitted on.
+        _ctx_ts_full = getattr(ctx, "timestamps", None) if ctx is not None else None
         _time_ordering = None
         if _ctx_ts_full is not None:
             try:
                 _time_ordering = np.asarray(_ctx_ts_full)[filtered_train_idx]
             except (TypeError, IndexError):
                 _time_ordering = None
-        _ctx_sw_dict = getattr(ctx, "sample_weights", None) if "ctx" in dir() else None  # noqa: F821 (guarded; ctx never bound -> always None)
+        _ctx_sw_dict = getattr(ctx, "sample_weights", None) if ctx is not None else None
         _sw_for_oof = None
         if isinstance(_ctx_sw_dict, dict) and _ctx_sw_dict:
             _sw_raw = _ctx_sw_dict.get(_orig_tname)
@@ -599,15 +604,32 @@ def _build_cross_target_ensemble_for_target(
                     _sw_for_oof = np.asarray(_sw_raw)[filtered_train_idx]
                 except (TypeError, IndexError):
                     _sw_for_oof = None
-        # Resolve the OOF holdout source. ``external_val`` (default) replaces the train-tail carving with the suite's val frame.
+        # Resolve the OOF holdout source. Default ``kfold`` computes a true train-K-fold OOF surface that never
+        # reuses the early-stopping (val) split for weighting; ``external_val`` predicts on the suite's val frame
+        # (cheaper but the early-stopped components saw that surface, so it biases weights optimistic -> WARN);
+        # ``train_tail`` is the legacy trailing-slice carve.
         _oof_source = str(getattr(
             composite_target_discovery_config,
-            "oof_holdout_source", "external_val",
+            "oof_holdout_source", "kfold",
         )).lower()
+        _oof_kfold = int(getattr(
+            composite_target_discovery_config, "oof_kfold", 5,
+        ))
         _ext_X = None
         _ext_y = None
         _ext_base_per_spec = None
-        if _oof_source == "external_val":
+        _kfold_for_oof = 1
+        if _oof_source == "kfold":
+            # K-fold OOF is incompatible with time-aware semantics (past-only training rules out shuffled folds);
+            # the helper would silently downgrade with a WARN, so drop the time signal here when going K-fold.
+            _kfold_for_oof = max(2, _oof_kfold)
+            _time_ordering = None
+            logger.info(
+                "[CompositeCrossTargetEnsemble] target='%s' honest-OOF source='kfold' (K=%d); "
+                "stack weights + OOF gate computed on true train-K-fold OOF (no val reuse).",
+                _orig_tname, _kfold_for_oof,
+            )
+        elif _oof_source == "external_val":
             try:
                 _ext_y_arr = (
                     np.asarray(_oof_y_full)[filtered_val_idx]
@@ -620,10 +642,12 @@ def _build_cross_target_ensemble_for_target(
                 _ext_X = filtered_val_df
                 _ext_y = _ext_y_arr
                 _ext_base_per_spec = _base_val_per_spec or None
-                logger.info(
-                    "[CompositeCrossTargetEnsemble] target='%s' "
-                    "honest-OOF source='external_val' (n=%d); "
-                    "skipping train-tail carve.",
+                logger.warning(
+                    "[CompositeCrossTargetEnsemble] target='%s' honest-OOF source='external_val' (n=%d): "
+                    "stack weights + OOF gate are computed on the early-stopping (val) split, which the booster "
+                    "components were tuned against -- this biases the weighting optimistic. Use "
+                    "oof_holdout_source='kfold' for an honest weighting surface; external_val is a "
+                    "representativeness cross-check only.",
                     _orig_tname, len(_ext_y_arr),
                 )
             else:
@@ -634,7 +658,7 @@ def _build_cross_target_ensemble_for_target(
                     _orig_tname,
                 )
         _group_ids_for_oof = None
-        _ctx_groups = getattr(ctx, "group_ids", None) if "ctx" in dir() else None  # noqa: F821 (guarded; ctx never bound -> always None)
+        _ctx_groups = getattr(ctx, "group_ids", None) if ctx is not None else None
         if _ctx_groups is not None:
             try:
                 _group_ids_for_oof = (
@@ -702,7 +726,8 @@ def _build_cross_target_ensemble_for_target(
                         _kept = [i for i, k in enumerate(_keep_mask) if k]
                         logger.warning(
                             "[CompositeCrossTargetEnsemble] target='%s' "
-                            "OOF pre-screen dropped %d/%d component(s) "
+                            "OOF pre-screen (leaky val-RMSE speed gate, runs only under "
+                            "oof_holdout_source='external_val') dropped %d/%d component(s) "
                             "whose leaky val_RMSE / %.1f > dummy floor "
                             "%.4g. Dropped: %s. Saves ~%d minute(s) of "
                             "refit time.",
@@ -736,6 +761,7 @@ def _build_cross_target_ensemble_for_target(
                         "oof_random_state", _DEFAULT_OOF_RANDOM_STATE,
                     ),
                     time_ordering=_time_ordering,
+                    kfold=_kfold_for_oof,
                     sample_weight=_sw_for_oof,
                     external_holdout_X=_ext_X,
                     external_holdout_y=_ext_y,
@@ -852,6 +878,40 @@ def _build_cross_target_ensemble_for_target(
                             _dummy_floor_rmse,
                         )
 
+        # Residual-correlation dedup (opt-in): drop near-duplicate members (|residual corr| > threshold), keeping
+        # the lower-OOF-RMSE one, so a redundant pair can't split + dominate the NNLS weight. Runs on the honest
+        # OOF residuals so redundancy is measured on the same surface the stacker fits.
+        if (bool(getattr(composite_target_discovery_config, "ct_ensemble_dedup_enabled", False))
+                and _oof_pred_matrix is not None
+                and _oof_pred_matrix.shape[1] > 2):
+            try:
+                from ..composite_stacking import residual_dedup_indices
+                _dedup_thr = float(getattr(
+                    composite_target_discovery_config,
+                    "ct_ensemble_dedup_corr_threshold", 0.95,
+                ))
+                _resid = _oof_pred_matrix - _oof_y_holdout[:, None]
+                _keep_dd, _drop_dd = residual_dedup_indices(
+                    _resid, np.asarray(_oof_rmses, dtype=np.float64),
+                    corr_threshold=_dedup_thr,
+                )
+                if _drop_dd:
+                    logger.info(
+                        "[CompositeCrossTargetEnsemble] target='%s' residual dedup dropped %d/%d near-duplicate "
+                        "component(s) (|resid corr| > %.2f): %s.",
+                        _orig_tname, len(_drop_dd), _oof_pred_matrix.shape[1], _dedup_thr,
+                        [_oof_names[_i] for _i in _drop_dd],
+                    )
+                    _oof_components = [_oof_components[_i] for _i in _keep_dd]
+                    _oof_names = [_oof_names[_i] for _i in _keep_dd]
+                    _oof_rmses = _oof_rmses[_keep_dd]
+                    _oof_pred_matrix = _oof_pred_matrix[:, _keep_dd]
+            except Exception as _dedup_err:
+                logger.warning(
+                    "[CompositeCrossTargetEnsemble] residual dedup failed for target='%s': %s. "
+                    "Proceeding with full set.", _orig_tname, _dedup_err,
+                )
+
     try:
         if _ce_strategy == "mean":
             _ensemble = _CrossEns.from_uniform_weights(
@@ -915,23 +975,12 @@ def _build_cross_target_ensemble_for_target(
                     raise RuntimeError(
                         "stacking requires train target alignment"
                     )
-                # Preallocate (n_rows, K) to skip np.column_stack's per-entry copy doubling peak RAM; frame-content key shields against id() recycling between waves.
+                # Preallocate (n_rows, K) to skip np.column_stack's per-entry copy doubling peak RAM.
                 _frame_key2 = (id(filtered_train_df), getattr(filtered_train_df, "shape", None))
                 _n_rows = int(len(_y_for_stack))
                 _pred_matrix = np.empty((_n_rows, len(_oof_components)), dtype=np.float64)
                 for _ci, (_comp, _name) in enumerate(zip(_oof_components, _oof_names)):
-                    # Inner-keyed cache lookup (shim ids are per-pass and never hit the wrap-pass cache).
-                    _inner_for_cache = getattr(_comp, "model", _comp)
-                    _pred = _train_pred_cache.get((id(_inner_for_cache),) + _frame_key2)
-                    if _pred is None:
-                        _pred = _train_pred_cache.get((id(_comp),) + _frame_key2)
-                    if _pred is None:
-                        _pred = np.asarray(
-                            _comp.predict(filtered_train_df),
-                            dtype=np.float64,
-                        ).reshape(-1)
-                        _train_pred_cache[(id(_inner_for_cache),) + _frame_key2] = _pred
-                    _pred_matrix[:, _ci] = _pred
+                    _pred_matrix[:, _ci] = _get_train_pred(_comp, _frame_key2)
             if _ce_strategy == "linear_stack":
                 _ensemble = _CrossEns.from_linear_stack(
                     component_models=_oof_components,
@@ -947,22 +996,54 @@ def _build_cross_target_ensemble_for_target(
                     y_train=_y_for_stack,
                 )
         else:  # "oof_weighted"
-            # C-P1-2: pipe OOF rmses through component_oof_rmse= so from_train_metrics ranks on the honest holdout signal.
+            # Pipe OOF rmses through component_oof_rmse= so from_train_metrics ranks on the honest holdout signal,
+            # and pass the strongest-dummy (lag_predict / naive) OOF RMSE as baseline_oof_rmse so weights are
+            # gain-over-naive rather than gain-over-the-worst-component (the class's self-normalising fallback,
+            # which discards every below-median component and dilutes against a meaningless baseline).
+            _baseline_oof_rmse = None
+            try:
+                _raw_dbl_base = (
+                    metadata.get("dummy_baselines", {})
+                    .get(str(_tt_e), {})
+                    .get(str(_orig_tname), {})
+                )
+                if isinstance(_raw_dbl_base, dict):
+                    _data_base = _raw_dbl_base.get("data", {}) or {}
+                    _strongest_base = _raw_dbl_base.get("strongest")
+                    _pm_base = _raw_dbl_base.get("primary_metric")
+                    if _strongest_base and _pm_base and _strongest_base in _data_base:
+                        _v_base = _data_base[_strongest_base].get(_pm_base)
+                        if _v_base is not None and np.isfinite(float(_v_base)):
+                            _baseline_oof_rmse = float(_v_base)
+                # Prefer the in-pool lag_predict OOF RMSE when present: it is the honest, same-split naive floor.
+                if "lag_predict" in _oof_names:
+                    _lp_b = float(_oof_rmses[_oof_names.index("lag_predict")])
+                    if np.isfinite(_lp_b):
+                        _baseline_oof_rmse = (
+                            _lp_b if _baseline_oof_rmse is None
+                            else max(_baseline_oof_rmse, _lp_b)
+                        )
+            except (KeyError, TypeError, ValueError):
+                _baseline_oof_rmse = None
             _ensemble = _CrossEns.from_train_metrics(
                 component_models=_oof_components,
                 component_names=_oof_names,
                 component_oof_rmse=_oof_rmses.tolist(),
-                baseline_oof_rmse=None,
+                baseline_oof_rmse=_baseline_oof_rmse,
             )
         # OOF validation gate: fall back to best single if ensemble holdout RMSE > best-single holdout RMSE.
         if (_oof_pred_matrix is not None
                 and _oof_pred_matrix.shape[1] > 0
                 and isinstance(_ensemble, _CrossEns)):
             try:
-                _ens_pred = _ensemble.predict(filtered_train_df)
-                # Recompute ensemble preds on stack_holdout by weighted-combining the cached _oof_pred_matrix.
+                # Gate==deploy: combine the OOF-holdout component preds with the SAME rule predict() uses, so
+                # the gate scores the exact predictor that ships. Non-convex stacks (linear_stack / nnls_stack)
+                # use raw solver weights with NO renormalisation (linear_stack also adds the intercept); convex
+                # strategies (mean / oof_weighted) renormalise across the surviving columns. Branching on
+                # _ensemble.is_convex (not on _ce_strategy) mirrors predict() exactly, including the case where
+                # a stacker degenerated and fell back to a convex mean inside the ensemble class.
                 _w_full = np.asarray(_ensemble.weights, dtype=np.float64)
-                if _ce_strategy == "linear_stack":
+                if not getattr(_ensemble, "is_convex", True):
                     _intercept = float(getattr(
                         _ensemble, "_linear_stack_intercept", 0.0,
                     ))
@@ -971,7 +1052,11 @@ def _build_cross_target_ensemble_for_target(
                         + _intercept
                     )
                 else:
-                    _w_norm = _w_full / max(_w_full.sum(), _PROB_NORM_EPS)
+                    _w_sum = float(_w_full.sum())
+                    _w_norm = (
+                        _w_full / _w_sum if _w_sum > 0
+                        else np.full_like(_w_full, 1.0 / len(_w_full))
+                    )
                     _ens_holdout = (
                         _oof_pred_matrix * _w_norm[None, :]
                     ).sum(axis=1)
