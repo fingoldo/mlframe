@@ -131,7 +131,10 @@ def _permutation_feature_importances(
     # threading a task hint.
     def _adaptive_scorer(estimator, X, y):
         try:
-            preds = estimator.predict(X)
+            # CatBoost.predict() flips its input ndarray to read-only; sklearn reuses one X_permuted buffer and
+            # shuffles it in place across n_repeats, so predicting on it directly makes the next shuffle raise
+            # "assignment destination is read-only". Predict on a private copy to keep sklearn's buffer writeable.
+            preds = estimator.predict(np.array(X, copy=True) if isinstance(X, np.ndarray) else X)
         except Exception:
             return -np.inf
         preds_arr = np.asarray(preds)

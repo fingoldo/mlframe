@@ -412,12 +412,21 @@ def get_feature_importances(
                     "to score against. Pass target= explicitly."
                 )
             from sklearn.inspection import permutation_importance
-            # Forward the function's own n_repeats + caller-supplied random_state
-            # (default 0 preserves legacy behaviour). Pre-fix these were hardcoded
-            # n_repeats=5 / random_state=0, so the n_repeats kwarg was dead on this
-            # path and the caller's seed never reached the permutation shuffles.
+            # sklearn's permutation_importance shuffles a column in place (``X_permuted[:, col] = ...``); a read-only
+            # ndarray backing (polars/Arrow zero-copy view, pandas copy-on-write, or a loky memmap) makes that raise
+            # "assignment destination is read-only". Hand it a writeable copy of the (test-fold-sized, not full-frame)
+            # data so the shuffle always has somewhere to write.
+            # sklearn's permutation_importance reuses one ``X_permuted`` buffer and shuffles a column in place across
+            # ``n_repeats``. CatBoost.predict() flips its input ndarray's writeable flag to False, so once the scorer
+            # runs on ``X_permuted`` the NEXT iteration's in-place shuffle raises "assignment destination is read-only".
+            # Score through a wrapper that hands the estimator a private copy, leaving sklearn's ``X_permuted``
+            # writeable. ``estimator.score`` preserves the exact default metric (R2 / accuracy) used pre-fix.
+            def _readonly_safe_scorer(_est, _X, _y):
+                _Xc = np.array(_X, copy=True) if isinstance(_X, np.ndarray) else _X
+                return _est.score(_Xc, _y)
             pi = permutation_importance(
                 model, data, target,
+                scoring=_readonly_safe_scorer,
                 n_repeats=n_repeats,
                 random_state=random_state,
                 n_jobs=1,
