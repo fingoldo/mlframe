@@ -45,15 +45,17 @@ def _read(rel: str) -> str:
         "lookup_joint_hist(n_samples=n, joint_size=joint_size)",
         "streamed_joint_hist",
     ),
-    # #2: batch_pair_mi_gpu cache-driven dispatcher
+    # #2: batch_pair_mi_gpu cache-driven dispatcher. Migrated to the @kernel_tuner registry + get_or_tune
+    # orchestrator API (the old ``_cache.lookup("batch_pair_mi")`` shape was replaced); the registration is the
+    # forward-stable marker that the site is still wired to per-host tuning rather than hardcoded defaults.
     (
         "feature_selection/filters/batch_pair_mi_gpu.py",
-        "_lookup_batch_pair_mi_thresholds(n_samples=n_samples, n_pairs=n_pairs)",
+        "kernel_tuner(",
         "batch_pair_mi_dispatch",
     ),
     (
         "feature_selection/filters/batch_pair_mi_gpu.py",
-        'cache.lookup(\n            "batch_pair_mi"',
+        'cli_label="batch_pair_mi"',
         "batch_pair_mi_cache_key",
     ),
     # #3: metrics RMSE BLOCK_N cache lookup (moved to ``_gpu_metrics.py`` when
@@ -75,7 +77,7 @@ def _read(rel: str) -> str:
     # split below 1k LOC).
     (
         "feature_selection/filters/_cat_confirm_permutation.py",
-        '_cache.lookup(\n                "cat_fe_perm_kernel"',
+        'cli_label="cat_fe_perm_kernel"',
         "cat_fe_perm_kernel",
     ),
     # #6: feature_engineering.py unary cache lookup
@@ -83,9 +85,12 @@ def _read(rel: str) -> str:
     # unary-elementwise dispatch + cache lookup) moved to
     # ``_feature_engineering_pairs.py`` during the feature_engineering
     # monolith split. The marker now lives in the sibling.
+    # unary-elementwise tuning moved out of _feature_engineering_pairs.py into the dedicated
+    # _unary_elementwise_tuning.py sibling during the @kernel_tuner migration; the dispatch site calls
+    # unary_elementwise_backend_choice() from there.
     (
-        "feature_selection/filters/_feature_engineering_pairs.py",
-        '_cache.lookup(\n                                    "unary_elementwise"',
+        "feature_selection/filters/_unary_elementwise_tuning.py",
+        'cli_label="unary_elementwise"',
         "unary_elementwise",
     ),
     # P2: hermite_fe polyeval lookup (linter may use dict-args or kwargs form)
@@ -97,7 +102,7 @@ def _read(rel: str) -> str:
     # P2: random_features RFF matmul lookup
     (
         "feature_engineering/transformer/random_features.py",
-        '_cache.lookup("rff_matmul"',
+        'cli_label="rff_matmul"',
         "rff_matmul_crossover",
     ),
 ])
@@ -138,6 +143,7 @@ def test_wave23_falls_back_to_source_default_when_cache_unavailable():
         # dispatch + cache lookup body moved into
         # ``_feature_engineering_pairs.py``.
         "feature_selection/filters/_feature_engineering_pairs.py",
+        "feature_selection/filters/_unary_elementwise_tuning.py",
         "feature_engineering/transformer/random_features.py",
     ]
     for rel in sites:
@@ -145,13 +151,16 @@ def test_wave23_falls_back_to_source_default_when_cache_unavailable():
         # Every lookup site MUST be inside a try/except so the cache
         # being missing doesn't break the dispatcher. Accept either the
         # direct pyutilz import OR the project-local _kernel_tuning shim
-        # that wraps pyutilz's cache with named project semantics.
+        # that wraps pyutilz's cache with named project semantics OR the
+        # new @kernel_tuner registry import (post-migration sites register
+        # a spec and consult it via the get_or_tune orchestrator).
         has_direct = "from pyutilz.performance.kernel_tuning.cache import KernelTuningCache" in src
         has_shim = "from ._kernel_tuning import get_kernel_tuning_cache" in src
         has_pkg_shim = "from .._kernel_tuning import get_kernel_tuning_cache" in src
         has_uplevel_shim = "from .._kernel_tuning_cache.dispatch import" in src
         has_bench_dispatch = "from mlframe.feature_selection._benchmarks.kernel_tuning_cache.dispatch import" in src
-        assert (has_direct or has_shim or has_pkg_shim or has_uplevel_shim or has_bench_dispatch), (
+        has_registry = "from pyutilz.performance.kernel_tuning.registry import kernel_tuner" in src
+        assert (has_direct or has_shim or has_pkg_shim or has_uplevel_shim or has_bench_dispatch or has_registry), (
             f"{rel}: kernel_tuning_cache integration missing -- expected "
             f"either the direct pyutilz import OR the project-local "
             f"_kernel_tuning shim OR the _benchmarks.kernel_tuning_cache "
