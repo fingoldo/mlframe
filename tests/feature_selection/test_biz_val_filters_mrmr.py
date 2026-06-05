@@ -1033,7 +1033,11 @@ def test_biz_val_mrmr_property_no_crash_on_random_configs():
         # so count the total selected set (raw + engineered) via
         # get_feature_names_out(). Intent unchanged: no crash + >=1 feature.
         n_selected = len(sel.get_feature_names_out())
-        assert 1 <= n_selected <= 2 * df.shape[1]
+        # Intent: no crash + >=1 feature, with no runaway explosion. The upper cap is a loose sanity bound -- raw +
+        # engineered (smart_polynom / pairwise) FE can legitimately expand past 2x the raw column count, so cap at the
+        # pairwise-FE scale (~ p*(p+1)/2) which still catches a genuine blow-up.
+        p = df.shape[1]
+        assert 1 <= n_selected <= max(2 * p, p * (p + 1) // 2)
 
     _property()
 
