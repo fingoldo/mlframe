@@ -628,11 +628,12 @@ def check_prospective_fe_pairs(
                             # fallback. A "cupy" choice is still gated below
                             # on live CUDA availability + per-op compat.
                             _gpu_used = False
+                            from pyutilz.performance.kernel_tuning import array_location
+
                             from ._unary_elementwise_tuning import unary_elementwise_backend_choice
                             # residency-aware: VRAM-resident input skips H2D, which flips the
                             # numpy/cupy crossover (measured), so pass where ``vals`` lives.
-                            _loc = "device" if hasattr(vals, "__cuda_array_interface__") else "host"
-                            _want_gpu = unary_elementwise_backend_choice(int(vals.size), _loc) == "cupy"
+                            _want_gpu = unary_elementwise_backend_choice(int(vals.size), array_location(vals)) == "cupy"
                             if (
                                 _want_gpu
                                 and tr_name in gpu_compatible_unary_names()
