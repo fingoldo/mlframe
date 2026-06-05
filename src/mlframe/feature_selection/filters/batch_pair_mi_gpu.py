@@ -441,32 +441,111 @@ CUDA_MIN_PAIRS = 16
 CUPY_MIN_ROWS = 5_000_000
 CUPY_MIN_PAIRS = 200
 
+# Kernel-tuning-cache integration (get_or_tune + @kernel_tuner) ---------------
+#
+# Wave 23 P1 (2026-05-20) flagged the four hardcoded crossover thresholds above
+# as HW-overfit (GTX 1050 Ti cc 6.1). Per ``feedback_use_kernel_tuning_cache_for_gpu``
+# the live dispatch now consults the per-host cache via the shared ``get_or_tune``
+# orchestrator and a measured backend-crossover sweep. The thresholds above remain
+# the source-code fallback, applied verbatim when the cache has no entry for the
+# live HW yet (mirrors ``signal/dtw.py``).
+#
+# 2-D axes: ``n_samples`` (dominant; primary sweep axis) and ``n_pairs`` (held at a
+# representative value for the sweep -- 64, above CUDA_MIN_PAIRS=16 and below
+# CUPY_MIN_PAIRS=200, matching the measured 28-120-pair bench band -- and threaded
+# through as an extra region key so the cached regions stay keyed on both axes).
+_BPMI_SWEEP_N_PAIRS = 64
+_BPMI_SWEEP_N_SAMPLES = [200_000, 500_000, 1_000_000, 2_000_000, 5_000_000]
+_BPMI_SWEEP_N_CLASSES_Y = 4
+_BPMI_SWEEP_N_BINS = 8  # joint card = 8*8 = 64 <= MAX_JOINT_BINS_CUDA fallback (128)
+_BPMI_SALT = 1
 
-def _lookup_batch_pair_mi_thresholds(n_samples: int, n_pairs: int) -> dict | None:
-    """Consult ``pyutilz.system.kernel_tuning_cache`` for HW-tuned crossover
-    points. Returns a dict like ``{"cuda_min_rows": ..., "cuda_min_pairs":
-    ..., "cupy_min_rows": ..., "cupy_min_pairs": ...}`` on cache hit, or
-    ``None`` when the cache helper is unavailable / no entry recorded for
-    the live HW.
 
-    Mirrors the integration pattern in `plugin_mi_classif_dispatch` and
-    `joint_hist_batched` (committed 2026-05-20 in `be27efa`).
-    """
+def _make_batch_pair_mi_inputs(n_samples: int):
+    """Synthetic (factors_data, pair_a, pair_b, nbins, classes_y, freqs_y) for the
+    crossover sweep at ``n_samples`` rows and ``_BPMI_SWEEP_N_PAIRS`` pairs. Bins are
+    capped so the per-pair joint cardinality stays inside the CUDA shared-mem budget
+    (so the cuda variant is actually exercised, not guard-rejected)."""
+    rng = np.random.default_rng(0)
+    n_pairs = _BPMI_SWEEP_N_PAIRS
+    nbins_val = _BPMI_SWEEP_N_BINS
+    # Need enough feature columns that n_pairs distinct (a, b) pairs exist.
+    n_features = 16
+    factors_data = rng.integers(0, nbins_val, size=(int(n_samples), n_features)).astype(np.int32)
+    nbins = np.full(n_features, nbins_val, dtype=np.int32)
+    pair_a = rng.integers(0, n_features, size=n_pairs).astype(np.int64)
+    pair_b = (pair_a + 1 + rng.integers(0, n_features - 1, size=n_pairs)) % n_features
+    pair_b = pair_b.astype(np.int64)
+    classes_y = rng.integers(0, _BPMI_SWEEP_N_CLASSES_Y, size=int(n_samples)).astype(np.int32)
+    freqs_y = np.bincount(classes_y, minlength=_BPMI_SWEEP_N_CLASSES_Y).astype(np.float64) / max(1, int(n_samples))
+    return (factors_data, pair_a, pair_b, nbins, classes_y, freqs_y)
+
+
+def _run_batch_pair_mi_sweep() -> list:
+    """Benchmark njit/cuda/cupy batch-pair-MI across an ``n_samples`` grid -> backend_choice
+    regions (fastest equivalent backend per band) for a representative n_pairs. GPU variants
+    are included only when available on this host. cupy/cuda fp reductions agree with the CPU
+    njit reference to a loosened relative tolerance (last-bit log() reassociation)."""
+    from pyutilz.dev.benchmarking import sweep_backend_crossover
+
+    variants = {"njit": lambda *a: batch_pair_mi_njit_prange(*a)}
+    if _CUDA_AVAIL:
+        variants["cuda"] = lambda *a: batch_pair_mi_cuda(*a)
+    if _CUPY_AVAIL:
+        variants["cupy"] = lambda *a: batch_pair_mi_cupy(*a)
+    return sweep_backend_crossover(
+        variants, _BPMI_SWEEP_N_SAMPLES, _make_batch_pair_mi_inputs, "n_samples",
+        reference="njit", extra_region_keys={"n_pairs": _BPMI_SWEEP_N_PAIRS},
+        repeats=5, equiv_rtol=1e-3, equiv_atol=1e-3,
+    )
+
+
+def _batch_pair_mi_code_version():
+    """code_version over the available backend bodies; re-tunes on a kernel edit."""
+    try:
+        from pyutilz.dev.code_versioning import compute_code_version
+
+        fns = [batch_pair_mi_njit_prange]
+        if _CUDA_AVAIL:
+            fns.append(batch_pair_mi_cuda)
+        if _CUPY_AVAIL:
+            fns.append(batch_pair_mi_cupy)
+        return compute_code_version(*fns, salt=_BPMI_SALT)
+    except Exception:
+        return None
+
+
+def _batch_pair_mi_fallback_choice(n_samples: int, n_pairs: int) -> str:
+    """Pre-sweep heuristic: the old CUDA_/CUPY_MIN_* thresholds + availability."""
+    if _CUPY_AVAIL and n_samples >= CUPY_MIN_ROWS and n_pairs >= CUPY_MIN_PAIRS:
+        return "cupy"
+    if _CUDA_AVAIL and n_samples >= CUDA_MIN_ROWS and n_pairs >= CUDA_MIN_PAIRS:
+        return "cuda"
+    return "njit"
+
+
+def _batch_pair_mi_backend_choice(n_samples: int, n_pairs: int) -> str:
+    """Per-host backend (njit/cuda/cupy) for this (n_samples, n_pairs) via the shared
+    get_or_tune orchestrator; measurement-backed threshold fallback. ``n_samples`` is the
+    swept (primary) axis; ``n_pairs`` is passed in the dims so the cache key is complete."""
     try:
         from pyutilz.system.kernel_tuning_cache import KernelTuningCache
-    except ImportError:
-        return None
-    try:
-        cache = KernelTuningCache.load_or_create()
-        return cache.lookup(
+
+        result = KernelTuningCache().get_or_tune(
             "batch_pair_mi",
-            n_samples=int(n_samples), n_pairs=int(n_pairs),
+            dims={"n_samples": int(n_samples), "n_pairs": int(n_pairs)},
+            tuner=_run_batch_pair_mi_sweep,
+            axes=["n_samples", "n_pairs"],
+            fallback={"backend_choice": _batch_pair_mi_fallback_choice(n_samples, n_pairs)},
+            code_version=_batch_pair_mi_code_version(),
         )
-    except Exception:
-        # Cache lookup failed (corrupt sidecar / missing key / unknown HW);
-        # fall through to source-code defaults rather than raise on a
-        # best-effort perf optimisation.
-        return None
+        bc = result if isinstance(result, str) else str((result or {}).get("backend_choice", ""))
+        if bc in ("njit", "cuda", "cupy"):
+            return bc
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).debug("batch_pair_mi get_or_tune failed: %s", e)
+    return _batch_pair_mi_fallback_choice(n_samples, n_pairs)
 
 
 def dispatch_batch_pair_mi(
@@ -496,31 +575,19 @@ def dispatch_batch_pair_mi(
             return batch_pair_mi_cupy(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "cupy"
         return batch_pair_mi_njit_prange(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "njit"
 
-    # Wave 23 P1 fix (2026-05-20): consult kernel_tuning_cache for HW-tuned
-    # crossover points; fall through to the source-code defaults below
-    # when the cache helper is unavailable / no entry for live HW.
-    _tuned = _lookup_batch_pair_mi_thresholds(n_samples=n_samples, n_pairs=n_pairs)
-    _cuda_min_rows = int(_tuned["cuda_min_rows"]) if _tuned and "cuda_min_rows" in _tuned else CUDA_MIN_ROWS
-    _cuda_min_pairs = int(_tuned["cuda_min_pairs"]) if _tuned and "cuda_min_pairs" in _tuned else CUDA_MIN_PAIRS
-    _cupy_min_rows = int(_tuned["cupy_min_rows"]) if _tuned and "cupy_min_rows" in _tuned else CUPY_MIN_ROWS
-    _cupy_min_pairs = int(_tuned["cupy_min_pairs"]) if _tuned and "cupy_min_pairs" in _tuned else CUPY_MIN_PAIRS
+    # Per-host backend (njit/cuda/cupy) from the kernel_tuning_cache via the shared
+    # get_or_tune orchestrator; measurement-backed fallback = the old CUDA_/CUPY_MIN_*
+    # thresholds. Guarded by live availability (the tuning host had the backend; a
+    # reader may not) -- preserves the original cupy-then-cuda-then-njit preference order.
+    choice = _batch_pair_mi_backend_choice(n_samples, n_pairs)
 
-    # Heuristic
-    if (
-        _CUPY_AVAIL
-        and n_samples >= _cupy_min_rows
-        and n_pairs >= _cupy_min_pairs
-    ):
+    if choice == "cupy" and _CUPY_AVAIL:
         try:
             return batch_pair_mi_cupy(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "cupy"
         except Exception:
             pass  # fall through
 
-    if (
-        _CUDA_AVAIL
-        and n_samples >= _cuda_min_rows
-        and n_pairs >= _cuda_min_pairs
-    ):
+    if choice == "cuda" and _CUDA_AVAIL:
         try:
             return batch_pair_mi_cuda(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "cuda"
         except (ValueError, RuntimeError):
@@ -528,6 +595,22 @@ def dispatch_batch_pair_mi(
             pass
 
     return batch_pair_mi_njit_prange(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "njit"
+
+
+# Register with the @kernel_tuner registry so retune_all / mlframe-tune-kernels
+# discover + batch-tune batch_pair_mi. GPU-capable (cuda/cupy backends).
+from pyutilz.system.kernel_tuner import kernel_tuner
+
+kernel_tuner(
+    kernel_name="batch_pair_mi",
+    variant_fns=(batch_pair_mi_njit_prange,),  # reference; cuda/cupy covered by salt
+    tuner=_run_batch_pair_mi_sweep,
+    axes={"n_samples": list(_BPMI_SWEEP_N_SAMPLES), "n_pairs": [_BPMI_SWEEP_N_PAIRS]},
+    fallback={"backend_choice": "njit"},
+    gpu_capable=True,
+    salt=_BPMI_SALT,
+    cli_label="batch_pair_mi",
+)
 
 
 __all__ = [

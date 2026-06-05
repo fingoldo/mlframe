@@ -620,24 +620,21 @@ def check_prospective_fe_pairs(
                             # transformation is GPU-compatible, AND the
                             # column is large enough to amortise the H2D
                             # + D2H round trip, run the elementwise op on
-                            # GPU via cupy. Threshold matches
-                            # ``discretize_2d_array_cuda``'s breakeven; on
-                            # cc 6.1 ~500k cells. Wave 23 P1 fix (2026-05-20):
-                            # consult kernel_tuning_cache so the crossover
-                            # adapts to live HW; fall back to 500_000.
+                            # GPU via cupy. The numpy-vs-cupy crossover for
+                            # this n_samples is resolved per-host via the
+                            # shared get_or_tune orchestrator (kernel
+                            # "unary_elementwise"), with the old fixed
+                            # ~500k-cell breakeven as the measurement-backed
+                            # fallback. A "cupy" choice is still gated below
+                            # on live CUDA availability + per-op compat.
                             _gpu_used = False
-                            try:
-                                from pyutilz.system.kernel_tuning_cache import KernelTuningCache
-                                _cache = KernelTuningCache.load_or_create()
-                                _e = _cache.lookup(
-                                    "unary_elementwise",
-                                    n_samples=int(vals.size),
-                                )
-                                _min_cells = int(_e["min_cells"]) if _e and "min_cells" in _e else 500_000
-                            except Exception:
-                                _min_cells = 500_000
+                            from ._unary_elementwise_tuning import unary_elementwise_backend_choice
+                            # residency-aware: VRAM-resident input skips H2D, which flips the
+                            # numpy/cupy crossover (measured), so pass where ``vals`` lives.
+                            _loc = "device" if hasattr(vals, "__cuda_array_interface__") else "host"
+                            _want_gpu = unary_elementwise_backend_choice(int(vals.size), _loc) == "cupy"
                             if (
-                                vals.size >= _min_cells
+                                _want_gpu
                                 and tr_name in gpu_compatible_unary_names()
                             ):
                                 try:

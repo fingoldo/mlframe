@@ -443,23 +443,15 @@ def dtw_dispatch(
 
 # Register with the @kernel_tuner registry so retune_all / mlframe-tune-kernels
 # discover + batch-tune dtw. GPU-capable (cupy/numba.cuda backends).
-try:
-    from pyutilz.system.kernel_tuner import kernel_tuner as _kernel_tuner
+from pyutilz.system.kernel_tuner import kernel_tuner
 
-    _dtw_variant_fns = [dtw_cpu]
-    if _HAS_NB_CUDA:
-        _dtw_variant_fns.append(dtw_cuda)
-    if _HAS_CUPY:
-        _dtw_variant_fns.append(dtw_cupy)
-    _kernel_tuner(
-        kernel_name="dtw_dispatch",
-        variant_fns=tuple(_dtw_variant_fns),
-        tuner=_run_dtw_sweep,
-        axes={"n_cells": [10_000, 40_000, 160_000, 640_000, 2_560_000]},
-        fallback={"backend_choice": "cpu"},
-        gpu_capable=True,
-        salt=1,
-        cli_label="dtw_dispatch",
-    )(lambda: None)
-except Exception:  # pyutilz absent / circular import -> dispatcher still works
-    pass
+kernel_tuner(
+    kernel_name="dtw_dispatch",
+    variant_fns=(dtw_cpu,),  # reference; the cuda/cupy backends are covered by salt
+    tuner=_run_dtw_sweep,
+    axes={"n_cells": [10_000, 40_000, 160_000, 640_000, 2_560_000]},
+    fallback={"backend_choice": "cpu"},
+    gpu_capable=True,
+    salt=1,
+    cli_label="dtw_dispatch",
+)

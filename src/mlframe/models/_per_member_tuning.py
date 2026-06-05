@@ -184,24 +184,19 @@ def ensure_per_member_tuning(observed_elements: int | None = None, observed_grou
 # only (no GPU variant -- a CPU-resident axis-1 reduction; cupy was measured and
 # lost). 3-D is intentionally absent: 3-D numba computes a different statistic
 # (per-class vs pooled std), so only numpy is correct there -- not a tunable axis.
-try:
-    from pyutilz.system.kernel_tuner import kernel_tuner
+from pyutilz.system.kernel_tuner import kernel_tuner
 
-    @kernel_tuner(
-        kernel_name=_PER_MEMBER_KERNEL_NAME,
-        variant_fns=(_numpy_2d, _per_member_mae_std_njit),
-        tuner=run_per_member_sweep,
-        axes={"elements_per_member": list(_SWEEP_ELEMENTS), "n_groups": [_SWEEP_K], "ndim": [2, 3]},
-        fallback={"backend_choice": "numpy"},
-        salt=_PER_MEMBER_SALT,
-        env_key="MLFRAME_PER_MEMBER_BACKEND",
-        gpu_capable=False,
-        cli_label="per_member_mae_std",
-    )
-    def _per_member_tuner_spec():
-        """Marker for the @kernel_tuner registry (not called)."""
-except Exception:  # pyutilz absent / registry unavailable -> dispatch still works
-    pass
+kernel_tuner(
+    kernel_name=_PER_MEMBER_KERNEL_NAME,
+    variant_fns=(_numpy_2d,),  # reference; the njit variant is covered by salt
+    tuner=run_per_member_sweep,
+    axes={"elements_per_member": list(_SWEEP_ELEMENTS), "n_groups": [_SWEEP_K], "ndim": [2, 3]},
+    fallback={"backend_choice": "numpy"},
+    salt=_PER_MEMBER_SALT,
+    env_key="MLFRAME_PER_MEMBER_BACKEND",
+    gpu_capable=False,
+    cli_label="per_member_mae_std",
+)
 
 
 __all__ = ["run_per_member_sweep", "ensure_per_member_tuning", "per_member_code_version"]

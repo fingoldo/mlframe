@@ -287,17 +287,140 @@ def _resolve_use_gpu(
         return False
     if threshold is not None:
         return work >= threshold
-    # Auto without explicit threshold: heuristic until a real micro-bench landing.
-    # For RFF: GPU wins clearly when N * d > ~5M (work = N * d * n_features but the bandwidth-bound piece is N * d).
-    # Wave 23 P2 (2026-05-20): consult kernel_tuning_cache for HW-tuned
-    # crossover. The 5_000_000 * 256 was a documented "placeholder ...
-    # replaces it after calibration"; calibration never landed. Cache
-    # lookup falls back to the placeholder when no entry exists yet.
+    # Auto without explicit threshold: per-host backend (numpy/cupy) for this
+    # matmul ``work`` via the shared get_or_tune orchestrator; measurement-backed
+    # threshold fallback. We still gate on live ``is_gpu_available()`` above, so a
+    # ``cupy`` choice here only routes to GPU when the device is actually usable.
+    return _rff_backend_choice(int(work)) == "cupy"
+
+
+# ---------------------------------------------------------------------
+# rff_matmul backend selection (numpy vs cupy matmul) via kernel_tuning_cache
+# ---------------------------------------------------------------------
+
+
+# Source-code default crossover for the RFF projection matmul: below this total
+# ``work = N * d * n_features`` the numpy/numba CPU path beats streaming cupy once
+# the H2D + D2H round trip is amortised. The 5_000_000 * 256 was a documented
+# placeholder ("replaces it after calibration"); it remains the fallback when no
+# per-host kernel_tuning_cache entry exists yet.
+_RFF_DEFAULT_WORK_THRESHOLD = 5_000_000 * 256
+
+_RFF_SWEEP_WORK = [1_000_000, 8_000_000, 64_000_000, 512_000_000, 4_096_000_000]
+
+
+def _rff_matmul_numpy(X, W, b, scale):
+    """Reference CPU RFF projection matmul: ``scale * [cos(XW+b), sin(XW+b)]``.
+
+    A plain numpy implementation (not the numba kernel) used purely as the sweep
+    reference + correctness baseline; the production CPU path is ``rff_matmul_njit``,
+    which computes the identical result."""
+    proj = X @ W + b
+    return np.concatenate([np.cos(proj), np.sin(proj)], axis=1) * scale
+
+
+def _rff_matmul_cupy(X, W, b, scale):
+    """cupy RFF projection matmul mirroring ``_rff_matmul_numpy`` on device."""
+    import cupy as cp
+
+    Xd = cp.asarray(X)
+    Wd = cp.asarray(W)
+    bd = cp.asarray(b)
+    proj = Xd @ Wd + bd
+    res = cp.concatenate([cp.cos(proj), cp.sin(proj)], axis=1) * scale
+    return cp.asnumpy(res)
+
+
+def _make_rff_inputs(work: int):
+    """Representative matmul operands whose total work ``N * d * n_features`` ~= ``work``.
+
+    Fixes ``d`` and ``n_features`` to representative RFF sizes (d=32, n_features=256
+    so m=128) and derives ``N`` from the requested work; returns ``(X, W, b, scale)``
+    matching the variant call signature."""
+    d = 32
+    n_features = 256
+    m = n_features // 2
+    n = max(8, int(work / (d * n_features)))
+    rng = np.random.default_rng(0)
+    X = rng.standard_normal((n, d)).astype(np.float32)
+    W = rng.standard_normal((d, m)).astype(np.float32)
+    b = (rng.random(m) * 2.0 * np.pi).astype(np.float32)
+    scale = float(np.sqrt(2.0 / n_features))
+    return (X, W, b, scale)
+
+
+def _run_rff_sweep() -> list:
+    """Benchmark numpy-vs-cupy RFF matmul across a ``work`` grid -> backend_choice
+    regions (fastest equivalent backend per band). The cupy variant is included
+    only when a usable GPU is present. float32 GPU vs CPU matmul + sin/cos agree to
+    a small relative tolerance, so the equivalence tolerance is loosened."""
+    from pyutilz.dev.benchmarking import sweep_backend_crossover
+
+    variants = {"numpy": _rff_matmul_numpy}
+    if is_gpu_available():
+        variants["cupy"] = _rff_matmul_cupy
+    return sweep_backend_crossover(
+        variants,
+        _RFF_SWEEP_WORK,
+        _make_rff_inputs,
+        "work",
+        reference="numpy",
+        repeats=5,
+        equiv_rtol=1e-4,
+        equiv_atol=1e-6,
+    )
+
+
+def _rff_code_version():
+    """code_version over the matmul variant bodies; re-tunes on a kernel edit."""
+    try:
+        from pyutilz.dev.code_versioning import compute_code_version
+
+        return compute_code_version(_rff_matmul_numpy, _rff_matmul_cupy, salt=1)
+    except Exception:
+        return None
+
+
+def _rff_fallback_choice(work: int) -> str:
+    """Pre-sweep heuristic (the old work_threshold + GPU availability)."""
+    if is_gpu_available() and work >= _RFF_DEFAULT_WORK_THRESHOLD:
+        return "cupy"
+    return "numpy"
+
+
+def _rff_backend_choice(work: int) -> str:
+    """Per-host backend (numpy/cupy) for this matmul ``work`` via the shared
+    get_or_tune orchestrator; measurement-backed threshold fallback."""
     try:
         from pyutilz.system.kernel_tuning_cache import KernelTuningCache
-        _cache = KernelTuningCache.load_or_create()
-        _e = _cache.lookup("rff_matmul", work=int(work))
-        _crossover = int(_e["work_threshold"]) if _e and "work_threshold" in _e else (5_000_000 * 256)
-    except Exception:
-        _crossover = 5_000_000 * 256  # placeholder fallback
-    return work >= _crossover
+
+        result = KernelTuningCache().get_or_tune(
+            "rff_matmul",
+            dims={"work": int(work)},
+            tuner=_run_rff_sweep,
+            axes=["work"],
+            fallback={"backend_choice": _rff_fallback_choice(work)},
+            code_version=_rff_code_version(),
+        )
+        bc = result if isinstance(result, str) else str((result or {}).get("backend_choice", ""))
+        if bc in ("numpy", "cupy"):
+            return bc
+    except Exception as e:
+        logger.debug("rff_matmul get_or_tune failed: %s", e)
+    return _rff_fallback_choice(work)
+
+
+# Register with the @kernel_tuner registry so retune_all / mlframe-tune-kernels
+# discover + batch-tune rff_matmul. GPU-capable (numpy CPU vs cupy matmul).
+from pyutilz.system.kernel_tuner import kernel_tuner
+
+kernel_tuner(
+    kernel_name="rff_matmul",
+    variant_fns=(_rff_matmul_numpy,),  # reference; cupy variant covered by salt
+    tuner=_run_rff_sweep,
+    axes={"work": list(_RFF_SWEEP_WORK)},
+    fallback={"backend_choice": "numpy"},
+    gpu_capable=True,
+    salt=1,
+    cli_label="rff_matmul",
+)
