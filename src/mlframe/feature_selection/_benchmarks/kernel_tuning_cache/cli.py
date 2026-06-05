@@ -114,6 +114,25 @@ def _refresh_generic(kernel_label: str, ensure_fn) -> int:
     return 0
 
 
+def _refresh_via_new_registry(kernel_label: str) -> int:
+    """A kernel that has been MIGRATED to ``pyutilz.performance.kernel_tuning``:
+    tune it through the new registry (writes the correct backend_choice schema +
+    code_version) instead of the superseded legacy sweep, so the two writers do
+    not collide on the same cache key (the legacy sweep wrote regions without a
+    backend_choice / code_version, which silently shadowed the new dispatcher)."""
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    from pyutilz.performance.kernel_tuning import discover_tuners, get_registry, tune_spec
+
+    discover_tuners(package="mlframe")
+    spec = get_registry().get(kernel_label)
+    if spec is None:
+        print(f"# {kernel_label}: not found in the new registry", file=sys.stderr)
+        return 1
+    n = tune_spec(spec, force=True)
+    print(f"# {kernel_label}: re-tuned via pyutilz.performance.kernel_tuning, {n} regions saved")
+    return 0
+
+
 def _cmd_refresh(args) -> int:
     from mlframe.feature_selection._benchmarks.kernel_tuning_cache.auto_tune import (
         ensure_joint_hist_tuning,
@@ -156,19 +175,12 @@ def _cmd_refresh_joint_hist_multi_pair(args) -> int:
 
 
 def _cmd_refresh_batch_pair_mi(args) -> int:
-    from mlframe.feature_selection._benchmarks.kernel_tuning_cache.auto_tune import (
-        ensure_batch_pair_mi_tuning,
-    )
-    return _refresh_generic("batch_pair_mi", ensure_batch_pair_mi_tuning)
+    # Migrated to pyutilz.performance.kernel_tuning -> tune via the new registry.
+    return _refresh_via_new_registry("batch_pair_mi")
 
 
 def _cmd_refresh_cat_fe_perm_kernel(args) -> int:
-    from mlframe.feature_selection._benchmarks.kernel_tuning_cache.auto_tune import (
-        ensure_cat_fe_perm_kernel_tuning,
-    )
-    return _refresh_generic(
-        "cat_fe_perm_kernel", ensure_cat_fe_perm_kernel_tuning,
-    )
+    return _refresh_via_new_registry("cat_fe_perm_kernel")
 
 
 def _cmd_refresh_rmse_partial_sum(args) -> int:
@@ -179,19 +191,11 @@ def _cmd_refresh_rmse_partial_sum(args) -> int:
 
 
 def _cmd_refresh_unary_elementwise(args) -> int:
-    from mlframe.feature_selection._benchmarks.kernel_tuning_cache.auto_tune import (
-        ensure_unary_elementwise_tuning,
-    )
-    return _refresh_generic(
-        "unary_elementwise", ensure_unary_elementwise_tuning,
-    )
+    return _refresh_via_new_registry("unary_elementwise")
 
 
 def _cmd_refresh_rff_matmul(args) -> int:
-    from mlframe.feature_selection._benchmarks.kernel_tuning_cache.auto_tune import (
-        ensure_rff_matmul_tuning,
-    )
-    return _refresh_generic("rff_matmul", ensure_rff_matmul_tuning)
+    return _refresh_via_new_registry("rff_matmul")
 
 
 def _cmd_refresh_knn_hnsw_crossover(args) -> int:
