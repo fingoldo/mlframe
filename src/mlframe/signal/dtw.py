@@ -373,7 +373,7 @@ def _dtw_backend_choice(n_cells: int) -> str:
         from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
 
         autotune = _os.environ.get("MLFRAME_DTW_AUTOTUNE", "1").strip() != "0"
-        result = KernelTuningCache().get_or_tune(
+        result = KernelTuningCache.load_or_create().get_or_tune(
             "dtw_dispatch",
             dims={"n_cells": int(n_cells)},
             tuner=_run_dtw_sweep if autotune else (lambda: None),

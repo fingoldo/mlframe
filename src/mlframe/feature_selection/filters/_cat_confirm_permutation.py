@@ -412,7 +412,7 @@ def _perm_kernel_backend_choice(n_samples: int, n_perms: int) -> str:
     try:
         from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
 
-        result = KernelTuningCache().get_or_tune(
+        result = KernelTuningCache.load_or_create().get_or_tune(
             "cat_fe_perm_kernel",
             dims={"n_samples": int(n_samples), "n_perms": int(n_perms)},
             tuner=_run_perm_kernel_sweep,

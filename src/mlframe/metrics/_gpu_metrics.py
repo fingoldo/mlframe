@@ -550,7 +550,7 @@ def _batch_metric_backend_choice(kernel_name: str, N: int, M: int) -> str:
     try:
         from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
         metric = "rmse" if kernel_name == "batch_rmse" else "aucs"
-        result = KernelTuningCache().get_or_tune(
+        result = KernelTuningCache.load_or_create().get_or_tune(
             kernel_name,
             dims={"n_samples": N, "n_targets": M},
             tuner=(lambda m=metric: _run_batch_metric_sweep(m)),

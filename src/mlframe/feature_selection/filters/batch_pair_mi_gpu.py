@@ -552,7 +552,7 @@ def _batch_pair_mi_backend_choice(n_samples: int, n_pairs: int) -> str:
     try:
         from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
 
-        result = KernelTuningCache().get_or_tune(
+        result = KernelTuningCache.load_or_create().get_or_tune(
             "batch_pair_mi",
             dims={"n_samples": int(n_samples), "n_pairs": int(n_pairs)},
             tuner=_run_batch_pair_mi_sweep,

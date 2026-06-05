@@ -39,7 +39,7 @@ except Exception:
 # per-host kernel_tuning_cache entry exists.
 _UNARY_DEFAULT_MIN_CELLS = 500_000
 _UNARY_SWEEP_N = [50_000, 200_000, 800_000, 3_200_000, 12_800_000]
-_UNARY_SALT = 2  # residency-aware sweep + 2-variant code_version
+_UNARY_SALT = 3  # residency-aware sweep + cupy variant now includes output D2H
 
 
 def _is_device(x) -> bool:
@@ -57,12 +57,14 @@ def _unary_numpy(vals):
 
 
 def _unary_cupy(vals):
-    """cupy elementwise unary (``cos``). Pays H2D if given a host array; a no-op
-    when the input is already VRAM-resident. Returns a device array (the small
-    output transfer is the caller's concern, negligible for this bandwidth map)."""
+    """cupy elementwise unary (``cos``). Pays H2D if given a host array (no-op if
+    already VRAM-resident) AND the output D2H back to host. The production call
+    site (_feature_engineering_pairs) consumes a HOST array, so the swept cost
+    MUST include the round trip -- returning a device array here would time cupy
+    too favourably and bias the crossover toward GPU. Returns host numpy."""
     import cupy as cp
 
-    return cp.cos(cp.asarray(vals))
+    return cp.asnumpy(cp.cos(cp.asarray(vals)))
 
 
 def _make_unary_inputs(dims: dict):
@@ -123,7 +125,7 @@ def unary_elementwise_backend_choice(n_samples: int, location: str = "host") -> 
     try:
         from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
 
-        result = KernelTuningCache().get_or_tune(
+        result = KernelTuningCache.load_or_create().get_or_tune(
             "unary_elementwise",
             dims={"n_samples": n_samples, "location": location},
             tuner=_run_unary_sweep,

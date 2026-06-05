@@ -394,7 +394,7 @@ def _rff_backend_choice(work: int) -> str:
     try:
         from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
 
-        result = KernelTuningCache().get_or_tune(
+        result = KernelTuningCache.load_or_create().get_or_tune(
             "rff_matmul",
             dims={"work": int(work)},
             tuner=_run_rff_sweep,

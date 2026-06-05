@@ -91,7 +91,7 @@ def dispatch_recursion_backend(
         # sweep (only when run_auto_tune, once/process, cross-process locked) ->
         # measurement-backed fallback. Replaces the hand-rolled
         # lookup/miss/sweep/re-lookup dance.
-        result = KernelTuningCache().get_or_tune(
+        result = KernelTuningCache.load_or_create().get_or_tune(
             kernel_name,
             dims={"n_samples": n_samples, "n_groups": n_groups},
             tuner=(lambda: _run_sweep(kernel_name)) if run_auto_tune else (lambda: None),

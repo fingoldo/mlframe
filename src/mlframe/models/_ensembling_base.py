@@ -272,7 +272,7 @@ def _per_member_use_numba(elements_per_member: int, n_groups: int, ndim: int = 2
         # measurement-backed fallback. Replaces the hand-rolled
         # lookup/miss/sweep/re-lookup dance + the module-level _AUTOTUNE guard
         # (get_or_tune keys its once-per-process guard on (kernel, cache-path)).
-        result = KernelTuningCache().get_or_tune(
+        result = KernelTuningCache.load_or_create().get_or_tune(
             _PER_MEMBER_KERNEL_NAME,
             dims={"elements_per_member": elements_per_member, "n_groups": n_groups, "ndim": ndim},
             tuner=(lambda: run_per_member_sweep(observed_elements=elements_per_member)) if autotune else (lambda: None),
