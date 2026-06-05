@@ -195,6 +195,41 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     if _init_skip:
         return self
 
+    # perf (2026-06-05): build ONE contiguous numpy mirror of the (now sanitised) DataFrame and feed the
+    # inner estimator numpy column-SUBSETS by integer position throughout elimination / CV scoring /
+    # permutation-FI re-prediction. This skips LightGBM's per-fit/per-predict ``_data_from_pandas``
+    # reconversion + per-column dtype-validation storm (cProfile: ~47% of the scene 700x299 fit). Names
+    # keep flowing through the voting / FI / finalize machinery unchanged, so support_ / ranking_ /
+    # get_feature_names_out are bit-identical. Gated on an ALL-NUMERIC frame: object / category / string
+    # columns (CatBoost cats, etc.) fall back to the historical pandas path so estimators that need the
+    # original dtypes / names are untouched. float64 (NOT float32) preserves LightGBM's split points exactly.
+    X_estimator = None
+    col_pos = None
+    # Escape hatch (default OFF): force the historical pandas path. Used by the selection-identity
+    # regression test to A/B numpy-vs-pandas on the SAME seeded fixture, and available as a safety
+    # opt-out should any estimator ever misbehave on numpy input.
+    _force_pandas = bool(getattr(self, "_force_pandas_estimator_path", False))
+    if (not _force_pandas) and isinstance(X, pd.DataFrame):
+        try:
+            from pandas.api.types import is_numeric_dtype as _is_num, is_bool_dtype as _is_bool
+            # All columns must be numeric/bool AND have a finite-supporting dtype. NaN is fine (LightGBM /
+            # tree handles it; float64 carries NaN bit-identically); object / category / string disqualify.
+            _all_numeric = bool(len(X.columns)) and all(_is_num(X[c]) or _is_bool(X[c]) for c in X.columns)
+        except Exception:
+            _all_numeric = False
+        if _all_numeric:
+            try:
+                # ``to_numpy(dtype=float64)`` materialises pyarrow-backed nullable numerics into a plain C
+                # float64 array too (pd.NA -> nan); the try/except + shape guard below rejects any dtype
+                # that fails to cast cleanly, so those callers transparently keep the pandas path.
+                _np = np.ascontiguousarray(X.to_numpy(dtype=np.float64))
+                if _np.shape == (int(X.shape[0]), int(X.shape[1])) and _np.dtype == np.float64:
+                    X_estimator = _np
+                    col_pos = {name: i for i, name in enumerate(X.columns)}
+            except (TypeError, ValueError):
+                X_estimator = None
+                col_pos = None
+
     # Stability selection branch: uses bootstrap voting instead of the MBH+CV-fold-voting search. Returns early after setting
     # support_ / n_features_ / cv_results_-shim / feature_names_in_ etc.
     if self.stability_selection:
@@ -447,7 +482,7 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
         outcome = run_outer_loop_iteration(
             self,
             state,
-            X=X, y=y, groups=groups,
+            X=X, y=y, X_estimator=X_estimator, col_pos=col_pos, groups=groups,
             cv=cv, val_cv=val_cv,
             original_features=original_features,
             must_include_resolved=must_include_resolved,
@@ -491,7 +526,7 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     # Truncated SFFS final-pass swap: run K paired swaps on the best subset found - replace each of the K worst-FI kept features with each of the K best-FI dropped features, accept any swap that improves the CV score. Uses sklearn.cross_val_score directly so it does NOT honour fit_params / val_cv / early stopping.
     _finalize_fit_results(
         self,
-        X=X, y=y, estimator=estimator, cv=cv, scoring=scoring,
+        X=X, y=y, X_estimator=X_estimator, col_pos=col_pos, estimator=estimator, cv=cv, scoring=scoring,
         best_nfeatures=state.best_nfeatures, best_score=state.best_score,
         selected_features_per_nfeatures=state.selected_features_per_nfeatures,
         feature_importances=state.feature_importances,

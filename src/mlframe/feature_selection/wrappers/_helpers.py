@@ -76,9 +76,39 @@ def suppress_irritating_3rdparty_warnings() -> None:
 
 
 def split_into_train_test(
-    X: pd.DataFrame | np.ndarray, y: pd.DataFrame | np.ndarray, train_index: np.ndarray, test_index: np.ndarray, features_indices: np.ndarray = None
+    X: pd.DataFrame | np.ndarray, y: pd.DataFrame | np.ndarray, train_index: np.ndarray, test_index: np.ndarray, features_indices: np.ndarray = None,
+    X_estimator: np.ndarray | None = None, col_pos: dict | None = None,
 ) -> tuple:
-    """Split X & y according to indices & dtypes. Handles pd.DataFrame, np.ndarray, and polars."""
+    """Split X & y according to indices & dtypes. Handles pd.DataFrame, np.ndarray, and polars.
+
+    perf (2026-06-05): when ``X_estimator`` (a contiguous numpy matrix mirroring the all-numeric DataFrame
+    ``X`` column-for-column) and ``col_pos`` (name -> integer column position) are supplied, the X-side
+    train/test slabs are taken from the NUMPY matrix by integer position instead of from the pandas frame.
+    This feeds the inner estimator numpy directly so it skips the per-fit/per-predict ``_data_from_pandas``
+    reconversion + the per-column dtype-validation storm (the RFECV fit hotspot on LightGBM). The y-side
+    slicing is unchanged. The numpy matrix is float64 (bit-identical to pandas for the all-numeric case;
+    float32 would alter LightGBM splits), so the selection is unaffected. Only the X-DataFrame branch
+    consults ``X_estimator``; the polars / ndarray branches are untouched.
+    """
+
+    if X_estimator is not None and isinstance(X, pd.DataFrame):
+        # All-numeric fast path: slice rows + (name->pos) cols out of the numpy mirror.
+        tr_arr = np.asarray(train_index)
+        te_arr = np.asarray(test_index)
+        if features_indices is None:
+            X_train = X_estimator[tr_arr, :]
+            X_test = X_estimator[te_arr, :]
+        elif col_pos is not None and not isinstance(features_indices[0], (int, np.integer)):
+            pos = np.fromiter((col_pos[f] for f in features_indices), dtype=np.intp, count=len(features_indices))
+            X_train = X_estimator[np.ix_(tr_arr, pos)]
+            X_test = X_estimator[np.ix_(te_arr, pos)]
+        else:
+            fi_arr = np.asarray(features_indices, dtype=np.intp)
+            X_train = X_estimator[np.ix_(tr_arr, fi_arr)]
+            X_test = X_estimator[np.ix_(te_arr, fi_arr)]
+        y_train = y.iloc[train_index, :] if isinstance(y, pd.DataFrame) else (y.iloc[train_index] if isinstance(y, pd.Series) else y[train_index])
+        y_test = y.iloc[test_index, :] if isinstance(y, pd.DataFrame) else (y.iloc[test_index] if isinstance(y, pd.Series) else y[test_index])
+        return X_train, y_train, X_test, y_test
 
     if isinstance(X, pd.DataFrame):
         # ``X.iloc[np.ix_(rows, cols)]`` selects both axes in one shot. The chained

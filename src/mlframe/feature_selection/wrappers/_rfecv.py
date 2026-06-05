@@ -555,6 +555,7 @@ class RFECV(BaseEstimator, TransformerMixin):
         selected_features_per_nfeatures: dict, feature_importances: dict,
         original_features, evaluated_scores_mean: dict,
         evaluated_scores_std: dict, verbose: int, ndigits: int,
+        X_estimator=None, col_pos=None,
     ) -> None:
         """Replace each of the K worst-FI kept features with each of the K best-FI dropped features and accept any swap that improves the
         CV score. Mutates selected_features_per_nfeatures / evaluated_scores_* in place. Cost: O(K) extra CV evaluations executed via
@@ -599,7 +600,13 @@ class RFECV(BaseEstimator, TransformerMixin):
         for out_f, in_f in zip(swap_out, swap_in):
             trial_set = [in_f if f == out_f else f for f in cur_set]
             try:
-                if isinstance(X, pd.DataFrame):
+                if X_estimator is not None and col_pos is not None:
+                    # All-numeric fast path: feed the estimator numpy column-subsets by integer position so
+                    # cross_val_score's inner fits/predicts skip the per-call pandas reconversion. float64
+                    # mirror -> bit-identical to ``X[trial_set]`` for the all-numeric case.
+                    pos = [col_pos[f] for f in trial_set]
+                    trial_X = X_estimator[:, pos]
+                elif isinstance(X, pd.DataFrame):
                     trial_X = X[trial_set]
                 else:
                     idx = [list(original_features).index(f) for f in trial_set]
