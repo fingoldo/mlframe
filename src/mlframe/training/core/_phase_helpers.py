@@ -108,6 +108,9 @@ class TrainValTestSplitResult(NamedTuple):
     val_sequences: Any
     test_sequences: Any
     baseline_rss_mb: Any
+    calib_idx: Any = None
+    calib_details: Any = None
+    calib_df: Any = None
 
 
 class FitPipelineResult(NamedTuple):

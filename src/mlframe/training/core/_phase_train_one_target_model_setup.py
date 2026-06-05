@@ -193,6 +193,19 @@ def _setup_per_target_mlframe_models(
             else cur_target_values.iloc[test_idx]
         )
 
+    # Calib slice (calib_size>0): raw calib rows + aligned target for the trainer's post-hoc-calibration predict.
+    # calib_idx indexes the original full-df rows (disjoint from train/val/test by the splitter's asserts), so the
+    # target slice mirrors current_test_target. None when no calib slice was carved.
+    _calib_idx = getattr(ctx, "calib_idx", None)
+    _calib_df = getattr(ctx, "calib_df", None)
+    current_calib_target = None
+    if _calib_df is not None and _calib_idx is not None and len(_calib_idx) > 0:
+        current_calib_target = (
+            cur_target_values[_calib_idx]
+            if isinstance(cur_target_values, (np.ndarray, pl.Series))
+            else cur_target_values.iloc[_calib_idx]
+        )
+
     # Feature-handling wire-in: opt-in via ctx.feature_handling_config. Sits after the per-target
     # OD-filtered frames + targets are bound (this is the "post-FS / pre-final-pipeline" seam for
     # the inner pre_pipelines x models loops below) and before per-target diagnostics so any
@@ -505,6 +518,14 @@ def _setup_per_target_mlframe_models(
         # silently runs on panel/session data (cross-group leakage risk).
         fs_use_groups=bool(getattr(getattr(ctx, "split_config", None), "use_groups", False)),
     )
+
+    # Thread the raw calib frame + aligned target into common_params so they reach DataConfig via
+    # _build_configs_from_params. The trainer transforms calib_df through the same fitted pre_pipeline as test and
+    # stamps (calib_probs, calib_target) for finalize's auto-calibration. No-op when no calib slice was carved.
+    if _calib_df is not None and current_calib_target is not None:
+        common_params["calib_df"] = _calib_df
+        common_params["calib_target"] = current_calib_target
+        common_params["calib_idx"] = _calib_idx
 
     return {
         "plot_file": plot_file,

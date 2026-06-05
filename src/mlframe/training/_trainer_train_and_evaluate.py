@@ -215,6 +215,9 @@ def train_and_evaluate_model(
     train_idx = data.train_idx
     val_idx = data.val_idx
     test_idx = data.test_idx
+    calib_df = data.calib_df
+    calib_target = data.calib_target
+    calib_idx = data.calib_idx
     group_ids = data.group_ids
     sample_weight = data.sample_weight
     drop_columns = list(data.drop_columns) if data.drop_columns else []
@@ -960,6 +963,42 @@ def train_and_evaluate_model(
 
     _maybe_clean_ram()
 
+    # Disjoint-calib predict (TrainingSplitConfig.calib_size > 0): run the fitted base model's predict_proba on the calib
+    # slice and stamp (calib_probs, calib_target) so finalize's _auto_calibrate_on_calib_slice fits the post-hoc isotonic
+    # calibrator. Mirrors the test path: subset+transform the raw calib rows through the SAME fitted pre_pipeline via
+    # _prepare_test_split, then predict_proba via _predict_with_fallback. Gated strictly on a calib frame existing and the
+    # model exposing predict_proba (classification) -- regression / no-predict_proba models stamp nothing (consumer no-ops).
+    _calib_probs_out = None
+    _calib_target_out = None
+    if model is not None and calib_df is not None and hasattr(model, "predict_proba"):
+        try:
+            _calib_df_prep, _calib_target_prep, _ = _prepare_test_split(
+                df=None,
+                test_df=calib_df,
+                test_idx=None,
+                test_target=calib_target,
+                target=None,
+                real_drop_columns=real_drop_columns,
+                model=model,
+                pre_pipeline=pre_pipeline,
+                skip_pre_pipeline_transform=skip_pre_pipeline_transform,
+                skip_preprocessing=skip_preprocessing,
+                selector_passthrough_cols=(list(fit_params.get("text_features") or []) + list(fit_params.get("embedding_features") or [])) or None,
+            )
+            _calib_df_prep = _sanitize_frame_columns(_calib_df_prep)
+            if _calib_df_prep is not None and _calib_target_prep is not None and len(_calib_df_prep) > 0:
+                from ._classif_helpers import _canonical_predict_proba_shape
+                from ._data_helpers import _prepare_df_for_model
+                _calib_X = _prepare_df_for_model(_calib_df_prep, model_type_name)
+                _cp = _predict_with_fallback(model, _calib_X, method="predict_proba")
+                _cp = _canonical_predict_proba_shape(_cp)
+                _calib_probs_out = _cp
+                _calib_target_out = (
+                    _calib_target_prep.values if hasattr(_calib_target_prep, "values") else np.asarray(_calib_target_prep)
+                )
+        except Exception as _calib_err:
+            logger.warning("calib-slice predict failed for %s; finalize calibration will no-op for this model: %s", model_name, _calib_err)
+
     # OOF preds/probs were stamped on ``model`` right after training (see ``_compute_oof_preds`` call above). Mirror them onto
     # the returned namespace so ensemble member shapes carry the OOF signal alongside the per-split predictions without
     # callers having to fish them off the model object.
@@ -980,6 +1019,8 @@ def train_and_evaluate_model(
             train_target=train_target,
             oof_preds=_oof_preds_out,
             oof_probs=_oof_probs_out,
+            calib_probs=_calib_probs_out,
+            calib_target=_calib_target_out,
             metrics=metrics,
             columns=columns,
             pre_pipeline=pre_pipeline,

@@ -72,6 +72,7 @@ class TrainValTestSplitResult(NamedTuple):
     baseline_rss_mb: Any
     calib_idx: Any = None
     calib_details: Any = None
+    calib_df: Any = None
 
 
 class FitPipelineResult(NamedTuple):
@@ -390,6 +391,16 @@ def _phase_train_val_test_split(
         val_idx=val_idx,
         test_idx=test_idx,
     )
+    # Carve the disjoint calib slice (calib_size>0) as its own raw frame, same schema as train_df, while ``df`` is still
+    # alive (the caller nulls ``ctx.df`` right after this phase). The slice is a small fraction of train; subsetting is a
+    # format-native ``df[calib_idx]`` / ``.iloc`` view, never a full-frame clone. The trainer transforms it through the
+    # same fitted pre_pipeline as test and runs predict_proba so finalize can auto-calibrate.
+    calib_df = None
+    if calib_idx is not None and len(calib_idx) > 0:
+        if isinstance(df, pl.DataFrame):
+            calib_df = df[calib_idx]
+        else:
+            calib_df = df.iloc[calib_idx]
     if verbose:
         logger.info("  Split shapes -- train: %s, val: %s, test: %s", _df_shape_str(train_df), _df_shape_str(val_df), _df_shape_str(test_df))
         logger.info("  PHASE 2 total: %s", _elapsed_str(t0_phase2))
@@ -430,6 +441,7 @@ def _phase_train_val_test_split(
         baseline_rss_mb=baseline_rss_mb,
         calib_idx=calib_idx,
         calib_details=calib_details,
+        calib_df=calib_df,
     )
 
 

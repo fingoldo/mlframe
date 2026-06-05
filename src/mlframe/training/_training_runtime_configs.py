@@ -312,6 +312,13 @@ class DataConfig(BaseConfig):
     val_idx: Optional[Any] = None  # np.ndarray
     test_idx: Optional[Any] = None  # np.ndarray
 
+    # Disjoint calibration slice carved from train (TrainingSplitConfig.calib_size > 0). When set, the trainer runs the
+    # fitted base model's predict_proba on calib_df (transformed by the same fitted pre-pipeline as test) and stamps
+    # entry.calib_probs / entry.calib_target so finalize auto-calibrates. None => no calib slice, no extra predict.
+    calib_df: Optional[Any] = None  # pd.DataFrame | pl.DataFrame - raw calib rows, same schema as train_df
+    calib_target: Optional[Any] = None  # np.ndarray or pd.Series aligned with calib_df rows
+    calib_idx: Optional[Any] = None  # np.ndarray - source positions of the calib rows (diagnostics only)
+
     # Additional data
     group_ids: Optional[Any] = None  # np.ndarray - for per-group AUC computation
     sample_weight: Optional[Any] = None  # np.ndarray or pd.Series

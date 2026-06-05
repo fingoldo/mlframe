@@ -198,3 +198,116 @@ def test_auto_calibrate_finalize_no_calib_idx_is_noop():
     _auto_calibrate_on_calib_slice(ctx)  # must not raise
     # Model untouched (no calib slice -> no wrapper).
     assert isinstance(sentinel_model.model, object)
+
+
+# ---------------------------------------------------------------------------
+# 4. End-to-end: train_mlframe_models_suite stamps the calib-slice predictions and finalize
+#    auto-calibrates (vs calib_size=0 which adds no calib predict and stamps nothing).
+# ---------------------------------------------------------------------------
+
+
+def _binary_calib_suite_frame(seed: int = 17, n: int = 1600):
+    """Synthetic binary-classification frame with a clean signal so a tiny-budget tree fits a useful model."""
+    import polars as pl
+
+    rng = np.random.default_rng(seed)
+    x0 = rng.normal(size=n).astype(np.float32)
+    x1 = rng.normal(size=n).astype(np.float32)
+    x2 = rng.normal(size=n).astype(np.float32)
+    logit = 2.0 * x0 + 1.0 * x1 - 0.7 * x2
+    p = 1.0 / (1.0 + np.exp(-logit))
+    y = (rng.uniform(size=n) < p).astype(np.int64)
+    return pl.DataFrame({"f0": x0, "f1": x1, "f2": x2, "target": y})
+
+
+def _run_calib_suite(tmp_path, calib_size, seed=17):
+    """Run a tiny xgb binary suite with the given calib_size; return (models, metadata)."""
+    from mlframe.training.core import train_mlframe_models_suite
+    from mlframe.training.configs import (
+        PreprocessingBackendConfig, OutputConfig, TrainingBehaviorConfig,
+        BaselineDiagnosticsConfig, DummyBaselinesConfig, ReportingConfig,
+    )
+    from mlframe.training._preprocessing_configs import TrainingSplitConfig
+    from .shared import SimpleFeaturesAndTargetsExtractor
+
+    fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
+    return train_mlframe_models_suite(
+        df=_binary_calib_suite_frame(seed=seed),
+        target_name="calib_e2e",
+        model_name=f"calib_e2e_cs{calib_size}",
+        features_and_targets_extractor=fte,
+        mlframe_models=["xgb"],
+        use_ordinary_models=True,
+        use_mlframe_ensembles=False,
+        pipeline_config=PreprocessingBackendConfig(
+            prefer_polarsds=False, categorical_encoding=None, scaler_name=None, imputer_strategy=None,
+        ),
+        split_config=TrainingSplitConfig(test_size=0.25, val_size=0.1, calib_size=calib_size, random_seed=seed),
+        behavior_config=TrainingBehaviorConfig(prefer_gpu_configs=False),
+        hyperparams_config={"iterations": 40, "xgb_kwargs": {"device": "cpu"}},
+        baseline_diagnostics_config=BaselineDiagnosticsConfig(enabled=False),
+        dummy_baselines_config=DummyBaselinesConfig(enabled=False),
+        reporting_config=ReportingConfig(honest_estimator_diagnostics=False),
+        enable_target_distribution_analyzer=False,
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
+        verbose=0,
+    )
+
+
+def _first_binary_entry(models):
+    for _by_name in models.values():
+        for _entries in _by_name.values():
+            if isinstance(_entries, list) and _entries:
+                return _entries[0]
+    return None
+
+
+def test_e2e_calib_size_activates_posthoc_calibration_and_no_worse_ece(tmp_path):
+    """End-to-end: with calib_size>0 the trainer stamps the calib-slice predictions and finalize fits a
+    post-hoc isotonic calibrator (entry.model wrapped + calibrated_test_probs stamped). Calibration quality
+    (ECE/Brier) on the honest test slice must be no worse than the same run with calib_size=0 (no calibrator)."""
+    pytest.importorskip("xgboost")
+    from mlframe.training._calibration_models import _PostHocCalibratedModel
+
+    models_cs, _ = _run_calib_suite(tmp_path / "with_calib", calib_size=0.2)
+    models_no, _ = _run_calib_suite(tmp_path / "no_calib", calib_size=0.0)
+
+    entry_cs = _first_binary_entry(models_cs)
+    entry_no = _first_binary_entry(models_no)
+    assert entry_cs is not None and entry_no is not None
+
+    # (a) calib_size>0: trainer stamped the calib-slice predictions; finalize wrapped the model + stamped calibrated probs.
+    assert getattr(entry_cs, "calib_probs", None) is not None, "trainer did not stamp entry.calib_probs"
+    assert getattr(entry_cs, "calib_target", None) is not None, "trainer did not stamp entry.calib_target"
+    assert isinstance(entry_cs.model, _PostHocCalibratedModel), "finalize did not wrap the model in the post-hoc calibrator"
+    assert getattr(entry_cs, "calibrated_test_probs", None) is not None, "finalize did not stamp calibrated_test_probs"
+
+    # calib_size=0: bit-identical to today -- no calib predict, no calibrator wrapper.
+    assert getattr(entry_no, "calib_probs", None) is None, "calib_size=0 should add no calib predict"
+    assert not isinstance(entry_no.model, _PostHocCalibratedModel), "calib_size=0 must not wrap the model"
+
+    # (b) calibration quality on the honest test slice: calibrated ECE no worse than the uncalibrated run.
+    y_test = np.asarray(entry_cs.test_target.values if hasattr(entry_cs.test_target, "values") else entry_cs.test_target).ravel()
+    cal_test = np.asarray(entry_cs.calibrated_test_probs)
+    raw_test = np.asarray(entry_no.test_probs)
+    ece_calibrated = _ece(cal_test[:, 1], y_test)
+    y_test_no = np.asarray(entry_no.test_target.values if hasattr(entry_no.test_target, "values") else entry_no.test_target).ravel()
+    ece_uncalibrated = _ece(raw_test[:, 1], y_test_no)
+    # Tolerance band absorbs the small test-slice/seed variation between the two runs; the load-bearing assertion is
+    # that calibration ACTIVATED (above) and does not materially degrade calibration on honest test.
+    assert ece_calibrated <= ece_uncalibrated + 0.05, (
+        f"post-hoc calibration degraded test ECE: calibrated={ece_calibrated:.4f} uncalibrated={ece_uncalibrated:.4f}"
+    )
+
+
+def test_e2e_calib_size_zero_adds_no_calib_predict(tmp_path):
+    """calib_size=0 must leave the trainer's stamping path inert: no entry.calib_probs / calib_target, no calibrator."""
+    pytest.importorskip("xgboost")
+    from mlframe.training._calibration_models import _PostHocCalibratedModel
+
+    models_no, _ = _run_calib_suite(tmp_path, calib_size=0.0)
+    entry = _first_binary_entry(models_no)
+    assert entry is not None
+    assert getattr(entry, "calib_probs", None) is None
+    assert getattr(entry, "calib_target", None) is None
+    assert not isinstance(entry.model, _PostHocCalibratedModel)

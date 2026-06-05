@@ -92,6 +92,7 @@ class TrainingContext:
     val_idx: np.ndarray | None = None
     test_idx: np.ndarray | None = None
     calib_idx: np.ndarray | None = None
+    calib_df: pl.DataFrame | pd.DataFrame | None = None
     train_details: Any | None = None
     val_details: Any | None = None
     test_details: Any | None = None
