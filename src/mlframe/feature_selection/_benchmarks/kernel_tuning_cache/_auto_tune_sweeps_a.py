@@ -904,3 +904,31 @@ def ensure_batch_pair_mi_tuning(force: bool = False) -> Optional[list[dict]]:
         except OSError as e:
             logger.warning("kernel_tuning_cache: batch_pair_mi save failed: %s", e)
     return regions
+
+
+# Register the multi-field GPU kernels with the unified tuner registry so
+# retune_all / mlframe-tune-kernels discover + batch-tune them. The dispatch
+# (dispatch.py) already READS these regions via the cache; this only adds
+# discovery. tuner = the compute-only _run_sweep_* (returns regions, no
+# self-update -> no double-write). The grid lives inside each sweep, so only the
+# axis KEYS are declared; the spec fallback is unused (retune ignores the
+# get_or_tune return) -- the real per-call fallback is dispatch.py's _hw_aware_fallback.
+from pyutilz.performance.kernel_tuning.registry import kernel_tuner as _ktuner
+
+for _kn, _sweep, _axes in (
+    ("joint_hist_batched", _run_sweep_joint_hist, ("n_samples", "joint_size")),
+    ("plugin_mi_classif_dispatch", _run_sweep_mi_classif_dispatch, ("n_samples", "k")),
+    ("polyeval", _run_sweep_polyeval, ("basis", "n_samples")),
+    ("joint_hist_single_perm", _run_sweep_joint_hist_single_perm, ("n_samples",)),
+    ("joint_hist_multi_pair", _run_sweep_joint_hist_multi_pair, ("n_rows", "n_pairs")),
+):
+    _ktuner(
+        kernel_name=_kn,
+        variant_fns=(_sweep,),
+        tuner=_sweep,
+        axes={_a: [] for _a in _axes},
+        fallback={},
+        gpu_capable=True,
+        salt=1,
+        cli_label=_kn,
+    )

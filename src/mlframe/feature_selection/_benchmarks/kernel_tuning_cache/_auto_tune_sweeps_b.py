@@ -772,3 +772,20 @@ def ensure_discretize_2d_array_tuning(force: bool = False) -> Optional[list[dict
                 "kernel_tuning_cache: discretize_2d_array save failed: %s", e,
             )
     return regions
+
+
+# Register rmse_partial_sum (CUDA block-size tuning) with the unified registry --
+# discovery only; the dispatch reads its regions via the cache. tuner = the
+# compute-only _run_sweep_rmse_partial_sum (no self-update).
+from pyutilz.performance.kernel_tuning.registry import kernel_tuner as _ktuner
+
+_ktuner(
+    kernel_name="rmse_partial_sum",
+    variant_fns=(_run_sweep_rmse_partial_sum,),
+    tuner=_run_sweep_rmse_partial_sum,
+    axes={"n_samples": [], "n_cols": []},
+    fallback={},
+    gpu_capable=True,
+    salt=1,
+    cli_label="rmse_partial_sum",
+)
