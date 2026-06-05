@@ -28,6 +28,7 @@ dominate sub-ms workloads).
 """
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Optional, Tuple
 
 import numpy as np
@@ -395,7 +396,7 @@ def compute_batch_rmse(
     yp = _normalize_scores_2d(np.asarray(y_pred))
     N = yp.shape[0]
 
-    use_gpu = _resolve_backend(force_backend, N, yp.shape[1])
+    use_gpu = _resolve_backend(force_backend, N, yp.shape[1], "batch_rmse")
     if use_gpu:
         import cupy as cp  # lazy
         out = gpu_multiple_rmse_scores(yt, yp)
@@ -426,7 +427,7 @@ def compute_batch_aucs(
     ys = _normalize_scores_2d(np.asarray(y_score))
     N, M = ys.shape
 
-    use_gpu = _resolve_backend(force_backend, N, M)
+    use_gpu = _resolve_backend(force_backend, N, M, "batch_aucs")
     if use_gpu:
         import cupy as cp  # lazy
         roc = cp.asnumpy(gpu_multiple_roc_auc_scores(yt, ys))
@@ -443,9 +444,12 @@ def compute_batch_aucs(
     return roc, pr
 
 
-def _resolve_backend(force: Optional[str], N: int, M: int) -> bool:
+def _resolve_backend(force: Optional[str], N: int, M: int, kernel_name: str = "batch_rmse") -> bool:
     """Return True iff the GPU path should be used. ``force`` may be
-    ``'gpu'`` / ``'cpu'`` / ``None``."""
+    ``'gpu'`` / ``'cpu'`` / ``None``. For ``None`` (auto) the per-host
+    kernel_tuning_cache decides GPU-vs-CPU for this ``kernel_name`` at
+    ``(N, M)`` -- the old hardcoded ``_GPU_BATCH_THRESHOLD_*`` is the
+    measurement-backed fallback."""
     if force == "gpu":
         if not is_gpu_metrics_available():
             raise RuntimeError(
@@ -457,9 +461,135 @@ def _resolve_backend(force: Optional[str], N: int, M: int) -> bool:
         return False
     if force is not None:
         raise ValueError(f"force_backend must be 'gpu', 'cpu', or None; got {force!r}")
-    # Auto: GPU iff available + over thresholds.
-    return (
-        is_gpu_metrics_available()
-        and N >= _GPU_BATCH_THRESHOLD_N
-        and M >= _GPU_BATCH_THRESHOLD_M
+    if not is_gpu_metrics_available():
+        return False
+    return _batch_metric_backend_choice(kernel_name, int(N), int(M)) == "gpu"
+
+
+# ----- per-host GPU-vs-CPU tuning for the batch-metric dispatchers -----
+# RMSE (cheap elementwise) and AUC (sort-heavy) have DIFFERENT crossovers, so
+# they tune as separate kernels. Inputs are host-resident (eval feeds host
+# arrays) -> no residency axis. The old _GPU_BATCH_THRESHOLD_* (N>=100k AND
+# M>=5) is the measurement-backed fallback.
+# Grid bounded so the one-time AUCS sweep stays reasonable: its CPU reference
+# loops fast_aucs over M columns (O(M * N log N)), so huge N*M cells are avoided.
+# The catch-all region extrapolates the largest-cell winner beyond the grid.
+_BATCH_METRIC_SWEEP_N = [50_000, 200_000, 1_000_000]
+_BATCH_METRIC_SWEEP_M = [1, 5, 20]
+_BATCH_METRIC_SALT = 1
+
+
+def _make_batch_metric_inputs(dims: dict):
+    """``(y_true, y_pred)`` at ``dims['n_samples']`` rows x ``dims['n_targets']``
+    columns. Binary labels (valid for ROC/PR; rmse timing is label-agnostic)."""
+    rng = np.random.default_rng(0)
+    N = int(dims["n_samples"])
+    M = int(dims["n_targets"])
+    y_true = rng.integers(0, 2, size=N).astype(np.float64)
+    y_pred = rng.random((N, M))
+    return (y_true, y_pred)
+
+
+def _run_batch_metric_sweep(metric: str) -> list:
+    """Full (n_samples x n_targets) grid sweep, cpu vs gpu, fastest equivalent per
+    cell. ``metric`` in {"rmse", "aucs"}. Both backends agree to ~1e-9 (the GPU
+    primitives match the CPU reference bit-for-bit on continuous data)."""
+    from pyutilz.dev.benchmarking import sweep_backend_grid
+
+    def _cpu(y_true, y_pred):
+        if metric == "rmse":
+            yt = y_true[:, np.newaxis] if y_true.ndim == 1 else y_true
+            return np.sqrt(np.mean((yt - y_pred) ** 2.0, axis=0))
+        from .core import fast_aucs as _fast_aucs
+        m = y_pred.shape[1]
+        roc = np.empty(m, dtype=np.float64)
+        for j in range(m):
+            roc[j], _pr = _fast_aucs(y_true, y_pred[:, j])
+        return roc
+
+    variants = {"cpu": _cpu}
+    if is_gpu_metrics_available():
+        def _gpu(y_true, y_pred):
+            import cupy as cp
+            if metric == "rmse":
+                return cp.asnumpy(gpu_multiple_rmse_scores(y_true, y_pred))
+            roc = cp.asnumpy(gpu_multiple_roc_auc_scores(y_true, y_pred))
+            gpu_multiple_pr_auc_scores(y_true, y_pred)  # full roc+pr cost, return roc for equiv
+            return roc
+        variants["gpu"] = _gpu
+
+    return sweep_backend_grid(
+        variants,
+        {"n_samples": _BATCH_METRIC_SWEEP_N, "n_targets": _BATCH_METRIC_SWEEP_M},
+        _make_batch_metric_inputs,
+        reference="cpu",
+        repeats=3, equiv_rtol=1e-6, equiv_atol=1e-6,
     )
+
+
+def _batch_metric_code_version(kernel_name: str):
+    """code_version over the CPU reference + the GPU primitive(s) for this metric."""
+    try:
+        from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
+        if kernel_name == "batch_rmse":
+            fns = [gpu_multiple_rmse_scores]
+        else:
+            fns = [gpu_multiple_roc_auc_scores, gpu_multiple_pr_auc_scores]
+        return compute_code_version(*fns, salt=_BATCH_METRIC_SALT)
+    except Exception:
+        return None
+
+
+@lru_cache(maxsize=512)
+def _batch_metric_backend_choice(kernel_name: str, N: int, M: int) -> str:
+    """Per-host cpu/gpu choice for a batch-metric kernel at (N, M) via get_or_tune;
+    fallback = the old N>=100k AND M>=5 threshold. Memoized (eval calls it per fold)."""
+    def _fallback() -> str:
+        return "gpu" if (N >= _GPU_BATCH_THRESHOLD_N and M >= _GPU_BATCH_THRESHOLD_M) else "cpu"
+
+    try:
+        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
+        metric = "rmse" if kernel_name == "batch_rmse" else "aucs"
+        result = KernelTuningCache().get_or_tune(
+            kernel_name,
+            dims={"n_samples": N, "n_targets": M},
+            tuner=(lambda m=metric: _run_batch_metric_sweep(m)),
+            axes=["n_samples", "n_targets"],
+            fallback={"backend_choice": _fallback()},
+            code_version=_batch_metric_code_version(kernel_name),
+        )
+        bc = result if isinstance(result, str) else str((result or {}).get("backend_choice", ""))
+        if bc in ("cpu", "gpu"):
+            return bc
+    except Exception as _e:
+        import logging
+        logging.getLogger(__name__).debug("%s get_or_tune failed: %s", kernel_name, _e)
+    return _fallback()
+
+
+# Register the two batch-metric dispatchers with the kernel-tuner registry so
+# retune_all / mlframe-tune-kernels tune their per-host GPU-vs-CPU crossover.
+# GPU-capable; CPU reference covered by salt. Inputs host-resident -> no residency.
+from pyutilz.performance.kernel_tuning.registry import kernel_tuner
+
+kernel_tuner(
+    kernel_name="batch_rmse",
+    variant_fns=(gpu_multiple_rmse_scores,),  # GPU primitive; CPU ref + edits covered by salt
+    tuner=(lambda: _run_batch_metric_sweep("rmse")),
+    axes={"n_samples": list(_BATCH_METRIC_SWEEP_N), "n_targets": list(_BATCH_METRIC_SWEEP_M)},
+    fallback={"backend_choice": "cpu"},
+    gpu_capable=True,
+    salt=_BATCH_METRIC_SALT,
+    cli_label="batch_rmse",
+)
+
+kernel_tuner(
+    kernel_name="batch_aucs",
+    variant_fns=(gpu_multiple_roc_auc_scores, gpu_multiple_pr_auc_scores),
+    tuner=(lambda: _run_batch_metric_sweep("aucs")),
+    axes={"n_samples": list(_BATCH_METRIC_SWEEP_N), "n_targets": list(_BATCH_METRIC_SWEEP_M)},
+    fallback={"backend_choice": "cpu"},
+    gpu_capable=True,
+    salt=_BATCH_METRIC_SALT,
+    cli_label="batch_aucs",
+)

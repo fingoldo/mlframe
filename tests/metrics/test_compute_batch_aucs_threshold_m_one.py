@@ -23,19 +23,37 @@ import pytest
 pytestmark = [pytest.mark.fast]
 
 
-def test_auto_dispatch_picks_cpu_at_m_one_n_large():
-    """``_resolve_backend(None, N=1M, M=1)`` should return False (CPU)."""
-    from mlframe.metrics.core import _resolve_backend, _GPU_BATCH_THRESHOLD_M
+def test_aucs_fallback_picks_cpu_at_m_one_n_large(monkeypatch, tmp_path):
+    """iter#194 regression guard, now in the per-kernel FALLBACK.
 
-    # M=1 must NOT dispatch GPU regardless of cupy availability after the threshold fix.
+    Dispatch is now per-host tuned per kernel (batch_rmse / batch_aucs tune
+    SEPARATELY -- RMSE has no per-column Python loop, so its GPU crossover differs
+    from AUCS). The old shared N>=100k AND M>=5 threshold is the measurement-backed
+    fallback. The guard that matters for iter#194 is AUCS-specific: with no cached
+    tuning, ``batch_aucs`` at M=1 must fall back to CPU (M<5), so a binary
+    single-target call never pays the GPU AUCS per-column + compile cost; at M>=5
+    the fallback allows GPU.
+    """
+    import mlframe.metrics._gpu_metrics as gm
+    from mlframe.metrics.core import _GPU_BATCH_THRESHOLD_M
+
     assert _GPU_BATCH_THRESHOLD_M >= 5, (
         f"_GPU_BATCH_THRESHOLD_M={_GPU_BATCH_THRESHOLD_M} would re-introduce the iter#194 "
         "regression where every binary single-target call paid cupy compile + host<->device "
-        "overhead. Keep the threshold at >=5 to match the gpu_multiple_*_auc_scores "
+        "overhead. Keep the fallback threshold at >=5 to match the gpu_multiple_*_auc_scores "
         '"Use when N >= 100k AND M >= 5" docstring contract.'
     )
-    assert _resolve_backend(None, 1_000_000, 1) is False
-    assert _resolve_backend(None, 5_000_000, 1) is False
+    # Isolated empty cache + no-op sweep -> exercises the FALLBACK path
+    # deterministically (no real GPU / no live sweep needed).
+    monkeypatch.setenv("PYUTILZ_KERNEL_CACHE_DIR", str(tmp_path))
+    monkeypatch.setattr(gm, "_run_batch_metric_sweep", lambda metric: [])
+    gm._batch_metric_backend_choice.cache_clear()
+    try:
+        assert gm._batch_metric_backend_choice("batch_aucs", 1_000_000, 1) == "cpu"
+        assert gm._batch_metric_backend_choice("batch_aucs", 5_000_000, 1) == "cpu"
+        assert gm._batch_metric_backend_choice("batch_aucs", 1_000_000, 5) == "gpu"
+    finally:
+        gm._batch_metric_backend_choice.cache_clear()
 
 
 def test_compute_batch_aucs_m_one_matches_sklearn():
@@ -49,7 +67,9 @@ def test_compute_batch_aucs_m_one_matches_sklearn():
     y_true = rng.integers(0, 2, size=n).astype(np.int32)
     y_score = rng.random(size=n).astype(np.float64) + 0.2 * y_true
 
-    roc_arr, pr_arr = compute_batch_aucs(y_true, y_score)
+    # force_backend="cpu": this test checks CPU numpy correctness vs sklearn, not
+    # the auto-dispatch (which would trigger the one-time tuning sweep on a cold cache).
+    roc_arr, pr_arr = compute_batch_aucs(y_true, y_score, force_backend="cpu")
     assert roc_arr.shape == (1,)
     assert pr_arr.shape == (1,)
 
