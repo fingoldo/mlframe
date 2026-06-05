@@ -122,31 +122,91 @@ def cmd_show(specs: dict, kernel: str) -> int:
     return 0
 
 
+def _find_spec(specs: dict, kernel: str):
+    """Resolve a kernel name or cli_label to its (key, spec); None if absent."""
+    for (mod_name, kname), spec in specs.items():
+        if kname == kernel or (spec.cli_label and spec.cli_label == kernel):
+            return (mod_name, kname), spec
+    return None, None
+
+
+def _parse_dims(dims: str | None) -> dict:
+    """Parse 'a=1,b=2' -> {'a': 1, 'b': 2} (ints where possible, else str)."""
+    out = {}
+    if not dims:
+        return out
+    for pair in dims.split(","):
+        if "=" not in pair:
+            continue
+        k, v = pair.split("=", 1)
+        k, v = k.strip(), v.strip()
+        try:
+            out[k] = int(v)
+        except ValueError:
+            out[k] = v
+    return out
+
+
 def cmd_explain(specs: dict, kernel: str, dims: str | None) -> int:
-    """Show cached regions + decisions (placeholder)."""
-    print(f"Explain {kernel}: regions + decisions from cache")
-    print("(Not implemented yet.)")
+    """Show the cache's lookup decision + reasoning for a kernel at given dims."""
+    import sys
+
+    from pyutilz.system.kernel_tuning_cache import KernelTuningCache
+
+    _, spec = _find_spec(specs, kernel)
+    name = kernel if spec is None else (spec.kernel_name)
+    explain = KernelTuningCache().lookup_explain(name, **_parse_dims(dims))
+    import json
+
+    print(json.dumps(explain, indent=2, default=str))
     return 0
 
 
 def cmd_refresh(specs: dict, kernel: str) -> int:
-    """Tune one spec (placeholder)."""
-    print(f"Refresh {kernel}: running tuning sweep")
-    print("(Not implemented yet.)")
+    """Tune one spec (force a fresh sweep) and persist the regions."""
+    import sys
+
+    from pyutilz.system.kernel_tuner import retune_all
+
+    key, spec = _find_spec(specs, kernel)
+    if spec is None:
+        print(f"Kernel not found: {kernel}", file=sys.stderr)
+        return 1
+    print(f"Refreshing {spec.kernel_name} (force=True)...")
+    # retune_all tunes the whole registry; for a single spec we drive get_or_tune
+    # directly via the cache to avoid re-sweeping everything.
+    from pyutilz.system.kernel_tuning_cache import KernelTuningCache
+    from pyutilz.system.kernel_tuner import _run_spec_tuning
+    from pyutilz.dev.code_versioning import compute_code_version
+
+    cv = compute_code_version(*spec.variant_fns, extra_fns=spec.extra_fns, salt=spec.salt)
+    n = _run_spec_tuning(KernelTuningCache(), spec, cv, device_id=None, force=True,
+                         idle_wait_tries=5, idle_wait_sec=0.5, hooks=None)
+    print(f"  {spec.kernel_name}: {n} region(s) persisted")
     return 0
 
 
 def cmd_refresh_all(specs: dict) -> int:
-    """Tune all specs (placeholder)."""
-    print(f"Refresh all {len(specs)} specs (force=True)")
-    print("(Not implemented yet.)")
+    """Tune all discovered specs (force=True) across unique GPU models."""
+    from pyutilz.system.kernel_tuner import retune_all
+
+    print(f"Refreshing all {len(specs)} spec(s) (force=True)...")
+    results = retune_all(package="mlframe", force=True)
+    for (mod_name, kname), n in sorted(results.items()):
+        print(f"  {kname}: {n} region(s)")
     return 0
 
 
 def cmd_clear(specs: dict, kernel: str) -> int:
-    """Clear cache for one spec (placeholder)."""
-    print(f"Clear {kernel}: evicting cache")
-    print("(Not implemented yet.)")
+    """Evict the cache entry for one spec."""
+    import sys
+
+    from pyutilz.system.kernel_tuning_cache import KernelTuningCache
+
+    _, spec = _find_spec(specs, kernel)
+    name = kernel if spec is None else spec.kernel_name
+    removed = KernelTuningCache().evict(name)
+    print(f"Cleared {name}: {'evicted' if removed else 'no entry'}")
     return 0
 
 
