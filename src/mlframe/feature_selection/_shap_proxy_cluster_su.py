@@ -45,7 +45,7 @@ def _resolve_parallel_min_features(default: int = 50) -> int:
     ``mlframe.shap_proxied_fs.cluster_su.parallel_min_features``).
     """
     try:
-        from pyutilz.system import kernel_tuning_cache
+        from pyutilz.performance.kernel_tuning import cache as kernel_tuning_cache
 
         value = kernel_tuning_cache.get(
             "mlframe.shap_proxied_fs.cluster_su.parallel_min_features", default=default)
@@ -63,7 +63,7 @@ def _resolve_gpu_min_features(default: int = 500) -> int:
     ``mlframe.shap_proxied_fs.cluster_su.gpu_min_features``); default 500.
     """
     try:
-        from pyutilz.system import kernel_tuning_cache
+        from pyutilz.performance.kernel_tuning import cache as kernel_tuning_cache
 
         value = kernel_tuning_cache.get(
             "mlframe.shap_proxied_fs.cluster_su.gpu_min_features", default=default)

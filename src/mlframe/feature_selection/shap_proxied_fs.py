@@ -114,7 +114,7 @@ def _resolve_brute_force_max_features(default: int = _DEFAULT_BRUTE_FORCE_MAX_FE
     """Per-HW brute-force cap from ``pyutilz.performance.kernel_tuning.cache`` (key
     ``mlframe.shap_proxied_fs.brute_force_max_features``), falling back to the module default."""
     try:
-        from pyutilz.system import kernel_tuning_cache
+        from pyutilz.performance.kernel_tuning import cache as kernel_tuning_cache
 
         value = kernel_tuning_cache.get(
             "mlframe.shap_proxied_fs.brute_force_max_features", default=default)
@@ -128,7 +128,7 @@ def _resolve_brute_force_n_sub_gate(default: int = _DEFAULT_BRUTE_FORCE_N_SUB_GA
     ``mlframe.shap_proxied_fs.brute_force_n_sub_gate``). Above this the dispatcher falls through
     to ``beam`` regardless of ``brute_force_max_features``."""
     try:
-        from pyutilz.system import kernel_tuning_cache
+        from pyutilz.performance.kernel_tuning import cache as kernel_tuning_cache
 
         value = kernel_tuning_cache.get(
             "mlframe.shap_proxied_fs.brute_force_n_sub_gate", default=default)
@@ -146,7 +146,7 @@ def _resolve_cluster_su_auto_max_features(
     vectorised Pearson |corr|). Reads kernel_tuning_cache key
     ``mlframe.shap_proxied_fs.cluster_su_auto_max_features``."""
     try:
-        from pyutilz.system import kernel_tuning_cache
+        from pyutilz.performance.kernel_tuning import cache as kernel_tuning_cache
 
         value = kernel_tuning_cache.get(
             "mlframe.shap_proxied_fs.cluster_su_auto_max_features", default=default)
@@ -164,7 +164,7 @@ def _resolve_adaptive_prescreen_thresholds():
     """
     raw = _DEFAULT_ADAPTIVE_PRESCREEN_THRESHOLDS
     try:
-        from pyutilz.system import kernel_tuning_cache
+        from pyutilz.performance.kernel_tuning import cache as kernel_tuning_cache
 
         cached = kernel_tuning_cache.get(
             "mlframe.shap_proxied_fs.adaptive_prescreen_stability_thresholds", default=None)
