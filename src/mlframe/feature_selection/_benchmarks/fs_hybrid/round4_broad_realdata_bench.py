@@ -166,11 +166,35 @@ def make_mrmr_tree():
     return _Sel()
 
 
+def _fs_sel_adapter(builder):
+    """Wrap a fs_selectors Sel (fit/transform -> DataFrame of selected/engineered cols) with LightGBM-safe names,
+    so RFECV / BorutaShap / ShapProxiedFS plug into the same eval_strategy path as the MRMR/hybrid strategies."""
+    class _Sel:
+        def fit(self, X, y):
+            self.s_ = builder(); self.s_.fit(X, y)
+            out = list(self.s_.transform(X.iloc[:5]).columns)
+            self.ren_ = _safe_rename(out, set(X.columns)); return self
+
+        def transform(self, X):
+            df = self.s_.transform(X).copy(); df.columns = [self.ren_[c] for c in df.columns]; return df
+    return _Sel()
+
+
+def _fs():
+    import fs_selectors as S  # same dir is on sys.path
+    return S
+
+
+# All our Feature Selectors x every dataset. RFECV uses the permutation-importance path (the heavier, more
+# discriminating variant); boruta/shap use the fs_selectors defaults. Order roughly cheap -> expensive.
 STRATEGIES = {
-    "all":       lambda: None,                              # no selection (do-nothing baseline)
-    "mrmr_fe":   make_mrmr_fe,                              # incumbent FS baseline
-    "hybrid":    lambda: HybridSelector(vote=1, use_fe=True),  # the 3 shipped hybrid wins (default-on)
-    "mrmr_tree": make_mrmr_tree,                            # the shipped MRMRTreeRescued rescue win
+    "all":       lambda: None,                                  # no selection (do-nothing baseline)
+    "mrmr_fe":   make_mrmr_fe,                                  # MRMR + FE (batched discretize + MI + GPU)
+    "mrmr_tree": make_mrmr_tree,                                # MRMRTreeRescued rescue win
+    "hybrid":    lambda: HybridSelector(vote=1, use_fe=True),   # the shipped hybrid (all members)
+    "rfecv":     lambda: _fs_sel_adapter(lambda: _fs().RFECVSel("lgbm_perm")),  # numpy-mirror estimator path
+    "boruta":    lambda: _fs_sel_adapter(lambda: _fs().BorutaSel()),            # memoized binom_test
+    "shap":      lambda: _fs_sel_adapter(lambda: _fs().ShapSel()),              # ShapProxiedFS
 }
 
 
