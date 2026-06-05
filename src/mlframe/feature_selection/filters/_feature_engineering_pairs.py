@@ -84,7 +84,11 @@ def _dispatch_batch_mi_with_noise_gate(
     try:
         from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
 
-        _res = KernelTuningCache().get_or_tune(
+        # load_or_create() returns the MEMOIZED per-host cache singleton (~0ms/call); a bare
+        # KernelTuningCache() ctor re-loads cache state from disk EVERY call (~0.75ms), which
+        # on a wide near-saturated frame (thousands of FE raw-pairs, one dispatch each) added
+        # seconds of pure overhead. This dispatcher is on the per-raw-pair hot path -> singleton.
+        _res = KernelTuningCache.load_or_create().get_or_tune(
             "batch_mi_noise_gate",
             dims={"n_rows": int(n), "n_cols": int(K)},
             tuner=lambda: None,  # no GPU sweep until a bit-identical GPU kernel lands
