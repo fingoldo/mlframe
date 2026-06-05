@@ -18,8 +18,6 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from ._profile_fuzz_1m import _build_composite_discovery_config_for_1m_inline, _make_synthetic_frame
-
 logging.basicConfig(level=logging.WARNING, format="%(message)s")
 
 
@@ -50,6 +48,9 @@ def _run_suite_profiled(
         PreprocessingBackendConfig, PreprocessingExtensionsConfig,
     )
     from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
+    # Lazy to break the top-level sibling-split cycle (parent re-exports this body at its bottom); these helpers are
+    # defined in the parent before that bottom import, so a lazy pull here is safe and keeps the import graph acyclic.
+    from ._profile_fuzz_1m import _build_composite_discovery_config_for_1m_inline, _make_synthetic_frame
 
     # n_rows is the user-supplied UPPER bound. Heavy-axis combinations downstream may shrink
     # the frame to keep RAM bounded on commodity hardware (boruta_shap surrogate + SHAP
