@@ -668,7 +668,7 @@ def get_polyeval_oracle():
     global _polyeval_oracle_singleton
     if _polyeval_oracle_singleton is not None:
         return _polyeval_oracle_singleton
-    from mlframe.utils._param_oracle import ParamOracle
+    from mlframe.utils import ParamOracle
     oracle = ParamOracle(
         "polyeval_cpu_backend.parquet",
         param_space=_POLYEVAL_ORACLE_PARAM_SPACE,

@@ -386,6 +386,11 @@ def _stable_json(obj: Any) -> str:
     return json.dumps(obj, sort_keys=True, separators=(",", ":"), default=str)
 
 
+def stable_json(obj: Any) -> str:
+    """Public alias for the canonical sort-keys JSON serialiser used to key oracle rows; cross-package consumers import this instead of reaching into the private name."""
+    return _stable_json(obj)
+
+
 class _ParquetStore:
     """Append-only parquet store with concurrency-safe writes.
 
@@ -979,6 +984,11 @@ def _loads(s: Optional[str]) -> dict:
         return json.loads(s)
     except Exception:
         return {}
+
+
+def loads_json(s: Optional[str]) -> dict:
+    """Public alias for the lenient JSON-object loader (returns ``{}`` on empty/invalid input); cross-package consumers import this instead of the private name."""
+    return _loads(s)
 
 
 def _euclidean_buckets(a: Mapping[str, Any], b: Mapping[str, Any]) -> float:

@@ -93,43 +93,36 @@ _SHAP_XGB_PATCHED = False
 
 
 def _maybe_patch_shap_xgb_base_score():
-    """Workaround for shap<=0.51 + xgboost>=2.0 incompatibility.
+    """Workaround for shap + xgboost>=2.0 base_score incompatibility.
 
     XGBoost 2.x / 3.x serialise the booster's ``base_score`` as a JSON array
     string ``"[0.5]"`` instead of the scalar ``"0.5"`` older XGBoost wrote.
-    shap.explainers._tree.XGBTreeModelLoader.__init__ does
-    ``float(learner_model_param["base_score"])`` directly and crashes with
-    ``ValueError: could not convert string to float: '[5.06E-1]'``. Fixed
-    upstream in shap >=0.52 (PR #3530) but the wheel pinned in this env is
-    0.51; until the upgrade lands we sanitise the value once at first use.
+    shap.explainers._tree.XGBTreeModelLoader.__init__ coerces it with
+    ``float(...)`` and crashes with
+    ``ValueError: could not convert string to float: '[5.06E-1]'``. We install
+    a bracket-aware coercer onto the shap tree module's ``float`` name once at
+    first use; it passes scalars through unchanged and also resolves to float64
+    when shap uses it as a numpy dtype (``np.asarray(base_score, dtype=float)``).
 
-    Idempotent (gated on ``_SHAP_XGB_PATCHED``); no-op if the shap version
-    already handles arrays.
+    Idempotent (gated on ``_SHAP_XGB_PATCHED``); a no-op if shap is unavailable.
     """
     global _SHAP_XGB_PATCHED
     if _SHAP_XGB_PATCHED:
         return
     try:
-        import shap
         from shap.explainers import _tree as _shap_tree
     except Exception:
         _SHAP_XGB_PATCHED = True
         return
 
-    # shap >= 0.52 parses the XGBoost 2.x/3.x base_score array natively (PR #3530) AND its tree loader uses ``float`` as a numpy dtype (``np.asarray(base_score, dtype=float)``); monkeypatching the module-global ``float`` to ``_safe_float`` would make that ``np.asarray`` raise ``TypeError: Cannot interpret ... as a data type``. Only the older, genuinely-broken versions get the workaround.
-    try:
-        _shap_ver = tuple(int(p) for p in shap.__version__.split(".")[:2])
-    except Exception:
-        _shap_ver = (0, 0)
-    if _shap_ver >= (0, 52):
-        _SHAP_XGB_PATCHED = True
-        return
-
     import builtins
     import re
+
+    import numpy as np
+
     _orig_float = builtins.float
 
-    def _safe_float(x):
+    def _safe_float(x=0.0):
         # XGBoost 2.x / 3.x writes the booster's base_score as a JSON array
         # string ``"[0.5]"`` or ``"[5.06E-1, ...]"``; coerce to the first scalar.
         # Scalar inputs (the only case the shap module's float() saw before
@@ -139,6 +132,9 @@ def _maybe_patch_shap_xgb_base_score():
             if m:
                 return _orig_float(m.group(1))
         return _orig_float(x)
+
+    # shap's tree loader (>=0.52) also uses the module-global ``float`` as a numpy dtype (``np.asarray(base_score, dtype=float)``); a bare function there raises ``TypeError: Cannot interpret ... as a data type``. Exposing a ``.dtype`` attribute makes numpy resolve the coercer to float64 while it stays callable as the bracket-aware scalar coercer.
+    _safe_float.dtype = np.dtype("float64")
 
     _shap_tree.float = _safe_float
     _SHAP_XGB_PATCHED = True

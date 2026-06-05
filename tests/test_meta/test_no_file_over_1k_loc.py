@@ -107,6 +107,56 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # into ``_orthogonal_scorer_auto_fe_<kind>.py`` siblings; keep the
     # dispatch + dataclass in the parent.
     "src/mlframe/feature_selection/filters/_orthogonal_scorer_auto_fe.py",
+    # FIXME(carve-wave-next): filters/hermite_fe.py at ~1.41k LOC after the
+    # outlier-robust univariate-basis FE axis landed alongside the 4-basis x
+    # 4-backend polyeval dispatcher. Sensible carve: lift the per-basis optimiser
+    # bodies into ``hermite_fe_<basis>.py`` siblings, keep the dispatcher + the
+    # ``optimise_*`` public facade in the parent.
+    "src/mlframe/feature_selection/filters/hermite_fe.py",
+    # FIXME(carve-wave-next): filters/_feature_engineering_pairs.py at ~1.32k LOC
+    # after the batched per-candidate quantile-discretization perf rewrite grew
+    # the pair-search body. Carve candidate: the candidate-scoring loop into
+    # ``_feature_engineering_pairs_score.py``.
+    "src/mlframe/feature_selection/filters/_feature_engineering_pairs.py",
+    # FIXME(carve-wave-next): boruta_shap.py at ~1.09k LOC after the margin-gated
+    # adaptive trial-stop (A4-5) machinery landed. Carve candidate: the shadow-
+    # construction + trial-loop into ``_boruta_shap_trials.py``.
+    "src/mlframe/feature_selection/boruta_shap.py",
+    # FIXME(carve-wave-next): filters/_mrmr_fe_step.py at ~1.09k LOC after the
+    # empirical-null (Fix-B) reconciliation grew the per-step accept/gate body.
+    # Carve candidate: the null-calibration + accept-decision block into
+    # ``_mrmr_fe_step_null.py``.
+    "src/mlframe/feature_selection/filters/_mrmr_fe_step.py",
+    # FIXME(carve-wave-next): training/_composite_discovery_fit.py at ~1.07k LOC
+    # after the gc.collect / commit-charge logging additions. Carve candidate:
+    # the discovery fit-loop body into ``_composite_discovery_fit_loop.py``.
+    "src/mlframe/training/_composite_discovery_fit.py",
+    # FIXME(carve-wave-next): models/_ensembling_base.py at ~1.06k LOC after the
+    # HW-calibrated numpy-vs-numba dispatch for 2-D per-member MAE/std landed.
+    # Carve candidate: the per-member metric kernels + dispatcher into
+    # ``_ensembling_member_metrics.py``.
+    "src/mlframe/models/_ensembling_base.py",
+    # FIXME(carve-wave-next): filters/_screen_predictors.py at ~1.03k LOC after
+    # the heavy-tail-gated maxT noise-floor (layer15) for narrow pools landed.
+    # Carve candidate: the noise-floor / maxT calibration block into
+    # ``_screen_predictors_noise_floor.py``.
+    "src/mlframe/feature_selection/filters/_screen_predictors.py",
+    # FIXME(carve-wave-next): filters/_confirm_predictor.py at ~1.02k LOC after
+    # the DCD-pruned-candidate redirect fix grew the partial-gain confirm body.
+    # Carve candidate: the partial-gain redirect logic into
+    # ``_confirm_predictor_partial_gain.py``.
+    "src/mlframe/feature_selection/filters/_confirm_predictor.py",
+    # FIXME(carve-wave-next): wrappers/_helpers.py at ~1.02k LOC after the
+    # accuracy-first permutation-default cost-gated shootout wiring landed.
+    # Carve candidate: the importance-method selection helpers into
+    # ``_helpers_importance_select.py``.
+    "src/mlframe/feature_selection/wrappers/_helpers.py",
+    # FIXME(carve-wave-next): utils/_param_oracle.py at ~1.0k LOC after the
+    # polyeval CPU-backend select + KTC bridge (Layer 103) landed. Carve
+    # candidate: the ``_ParquetStore`` append-only store into
+    # ``_param_oracle_store.py``, keep ``ParamOracle`` + fingerprint helpers
+    # in the parent.
+    "src/mlframe/utils/_param_oracle.py",
     # FIXME(carve-wave-next): training/neural/recurrent.py at ~1.01k LOC after
     # the F-44 bf16-mixed auto-promote + F-46 fused-AdamW + F-47 cuDNN
     # persistent-RNN + F-48 nested-tensor + F-51 share_memory_() + F-53

@@ -55,7 +55,7 @@ def screen_predictors(
     reduce_gain_on_subelement_chosen: bool = True,
     # performance
     extra_x_shuffling: bool = True,
-    dtype=np.int32,
+    dtype: type = np.int32,
     random_seed: int = None,
     use_gpu: bool = False,
     n_workers: int = 1,
@@ -175,7 +175,7 @@ def screen_predictors(
     # loop), the DCDState from the prior pass is threaded back in here so cluster
     # discovery accumulates across passes instead of being rebuilt empty each
     # time (which dropped the screen-1 dup cluster from the published summary).
-    existing_dcd_state=None,
+    existing_dcd_state: object = None,
 ) -> float:
     """Finds best predictors for the target. ``factors_data`` must be an n-by-m array of integers (ordinal encoded).
 

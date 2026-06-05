@@ -36,7 +36,7 @@ NEVER xfail.
 """
 from __future__ import annotations
 
-import json
+import orjson
 import os
 import pickle
 import warnings
@@ -200,13 +200,13 @@ class TestBenchmarkPopulatesOracle:
         # Every scorer in the pool got a recorded quality.
         assert set(qualities.keys()) == set(ORACLE_SCORER_NAMES)
         rows = sel.oracle.store.read_rows()
-        recorded = {json.loads(r["param_combo_json"])["scorer"] for r in rows}
+        recorded = {orjson.loads(r["param_combo_json"])["scorer"] for r in rows}
         assert recorded == set(ORACLE_SCORER_NAMES), (
             f"benchmark recorded {recorded}, expected {set(ORACLE_SCORER_NAMES)}"
         )
         # The recorded objective carries the quality metric.
         for r in rows:
-            obj = json.loads(r["objective_json"])
+            obj = orjson.loads(r["objective_json"])
             assert "quality" in obj
 
 
@@ -278,7 +278,7 @@ class TestStatOnlyPersistence:
                 assert not isinstance(val, (list, tuple, dict, np.ndarray)), (
                     f"non-scalar persisted in {col}: {type(val)}"
                 )
-            fp_bucket = json.loads(r["fp_bucket_json"])
+            fp_bucket = orjson.loads(r["fp_bucket_json"])
             for v in fp_bucket.values():
                 assert isinstance(v, (int, float, str)), (
                     f"non-scalar in fp_bucket: {v!r}"

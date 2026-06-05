@@ -54,6 +54,7 @@ def distribute_permutations(npermutations: int, n_workers: int) -> list:
 
 @njit(cache=True)
 def shuffle_arr(arr: np.ndarray) -> None:
+    """In-place Fisher-Yates shuffle via numba's ``np.random.shuffle`` (the simple permutation source; ``shuffle_arr_lcg`` is the faster inline-LCG variant for hot loops)."""
     np.random.shuffle(arr)
 
 
@@ -94,7 +95,7 @@ def parallel_mi_besag_clifford(
     p_low: float = 0.01,
     p_high: float = 0.05,
     min_perms: int = 30,
-    dtype=np.int32,
+    dtype: type = np.int32,
     use_su: bool = False,  # 2026-05-28: SU normalization toggle threaded from mi_direct.
 ) -> tuple:
     """Besag-Clifford sequential permutation test with early stopping.
@@ -163,7 +164,7 @@ def parallel_mi_besag_clifford_with_null(
     p_low: float = 0.01,
     p_high: float = 0.05,
     min_perms: int = 30,
-    dtype=np.int32,
+    dtype: type = np.int32,
     use_su: bool = False,
 ) -> tuple:
     """Null-mean-accumulating twin of :func:`parallel_mi_besag_clifford`.
@@ -223,7 +224,7 @@ def parallel_mi_prange(
     npermutations: int,
     original_mi: float,
     base_seed: np.uint64,
-    dtype=np.int32,
+    dtype: type = np.int32,
     use_su: bool = False,  # 2026-05-28: SU normalization toggle threaded from mi_direct.
 ) -> tuple:
     """Inner-loop parallel permutation test.
@@ -276,7 +277,7 @@ def parallel_mi_prange_with_null(
     npermutations: int,
     original_mi: float,
     base_seed: np.uint64,
-    dtype=np.int32,
+    dtype: type = np.int32,
     use_su: bool = False,
 ) -> tuple:
     """Null-mean-accumulating twin of :func:`parallel_mi_prange`.
@@ -323,7 +324,7 @@ def parallel_mi(
     npermutations: int,
     original_mi: float,
     max_failed: int,
-    dtype=np.int32,
+    dtype: type = np.int32,
     base_seed: np.uint64 = np.uint64(0),
     use_su: bool = False,  # 2026-05-28: SU normalization toggle threaded from mi_direct.
     perm_offset: int = 0,  # 2026-05-30 Wave 9.1 iter 18: cumulative permutation index offset for n_workers-independent seeding.
@@ -390,7 +391,7 @@ def parallel_mi_with_null(
     npermutations: int,
     original_mi: float,
     max_failed: int,
-    dtype=np.int32,
+    dtype: type = np.int32,
     base_seed: np.uint64 = np.uint64(0),
     use_su: bool = False,
     perm_offset: int = 0,
@@ -431,12 +432,12 @@ def parallel_mi_with_null(
 
 
 def mi_direct(
-    factors_data,
+    factors_data: np.ndarray,
     x: tuple,
     y: tuple,
     factors_nbins: np.ndarray,
     min_occupancy: int = None,
-    dtype=np.int32,
+    dtype: type = np.int32,
     npermutations: int = 10,
     max_failed: int = None,
     min_nonzero_confidence: float = 0.95,

@@ -25,4 +25,6 @@ from mlframe.utils._param_oracle import (  # noqa: F401
     ParamOracle,
     bucketize_fingerprint,
     default_fingerprint,
+    loads_json,
+    stable_json,
 )

@@ -48,7 +48,7 @@ from typing import Any, Mapping, Optional, Sequence
 import numpy as np
 import pandas as pd
 
-from mlframe.utils._param_oracle import (
+from mlframe.utils import (
     ParamOracle,
     bucketize_fingerprint,
     default_fingerprint,
@@ -182,14 +182,14 @@ class OracleScorerSelector:
         ]
         if not rows:
             return None
-        from mlframe.utils._param_oracle import _stable_json
-        target_key = _stable_json(bucketize_fingerprint(fp))
+        from mlframe.utils import stable_json
+        target_key = stable_json(bucketize_fingerprint(fp))
         exact = [r for r in rows if r.get("fp_bucket_json") == target_key]
         best = self.oracle._best_row(exact, require_confident=True)
         if best is None:
             return None
-        from mlframe.utils._param_oracle import _loads
-        combo = _loads(best.get("param_combo_json"))
+        from mlframe.utils import loads_json
+        combo = loads_json(best.get("param_combo_json"))
         scorer = combo.get("scorer")
         if scorer in self.scorer_names:
             return str(scorer)
