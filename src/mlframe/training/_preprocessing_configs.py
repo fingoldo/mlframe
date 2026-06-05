@@ -118,10 +118,11 @@ class TrainingSplitConfig(BaseConfig):
 
     test_size: float = Field(default=0.1, ge=0.0, le=1.0)
     val_size: float = Field(default=0.1, ge=0.0, le=1.0)
-    # Opt-in reserved calibration slice carved out of train. When set (e.g. 0.1), the splitter reserves the fraction
-    # for ``post_calibrate_model`` to fit its meta-calibrator on rows that are neither test (would leak holdout) nor
-    # val (would burn the early-stop budget twice). Default ``None`` means: caller passes OOF-train probs directly to
-    # ``post_calibrate_model.calib_probs`` instead, OR the trainer's stamped ``model.oof_probs`` is used.
+    # Reserved fraction intended for a disjoint calibration slice carved out of train (for ``post_calibrate_model``,
+    # which must not touch test=holdout nor val=early-stop budget). Currently SUM-VALIDATED ONLY: the splitter does not
+    # yet carve a ``calib_idx`` and the suite does not auto-invoke post-hoc calibration on it. Use OOF-train probs via
+    # ``post_calibrate_model.calib_probs`` (or the trainer's stamped ``model.oof_probs``), or pass an explicit
+    # ``calib_idx``, until the end-to-end carve+auto-calibrate is wired.
     calib_size: Optional[float] = Field(default=None, ge=0.0, lt=1.0)
     shuffle_val: bool = False
     shuffle_test: bool = False

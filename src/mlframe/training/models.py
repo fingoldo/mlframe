@@ -31,8 +31,22 @@ from sklearn.calibration import CalibratedClassifierCV
 import sklearn as _sklearn
 
 from .configs import LinearModelConfig
+from ._configs_base import DEFAULT_RANDOM_SEED
 
 logger = logging.getLogger(__name__)
+
+
+def _make_calibrated_classifier_cv(model, *, random_state: int = DEFAULT_RANDOM_SEED):
+    """Wrap ``model`` in a seeded ``CalibratedClassifierCV``.
+
+    Passing an int ``cv`` makes sklearn build an unshuffled ``StratifiedKFold`` whose folds ignore ``random_state``,
+    so the calibrated probabilities were mildly non-reproducible across runs. We pass an explicit seeded
+    ``StratifiedKFold(shuffle=True, random_state=...)`` so the inner calibration CV is pinned to the suite master seed.
+    """
+    from sklearn.model_selection import StratifiedKFold
+
+    inner_cv = StratifiedKFold(n_splits=DEFAULT_CALIBRATION_CV_FOLDS, shuffle=True, random_state=random_state)
+    return CalibratedClassifierCV(model, cv=inner_cv, method="isotonic")
 
 
 def _sklearn_deprecates_penalty() -> bool:
@@ -409,7 +423,7 @@ def create_linear_model(
     # Apply calibration for classifiers if requested
     if not use_regression and config.use_calibrated_classifier and hasattr(model, "predict_proba"):
         logger.info("Wrapping %s with CalibratedClassifierCV", model_type)
-        model = CalibratedClassifierCV(model, cv=DEFAULT_CALIBRATION_CV_FOLDS, method="isotonic")
+        model = _make_calibrated_classifier_cv(model, random_state=getattr(config, "random_state", DEFAULT_RANDOM_SEED))
 
     return model
 

@@ -211,6 +211,7 @@ def _compute_oof_preds(
     n_splits: int,
     random_seed: int,
     group_ids=None,
+    has_time: bool = False,
 ):
     """Compute K-fold OOF predictions for level-1 stacking. Returns (oof_preds, oof_probs) or (None, None) on skip.
 
@@ -218,7 +219,10 @@ def _compute_oof_preds(
     is to ensure the predictions a meta-learner sees on each training row were produced by a sub-model that did NOT
     see that row during fit. ``cross_val_predict`` returns exactly that vector (one held-out prediction per row).
 
-    We use ``KFold`` (or ``GroupKFold`` if group_ids supplied), shuffled with the provided seed for reproducibility.
+    Splitter selection mirrors RFECV: temporal suites (``has_time``) use ``TimeSeriesSplit`` so no future train row
+    predicts a past one -- a shuffled fold leaks future-into-past on autocorrelated/non-stationary targets and yields
+    optimistic, selection-biased OOF (the OOF surface drives ensemble winner selection). ``GroupKFold`` honours an
+    explicit grouping signal; only the genuinely i.i.d. case uses shuffled ``KFold`` (seeded from the suite seed).
     Multi-output / multilabel paths are deliberately skipped here - upstream classifier-chain / multi-output wrappers
     are non-trivial to retrofit through ``cross_val_predict`` and the level-1 stacker only reads ``oof_preds`` when
     ``max_ensembling_level > 1``; for the multi-output case we fail fast at the stacker rather than risk silently
@@ -234,18 +238,10 @@ def _compute_oof_preds(
         # Too few rows for meaningful K-fold; level-1 stacking on tiny data isn't a realistic use case anyway.
         return None, None
     try:
-        from sklearn.model_selection import KFold, GroupKFold, cross_val_predict
+        from sklearn.model_selection import KFold, GroupKFold, TimeSeriesSplit, cross_val_predict
         from sklearn.base import clone
     except ImportError:
         return None, None
-
-    if group_ids is not None and len(group_ids) == n_rows:
-        # Drop shuffle: GroupKFold does not accept shuffle/seed, and group-aware OOF respects the user's grouping signal.
-        splitter = GroupKFold(n_splits=min(n_splits, len(set(np.asarray(group_ids)))))
-        _groups_arg = np.asarray(group_ids)
-    else:
-        splitter = KFold(n_splits=n_splits, shuffle=True, random_state=random_seed)
-        _groups_arg = None
 
     # Use clone() so the original (already-fit) model is not retrained in place.
     try:
@@ -255,6 +251,27 @@ def _compute_oof_preds(
         return None, None
 
     method = "predict_proba" if is_classifier_model and hasattr(estimator, "predict_proba") else "predict"
+
+    if has_time and not (group_ids is not None and len(group_ids) == n_rows):
+        # Temporal suite, no groups: TimeSeriesSplit is NOT a partition (early rows are never a test fold), so
+        # cross_val_predict refuses it. Run the fold loop manually and leave the warm-up block as NaN -- no honest
+        # OOF prediction exists for rows that were never held out. This mirrors the RFECV TimeSeriesSplit path while
+        # keeping the OOF surface temporally honest (no future row predicts a past one).
+        return _compute_oof_preds_timeseries(
+            estimator=estimator, train_df=train_df, train_target=train_target,
+            method=method, n_splits=n_splits,
+        )
+
+    if group_ids is not None and len(group_ids) == n_rows:
+        # Drop shuffle: GroupKFold does not accept shuffle/seed, and group-aware OOF respects the user's grouping signal.
+        # Group structure takes precedence over the time axis: TimeSeriesSplit has no group-awareness, so a grouped
+        # temporal suite keeps whole groups together (the splitter upstream already assigns spanning groups to the
+        # later split, preserving temporal honesty at the group granularity).
+        splitter = GroupKFold(n_splits=min(n_splits, len(set(np.asarray(group_ids)))))
+        _groups_arg = np.asarray(group_ids)
+    else:
+        splitter = KFold(n_splits=n_splits, shuffle=True, random_state=random_seed)
+        _groups_arg = None
 
     try:
         oof = cross_val_predict(
@@ -273,6 +290,49 @@ def _compute_oof_preds(
     if method == "predict_proba":
         return None, np.asarray(oof)
     return np.asarray(oof), None
+
+
+def _compute_oof_preds_timeseries(*, estimator, train_df, train_target, method: str, n_splits: int):
+    """Manual TimeSeriesSplit OOF: cross_val_predict can't be used (TimeSeriesSplit is not a partition).
+
+    Returns (oof_preds, oof_probs) where the warm-up rows (those never in any test fold) are NaN. Downstream OOF
+    consumers mask non-finite rows before scoring.
+    """
+    from sklearn.base import clone as _clone
+    from sklearn.model_selection import TimeSeriesSplit
+
+    try:
+        n_rows = len(train_df)
+    except TypeError:
+        return None, None
+    y_arr = np.asarray(train_target)
+
+    def _row(df, idx):
+        if hasattr(df, "iloc"):
+            return df.iloc[idx]
+        return df[idx]
+
+    tss = TimeSeriesSplit(n_splits=n_splits)
+    oof_proba = None
+    oof_pred = np.full(n_rows, np.nan, dtype=float)
+    try:
+        for tr_idx, te_idx in tss.split(np.arange(n_rows)):
+            est = _clone(estimator)
+            est.fit(_row(train_df, tr_idx), y_arr[tr_idx])
+            if method == "predict_proba":
+                p = np.asarray(est.predict_proba(_row(train_df, te_idx)))
+                if oof_proba is None:
+                    oof_proba = np.full((n_rows, p.shape[1]), np.nan, dtype=float)
+                oof_proba[te_idx] = p
+            else:
+                oof_pred[te_idx] = np.asarray(est.predict(_row(train_df, te_idx))).ravel()
+    except (ValueError, TypeError, RuntimeError, NotImplementedError) as exc:  # noqa: BLE001
+        logger.info("Time-aware OOF prediction skipped: %s", exc)
+        return None, None
+
+    if method == "predict_proba":
+        return None, oof_proba
+    return oof_pred, None
 
 
 def _build_configs_from_params(

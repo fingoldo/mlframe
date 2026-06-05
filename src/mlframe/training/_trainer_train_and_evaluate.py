@@ -138,8 +138,15 @@ def train_and_evaluate_model(
     trainset_features_stats: dict | None = None,
     trusted_root: str | None = None,
     oof_n_splits: int = 0,
+    oof_has_time: bool = False,
+    oof_random_seed: int = 42,
 ):
     """Train and evaluate a machine learning model with comprehensive metrics and optional caching.
+
+    ``oof_has_time`` selects the OOF splitter: when True the K-fold OOF pass uses ``TimeSeriesSplit`` (temporal honesty,
+    no future-into-past leak) instead of a shuffled ``KFold``. ``oof_random_seed`` is the suite master seed plumbed
+    into the i.i.d. shuffled-KFold OOF path (replaces the historical hardcoded 42 so the OOF surface varies with the
+    run seed for variance/stability analysis).
 
     ``oof_n_splits=0`` (default, changed from 5 in fuzz iter#195) opts the K-fold OOF prediction
     pass OUT by default. The pass runs ``cross_val_predict`` with K refits of the model and at
@@ -708,8 +715,9 @@ def train_and_evaluate_model(
                         train_target=train_target,
                         is_classifier_model=_is_clf_for_oof,
                         n_splits=int(oof_n_splits),
-                        random_seed=42,
+                        random_seed=int(oof_random_seed),
                         group_ids=group_ids[train_idx] if (group_ids is not None and train_idx is not None) else None,
+                        has_time=bool(oof_has_time),
                     )
                     try:
                         if _oof_preds is not None:

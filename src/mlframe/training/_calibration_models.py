@@ -255,20 +255,43 @@ class _PostHocMultiCalibratedModel:
         return _predict_from_probs(probs, self._target_type, classes_=self._classes)
 
 
-def _maybe_apply_posthoc_calibration(model, fit_params, model_type_name, verbose=False):
-    """If the fitted estimator was tagged for post-hoc calibration and an
-    eval_set is available, fit an IsotonicRegression on (val_preds, val_y)
-    and return a wrapped model. Otherwise return the model unchanged.
-    """
-    try:
-        inner = model.steps[-1][1] if hasattr(model, "steps") else model
-    except Exception:
-        inner = model
+def _model_probs_are_posthoc_calibrated(model) -> bool:
+    """True iff ``model``'s probabilities come from a held-set post-hoc calibrator (``CalibratedClassifierCV`` or one of
+    the project's post-hoc wrappers), as opposed to merely being calibration-trained via an eval-metric swap (trees)."""
+    from sklearn.calibration import CalibratedClassifierCV
 
-    want_calib = getattr(inner, "_mlframe_posthoc_calibrate", False) or getattr(model, "_mlframe_posthoc_calibrate", False)
-    if not want_calib:
-        return model
-    # Post-hoc calibration hook is now a no-op. Calibration is handled
-    # pre-fit by wrapping classifiers in CalibratedClassifierCV (see
-    # _configure_*_params). This avoids the val-set overfitting problem.
+    candidates = [model]
+    try:
+        if hasattr(model, "steps") and model.steps:
+            candidates.append(model.steps[-1][1])
+    except Exception:
+        pass
+    for obj in candidates:
+        if isinstance(obj, (CalibratedClassifierCV, _PostHocCalibratedModel, _PostHocMultiCalibratedModel)):
+            return True
+    return False
+
+
+def _maybe_apply_posthoc_calibration(model, fit_params, model_type_name, verbose=False):
+    """Stamp ``model._mlframe_probs_posthoc_calibrated`` to record whether the probabilities are post-hoc calibrated.
+
+    There is NO behaviour change here beyond the metadata flag. The ``prefer_calibrated_classifiers`` flag means two
+    different things by model family, which is easy to misread:
+
+    - Linear classifiers are wrapped pre-fit in ``CalibratedClassifierCV`` (internal CV, honest, no test touch); their
+      probabilities ARE genuinely held-set post-hoc calibrated -> flag True.
+    - Tree models only get their *training objective* tuned toward calibration (the early-stopping / eval metric is
+      swapped to ``integral_calibration_error``); no disjoint-set post-hoc calibrator is fit, so the flag is False.
+      This is deliberate: fitting an isotonic wrapper on val would burn the early-stopping budget twice / overfit val.
+      The honest post-hoc path for trees is ``post_calibrate_model`` on a disjoint calib slice (TrainingSplitConfig.calib_size).
+
+    The historical isotonic-on-val wrapper this hook once applied was disabled for exactly that val-overfitting reason;
+    the hook stays as the single place the per-model calibration state is surfaced to downstream metadata.
+    """
+    is_posthoc = _model_probs_are_posthoc_calibrated(model)
+    try:
+        setattr(model, "_mlframe_probs_posthoc_calibrated", is_posthoc)
+    except (AttributeError, TypeError):
+        # Slot-only / read-only estimators refuse new attrs; metadata consumers fall back to getattr(..., None).
+        pass
     return model

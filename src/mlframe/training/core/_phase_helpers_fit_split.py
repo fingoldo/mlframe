@@ -324,7 +324,7 @@ def _phase_train_val_test_split(
         # then bucket_stratify) because new caller-side fields shipped
         # without exclude updates. Caller-side fields documented:
         #   use_groups -- derives _groups upstream
-        #   calib_size -- downstream post-train carve
+        #   calib_size -- reserved/sum-validated only; no calibration slice is carved yet (manual post_calibrate_model path)
         #   composite_cardinality_cap -- bucket-stratify gate (line ~139)
         #   bucket_stratify -- selects the bucket-stratify branch
         # Signature-derived filtering catches future additions automatically.

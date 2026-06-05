@@ -166,8 +166,9 @@ def post_calibrate_model(
 
     1. ``(calib_probs, calib_target)`` supplied directly -- typical for OOF-train probs produced by the trainer's
        ``cross_val_predict`` step. No row leakage by construction.
-    2. ``calib_idx`` -- a reserved slice from train (opt-in via ``TrainingSplitConfig.calib_size``); must be disjoint
-       from ``test_idx``. We assert the intersection is empty before any ``meta_model.fit(...)`` call.
+    2. ``calib_idx`` -- a caller-supplied calibration slice (must be disjoint from ``test_idx``; we assert the
+       intersection is empty before any ``meta_model.fit(...)`` call). NOTE: ``TrainingSplitConfig.calib_size`` does
+       NOT yet auto-carve this slice -- pass ``calib_idx`` explicitly until the end-to-end carve+auto-calibrate is wired.
 
     Parameters
     ----------

@@ -30,6 +30,7 @@ instead of crashing the suite finalize phase.
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 from datetime import datetime, timezone
@@ -63,7 +64,20 @@ def _is_binary_classif(y: np.ndarray) -> bool:
     return u.size == 2 and set(u.tolist()).issubset({0, 1, 0.0, 1.0, True, False})
 
 
-def _bootstrap_block(y_true: np.ndarray, probs: np.ndarray, preds: Optional[np.ndarray] = None) -> dict[str, Any]:
+def _derive_seed(master_seed: int, key: str) -> int:
+    """Derive a stable per-target/per-block bootstrap seed from the suite master seed.
+
+    Hashing the (master_seed, key) pair gives each target an independent-but-reproducible seed so the whole diagnostics
+    run is reproducible from the one master seed, while distinct targets don't share a single fixed-0 seed. Kept in the
+    int32 range for sklearn / numpy splitter compatibility.
+    """
+    h = hashlib.blake2b(f"{int(master_seed)}|{key}".encode("utf-8"), digest_size=4).digest()
+    return int.from_bytes(h, "big") % (2**31 - 1)
+
+
+def _bootstrap_block(
+    y_true: np.ndarray, probs: np.ndarray, preds: Optional[np.ndarray] = None, *, rng_seed: int = 0,
+) -> dict[str, Any]:
     """Compute bootstrap CIs for the binary top-line metrics that apply to ``(y_true, probs)``."""
     from mlframe.evaluation.bootstrap import bootstrap_metric, bootstrap_metrics
 
@@ -73,7 +87,6 @@ def _bootstrap_block(y_true: np.ndarray, probs: np.ndarray, preds: Optional[np.n
     else:
         p_pos = p.ravel() if p is not None else None
     out: dict[str, Any] = {}
-    rng_seed = 0
 
     if p_pos is not None and _is_binary_classif(y_true):
         metric_fns: dict = {}
@@ -196,18 +209,31 @@ def _drift_block(ctx: Any) -> dict[str, Any]:
         return {"status": "skipped", "reason": f"{type(exc).__name__}: {exc}"}
 
 
-def _calibration_block(model_entry: Any, target_name: str, out_dir: Optional[str]) -> dict[str, Any]:
+def _posthoc_calibrated_flag(model_entry: Any) -> Optional[bool]:
+    """Read whether this model's probabilities were held-set post-hoc calibrated (True), eval-metric calibration-trained
+    only (False, the tree default), or unknown (None). Stamped by ``_maybe_apply_posthoc_calibration``."""
+    for obj in (model_entry, getattr(model_entry, "model", None)):
+        if obj is None:
+            continue
+        flag = getattr(obj, "_mlframe_probs_posthoc_calibrated", None)
+        if flag is not None:
+            return bool(flag)
+    return None
+
+
+def _calibration_block(model_entry: Any, target_name: str, out_dir: Optional[str], *, rng_seed: int = 0) -> dict[str, Any]:
     """Emit reliability plot + auto-pick verdict for ``model_entry`` when OOF probs are available."""
+    _posthoc = _posthoc_calibrated_flag(model_entry)
     oof = getattr(model_entry, "oof_probs", None)
     if oof is None:
         # Some entries expose ``model.oof_probs`` instead of attaching directly on the entry tuple.
         inner = getattr(model_entry, "model", None)
         oof = getattr(inner, "oof_probs", None) if inner is not None else None
     if oof is None:
-        return {"status": "skipped", "reason": "no oof_probs on model entry"}
+        return {"status": "skipped", "reason": "no oof_probs on model entry", "probs_posthoc_calibrated": _posthoc}
     oof_arr = _safe_arr(oof)
     if oof_arr is None:
-        return {"status": "skipped", "reason": "oof_probs empty / unreadable"}
+        return {"status": "skipped", "reason": "oof_probs empty / unreadable", "probs_posthoc_calibrated": _posthoc}
     # OOF target: prefer attached attribute, fall back to test_target as poor-but-consistent proxy.
     y = getattr(model_entry, "oof_target", None)
     if y is None:
@@ -233,7 +259,7 @@ def _calibration_block(model_entry: Any, target_name: str, out_dir: Optional[str
             probs=None, y=None,
             oof_probs=oof_arr, oof_y=y_arr,
             n_bootstrap=500,
-            random_state=0,
+            random_state=rng_seed,
             emit_plot=bool(plot_path),
             plot_path=plot_path,
         )
@@ -246,6 +272,7 @@ def _calibration_block(model_entry: Any, target_name: str, out_dir: Optional[str
             "n_oof": out["n_oof"],
             "plot_path": out["plot_path"],
             "alternatives": out["alternatives"],
+            "probs_posthoc_calibrated": _posthoc,
         }
     except Exception as exc:
         logger.warning("honest_diagnostics: calibration block failed for %s: %s", target_name, exc)
@@ -326,6 +353,11 @@ def run_honest_diagnostics(
     if metadata is None:
         metadata = {}
 
+    # Suite master seed: derive every per-target bootstrap / calibration seed from it so the whole diagnostics run is
+    # reproducible from one seed (previously each block used a fixed 0, so distinct targets shared the same draws).
+    _split_cfg = getattr(ctx, "split_config", None)
+    master_seed = int(getattr(_split_cfg, "random_seed", 42)) if _split_cfg is not None else 42
+
     reports_dir = _resolve_reports_dir(ctx)
     payload: dict[str, Any] = {
         "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -345,7 +377,9 @@ def run_honest_diagnostics(
             payload["bootstrap_ci"][key] = {"status": "skipped", "reason": "no test_target / test_probs"}
             continue
         try:
-            payload["bootstrap_ci"][key] = _bootstrap_block(y_test, p_test, getattr(entry, "test_preds", None))
+            payload["bootstrap_ci"][key] = _bootstrap_block(
+                y_test, p_test, getattr(entry, "test_preds", None), rng_seed=_derive_seed(master_seed, key),
+            )
         except Exception as exc:
             payload["bootstrap_ci"][key] = {"status": "skipped", "reason": f"{type(exc).__name__}: {exc}"}
 
@@ -355,7 +389,9 @@ def run_honest_diagnostics(
     # Block 3: calibration reliability + auto-pick verdict, per (target_type, target_name, model).
     for tt_str, tname, entry in _walk_top_models(models):
         key = f"{tt_str}/{tname}/{getattr(entry, 'model_name', type(getattr(entry, 'model', entry)).__name__)}"
-        payload["calibration"][key] = _calibration_block(entry, target_name=tname, out_dir=reports_dir)
+        payload["calibration"][key] = _calibration_block(
+            entry, target_name=tname, out_dir=reports_dir, rng_seed=_derive_seed(master_seed, key + "/calib"),
+        )
 
     # Block 4: provenance disposition table.
     payload["provenance"] = _provenance_block(metadata)

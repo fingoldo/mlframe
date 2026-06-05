@@ -297,6 +297,10 @@ def _call_train_evaluate_with_configs(
     train_od_idx = all_params.pop("train_od_idx", None)
     val_od_idx = all_params.pop("val_od_idx", None)
     all_params.pop("trainset_features_stats", None)  # use function arg
+    # OOF K-fold controls flow straight to the trainer, not through the config builder.
+    oof_n_splits = all_params.pop("oof_n_splits", 0)
+    oof_has_time = all_params.pop("oof_has_time", False)
+    oof_random_seed = all_params.pop("oof_random_seed", 42)
 
     # Add control params
     all_params["pre_pipeline"] = pre_pipeline
@@ -323,6 +327,9 @@ def _call_train_evaluate_with_configs(
         train_od_idx=train_od_idx,
         val_od_idx=val_od_idx,
         trainset_features_stats=trainset_features_stats,
+        oof_n_splits=oof_n_splits,
+        oof_has_time=oof_has_time,
+        oof_random_seed=oof_random_seed,
     )
 
 
