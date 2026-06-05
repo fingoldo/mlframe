@@ -263,6 +263,9 @@ def select_optimal_nfeatures_(
     rule = getattr(self, "n_features_selection_rule", "auto")
     if rule == "auto":
         rule = "one_se_max"
+    # Surface the resolved rule (after 'auto' expansion) so the FS report can show which selection rule
+    # actually picked n_features_ without re-deriving the auto logic.
+    self.resolved_n_features_rule_ = rule
 
     nfeatures_arr = np.array(checked_nfeatures)
     nonzero_mask = nfeatures_arr > 0

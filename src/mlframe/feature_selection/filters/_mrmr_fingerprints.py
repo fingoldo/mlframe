@@ -415,6 +415,51 @@ def _target_to_numpy_values(y) -> np.ndarray:
     return np.asarray(y)
 
 
+def _mrmr_y_corr_sample(y, max_sample: int = 1000) -> np.ndarray:
+    """Deterministic strided numeric sample of a target for the identity-cache y-correlation gate.
+
+    Returns a 1-D float array of length <= ``max_sample`` (never the full y; cheap on TB frames). Non-numeric
+    targets are factorized to integer codes so a categorical y still yields a comparable numeric vector. The
+    SAME stride rule is applied at write and read time so two samples align positionally for correlation.
+    """
+    arr = _target_to_numpy_values(y)
+    arr = np.asarray(arr)
+    if arr.ndim > 1:
+        arr = arr.reshape(arr.shape[0], -1)[:, 0]
+    n = arr.shape[0]
+    if n == 0:
+        return np.zeros(0, dtype=np.float64)
+    step = max(1, n // max_sample)
+    sample = arr[::step][:max_sample]
+    if not np.issubdtype(sample.dtype, np.number):
+        # Factorize non-numeric (object/str/categorical) codes so the gate still has a numeric vector.
+        _, codes = np.unique(sample.astype(str), return_inverse=True)
+        return codes.astype(np.float64)
+    return sample.astype(np.float64)
+
+
+def _mrmr_y_corr(a: np.ndarray, b: np.ndarray):
+    """|Pearson correlation| between two equal-length numeric samples; ``None`` when undefined.
+
+    Returns ``None`` (caller treats as "cannot confirm") when the lengths differ, either sample is constant, or
+    the correlation is NaN. Used only by the identity-cache y-correlation gate, never on a hot per-row path.
+    """
+    if a is None or b is None:
+        return None
+    a = np.asarray(a, dtype=np.float64)
+    b = np.asarray(b, dtype=np.float64)
+    if a.shape[0] != b.shape[0] or a.shape[0] < 2:
+        return None
+    if not np.isfinite(a).all() or not np.isfinite(b).all():
+        return None
+    if a.std() == 0.0 or b.std() == 0.0:
+        return None
+    c = float(np.corrcoef(a, b)[0, 1])
+    if not np.isfinite(c):
+        return None
+    return c
+
+
 def _target_name_signature(y) -> tuple:
     """Return a tuple of column names (or Series ``name``) for ``y`` if available.
 

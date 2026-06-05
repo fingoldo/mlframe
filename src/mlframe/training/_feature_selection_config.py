@@ -26,7 +26,7 @@ from ._configs_base import BaseConfig
 # RFECV -- otherwise the (default-ON) cluster-reduce wrap is unreachable via
 # FeatureSelectionConfig: the validator rejects the keys before the registry pops them.
 _REGISTRY_CLUSTER_REDUCE_KEYS = frozenset(
-    {"cluster_reduce", "cluster_corr_threshold", "cluster_min_reduction"}
+    {"cluster_reduce", "cluster_corr_threshold", "cluster_min_reduction", "cluster_corr_method"}
 )
 
 
@@ -48,6 +48,11 @@ class FeatureSelectionConfig(BaseConfig):
         Arguments for RFECV. Expected keys: step, min_features_to_select, cv, scoring.
     """
 
+    # Default FS is UNSUPERVISED-ONLY: only the variance==0 / nulls>99% pre-screen (pre_screen_unsupervised)
+    # runs by default; no supervised filter is applied unless the operator opts into MRMR / RFECV / BorutaShap.
+    # A cheap default-on supervised filter (univariate MI top-k) was benched (_benchmarks/bench_supervised_fs_default.py)
+    # and REJECTED as a default: it wins on linear downstreams + wide/noisy data but HURTS noise-robust tree
+    # downstreams on low-noise data (does not win on the majority across model families), so supervised FS stays opt-in.
     use_mrmr_fs: bool = False
     mrmr_kwargs: Optional[Dict[str, Any]] = None
     rfecv_models: Optional[List[str]] = None

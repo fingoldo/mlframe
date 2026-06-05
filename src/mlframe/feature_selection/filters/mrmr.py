@@ -45,6 +45,8 @@ from ._mrmr_fingerprints import (  # noqa: E402,F401
     _canonicalise_dtype_str,
     _mrmr_compute_y_fingerprint_sample,
     _mrmr_compute_x_fingerprint,
+    _mrmr_y_corr_sample,
+    _mrmr_y_corr,
     _hashable_params_signature,
     _content_array_signature,
     _target_to_numpy_values,
@@ -601,7 +603,10 @@ class MRMR(BaseEstimator, TransformerMixin):
         # service
         random_state: int = None,
         n_jobs: int = -1,
-        skip_retraining_on_same_shape: bool = True,
+        # Skip the full re-fit when a process-cache hit replays a prior fit on the SAME content. The fit cache keys on CONTENT signatures of X and y (not merely shape), so a same-shape-but-different-y call never replays a stale fit.
+        skip_retraining_on_same_content: bool = True,
+        # Deprecated alias for ``skip_retraining_on_same_content`` (the old name implied shape-only keying, which was always a misnomer). Pass ``None`` to defer to the new name; a non-None value overrides it with a DeprecationWarning.
+        skip_retraining_on_same_shape: bool = None,
         # Cardinality cutoff for the confirmation step. ``None`` (default) computes
         # ``quantization_nbins ** interactions_max_order * 2`` (20 for the defaults). Pin to 50 for legacy behaviour.
         # Conservative default skips high-cardinality conditioning sets where permutation-based confirmation does not
@@ -657,6 +662,15 @@ class MRMR(BaseEstimator, TransformerMixin):
         #
         # Default True (accuracy/perf over legacy): on multi-target suites the second MRMR call on the same X usually hits the cache and saves the full FE pipeline run-time. The conservative case (prior identity result was wrong for the new target) is rare in practice because composite-target y values are highly correlated with the raw y -- if MRMR found nothing on raw y, it almost never finds something on the residual.
         mrmr_skip_when_prior_was_identity: bool = True,
+        # Y-correlation gate on the cross-target identity short-circuit. The "prior identity implies new-target
+        # identity" assumption only holds when the new target is correlated with the one that produced the
+        # cached identity result. When a candidate hit is found, |corr(new_y_sample, prior_y_sample)| is measured
+        # against this threshold; below it, the short-circuit is REFUSED and a full fit runs (the cached entry is
+        # left intact for genuinely-correlated future targets). ``mrmr_identity_cache_ycorr_threshold=0.0``
+        # disables the gate (legacy: any X-fingerprint hit short-circuits). Default 0.5 (bench-set): a moderate
+        # correlation floor that admits composite/residual targets (highly correlated with raw y) while refusing
+        # an unrelated target on the same X. The threshold is benched in _benchmarks/bench_identity_cache_ycorr.py.
+        mrmr_identity_cache_ycorr_threshold: float = 0.5,
         # When True, ``fit(groups=...)`` raises ``NotImplementedError`` instead of emitting the warn-only "MRMR does not consume groups" UserWarning. Use this in production pipelines where silently
         # ignoring groups would mask a real correctness gap (cross-group leakage in MI estimation on panel / user-session / sliding-window data). Default False keeps the legacy warn behaviour for
         # ad-hoc callers who already know the limitation and want MI computed per-row anyway.
@@ -1817,6 +1831,19 @@ class MRMR(BaseEstimator, TransformerMixin):
                     stacklevel=2,
                 )
 
+        # Reconcile the deprecated ``skip_retraining_on_same_shape`` alias into the canonical
+        # ``skip_retraining_on_same_content``. The cache keys on content signatures, never shape; the old
+        # name was a misnomer. A non-None legacy value wins (explicit user intent) but warns.
+        if skip_retraining_on_same_shape is not None:
+            warnings.warn(
+                "MRMR: skip_retraining_on_same_shape is deprecated and misnamed (the fit cache keys on "
+                "CONTENT, not shape); use skip_retraining_on_same_content instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            skip_retraining_on_same_content = bool(skip_retraining_on_same_shape)
+        skip_retraining_on_same_shape = skip_retraining_on_same_content
+
         # save params
         store_params_in_object(obj=self, params=get_parent_func_args())
         self.signature = None
@@ -2089,6 +2116,10 @@ class MRMR(BaseEstimator, TransformerMixin):
             "_cat_fe_state_": None,
             "_cat_fe_cache_": None,  # streaming cache; None on legacy pickles
             "strict_groups": False,  # added 2026-05-25; legacy pickles default to warn-only behaviour
+            # Renamed from skip_retraining_on_same_shape (misnomer; cache keys on content). Legacy pickles carry only the old attr; inject the new one so _fit_impl's getattr resolves.
+            "skip_retraining_on_same_content": True,
+            # Identity-cache y-correlation gate (added later); legacy pickles default to 0.0 (gate off = legacy any-X-fingerprint short-circuit) to preserve their behaviour bit-for-bit.
+            "mrmr_identity_cache_ycorr_threshold": 0.0,
             # Friend-graph post-analysis (added 2026-05-27). Legacy pickles refit with the
             # current defaults; ``friend_graph_`` itself is a fitted attribute, not seeded here.
             "build_friend_graph": True,
@@ -2477,6 +2508,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         Wrapper / _fit_impl forwarding asymmetry: ``sample_weight`` is CONSUMED at this wrapper level (via ``_maybe_resample_for_sample_weight`` before the ``_fit_impl`` call); ``groups`` is FORWARDED into ``_fit_impl`` which then silently drops them. A future refactor moving ``groups`` consumption into ``_fit_impl`` must also remove or downgrade the wrapper-level warning, otherwise the two ends would emit duplicate / contradictory messages.
 
         2026-05-18 #2: cross-target identity cache. When a prior fit on the SAME X (same columns + same dtypes) produced an identity result (all input columns selected + zero engineered features), subsequent calls with a different y short-circuit the 80+ min FE pipeline and return identity-equivalent output. Opt-in via ``mrmr_skip_when_prior_was_identity=True``."""
+        self.groups_ignored_ = False
         if groups is not None:
             if getattr(self, "strict_groups", False):
                 raise NotImplementedError(
@@ -2485,6 +2517,9 @@ class MRMR(BaseEstimator, TransformerMixin):
                     "with a per-group selector and aggregating manually, set strict_groups=False to "
                     "accept the warn-only fallback, or pass groups=None."
                 )
+            # Surfaced into fit metadata (groups_ignored_) so a downstream report can flag that MI was
+            # estimated group-naively despite a group-aware split.
+            self.groups_ignored_ = True
             warnings.warn(
                 "MRMR.fit received groups but the current implementation does NOT consume them; "
                 "MI is estimated per-row. For grouped MI estimation, wrap MRMR with a per-group "
@@ -2552,16 +2587,35 @@ class MRMR(BaseEstimator, TransformerMixin):
                 # T3#18: stricter cache key -- include y-fingerprint so legitimately distinct targets on same X get separate slots.
                 _x_fp = _x_fp + "_yfp_" + _mrmr_compute_y_fingerprint_sample(y)
             with _MRMR_IDENTITY_FP_LOCK:
-                _prior_was_identity = _cache_dict.get(_x_fp)
+                _prior_entry = _cache_dict.get(_x_fp)
+            # Entry is either a legacy bool or the (is_id, prior_y_sample) tuple stored below.
+            if isinstance(_prior_entry, tuple):
+                _prior_was_identity, _prior_y_sample = _prior_entry
+            else:
+                _prior_was_identity, _prior_y_sample = _prior_entry, None
             if _prior_was_identity is True:
+                _ycorr_thr = float(getattr(self, "mrmr_identity_cache_ycorr_threshold", 0.0) or 0.0)
+                _ycorr_ok = True
+                _measured_corr = None
+                if _ycorr_thr > 0.0 and _prior_y_sample is not None:
+                    _measured_corr = _mrmr_y_corr(_mrmr_y_corr_sample(y), _prior_y_sample)
+                    # NaN corr (constant sample / mismatched length) is treated as "cannot confirm" -> refuse.
+                    _ycorr_ok = _measured_corr is not None and abs(_measured_corr) >= _ycorr_thr
+                if _ycorr_ok:
+                    logger.info(
+                        "[MRMR] cross-target identity cache HIT for X fingerprint=%s (y-corr=%s, thr=%.3g) -- "
+                        "prior fit returned identity, skipping ~minute(s) of FE pipeline.",
+                        _x_fp, ("%.3f" % _measured_corr) if _measured_corr is not None else "n/a", _ycorr_thr,
+                    )
+                    self._fit_identity_shortcut(X)
+                    self._fit_sample_weight_ = None
+                    self._identity_cache_ycorr_ = _measured_corr
+                    return self
                 logger.info(
-                    "[MRMR] cross-target identity cache HIT for X fingerprint=%s -- "
-                    "prior fit returned identity, skipping ~minute(s) of FE pipeline.",
-                    _x_fp,
+                    "[MRMR] cross-target identity cache candidate REFUSED for X fingerprint=%s: "
+                    "|y-corr|=%.3f < threshold %.3g; running a full fit for this distinct target.",
+                    _x_fp, abs(_measured_corr) if _measured_corr is not None else float("nan"), _ycorr_thr,
                 )
-                self._fit_identity_shortcut(X)
-                self._fit_sample_weight_ = None
-                return self
 
         # Persist user-supplied weights so cached _cat_fe_state_ / FE replay can introspect; cache key
         # below already excludes weights so the FS-cache reuse contract stays intact when the suite
@@ -2681,8 +2735,13 @@ class MRMR(BaseEstimator, TransformerMixin):
                         and len(self.support_) == X.shape[1]
                         and len(getattr(self, "_engineered_features_", []) or []) == 0
                     )
+                    # Store (is_id, y_sample) so a later candidate hit can apply the y-correlation gate
+                    # (A1-06): the "prior identity implies new identity" assumption only holds for a target
+                    # correlated with the one that produced this entry. y_sample is a deterministic strided
+                    # numeric sample (cheap; never the full y). The value stays back-compatible: legacy bool
+                    # readers still see truthiness, and the read path below handles both bool and tuple.
                     with _MRMR_IDENTITY_FP_LOCK:
-                        _cache_dict[_x_fp] = bool(_is_id)
+                        _cache_dict[_x_fp] = (bool(_is_id), _mrmr_y_corr_sample(y) if _is_id else None)
                     if _is_id:
                         logger.info(
                             "[MRMR] cross-target identity cache STORED for X fingerprint=%s "

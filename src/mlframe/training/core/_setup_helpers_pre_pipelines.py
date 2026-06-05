@@ -32,6 +32,8 @@ def _build_pre_pipelines(
     use_sample_weights_in_fs: bool = False,
     mrmr_identity_cache: dict | None = None,
     target_type: Any = None,
+    fs_random_seed: int | None = None,
+    fs_use_groups: bool = False,
 ) -> tuple[list[Any], list[str]]:
     """Build lists of pre-pipelines and their names for feature selection.
 
@@ -81,6 +83,18 @@ def _build_pre_pipelines(
             else:
                 for _k, _v in _rfecv_overrides.items():
                     setattr(_rfecv_instance, _k, _v)
+            # Reproducibility: when the operator did not pin an RFECV random_state, default it from the
+            # split seed so the whole pipeline (split + FS + model) is reproducible from one seed. An
+            # explicitly-set random_state is left untouched.
+            if fs_random_seed is not None and getattr(_rfecv_instance, "random_state", None) is None:
+                _seed_set = getattr(_rfecv_instance, "set_params", None)
+                if callable(_seed_set):
+                    try:
+                        _seed_set(random_state=int(fs_random_seed))
+                    except (ValueError, TypeError):
+                        setattr(_rfecv_instance, "random_state", int(fs_random_seed))
+                else:
+                    setattr(_rfecv_instance, "random_state", int(fs_random_seed))
             # Suite-internal marker (user constraint: keep as setattr; not a public RFECV constructor kwarg).
             setattr(_rfecv_instance, "_mlframe_use_sample_weights_in_fs_", bool(use_sample_weights_in_fs))
             # Dedicated dispatch marker so downstream report-build / cache code can identify the selector
@@ -97,6 +111,16 @@ def _build_pre_pipelines(
         # registers a spec instead of touching this function.
         from mlframe.feature_selection.registry import get as _get_selector_spec
         _mrmr_spec = _get_selector_spec("MRMR")
+        # Reproducibility: default MRMR's seed from the split seed when the operator didn't pass one
+        # (random_seed=None makes MRMR non-deterministic via pid^id derivation). Explicit seeds win.
+        mrmr_kwargs = dict(mrmr_kwargs or {})
+        if fs_random_seed is not None and mrmr_kwargs.get("random_seed") is None and mrmr_kwargs.get("random_state") is None:
+            mrmr_kwargs["random_seed"] = int(fs_random_seed)
+        # MRMR's MI estimator is group-naive: under a group-aware split, silently ignoring groups risks
+        # cross-group leakage in the MI estimate on panel / session data. Default strict_groups=True so a
+        # group-threaded fit raises loudly rather than computing group-naive MI. Operator override wins.
+        if fs_use_groups and "strict_groups" not in mrmr_kwargs:
+            mrmr_kwargs["strict_groups"] = True
         _mrmr = _mrmr_spec.instantiate(**mrmr_kwargs)
         setattr(_mrmr, "_mlframe_use_sample_weights_in_fs_", bool(use_sample_weights_in_fs))
         setattr(_mrmr, "_mlframe_selector_kind_", "MRMR")

@@ -28,6 +28,69 @@ from sklearn.base import BaseEstimator, TransformerMixin, clone
 logger = logging.getLogger(__name__)
 
 
+def _su_redundancy_matrix(X, nbins: int = 10) -> np.ndarray:
+    """Pairwise Symmetric-Uncertainty redundancy matrix in [0, 1] (diagonal 0).
+
+    Unlike Pearson/Spearman (which only see monotone dependence), SU captures arbitrary -- including
+    non-linear / non-monotone -- redundancy between two columns: two features that are deterministic but
+    non-monotone functions of each other score ~1 here but ~0 under Pearson. Each column is quantile-binned
+    to ``nbins`` codes (continuous) or used as-is when already low-cardinality, then SU = 2*I/(H_a+H_b) is
+    computed per pair from the joint bincount. O(p^2) over the (already cluster-bounded) feature set.
+    """
+    if not isinstance(X, pd.DataFrame):
+        X = pd.DataFrame(X)
+    arr = X.to_numpy()
+    n, p = arr.shape
+    codes = np.empty((n, p), dtype=np.int64)
+    ncats = np.empty(p, dtype=np.int64)
+    for j in range(p):
+        col = arr[:, j]
+        col = np.asarray(col, dtype=np.float64)
+        finite = np.isfinite(col)
+        uniq = np.unique(col[finite]) if finite.any() else np.array([0.0])
+        if uniq.shape[0] <= nbins:
+            # Low-cardinality / already-discrete: map values to dense codes.
+            lookup = {v: i for i, v in enumerate(uniq)}
+            c = np.array([lookup.get(v, len(lookup)) for v in col], dtype=np.int64)
+            ncats[j] = len(lookup) + (0 if finite.all() else 1)
+        else:
+            qs = np.quantile(col[finite], np.linspace(0, 1, nbins + 1)[1:-1])
+            c = np.digitize(col, qs).astype(np.int64)
+            c[~finite] = nbins  # NaN sentinel bin
+            ncats[j] = nbins + (0 if finite.all() else 1)
+        codes[:, j] = c
+
+    def _entropy(counts):
+        tot = counts.sum()
+        if tot <= 0:
+            return 0.0
+        pr = counts[counts > 0] / tot
+        return float(-(pr * np.log(pr)).sum())
+
+    h = np.array([_entropy(np.bincount(codes[:, j], minlength=int(ncats[j]))) for j in range(p)])
+    su = np.zeros((p, p), dtype=np.float64)
+    for a in range(p):
+        for b in range(a + 1, p):
+            joint = np.bincount(codes[:, a] * int(ncats[b]) + codes[:, b], minlength=int(ncats[a] * ncats[b]))
+            h_ab = _entropy(joint)
+            mi_ab = h[a] + h[b] - h_ab
+            denom = h[a] + h[b]
+            val = 0.0 if denom <= 1e-12 else max(0.0, 2.0 * mi_ab / denom)
+            su[a, b] = su[b, a] = val
+    return su
+
+
+def _redundancy_matrix(X, method: str) -> np.ndarray:
+    """Abs redundancy matrix (diagonal 0) for the given method. ``'su'`` uses Symmetric Uncertainty (captures non-linear redundancy); everything else delegates to ``pandas.DataFrame.corr``."""
+    if method == "su":
+        return _su_redundancy_matrix(X)
+    if not isinstance(X, pd.DataFrame):
+        X = pd.DataFrame(X)
+    corr = np.array(X.corr(method=method).abs().to_numpy(), copy=True)
+    np.fill_diagonal(corr, 0.0)
+    return corr
+
+
 def cluster_features_by_correlation(
     X,
     threshold: float = 0.9,
@@ -41,8 +104,9 @@ def cluster_features_by_correlation(
     ----------
     X : array or DataFrame, shape (n_samples, n_features)
     threshold : float, default 0.9
-    method : {"pearson", "spearman", "kendall"}
-        Correlation method passed to ``pandas.DataFrame.corr``.
+    method : {"pearson", "spearman", "kendall", "su"}
+        Redundancy measure. The corr methods go through ``pandas.DataFrame.corr``; ``"su"`` uses Symmetric
+        Uncertainty (captures non-linear / non-monotone redundancy the corr methods miss).
 
     Returns
     -------
@@ -51,12 +115,8 @@ def cluster_features_by_correlation(
     """
     if not isinstance(X, pd.DataFrame):
         X = pd.DataFrame(X)
-    # pandas 2.x `.corr().abs().to_numpy()` may return a read-only zero-copy
-    # view of the underlying block (Arrow-backed frames especially).
-    # ``np.fill_diagonal`` writes in-place so we need a writable copy.
-    corr = np.array(X.corr(method=method).abs().to_numpy(), copy=True)
+    corr = _redundancy_matrix(X, method)
     n = corr.shape[0]
-    np.fill_diagonal(corr, 0.0)
 
     cluster_id = np.arange(n)  # union-find roots
 
@@ -90,7 +150,7 @@ def _cluster_medoids(
     """For each cluster, pick the column with highest mean abs-corr to its cluster mates (the medoid). Singletons return their only member."""
     if not isinstance(X, pd.DataFrame):
         X = pd.DataFrame(X)
-    corr = X.corr(method=method).abs().to_numpy()
+    corr = _redundancy_matrix(X, method)
     n_clusters = int(cluster_id.max()) + 1
 
     medoids = []

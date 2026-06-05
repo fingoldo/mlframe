@@ -798,18 +798,20 @@ def _apply_pre_pipeline_transforms(
                     sample_weight=sample_weight,
                 )
                 # One-glance FS-retention log so operators don't need to crack open metadata pickles
-                # to see how many columns the selector kept. Reports the selector's class name when
-                # detectable, falls back to the pipeline repr; harmless on no-op pipelines.
-                if verbose:
-                    try:
-                        _kept = train_df.shape[1] if hasattr(train_df, "shape") and len(train_df.shape) == 2 else None
-                        _input_n = len(_input_cols) if _input_cols is not None else None
-                        if _kept is not None and _input_n is not None:
-                            _selector = _extract_feature_selector(pre_pipeline)
-                            _selector_label = type(_selector).__name__ if _selector is not None else type(pre_pipeline).__name__
-                            logger.info("  FS selector %s retained %d of %d features", _selector_label, _kept, _input_n)
-                    except Exception:
-                        pass
+                # to see how many columns the selector kept. Emitted at INFO regardless of verbose so
+                # every selector's kept/dropped counts are visible in default logs (one line per FS fit).
+                try:
+                    _kept = train_df.shape[1] if hasattr(train_df, "shape") and len(train_df.shape) == 2 else None
+                    _input_n = len(_input_cols) if _input_cols is not None else None
+                    if _kept is not None and _input_n is not None:
+                        _selector = _extract_feature_selector(pre_pipeline)
+                        _selector_label = type(_selector).__name__ if _selector is not None else type(pre_pipeline).__name__
+                        logger.info(
+                            "FS selector %s retained %d of %d features (dropped %d)",
+                            _selector_label, _kept, _input_n, max(_input_n - _kept, 0),
+                        )
+                except Exception:
+                    pass
                 if verbose:
                     log_ram_usage()
                 # 0-feature short-circuit: when MRMR/RFECV selects no features,

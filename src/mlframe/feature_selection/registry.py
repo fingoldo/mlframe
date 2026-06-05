@@ -90,12 +90,17 @@ def _instantiate_rfecv(**kwargs):
     cluster_reduce = bool(kwargs.pop("cluster_reduce", True))
     corr_threshold = float(kwargs.pop("cluster_corr_threshold", 0.9))
     min_reduction = float(kwargs.pop("cluster_min_reduction", 0.05))
+    # ``cluster_corr_method`` (pearson | spearman | kendall | su). Default "pearson". The SU option captures
+    # non-linear redundancy the corr methods miss; benched in _benchmarks/bench_medoid_corr_method.py before
+    # any default flip -- on the broad bench Pearson and SU tied on OOS within noise so the cheaper Pearson
+    # stays the default; pin "su" for known non-monotone-redundancy data.
+    corr_method = str(kwargs.pop("cluster_corr_method", "pearson"))
     base = RFECV(**kwargs)
     if not cluster_reduce:
         return base
     from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
     return GroupAwareMRMR(
-        base, corr_threshold=corr_threshold, corr_method="pearson",
+        base, corr_threshold=corr_threshold, corr_method=corr_method,
         expand=True, min_reduction=min_reduction,
     )
 
@@ -116,12 +121,13 @@ def _instantiate_boruta_shap(**kwargs):
     cluster_reduce = bool(kwargs.pop("cluster_reduce", True))
     corr_threshold = float(kwargs.pop("cluster_corr_threshold", 0.9))
     min_reduction = float(kwargs.pop("cluster_min_reduction", 0.05))
+    corr_method = str(kwargs.pop("cluster_corr_method", "pearson"))
     base = BorutaShap(**kwargs)
     if not cluster_reduce:
         return base
     from mlframe.feature_selection.filters.group_aware import GroupAwareMRMR
     return GroupAwareMRMR(
-        base, corr_threshold=corr_threshold, corr_method="pearson",
+        base, corr_threshold=corr_threshold, corr_method=corr_method,
         expand=True, min_reduction=min_reduction,
     )
 

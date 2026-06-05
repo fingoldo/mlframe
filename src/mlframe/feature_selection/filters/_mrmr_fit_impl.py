@@ -246,7 +246,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # cache layers. Fold X content hash here so both layers agree.
     _x_hash_for_sig = _full_x_content_hash(X)
     signature = (X.shape, y.shape, _y_hash_for_sig, _x_hash_for_sig, _x_cols_sig)
-    if self.skip_retraining_on_same_shape:
+    if getattr(self, "skip_retraining_on_same_content", None) if getattr(self, "skip_retraining_on_same_content", None) is not None else getattr(self, "skip_retraining_on_same_shape", True):
         # Empty X hash (uncacheable) => fall through to full fit to
         # avoid risking a wrong replay, mirroring the _FIT_CACHE rule
         # at line 144 below.
@@ -6102,6 +6102,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     except Exception:
         self._predictors_log_ = ()
     self.fallback_used_ = False
+    self.fallback_metadata_ = None
     # n_features_ reports the column count produced by transform() = raw selected + engineered (replayable via _engineered_recipes_). Higher-order
     # engineered features without a replayable recipe were already warned about above and are NOT counted (they don't appear in transform output).
     n_engineered_out = len(self._engineered_recipes_)
@@ -6310,6 +6311,16 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             f"cached_MIs); the returned support_ carries "
                             f"NO signal."
                         )
+                    # Structured metadata so a downstream report can flag (without log-grepping) that the
+                    # support_ came from the count floor rather than the relevance gates. n_features==1 with
+                    # uninformative=True is the dangerous case: a single near-noise column handed to the model.
+                    self.fallback_metadata_ = {
+                        "fallback_used": True,
+                        "n_features": int(self.n_features_),
+                        "top_mi": _top_mi,
+                        "uninformative": bool(_uninformative),
+                        "min_features_fallback": int(_min_fb),
+                    }
             except Exception as _exc:
                 logger.warning(
                     "MRMR fallback to top-K MI failed: %s. Returning empty support_.",

@@ -498,6 +498,12 @@ def _setup_per_target_mlframe_models(
         # default RandomForestClassifier crashes on continuous y inside
         # sklearn.multiclass).
         target_type=target_type,
+        # Default FS selector seeds from the split seed for whole-pipeline reproducibility when the
+        # operator did not pin a selector seed explicitly.
+        fs_random_seed=getattr(getattr(ctx, "split_config", None), "random_seed", None),
+        # Under a group-aware split, default MRMR strict_groups=True so its group-naive MI never
+        # silently runs on panel/session data (cross-group leakage risk).
+        fs_use_groups=bool(getattr(getattr(ctx, "split_config", None), "use_groups", False)),
     )
 
     return {

@@ -85,9 +85,18 @@ def _maybe_run_unsupervised_pre_screen(ctx, targets):
                     _protected.add(_val)
         _split_cfg_use_groups = bool(getattr(_split_cfg, "use_groups", False)) if _split_cfg is not None else False
         if _split_cfg_use_groups and not _protected:
+            # SKIP the pre-screen entirely: with a group-aware split and an empty protected set we cannot
+            # know which column is the group/ts key, so variance/null pruning could silently drop it (group
+            # IDs frequently look like near-all-unique strings) and break GroupShuffleSplit downstream. A
+            # WARN-and-proceed left that hazard live; skipping is the safe default.
             logger.warning(
-                "[pre-screen] split_config.use_groups=True but protected_columns set is empty; group/ts columns at risk of variance/null pruning. Verify ctx.group_id_col / extractor.group_field is set.",
+                "[pre-screen] split_config.use_groups=True but protected_columns set is empty; skipping the "
+                "unsupervised pre-screen to avoid pruning the (unidentified) group/ts column. Set "
+                "ctx.group_id_col / extractor.group_field / split_config.group_field to re-enable it.",
             )
+            ctx._pre_screen_done = True
+            ctx._pre_screen_dropped_cols = []
+            return
         _train_for_screen = ctx.filtered_train_df if ctx.filtered_train_df is not None else (ctx.train_df_polars or ctx.train_df_pd)
         _drops = compute_unsupervised_drops(
             _train_for_screen,
@@ -109,28 +118,23 @@ def _maybe_run_unsupervised_pre_screen(ctx, targets):
         except Exception:
             pass
         if _drops:
-            for _frame_attr in (
+            # Atomic across all train/val/test mirrors: compute every dropped frame into a staging dict
+            # FIRST, and only reassign ctx attributes once ALL succeed. A per-mirror failure used to leave
+            # some frames with the dropped columns and others without -> schema drift that surfaces later as
+            # an opaque "feature missing" training error. Now any single failure raises (caught by the outer
+            # except, which then SKIPS the whole pre-screen) so no frame is partially dropped.
+            _frame_attrs = (
                 "filtered_train_df", "filtered_val_df",
                 "train_df_pd", "val_df_pd", "test_df_pd",
                 "train_df_polars", "val_df_polars", "test_df_polars",
-            ):
+            )
+            _staged: dict[str, object] = {}
+            for _frame_attr in _frame_attrs:
                 _f = getattr(ctx, _frame_attr, None)
                 if _f is not None:
-                    try:
-                        setattr(ctx, _frame_attr, apply_drops(_f, _drops))
-                    except Exception as _drop_e:
-                        # Per-frame failure is best-effort but MUST be loud:
-                        # if one mirror keeps the pre-screen-dropped cols while
-                        # siblings have them removed, downstream training hits
-                        # opaque "feature missing" errors. The outer except at
-                        # the end of this block only catches whole-pre-screen
-                        # failure, not per-frame.
-                        logger.warning(
-                            "[pre-screen] apply_drops failed for ctx.%s: %s; "
-                            "this frame keeps the dropped columns while other "
-                            "frames have them removed - schema drift hazard.",
-                            _frame_attr, _drop_e,
-                        )
+                    _staged[_frame_attr] = apply_drops(_f, _drops)
+            for _frame_attr, _new_f in _staged.items():
+                setattr(ctx, _frame_attr, _new_f)
             if ctx.verbose:
                 logger.info(
                     "[pre-screen] dropped %d column(s) suite-wide (variance=%s, null_fraction>%s): %s",

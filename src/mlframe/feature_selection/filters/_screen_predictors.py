@@ -60,18 +60,22 @@ def screen_predictors(
     use_gpu: bool = False,
     n_workers: int = 1,
     # confidence
+    # Statistical defaults aligned with the MRMR constructor (mrmr.py) so a direct ``screen_predictors``
+    # caller -- and any consumer that does not override every knob (e.g. ad-hoc screening) -- gets the same
+    # behaviour MRMR.fit produces, rather than the far-stricter legacy 1000/100 permutation counts that made
+    # standalone screening ~300x slower and over-reject. MRMR.fit still explicitly overrides each of these.
     min_occupancy: int = None,
     min_nonzero_confidence: float = 0.99,
-    full_npermutations: int = 1_000,
-    baseline_npermutations: int = 100,
+    full_npermutations: int = 3,
+    baseline_npermutations: int = 2,
     # 2026-06-02 RC2 — sample-size-aware Fleuret confirmation threshold (rows
     # per occupied cell of the conditioning joint). Below it the conditional-MI
     # permutation gate is finite-sample unreliable and ``confirm_candidate``
     # falls back to a marginal-MI permutation test. 0.0 = always use the strict
     # conditional test (legacy). Threaded into ``ScreenContext``.
-    fe_confirm_undersample_rows_per_cell: float = 0.0,
+    fe_confirm_undersample_rows_per_cell: float = 5.0,
     # stopping conditions
-    min_relevance_gain: float = 0.00001,
+    min_relevance_gain: float = 0.0001,
     # 2026-05-30: diminishing-returns stop. Stops greedy selection when the
     # current candidate's gain falls below this fraction of the FIRST-selected
     # feature's gain. Catches "trailing noise" leakage on imbalanced y where
@@ -95,7 +99,7 @@ def screen_predictors(
     # at the floor comparison only (does NOT mutate mrmr_gains_ which
     # remains the raw plug-in value for downstream consumers).
     cardinality_bias_correction: bool = True,
-    max_consec_unconfirmed: int = 30,
+    max_consec_unconfirmed: int = 10,
     max_runtime_mins: float = None,
     interactions_min_order: int = 1,
     interactions_max_order: int = 1,
@@ -104,14 +108,15 @@ def screen_predictors(
     only_unknown_interactions: bool = False,
     # Confirmation-step cardinality cutoff. ``None`` falls back to ``MAX_CONFIRMATION_CAND_NBINS``; ``MRMR.fit`` overrides with ``quantization_nbins ** interactions_max_order * 2``.
     max_confirmation_cand_nbins: int = None,
-    # When screening returns zero selected_vars, legacy FE fell back to running on ALL features. False skips FE instead (safer default: FE on empty screen amplifies noise).
-    fe_fallback_to_all: bool = True,
+    # When screening returns zero selected_vars, legacy FE fell back to running on ALL features. False skips FE instead (safer default: FE on empty screen amplifies noise). Aligned with the MRMR ctor default (False).
+    fe_fallback_to_all: bool = False,
     # verbosity and formatting
-    verbose: int = 1,
+    verbose: int = 0,
     ndigits: int = 5,
     parallel_kwargs: dict = None,
     stop_file: str = None,
-    use_simple_mode: bool = True,
+    # Aligned with the MRMR ctor (False): full Fleuret conditional-MI redundancy is the point of MRMR. True is the faster dedup-free path on very wide pools.
+    use_simple_mode: bool = False,
     # ``engineered_lineage`` -- mapping ``{engineered_col_idx: frozenset(parent_indices)}``. When set, k-way candidate enumeration skips combinations of an engineered
     # column with one of its own parents (e.g. ``(orig_i, kway(orig_i, orig_j))`` is redundant since the engineered col already contains orig_i's info). Threaded
     # through ``should_skip_candidate``. ``None`` preserves legacy behaviour.
