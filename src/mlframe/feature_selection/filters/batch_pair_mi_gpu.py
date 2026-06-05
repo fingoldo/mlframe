@@ -518,26 +518,10 @@ def _run_batch_pair_mi_sweep() -> list:
     )
 
 
-def _batch_pair_mi_code_version():
-    """code_version over the CPU bodies (serial + parallel share one source) + the
-    available GPU bodies; re-tunes on a kernel edit."""
-    try:
-        from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
-
-        fns = [batch_pair_mi_njit_serial, batch_pair_mi_njit_prange]
-        if _CUDA_AVAIL:
-            fns.append(batch_pair_mi_cuda)
-        if _CUPY_AVAIL:
-            fns.append(batch_pair_mi_cupy)
-        return compute_code_version(*fns, salt=_BPMI_SALT)
-    except Exception:
-        return None
-
-
 def _batch_pair_mi_fallback_choice(n_samples: int, n_pairs: int) -> str:
-    """Pre-sweep heuristic: the old CUDA_/CUPY_MIN_* GPU thresholds + availability;
-    on CPU, parallel njit above a modest row count (below it the thread-spawn
-    overhead loses to serial)."""
+    """Pre-sweep heuristic (the spec's dynamic fallback callable): the old
+    CUDA_/CUPY_MIN_* GPU thresholds + availability; on CPU, parallel njit above a
+    modest row count (below it the thread-spawn overhead loses to serial)."""
     if _CUPY_AVAIL and n_samples >= CUPY_MIN_ROWS and n_pairs >= CUPY_MIN_PAIRS:
         return "cupy"
     if _CUDA_AVAIL and n_samples >= CUDA_MIN_ROWS and n_pairs >= CUDA_MIN_PAIRS:
@@ -546,29 +530,11 @@ def _batch_pair_mi_fallback_choice(n_samples: int, n_pairs: int) -> str:
 
 
 def _batch_pair_mi_backend_choice(n_samples: int, n_pairs: int) -> str:
-    """Per-host backend (njit/cuda/cupy) for this (n_samples, n_pairs) via the shared
-    get_or_tune orchestrator; measurement-backed threshold fallback. ``n_samples`` is the
-    swept (primary) axis; ``n_pairs`` is passed in the dims so the cache key is complete."""
-    try:
-        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
-
-        result = KernelTuningCache.load_or_create().get_or_tune(
-            "batch_pair_mi",
-            dims={"n_samples": int(n_samples), "n_pairs": int(n_pairs)},
-            tuner=_run_batch_pair_mi_sweep,
-            axes=["n_samples", "n_pairs"],
-            fallback={"backend_choice": _batch_pair_mi_fallback_choice(n_samples, n_pairs)},
-            code_version=_batch_pair_mi_code_version(),
-        )
-        bc = result if isinstance(result, str) else str((result or {}).get("backend_choice", ""))
-        if bc == "njit":  # legacy region from before the serial/parallel split
-            bc = "njit_parallel"
-        if bc in ("njit_serial", "njit_parallel", "cuda", "cupy"):
-            return bc
-    except Exception as e:
-        import logging
-        logging.getLogger(__name__).debug("batch_pair_mi get_or_tune failed: %s", e)
-    return _batch_pair_mi_fallback_choice(n_samples, n_pairs)
+    """Per-host backend (njit_serial/njit_parallel/cuda/cupy) for this (n_samples,
+    n_pairs) via the spec's choose(); maps a legacy 'njit' region (pre serial/parallel
+    split) to njit_parallel."""
+    bc = _BPMI_SPEC.choose(n_samples=int(n_samples), n_pairs=int(n_pairs))
+    return "njit_parallel" if bc == "njit" else bc
 
 
 def dispatch_batch_pair_mi(
@@ -627,12 +593,12 @@ def dispatch_batch_pair_mi(
 # discover + batch-tune batch_pair_mi. GPU-capable (cuda/cupy backends).
 from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
-kernel_tuner(
+_BPMI_SPEC = kernel_tuner(
     kernel_name="batch_pair_mi",
     variant_fns=(batch_pair_mi_njit_serial, batch_pair_mi_njit_prange),  # CPU bodies; GPU covered by salt
     tuner=_run_batch_pair_mi_sweep,
     axes={"n_samples": list(_BPMI_SWEEP_N_SAMPLES), "n_pairs": list(_BPMI_SWEEP_N_PAIRS_GRID)},
-    fallback={"backend_choice": "njit_serial"},
+    fallback=_batch_pair_mi_fallback_choice,  # callable (n_samples, n_pairs) -> str
     gpu_capable=True,
     salt=_BPMI_SALT,
     cli_label="batch_pair_mi",
