@@ -43,10 +43,11 @@ _PREWARP_SPECS_RESULT_KEY = ("__prewarp_specs__", -1, -1)
 # MI+permutation noise-gate, keyed on the work size ``n * K`` (rows x candidate
 # columns). The CPU njit-prange kernel wins for small/medium batches (its joint-hist
 # pass is tiny and the H2D copy of the discretized frame would dominate on GPU); GPU
-# pays off only for very large K at large n. Default is intentionally high so the
-# kernel_tuning_cache must explicitly enable GPU on hosts where it benches faster --
-# never hardcode the real threshold (per-HW via the cache below).
-_BATCH_MI_GPU_NK_FALLBACK = 1 << 62  # effectively CPU-only until the cache says otherwise.
+# pays off only for very large K at large n. The CPU/GPU backend is resolved per-host via
+# the canonical ``KernelTuningCache.get_or_tune`` orchestrator (no hardcoded threshold).
+# Bump this code version whenever the kernel's numerics change so stale per-host cache
+# entries are invalidated.
+_BATCH_MI_NOISE_GATE_CODE_VERSION = "batch_mi_noise_gate-v1"
 
 
 def _dispatch_batch_mi_with_noise_gate(
@@ -73,20 +74,32 @@ def _dispatch_batch_mi_with_noise_gate(
     K = disc_2d.shape[1]
     factors_nbins = np.full(K, int(quantization_nbins), dtype=np.int64)
 
-    # Per-host CPU/GPU threshold on n*K (no hardcoded constant).
-    nk = int(n) * int(K)
-    gpu_nk_threshold = _BATCH_MI_GPU_NK_FALLBACK
+    # Per-host CPU/GPU backend choice via the canonical ``get_or_tune`` orchestrator
+    # (per-host cache, code-version checked -> on-miss tuner -> measurement-backed
+    # fallback; no hardcoded threshold). The GPU twin is deferred (returns None), so the
+    # tuner offers no sweep yet and ``get_or_tune`` resolves to the CPU fallback; when a
+    # bit-identical GPU kernel lands, swap in a tuner that sweeps the n*K crossover and the
+    # cache will route large batches to GPU automatically.
+    backend = "cpu"
     try:
-        from ._kernel_tuning import get_kernel_tuning_cache
-        _ktc = get_kernel_tuning_cache()
-        if _ktc is not None:
-            _entry = _ktc.lookup("batch_mi_noise_gate", n_rows=int(n), n_cols=int(K))
-            if _entry is not None and "gpu_nk_threshold" in _entry:
-                gpu_nk_threshold = int(_entry["gpu_nk_threshold"])
-    except Exception:
-        pass
+        from pyutilz.system.kernel_tuning_cache import KernelTuningCache
 
-    if nk >= gpu_nk_threshold:
+        _res = KernelTuningCache().get_or_tune(
+            "batch_mi_noise_gate",
+            dims={"n_rows": int(n), "n_cols": int(K)},
+            tuner=lambda: None,  # no GPU sweep until a bit-identical GPU kernel lands
+            axes=["n_rows", "n_cols"],
+            fallback={"backend_choice": "cpu"},
+            code_version=_BATCH_MI_NOISE_GATE_CODE_VERSION,
+        )
+        if isinstance(_res, str):
+            backend = _res
+        elif _res:
+            backend = str(_res.get("backend_choice", "cpu"))
+    except Exception:  # pyutilz missing / cache error -> CPU (always correct)
+        backend = "cpu"
+
+    if backend == "gpu":
         try:
             from pyutilz.core.pythonlib import is_cuda_available
             _gpu_ok = is_cuda_available()
