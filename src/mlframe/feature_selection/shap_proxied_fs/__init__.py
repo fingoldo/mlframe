@@ -27,7 +27,7 @@ import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
 
-from mlframe.feature_selection._shap_proxied_resolvers import (
+from mlframe.feature_selection.shap_proxied_fs._shap_proxied_resolvers import (
     _ADAPTIVE_PRESCREEN_FLOOR, _DEFAULT_ADAPTIVE_PRESCREEN_THRESHOLDS,
     _DEFAULT_BRUTE_FORCE_MAX_FEATURES, _DEFAULT_BRUTE_FORCE_N_SUB_GATE,
     _DEFAULT_CLUSTER_SU_AUTO_MAX_FEATURES, _EXACT_OPTIMIZERS, _HEURISTIC_OPTIMIZERS,
@@ -35,7 +35,7 @@ from mlframe.feature_selection._shap_proxied_resolvers import (
     _resolve_brute_force_max_features, _resolve_brute_force_n_sub_gate,
     _resolve_cluster_su_auto_max_features,
 )
-from mlframe.feature_selection._shap_proxied_fit import ShapProxiedFitMixin
+from mlframe.feature_selection.shap_proxied_fs._shap_proxied_fit import ShapProxiedFitMixin
 
 logger = logging.getLogger(__name__)
 

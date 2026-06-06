@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
-from mlframe.feature_selection._shap_proxied_resolvers import _resolve_adaptive_prescreen_width
+from mlframe.feature_selection.shap_proxied_fs._shap_proxied_resolvers import _resolve_adaptive_prescreen_width
 
 logger = logging.getLogger(__name__)
 
