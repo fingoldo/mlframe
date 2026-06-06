@@ -60,7 +60,16 @@ def _premerge_collapse(X, thr):
     """premerge_clusters: collapse |Pearson| >= thr clusters of X to one representative (first column of each
     cluster). Returns (X_reps, rep_members) where rep_members maps representative -> [member columns incl. rep]."""
     cols = list(X.columns)
-    C = np.nan_to_num(np.corrcoef(X.values, rowvar=False))
+    # Factor-code non-numeric columns: ``np.corrcoef`` divides/means over the raw
+    # values and would raise on string categorical levels (e.g. ``"NA"`` / ``""``).
+    _num = np.empty((len(X), len(cols)), dtype=np.float64)
+    for _j, _c in enumerate(cols):
+        _s = X[_c]
+        if pd.api.types.is_numeric_dtype(_s.dtype):
+            _num[:, _j] = _s.to_numpy(dtype=np.float64, na_value=np.nan)
+        else:
+            _num[:, _j] = pd.factorize(_s, use_na_sentinel=True)[0]
+    C = np.nan_to_num(np.corrcoef(_num, rowvar=False))
     if C.ndim == 0:
         return X, {cols[0]: [cols[0]]}
     reps, members, seen = [], {}, set()

@@ -447,6 +447,7 @@ _METHOD_ALIASES = {
     "optimal_joint": "optimal_joint",
     "cv": "optimal_joint",
     "qs": "qs",
+    "quantile": "qs",
     "quantile_spacing": "qs",
     "gupta": "qs",
     "mah": "mah",

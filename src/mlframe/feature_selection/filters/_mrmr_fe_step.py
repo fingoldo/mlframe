@@ -34,6 +34,33 @@ from joblib import Parallel, delayed
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 
+def _non_numeric_column_indices(X, cols) -> set:
+    """Positional indices of columns in ``X`` whose dtype is not numeric.
+
+    The pair / synergy FE operands index positionally into ``X``; a string /
+    categorical column reaching the numeric basis transforms raises, so callers
+    subtract these indices from the operand pool. Returns an empty set when the
+    dtype of ``X`` cannot be inspected (array input -> already all-numeric).
+    """
+    idx: set = set()
+    try:
+        schema = getattr(X, "schema", None)
+        if schema is not None:  # polars DataFrame
+            dtypes = [schema[c] for c in X.columns]
+            for i, dt in enumerate(dtypes):
+                if not dt.is_numeric():
+                    idx.add(i)
+            return idx
+        dtypes_attr = getattr(X, "dtypes", None)
+        if dtypes_attr is not None:  # pandas DataFrame
+            for i, dt in enumerate(dtypes_attr):
+                if not pd.api.types.is_numeric_dtype(dt):
+                    idx.add(i)
+    except Exception:
+        return set()
+    return idx
+
+
 def _synergy_bootstrap_can_supply_pool(self, num_fs_steps: int, data) -> bool:
     """Whether the synergy bootstrap (below) would seed a non-empty interaction-only pair pool.
 
@@ -185,6 +212,14 @@ def _run_fe_step(
 
     numeric_vars_to_consider = set(numeric_vars_to_consider) - set(categorical_vars)
 
+    # Drop any operand whose source column is not numeric in X, even if it was not flagged in ``categorical_vars``:
+    # the polynomial / Hermite pair search applies numeric basis transforms (np.isfinite, z-score) that raise on a
+    # string / categorical column (e.g. ``"ZZZ_UNSEEN"`` / ``"NA"``). Mirrors the per-stage numeric guards the
+    # triplet / quadruplet stages already apply (_mrmr_fit_impl.py is_numeric_dtype filters).
+    _non_numeric_idx = _non_numeric_column_indices(X, cols)
+    if _non_numeric_idx:
+        numeric_vars_to_consider = numeric_vars_to_consider - _non_numeric_idx
+
     # Honor factors_to_use / factors_names_to_use in the FE step too; intersect the FE pool with the user's
     # restriction so the contract matches the screening step.
     if self.factors_to_use is not None:
@@ -248,6 +283,7 @@ def _run_fe_step(
             i for i, nm in enumerate(cols)
             if nm in _raw_names and i not in _target_idx_set and i not in _cat_set
         }
+        _raw_numeric_idx -= _non_numeric_idx
         if self.factors_to_use is not None:
             _raw_numeric_idx &= set(self.factors_to_use)
         if self.factors_names_to_use is not None:

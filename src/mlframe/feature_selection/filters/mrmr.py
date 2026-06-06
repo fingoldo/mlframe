@@ -1862,7 +1862,7 @@ class MRMR(BaseEstimator, TransformerMixin):
     # intentionally NOT routed into the MRMR hot loop.
     _VALID_NBINS_STRATEGIES = (
         None,
-        "auto", "sturges", "freedman_diaconis", "fd", "qs",
+        "auto", "sturges", "freedman_diaconis", "fd", "qs", "quantile",
         "knuth", "blocks",  # demoted to research-only with AccuracyWarning
         "mdlp", "fayyad_irani", "optimal_joint", "cv",
         "mah", "mah_sci", "sci", "marx",  # Marx 2021 SCI-guided adaptive

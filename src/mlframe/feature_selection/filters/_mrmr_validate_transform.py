@@ -495,13 +495,49 @@ def _append_engineered(self, base_out, X, recipes):
     engineered_cols = []
     if isinstance(_X_for_recipes, pd.DataFrame):
         chained = _X_for_recipes
-        for r in recipes:
-            col = apply_recipe(r, chained)
-            engineered_cols.append(col)
-            # Append the engineered column so a later recipe whose src_names references
-            # ``r.name`` (e.g. spline-on-He2) resolves cleanly. Using assign avoids
-            # mutating the caller's DataFrame.
-            chained = chained.assign(**{r.name: col})
+        # Dependency-aware replay: a chained recipe (e.g. modular-of-cross,
+        # spline-on-He2) references an earlier engineered column via src_names.
+        # The recorded order is USUALLY topological, but cross-family chaining
+        # (cat_pair_cross consumed by a numeric_decompose / modular recipe) can
+        # record the consumer before its producer. Resolve in passes: apply only
+        # recipes whose src_names already exist in ``chained``, defer the rest,
+        # loop until no progress -- then apply any genuinely-unresolvable
+        # remainder in recorded order (surfaces a real missing-source KeyError
+        # rather than an ordering artefact).
+        _results: dict = {}
+        _pending = list(recipes)
+        _unresolved: set = set()
+        while _pending:
+            _progress = False
+            _still: list = []
+            for r in _pending:
+                _src = tuple(getattr(r, "src_names", ()) or ())
+                if all((s in chained.columns) for s in _src):
+                    col = apply_recipe(r, chained)
+                    _results[r.name] = col
+                    chained = chained.assign(**{r.name: col})
+                    _progress = True
+                else:
+                    _still.append(r)
+            if not _progress:
+                # Remaining recipes reference an engineered source that no recipe
+                # produces (fit-time pruning dropped a chained producer). The feature
+                # is unreconstructable at transform; omit it (NaN column) rather than
+                # crash -- consistent with the contract that a missing engineered input
+                # yields a missing engineered output, not a hard failure.
+                for r in _still:
+                    _missing = [s for s in (getattr(r, "src_names", ()) or ()) if s not in chained.columns]
+                    logger.warning(
+                        "MRMR.transform: recipe %r (kind=%s) references unresolved engineered "
+                        "source(s) %s; emitting NaN column (feature dropped from replay).",
+                        r.name, r.kind, _missing,
+                    )
+                    _results[r.name] = np.full(len(chained), np.nan, dtype=np.float64)
+                    chained = chained.assign(**{r.name: _results[r.name]})
+                    _unresolved.add(r.name)
+                _still = []
+            _pending = _still
+        engineered_cols = [_results[r.name] for r in recipes]
     else:
         # ndarray / polars path: best-effort single pass (recipes that reference
         # engineered intermediates aren't expressible without a name-indexed frame).

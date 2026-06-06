@@ -85,6 +85,56 @@ except ImportError:
     XGBRegressor = object  # type: ignore
 
 
+def _align_eval_categoricals(X_train, X_val):
+    """Cast ``X_val`` categorical columns to the SAME categorical dtype as ``X_train``.
+
+    XGBoost's ``enable_categorical`` path records the train DMatrix category
+    universe; an eval / val frame whose categorical column carries a level (or a
+    differently-ordered category list) absent from train trips
+    ``cat_container.h: Found a category not in the training set`` during the
+    early-stopping eval. Upstream prep usually shares the dtype, but a per-DF
+    Enum / Categorical built independently per split (mixed-model polars tiers,
+    pandas category columns) can diverge -- this is the last-line guarantee that
+    the val frame's category universe matches train's before the DMatrix build.
+    Returns ``X_val`` (possibly a new frame); no-op when dtypes already agree or
+    the frame type is unsupported.
+    """
+    if X_train is None or X_val is None:
+        return X_val
+    # polars: cast each shared column to the train Enum/Categorical dtype; OOV
+    # levels become null (strict=False), which XGBoost tolerates as missing.
+    try:
+        import polars as _pl
+        if isinstance(X_train, _pl.DataFrame) and isinstance(X_val, _pl.DataFrame):
+            _tr_schema = X_train.schema
+            _exprs = []
+            for _c, _dt in X_val.schema.items():
+                _tdt = _tr_schema.get(_c)
+                if _tdt is None or _dt == _tdt:
+                    continue
+                if isinstance(_tdt, _pl.Enum) or _tdt == _pl.Categorical:
+                    _exprs.append(_pl.col(_c).cast(_pl.String).cast(_tdt, strict=False).alias(_c))
+            if _exprs:
+                X_val = X_val.with_columns(_exprs)
+            return X_val
+    except ImportError:
+        pass
+    # pandas: re-cast Categorical columns to train's categories list.
+    try:
+        import pandas as _pd
+        if isinstance(X_train, _pd.DataFrame) and isinstance(X_val, _pd.DataFrame):
+            for _c in X_val.columns:
+                if _c not in X_train.columns:
+                    continue
+                _tdt = X_train[_c].dtype
+                if isinstance(_tdt, _pd.CategoricalDtype) and isinstance(X_val[_c].dtype, _pd.CategoricalDtype):
+                    if list(X_val[_c].cat.categories) != list(_tdt.categories):
+                        X_val = X_val.assign(**{_c: X_val[_c].cat.set_categories(_tdt.categories)})
+    except ImportError:
+        pass
+    return X_val
+
+
 # ---------------------------------------------------------------------
 # Capability gate
 # ---------------------------------------------------------------------
@@ -456,6 +506,10 @@ class _DMatrixReuseMixin:
             # Support eval_set = [(X_val, y_val), ...] form.
             for i, pair in enumerate(eval_set):
                 X_val, y_val = pair
+                # Align val categorical dtypes to train's BEFORE keying / building the
+                # DMatrix so XGBoost's enable_categorical eval doesn't reject a val-only
+                # category against the train category universe (cat_container.h).
+                X_val = _align_eval_categoricals(X, X_val)
                 # sample_weight_eval_set supports list-aligned weights;
                 # default None.
                 w_val = (

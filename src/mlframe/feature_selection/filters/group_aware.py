@@ -28,6 +28,27 @@ from sklearn.base import BaseEstimator, TransformerMixin, clone
 logger = logging.getLogger(__name__)
 
 
+def _numeric_codes_frame(X: "pd.DataFrame") -> "pd.DataFrame":
+    """Return a float DataFrame where non-numeric columns are replaced by their
+    integer factor codes, so correlation / SU clustering never float-coerces a
+    raw categorical / object / string column (e.g. a ``"NA"`` level) and crashes.
+
+    Redundancy clustering is an unsupervised same-row operation; per-column
+    ``factorize`` (NaN -> code -1) is a valid integer encoding that preserves the
+    original column count and order, so cluster indices still map back to the
+    caller's feature positions. Numeric columns pass through unchanged.
+    """
+    out_cols = {}
+    for col in X.columns:
+        s = X[col]
+        if pd.api.types.is_numeric_dtype(s.dtype):
+            out_cols[col] = s
+        else:
+            codes, _ = pd.factorize(s, use_na_sentinel=True)
+            out_cols[col] = pd.Series(codes, index=s.index, name=col)
+    return pd.DataFrame(out_cols, index=X.index)
+
+
 def _su_redundancy_matrix(X, nbins: int = 10) -> np.ndarray:
     """Pairwise Symmetric-Uncertainty redundancy matrix in [0, 1] (diagonal 0).
 
@@ -39,7 +60,7 @@ def _su_redundancy_matrix(X, nbins: int = 10) -> np.ndarray:
     """
     if not isinstance(X, pd.DataFrame):
         X = pd.DataFrame(X)
-    arr = X.to_numpy()
+    arr = _numeric_codes_frame(X).to_numpy()
     n, p = arr.shape
     codes = np.empty((n, p), dtype=np.int64)
     ncats = np.empty(p, dtype=np.int64)
@@ -86,7 +107,9 @@ def _redundancy_matrix(X, method: str) -> np.ndarray:
         return _su_redundancy_matrix(X)
     if not isinstance(X, pd.DataFrame):
         X = pd.DataFrame(X)
-    corr = np.array(X.corr(method=method).abs().to_numpy(), copy=True)
+    # Factor-code non-numeric columns first: ``DataFrame.corr`` float-coerces every
+    # column and would crash on a raw categorical / string level (e.g. ``"NA"``).
+    corr = np.array(_numeric_codes_frame(X).corr(method=method).abs().to_numpy(), copy=True)
     np.fill_diagonal(corr, 0.0)
     return corr
 

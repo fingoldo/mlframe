@@ -594,9 +594,26 @@ def create_polarsds_pipeline(
         ]
         if _imputable_cols:
             # ``config.imputer_strategy`` has been canonicalised by the
-            # validator to one of {mean, median, mode} so it maps
-            # directly to polars-ds's ``Blueprint.impute`` API.
-            bp = bp.impute(_imputable_cols, method=config.imputer_strategy)
+            # validator to one of {mean, median, mode}. mean / median map
+            # directly to polars-ds's ``Blueprint.impute``; ``mode`` does NOT
+            # -- polars-ds's mode-impute does ``pl.col(...).mode().list.first()``
+            # which raises ``expected List data type ... got Float32`` on polars
+            # versions where ``Series.mode()`` returns a flat (non-List) result.
+            # Compute the per-column mode natively and fill_null with the scalar
+            # so the broken polars-ds code path is bypassed (version-safe).
+            if config.imputer_strategy == "mode":
+                _mode_exprs = []
+                for _c in _imputable_cols:
+                    _base = pl.col(_c).drop_nulls()
+                    if train_df.schema[_c].is_float():
+                        _base = _base.drop_nans()
+                    _mv = train_df.select(_base.mode().sort().first().alias(_c)).item()
+                    if _mv is not None:
+                        _mode_exprs.append(pl.col(_c).fill_null(_mv).alias(_c))
+                if _mode_exprs:
+                    bp = bp.with_columns(*_mode_exprs)
+            else:
+                bp = bp.impute(_imputable_cols, method=config.imputer_strategy)
             if verbose:
                 logger.info(
                     "  Imputer wired: strategy=%s on %d numeric columns",
@@ -670,6 +687,17 @@ def create_polarsds_pipeline(
             if verbose:
                 logger.info("  No string/categorical/enum columns to encode; skipping categorical encoding step")
         else:
+            # polars-ds's ordinal_encode / one_hot_encode reject ``pl.Enum`` columns
+            # ("not string/categorical types") -- it recognises only String / Categorical.
+            # Cast any Enum candidate to Categorical first so Enum-typed inputs
+            # (input_type='polars_enum') encode instead of crashing the pipeline build.
+            _enum_cls = getattr(pl, "Enum", None)
+            _enum_to_cast = [
+                name for name in candidate_cols
+                if _enum_cls is not None and isinstance(train_df.schema.get(name), _enum_cls)
+            ]
+            if _enum_to_cast:
+                bp = bp.with_columns(*[pl.col(_c).cast(pl.Categorical) for _c in _enum_to_cast])
             cols_arg = candidate_cols if excluded else None
             if config.categorical_encoding == "ordinal":
                 bp = bp.ordinal_encode(cols=cols_arg, null_value=-1, unknown_value=-2)

@@ -143,6 +143,25 @@ def run_polynom_pair_fe(
     # ``prospective_pairs`` is keyed by ``(raw_vars_pair, _pair_mi)`` composite
     # tuples; the polynom-FE body only needs ``raw_vars_pair`` itself.
     _pair_keys = [k[0] for k in prospective_pairs.keys()]
+    # Last-line numeric guard: the Hermite / polynomial basis (np.isfinite, z-score,
+    # minmax) raises ``ufunc 'isfinite' not supported`` / ``unsupported operand`` on a
+    # string column. Drop any pair whose operand column is non-numeric in X -- a string
+    # categorical operand can slip through the upstream pool filter via a cached pair or
+    # a synergy-kept operand. Indices are positional into X (``X_ndarr[:, idx]`` below).
+    _numeric_pos = None
+    try:
+        _schema = getattr(X, "schema", None)
+        if _schema is not None:  # polars
+            _numeric_pos = {i for i, c in enumerate(X.columns) if _schema[c].is_numeric()}
+        else:
+            _dtypes = getattr(X, "dtypes", None)
+            if _dtypes is not None:  # pandas
+                import pandas as _pd
+                _numeric_pos = {i for i, _dt in enumerate(_dtypes) if _pd.api.types.is_numeric_dtype(_dt)}
+    except Exception:
+        _numeric_pos = None
+    if _numeric_pos is not None:
+        _pair_keys = [p for p in _pair_keys if int(p[0]) in _numeric_pos and int(p[1]) in _numeric_pos]
     _n_pairs_to_eval = len(_pair_keys)
     if _n_pairs_to_eval == 0:
         return data, nbins, cols, X

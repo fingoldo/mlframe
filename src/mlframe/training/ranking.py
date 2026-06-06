@@ -271,9 +271,30 @@ def _fit_cb_ranker(
 
     X_tr, y_tr, g_tr, sort_idx_tr = prepare_cb_inputs(X_train, y_train, group_ids_train)
 
+    # CatBoost's Pool raises ``must be real number, not NoneType`` on an OBJECT-dtype
+    # cat column carrying Python ``None`` (from null_fraction_cats), even when the
+    # column is declared cat_features. Fill None with a string sentinel so CB treats
+    # missing categoricals as their own level. Applied to fit + eval + (via the stored
+    # column list) predict so the fit / predict category spaces stay aligned.
+    _CB_NA = "__MLFRAME_NA__"
+
+    def _fill_obj_cat_nones(_df):
+        if not isinstance(_df, pd.DataFrame) or not cat_features:
+            return _df
+        _upd = {}
+        for _c in cat_features:
+            if _c in _df.columns and _df[_c].dtype == object:
+                _col = _df[_c]
+                if _col.isna().any():
+                    _upd[_c] = _col.where(_col.notna(), _CB_NA)
+        return _df.assign(**_upd) if _upd else _df
+
+    X_tr = _fill_obj_cat_nones(X_tr)
+
     fit_kwargs: dict = {}
     if X_val is not None and y_val is not None and group_ids_val is not None:
         X_va, y_va, g_va, _ = prepare_cb_inputs(X_val, y_val, group_ids_val)
+        X_va = _fill_obj_cat_nones(X_va)
         # CatBoostRanker.fit accepts eval_set as a tuple of (X, y) plus
         # eval_group_id is set on the Pool internally when X is a Pool.
         # Easiest: build a Pool for eval and pass that.
@@ -312,6 +333,8 @@ def _fit_cb_ranker(
         "flavor": "catboost",
         "objective_kwargs": obj_kwargs,
         "sort_idx_train": sort_idx_tr,
+        "cb_cat_features": list(cat_features) if cat_features else [],
+        "cb_na_sentinel": _CB_NA,
     }
 
 
@@ -342,6 +365,42 @@ def _fit_xgb_ranker(
     if verbose:
         init_kwargs.setdefault("verbosity", 1 if verbose is True else int(verbose))
 
+    # XGBRanker with enable_categorical needs a category (not raw object) dtype.
+    # Cast declared cat columns to pandas Categorical for fit AND store the dtype
+    # so predict re-casts an object / per-DF-category inference frame to the same
+    # category universe (otherwise XGB predict raises on object columns / mismatched
+    # categories). The shared train+val union keeps fit and eval consistent.
+    _xgb_cat_dtypes: dict = {}
+    if cat_features and isinstance(X_tr, pd.DataFrame):
+        from pandas.api.types import CategoricalDtype as _CatDtype
+        _val_for_union = X_va if (X_val is not None and isinstance(X_va, pd.DataFrame)) else None
+        for _c in cat_features:
+            if _c not in X_tr.columns:
+                continue
+            _levels: list = []
+            _seen: set = set()
+            for _frame in [X_tr] + ([_val_for_union] if _val_for_union is not None else []):
+                if _c not in _frame.columns:
+                    continue
+                _col = _frame[_c]
+                _uniq = (_col.cat.categories.tolist() if isinstance(_col.dtype, _CatDtype) else _col.dropna().unique().tolist())
+                for _v in _uniq:
+                    if _v not in _seen:
+                        _seen.add(_v)
+                        _levels.append(_v)
+            if _levels:
+                _xgb_cat_dtypes[_c] = _CatDtype(categories=sorted(_levels, key=str))
+
+    def _apply_xgb_cats(_df):
+        if not isinstance(_df, pd.DataFrame) or not _xgb_cat_dtypes:
+            return _df
+        _upd = {_c: _df[_c].astype(_dt) for _c, _dt in _xgb_cat_dtypes.items() if _c in _df.columns}
+        return _df.assign(**_upd) if _upd else _df
+
+    X_tr = _apply_xgb_cats(X_tr)
+    if fit_kwargs.get("eval_set"):
+        fit_kwargs["eval_set"] = [(_apply_xgb_cats(_xv), _yv) for _xv, _yv in fit_kwargs["eval_set"]]
+
     model = XGBRanker(**init_kwargs)
     model.fit(X_tr, y_tr, qid=qid_tr, **fit_kwargs)
     return {
@@ -349,6 +408,7 @@ def _fit_xgb_ranker(
         "flavor": "xgboost",
         "objective_kwargs": obj_kwargs,
         "sort_idx_train": np.arange(len(y_tr), dtype=np.intp),
+        "xgb_cat_dtypes": _xgb_cat_dtypes,
     }
 
 
@@ -421,11 +481,22 @@ def _fit_lgb_ranker(
         callbacks=callbacks if callbacks else None,
         **fit_kwargs,
     )
+    # Persist the train-time CategoricalDtype per cat column so predict can re-cast
+    # the inference frame to the SAME category universe. LightGBM compares the
+    # predict frame's ``pandas_categorical`` against the model's training metadata
+    # and raises "train and valid dataset categorical_feature do not match" when a
+    # predict-time category column (object / per-DF category) differs.
+    _train_cat_dtypes: dict = {}
+    if cat_features and isinstance(X_tr, pd.DataFrame):
+        for _c in cat_features:
+            if _c in X_tr.columns and isinstance(X_tr[_c].dtype, pd.CategoricalDtype):
+                _train_cat_dtypes[_c] = X_tr[_c].dtype
     return {
         "model": model,
         "flavor": "lightgbm",
         "objective_kwargs": obj_kwargs,
         "sort_idx_train": sort_idx_tr,
+        "lgb_cat_dtypes": _train_cat_dtypes,
     }
 
 
@@ -499,10 +570,33 @@ def predict_ranker_scores(fitted: dict, X: Any, group_ids: np.ndarray | None = N
     model = fitted["model"]
     flavor = fitted["flavor"]
     if flavor == "catboost":
+        _cb_cats = fitted.get("cb_cat_features") or []
+        _cb_na = fitted.get("cb_na_sentinel")
+        if _cb_cats and _cb_na is not None and isinstance(X, pd.DataFrame):
+            _upd = {}
+            for _c in _cb_cats:
+                if _c in X.columns and X[_c].dtype == object and X[_c].isna().any():
+                    _upd[_c] = X[_c].where(X[_c].notna(), _cb_na)
+            if _upd:
+                X = X.assign(**_upd)
         scores = model.predict(X)
     elif flavor == "xgboost":
+        _cat_dtypes = fitted.get("xgb_cat_dtypes") or {}
+        if _cat_dtypes and isinstance(X, pd.DataFrame):
+            _upd = {_c: X[_c].astype(_dt) for _c, _dt in _cat_dtypes.items() if _c in X.columns}
+            if _upd:
+                X = X.assign(**_upd)
         scores = model.predict(X)
     elif flavor == "lightgbm":
+        # Re-cast cat columns to the EXACT train-time CategoricalDtype so LightGBM's
+        # predict-time ``pandas_categorical`` matches the model's training metadata
+        # (otherwise an object / per-DF-category predict frame trips "train and valid
+        # dataset categorical_feature do not match").
+        _cat_dtypes = fitted.get("lgb_cat_dtypes") or {}
+        if _cat_dtypes and isinstance(X, pd.DataFrame):
+            _upd = {_c: X[_c].astype(_dt) for _c, _dt in _cat_dtypes.items() if _c in X.columns}
+            if _upd:
+                X = X.assign(**_upd)
         scores = model.predict(X)
     elif flavor == "mlp":
         scores = model.predict(X)

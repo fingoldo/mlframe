@@ -4594,6 +4594,36 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _eng_keep.append(_c)
                 _eng_arrs[_c] = _arr_c
         if _eng_drop:
+            # Dependency-closure guard: never drop an engineered column / recipe that a
+            # SURVIVING recipe consumes via src_names (e.g. a cat_pair_cross producer
+            # feeding a modular / numeric_decompose recipe). Dropping the producer while
+            # keeping the consumer orphans the consumer's source -> KeyError at transform
+            # replay. Fixpoint over all recipe dicts so multi-level chains stay intact.
+            _all_pre_recipe_dicts = (
+                _hybrid_orth_pre_recipes, _mi_greedy_pre_recipes, _kfold_te_pre_recipes,
+                _count_enc_pre_recipes, _freq_enc_pre_recipes, _cat_num_pre_recipes,
+                _miss_ind_pre_recipes, _miss_cnt_pre_recipes, _miss_pat_pre_recipes,
+                _ratio_pre_recipes, _log_ratio_pre_recipes, _grouped_delta_pre_recipes,
+                _lagged_diff_pre_recipes, _grouped_agg_pre_recipes,
+                _composite_group_agg_pre_recipes, _grouped_quantile_pre_recipes,
+                _cat_pair_pre_recipes, _cat_triple_pre_recipes,
+                _numeric_decompose_pre_recipes, _modular_pre_recipes,
+                _group_distance_pre_recipes, _rare_category_pre_recipes,
+                _conditional_residual_pre_recipes, _rankgauss_pre_recipes,
+                _temporal_agg_pre_recipes,
+            )
+            while True:
+                _protected = {
+                    _s
+                    for _d in _all_pre_recipe_dicts
+                    for _r in _d.values()
+                    if _r.name not in _eng_drop
+                    for _s in (getattr(_r, "src_names", ()) or ())
+                }
+                _newly = _eng_drop & _protected
+                if not _newly:
+                    break
+                _eng_drop -= _newly
             X = X.drop(columns=list(_eng_drop))
             self.hybrid_orth_features_ = [
                 c for c in (self.hybrid_orth_features_ or []) if c not in _eng_drop
