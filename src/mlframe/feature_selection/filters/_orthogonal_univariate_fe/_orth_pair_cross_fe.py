@@ -16,7 +16,7 @@ from typing import Optional, Sequence
 import numpy as np
 import pandas as pd
 
-from .hermite_fe import _POLY_BASES, basis_route_by_moments
+from ..hermite_fe import _POLY_BASES, basis_route_by_moments
 from ._orth_mi_backends import _mi_classif_batch
 
 logger = logging.getLogger(__name__)
@@ -37,7 +37,7 @@ def _pair_eng_col_name(col_i: str, col_j: str, basis: str, deg_a: int, deg_b: in
     families (He_a * T_b) blows up combinatorially without measurable signal
     gain on the standard XOR / saddle / circle targets.
     """
-    from ._orthogonal_univariate_fe import _BASIS_CODE
+    from . import _BASIS_CODE
 
     code = _BASIS_CODE.get(basis, basis)
     return f"{col_i}*{col_j}__{code}{deg_a}_{code}{deg_b}"
@@ -97,7 +97,7 @@ def generate_pair_cross_basis_features(
     control (manufactured spurious weaker pairs 0.60-0.96, leak-free over-search).
     Don't re-add joint product routing here. (D:/Temp/item5_product_routing_findings.md)
     """
-    from ._orthogonal_univariate_fe import _evaluate_basis_column
+    from . import _evaluate_basis_column
 
     if not pairs:
         return pd.DataFrame(index=X.index)
@@ -274,7 +274,7 @@ def hybrid_orth_mi_pair_fe(
         cross_scores : ranking DataFrame from the stage-2 cross-basis pair
             pass (output of ``score_pair_cross_basis_by_mi_uplift``).
     """
-    from ._orthogonal_univariate_fe import hybrid_orth_mi_fe
+    from . import hybrid_orth_mi_fe
 
     # Stage 1: univariate hybrid. Use the SAME caller-facing knobs so the
     # univariate winners on the joint frame are reproducible bit-identical
@@ -412,7 +412,7 @@ def hybrid_orth_mi_pair_fe_with_recipes(
     """Same as :func:`hybrid_orth_mi_pair_fe` but additionally returns a
     flat list of recipes (univariate + pair, in append order) for replay.
     """
-    from .engineered_recipes import (
+    from ..engineered_recipes import (
         build_orth_univariate_recipe,
         build_orth_pair_cross_recipe,
     )

@@ -67,7 +67,7 @@ def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10) ->
     matching ``_mi_classif_batch_sklearn`` semantics. An all-NaN column or a
     column where every value collapses to a single bin returns 0.0.
     """
-    from .hermite_fe import plugin_mi_classif_batch_dispatch
+    from ..hermite_fe import plugin_mi_classif_batch_dispatch
 
     n, p = X.shape
     y_i64 = np.ascontiguousarray(y, dtype=np.int64)
@@ -142,7 +142,7 @@ def _select_mi_backend() -> str:
     # in a stripped-down install) fall back to sklearn rather than crashing
     # at first call.
     try:
-        from .hermite_fe import plugin_mi_classif_batch_dispatch  # noqa: F401
+        from ..hermite_fe import plugin_mi_classif_batch_dispatch  # noqa: F401
         return "numba"
     except Exception:
         return "sklearn"

@@ -47,7 +47,7 @@ from typing import Optional, Sequence
 import numpy as np
 import pandas as pd
 
-from .hermite_fe import (
+from ..hermite_fe import (
     _POLY_BASES,
     basis_route_by_moments,
     polyeval_dispatch,
@@ -455,7 +455,7 @@ def generate_univariate_basis_features(
     # min-max / shift) fits on the bigger pool while engineered values are
     # still emitted only for labeled rows. y is never inspected here, so the
     # augmentation is leakage-free by construction.
-    from ._semi_supervised_fe import get_unlabeled_pool as _get_unlabeled_pool
+    from .._semi_supervised_fe import get_unlabeled_pool as _get_unlabeled_pool
     _aux_pool = _get_unlabeled_pool()
     code = _BASIS_CODE
     out_cols: dict = {}
@@ -725,7 +725,7 @@ def hybrid_orth_mi_fe_with_recipes(
     -------
     (X_augmented, scores, recipes)
     """
-    from .engineered_recipes import build_orth_univariate_recipe
+    from ..engineered_recipes import build_orth_univariate_recipe
     X_aug, scores = hybrid_orth_mi_fe(
         X, y, cols=cols, degrees=degrees, basis=basis,
         top_k=top_k, min_uplift=min_uplift,

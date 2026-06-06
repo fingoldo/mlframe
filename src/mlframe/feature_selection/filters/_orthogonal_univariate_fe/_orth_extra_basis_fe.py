@@ -16,7 +16,7 @@ from typing import Optional, Sequence
 import numpy as np
 import pandas as pd
 
-from .hermite_fe import _detect_heavy_tail, _robust_axis_enabled, _robust_lo_hi
+from ..hermite_fe import _detect_heavy_tail, _robust_axis_enabled, _robust_lo_hi
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ def _fit_spline_for_col(x: np.ndarray, n_inner_knots: int):
     held (knots baked into the recipe, replay reads only knots/lo/hi), but moot.
     Don't add fe_spline_knot_strategy="supervised". (D:/Temp/item7_supervised_knots_findings.md)
     """
-    from .engineered_recipes import _fit_spline_knots, _bspline_basis_values  # noqa: F401
+    from ..engineered_recipes import _fit_spline_knots, _bspline_basis_values  # noqa: F401
     knots, lo, hi = _fit_spline_knots(x, n_inner_knots, degree=3)
     # Number of cubic B-spline basis functions = len(knots) - degree - 1.
     n_basis = len(knots) - 3 - 1
@@ -588,11 +588,11 @@ def generate_extra_basis_features(
     if not extra_bases:
         return pd.DataFrame(index=X.index), {}
     if dedup_collinear_sources:
-        from ._orthogonal_univariate_fe import _dedup_collinear_source_cols
+        from . import _dedup_collinear_source_cols
         cols = _dedup_collinear_source_cols(
             X, list(cols), corr_threshold=dedup_corr_threshold,
         )
-    from .engineered_recipes import _bspline_basis_values  # local import
+    from ..engineered_recipes import _bspline_basis_values  # local import
     out_cols: dict = {}
     meta: dict = {}
     fourier_freqs = tuple(float(f) for f in fourier_freqs)
@@ -793,7 +793,7 @@ def generate_extra_basis_features(
 def _build_recipe_from_meta(name: str, meta_entry: dict):
     """Materialise an ``EngineeredRecipe`` from one ``generate_extra_basis_features``
     meta entry. Returns None for unknown basis kinds (defensive)."""
-    from .engineered_recipes import (
+    from ..engineered_recipes import (
         build_orth_spline_recipe, build_orth_fourier_recipe,
     )
     basis = meta_entry["basis"]
@@ -872,7 +872,7 @@ def hybrid_orth_extra_basis_fe_with_recipes(
             "engineered_col", "source_col", "baseline_mi", "engineered_mi", "uplift",
         ])
         return X.copy(), empty_scores, []
-    from ._orthogonal_univariate_fe import score_features_by_mi_uplift
+    from . import score_features_by_mi_uplift
     raw_X = X[[c for c in (cols or X.columns) if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]]
     scores = score_features_by_mi_uplift(raw_X, engineered, y, nbins=nbins)
     raw_baselines = scores["baseline_mi"].to_numpy()
