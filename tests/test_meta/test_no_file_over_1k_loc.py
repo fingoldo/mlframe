@@ -53,12 +53,6 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # discovery wiring. Sibling carve candidates: the recurrent rerun block
     # and the composite-post tail into per-phase helpers.
     "src/mlframe/training/core/_phase_train_one_target_body.py",
-    # FIXME(carve-wave-next): filters/_dynamic_cluster_discovery.py at
-    # ~1.7k LOC -- Wave 9.1 DCD's core swap / propagate / accept machinery.
-    # Sibling carve candidates: swap-matrix extension into
-    # ``_dynamic_cluster_discovery_swap.py``, anchor->PC1 / kernel-tuning
-    # tau into ``_dynamic_cluster_discovery_anchor.py``.
-    "src/mlframe/feature_selection/filters/_dynamic_cluster_discovery.py",
     # FIXME(carve-wave-next): training/core/_phase_composite_post_xt_ensemble.py
     # at ~1.17k LOC after the cross-target ensemble + ``compute_valset_metrics``
     # gating + reporting branch landed. Reasonable next split: the report-emit
