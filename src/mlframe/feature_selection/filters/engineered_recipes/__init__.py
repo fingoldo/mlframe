@@ -321,22 +321,22 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     if recipe.kind == "orth_diff_basis":
         # Layer 59 (2026-05-31): lazy import keeps this module under the
         # ~1.8k-LOC ceiling; the apply helper lives in the sibling FE module.
-        from ._orthogonal_diff_basis_fe import _apply_orth_diff_basis
+        from .._orthogonal_diff_basis_fe import _apply_orth_diff_basis
         return _apply_orth_diff_basis(recipe, X)
     if recipe.kind == "orth_cluster_basis":
         # Layer 61 (2026-05-31): per-cluster shared-basis FE. Replay
         # recomputes the aggregate from the stored member tuple via the
         # recipe-stored aggregator (mean_z / median_z / pc1), then evaluates
         # the same basis_degree -- bit-exact round-trip from fit to transform.
-        from ._orthogonal_cluster_basis_fe import _apply_orth_cluster_basis
+        from .._orthogonal_cluster_basis_fe import _apply_orth_cluster_basis
         return _apply_orth_cluster_basis(recipe, X)
     if recipe.kind == "orth_triplet_cross":
-        from ._orthogonal_triplet_fe_recipes import _apply_orth_triplet_cross
+        from .._orthogonal_triplet_fe_recipes import _apply_orth_triplet_cross
         return _apply_orth_triplet_cross(recipe, X)
     if recipe.kind == "orth_quadruplet_cross":
         # Layer 77 (2026-06-01): 4-way cross-basis FE. Replay is closed-form
         # over the four source columns via the recipe-stored (basis, deg) tuple.
-        from ._orthogonal_quadruplet_fe_recipes import _apply_orth_quadruplet_cross
+        from .._orthogonal_quadruplet_fe_recipes import _apply_orth_quadruplet_cross
         return _apply_orth_quadruplet_cross(recipe, X)
     if recipe.kind == "orth_spline":
         from ._orth_basis_recipes import _apply_orth_spline
@@ -363,7 +363,7 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         # Layer 37 lazy import: keeps engineered_recipes.py under the 1k-LOC
         # ceiling (mlframe sibling-split rule). The helpers live alongside
         # the encoders that build them.
-        from ._missingness_fe import (
+        from .._missingness_fe import (
             _apply_missing_indicator_recipe,
             _apply_missingness_count_recipe,
             _apply_missingness_pattern_recipe,
@@ -376,7 +376,7 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     if recipe.kind in ("pairwise_ratio", "grouped_delta", "lagged_diff"):
         # Layer 38 lazy import: same rationale as Layer 37 -- keep this module
         # under the 1k-LOC ceiling.
-        from ._ratio_delta_fe import (
+        from .._ratio_delta_fe import (
             _apply_pairwise_ratio_recipe,
             _apply_grouped_delta_recipe,
             _apply_lagged_diff_recipe,
@@ -389,18 +389,18 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     if recipe.kind == "grouped_agg":
         # Layer 87 lazy import: keep this module under the LOC ceiling; the
         # apply helper lives alongside the grouped-agg generator.
-        from ._grouped_agg_fe import _apply_grouped_agg_recipe
+        from .._grouped_agg_fe import _apply_grouped_agg_recipe
         return _apply_grouped_agg_recipe(recipe, X)
     if recipe.kind == "composite_group_agg":
         # Layer 93 lazy import: composite (multi-column) group-key aggregate;
         # replay helper lives with the generator. Keeps this module under the
         # LOC ceiling.
-        from ._composite_group_agg_fe import _apply_composite_group_agg_recipe
+        from .._composite_group_agg_fe import _apply_composite_group_agg_recipe
         return _apply_composite_group_agg_recipe(recipe, X)
     if recipe.kind == "cat_pair_cross":
         # Layer 89 lazy import: cat x cat synergy cross; replay helper lives
         # with the generator. Keeps this module under the LOC ceiling.
-        from ._cat_pair_fe import apply_cat_pair_cross
+        from .._cat_pair_fe import apply_cat_pair_cross
         cat_i, cat_j = recipe.src_names
         return apply_cat_pair_cross(
             X if (pd is not None and isinstance(X, pd.DataFrame))
@@ -419,7 +419,7 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     if recipe.kind == "cat_triple_cross":
         # Layer 94 lazy import: cat x cat x cat synergy cross; replay helper
         # lives with the generator. Keeps this module under the LOC ceiling.
-        from ._cat_triple_fe import apply_cat_triple_cross
+        from .._cat_triple_fe import apply_cat_triple_cross
         cat_a, cat_b, cat_c = recipe.src_names
         return apply_cat_triple_cross(
             X if (pd is not None and isinstance(X, pd.DataFrame))
@@ -443,15 +443,15 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         src_name = recipe.src_names[0]
         vals = _extract_column(X, src_name)
         if recipe.kind == "numeric_rounding":
-            from ._numeric_decompose_fe import apply_rounding
+            from .._numeric_decompose_fe import apply_rounding
             return apply_rounding(vals, float(recipe.extra["precision"]))
-        from ._numeric_decompose_fe import apply_digit_extract
+        from .._numeric_decompose_fe import apply_digit_extract
         return apply_digit_extract(vals, int(recipe.extra["digit_position"]))
     if recipe.kind == "modular":
         # Layer 95 PART A (2026-06-01): periodic / modular decomposition.
         # Pure arithmetic (x mod period + sin/cos phase) on the single source
         # column -- no lazy import needed, no y reference.
-        from ._periodic_fe import apply_modular
+        from .._periodic_fe import apply_modular
         src_name = recipe.src_names[0]
         vals = _extract_column(X, src_name)
         return apply_modular(
@@ -462,26 +462,26 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         # (group-level z / KL / Wasserstein-1 from the global distribution).
         # Replay maps a row's group key through the stored per-group scalar
         # lookup; reads only X. Lazy import keeps this module dependency-light.
-        from ._group_distance_fe import _apply_group_distance_recipe
+        from .._group_distance_fe import _apply_group_distance_recipe
         return _apply_group_distance_recipe(recipe, X)
     if recipe.kind == "rare_category":
         # Layer 104 (2026-06-01): rare-category indicator / frequency-band.
         # Replay maps a row's category through the stored per-category frequency
         # lookup; reads only X. Lazy import keeps this module dependency-light.
-        from ._extra_fe_families import _apply_rare_category_recipe
+        from .._extra_fe_families import _apply_rare_category_recipe
         return _apply_rare_category_recipe(recipe, X)
     if recipe.kind == "conditional_residual":
         # Layer 104 (2026-06-01): NUM x NUM conditional residual
         # x_i - E[x_i | bin(x_j)]. Replay digitises x_j with the stored quantile
         # edges and subtracts the stored per-bin mean of x_i; reads only X.
-        from ._extra_fe_families import _apply_conditional_residual_recipe
+        from .._extra_fe_families import _apply_conditional_residual_recipe
         return _apply_conditional_residual_recipe(recipe, X)
     if recipe.kind == "rankgauss":
         # Layer 104 (2026-06-01): rank-Gaussianisation (RankGauss). Replay
         # interpolates each test value's rank against the stored sorted fit
         # values and maps to a Gaussian quantile; reads only X. Monotone ->
         # MI-invariant by the DPI; value is downstream (linear / NN).
-        from ._extra_fe_families import _apply_rankgauss_recipe
+        from .._extra_fe_families import _apply_rankgauss_recipe
         return _apply_rankgauss_recipe(recipe, X)
     if recipe.kind in ("temporal_expanding", "temporal_rolling", "temporal_lag"):
         # Layer 92 (2026-06-01): leak-safe temporal aggregations. Replay
@@ -489,7 +489,7 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         # stored TRAIN per-entity history plus earlier within-test rows -- never
         # the row's own future, never train labels. Lazy import keeps this
         # module under the LOC ceiling.
-        from ._temporal_agg_fe import (
+        from .._temporal_agg_fe import (
             apply_temporal_expanding,
             apply_temporal_rolling,
             apply_temporal_lag,
@@ -503,7 +503,7 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         # Layer 88 lazy import: per-group distributional FE (percentile-rank +
         # spread + target-aware supervised bins); replay helpers live with the
         # generator. Keeps this module under the LOC ceiling.
-        from ._grouped_quantile_fe import (
+        from .._grouped_quantile_fe import (
             _apply_grouped_quantile_recipe,
             _apply_target_aware_group_bin_recipe,
         )
@@ -535,7 +535,7 @@ def _apply_hermite_pair(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
             )
 
     # Lazy imports to avoid circular dependency (hermite_fe -> mrmr -> recipes).
-    from .hermite_fe import _POLY_BASES, _DEFAULT_BIN_FUNCS
+    from ..hermite_fe import _POLY_BASES, _DEFAULT_BIN_FUNCS
 
     basis = recipe.extra["basis"]
     bin_func_name = recipe.extra["bin_func_name"]
@@ -688,7 +688,7 @@ def _apply_cluster_aggregate(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
 
     out = np.nan_to_num(out, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
     if recipe.quantization is not None:
-        from .discretization import discretize_array
+        from ..discretization import discretize_array
         q = recipe.quantization
         # 2026-05-30 Wave 9.1 fix (loop iter 29): use fit-time edges when
         # the recipe stored them. Pre-fix ``discretize_array`` recomputed
@@ -771,8 +771,8 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
             f"and 2 unary_names; got {len(recipe.src_names)} / {len(recipe.unary_names)}"
         )
     # Lazy import to avoid circular dependency (feature_engineering -> mrmr via _internals).
-    from .feature_engineering import create_unary_transformations, create_binary_transformations
-    from .discretization import discretize_array
+    from ..feature_engineering import create_unary_transformations, create_binary_transformations
+    from ..discretization import discretize_array
 
     unary_funcs = create_unary_transformations(preset=recipe.unary_preset)
     binary_funcs = create_binary_transformations(preset=recipe.binary_preset)
@@ -818,14 +818,14 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
                     f"pseudo-unary on side {side!r} but '{_mkey}' is missing from "
                     f"extra. Re-fit MRMR to regenerate the recipe."
                 )
-            from ._feature_engineering_pairs import _gate_med_apply
+            from .._feature_engineering_pairs import _gate_med_apply
             return _gate_med_apply(vals, float(recipe.extra[_mkey]))
         if uname != _PREWARP:
             return unary_funcs[uname](vals)
         # Reconstruct the pre-warp spec from the flat ``extra`` fields and replay
         # it closed-form (no y) so the warped operand is bit-identical to fit.
         import orjson as _orjson
-        from .hermite_fe import apply_operand_prewarp
+        from ..hermite_fe import apply_operand_prewarp
         for _k in (f"prewarp_{side}_coef", f"prewarp_{side}_basis"):
             if _k not in recipe.extra:
                 raise KeyError(
@@ -1140,7 +1140,7 @@ def _orjson_pp(d: dict) -> str:
 # parent module under the 1700-line budget without hiding the builder from
 # callers that already import everything from ``engineered_recipes``.
 # ---------------------------------------------------------------------------
-from ._orthogonal_triplet_fe_recipes import (  # noqa: E402
+from .._orthogonal_triplet_fe_recipes import (  # noqa: E402
     build_orth_triplet_cross_recipe,
     _apply_orth_triplet_cross,
 )
@@ -1150,7 +1150,7 @@ from ._orthogonal_triplet_fe_recipes import (  # noqa: E402
 # Implementation in sibling ``_orthogonal_quadruplet_fe_recipes`` keeps the
 # parent module under the 1700-line budget.
 # ---------------------------------------------------------------------------
-from ._orthogonal_quadruplet_fe_recipes import (  # noqa: E402
+from .._orthogonal_quadruplet_fe_recipes import (  # noqa: E402
     build_orth_quadruplet_cross_recipe,
     _apply_orth_quadruplet_cross,
 )
@@ -1160,7 +1160,7 @@ from ._orthogonal_quadruplet_fe_recipes import (  # noqa: E402
 # Implementation in sibling ``_numeric_decompose_fe`` keeps this module from
 # growing further; the apply path is dispatched inline above (pure arithmetic).
 # ---------------------------------------------------------------------------
-from ._numeric_decompose_fe import (  # noqa: E402
+from .._numeric_decompose_fe import (  # noqa: E402
     build_numeric_rounding_recipe,
     build_digit_extract_recipe,
 )
@@ -1170,7 +1170,7 @@ from ._numeric_decompose_fe import (  # noqa: E402
 # re-export. Implementation in sibling ``_temporal_agg_fe`` keeps this module
 # from growing further; the apply path is dispatched inline above.
 # ---------------------------------------------------------------------------
-from ._temporal_agg_fe import (  # noqa: E402
+from .._temporal_agg_fe import (  # noqa: E402
     build_temporal_expanding_recipe,
     build_temporal_rolling_recipe,
     build_temporal_lag_recipe,
@@ -1181,14 +1181,14 @@ from ._temporal_agg_fe import (  # noqa: E402
 # re-export. Implementation in sibling ``_periodic_fe`` keeps this module from
 # growing further; the apply path is dispatched inline above (pure arithmetic).
 # ---------------------------------------------------------------------------
-from ._periodic_fe import build_modular_recipe  # noqa: E402
+from .._periodic_fe import build_modular_recipe  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Layer 95 PART B (2026-06-01): per-group distribution-distance recipe builder
 # re-export. Implementation in sibling ``_group_distance_fe`` keeps this module
 # from growing further; the apply path is dispatched inline above.
 # ---------------------------------------------------------------------------
-from ._group_distance_fe import build_group_distance_recipe  # noqa: E402
+from .._group_distance_fe import build_group_distance_recipe  # noqa: E402
 
 # Orthogonal-basis recipe builders + replay helpers live in the sibling
 # ``_orth_basis_recipes`` (apply path dispatched lazily above); re-exported so

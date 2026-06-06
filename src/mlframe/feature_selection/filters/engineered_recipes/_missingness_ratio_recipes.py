@@ -13,13 +13,13 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 if TYPE_CHECKING:
-    from .engineered_recipes import EngineeredRecipe
+    from . import EngineeredRecipe
 
 
 def _apply_mi_greedy_transform(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     """Replay a generic MI-greedy engineered column. Stateless given the
     stored transform name + source columns; no y reference."""
-    from .engineered_recipes import _extract_column
+    from . import _extract_column
     if "transform" not in recipe.extra:
         raise KeyError(
             f"mi_greedy_transform recipe '{recipe.name}' missing 'transform' "
@@ -32,7 +32,7 @@ def _apply_mi_greedy_transform(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         )
     # Lazy import to avoid the circular dependency
     # (_mi_greedy_fe -> engineered_recipes via recipe builder).
-    from ._mi_greedy_fe import apply_mi_greedy_transform
+    from .._mi_greedy_fe import apply_mi_greedy_transform
     src_values = [
         np.asarray(_extract_column(X, n), dtype=np.float64)
         for n in recipe.src_names
@@ -48,7 +48,7 @@ def build_mi_greedy_transform_recipe(
     ``TRIG_BOUNDED_TRANSFORMS``) for unary recipes, or
     ``_mi_greedy_fe.BINARY_TRANSFORMS`` for binary recipes; the registry
     lookup at replay time enforces the validation."""
-    from .engineered_recipes import EngineeredRecipe
+    from . import EngineeredRecipe
     return EngineeredRecipe(
         name=name,
         kind="mi_greedy_transform",
@@ -72,7 +72,7 @@ def build_missing_indicator_recipe(
 ) -> EngineeredRecipe:
     """Frozen recipe for one ``is_missing__{col}`` indicator. Stateless --
     replay just runs ``isna()`` on the source column."""
-    from .engineered_recipes import EngineeredRecipe
+    from . import EngineeredRecipe
     return EngineeredRecipe(
         name=name,
         kind="missing_indicator",
@@ -87,7 +87,7 @@ def build_missingness_count_recipe(
     """Frozen recipe for the per-row missingness count across ``cols``.
     Replay re-counts ``isna()`` over the same columns; missing columns at
     test time contribute 0 (graceful schema-drift contract)."""
-    from .engineered_recipes import EngineeredRecipe
+    from . import EngineeredRecipe
     cols_t = tuple(str(c) for c in cols)
     return EngineeredRecipe(
         name=name,
@@ -107,7 +107,7 @@ def build_missingness_pattern_recipe(
     """Frozen recipe for the per-row top-K pattern label. The pattern
     signature dict maps the bit-packed isna signature to an integer
     label; unseen signatures at transform map to ``other_label``."""
-    from .engineered_recipes import EngineeredRecipe
+    from . import EngineeredRecipe
     cols_t = tuple(str(c) for c in cols)
     # Coerce keys to int for stable pickle round-trip (signatures are
     # int64 bit-packs of the isna mask).
@@ -137,7 +137,7 @@ def build_pairwise_ratio_recipe(
 ) -> EngineeredRecipe:
     """Frozen recipe for ``a / b`` (``kind='div'``, safe-division floored at
     ``eps``) or ``log1p(|a|+eps) - log1p(|b|+eps)`` (``kind='log_div'``)."""
-    from .engineered_recipes import EngineeredRecipe
+    from . import EngineeredRecipe
     if kind not in ("div", "log_div"):
         raise ValueError(
             f"pairwise_ratio kind must be 'div' or 'log_div'; got {kind!r}"

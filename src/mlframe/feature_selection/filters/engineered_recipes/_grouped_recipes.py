@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .engineered_recipes import EngineeredRecipe
+    from . import EngineeredRecipe
 
 
 def build_grouped_delta_recipe(
@@ -23,7 +23,7 @@ def build_grouped_delta_recipe(
     ``x - mean(x | group)``; ``op='div_std'`` emits the per-group z-score
     ``(x - mean(x | group)) / std(x | group)``. Both fall back to the
     train global mean / std when a group is unseen at replay."""
-    from .engineered_recipes import EngineeredRecipe
+    from . import EngineeredRecipe
     if op not in ("minus_mean", "div_std"):
         raise ValueError(
             f"grouped_delta op must be 'minus_mean' or 'div_std'; got {op!r}"
@@ -58,7 +58,7 @@ def build_grouped_agg_recipe(
     ``op='ratio'`` emits ``x / mean(x|group)``. Unseen groups at replay fall
     back to the fit-time global statistic. Replay reads only X (no y), so
     transform() is leakage-free."""
-    from .engineered_recipes import EngineeredRecipe
+    from . import EngineeredRecipe
     if op not in ("broadcast", "z_within", "ratio"):
         raise ValueError(
             f"grouped_agg op must be 'broadcast', 'z_within', or 'ratio'; "
@@ -100,7 +100,7 @@ def build_composite_group_agg_recipe(
     within the composite cell; ``op='ratio'`` emits ``x / mean``. Unseen
     composite cells fall back to the fit-time global statistic. Replay reads
     only X (no y), so transform() is leakage-free."""
-    from .engineered_recipes import EngineeredRecipe
+    from . import EngineeredRecipe
     if op not in ("broadcast", "z_within", "ratio"):
         raise ValueError(
             f"composite_group_agg op must be 'broadcast', 'z_within', or "
@@ -147,7 +147,7 @@ def build_grouped_quantile_recipe(
     emit the per-group spread broadcast. Unseen groups at replay fall back to
     the pooled global edges. Replay reads only X (no y), so transform() is
     leakage-free."""
-    from .engineered_recipes import EngineeredRecipe
+    from . import EngineeredRecipe
     if op not in ("pct_rank", "iqr", "p90p10"):
         raise ValueError(
             f"grouped_quantile op must be 'pct_rank', 'iqr', or 'p90p10'; "
@@ -187,7 +187,7 @@ def build_target_aware_group_bin_recipe(
     row's value through ``searchsorted`` on its group's edges -- a pure function
     of X. The leak-safe OOF assignment used at fit for MI scoring is NOT
     persisted, so transform() carries no y reference."""
-    from .engineered_recipes import EngineeredRecipe
+    from . import EngineeredRecipe
     group_edges_clean = {
         str(k): [float(v) for v in edges] for k, edges in group_edges.items()
     }
@@ -211,7 +211,7 @@ def build_lagged_diff_recipe(
     """Frozen recipe for ``x_t - x_{t-period}`` after sorting by ``time_col``.
     Replay re-sorts the test frame by ``time_col`` and emits the per-row
     difference; the first ``period`` rows of the sorted order get 0."""
-    from .engineered_recipes import EngineeredRecipe
+    from . import EngineeredRecipe
     if int(period) < 1:
         raise ValueError(f"lagged_diff period must be >= 1; got {period}")
     return EngineeredRecipe(

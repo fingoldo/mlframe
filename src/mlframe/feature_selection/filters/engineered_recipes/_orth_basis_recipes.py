@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any, Optional
 import numpy as np
 
 if TYPE_CHECKING:
-    from .engineered_recipes import EngineeredRecipe
+    from . import EngineeredRecipe
 
 
 # ---------------------------------------------------------------------------
@@ -91,7 +91,7 @@ def _eval_orth_basis_column(
     byte-identical -- existing recipes deserialized without the field
     behave unchanged.
     """
-    from .hermite_fe import _POLY_BASES, polyeval_dispatch
+    from ..hermite_fe import _POLY_BASES, polyeval_dispatch
     basis_info = _POLY_BASES[basis]
     fit_fn = basis_info["fit"]
     # NaN-safe: mirror fit-time finite-mask behaviour. Fit-time uses the
@@ -127,7 +127,7 @@ def _apply_orth_univariate(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     source column, evaluate basis_n(z) where z is the per-basis preprocessed
     value. Stateless given the stored basis + degree; no y reference.
     """
-    from .engineered_recipes import _extract_column
+    from . import _extract_column
     if len(recipe.src_names) != 1:
         raise ValueError(
             f"orth_univariate recipe '{recipe.name}' must have exactly 1 "
@@ -158,7 +158,7 @@ def _apply_orth_pair_cross(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     evaluate basis_a^{deg_a}(z_i) * basis_b^{deg_b}(z_j). Stateless given
     the stored bases + degrees; no y reference.
     """
-    from .engineered_recipes import _extract_column
+    from . import _extract_column
     if len(recipe.src_names) != 2:
         raise ValueError(
             f"orth_pair_cross recipe '{recipe.name}' must have exactly 2 "
@@ -198,7 +198,7 @@ def build_orth_univariate_recipe(
     recipes remain byte-identical. Layer 58 routing FE picks one of
     ``"raw" | "log_abs" | "sqrt_abs" | "tanh"`` per surviving column.
     """
-    from .engineered_recipes import EngineeredRecipe
+    from . import EngineeredRecipe
     extra = {"basis": str(basis), "degree": int(degree)}
     # Only write the field when the caller picked a non-default value so
     # legacy pickles continue to compare equal byte-for-byte (the recipe's
@@ -220,7 +220,7 @@ def build_orth_pair_cross_recipe(
     """Frozen recipe for one cross-basis pair column
     ``basis_i^{deg_a}(preprocess(X[a])) * basis_j^{deg_b}(preprocess(X[b]))``.
     """
-    from .engineered_recipes import EngineeredRecipe
+    from . import EngineeredRecipe
     return EngineeredRecipe(
         name=name,
         kind="orth_pair_cross",
@@ -249,7 +249,7 @@ def build_orth_diff_basis_recipe(
     keeping recipe byte-equality with earlier diff-basis pickles that pre-
     date the pre-transform feature.
     """
-    from .engineered_recipes import EngineeredRecipe
+    from . import EngineeredRecipe
     extra = {"basis": str(basis), "degree": int(degree)}
     if pre_transform and pre_transform != "raw":
         extra["pre_transform"] = str(pre_transform)
@@ -283,7 +283,7 @@ def build_orth_cluster_basis_recipe(
     pickle-safe). Omitted when absent so legacy recipes (which fall back to the
     refit path with a warning) are unaffected.
     """
-    from .engineered_recipes import EngineeredRecipe
+    from . import EngineeredRecipe
     if len(members) < 2:
         raise ValueError(
             f"build_orth_cluster_basis_recipe: ``members`` must have >=2 "
@@ -406,7 +406,7 @@ def _apply_orth_spline(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     normalised x with knots fixed at fit time. Stateless given the stored
     knots + idx + (lo, hi); no y reference.
     """
-    from .engineered_recipes import _extract_column
+    from . import _extract_column
     if len(recipe.src_names) != 1:
         raise ValueError(
             f"orth_spline recipe '{recipe.name}' must have exactly 1 "
@@ -437,7 +437,7 @@ def _apply_orth_fourier(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     """Replay one Fourier basis column: sin(2*pi*freq*z) or cos(2*pi*freq*z)
     where z = (x - lo) / span, with (lo, span) fixed at fit time.
     """
-    from .engineered_recipes import _extract_column
+    from . import _extract_column
     if len(recipe.src_names) != 1:
         raise ValueError(
             f"orth_fourier recipe '{recipe.name}' must have exactly 1 "
@@ -496,7 +496,7 @@ def build_orth_spline_recipe(
     """Frozen recipe for one cubic B-spline basis column ``B_{idx}(z)`` where
     ``z = clip((X[src_name] - lo) / (hi - lo), 0, 1)`` with quantile-placed
     knots fixed at fit time."""
-    from .engineered_recipes import EngineeredRecipe
+    from . import EngineeredRecipe
     return EngineeredRecipe(
         name=name,
         kind="orth_spline",
@@ -537,7 +537,7 @@ def build_orth_fourier_recipe(
     to rebuild the warp but never reads ``adaptive``; the tag lets MRMR protect
     these columns past screening (a single sin/cos has low marginal MI -- phase --
     so the screen would otherwise drop the held-out-validated pair)."""
-    from .engineered_recipes import EngineeredRecipe
+    from . import EngineeredRecipe
     if kind not in ("sin", "cos"):
         raise ValueError(f"orth_fourier kind must be 'sin' or 'cos'; got {kind!r}")
     if arg not in ("linear", "quadratic"):

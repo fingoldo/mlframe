@@ -22,7 +22,7 @@ except ImportError:  # pragma: no cover
     pl = None  # type: ignore[assignment]
 
 if TYPE_CHECKING:
-    from .engineered_recipes import EngineeredRecipe
+    from . import EngineeredRecipe
 
 
 # ---------------------------------------------------------------------------
@@ -63,7 +63,7 @@ def _apply_kfold_target_encoded(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
                 f"in extra. Re-fit MRMR to regenerate."
             )
     # Lazy import to avoid circular dependency at module-load time.
-    from ._target_encoding_fe import apply_target_encoding
+    from .._target_encoding_fe import apply_target_encoding
 
     name = recipe.src_names[0]
     # Build a one-column frame view so apply_target_encoding's
@@ -104,7 +104,7 @@ def build_kfold_target_encoded_recipe(
     for diagnostics / round-trip but is NOT consulted at transform time
     (smoothing already baked into ``lookup`` values).
     """
-    from .engineered_recipes import EngineeredRecipe
+    from . import EngineeredRecipe
     # Coerce keys to plain str so MappingProxy round-trip + pickle work
     # cleanly even when the caller passed numpy/pandas string types.
     lookup_clean = {str(k): float(v) for k, v in lookup.items()}
@@ -149,7 +149,7 @@ def _apply_count_encoded(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         raise KeyError(
             f"count_encoded recipe '{recipe.name}' missing 'lookup' in extra."
         )
-    from ._count_freq_interaction_fe import apply_count_encoding
+    from .._count_freq_interaction_fe import apply_count_encoding
 
     name = recipe.src_names[0]
     if pd is not None and isinstance(X, pd.DataFrame):
@@ -182,7 +182,7 @@ def _apply_frequency_encoded(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         raise KeyError(
             f"frequency_encoded recipe '{recipe.name}' missing 'lookup' in extra."
         )
-    from ._count_freq_interaction_fe import apply_frequency_encoding
+    from .._count_freq_interaction_fe import apply_frequency_encoding
 
     name = recipe.src_names[0]
     if pd is not None and isinstance(X, pd.DataFrame):
@@ -216,7 +216,7 @@ def _apply_cat_num_residual(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
             raise KeyError(
                 f"cat_num_residual recipe '{recipe.name}' missing {key!r} in extra."
             )
-    from ._count_freq_interaction_fe import apply_cat_num_residual
+    from .._count_freq_interaction_fe import apply_cat_num_residual
 
     cat_name, num_name = recipe.src_names
     if pd is not None and isinstance(X, pd.DataFrame):
@@ -250,7 +250,7 @@ def build_count_encoded_recipe(
     """Frozen recipe for a count-encoded column. ``lookup`` maps each
     fit-time category (as str) to its observed count; unseen categories at
     replay map to ``default`` (default 0). No y reference at any stage."""
-    from .engineered_recipes import EngineeredRecipe
+    from . import EngineeredRecipe
     lookup_clean = {str(k): int(v) for k, v in lookup.items()}
     return EngineeredRecipe(
         name=name,
@@ -268,7 +268,7 @@ def build_frequency_encoded_recipe(
 ) -> EngineeredRecipe:
     """Frozen recipe for a frequency-encoded column (count / n_samples).
     Unseen categories at replay map to ``default`` (default 0.0)."""
-    from .engineered_recipes import EngineeredRecipe
+    from . import EngineeredRecipe
     lookup_clean = {str(k): float(v) for k, v in lookup.items()}
     return EngineeredRecipe(
         name=name,
@@ -290,7 +290,7 @@ def build_cat_num_residual_recipe(
     ``lookup.get(cat, global_mean)`` from the row's num value. Unseen
     categories fall back to ``global_mean`` (subtracting the unconditional
     mean is the natural fallback)."""
-    from .engineered_recipes import EngineeredRecipe
+    from . import EngineeredRecipe
     lookup_clean = {str(k): float(v) for k, v in lookup.items()}
     return EngineeredRecipe(
         name=name,
@@ -327,7 +327,7 @@ def build_cat_pair_cross_recipe(
     bin); ``encoding='target'`` emits the per-cell smoothed mean-of-y from
     ``te_lookup`` (unseen pairs / codes -> ``global_mean``). No y reference is
     consumed at replay -- ``transform()`` is a pure function of X."""
-    from .engineered_recipes import EngineeredRecipe
+    from . import EngineeredRecipe
     mapping_pairs = [
         [list(k), int(v)] for k, v in mapping.items()
     ]
@@ -371,7 +371,7 @@ def build_cat_triple_cross_recipe(
     -> sentinel bin); ``encoding='target'`` emits the per-cell smoothed mean-of-y
     from ``te_lookup`` (unseen triples / codes -> ``global_mean``). No y
     reference is consumed at replay -- ``transform()`` is a pure function of X."""
-    from .engineered_recipes import EngineeredRecipe
+    from . import EngineeredRecipe
     mapping_pairs = [
         [list(k), int(v)] for k, v in mapping.items()
     ]

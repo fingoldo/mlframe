@@ -35,12 +35,12 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # Carve candidates: the empty-support fallback block + the FE/RFECV
     # post-pass into ``_mrmr_fit_impl_finalise.py``.
     "src/mlframe/feature_selection/filters/_mrmr_fit_impl.py",
-    # FIXME(carve-wave-next): filters/engineered_recipes.py at ~1.69k LOC --
+    # FIXME(carve-wave-next): filters/engineered_recipes/__init__.py at ~1.25k LOC --
     # the recipe-replay dispatch grew with the cluster-aggregate + hermite-pair
-    # + factorize / target-encoding branches. Sensible carve: lift each recipe
-    # kind's ``_apply_*`` body into ``_engineered_recipes_<kind>.py`` siblings,
-    # keep the dispatch table + dataclass in the parent.
-    "src/mlframe/feature_selection/filters/engineered_recipes.py",
+    # + factorize / target-encoding branches. Sensible carve: lift each remaining recipe
+    # kind's ``_apply_*`` body into a further package submodule, keep the dispatch
+    # table + dataclass in __init__.
+    "src/mlframe/feature_selection/filters/engineered_recipes/__init__.py",
     # FIXME(carve-wave-next): training/core/_phase_train_one_target_body.py
     # at ~1.02k LOC after the recurrent-ensemble integration + composite-
     # discovery wiring. Sibling carve candidates: the recurrent rerun block
