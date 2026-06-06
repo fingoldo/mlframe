@@ -56,11 +56,6 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # kind's ``_apply_*`` body into ``_engineered_recipes_<kind>.py`` siblings,
     # keep the dispatch table + dataclass in the parent.
     "src/mlframe/feature_selection/filters/engineered_recipes.py",
-    # FIXME(carve-wave-next): filters/_orthogonal_univariate_fe.py at ~1.49k
-    # LOC. The Hermite / Chebyshev / Legendre / Laguerre per-basis optimisers
-    # share scaffolding; sibling carve into ``_orthogonal_univariate_fe_<basis>.py``
-    # mirrors the polynom-pair carve already shipped.
-    "src/mlframe/feature_selection/filters/_orthogonal_univariate_fe.py",
     # FIXME(carve-wave-next): training/core/_phase_train_one_target_body.py
     # at ~1.02k LOC after the recurrent-ensemble integration + composite-
     # discovery wiring. Sibling carve candidates: the recurrent rerun block
