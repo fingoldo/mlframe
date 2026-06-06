@@ -16,7 +16,7 @@ from typing import Sequence
 
 import numpy as np
 import pandas as pd
-from numba import njit, prange
+from numba import njit
 from numpy.polynomial.hermite import hermval
 from scipy import special as sp
 
@@ -388,10 +388,12 @@ _FE_BUFFER_RAM_BUDGET_RATIO: float = 0.4
 # chunks so the per-pair replay is intact) but always at least one pair per chunk.
 _FE_CHUNK_MAX_COLS_HARD_CAP: int = 65536
 
-# NJIT PARALLEL MATERIALISATION (2026-06-06). The chunk's candidate columns were filled by a PYTHON loop
-# (``out[:, col] = bin_func(a, b)`` per candidate) -- one thread, GIL-held -> serial, the remaining single-core
-# bottleneck after the discretize/MI kernels were batched. ``_materialise_chunk_njit`` fills the WHOLE chunk in a
-# ``prange`` over candidates with ``nogil=True`` -> threads run truly parallel across cores. BIT-IDENTICAL to the
+# NJIT MATERIALISATION (2026-06-06). The chunk's candidate columns were filled by a PYTHON loop
+# (``out[:, col] = bin_func(a, b)`` per candidate) -- GIL-held -> the remaining single-core bottleneck after the
+# discretize/MI kernels were batched. ``_materialise_chunk_njit`` fills the WHOLE chunk in ONE ``nogil`` njit call,
+# so the joblib pair-search threads (``backend="threading"``) run it concurrently across cores -- parallelism
+# governed by ``n_jobs``. NOTE: it is deliberately NOT ``parallel=True`` -- a numba prange here would nest
+# numba-parallel inside the joblib threads and deadlock the threading layer (0% CPU, idle threads). BIT-IDENTICAL to the
 # numpy bin_funcs: every op is computed in float32 (the buffer + transformed_vars dtype), and the Python-float
 # constants (``1e-9``, ``1.0``) are weak/value-based so the numpy expressions stay float32 too -> same hardware
 # float32 ops, same per-element nan_to_num(nan=0, +-inf=0). Only the elementary closed ops (the default ``minimal``
@@ -415,16 +417,21 @@ def _njit_binary_op_codes(binary_transformations) -> "np.ndarray | None":
     return np.asarray(codes, dtype=np.int8)
 
 
-@njit(parallel=True, nogil=True, cache=True)
+@njit(nogil=True, cache=True)
 def _materialise_chunk_njit(tv, a_cols, b_cols, op_codes, out):
-    """Fill ``out[:, k] = op_k(tv[:, a_cols[k]], tv[:, b_cols[k]])`` for all K candidates in a parallel prange,
-    then nan_to_num each value to 0. float32 throughout -> bit-identical to the numpy bin_funcs (see header)."""
+    """Fill ``out[:, k] = op_k(tv[:, a_cols[k]], tv[:, b_cols[k]])`` for all K candidates, then nan_to_num each value
+    to 0. float32 throughout -> bit-identical to the numpy bin_funcs (see header). SERIAL + ``nogil=True`` ON PURPOSE:
+    check_prospective_fe_pairs runs under joblib ``backend="threading"`` (one thread per pair-chunk), so a numba
+    ``parallel=True`` prange here would be numba-parallel NESTED inside Python threads -> the threading layer
+    deadlocks (observed: 0% CPU, 28 idle threads). With ``nogil`` the joblib threads run THIS kernel concurrently
+    across cores -- the parallelism is governed by ``n_jobs`` (consistent with the rest of the pair-search), with no
+    nested-parallel hazard."""
     n = tv.shape[0]
     K = op_codes.shape[0]
     eps = np.float32(1e-9)
     one = np.float32(1.0)
     zero = np.float32(0.0)
-    for k in prange(K):
+    for k in range(K):
         ai = a_cols[k]
         bi = b_cols[k]
         op = op_codes[k]
