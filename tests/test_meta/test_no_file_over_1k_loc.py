@@ -36,9 +36,6 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # the wrappers-iter rewrite added KBD / chi-merge / monotone-PAV branches;
     # split to ``_discretization_pav.py`` sibling.
     "src/mlframe/feature_selection/filters/discretization.py",
-    # FIXME(carve-wave-next): wrappers/_rfecv.py at ~1.05k LOC after the
-    # MBH-optimiser merge; split to ``_rfecv_mbh_dispatch.py`` sibling.
-    "src/mlframe/feature_selection/wrappers/_rfecv.py",
     # FIXME(carve-wave-next): filters/mrmr.py at ~1.03k LOC after the
     # in-flight feature_selection wrappers iteration grew the screening
     # body; the validate/transform side is already carved (sibling
