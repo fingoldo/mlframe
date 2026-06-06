@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import logging
 import threading
-import time
 
 import pytest
 
@@ -31,6 +30,25 @@ def _isolate_registry():
     reset_phase_registry()
     yield
     reset_phase_registry()
+
+
+@pytest.fixture
+def fake_phase_timer(monkeypatch):
+    """Replace the phase registry's wall-clock timer with a strictly-increasing fake clock.
+
+    The ``phase`` context manager brackets each block with ``_timer()`` at entry and exit; a fake clock that
+    advances 1.0 per read makes recorded durations deterministic (one tick per ``_timer`` call) instead of
+    relying on flaky ``time.sleep`` to coax a measurable elapsed wall-time."""
+    import mlframe.training.phases as phases_mod
+
+    counter = {"t": 0.0}
+
+    def _tick() -> float:
+        counter["t"] += 1.0
+        return counter["t"]
+
+    monkeypatch.setattr(phases_mod, "_timer", _tick)
+    return counter
 
 
 def test_reset_phase_registry_clears_state():
@@ -110,23 +128,22 @@ def test_format_phase_summary_renders_phase_names_and_totals():
     assert "5.67" in out
 
 
-def test_phase_contextmanager_records_duration():
+def test_phase_contextmanager_records_duration(fake_phase_timer):
     with phase("ctx_test"):
-        time.sleep(0.02)
+        pass
     snap = phase_snapshot()
     assert len(snap) == 1
     name, total, count = snap[0]
     assert name == "ctx_test"
-    assert total >= 0.01  # at least 10ms recorded
+    assert total >= 1.0  # one fake-clock tick between enter and exit
     assert count == 1
 
 
-def test_phase_contextmanager_records_on_exception():
+def test_phase_contextmanager_records_on_exception(fake_phase_timer):
     # On an in-block exception, the phase must STILL be recorded with a
     # finite duration so the operator can see which phase crashed.
     with pytest.raises(ValueError):
         with phase("crash_test"):
-            time.sleep(0.005)
             raise ValueError("boom")
     snap = phase_snapshot()
     assert len(snap) == 1
@@ -135,11 +152,10 @@ def test_phase_contextmanager_records_on_exception():
     assert snap[0][2] == 1
 
 
-def test_phase_nested_context_managers_record_separately():
+def test_phase_nested_context_managers_record_separately(fake_phase_timer):
     with phase("outer"):
         with phase("inner"):
-            time.sleep(0.01)
-        time.sleep(0.01)
+            pass
     snap = phase_snapshot()
     names = {row[0] for row in snap}
     assert names == {"outer", "inner"}

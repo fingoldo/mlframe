@@ -604,6 +604,14 @@ class TestCreatePolardsPipeline:
             )
 
             assert pipeline is not None
+            # Behavioral: each scaler produces a transform that preserves row count + feature width.
+            transformed = pipeline.transform(pl_df.select(feature_names))
+            assert len(transformed) == len(pl_df), f"{scaler_name}: row count changed"
+            assert len(transformed.columns) == len(feature_names), f"{scaler_name}: feature width changed"
+            # Standard scaler should center the data near zero mean (sanity that scaling actually ran).
+            if scaler_name == "standard":
+                col0 = transformed[transformed.columns[0]].to_numpy()
+                assert abs(float(col0.mean())) < 0.1, "standard scaler did not center the first column"
 
     def test_pipeline_with_ordinal_encoding(self, sample_categorical_data):
         """Test pipeline with ordinal categorical encoding."""
@@ -624,6 +632,13 @@ class TestCreatePolardsPipeline:
         )
 
         assert pipeline is not None
+        # Behavioral: ordinal encoding yields integer-valued codes for the categorical columns.
+        transformed = pipeline.transform(pl_df.select(feature_names))
+        assert len(transformed) == len(pl_df)
+        for cat_col in cat_features:
+            if cat_col in transformed.columns:
+                vals = transformed[cat_col].to_numpy()
+                assert np.allclose(vals, np.round(vals)), f"ordinal codes for {cat_col} are not integer-valued"
 
     def test_pipeline_with_onehot_encoding(self, sample_categorical_data):
         """Test pipeline with one-hot categorical encoding."""
@@ -644,6 +659,12 @@ class TestCreatePolardsPipeline:
         )
 
         assert pipeline is not None
+        # Behavioral: one-hot expands the categorical columns, so the output is wider than the input.
+        transformed = pipeline.transform(pl_df.select(feature_names))
+        assert len(transformed) == len(pl_df)
+        assert len(transformed.columns) >= len(feature_names), (
+            "one-hot encoding did not widen the frame (no expansion of categorical columns)"
+        )
 
     def test_pipeline_transformation(self, sample_polars_data):
         """Test that created pipeline can transform data."""

@@ -491,3 +491,37 @@ def trained_suite_binary(sample_classification_data, common_init_params, fast_it
         },
     )
     return suite
+
+
+@pytest.fixture(scope="session")
+def trained_suite_multi_target(sample_regression_data, common_init_params, fast_iterations):
+    """One trained suite per session with TWO regression targets sharing the same feature block. DO NOT MUTATE.
+
+    Lets per-target inspection tests (per-target metric dicts, per-target ensemble flavour stamping) consume a
+    multi-target suite without re-fitting. The extractor's ``extra_targets='same_type_2'`` adds a second
+    regression target (``target_extra``) alongside the primary ``target``, so the suite's per-target inner loop
+    runs more than once. Tests that need to add / overwrite suite attributes must deep-copy first; mutating in
+    place silently corrupts the fixture for every later consumer in the session.
+    """
+    from mlframe.training.core import train_mlframe_models_suite
+    from .shared import SimpleFeaturesAndTargetsExtractor
+
+    df, feature_names, _y = sample_regression_data
+    extractor = SimpleFeaturesAndTargetsExtractor(
+        target_column="target", regression=True, extra_targets="same_type_2",
+    )
+    suite = train_mlframe_models_suite(
+        df=df,
+        target_name="test_target",
+        model_name="trained_suite_multi_target",
+        features_and_targets_extractor=extractor,
+        reporting_config=common_init_params,
+        use_mlframe_ensembles=False,
+        hyperparams_config={
+            "iterations": fast_iterations,
+            "cb_kwargs": {"task_type": "CPU"},
+            "xgb_kwargs": {"device": "cpu"},
+            "lgb_kwargs": {"device_type": "cpu"},
+        },
+    )
+    return suite

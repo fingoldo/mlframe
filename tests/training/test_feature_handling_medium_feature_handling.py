@@ -10,7 +10,6 @@ import os
 import sys
 import tempfile
 import threading
-import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, List
 
@@ -167,16 +166,26 @@ def test_m_fh_04_evict_to_caps_fast_path_under_entry_cap() -> None:
         )
 
 
-def test_m_fh_04_eviction_still_works_when_over_cap() -> None:
+def test_m_fh_04_eviction_still_works_when_over_cap(monkeypatch) -> None:
     """Sanity: the fast-path optimisation must not skip eviction when the
     entry count actually exceeds the cap."""
     from mlframe.training.feature_handling.cache_backend import LocalDiskBackend
+
+    # Force strictly-increasing LRU timestamps via a fake clock so eviction order is deterministic without a
+    # wall-clock sleep. ``_touch_lru`` reads ``time.time()`` from the cached stdlib module.
+    import time as _time_mod
+    _counter = {"t": 1_700_000_000.0}
+
+    def _tick() -> float:
+        _counter["t"] += 1.0
+        return _counter["t"]
+
+    monkeypatch.setattr(_time_mod, "time", _tick)
 
     with tempfile.TemporaryDirectory() as tmp:
         backend = LocalDiskBackend(tmp, max_entries=3)
         for i in range(6):
             backend.write(f"key_{i}", b"v" * 4)
-            time.sleep(0.005)  # ensure distinct mtimes
         kept = set(backend.list_keys())
         # The newest 3 keys should survive (LRU = oldest evicted first).
         assert len(kept) == 3

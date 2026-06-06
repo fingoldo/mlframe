@@ -21,8 +21,6 @@ binary targets).
 """
 from __future__ import annotations
 
-import importlib
-
 import numpy as np
 import pandas as pd
 import pytest
@@ -150,46 +148,31 @@ def test_pick_granularity_minmax_zero_span_returns_month():
 
 
 def test_run_temporal_audit_batch_pandas_fallback_when_polars_missing(
-    _audit_call_recorder, monkeypatch, request
+    _audit_call_recorder, monkeypatch
 ):
-    """If polars is unavailable (or import fails), the wrapper must
-    fall through to a pandas DataFrame rather than raising.
+    """If polars is unavailable (or import fails), the wrapper must fall through to a pandas DataFrame
+    rather than raising.
 
-    Snapshot the ``_phase_temporal_audit`` module's ``__dict__`` BEFORE
-    the reload (which mutates the module in place and would otherwise
-    rebind every callable for the rest of the suite). A finalizer
-    restores the dict at teardown so other tests' module-level
-    ``from ._phase_temporal_audit import ...`` references continue to
-    resolve to the same objects. Per the test-pollution rule in CLAUDE.md.
+    The polars fastpath imports polars at CALL time (``import polars as _pl`` inside
+    ``run_temporal_audit_batch``), so blocking it via ``sys.modules['polars'] = None`` is sufficient to
+    exercise the ImportError -> pandas-fallback branch. No ``importlib.reload`` is needed -- monkeypatch
+    isolation alone, avoiding the cross-test module-rebinding pollution the reload would risk.
     """
     import sys
     monkeypatch.setitem(sys.modules, "polars", None)
 
-    from mlframe.training.core._phase_temporal_audit import run_temporal_audit_batch
-    _key = "mlframe.training.core._phase_temporal_audit"
-    _mod_ref = sys.modules[_key]
-    _saved_dict = dict(_mod_ref.__dict__)
-
-    def _restore_module_dict():
-        _mod_ref.__dict__.clear()
-        _mod_ref.__dict__.update(_saved_dict)
-
-    request.addfinalizer(_restore_module_dict)
-    importlib.reload(_mod_ref)
-
-    behavior_config, fte = _make_minimal_behavior_and_fte()
-    n = 100
-    timestamps = (1_700_000_000 + np.arange(n, dtype=np.int64))
-    y_arr = np.random.RandomState(0).randint(0, 2, size=n).astype(np.int8)
-    target_by_type = {"binary_classification": {"y": y_arr}}
-
-    # Re-bind the patched audit recorder against the reloaded module.
     from mlframe.training.core import _phase_temporal_audit as ph_mod
     monkeypatch.setattr(ph_mod, "_audit_targets_over_time",
                         lambda df, **kw: (_audit_call_recorder.update(
                             df_type=type(df).__module__ + "." + type(df).__name__,
                             n_targets=len(kw["targets"]),
                         ) or {k: None for k in kw["targets"]}))
+
+    behavior_config, fte = _make_minimal_behavior_and_fte()
+    n = 100
+    timestamps = (1_700_000_000 + np.arange(n, dtype=np.int64))
+    y_arr = np.random.RandomState(0).randint(0, 2, size=n).astype(np.int8)
+    target_by_type = {"binary_classification": {"y": y_arr}}
 
     ph_mod.run_temporal_audit_batch(
         behavior_config=behavior_config,

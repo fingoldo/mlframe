@@ -492,7 +492,10 @@ class TestDtypeVariants:
             test_X=pl.DataFrame({"x": rng.normal(size=n_te)}),
             config=cfg,
         )
-        assert rep.strongest is not None
+        # Polars X must be accepted and produce a valid strongest-baseline row label.
+        assert isinstance(rep.strongest, str) and rep.strongest in rep.table.index, (
+            f"strongest={rep.strongest!r} must be a row label of {list(rep.table.index)}"
+        )
 
     def test_polars_series_y(self, cfg):
         pl = pytest.importorskip("polars")
@@ -508,7 +511,10 @@ class TestDtypeVariants:
             test_X=pd.DataFrame({"x": rng.normal(size=n_te)}),
             config=cfg,
         )
-        assert rep.strongest is not None
+        # Polars Series y must be accepted and produce a valid strongest-baseline row label.
+        assert isinstance(rep.strongest, str) and rep.strongest in rep.table.index, (
+            f"strongest={rep.strongest!r} must be a row label of {list(rep.table.index)}"
+        )
 
 
 # ---------------------------------------------------------------------

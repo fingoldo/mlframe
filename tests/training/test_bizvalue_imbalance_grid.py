@@ -52,17 +52,14 @@ from .shared import SimpleFeaturesAndTargetsExtractor
 # Data builders
 # --------------------------------------------------------------------------------------
 
-def _make_imbalanced_classification(n_train=6000, n_test=3000, n_features=15, pos_frac=0.02, seed=42):
-    """98:2 imbalanced binary classification with informative signal in first 5 features.
+def _make_imbalanced_classification(n_train=8000, n_test=4000, n_features=15, pos_frac=0.03, seed=42):
+    """97:3 imbalanced binary classification with informative signal in first 5 features.
 
-    2026-04-16: stepped up severity from 95:5 to 98:2 with larger n. The
-    milder 95:5 regime left LightGBM's default (no-imbalance) threshold near
-    the class-prior crossover on some seeds, where adding ``is_unbalance`` or
-    ``scale_pos_weight`` could actively hurt default-threshold minority F1
-    (seen on seed 7 & 99). At 98:2 the default collapses minority predictions
-    toward 0 across all seeds, and any imbalance-handling knob consistently
-    lifts minority F1. Larger n also reduces quantization noise on F1 when
-    only ~30-60 positives appear in test.
+    Sized (n_train=8000, n_test=4000, pos_frac=0.03) so the minority-recall lift from
+    ``scale_pos_weight`` is seed-stable: across seeds 42/7/99/0/1/2 the default model leaves most
+    positives below the 0.5 cutoff and full n_neg/n_pos reweighting lifts recall by +0.12..+0.22
+    (min +0.126). The earlier 98:2 / n=6000 sizing left seed 42 degenerate (delta_recall=0.0), which
+    forced the xfail this test now replaces with a hard floor.
     """
     rng = np.random.RandomState(seed)
     n_total = n_train + n_test
@@ -225,25 +222,12 @@ def test_imbalance_handling_lifts_minority_f1(tmp_path, common_init_params, seed
         f"delta_recall={delta_recall:+.4f}  "
         f"f1_default={f1_a:.4f} f1_with_imb={f1_b:.4f} delta_f1={delta_f1:+.4f}"
     )
-    # Minority-class recall is the canonical business-value metric for
-    # imbalance handling: the knob's purpose is "catch more minority cases."
-    # The hard contract is "imbalance handling doesn't *worsen* recall
-    # by more than a sampling-noise margin (~0.05 at these test sizes)".
-    # The +0.05 lift expectation is a soft sensor: LightGBM's tree splits
-    # + scale_pos_weight are highly seed-dependent near the decision
-    # boundary, and certain synthetic 98:2 fixtures land on a decision-
-    # surface degenerate where 49x reweighting still doesn't shift any
-    # prediction across the 0.5 threshold (observed seed=42 on this
-    # box 2026-05-24: delta_recall=0.0 exactly, both runs identical).
-    assert delta_recall >= -0.05, (
-        f"Imbalance handling regressed minority recall. {msg}"
+    # Minority-class recall is the canonical business-value metric for imbalance handling: the knob's
+    # purpose is "catch more minority cases." On the re-tuned 97:3 / n=8000 fixture the n_neg/n_pos
+    # reweighting lifts recall by >=+0.126 across all benched seeds. Hard floor +0.08 leaves headroom.
+    assert delta_recall >= 0.08, (
+        f"scale_pos_weight failed to lift minority recall by >=0.08. {msg}"
     )
-    if delta_recall < 0.05:
-        pytest.xfail(
-            f"Imbalance handling did not lift minority recall by >=0.05 on "
-            f"seed={seed}; this is the soft synthetic-seed sensor not a "
-            f"prod regression. {msg}"
-        )
 
 
 # --------------------------------------------------------------------------------------

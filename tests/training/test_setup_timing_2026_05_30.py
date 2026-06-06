@@ -48,9 +48,10 @@ def _make_timing_helper(*, verbose: bool, env_value: str | None) -> tuple:
 def test_timing_emits_info_when_step_exceeds_2s(caplog):
     """Slow steps (>=2s) must surface at INFO so the gap is visible in the
     operator's prod log without raising the logger threshold."""
-    import time
-    helper, _ = _make_timing_helper(verbose=True, env_value="1")
-    time.sleep(2.05)
+    helper, state = _make_timing_helper(verbose=True, env_value="1")
+    # Backdate the previous-checkpoint timestamp instead of sleeping so the next
+    # step measures a >=2s delta deterministically.
+    state["prev"] -= 2.05
     with caplog.at_level(logging.DEBUG, logger="mlframe.training.core._phase_config_setup"):
         helper("simulated_slow_step")
     info_lines = [r for r in caplog.records if r.levelno == logging.INFO]

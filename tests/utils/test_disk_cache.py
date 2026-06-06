@@ -225,12 +225,12 @@ def test_disk_cache_get_touches_mtime(tmp_path: Path):
     """Cache hits should refresh mtime so LRU eviction considers them recent."""
     cache = DiskCache(tmp_path)
     cache.put("old", np.array([0]))
-    old_mtime = (tmp_path / "old.pkl").stat().st_mtime
-    # Sleep so the mtime update is observable on filesystems with 1s resolution.
-    import time as _t
-
-    _t.sleep(1.05)
+    old_path = tmp_path / "old.pkl"
+    # Backdate the entry 10 minutes via os.utime so a successful refresh is unambiguously observable on any
+    # filesystem mtime resolution -- no wall-clock sleep needed.
+    backdated = old_path.stat().st_mtime - 600.0
+    os.utime(old_path, (backdated, backdated))
     cache.put("new", np.array([1]))
     cache.get("old")  # touch
-    refreshed = (tmp_path / "old.pkl").stat().st_mtime
-    assert refreshed >= old_mtime
+    refreshed = old_path.stat().st_mtime
+    assert refreshed > backdated

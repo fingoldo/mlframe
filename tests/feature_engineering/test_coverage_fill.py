@@ -263,6 +263,27 @@ class TestMpsCoverage:
         })
         res = compute_mps_targets(fo_df=df, sma_size=3)
         assert res is not None and res.height > 0
+        assert set(res.columns) >= {"secid", "OPTIMAL_POSITION", "OPTIMAL_PROFIT"}
+        # Behavioral: positions are valid long/flat/short codes; one row per (secid, bar)-1.
+        assert set(res["OPTIMAL_POSITION"].unique().to_list()) <= {-1, 0, 1}
+        assert res.height == 2 * (n - 1)
+
+    def test_compute_mps_targets_long_on_uptrend_short_on_downtrend(self):
+        """Behavioral: the optimal MPS system is fully long on a strict uptrend and fully short on a
+        strict downtrend, with positive realised profit on the uptrend."""
+        from mlframe.feature_engineering.mps import compute_mps_targets
+        n = 15
+        df = pl.DataFrame({
+            "ts": list(range(n)) + list(range(n)),
+            "secid": ["UP"] * n + ["DN"] * n,
+            "pr_close": list(np.linspace(100.0, 140.0, n)) + list(np.linspace(140.0, 100.0, n)),
+        })
+        res = compute_mps_targets(fo_df=df, sma_size=1)
+        up = res.filter(pl.col("secid") == "UP")
+        dn = res.filter(pl.col("secid") == "DN")
+        assert (np.asarray(up["OPTIMAL_POSITION"].to_list()) == 1).all(), "uptrend should be fully long"
+        assert (np.asarray(dn["OPTIMAL_POSITION"].to_list()) == -1).all(), "downtrend should be fully short"
+        assert up["OPTIMAL_PROFIT"].sum() > 0.0, "long-on-uptrend must yield positive profit"
 
     def test_compute_mps_targets_ewm_path(self):
         from mlframe.feature_engineering.mps import compute_mps_targets
@@ -274,12 +295,17 @@ class TestMpsCoverage:
         })
         res = compute_mps_targets(fo_df=df, sma_size=0, ewm_alpha=0.3)
         assert res is not None
+        assert res.height == 19
+        assert set(res["OPTIMAL_POSITION"].unique().to_list()) <= {-1, 0, 1}
 
     def test_show_mps_regions_no_chart(self):
         from mlframe.feature_engineering.mps import show_mps_regions
+        # Strict uptrend: every bar should be held long, so positions are all +1.
         prices = np.linspace(100, 110, 30)
         r = show_mps_regions(prices=prices, show_chart=False, tc=1e-4)
         assert "positions" in r
+        positions = np.asarray(r["positions"])
+        assert (positions == 1).all(), f"uptrend MPS positions should be all long; got {set(positions.tolist())}"
 
     def test_plot_positions_matplotlib(self):
         from mlframe.feature_engineering.mps import plot_positions
@@ -290,7 +316,12 @@ class TestMpsCoverage:
         fig = plot_positions(
             prices=prices, positions=positions, use_plotly=False, figsize=(4, 3),
         )
+        # Behavioral: a matplotlib Figure with one axes carrying the plotted price line.
         assert fig is not None
+        axes = fig.get_axes()
+        assert axes, "plot_positions produced a figure with no axes"
+        assert any(line.get_xdata() is not None and len(line.get_xdata()) == len(prices) for line in axes[0].get_lines()), \
+            "expected a plotted series spanning all price bars"
 
 
 # ============================================================================
@@ -993,18 +1024,29 @@ class TestBasicPysrPath:
     the xdist worker.
     """
 
-    def test_run_pysr_fe_polars_basic(self):
+    def test_run_pysr_fe_recovers_product_equation(self):
+        """Behavioral: on a noiseless ``y = x0 * x1`` target PySR's symbolic search should recover a
+        multiplicative form -- the discovered expression references BOTH features and its predictions
+        track the true target closely. A model that returned a constant / single-feature equation would
+        pass the old ``hasattr(equations_)`` check but fail this one."""
         from mlframe.feature_engineering.basic import run_pysr_fe
         rng = np.random.default_rng(0)
-        n = 60
-        df = pl.DataFrame({
-            "x0": rng.standard_normal(n),
-            "x1": rng.standard_normal(n),
-            "target_y": rng.standard_normal(n),
-        })
-        # Mini PySR run: tiny so test completes in <60s on cold Julia.
+        n = 80
+        x0 = rng.standard_normal(n)
+        x1 = rng.standard_normal(n)
+        df = pl.DataFrame({"x0": x0, "x1": x1, "target_y": x0 * x1})
         model = run_pysr_fe(df, nsamples=n, timeout_mins=1, fill_nans=True)
         assert model is not None and hasattr(model, "equations_")
+
+        # The best discovered equation should involve both inputs (a product term).
+        best_expr = str(model.sympy())
+        assert "x0" in best_expr and "x1" in best_expr, (
+            f"PySR failed to recover a 2-feature form for y=x0*x1; best equation: {best_expr!r}"
+        )
+        # Predictions must track the true product target (noiseless -> near-perfect recovery expected).
+        preds = np.asarray(model.predict(df.select(["x0", "x1"]).to_numpy())).ravel()
+        corr = float(np.corrcoef(preds, (x0 * x1))[0, 1])
+        assert corr >= 0.9, f"PySR predictions correlate only {corr:.3f} with y=x0*x1 (expected >=0.9)"
 
 
 # ============================================================================
