@@ -32,10 +32,6 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # FIXME(carve-wave-next): shap_proxied_fs.py at ~1.03k LOC; the fit body
     # is the obvious candidate for ``_shap_proxied_fs_fit.py``.
     "src/mlframe/feature_selection/shap_proxied_fs.py",
-    # FIXME(carve-wave-next): filters/discretization.py at ~1.1k LOC after
-    # the wrappers-iter rewrite added KBD / chi-merge / monotone-PAV branches;
-    # split to ``_discretization_pav.py`` sibling.
-    "src/mlframe/feature_selection/filters/discretization.py",
     # FIXME(carve-wave-next): filters/mrmr.py at ~1.03k LOC after the
     # in-flight feature_selection wrappers iteration grew the screening
     # body; the validate/transform side is already carved (sibling

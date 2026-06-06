@@ -14,15 +14,11 @@ strategy is documented and applied identically to both engines (legacy pandas si
 from __future__ import annotations
 
 import logging
-import math
 import warnings
-from functools import lru_cache
-from typing import Sequence
 
 import numpy as np
 import pandas as pd
-from joblib import delayed
-from numba import jit, njit, prange
+from numba import njit, prange
 # 2026-05-28: sklearn / astropy removed from categorize_1d_array hot path.
 # Pure-numpy + numba kernels are ~10x faster than KBinsDiscretizer / OrdinalEncoder
 # (single-threaded estimator-API overhead) and ~12x faster than astropy.histogram
@@ -106,253 +102,26 @@ def _native_kbins_quantile(vals: np.ndarray, n_bins: int) -> np.ndarray:
     """
     flat = np.asarray(vals, dtype=np.float64).reshape(-1)
     quantiles = np.linspace(0.0, 100.0, n_bins + 1)
-    edges = np.nanpercentile(flat, quantiles)
+    bin_edges = np.nanpercentile(flat, quantiles)
     # Inner edges only (drop both extremes, like sklearn's KBinsDiscretizer does internally).
-    inner = edges[1:-1]
+    inner = bin_edges[1:-1]
     codes = np.searchsorted(inner, flat, side="right").astype(np.float64)
     return codes.reshape(vals.shape if vals.ndim == 2 else (-1, 1))
 
-# 2026-05-28: astropy dependency removed; ``bins='blocks'`` / ``bins='knuth'``
-# now have NATIVE impls below (numba-compiled). astropy was dropped because
-# (a) it's 50MB+ install, (b) repeatedly broke under numpy-API churn
-# (np.in1d removal etc.), (c) only Bayesian-blocks + Knuth's rule were used.
-# Both are reimplemented from primary sources, no astropy port.
-
-
-@njit(nogil=True, cache=True)
-def _knuth_log_posterior(M: int, n: int, counts: np.ndarray) -> float:
-    """Knuth (2006) log-posterior for M equal-width bins given counts per bin.
-
-    P(M | D, I) ∝ N log M + log Γ(M/2) - M log Γ(1/2) - log Γ(N + M/2)
-                + Σ_k log Γ(n_k + 1/2)
-
-    Implementation uses ``math.lgamma`` so it stays njit-friendly.
-    Reference: Knuth, K.H. (2006) "Optimal data-based binning for histograms",
-    arXiv:physics/0605197.
-    """
-    if M < 1 or n < 1:
-        return -1e300
-    log_M = math.log(M)
-    log_gamma_half = math.lgamma(0.5)
-    s = n * log_M + math.lgamma(M / 2.0) - M * log_gamma_half - math.lgamma(n + M / 2.0)
-    for k in range(M):
-        s += math.lgamma(counts[k] + 0.5)
-    return s
-
-
-def _knuth_bin_edges(a: np.ndarray, edge_type: str = "quantile",
-                     m_max_cap: int = 64) -> np.ndarray:
-    """Knuth's optimal-bin-count rule (Knuth 2006). Returns bin edges at the M*
-    that maximises the log-posterior over M in [1, min(sqrt(N)*4, m_max_cap)].
-
-    Args:
-        a: 1-D continuous data, finite values used; NaN/inf skipped.
-        edge_type: Type of edges to emit at the chosen M.
-            ``'uniform'`` (legacy): equal-width edges matching Knuth's posterior
-            likelihood model. Faithful but wastes resolution on skewed tails.
-            ``'quantile'`` (2026-05-29 fix): quantile edges at the Knuth-optimal
-            M. Empirically closes most of the bench gap to FD on heavy-tailed
-            data. Per-audit recommendation; preserves M selection (Knuth's
-            actual contribution) while routing edges through equal-frequency
-            spacing.
-        m_max_cap: Upper bound on M evaluated by the posterior loop. Default
-            500 mirrors pre-fix behaviour; ``64`` (audit recommendation) keeps
-            MI plug-in in the low-bias regime on small val-folds while not
-            disturbing posterior shape on small data.
-
-    Reference: Knuth, K.H. (2006) "Optimal data-based binning for histograms",
-    arXiv:physics/0605197.
-    """
-    a = np.asarray(a, dtype=np.float64).ravel()
-    a = a[np.isfinite(a)]
-    n = a.size
-    if n < 2:
-        return np.array([a.min() if n else 0.0, a.max() + 1e-9 if n else 1.0])
-    a_min, a_max = float(a.min()), float(a.max())
-    if a_max <= a_min:
-        return np.array([a_min, a_min + 1e-9])
-    M_max = int(min(max(4, int(np.sqrt(n) * 4)), int(m_max_cap)))
-    # 2026-05-29 fix: M_min=2. The posterior favours M=1 on perfectly-uniform
-    # data (max-entropy histogram is best-described by 1 bin), but M=1 -> 0
-    # bins downstream -> 0 MI in MRMR even when the joint signal is large.
-    # Forcing M >= 2 yields the same posterior optimum on non-uniform inputs
-    # AND a useful 2-bin median split on uniform inputs. Bench regression:
-    # uniform mean MI 0.0000 -> ~0.50 with this fix.
-    best_M, best_logp = 2, -1e300
-    for M in range(2, M_max + 1):
-        edges = np.linspace(a_min, a_max, M + 1)
-        counts, _ = np.histogram(a, bins=edges)
-        logp = _knuth_log_posterior(M, n, counts.astype(np.int64))
-        if logp > best_logp:
-            best_logp = logp
-            best_M = M
-    if edge_type == "quantile":
-        # Quantile edges at the Knuth-optimal M. Preserves the posterior's M
-        # selection (the empirical Knuth contribution) while routing edges
-        # through equal-frequency spacing - empirically closes ~half the
-        # bench gap to FD on skewed / heavy-tailed distributions.
-        quantiles = np.linspace(0.0, 100.0, best_M + 1)
-        return np.nanpercentile(a, quantiles)
-    return np.linspace(a_min, a_max, best_M + 1)
-
-
-@njit(nogil=True, cache=True)
-def _bayesian_blocks_inner(t: np.ndarray, ncp_prior: float) -> np.ndarray:
-    """Scargle (2013) Bayesian Blocks core DP. O(N^2).
-
-    Args:
-        t: SORTED unique data points, length N.
-        ncp_prior: prior on the number of change points (Scargle eq. 21).
-    Returns:
-        change_point_indices: int64 array of indices into ``t`` marking block boundaries.
-    Reference: Scargle, J.D., Norris, J.P., Jackson, B., Chiang, J. (2013),
-    "Studies in Astronomical Time Series Analysis. VI", ApJ 764:167. Event mode (events at t_i).
-    """
-    N = t.shape[0]
-    # Cell boundaries: midpoints between consecutive points + extrapolated end caps.
-    edges = np.empty(N + 1, dtype=np.float64)
-    edges[0] = t[0]
-    for i in range(1, N):
-        edges[i] = 0.5 * (t[i - 1] + t[i])
-    edges[N] = t[N - 1]
-    block_length = edges[N] - edges
-    # DP: best[i] = max log-likelihood reachable ending at point i.
-    best = np.full(N, -1e300, dtype=np.float64)
-    last = np.zeros(N, dtype=np.int64)
-    for R in range(N):
-        # For each possible block start R+1..R+1, compute log-likelihood of single block.
-        for cp in range(R + 1):
-            # Block from cp to R inclusive contains R - cp + 1 points.
-            T_cp = block_length[cp] - block_length[R + 1]
-            N_cp = R - cp + 1
-            if T_cp <= 0.0 or N_cp <= 0:
-                continue
-            # Event-mode fitness: N * (log(N / T) - 1).
-            fit = N_cp * (math.log(N_cp / T_cp))
-            prev = best[cp - 1] if cp > 0 else 0.0
-            score = prev + fit - ncp_prior
-            if score > best[R]:
-                best[R] = score
-                last[R] = cp
-    # Backtrack.
-    cps = []
-    R = N - 1
-    while R >= 0:
-        cps.append(last[R])
-        R = last[R] - 1
-    cps_arr = np.empty(len(cps), dtype=np.int64)
-    for i, v in enumerate(cps):
-        cps_arr[len(cps) - 1 - i] = v
-    return cps_arr
-
-
-@njit(nogil=True, cache=True)
-def _bayesian_blocks_midpoints(t_sorted: np.ndarray) -> np.ndarray:
-    """Build the cell-boundary midpoint array used by the canonical Scargle 2013 /
-    astropy convention. ``edges[0]=t[0]``, ``edges[N]=t[N-1]``, internal points
-    are ``0.5*(t[i-1]+t[i])``."""
-    N = t_sorted.shape[0]
-    edges = np.empty(N + 1, dtype=np.float64)
-    edges[0] = t_sorted[0]
-    for i in range(1, N):
-        edges[i] = 0.5 * (t_sorted[i - 1] + t_sorted[i])
-    edges[N] = t_sorted[N - 1]
-    return edges
-
-
-def _bayesian_blocks_bin_edges(a: np.ndarray, p0: float = 0.05,
-                                edge_placement: str = "start",
-                                subsample_threshold: int = 0) -> np.ndarray:
-    """Scargle (2013) Bayesian Blocks bin edges.
-
-    Args:
-        a: 1-D continuous data, finite values used.
-        p0: false-alarm probability for detecting a change point. Default ``0.05``
-            preserves pre-2026-05-29 behaviour (astropy time-series default).
-            ``0.10`` is recommended by the audit for continuous-data binning -
-            raises ncp_prior less aggressively, accepts more change points,
-            yields finer bins suitable for MI scoring.
-        edge_placement: ``'start'`` (legacy bug-compat) places edges at
-            ``a_sorted[cp_idx]`` (first data point of each block). ``'midpoint'``
-            (Scargle 2013 / astropy convention) places edges at cell-boundary
-            midpoints between adjacent points. ``'midpoint'`` fixes a half-spacing
-            bias toward the lower neighbour but changes binned-counts on tie-heavy
-            distributions.
-        subsample_threshold: If ``> 0`` and ``N > subsample_threshold``, fit
-            the BB DP on a uniform sub-sample of size ``subsample_threshold``
-            then map edges back to the full domain. Default ``0`` disables.
-            BB DP is O(N^2); sub-sampling to 1000 drops 211 ms -> ~50 ms with
-            minimal MI-scoring impact (bin edges only need 1/M quantile-grade
-            precision on small val-folds).
-    """
-    a = np.asarray(a, dtype=np.float64).ravel()
-    a = a[np.isfinite(a)]
-    if a.size < 2:
-        return np.array([a.min() if a.size else 0.0, a.max() + 1e-9 if a.size else 1.0])
-    a_sorted = np.sort(a)
-    # Sub-sample fast path (audit recommendation; only triggers when explicitly enabled).
-    if subsample_threshold > 0 and a_sorted.size > subsample_threshold:
-        N_full = a_sorted.size
-        step = max(1, N_full // subsample_threshold)
-        a_sorted_dp = a_sorted[::step]
-    else:
-        a_sorted_dp = a_sorted
-    N = float(a_sorted_dp.size)
-    # Scargle eq. 21: ncp_prior = 4 - log(73.53 * p0 * N^-0.478).
-    ncp_prior = 4.0 - math.log(73.53 * p0 * (N ** -0.478))
-    cp_idx = _bayesian_blocks_inner(a_sorted_dp, ncp_prior)
-    # Build edges from change-point indices.
-    if edge_placement == "midpoint":
-        # Scargle 2013 / astropy convention: edges at cell-boundary midpoints.
-        cell_edges = _bayesian_blocks_midpoints(a_sorted_dp)
-        edges_internal = np.empty(cp_idx.size + 1, dtype=np.float64)
-        for i in range(cp_idx.size):
-            edges_internal[i] = cell_edges[int(cp_idx[i])]
-        edges_internal[-1] = cell_edges[-1]
-    else:
-        # Legacy 'start' placement (pre-2026-05-29 behaviour).
-        edges_internal = np.empty(cp_idx.size + 1, dtype=np.float64)
-        for i, ci in enumerate(cp_idx):
-            edges_internal[i] = a_sorted_dp[ci]
-        edges_internal[-1] = a_sorted_dp[-1]
-    # De-duplicate consecutive equal edges (occurs when many ties present).
-    edges_internal = np.unique(edges_internal)
-    if edges_internal[0] > a.min():
-        edges_internal = np.concatenate([[a.min()], edges_internal])
-    # 2026-05-29 fix: BB DP correctly returns 1 block on perfectly-uniform data
-    # (no change points), which collapses to 0 inner edges -> 0 MI downstream.
-    # Insert the median as a forced split so the binner always returns >= 2 bins.
-    if edges_internal.size < 3:
-        median = float(np.median(a_sorted))
-        edges_internal = np.array([float(a.min()), median, float(a.max())])
-        edges_internal = np.unique(edges_internal)
-    return edges_internal
-
-
-def histogram(a, bins="auto", **kwargs):
-    """In-tree histogram supporting np.histogram's bin schemes + 'blocks' / 'knuth'.
-
-    2026-05-28: astropy was removed from the install graph; 'blocks' and 'knuth'
-    are now native numba-compiled implementations of Scargle 2013 / Knuth 2006
-    respectively. Other bin schemes (int / 'auto' / 'fd' / 'doane' / 'scott' /
-    'rice' / 'sqrt' / 'sturges') route through np.histogram unchanged.
-
-    Returns ``(hist, edges)`` matching the np.histogram + astropy contract.
-    """
-    if bins == "knuth":
-        edges = _knuth_bin_edges(np.asarray(a))
-        hist, _ = np.histogram(a, bins=edges)
-        return hist, edges
-    if bins == "blocks":
-        p0 = kwargs.pop("p0", 0.05)
-        edges = _bayesian_blocks_bin_edges(np.asarray(a), p0=p0)
-        hist, _ = np.histogram(a, bins=edges)
-        return hist, edges
-    return np.histogram(a, bins=bins, **kwargs)
 
 from mlframe.core.arrays import arrayMinMax
-from pyutilz.parallel import parallel_run
-from pyutilz.system import tqdmu
+
+from ._discretization_edges import (  # noqa: F401
+    _bayesian_blocks_bin_edges,
+    _bayesian_blocks_inner,
+    _bayesian_blocks_midpoints,
+    _knuth_bin_edges,
+    _knuth_log_posterior,
+    discretize_sklearn,
+    edges,
+    get_binning_edges,
+    histogram,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -589,16 +358,6 @@ def digitize(arr: np.ndarray, bins: np.ndarray, dtype=np.int32) -> np.ndarray:
                 break
     return res
 
-
-def edges(arr, quantiles):
-    # Wave 21 P0: use nanpercentile so NaN in arr doesn't poison every
-    # bin edge. ``discretize_array`` calls this 6000+ times per FS fit
-    # (per the module docstring); pre-fix any NaN-bearing column made
-    # bin_edges all-NaN, then digitize / searchsorted silently bucketed
-    # every row to bin 0 -- the entire discretised feature collapsed to
-    # a constant with no upstream signal.
-    bin_edges = np.asarray(np.nanpercentile(arr, quantiles))
-    return bin_edges
 
 
 @njit(cache=True)
@@ -1021,312 +780,6 @@ def _discretize_quantile_rawkernel(d_arr, bin_edges, n_bins, out_cp_dtype):
     return out_int32.astype(out_cp_dtype, copy=False)
 
 
-@njit(cache=True)
-def get_binning_edges(arr: np.ndarray, n_bins: int = 10, method: str = "uniform",
-                       min_value: float = None, max_value: float = None):
-    """Numba-jitted binning-edge calculator. Used by ``discretize_2d_array`` (itself ``@njit(parallel=True)`` and cannot dispatch to object-mode helpers).
-
-    Outside an njit context (single-column path via ``discretize_array``) prefer the inlined raw-numpy version -- ``np.percentile`` beats numba's njit
-    equivalent at n >= ~5000.
-    """
-    if method == "uniform":
-        if min_value is None or max_value is None:
-            min_value, max_value = arrayMinMax(arr)
-        bin_edges = np.linspace(min_value, max_value, n_bins + 1)
-    elif method == "quantile":
-        # Wave 21 P0: numba's njit doesn't expose np.nanpercentile, so we
-        # filter NaN inline before delegating to np.percentile. Pre-fix any
-        # NaN in arr poisoned every edge -> downstream digitize silently
-        # bucketed all rows to bin 0. The mask path is array-allocate +
-        # one pass, cheaper than the percentile sort that follows.
-        _mask = ~np.isnan(arr)
-        if _mask.all():
-            arr_finite = arr
-        else:
-            arr_finite = arr[_mask]
-        quantiles = np.linspace(0, 100, n_bins + 1)
-        bin_edges = np.asarray(np.percentile(arr_finite, quantiles))
-    return bin_edges
-
-
-def discretize_sklearn(
-    arr: np.ndarray, n_bins: int = 10, method: str = "uniform",
-    min_value: float = None, max_value: float = None, dtype: object = np.int8,
-) -> np.ndarray:
-    """Lightweight numpy port of sklearn's ``KBinsDiscretizer``.
-    ``np.searchsorted`` is faster un-jitted on contemporary numpy."""
-    bins_edges = get_binning_edges(arr=arr, n_bins=n_bins, method=method, min_value=min_value, max_value=max_value)
-    return np.searchsorted(bins_edges[1:-1], arr, side="right").astype(dtype)
-
-
-# =============================================================================
-# Categorisation of arbitrary value tables (continuous random factors)
-# =============================================================================
-
-
-def create_redundant_continuous_factor(
-    df: pd.DataFrame,
-    factors: Sequence[str],
-    agg_func: object = np.sum,
-    noise_percent: float = 5.0,
-    dist: object = None,
-    dist_args: tuple = (),
-    name: str = None,
-    sep: str = "_",
-) -> None:
-    """Out of a few continuous factors, craft a new factor with known relationship and amount of redundancy. Used by tests / benchmark harnesses, not by ``MRMR`` directly."""
-    if dist:
-        rvs = dist.rvs
-        # Wave 31 (2026-05-20): assert -> AttributeError.
-        if not callable(rvs):
-            raise AttributeError(
-                f"dist must have a callable .rvs method; got {dist!r}."
-            )
-        noise = rvs(*dist_args, size=len(df))
-    else:
-        noise = np.random.random(len(df))
-
-    val_min, val_max = noise.min(), noise.max()
-    if np.isclose(val_max, val_min):
-        noise = np.zeros(len(noise), dtype=np.float32)
-    else:
-        noise = (noise - val_min) / (val_max - val_min)
-
-    if not name:
-        name = sep.join(factors) + sep + f"{noise_percent:.0f}%{dist.name if dist else ''}noise"
-
-    df[name] = agg_func(df[factors].values, axis=1) * (1 + (noise - 0.5) * noise_percent / 100)
-
-
-# =============================================================================
-# Top-level entry
-# =============================================================================
-
-
-def categorize_dataset(
-    df,
-    method: str = "quantile",
-    n_bins: int = 4,
-    min_ncats: int = 50,
-    dtype=np.int16,
-    missing_strategy: str = "fillna_zero",
-    nbins_strategy: str = None,
-    nbins_strategy_kwargs: dict = None,
-    y_for_strategy=None,
-    cache_dir: str = None,
-):
-    """Convert a DataFrame into an ordinal-encoded ``(n_samples, n_features)`` array. Accepts pandas or polars (DataFrame or LazyFrame -- materialised at the
-    boundary). ``missing_strategy`` controls NaN handling: see :func:`_handle_missing`."""
-    df = _maybe_collect_lazy(df)
-
-    data = None
-    numerical_cols = []
-    categorical_factors = []
-
-    try:
-        import polars as pl
-        _is_polars = isinstance(df, pl.DataFrame)
-    except ImportError:
-        _is_polars = False
-
-    if _is_polars:
-        def _is_pl_cat(dt):
-            return (
-                dt == pl.Utf8
-                or dt == pl.String
-                or dt == pl.Categorical
-                or dt == pl.Boolean
-                or (hasattr(pl, "Enum") and isinstance(dt, pl.Enum))
-            )
-        numerical_cols = [name for name, dt in df.schema.items() if not _is_pl_cat(dt)]
-        categorical_cols_detected = [name for name, dt in df.schema.items() if _is_pl_cat(dt)]
-    else:
-        numerical_cols = df.head(5).select_dtypes(exclude=("category", "object", "string", "bool")).columns.values.tolist()
-        categorical_cols_detected = None
-
-    if _is_polars:
-        _num_frame = df.select(numerical_cols)
-        arr = _num_frame.to_numpy().astype(np.float64, copy=False)
-    else:
-        arr = df[numerical_cols].to_numpy(dtype=np.float64, na_value=np.nan)
-
-    # Snapshot the NaN positions BEFORE _handle_missing rewrites them: the
-    # "separate_bin" strategy fills NaN with the column median so np.percentile
-    # produces clean edges, then we overwrite the same positions in the
-    # discretized output with bin=n_bins (max+1 per column). Net effect: NaN
-    # gets its own honest category that MI estimators see correctly.
-    # 2026-05-30 Wave 9.1 fix (loop iter 11): include 'propagate' alongside
-    # 'separate_bin' so NaN positions get re-routed to the dedicated NaN
-    # bin instead of silently colliding with the top real bin via
-    # np.searchsorted(NaN -> ej.size).
-    _nan_mask = (
-        np.isnan(arr)
-        if (missing_strategy in ("separate_bin", "propagate") and arr.size > 0)
-        else None
-    )
-
-    # Unified NaN handling for both pandas and polars.
-    arr = _handle_missing(arr, strategy=missing_strategy)
-
-    # 2026-05-29 Wave 7: per-column adaptive bin chooser.
-    # When ``nbins_strategy`` is provided, compute per-column edges via the
-    # _adaptive_nbins dispatcher, apply them with np.searchsorted, and pad to
-    # the global max nbins so downstream MRMR sees a uniform-nbins matrix.
-    if nbins_strategy is not None:
-        from ._adaptive_nbins import per_feature_edges
-        _strategy_kwargs = dict(nbins_strategy_kwargs or {})
-        # Pass y if the strategy is supervised.
-        _needs_y = str(nbins_strategy).lower() in (
-            "mdlp", "fayyad_irani", "optimal_joint", "cv",
-            "mah", "mah_sci", "sci", "marx",
-        )
-        _y_arr = None
-        if _needs_y and y_for_strategy is not None:
-            _y_arr = np.asarray(y_for_strategy).ravel()
-        edges_per_col = per_feature_edges(
-            arr, y=_y_arr, method=nbins_strategy, cache_dir=cache_dir, **_strategy_kwargs,
-        )
-        # Per-column searchsorted; pad to global max nbins.
-        n_rows = arr.shape[0]
-        n_cols = arr.shape[1]
-        per_col_bins = [int(e.size + 1) for e in edges_per_col]
-        max_bins = max(max(per_col_bins) if per_col_bins else 1, 1)
-        # Validate the requested dtype can hold ``max_bins`` (matches the
-        # post-discretize NaN-bin overflow check below).
-        if max_bins > np.iinfo(dtype).max:
-            raise ValueError(
-                f"nbins_strategy={nbins_strategy!r} produced {max_bins} bins which "
-                f"exceeds dtype {dtype} max {np.iinfo(dtype).max}. "
-                f"Use a wider dtype or constrain the strategy (e.g. knuth_m_max_cap=64)."
-            )
-        data = np.empty((n_rows, n_cols), dtype=dtype)
-        for j in range(n_cols):
-            ej = edges_per_col[j]
-            if ej.size == 0:
-                data[:, j] = 0
-            else:
-                data[:, j] = np.searchsorted(ej, arr[:, j].astype(np.float64),
-                                              side="right").astype(dtype)
-    else:
-        data = discretize_2d_array(
-            arr=arr, n_bins=n_bins, method=method, min_ncats=min_ncats,
-            min_values=None, max_values=None, dtype=dtype,
-        )
-
-    if _nan_mask is not None and _nan_mask.any():
-        # 2026-05-30 Wave 9.1 fix (loop iter 9): per-COLUMN NaN bin code.
-        # Pre-fix used the constructor ``n_bins`` as the dedicated NaN code
-        # for every column, but the adaptive ``nbins_strategy`` branch
-        # produces per-column bin counts that often exceed ``n_bins``
-        # (e.g. FD gives ~22 for n=600 N(0,1), while ctor n_bins=4). So the
-        # NaN code 4 silently collided with regular real-data bin 4 - NaN
-        # observations got merged into a real bin, destroying the
-        # missingness signal and biasing every downstream MI / SU / MRMR
-        # score. Fix: each column's NaN code is one past that column's
-        # highest regular code. Per-column scheme works because downstream
-        # MI estimators treat each column independently and
-        # ``data.max(axis=0) + 1`` (line 1151) recomputes ``nbins`` per col.
-        if nbins_strategy is not None:
-            nan_codes_per_col = np.asarray(per_col_bins, dtype=np.int64)
-        else:
-            nan_codes_per_col = np.full(arr.shape[1], int(n_bins), dtype=np.int64)
-        max_bin_after = int(nan_codes_per_col.max())
-        if max_bin_after > np.iinfo(data.dtype).max:
-            raise ValueError(
-                f"separate_bin strategy needs dtype able to hold {max_bin_after}; "
-                f"current dtype {data.dtype} max is {np.iinfo(data.dtype).max}. "
-                "Pass a wider dtype to categorize_dataset."
-            )
-        # Per-column NaN code: broadcast across NaN-row positions.
-        _rows, _c = np.where(_nan_mask)
-        data[_rows, _c] = nan_codes_per_col[_c].astype(data.dtype)
-
-    if _is_polars:
-        if categorical_cols_detected:
-            cast_exprs = []
-            for c in categorical_cols_detected:
-                dt = df.schema[c]
-                if dt == pl.Boolean:
-                    cast_exprs.append(pl.col(c).cast(pl.UInt32))
-                elif dt in (pl.Utf8, pl.String):
-                    cast_exprs.append(pl.col(c).cast(pl.Categorical).to_physical())
-                else:
-                    cast_exprs.append(pl.col(c).to_physical())
-            _coded = df.select(cast_exprs)
-            categorical_cols = categorical_cols_detected
-            new_vals = _coded.to_numpy()
-        else:
-            categorical_cols = []
-            new_vals = None
-    else:
-        categorical_factors = df.select_dtypes(include=("category", "object", "string", "bool"))
-        categorical_cols = []
-        if categorical_factors.shape[1] > 0:
-            categorical_cols = categorical_factors.columns.values.tolist()
-            new_vals = _multi_col_factorize_native(categorical_factors)
-        else:
-            new_vals = None
-    if categorical_cols and new_vals is not None:
-        # 2026-05-30 Wave 9.1 fix (loop iter 31): the categorical block
-        # bypassed ``missing_strategy`` entirely. ``_multi_col_factorize_native``
-        # / ``pd.factorize`` / ``.cat.codes`` emit ``-1`` for NaN, which then
-        # silently flowed into the joint-histogram allocator and got
-        # negative-index wrapped to the LAST real category bin (or, under
-        # unsigned dtype, wrapped to 2^bits - 1 = a phantom huge category).
-        # Net effect: NaN observations silently merged with the largest
-        # real category, biasing every MI / SU / MRMR score on columns
-        # with NaN in pd.Categorical / object / string / bool columns.
-        # Sibling of iter 9 (numeric NaN bin collision) and iter 11
-        # (propagate strategy silent merge).
-        #
-        # Fix: shift codes by +1 so NaN sentinel becomes 0 and real
-        # categories become 1..K. Under ``missing_strategy='separate_bin'``
-        # (the default) this gives NaN its own honest bin. Under
-        # 'fillna_zero' the shift is equivalent: NaN ends up at bin 0
-        # which any downstream code reading "0 = first category" treats
-        # uniformly. Under 'raise', refuse if any -1 sentinel present.
-        if _missing_strategy_str := str(missing_strategy):
-            _has_nan = bool((new_vals < 0).any())
-            if _has_nan and _missing_strategy_str == "raise":
-                _nan_cnt = int((new_vals < 0).sum())
-                raise ValueError(
-                    f"categorize_dataset: {_nan_cnt} NaN value(s) in "
-                    f"categorical column(s) {categorical_cols} with "
-                    f"missing_strategy='raise'."
-                )
-            if _has_nan:
-                # Shift +1: -1 -> 0, k -> k+1. Cast back to dtype after
-                # shift (the shift increases the max by 1; auto-promote
-                # below catches dtype overflow on the new max).
-                new_vals = new_vals + 1
-        max_cats = new_vals.max(axis=0)
-        global_max = int(max_cats.max())
-        if global_max > np.iinfo(dtype).max:
-            for _candidate in (np.int16, np.int32, np.int64):
-                if global_max <= np.iinfo(_candidate).max:
-                    logger.warning(
-                        "categorize_dataset: %d category code(s) exceeded dtype %s; auto-promoting to %s to avoid silent wraparound.",
-                        int((max_cats > np.iinfo(dtype).max).sum()),
-                        dtype,
-                        _candidate,
-                    )
-                    dtype = _candidate
-                    break
-            else:
-                raise ValueError(
-                    f"categorize_dataset: category cardinality {global_max} exceeds int64 max; cannot encode."
-                )
-        new_vals = new_vals.astype(dtype)
-
-        if data is None:
-            data = new_vals
-        else:
-            data = np.append(data, new_vals, axis=1)
-
-    nbins = data.max(axis=0).astype(np.int64) + 1
-
-    return data, numerical_cols + categorical_cols, nbins
-
 
 # Register with the kernel-tuner registry so retune_all / mlframe-tune-kernels
 # discover + batch-tune discretize_2d_array (GPU-capable; cpu njit vs cuda cupy).
@@ -1341,4 +794,10 @@ _DISCRETIZE_SPEC = kernel_tuner(
     gpu_capable=True,
     salt=_DISCRETIZE_SALT,
     cli_label="discretize_2d_array",
+)
+
+
+from ._discretization_dataset import (  # noqa: E402,F401
+    categorize_dataset,
+    create_redundant_continuous_factor,
 )
