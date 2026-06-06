@@ -293,6 +293,7 @@ _count_nfailed_joint_indep_serial = njit(cache=True)(
 def _perm_kernel_backend_choice(n_samples: int, n_perms: int) -> str:
     """Per-host backend (cpu_serial/cpu_parallel/cupy) via the spec's choose(); maps a
     legacy 'cpu' region (pre serial/parallel split) to cpu_parallel."""
+    from ._cat_confirm_permutation_tuning import _CAT_PERM_SPEC
     bc = _CAT_PERM_SPEC.choose(n_samples=int(n_samples), n_perms=int(n_perms))
     return "cpu_parallel" if bc == "cpu" else bc
 
@@ -905,9 +906,4 @@ def _confirm_pairs_via_permutation(
                 )
 
     return selected_idx[kept_mask], corrected_conf
-
-
-# The kernel-tuning-cache sweep + @kernel_tuner registration live in the sibling so this file stays under the 1k-LOC ceiling.
-# Imported at the bottom (after the permutation kernels are defined) so the sibling's top-level kernel imports resolve.
-from ._cat_confirm_permutation_tuning import _CAT_PERM_SPEC  # noqa: E402,F401
 

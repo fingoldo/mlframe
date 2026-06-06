@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Broke two module-level import cycles introduced by the subpackage reorg's back-edge re-exports. `models/_ensembling_member_metrics.py` no longer imports the numba kernel + `_HAS_NUMBA_PER_MEMBER` probe from `_ensembling_base` at module top -- both are used only inside `_per_member_use_numba` / `_per_member_mae_std`, so the import is now lazy in-body, leaving `_ensembling_base`'s bottom re-export as the only edge. `feature_selection/filters/_cat_confirm_permutation.py` no longer re-imports `_CAT_PERM_SPEC` from its `_cat_confirm_permutation_tuning` sibling at the module bottom (the spec is used only inside `_perm_kernel_backend_choice`), so that lookup is now lazy in-body. Behaviour-preserving; verified by the no-import-cycle meta sensor + runtime exercise of both moved paths.
+
 ### Changed
 
 - `feature_selection/filters/mrmr.py` comment-hygiene pass: stripped banned process markers (date stamps, `Wave N`, `iter NN`, `Layer NN`, `T2#NN`, `audit-fixes flip #N`, `HIGH#N`, `Agent-X`, `Phase N`) from the leading position of parameter / docstring comments while preserving the genuine per-parameter explanations and the legitimate version references (`pre-YYYY-MM-DD` behaviour anchors, `bench-rejected (date)` notes). Comment-only; no code or behaviour change. The param-heavy `__init__` (~1644 LOC of parameter declarations + per-parameter docs) is the floor, so the file stays on the >1k LOC exempt list -- the single constructor signature is un-splittable.
