@@ -151,90 +151,62 @@ def test_derive_mode_unknown_warns_and_defaults_min(caplog):
     )
 
 
-# ---- migration source-level guards ------------------------------------
+# ---- migration wiring (runtime, not source-text) -----------------------
 
 
-def test_dummy_baselines_uses_metric_dispatcher():
-    """All 3+ dummy_baselines sites import the dispatcher.
+def _imports_dispatcher(module) -> bool:
+    """True iff the module body imports metric_name_higher_is_better from the registry
+    (possibly function-local). AST wiring fact, not a string-membership proxy."""
+    import ast
+    from pathlib import Path
 
-    ``dummy_baselines.py`` was split into themed siblings
-    (``_dummy_bootstrap``, ``_dummy_metrics_pick_plot``,
-    ``_dummy_report_type``, ``_dummy_summary_format``, ...). The
-    dispatcher imports moved with the call sites; this guard now
-    concatenates the parent + every sibling so the >=3 occurrence count
-    survives the split.
-    """
-    import pathlib
-    import mlframe as _mlframe
-    root = pathlib.Path(_mlframe.__file__).resolve().parent / "training"
-    src_parts = []
-    for rel in (
-        "dummy_baselines.py",
-        "_dummy_bootstrap.py",
-        "_dummy_metrics_pick_plot.py",
-        "_dummy_report_type.py",
-        "_dummy_summary_format.py",
-        "_dummy_compute_helpers.py",
-        "_dummy_timeseries.py",
-        "_dummy_numba_kernels.py",
-    ):
-        p = root / rel
-        if p.exists():
-            src_parts.append(p.read_text(encoding="utf-8"))
-    src = "\n".join(src_parts)
-    # The pre-fix tuple/substring shapes MUST be gone:
-    assert 'primary_metric not in ("val_NDCG@10",' not in src, (
-        "Wave 20 P0 regression: _pick_strongest reverted to whitelist"
+    tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module and "metrics_registry" in node.module:
+            if any(a.name == "metric_name_higher_is_better" for a in node.names):
+                return True
+    return False
+
+
+def test_dummy_baselines_uses_central_dispatcher():
+    """The dummy-baseline pick path must route metric direction through the central registry
+    helper (verified via the 47-case direction tests above), not a local whitelist."""
+    from mlframe.training.metrics_registry import metric_name_higher_is_better
+    from mlframe.training import _dummy_metrics_pick_plot as pick
+
+    assert _imports_dispatcher(pick), (
+        "Wave 20 P0: _dummy_metrics_pick_plot must import the central dispatcher, not a local whitelist"
     )
-    assert '"RMSE" in primary_metric\n                or "MAE" in primary_metric' not in src, (
-        "Wave 20 P0 regression: lift-pct verdict reverted to substring whitelist"
-    )
-    # Post-fix marker (the dispatcher must be called at multiple sites):
-    occurrences = src.count("metric_name_higher_is_better as _mhb")
-    assert occurrences >= 3, (
-        f"expected metric_name_higher_is_better imported in >=3 sites; "
-        f"got {occurrences} (sites: _pick_strongest, paired-bootstrap, "
-        f"lift-pct reporter, lift-pct verdict)"
+    # Metrics the pre-fix whitelist excluded -> picked the WORST baseline as strongest.
+    for name in ("val_AUC", "val_F1", "val_R2", "val_gini", "val_kappa"):
+        assert metric_name_higher_is_better(name) is True
+    for name in ("val_RMSE", "val_MAE", "val_MAPE"):
+        assert metric_name_higher_is_better(name) is False
+
+
+def test_composite_post_uses_central_dispatcher():
+    from mlframe.training.core import _phase_composite_post_summary as summ
+    assert _imports_dispatcher(summ), (
+        "Wave 20 P0: _phase_composite_post_summary must import the central dispatcher"
     )
 
 
-def test_composite_post_uses_metric_dispatcher():
-    import pathlib
-    import mlframe as _mlframe
-    # ``_phase_composite_post.py`` was carved into themed siblings
-    # (``_phase_composite_post_summary``, ``_phase_composite_post_lag_predict``,
-    # ``_phase_composite_post_xt_ensemble``); the dispatcher import moved
-    # to the summary sibling. Concat parent + siblings so the source-grep
-    # boundary check survives the split.
-    _core = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core"
-    src = (_core / "_phase_composite_post.py").read_text(encoding="utf-8")
-    for sib_name in (
-        "_phase_composite_post_summary.py",
-        "_phase_composite_post_lag_predict.py",
-        "_phase_composite_post_xt_ensemble.py",
-    ):
-        sib = _core / sib_name
-        if sib.exists():
-            src += "\n" + sib.read_text(encoding="utf-8")
-    assert "metric_name_higher_is_better as _mhb" in src, (
-        "Wave 20 P0 regression: _phase_composite_post no longer uses the "
-        "dispatcher"
-    )
-    # Pre-fix substring whitelist must be gone (the specific shape):
-    assert '"RMSE" in _metric_name or "MAE" in _metric_name' not in src
+def test_callbacks_derive_mode_not_endswith_e_heuristic():
+    """derive_mode must classify by the registry, NOT the pre-fix endswith('e') fallback that
+    silently sent custom metrics to 'min' and trained the WORST iteration."""
+    from mlframe.training._callbacks import UniversalCallback
 
+    class _MockCallback(UniversalCallback):
+        def __init__(self):
+            self.verbose = 0
+            self.metric_history = {}
 
-def test_callbacks_uses_metric_dispatcher():
-    import pathlib
-    import mlframe as _mlframe
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "training" / "_callbacks.py"
-    ).read_text(encoding="utf-8")
-    assert "metric_name_higher_is_better" in src
-    # Pre-fix endswith("e") -> "min" fallback ladder MUST be gone:
-    assert 'elif name.endswith("e"):\n            return "min"' not in src, (
-        "Wave 20 P0 regression: derive_mode reverted to endswith('e') "
-        "heuristic which silently misclassified custom metric names "
-        "and trained the WORST iteration."
-    )
+    cb = _MockCallback()
+    # 'val_balanced_accuracy' / 'val_pr_auc' end in vowel-ish forms the old heuristic mishandled;
+    # 'gini'/'kappa'/'mcc' are higher-is-better despite no 'e' suffix.
+    assert cb.derive_mode("val_balanced_accuracy") == "max"
+    assert cb.derive_mode("val_pr_auc") == "max"
+    assert cb.derive_mode("val_gini") == "max"
+    assert cb.derive_mode("val_kappa") == "max"
+    assert cb.derive_mode("val_mcc") == "max"
+    assert cb.derive_mode("val_RMSE") == "min"

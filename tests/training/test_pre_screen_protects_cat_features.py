@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.feature_selection.pre_screen import compute_unsupervised_drops
 
@@ -79,73 +78,95 @@ def test_compute_unsupervised_drops_handles_pandas_nullable_int():
     assert "const_nullable_int" in drops
 
 
-def test_dead_pass_branch_was_fixed_via_source_inspection():
-    """The exact pre-fix shape (``if ctx.cat_features: pass``) must NOT appear
-    in _train_one_target.py anymore. Source-level regression guard.
+class _FSCfg:
+    pre_screen_unsupervised = True
+    pre_screen_variance_threshold = 0.0
+    pre_screen_null_fraction_threshold = 0.99
 
-    Justified per the [[feedback_behavioral_tests]] memory rule's carve-out:
-    when a behavioural test can't easily set up the multi-suite ctx state, a
-    source-level pattern check is acceptable IF it has a clear failure message
-    pointing at the bug-class.
-    """
-    import pathlib
-    # Derive path from installed package; hardcoded D:/ paths break on every other clone.
-    import mlframe as _mlframe
-    _core = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core"
-    # After the monolith splits, the pre-screen block lives in its own
-    # ``_phase_train_one_target_pre_screen.py`` sibling; the parent + body
-    # files re-export the helper. Concat all three so the regression guard
-    # catches the bug-class regardless of which module the offending pattern
-    # would re-appear in.
-    src = "\n".join(
-        (_core / nm).read_text(encoding="utf-8")
-        for nm in (
-            "_phase_train_one_target.py",
-            "_phase_train_one_target_body.py",
-            "_phase_train_one_target_pre_screen.py",
-            "_phase_train_one_target_model_setup.py",
+
+def _make_prescreen_ctx(df, *, cat_features=(), text_features=(), embedding_features=(),
+                        target_by_type=None):
+    """Minimal ctx exercising the real suite-once pre-screen helper."""
+    from types import SimpleNamespace
+
+    ctx = SimpleNamespace(
+        feature_selection_config=_FSCfg(),
+        _pre_screen_done=False,
+        _pre_screen_dropped_cols=None,
+        target_by_type=target_by_type or {},
+        cat_features=list(cat_features),
+        text_features=list(text_features),
+        embedding_features=list(embedding_features),
+        group_id_col=None,
+        ts_field=None,
+        extractor=None,
+        features_and_targets_extractor=None,
+        split_config=None,
+        metadata=None,
+        verbose=0,
+        filtered_train_df=df,
+        filtered_val_df=None,
+        train_df_pd=df,
+        val_df_pd=None,
+        test_df_pd=None,
+        train_df_polars=None,
+        val_df_polars=None,
+        test_df_polars=None,
+    )
+    return ctx
+
+
+def test_prescreen_protects_cat_text_embedding_and_targets():
+    """Run the real suite-once pre-screen helper: near-constant cat/text/embedding columns and
+    every suite target column survive, while an unprotected near-constant numeric is dropped.
+    Pre-fix the dead ``if ctx.cat_features: pass`` no-op dropped protected categoricals."""
+    from mlframe.training.core._phase_train_one_target_pre_screen import (
+        _maybe_run_unsupervised_pre_screen,
+    )
+
+    df = pd.DataFrame({
+        "var_col": np.arange(100, dtype=np.float64),
+        "const_num": np.full(100, 3.0),
+        "cat_const": pd.Categorical(["X"] * 100),
+        "text_const": ["doc"] * 100,
+        "emb_const": np.full(100, 7.0),
+        "tgt_reg": np.full(100, 1.0),
+        "tgt_bin": np.full(100, 0.0),
+    })
+    ctx = _make_prescreen_ctx(
+        df,
+        cat_features=["cat_const"],
+        text_features=["text_const"],
+        embedding_features=["emb_const"],
+        target_by_type={"regression": {"tgt_reg": {}}, "binary": {"tgt_bin": {}}},
+    )
+    _maybe_run_unsupervised_pre_screen(ctx, {})
+
+    dropped = set(ctx._pre_screen_dropped_cols)
+    assert "const_num" in dropped, "unprotected near-constant numeric must be dropped"
+    for protected in ("cat_const", "text_const", "emb_const", "tgt_reg", "tgt_bin"):
+        assert protected not in dropped, (
+            f"{protected!r} is protected (cat/text/embedding/suite-target) and must survive the pre-screen"
         )
-        if (_core / nm).exists()
-    )
-    # The dead-pass shape was a ``pass`` statement on its own line as the
-    # only body of an ``if ctx.cat_features:`` block. Match exactly that:
-    # the ``if`` line, optional trailing whitespace, newline, leading
-    # indent, ``pass`` on its own line. Inline-comment references that
-    # spell the buggy pattern in prose (e.g. inside docstrings or PEP
-    # 257 quotes) don't have the actual newline-then-indent-pass shape.
-    import re as _re
-    assert not _re.search(
-        r"if ctx\.cat_features:[ \t]*\n[ \t]+pass[ \t]*\n", src
-    ), (
-        "Pre-screen 'if ctx.cat_features: pass' dead-pass regression. "
-        "cat_features must be explicitly added to the protected set."
-    )
-    # Positive assertion: cat_features are now actually added.
-    assert "_protected.update(str(c) for c in ctx.cat_features)" in src, (
-        "Pre-screen must protect cat_features via _protected.update(...)."
-    )
-    # And the suite-wide protected set (target_by_type union, not just first target):
-    assert "for _tt_targets in (ctx.target_by_type or {}).values()" in src, (
-        "Pre-screen protected set must iterate the full target_by_type to cover "
-        "every (target_type, target_name) -- not just the first target's siblings."
-    )
 
 
-def test_text_and_embedding_features_added_to_protected():
-    """Text + embedding cols carry semantic meaning the model relies on; protect them too."""
-    import pathlib
-    import mlframe as _mlframe
-    _core = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core"
-    src = "\n".join(
-        (_core / nm).read_text(encoding="utf-8")
-        for nm in (
-            "_phase_train_one_target.py",
-            "_phase_train_one_target_body.py",
-            "_phase_train_one_target_pre_screen.py",
-            "_phase_train_one_target_model_setup.py",
-        )
-        if (_core / nm).exists()
+def test_prescreen_protects_targets_across_all_types_not_just_first():
+    """Suite-once pre-screen must protect the target column of EVERY target_type, not just the
+    first iterated one (pre-fix used the type-scoped local targets and dropped sibling targets)."""
+    from mlframe.training.core._phase_train_one_target_pre_screen import (
+        _maybe_run_unsupervised_pre_screen,
     )
-    assert "ctx.text_features" in src and "ctx.embedding_features" in src, (
-        "Pre-screen must protect text + embedding features alongside cat_features."
+
+    df = pd.DataFrame({
+        "var_col": np.arange(50, dtype=np.float64),
+        "tgt_a": np.full(50, 1.0),   # near-constant target of type A
+        "tgt_b": np.full(50, 0.0),   # near-constant target of type B
+    })
+    # ``targets`` arg covers only type A; target_by_type union must still protect tgt_b.
+    ctx = _make_prescreen_ctx(
+        df, target_by_type={"regression": {"tgt_a": {}}, "binary": {"tgt_b": {}}},
     )
+    _maybe_run_unsupervised_pre_screen(ctx, {"tgt_a": {}})
+    dropped = set(ctx._pre_screen_dropped_cols)
+    assert "tgt_b" not in dropped, "sibling-type target must be protected via the target_by_type union"
+    assert "tgt_a" not in dropped

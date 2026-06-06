@@ -85,31 +85,17 @@ def test_per_member_std_3d_branch_precision():
     )
 
 
-def test_per_member_no_negative_var_clamp_needed():
-    """Source-level guard: the ``< 0: var = 0.0`` clamp band-aid is gone.
-    The two-pass form CANNOT produce negative variance (sum of squares
-    of real numbers is non-negative), so the clamp is dead code post-fix
-    -- its absence is itself the evidence that the two-pass form is in
-    place."""
-    # ``_per_member_mae_std_njit`` was moved to the
-    # ``_ensembling_base.py`` leaf when ``ensembling.py`` was split below 1k LOC.
-    import pathlib
-    import mlframe as _mlframe
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "models" / "_ensembling_base.py"
-    ).read_text(encoding="utf-8")
-    # Pre-fix shape MUST be gone:
-    assert "_var = _s_sq / N - mae * mae" not in src, (
-        "Wave 25 P1 regression: naive variance formula `_s_sq / N - mae * mae` "
-        "restored. Catastrophic-cancellation precision loss returns."
-    )
-    assert "_var = _s_sq / tot - mae * mae" not in src
-    # Post-fix two-pass marker:
-    assert "_s_dev_sq += dev * dev" in src
-    # fastmath flipped to False at the kernel decorator (one of the two
-    # cluster decorators; the other helpers may still use fastmath=True).
-    assert "@_numba.njit(parallel=True, fastmath=False, cache=True)" in src
+def test_per_member_std_constant_input_is_exactly_zero_not_negative():
+    """The two-pass form yields a non-negative variance by construction (no clamp band-aid).
+    On a constant |diff| input the naive ``E[X^2]-E[X]^2`` form could go slightly negative;
+    the post-fix kernel must return exactly 0.0 std with no NaN/negative."""
+    from mlframe.models._ensembling_base import _per_member_mae_std_njit
+
+    median = np.zeros(100_000, dtype=np.float64)
+    arr = np.full((2, 100_000), 1000.0, dtype=np.float64)
+    _mae, out_std = _per_member_mae_std_njit(arr, median)
+    assert np.all(out_std >= 0.0), "two-pass variance must never be negative"
+    assert np.allclose(out_std, 0.0, atol=0.0), "constant |diff| must give exactly 0 std"
 
 
 # ---- #3 BONUS: Shannon entropy formula -----------------------------------
@@ -156,21 +142,16 @@ def test_cont_entropy_empty_returns_nan():
     assert np.isnan(out)
 
 
-def test_cont_entropy_source_uses_probabilities_not_counts():
-    """Source-level guard: post-fix must compute p = counts / sum(counts)
-    before applying -p log p."""
-    import pathlib
-    import mlframe as _mlframe
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "feature_engineering" / "numerical.py"
-    ).read_text(encoding="utf-8")
-    # Pre-fix shape MUST be gone:
-    assert "ent = -(hist * np.log(hist + 1e-60)).sum()" not in src, (
-        "Wave 25 BONUS regression: cont_entropy reverted to count-scaled "
-        "formula `-(hist * log(hist + eps)).sum()`; this is not Shannon "
-        "entropy and scales with bin count + sample size."
+def test_cont_entropy_is_sample_size_invariant_not_count_scaled():
+    """Proper Shannon entropy (on normalised probabilities) is ~invariant to sample size for the
+    same distribution; the pre-fix count-scaled formula grew roughly linearly with n. Drawing the
+    same uniform at 10x the sample size must NOT 10x the entropy."""
+    from mlframe.feature_engineering.numerical import cont_entropy
+
+    rng = np.random.default_rng(123)
+    ent_small = cont_entropy(rng.uniform(0, 1, size=10_000))
+    ent_large = cont_entropy(rng.uniform(0, 1, size=100_000))
+    assert abs(ent_large - ent_small) < 1.0, (
+        f"cont_entropy must be ~sample-size invariant (Shannon on probabilities); "
+        f"got {ent_small:.3f} vs {ent_large:.3f} -- count-scaled regression scales with n"
     )
-    # Post-fix marker:
-    assert "p = np.asarray(hist, dtype=np.float64) / total" in src
-    assert "-float(np.sum(p[nonzero] * np.log(p[nonzero])))" in src

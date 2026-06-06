@@ -82,42 +82,45 @@ def test_tiny_rerank_n_jobs_zero_sentinel_reaches_branch():
 
 
 def test_discovery_random_state_zero_preserved():
-    """``random_state=0`` is a legitimate seed; pre-fix ``or 42`` silently
-    rewrote it to 42 inside the data_signature row-sampler, breaking
-    reproducibility for any caller that explicitly chose seed=0."""
-    src = _read("training/core/_phase_composite_discovery.py")
-    assert "or 42),\n                    )" not in src and \
-           "getattr(_disc_cfg, \"random_state\", 42) or 42" not in src, (
-        "Pre-fix `or 42` pattern reappeared: random_state=0 silently rewrites "
-        "to 42, collapsing seed=0 and seed=42 to identical data_signatures "
-        "(wave 14 regression)."
-    )
-    assert "_rs_raw = getattr(_disc_cfg, \"random_state\", 42)" in src
-    assert "random_state=int(42 if _rs_raw is None else _rs_raw)" in src
+    """``random_state=0`` is a legitimate seed: the discovery data_signature row-sampler must
+    yield a DIFFERENT signature for seed=0 vs seed=42 (pre-fix ``or 42`` collapsed them) while
+    staying deterministic per seed. This exercises the actual signature function the call uses."""
+    import numpy as np
+    import pandas as pd
+    from mlframe.training.composite_cache import data_signature
+
+    rng = np.random.default_rng(0)
+    df = pd.DataFrame({"f1": rng.random(5000), "f2": rng.random(5000), "t": rng.random(5000)})
+    sig0 = data_signature(df, "t", ["f1", "f2"], random_state=0)
+    sig42 = data_signature(df, "t", ["f1", "f2"], random_state=42)
+    assert sig0 != sig42, "seed=0 and seed=42 must produce distinct signatures (no `or 42` collapse)"
+    assert sig0 == data_signature(df, "t", ["f1", "f2"], random_state=0), "signature must be deterministic per seed"
 
 
 def test_mrmr_fit_cache_max_zero_disables_cache():
-    """``fit_cache_max=0`` is the explicit "disable LRU" sentinel. Pre-fix
-    ``or 4`` silently restored the cap to 4 so cache-off was a no-op."""
-    src = _read("feature_selection/filters/mrmr.py")
-    assert "getattr(self, \"fit_cache_max\", 4) or 4" not in src, (
-        "Pre-fix `or 4` pattern reappeared in mrmr.py: fit_cache_max=0 "
-        "is silently rewritten to 4, defeating cache-disable intent "
-        "(wave 14 regression)."
-    )
-    assert "_cap_raw = getattr(self, \"fit_cache_max\", 4)" in src
-    assert "_cap = int(4 if _cap_raw is None else _cap_raw)" in src
-    # Whitespace-flexible: the sibling-split moved this code one nesting
-    # level shallower, so the leading indent inside the ``if _cap <= 0:``
-    # block dropped from 16 to 12 spaces. Match any indent so the
-    # source-grep stays robust to future re-nesting.
-    import re as _re
-    assert _re.search(
-        r"if _cap <= 0:\s+MRMR\._FIT_CACHE\.clear\(\)", src
-    ), (
-        "fit_cache_max<=0 branch must explicitly clear the cache, not rely on "
-        "the cleanup while-loop running zero times."
-    )
+    """``fit_cache_max=0`` (explicit "disable LRU") must leave the process cache empty after
+    a real fit; ``fit_cache_max>0`` must populate it. Pre-fix ``or 4`` rewrote 0->4, so
+    cache-off silently kept caching -- this exercises the real fit writer, not the source."""
+    import numpy as np
+    from collections import OrderedDict
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    rng = np.random.default_rng(0)
+    X = rng.random((200, 5))
+    y = (X[:, 0] + rng.random(200) * 0.1 > 0.5).astype(int)
+
+    _saved = OrderedDict(MRMR._FIT_CACHE)
+    MRMR._FIT_CACHE.clear()
+    try:
+        MRMR(fit_cache_max=0, max_runtime_mins=0.2, verbose=0).fit(X, y)
+        assert len(MRMR._FIT_CACHE) == 0, "fit_cache_max=0 must keep the cache empty after fit"
+
+        MRMR._FIT_CACHE.clear()
+        MRMR(fit_cache_max=4, max_runtime_mins=0.2, verbose=0).fit(X, y)
+        assert len(MRMR._FIT_CACHE) >= 1, "fit_cache_max=4 must populate the cache after fit"
+    finally:
+        MRMR._FIT_CACHE.clear()
+        MRMR._FIT_CACHE.update(_saved)
 
 
 def test_recurrent_rerun_empty_rebuild_not_silently_swapped():

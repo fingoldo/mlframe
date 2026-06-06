@@ -38,7 +38,6 @@ from __future__ import annotations
 import logging
 
 import numpy as np
-import pytest
 
 
 # ---- #1: per-class log_loss --------------------------------------------
@@ -149,16 +148,25 @@ def test_has_any_infinity_returns_true_on_detection_failure(caplog):
 # ---- #3: detect_time/group skips -------------------------------------------
 
 
-def test_detect_time_column_candidates_logs_per_skip(caplog):
-    """Per-col skip emits DEBUG so operators can see why a col was bypassed."""
-    import pathlib
-    import mlframe as _mlframe
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "training" / "composite_auto_detect.py"
-    ).read_text(encoding="utf-8")
-    assert 'detect_time_column_candidates: skipping col=%r' in src
-    assert 'detect_group_column_candidates: skipping col=%r' in src
+def test_detect_group_column_candidates_logs_per_skip(caplog):
+    """A column whose access raises emits a DEBUG skip line (group detector), so operators
+    can see why a candidate was bypassed instead of it vanishing silently."""
+    import pandas as pd
+    from mlframe.training import composite_auto_detect as cad
+
+    class _BadGet(pd.DataFrame):
+        def __getitem__(self, key):
+            if key == "boom":
+                raise RuntimeError("synthetic get_col failure")
+            return super().__getitem__(key)
+
+    df = _BadGet({"boom": [1, 2, 3, 4, 5, 6], "ok": [1, 1, 2, 2, 3, 3]})
+    with caplog.at_level(logging.DEBUG, logger="mlframe.training.composite_auto_detect"):
+        result = cad.detect_group_column_candidates(df, candidate_columns=["boom", "ok"])
+    assert all(name != "boom" for name, _ in result)
+    assert any("detect_group_column_candidates: skipping col=" in r.message for r in caplog.records), (
+        f"expected DEBUG skip log; got: {[r.message for r in caplog.records]}"
+    )
 
 
 def test_detect_skip_emits_debug_when_col_raises(caplog):
@@ -211,8 +219,6 @@ def test_composite_screening_failed_fold_warns(caplog):
 
 def test_clone_failure_warns_with_pipeline_type(caplog):
     """sklearn.clone fallback path WARN-logs the pipeline type."""
-    import pathlib
-    import mlframe as _mlframe
     src = _read_phase_train_one_target_combined()
     assert "sklearn.clone failed for base_pipeline" in src
     # Message wraps at `reusing ` / `original reference.` -- match either piece.

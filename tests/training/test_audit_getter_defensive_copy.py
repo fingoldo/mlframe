@@ -22,39 +22,30 @@ corrupted the next-call return value.
 """
 from __future__ import annotations
 
-from types import SimpleNamespace
-from typing import Any
-
 
 # ---- #1 neural/base get_params -----------------------------------------
 
 
 def test_neural_get_params_deep_returns_deepcopy_for_trainer_params():
-    """Source-level guard: trainer_params + tune_params are now
-    deepcopied when deep=True.
+    """get_params(deep=True) must return deepcopied trainer_params + tune_params: mutating the
+    returned dicts must NOT poison the original estimator (sklearn.clone shares the get_params
+    output). deep=False keeps the by-reference fast path."""
+    from mlframe.training.neural.base import PytorchLightningEstimator
 
-    Reads both ``neural/base.py`` (facade) AND ``neural/_base_sklearn_params.py``
-    (post-split sibling that now owns ``get_params``) so the sensor keeps catching
-    a re-introduced shallow copy regardless of which file the helper lives in.
-    """
-    import pathlib
-    import mlframe as _mlframe
-    _neural = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "neural"
-    src = (_neural / "base.py").read_text(encoding="utf-8")
-    sibling = _neural / "_base_sklearn_params.py"
-    if sibling.exists():
-        src += "\n" + sibling.read_text(encoding="utf-8")
-    # Pre-fix shape MUST be gone:
-    assert '"trainer_params": self.trainer_params,' not in src, (
-        "Wave 26 P1 regression: trainer_params returned by reference even "
-        "with deep=True; sklearn.clone() shares it across original + clone."
+    est = PytorchLightningEstimator(
+        model_class=object, model_params={}, network_params={},
+        datamodule_class=object, datamodule_params={},
+        trainer_params={"logger": "orig", "max_epochs": 5},
+        tune_params={"n_trials": 10},
     )
-    assert '"tune_params": self.tune_params,' not in src, (
-        "Wave 26 P1 regression: tune_params returned by reference."
-    )
-    # Post-fix marker:
-    assert '"trainer_params": deepcopy(self.trainer_params) if deep else self.trainer_params' in src
-    assert '"tune_params": deepcopy(self.tune_params) if deep and self.tune_params else self.tune_params' in src
+    deep = est.get_params(deep=True)
+    deep["trainer_params"]["logger"] = "MUTATED"
+    deep["tune_params"]["n_trials"] = 999
+    assert est.trainer_params["logger"] == "orig", "deep=True must isolate trainer_params"
+    assert est.tune_params["n_trials"] == 10, "deep=True must isolate tune_params"
+
+    shallow = est.get_params(deep=False)
+    assert shallow["trainer_params"] is est.trainer_params, "deep=False keeps the by-reference path"
 
 
 # ---- #2 + #3 composite_discovery report() + filter_drops() ----------------
@@ -112,18 +103,19 @@ def test_composite_discovery_filter_drops_isolates_inner_dicts():
     )
 
 
-def test_composite_discovery_report_source_marker():
-    """Source-level guard: the inner-dict comprehension shape must be
-    present at both call sites."""
-    import pathlib
-    import mlframe as _mlframe
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "training" / "composite_discovery.py"
-    ).read_text(encoding="utf-8")
-    # Pre-fix shapes MUST be gone:
-    assert "return list(getattr(self, \"report_\", []))" not in src
-    assert "return list(getattr(self, \"_filter_drops\", []))" not in src
-    # Post-fix markers:
-    assert "return [dict(r) for r in getattr(self, \"report_\", [])]" in src
-    assert "return [dict(d) for d in getattr(self, \"_filter_drops\", [])]" in src
+def test_composite_discovery_report_and_filter_drops_return_fresh_outer_list():
+    """report()/filter_drops() must also decouple the OUTER list (not just inner dicts): mutating
+    the returned list (append/clear) must not change the next call's result."""
+    from mlframe.training.composite_discovery import CompositeTargetDiscovery
+
+    disc = CompositeTargetDiscovery.__new__(CompositeTargetDiscovery)
+    disc.report_ = [{"name": "spec_a", "score": 0.5}]
+    disc._filter_drops = [{"column": "col_a", "reason": "low_corr"}]
+
+    r = disc.report()
+    r.append({"name": "INJECTED", "score": 0.0})
+    assert len(disc.report()) == 1, "report() must return a fresh outer list, not the internal one"
+
+    f = disc.filter_drops()
+    f.clear()
+    assert len(disc.filter_drops()) == 1, "filter_drops() must return a fresh outer list"
