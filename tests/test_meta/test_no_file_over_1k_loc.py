@@ -76,11 +76,6 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # after the gc.collect / commit-charge logging additions. Carve candidate:
     # the discovery fit-loop body into ``_composite_discovery_fit_loop.py``.
     "src/mlframe/training/_composite_discovery_fit.py",
-    # FIXME(carve-wave-next): models/_ensembling_base.py at ~1.06k LOC after the
-    # HW-calibrated numpy-vs-numba dispatch for 2-D per-member MAE/std landed.
-    # Carve candidate: the per-member metric kernels + dispatcher into
-    # ``_ensembling_member_metrics.py``.
-    "src/mlframe/models/_ensembling_base.py",
     # FIXME(carve-wave-next): training/neural/recurrent.py at ~1.01k LOC after
     # the F-44 bf16-mixed auto-promote + F-46 fused-AdamW + F-47 cuDNN
     # persistent-RNN + F-48 nested-tensor + F-51 share_memory_() + F-53
