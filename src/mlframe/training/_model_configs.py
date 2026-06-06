@@ -484,8 +484,9 @@ class TrainingBehaviorConfig(BaseConfig):
     enable_crash_reporting: bool = True
     # Default False: silently skipping a failed model is a semantic shift that users must opt into explicitly.
     continue_on_model_failure: bool = False
-    # Per-target binary decision-threshold tuning on val/OOF (NEVER test). When True the suite sweeps the threshold maximising ``tune_decision_threshold_metric`` on the val slice per binary target and stamps it into ``metadata["decision_thresholds"]`` so predict reuses it; 0.5 stays the leak-safe fallback. Default False -- it changes hard-label ``preds`` (and confusion-matrix metrics), an accuracy tradeoff users opt into; probabilities are unaffected.
-    tune_decision_threshold: bool = False
+    # Per-target binary decision-threshold tuning on val/OOF (NEVER test), maximising ``tune_decision_threshold_metric``; the tuned value is stamped into ``metadata["decision_thresholds"]`` so predict reuses it (0.5 stays the leak-safe fallback). Affects only hard-label ``preds``; probabilities are untouched.
+    # Tri-state: "auto" (default) tunes only when the val target is imbalanced (minority fraction < DECISION_THRESHOLD_IMBALANCE_FRACTION) and leaves 0.5 on balanced targets where val-tuning only adds variance; True always tunes; False forces 0.5. bool kept for back-compat.
+    tune_decision_threshold: Union[bool, str] = "auto"
     tune_decision_threshold_metric: str = "f1"  # "f1" or "balanced_accuracy"
 
     # Curve-shape ES detector (default ON).

@@ -303,3 +303,82 @@ def test_tune_threshold_never_reads_test_only_given_inputs():
     a = tune_decision_threshold(y, p, metric="f1")
     b = tune_decision_threshold(y.copy(), p.copy(), metric="f1")
     assert a == b
+
+
+# ----------------------------------------------------------------------------
+# AUTO-gate: imbalance detection + tri-state resolver (unit + biz_value)
+# ----------------------------------------------------------------------------
+
+def _balanced_synth(seed=42, n=6000):
+    rng = np.random.default_rng(seed)
+    y = (rng.random(n) < 0.5).astype(int)
+    p = np.where(y == 1, rng.beta(2.5, 6.0, n), rng.beta(1.2, 12.0, n))
+    return y, p
+
+
+def test_is_target_imbalanced_detects_skew():
+    from mlframe.training.core._setup_helpers import is_target_imbalanced, DECISION_THRESHOLD_IMBALANCE_FRACTION
+    y_imb, _ = _imbalanced_synth()       # ~6% positive
+    y_bal, _ = _balanced_synth()         # ~50% positive
+    assert is_target_imbalanced(y_imb) is True
+    assert is_target_imbalanced(y_bal) is False
+    # cutoff boundary: just below the fraction is imbalanced, just above is not.
+    n = 1000
+    n_minority_below = int((DECISION_THRESHOLD_IMBALANCE_FRACTION - 0.05) * n)
+    y_below = np.array([1] * n_minority_below + [0] * (n - n_minority_below))
+    assert is_target_imbalanced(y_below) is True
+    n_minority_above = int((DECISION_THRESHOLD_IMBALANCE_FRACTION + 0.05) * n)
+    y_above = np.array([1] * n_minority_above + [0] * (n - n_minority_above))
+    assert is_target_imbalanced(y_above) is False
+    # degenerate -> not imbalanced (AUTO falls back to 0.5)
+    assert is_target_imbalanced(np.zeros(10, dtype=int)) is False
+    assert is_target_imbalanced(np.array([])) is False
+
+
+def test_should_tune_decision_threshold_tristate():
+    """Tri-state: True always tunes, False never, 'auto' gates on imbalance."""
+    from mlframe.training.core._setup_helpers import should_tune_decision_threshold
+    y_imb, _ = _imbalanced_synth()
+    y_bal, _ = _balanced_synth()
+    # True: always tune regardless of balance.
+    assert should_tune_decision_threshold(True, y_imb) is True
+    assert should_tune_decision_threshold(True, y_bal) is True
+    # False: never tune regardless of balance.
+    assert should_tune_decision_threshold(False, y_imb) is False
+    assert should_tune_decision_threshold(False, y_bal) is False
+    # "auto": tune iff imbalanced.
+    assert should_tune_decision_threshold("auto", y_imb) is True
+    assert should_tune_decision_threshold("auto", y_bal) is False
+
+
+def test_config_default_tune_decision_threshold_is_auto():
+    from mlframe.training.configs import TrainingBehaviorConfig
+    assert TrainingBehaviorConfig().tune_decision_threshold == "auto"
+
+
+def test_biz_auto_gate_tunes_imbalanced_stays_half_balanced():
+    """AUTO dispatch is correct BOTH ways: on the imbalanced synthetic the resolver tunes and the
+    tuned threshold beats 0.5 on F1; on the balanced synthetic AUTO does NOT tune (stays 0.5, no degradation)."""
+    from sklearn.metrics import f1_score
+    from mlframe.training.core._setup_helpers import (
+        tune_decision_threshold,
+        should_tune_decision_threshold,
+    )
+
+    # Imbalanced -> AUTO tunes and wins.
+    y_imb, p_imb = _imbalanced_synth()
+    assert should_tune_decision_threshold("auto", y_imb) is True
+    thr_imb = tune_decision_threshold(y_imb, p_imb, metric="f1")
+    f1_05_imb = f1_score(y_imb, (p_imb >= 0.5).astype(int), zero_division=0)
+    f1_t_imb = f1_score(y_imb, (p_imb >= thr_imb).astype(int), zero_division=0)
+    assert thr_imb != 0.5
+    assert f1_t_imb >= f1_05_imb + 0.20, f"AUTO tuned F1={f1_t_imb:.3f} must beat 0.5 F1={f1_05_imb:.3f}"
+
+    # Balanced -> AUTO leaves 0.5 (no tuning). Effective threshold == 0.5, so no degradation vs 0.5.
+    y_bal, p_bal = _balanced_synth()
+    assert should_tune_decision_threshold("auto", y_bal) is False
+    eff_thr_bal = tune_decision_threshold(y_bal, p_bal, metric="f1") if should_tune_decision_threshold("auto", y_bal) else 0.5
+    assert eff_thr_bal == 0.5
+    f1_05_bal = f1_score(y_bal, (p_bal >= 0.5).astype(int), zero_division=0)
+    f1_auto_bal = f1_score(y_bal, (p_bal >= eff_thr_bal).astype(int), zero_division=0)
+    assert f1_auto_bal == f1_05_bal, "AUTO on balanced must equal the 0.5 result (no-op)"

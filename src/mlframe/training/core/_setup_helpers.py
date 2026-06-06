@@ -73,7 +73,41 @@ from mlframe.metrics.core import create_fairness_subgroups
 
 DEFAULT_PROBABILITY_THRESHOLD = 0.5
 
+# Minority-class fraction below which a binary target is treated as imbalanced (and AUTO threshold-tuning fires).
+# 0.35 is well clear of the 0.5 balanced point yet catches the moderate-skew regime where a fixed 0.5 already costs F1/balanced-acc.
+DECISION_THRESHOLD_IMBALANCE_FRACTION = 0.35
+
 ConfigT = TypeVar("ConfigT")
+
+
+def is_target_imbalanced(y_true: np.ndarray, *, min_minority_fraction: float = DECISION_THRESHOLD_IMBALANCE_FRACTION) -> bool:
+    """Cheap binary-imbalance test on a val/OOF target: True when the minority class is rarer than ``min_minority_fraction``.
+
+    Used by the AUTO decision-threshold gate -- on imbalanced targets a fixed 0.5 produces poor hard labels, so the suite tunes
+    the threshold; on roughly balanced targets it leaves 0.5 (val-tuning there only adds variance). Degenerate input
+    (empty / single-class) is reported NOT imbalanced so AUTO falls back to the leak-safe 0.5.
+    """
+    y = np.asarray(y_true).ravel()
+    if y.shape[0] == 0:
+        return False
+    _, counts = np.unique(y, return_counts=True)
+    if counts.shape[0] < 2:
+        return False
+    minority_fraction = counts.min() / counts.sum()
+    return bool(minority_fraction < min_minority_fraction)
+
+
+def should_tune_decision_threshold(mode: bool | str, y_true: np.ndarray) -> bool:
+    """Resolve the tri-state ``tune_decision_threshold`` config against a val/OOF target.
+
+    ``True`` -> always tune; ``False`` -> never (force 0.5); ``"auto"`` (default) -> tune only when the target is imbalanced
+    (:func:`is_target_imbalanced`). Any other / unknown value is treated as AUTO. Tuning still happens only on val/OOF at the call site.
+    """
+    if mode is True:
+        return True
+    if mode is False:
+        return False
+    return is_target_imbalanced(y_true)
 
 
 def tune_decision_threshold(

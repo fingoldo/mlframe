@@ -168,15 +168,14 @@ def _finalize_per_target_ensembling(
                     "rrf_k": _rrf_k_used,
                 }
 
-    # A7-04: per-target binary decision-threshold tuning on val (NEVER test). Gated behind
-    # behavior_config.tune_decision_threshold (default off; 0.5 stays leak-safe fallback).
-    # Tunes on the best surviving member's VAL probs vs the val target, then stamps the
-    # threshold so the predict path applies it. val is the biased ES detector and is an
-    # allowed tuning surface; test is structurally untouched here.
+    # Per-target binary decision-threshold tuning on val (NEVER test). Tri-state behavior_config.tune_decision_threshold:
+    # "auto" (default) tunes only when the val target is imbalanced and leaves 0.5 otherwise, True always tunes, False forces 0.5.
+    # val is the biased ES detector and an allowed tuning surface; test is structurally untouched. The chosen path is stamped into metadata.
     try:
         from ..configs import TargetTypes as _TT
         _is_binary = (target_type == _TT.BINARY_CLASSIFICATION)
-        if _is_binary and bool(getattr(behavior_config, "tune_decision_threshold", False)):
+        _mode = getattr(behavior_config, "tune_decision_threshold", "auto")
+        if _is_binary and _mode is not False:
             _val_target = current_val_target
             if _val_target is None and isinstance(common_params, dict):
                 _val_target = common_params.get("val_target")
@@ -189,13 +188,22 @@ def _finalize_per_target_ensembling(
                     break
             if _val_target is not None and _best_val_probs is not None:
                 import numpy as _np
-                from ._setup_helpers import tune_decision_threshold as _tune
-                _vp_arr = _np.asarray(_best_val_probs)
-                _pos = _vp_arr[:, 1] if _vp_arr.ndim == 2 and _vp_arr.shape[1] >= 2 else _vp_arr.ravel()
-                _metric = str(getattr(behavior_config, "tune_decision_threshold_metric", "f1"))
-                _thr = _tune(_np.asarray(_val_target).ravel(), _pos, metric=_metric)
-                metadata.setdefault("decision_thresholds", {})[f"{target_type}|{cur_target_name}"] = _thr
-                if verbose:
-                    logger.info("tuned decision threshold for %s/%s: %.4f (metric=%s, val)", target_type, cur_target_name, _thr, _metric)
+                from ._setup_helpers import tune_decision_threshold as _tune, should_tune_decision_threshold as _should_tune
+                _key = f"{target_type}|{cur_target_name}"
+                _y = _np.asarray(_val_target).ravel()
+                if _should_tune(_mode, _y):
+                    _vp_arr = _np.asarray(_best_val_probs)
+                    _pos = _vp_arr[:, 1] if _vp_arr.ndim == 2 and _vp_arr.shape[1] >= 2 else _vp_arr.ravel()
+                    _metric = str(getattr(behavior_config, "tune_decision_threshold_metric", "f1"))
+                    _thr = _tune(_y, _pos, metric=_metric)
+                    metadata.setdefault("decision_thresholds", {})[_key] = _thr
+                    metadata.setdefault("decision_threshold_paths", {})[_key] = "tuned"
+                    if verbose:
+                        logger.info("tuned decision threshold for %s/%s: %.4f (metric=%s, val)", target_type, cur_target_name, _thr, _metric)
+                else:
+                    metadata.setdefault("decision_thresholds", {})[_key] = 0.5
+                    metadata.setdefault("decision_threshold_paths", {})[_key] = "default_0.5"
+                    if verbose:
+                        logger.info("decision threshold for %s/%s: 0.5 (auto: balanced target, not tuned)", target_type, cur_target_name)
     except Exception as _thr_err:
         logger.warning("decision-threshold tuning failed for %s/%s: %s", target_type, cur_target_name, _thr_err)
