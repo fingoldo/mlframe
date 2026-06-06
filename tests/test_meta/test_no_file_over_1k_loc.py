@@ -126,11 +126,6 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # Carve candidate: the noise-floor / maxT calibration block into
     # ``_screen_predictors_noise_floor.py``.
     "src/mlframe/feature_selection/filters/_screen_predictors.py",
-    # FIXME(carve-wave-next): filters/_confirm_predictor.py at ~1.02k LOC after
-    # the DCD-pruned-candidate redirect fix grew the partial-gain confirm body.
-    # Carve candidate: the partial-gain redirect logic into
-    # ``_confirm_predictor_partial_gain.py``.
-    "src/mlframe/feature_selection/filters/_confirm_predictor.py",
     # FIXME(carve-wave-next): training/neural/recurrent.py at ~1.01k LOC after
     # the F-44 bf16-mixed auto-promote + F-46 fused-AdamW + F-47 cuDNN
     # persistent-RNN + F-48 nested-tensor + F-51 share_memory_() + F-53
