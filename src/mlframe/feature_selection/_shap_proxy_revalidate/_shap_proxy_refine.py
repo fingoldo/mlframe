@@ -11,7 +11,7 @@ from __future__ import annotations
 import numpy as np
 
 from mlframe.feature_selection._shap_proxy_objective import resolve_metric
-from mlframe.feature_selection._shap_proxy_loss import (
+from mlframe.feature_selection._shap_proxy_revalidate._shap_proxy_loss import (
     _expand, _honest_loss, _open_disk_cache, _parallel_honest_losses,
     _permutation_importance_ranking,
 )

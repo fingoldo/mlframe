@@ -22,14 +22,14 @@ import logging
 import numpy as np
 
 from mlframe.feature_selection._shap_proxy_objective import coalition_margin_T, proxy_loss, resolve_metric
-from mlframe.feature_selection._shap_proxy_sampling import (
+from mlframe.feature_selection._shap_proxy_revalidate._shap_proxy_sampling import (
     _sample_anchor_subsets, _softmax_weights, _zipf_card_probs,
 )
-from mlframe.feature_selection._shap_proxy_loss import (
+from mlframe.feature_selection._shap_proxy_revalidate._shap_proxy_loss import (
     HonestLossCache, _expand, _honest_loss, _open_disk_cache,
     _parallel_honest_losses, _permutation_importance_ranking, _try_cap_n_estimators,
 )
-from mlframe.feature_selection._shap_proxy_refine import (
+from mlframe.feature_selection._shap_proxy_revalidate._shap_proxy_refine import (
     _ucb_auto_slack, _ucb_stop_remaining_cannot_win,
     active_learning_revalidate, importance_topk_ablation, revalidate_top_n, within_cluster_refine,
 )
