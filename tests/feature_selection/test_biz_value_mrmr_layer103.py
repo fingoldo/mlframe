@@ -41,7 +41,7 @@ import pytest
 
 from mlframe.utils._param_oracle import ParamOracle
 from mlframe.feature_selection.filters import hermite_fe as H
-from mlframe.feature_selection.filters import _hermite_oracle as HO
+from mlframe.feature_selection.filters.hermite_fe import _hermite_oracle as HO
 from tests.conftest import is_fast_mode
 
 FIXED_TS = "2026-01-01T00:00:00+00:00"

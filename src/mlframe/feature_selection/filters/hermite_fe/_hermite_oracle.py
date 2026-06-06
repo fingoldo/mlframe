@@ -106,7 +106,7 @@ def benchmark_polyeval_cpu_backends(basis: str, sizes=(200, 500_000),
     import time as _time
     if oracle is None:
         oracle = get_polyeval_oracle()
-    from .hermite_fe import _NJIT_FUNCS, _NJIT_PAR_FUNCS
+    from . import _NJIT_FUNCS, _NJIT_PAR_FUNCS
     c = np.array([0.3, -0.7, 0.2, 0.5, -0.1], dtype=np.float64)
     funcs = {"njit": _NJIT_FUNCS[basis], "njit_par": _NJIT_PAR_FUNCS[basis]}
     results: dict = {}

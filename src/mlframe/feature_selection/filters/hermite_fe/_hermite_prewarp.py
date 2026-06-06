@@ -195,7 +195,7 @@ def fit_operand_prewarp(
     :func:`apply_operand_prewarp`, or ``None`` if the target / operand has no
     usable variance or the solve fails.
     """
-    from .hermite_fe import _POLY_BASES, build_basis_matrix
+    from . import _POLY_BASES, build_basis_matrix
     bi = _POLY_BASES.get(basis)
     if bi is None or bi.get("kind") != "polynomial":
         # Pre-warp only defined for the orthogonal-polynomial families (closed-
@@ -250,7 +250,7 @@ def fit_pair_prewarp_als(
     Returns ``(None, None)`` on no-variance / solve failure or a non-polynomial
     basis (the closed-form replay needs the polynomial basis-matrix path).
     """
-    from .hermite_fe import _POLY_BASES, build_basis_matrix
+    from . import _POLY_BASES, build_basis_matrix
     bi = _POLY_BASES.get(basis)
     if bi is None or bi.get("kind") != "polynomial":
         return None, None
@@ -285,7 +285,7 @@ def apply_operand_prewarp(x: np.ndarray, spec: dict) -> np.ndarray:
     :func:`fit_operand_prewarp`. Closed-form in ``x`` (uses the stored basis
     ``preprocess`` params + ``coef``); no ``y`` reference, so transform()-time
     replay is bit-identical to fit time given the same ``x``."""
-    from .hermite_fe import _POLY_BASES
+    from . import _POLY_BASES
     basis = str(spec["basis"])
     bi = _POLY_BASES[basis]
     xf = np.ascontiguousarray(np.asarray(x, dtype=np.float64))
