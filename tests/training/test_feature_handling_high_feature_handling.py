@@ -9,7 +9,6 @@ H-FH-16 for the full disposition.
 from __future__ import annotations
 
 import os
-import sys
 import tempfile
 import threading
 import time
@@ -18,8 +17,9 @@ from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 
 import numpy as np
-import pandas as pd
 import pytest
+
+from tests.conftest import running_under_xdist
 
 
 # =====================================================================
@@ -172,6 +172,9 @@ def test_h_fh_07_xxhash_absent_fallback_faster_than_legacy() -> None:
         fp2 = fp_mod.fingerprint_df(df)
         assert fp1.sampled_rows_hash == fp2.sampled_rows_hash
 
+        if running_under_xdist():
+            pytest.skip("timing unreliable under -n contention")
+
         # Speed: time the new path.
         fp_mod.reset_session()
         t0 = time.perf_counter()
@@ -181,7 +184,6 @@ def test_h_fh_07_xxhash_absent_fallback_faster_than_legacy() -> None:
         new_path = (time.perf_counter() - t0) / 5
 
     # Baseline: legacy ``to_pandas().to_csv()`` cost on the same frame.
-    import io
     t0 = time.perf_counter()
     for _ in range(5):
         df.to_arrow().to_pandas().to_csv(index=False).encode("utf-8")

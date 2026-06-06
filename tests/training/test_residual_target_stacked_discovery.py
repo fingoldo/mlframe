@@ -6,7 +6,8 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
+
+from tests.conftest import is_fast_mode
 
 
 class TestFitStackedOnResidualWiring:
@@ -42,7 +43,10 @@ class TestFitStackedOnResidualBizVal:
         from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
         rng = np.random.default_rng(11)
-        n = 3000
+        # The clean linear signal is recovered identically (20 specs) at either size; the smaller frame keeps the OOF
+        # discovery loop well inside the test timeout even when CPU-starved under the parallel ``-n`` run.
+        n = 1500 if is_fast_mode() else 3000
+        mi_sample_n = 1000 if is_fast_mode() else 1500
         x_a = rng.normal(50.0, 10.0, n)
         x_b = rng.normal(0.0, 5.0, n)
         y = 1.5 * x_a + 0.5 + 2.0 * x_b + rng.normal(0.0, 1.0, n)
@@ -52,7 +56,7 @@ class TestFitStackedOnResidualBizVal:
             "y": y,
         })
         cfg = CompositeTargetDiscoveryConfig(
-            enabled=True, mi_sample_n=1500,
+            enabled=True, mi_sample_n=mi_sample_n,
             composite_skip_when_raw_dominates_ratio=0.0,  # don't skip for this test
         )
         disc = CompositeTargetDiscovery(config=cfg).fit_stacked_on_residual(

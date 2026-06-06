@@ -68,6 +68,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests.conftest import running_under_xdist
+
 warnings.filterwarnings("ignore")
 
 # Perf budgets.
@@ -221,6 +223,8 @@ class TestPerfBudgets:
             )
             timings.append(time.perf_counter() - t0)
         elapsed = min(timings)
+        if running_under_xdist():
+            pytest.skip("timing unreliable under -n contention")
         assert elapsed <= PERF_BUDGET_P200_SECS, (
             f"hybrid_orth_mi_fe at p=200 n=2000 degrees=(2,3,4) took "
             f"{elapsed:.3f}s, budget is {PERF_BUDGET_P200_SECS:.1f}s. "

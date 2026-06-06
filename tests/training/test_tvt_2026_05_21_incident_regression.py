@@ -33,12 +33,13 @@ Each assertion lists which layer it gates against.
 """
 from __future__ import annotations
 
-import tempfile
 import warnings
 
 import numpy as np
 import pandas as pd
 import pytest
+
+from tests.conftest import is_fast_mode
 
 from .shared import SimpleFeaturesAndTargetsExtractor
 
@@ -91,9 +92,11 @@ def _run_suite(df: pd.DataFrame, *, tmp):
     return meta
 
 
-@pytest.mark.timeout(180)
+@pytest.mark.timeout(600)
 def test_tvt_2026_05_21_incident_protective_layers_compose(tmp_path):
-    df = _build_tvt_shape_frame()
+    # 6k rows preserves the AR(1)/MD-monotonic topology (strong_AR fires, >=4 numeric features survive) at a fraction of
+    # the 20k suite cost, so the two-model suite finishes well inside the timeout even under parallel ``-n`` starvation.
+    df = _build_tvt_shape_frame(n_rows=6_000 if is_fast_mode() else 20_000)
     meta = _run_suite(df, tmp=tmp_path)
 
     # --- Layer 1 + 2 + 3: target_distribution_report stamped, AR signal detected ---

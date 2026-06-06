@@ -13,13 +13,13 @@ contract verdict-line output.
 from __future__ import annotations
 
 import orjson
-import logging
 
 import numpy as np
 import pandas as pd
 import pytest
 from sklearn.preprocessing import LabelEncoder
 
+from tests.conftest import running_under_xdist
 from mlframe.training.configs import DummyBaselinesConfig
 from mlframe.training.dummy_baselines import (
     BaselineReport,
@@ -1300,6 +1300,8 @@ class TestNumbaJITWarmup:
         t0_second = time.perf_counter()
         _warmup_numba_kernels()
         elapsed_second = time.perf_counter() - t0_second
+        if running_under_xdist():
+            pytest.skip("timing unreliable under -n contention")
         # Relative invariant: second call must be substantially faster than
         # the first (cache hit). Absolute thresholds break under heavy xdist
         # load where even cached calls jitter into the 0.5-3s range.

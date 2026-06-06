@@ -257,6 +257,8 @@ def test_biz_njit_poly_eval_3x_faster_than_numpy_at_n2k():
         _hermeval_njit(x, c)
     t_njit = time.perf_counter() - t0
     speedup = t_numpy / t_njit
+    if running_under_xdist():
+        pytest.skip("timing unreliable under -n contention")
     # Floor calibration: 3.0x on author's local machine (measured 3.7x
     # 2026-05-10). Shared CI runners produce different ratios due to
     # process contention with sibling jobs + cache pressure; macOS

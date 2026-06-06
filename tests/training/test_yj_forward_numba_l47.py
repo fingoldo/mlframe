@@ -37,6 +37,8 @@ import time
 import numpy as np
 import pytest
 
+from tests.conftest import running_under_xdist
+
 from mlframe.training import composite_unary_transforms as cut
 from mlframe.training.composite_unary_transforms import (
     _yj_forward,
@@ -107,6 +109,8 @@ def test_yj_forward_speedup_gate() -> None:
     gate -- production speedup is 5-10x at n>=50k (see docstring).
     A future change that accidentally raises _YJ_NUMBA_MIN_N too high
     or disables the kernel trips this sensor."""
+    if running_under_xdist():
+        pytest.skip("timing unreliable under -n contention")
     rng = np.random.default_rng(0)
     y = rng.standard_normal(100_000).astype(np.float64)
     lams = np.linspace(-1.8, 3.8, 12).tolist()
