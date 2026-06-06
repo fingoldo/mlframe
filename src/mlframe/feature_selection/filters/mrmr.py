@@ -680,7 +680,11 @@ class MRMR(BaseEstimator, TransformerMixin):
         # direction) and classify each feature green (unique) / red (suspected redundant
         # sink) / yellow (middling). Diagnostic by default; the fitted graph is exposed as
         # ``self.friend_graph_`` and summarized into the suite's feature_selection_report.
-        build_friend_graph: bool = True,
+        # OFF by default (2026-06-06): the build imports networkx + runs an O(k^2) edge pass + a force-directed
+        # spring_layout -- pure diagnostic-display cost on the fit hot path (it dominated a small-data fit profile,
+        # almost entirely the one-time ``import networkx``). Turn on for the diagnostic graph; ``friend_graph_prune``
+        # auto-builds it regardless (the prune/cluster step requires the graph).
+        build_friend_graph: bool = False,
         # When True, drop red (suspected-sink) features from ``support_`` after the graph is
         # built, protecting the neighbor that carries each removed feature's unique target info
         # so cause and effect are never dropped together. Off by default -- changes the selected set.
@@ -2122,7 +2126,7 @@ class MRMR(BaseEstimator, TransformerMixin):
             "mrmr_identity_cache_ycorr_threshold": 0.0,
             # Friend-graph post-analysis. Legacy pickles refit with the
             # current defaults; ``friend_graph_`` itself is a fitted attribute, not seeded here.
-            "build_friend_graph": True,
+            "build_friend_graph": False,
             "friend_graph_prune": False,
             "friend_graph_max_nodes": 200,
             "friend_graph_mi_eps": 1e-6,

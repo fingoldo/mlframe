@@ -5693,7 +5693,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # ``len(...)`` not truthiness: by this point ``selected_vars`` may be a numpy array (the empty-screen
     # FE fallback rebinds it), and ``and <array>`` raises "truth value ... ambiguous". Empty list AND empty
     # array both give len 0, so the guard reads "build the graph only when something was selected".
-    if getattr(self, "build_friend_graph", False) and len(selected_vars) > 0:
+    # build_friend_graph defaults OFF (diagnostic-display only); friend_graph_prune REQUIRES the graph, so auto-build
+    # it whenever pruning is on even if the diagnostic build was left off.
+    if (getattr(self, "build_friend_graph", False) or getattr(self, "friend_graph_prune", False)) and len(selected_vars) > 0:
         try:
             from .friend_graph import build_friend_graph as _build_fg, prune_by_friend_graph as _prune_fg
 
