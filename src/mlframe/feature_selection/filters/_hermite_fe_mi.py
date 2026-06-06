@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 
 import numpy as np
 
@@ -269,8 +270,8 @@ def plugin_mi_classif_dispatch(x: np.ndarray, y: np.ndarray,
     # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
     # this sibling at its bottom, so a top-level ``from .hermite_fe
     # import ...`` would create a hard cycle the meta-test flags.
-    from .hermite_fe import _CUDA_AVAILABLE, _mi_os, _plugin_mi_classif_cuda
-    forced = _mi_os.environ.get("MLFRAME_MI_BACKEND", "")
+    from .hermite_fe import _CUDA_AVAILABLE, _plugin_mi_classif_cuda
+    forced = os.environ.get("MLFRAME_MI_BACKEND", "")
     n = x.shape[0]
     if forced == "njit":
         return float(_plugin_mi_classif_njit(x, y, n_bins))
@@ -304,8 +305,8 @@ def plugin_mi_classif_batch_dispatch(X_cols: np.ndarray, y: np.ndarray,
     # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
     # this sibling at its bottom, so a top-level ``from .hermite_fe
     # import ...`` would create a hard cycle the meta-test flags.
-    from .hermite_fe import _CUDA_AVAILABLE, _mi_os, _plugin_mi_classif_batch_njit
-    forced = _mi_os.environ.get("MLFRAME_MI_BACKEND", "")
+    from .hermite_fe import _CUDA_AVAILABLE, _plugin_mi_classif_batch_njit
+    forced = os.environ.get("MLFRAME_MI_BACKEND", "")
     n, k = X_cols.shape
     if forced == "njit":
         return _plugin_mi_classif_batch_njit(X_cols, y, n_bins)

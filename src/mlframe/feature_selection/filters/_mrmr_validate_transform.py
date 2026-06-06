@@ -507,6 +507,12 @@ def _append_engineered(self, base_out, X, recipes):
         _results: dict = {}
         _pending = list(recipes)
         _unresolved: set = set()
+        # Names a recipe in this set can legitimately produce as a chained
+        # engineered intermediate. A missing source that is one of these was
+        # a pruned chained producer (NaN-fallback is fine); a missing source
+        # that is neither in ``chained`` nor a recipe output is a genuinely
+        # missing INPUT column -- a recipe-vs-X mismatch we must raise on.
+        _recipe_output_names = {r.name for r in recipes}
         while _pending:
             _progress = False
             _still: list = []
@@ -520,13 +526,22 @@ def _append_engineered(self, base_out, X, recipes):
                 else:
                     _still.append(r)
             if not _progress:
-                # Remaining recipes reference an engineered source that no recipe
-                # produces (fit-time pruning dropped a chained producer). The feature
-                # is unreconstructable at transform; omit it (NaN column) rather than
-                # crash -- consistent with the contract that a missing engineered input
-                # yields a missing engineered output, not a hard failure.
                 for r in _still:
                     _missing = [s for s in (getattr(r, "src_names", ()) or ()) if s not in chained.columns]
+                    # A missing source that no recipe produces (and isn't an
+                    # input column) is a genuine recipe-vs-X mismatch, not a
+                    # pruned chained producer -- fail loudly and name it.
+                    _phantom = [s for s in _missing if s not in _recipe_output_names]
+                    if _phantom:
+                        raise KeyError(
+                            f"MRMR.transform: recipe {r.name!r} (kind={r.kind}) references "
+                            f"source column(s) {_phantom} that are absent from X and are not "
+                            f"produced by any engineered recipe. The recipe set does not match "
+                            f"the input frame (corrupted/stale recipe, or wrong X)."
+                        )
+                    # Remaining recipes reference a pruned chained engineered
+                    # producer (fit-time pruning dropped it). Unreconstructable
+                    # at transform; emit a NaN column rather than crash.
                     logger.warning(
                         "MRMR.transform: recipe %r (kind=%s) references unresolved engineered "
                         "source(s) %s; emitting NaN column (feature dropped from replay).",

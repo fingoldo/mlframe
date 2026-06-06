@@ -417,7 +417,7 @@ def _njit_binary_op_codes(binary_transformations) -> "np.ndarray | None":
     return np.asarray(codes, dtype=np.int8)
 
 
-@njit(nogil=True, cache=True)
+@njit(nogil=True, cache=True, error_model="numpy")
 def _materialise_chunk_njit(tv, a_cols, b_cols, op_codes, out):
     """Fill ``out[:, k] = op_k(tv[:, a_cols[k]], tv[:, b_cols[k]])`` for all K candidates, then nan_to_num each value
     to 0. float32 throughout -> bit-identical to the numpy bin_funcs (see header). SERIAL + ``nogil=True`` ON PURPOSE:

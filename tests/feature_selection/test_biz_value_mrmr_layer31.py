@@ -347,14 +347,23 @@ class TestEnvVarOptOut:
         # tests (per MEMORY.md: "Never reload/del modules in tests without
         # snapshot").
         mod_name = "mlframe.feature_selection.filters._orthogonal_univariate_fe"
+        # ``_MI_BACKEND`` is now resolved at import time of the
+        # ``_orth_mi_backends`` submodule (post-reorg), so forcing the env at
+        # re-import requires evicting the submodule too -- evicting only the
+        # package leaves the backend-selection module cached under the prior env.
+        backend_mod_name = mod_name + "._orth_mi_backends"
         had_mod = mod_name in sys.modules
         original_mod = sys.modules.get(mod_name)
+        had_backend_mod = backend_mod_name in sys.modules
+        original_backend_mod = sys.modules.get(backend_mod_name)
         had_env = "MLFRAME_NUMBA_MI" in os.environ
         original_env = os.environ.get("MLFRAME_NUMBA_MI")
         os.environ["MLFRAME_NUMBA_MI"] = "0"
         try:
             if had_mod:
                 del sys.modules[mod_name]
+            if had_backend_mod:
+                del sys.modules[backend_mod_name]
             forced = importlib.import_module(mod_name)
             assert forced._MI_BACKEND == "sklearn", (
                 f"MLFRAME_NUMBA_MI=0 set at import time but "
@@ -377,8 +386,12 @@ class TestEnvVarOptOut:
                 os.environ["MLFRAME_NUMBA_MI"] = original_env  # type: ignore[arg-type]
             else:
                 os.environ.pop("MLFRAME_NUMBA_MI", None)
-            # Restore module so the rest of the suite sees the original
+            # Restore both modules so the rest of the suite sees the original
             # (numba-backed) dispatcher singleton.
+            if original_backend_mod is not None:
+                sys.modules[backend_mod_name] = original_backend_mod
+            else:
+                sys.modules.pop(backend_mod_name, None)
             if original_mod is not None:
                 sys.modules[mod_name] = original_mod
             else:

@@ -308,6 +308,19 @@ def select_best_scorer_per_column(
             default=0.0,
         )
         per_scorer_max[s] = float(max(max_s, 1e-12))
+    # Guard against a degenerate per-scorer ceiling. A scorer whose ENTIRE
+    # raw-pool LCB sits near its own noise floor (e.g. HSIC's RKHS statistic
+    # is ~2 orders of magnitude smaller than the nat-scale MI scorers) gets a
+    # tiny denominator, so ANY engineered LCB inflates to a dominating ratio
+    # and the scorer wins every column regardless of real signal. Floor each
+    # scorer's ceiling at a small fraction of the strongest raw ceiling across
+    # ALL scorers: a scorer that never clears a meaningful fraction of the best
+    # raw signal cannot manufacture a win via a near-zero denominator.
+    _global_ceiling = max(per_scorer_max.values(), default=1e-12)
+    _ceiling_floor = _global_ceiling * 0.05
+    for s in SCORER_NAMES:
+        if per_scorer_max[s] < _ceiling_floor:
+            per_scorer_max[s] = _ceiling_floor
 
     rows = []
     for eng_name in eng_cols:
