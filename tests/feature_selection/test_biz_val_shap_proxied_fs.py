@@ -19,6 +19,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests.conftest import is_fast_mode
+
 pytest.importorskip("shap")
 pytest.importorskip("xgboost")
 
@@ -308,8 +310,6 @@ def test_biz_val_stratified_anchors_preserve_recovery_at_6k_no_catastrophic_spea
           envelope: if a future change makes the stratified prior dangerously narrow, the test
           fails BEFORE a user shipping the opt-in hits it in prod.
     """
-    from unittest.mock import patch
-
     from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import make_regime_dataset
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
@@ -371,13 +371,17 @@ def test_stratified_anchors_default_off_preserves_legacy_trust_report():
     from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import make_regime_dataset
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
-    # Small enough for the non-slow tier (no @pytest.mark.slow): two_stage prefilter on 500 cols.
+    # Narrower noise pool + smaller prefilter under --fast: this is a structural sentinel (the default keeps stratified
+    # anchors OFF -> report records uniform sampling), config-driven and independent of pool width; the 500-col two_stage
+    # prefilter fit is what starves a worker into a timeout under full-suite ``-n`` contention.
+    n_noise = 95 if is_fast_mode() else 495
+    prefilter_top = 50 if is_fast_mode() else 150
     X, y, _ = make_regime_dataset(
-        n_samples=600, n_informative=5, n_redundant=0, n_noise=495, snr=5.0,
+        n_samples=600, n_informative=5, n_redundant=0, n_noise=n_noise, snr=5.0,
         task="binary", seed=0)
     sel = ShapProxiedFS(
         classification=True, metric="brier", optimizer="auto",
-        prefilter_top=150, prefilter_method="two_stage",
+        prefilter_top=prefilter_top, prefilter_method="two_stage",
         cluster_features=False, top_n=5, n_splits=3, n_revalidation_models=1, n_anchors=12,
         random_state=0, verbose=False, n_jobs=1)
     sel.fit(X, pd.Series(y))

@@ -20,6 +20,7 @@ import time
 import numpy as np
 import pytest
 
+from tests.conftest import running_under_xdist
 from mlframe.feature_selection._shap_proxy_cluster_su import (
     _column_marginal,
     _pack_bins_for_kernel,
@@ -195,6 +196,8 @@ def test_column_major_speedup_vs_row_major_reference():
     t_cm = time.perf_counter() - t0
 
     ratio = t_rm / max(t_cm, 1e-9)
+    if running_under_xdist():
+        pytest.skip("timing assertion unreliable under -n contention")
     # Wall-clock ratio is load-sensitive: under concurrent CPU pressure the parallel column-major kernel and the row-major reference contend for the same cores, compressing the
     # measured ratio toward 1 (observed 1.94x vs the ~2.5-3x quiet-machine baseline). The cache-locality win is real and architectural (column-major joint-histogram fill is the
     # whole point of the landed layout); bound at >=1.7x so a genuine regression (ratio ~1.0, i.e. the layout advantage gone) still trips while a busy CI host does not flake.

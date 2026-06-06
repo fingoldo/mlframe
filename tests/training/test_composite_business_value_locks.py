@@ -188,7 +188,6 @@ class TestLockWrapperAware:
 
     def test_wrapper_yclip_bounds_outlier_predictions(self) -> None:
         from lightgbm import LGBMRegressor
-        from sklearn.metrics import mean_squared_error
         rng = np.random.default_rng(0)
         n = 2000
         base = rng.lognormal(mean=2.0, sigma=0.4, size=n)
@@ -460,9 +459,13 @@ class TestLockWilcoxonGate:
     everything (loose tolerance)."""
 
     def test_wilcoxon_catches_borderline_noise(self) -> None:
+        from tests.conftest import is_fast_mode
         threshold_accepts = 0
         wilcoxon_accepts = 0
-        n_reps = 10
+        # Fewer reps under --fast: each rep fits 2 discoveries x 5 seed-repeats; 10 reps starve a worker into a timeout
+        # under full-suite ``-n`` contention. 5 reps keep the ``threshold_accepts >= 5`` gate reachable and the 30%-reduction
+        # statistic valid (demo separation is large: threshold accepts all, Wilcoxon accepts ~half).
+        n_reps = 5 if is_fast_mode() else 10
         for rep in range(n_reps):
             rng = np.random.default_rng(rep * 1000)
             n = 1500

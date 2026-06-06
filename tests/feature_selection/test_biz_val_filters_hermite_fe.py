@@ -25,7 +25,7 @@ import warnings
 import numpy as np
 import pytest
 
-from tests.conftest import perf_speedup_floor, running_under_xdist
+from tests.conftest import running_under_xdist, is_fast_mode
 
 warnings.filterwarnings("ignore")
 
@@ -416,8 +416,11 @@ def test_biz_multimode_beats_single_mode_on_multimode_target():
     idx = rng.permutation(n)
     tr, va = idx[: int(0.7 * n)], idx[int(0.7 * n):]
 
+    # Fewer CMA-ES trials under --fast: the multimode separation is strong, the AUC delta holds with 30 trials, and the
+    # 60-trial 4-mode search is what starves a worker into a timeout under full-suite ``-n`` contention.
+    n_trials = 30 if is_fast_mode() else 60
     results = optimise_pair_multimode(
-        x_a, x_b, y, top_m=4, n_trials=60, max_degree=4,
+        x_a, x_b, y, top_m=4, n_trials=n_trials, max_degree=4,
         basis="hermite", baseline_uplift_threshold=0.0,
     )
     assert len(results) >= 2

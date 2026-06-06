@@ -16,6 +16,8 @@ import warnings
 import numpy as np
 import pytest
 
+from tests.conftest import running_under_xdist
+
 warnings.filterwarnings("ignore")
 
 
@@ -98,6 +100,9 @@ def test_biz_val_permutation_besag_clifford_2x_faster_strong_signal():
     t_bc = time.perf_counter() - t0
 
     speedup = t_full / max(t_bc, 1e-6)
+    # Two small back-to-back timings; the ratio compresses under ``-n`` parallel CPU contention.
+    if running_under_xdist():
+        pytest.skip("timing assertion unreliable under -n contention")
     assert speedup >= 2.0, (
         f"Besag-Clifford must be >=2x faster than full on strong-signal "
         f"target; got {speedup:.1f}x ({t_full*1000:.1f}ms vs "

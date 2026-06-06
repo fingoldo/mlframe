@@ -65,6 +65,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests.conftest import is_fast_mode
+
 warnings.filterwarnings("ignore")
 
 
@@ -647,13 +649,16 @@ class TestLayer49_CumulativeSummary:
         from mlframe.feature_selection.filters.mrmr import MRMR
         total_off = 0
         total_auto = 0
+        # Smaller n under --fast: 8 DCD-auto fits at n=1200 starve a worker into a timeout under full-suite ``-n``
+        # contention; the cumulative-shrinkage signal holds at 600 rows (still well above the per-scenario latent counts).
+        n_rows = 600 if is_fast_mode() else 1200
         for sc in (
             _scenario_A_sensor_mesh,
             _scenario_B_financial,
             _scenario_C_embedding,
             _scenario_D_mixed_cat_num,
         ):
-            X, y = sc(n=1200, seed=49)
+            X, y = sc(n=n_rows, seed=49)
             m_off = MRMR(
                 dcd_enable=False, full_npermutations=3,
                 verbose=0, random_seed=0,

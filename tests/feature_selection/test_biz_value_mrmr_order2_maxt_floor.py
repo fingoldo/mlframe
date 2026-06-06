@@ -31,7 +31,8 @@ from itertools import combinations
 
 import numpy as np
 import pandas as pd
-import pytest
+
+from tests.conftest import is_fast_mode
 
 
 GENUINE_OPERANDS = {"x1", "x2", "x3", "x4", "x5", "x6"}
@@ -57,7 +58,11 @@ def _classify(engineered) -> tuple[list, list]:
     return genuine, spurious
 
 
-def _wide_synergy_frame(n=2000, n_noise=74, seed=20260603):
+def _wide_synergy_frame(n=None, n_noise=74, seed=20260603):
+    # Smaller n under --fast cuts per-pair MI cost across the wide pool; the synergy signal (sign products / XOR) is
+    # still strong at 1200 rows, and the noise-pool width (n_noise) -- not n -- drives the best-of-pool spurious hits.
+    if n is None:
+        n = 1200 if is_fast_mode() else 2000
     # 6 genuine operands feeding 3 genuine synergy pairs (XOR sign product /
     # product / bilinear), each with ~zero per-operand marginal MI but strong
     # joint dependence with y; the rest is pure Gaussian noise.

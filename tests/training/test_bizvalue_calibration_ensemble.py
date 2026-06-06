@@ -24,6 +24,7 @@ from sklearn.metrics import brier_score_loss, roc_auc_score
 from mlframe.training.core import train_mlframe_models_suite, predict_mlframe_models_suite
 from mlframe.training import OutputConfig
 from .shared import SimpleFeaturesAndTargetsExtractor
+from tests.conftest import fast_subset
 
 
 # --------------------------------------------------------------------------------------
@@ -170,8 +171,8 @@ def _train_and_predict(
 # Test 1 — Calibration reduces Brier score on overconfident data
 # --------------------------------------------------------------------------------------
 
-@pytest.mark.parametrize("seed", [42, 7, 99])
-@pytest.mark.parametrize("mlframe_model", ["lgb", "cb", "xgb"])
+@pytest.mark.parametrize("seed", fast_subset([42, 7, 99]))
+@pytest.mark.parametrize("mlframe_model", fast_subset(["lgb", "cb", "xgb"]))
 def test_calibration_reduces_brier_score(tmp_path, common_init_params, seed, mlframe_model):
     """CalibratedClassifierCV (isotonic, cv=5) reduces test-set Brier score by >=1%
     on data with smooth non-linear decision boundaries and noise features.

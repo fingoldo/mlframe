@@ -288,11 +288,14 @@ def test_strategy_lowers_brier_vs_naive(strategy, synthetic_pu):
             "elkan_noto's proxy classifier needs the full unbiased subset "
             "(>=1k pos/neg) to estimate c reliably; fast mode skipped."
         )
+    # Fewer boosting iterations under --fast keep the per-fit cost low so a full-suite ``-n`` contended worker doesn't hit
+    # the timeout; the Brier drop is comfortably above the floor at 100 iters (measured drop ~0.21 vs the 0.05 floor).
+    max_iter = 100 if is_fast_mode() else 200
     naive = _naive_test_metrics(synthetic_pu, lambda: HistGradientBoostingClassifier(
-        max_iter=200, random_state=0))
+        max_iter=max_iter, random_state=0))
 
     pu = PULearningWrapper(
-        base_estimator=HistGradientBoostingClassifier(max_iter=200, random_state=0),
+        base_estimator=HistGradientBoostingClassifier(max_iter=max_iter, random_state=0),
         strategy=strategy,
         true_prior=0.40 if strategy == "prior_shift_correction" else None,
         min_unbiased_positives=100,

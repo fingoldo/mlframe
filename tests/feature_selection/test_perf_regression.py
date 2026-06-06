@@ -23,6 +23,8 @@ import warnings
 import numpy as np
 import pytest
 
+from tests.conftest import running_under_xdist
+
 warnings.filterwarnings("ignore")
 
 
@@ -149,6 +151,9 @@ def test_perf_mi_direct_n10k_cached_under_threshold():
     )
     elapsed = time.perf_counter() - t0
 
+    # A ~3ms warm-call absolute budget is unreliable under ``-n`` parallel CPU contention.
+    if running_under_xdist():
+        pytest.skip("timing assertion unreliable under -n contention")
     threshold = 0.050  # 50ms
     assert elapsed < threshold, (
         f"mi_direct warm call took {elapsed*1000:.2f}ms, threshold {threshold*1000:.0f}ms. "

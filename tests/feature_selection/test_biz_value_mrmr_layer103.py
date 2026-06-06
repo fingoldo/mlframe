@@ -41,6 +41,7 @@ import pytest
 
 from mlframe.utils._param_oracle import ParamOracle
 from mlframe.feature_selection.filters import hermite_fe as H
+from tests.conftest import is_fast_mode
 
 FIXED_TS = "2026-01-01T00:00:00+00:00"
 _BASES = ("hermite", "legendre", "chebyshev", "laguerre")
@@ -149,7 +150,10 @@ def test_oracle_learns_cpu_crossover(tmp_path):
 
 def test_dispatch_uses_oracle_when_enabled(tmp_path, monkeypatch):
     oracle = _fresh_oracle(tmp_path)
-    H.benchmark_polyeval_cpu_backends("hermite", sizes=(200, 500_000), repeats=5, oracle=oracle)
+    # Fewer repeats under --fast: the njit/njit_par crossover signal at these sizes is stable with 2 repeats, and the
+    # full 5-repeat 500k bench is what starves a worker into a timeout under full-suite ``-n`` contention.
+    repeats = 2 if is_fast_mode() else 5
+    H.benchmark_polyeval_cpu_backends("hermite", sizes=(200, 500_000), repeats=repeats, oracle=oracle)
     monkeypatch.setattr(H, "_polyeval_oracle_singleton", oracle, raising=False)
     monkeypatch.setenv("MLFRAME_POLYEVAL_ORACLE", "1")
     monkeypatch.delenv("MLFRAME_POLYEVAL_BACKEND", raising=False)
