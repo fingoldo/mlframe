@@ -334,6 +334,8 @@ filterwarnings = [
     "ignore:GPU available but not used:UserWarning:lightning",
     "ignore:You are trying to `self.log\\(\\)`.*trainer.*not registered:UserWarning:lightning",
     "ignore:Found.*module.*in val module that:UserWarning:lightning",
+    # pytest-benchmark auto-disables itself under xdist (the default suite runs with -n); the benchmark tests are exercised for correctness, timing happens in the dedicated standalone benchmark workflow.
+    "ignore:Benchmarks are automatically disabled because xdist plugin is active:pytest_benchmark.logger.PytestBenchmarkWarning",
 ]
 log_cli = false
 
