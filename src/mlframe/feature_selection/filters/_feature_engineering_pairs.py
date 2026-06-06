@@ -1689,8 +1689,17 @@ def check_prospective_fe_pairs(
                     # Test all candidates as-is against the rest of the approved factors (also as-is). Candidates significantly outstanding (in terms of MI with target)
                     # against any other approved factor are kept.
                     valid_pairs_perf = {}
-
-                    for transformations_pair, bin_func_name, i in leading_features:
+                    # LAZY EXTERNAL VALIDATION (2026-06-06): valid_pairs_perf feeds _select_single_best ONLY as the
+                    # SECONDARY tie-break, decisive solely among leaders whose PRIMARY (target) MI is EXACTLY equal.
+                    # The external loop below (all external_factors x binary_funcs x per-candidate discretize +
+                    # mi_direct) was the single-threaded FE hotspot (py-spy). Run it ONLY for the leaders tied at the
+                    # max primary MI; a unique top leader wins outright with no external work. Bit-identical: a
+                    # lower-primary leader can never win the (primary, secondary, name) max key regardless of its
+                    # (uncomputed) secondary.
+                    _lead_primary = {c: var_pairs_perf[c] for c in leading_features if c in var_pairs_perf}
+                    _max_primary = max(_lead_primary.values()) if _lead_primary else None
+                    _ev_configs = [c for c, _m in _lead_primary.items() if _m == _max_primary] if _max_primary is not None else []
+                    for transformations_pair, bin_func_name, i in (_ev_configs if len(_ev_configs) > 1 else []):
                         if final_transformed_vals is not None:
                             param_a = final_transformed_vals[:, i]
                         else:
@@ -1759,7 +1768,7 @@ def check_prospective_fe_pairs(
                     # bug: selected by external-validation MI alone, discarding
                     # the true max-target-MI form -- e.g. picking add(log(c),1/d)
                     # MI=0.25 over the true mul(log(c),sin(d)) MI=0.32.)
-                    _primary_perf = {c: var_pairs_perf[c] for c in valid_pairs_perf if c in var_pairs_perf}
+                    _primary_perf = {c: var_pairs_perf[c] for c in leading_features if c in var_pairs_perf}
                     _winner = _select_single_best(_primary_perf, cols, secondary=valid_pairs_perf)
                     if _winner is not None:
                         new_feature_name = get_new_feature_name(fe_tuple=_winner, cols_names=cols)
