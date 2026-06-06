@@ -154,7 +154,9 @@ class TestApplyRecipeUnaryBinary:
             quantization_method="uniform",
             quantization_dtype=np.int16,
         )
-        out = apply_recipe(recipe, simple_pair_data)
+        # The recipe carries a quantization scheme but no persisted fit-time edges, so replay warns that it re-quantiles on the input; assert + consume that expected notice.
+        with pytest.warns(UserWarning, match="no fit-time quantile edges"):
+            out = apply_recipe(recipe, simple_pair_data)
 
         assert out.dtype == np.int16, f"Expected int16, got {out.dtype}"
         assert out.min() >= 0

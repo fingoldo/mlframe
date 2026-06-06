@@ -336,6 +336,8 @@ filterwarnings = [
     "ignore:Found.*module.*in val module that:UserWarning:lightning",
     # pytest-benchmark auto-disables itself under xdist (the default suite runs with -n); the benchmark tests are exercised for correctness, timing happens in the dedicated standalone benchmark workflow.
     "ignore:Benchmarks are automatically disabled because xdist plugin is active:pytest_benchmark.logger.PytestBenchmarkWarning",
+    # joblib/loky resource_tracker noise on Windows: the loky worker memmap-folder cleanup races the OS file deletion at shutdown (FileNotFoundError / "leaked folder objects"). Third-party, unfixable here; the in-process variant is filtered, the resource-tracker-subprocess variant is harmless shutdown stderr.
+    "ignore:resource_tracker:UserWarning",
 ]
 log_cli = false
 
