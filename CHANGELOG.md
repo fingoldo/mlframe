@@ -9,6 +9,7 @@
 - `training/core/_main_train_suite.py` facade trimmed: the return-shape contract (`SuiteResult`, `_assert_suite_return_shape`) and the string-multiclass target encoder (`_encode_string_multiclass_target`) moved to a new sibling `training/core/_main_train_suite_encoding.py`, re-exported from the parent. The remaining facade is orchestration glue plus the comprehensive 34-parameter docstring.
 - `metrics/_regression_extras.py` carved under the 1k LOC ceiling: the Tweedie / Poisson / Gamma GLM deviance metrics (`fast_poisson_deviance`, `fast_gamma_deviance`, `fast_tweedie_deviance` + kernels) moved to a new sibling `metrics/_regression_deviance.py`, re-exported from the parent and `metrics.core`. Behaviour-preserving (sklearn-parity pinned).
 - `metrics/_classification_extras.py` carved under the 1k LOC ceiling: the calibration / goodness-of-fit metrics (`hosmer_lemeshow_test`, `accuracy_ratio` + kernel) moved to a new sibling `metrics/_classification_calibration.py`, re-exported from the parent and `metrics.core`. Behaviour-preserving.
+- `utils/_param_oracle.py` carved under the 1k LOC ceiling: the append-only `_ParquetStore` + the canonical-JSON / median helpers (`_stable_json`, `stable_json`, `_median`, `SCHEMA_VERSION`, `_STORE_COLUMNS`) moved to a new sibling `utils/_param_oracle_store.py`, re-exported from the parent (`ParamOracle` + fingerprint helpers stay). Behaviour-preserving.
 
 ### Software standards
 

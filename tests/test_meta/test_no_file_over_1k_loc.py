@@ -143,12 +143,6 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # Carve candidate: the importance-method selection helpers into
     # ``_helpers_importance_select.py``.
     "src/mlframe/feature_selection/wrappers/_helpers.py",
-    # FIXME(carve-wave-next): utils/_param_oracle.py at ~1.0k LOC after the
-    # polyeval CPU-backend select + KTC bridge (Layer 103) landed. Carve
-    # candidate: the ``_ParquetStore`` append-only store into
-    # ``_param_oracle_store.py``, keep ``ParamOracle`` + fingerprint helpers
-    # in the parent.
-    "src/mlframe/utils/_param_oracle.py",
     # FIXME(carve-wave-next): training/neural/recurrent.py at ~1.01k LOC after
     # the F-44 bf16-mixed auto-promote + F-46 fused-AdamW + F-47 cuDNN
     # persistent-RNN + F-48 nested-tensor + F-51 share_memory_() + F-53
