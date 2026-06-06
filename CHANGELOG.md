@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Refactor
+
+- `training/splitting.py` carved under the 1k LOC ceiling: the index-level helpers `_stratified_split` and `_carve_calib_from_train` moved to a new sibling `training/_split_helpers.py`, re-exported from the parent so existing imports keep working. Behaviour-preserving.
+
 ### Software standards
 
 - `_ensure_config` dict path is now STRICT: a user-supplied config dict carrying a key that is neither a declared field nor a whitelisted `_known_extras` pass-through raises `ValueError` (typos like `iteratoins=100` fail loud instead of being silently absorbed by `extra="allow"`). The None path still filters the ambient suite kwargs to declared fields. No legitimate caller passed unknown extra keys — the `_known_extras` whitelist (e.g. `mae_weight` on `ModelHyperparamsConfig`) continues to pass through.
