@@ -100,7 +100,14 @@ def test_source_grep_drop_dm_present() -> None:
     """
     from pathlib import Path
     from mlframe.training.neural import base as _base
-    src = Path(_base.__file__).read_text(encoding="utf-8")
+    # ``base`` became a subpackage (``base/__init__.py`` + submodules); the fit
+    # cleanup body lives in a submodule, so concat __init__ + every submodule.
+    _base_path = Path(_base.__file__)
+    if _base_path.name == "__init__.py":
+        _pkg = _base_path.parent
+        src = "\n".join(p.read_text(encoding="utf-8") for p in sorted(_pkg.glob("*.py")))
+    else:
+        src = _base_path.read_text(encoding="utf-8")
     # The cleanup must null at least the core feature/label tensors.
     for _attr in ("train_features", "train_labels", "val_features", "val_labels"):
         assert _attr in src, (

@@ -111,6 +111,11 @@ class TestCompositeResidualStdDegeneracyFilter:
         from pathlib import Path
         import mlframe.training._composite_discovery_fit as mod
         src = Path(mod.__file__).read_text(encoding="utf-8")
+        # The residual-std degeneracy check moved to the _composite_discovery_eval.py
+        # sibling during the discovery-fit split; concat so the source guard matches.
+        _sib = Path(mod.__file__).parent / "_composite_discovery_eval.py"
+        if _sib.exists():
+            src += "\n" + _sib.read_text(encoding="utf-8")
         assert "_residual_ratio < 0.001" in src, (
             "residual-std degeneracy check missing from "
             "_composite_discovery_fit.py -- the 0.001 threshold "

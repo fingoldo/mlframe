@@ -65,7 +65,22 @@ def _read(rel: str) -> str:
     Monolith-split compat: append matching siblings so source-pattern
     sensors that pre-date the splits still match.
     """
-    primary = (MLFRAME_ROOT / rel).read_text(encoding="utf-8")
+    _path = MLFRAME_ROOT / rel
+    if not _path.exists() and _path.suffix == ".py":
+        # Monolith-split compat: the flat module became a subpackage
+        # (``X.py`` -> ``X/__init__.py`` + submodules). Read __init__ + every submodule.
+        _pkg = _path.with_suffix("")
+        _init = _pkg / "__init__.py"
+        if _init.exists():
+            _parts = [_init.read_text(encoding="utf-8")]
+            for _sub in sorted(_pkg.glob("*.py")):
+                if _sub.name != "__init__.py":
+                    _parts.append(_sub.read_text(encoding="utf-8"))
+            primary = "\n".join(_parts)
+        else:
+            primary = _path.read_text(encoding="utf-8")
+    else:
+        primary = _path.read_text(encoding="utf-8")
     if rel == "feature_selection/filters/hermite_fe.py":
         _dir = MLFRAME_ROOT / "feature_selection" / "filters"
         for nm in ("_hermite_fe_optimise.py", "_hermite_fe_optimise_pair.py", "_hermite_fe_mi.py"):

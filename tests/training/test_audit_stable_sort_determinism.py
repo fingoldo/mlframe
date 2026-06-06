@@ -93,7 +93,14 @@ def _read(rel: str) -> str:
         # 2026-05-21 split: RFECV.fit + ._fit_stability_selection +
         # .select_optimal_nfeatures_ moved to sibling files.
         _dir = MLFRAME_ROOT / "feature_selection" / "wrappers"
-        for nm in ("_rfecv_fit.py", "_rfecv_stability_select.py"):
+        for nm in (
+            "_rfecv_fit.py",
+            "_rfecv_stability_select.py",
+            "_rfecv_diagnostics.py",
+            "_rfecv_fit_fold.py",
+            "_rfecv_fit_outer_loop.py",
+            "_rfecv_finalize.py",
+        ):
             sibling = _dir / nm
             if sibling.exists():
                 primary = primary + "\n" + sibling.read_text(encoding="utf-8")
