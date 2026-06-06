@@ -426,12 +426,15 @@ try:
             ]
     except Exception:  # pragma: no cover
         pass
-except (ImportError, OSError, RuntimeError) as exc:  # pragma: no cover
+except ImportError:  # pragma: no cover
+    # thinc is an optional dependency; its absence is the normal case here and warrants no warning.
+    pass
+except (OSError, RuntimeError) as exc:  # pragma: no cover
+    # thinc is present but its import side-effects (cupy/CUDA init) failed: surface as a config notice, not a numeric RuntimeWarning.
     warnings.warn(
         f"Skipping optional thinc pytest-randomly seed shim because thinc import failed: {exc}",
-        RuntimeWarning,
+        UserWarning,
     )
-    pass
 
 
 # pyutilz.system.tqdmu wraps tqdm.tqdm but does NOT honour any global "disable"
