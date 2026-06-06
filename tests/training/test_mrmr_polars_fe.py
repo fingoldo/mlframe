@@ -17,6 +17,15 @@ import pytest
 
 from mlframe.feature_selection.filters import MRMR
 
+# Every test here drives MRMR FE on a deliberately tiny synthetic frame. Two informational MRMR UserWarnings fire
+# data-dependently across these runs and are EXPECTED for this fixture: the pandas-only FE stage is skipped on polars
+# input, and the weak signal sometimes leaves screening with 0 features so the min_features_fallback path engages.
+# Scoped to this module so the signal stays visible everywhere else in the suite.
+pytestmark = [
+    pytest.mark.filterwarnings("ignore:.*not a pandas DataFrame.*the FE stage is skipped:UserWarning"),
+    pytest.mark.filterwarnings("ignore:MRMR. screening returned 0 features:UserWarning"),
+]
+
 
 def _build_pair_signal_data(n=500, seed=0, frame_type="polars"):
     """Build a frame where the target = f(num_a * num_b) — a product that
