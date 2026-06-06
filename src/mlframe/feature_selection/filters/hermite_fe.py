@@ -32,16 +32,14 @@ Usage::
 from __future__ import annotations
 
 import logging
-import math
 from dataclasses import dataclass, field
-from typing import Callable, Optional
+from typing import Callable
 
 import numpy as np
 from numpy.polynomial.hermite_e import hermeval  # probabilist's Hermite
 from numpy.polynomial.legendre import legval
 from numpy.polynomial.chebyshev import chebval
 from numpy.polynomial.laguerre import lagval
-from sklearn.feature_selection import mutual_info_classif, mutual_info_regression
 
 try:
     from numba import njit, prange
@@ -181,9 +179,6 @@ def _plugin_mi_classif_cuda(x: np.ndarray, y: np.ndarray,
 #      single-col cuda from n>=75k, batch (k>=5) cuda from n>=10k.
 # Env-var ``MLFRAME_MI_BACKEND`` (``njit`` / ``cuda``) still force-
 # overrides regardless of cache.
-import os as _mi_os
-
-
 
 
 
@@ -610,128 +605,19 @@ _NJIT_PAR_FUNCS = {
     "chebyshev": _chebval_njit_parallel, "laguerre": _lagval_njit_parallel,
 }
 
-# Thresholds in array length n. Tunable via env var.
 import os as _os
-_PAR_THRESHOLD = int(_os.environ.get("MLFRAME_POLYEVAL_PAR_THRESHOLD", "50000"))
-_CUDA_THRESHOLD = int(_os.environ.get("MLFRAME_POLYEVAL_CUDA_THRESHOLD", "500000"))
-
-
-def _lookup_polyeval_thresholds(basis: str, n: int) -> tuple[int, int]:
-    """Wave 23 P2 (2026-05-20): consult kernel_tuning_cache for HW-tuned
-    (par_threshold, cuda_threshold) crossovers; fall back to the
-    source-code defaults (which are env-var-overridable for tests)."""
-    try:
-        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
-        _cache = KernelTuningCache.load_or_create()
-        _entry = _cache.lookup("polyeval", basis=basis, n_samples=n)
-        _par = int(_entry["par_threshold"]) if _entry and "par_threshold" in _entry else _PAR_THRESHOLD
-        _cuda = int(_entry["cuda_threshold"]) if _entry and "cuda_threshold" in _entry else _CUDA_THRESHOLD
-        return _par, _cuda
-    except Exception:
-        return _PAR_THRESHOLD, _CUDA_THRESHOLD
-
-
-# --- Param-Oracle CPU-backend migration (proof-of-concept) -----------------
-# The njit-vs-njit_par CPU crossover is the FIRST kernel_tuning_cache decision
-# migrated to the ParamOracle ("learning to optimize") path. It is gated OFF by
-# default (MLFRAME_POLYEVAL_ORACLE unset/"0") so the legacy threshold path stays
-# byte-identical. When enabled, a ParamOracle keyed on the array-size fingerprint
-# picks njit vs njit_par from RECORDED wall-times instead of a hardcoded crossover.
-#
-# DEFERRED: the GPU (cuda) threshold migration is NOT done -- cupy is broken on
-# this dev box so the CUDA crossover cannot be benched. The cuda branch below
-# stays EXACTLY on kernel_tuning_cache (_lookup_polyeval_thresholds). Migrating it
-# needs a working CUDA box to populate honest wall-times; see PHASE 5 of the
-# migration note. The oracle here governs ONLY the {njit, njit_par} CPU choice.
-
-_POLYEVAL_ORACLE_FN_NAME = "polyeval_cpu_backend"
-_POLYEVAL_ORACLE_PARAM_SPACE = {"backend": ["njit", "njit_par"]}
-_polyeval_oracle_singleton = None
-
-
-def _polyeval_oracle_enabled() -> bool:
-    return _os.environ.get("MLFRAME_POLYEVAL_ORACLE", "0").strip() not in ("", "0")
-
-
-def _polyeval_size_fingerprint(n: int) -> dict:
-    """Stat-only fingerprint for the CPU-backend choice: array length only.
-    Buckets at half-decade resolution (handled downstream by the oracle), so
-    n=200 and n=210 collapse to one region but n=200 and n=500k do not."""
-    return {"n": int(n), "p": 1, "dtype_kind": "f"}
-
-
-def get_polyeval_oracle():
-    """Lazily build (once per process) the ParamOracle that governs the CPU
-    njit/njit_par backend choice. Seeds cold-start observations from the
-    existing ``polyeval`` kernel_tuning_cache regions (read-only bridge) so the
-    migration inherits any HW-tuned history rather than starting blind."""
-    global _polyeval_oracle_singleton
-    if _polyeval_oracle_singleton is not None:
-        return _polyeval_oracle_singleton
-    from mlframe.utils import ParamOracle
-    oracle = ParamOracle(
-        "polyeval_cpu_backend.parquet",
-        param_space=_POLYEVAL_ORACLE_PARAM_SPACE,
-        minimize="elapsed_s",
-        mode="inference",
-        min_observations=1,
-    )
-    # Read-only import of any njit/njit_par history the kernel cache holds. The
-    # legacy 'polyeval' KTC entry stores par_threshold/cuda_threshold, not a
-    # per-size backend label, so this is usually a no-op today; the bridge is
-    # exercised by Layer-103 tests with synthetic KTC data and is ready for the
-    # day a per-size CPU sweep is recorded.
-    try:
-        oracle.read_ktc_regions(
-            "polyeval_cpu_backend", param_field="backend",
-            fixed_fp={"p": 1, "dtype_kind": "f"},
-            fn_name=_POLYEVAL_ORACLE_FN_NAME,
-        )
-    except Exception:
-        pass
-    _polyeval_oracle_singleton = oracle
-    return _polyeval_oracle_singleton
-
-
-def benchmark_polyeval_cpu_backends(basis: str, sizes=(200, 500_000),
-                                    repeats: int = 3, oracle=None) -> dict:
-    """Sweep njit vs njit_par at the given array sizes, timing each, and record
-    the wall-times into the CPU-backend ParamOracle. Populates the oracle so
-    later ``inference`` calls recommend the empirically faster backend per size.
-
-    Returns ``{(n, backend): median_elapsed_s}`` for inspection. CPU-only: never
-    touches the cuda path (unbenchable here)."""
-    import time as _time
-    if oracle is None:
-        oracle = get_polyeval_oracle()
-    c = np.array([0.3, -0.7, 0.2, 0.5, -0.1], dtype=np.float64)
-    funcs = {"njit": _NJIT_FUNCS[basis], "njit_par": _NJIT_PAR_FUNCS[basis]}
-    results: dict = {}
-    for n in sizes:
-        x = np.linspace(-1.0, 1.0, int(n)).astype(np.float64)
-        for backend, fn in funcs.items():
-            fn(x, c)  # warm the numba compile so it doesn't pollute the timing
-            times = []
-            for _ in range(max(1, repeats)):
-                t0 = _time.perf_counter()
-                fn(x, c)
-                times.append(_time.perf_counter() - t0)
-            med = float(sorted(times)[len(times) // 2])
-            fp = _polyeval_size_fingerprint(n)
-            oracle.record(fp, {"backend": backend}, {"elapsed_s": med},
-                          fn_name=_POLYEVAL_ORACLE_FN_NAME)
-            results[(int(n), backend)] = med
-    return results
-
-
-def _polyeval_oracle_pick_cpu_backend(n: int) -> str:
-    """Ask the oracle which CPU backend (njit | njit_par) is faster for size
-    ``n``. Falls back to ``njit`` if the oracle has no usable recommendation."""
-    oracle = get_polyeval_oracle()
-    fp = _polyeval_size_fingerprint(n)
-    combo = oracle.recommend(fp, fn_name=_POLYEVAL_ORACLE_FN_NAME)
-    backend = combo.get("backend") if isinstance(combo, dict) else None
-    return backend if backend in ("njit", "njit_par") else "njit"
+from ._hermite_oracle import (  # noqa: E402,F401
+    _CUDA_THRESHOLD,
+    _PAR_THRESHOLD,
+    _POLYEVAL_ORACLE_FN_NAME,
+    _POLYEVAL_ORACLE_PARAM_SPACE,
+    _lookup_polyeval_thresholds,
+    _polyeval_oracle_enabled,
+    _polyeval_oracle_pick_cpu_backend,
+    _polyeval_size_fingerprint,
+    benchmark_polyeval_cpu_backends,
+    get_polyeval_oracle,
+)
 
 
 def polyeval_dispatch(basis: str, x: np.ndarray, c: np.ndarray) -> np.ndarray:
@@ -793,85 +679,16 @@ def polyeval_dispatch(basis: str, x: np.ndarray, c: np.ndarray) -> np.ndarray:
 # robust path is GATED on a cheap per-column heavy-tail detector and is byte-identical to the legacy path on clean columns
 # (the gate stays OFF), so the wide byte-stability FE suite is untouched; it engages only where the raw scale is provably
 # corrupted. Default ON (the fastest-correct default); set MLFRAME_ROBUST_AXIS=0 (or pass legacy params) to replay legacy.
-
-# Robust bounds = median +/- _ROBUST_AXIS_K * (1.4826*MAD). MAD is contamination-proof up to ~50% of the column, so the
-# derived span ~ 6*sigma stays anchored to the CLEAN core regardless of how many 1000x spikes are injected -- unlike an
-# inner-quantile trim, which only excludes the tail when the trim fraction exceeds the contamination fraction. k=3 covers
-# ~99.7% of a Gaussian core, matching the legacy intent that the working axis span the bulk of the data.
-_ROBUST_AXIS_K = 3.0
-# Spike-contamination detector parameters. The gate must trip on INJECTED SPIKE contamination (a thin fraction of points
-# orders of magnitude beyond a dense bulk) WITHOUT tripping on a genuinely heavy-tailed-but-clean column (lognormal,
-# Student-t, exponential) -- robustifying those would change engineered byte values on legitimate data. A single
-# half-range/scale ratio cannot separate the two (a heavy lognormal and a 1%-spike column have similar max/MAD ratios), so
-# we test for the SEPARATION SIGNATURE instead: contamination leaves a clear multiplicative GAP between the bulk and the
-# spikes, while a smooth heavy tail is continuous. ``_ROBUST_AXIS_OUTER_K`` is the robust-scale multiple defining the
-# candidate-outlier band; ``_ROBUST_AXIS_GAP`` is the bulk->outer jump that marks a true gap; ``_ROBUST_AXIS_MAX_FRAC``
-# caps the outlier fraction so a column that is >20% beyond 10 sigma is treated as genuinely heavy, not spike-contaminated.
-_ROBUST_AXIS_OUTER_K = 10.0
-_ROBUST_AXIS_GAP = 3.0
-_ROBUST_AXIS_MAX_FRAC = 0.20
-
-
-def _robust_axis_enabled() -> bool:
-    """Default ON. ``MLFRAME_ROBUST_AXIS=0`` forces the legacy raw-scale path for replay / A-B compare."""
-    import os as _os
-    flag = _os.environ.get("MLFRAME_ROBUST_AXIS", "").strip().lower()
-    return flag not in ("0", "false", "off", "no")
-
-
-def _detect_heavy_tail(x: np.ndarray) -> bool:
-    """Cheap per-column SPIKE-contamination gate. True iff a thin fraction of points sit beyond ``_ROBUST_AXIS_OUTER_K``
-    robust scales AND are separated from the bulk by a multiplicative GAP of at least ``_ROBUST_AXIS_GAP``.
-
-    The gap test is what distinguishes injected spike contamination (a dense bulk + a handful of order-of-magnitude
-    outliers with empty space between them) from a genuinely heavy-tailed-but-clean column (lognormal / Student-t /
-    exponential), whose tail is CONTINUOUS with the bulk (gap ~ 1.0-1.3, measured). Only spike contamination corrupts the
-    raw scale; a smooth heavy tail is the legitimate home of the skewed bases and must stay on the byte-identical legacy
-    path. Degenerate columns (<8 finite values, near-constant, all-non-finite) never trip -- there is no scale to corrupt."""
-    xf = x[np.isfinite(x)]
-    if xf.size < 8:
-        return False
-    med = float(np.median(xf))
-    robust_scale = _robust_scale(xf, med)
-    if robust_scale <= 1e-12:
-        return False
-    dev = np.abs(xf - med)
-    thr = _ROBUST_AXIS_OUTER_K * robust_scale
-    outer_mask = dev > thr
-    n_outer = int(np.count_nonzero(outer_mask))
-    if n_outer == 0 or n_outer > _ROBUST_AXIS_MAX_FRAC * xf.size:
-        # No extreme points, or so many that the tail is genuinely heavy rather than a thin contaminating spike.
-        return False
-    # Gap test without a full sort: the bulk edge is the largest deviation still inside the bulk, the outer edge the
-    # smallest deviation in the candidate-outlier band -- two masked reductions (O(n)) instead of an O(n log n) sort.
-    bulk_edge = float(dev[~outer_mask].max())
-    outer_min = float(dev[outer_mask].min())
-    return (outer_min / max(bulk_edge, 1e-12)) >= _ROBUST_AXIS_GAP
-
-
-def _robust_scale(xf: np.ndarray, med: float) -> float:
-    """Contamination-proof scale: 1.4826*MAD, with an IQR fallback when MAD collapses on a discrete / tied core. Returns
-    0.0 only on a genuinely degenerate (near-constant) column, which the caller treats as 'no robust path'."""
-    mad = float(np.median(np.abs(xf - med)))
-    scale = 1.4826 * mad
-    if scale > 1e-12:
-        return scale
-    q25, q75 = np.quantile(xf, [0.25, 0.75])
-    iqr_scale = float(q75 - q25) / 1.349  # IQR/1.349 ~ sigma for a Gaussian; recovers a scale when MAD ties to 0.
-    return iqr_scale if iqr_scale > 1e-12 else 0.0
-
-
-def _robust_lo_hi(x: np.ndarray) -> tuple[float, float]:
-    """MAD-anchored [lo, hi] bounds = median +/- k*(1.4826*MAD) on the finite subset. The span tracks the CLEAN core even
-    under heavy contamination (MAD ignores up to ~50% outliers), unlike a fixed inner-quantile trim which only excludes
-    the tail once the trim fraction exceeds the contamination fraction."""
-    xf = x[np.isfinite(x)]
-    med = float(np.median(xf))
-    scale = _robust_scale(xf, med)
-    if scale <= 1e-12:
-        # Degenerate core: fall back to the actual finite min/max so the caller still gets a usable (non-zero) span.
-        return float(np.min(xf)), float(np.max(xf))
-    return med - _ROBUST_AXIS_K * scale, med + _ROBUST_AXIS_K * scale
+from ._hermite_robust import (  # noqa: E402,F401
+    _ROBUST_AXIS_GAP,
+    _ROBUST_AXIS_K,
+    _ROBUST_AXIS_MAX_FRAC,
+    _ROBUST_AXIS_OUTER_K,
+    _detect_heavy_tail,
+    _robust_axis_enabled,
+    _robust_lo_hi,
+    _robust_scale,
+)
 
 
 def _preprocess_zscore(x):
@@ -1119,294 +936,22 @@ def basis_route_by_moments(x: np.ndarray) -> str:
     return "chebyshev"
 
 
-def _canonical_seeds(basis: str, degree: int) -> list:
-    """Return canonical coefficient vectors (shape (degree+1,)) for warm-start, representing explicit low-degree polynomials."""
-    seeds = []
-    # Identity P_1: e_1 = [0, 1, 0, ..., 0]
-    e1 = np.zeros(degree + 1, dtype=np.float64)
-    if degree >= 1:
-        e1[1] = 1.0
-        seeds.append(e1)
-    # Pure P_2 polynomial coefficient vector
-    if degree >= 2:
-        e2 = np.zeros(degree + 1, dtype=np.float64)
-        e2[2] = 1.0
-        seeds.append(e2)
-        # Composite low-degree: P_0 + P_2 (captures mean + curvature)
-        e02 = np.zeros(degree + 1, dtype=np.float64)
-        e02[0] = -1.0
-        e02[2] = 1.0
-        seeds.append(e02)
-    # Pure P_3
-    if degree >= 3:
-        e3 = np.zeros(degree + 1, dtype=np.float64)
-        e3[3] = 1.0
-        seeds.append(e3)
-    return seeds
-
-
-
-
-def _l2_normalize_pair(coef_a: np.ndarray, coef_b: np.ndarray,
-                        target_norm: float = 1.0) -> tuple:
-    """Project (c_a, c_b) jointly to the L2 sphere (or other target_norm). Used in direction_only search to remove
-    the scaling ridge that confuses TPE/CMA on XOR-like targets where MI is invariant to overall scaling
-    (bf=mul) or equivariant (bf=add/sub)."""
-    norm = float(np.sqrt(np.sum(coef_a ** 2) + np.sum(coef_b ** 2)))
-    if norm < 1e-12:
-        return coef_a, coef_b
-    scale = target_norm / norm
-    return coef_a * scale, coef_b * scale
-
-
-# Default saturation constant for the scale-invariant coefficient penalty (see
-# ``_l2_penalty_value``). When ``l2_penalty_saturation > 0`` the penalty is
-# ``lambda * ||c||^2 / (||c||^2 + saturation)`` -- it rises from 0 toward a
-# CONSTANT ``lambda`` ceiling as ``||c||^2`` grows past ``saturation``, so a
-# genuinely high-MI / high-coefficient solution is never crushed (the failure
-# mode the raw ``lambda * ||c||^2`` penalty caused on the F-POLY pre-distortion
-# fixture, where the true Chebyshev coefficients have ``||c||^2 ~ 86`` and the
-# raw penalty ~4.3 dwarfed the MI peak ~1.5). ``saturation`` sets the coef-norm
-# scale at which the penalty reaches half ``lambda``; 1.0 means small-coef noise
-# solutions (||c||^2 << 1, e.g. an atan2 plateau artifact) still pay almost the
-# full ``lambda``, preserving noise rejection.
-_L2_PENALTY_SATURATION_DEFAULT = 1.0
-
-
-def _l2_penalty_value(coef_a: np.ndarray, coef_b: np.ndarray,
-                       l2_penalty: float,
-                       l2_penalty_saturation: float = _L2_PENALTY_SATURATION_DEFAULT) -> float:
-    """Coefficient-magnitude penalty subtracted from the raw MI objective.
-
-    Two regimes, selected by ``l2_penalty_saturation``:
-
-    * ``l2_penalty_saturation > 0`` (the default / recommended path): a
-      SCALE-SATURATING penalty ``lambda * s / (s + sat)`` where ``s = ||c_a||^2
-      + ||c_b||^2``. As ``s`` grows the penalty saturates toward the constant
-      ``lambda`` instead of growing without bound, so it regularises pure noise
-      (tiny ``s`` -> tiny penalty difference between candidates, plus the
-      constant ceiling discourages adding magnitude for no MI gain) WITHOUT
-      punishing genuinely-high-MI high-coefficient solutions. This is what lets
-      the separable Chebyshev reconstruction of ``(a**3-2a)(b**2-b)`` (||c||^2
-      ~ 86, MI ~ 1.5) win over the deceptive small-||c|| atan2/div plateau.
-
-    * ``l2_penalty_saturation <= 0``: the legacy RAW penalty ``lambda *
-      ||c||^2``. Kept for byte-compatibility / opt-out; this is the formula that
-      crushed large-coefficient solutions.
-
-    ``l2_penalty <= 0`` returns 0.0 in both regimes (penalty disabled).
-    """
-    if l2_penalty <= 0.0:
-        return 0.0
-    s = float(np.sum(coef_a ** 2) + np.sum(coef_b ** 2))
-    if l2_penalty_saturation and l2_penalty_saturation > 0.0:
-        return l2_penalty * (s / (s + l2_penalty_saturation))
-    return l2_penalty * s
-
-
-def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
-                         *, iters: int = 3) -> tuple:
-    """Per-operand warm-start coefficients for the multiplicative pair model
-    ``y ~ f(x_a) * g(x_b)`` via a rank-1 alternating-least-squares (ALS) sweep
-    in the orthogonal-polynomial basis.
-
-    ``B_a`` / ``B_b`` are precomputed basis matrices ``B[i, k] = T_k(z[i])`` of
-    shape ``(n, degree + 1)`` (see :func:`build_basis_matrix`). Returns
-    ``(coef_a, coef_b)`` -- each length ``degree + 1`` -- such that ``B_a @
-    coef_a`` and ``B_b @ coef_b`` are the rank-1 separable factors best fitting
-    the centred target.
-
-    Why ALS and not two independent 1-D fits: for a centred product target the
-    marginal ``E[y | x_b]`` is ~ ``g(x_b) * E[f(x_a)] ~ 0``, so an independent
-    1-D least-squares fit of ``y`` on ``B_b`` recovers almost nothing on the
-    b-side (measured corr 0.49 vs Q on the F-POLY fixture). One ALS sweep -- fit
-    ``f`` given the current ``g`` by regressing ``y`` on ``B_a`` scaled
-    column-wise by ``g``, then symmetrically -- recovers BOTH factors exactly
-    (corr 1.0 each on F-POLY) in three cheap ``lstsq`` solves. This is the
-    highest-leverage, near-free warm start: it lands the joint optimiser
-    directly in the true (large-coefficient) basin that CMA-ES otherwise never
-    finds from the canonical unit-magnitude seeds.
-
-    The returned coefficient SCALE is arbitrary for a ``mul`` combination (MI is
-    scale-invariant under ``mul``); the magnitude is split between the two
-    factors by the ALS normalisation and is intentionally NOT projected -- the
-    saturating penalty (:func:`_l2_penalty_value`) makes that scale harmless.
-
-    Returns ``(None, None)`` if the target has no variance or ``lstsq`` fails.
-    """
-    yc = np.ascontiguousarray(np.asarray(y, dtype=np.float64))
-    yc = yc - yc.mean()
-    if float(np.std(yc)) < 1e-12:
-        return None, None
-    try:
-        # Initialise g(b) from a plain 1-D least-squares fit on the b-basis.
-        cb, *_ = np.linalg.lstsq(B_b, yc, rcond=None)
-        g = B_b @ cb
-        ca = None
-        for _ in range(max(1, int(iters))):
-            g_norm = g / (float(np.std(g)) + 1e-12)
-            ca, *_ = np.linalg.lstsq(B_a * g_norm[:, None], yc, rcond=None)
-            f = B_a @ ca
-            f_norm = f / (float(np.std(f)) + 1e-12)
-            cb, *_ = np.linalg.lstsq(B_b * f_norm[:, None], yc, rcond=None)
-            g = B_b @ cb
-        if ca is None or not (np.all(np.isfinite(ca)) and np.all(np.isfinite(cb))):
-            return None, None
-        return np.ascontiguousarray(ca, dtype=np.float64), np.ascontiguousarray(cb, dtype=np.float64)
-    except (np.linalg.LinAlgError, ValueError):
-        return None, None
-
-
-
-
-
-
-
-
-
-
-def fit_operand_prewarp(
-    x: np.ndarray,
-    y: np.ndarray,
-    *,
-    basis: str = "chebyshev",
-    max_degree: int = 4,
-) -> dict | None:
-    """Fit a per-operand 1-D pre-warp ``f(x)`` that linearises the operand's
-    relationship to the (possibly non-monotone) target ``y`` via a single
-    orthogonal-polynomial least-squares solve.
-
-    This is the lightest sufficient pre-warp for the *unary/binary* pair search:
-    where a single library unary (``sqr``, ``log``, ...) cannot express a
-    within-operand polynomial such as ``a**3 - 2a``, an orthogonal-series fit of
-    ``y ~ poly(x)`` can. It is deliberately the SAME 1-D machinery the
-    orthogonal-poly path warm-starts from (:func:`warm_start_als_seed` is its
-    rank-1 ALS sibling); exposing it here lets BOTH paths share one
-    implementation rather than duplicating the basis fit.
-
-    The fit consumes ``y`` (it is supervised, like the MI scoring), but the
-    returned spec is a CLOSED-FORM function of ``x`` alone -- the stored
-    ``coef`` + basis ``preprocess`` params reproduce ``f(x)`` deterministically
-    at transform() time with NO ``y`` reference (leak-safe replay).
-
-    Returns a dict ``{basis, degree, coef, preprocess}`` consumable by
-    :func:`apply_operand_prewarp`, or ``None`` if the target / operand has no
-    usable variance or the solve fails.
-    """
-    bi = _POLY_BASES.get(basis)
-    if bi is None or bi.get("kind") != "polynomial":
-        # Pre-warp only defined for the orthogonal-polynomial families (closed-
-        # form basis matrix + apply params); non-polynomial bases need per-call
-        # eval closures that are not replay-portable here.
-        return None
-    xf = np.ascontiguousarray(np.asarray(x, dtype=np.float64))
-    yf = np.ascontiguousarray(np.asarray(y, dtype=np.float64))
-    if xf.size == 0 or float(np.std(xf)) < 1e-12 or float(np.std(yf)) < 1e-12:
-        return None
-    deg = max(1, int(max_degree))
-    z, params = bi["fit"](xf)
-    z = np.ascontiguousarray(z, dtype=np.float64)
-    try:
-        B = build_basis_matrix(basis, z, deg)
-        yc = yf - yf.mean()
-        coef, *_ = np.linalg.lstsq(B, yc, rcond=None)
-    except (np.linalg.LinAlgError, ValueError):
-        return None
-    if not np.all(np.isfinite(coef)):
-        return None
-    return {
-        "basis": str(basis),
-        "degree": int(deg),
-        "coef": np.ascontiguousarray(coef, dtype=np.float64),
-        "preprocess": dict(params),
-    }
-
-
-def fit_pair_prewarp_als(
-    x_a: np.ndarray,
-    x_b: np.ndarray,
-    y: np.ndarray,
-    *,
-    basis: str = "chebyshev",
-    max_degree: int = 4,
-) -> tuple:
-    """Jointly fit a per-operand pre-warp for BOTH sides of a pair via the rank-1
-    ALS sweep (:func:`warm_start_als_seed`), returning ``(spec_a, spec_b)`` each
-    consumable by :func:`apply_operand_prewarp`.
-
-    Why joint ALS and not two independent 1-D fits (:func:`fit_operand_prewarp`):
-    for a centred product target ``y ~ P(a) * Q(b)`` the marginal ``E[y | b] ~
-    Q(b) * E[P(a)] ~ 0``, so an INDEPENDENT 1-D fit of ``y`` on the b-basis
-    recovers almost nothing on the b-side (measured corr ~0.1 on the F-POLY
-    fixture). The ALS sweep alternates -- fit ``f`` given the current ``g``, then
-    ``g`` given ``f`` -- and recovers BOTH factors (corr ~1.0 each). This is the
-    SAME mechanism the orthogonal-poly path warm-starts the joint CMA optimiser
-    with; reusing it here gives the elementary unary/binary search a genuine
-    per-operand non-monotone pre-warp for product-structured pairs.
-
-    Returns ``(None, None)`` on no-variance / solve failure or a non-polynomial
-    basis (the closed-form replay needs the polynomial basis-matrix path).
-    """
-    bi = _POLY_BASES.get(basis)
-    if bi is None or bi.get("kind") != "polynomial":
-        return None, None
-    xa = np.ascontiguousarray(np.asarray(x_a, dtype=np.float64))
-    xb = np.ascontiguousarray(np.asarray(x_b, dtype=np.float64))
-    yf = np.ascontiguousarray(np.asarray(y, dtype=np.float64))
-    if (xa.size == 0 or float(np.std(xa)) < 1e-12 or float(np.std(xb)) < 1e-12
-            or float(np.std(yf)) < 1e-12):
-        return None, None
-    deg = max(1, int(max_degree))
-    za, pa = bi["fit"](xa)
-    zb, pb = bi["fit"](xb)
-    za = np.ascontiguousarray(za, dtype=np.float64)
-    zb = np.ascontiguousarray(zb, dtype=np.float64)
-    try:
-        Ba = build_basis_matrix(basis, za, deg)
-        Bb = build_basis_matrix(basis, zb, deg)
-        coef_a, coef_b = warm_start_als_seed(Ba, Bb, yf, iters=3)
-    except (np.linalg.LinAlgError, ValueError):
-        return None, None
-    if coef_a is None or coef_b is None:
-        return None, None
-    spec_a = {"basis": str(basis), "degree": int(deg),
-              "coef": np.ascontiguousarray(coef_a, dtype=np.float64), "preprocess": dict(pa)}
-    spec_b = {"basis": str(basis), "degree": int(deg),
-              "coef": np.ascontiguousarray(coef_b, dtype=np.float64), "preprocess": dict(pb)}
-    return spec_a, spec_b
-
-
-def apply_operand_prewarp(x: np.ndarray, spec: dict) -> np.ndarray:
-    """Replay a per-operand pre-warp ``f(x)`` from a spec produced by
-    :func:`fit_operand_prewarp`. Closed-form in ``x`` (uses the stored basis
-    ``preprocess`` params + ``coef``); no ``y`` reference, so transform()-time
-    replay is bit-identical to fit time given the same ``x``."""
-    basis = str(spec["basis"])
-    bi = _POLY_BASES[basis]
-    xf = np.ascontiguousarray(np.asarray(x, dtype=np.float64))
-    z = np.ascontiguousarray(bi["apply"](xf, dict(spec["preprocess"])), dtype=np.float64)
-    coef = np.ascontiguousarray(spec["coef"], dtype=np.float64)
-    out = bi["eval_dispatch"](z, coef)
-    return np.asarray(out, dtype=np.float64).reshape(-1)
-
-
-def _ksg_mi_1d(x: np.ndarray, y: np.ndarray, *, discrete_target: bool,
-               n_neighbors: int = 3) -> float:
-    """KSG MI of 1-D x with target -- used as the optimisation objective."""
-    if discrete_target:
-        return float(mutual_info_classif(x.reshape(-1, 1), y,
-                                          n_neighbors=n_neighbors, random_state=42,
-                                          discrete_features=False)[0])
-    return float(mutual_info_regression(x.reshape(-1, 1), y,
-                                         n_neighbors=n_neighbors, random_state=42,
-                                         discrete_features=False)[0])
-
-
 # ----------------------------------------------------------------------
 # Sibling-module re-exports. Big optimisation + MI clusters live in
 # ``_hermite_fe_optimise.py`` and ``_hermite_fe_mi.py`` so this file
 # stays below the 1k-LOC monolith threshold.
 # ----------------------------------------------------------------------
+from ._hermite_prewarp import (  # noqa: E402,F401
+    _L2_PENALTY_SATURATION_DEFAULT,
+    _canonical_seeds,
+    _ksg_mi_1d,
+    _l2_normalize_pair,
+    _l2_penalty_value,
+    apply_operand_prewarp,
+    fit_operand_prewarp,
+    fit_pair_prewarp_als,
+    warm_start_als_seed,
+)
 from ._hermite_fe_optimise import (  # noqa: E402,F401
     _baseline_mi_pair, _eval_coef_pair, _run_cma_search, _select_diverse_topm, detect_pair_symmetry, optimise_hermite_pair, optimise_pair_multimode,
 )

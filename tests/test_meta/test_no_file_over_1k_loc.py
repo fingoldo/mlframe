@@ -81,12 +81,6 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # ``_flat_torch_module_predict_accel.py`` as plain functions taking
     # ``self`` -- parent re-attaches them in __init_subclass__-style binding.
     "src/mlframe/training/neural/_flat_torch_module.py",
-    # FIXME(carve-wave-next): filters/hermite_fe.py at ~1.41k LOC after the
-    # outlier-robust univariate-basis FE axis landed alongside the 4-basis x
-    # 4-backend polyeval dispatcher. Sensible carve: lift the per-basis optimiser
-    # bodies into ``hermite_fe_<basis>.py`` siblings, keep the dispatcher + the
-    # ``optimise_*`` public facade in the parent.
-    "src/mlframe/feature_selection/filters/hermite_fe.py",
     # FIXME(carve-wave-next): filters/_feature_engineering_pairs.py at ~1.32k LOC
     # after the batched per-candidate quantile-discretization perf rewrite grew
     # the pair-search body. Carve candidate: the candidate-scoring loop into

@@ -41,6 +41,7 @@ import pytest
 
 from mlframe.utils._param_oracle import ParamOracle
 from mlframe.feature_selection.filters import hermite_fe as H
+from mlframe.feature_selection.filters import _hermite_oracle as HO
 from tests.conftest import is_fast_mode
 
 FIXED_TS = "2026-01-01T00:00:00+00:00"
@@ -154,7 +155,9 @@ def test_dispatch_uses_oracle_when_enabled(tmp_path, monkeypatch):
     # full 5-repeat 500k bench is what starves a worker into a timeout under full-suite ``-n`` contention.
     repeats = 2 if is_fast_mode() else 5
     H.benchmark_polyeval_cpu_backends("hermite", sizes=(200, 500_000), repeats=repeats, oracle=oracle)
-    monkeypatch.setattr(H, "_polyeval_oracle_singleton", oracle, raising=False)
+    # The oracle singleton + the functions that read it live in ``_hermite_oracle``
+    # (carved out of ``hermite_fe`` under the 1k-LOC ceiling); patch it there.
+    monkeypatch.setattr(HO, "_polyeval_oracle_singleton", oracle, raising=False)
     monkeypatch.setenv("MLFRAME_POLYEVAL_ORACLE", "1")
     monkeypatch.delenv("MLFRAME_POLYEVAL_BACKEND", raising=False)
 
@@ -179,7 +182,7 @@ def test_bit_equivalence_njit_vs_njit_par(basis, tmp_path, monkeypatch):
     # the output still matches the direct njit reference.
     oracle = _fresh_oracle(tmp_path)
     H.benchmark_polyeval_cpu_backends(basis, sizes=(200, 500_000), repeats=3, oracle=oracle)
-    monkeypatch.setattr(H, "_polyeval_oracle_singleton", oracle, raising=False)
+    monkeypatch.setattr(HO, "_polyeval_oracle_singleton", oracle, raising=False)
     monkeypatch.setenv("MLFRAME_POLYEVAL_ORACLE", "1")
     monkeypatch.delenv("MLFRAME_POLYEVAL_BACKEND", raising=False)
     disp = H.polyeval_dispatch(basis, x, c)
@@ -218,7 +221,7 @@ def test_oracle_enabled_does_not_alter_small_n_decision(monkeypatch):
         cold = ParamOracle(os.path.join(d, "cold.parquet"),
                            param_space={"backend": ["njit", "njit_par"]},
                            minimize="elapsed_s", mode="inference", min_observations=1)
-        monkeypatch.setattr(H, "_polyeval_oracle_singleton", cold, raising=False)
+        monkeypatch.setattr(HO, "_polyeval_oracle_singleton", cold, raising=False)
         assert H._polyeval_oracle_pick_cpu_backend(200) == "njit"
 
 
