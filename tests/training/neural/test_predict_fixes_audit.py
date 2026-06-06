@@ -78,7 +78,7 @@ def test_predict_device_arg_honored_in_post_fit_path():
     """#7: after fit (self.trainer reset to None), predict(device='cpu') must
     still route the trainer to the cpu accelerator -- pre-fix the device arg was
     only read in the unreachable live-trainer branch."""
-    import mlframe.training.neural.base as _nb
+    import mlframe.training.neural._base_predict as _bp
 
     rng = np.random.default_rng(0)
     X = rng.normal(size=(64, 5)).astype(np.float32)
@@ -89,14 +89,14 @@ def test_predict_device_arg_honored_in_post_fit_path():
     # After fit, self.trainer is None -> the post-fit branch builds trainer_params.
 
     captured = {}
-    _RealTrainer = _nb.L.Trainer
+    _RealTrainer = _bp.L.Trainer
 
     def _spy_trainer(**kwargs):
         captured.update(kwargs)
         return _RealTrainer(**kwargs)
 
     import unittest.mock as _mock
-    with _mock.patch.object(_nb.L, "Trainer", _spy_trainer):
+    with _mock.patch.object(_bp.L, "Trainer", _spy_trainer):
         clf.predict(X, device="cpu")
 
     assert captured.get("accelerator") == "cpu", (
