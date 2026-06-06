@@ -47,7 +47,21 @@ def _read(rel: str) -> str:
     ``training/core/predict.py``, append the main + pp siblings so
     source-pattern sensors for the relocated raise sites still match.
     """
-    primary = (MLFRAME_ROOT / rel).read_text(encoding="utf-8")
+    _path = MLFRAME_ROOT / rel
+    if not _path.exists() and _path.suffix == ".py":
+        # Monolith-split compat: the flat module became a subpackage
+        # (``X.py`` -> ``X/__init__.py`` + submodules). Read the package
+        # __init__ and append every submodule so source-pattern sensors for
+        # relocated raise sites still match regardless of which submodule owns them.
+        _pkg = _path.with_suffix("")
+        _init = _pkg / "__init__.py"
+        if _init.exists():
+            primary = _init.read_text(encoding="utf-8")
+            for _sub in sorted(_pkg.glob("*.py")):
+                if _sub.name != "__init__.py":
+                    primary = primary + "\n" + _sub.read_text(encoding="utf-8")
+            return primary
+    primary = _path.read_text(encoding="utf-8")
     if rel == "training/core/predict.py":
         _core = MLFRAME_ROOT / "training" / "core"
         # Concat every ``_predict*.py`` sibling so the source-grep sensor
@@ -185,10 +199,7 @@ def test_neural_flat_batch_format_is_typeerror() -> None:
     """``MLPTorchModel`` (where the batch-format dispatch lives) moved to
     sibling _flat_torch_module.py after the flat-module monolith split;
     concat so the source sensor still matches."""
-    src = _read("training/neural/flat.py")
-    _sib = MLFRAME_ROOT / "training" / "neural" / "_flat_torch_module.py"
-    if _sib.exists():
-        src += "\n" + _sib.read_text(encoding="utf-8")
+    src = _read("training/neural/flat.py") + "\n" + _read("training/neural/_flat_torch_module.py")
     assert (
         'raise TypeError(f"Unexpected batch format' in src
     ), "neural/flat.py: batch format dispatch failure should raise TypeError"

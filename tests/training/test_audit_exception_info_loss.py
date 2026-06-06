@@ -44,7 +44,20 @@ MLFRAME_ROOT = Path(importlib.import_module("mlframe").__file__).parent
 
 
 def _read(rel: str) -> str:
-    return (MLFRAME_ROOT / rel).read_text(encoding="utf-8")
+    _path = MLFRAME_ROOT / rel
+    if not _path.exists() and _path.suffix == ".py":
+        # Monolith-split compat: the flat module became a subpackage
+        # (``X.py`` -> ``X/__init__.py`` + submodules). Read the package
+        # __init__ plus every submodule so structural source pins still match.
+        _pkg = _path.with_suffix("")
+        _init = _pkg / "__init__.py"
+        if _init.exists():
+            parts = [_init.read_text(encoding="utf-8")]
+            for _sub in sorted(_pkg.glob("*.py")):
+                if _sub.name != "__init__.py":
+                    parts.append(_sub.read_text(encoding="utf-8"))
+            return "\n".join(parts)
+    return _path.read_text(encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -109,10 +122,7 @@ def test_flat_metric_compute_uses_logger_exception() -> None:
     # MLPTorchModel (and its _compute_metric body) was carved out of
     # neural/flat.py into sibling neural/_flat_torch_module.py; check both
     # files so the sensor remains valid after the monolith split.
-    src = _read("training/neural/flat.py")
-    sibling = MLFRAME_ROOT / "training/neural/_flat_torch_module.py"
-    if sibling.exists():
-        src += sibling.read_text(encoding="utf-8")
+    src = _read("training/neural/flat.py") + "\n" + _read("training/neural/_flat_torch_module.py")
     assert 'logger.error(f"Failed to compute metric {prefix}_{metric.name}: {e}")' not in src
     assert 'logger.exception("Failed to compute metric %s_%s", prefix, metric.name)' in src
 
@@ -181,10 +191,7 @@ def test_neural_flat_compile_fallback_uses_exc_info() -> None:
     # MLPTorchModel was carved out of neural/flat.py into sibling
     # neural/_flat_torch_module.py; the torch.compile fallback line moved
     # with it. Concatenate both so the source sensor still works.
-    src = _read("training/neural/flat.py")
-    sibling = MLFRAME_ROOT / "training/neural/_flat_torch_module.py"
-    if sibling.exists():
-        src += "\n" + sibling.read_text(encoding="utf-8")
+    src = _read("training/neural/flat.py") + "\n" + _read("training/neural/_flat_torch_module.py")
     assert 'logger.warning(f"Failed to apply torch.compile: {e}. Using uncompiled network.")' not in src
     assert 'logger.warning("Failed to apply torch.compile. Using uncompiled network.", exc_info=True)' in src
 

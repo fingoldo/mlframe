@@ -8,7 +8,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from .base import to_numpy_safe
+from ..base import to_numpy_safe
 
 logger = logging.getLogger("mlframe.training.neural.flat")
 
