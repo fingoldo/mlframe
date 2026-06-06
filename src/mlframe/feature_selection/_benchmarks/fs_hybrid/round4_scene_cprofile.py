@@ -26,9 +26,14 @@ def _disable_kernel_tuning_sweep():
         import pyutilz.performance.kernel_tuning.cache as _M
 
         def _no_sweep(self, kernel_name, *, dims, tuner, axes, fallback, **kw):
-            return fallback
+            return fallback() if callable(fallback) else fallback
         _M.KernelTuningCache.get_or_tune = _no_sweep
-        print("[kernel-tuning sweep DISABLED for profiling -> fallback heuristic]", flush=True)
+        # The postgres-loaded disk makes the per-host cache load_or_create() block for MINUTES (disk + filelock).
+        # Use a throwaway in-memory cache so profiling the FE hotspot is not gated on disk I/O (we already force the
+        # fallback above, so the cache content is irrelevant here).
+        _inmem = _M.KernelTuningCache(in_memory=True)
+        _M.KernelTuningCache.load_or_create = classmethod(lambda cls: _inmem)
+        print("[kernel-tuning sweep+disk DISABLED for profiling -> in-memory fallback]", flush=True)
     except Exception as e:
         print(f"[no-sweep patch failed: {e}]", flush=True)
 
