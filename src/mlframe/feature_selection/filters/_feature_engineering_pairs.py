@@ -356,6 +356,37 @@ _TIMES_SPENT_LOCK = threading.Lock()
 # auto-engages when the shared buffer would OOM.
 _FE_BUFFER_RAM_BUDGET_RATIO: float = 0.4
 
+# CROSS-PAIR (CHUNK) BATCHING (2026-06-06). The per-pair 3-phase batch (materialise
+# -> ONE discretize_2d -> ONE batch_mi) below is bit-identical to the per-candidate
+# path but its batches are too SMALL to saturate the cores: the njit-prange kernels
+# (discretize_2d_quantile_batch, batch_mi_with_noise_gate) release the GIL, yet one
+# pair's K candidates (~tens-to-low-hundreds of columns) is too little work for the
+# prange to spread across cores AND stays below the GPU dispatch threshold. So the
+# GIL-bound Python orchestration BETWEEN kernel calls (combo materialisation,
+# nan_to_num, per-candidate best/prewarp/config bookkeeping) serialises on ONE core
+# and dominates -> ~15-21% CPU (1 of 8), GPU idle (mrmr.py keeps backend="threading"
+# because loky memmaps crash Windows paging on 1M-row data).
+#
+# Fix: process a CHUNK of many raw-pairs together -- accumulate ALL the chunk's
+# candidate columns into ONE wide buffer, run ONE big discretize_2d + ONE big
+# batch_mi over the whole chunk (the prange now has K_chunk = sum of per-pair K
+# columns of work -> enough to spread across cores via nogil, AND the batch crosses
+# the GPU dispatch threshold so the cupy/cuda backend can engage), THEN replay the
+# EXACT per-pair best/prewarp/config tracking by grouping the chunk's candidates back
+# by pair. Bit-identical because BOTH kernels score each column INDEPENDENTLY
+# (discretize: per-column percentile axis=0 / searchsorted; batch_mi: prange over
+# columns with per-column joint histogram, and the permutation shuffle is seeded by
+# (base_seed=0, perm_index) ONLY -- never by the column -- so concatenating columns
+# from many pairs into one disc_2d yields the same per-column MI as scoring each pair
+# separately). Only the hoist+quantile path is chunked; the recompute-fallback (no
+# buffer) and uniform method keep the per-pair path verbatim.
+#
+# The chunk's buffer width is bounded by the SAME RAM budget the per-pair buffer uses
+# (``n_rows * chunk_cols * 4`` bytes within ``_FE_BUFFER_RAM_BUDGET_RATIO`` of
+# available RAM); we pack as many whole pairs as fit (a pair is never split across
+# chunks so the per-pair replay is intact) but always at least one pair per chunk.
+_FE_CHUNK_MAX_COLS_HARD_CAP: int = 65536
+
 # Shared subsample default across the two FE entry points. ``polynom_pair_fe``
 # already uses 200_000 (validated 2026-05-18: 100k could lose a marginal hermite
 # feature, 200k kept it). The accuracy bench for ``check_prospective_fe_pairs``
@@ -365,6 +396,146 @@ _FE_BUFFER_RAM_BUDGET_RATIO: float = 0.4
 FE_DEFAULT_SUBSAMPLE_N: int = 200_000
 
 
+def _plan_fe_chunks(*, prospective_pairs, pair_combs, vars_transformations, n_binary, chunk_max_cols):
+    """Partition ``prospective_pairs`` (in iteration order) into CHUNKS of raw-pairs
+    whose summed candidate-column count fits ``chunk_max_cols``.
+
+    A pair is NEVER split across chunks (so the per-pair replay stays intact); a single
+    pair larger than the cap becomes its own chunk. Pairs with zero valid candidates
+    (both-operand registration fails for every comb) are dropped from the plan -- the
+    caller's per-pair path no-ops them identically.
+
+    Returns ``(chunks, pair_valid_combs, buf_width)``:
+      * ``chunks`` -- list of lists of ``raw_vars_pair`` (chunk membership, in order).
+      * ``pair_valid_combs`` -- ``raw_vars_pair -> [valid transformations_pair, ...]``.
+      * ``buf_width`` -- the column width the shared chunk buffer must have (the widest
+        chunk's candidate count); 0 when nothing is chunkable.
+    """
+    chunk_max_cols = max(int(chunk_max_cols), 1)
+    pair_valid_combs: dict = {}
+    pair_cols: dict = {}
+    for (raw_vars_pair, _pm), _u in prospective_pairs.items():
+        combs = pair_combs.get(raw_vars_pair, [])
+        valid = [
+            tp for tp in combs
+            if (tp[0] in vars_transformations) and (tp[1] in vars_transformations)
+        ]
+        pair_valid_combs[raw_vars_pair] = valid
+        pair_cols[raw_vars_pair] = len(valid) * n_binary
+
+    chunks: list = []
+    cur: list = []
+    cur_cols = 0
+    widest = 0
+    for (raw_vars_pair, _pm), _u in prospective_pairs.items():
+        need = pair_cols.get(raw_vars_pair, 0)
+        if need == 0:
+            continue
+        if cur and (cur_cols + need > chunk_max_cols):
+            chunks.append(cur)
+            widest = max(widest, cur_cols)
+            cur = []
+            cur_cols = 0
+        cur.append(raw_vars_pair)
+        cur_cols += need
+    if cur:
+        chunks.append(cur)
+        widest = max(widest, cur_cols)
+    return chunks, pair_valid_combs, widest
+
+
+def _compute_one_fe_chunk(
+    *,
+    chunk_pairs,
+    pair_valid_combs,
+    chunk_buffer,
+    vars_transformations,
+    transformed_vars,
+    binary_transformations,
+    quantization_nbins,
+    quantization_dtype,
+    classes_y,
+    classes_y_safe,
+    freqs_y,
+    fe_npermutations,
+    fe_min_nonzero_confidence,
+    batch_mi_kernel,
+    use_su,
+    prewarp_unary,
+    logger,
+    discretize_2d_quantile_batch,
+):
+    """Fill ``chunk_buffer[:, :K]`` with EVERY candidate column of EVERY pair in
+    ``chunk_pairs``, then run ONE ``discretize_2d_quantile_batch`` + ONE
+    ``_dispatch_batch_mi_with_noise_gate`` over the whole chunk. Returns a dict
+    ``raw_vars_pair -> (candidates, fe_mi_by_col, local_times)``.
+
+    This is the cross-pair batch: K = sum of the chunk's per-pair candidate counts, so
+    the njit-prange / GPU dispatch sees the WHOLE chunk's work at once (saturates cores
+    / can cross the GPU threshold). BIT-IDENTITY: both kernels score each column
+    INDEPENDENTLY (per-column percentile/searchsorted; prange over columns with a
+    per-column joint histogram and a permutation shuffle seeded by (base_seed=0,
+    perm_index) ONLY -- never by the column), so a candidate's codes + MI are exactly
+    what the per-pair batch produced. The materialise order (combs x bin_func) and
+    nan_to_num/timing per pair mirror the per-pair Phase 1 exactly. The caller must
+    extract any survivor columns from ``chunk_buffer`` BEFORE the next chunk overwrites
+    it (the caller processes a chunk's pairs immediately after this returns).
+    """
+    from timeit import default_timer as timer
+
+    col = 0
+    chunk_records: dict = {}  # raw_vars_pair -> (candidates, local_times)
+    for raw_vars_pair in chunk_pairs:
+        candidates = []
+        local_times: dict = {}
+        for transformations_pair in pair_valid_combs[raw_vars_pair]:
+            param_a = transformed_vars[:, vars_transformations[transformations_pair[0]]]
+            param_b = transformed_vars[:, vars_transformations[transformations_pair[1]]]
+            uses_pw = (
+                transformations_pair[0][1] == prewarp_unary
+                or transformations_pair[1][1] == prewarp_unary
+            )
+            with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+                for bin_func_name, bin_func in binary_transformations.items():
+                    start = timer()
+                    try:
+                        chunk_buffer[:, col] = bin_func(param_a, param_b)
+                        _col_view = chunk_buffer[:, col]
+                    except Exception:
+                        logger.error(f"Error when performing {bin_func}")
+                        continue
+                    np.nan_to_num(_col_view, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+                    local_times[bin_func_name] = local_times.get(bin_func_name, 0.0) + (timer() - start)
+                    candidates.append((transformations_pair, bin_func_name, col, uses_pw))
+                    col += 1
+        chunk_records[raw_vars_pair] = (candidates, local_times)
+
+    out: dict = {}
+    if col == 0:
+        for raw_vars_pair in chunk_pairs:
+            candidates, local_times = chunk_records[raw_vars_pair]
+            out[raw_vars_pair] = (candidates, None, local_times)
+        return out
+
+    disc_2d = discretize_2d_quantile_batch(
+        chunk_buffer[:, :col], n_bins=quantization_nbins, dtype=quantization_dtype
+    )
+    fe_mi_arr = _dispatch_batch_mi_with_noise_gate(
+        disc_2d=disc_2d,
+        quantization_nbins=quantization_nbins,
+        classes_y=classes_y,
+        classes_y_safe=classes_y_safe,
+        freqs_y=freqs_y,
+        npermutations=fe_npermutations,
+        min_nonzero_confidence=fe_min_nonzero_confidence,
+        use_su=use_su,
+        batch_mi_kernel=batch_mi_kernel,
+    )
+    fe_mi_full = np.asarray(fe_mi_arr, dtype=np.float64)
+    for raw_vars_pair in chunk_pairs:
+        candidates, local_times = chunk_records[raw_vars_pair]
+        out[raw_vars_pair] = (candidates, fe_mi_full, local_times)
+    return out
 
 
 def check_prospective_fe_pairs(
@@ -699,6 +870,10 @@ def check_prospective_fe_pairs(
     # rebuild stages (memory-safe; ~1% extra bin_func calls per pair).
     _n_binary = len(binary_transformations)
     final_transformed_vals_shared = None
+    # CROSS-PAIR chunk budget (cols). Default 0 == not chunkable (per-pair buffer).
+    # Filled below when the single-pair buffer fits RAM: the chunk buffer reuses the
+    # SAME available-RAM budget but may hold MANY pairs (each pair packed whole).
+    _fe_chunk_max_cols = 0
     if max_n_combs > 0:
         _buf_bytes = _estimate_fe_shared_buffer_bytes(len(X), max_n_combs, _n_binary)
         _can_hoist, _bb, _avail = _can_hoist_shared_buffer(_buf_bytes)
@@ -707,6 +882,21 @@ def check_prospective_fe_pairs(
                 final_transformed_vals_shared = np.empty(
                     shape=(len(X), max_n_combs * _n_binary),
                     dtype=np.float32,
+                )
+                # Cross-pair chunk width cap: the largest column count whose
+                # ``n_rows * cols * 4`` float32 buffer stays inside the SAME RAM
+                # budget the single-pair check used (``_FE_BUFFER_RAM_BUDGET_RATIO``
+                # of available). One pair (``max_n_combs * _n_binary`` cols) already
+                # passed, so this is always >= one pair; we pack whole pairs up to it.
+                _per_row_bytes = max(1, int(len(X)) * 4)
+                if _avail >= 0:
+                    _fe_chunk_max_cols = int((_avail * _FE_BUFFER_RAM_BUDGET_RATIO) // _per_row_bytes)
+                else:
+                    # No psutil reading -> bound the chunk to the hard cap only.
+                    _fe_chunk_max_cols = _FE_CHUNK_MAX_COLS_HARD_CAP
+                _fe_chunk_max_cols = max(
+                    max_n_combs * _n_binary,
+                    min(_fe_chunk_max_cols, _FE_CHUNK_MAX_COLS_HARD_CAP),
                 )
             except MemoryError:
                 # psutil over-reported available; falling back stays safe.
@@ -879,6 +1069,69 @@ def check_prospective_fe_pairs(
         _operand_marginal_mi_cache[_var] = _mi_val
         return _mi_val
 
+    # CROSS-PAIR (CHUNK) BATCHING precompute (2026-06-06). Only on the hoist+quantile
+    # path (the per-pair 3-phase batch path). We partition the prospective pairs into
+    # CHUNKS whose total candidate-column count fits the RAM-budgeted chunk buffer,
+    # then -- per chunk -- materialise ALL the chunk's candidate columns into ONE wide
+    # buffer, run ONE discretize_2d + ONE batch_mi over the whole chunk, and stash the
+    # per-pair results (ordered candidate list + per-candidate MI + buffer columns) in
+    # ``_chunk_mi_cache``. The per-pair loop below consumes the cache (reads MI + the
+    # chunk buffer columns) instead of doing its own per-pair Phase 1/2/3 -- enlarging
+    # the njit-prange + GPU-dispatch batch from one pair's K to the whole chunk's
+    # K_chunk, so the kernels saturate the cores / cross the GPU threshold. Bit-identical
+    # (each column is scored independently; shuffle seeded by (0, perm_index) only).
+    #
+    # ``_chunk_mi_cache[raw_vars_pair]`` -> (ordered list of
+    # (transformations_pair, bin_func_name, buf_col, uses_pw), fe_mi_array_aligned,
+    # local_times_for_pair). ``_chunk_buffer`` is the wide buffer the buf_col indices
+    # point into; it is held alive for the whole pair loop so survivor packing can read
+    # ``_chunk_buffer[:, buf_col]`` exactly as the per-pair path read final_transformed_vals.
+    _chunk_global_batch = (
+        (final_transformed_vals_shared is not None)
+        and (quantization_method == "quantile")
+        and (_fe_chunk_max_cols > max_n_combs * _n_binary)  # chunk holds > 1 pair's worth
+        and (len(prospective_pairs) > 1)
+    )
+    _chunk_mi_cache: dict = {}
+    _chunk_buffer = None
+    _pair_to_chunk: dict = {}   # raw_vars_pair -> chunk index
+    _fe_chunks: list = []
+    _pair_valid_combs: dict = {}
+    if _chunk_global_batch:
+        _fe_chunks, _pair_valid_combs, _chunk_buf_width = _plan_fe_chunks(
+            prospective_pairs=prospective_pairs,
+            pair_combs=pair_combs,
+            vars_transformations=vars_transformations,
+            n_binary=_n_binary,
+            chunk_max_cols=_fe_chunk_max_cols,
+        )
+        # Only worth chunking when at least one chunk groups MORE than one pair.
+        if _fe_chunks and max(len(c) for c in _fe_chunks) > 1 and _chunk_buf_width > 0:
+            try:
+                _chunk_buffer = np.empty((len(X), _chunk_buf_width), dtype=np.float32)
+                for _ci_chunk, _chunk in enumerate(_fe_chunks):
+                    for _p in _chunk:
+                        _pair_to_chunk[_p] = _ci_chunk
+                if verbose:
+                    logger.info(
+                        "check_prospective_fe_pairs: cross-pair chunk batching active "
+                        "(%d pairs -> %d chunks, buffer %d cols, widest chunk %d pairs).",
+                        len(prospective_pairs), len(_fe_chunks), _chunk_buf_width,
+                        max(len(c) for c in _fe_chunks),
+                    )
+            except MemoryError:
+                _chunk_buffer = None
+                _pair_to_chunk = {}
+                if verbose:
+                    logger.warning(
+                        "check_prospective_fe_pairs: cross-pair chunk buffer (%d x %d) raised "
+                        "MemoryError; using per-pair batching.", len(X), _chunk_buf_width,
+                    )
+        else:
+            _chunk_global_batch = False
+    # Index of the chunk currently materialised in ``_chunk_buffer`` (-1 = none).
+    _loaded_chunk_idx = -1
+
     # For every pair from the pool, try all known functions of 2 variables (not storing results in persistent RAM). Record best pairs.
     for (
         raw_vars_pair,
@@ -913,7 +1166,45 @@ def check_prospective_fe_pairs(
         # CRITICAL #2 dispatch: hoist path uses the shared buffer (writes into
         # ``[:, i]``); recompute-fallback path uses a tiny 1D scratch + a
         # config-by-i map for on-demand survivor recomputation later.
-        final_transformed_vals = final_transformed_vals_shared
+        # CROSS-PAIR: when this pair was batched across the chunk, its survivor
+        # columns live in the wide ``_chunk_buffer`` (the config's ``i`` is the
+        # chunk-buffer column), so point ``final_transformed_vals`` at it. The chunk
+        # is materialised LAZILY: pairs are processed in chunk-plan order, so when we
+        # reach the FIRST pair of a not-yet-loaded chunk we fill the buffer + MI cache
+        # for that whole chunk in ONE batched pass. By the time the next chunk's first
+        # pair arrives, all of this chunk's pairs (incl. their survivor packing, which
+        # reads the buffer) have already been processed -> safe to overwrite.
+        _chunk_entry = None
+        if _chunk_global_batch and (_chunk_buffer is not None):
+            _my_chunk = _pair_to_chunk.get(raw_vars_pair)
+            if _my_chunk is not None:
+                if _my_chunk != _loaded_chunk_idx:
+                    _chunk_mi_cache = _compute_one_fe_chunk(
+                        chunk_pairs=_fe_chunks[_my_chunk],
+                        pair_valid_combs=_pair_valid_combs,
+                        chunk_buffer=_chunk_buffer,
+                        vars_transformations=vars_transformations,
+                        transformed_vars=transformed_vars,
+                        binary_transformations=binary_transformations,
+                        quantization_nbins=quantization_nbins,
+                        quantization_dtype=quantization_dtype,
+                        classes_y=classes_y,
+                        classes_y_safe=classes_y_safe,
+                        freqs_y=freqs_y,
+                        fe_npermutations=fe_npermutations,
+                        fe_min_nonzero_confidence=fe_min_nonzero_confidence,
+                        batch_mi_kernel=batch_mi_with_noise_gate,
+                        use_su=use_su_normalization(),
+                        prewarp_unary=_PREWARP_UNARY,
+                        logger=logger,
+                        discretize_2d_quantile_batch=discretize_2d_quantile_batch,
+                    )
+                    _loaded_chunk_idx = _my_chunk
+                _chunk_entry = _chunk_mi_cache.get(raw_vars_pair)
+        if _chunk_entry is not None:
+            final_transformed_vals = _chunk_buffer
+        else:
+            final_transformed_vals = final_transformed_vals_shared
         _col_buf_1d: np.ndarray | None = (
             np.empty(len(X), dtype=np.float32) if _need_recompute_map else None
         )
@@ -939,67 +1230,86 @@ def check_prospective_fe_pairs(
         _use_batch_disc = (final_transformed_vals is not None) and (quantization_method == "quantile")
 
         if _use_batch_disc:
-            # Phase 1: materialise + nan_to_num + record. ``i`` advances exactly as in the
-            # per-candidate path so ``config``'s buffer index and ``_config_by_i`` are identical.
-            _batch_candidates: list = []  # (transformations_pair, bin_func_name, i, uses_pw)
-            for transformations_pair in combs:
-                if (transformations_pair[0] not in vars_transformations) or (transformations_pair[1] not in vars_transformations):
-                    continue
-                param_a = transformed_vars[:, vars_transformations[transformations_pair[0]]]
-                param_b = transformed_vars[:, vars_transformations[transformations_pair[1]]]
-                _uses_pw = (
-                    transformations_pair[0][1] == _PREWARP_UNARY
-                    or transformations_pair[1][1] == _PREWARP_UNARY
-                )
-                # Same wide errstate scope as the original per-pair-comb path.
-                with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-                    for bin_func_name, bin_func in binary_transformations.items():
-                        start = timer()
-                        try:
-                            final_transformed_vals[:, i] = bin_func(param_a, param_b)
-                            _col_view = final_transformed_vals[:, i]
-                        except Exception:
-                            logger.error(f"Error when performing {bin_func}")
-                        else:
-                            np.nan_to_num(_col_view, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-                            _local_times[bin_func_name] = _local_times.get(bin_func_name, 0.0) + (timer() - start)
-                            _batch_candidates.append((transformations_pair, bin_func_name, i, _uses_pw))
-                            i += 1
+            # CROSS-PAIR fast path: this pair was batched together with the rest of its
+            # chunk in ``_compute_one_fe_chunk``. Its candidate columns already live
+            # in ``_chunk_buffer`` (the buf_col index is the config ``i``), its MI is
+            # already computed, and its per-bin_func materialise timings are recorded.
+            # We only replay the EXACT per-candidate tracking below. Bit-identical: the
+            # chunk's ONE discretize_2d + ONE batch_mi score each column independently,
+            # and the candidate order per pair is the SAME (combs x bin_funcs) order the
+            # per-pair Phase 1 produced.
+            if _chunk_entry is not None:
+                _batch_candidates, _fe_mi_by_col, _pair_local_times = _chunk_entry
+                for _bf_name, _dt in _pair_local_times.items():
+                    _local_times[_bf_name] = _local_times.get(_bf_name, 0.0) + _dt
+                # ``_fe_mi_arr`` is indexed by the chunk-buffer column (buf_col), so the
+                # replay's ``_fe_mi_arr[_ci]`` lookup is correct without re-indexing.
+                _fe_mi_arr = _fe_mi_by_col
+            else:
+                # Phase 1: materialise + nan_to_num + record. ``i`` advances exactly as in the
+                # per-candidate path so ``config``'s buffer index and ``_config_by_i`` are identical.
+                _batch_candidates = []  # (transformations_pair, bin_func_name, i, uses_pw)
+                for transformations_pair in combs:
+                    if (transformations_pair[0] not in vars_transformations) or (transformations_pair[1] not in vars_transformations):
+                        continue
+                    param_a = transformed_vars[:, vars_transformations[transformations_pair[0]]]
+                    param_b = transformed_vars[:, vars_transformations[transformations_pair[1]]]
+                    _uses_pw = (
+                        transformations_pair[0][1] == _PREWARP_UNARY
+                        or transformations_pair[1][1] == _PREWARP_UNARY
+                    )
+                    # Same wide errstate scope as the original per-pair-comb path.
+                    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+                        for bin_func_name, bin_func in binary_transformations.items():
+                            start = timer()
+                            try:
+                                final_transformed_vals[:, i] = bin_func(param_a, param_b)
+                                _col_view = final_transformed_vals[:, i]
+                            except Exception:
+                                logger.error(f"Error when performing {bin_func}")
+                            else:
+                                np.nan_to_num(_col_view, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+                                _local_times[bin_func_name] = _local_times.get(bin_func_name, 0.0) + (timer() - start)
+                                _batch_candidates.append((transformations_pair, bin_func_name, i, _uses_pw))
+                                i += 1
 
-            # Phase 2: ONE batch discretisation over the materialised columns [:, :n].
-            # Bit-identical to per-column ``discretize_array(method='quantile')`` -- the
-            # buffer dtype (float32) is NOT cast; per-column edges/codes match exactly.
-            if _batch_candidates:
-                # ``i`` advanced once per materialised candidate from 0 (reset per raw-pair),
-                # so the filled buffer slice is exactly [:, :i], densely packed 0..i-1.
-                _disc_2d = discretize_2d_quantile_batch(
-                    final_transformed_vals[:, :i], n_bins=quantization_nbins, dtype=quantization_dtype
-                )
+                # Phase 2: ONE batch discretisation over the materialised columns [:, :n].
+                # Bit-identical to per-column ``discretize_array(method='quantile')`` -- the
+                # buffer dtype (float32) is NOT cast; per-column edges/codes match exactly.
+                _fe_mi_arr = None
+                if _batch_candidates:
+                    # ``i`` advanced once per materialised candidate from 0 (reset per raw-pair),
+                    # so the filled buffer slice is exactly [:, :i], densely packed 0..i-1.
+                    _disc_2d = discretize_2d_quantile_batch(
+                        final_transformed_vals[:, :i], n_bins=quantization_nbins, dtype=quantization_dtype
+                    )
 
-                # Phase 3: BATCHED MI + permutation noise-gate across ALL K candidate
-                # columns in ONE kernel call. Bit-identical to the per-candidate
-                # ``mi_direct`` loop on the default FE path (parallelism='outer',
-                # n_workers=1 -> parallel_mi_prange, base_seed=0): every candidate is
-                # tested against the SAME npermutations shuffles of y (the shuffle is
-                # seeded by (base_seed, perm_index) ONLY, never by classes_x), so a single
-                # batched kernel can shuffle y once per permutation and score all columns
-                # against it -- amortising both the MI compute and the shuffle across K.
-                # ``_dispatch_batch_mi_with_noise_gate`` routes CPU-njit vs a GPU batched
-                # path by n*K via the kernel_tuning_cache (no hardcoded threshold).
-                _fe_mi_arr = _dispatch_batch_mi_with_noise_gate(
-                    disc_2d=_disc_2d,
-                    quantization_nbins=quantization_nbins,
-                    classes_y=classes_y,
-                    classes_y_safe=classes_y_safe,
-                    freqs_y=freqs_y,
-                    npermutations=fe_npermutations,
-                    min_nonzero_confidence=fe_min_nonzero_confidence,
-                    use_su=use_su_normalization(),
-                    batch_mi_kernel=batch_mi_with_noise_gate,
-                )
+                    # Phase 3: BATCHED MI + permutation noise-gate across ALL K candidate
+                    # columns in ONE kernel call. Bit-identical to the per-candidate
+                    # ``mi_direct`` loop on the default FE path (parallelism='outer',
+                    # n_workers=1 -> parallel_mi_prange, base_seed=0): every candidate is
+                    # tested against the SAME npermutations shuffles of y (the shuffle is
+                    # seeded by (base_seed, perm_index) ONLY, never by classes_x), so a single
+                    # batched kernel can shuffle y once per permutation and score all columns
+                    # against it -- amortising both the MI compute and the shuffle across K.
+                    # ``_dispatch_batch_mi_with_noise_gate`` routes CPU-njit vs a GPU batched
+                    # path by n*K via the kernel_tuning_cache (no hardcoded threshold).
+                    _fe_mi_arr = _dispatch_batch_mi_with_noise_gate(
+                        disc_2d=_disc_2d,
+                        quantization_nbins=quantization_nbins,
+                        classes_y=classes_y,
+                        classes_y_safe=classes_y_safe,
+                        freqs_y=freqs_y,
+                        npermutations=fe_npermutations,
+                        min_nonzero_confidence=fe_min_nonzero_confidence,
+                        use_su=use_su_normalization(),
+                        batch_mi_kernel=batch_mi_with_noise_gate,
+                    )
 
-                # Replay best/prewarp/config tracking in the SAME order candidates were
-                # produced -> identical tie-break behaviour.
+            # Replay best/prewarp/config tracking in the SAME order candidates were
+            # produced -> identical tie-break behaviour. ``_fe_mi_arr`` is indexed by the
+            # buffer column (per-pair: 0..K-1; cross-pair: the chunk-buffer column).
+            if _batch_candidates and _fe_mi_arr is not None:
                 for transformations_pair, bin_func_name, _ci, _uses_pw in _batch_candidates:
                     # Cast to Python float so ``var_pairs_perf`` / downstream tracking see
                     # the same scalar type ``mi_direct`` returned (numba njit returns a
