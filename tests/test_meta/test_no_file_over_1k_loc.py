@@ -138,11 +138,6 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # Carve candidate: the partial-gain redirect logic into
     # ``_confirm_predictor_partial_gain.py``.
     "src/mlframe/feature_selection/filters/_confirm_predictor.py",
-    # FIXME(carve-wave-next): wrappers/_helpers.py at ~1.02k LOC after the
-    # accuracy-first permutation-default cost-gated shootout wiring landed.
-    # Carve candidate: the importance-method selection helpers into
-    # ``_helpers_importance_select.py``.
-    "src/mlframe/feature_selection/wrappers/_helpers.py",
     # FIXME(carve-wave-next): training/neural/recurrent.py at ~1.01k LOC after
     # the F-44 bf16-mixed auto-promote + F-46 fused-AdamW + F-47 cuDNN
     # persistent-RNN + F-48 nested-tensor + F-51 share_memory_() + F-53
