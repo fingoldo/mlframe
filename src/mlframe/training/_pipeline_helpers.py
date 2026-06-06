@@ -595,7 +595,7 @@ def _apply_pre_pipeline_transforms(
         _cache_hit = _pre_pipeline_cache_get(
             train_df, val_df, pre_pipeline,
             train_target=train_target, target_name=target_name,
-            sample_weight=sample_weight,
+            sample_weight=sample_weight, key=_cache_key_entry,
         )
         if _cache_hit is not None and not skip_pre_pipeline_transform and not skip_preprocessing and not _is_fitted(pre_pipeline):
             _cache_entry = _cache_hit

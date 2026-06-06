@@ -450,6 +450,7 @@ def _phase_pandas_conversion_and_cat_prep(
     df_size_mb: float,
     verbose: bool,
     polars_pipeline_applied: bool = True,
+    strategy_by_model: dict | None = None,
 ) -> tuple:
     """Pandas conversion + CatBoost cat prep + Polars release.
 
@@ -472,6 +473,12 @@ def _phase_pandas_conversion_and_cat_prep(
     # on-demand build inside the verbose-only log branches below is intentional
     # -- it avoids a get_strategy() pass on every call when verbose=False.
     _has_rfecv = bool(rfecv_models)
+
+    def _strategies_for(models: list[str]) -> list:
+        """Resolve per-model strategies, reusing the precomputed ``strategy_by_model`` (keyed by id(model)) when threaded in, else falling back to a fresh ``get_strategy`` walk. Only ever hit on the verbose-log branches."""
+        if strategy_by_model:
+            return [strategy_by_model.get(id(m)) or get_strategy(m) for m in models]
+        return [get_strategy(m) for m in models]
     # The earlier disjunction ``all_models_polars_native OR _has_non_native_mlframe_strategy`` was always True
     # given ``was_polars_input`` (the second disjunct collapses to ``was_polars_input AND NOT first``), so
     # the whole conjunction reduces to the three real gates: had a polars input, no recurrent model, no RFECV.
@@ -525,7 +532,7 @@ def _phase_pandas_conversion_and_cat_prep(
             if all_models_polars_native:
                 logger.info("  Skipped pandas conversion -- all models are Polars-native")
             else:
-                _strats = [get_strategy(m) for m in (mlframe_models or [])]
+                _strats = _strategies_for(mlframe_models or [])
                 non_native = [
                     m for m, s in zip(mlframe_models or [], _strats)
                     if not s.supports_polars
@@ -541,7 +548,7 @@ def _phase_pandas_conversion_and_cat_prep(
             if not was_polars_input:
                 reasons.append("input is not a Polars DataFrame")
             if not all_models_polars_native:
-                _strats = [get_strategy(m) for m in (mlframe_models or [])]
+                _strats = _strategies_for(mlframe_models or [])
                 non_native = [
                     m for m, s in zip(mlframe_models or [], _strats)
                     if not s.supports_polars

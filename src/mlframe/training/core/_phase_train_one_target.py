@@ -447,7 +447,43 @@ def _compute_pipeline_cache_key(
     return f"{strategy_cache_key}{_tier_suffix}{_kind_suffix}{_feats_suffix}{_dtype_suffix}"
 
 
+from collections import OrderedDict as _OrderedDict
+
+# (id, width / ncols)-keyed LRU memo for the dtype-pairs stringify. The schema of a pinned train_df is
+# invariant across the (pre_pipeline x model) loop, so this serves the same bit-identical result without
+# re-stringifying. Mirrors the X-side ``_full_x_content_hash`` id-pin doctrine: no full-frame hash, and
+# id-recycling is bounded by also keying on the column count. 32-slot cap bounds memory across targets.
+_DTYPE_PAIRS_MEMO: "_OrderedDict[tuple, tuple]" = _OrderedDict()
+_DTYPE_PAIRS_MEMO_MAX = 32
+
+
 def _canonical_dtype_pairs(train_df) -> tuple:
+    """Memoising wrapper around ``_canonical_dtype_pairs_compute`` keyed on (id, ncols) of a pinned frame."""
+    if train_df is None:
+        return ()
+    _ncols = None
+    try:
+        if pl is not None and isinstance(train_df, pl.DataFrame):
+            _ncols = train_df.width
+        elif hasattr(train_df, "columns"):
+            _ncols = len(train_df.columns)
+    except Exception:
+        _ncols = None
+    if _ncols is None:
+        return _canonical_dtype_pairs_compute(train_df)
+    _key = (id(train_df), _ncols)
+    _cached = _DTYPE_PAIRS_MEMO.get(_key)
+    if _cached is not None:
+        _DTYPE_PAIRS_MEMO.move_to_end(_key)
+        return _cached
+    _result = _canonical_dtype_pairs_compute(train_df)
+    _DTYPE_PAIRS_MEMO[_key] = _result
+    if len(_DTYPE_PAIRS_MEMO) > _DTYPE_PAIRS_MEMO_MAX:
+        _DTYPE_PAIRS_MEMO.popitem(last=False)
+    return _result
+
+
+def _canonical_dtype_pairs_compute(train_df) -> tuple:
     """Polars / pandas-agnostic ``((col, canonical_dtype), ...)`` for cache-key hashing.
 
     Canonical mapping (the ones we hit in practice):
@@ -478,9 +514,12 @@ def _canonical_dtype_pairs(train_df) -> tuple:
         _CAT_LIKE: tuple = tuple(
             t for t in (pl.Categorical, getattr(pl, "Enum", None)) if t is not None
         )
+        # Hoist the schema once: ``train_df.schema[c]`` inside the loop rebuilds the whole schema per
+        # access (O(n_cols^2); ~27ms at 300 cols). Reading it once is bit-identical and ~550x cheaper.
+        _schema = train_df.schema
         items = []
         for c in train_df.columns:
-            dt = train_df.schema[c]
+            dt = _schema[c]
             if _CAT_LIKE and isinstance(dt, _CAT_LIKE):
                 items.append((c, "c"))
             else:

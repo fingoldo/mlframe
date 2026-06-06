@@ -517,9 +517,20 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             # cached, MISS when we have to compute. Same proxy-counter pattern as the pandas-view
             # cache above (the underlying cache is a plain dict on ctx with no counters of its own).
             _cs_fp = ctx._cache_stats.setdefault("fingerprint_cache", {"hits": 0, "misses": 0})
-            if _fp_cache_key in ctx._model_input_fingerprint_cache:
+            _fp_cached = ctx._model_input_fingerprint_cache.get(_fp_cache_key)
+            # Pin-invariant guard: the key folds id(train_df), which is only safe because the frame is
+            # strong-ref-pinned at this point. A GC-recycled id collision (freed frame, new same-ncols
+            # frame) would otherwise serve the wrong schema. On a hit, assert the cached schema's column
+            # names still match the live frame's columns (cheap O(ncols), no content hash); recompute on
+            # mismatch so a recycled id can never silently replay a stale fingerprint.
+            if _fp_cached is not None and _fp_train_df_pre is not None and hasattr(_fp_train_df_pre, "columns"):
+                _live_cols = list(_fp_train_df_pre.columns)
+                _cached_cols = [rec.get("name") for rec in _fp_cached[1]] if _fp_cached[1] else []
+                if sorted(_cached_cols) != sorted(str(c) for c in _live_cols):
+                    _fp_cached = None
+            if _fp_cached is not None:
                 _cs_fp["hits"] += 1
-                _schema_hash, _input_schema = ctx._model_input_fingerprint_cache[_fp_cache_key]
+                _schema_hash, _input_schema = _fp_cached
             else:
                 _cs_fp["misses"] += 1
                 _schema_hash, _input_schema = compute_model_input_fingerprint(

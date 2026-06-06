@@ -250,6 +250,10 @@ def _content_fingerprint_for_cache(arr) -> tuple:
 _PIPELINE_X_HASH_CACHE: "OrderedDict[tuple, str]" = OrderedDict()
 _PIPELINE_X_HASH_CACHE_MAX = 16
 
+# Symmetric (id, shape) memo for the target-side full-content hash (mirrors the X-side cache above).
+_PIPELINE_TARGET_HASH_CACHE: "OrderedDict[tuple, str]" = OrderedDict()
+_PIPELINE_TARGET_HASH_CACHE_MAX = 16
+
 
 def _full_x_content_hash(arr) -> str:
     """Full blake2b content hash of an X frame for cache-key disambiguation.
@@ -422,9 +426,19 @@ def _full_target_content_hash(arr) -> str:
     cache key separates such pairs. Mirrors ``_full_y_content_hash`` in ``feature_selection/filters/_mrmr_fingerprints.py``
     (cost ~5us per 100k cells; well under any cache benefit). Returns an empty string on conversion failure so the
     caller can decide to skip the cache rather than serve a wrong-content hit.
+
+    Carries the same (id, shape)-keyed LRU memo as the X-side ``_full_x_content_hash``: the target is called
+    twice per pipeline-fit (get/set pair) and re-visited on the train/val/multi-target alternation, all on a
+    pinned array. id-recycling is bounded by also keying on shape. Saves the O(rows) re-hash on every repeat.
     """
     if arr is None:
         return ""
+    sh = getattr(arr, "shape", None)
+    id_shape = (id(arr), sh if sh is not None else (None,))
+    cached = _PIPELINE_TARGET_HASH_CACHE.get(id_shape)
+    if cached is not None:
+        _PIPELINE_TARGET_HASH_CACHE.move_to_end(id_shape)
+        return cached
     try:
         if isinstance(arr, np.ndarray):
             np_arr = arr
@@ -442,7 +456,11 @@ def _full_target_content_hash(arr) -> str:
         h = hashlib.blake2b(np.ascontiguousarray(np_arr), digest_size=16)
         h.update(str(np_arr.shape).encode())
         h.update(str(np_arr.dtype).encode())
-        return h.hexdigest()
+        _result = h.hexdigest()
+        _PIPELINE_TARGET_HASH_CACHE[id_shape] = _result
+        if len(_PIPELINE_TARGET_HASH_CACHE) > _PIPELINE_TARGET_HASH_CACHE_MAX:
+            _PIPELINE_TARGET_HASH_CACHE.popitem(last=False)
+        return _result
     except Exception:
         return ""
 
@@ -581,11 +599,19 @@ def _pre_pipeline_cache_key(train_df, val_df, pipeline, train_target=None, targe
     return key
 
 
-def _pre_pipeline_cache_get(train_df, val_df, pipeline, train_target=None, target_name=None, cache_max: int | None = None, sample_weight=None):
-    """LRU-touch lookup; returns ``(train_out, val_out)`` or ``None``."""
+def _pre_pipeline_cache_get(train_df, val_df, pipeline, train_target=None, target_name=None, cache_max: int | None = None, sample_weight=None, key=None):
+    """LRU-touch lookup; returns ``(train_out, val_out)`` or ``None``.
+
+    ``key``: pass an already-computed ``_pre_pipeline_cache_key`` to skip the
+    recompute. The caller (``_apply_pre_pipeline_transforms``) builds the key
+    once and threads it into both the get and the populate so the get/set pair
+    no longer relies on the single-slot ``_LAST_KEY_CACHE`` memo to coincide --
+    correctness is independent of the memo hit.
+    """
     if train_df is None or pipeline is None:
         return None
-    key = _pre_pipeline_cache_key(train_df, val_df, pipeline, train_target, target_name, sample_weight=sample_weight)
+    if key is None:
+        key = _pre_pipeline_cache_key(train_df, val_df, pipeline, train_target, target_name, sample_weight=sample_weight)
     with _PRE_PIPELINE_CACHE_LOCK:
         if key in _PRE_PIPELINE_CACHE:
             _PRE_PIPELINE_CACHE.move_to_end(key)

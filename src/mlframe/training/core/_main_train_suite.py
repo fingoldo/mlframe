@@ -620,6 +620,7 @@ def train_mlframe_models_suite(
         baseline_rss_mb=baseline_rss_mb,
         df_size_mb=df_size_mb,
         verbose=verbose,
+        strategy_by_model=getattr(ctx, "strategy_by_model", None),
     )
     # Store cached sizes on ctx BEFORE the per-target loop so _train_one_target can read them.
     ctx.train_df_size_bytes_cached = train_df_size_bytes_cached
