@@ -24,11 +24,6 @@ LOC_LIMIT = 1000
 # wave; the goal is to drain this set to {} over consecutive PRs. Do NOT add
 # new entries without a documented PR-description reason.
 LOC_BUDGET_EXEMPT: set[str] = {
-    # FIXME(carve-wave-next): _shap_proxy_revalidate.py at ~1.4k LOC carries
-    # the trust-guard + topK-ablation + honest-revalidation sub-bodies; sensible
-    # split is to lift the honest/ablation block to ``_shap_proxy_revalidate_honest.py``
-    # behind a sibling-re-export. Tracked as the largest remaining monolith.
-    "src/mlframe/feature_selection/_shap_proxy_revalidate.py",
     # FIXME(carve-wave-next): shap_proxied_fs.py at ~1.03k LOC; the fit body
     # is the obvious candidate for ``_shap_proxied_fs_fit.py``.
     "src/mlframe/feature_selection/shap_proxied_fs.py",
