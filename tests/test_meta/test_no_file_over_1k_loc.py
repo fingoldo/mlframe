@@ -53,15 +53,6 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # discovery wiring. Sibling carve candidates: the recurrent rerun block
     # and the composite-post tail into per-phase helpers.
     "src/mlframe/training/core/_phase_train_one_target_body.py",
-    # FIXME(carve-wave-next): _flat_torch_module.py at ~1.1k LOC after the F-37
-    # BoundedTanh, F-38 CUDA-graph predict cache, F-39 torch.compile predict,
-    # F-40 low-level CUDAGraph() rewrite, F-58 first-batch fix, and F-61
-    # pickle hooks. Sensible carve: lift the CUDA-graph + compile predict
-    # helpers (~250 LOC, methods ``_maybe_cuda_graph_forward`` +
-    # ``_maybe_compile_predict_forward`` + the F-58 sync) into
-    # ``_flat_torch_module_predict_accel.py`` as plain functions taking
-    # ``self`` -- parent re-attaches them in __init_subclass__-style binding.
-    "src/mlframe/training/neural/_flat_torch_module.py",
     # FIXME(carve-wave-next): filters/_feature_engineering_pairs.py at ~1.32k LOC
     # after the batched per-candidate quantile-discretization perf rewrite grew
     # the pair-search body. Carve candidate: the candidate-scoring loop into
