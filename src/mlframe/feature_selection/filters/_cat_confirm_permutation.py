@@ -28,15 +28,6 @@ from .info_theory import compute_mi_from_classes, merge_vars
 
 logger = logging.getLogger(__name__)
 
-# Module-level cupy availability probe -- used only to gate the crossover sweep +
-# @kernel_tuner registration (the per-call dispatch still re-checks importability
-# inside ``_perm_kernel_dispatch_use_gpu`` exactly as before).
-try:
-    import cupy as _cp_probe  # noqa: F401
-    _CUPY_AVAIL = True
-except Exception:
-    _CUPY_AVAIL = False
-
 
 # ============================================================================
 # Permutation confirmation (same-shuffle three-MI)
@@ -291,107 +282,12 @@ def _count_nfailed_joint_indep_cupy(
     return nfailed_total
 
 
-# Crossover threshold for CPU vs GPU on the permutation kernel.
-# Calibrated empirically via ``profiling/bench_perm_kernel_gpu.py``
-# (GTX-class consumer GPU, 6-core numba CPU):
-#   100k x 3       CPU 4 ms  vs GPU 36 ms    -> CPU wins
-#   100k x 50      CPU 49 ms vs GPU 241 ms   -> CPU wins
-#   1M x 3         CPU 56 ms vs GPU 42 ms    -> GPU wins 1.3x
-#   1M x 50        CPU 612 ms vs GPU 419 ms  -> GPU wins 1.5x
-#   1M x 100       CPU 1135 ms vs GPU 834 ms -> GPU wins 1.4x
-#   5M x 10        CPU 1018 ms vs GPU 373 ms -> GPU wins 2.7x
-# Crossover sits at ~N=1_000_000 regardless of n_perms. Below 1M the
-# per-call GPU launch + transfer cost (~30-40 ms) dominates the
-# tiny CPU compute; above 1M, GPU bincount parallelism amortises the
-# transfer and consistently wins.
-_GPU_PERM_KERNEL_THRESHOLD_N: int = 1_000_000
-
-# Kernel-tuning-cache integration (get_or_tune + @kernel_tuner) ---------------
-#
-# Wave 23 P1 (2026-05-20) flagged ``_GPU_PERM_KERNEL_THRESHOLD_N`` as dev-box-overfit
-# (GPU launch cost depends on PCIe gen + driver model + cc). Per
-# ``feedback_use_kernel_tuning_cache_for_gpu`` the auto-branch now consults the
-# per-host cache via the shared ``get_or_tune`` orchestrator + a measured
-# backend-crossover sweep (cpu njit prange vs cupy). The threshold above remains the
-# source-code fallback, applied verbatim when the cache has no entry yet (mirrors
-# ``signal/dtw.py``).
-#
-# 2-D axes, BOTH swept (full grid, not a fixed-n_perms 1-D crossover): ``n_samples``
-# (dominant) x ``n_perms``. n_perms is a kernel argument, so it is carried in the
-# inputs tuple and varies per grid cell.
-_PERM_SWEEP_N_PERMS_GRID = [10, 50, 200]  # full n_perms axis (was a single fixed 50)
-_PERM_SWEEP_N_SAMPLES = [100_000, 300_000, 1_000_000, 3_000_000, 5_000_000]
-_PERM_SWEEP_K_PAIR = 10
-_PERM_SWEEP_K_X = 5
-_PERM_SWEEP_K_Y = 3
-_PERM_SALT = 2  # serial-njit variant added + full 2-D (n_samples x n_perms) grid
-
 # Serial CPU variant: recompile the prange body WITHOUT ``parallel`` (prange -> range).
 # The tuner picks cpu_serial (small n: no thread-spawn overhead) vs cpu_parallel vs
 # cupy per region. getattr fallback for NUMBA_DISABLE_JIT=1 (no .py_func).
 _count_nfailed_joint_indep_serial = njit(cache=True)(
     getattr(_count_nfailed_joint_indep_prange, "py_func", _count_nfailed_joint_indep_prange)
 )
-
-
-def _make_perm_kernel_inputs(dims: dict):
-    """Synthetic args for the perm-kernel grid sweep at ``dims['n_samples']`` rows.
-    ``n_perms`` (a kernel argument) is carried as the last positional so it varies
-    per cell; the variant wrappers append only ``base_seed`` / ``dtype``."""
-    rng = np.random.default_rng(0)
-    n = int(dims["n_samples"])
-    n_perms = int(dims["n_perms"])
-    classes_pair = rng.integers(0, _PERM_SWEEP_K_PAIR, size=n).astype(np.int64)
-    freqs_pair = np.bincount(classes_pair, minlength=_PERM_SWEEP_K_PAIR).astype(np.float64) / max(1, n)
-    classes_x1 = rng.integers(0, _PERM_SWEEP_K_X, size=n).astype(np.int64)
-    freqs_x1 = np.bincount(classes_x1, minlength=_PERM_SWEEP_K_X).astype(np.float64) / max(1, n)
-    classes_x2 = rng.integers(0, _PERM_SWEEP_K_X, size=n).astype(np.int64)
-    freqs_x2 = np.bincount(classes_x2, minlength=_PERM_SWEEP_K_X).astype(np.float64) / max(1, n)
-    classes_y = rng.integers(0, _PERM_SWEEP_K_Y, size=n).astype(np.int64)
-    freqs_y = np.bincount(classes_y, minlength=_PERM_SWEEP_K_Y).astype(np.float64) / max(1, n)
-    ii_obs = 0.0  # count all perms -> identical work on all backends, equiv-comparable
-    return (classes_pair, freqs_pair, classes_x1, freqs_x1, classes_x2, freqs_x2,
-            classes_y, freqs_y, ii_obs, n_perms)
-
-
-def _run_perm_kernel_sweep() -> list:
-    """Full (n_samples x n_perms) grid sweep -> backend_choice regions: cpu_serial /
-    cpu_parallel / cupy, fastest EQUIVALENT per cell. Both axes are swept (n_perms is
-    a kernel arg carried in the inputs). Inputs are host-resident, so no residency
-    axis. cupy included only when available. With ii_obs=0 every perm counts on all
-    backends, so the integer ``n_failed`` outputs match exactly."""
-    from pyutilz.dev.benchmarking import sweep_backend_grid
-
-    _seed = 7
-
-    def _cpu_serial(*a):
-        return _count_nfailed_joint_indep_serial(*a, _seed, np.int32)
-
-    def _cpu_parallel(*a):
-        return _count_nfailed_joint_indep_prange(*a, _seed, np.int32)
-
-    variants = {"cpu_serial": _cpu_serial, "cpu_parallel": _cpu_parallel}
-    if _CUPY_AVAIL:
-        def _gpu(*a):
-            return _count_nfailed_joint_indep_cupy(*a, base_seed=_seed)
-        variants["cupy"] = _gpu
-
-    return sweep_backend_grid(
-        variants,
-        {"n_samples": _PERM_SWEEP_N_SAMPLES, "n_perms": _PERM_SWEEP_N_PERMS_GRID},
-        _make_perm_kernel_inputs,
-        reference="cpu_serial",
-        repeats=5, equiv_rtol=1e-3, equiv_atol=1e-3,
-    )
-
-
-def _perm_kernel_fallback_choice(n_samples: int, n_perms: int) -> str:
-    """Pre-sweep heuristic (the spec's dynamic fallback callable): cupy above the old
-    ``_GPU_PERM_KERNEL_THRESHOLD_N``; on CPU, parallel above a modest row count, else
-    serial."""
-    if _CUPY_AVAIL and n_samples >= _GPU_PERM_KERNEL_THRESHOLD_N:
-        return "cupy"
-    return "cpu_parallel" if n_samples >= 300_000 else "cpu_serial"
 
 
 def _perm_kernel_backend_choice(n_samples: int, n_perms: int) -> str:
@@ -1011,18 +907,7 @@ def _confirm_pairs_via_permutation(
     return selected_idx[kept_mask], corrected_conf
 
 
-# Register with the @kernel_tuner registry so retune_all / mlframe-tune-kernels
-# discover + batch-tune the cat-FE permutation kernel. GPU-capable (cupy backend).
-from pyutilz.performance.kernel_tuning.registry import kernel_tuner
-
-_CAT_PERM_SPEC = kernel_tuner(
-    kernel_name="cat_fe_perm_kernel",
-    variant_fns=(_count_nfailed_joint_indep_serial, _count_nfailed_joint_indep_prange),  # CPU bodies; cupy via salt
-    tuner=_run_perm_kernel_sweep,
-    axes={"n_samples": list(_PERM_SWEEP_N_SAMPLES), "n_perms": list(_PERM_SWEEP_N_PERMS_GRID)},
-    fallback=_perm_kernel_fallback_choice,  # callable (n_samples, n_perms) -> str
-    gpu_capable=True,
-    salt=_PERM_SALT,
-    cli_label="cat_fe_perm_kernel",
-)
+# The kernel-tuning-cache sweep + @kernel_tuner registration live in the sibling so this file stays under the 1k-LOC ceiling.
+# Imported at the bottom (after the permutation kernels are defined) so the sibling's top-level kernel imports resolve.
+from ._cat_confirm_permutation_tuning import _CAT_PERM_SPEC  # noqa: E402,F401
 

@@ -129,11 +129,6 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # ``recurrent_dataset_helpers.py`` sibling; keep the LightningModule
     # in the parent facade.
     "src/mlframe/training/neural/recurrent.py",
-    # FIXME(carve-wave-next): filters/_cat_confirm_permutation.py at ~1.06k LOC after the kernel-tuning merge added
-    # the per-host ``cat_fe_perm_kernel`` backend lookup + njit/parallel dispatch. Sensible carve: lift the dispatch
-    # + KTC lookup block into ``_cat_confirm_permutation_tuning.py`` sibling, keep the permutation-confirm body in the
-    # parent facade. Deferred to the next carve wave like the rest of this set.
-    "src/mlframe/feature_selection/filters/_cat_confirm_permutation.py",
 }
 
 
