@@ -300,7 +300,7 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         for _col in df.columns:
             _ser = df[_col]
             _dtype = _ser.dtype
-            if pd.api.types.is_categorical_dtype(_dtype):
+            if isinstance(_dtype, pd.CategoricalDtype):
                 df[_col] = _ser.cat.codes.astype("int32")
                 touched.append(str(_col))
             elif pd.api.types.is_string_dtype(_dtype):

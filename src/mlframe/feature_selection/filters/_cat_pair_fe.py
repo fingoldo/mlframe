@@ -341,7 +341,7 @@ def auto_detect_cat_pair_cols(
             continue
         is_cat_dtype = (
             s.dtype == object
-            or pd.api.types.is_categorical_dtype(s)
+            or isinstance(s.dtype, pd.CategoricalDtype)
             or pd.api.types.is_string_dtype(s)
         )
         is_int = pd.api.types.is_integer_dtype(s)
