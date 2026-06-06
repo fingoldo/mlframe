@@ -67,11 +67,6 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # the pair-search body. Carve candidate: the candidate-scoring loop into
     # ``_feature_engineering_pairs_score.py``.
     "src/mlframe/feature_selection/filters/_feature_engineering_pairs.py",
-    # FIXME(carve-wave-next): filters/_mrmr_fe_step.py at ~1.09k LOC after the
-    # empirical-null (Fix-B) reconciliation grew the per-step accept/gate body.
-    # Carve candidate: the null-calibration + accept-decision block into
-    # ``_mrmr_fe_step_null.py``.
-    "src/mlframe/feature_selection/filters/_mrmr_fe_step.py",
     # FIXME(carve-wave-next): training/_composite_discovery_fit.py at ~1.07k LOC
     # after the gc.collect / commit-charge logging additions. Carve candidate:
     # the discovery fit-loop body into ``_composite_discovery_fit_loop.py``.

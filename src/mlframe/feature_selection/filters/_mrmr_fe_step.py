@@ -7,31 +7,31 @@ continue to work unchanged.
 
 Carries the per-fold FE expansion logic (unary / binary / hermite / pysr
 candidate generation, scoring, append-to-data) and the support-map
-bookkeeping. The parent module's helpers (``_lazy_chunks``, ``MRMR`` for
-class-level cache attrs) are imported eagerly since the parent is already
-loaded by the time this sibling is imported.
+bookkeeping. The parent module's helpers (``_lazy_chunks`` etc.) are
+imported lazily in-body since ``.mrmr`` re-imports this module at its bottom
+for method binding (a top-level import would create a hard cycle). The
+self-contained FE sub-blocks (synergy bootstrap, order-2 maxT floor, FE
+summary log, cluster-aggregate emission) live in ``_mrmr_fe_step_helpers``.
 """
 from __future__ import annotations
 
-import copy
-import gc
-import hashlib
 import logging
-import math
 import os
-import textwrap
-import time
-import warnings
-from collections import OrderedDict, defaultdict
-from itertools import combinations, islice
-from timeit import default_timer as timer
-from typing import Any, Sequence
+from collections import defaultdict
+from itertools import combinations
 
 import numpy as np
 import pandas as pd
-from joblib import Parallel, delayed
+from joblib import delayed
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
+
+from ._mrmr_fe_step_helpers import (
+    apply_synergy_bootstrap,
+    compute_pair_maxt_floor,
+    log_fe_summary,
+    run_cluster_aggregate_emission,
+)
 
 
 def _non_numeric_column_indices(X, cols) -> set:
@@ -123,7 +123,6 @@ def _run_fe_step(
     # binding -> any top-level ``from .mrmr import ...`` here creates a hard
     # import cycle that ``tests/test_meta/test_no_import_cycles.py`` flags.
     from .mrmr import (
-        MRMR,
         _lazy_chunks,
         _MRMR_BATCH_PRECOMPUTE_MAX_K,
         _MRMR_BATCH_PRECOMPUTE_MIN_PAIRS,
@@ -228,94 +227,17 @@ def _run_fe_step(
         allowed = {cols.index(n) for n in self.factors_names_to_use if n in cols}
         numeric_vars_to_consider = numeric_vars_to_consider & allowed
 
-    # 2026-06-02 -- SYNERGY BOOTSTRAP (see ``fe_synergy_screen_max_features`` in
-    # MRMR.__init__). Pure-synergy interactions (a*d, sign products, log(c)*sin(d))
-    # have ~zero marginal MI per factor, so neither factor is screened-in and the
-    # pair never reaches the prospective-pair screen below -- even though that
-    # screen ALREADY keeps a zero-individual-MI pair whose JOINT MI is positive
-    # (the canonical XOR branch). The fix is purely to widen the POOL: when the raw
-    # numeric feature count is within the cap, add the UNSELECTED raw numeric columns
-    # so the all-pairs joint-MI sweep screens the synergy pairs. Two cost/quality
-    # guards live downstream: (1) synergy pairs (>=1 bootstrap-added operand) must
-    # clear the STRICTER ``fe_synergy_min_prevalence`` uplift bar (rejects finite-
-    # sample-bias noise pairs), and (2) the surviving synergy pairs are budget-capped
-    # to ``fe_synergy_max_pairs`` by joint MI (bounds the expensive per-pair search).
-    # Runs only on the FIRST FE step (where the bootstrap matters).
-    #
-    # bench-rejected (2026-06-03) -- GAP-3 "poly-feature synergy re-entry": feeding
-    # ENGINEERED univariate poly features (He2(a) etc.) back into THIS bootstrap pool
-    # so a synergy like y=He2(a)*b surfaces was benchmarked and REJECTED. Pool entry
-    # is NOT the blocker -- the raw (a,b) pair already reaches the prospective-pair
-    # screen as the top-joint-MI pair, and the per-pair unary search builds He2(a)*b
-    # from it. poly x raw CLASSIFICATION is already recovered 6/6 via the default-on
-    # prewarp operand (mul(prewarp(a),...)). The genuine miss is poly x raw REGRESSION
-    # (1/6), blocked simultaneously by FOUR noise-control gates -- the 0.97
-    # engineered-MI-prevalence bar vs a finite-sample-inflated 2-D joint MI, the
-    # marginal basis routing (a pure synergy has ~0 marginal corr so Hermite is never
-    # picked for the univariate leg), the cross-pair seed-pool exclusion of a linear
-    # operand, and the noise-aware abs_floor (the lone large signal inflates its own
-    # MAD). Forcing recovery means loosening the exact gates ``test_biz_val_mrmr_
-    # default_filtering.py`` pins (noise frames must engineer ~0 features) for a
-    # fragile 2/6 -- not worth it. Don't re-add poly re-entry here.
-    # (D:/Temp/item4_poly_synergy_findings.md)
-    _synergy_cap = int(getattr(self, "fe_synergy_screen_max_features", 0) or 0)
-    _synergy_added_idx: set = set()
-    # MIN-ROWS guard: a 2-D joint-MI estimate is dominated by finite-sample bias at
-    # tiny n, so the synergy uplift gate admits a pure-NOISE pair and a spurious
-    # feature is engineered (measured: ``max(neg(a),d)`` on random y at n=100). The
-    # bootstrap needs enough rows for the joint MI to be meaningful; below
-    # ``fe_synergy_min_rows`` it is disabled (genuine synergy is detected with the
-    # samples it needs -- the recovery wins are at n>=2000, unaffected).
-    _synergy_min_rows = int(getattr(self, "fe_synergy_min_rows", 300) or 0)
-    _n_rows_for_synergy = int(data.shape[0]) if hasattr(data, "shape") else 0
-    # N-AWARE COST GATE (2026-06-04): the all-pairs joint-MI sweep is O(p^2) pairs x O(n) per pair, so it grows
-    # SUPER-LINEARLY in n once the feature cap is raised. Measured at p=200: n=5k +108% (35s), n=20k +300% (180s),
-    # n=100k effectively unbounded (>24 min, killed). The feature ``fe_synergy_screen_max_features`` cap alone does
-    # NOT bound this (a wide-but-not-too-wide frame with large n is the blow-up). Gate the bootstrap on a sweep-cost
-    # budget ``fe_synergy_max_sweep_cost`` ~ n * p^2: default 5e8 fires on the measured WINS (hard_synth n=5000 p=220
-    # -> 2.4e8) but SKIPS the large-n blow-ups (n=100k p=200 -> 4e9). Set to inf to disable the cost gate.
-    _synergy_max_sweep_cost = float(getattr(self, "fe_synergy_max_sweep_cost", 5e8) or float("inf"))
-    if _synergy_cap > 0 and num_fs_steps == 0 and _n_rows_for_synergy >= _synergy_min_rows:
-        _raw_names = set(getattr(self, "feature_names_in_", []) or [])
-        _target_idx_set = {int(t) for t in np.atleast_1d(target_indices)}
-        _cat_set = set(categorical_vars)
-        _raw_numeric_idx = {
-            i for i, nm in enumerate(cols)
-            if nm in _raw_names and i not in _target_idx_set and i not in _cat_set
-        }
-        _raw_numeric_idx -= _non_numeric_idx
-        if self.factors_to_use is not None:
-            _raw_numeric_idx &= set(self.factors_to_use)
-        if self.factors_names_to_use is not None:
-            _raw_numeric_idx &= {cols.index(n) for n in self.factors_names_to_use if n in cols}
-        _n_raw = len(_raw_numeric_idx)
-        _sweep_cost = _n_rows_for_synergy * (_n_raw ** 2)
-        if 0 < _n_raw <= _synergy_cap and _sweep_cost <= _synergy_max_sweep_cost:
-            _added = _raw_numeric_idx - numeric_vars_to_consider
-            if _added:
-                _synergy_added_idx = set(_added)
-                numeric_vars_to_consider = numeric_vars_to_consider | _raw_numeric_idx
-                if verbose:
-                    logger.info(
-                        "MRMR FE synergy bootstrap: augmented pair pool with %d unselected raw "
-                        "numeric columns (%d raw <= cap %d) so zero-marginal synergy pairs "
-                        "(a*d / sign products / log*sin) get joint-MI screened.",
-                        len(_added), _n_raw, _synergy_cap,
-                    )
-        elif 0 < _n_raw <= _synergy_cap and _sweep_cost > _synergy_max_sweep_cost and verbose:
-            logger.info(
-                "MRMR FE synergy bootstrap: %d raw numeric cols <= cap %d but sweep cost n*p^2=%.2g exceeds "
-                "fe_synergy_max_sweep_cost=%.2g (O(p^2*n) blow-up on large n); skipping the all-pairs sweep. "
-                "Raise fe_synergy_max_sweep_cost to force it.",
-                _n_raw, _synergy_cap, float(_sweep_cost), _synergy_max_sweep_cost,
-            )
-        elif _n_raw > _synergy_cap and verbose:
-            logger.info(
-                "MRMR FE synergy bootstrap: %d raw numeric columns > cap %d; skipping the "
-                "all-pairs synergy sweep (keeping the selected-only pool). Raise "
-                "fe_synergy_screen_max_features to enable it on this frame.",
-                _n_raw, _synergy_cap,
-            )
+    numeric_vars_to_consider, _synergy_added_idx = apply_synergy_bootstrap(
+        self,
+        num_fs_steps=num_fs_steps,
+        data=data,
+        cols=cols,
+        target_indices=target_indices,
+        categorical_vars=categorical_vars,
+        numeric_vars_to_consider=numeric_vars_to_consider,
+        non_numeric_idx=_non_numeric_idx,
+        verbose=verbose,
+    )
 
     # `combinations(...)` is consumed lazily by tqdmu (small path) or by
     # `_lazy_chunks` (large path). Pair count is closed-form, avoiding
@@ -462,39 +384,16 @@ def _run_fe_step(
     # branch below. SELF-GATING: below ``fe_pair_maxt_min_pairs`` candidate pairs
     # the floor is 0.0 (no-op => byte-identical narrow pools), mirroring
     # ``screen_fdr_min_features``. ``fe_pair_maxt_null_permutations=0`` disables.
-    _pair_maxt_floor = 0.0
-    _pair_maxt_perms = int(getattr(self, "fe_pair_maxt_null_permutations", 25) or 0)
-    if _pair_maxt_perms > 0 and len(numeric_vars_to_consider) >= 2 and n_pairs >= int(getattr(self, "fe_pair_maxt_min_pairs", 30)):
-        try:
-            from ._permutation_null import pooled_pair_permutation_null_joint_mi_floor
-
-            _maxt_pairs = list(combinations(numeric_vars_to_consider, 2))
-            _maxt_pa = np.fromiter((p[0] for p in _maxt_pairs), dtype=np.int64, count=len(_maxt_pairs))
-            _maxt_pb = np.fromiter((p[1] for p in _maxt_pairs), dtype=np.int64, count=len(_maxt_pairs))
-            _pair_maxt_floor = pooled_pair_permutation_null_joint_mi_floor(
-                factors_data=data,
-                nbins=nbins,
-                pair_a=_maxt_pa,
-                pair_b=_maxt_pb,
-                classes_y=classes_y,
-                freqs_y=freqs_y,
-                n_permutations=_pair_maxt_perms,
-                quantile=float(getattr(self, "fe_pair_maxt_null_quantile", 0.95)),
-                random_seed=getattr(self, "random_seed", None),
-            )
-            if _pair_maxt_floor > 0.0 and verbose >= 1:
-                logger.info(
-                    "MRMR FE: order-2 maxT permutation-null joint-MI floor=%.5f over %d candidate "
-                    "pairs (q=%.2f, K=%d) - rejects best-of-p chance-max noise pairs.",
-                    _pair_maxt_floor, n_pairs, float(getattr(self, "fe_pair_maxt_null_quantile", 0.95)),
-                    _pair_maxt_perms,
-                )
-        except Exception:
-            logger.warning(
-                "MRMR FE: order-2 maxT permutation-null floor failed; continuing without it.",
-                exc_info=True,
-            )
-            _pair_maxt_floor = 0.0
+    _pair_maxt_floor = compute_pair_maxt_floor(
+        self,
+        numeric_vars_to_consider=numeric_vars_to_consider,
+        n_pairs=n_pairs,
+        data=data,
+        nbins=nbins,
+        classes_y=classes_y,
+        freqs_y=freqs_y,
+        verbose=verbose,
+    )
 
     # ---------------------------------------------------------------------------------------------------------------
     # For every pair of factors (A,B), select ones having MI((A,B),Y)>MI(A,Y)+MI(B,Y). Such ones must posess more special connection!
@@ -1024,100 +923,33 @@ def _run_fe_step(
             _sv_set = set(_sv)
             selected_vars = _sv + [i for i in _newly_engineered_indices if i not in _sv_set]
 
-        # Surface WHY FE added 0 features when the operator configured it
-        # explicitly. A prod log showed 88 min of Hermite Optuna yielding
-        # 0 engineered cols with no visible
-        # explanation (kept 25 cols, returned 25, dedup at downstream
-        # marked MRMR identity-equivalent). The summary below explains:
-        # n_pairs_considered: how many (a, b) pairs were screened
-        # n_pairs_with_additions: how many pairs produced ANY recipe
-        # n_engineered_features: total recipes that survived all gates
-        # If 0 with verbose >= 1, also log the gate thresholds so an
-        # operator can see which knob is too tight (often
-        # ``fe_min_engineered_mi_prevalence=0.98`` is the culprit on
-        # heavily-correlated feature sets).
-        try:
-            _n_pairs_considered = int(len(prospective_pairs))
-        except Exception:
-            _n_pairs_considered = -1
-        try:
-            _n_pairs_with_additions = sum(
-                1 for v in prospective_additions.values()
-                if v[0]  # this_pair_features non-empty
-            )
-        except Exception:
-            _n_pairs_with_additions = -1
-        if verbose >= 1:
-            logger.info(
-                "FE summary: %d pair(s) considered, %d produced engineered cols, "
-                "n_total_engineered=%d. Gate thresholds: "
-                "fe_min_pair_mi_prevalence=%.3f, "
-                "fe_min_engineered_mi_prevalence=%.3f, "
-                "fe_min_nonzero_confidence=%.3f, "
-                "fe_good_to_best_feature_mi_threshold=%.3f.",
-                _n_pairs_considered, _n_pairs_with_additions,
-                n_recommended_features,
-                float(fe_min_pair_mi_prevalence),
-                float(fe_min_engineered_mi_prevalence),
-                float(fe_min_nonzero_confidence),
-                float(fe_good_to_best_feature_mi_threshold),
-            )
-            if n_recommended_features == 0 and _n_pairs_considered > 0:
-                logger.warning(
-                    "FE produced 0 engineered features despite %d pair(s) "
-                    "passing the pair-MI gate. Likely cause: the "
-                    "fe_min_engineered_mi_prevalence=%.3f threshold is "
-                    "tight relative to the pair-level MI. Try lowering "
-                    "to 0.90 (5%% under the default) or set "
-                    "fe_min_pair_mi_prevalence=1.02 to widen the pool.",
-                    _n_pairs_considered,
-                    float(fe_min_engineered_mi_prevalence),
-                )
+        log_fe_summary(
+            prospective_pairs=prospective_pairs,
+            prospective_additions=prospective_additions,
+            n_recommended_features=n_recommended_features,
+            fe_min_pair_mi_prevalence=fe_min_pair_mi_prevalence,
+            fe_min_engineered_mi_prevalence=fe_min_engineered_mi_prevalence,
+            fe_min_nonzero_confidence=fe_min_nonzero_confidence,
+            fe_good_to_best_feature_mi_threshold=fe_good_to_best_feature_mi_threshold,
+            verbose=verbose,
+        )
 
-    # Clustered-feature aggregation (opt-in): denoise correlated "reflection" clusters into one
-    # aggregate column (a k-ary engineered recipe). Run once on the first FE step -- it clusters only
-    # raw ``feature_names_in_`` columns, which don't change across FE steps. Guarded so a failure never
-    # aborts fit, mirroring the friend-graph block.
-    if getattr(self, "cluster_aggregate_enable", False) and num_fs_steps == 0:
-        try:
-            from ._cluster_aggregate import run_cluster_aggregate_step
-
-            data, cols, nbins, X, _ca_added, _ca_removed, _ca_indices, _ca_summary = run_cluster_aggregate_step(
-                data=data, cols=cols, nbins=nbins, X=X, target_indices=target_indices,
-                feature_names_in_=list(self.feature_names_in_), categorical_idx=categorical_vars,
-                cached_MIs=cached_MIs, engineered_recipes=engineered_recipes,
-                quantization_nbins=self.quantization_nbins, quantization_method=self.quantization_method,
-                quantization_dtype=self.quantization_dtype,
-                methods=tuple(self.cluster_aggregate_methods),
-                mi_prevalence=self.cluster_aggregate_mi_prevalence,
-                min_member_relevance=self.cluster_aggregate_min_member_relevance,
-                min_cluster_size=self.cluster_aggregate_min_cluster_size,
-                max_cluster_size=self.cluster_aggregate_max_cluster_size,
-                corr_threshold=self.cluster_aggregate_corr_threshold,
-                homogeneity_tau=self.cluster_aggregate_homogeneity_tau,
-                max_candidates=self.cluster_aggregate_max_candidates,
-                mode=self.cluster_aggregate_mode, is_polars_input=_is_polars_input,
-                verbose=verbose, dtype=self.dtype,
-            )
-            n_recommended_features += int(_ca_added)
-            if _ca_indices:
-                # The aggregate already passed the supervised MI gate (beats best member), so select it
-                # directly -- don't rely on a re-screen (with the default fe_max_steps=1 the loop breaks
-                # before re-screening). Remap routes the engineered name into _engineered_recipes_.
-                _sv = list(selected_vars) if not isinstance(selected_vars, list) else selected_vars
-                selected_vars = _sv + [i for i in _ca_indices if i not in _sv]
-            if _ca_removed:  # replace mode: consumed in _fit_impl before the cols->original remap
-                self._cluster_aggregate_removals_ = list(getattr(self, "_cluster_aggregate_removals_", [])) + list(_ca_removed)
-            if _ca_summary:
-                # Fitted summary -> surfaced into meta_info["feature_selection_report"]["cluster_aggregate"].
-                self.cluster_aggregate_ = list(getattr(self, "cluster_aggregate_", []) or []) + _ca_summary
-                logger.info(
-                    "MRMR cluster_aggregate (%s): built %d denoised aggregate(s) from correlated clusters: %s",
-                    self.cluster_aggregate_mode, _ca_added,
-                    [f"{r['name']} (method={r['method']}, k={len(r['members'])}, +MI {r['mi_gain']:.4f})" for r in _ca_summary],
-                )
-        except Exception:
-            logger.warning("cluster_aggregate step failed; continuing without it.", exc_info=True)
+    data, cols, nbins, X, selected_vars, n_recommended_features = run_cluster_aggregate_emission(
+        self,
+        data=data,
+        cols=cols,
+        nbins=nbins,
+        X=X,
+        target_indices=target_indices,
+        categorical_vars=categorical_vars,
+        cached_MIs=cached_MIs,
+        engineered_recipes=engineered_recipes,
+        selected_vars=selected_vars,
+        n_recommended_features=n_recommended_features,
+        num_fs_steps=num_fs_steps,
+        _is_polars_input=_is_polars_input,
+        verbose=verbose,
+    )
 
     return data, cols, nbins, X, selected_vars, n_recommended_features
 
