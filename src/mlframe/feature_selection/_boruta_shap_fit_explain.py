@@ -506,7 +506,7 @@ def fit(self, X, y):
         pbar.set_description(f"Undecided features: {len(self.tentative):_}")
         new_ncols = len(self.columns)
         if new_ncols != last_ncols or trial % 5 == 0:
-            logger.info(f"Undecided features: {len(self.tentative):_}")
+            logger.info("Undecided features: %s", f"{len(self.tentative):_}")
             last_ncols = new_ncols
 
     # sklearn-style outputs so callers can treat BorutaShap like any other selector: ``support_`` is the boolean mask aligned with the input column order, ``selected_features_`` is the list of kept names (accepted + tentative when ``optimistic``).

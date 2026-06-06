@@ -494,9 +494,9 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         self.tentative = list(set(self.all_columns) - set(self.rejected + self.accepted))
 
         if verbose:
-            logger.info(str(len(self.accepted)) + " attributes confirmed important: " + str(self.accepted))
-            logger.info(str(len(self.rejected)) + " attributes confirmed unimportant: " + str(self.rejected))
-            logger.info(str(len(self.tentative)) + " tentative attributes remains: " + str(self.tentative))
+            logger.info("%s attributes confirmed important: %s", len(self.accepted), self.accepted)
+            logger.info("%s attributes confirmed unimportant: %s", len(self.rejected), self.rejected)
+            logger.info("%s tentative attributes remains: %s", len(self.tentative), self.tentative)
 
     def create_importance_history(self):
         """

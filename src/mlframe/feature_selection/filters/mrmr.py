@@ -2557,12 +2557,11 @@ class MRMR(BaseEstimator, TransformerMixin):
                 if _stab_result is not None:
                     return _stab_result
 
-        # TODO: reject NaN/Inf in y at fit entry, matching the
-        # sibling selectors (RFECV / ShapProxiedFS). Pre-fix MRMR let NaN flow
-        # into the MI scorer and silently degraded relevance numbers. The
-        # shared selector-contract test suite caught this asymmetry. Skip the
-        # check on object-dtype y (categorical labels) where np.isnan would
-        # raise; numeric / float / int paths get validated.
+        # Reject NaN/Inf in y at fit entry, matching the sibling selectors
+        # (RFECV / ShapProxiedFS): NaN flowing into the MI scorer silently
+        # degrades relevance numbers. Skip the check on object-dtype y
+        # (categorical labels) where np.isnan would raise; numeric / float /
+        # int paths get validated.
         _y_check = np.asarray(y)
         if _y_check.dtype.kind in "fc":
             _n_nan = int(np.isnan(_y_check).sum())
