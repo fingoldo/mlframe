@@ -7,11 +7,9 @@
 """
 from __future__ import annotations
 
-import io
 import os
 import subprocess
 import sys
-import tempfile
 import textwrap
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -308,11 +306,15 @@ def test_verbose_bool_true_no_showcase_but_logs(caplog, capsys):
     )
 
 
-def test_verbose_2_prints_showcase(capsys):
+def test_verbose_2_logs_showcase(caplog):
+    """verbose=2 triggers show_processed_data, which now emits the 'Processed data:' banner via the module logger (not a bare print)."""
+    import logging
     ex, df = _make_extractor_and_df(verbose=2)
-    ex.transform(df)
-    out = capsys.readouterr().out
-    assert "Processed data:" in out, "verbose=2 must trigger show_processed_data"
+    with caplog.at_level(logging.INFO, logger="mlframe.training.extractors"):
+        ex.transform(df)
+    assert any("Processed data:" in r.message for r in caplog.records), (
+        "verbose=2 must trigger show_processed_data and log the 'Processed data:' banner"
+    )
 
 
 def test_verbose_0_no_showcase(capsys):

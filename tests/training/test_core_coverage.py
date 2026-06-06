@@ -10,17 +10,13 @@ import os
 import unittest.mock
 from pathlib import Path
 
-import joblib
 import numpy as np
-import pandas as pd
 import polars as pl
 import pytest
 
 from mlframe.training.core import train_mlframe_models_suite
 from mlframe.training import (
-    FeatureTypesConfig,
     ModelHyperparamsConfig,
-    PreprocessingBackendConfig,
     PreprocessingConfig,
     TargetTypes,
     TrainingBehaviorConfig,
@@ -169,7 +165,7 @@ class TestInputValidation:
             preprocessing_config={"fillna_value": 0.0},
             split_config={"test_size": 0.1, "val_size": 0.1},
             hyperparams_config={"iterations": 10},
-            behavior_config={"prefer_gpu": False},
+            behavior_config={"prefer_gpu_configs": False},
             verbose=0,
             use_mlframe_ensembles=False,
             reporting_config=common_init_params,

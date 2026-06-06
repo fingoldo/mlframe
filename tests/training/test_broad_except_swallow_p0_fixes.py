@@ -41,50 +41,77 @@ import pytest
 # ---- Site #1: pre-screen per-frame apply_drops ------------------------------
 
 
-# Monolith-split compat: ``_train_one_target`` body delegates to multiple
-# siblings (body + ensembling tail + polars fastpath + pre-screen gate).
-# Source-pattern sensors that grep the parent file must also read every
-# sibling so they still match relocated code. Resolves the core/ dir from
-# the installed package so it works regardless of where pytest is invoked.
-def _read_phase_train_one_target_combined():
-    import pathlib
-    import mlframe as _mlframe
-    _core = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core"
-    return "\n".join(
-        (_core / nm).read_text(encoding="utf-8")
-        for nm in (
-            "_phase_train_one_target.py",
-            "_phase_train_one_target_body.py",
-            "_phase_train_one_target_ensembling.py",
-            "_phase_train_one_target_polars_fastpath.py",
-            "_phase_train_one_target_pre_screen.py",
-            "_phase_train_one_target_model_setup.py",
-        )
-        if (_core / nm).exists()
-    )
+def test_pre_screen_apply_drops_failure_is_atomic_no_partial_drop(caplog, monkeypatch):
+    """A per-mirror ``apply_drops`` failure must leave EVERY frame untouched (atomic), not partially dropped.
 
-
-
-def test_pre_screen_per_frame_apply_drops_logs_on_failure(caplog):
-    """When ``apply_drops`` raises on one frame, the WARN log must fire so
-    operators see the schema-drift hazard. Pre-fix this was silently swallowed.
-
-    Source-level guard: a single behavioural fixture would need a full suite
-    setup; the warning-injection shape is fixed in code at L1127-1142 and the
-    text is grepped here directly so future refactors can't silently revert.
+    The pre-screen stages all mirror drops into a dict and only reassigns ctx attributes once every mirror
+    succeeds; a single failure raises before any reassignment, the outer except skips the whole pre-screen and
+    logs it. Behavioural assertion: inject a failure on the second mirror and confirm no frame lost its dropped
+    column (rollback by construction), no columns are recorded as dropped, and the skip is logged.
     """
-    import pathlib
-    import mlframe as _mlframe
-    src = _read_phase_train_one_target_combined()
-    # Pre-fix shape MUST be gone:
-    assert "                        try:\n                            setattr(ctx, _frame_attr, apply_drops(_f, _drops))\n                        except Exception:\n                            pass" not in src, (
-        "Pre-fix per-frame `except Exception: pass` reappeared; pre-screen "
-        "failures on individual frames will silently corrupt the train/val/"
-        "test/polars/pandas schema mirror (wave 16 P0 regression)."
+    import pandas as pd
+    from types import SimpleNamespace
+    import mlframe.feature_selection.pre_screen as _ps
+    from mlframe.training.core._phase_train_one_target_pre_screen import _maybe_run_unsupervised_pre_screen
+
+    real_apply_drops = _ps.apply_drops
+    calls = {"n": 0}
+
+    def flaky_apply_drops(frame, drops):
+        calls["n"] += 1
+        if calls["n"] == 2:  # second mirror fails
+            raise RuntimeError("synthetic per-mirror apply_drops failure")
+        return real_apply_drops(frame, drops)
+
+    monkeypatch.setattr(_ps, "apply_drops", flaky_apply_drops)
+
+    train_df = pd.DataFrame({"good": np.arange(20.0), "const": np.ones(20)})
+    val_df = pd.DataFrame({"good": np.arange(10.0), "const": np.ones(10)})
+    fs_cfg = SimpleNamespace(
+        pre_screen_unsupervised=True,
+        pre_screen_variance_threshold=0.0,
+        pre_screen_null_fraction_threshold=0.99,
     )
-    # Post-fix marker (the WARN message text must be present):
-    assert "apply_drops failed for ctx.%s" in src
-    assert "schema drift hazard" in src
+    ctx = SimpleNamespace(
+        feature_selection_config=fs_cfg,
+        _pre_screen_done=False,
+        _pre_screen_dropped_cols=None,
+        target_by_type={},
+        cat_features=None,
+        text_features=None,
+        embedding_features=None,
+        group_id_col=None,
+        ts_field=None,
+        extractor=None,
+        features_and_targets_extractor=None,
+        split_config=None,
+        filtered_train_df=train_df,
+        filtered_val_df=val_df,
+        train_df_pd=None,
+        val_df_pd=None,
+        test_df_pd=None,
+        train_df_polars=None,
+        val_df_polars=None,
+        test_df_polars=None,
+        verbose=0,
+        metadata={},
+    )
+
+    with caplog.at_level(logging.WARNING, logger="mlframe.training.core._phase_train_one_target"):
+        _maybe_run_unsupervised_pre_screen(ctx, {})
+
+    # Atomic rollback: NO frame may have lost the 'const' column despite the train mirror's drop succeeding first.
+    assert list(ctx.filtered_train_df.columns) == ["good", "const"], (
+        "train mirror was mutated despite a sibling-mirror failure -> non-atomic partial drop"
+    )
+    assert list(ctx.filtered_val_df.columns) == ["good", "const"], (
+        "val mirror was mutated despite the apply_drops failure"
+    )
+    # No columns recorded as dropped, and the skip-on-error path must log.
+    assert ctx._pre_screen_dropped_cols == []
+    assert any("skipped due to error" in r.message for r in caplog.records), (
+        "the atomic-failure path must log that the pre-screen was skipped"
+    )
 
 
 # ---- Site #2/#3: apply.py content-token fallbacks --------------------------

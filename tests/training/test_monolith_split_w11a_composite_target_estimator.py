@@ -34,10 +34,49 @@ def siblings():
 def test_predict_method_identity(parent_module, siblings):
     cls = parent_module.CompositeTargetEstimator
     p = siblings["predict"]
-    assert cls.predict is p.predict
-    assert cls.predict_pre_clip is p.predict_pre_clip
-    assert cls.predict_quantile is p.predict_quantile
+    # ``_predict_unclipped`` / ``predict_pre_clip`` are class-attr bound to the carved sibling (identity preserved).
     assert cls._predict_unclipped is p._predict_unclipped
+    assert cls.predict_pre_clip is p.predict_pre_clip
+
+
+def test_predict_stubs_delegate_to_sibling(parent_module, siblings):
+    """``predict`` / ``predict_quantile`` are in-body stubs (discoverable on the class) that delegate to the carved sibling.
+
+    They are NOT class-attr bound, so ``cls.predict is sibling.predict`` is intentionally False; assert instead that they
+    are real methods declared on the class and that calling them routes through the sibling implementation.
+    """
+    cls = parent_module.CompositeTargetEstimator
+    p = siblings["predict"]
+    for name in ("predict", "predict_quantile"):
+        assert name in vars(cls), f"{name} must be declared on the class body, not inherited"
+        assert callable(getattr(cls, name))
+
+    import pandas as pd
+    from sklearn.linear_model import LinearRegression
+
+    calls = {"predict": 0}
+    real_predict = p.predict
+
+    def spy(self, X):
+        calls["predict"] += 1
+        return real_predict(self, X)
+
+    rng = np.random.default_rng(0)
+    n = 50
+    base = rng.normal(10.0, 2.0, size=n)
+    y = base + rng.normal(0.0, 0.5, size=n)
+    X = pd.DataFrame({"b": base})
+    est = cls(base_estimator=LinearRegression(), transform_name="diff", base_column="b")
+    est.fit(X, y)
+
+    monkey = p.predict
+    p.predict = spy
+    try:
+        out = est.predict(X)
+    finally:
+        p.predict = monkey
+    assert calls["predict"] == 1, "in-body predict stub must delegate to sibling _pred.predict"
+    assert out.shape == (n,)
 
 
 def test_update_method_identity(parent_module, siblings):

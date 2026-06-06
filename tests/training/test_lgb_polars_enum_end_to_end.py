@@ -127,10 +127,8 @@ def test_suite_polars_with_enum_cats_end_to_end(model_name, tmp_path):
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
 
     # Minimal config so the run is fast but exercises the cat_features + Enum path.
-    common_init_params = {
-        "drop_columns": [],
-        "verbose": 0,
-    }
+    # drop_columns belongs to PreprocessingConfig; verbose is a suite-level kwarg.
+    preprocessing_override = {"drop_columns": []}
     config_override = {"iterations": 5}
     if model_name == "lgb":
         config_override["lgb_kwargs"] = {"device_type": "cpu", "verbose": -1}
@@ -142,7 +140,7 @@ def test_suite_polars_with_enum_cats_end_to_end(model_name, tmp_path):
         features_and_targets_extractor=fte,
         mlframe_models=[model_name],
         hyperparams_config=config_override,
-        reporting_config=common_init_params,
+        preprocessing_config=preprocessing_override,
         use_ordinary_models=True,
         use_mlframe_ensembles=False,
         output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),

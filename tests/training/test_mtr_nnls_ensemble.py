@@ -26,7 +26,6 @@ from mlframe.training import TargetTypes
 from mlframe.training.core._phase_composite_post_xt_ensemble import (
     MTRPerColumnEqualMeanEnsemble,
     _build_cross_target_ensemble_for_target,
-    _build_mtr_per_column_ensemble,
 )
 
 
@@ -209,16 +208,70 @@ def _make_models_dict_for_dispatcher(n_components=3, n_targets=2, n=30):
     return {target_type: {target_name: entries}}, target_type, target_name
 
 
-def test_dispatcher_uses_nnls_when_val_data_available():
-    """Dispatcher passes filtered_val_df + val y so the ensemble fits
-    NNLS weights."""
+def test_dispatcher_uses_nnls_oof_when_train_data_available():
+    """Dispatcher derives per-column NNLS weights from an honest train-K-fold OOF stack.
+
+    The legacy val-fit path was removed because fitting per-column weights on the val fold double-dipped the
+    components' early-stopping surface. The dispatcher now needs ``filtered_train_df`` + ``filtered_train_idx`` +
+    train y to run the leak-free OOF refit; given those it builds a ``per_column_nnls_oof`` ensemble with
+    non-negative weights. Components must be sklearn-cloneable for the OOF refit, so use real regressors.
+    """
+    from sklearn.linear_model import LinearRegression
+    from sklearn.multioutput import MultiOutputRegressor
+
+    tt = TargetTypes.MULTI_TARGET_REGRESSION
+    tn = "mtr_target"
+    n, k, p = 60, 2, 4
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(n, p))
+    coef = rng.normal(size=(p, k))
+    y = X @ coef + 0.01 * rng.normal(size=(n, k))
+
+    entries = []
+    for _ in range(3):
+        m = MultiOutputRegressor(LinearRegression())
+        m.fit(X, y)
+        entries.append(SimpleNamespace(model=m, pre_pipeline=None))
+    models = {tt: {tn: entries}}
+    metadata = {}
+    cache = {}
+    train_idx = np.arange(n)
+    target_by_type = {tt: {tn: y}}
+
+    _build_cross_target_ensemble_for_target(
+        _tt_e=tt, _orig_tname=tn,
+        _spec_list=[], _ce_strategy="weighted_mean",
+        models=models, metadata=metadata,
+        target_by_type=target_by_type,
+        composite_target_discovery_config=None,
+        target_name=tn, model_name="test",
+        filtered_train_df=X,
+        filtered_val_df=None,
+        test_df_pd=None,
+        filtered_train_idx=train_idx, filtered_val_idx=None,
+        test_idx=None,
+        train_df_pd=None, val_df_pd=None,
+        train_idx=None, val_idx=None,
+        reporting_config=None, plot_file=None,
+        _train_pred_cache=cache,
+    )
+    # 3 originals + 1 ensemble = 4.
+    assert len(models[tt][tn]) == 4
+    ens_entry = models[tt][tn][-1]
+    assert ens_entry.ensemble_strategy == "per_column_nnls_oof"
+    assert ens_entry.model.strategy == "nnls"
+    # Weights are non-negative (NNLS constraint) per column.
+    assert (ens_entry.model.weights >= 0).all()
+
+
+def test_dispatcher_falls_back_to_equal_mean_without_train_data():
+    """Without train data the honest OOF refit cannot run -> equal_mean (no val-fit fallback)."""
     n, k = 30, 2
     models, tt, tn = _make_models_dict_for_dispatcher(n_components=3, n_targets=k, n=n)
     metadata = {}
     cache = {}
     rng = np.random.default_rng(0)
     val_df = rng.normal(size=(n, 4))
-    # Full y aligned with val_df length (val_idx not used here).
     target_by_type = {tt: {tn: np.tile([2.0, 4.0], (n, 1))}}
 
     _build_cross_target_ensemble_for_target(
@@ -238,13 +291,10 @@ def test_dispatcher_uses_nnls_when_val_data_available():
         reporting_config=None, plot_file=None,
         _train_pred_cache=cache,
     )
-    # 3 originals + 1 ensemble = 4.
     assert len(models[tt][tn]) == 4
     ens_entry = models[tt][tn][-1]
-    assert ens_entry.ensemble_strategy == "per_column_nnls"
-    assert ens_entry.model.strategy == "nnls"
-    # Weights are non-negative (NNLS constraint) per column.
-    assert (ens_entry.model.weights >= 0).all()
+    assert ens_entry.ensemble_strategy == "per_column_equal_mean"
+    assert ens_entry.model.strategy == "equal_mean"
 
 
 def test_dispatcher_falls_back_to_equal_mean_without_val_data():
