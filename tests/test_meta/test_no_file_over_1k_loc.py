@@ -90,12 +90,6 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # ``_flat_torch_module_predict_accel.py`` as plain functions taking
     # ``self`` -- parent re-attaches them in __init_subclass__-style binding.
     "src/mlframe/training/neural/_flat_torch_module.py",
-    # FIXME(carve-wave-next): filters/_orthogonal_scorer_auto_fe.py at ~1.17k LOC
-    # after the cross-basis routing + adaptive-degree + diff-basis branches
-    # landed in the orth-FE wave. Sensible carve: lift each scorer's body
-    # into ``_orthogonal_scorer_auto_fe_<kind>.py`` siblings; keep the
-    # dispatch + dataclass in the parent.
-    "src/mlframe/feature_selection/filters/_orthogonal_scorer_auto_fe.py",
     # FIXME(carve-wave-next): filters/hermite_fe.py at ~1.41k LOC after the
     # outlier-robust univariate-basis FE axis landed alongside the 4-basis x
     # 4-backend polyeval dispatcher. Sensible carve: lift the per-basis optimiser
