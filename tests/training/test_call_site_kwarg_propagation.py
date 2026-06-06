@@ -78,6 +78,12 @@ def _read(rel: str) -> str:
             _sib_path = _SRC_ROOT / "core" / sib
             if _sib_path.exists():
                 primary = primary + "\n" + _sib_path.read_text(encoding="utf-8")
+            else:
+                # Monolith-split compat: the sibling became a subpackage (``X.py`` -> ``X/``); read __init__ + submodules.
+                _sib_pkg = _SRC_ROOT / "core" / sib[:-3]
+                if _sib_pkg.is_dir():
+                    for _p in sorted(_sib_pkg.glob("*.py")):
+                        primary = primary + "\n" + _p.read_text(encoding="utf-8")
     return primary
 
 

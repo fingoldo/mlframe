@@ -127,10 +127,14 @@ def test_A_ct_ensemble_respects_compute_valset_metrics_false():
     """Mirror of the dummy-baselines gate, on the cross-target ensemble emit path."""
     import pathlib
     import mlframe as _mlframe
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "training" / "core" / "_phase_composite_post_xt_ensemble.py"
-    ).read_text(encoding="utf-8")
+    _core = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core"
+    _xt = _core / "_phase_composite_post_xt_ensemble.py"
+    if _xt.exists():
+        src = _xt.read_text(encoding="utf-8")
+    else:
+        # Monolith-split compat: became a subpackage; read __init__ + submodules.
+        _pkg = _core / "_phase_composite_post_xt_ensemble"
+        src = "\n".join(p.read_text(encoding="utf-8") for p in sorted(_pkg.glob("*.py")))
     assert "compute_valset_metrics" in src
     assert "compute_testset_metrics" in src
 
