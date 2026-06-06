@@ -7,6 +7,7 @@
 - `training/splitting.py` carved under the 1k LOC ceiling: the index-level helpers `_stratified_split` and `_carve_calib_from_train` moved to a new sibling `training/_split_helpers.py`, re-exported from the parent so existing imports keep working. Behaviour-preserving.
 - `training/_trainer_train_and_evaluate.py` carved under the 1k LOC ceiling: the self-contained post-fit tail sections (disjoint-calib predict + OOF mirror outputs, and the optional confidence-analysis dispatch) moved to a new sibling `training/_calib_oof_outputs.py` as `compute_calib_and_oof_outputs` / `maybe_run_confidence_analysis`. Behaviour-preserving (each reads explicit inputs, no shared-local coupling).
 - `training/core/_main_train_suite.py` facade trimmed: the return-shape contract (`SuiteResult`, `_assert_suite_return_shape`) and the string-multiclass target encoder (`_encode_string_multiclass_target`) moved to a new sibling `training/core/_main_train_suite_encoding.py`, re-exported from the parent. The remaining facade is orchestration glue plus the comprehensive 34-parameter docstring.
+- `metrics/_regression_extras.py` carved under the 1k LOC ceiling: the Tweedie / Poisson / Gamma GLM deviance metrics (`fast_poisson_deviance`, `fast_gamma_deviance`, `fast_tweedie_deviance` + kernels) moved to a new sibling `metrics/_regression_deviance.py`, re-exported from the parent and `metrics.core`. Behaviour-preserving (sklearn-parity pinned).
 
 ### Software standards
 
