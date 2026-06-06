@@ -78,7 +78,7 @@ def test_predict_device_arg_honored_in_post_fit_path():
     """#7: after fit (self.trainer reset to None), predict(device='cpu') must
     still route the trainer to the cpu accelerator -- pre-fix the device arg was
     only read in the unreachable live-trainer branch."""
-    import mlframe.training.neural._base_predict as _bp
+    import mlframe.training.neural.base._base_predict as _bp
 
     rng = np.random.default_rng(0)
     X = rng.normal(size=(64, 5)).astype(np.float32)

@@ -25,10 +25,10 @@ from lightning.pytorch.loggers import CSVLogger
 from sklearn.base import ClassifierMixin, RegressorMixin
 
 from mlframe.metrics.core import compute_probabilistic_multiclass_error
-from ._base_logging import MetricSpec, _rmse_metric
-from ._base_tensor_helpers import to_tensor_any, safe_accelerator
+from .._base_logging import MetricSpec, _rmse_metric
+from .._base_tensor_helpers import to_tensor_any, safe_accelerator
 from ._base_losses import _make_binary_focal_loss, _validate_no_nan_inf
-from ._base_callbacks import BestEpochModelCheckpoint, ValLossDivergenceCallback
+from .._base_callbacks import BestEpochModelCheckpoint, ValLossDivergenceCallback
 
 logger = __import__("logging").getLogger("mlframe.training.neural.base")
 
@@ -49,8 +49,8 @@ class _FitMixin:
         """Common logic for fit and partial_fit."""
         # Lazy imports to avoid circular dependency (the parent imports this
         # mixin at class-definition time).
-        from .flat import generate_mlp
-        from .base import _PREDICT_ONLY_DM_PARAM_KEYS
+        from ..flat import generate_mlp
+        from . import _PREDICT_ONLY_DM_PARAM_KEYS
 
         if fit_params is None:
             fit_params = {}
@@ -374,7 +374,7 @@ class _FitMixin:
                 # ``isfinite`` mask). Saves ~3x memory bandwidth on a
                 # multi-million-row regression target and stays bit-exact
                 # vs numpy ddof=0 to ~1e-15.
-                from ._neural_numba_kernels import finite_min_max_std as _fmms
+                from .._neural_numba_kernels import finite_min_max_std as _fmms
                 _n_finite, _ymin, _ymax, _ymean, _ystd = _fmms(_y_arr)
                 if _n_finite > 1:
                     # scale = (max-min)/2 + 3*std; ~6-sigma half-window

@@ -17,7 +17,7 @@ import lightning as L
 from sklearn.base import ClassifierMixin, RegressorMixin
 from sklearn.metrics import accuracy_score, r2_score
 
-from ._base_tensor_helpers import to_numpy_safe
+from .._base_tensor_helpers import to_numpy_safe
 
 logger = __import__("logging").getLogger("mlframe.training.neural.base")
 
@@ -43,9 +43,9 @@ class _PredictMixin:
         Returns:
             numpy.ndarray: Model predictions (probabilities for classification, values for regression)
         """
-        # Lazy import: the parent module imports this mixin at class-definition
-        # time, so a module-top ``from .base import ...`` would be a cycle.
-        from .base import _PREDICT_ONLY_DM_PARAM_KEYS
+        # Lazy import: the package __init__ imports this mixin at class-definition
+        # time, so a module-top ``from . import ...`` would be a cycle.
+        from . import _PREDICT_ONLY_DM_PARAM_KEYS
 
         if not hasattr(self, "model") or self.model is None:
             # Wave 37 P1 fix (2026-05-20): NotFittedError per sklearn.
