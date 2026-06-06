@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- `feature_selection/filters/mrmr.py` comment-hygiene pass: stripped banned process markers (date stamps, `Wave N`, `iter NN`, `Layer NN`, `T2#NN`, `audit-fixes flip #N`, `HIGH#N`, `Agent-X`, `Phase N`) from the leading position of parameter / docstring comments while preserving the genuine per-parameter explanations and the legitimate version references (`pre-YYYY-MM-DD` behaviour anchors, `bench-rejected (date)` notes). Comment-only; no code or behaviour change. The param-heavy `__init__` (~1644 LOC of parameter declarations + per-parameter docs) is the floor, so the file stays on the >1k LOC exempt list -- the single constructor signature is un-splittable.
+
 ### Refactor
 
 - `training/neural/base.py` carved under the 1k LOC ceiling (1698 -> 248 LOC) into three siblings consumed by `PytorchLightningEstimator` / `PytorchLightningClassifier`. `_base_losses.py` (leaf) holds the loss-builder + fit-entry input validation (`_make_binary_focal_loss`, `_validate_no_nan_inf`). `_base_predict.py` holds `_PredictMixin` (the batched Lightning-trainer predict path `_predict_raw`, plus the base `predict` / `score`) and `_ClassifierPredictMixin` (the classifier label / probability overrides `predict` / `predict_proba`). `_base_fit.py` holds `_FitMixin` (the single cohesive training run `_fit_common` plus the `fit` / `partial_fit` wrappers). `PytorchLightningEstimator` now inherits `(_FitMixin, _PredictMixin, BaseEstimator)` and `PytorchLightningClassifier` prepends `_ClassifierPredictMixin` so the MRO keeps the classifier predict overrides on top. The mixins lazy-import `base`'s `_PREDICT_ONLY_DM_PARAM_KEYS` in-body to avoid a load-time cycle and re-import the tensor / callback / logging helper siblings at their module top. The estimator's `__getstate__` / `__setstate__` still drop the live trainer + prediction-trainer cache and cover every attr set in the moved `_fit_common`, verified by the stdlib-pickle + dill round-trip suite. The parent re-exports `_make_binary_focal_loss` / `_validate_no_nan_inf` so existing importers keep resolving them. Behaviour-preserving.

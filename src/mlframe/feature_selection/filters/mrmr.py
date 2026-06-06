@@ -209,7 +209,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         quantization_method: str = "quantile",
         quantization_nbins: int = 10,
         quantization_dtype: object = np.int32,
-        # 2026-05-29 Wave 7: per-feature adaptive bin chooser. Default
+        # per-feature adaptive bin chooser. Default
         # ``'mdlp'`` (Fayyad-Irani 1993, with njit-accelerated kernel) is the
         # honest combined-ranking winner of the F1 leaderboard
         # (``|err vs truth| + noise_floor``: MDLP 0.107, Sturges 0.135,
@@ -225,7 +225,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # wired into MRMR.fit().
         nbins_strategy: str = "mdlp",
         nbins_strategy_kwargs: dict = None,
-        # 2026-05-30 Wave 8 — 10 new research-grade opt-in knobs (sibling modules):
+        # 10 new research-grade opt-in knobs (sibling modules):
         # F13 Chao-Shen entropy correction (Pawluszek-Filipiak 2025).
         #   'none' (default) | 'miller_madow' | 'chao_shen'
         mi_correction: str = "none",
@@ -255,7 +255,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         cpt_n_permutations: int = 200,
         # E11 Cluster Stability Selection (Faletto-Bien 2022). Opt-in via
         # ``stability_selection_method='cluster'``. Default 'classic' is the
-        # existing Meinshausen-Buhlmann + Shah-Samworth Wave-4 path.
+        # existing Meinshausen-Buhlmann + Shah-Samworth path.
         # E12 Complementary Pairs Stability (Shah-Samworth 2013) accessible
         # via ``stability_selection_method='complementary_pairs'``.
         stability_selection_method: str = "classic",
@@ -265,7 +265,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # F14 PID decomposition (Williams-Beer + Ince I_ccs). When enabled,
         # synergistic features bypass the standard redundancy gate.
         pid_synergy_bonus: float = 0.0,
-        # 2026-05-28: MI normalization knob to combat the cardinality bias.
+        # MI normalization knob to combat the cardinality bias.
         # Raw I(X; Y) is bounded by min(H(X), H(Y)); high-cardinality features
         # (zip codes / hash IDs / 50-bin continuous) get inflated relevance.
         # Symmetric Uncertainty SU(X,Y) := 2*I/(H(X)+H(Y)) normalises to [0,1]
@@ -291,7 +291,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         mrmr_redundancy_algo: str = "fleuret",
         reduce_gain_on_subelement_chosen: bool = True,
         # ``use_simple_mode=True`` skips the per-candidate conditional-MI redundancy check: fast, but selects redundant near-duplicate columns (e.g. both ``x`` and
-        # ``2*x``, or a raw column AND an engineered feature that subsumes it). 2026-06-02: default flipped True->False. Conditional-MI (Fleuret) redundancy IS the
+        # ``2*x``, or a raw column AND an engineered feature that subsumes it). Default flipped True->False. Conditional-MI (Fleuret) redundancy IS the
         # point of MRMR; with it ON the selector returns a COMPACT, deduplicated set and -- once FE is in the loop -- prefers the engineered combination over its
         # redundant raw parents. VERIFIED on an additive target ``y = sign(x0+x1+x2+noise)``: full mode returns ``{x1, add(x0,x2), ...}`` (the engineered sum captures
         # the additive signal) at downstream LogReg AUC 0.992 == the all-raw baseline, with FEWER features. (An earlier read of this as "drops signal" was a metric
@@ -321,7 +321,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         min_nonzero_confidence: float = 0.99,
         full_npermutations: int = 3,
         baseline_npermutations: int = 2,
-        # 2026-06-02 RC2 — sample-size-aware Fleuret confirmation. With the
+        # sample-size-aware Fleuret confirmation. With the
         # default ``use_simple_mode=False`` (full Fleuret conditional-MI
         # redundancy) the conditional permutation-confidence gate OVER-REJECTS
         # on small-n / high-cardinality data: the (X, Y, Z) conditioning joint
@@ -346,7 +346,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         min_relevance_gain_frac: float = 0.001,
         # Resolution mode for ``min_relevance_gain``. ``'relative_to_entropy'`` scales the floor with H(y) so noisy features cannot pile up on low-entropy targets; ``'absolute'`` honours ``min_relevance_gain`` verbatim (legacy behaviour).
         min_relevance_gain_mode: str = "relative_to_entropy",
-        # 2026-05-30: diminishing-returns gate. Stops greedy selection once the
+        # diminishing-returns gate. Stops greedy selection once the
         # current candidate's gain drops below this fraction of the FIRST
         # selected feature's gain. Catches "trailing noise" leakage on
         # imbalanced y / large n where tiny-but-statistically-positive gains
@@ -356,7 +356,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # = stop once gain falls below 5% of first gain. Applies from the
         # SECOND selected feature onward (the first feature is the anchor).
         min_relevance_gain_relative_to_first: float = 0.05,
-        # 2026-05-30: Miller-Madow MI bias correction at the selection gate.
+        # Miller-Madow MI bias correction at the selection gate.
         # Plug-in MI overestimates by ~(|X|-1)*(|Y|-1)/(2n) for high-card
         # X (Miller 1955, Paninski 2003). On 1200-level user_id at n=2500
         # with binary y the bias is ~0.24 nats - enough to make pure noise
@@ -373,7 +373,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         only_unknown_interactions: bool = False,
         # feature engineering settings
         fe_max_steps=1,
-        # 2026-06-02: after the FE step appends engineered columns, run ONE more
+        # after the FE step appends engineered columns, run ONE more
         # screening pass over the AUGMENTED pool (raw + engineered) so the
         # engineered columns -- which are already quantised bin-code columns --
         # are selected by the SAME greedy relevance-minus-redundancy machinery as
@@ -386,7 +386,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # no redundancy check, no gain). The re-screen does not run FE again, so
         # there is no unbounded recursion and no extra engineered columns appear.
         fe_reselect_after_engineering: bool = True,
-        # 2026-05-18 audit-fixes flip #1 (``fe_npermutations`` 0->3):
+        # ``fe_npermutations`` default 0->3:
         # pre-fix value 0 combined with ``fe_min_nonzero_confidence=1.0``
         # made the FE confidence gate STRUCTURALLY UNREACHABLE (confidence
         # = ``1 - failures/npermutations`` is undefined at npermutations=0).
@@ -399,7 +399,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_ntop_features=0,
         fe_unary_preset="medium",
         fe_binary_preset="minimal",
-        # 2026-05-18 audit-fixes flip #2 (``fe_max_pair_features`` 1->10):
+        # ``fe_max_pair_features`` default 1->10:
         # pre-fix only ONE pair per FE step was evaluated. On a dataset
         # with 50 features (1225 candidate pairs ranked by prevalence-
         # passing pair-MI) only the top-ranked pair was promoted to
@@ -411,8 +411,8 @@ class MRMR(BaseEstimator, TransformerMixin):
         # downstream (``fe_min_engineered_mi_prevalence``) filter the
         # eventual injection set.
         fe_max_pair_features: int = 10,
-        # 2026-05-18 audit-fixes flip #1 (``fe_min_nonzero_confidence``
-        # 1.0->0.99): pre-fix 1.0 required EVERY permutation to clear the
+        # ``fe_min_nonzero_confidence`` default 1.0->0.99:
+        # pre-fix 1.0 required EVERY permutation to clear the
         # null-hypothesis test exactly, making the gate unreachable at any
         # noise level. 0.99 matches the screening-side
         # ``min_nonzero_confidence`` default so both stages apply equally
@@ -420,7 +420,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_min_nonzero_confidence: float = 0.99,
         fe_min_pair_mi: float = 0.001,
         fe_min_pair_mi_prevalence: float = 1.05,  # transformations of what exactly pairs of factors we consider, at all. mi of entire pair must be at least that higher than the mi of its individual factors.
-        # 2026-06-01 default-flip 0.98 -> 0.90: a 1-D engineered column summarising
+        # default-flip 0.98 -> 0.90: a 1-D engineered column summarising
         # a 2-D pair-joint structurally cannot retain 98% of the (finite-sample-bias-
         # inflated) 2-D joint MI. On the canonical fixture y=a**2/b + f/5 + log(c)*sin(d)
         # the genuine features mul(sqr(a),reciproc(b)) [rat~0.95] and
@@ -432,7 +432,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_max_external_validation_factors: int = 0,  # how many other factors to validate against
         fe_max_polynoms: int = 0,
         fe_print_best_mis_only: bool = True,
-        # 2026-05-18 audit-fixes HIGH#4 default-flip evaluation result:
+        # default-flip evaluation result:
         # ``profiling/bench_polynom_fe_default_flip.py`` measured on three
         # canonical "polynom-FE should help" scenarios (XOR, saddle,
         # symmetric-linear-plus-interaction): 0 / 3 cleared the >= 20%
@@ -454,7 +454,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # opt in with a positive value after measuring on their data.
         fe_smart_polynom_iters: int = 0,
         fe_smart_polynom_optimization_steps: int = 1000,
-        # 2026-05-18: subsample inside the CMA-ES / Optuna inner search to
+        # subsample inside the CMA-ES / Optuna inner search to
         # bound per-pair MI compute on production-size frames. cProfile on
         # n=500k showed ``_eval_coef_pair`` + ``_plugin_mi_classif_njit``
         # dominate (32% + 22% of fit time); each MI call scales linearly
@@ -462,26 +462,26 @@ class MRMR(BaseEstimator, TransformerMixin):
         # x C(25,2)=300 pairs) per-pair cost projects to ~5 min, ~25
         # hours serial.
         #
-        # Default 200_000 (raised from 100_000 on 2026-05-18 after the
+        # Default 200_000 (raised from 100_000 after the
         # n=1M bench showed 100k could lose 1 hermite feature on
         # marginal seeds while 200k kept it). The FINAL injected column
         # is still computed from FULL source so no train-time precision
         # is lost.
         #
         # Set to ``None`` / 0 / negative to disable (use full data).
-        # 2026-05-21: unified with check_prospective_fe_pairs via the shared
+        # unified with check_prospective_fe_pairs via the shared
         # FE_DEFAULT_SUBSAMPLE_N constant; both FE entry points now scale their
         # MI-sweep buffer with the same knob. Re-tune in feature_engineering.py
         # to land both sites consistently.
         fe_smart_polynom_subsample_n: int = FE_DEFAULT_SUBSAMPLE_N,
-        # 2026-05-21 (CRITICAL #2): subsample rows for check_prospective_fe_pairs's
+        # Subsample rows for check_prospective_fe_pairs's
         # MI sweep. The hoisted shared scratch buffer scales linearly with n; on
         # n=4M with the medium preset it lands at ~17.6 GiB and crashes the suite.
         # Bench (bench_fe_pair_subsample_accuracy.py): jaccard=1.0 vs full-n at
         # 50k+, 0.88 at 5k. Default 200_000 matches fe_smart_polynom_subsample_n
         # for cross-block consistency. 0 = use full data (legacy).
         fe_check_pairs_subsample_n: int = FE_DEFAULT_SUBSAMPLE_N,
-        # 2026-05-18 audit-fixes flip #3 (``fe_min_polynom_degree`` 3->1):
+        # ``fe_min_polynom_degree`` default 3->1:
         # pre-fix the Hermite/Chebyshev optimiser was locked to a minimum
         # cubic basis. Degree-1 (linear product, the XOR / multiplicative
         # interaction case) and degree-2 (saddle / circle / quadratic
@@ -493,7 +493,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # ``test_biz_cma_es_finds_xor_optimum`` already verified the
         # optimiser converges on degree=2 for XOR when range is open.
         fe_min_polynom_degree: int = 1,
-        # 2026-06-02 default-flip 8 -> 6: degree 8 inflated the joint coefficient
+        # default-flip 8 -> 6: degree 8 inflated the joint coefficient
         # search to ~18 dims (9 per operand) for no measured recovery benefit on
         # the pre-distortion fixtures, while degree 6 (14 dims) recovers every
         # case the ALS warm-start can reach. Measured at n=4000, cma_batch,
@@ -509,7 +509,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_max_polynom_degree: int = 6,
         fe_min_polynom_coeff: float = -10.0,
         fe_max_polynom_coeff: float = 10.0,
-        # 2026-05-22: explicit __init__ params for the fe-* knobs that the
+        # explicit __init__ params for the fe-* knobs that the
         # polynom-pair FE inner search consults via getattr(self, ...).
         # Pre-fix these were accessible by setting them as attributes after
         # construction (``mrmr.fe_optimizer = 'cma_batch'``) but the
@@ -519,7 +519,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # the suite config.
         #
         # ``fe_hermite_l2_penalty`` is the coefficient-magnitude regulariser
-        # weight. 2026-06-02: the penalty SEMANTICS changed from the raw
+        # weight. The penalty SEMANTICS changed from the raw
         # ``lambda * ||c||^2`` (which grew without bound and crushed genuinely
         # high-MI / high-coefficient solutions -- e.g. the separable Chebyshev
         # reconstruction of a non-monotone pre-distortion product, whose true
@@ -532,7 +532,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # ``hermite_fe._L2_PENALTY_SATURATION_DEFAULT`` (1.0).
         fe_hermite_l2_penalty: float = 0.05,
         fe_polynomial_basis: str = "chebyshev",
-        # 2026-06-02 — PER-OPERAND PRE-WARP for the elementary unary/binary pair
+        # PER-OPERAND PRE-WARP for the elementary unary/binary pair
         # search. Default OFF -> byte-identical legacy path. When True, BEFORE the
         # unary x unary x binary combination search the engine fits, per raw
         # operand, one learned 1-D orthogonal-polynomial warp ``f(x)`` of the
@@ -549,7 +549,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # stored in the EngineeredRecipe for leak-safe, y-free replay at
         # transform() time. Orthogonal to ``fe_smart_polynom_iters`` /
         # ``fe_hybrid_orth_enable`` (works with both off).
-        # 2026-06-02: default flipped False->True. Unlike the orthogonal-poly
+        # default flipped False->True. Unlike the orthogonal-poly
         # path (``fe_smart_polynom_iters``, OFF by default because its CMA/Optuna
         # search is ~60s/fit), the pre-warp is a single rank-1 ALS least-squares
         # solve (~5ms/pair, cProfile-confirmed negligible) AND is uplift-gated +
@@ -558,7 +558,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_pair_prewarp_enable: bool = True,
         fe_pair_prewarp_basis: str = "chebyshev",
         fe_pair_prewarp_max_degree: int = 4,
-        # 2026-06-04 — PER-OPERAND MEDIAN GATE for the elementary unary/binary
+        # PER-OPERAND MEDIAN GATE for the elementary unary/binary
         # pair search. Default OFF -> byte-identical legacy path. When True, the
         # unary/binary search gains, per raw operand, a ``gate_med`` pseudo-unary
         # ``(x > train_median_x).astype(float)`` alongside ``identity/sqr/log/...``.
@@ -587,7 +587,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # admitted -- directed + noise-safe (uplift ~1.0x on linear/noise data).
         fe_pair_prewarp_uplift_threshold: float = 1.20,
         fe_mi_estimator: str = "plugin",
-        # 2026-05-22: cma_batch is the new default (20.58x faster than
+        # cma_batch is the new default (20.58x faster than
         # optuna, within_1%=1.00 vs all other optimizers on a 12-pair bench).
         # See profiling/bench_polynom_optimizers.py.
         fe_optimizer: str = "cma_batch",
@@ -627,7 +627,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         cat_fe_config=None,
         # Bound on the process-wide _FIT_CACHE. Strong refs hold every fitted MRMR; long-lived workers (web services, JupyterHub kernels) leaked memory unboundedly pre-2026-05-15. Default 4 covers a typical model suite (RFECV+MRMR x catboost+linear+mlp) without thrashing.
         fit_cache_max: int = 4,
-        # 2026-05-18 #5: adaptive FE threshold relaxation. When the first-pass
+        # #5: adaptive FE threshold relaxation. When the first-pass
         # FE produces 0 engineered features (typically because pair-level MI
         # is near the individual-MI sum on heavily-correlated features and
         # the engineered candidate cannot clear the strict
@@ -638,7 +638,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # those results are already cached / injected from the first pass.
         # Set False to restore the historical "0 features = give up" path.
         fe_adaptive_threshold_relax: bool = True,
-        # T2#12 2026-05-18 default 0.9 rationale: the strict gates sit at
+        # default 0.9 rationale: the strict gates sit at
         # ``fe_min_engineered_mi_prevalence=0.98`` and
         # ``fe_min_pair_mi_prevalence=1.05``. A retry factor of 0.9
         # brings those to 0.882 and 0.945 respectively - just under the
@@ -710,15 +710,15 @@ class MRMR(BaseEstimator, TransformerMixin):
         # capacity-limited/linear downstreams, sensor data, interpretability; for tree/GBM downstreams
         # expect no-harm (trees already average reflections via splits).
         cluster_aggregate_enable: bool = True,
-        # 2026-05-30 Wave 8 — default flipped from 'augment' to 'replace'.
+        # default flipped from 'augment' to 'replace'.
         # When a denoised aggregate beats its member MIs (gain threshold per
         # ``cluster_aggregate_mi_prevalence``), 'replace' drops the raw members from
         # the final selection AND from candidate consideration so they cannot
         # be re-picked downstream. This eliminates the duplicate-vote effect
         # (raw + aggregate both surviving) that the 'augment' mode silently
-        # allowed; per Agent-B critique 2026-05-28, the augment behaviour was
-        # the most common production-confusion point. Set
-        # ``cluster_aggregate_mode='augment'`` to restore pre-Wave-8 behaviour
+        # allowed; the augment behaviour was the most common
+        # production-confusion point. Set
+        # ``cluster_aggregate_mode='augment'`` to restore the legacy behaviour
         # (raw + aggregate both kept).
         cluster_aggregate_mode: str = "replace",  # "augment" | "replace"
         # Aggregator menu (best gated method per cluster is kept): mean_z (default), mean_inv_var
@@ -739,7 +739,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         cluster_aggregate_homogeneity_tau: float = 0.6,
         # O(m^2) cost guard on the relevance-floored candidate pool.
         cluster_aggregate_max_candidates: int = 200,
-        # 2026-05-30 Wave 9 — Dynamic Cluster Discovery (DCD).
+        # Dynamic Cluster Discovery (DCD).
         # Organic in-greedy-loop cluster discovery using ONLY MI/SU distances
         # (no Pearson — captures non-linear deps like XOR). After each
         # selection, prune the Pool by ``SU(x, just_selected) > tau_cluster``;
@@ -747,16 +747,16 @@ class MRMR(BaseEstimator, TransformerMixin):
         # ``I(rep ; y | Selected − anchor) > anchor_rel * (1 + swap_gain_threshold)``.
         # Pre-impl gate (bench_dcd_pair_su_scaling) confirmed 0.003× cost vs
         # full pairwise SU at p=10000.
-        # 2026-05-30 Wave 9.1: dcd_enable=True by DEFAULT. Layer-6 biz_value
+        # 1: dcd_enable=True by DEFAULT. Layer-6 biz_value
         # showed DCD is the documented MRMR mechanism for production
         # redundancy-control (near-duplicate decoys, collinear clusters,
-        # synergistic groups). Pre-Wave-9 the default was False to preserve
-        # bit-stability with pre-Wave-9 fits; that's no longer the priority
+        # synergistic groups). The default was previously False to preserve
+        # bit-stability with legacy fits; that's no longer the priority
         # vs giving every user cluster-aware selection out of the box. The
-        # 0.003x overhead is negligible. Users wanting pre-Wave-9 behaviour
+        # 0.003x overhead is negligible. Users wanting the legacy behaviour
         # opt out via dcd_enable=False.
         dcd_enable: bool = True,
-        # Layer 47 (2026-05-31): ``dcd_tau_cluster`` accepts ``'auto'`` to
+        # ``dcd_tau_cluster`` accepts ``'auto'`` to
         # opt into the per-fit bimodality-detection calibration sweep
         # (``make_dcd_state`` samples 100 random feature pairs, fits a
         # coarse histogram, and picks tau at the valley between the two
@@ -764,7 +764,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # Numeric values keep the legacy fixed-tau behaviour bit-identical.
         dcd_tau_cluster=0.7,
         dcd_distance: str = "su",
-        # Layer 47 (2026-05-31): knobs for the auto-tau calibration sweep.
+        # knobs for the auto-tau calibration sweep.
         # ``dcd_tau_calibration_n_pairs`` is the number of random feature pairs
         # sampled for the bimodality histogram; ``dcd_tau_calibration_seed``
         # makes the random sample deterministic per fit.
@@ -774,15 +774,15 @@ class MRMR(BaseEstimator, TransformerMixin):
         # PC1/aggregate swap is even evaluated. The Layer-42 blocker that kept
         # this at 4 (commit_swap called with engineered_recipes=None, so a swap
         # net-shrank support_) is RESOLVED -- recipe propagation landed in
-        # Layer 43 (_mrmr_fit_impl threads engineered_recipes into screen).
-        # 2026-06-03 bench-attempt-rejected (bench_dcd_cluster_size_threshold):
+        # (_mrmr_fit_impl threads engineered_recipes into screen).
+        # bench-attempt-rejected (bench_dcd_cluster_size_threshold):
         # lowering the DEFAULT to 2 was benchmarked after the swap-null fix and
         # gives NO actionable win -- swaps fire rarely on small clusters (the
         # swap GATE, not this threshold, is the binding constraint) and mean OOS
         # AUC moved +0.0009 (noise). Keep 4 as the default; pin =2 to opt in.
         dcd_cluster_size_threshold: int = 4,
         dcd_swap_gain_threshold: float = 0.05,
-        # 2026-05-31 Layer 43 (PART B): default flipped to ``"auto"``. When set
+        # (PART B): default flipped to ``"auto"``. When set
         # to ``"auto"``, ``evaluate_swap_candidate`` runs a K-fold (n_folds=5)
         # OOF conditional-MI scoring over the three linear-combiner methods
         # (``mean_z``, ``mean_inv_var``, ``pca_pc1``) and picks the winner per
@@ -797,7 +797,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         dcd_pairwise_cache_max: int = 50_000,
         dcd_min_cluster_size: int = 2,
         dcd_max_cluster_size: int = 12,
-        # 2026-05-30 Wave 9.1 iter 3: permutation-null gate on swap
+        # 1 iter 3: permutation-null gate on swap
         # acceptance. With ``full_npermutations > 0`` AND ``dcd_enable=True``,
         # ``evaluate_swap_candidate`` shuffles the PC1 rep B times, builds
         # the null distribution of conditional MI, and only accepts the swap
@@ -807,7 +807,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # data because PC1 (continuous, re-binned with finer granularity than
         # the raw anchor) is upward-biased.
         dcd_swap_alpha: float = 0.05,
-        # 2026-06-03 (audit dcd-core-1 / dcd-swap-null-1/2): the swap
+        # (audit dcd-core-1 / dcd-swap-null-1/2): the swap
         # permutation null's draw count, decoupled from ``full_npermutations``
         # (the screening confidence, default 3) which only acts as the on/off
         # switch. Reusing full_npermutations=3 made the null un-passable
@@ -821,7 +821,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # already processed clusters during screening; running again would
         # double-aggregate).
         dcd_postoc_compose: bool = False,
-        # 2026-05-31 Layer 23 — Hybrid orthogonal-polynomial + MI-greedy FE
+        # Hybrid orthogonal-polynomial + MI-greedy FE
         # auto-wired into the fit pipeline (sibling module:
         # ``_orthogonal_univariate_fe.hybrid_orth_mi_fe`` /
         # ``hybrid_orth_mi_pair_fe``). Default OFF -- legacy behaviour is
@@ -840,7 +840,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # ``MRMR.transform`` replays each engineered column on test data
         # without any leakage risk.
         fe_hybrid_orth_enable: bool = False,
-        # 2026-06-02 — univariate-basis FE, DEFAULT ON. Runs ONLY the
+        # univariate-basis FE, DEFAULT ON. Runs ONLY the
         # orthogonal-basis univariate stage (``a__T2`` ~ a**2, ``a__T3`` ~ a**3,
         # ...), which closes the single-variable-nonlinearity gap the pair-FE
         # path structurally cannot reach (no pairing of two columns makes a clean
@@ -849,9 +849,9 @@ class MRMR(BaseEstimator, TransformerMixin):
         # is no univariate nonlinearity. The heavier pair-CROSS-basis stage stays
         # behind ``fe_hybrid_orth_enable``. Set False for the legacy pair-only FE.
         fe_univariate_basis_enable: bool = True,
-        # 2026-06-04 -- ACCURACY GATE, DEFAULT ON. After every FE stage, drop engineered columns that add no held-out downstream uplift over their raw source (a Fourier/Hermite/chirp of a monotone / MNAR / leak column that would otherwise evict the raw signal from support_). Opt out for legacy byte-stability / benchmarks.
+        # ACCURACY GATE, DEFAULT ON. After every FE stage, drop engineered columns that add no held-out downstream uplift over their raw source (a Fourier/Hermite/chirp of a monotone / MNAR / leak column that would otherwise evict the raw signal from support_). Opt out for legacy byte-stability / benchmarks.
         fe_accuracy_gate: bool = True,
-        # 2026-06-03 -- FOURIER univariate basis, DEFAULT ON. The orthogonal-poly
+        # FOURIER univariate basis, DEFAULT ON. The orthogonal-poly
         # univariate basis (``a__T2`` / ``a__He2`` ...) recovers polynomial
         # nonlinearities but a degree<=4 polynomial CANNOT express a full-period
         # (or higher-frequency) sinusoid, so a pure oscillatory univariate signal
@@ -864,7 +864,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # the poly basis uses) so it is near-no-op when there is no oscillation.
         # Set False for poly-only univariate FE.
         fe_univariate_fourier_enable: bool = True,
-        # 2026-06-03 -- ADAPTIVE-FREQUENCY Fourier, DEFAULT ON. The fixed Fourier
+        # ADAPTIVE-FREQUENCY Fourier, DEFAULT ON. The fixed Fourier
         # grid (``fe_hybrid_orth_fourier_freqs``, default {1, 2}) only covers a
         # couple of z-space frequencies; an ARBITRARY-period oscillation
         # (``y = sin(3.7*x)``, ``sin(5.3*x)``, ``sin(6.8*x)``) lands at a NON-
@@ -885,7 +885,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # 0.15 admits genuine arbitrary-period oscillations while rejecting
         # noise (whose held-out periodogram power collapses below the floor).
         fe_univariate_fourier_adaptive_min_val_corr: float = 0.15,
-        # 2026-06-03 -- ADAPTIVE-CHIRP Fourier, DEFAULT ON. The linear adaptive
+        # ADAPTIVE-CHIRP Fourier, DEFAULT ON. The linear adaptive
         # detector above (and the fixed grid) emit Fourier on the LINEAR argument
         # and therefore cannot represent an oscillation whose frequency GROWS with
         # the argument -- a "chirp" ``y ~ sin(2*pi*f*z**2)``. Over a bounded
@@ -907,7 +907,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # Held-out validation effective-|corr| floor for the chirp detector
         # (same semantics + default as the linear adaptive floor above).
         fe_univariate_fourier_chirp_min_val_corr: float = 0.15,
-        # 2026-06-02 -- SYNERGY BOOTSTRAP, DEFAULT ON (cap-gated). Pure-synergy
+        # SYNERGY BOOTSTRAP, DEFAULT ON (cap-gated). Pure-synergy
         # interactions (``y = a*d``, ``sign(a)*sign(d)``, ``log(c)*sin(d)`` ...)
         # carry ~ZERO MARGINAL MI on each factor (``E[y|a]=E[y|d]=0`` by symmetry),
         # so the greedy screen never selects either factor and the pair therefore
@@ -918,7 +918,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # the pair pool with the UNSELECTED raw numeric columns so an all-pairs
         # joint-MI sweep (O(p^2), cheap at small p; bounded by the batch pair-MI
         # path's MAX_K=200) screens the synergy pairs. Set 0 to disable.
-        # 2026-06-04: raised 60 -> 250. The old 60 SKIPPED the bootstrap on any
+        # raised 60 -> 250. The old 60 SKIPPED the bootstrap on any
         # frame wider than 60 cols, so moderate-width frames (e.g. 220 cols) never
         # got their interaction products engineered. MEASURED: enabling it on a
         # 220-col frame lifts standalone MRMR downstream AUC +0.045 (and the hybrid
@@ -954,7 +954,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # a spurious feature. Genuine synergy (XOR / sign / bilinear) has joint MI
         # FAR above the marginal sum, so a high bar keeps the real interactions while
         # rejecting bias-only noise pairs. Applies ONLY to synergy pairs;
-        # selected-selected pairs keep ``fe_min_pair_mi_prevalence``. 2026-06-03:
+        # selected-selected pairs keep ``fe_min_pair_mi_prevalence``.
         # raised 1.15 -> 1.5 (with ``fe_min_engineered_mi_prevalence`` 0.90 -> 0.97):
         # a round-3 FE-quality bench + the mlframe recovery suite confirmed the
         # tighter pair was a WIN -- it HALVES the engineered set and cuts spurious
@@ -969,7 +969,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # needs train-based FE selection (deep rewrite) for marginal gain over this
         # tighter-prevalence cut, so it is deferred.
         fe_synergy_min_prevalence: float = 1.5,
-        # 2026-06-03 — ORDER-2 Westfall-Young maxT permutation-null floor on the
+        # ORDER-2 Westfall-Young maxT permutation-null floor on the
         # PROSPECTIVE-PAIR JOINT MI. The FE step ranks O(p^2) candidate pairs by
         # JOINT MI(x_i, x_j; y); at high p the MAX joint MI over PURE-NOISE pairs
         # is a positive order statistic that grows with the pool size -- the SAME
@@ -998,7 +998,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_hybrid_orth_top_k: int = 5,
         fe_hybrid_orth_pair_enable: bool = True,
         fe_hybrid_orth_pair_max_degree: int = 2,
-        # 2026-05-31 Layer 56 — TRI-PRODUCT cross-basis FE (sibling module
+        # TRI-PRODUCT cross-basis FE (sibling module
         # ``_orthogonal_triplet_fe``). Captures genuine 3-way interactions
         # like ``y = sign(x_i * x_j * x_k)`` (3-way XOR) or
         # ``y = sign(price * quantity * count - threshold)`` that no pair
@@ -1021,7 +1021,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_hybrid_orth_triplet_max_degree: int = 1,
         fe_hybrid_orth_triplet_seed_k: int = 4,
         fe_hybrid_orth_triplet_top_count: int = 2,
-        # 2026-06-01 Layer 77 — QUADRUPLET (4-way) cross-basis FE (sibling
+        # QUADRUPLET (4-way) cross-basis FE (sibling
         # module ``_orthogonal_quadruplet_fe``). Captures genuine 4-way
         # interactions: ``y = sign(x_1 * x_2 * x_3 * x_4)`` (4-way XOR
         # where every triplet marginal MI is zero by symmetry) and
@@ -1036,7 +1036,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_hybrid_orth_quadruplet_max_degree: int = 1,
         fe_hybrid_orth_quadruplet_seed_k: int = 4,
         fe_hybrid_orth_quadruplet_top_count: int = 2,
-        # 2026-06-01 Layer 78 — ADAPTIVE-ARITY cross-basis FE (sibling
+        # ADAPTIVE-ARITY cross-basis FE (sibling
         # module ``_orthogonal_adaptive_arity_fe``). Tries arity 2/3/4
         # per seed tuple and emits ONLY the winning arity per maximal
         # signal set, so the caller does not have to pick arity by hand.
@@ -1050,7 +1050,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_hybrid_orth_adaptive_arity_max_degree: int = 1,
         fe_hybrid_orth_adaptive_arity_seed_k: int = 4,
         fe_hybrid_orth_adaptive_arity_top_count: int = 3,
-        # 2026-06-01 Layer 80 — SEMI-SUPERVISED basis-preprocess fitting
+        # SEMI-SUPERVISED basis-preprocess fitting
         # (sibling module ``_semi_supervised_fe``). Independent opt-in (does
         # NOT require fe_hybrid_orth_enable). When True AND the user invokes
         # ``fit_with_unlabeled(mrmr, X_labeled, y, X_unlabeled)``, the L21 /
@@ -1064,7 +1064,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # labeled-only fit). When the flag is on but the wrapper is not used
         # (plain ``mrmr.fit(X, y)``), behaviour is also byte-identical.
         fe_semi_supervised_enable: bool = False,
-        # 2026-06-01 Layer 81 — LASSO-BASED PRE-SELECTION (sibling module
+        # LASSO-BASED PRE-SELECTION (sibling module
         # ``_orthogonal_lasso_fe``). Independent opt-in (does NOT require
         # fe_hybrid_orth_enable). Layers 21 / 65-74 score candidates via MI /
         # dependence metrics (greedy non-parametric); Lasso (L1) is the dual
@@ -1082,7 +1082,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # equivalence.
         fe_hybrid_orth_lasso_enable: bool = False,
         fe_hybrid_orth_lasso_alpha: float = 0.01,
-        # 2026-06-01 Layer 82 — ELASTIC NET (L1 + L2) PRE-SELECTION (sibling
+        # ELASTIC NET (L1 + L2) PRE-SELECTION (sibling
         # module ``_orthogonal_elasticnet_fe``). Independent opt-in (does NOT
         # require fe_hybrid_orth_enable). Lasso (Layer 81) arbitrarily picks
         # one of a correlated candidate pair and zeroes the rest; the L2
@@ -1099,7 +1099,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_hybrid_orth_elasticnet_enable: bool = False,
         fe_hybrid_orth_elasticnet_alpha: float = 0.01,
         fe_hybrid_orth_elasticnet_l1_ratio: float = 0.5,
-        # 2026-05-31 Layer 57 — ADAPTIVE PER-COLUMN DEGREE selection
+        # ADAPTIVE PER-COLUMN DEGREE selection
         # (sibling module ``_orthogonal_adaptive_degree_fe``). Independent
         # opt-in (does NOT require fe_hybrid_orth_enable). When enabled,
         # for each source column we evaluate every degree in
@@ -1115,7 +1115,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_hybrid_orth_adaptive_degree_enable: bool = False,
         fe_hybrid_orth_adaptive_degree_range: tuple = (1, 2, 3, 4, 5, 6),
         fe_hybrid_orth_adaptive_degree_min_uplift: float = 1.05,
-        # 2026-05-31 Layer 58 — CONDITIONAL BASIS ROUTING (sibling module
+        # CONDITIONAL BASIS ROUTING (sibling module
         # ``_orthogonal_routing_fe``). Independent opt-in (does NOT require
         # fe_hybrid_orth_enable). When enabled, for each source column we
         # try every (pre_transform, basis, degree) cell in the cartesian
@@ -1133,7 +1133,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_hybrid_orth_conditional_routing_top_k: int = 5,
         fe_hybrid_orth_conditional_routing_min_uplift: float = 1.10,
         fe_hybrid_orth_conditional_routing_degrees: tuple = (2, 3),
-        # 2026-05-31 Layer 59 — DIFF-BASIS FE for highly-correlated source
+        # DIFF-BASIS FE for highly-correlated source
         # pairs (sibling module ``_orthogonal_diff_basis_fe``). Independent
         # opt-in (does NOT require fe_hybrid_orth_enable). When enabled, the
         # auto-pair detector flags every pair with |Pearson corr| >= the
@@ -1145,7 +1145,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_hybrid_orth_diff_basis_corr_threshold: float = 0.7,
         fe_hybrid_orth_diff_basis_degrees: tuple = (1, 2, 3),
         fe_hybrid_orth_diff_basis_top_k: int = 3,
-        # 2026-05-31 Layer 61 — PER-CLUSTER SHARED-BASIS FE (sibling module
+        # PER-CLUSTER SHARED-BASIS FE (sibling module
         # ``_orthogonal_cluster_basis_fe``). Independent opt-in (does NOT
         # require fe_hybrid_orth_enable). When enabled, the internal
         # correlation-based cluster detector finds connected components of
@@ -1159,7 +1159,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_hybrid_orth_cluster_basis_aggregator: str = "mean_z",
         fe_hybrid_orth_cluster_basis_degrees: tuple = (2, 3),
         fe_hybrid_orth_cluster_basis_top_k: int = 3,
-        # 2026-05-31 Layer 62 — BOOTSTRAP-STABLE MI ranking for the hybrid
+        # BOOTSTRAP-STABLE MI ranking for the hybrid
         # orth-poly FE (sibling module ``_orthogonal_bootstrap_mi_fe``).
         # Independent opt-in (does NOT require fe_hybrid_orth_enable).
         # When enabled, the same per-source univariate basis columns Layer
@@ -1177,7 +1177,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_hybrid_orth_bootstrap_enable: bool = False,
         fe_hybrid_orth_bootstrap_n_boot: int = 10,
         fe_hybrid_orth_bootstrap_sample_fraction: float = 0.8,
-        # 2026-05-31 Layer 63 — THREE-GATE + K-fold OOF MI ranking for the
+        # THREE-GATE + K-fold OOF MI ranking for the
         # hybrid orth-poly FE (sibling module ``_orthogonal_three_gate_mi_fe``).
         # Independent opt-in (does NOT require fe_hybrid_orth_enable).
         # When enabled, the per-source univariate basis columns Layer 21
@@ -1196,7 +1196,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_hybrid_orth_three_gate_enable: bool = False,
         fe_hybrid_orth_three_gate_n_folds: int = 5,
         fe_hybrid_orth_three_gate_cmi_min: float = 0.001,
-        # 2026-05-31 Layer 65 — KSG / k-NN MI ranking for hybrid orth-poly FE
+        # KSG / k-NN MI ranking for hybrid orth-poly FE
         # (sibling module ``_orthogonal_ksg_mi_fe``). Independent opt-in
         # (does NOT require fe_hybrid_orth_enable). Layer 21 ranks by the
         # plug-in quantile-binned MI estimator (fast, but discretises smooth
@@ -1221,7 +1221,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # k-NN estimator can resolve at typical sample sizes.
         fe_hybrid_orth_ksg_min_uplift: float = 0.95,
         fe_hybrid_orth_ksg_min_abs_mi_frac: float = 0.05,
-        # 2026-06-01 Layer 66 — COPULA-MI ranking for hybrid orth-poly FE
+        # COPULA-MI ranking for hybrid orth-poly FE
         # (sibling module ``_orthogonal_copula_mi_fe``). Independent opt-in
         # (does NOT require fe_hybrid_orth_enable). Layer 21 ranks by the
         # plug-in quantile-binned MI estimator on RAW values -- on heavy-
@@ -1239,7 +1239,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # Default OFF preserves pickle byte-equivalence.
         fe_hybrid_orth_copula_enable: bool = False,
         fe_hybrid_orth_copula_n_bins: int = 20,
-        # 2026-06-01 Layer 67 — DISTANCE-CORRELATION ranking for hybrid orth-
+        # DISTANCE-CORRELATION ranking for hybrid orth-
         # poly FE (sibling module ``_orthogonal_dcor_fe``). Independent opt-in
         # (does NOT require fe_hybrid_orth_enable). Layer 21 / 65 / 66 are
         # all MI estimators (differing in how they estimate it); Layer 67 is
@@ -1254,7 +1254,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # byte-equivalence.
         fe_hybrid_orth_dcor_enable: bool = False,
         fe_hybrid_orth_dcor_n_sample: int = 500,
-        # 2026-06-01 Layer 71 — HSIC (Hilbert-Schmidt Independence Criterion)
+        # HSIC (Hilbert-Schmidt Independence Criterion)
         # ranking for the hybrid orth-poly FE (sibling module
         # ``_orthogonal_hsic_fe``). Independent opt-in (does NOT require
         # fe_hybrid_orth_enable). Like Layer 67 dCor, HSIC is a NON-MI
@@ -1265,12 +1265,12 @@ class MRMR(BaseEstimator, TransformerMixin):
         # local non-linearities and high-frequency oscillation. Naive HSIC
         # is O(n^2) memory; the working sample is capped at n=500 via
         # deterministic random subsample. Engineered VALUES bit-equal to
-        # Layer 21 -> recipes reuse the ``orth_univariate`` kind. Default
+        # > recipes reuse the ``orth_univariate`` kind. Default
         # OFF preserves pickle byte-equivalence.
         fe_hybrid_orth_hsic_enable: bool = False,
         fe_hybrid_orth_hsic_kernel: str = "rbf",
         fe_hybrid_orth_hsic_n_sample: int = 500,
-        # 2026-06-01 Layer 72 — JMIM (Joint Mutual Information Maximisation,
+        # JMIM (Joint Mutual Information Maximisation,
         # Bennasar 2015) redundancy-aware ranking for hybrid orth-poly FE
         # (sibling module ``_orthogonal_jmim_fe``). Independent opt-in (does
         # NOT require fe_hybrid_orth_enable). Layers 21 / 65 / 66 / 67 / 71
@@ -1285,7 +1285,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # pickle byte-equivalence.
         fe_hybrid_orth_jmim_enable: bool = False,
         fe_hybrid_orth_jmim_n_bins: int = 10,
-        # 2026-06-01 Layer 73 — Total Correlation (Watanabe 1960) multivariate-
+        # Total Correlation (Watanabe 1960) multivariate-
         # redundancy ranking for hybrid orth-poly FE (sibling module
         # ``_orthogonal_total_correlation_fe``). Independent opt-in (does NOT
         # require fe_hybrid_orth_enable). Layers 21 / 65 / 66 / 67 / 71 rank
@@ -1299,11 +1299,11 @@ class MRMR(BaseEstimator, TransformerMixin):
         # kind. Default OFF preserves pickle byte-equivalence.
         fe_hybrid_orth_tc_enable: bool = False,
         fe_hybrid_orth_tc_n_bins: int = 10,
-        # 2026-06-01 Layer 74 — CMIM (Conditional Mutual Information
+        # CMIM (Conditional Mutual Information
         # Maximisation, Fleuret 2004) redundancy-aware ranking for hybrid
         # orth-poly FE (sibling module ``_orthogonal_cmim_fe``). Independent
         # opt-in (does NOT require fe_hybrid_orth_enable). Companion to
-        # Layer 72 (JMIM): JMIM scores ``min_j I((X_k, X_j); Y)`` (joint
+        # (JMIM): JMIM scores ``min_j I((X_k, X_j); Y)`` (joint
         # MI -- rewards complementarity); CMIM scores
         # ``min_j I(X_k; Y | X_j)`` (conditional MI -- penalises
         # redundancy). On heavily-DUPLICATING candidate pools (near-copies
@@ -1313,7 +1313,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # Default OFF preserves pickle byte-equivalence.
         fe_hybrid_orth_cmim_enable: bool = False,
         fe_hybrid_orth_cmim_n_bins: int = 10,
-        # 2026-06-01 Layer 68 — PER-COLUMN SCORER AUTO-SELECTION across the
+        # PER-COLUMN SCORER AUTO-SELECTION across the
         # full Layer 21 / 65 / 66 / 67 family (sibling module
         # ``_orthogonal_scorer_auto_fe``). Independent opt-in (does NOT
         # require fe_hybrid_orth_enable). Each scorer wins on a different
@@ -1330,7 +1330,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # pickle byte-equivalence.
         fe_hybrid_orth_auto_scorer_enable: bool = False,
         fe_hybrid_orth_auto_scorer_n_boot: int = 5,
-        # 2026-06-01 Layer 69 — ENSEMBLE-OF-SCORERS rank-fusion for hybrid
+        # ENSEMBLE-OF-SCORERS rank-fusion for hybrid
         # orth-poly FE. Sibling of Layer 68: instead of picking ONE scorer
         # per column via bootstrap LCB, aggregate per-scorer rankings via
         # mean_rank / borda_count / reciprocal_rank fusion and select by
@@ -1342,13 +1342,13 @@ class MRMR(BaseEstimator, TransformerMixin):
         # seed. Default OFF preserves pickle byte-equivalence.
         fe_hybrid_orth_ensemble_enable: bool = False,
         fe_hybrid_orth_ensemble_aggregator: str = "mean_rank",
-        # 2026-06-01 Layer 71: HSIC added to the ensemble default pool;
+        # HSIC added to the ensemble default pool;
         # callers that previously pinned the 4-tuple keep the old
         # behaviour, the default now leverages all five scorers.
         fe_hybrid_orth_ensemble_scorers: tuple = (
             "plug_in", "ksg", "copula", "dcor", "hsic",
         ),
-        # 2026-06-01 Layer 76 — META-SCORER auto-selection that LEARNS
+        # META-SCORER auto-selection that LEARNS
         # from cheap signal characteristics (sibling module
         # ``_orthogonal_meta_scorer_fe``). Independent opt-in (does NOT
         # require fe_hybrid_orth_enable). Layer 68 (per-column bootstrap
@@ -1366,7 +1366,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # Default OFF preserves pickle byte-equivalence.
         fe_hybrid_orth_meta_enable: bool = False,
         fe_hybrid_orth_meta_force_scorer: Optional[str] = None,
-        # 2026-06-01 Layer 85 — DEFAULT-SCORER ROUTING flag for the Layer 21
+        # DEFAULT-SCORER ROUTING flag for the Layer 21
         # univariate hybrid orth-poly basis-selection stage. Routes the
         # ``fe_hybrid_orth_enable=True`` univariate dispatch through one of
         # the Layer 65 / 66 / 67 / 71 / 72 / 73 / 74 / 76 / 81 / 82 / 68 / 69
@@ -1396,7 +1396,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # both should keep ``"plug_in"`` and toggle the per-stage opt-in
         # flags individually.
         fe_hybrid_orth_default_scorer: str = "plug_in",
-        # 2026-05-31 Layer 32 — extra (non-polynomial) basis FE: B-spline +
+        # extra (non-polynomial) basis FE: B-spline +
         # Fourier. Complementary to the orth-poly path: spline catches sharp
         # local non-linearities (threshold rules ``y = sign(x - tau)``);
         # Fourier catches periodic patterns (``y = sign(sin(2*pi*x))``).
@@ -1414,7 +1414,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # Fourier). (1,) for linear-argument-only.
         fe_hybrid_orth_fourier_powers: tuple = (1, 2),
         fe_hybrid_orth_spline_knots: int = 5,
-        # 2026-05-31 Layer 26 — generic MI-greedy FE constructor (sibling
+        # generic MI-greedy FE constructor (sibling
         # to the orthogonal-polynomial one). Default OFF -- legacy
         # behaviour is byte-identical when ``fe_mi_greedy_enable=False``.
         # When True, the MI-greedy FE runs ONCE before screening (after
@@ -1431,7 +1431,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_mi_greedy_seed_cols_count: int = 5,
         fe_mi_greedy_include_unary: bool = True,
         fe_mi_greedy_include_binary: bool = True,
-        # 2026-05-31 Layer 60 — CMI-greedy FE constructor (sibling to the
+        # CMI-greedy FE constructor (sibling to the
         # marginal-MI greedy one above). Default OFF -- legacy behaviour
         # is byte-identical when ``fe_mi_greedy_cmi_enable=False``. When
         # True, the same candidate transform library used by Layer 26 is
@@ -1446,7 +1446,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_mi_greedy_cmi_top_k: int = 5,
         fe_mi_greedy_cmi_seed_cols_count: int = 4,
         fe_mi_greedy_cmi_min_gain: float = 0.005,
-        # 2026-05-31 Layer 33 — K-fold target encoding for raw categorical
+        # K-fold target encoding for raw categorical
         # columns. Default OFF -- legacy behaviour is byte-identical when
         # ``fe_kfold_te_enable=False``. When True, after the hybrid + MI-
         # greedy stages run, every column in ``fe_kfold_te_cols`` (or
@@ -1459,7 +1459,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_kfold_te_cols: tuple = (),
         fe_kfold_te_folds: int = 5,
         fe_kfold_te_smoothing: float = 10.0,
-        # 2026-05-31 Layer 34 — COUNT + FREQUENCY ENCODING for high-
+        # COUNT + FREQUENCY ENCODING for high-
         # cardinality categoricals, plus CATEGORICAL x NUMERIC INTERACTION
         # via OOF target-mean residual. Default OFF -- legacy behaviour
         # is byte-identical when all three master switches are False.
@@ -1482,7 +1482,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_cat_num_interaction_num_cols: tuple = (),
         fe_cat_num_interaction_folds: int = 5,
         fe_cat_num_interaction_smoothing: float = 10.0,
-        # 2026-05-31 Layer 37 — MISSINGNESS-AWARE FE. Default OFF; legacy
+        # MISSINGNESS-AWARE FE. Default OFF; legacy
         # behaviour is byte-identical when all three master switches stay
         # False. Layer 7's ``nan_strategy='separate_bin'`` already handles
         # MNAR at the binning level inside the MI estimator; Layer 37
@@ -1504,7 +1504,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_missingness_count_enable: bool = False,
         fe_missingness_pattern_enable: bool = False,
         fe_missingness_pattern_top_k: int = 5,
-        # 2026-05-31 Layer 38 — CROSS-FEATURE RATIO + GROUPED-DELTA + LAGGED-DIFF FE.
+        # CROSS-FEATURE RATIO + GROUPED-DELTA + LAGGED-DIFF FE.
         # Default OFF; legacy behaviour byte-identical when all three master
         # switches stay False. Each is appended via its own recipe kind
         # (``pairwise_ratio`` / ``grouped_delta`` / ``lagged_diff``); replay is
@@ -1531,7 +1531,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_lagged_diff_time_col: str = None,
         fe_lagged_diff_value_cols: tuple = (),
         fe_lagged_diff_periods: tuple = (1, 2),
-        # 2026-06-01 Layer 91 — TWO-TIER IT GATES on the four recipe-emitting
+        # TWO-TIER IT GATES on the four recipe-emitting
         # FE mechanisms that otherwise emit columns with NO relevance gate
         # (L33 k-fold target encoding, L34 count/freq/cat-num residual, L37
         # missingness, L38 ratio/grouped-delta/lagged-diff). Both default OFF
@@ -1543,7 +1543,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         #   the engineered pool, per the Layer 90 lesson) and keep the top
         #   ``fe_local_mi_gate_top_k`` survivors. Bounds combinatorial pool
         #   growth (50 cat cols -> <= top_k count-encoded columns).
-        #   2026-06-01 Layer 97 — DEFAULT FLIPPED to True. The gate is a pure
+        #   DEFAULT FLIPPED to True. The gate is a pure
         #   corrective: it only ever drops freshly-engineered columns whose
         #   marginal MI(col; y) is below the RAW-baseline noise floor and keeps
         #   the top ``fe_local_mi_gate_top_k`` survivors. It can never drop a
@@ -1566,7 +1566,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_unified_second_pass_gate: bool = False,
         fe_unified_second_pass_max_keep: int = None,
         fe_unified_second_pass_min_gain: float = 0.005,
-        # 2026-06-01 Layer 87 — grouped multi-stat aggregator with CMI gate.
+        # grouped multi-stat aggregator with CMI gate.
         # NVIDIA cuDF Kaggle-Grandmaster technique #1: per-group statistics of
         # a continuous column broadcast back to rows, plus z-within-group and
         # ratio-to-group residuals. Each survivor is CMI-gated against the raw
@@ -1578,7 +1578,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_grouped_agg_group_cols: tuple = (),
         fe_grouped_agg_num_cols: tuple = (),
         fe_grouped_agg_top_k: int = 10,
-        # 2026-06-01 Layer 93 — COMPOSITE (multi-column) GROUP-KEY aggregates,
+        # COMPOSITE (multi-column) GROUP-KEY aggregates,
         # the multi-col extension of Layer 87. Real aggregations key on more
         # than one column (groupby([region, month]) / groupby([store,
         # category])); the interaction at the composite level often carries
@@ -1596,7 +1596,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_composite_group_agg_stats: tuple = ("mean", "std", "count"),
         fe_composite_group_agg_num_cols: tuple = (),
         fe_composite_group_agg_top_k: int = 10,
-        # 2026-06-01 Layer 88 — per-group histogram + quantile FE with
+        # per-group histogram + quantile FE with
         # target-aware edges. NVIDIA cuDF Kaggle-Grandmaster technique #2:
         # percentile-rank-within-group (empirical CDF position of x in its
         # group) + per-group IQR / p90-p10 spread, optionally a target-aware
@@ -1611,21 +1611,21 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_grouped_quantile_top_k: int = 8,
         fe_grouped_quantile_group_cols: tuple = (),
         fe_grouped_quantile_num_cols: tuple = (),
-        # 2026-06-01 Layer 89 — cat x cat synergy cross with interaction-
+        # cat x cat synergy cross with interaction-
         # information pre-filter. NVIDIA cuDF Kaggle-Grandmaster technique #3:
         # combine two categorical columns into hash(cat_i || cat_j) then
         # target-encode it. The IT enhancement pre-filters pairs by interaction
         # information II(cat_i, cat_j; y) = I(cat_i, cat_j; y) - I(cat_i; y) -
         # I(cat_j; y); only synergistic pairs (II > threshold, e.g. XOR) are
         # materialised. High-cardinality crosses (> 0.5*n distinct cells, the
-        # Layer 29 pre-screen) route through K-fold OOF target encoding (Layer
+        # pre-screen) route through K-fold OOF target encoding (Layer
         # 33) instead of a raw integer code. Default OFF -> byte-identical
         # legacy path. ``cat_cols`` empty => auto-detect categoricals.
         fe_cat_pair_enable: bool = False,
         fe_cat_pair_min_interaction_info: float = 0.001,
         fe_cat_pair_cat_cols: tuple = (),
         fe_cat_pair_top_k: int = 5,
-        # 2026-06-01 Layer 94 — cat x cat x cat TRIPLE synergy cross via beam
+        # cat x cat x cat TRIPLE synergy cross via beam
         # search. Extends the Layer 89 pairwise interaction-information cross to
         # the THIRD order: II3(a,b,c;y) = I(a,b,c;y) - [I(a,b;y)+I(a,c;y)+
         # I(b,c;y)] + [I(a;y)+I(b;y)+I(c;y)] (co-information). Positive II3 =
@@ -1642,7 +1642,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_cat_triple_cat_cols: tuple = (),
         fe_cat_triple_beam_width: int = 3,
         fe_cat_triple_top_k: int = 3,
-        # 2026-06-01 Layer 90 — NUMERIC DECOMPOSITION FE. NVIDIA cuDF Kaggle-
+        # NUMERIC DECOMPOSITION FE. NVIDIA cuDF Kaggle-
         # Grandmaster technique #4: multi-precision rounding (round(x/p)*p for
         # p in precisions) + decimal-digit extraction (floor(x*10^k) mod 10).
         # Captures price-anchored step-function targets (rounding buckets) and
@@ -1658,7 +1658,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_numeric_decompose_digits: tuple = (0, 1, 2),
         fe_numeric_decompose_n_boot: int = 10,
         fe_numeric_decompose_top_k: int = 5,
-        # 2026-06-01 Layer 95 PART A — PERIODIC / MODULAR decomposition FE
+        # PART A — PERIODIC / MODULAR decomposition FE
         # (extends Layer 90). For each (col, period) emit x mod period plus its
         # sin/cos phase encoding sin/cos(2*pi*(x mod period)/period). Captures
         # cyclic signals (hour-of-day, day-of-week, sensor cycles) that any
@@ -1672,7 +1672,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_modular_enable: bool = False,
         fe_modular_periods: tuple = (7, 12, 24, 30, 365),
         fe_modular_top_k: int = 6,
-        # 2026-06-01 Layer 95 PART B — PER-GROUP DISTRIBUTION-DISTANCE FE
+        # PART B — PER-GROUP DISTRIBUTION-DISTANCE FE
         # (extends Layer 88). For each (group, num) emit how far the row's GROUP
         # distribution sits from the GLOBAL one: group-level z
         # ((group_mean-global_mean)/global_std), per-group KL divergence, and
@@ -1685,7 +1685,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_group_distance_top_k: int = 6,
         fe_group_distance_group_cols: tuple = (),
         fe_group_distance_num_cols: tuple = (),
-        # 2026-06-01 Layer 104 — THREE new recipe-based FE families. All default
+        # THREE new recipe-based FE families. All default
         # OFF -> byte-identical legacy path.
         #   A) rare-category indicator + frequency-band: a category being RARE is
         #      itself predictive (rare merchant = fraud risk). Emits is_rare_{col}
@@ -1722,7 +1722,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_rankgauss_enable: bool = False,
         fe_rankgauss_cols: tuple = (),
         fe_rankgauss_top_k: int = 10,
-        # 2026-06-01 Layer 92 — TEMPORAL LEAK-SAFE GROUPED AGGREGATIONS. Layer
+        # TEMPORAL LEAK-SAFE GROUPED AGGREGATIONS. Layer
         # 87 grouped aggregates compute the per-group statistic over the WHOLE
         # train fold; for time-series / transaction data that peeks at a row's
         # own future (the per-entity mean includes the entity's LATER rows),
@@ -1749,7 +1749,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         # memory footprint byte-identical.
         retain_artifacts: bool = False,
         retain_bins: bool = True,
-        # 2026-05-31 Layer 53 — incremental / streaming refit support via
+        # incremental / streaming refit support via
         # ``partial_fit(X_new, y_new)``. Default-OFF byte-identical with
         # legacy fit(): the partial_fit method is opt-in only. Knobs:
         #   partial_fit_decay : float in [0, 1]. 0 = no decay (concatenate
@@ -1772,7 +1772,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         partial_fit_decay: float = 0.0,
         partial_fit_min_recompute: int = 100,
         partial_fit_window: int = None,
-        # 2026-06-01 Layer 99 — META FE-RECOMMENDER "1-knob" mode. Default OFF
+        # META FE-RECOMMENDER "1-knob" mode. Default OFF
         # -> byte-identical legacy path (individual fe_*_enable defaults
         # untouched). When True, fit() fingerprints (X, y) BEFORE the FE stages
         # run and asks the Layer-99 rule recommender (built on the Layer-98
@@ -1788,7 +1788,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_auto: bool = False,
         # hidden
         stop_file: str = "stop",
-        # iter79: content-addressable disk cache for the per-column adaptive bin-edge stage. ``None``
+        # content-addressable disk cache for the per-column adaptive bin-edge stage. ``None``
         # (default) disables. When set, ``per_feature_edges`` caches each column's edge array keyed
         # by (column-summary, method, kwargs, y-summary-when-supervised); re-fits on the same X+y
         # skip the per-column edge-builder. Most useful for hyperparam sweeps and ablations where
@@ -1855,7 +1855,7 @@ class MRMR(BaseEstimator, TransformerMixin):
     _VALID_NAN_STRATEGIES = ("separate_bin", "fillna_zero", "ffill_bfill", "propagate", "raise")
     _VALID_MRMR_RELEVANCE_ALGOS = ("fleuret", "pld")
     _VALID_MRMR_REDUNDANCY_ALGOS = ("fleuret", "pld_max", "pld_mean")
-    # 2026-05-29 Wave 7: adaptive per-feature bin-edge chooser.
+    # adaptive per-feature bin-edge chooser.
     # MRMR's MI computation stays exclusively on the integer-bin plug-in path
     # (see bench_adaptive_nbins / bench_adaptive_nbins_mega). Alternative MI
     # estimators (KSG, MINE, InfoNet, MIST, fastMI, aggregators) are
@@ -1867,13 +1867,13 @@ class MRMR(BaseEstimator, TransformerMixin):
         "mdlp", "fayyad_irani", "optimal_joint", "cv",
         "mah", "mah_sci", "sci", "marx",  # Marx 2021 SCI-guided adaptive
     )
-    # 2026-05-30 Wave 8 opt-in validation sets.
+    # opt-in validation sets.
     _VALID_MI_CORRECTIONS = ("none", "miller_madow", "chao_shen")
     _VALID_REDUNDANCY_AGGREGATORS = (None, "jmim")
     _VALID_STABILITY_SELECTION_METHODS = (
         "classic", "cluster", "complementary_pairs",
     )
-    # 2026-05-29: per mega-bench v3 Knuth (MI_mean 0.342, weak on uniform),
+    # per mega-bench v3 Knuth (MI_mean 0.342, weak on uniform),
     # Bayesian Blocks (MI_mean 0.272, weakest overall), and MAH/SCI
     # (MI_mean 0.168, catastrophic on noisy continuous signals due to
     # over-aggressive SCI-greedy bin merging that collapses to ~2 bins)
@@ -1887,7 +1887,7 @@ class MRMR(BaseEstimator, TransformerMixin):
     _VALID_FE_UNARY_PRESETS = ("minimal", "medium", "maximal")
     _VALID_FE_BINARY_PRESETS = ("minimal", "medium", "maximal")
     _VALID_CLUSTER_AGGREGATE_MODES = ("augment", "replace")
-    # Layer 44 (2026-05-31): the cluster_aggregate method allow-list expands
+    # the cluster_aggregate method allow-list expands
     # to include the four new combiners (``pca_pc2``, ``median_z``,
     # ``signed_max_abs``, ``signed_l2_sum``) so direct ``cluster_aggregate_methods``
     # API users can pin them individually, not just reach them via DCD ``auto``.
@@ -1895,14 +1895,14 @@ class MRMR(BaseEstimator, TransformerMixin):
         "mean_z", "mean_inv_var", "median", "pca_pc1", "factor_score",
         "pca_pc2", "median_z", "signed_max_abs", "signed_l2_sum",
     )
-    # 2026-05-30 Wave 9 — DCD validation constants. swap_methods alias the
+    # DCD validation constants. swap_methods alias the
     # cluster_aggregate methods (Critic2/E fix: no duplicate constant).
-    # Layer 46 (2026-05-31): ``"auto"`` runs SU and VI in parallel per pair
+    # ``"auto"`` runs SU and VI in parallel per pair
     # and returns the tighter redundancy score (``max(SU, VI_sim)``). Catches
     # both linear-friendly duplicates (SU strong) and non-linear functional
     # equivalences like y = f(x^2) (VI strong, SU silent).
     _VALID_DCD_DISTANCES = ("su", "vi", "sotoca_pla", "auto")
-    # Layer 44: DCD ``dcd_swap_method`` accepts the same expanded combiner set
+    # DCD ``dcd_swap_method`` accepts the same expanded combiner set
     # so users can pin a single new method instead of relying on ``auto``.
     _VALID_DCD_SWAP_METHODS = (
         "auto", "mean_z", "mean_inv_var", "median", "pca_pc1", "factor_score",
@@ -1915,7 +1915,7 @@ class MRMR(BaseEstimator, TransformerMixin):
     # RFECV fit.
     _VALID_RFECV_SELECTION_RULES = ("auto", "argmax", "one_se_min", "one_se_max")
 
-    # 2026-06-01 Layer 85 — accepted values for
+    # accepted values for
     # ``fe_hybrid_orth_default_scorer``. "plug_in" preserves Layer 21's
     # behaviour byte-for-byte; the other 12 entries route the univariate
     # basis-selection stage through the Layers listed alongside.
@@ -1940,7 +1940,7 @@ class MRMR(BaseEstimator, TransformerMixin):
     def recommend_default_scorer(cls) -> str:
         """Return the empirically-best ``fe_hybrid_orth_default_scorer`` value.
 
-        Layer 83's 7-dataset x 10-mechanism showdown placed CMIM (Layer 74)
+        's 7-dataset x 10-mechanism showdown placed CMIM (Layer 74)
         first on real sklearn data: 5/7 dataset wins on top-AUC of the
         downstream LogReg over the marginal-MI baseline, including all
         three high-redundancy fixtures where the conditional-MI
@@ -1949,7 +1949,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         last on every redundant fixture. Callers that do not know which
         scorer to pick should default to the return value of this method.
 
-        Layer 86 (2026-06-01) accelerated JMIM (~2.3x) and TC (~5.0x)
+        accelerated JMIM (~2.3x) and TC (~5.0x)
         via batched quantile binning + invariant support-side joint
         precompute; the perf improvement does NOT change the L83 AUC
         leaderboard (CMIM still wins 5/7) because the scorer math is
@@ -1969,7 +1969,7 @@ class MRMR(BaseEstimator, TransformerMixin):
     # in ``_mrmr_validate_transform.py`` and bound onto this class at the
     # bottom of this module.
 
-    # 2026-05-30 Wave 8 — opt-in stability-selection outer-loop wrapper.
+    # opt-in stability-selection outer-loop wrapper.
     # Routes to Faletto-Bien 2022 Cluster Stability Selection or
     # Shah-Samworth 2013 Complementary Pairs Stability when
     # ``stability_selection_method != 'classic'``. The classic path falls
@@ -2115,12 +2115,12 @@ class MRMR(BaseEstimator, TransformerMixin):
             "cat_fe_config": None,
             "_cat_fe_state_": None,
             "_cat_fe_cache_": None,  # streaming cache; None on legacy pickles
-            "strict_groups": False,  # added 2026-05-25; legacy pickles default to warn-only behaviour
+            "strict_groups": False,  # legacy pickles default to warn-only behaviour
             # Renamed from skip_retraining_on_same_shape (misnomer; cache keys on content). Legacy pickles carry only the old attr; inject the new one so _fit_impl's getattr resolves.
             "skip_retraining_on_same_content": True,
             # Identity-cache y-correlation gate (added later); legacy pickles default to 0.0 (gate off = legacy any-X-fingerprint short-circuit) to preserve their behaviour bit-for-bit.
             "mrmr_identity_cache_ycorr_threshold": 0.0,
-            # Friend-graph post-analysis (added 2026-05-27). Legacy pickles refit with the
+            # Friend-graph post-analysis. Legacy pickles refit with the
             # current defaults; ``friend_graph_`` itself is a fitted attribute, not seeded here.
             "build_friend_graph": True,
             "friend_graph_prune": False,
@@ -2130,13 +2130,13 @@ class MRMR(BaseEstimator, TransformerMixin):
             "friend_graph_garbage_min_degree": 3,
             "friend_graph_unique_ratio": 1.0,
             "friend_graph_unique_max_degree": 1,
-            # Clustered-feature aggregation (added 2026-05-27). ENABLED by default
+            # Clustered-feature aggregation. ENABLED by default
             # (cluster_aggregate_enable=True); legacy pickles refit with these
             # defaults so an attribute-less pickle behaves like a fresh MRMR.
-            # 2026-06-03 (audit cluster-aggregate-1): mode was "augment" here but
-            # the constructor default is "replace" (the deliberate Wave-8 fix for
-            # the duplicate-vote effect) -- legacy pickles must refit to the
-            # corrected behaviour, not the superseded one.
+            # Mode was "augment" here but the constructor default is "replace"
+            # (the deliberate fix for the duplicate-vote effect) -- legacy
+            # pickles must refit to the corrected behaviour, not the
+            # superseded one.
             "cluster_aggregate_enable": True,
             "cluster_aggregate_mode": "replace",
             "cluster_aggregate_methods": ("mean_z",),
@@ -2147,16 +2147,16 @@ class MRMR(BaseEstimator, TransformerMixin):
             "cluster_aggregate_corr_threshold": 0.6,
             "cluster_aggregate_homogeneity_tau": 0.6,
             "cluster_aggregate_max_candidates": 200,
-            # 2026-05-31 Layer 23 — hybrid orthogonal-poly FE auto-wire.
+            # hybrid orthogonal-poly FE auto-wire.
             # Defaults preserve legacy behaviour: master switch OFF, so old
             # pickles unpickle to "hybrid FE disabled".
-            # 2026-06-02 — per-operand pre-warp for the unary/binary pair search.
+            # per-operand pre-warp for the unary/binary pair search.
             # OFF by default; legacy pickles unpickle to "pre-warp disabled".
             "fe_pair_prewarp_enable": False,
             "fe_pair_prewarp_basis": "chebyshev",
             "fe_pair_prewarp_max_degree": 4,
             "fe_pair_prewarp_uplift_threshold": 1.20,
-            # 2026-06-04 — per-operand median gate for the unary/binary pair
+            # per-operand median gate for the unary/binary pair
             # search. OFF by default; legacy pickles unpickle to "gate disabled".
             "fe_gate_med_enable": False,
             "fe_hybrid_orth_enable": False,
@@ -2165,124 +2165,124 @@ class MRMR(BaseEstimator, TransformerMixin):
             "fe_hybrid_orth_top_k": 5,
             "fe_hybrid_orth_pair_enable": True,
             "fe_hybrid_orth_pair_max_degree": 2,
-            # 2026-05-31 Layer 56 — triplet cross-basis FE defaults.
+            # triplet cross-basis FE defaults.
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_hybrid_orth_triplet_enable": False,
             "fe_hybrid_orth_triplet_max_degree": 1,
             "fe_hybrid_orth_triplet_seed_k": 4,
             "fe_hybrid_orth_triplet_top_count": 2,
-            # 2026-06-01 Layer 77 — quadruplet (4-way) cross-basis FE defaults.
+            # quadruplet (4-way) cross-basis FE defaults.
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_hybrid_orth_quadruplet_enable": False,
             "fe_hybrid_orth_quadruplet_max_degree": 1,
             "fe_hybrid_orth_quadruplet_seed_k": 4,
             "fe_hybrid_orth_quadruplet_top_count": 2,
-            # 2026-06-01 Layer 78 — adaptive-arity cross-basis FE defaults.
+            # adaptive-arity cross-basis FE defaults.
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_hybrid_orth_adaptive_arity_enable": False,
             "fe_hybrid_orth_adaptive_arity_max_arity": 3,
             "fe_hybrid_orth_adaptive_arity_max_degree": 1,
             "fe_hybrid_orth_adaptive_arity_seed_k": 4,
             "fe_hybrid_orth_adaptive_arity_top_count": 3,
-            # 2026-06-01 Layer 80 — semi-supervised basis-preprocess fitting.
+            # semi-supervised basis-preprocess fitting.
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_semi_supervised_enable": False,
-            # 2026-06-01 Layer 81 — Lasso-based pre-selection defaults.
+            # Lasso-based pre-selection defaults.
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_hybrid_orth_lasso_enable": False,
             "fe_hybrid_orth_lasso_alpha": 0.01,
-            # 2026-06-01 Layer 82 — Elastic Net (L1 + L2) pre-selection defaults.
+            # Elastic Net (L1 + L2) pre-selection defaults.
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_hybrid_orth_elasticnet_enable": False,
             "fe_hybrid_orth_elasticnet_alpha": 0.01,
             "fe_hybrid_orth_elasticnet_l1_ratio": 0.5,
-            # 2026-05-31 Layer 57 — adaptive per-column degree defaults.
+            # adaptive per-column degree defaults.
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_hybrid_orth_adaptive_degree_enable": False,
             "fe_hybrid_orth_adaptive_degree_range": (1, 2, 3, 4, 5, 6),
             "fe_hybrid_orth_adaptive_degree_min_uplift": 1.05,
-            # 2026-05-31 Layer 58 — conditional basis routing FE defaults.
+            # conditional basis routing FE defaults.
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_hybrid_orth_conditional_routing_enable": False,
             "fe_hybrid_orth_conditional_routing_top_k": 5,
             "fe_hybrid_orth_conditional_routing_min_uplift": 1.10,
             "fe_hybrid_orth_conditional_routing_degrees": (2, 3),
-            # 2026-05-31 Layer 59 — diff-basis FE defaults.
+            # diff-basis FE defaults.
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_hybrid_orth_diff_basis_enable": False,
             "fe_hybrid_orth_diff_basis_corr_threshold": 0.7,
             "fe_hybrid_orth_diff_basis_degrees": (1, 2, 3),
             "fe_hybrid_orth_diff_basis_top_k": 3,
-            # 2026-05-31 Layer 61 — per-cluster shared-basis FE defaults.
+            # per-cluster shared-basis FE defaults.
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_hybrid_orth_cluster_basis_enable": False,
             "fe_hybrid_orth_cluster_basis_aggregator": "mean_z",
             "fe_hybrid_orth_cluster_basis_degrees": (2, 3),
             "fe_hybrid_orth_cluster_basis_top_k": 3,
-            # 2026-05-31 Layer 62 — bootstrap-stable MI ranking defaults.
+            # bootstrap-stable MI ranking defaults.
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_hybrid_orth_bootstrap_enable": False,
             "fe_hybrid_orth_bootstrap_n_boot": 10,
             "fe_hybrid_orth_bootstrap_sample_fraction": 0.8,
-            # 2026-05-31 Layer 63 — three-gate + K-fold OOF MI defaults.
+            # three-gate + K-fold OOF MI defaults.
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_hybrid_orth_three_gate_enable": False,
             "fe_hybrid_orth_three_gate_n_folds": 5,
             "fe_hybrid_orth_three_gate_cmi_min": 0.001,
-            # 2026-05-31 Layer 65 — KSG / k-NN MI ranking defaults.
+            # KSG / k-NN MI ranking defaults.
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_hybrid_orth_ksg_enable": False,
             "fe_hybrid_orth_ksg_n_neighbors": 3,
             "fe_hybrid_orth_ksg_min_uplift": 0.95,
             "fe_hybrid_orth_ksg_min_abs_mi_frac": 0.05,
-            # 2026-06-01 Layer 66 — copula-MI ranking defaults.
+            # copula-MI ranking defaults.
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_hybrid_orth_copula_enable": False,
             "fe_hybrid_orth_copula_n_bins": 20,
-            # 2026-06-01 Layer 67 — distance-correlation ranking defaults.
+            # distance-correlation ranking defaults.
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_hybrid_orth_dcor_enable": False,
             "fe_hybrid_orth_dcor_n_sample": 500,
-            # 2026-06-01 Layer 71 — HSIC ranking defaults.
+            # HSIC ranking defaults.
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_hybrid_orth_hsic_enable": False,
             "fe_hybrid_orth_hsic_kernel": "rbf",
             "fe_hybrid_orth_hsic_n_sample": 500,
-            # 2026-06-01 Layer 72 — JMIM (Bennasar 2015) defaults.
+            # JMIM (Bennasar 2015) defaults.
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_hybrid_orth_jmim_enable": False,
             "fe_hybrid_orth_jmim_n_bins": 10,
-            # 2026-06-01 Layer 73 — TC (Watanabe 1960) ranking defaults.
+            # TC (Watanabe 1960) ranking defaults.
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_hybrid_orth_tc_enable": False,
             "fe_hybrid_orth_tc_n_bins": 10,
-            # 2026-06-01 Layer 74 — CMIM (Fleuret 2004) ranking defaults.
+            # CMIM (Fleuret 2004) ranking defaults.
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_hybrid_orth_cmim_enable": False,
             "fe_hybrid_orth_cmim_n_bins": 10,
-            # 2026-06-01 Layer 68 — per-column scorer auto-selection defaults.
+            # per-column scorer auto-selection defaults.
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_hybrid_orth_auto_scorer_enable": False,
             "fe_hybrid_orth_auto_scorer_n_boot": 5,
-            # 2026-06-01 Layer 69 — ensemble rank-fusion defaults.
+            # ensemble rank-fusion defaults.
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_hybrid_orth_ensemble_enable": False,
             "fe_hybrid_orth_ensemble_aggregator": "mean_rank",
             "fe_hybrid_orth_ensemble_scorers": (
                 "plug_in", "ksg", "copula", "dcor", "hsic",
             ),
-            # 2026-06-01 Layer 76 — meta-scorer auto-selection defaults.
+            # meta-scorer auto-selection defaults.
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_hybrid_orth_meta_enable": False,
             "fe_hybrid_orth_meta_force_scorer": None,
-            # 2026-05-31 Layer 32 — extra-basis (spline / fourier) defaults.
+            # extra-basis (spline / fourier) defaults.
             "fe_hybrid_orth_extra_bases": (),
             "fe_hybrid_orth_fourier_freqs": (1.0, 2.0),
             "fe_hybrid_orth_spline_knots": 5,
             # Fitted attribute (list of engineered names from hybrid stage);
             # legacy pickles default to empty list.
             "hybrid_orth_features_": [],
-            # 2026-05-31 Layer 26 — MI-greedy FE constructor. Defaults
+            # MI-greedy FE constructor. Defaults
             # preserve legacy behaviour: master switch OFF.
             "fe_mi_greedy_enable": False,
             "fe_mi_greedy_top_k": 5,
@@ -2290,20 +2290,20 @@ class MRMR(BaseEstimator, TransformerMixin):
             "fe_mi_greedy_include_unary": True,
             "fe_mi_greedy_include_binary": True,
             "mi_greedy_features_": [],
-            # 2026-05-31 Layer 60 — CMI-greedy FE constructor. Defaults
+            # CMI-greedy FE constructor. Defaults
             # preserve legacy behaviour: master switch OFF.
             "fe_mi_greedy_cmi_enable": False,
             "fe_mi_greedy_cmi_top_k": 5,
             "fe_mi_greedy_cmi_seed_cols_count": 4,
             "fe_mi_greedy_cmi_min_gain": 0.005,
-            # 2026-05-31 Layer 33 — K-fold target-encoding FE defaults.
+            # K-fold target-encoding FE defaults.
             # Master switch OFF preserves legacy pickle byte-equivalence.
             "fe_kfold_te_enable": False,
             "fe_kfold_te_cols": (),
             "fe_kfold_te_folds": 5,
             "fe_kfold_te_smoothing": 10.0,
             "kfold_te_features_": [],
-            # 2026-05-31 Layer 34 — count / frequency / cat x num residual.
+            # count / frequency / cat x num residual.
             # Master switches OFF preserve legacy pickle byte-equivalence.
             "fe_count_encoding_enable": False,
             "fe_count_encoding_cols": (),
@@ -2317,15 +2317,15 @@ class MRMR(BaseEstimator, TransformerMixin):
             "count_encoding_features_": [],
             "frequency_encoding_features_": [],
             "cat_num_interaction_features_": [],
-            # 2026-06-01 Layer 91 — two-tier IT gates on the recipe-emitting
+            # two-tier IT gates on the recipe-emitting
             # FE mechanisms. Master switches OFF preserve legacy pickle
             # byte-equivalence.
-            "fe_local_mi_gate": True,  # 2026-06-01 Layer 97 default-flip (corrective gate, see __init__)
+            "fe_local_mi_gate": True,  # default-flip (corrective gate, see __init__)
             "fe_local_mi_gate_top_k": 20,
             "fe_unified_second_pass_gate": False,
             "fe_unified_second_pass_max_keep": None,
             "fe_unified_second_pass_min_gain": 0.005,
-            # 2026-05-31 Layer 53 — partial_fit / streaming refit.
+            # partial_fit / streaming refit.
             # Legacy pickles default OFF (decay 0, threshold 100, no window);
             # fitted-state buffers default to None until partial_fit is called.
             "partial_fit_decay": 0.0,
@@ -2335,7 +2335,7 @@ class MRMR(BaseEstimator, TransformerMixin):
             "_partial_fit_y_buffer_": None,
             "_partial_fit_n_seen_": 0,
             "_partial_fit_n_since_refit_": 0,
-            # 2026-05-31 Layer 54 — FE provenance tracking.
+            # FE provenance tracking.
             # Legacy pickles default to ``None`` and the empty predictor log;
             # the next fit() repopulates from the live greedy run.
             "fe_provenance_": None,
@@ -2343,10 +2343,10 @@ class MRMR(BaseEstimator, TransformerMixin):
             # Produced-recipes audit ledger: every EngineeredRecipe the FE stages emitted this fit (pre-screen). fe_provenance_ reads it so the audit / pickle-replay paths recover which mechanism
             # produced each engineered column even when the greedy CMI screen dropped it. Legacy pickles default to [] and the next fit() repopulates from the live FE run.
             "_produced_recipes_": [],
-            # 2026-06-01 Layer 99 — fe_auto "1-knob" mode. Pre-L99 pickles
+            # fe_auto "1-knob" mode. Pre-L99 pickles
             # default to False -> byte-identical legacy path on reload.
             "fe_auto": False,
-            # 2026-06-01 Layer 104 — three new recipe-based FE families.
+            # three new recipe-based FE families.
             # Master switches OFF preserve legacy pickle byte-equivalence;
             # fitted-attr lists default empty until the next fit repopulates.
             "fe_rare_category_enable": False,
@@ -2364,13 +2364,13 @@ class MRMR(BaseEstimator, TransformerMixin):
             "rare_category_features_": [],
             "conditional_residual_features_": [],
             "rankgauss_features_": [],
-            # 2026-06-03 — ADAPTIVE-FREQUENCY Fourier. Pre-adaptive pickles
+            # ADAPTIVE-FREQUENCY Fourier. Pre-adaptive pickles
             # default to the on/0.15 contract for re-fits; the fitted-attr
             # list defaults empty (no adaptive features replayed on reload
             # until the next fit repopulates it).
             "fe_univariate_fourier_adaptive": True,
             "fe_univariate_fourier_adaptive_min_val_corr": 0.15,
-            # 2026-06-03 — ADAPTIVE-CHIRP Fourier. Pre-chirp pickles default to
+            # ADAPTIVE-CHIRP Fourier. Pre-chirp pickles default to
             # the on/0.15 contract for re-fits (the chirp legs share the
             # adaptive-feature capture/protection list above).
             "fe_univariate_fourier_chirp": True,
@@ -2507,7 +2507,7 @@ class MRMR(BaseEstimator, TransformerMixin):
 
         Wrapper / _fit_impl forwarding asymmetry: ``sample_weight`` is CONSUMED at this wrapper level (via ``_maybe_resample_for_sample_weight`` before the ``_fit_impl`` call); ``groups`` is FORWARDED into ``_fit_impl`` which then silently drops them. A future refactor moving ``groups`` consumption into ``_fit_impl`` must also remove or downgrade the wrapper-level warning, otherwise the two ends would emit duplicate / contradictory messages.
 
-        2026-05-18 #2: cross-target identity cache. When a prior fit on the SAME X (same columns + same dtypes) produced an identity result (all input columns selected + zero engineered features), subsequent calls with a different y short-circuit the 80+ min FE pipeline and return identity-equivalent output. Opt-in via ``mrmr_skip_when_prior_was_identity=True``."""
+        Cross-target identity cache. When a prior fit on the SAME X (same columns + same dtypes) produced an identity result (all input columns selected + zero engineered features), subsequent calls with a different y short-circuit the 80+ min FE pipeline and return identity-equivalent output. Opt-in via ``mrmr_skip_when_prior_was_identity=True``."""
         self.groups_ignored_ = False
         if groups is not None:
             if getattr(self, "strict_groups", False):
@@ -2531,7 +2531,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         self._pandas_frame_for_target_cleanup = None
         self._target_names_for_cleanup = None
 
-        # 2026-05-30 Wave 8 — Stability-selection outer-loop short-circuit.
+        # Stability-selection outer-loop short-circuit.
         # When ``stability_selection_method`` is 'cluster' or
         # 'complementary_pairs', delegate to the bootstrap aggregator before
         # the legacy single-fit body executes.
@@ -2553,7 +2553,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                 if _stab_result is not None:
                     return _stab_result
 
-        # TODO B (2026-05-28): reject NaN/Inf in y at fit entry, matching the
+        # TODO: reject NaN/Inf in y at fit entry, matching the
         # sibling selectors (RFECV / ShapProxiedFS). Pre-fix MRMR let NaN flow
         # into the MI scorer and silently degraded relevance numbers. The
         # shared selector-contract test suite caught this asymmetry. Skip the
@@ -2570,7 +2570,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                     f"before fitting."
                 )
 
-        # 2026-05-18 #2 cross-target identity cache.
+        # #2 cross-target identity cache.
         _identity_skip = bool(getattr(self, "mrmr_skip_when_prior_was_identity", False))
         _include_y = bool(getattr(self, "mrmr_identity_cache_include_y", False))
         # Suite caller (train_mlframe_models_suite) can inject a ctx-scoped dict here via
@@ -2623,7 +2623,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         self._fit_sample_weight_ = None if sample_weight is None else np.asarray(sample_weight, dtype=np.float64)
         X, y = self._maybe_resample_for_sample_weight(X, y, self._fit_sample_weight_)
 
-        # 2026-06-01 Layer 99 — fe_auto "1-knob" mode. BEFORE the FE stages run,
+        # fe_auto "1-knob" mode. BEFORE the FE stages run,
         # ask the rule recommender which master FE generators match this (X, y)
         # data shape and flip exactly those fe_*_enable flags ON for this fit
         # (auto only ADDS; a flag the user already set True is left True). The
@@ -2652,7 +2652,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                 )
                 _fe_auto_restore = {}
 
-        # 2026-05-28: activate thread-local SU normalization when mi_normalization='su'.
+        # activate thread-local SU normalization when mi_normalization='su'.
         # The toggle is read by evaluation.py / Fleuret loops at the scoring site so
         # raw conditional_mi (and cached entropy numbers) stay legacy-bit-stable for
         # the default ``mi_normalization='none'`` path. Restored in finally so a
@@ -2665,14 +2665,14 @@ class MRMR(BaseEstimator, TransformerMixin):
             )
         _prev_su = _mi_norm == "su"
         set_su_normalization(_prev_su)
-        # 2026-05-30 Wave 8 — activate JMIM aggregator + BUR weight thread-locals.
+        # activate JMIM aggregator + BUR weight thread-locals.
         # Both default OFF (redundancy_aggregator=None, bur_lambda=0.0) so the
         # legacy Fleuret path stays bit-stable.
         _jmim_on = getattr(self, "redundancy_aggregator", None) == "jmim"
         _bur_lambda = float(getattr(self, "bur_lambda", 0.0) or 0.0)
         set_jmim_aggregator(_jmim_on)
         set_bur_lambda(_bur_lambda)
-        # 2026-05-30 Wave 9 — activate DCD thread-local. The DCDState dataclass
+        # activate DCD thread-local. The DCDState dataclass
         # is constructed inside ``_screen_predictors`` (passed via dcd_config
         # kwarg) — joblib-safe; the thread-local is only the read-only branch
         # toggle. Reset in finally.
@@ -2696,7 +2696,7 @@ class MRMR(BaseEstimator, TransformerMixin):
             try:
                 from mlframe.training.provenance import record_provenance as _record_provenance
                 _n_rows = int(X.shape[0]) if hasattr(X, "shape") else None
-                # 2026-05-30 Wave 9.1 fix (loop iter 6): read ``random_seed``
+                # 1 fix (loop iter 6): read ``random_seed``
                 # (the documented public API) instead of ``random_state``. The
                 # ctor at mrmr.py:641 promotes ``random_state -> random_seed``
                 # but NOT the reverse, so when the user passed the documented
@@ -2751,7 +2751,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                         )
                 except Exception:
                     pass
-            # Layer 54 (2026-05-31): populate ``fe_provenance_`` from
+            # populate ``fe_provenance_`` from
             # the sibling module so users can audit which engineered
             # columns landed in support_, why (origin + mechanism
             # details) and what each contributed in the greedy gain
@@ -2761,14 +2761,14 @@ class MRMR(BaseEstimator, TransformerMixin):
             self._print_fit_summary()
             return result
         finally:
-            # 2026-05-28: restore SU thread-local to its pre-fit state (always False
+            # restore SU thread-local to its pre-fit state (always False
             # outside of a MRMR fit -- nested fits are not supported by the simple
             # toggle, but neither is the cache layer they would share).
             try:
                 set_su_normalization(False)
             except Exception:
                 pass
-            # 2026-05-30 Wave 8 — reset JMIM + BUR thread-locals.
+            # reset JMIM + BUR thread-locals.
             try:
                 set_jmim_aggregator(False)
             except Exception:
@@ -2777,7 +2777,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                 set_bur_lambda(0.0)
             except Exception:
                 pass
-            # 2026-05-30 Wave 9 — reset DCD thread-local and restore
+            # reset DCD thread-local and restore
             # cluster_aggregate_enable to its constructor value (Critic2 fix:
             # missing reset in v1 plan).
             try:
@@ -2788,7 +2788,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                 self.cluster_aggregate_enable = _orig_cluster_aggregate_enable
             except Exception:
                 pass
-            # Layer 99 — restore any fe_*_enable flags fe_auto flipped ON, so the
+            # restore any fe_*_enable flags fe_auto flipped ON, so the
             # constructor-arg semantics are stable across fits / clone / pickle.
             try:
                 for _flag, _orig in _fe_auto_restore.items():
@@ -2838,7 +2838,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         ALREADY_DEFAULT
             Corrective mechanisms shipped default-True in earlier layers; listed for
             completeness so the recommender never double-recommends them.
-            * ``dcd_enable`` (Wave 9 dynamic cluster discovery, 0.003x overhead)
+            * ``dcd_enable`` (dynamic cluster discovery, 0.003x overhead)
             * ``cardinality_bias_correction`` (Miller-Madow gate bias correction)
             * ``min_relevance_gain_relative_to_first`` (diminishing-returns gate)
             * ``cluster_aggregate_enable`` / ``cluster_aggregate_mode='replace'``
@@ -2953,7 +2953,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         if not artifacts:
             # retain_artifacts=True was set but the in-fit capture did not
             # populate the dict -- likely a fit() path that bypassed
-            # _fit_impl (identity shortcut, FIT_CACHE hit on a pre-Wave-66
+            # _fit_impl (identity shortcut, FIT_CACHE hit on a legacy
             # cached instance, stability-selection outer loop). Surface a
             # clear error so the caller can adjust the pipeline rather than
             # silently consuming an empty dict.
@@ -2968,11 +2968,11 @@ class MRMR(BaseEstimator, TransformerMixin):
     def _fit_identity_shortcut(self, X) -> None:
         """Populate the fit-result attributes as if MRMR returned the input X unchanged.
 
-        Used by the cross-target identity cache (2026-05-18 #2): when a previous fit on the SAME X returned identity (all input columns selected, zero engineered features), subsequent calls with a different y can skip the entire FE pipeline since the only y-dependent thing -- the selected feature subset -- is forced to "all input columns".
+        Used by the cross-target identity cache: when a previous fit on the SAME X returned identity (all input columns selected, zero engineered features), subsequent calls with a different y can skip the entire FE pipeline since the only y-dependent thing -- the selected feature subset -- is forced to "all input columns".
         """
         n_cols = X.shape[1] if X.ndim > 1 else 1
         self.support_ = np.arange(n_cols, dtype=np.int64)
-        # 2026-05-30 Wave 9.1 fix (loop iter 35): the prior expression
+        # 1 fix (loop iter 35): the prior expression
         # ``X.columns.tolist() if hasattr(X.columns, "tolist") else
         # list(X.columns) if hasattr(X, "columns") else [...]`` was a
         # mis-parenthesised ternary. Python parses it as
@@ -2994,7 +2994,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         self.n_features_in_ = int(n_cols)
         self.n_features_ = int(n_cols)
         self.fallback_used_ = False
-        # 2026-05-30 Wave 9.1: set DCD/diagnostic fitted attrs to safe
+        # 1: set DCD/diagnostic fitted attrs to safe
         # defaults so the identity shortcut produces a
         # fitted-state-complete estimator (matches full-fit attribute
         # surface). Without these the cache-replay tests and
@@ -3002,11 +3002,11 @@ class MRMR(BaseEstimator, TransformerMixin):
         # ``sel.mrmr_gains_`` /``sel.friend_graph_`` /
         # ``sel.cluster_aggregate_`` blow up on the shortcut path.
         self.dcd_ = None
-        # Layer 41 (2026-05-31): identity-shortcut path must also expose the
+        # identity-shortcut path must also expose the
         # ``cluster_members_`` attribute (None when DCD was disabled or did
         # not run) so introspection code paths don't AttributeError.
         self.cluster_members_ = None
-        # Layer 48 (2026-05-31): hierarchical post-hoc cluster map. Empty
+        # hierarchical post-hoc cluster map. Empty
         # dict default (matches "DCD ran but found no super-structure" --
         # meaningfully different from None, which would mean DCD disabled).
         # Identity shortcut bypasses DCD entirely, so the empty default is
@@ -3044,7 +3044,7 @@ class MRMR(BaseEstimator, TransformerMixin):
           caller's names. This lets Pipelines that name columns downstream
           (e.g. ColumnTransformer + array math + name re-injection) propagate.
 
-        2026-05-30 Wave 9.1 fix (loop iter 12): pre-fix the ``input_features``
+        Pre-fix the ``input_features``
         argument was accepted but silently ignored on every code path, so:
         (a) Pipeline column-drift detection was bypassed - mismatched
         ``input_features`` produced fit-time names with no warning;
@@ -3066,7 +3066,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         if input_features is not None:
             in_names = np.asarray(input_features, dtype=object)
             saved = np.asarray(self.feature_names_in_, dtype=object)
-            # 2026-05-30 Wave 9.1 fix (loop iter 27): use the
+            # 1 fix (loop iter 27): use the
             # ``_feature_names_in_synthesized_`` sentinel set at fit
             # time instead of the brittle ``startswith("feature_")``
             # heuristic. The heuristic misclassified legitimate
@@ -3117,7 +3117,7 @@ class MRMR(BaseEstimator, TransformerMixin):
             base_names = [fni[i] for i in support]
         return np.asarray(list(base_names) + engineered_names, dtype=object)
 
-    # 2026-05-30 Wave 9.1 fix (loop iter 43): explicit
+    # 1 fix (loop iter 43): explicit
     # ``__sklearn_is_fitted__`` and ``get_support`` so sklearn's
     # ``check_is_fitted`` / ``SelectorMixin`` consumers behave
     # correctly.
@@ -3152,7 +3152,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         """sklearn-1.x transformer protocol. Delegates to the
         implementation in ``_mrmr_validate_transform.py``.
 
-        2026-05-30 Wave 9.1 fix (loop iter 34): defined directly on the
+        Defined directly on the
         class body (rather than late-bound at module bottom) so
         ``_SetOutputMixin.__init_subclass__`` actually wraps it. Pre-fix
         the bottom-of-module ``MRMR.transform = _transform_func`` rebind
@@ -3188,20 +3188,20 @@ from ._mrmr_validate_transform import (  # noqa: E402
 )
 MRMR._validate_string_params = _validate_string_params_func
 MRMR._validate_inputs = _validate_inputs_func
-# 2026-05-30 Wave 9.1 fix (loop iter 34): ``transform`` is now defined
+# 1 fix (loop iter 34): ``transform`` is now defined
 # on the class body above (as a thin delegator) so
 # ``_SetOutputMixin.__init_subclass__`` wraps it correctly. Do NOT
 # late-rebind ``MRMR.transform`` here - that would replay the original
 # bug by stripping the wrapper.
 MRMR._append_engineered = _append_engineered_func
 
-# Layer 53 (2026-05-31): incremental / streaming refit. ``partial_fit``
+# incremental / streaming refit. ``partial_fit``
 # lives in the sibling module so the parent stays under the 1.8k LOC budget;
 # binding here keeps the public sklearn-style API on the class surface.
 from ._mrmr_partial_fit import partial_fit as _partial_fit_func  # noqa: E402
 MRMR.partial_fit = _partial_fit_func
 
-# Layer 54 (2026-05-31): FE provenance report binding. The DataFrame is
+# FE provenance report binding. The DataFrame is
 # populated inside ``fit`` (see _mrmr_fe_provenance.compute_fe_provenance);
 # ``get_fe_report`` is a thin renderer bound here so the public surface
 # stays on the class without forcing the parent module to take a new
@@ -3209,7 +3209,7 @@ MRMR.partial_fit = _partial_fit_func
 from ._mrmr_fe_provenance import get_fe_report as _get_fe_report_func  # noqa: E402
 MRMR.get_fe_report = _get_fe_report_func
 
-# Layer 80 (2026-06-01): semi-supervised fit helper. Importable from the
+# semi-supervised fit helper. Importable from the
 # parent ``mrmr`` namespace so callers can ``from mlframe.feature_selection
 # .filters.mrmr import fit_with_unlabeled`` without reaching into the
 # sibling module path. See ``_semi_supervised_fe`` for full docs.
