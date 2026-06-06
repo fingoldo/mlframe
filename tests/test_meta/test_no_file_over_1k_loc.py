@@ -53,11 +53,6 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # discovery wiring. Sibling carve candidates: the recurrent rerun block
     # and the composite-post tail into per-phase helpers.
     "src/mlframe/training/core/_phase_train_one_target_body.py",
-    # FIXME(carve-wave-next): training/core/_phase_composite_post_xt_ensemble.py
-    # at ~1.17k LOC after the cross-target ensemble + ``compute_valset_metrics``
-    # gating + reporting branch landed. Reasonable next split: the report-emit
-    # loop into ``_phase_composite_post_xt_ensemble_report.py``.
-    "src/mlframe/training/core/_phase_composite_post_xt_ensemble.py",
     # FIXME(carve-wave-next): _flat_torch_module.py at ~1.1k LOC after the F-37
     # BoundedTanh, F-38 CUDA-graph predict cache, F-39 torch.compile predict,
     # F-40 low-level CUDAGraph() rewrite, F-58 first-batch fix, and F-61
