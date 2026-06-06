@@ -14,10 +14,10 @@ from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 
-from mlframe.feature_selection.filters._dcd_metrics import _binarize_aggregate
+from ._dcd_metrics import _binarize_aggregate
 
 if TYPE_CHECKING:
-    from ._dynamic_cluster_discovery import DCDState, SwapDecision
+    from . import DCDState, SwapDecision
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +55,7 @@ def _select_swap_method_auto(
     method to its mean OOF MI. Caches under ``state._auto_method_cache`` keyed
     by ``member_names`` for cheap re-evaluation.
     """
-    from ._cluster_aggregate import _derive_weights
+    from .._cluster_aggregate import _derive_weights
     # Cache lookup -- same cluster, same bake-off result.
     cache = getattr(state, "_auto_method_cache", None)
     if cache is None:
@@ -125,7 +125,7 @@ def _select_swap_method_auto(
                     # vector. Apply the same row-reducer the recipe will use at
                     # replay so the K-fold MI estimate matches the production
                     # path.
-                    from ._cluster_aggregate import (
+                    from .._cluster_aggregate import (
                         _apply_method_nonlinear, _NONLINEAR_METHODS,
                     )
                     if method not in _NONLINEAR_METHODS:
@@ -143,7 +143,7 @@ def _select_swap_method_auto(
                 y_test = y_arr[test_idx]
                 # MI(rep_binned; y_test). Use the mlframe info_theory.mi with
                 # a 2-col data block (rep_binned, y_test).
-                from .info_theory import mi as _mi_func
+                from ..info_theory import mi as _mi_func
                 _data = np.column_stack([
                     rep_binned.astype(np.int64), y_test.astype(np.int64),
                 ])
@@ -215,7 +215,7 @@ def evaluate_swap_candidate(
     decision (Critic1/B-2 pre-confirmation guarantee).
     """
     # ``SwapDecision`` lives in the DCD parent; lazy-import to avoid the parent<->swap import cycle.
-    from mlframe.feature_selection.filters._dynamic_cluster_discovery import SwapDecision
+    from . import SwapDecision
     cluster = state.cluster_anchors.get(anchor, set())
     if len(cluster) < max(int(state.min_cluster_size),
                            int(state.cluster_size_threshold)):
@@ -229,7 +229,7 @@ def evaluate_swap_candidate(
     if cols is None or len(cols) <= max(members):
         return SwapDecision(accept=False)
     try:
-        from ._cluster_aggregate import _standardize_align, _derive_weights
+        from .._cluster_aggregate import _standardize_align, _derive_weights
     except Exception as exc:
         logger.warning(f"DCD swap: failed to import cluster_aggregate helpers: {exc!r}")
         return SwapDecision(accept=False)
@@ -270,7 +270,7 @@ def evaluate_swap_candidate(
         # Layer 44: route all non-linear / row-reduction methods through the
         # shared ``_apply_method_nonlinear`` (median / median_z / signed_max_abs
         # / signed_l2_sum). Linear methods stay on the ``Z @ weights`` fast path.
-        from ._cluster_aggregate import (
+        from .._cluster_aggregate import (
             _apply_method_nonlinear, _NONLINEAR_METHODS,
         )
         if chosen_method in _NONLINEAR_METHODS:
@@ -304,7 +304,7 @@ def evaluate_swap_candidate(
     # Build conditioning set Selected − {anchor}.
     S_minus_anchor = [int(s) for s in selected_vars if int(s) != int(anchor)]
     try:
-        from .info_theory import mi, conditional_mi
+        from ..info_theory import mi, conditional_mi
         if S_minus_anchor:
             rep_relevance = float(conditional_mi(
                 factors_data=data_with_rep,
@@ -352,7 +352,7 @@ def evaluate_swap_candidate(
     # viable swap target on its own. The final branch is whichever of
     # ``aggregate`` / ``best_member`` has the higher CMI -- both have to
     # individually beat the anchor by ``swap_gain_threshold``.
-    from .info_theory import mi as _mi_func, conditional_mi as _cmi_func
+    from ..info_theory import mi as _mi_func, conditional_mi as _cmi_func
     member_relevances: dict = {}
     best_member_idx = -1
     best_member_rel = float("-inf")
@@ -756,7 +756,7 @@ def commit_swap(
         _recipe = decision.recipe_obj
         if isinstance(_recipe, dict):
             try:
-                from .engineered_recipes import build_cluster_aggregate_recipe
+                from ..engineered_recipes import build_cluster_aggregate_recipe
                 _src_names = tuple(
                     str(state.cols[m]) if 0 <= m < len(state.cols) else f"col_{m}"
                     for m in _recipe.get("members", [])
@@ -791,7 +791,7 @@ def commit_swap(
                             # (median / median_z / signed_max_abs / signed_l2_sum)
                             # rebuild via the shared reducer; linear methods
                             # stay on ``Z @ weights``.
-                            from ._cluster_aggregate import (
+                            from .._cluster_aggregate import (
                                 _apply_method_nonlinear, _NONLINEAR_METHODS,
                             )
                             _m = _recipe.get("method")

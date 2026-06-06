@@ -211,7 +211,7 @@ def _kernel_tuning_cache_lookup_tau(factors_data, factors_nbins,
     persists across runs.
     """
     try:
-        from ._kernel_tuning import get_kernel_tuning_cache
+        from .._kernel_tuning import get_kernel_tuning_cache
         _cache = get_kernel_tuning_cache()
         if _cache is None:
             return float(fallback)
@@ -239,7 +239,7 @@ def _kernel_tuning_cache_lookup_tau(factors_data, factors_nbins,
 # Re-exported here so the parent's ``__all__`` and downstream import paths
 # (``from ._dynamic_cluster_discovery import _calibrate_tau_auto``) continue
 # to work unchanged.
-from ._dcd_tau_auto import (
+from .._dcd_tau_auto import (
     _calibrate_tau_auto,
     _detect_valley_between_modes,
     _DCD_DEFAULT_TAU,
@@ -254,7 +254,7 @@ from ._dcd_tau_auto import (
 # downstream import path
 # ``from ._dynamic_cluster_discovery import pair_su_batch`` continues
 # to work alongside ``pair_su``.
-from ._dcd_pair_su_batch import pair_su_batch
+from .._dcd_pair_su_batch import pair_su_batch
 
 
 def _carry_forward_dcd_bookkeeping(state: "DCDState",
@@ -560,7 +560,7 @@ def reattach_raw_representative_after_aggregate_swap(
     best_rel = float("-inf")
     if target is not None and state.factors_data is not None:
         try:
-            from .info_theory import mi as _mi_func
+            from ..info_theory import mi as _mi_func
             tgt = np.asarray(target, dtype=np.int64)
             fn = np.asarray(state.factors_nbins, dtype=np.int64)
             for m in sorted(members):

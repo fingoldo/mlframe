@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Optional
 import numpy as np
 
 if TYPE_CHECKING:
-    from ._dynamic_cluster_discovery import DCDState
+    from . import DCDState
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +106,7 @@ def pair_su(state: DCDState, a: int, b: int,
         # lookups (cold) or 0 + 0 + 2 (warm), preserving bit-equivalent
         # SU since both formulations compute the same H(X_a) + H(X_b) +
         # H(X_a, X_b) -> 2*(H_a + H_b - H_ab)/(H_a + H_b).
-        from .info_theory import entropy, merge_vars
+        from ..info_theory import entropy, merge_vars
         # iter589: cache the int64 view of factors_nbins on state so it
         # is not re-asarray'd every call. ``fn`` is typically already
         # int64 but np.asarray still pays a dispatch.
@@ -165,7 +165,7 @@ def pair_su(state: DCDState, a: int, b: int,
         # score ``1 - VI_norm`` so the membership rule
         # ``score > tau_cluster`` stays semantically aligned with the
         # SU branch ("higher = more redundant -> prune from pool").
-        from .info_theory import mi, entropy, merge_vars
+        from ..info_theory import mi, entropy, merge_vars
         import math
         # iter590: same buffer-reuse + fn_arr cache as the iter589 SU
         # branch above. Replaces per-call np.array([a]) / np.array([b]) /
@@ -232,7 +232,7 @@ def pair_su(state: DCDState, a: int, b: int,
                 "instead. Set dcd_distance to 'su'/'vi'/'auto' to silence this."
             )
             state._warned_sotoca_membership = True
-        from .info_theory import symmetric_uncertainty
+        from ..info_theory import symmetric_uncertainty
         # iter616 caching pattern (fn_arr + pair_buf scratch) retained.
         fn_arr = state._fn_arr_cached
         if fn_arr is None:
@@ -276,7 +276,7 @@ def pair_vi(state: DCDState, a: int, b: int,
     fn = factors_nbins if factors_nbins is not None else state.factors_nbins
     if fd is None or fn is None:
         return 0.0
-    from .info_theory import mi, entropy, merge_vars
+    from ..info_theory import mi, entropy, merge_vars
     fn_arr = state._fn_arr_cached
     if fn_arr is None:
         fn_arr = np.asarray(fn, dtype=np.int64)
