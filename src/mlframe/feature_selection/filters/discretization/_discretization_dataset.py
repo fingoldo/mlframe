@@ -65,7 +65,7 @@ def categorize_dataset(
 ):
     """Convert a DataFrame into an ordinal-encoded ``(n_samples, n_features)`` array. Accepts pandas or polars (DataFrame or LazyFrame -- materialised at the
     boundary). ``missing_strategy`` controls NaN handling: see :func:`_handle_missing`."""
-    from .discretization import (
+    from . import (
         _handle_missing,
         _maybe_collect_lazy,
         _multi_col_factorize_native,
@@ -128,7 +128,7 @@ def categorize_dataset(
     # _adaptive_nbins dispatcher, apply them with np.searchsorted, and pad to
     # the global max nbins so downstream MRMR sees a uniform-nbins matrix.
     if nbins_strategy is not None:
-        from ._adaptive_nbins import per_feature_edges
+        from .._adaptive_nbins import per_feature_edges
         _strategy_kwargs = dict(nbins_strategy_kwargs or {})
         # Pass y if the strategy is supervised.
         _needs_y = str(nbins_strategy).lower() in (
