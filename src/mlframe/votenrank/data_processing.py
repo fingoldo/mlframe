@@ -6,7 +6,7 @@ import numpy as np
 
 
 def preprocess_glue(glue, head=None):
-    for model, count in glue["Model"].value_counts().iteritems():
+    for model, count in glue["Model"].value_counts().items():
         if count == 1:
             break
         to_add = pd.Series(
@@ -44,7 +44,7 @@ def preprocess_glue(glue, head=None):
 
 
 def preprocess_sglue(sglue):
-    for model, count in sglue["Model"].value_counts().iteritems():
+    for model, count in sglue["Model"].value_counts().items():
         if count == 1:
             break
         to_add = pd.Series(

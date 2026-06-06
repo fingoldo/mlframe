@@ -13,7 +13,7 @@ def ranking2top(ranking):
 
 def kendall_tau(df):
     res_d = {}
-    for method, subset in df.iteritems():
+    for method, subset in df.items():
         res_d[method] = subset.apply(lambda x: x.split(":")[1].strip()).tolist()
 
     return {
@@ -31,7 +31,7 @@ def agreement_rate(df, k, top_k=True):
     # agreement.
     res_d = {}
     _k_eff = k
-    for method, subset in df.iteritems():
+    for method, subset in df.items():
         _k_eff = min(_k_eff, len(subset))
         _subset = subset.copy().iloc[:k] if top_k else subset.copy().iloc[-k:]
         res_d[method] = _subset.apply(lambda x: x.split(":")[1].strip()).tolist()

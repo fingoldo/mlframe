@@ -10,7 +10,7 @@ from . import Leaderboard
 
 
 def fine_sorted_ranking(ranking):
-    big_list = [(rank, model) for model, rank in ranking.iteritems()]
+    big_list = [(rank, model) for model, rank in ranking.items()]
     big_list.sort(reverse=True)
     return [model for rank, model in big_list]
 
