@@ -16,6 +16,7 @@ from typing import Sequence
 
 import numpy as np
 import pandas as pd
+from numba import njit, prange
 from numpy.polynomial.hermite import hermval
 from scipy import special as sp
 
@@ -387,6 +388,86 @@ _FE_BUFFER_RAM_BUDGET_RATIO: float = 0.4
 # chunks so the per-pair replay is intact) but always at least one pair per chunk.
 _FE_CHUNK_MAX_COLS_HARD_CAP: int = 65536
 
+# NJIT PARALLEL MATERIALISATION (2026-06-06). The chunk's candidate columns were filled by a PYTHON loop
+# (``out[:, col] = bin_func(a, b)`` per candidate) -- one thread, GIL-held -> serial, the remaining single-core
+# bottleneck after the discretize/MI kernels were batched. ``_materialise_chunk_njit`` fills the WHOLE chunk in a
+# ``prange`` over candidates with ``nogil=True`` -> threads run truly parallel across cores. BIT-IDENTICAL to the
+# numpy bin_funcs: every op is computed in float32 (the buffer + transformed_vars dtype), and the Python-float
+# constants (``1e-9``, ``1.0``) are weak/value-based so the numpy expressions stay float32 too -> same hardware
+# float32 ops, same per-element nan_to_num(nan=0, +-inf=0). Only the elementary closed ops (the default ``minimal``
+# preset + the non-symmetric medium ops) are coded; a chunk containing any other op (hypot / maximal-preset
+# specials) falls back to the per-candidate numpy path for bit-safety.
+_NJIT_BINARY_OP_CODES: dict = {
+    "mul": 0, "add": 1, "sub": 2, "div": 3, "max": 4, "min": 5,
+    "abs_diff": 6, "signed": 7, "ratio_abs": 8,
+}
+
+
+def _njit_binary_op_codes(binary_transformations) -> "np.ndarray | None":
+    """Return an int8 op-code per binary-op name (in registry order), or None if ANY op is not njit-coded
+    (the caller then uses the per-candidate numpy path -- bit-safe for hypot / scipy.special / comparison ops)."""
+    codes = []
+    for name in binary_transformations:
+        c = _NJIT_BINARY_OP_CODES.get(name)
+        if c is None:
+            return None
+        codes.append(c)
+    return np.asarray(codes, dtype=np.int8)
+
+
+@njit(parallel=True, nogil=True, cache=True)
+def _materialise_chunk_njit(tv, a_cols, b_cols, op_codes, out):
+    """Fill ``out[:, k] = op_k(tv[:, a_cols[k]], tv[:, b_cols[k]])`` for all K candidates in a parallel prange,
+    then nan_to_num each value to 0. float32 throughout -> bit-identical to the numpy bin_funcs (see header)."""
+    n = tv.shape[0]
+    K = op_codes.shape[0]
+    eps = np.float32(1e-9)
+    one = np.float32(1.0)
+    zero = np.float32(0.0)
+    for k in prange(K):
+        ai = a_cols[k]
+        bi = b_cols[k]
+        op = op_codes[k]
+        for r in range(n):
+            a = tv[r, ai]
+            b = tv[r, bi]
+            if op == 0:        # mul
+                v = a * b
+            elif op == 1:      # add
+                v = a + b
+            elif op == 2:      # sub
+                v = a - b
+            elif op == 3:      # div = x / (y + sign(y)*eps + eps). numpy/numba promote the float64 ``eps`` literal,
+                # so _safe_div computes in float64 then casts to float32 -> match that exactly (an all-float32 div
+                # would differ in the last bit).
+                sgn = zero if b == zero else (one if b > zero else -one)
+                v = np.float32(np.float64(a) / (np.float64(b) + np.float64(sgn) * 1e-9 + 1e-9))
+            elif op == 4:      # max = np.maximum (nan-propagating)
+                if a != a or b != b:
+                    v = a + b  # nan + anything -> nan (matches np.maximum nan propagation)
+                else:
+                    v = a if a > b else b
+            elif op == 5:      # min = np.minimum (nan-propagating)
+                if a != a or b != b:
+                    v = a + b
+                else:
+                    v = a if a < b else b
+            elif op == 6:      # abs_diff = |a - b|
+                v = abs(a - b)
+            elif op == 7:      # signed = sign(a)*|b|. np.sign(nan)=nan and np.abs(nan)=nan -> propagate nan.
+                if a != a or b != b:
+                    v = a + b
+                else:
+                    sgn = zero if a == zero else (one if a > zero else -one)
+                    v = sgn * abs(b)
+            else:              # op == 8: ratio_abs = a/(|b|+1). numpy/numba promote the float64 ``1.0`` literal ->
+                # compute in float64 then cast, matching the numpy expression's last bit.
+                v = np.float32(np.float64(a) / (np.float64(abs(b)) + 1.0))
+            # np.nan_to_num(nan=0, posinf=0, neginf=0)
+            if not (v == v and v != np.inf and v != -np.inf):
+                v = zero
+            out[r, k] = v
+
 # Shared subsample default across the two FE entry points. ``polynom_pair_fe``
 # already uses 200_000 (validated 2026-05-18: 100k could lose a marginal hermite
 # feature, 200k kept it). The accuracy bench for ``check_prospective_fe_pairs``
@@ -485,30 +566,74 @@ def _compute_one_fe_chunk(
 
     col = 0
     chunk_records: dict = {}  # raw_vars_pair -> (candidates, local_times)
-    for raw_vars_pair in chunk_pairs:
-        candidates = []
-        local_times: dict = {}
-        for transformations_pair in pair_valid_combs[raw_vars_pair]:
-            param_a = transformed_vars[:, vars_transformations[transformations_pair[0]]]
-            param_b = transformed_vars[:, vars_transformations[transformations_pair[1]]]
-            uses_pw = (
-                transformations_pair[0][1] == prewarp_unary
-                or transformations_pair[1][1] == prewarp_unary
-            )
-            with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-                for bin_func_name, bin_func in binary_transformations.items():
-                    start = timer()
-                    try:
-                        chunk_buffer[:, col] = bin_func(param_a, param_b)
-                        _col_view = chunk_buffer[:, col]
-                    except Exception:
-                        logger.error(f"Error when performing {bin_func}")
-                        continue
-                    np.nan_to_num(_col_view, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-                    local_times[bin_func_name] = local_times.get(bin_func_name, 0.0) + (timer() - start)
-                    candidates.append((transformations_pair, bin_func_name, col, uses_pw))
+    _op_codes_by_name = _njit_binary_op_codes(binary_transformations)  # None if ANY op is not njit-coded
+
+    if _op_codes_by_name is not None:
+        # NJIT PARALLEL PATH: record the candidate specs (NO per-candidate Python materialise), then fill the
+        # ENTIRE chunk in ONE prange(nogil) kernel -> threads spread the work across cores. Candidate ORDER is the
+        # SAME (pair x transformations_pair x bin_func) as the numpy path, so the config buffer index ``col`` is
+        # identical, and the float32 op kernel is bit-identical to the numpy bin_funcs (see _materialise_chunk_njit).
+        _name_list = list(binary_transformations.keys())
+        _a_cols: list = []
+        _b_cols: list = []
+        _ops: list = []
+        _cands_by_pair: dict = {}
+        for raw_vars_pair in chunk_pairs:
+            cands = []
+            for transformations_pair in pair_valid_combs[raw_vars_pair]:
+                _ai = vars_transformations[transformations_pair[0]]
+                _bi = vars_transformations[transformations_pair[1]]
+                uses_pw = (
+                    transformations_pair[0][1] == prewarp_unary
+                    or transformations_pair[1][1] == prewarp_unary
+                )
+                for _opn, bin_func_name in enumerate(_name_list):
+                    _a_cols.append(_ai)
+                    _b_cols.append(_bi)
+                    _ops.append(int(_op_codes_by_name[_opn]))
+                    cands.append((transformations_pair, bin_func_name, col, uses_pw))
                     col += 1
-        chunk_records[raw_vars_pair] = (candidates, local_times)
+            _cands_by_pair[raw_vars_pair] = cands
+        _t0 = timer()
+        if col > 0:
+            _materialise_chunk_njit(
+                transformed_vars,
+                np.asarray(_a_cols, dtype=np.int64),
+                np.asarray(_b_cols, dtype=np.int64),
+                np.asarray(_ops, dtype=np.int8),
+                chunk_buffer[:, :col],
+            )
+        # Fold the single batched materialise time evenly across the bin_func names (diagnostic only -- the
+        # per-bin_func breakdown does not affect recovery; the MI/feature selection below is index-driven).
+        _per = (timer() - _t0) / max(len(_name_list), 1)
+        for raw_vars_pair in chunk_pairs:
+            chunk_records[raw_vars_pair] = (_cands_by_pair[raw_vars_pair], {nm: _per for nm in _name_list})
+    else:
+        # NUMPY FALLBACK: a chunk op is not njit-coded (hypot / maximal-preset specials) -> per-candidate path.
+        for raw_vars_pair in chunk_pairs:
+            candidates = []
+            local_times: dict = {}
+            for transformations_pair in pair_valid_combs[raw_vars_pair]:
+                param_a = transformed_vars[:, vars_transformations[transformations_pair[0]]]
+                param_b = transformed_vars[:, vars_transformations[transformations_pair[1]]]
+                uses_pw = (
+                    transformations_pair[0][1] == prewarp_unary
+                    or transformations_pair[1][1] == prewarp_unary
+                )
+                with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+                    for bin_func_name, bin_func in binary_transformations.items():
+                        start = timer()
+                        try:
+                            chunk_buffer[:, col] = bin_func(param_a, param_b)
+                            _col_view = chunk_buffer[:, col]
+                        except Exception:
+                            logger.error(f"Error when performing {bin_func}")
+                            continue
+                        np.nan_to_num(_col_view, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+                        local_times[bin_func_name] = local_times.get(bin_func_name, 0.0) + (timer() - start)
+                        candidates.append((transformations_pair, bin_func_name, col, uses_pw))
+                        col += 1
+            chunk_records[raw_vars_pair] = (candidates, local_times)
 
     out: dict = {}
     if col == 0:
