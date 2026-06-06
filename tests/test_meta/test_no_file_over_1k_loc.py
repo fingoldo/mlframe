@@ -121,11 +121,6 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # Carve candidate: the per-member metric kernels + dispatcher into
     # ``_ensembling_member_metrics.py``.
     "src/mlframe/models/_ensembling_base.py",
-    # FIXME(carve-wave-next): filters/_screen_predictors.py at ~1.03k LOC after
-    # the heavy-tail-gated maxT noise-floor (layer15) for narrow pools landed.
-    # Carve candidate: the noise-floor / maxT calibration block into
-    # ``_screen_predictors_noise_floor.py``.
-    "src/mlframe/feature_selection/filters/_screen_predictors.py",
     # FIXME(carve-wave-next): training/neural/recurrent.py at ~1.01k LOC after
     # the F-44 bf16-mixed auto-promote + F-46 fused-AdamW + F-47 cuDNN
     # persistent-RNN + F-48 nested-tensor + F-51 share_memory_() + F-53

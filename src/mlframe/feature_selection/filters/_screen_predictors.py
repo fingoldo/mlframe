@@ -23,6 +23,7 @@ from pyutilz.system import tqdmu
 
 from ._internals import MAX_CONFIRMATION_CAND_NBINS, MAX_JOBLIB_NBYTES
 from ._confirm_predictor import ScreenContext, confirm_one_predictor
+from ._screen_predictors_prescreen import cardinality_prescreen, compute_fdr_gain_floor
 from .evaluation import get_candidate_name
 from .info_theory import merge_vars
 
@@ -449,77 +450,11 @@ def screen_predictors(
         classes_y, freqs_y, _ = merge_vars(factors_data=factors_data, vars_indices=y, var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype)
         classes_y_safe = classes_y.copy()
 
-        # 2026-05-30: cardinality-bias pre-screen. The Miller-Madow bias on plug-in
-        # MI is ~(|X|-1)*(|Y|-1)/(2n) nats. When this bias exceeds a sizable fraction
-        # of H(y) the raw plug-in MI is dominated by the bias term and the feature
-        # cannot be reliably scored; user_id-style 1200-level cats are the classic
-        # case (Layer 10 seed=101 hijack: user_id bias 0.24 nats vs H(y) 0.097 nats
-        # = 2.5x H(y); under any default config user_id wins the raw-MI race). The
-        # threshold is set so a column whose MM bias exceeds the entropy of the
-        # target is rejected as "too cardinality-biased to score honestly" - the
-        # user should bin / target-encode such columns first. Numeric features
-        # binned to <=20 cells trivially pass (bias <0.01 nats at n>=1000).
+        # Cardinality-bias pre-screen: drop columns whose Miller-Madow plug-in-MI bias is too large to score honestly (nbins_x > 2*sqrt(n)). See ``cardinality_prescreen``.
         if cardinality_bias_correction and factors_data.shape[1] > 0:
-            _n_for_screen = int(factors_data.shape[0])
-            _y_idx_for_screen = int(y[0]) if hasattr(y, "__len__") else int(y)
-            _nbins_y_for_screen = int(factors_nbins[_y_idx_for_screen])
-            # Hard cardinality limit: refuse columns where the joint (X, y)
-            # contingency table has more cells than half the samples. Plug-in
-            # MI on such a table is dominated by finite-sample artefact - the
-            # expected occupancy per cell is < 2, making the empirical
-            # distribution effectively uniform over each row of X. This is
-            # exactly the user_id-hijack regime (Layer 10 seed=101: 1200 *
-            # 2 = 2400 cells vs n=2500; raw plug-in MI 0.328 is almost entirely
-            # bias, Miller-Madow leaves only 0.088 after correction). The 0.5*n
-            # threshold matches the cat-FE safety gate's effective limit
-            # (cat_interactions.py:167 refuses nbins > 2*sqrt(n) = 100 at
-            # n=2500, equivalent to 200 cells with binary y under the same
-            # criterion). Users who want to score such columns must bin /
-            # target-encode them first, or set cardinality_bias_correction=False.
-            # Layer 29 fix (2026-05-31): the original criterion ``nbins_x *
-            # nbins_y > 0.5 * n`` was calibrated for the user_id-hijack
-            # pattern (large nbins_x against a small nbins_y like binary y),
-            # but it over-fires catastrophically for continuous regression
-            # targets where nbins_y is the number of unique y values (e.g.
-            # 192 for sklearn diabetes). At n=309 with nbins_y=192, even a
-            # well-binned feature (nbins_x=5) yields 5*192=960 cells > 154
-            # budget -> all 9 features refused -> support_=['age'] via
-            # fallback -> downstream R2=0.02 (catastrophic regression).
-            # The semantic intent is "feature cardinality too high for n
-            # samples", which is independent of y. Switch to the cat-FE
-            # convention: refuse columns with nbins_x > 2*sqrt(n). At n=2500
-            # this is 100 - still catches user_id (1200 levels) cleanly.
-            # At n=309 it's 35, which passes all 5-bin numerics in diabetes.
-            _nbins_x_ceiling = 2.0 * float(np.sqrt(_n_for_screen))
-            _refused = []
-            _refused_set = set()
-            for _col_idx in range(factors_data.shape[1]):
-                if _col_idx == _y_idx_for_screen:
-                    continue
-                _nbins_x = int(factors_nbins[_col_idx])
-                if _nbins_x <= 1:
-                    continue
-                if _nbins_x > _nbins_x_ceiling:
-                    _refused.append(_col_idx)
-                    _refused_set.add(_col_idx)
-            if _refused and verbose >= 1:
-                _names = [factors_names[i] if factors_names is not None and i < len(factors_names) else f"col_{i}" for i in _refused]
-                logger.info(
-                    "screen_predictors: pre-screening dropped %d high-cardinality column(s) "
-                    "(nbins_x > 2*sqrt(n)=%.0f at n=%d): %s. Bin or target-encode before "
-                    "fitting if they carry real signal. Disable via "
-                    "cardinality_bias_correction=False.",
-                    len(_refused), _nbins_x_ceiling, _n_for_screen,
-                    _names[:10] + (["..."] if len(_names) > 10 else []),
-                )
-            # Remove refused columns from the active factor index set so they're
-            # never enumerated as candidates at any interactions_order.
-            if _refused_set:
-                if isinstance(x, set):
-                    x = x - _refused_set
-                else:
-                    x = [i for i in x if i not in _refused_set]
-            _cardinality_refused_cols = _refused_set
+            x, _cardinality_refused_cols = cardinality_prescreen(
+                factors_data, factors_nbins, factors_names, x, y, verbose,
+            )
         else:
             _cardinality_refused_cols = set()
 
@@ -528,46 +463,20 @@ def screen_predictors(
         # regression target whose plug-in MI bias lifts pure-noise columns past the gain floors after the signals are picked. The narrow-pool gate is itself self-gating: it only
         # engages where the (X,y) joint table is dense enough that the floor is reliable, so a dense weak-signal pool (diabetes) keeps the floor OFF. Below both gates the floor
         # is 0.0 (no-op) so the clean low-cardinality tabular suite is untouched. See ``_permutation_null.py``.
-        _fdr_gain_floor = 0.0
-        if screen_fdr_null_permutations and int(screen_fdr_null_permutations) > 0:
-            _fdr_pool = sorted(x) if isinstance(x, set) else list(x)
-            from ._permutation_null import (
-                pooled_permutation_null_gain_floor,
-                target_oversplit_floor_applies,
-            )
-
-            _y_idx_fdr = int(y[0]) if hasattr(y, "__len__") else int(y)
-            _wide_pool = len(_fdr_pool) >= int(screen_fdr_min_features)
-            _narrow_oversplit = (
-                not _wide_pool
-                and len(_fdr_pool) >= 2
-                and target_oversplit_floor_applies(
-                    factors_nbins,
-                    _fdr_pool,
-                    _y_idx_fdr,
-                    int(factors_data.shape[0]),
-                    oversplit_ratio=float(screen_fdr_target_oversplit_ratio),
-                    min_rows_per_joint_cell=float(screen_fdr_min_rows_per_joint_cell),
-                )
-            )
-            if _wide_pool or _narrow_oversplit:
-                _fdr_gain_floor = pooled_permutation_null_gain_floor(
-                    factors_data,
-                    factors_nbins,
-                    _fdr_pool,
-                    _y_idx_fdr,
-                    n_permutations=int(screen_fdr_null_permutations),
-                    quantile=float(screen_fdr_null_quantile),
-                    cardinality_bias_correction=cardinality_bias_correction,
-                    random_seed=random_seed,
-                )
-                if _fdr_gain_floor > 0.0 and verbose >= 1:
-                    logger.info(
-                        "screen_predictors: maxT permutation-null gain floor=%.5f over p=%d "
-                        "candidates (q=%.2f, K=%d) - rejects chance-max noise at scale.",
-                        _fdr_gain_floor, len(_fdr_pool), float(screen_fdr_null_quantile),
-                        int(screen_fdr_null_permutations),
-                    )
+        _fdr_gain_floor = compute_fdr_gain_floor(
+            factors_data,
+            factors_nbins,
+            x,
+            y,
+            screen_fdr_null_permutations=screen_fdr_null_permutations,
+            screen_fdr_null_quantile=screen_fdr_null_quantile,
+            screen_fdr_min_features=screen_fdr_min_features,
+            screen_fdr_target_oversplit_ratio=screen_fdr_target_oversplit_ratio,
+            screen_fdr_min_rows_per_joint_cell=screen_fdr_min_rows_per_joint_cell,
+            cardinality_bias_correction=cardinality_bias_correction,
+            random_seed=random_seed,
+            verbose=verbose,
+        )
 
         if use_gpu:
             import cupy as cp
