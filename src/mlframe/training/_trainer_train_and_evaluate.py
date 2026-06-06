@@ -101,6 +101,7 @@ from ._training_loop import (  # noqa: E402,F401
 from ._data_helpers import (  # noqa: E402,F401
     _setup_eval_set, _setup_early_stopping_callback,
 )
+from ._calib_oof_outputs import compute_calib_and_oof_outputs, maybe_run_confidence_analysis  # noqa: E402
 from ._model_factories import (  # noqa: E402,F401
     GPU_VRAM_SAFE_FREE_LIMIT_GB, GPU_VRAM_SAFE_SATURATION_LIMIT,
     MODELS_SUBDIR, USE_LGB_DATASET_REUSE_SHIM, USE_XGB_DMATRIX_REUSE_SHIM,
@@ -283,15 +284,6 @@ def train_and_evaluate_model(
 
     model_name = naming.model_name
     model_name_prefix = naming.model_name_prefix
-
-    include_confidence_analysis = confidence.include
-    confidence_analysis_use_shap = confidence.use_shap
-    confidence_analysis_max_features = confidence.max_features
-    confidence_analysis_cmap = confidence.cmap
-    confidence_analysis_alpha = confidence.alpha
-    confidence_analysis_ylabel = confidence.ylabel
-    confidence_analysis_title = confidence.title
-    confidence_model_kwargs = dict(confidence.model_kwargs) if confidence.model_kwargs else {}
 
     train_preds = predictions.train_preds
     train_probs = predictions.train_probs
@@ -937,73 +929,35 @@ def train_and_evaluate_model(
         if test_res is not None:
             test_preds, test_probs, columns = test_res
 
-        if _run_test:
-            if include_confidence_analysis and test_df is not None:
-                run_confidence_analysis(
-                    test_df=test_df,
-                    test_target=test_target,
-                    test_probs=test_probs,
-                    cat_features=fit_params.get("cat_features") if fit_params else None,
-                    text_features=fit_params.get("text_features") if fit_params else None,
-                    embedding_features=fit_params.get("embedding_features") if fit_params else None,
-                    confidence_model_kwargs=confidence_model_kwargs,
-                    fit_params=fit_params if model_type_name == "CatBoostRegressor" else None,
-                    use_shap=confidence_analysis_use_shap,
-                    max_features=confidence_analysis_max_features,
-                    cmap=confidence_analysis_cmap,
-                    alpha=confidence_analysis_alpha,
-                    title=confidence_analysis_title,
-                    ylabel=confidence_analysis_ylabel,
-                    figsize=figsize,
-                    verbose=verbose,
-                )
+        maybe_run_confidence_analysis(
+            run_test=_run_test,
+            confidence=confidence,
+            test_df=test_df,
+            test_target=test_target,
+            test_probs=test_probs,
+            fit_params=fit_params,
+            model_type_name=model_type_name,
+            figsize=figsize,
+            verbose=verbose,
+        )
 
     if (compute_trainset_metrics or compute_valset_metrics or compute_testset_metrics) and verbose:
         logger.info("  Metrics computation done -- %.1fs", timer() - t0_metrics)
 
     _maybe_clean_ram()
 
-    # Disjoint-calib predict (TrainingSplitConfig.calib_size > 0): run the fitted base model's predict_proba on the calib
-    # slice and stamp (calib_probs, calib_target) so finalize's _auto_calibrate_on_calib_slice fits the post-hoc isotonic
-    # calibrator. Mirrors the test path: subset+transform the raw calib rows through the SAME fitted pre_pipeline via
-    # _prepare_test_split, then predict_proba via _predict_with_fallback. Gated strictly on a calib frame existing and the
-    # model exposing predict_proba (classification) -- regression / no-predict_proba models stamp nothing (consumer no-ops).
-    _calib_probs_out = None
-    _calib_target_out = None
-    if model is not None and calib_df is not None and hasattr(model, "predict_proba"):
-        try:
-            _calib_df_prep, _calib_target_prep, _ = _prepare_test_split(
-                df=None,
-                test_df=calib_df,
-                test_idx=None,
-                test_target=calib_target,
-                target=None,
-                real_drop_columns=real_drop_columns,
-                model=model,
-                pre_pipeline=pre_pipeline,
-                skip_pre_pipeline_transform=skip_pre_pipeline_transform,
-                skip_preprocessing=skip_preprocessing,
-                selector_passthrough_cols=(list(fit_params.get("text_features") or []) + list(fit_params.get("embedding_features") or [])) or None,
-            )
-            _calib_df_prep = _sanitize_frame_columns(_calib_df_prep)
-            if _calib_df_prep is not None and _calib_target_prep is not None and len(_calib_df_prep) > 0:
-                from ._classif_helpers import _canonical_predict_proba_shape
-                from ._data_helpers import _prepare_df_for_model
-                _calib_X = _prepare_df_for_model(_calib_df_prep, model_type_name)
-                _cp = _predict_with_fallback(model, _calib_X, method="predict_proba")
-                _cp = _canonical_predict_proba_shape(_cp)
-                _calib_probs_out = _cp
-                _calib_target_out = (
-                    _calib_target_prep.values if hasattr(_calib_target_prep, "values") else np.asarray(_calib_target_prep)
-                )
-        except Exception as _calib_err:
-            logger.warning("calib-slice predict failed for %s; finalize calibration will no-op for this model: %s", model_name, _calib_err)
-
-    # OOF preds/probs were stamped on ``model`` right after training (see ``_compute_oof_preds`` call above). Mirror them onto
-    # the returned namespace so ensemble member shapes carry the OOF signal alongside the per-split predictions without
-    # callers having to fish them off the model object.
-    _oof_preds_out = getattr(model, "oof_preds", None) if model is not None else None
-    _oof_probs_out = getattr(model, "oof_probs", None) if model is not None else None
+    _calib_probs_out, _calib_target_out, _oof_preds_out, _oof_probs_out = compute_calib_and_oof_outputs(
+        model=model,
+        calib_df=calib_df,
+        calib_target=calib_target,
+        real_drop_columns=real_drop_columns,
+        pre_pipeline=pre_pipeline,
+        skip_pre_pipeline_transform=skip_pre_pipeline_transform,
+        skip_preprocessing=skip_preprocessing,
+        fit_params=fit_params,
+        model_type_name=model_type_name,
+        model_name=model_name,
+    )
 
     return (
         SimpleNamespace(

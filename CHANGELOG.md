@@ -5,6 +5,7 @@
 ### Refactor
 
 - `training/splitting.py` carved under the 1k LOC ceiling: the index-level helpers `_stratified_split` and `_carve_calib_from_train` moved to a new sibling `training/_split_helpers.py`, re-exported from the parent so existing imports keep working. Behaviour-preserving.
+- `training/_trainer_train_and_evaluate.py` carved under the 1k LOC ceiling: the self-contained post-fit tail sections (disjoint-calib predict + OOF mirror outputs, and the optional confidence-analysis dispatch) moved to a new sibling `training/_calib_oof_outputs.py` as `compute_calib_and_oof_outputs` / `maybe_run_confidence_analysis`. Behaviour-preserving (each reads explicit inputs, no shared-local coupling).
 
 ### Software standards
 
