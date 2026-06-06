@@ -343,7 +343,8 @@ def main():
             os.makedirs(os.path.dirname(p), exist_ok=True)
         except Exception:
             pass
-    open(PROGRESS, "w", encoding="ascii").close()
+    with open(PROGRESS, "w", encoding="ascii"):
+        pass
     _chk("=== broad real-data FS validation START ===")
     _chk(f"budgets: ROW_BUDGET={ROW_BUDGET} FEAT_BUDGET={FEAT_BUDGET}")
 
