@@ -73,6 +73,7 @@ def _eval(X, y, method, seed):
 
 
 def main():
+    """Run the Pearson-vs-SU cluster-medoid correlation sweep across seeds and scenarios."""
     seeds = list(range(8))
     scenarios = ["linear_redundancy", "nonmonotone_redundancy"]
     results = []

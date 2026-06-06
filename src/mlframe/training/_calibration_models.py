@@ -18,8 +18,12 @@ What lives here:
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING, Any
 
 from sklearn.isotonic import IsotonicRegression
+
+if TYPE_CHECKING:
+    from .configs import TargetTypes
 
 logger = logging.getLogger(__name__)
 
@@ -297,7 +301,7 @@ def _maybe_apply_posthoc_calibration(model, fit_params, model_type_name, verbose
     return model
 
 
-def calibrate_namespace_model(entry, *, target_type=None) -> bool:
+def calibrate_namespace_model(entry: Any, *, target_type: "TargetTypes | None" = None) -> bool:
     """Fit a post-hoc isotonic calibrator on a per-target model's DISJOINT calib slice and wrap it.
 
     ``entry`` is a per-target model namespace object as built by the trainer: it carries ``.model`` plus

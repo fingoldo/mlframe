@@ -49,6 +49,7 @@ def _path_series(s: pd.Series):
 
 
 def main() -> dict:
+    """Run the TF-IDF feed-path benchmark across row counts and return the timing results dict."""
     results = {}
     for n in (5_000, 50_000):
         s = _make_series(n)

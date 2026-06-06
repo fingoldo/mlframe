@@ -10,7 +10,7 @@ executed, and ``MRMR(uaed_auto_size=True)`` returned the full screen
 output identically to the default. A documented, parameterised,
 CHANGELOG-advertised public knob was silent dead code.
 
-The vacuous existing test at ``test_biz_val_mrmr_wave8.py:310-317``
+The vacuous existing test at ``test_biz_val_mrmr_research_extensions.py:310-317``
 only asserted no-crash, so the dead code escaped CI.
 
 Fix at ``_mrmr_fit_impl.py:927``: populate ``self.mrmr_gains_`` from

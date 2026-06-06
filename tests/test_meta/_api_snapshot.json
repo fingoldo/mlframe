@@ -673,7 +673,7 @@
   "make_train_test_split": {
     "kind": "callable",
     "module": "mlframe.training.splitting",
-    "signature": "(df:any:0, test_size:any:1, val_size:any:1, shuffle_val:any:1, shuffle_test:any:1, val_sequential_fraction:any:1, test_sequential_fraction:any:1, trainset_aging_limit:any:1, timestamps:any:1, wholeday_splitting:any:1, random_seed:any:1, val_placement:any:1, stratify_y:any:1, groups:any:1)"
+    "signature": "(df:any:0, test_size:any:1, val_size:any:1, shuffle_val:any:1, shuffle_test:any:1, val_sequential_fraction:any:1, test_sequential_fraction:any:1, trainset_aging_limit:any:1, timestamps:any:1, wholeday_splitting:any:1, random_seed:any:1, val_placement:any:1, stratify_y:any:1, groups:any:1, calib_size:any:1, return_calib:any:1)"
   },
   "maybe_clean_ram_and_gpu": {
     "kind": "callable",

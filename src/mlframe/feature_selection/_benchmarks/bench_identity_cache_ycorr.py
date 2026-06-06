@@ -42,6 +42,7 @@ def _make(seed=0, n=2000):
 
 
 def main():
+    """Run the y-correlation gate-threshold sweep and print the result table."""
     thresholds = [0.0, 0.3, 0.5, 0.7, 0.9]
     results = []
     for seed in range(5):

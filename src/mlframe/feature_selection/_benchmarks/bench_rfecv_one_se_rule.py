@@ -62,6 +62,7 @@ def _eval(seed, rule):
 
 
 def main():
+    """Run the RFECV one_se_max-vs-one_se_min rule comparison across seeds and print the table."""
     seeds = list(range(6))
     results = []
     for seed in seeds:

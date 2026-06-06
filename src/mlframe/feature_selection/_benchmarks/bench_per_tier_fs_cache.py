@@ -51,6 +51,7 @@ def _cheap_token(X, params_hash, target_name):
 
 
 def main():
+    """Run the per-tier FS re-fit vs support-cache benchmark and print timings."""
     X, y = _make()
     n_tiers = 4
     results = {}

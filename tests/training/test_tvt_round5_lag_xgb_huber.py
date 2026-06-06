@@ -528,12 +528,13 @@ class TestExternalValHoldoutOOF:
         # Empty external holdout -> fell back to train-tail (n=40).
         assert preds.shape[0] == 40
 
-    def test_config_knob_default_is_external_val(self) -> None:
+    def test_config_knob_default_is_kfold(self) -> None:
+        # Default is honest K-fold OOF; external_val double-dips the early-stopping surface and biases weights toward val-overfit components.
         from mlframe.training._composite_target_discovery_config import (
             CompositeTargetDiscoveryConfig,
         )
         cfg = CompositeTargetDiscoveryConfig()
-        assert cfg.oof_holdout_source == "external_val"
+        assert cfg.oof_holdout_source == "kfold"
 
     def test_caller_consults_oof_holdout_source(self) -> None:
         """Lock in the wiring: the caller in _phase_composite_post.py

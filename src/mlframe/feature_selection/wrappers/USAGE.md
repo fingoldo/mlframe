@@ -503,4 +503,4 @@ RFECV(n_features_selection_rule="auto")
 - `feature_selection/_benchmarks/bench_rfecv_vs_sklearn.py` — h2h vs sklearn
 - `feature_selection/_benchmarks/profile_rfecv.py` — cProfile hotspot scan
 - `feature_selection/_benchmarks/profile_new_features.py` — cProfile pass over the newer code paths (CPI, knockoffs, SFFS swap, checkpoint, surrogate auto-tune)
-- `tests/feature_selection/test_wrappers_*.py` — comprehensive test suite (incl. test_wrappers_wave1_fixes through wave5_fixes)
+- `tests/feature_selection/test_wrappers_*.py` — comprehensive test suite (RFECV FI correctness / search strategy / FI semantics / robustness edges / literature extensions)

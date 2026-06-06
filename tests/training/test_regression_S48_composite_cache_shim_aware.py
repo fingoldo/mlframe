@@ -1,17 +1,18 @@
 """Regression sensor for S48: the train-prediction cache used by the cross-target ensemble
 must key on the INNER model id plus frame identity, not just ``id(comp)``.
 
-Wrap-pass writes the train predict under ``(id(wrapper), id(frame), shape)``. Ensemble-pass
-builds a fresh ``PrePipelinePredictShim(_inner=wrapper, ...)`` around the same wrapper for the
-SAME train frame. Reader peels one shim via ``getattr(_comp, "model", _comp)`` and looks up
-``(id(inner), id(frame), shape)``: this must HIT (cache reuse, no redundant .predict). The
-frame-id component shields against ``id()`` recycling across GC; without it a freed inner
-landing at the same address would return a stale prediction array.
+Wrap-pass writes the train predict under both ``(id(wrapper), id(frame), shape)`` and
+``(id(inner), id(frame), shape)``. Ensemble-pass builds a fresh shim around the same wrapper for
+the SAME train frame; the reader (``_phase_composite_post_xt_ensemble._get_train_pred``) peels one
+shim via ``getattr(_comp, "model", _comp)`` and looks up ``(id(inner), id(frame), shape)``: this
+must HIT (cache reuse, no redundant .predict). An unwrapped component (no ``.model``) peels to
+itself, so the same key recovers the legacy ``id(_comp)`` fallback. The frame-id component shields
+against ``id()`` recycling across GC; without it a freed inner landing at the same address would
+return a stale prediction array.
 """
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 
 class _FakeFittedInner:
@@ -87,29 +88,46 @@ def test_S48_cache_key_includes_frame_identity_against_id_recycling():
     assert cache.get(key_b) is None, "frame_b lookup must miss; frame identity is part of the key"
 
 
-def test_S48_lookup_in_source_uses_inner_keyed_first_fallback_second():
-    """The lookup pattern in _phase_composite_post.py MUST try the inner-keyed cache first
-    (the common path) and fall back to ``id(_comp)`` only on miss (defensive for unwrapped
-    components like lag_predict).
+def test_S48_lookup_peels_one_shim_and_keys_on_frame_for_unwrapped_and_wrapped():
+    """Behavioural restatement of the cross-target ensemble train-prediction cache invariant
+    (the cache loop now lives in ``_phase_composite_post_xt_ensemble._get_train_pred``).
 
-    ``_phase_composite_post.py`` was carved into themed siblings; the
-    cross-target ensemble loop that owns the train-prediction cache
-    landed in ``_phase_composite_post_xt_ensemble.py``. Concat parent +
-    sibling so the source-grep guard survives the split.
+    The reader builds the lookup key by peeling exactly one shim layer via
+    ``getattr(comp, "model", comp)`` and prefixing ``id(inner)`` to the frame key. This is the
+    unified replacement for the old inner-keyed-first / id(comp)-fallback pair: a WRAPPED component
+    keys on its inner model (HIT against the wrap-pass write); an UNWRAPPED component (lag_predict,
+    no ``.model``) peels to itself so ``id(inner) == id(comp)``, recovering the old fallback in one key.
+    The frame-id stays in the key so two distinct frames never alias under id() recycling.
     """
-    from pathlib import Path
+    def lookup_key(comp, frame_key):
+        inner = getattr(comp, "model", comp)
+        return (id(inner),) + frame_key
 
-    _core = Path(__file__).resolve().parents[2] / "src" / "mlframe" / "training" / "core"
-    src = (_core / "_phase_composite_post.py").read_text(encoding="utf-8")
-    sib = _core / "_phase_composite_post_xt_ensemble.py"
-    if sib.exists():
-        src += "\n" + sib.read_text(encoding="utf-8")
-    # Inner-keyed lookup must be the FIRST attempt; the id(_comp) fallback must come SECOND.
-    inner_idx = src.find("_train_pred_cache.get((id(_inner_for_cache),) + _frame_key")
-    comp_idx = src.find("_train_pred_cache.get((id(_comp),) + _frame_key")
-    assert inner_idx > 0, "expected inner-keyed cache lookup (id(_inner_for_cache),) + _frame_key"
-    assert comp_idx > 0, "expected id(_comp) fallback lookup"
-    assert inner_idx < comp_idx, (
-        "inner-keyed lookup must precede the id(_comp) fallback; "
-        "fallback is for unwrapped components only."
+    inner_wrapper = _FakeFittedInner()
+
+    class _F:
+        shape = (10, 3)
+
+    frame = _F()
+    frame_key = (id(frame), frame.shape)
+
+    pre = np.asarray(inner_wrapper.predict(range(10)), dtype=np.float64)
+    cache = {(id(inner_wrapper),) + frame_key: pre}
+    assert inner_wrapper.n_predict == 1
+
+    wrapped = _FakeShim(inner_wrapper)
+    assert cache.get(lookup_key(wrapped, frame_key)) is not None, (
+        "wrapped component must peel one shim and HIT the wrap-pass cache without re-predicting"
+    )
+    assert inner_wrapper.n_predict == 1
+
+    unwrapped = _FakeFittedInner()
+    cache[lookup_key(unwrapped, frame_key)] = np.full(10, 7.0)
+    assert lookup_key(unwrapped, frame_key) == (id(unwrapped),) + frame_key, (
+        "unwrapped component (no .model) keys on itself, recovering the legacy id(comp) fallback"
+    )
+
+    other_frame = _F()
+    assert cache.get(lookup_key(wrapped, (id(other_frame), other_frame.shape))) is None, (
+        "frame identity must stay in the key; a different frame must MISS"
     )

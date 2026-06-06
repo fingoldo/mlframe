@@ -134,7 +134,7 @@ def compute_rff_features(
     X_query: Optional[Union[pl.DataFrame, np.ndarray]] = None,
     splitter: Optional[Any] = None,
     return_state: bool = False,
-):
+) -> Union[pl.DataFrame, tuple[pl.DataFrame, RFFState]]:
     """Approximate-kernel features via Random Fourier Features (Rahimi & Recht 2007).
 
     Output: ``sqrt(2 / n_features) * [cos(X @ W + b), sin(X @ W + b)]`` with ``W[d, m] ~ N(0, sigma^-2)`` and ``b[m] ~ U[0, 2 * pi)``, ``m = n_features // 2``.

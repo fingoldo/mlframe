@@ -82,8 +82,11 @@ def test_leaderboard_rank_all_returns_dataframe():
 # ----------------------------- composite ensemble refit cache -----------------------------
 
 
-def test_refit_cache_skips_resolver_on_second_call():
-    """REFIT-NNLS: the predict path caches NNLS output keyed by the surviving subset."""
+def test_dropout_predict_is_deterministic_across_repeated_calls():
+    """NNLS-DROPOUT: on component dropout the predict path is a pure deterministic function of
+    its inputs -- repeated calls with the same dropout pattern return identical output. The old
+    leaky refit-on-dropout (with its surviving-subset cache) was removed: predict must not depend
+    on which batch dropped a column, so there is nothing to cache."""
     pytest.importorskip("scipy.optimize")
     from mlframe.training.composite_ensemble import CompositeCrossTargetEnsemble
 
@@ -115,34 +118,45 @@ def test_refit_cache_skips_resolver_on_second_call():
         component_predictions=train_preds,
         y_train=y,
     )
-    # First predict -> cache miss
-    _ = ens.predict(np.zeros((n, 1)))
-    assert len(ens._refit_cache) == 1
-    # Second predict with same dropout pattern -> cache hit, cache size unchanged.
-    _ = ens.predict(np.zeros((n, 1)))
-    assert len(ens._refit_cache) == 1
+    # The removed refit-cache must not reappear.
+    assert not hasattr(ens, "_refit_cache"), "dropout refit-cache was removed (leaky/non-deterministic/RAM)"
+    out1 = ens.predict(np.zeros((n, 1)))
+    out2 = ens.predict(np.zeros((n, 1)))
+    np.testing.assert_array_equal(out1, out2)
 
 
-def test_refit_cache_lru_capacity_caps_growth():
-    """REFIT-NNLS: cache size is bounded at the declared capacity."""
+def test_dropout_combines_surviving_columns_with_original_weights_no_refit():
+    """NNLS-DROPOUT: a dropped-out component is excluded and the survivors keep their ORIGINAL
+    solver weights (no refit). Equivalent to zeroing the dropped column's contribution -- a
+    deterministic linear fallback rather than a per-batch re-solve."""
+    pytest.importorskip("scipy.optimize")
     from mlframe.training.composite_ensemble import CompositeCrossTargetEnsemble
 
     rng = np.random.default_rng(0)
     n = 100
     y = rng.normal(size=n)
-    preds = np.column_stack([y + rng.normal(scale=0.5, size=n) for _ in range(3)])
+    p1 = y + rng.normal(scale=0.5, size=n)
+    p2 = y - 0.5 + rng.normal(scale=0.5, size=n)
+    p3 = y + 1.0 + rng.normal(scale=0.5, size=n)
+
+    class _Model:
+        def __init__(self, ret):
+            self._ret = ret
+
+        def predict(self, X):
+            if self._ret is None:
+                raise RuntimeError("dropped out")
+            return self._ret
 
     ens = CompositeCrossTargetEnsemble.from_nnls_stack(
-        component_models=[MagicMock() for _ in range(3)],
-        component_names=["a", "b", "c"],
-        component_predictions=preds,
+        component_models=[_Model(p1), _Model(None), _Model(p3)],
+        component_names=["c1", "c2", "c3"],
+        component_predictions=np.column_stack([p1, p2, p3]),
         y_train=y,
     )
-    # Force-fill the cache beyond capacity with synthetic surviving_idx keys.
-    ens._refit_cache_capacity = 4
-    for k in range(8):
-        ens._refit_cache_put("nnls", (k,), (np.zeros(1), 0.0))
-    assert len(ens._refit_cache) == 4
+    w = np.asarray(ens.weights, dtype=np.float64)
+    expected = p1 * w[0] + p3 * w[2]  # surviving columns combined with original weights
+    np.testing.assert_allclose(ens.predict(np.zeros((n, 1))), expected, rtol=1e-9, atol=1e-9)
 
 
 # ----------------------------- MEDIAN-BASELINE -----------------------------

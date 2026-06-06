@@ -74,6 +74,7 @@ def _eval(X, y, fs, seed, model_kind):
 
 
 def main():
+    """Run the cheap-supervised-FS-default benchmark across seeds and scenarios and print the verdict."""
     seeds = list(range(6))
     scenarios = ["many_noise", "few_noise", "wide_sparse"]
     results = []
