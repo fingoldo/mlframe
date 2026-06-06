@@ -29,10 +29,6 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # split is to lift the honest/ablation block to ``_shap_proxy_revalidate_honest.py``
     # behind a sibling-re-export. Tracked as the largest remaining monolith.
     "src/mlframe/feature_selection/_shap_proxy_revalidate.py",
-    # FIXME(carve-wave-next): _classification_extras.py at ~1.04k LOC bundles
-    # calibration-curve + reliability-decomposition helpers; split to
-    # ``_classification_calibration_curves.py`` sibling.
-    "src/mlframe/metrics/_classification_extras.py",
     # FIXME(carve-wave-next): shap_proxied_fs.py at ~1.03k LOC; the fit body
     # is the obvious candidate for ``_shap_proxied_fs_fit.py``.
     "src/mlframe/feature_selection/shap_proxied_fs.py",
