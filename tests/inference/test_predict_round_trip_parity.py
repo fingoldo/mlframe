@@ -248,10 +248,9 @@ def test_in_memory_and_disk_predict_agree_on_multiclass(tmp_path):
 
 
 def test_in_memory_and_disk_predict_agree_on_multilabel(tmp_path):
-    """Multilabel (3 labels) per-label probabilities round-trip in-memory -> disk to float precision.
-
-    Parity is asserted on the per-model per-label (n, 2) arrays: the multilabel ensemble combine is a known
-    prod gap (ensemble_probabilities is left None on the list-typed per-label output), reported separately."""
+    """Multilabel (3 labels) per-label probabilities + per-label ensemble matrix round-trip
+    in-memory -> disk to float precision. The ensemble combine now runs on the canonicalized
+    (N, K) per-label matrix, so ensemble_probabilities is populated (one P(label=1) col per label)."""
     pytest.importorskip("lightgbm")
     from mlframe.training.configs import TargetTypes
     from mlframe.training.core.predict import load_mlframe_suite
@@ -276,14 +275,22 @@ def test_in_memory_and_disk_predict_agree_on_multilabel(tmp_path):
         assert isinstance(per_label, list) and len(per_label) == 3
         return per_label
 
-    mem = _per_label(predict_from_models(df=df, models=models, metadata=metadata, features_and_targets_extractor=fte, return_probabilities=True, verbose=0))
+    mem_res = predict_from_models(df=df, models=models, metadata=metadata, features_and_targets_extractor=fte, return_probabilities=True, verbose=0)
+    mem = _per_label(mem_res)
     for arr in mem:
         assert np.asarray(arr).shape == (n, 2)
+    ep_mem = mem_res.get("ensemble_probabilities")
+    assert ep_mem is not None, "multilabel ensemble_probabilities should be populated, not None"
+    ep_mem = np.asarray(ep_mem)
+    assert ep_mem.shape == (n, 3), f"expected (n, 3) per-label ensemble matrix; got {ep_mem.shape}"
 
     models_path = os.path.join(str(tmp_path), "models", "target", "round_trip_ml")
     loaded_models, loaded_metadata = load_mlframe_suite(models_path)
     assert loaded_models, f"shimmed disk save produced no .dump files under {models_path}"
-    disk = _per_label(predict_from_models(df=df, models=loaded_models, metadata=loaded_metadata, features_and_targets_extractor=fte, return_probabilities=True, verbose=0))
+    disk_res = predict_from_models(df=df, models=loaded_models, metadata=loaded_metadata, features_and_targets_extractor=fte, return_probabilities=True, verbose=0)
+    disk = _per_label(disk_res)
     for li, (a, d) in enumerate(zip(mem, disk)):
         np.testing.assert_allclose(np.asarray(a), np.asarray(d), rtol=1e-4, atol=1e-4,
                                    err_msg=f"multilabel label {li} disk-load predict drifted beyond float precision")
+    np.testing.assert_allclose(ep_mem, np.asarray(disk_res["ensemble_probabilities"]), rtol=1e-4, atol=1e-4,
+                               err_msg="multilabel ensemble_probabilities drifted across disk round-trip beyond float precision")

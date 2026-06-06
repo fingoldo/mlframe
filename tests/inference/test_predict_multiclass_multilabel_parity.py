@@ -4,11 +4,10 @@ Covers the P0 inference path for K>2 and multi-output targets, which the regress
 tests do not exercise: per-class probability shape, per-row sum-to-1 (multiclass), determinism across
 two predict calls on identical input, and float-precision round-trip after save/load.
 
-Two real production limitations are surfaced (and reported, not masked) by this file:
-  * Multilabel ensemble combine: ``predict_from_models`` builds the per-model per-label probabilities
-    correctly (a list of (N, 2) arrays) but the ensemble-combine step assumes an ndarray and leaves
-    ``ensemble_probabilities`` as None (it logs an error reaching ``probs.ndim`` on a list). The
-    multilabel assertions therefore pin parity on the per-model per-label arrays, which DO round-trip.
+Multilabel ensemble combine: ``predict_from_models`` builds the per-model per-label probabilities
+correctly (a list of (N, 2) arrays) AND now canonicalizes them to an (N, K) per-label matrix for the
+ensemble path, so ``ensemble_probabilities`` is populated with one column of P(label=1) per label.
+The per-model ``results["probabilities"][model]`` stays the raw list for consumers that need it.
 """
 from __future__ import annotations
 
@@ -183,32 +182,56 @@ def test_multilabel_per_label_probability_shapes():
         assert arr.shape == (len(df), 2), f"label {li}: expected (n, 2); got {arr.shape}"
         np.testing.assert_allclose(arr.sum(axis=1), 1.0, rtol=1e-5, atol=1e-5)
 
+    # Ensemble combine now runs on the canonicalized per-label matrix: one P(label=1) column per label.
+    ep = res.get("ensemble_probabilities")
+    assert ep is not None, "multilabel ensemble_probabilities should be populated, not None"
+    ep = np.asarray(ep)
+    assert ep.shape == (len(df), 3), f"expected (n, 3) per-label ensemble matrix; got {ep.shape}"
+    for li, arr in enumerate(per_label):
+        np.testing.assert_allclose(
+            ep[:, li], np.asarray(arr)[:, 1], rtol=1e-6, atol=1e-6,
+            err_msg=f"ensemble column {li} should equal the single model's P(label={li}=1)",
+        )
+
 
 def test_multilabel_predict_twice_and_after_load_parity(tmp_path):
-    """Per-label multilabel probabilities are deterministic across predict-twice + round-trip to disk.
-
-    Asserts on the per-model per-label arrays rather than ensemble_probabilities: the multilabel ensemble
-    combine is a known prod gap (it leaves ensemble_probabilities None on the list-typed per-label output)."""
+    """Per-label multilabel probabilities + the per-label ensemble matrix are deterministic across
+    predict-twice and round-trip to disk to float precision."""
     pytest.importorskip("lightgbm")
     df = _make_multilabel_df()
     fte, models, metadata = _train_suite(df, TargetTypes.MULTILABEL_CLASSIFICATION, tmp_path, "ml_parity")
 
-    pl_a = _multilabel_per_model_probs(_predict(df, models, metadata, fte))
-    pl_b = _multilabel_per_model_probs(_predict(df, models, metadata, fte))
+    res_a = _predict(df, models, metadata, fte)
+    res_b = _predict(df, models, metadata, fte)
+    pl_a = _multilabel_per_model_probs(res_a)
+    pl_b = _multilabel_per_model_probs(res_b)
     for li, (a, b) in enumerate(zip(pl_a, pl_b)):
         np.testing.assert_allclose(
             np.asarray(a), np.asarray(b), rtol=1e-7,
             err_msg=f"multilabel label {li} predict is non-deterministic on identical input",
         )
+    ep_a = res_a.get("ensemble_probabilities")
+    assert ep_a is not None, "multilabel ensemble_probabilities should be populated, not None"
+    ep_a = np.asarray(ep_a)
+    assert ep_a.shape == (len(df), 3), f"expected (n, 3) per-label ensemble matrix; got {ep_a.shape}"
+    np.testing.assert_allclose(
+        ep_a, np.asarray(res_b["ensemble_probabilities"]), rtol=1e-7,
+        err_msg="multilabel ensemble_probabilities is non-deterministic on identical input",
+    )
 
     models_path = os.path.join(str(tmp_path), "models", "target", "ml_parity")
     assert os.path.isdir(models_path), f"shimmed disk save produced no model dir: {models_path}"
     loaded_models, loaded_metadata = load_mlframe_suite(models_path)
     assert loaded_models, f"disk save produced no .dump files under {models_path}"
-    pl_disk = _multilabel_per_model_probs(_predict(df, loaded_models, loaded_metadata, fte))
+    res_disk = _predict(df, loaded_models, loaded_metadata, fte)
+    pl_disk = _multilabel_per_model_probs(res_disk)
     assert len(pl_disk) == len(pl_a)
     for li, (a, d) in enumerate(zip(pl_a, pl_disk)):
         np.testing.assert_allclose(
             np.asarray(a), np.asarray(d), rtol=1e-4, atol=1e-4,
             err_msg=f"multilabel label {li} disk-load predict drifted beyond float precision",
         )
+    np.testing.assert_allclose(
+        ep_a, np.asarray(res_disk["ensemble_probabilities"]), rtol=1e-4, atol=1e-4,
+        err_msg="multilabel ensemble_probabilities drifted across disk round-trip beyond float precision",
+    )

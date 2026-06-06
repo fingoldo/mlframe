@@ -48,15 +48,14 @@ def _make_target(task_label: str, n: int) -> np.ndarray:
 
 
 # (task_label, target_type override or None for default regression/binary handling).
-# ``multiclass_str`` (raw string-labelled multiclass) is intentionally NOT in this live set:
-# feeding a string target column straight through the extractor surfaces a real production crash
-# (np.isfinite over a string array in the Lightning regression-refit guard, plus select_target
-# collapsing the string labels to a single class). That is reported as a prod bug for a later
-# fix wave; the int-labelled ``multiclass`` combo below provides the K-class inference coverage.
+# ``multiclass_str`` feeds a raw string-labelled multiclass column through the extractor: the suite
+# factorizes it to integer codes (leakage-safe) so it behaves identically to the int-labelled path,
+# and the numeric-only regression-refit collapse guard no longer runs np.isfinite over strings.
 TASK_TARGET_COMBOS = [
     ("binary", None),
     ("binary_float", None),
     ("multiclass", TargetTypes.MULTICLASS_CLASSIFICATION),
+    ("multiclass_str", TargetTypes.MULTICLASS_CLASSIFICATION),
     ("regression", None),
 ]
 
@@ -136,6 +135,17 @@ def _assert_classifier_inferred_k(models, target_type, expected_k: int, label: s
 def test_multiclass_int_infers_three_classes():
     models, _ = _train_combo("multiclass", TargetTypes.MULTICLASS_CLASSIFICATION)
     _assert_classifier_inferred_k(models, TargetTypes.MULTICLASS_CLASSIFICATION, 3, "multiclass")
+
+
+def test_multiclass_str_trains_and_infers_three_classes():
+    """A raw string-labelled multiclass target ("a"/"b"/"c") must train (no np.isfinite-on-string
+    crash in the regression-refit guard) and infer K=3, with the string->code mapping stamped for
+    predict-time inverse."""
+    models, metadata = _train_combo("multiclass_str", TargetTypes.MULTICLASS_CLASSIFICATION)
+    _assert_classifier_inferred_k(models, TargetTypes.MULTICLASS_CLASSIFICATION, 3, "multiclass_str")
+    label_classes = metadata.get("target_label_classes", {}).get("target")
+    assert label_classes is not None, "string multiclass target did not stamp target_label_classes for inverse mapping"
+    assert list(label_classes) == ["a", "b", "c"], f"expected sorted string classes; got {label_classes}"
 
 
 def test_regression_head_is_not_a_classifier():

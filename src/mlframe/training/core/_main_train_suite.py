@@ -77,6 +77,36 @@ from .utils import (
     _phase_pandas_conversion_and_cat_prep,
     _phase_train_val_test_split,
 )
+
+
+def _encode_string_multiclass_target(
+    target_type: "TargetTypes",
+    target_name: str,
+    target_values: Any,
+    metadata: Dict[str, Any],
+) -> Any:
+    """Label-encode a string/object 1-D multiclass target to integer codes.
+
+    String-labelled multiclass targets ("a"/"b"/"c") otherwise reach numeric-only guards
+    (np.isfinite in the regression-refit collapse detector) and the binary positive-rate
+    summary in select_target, which mis-reports them as a single class. Factorizing to
+    sorted-unique integer codes makes the string path behave identically to the int path.
+    The bijection over the label space leaks no y-statistic into X, so encoding the full
+    target is leakage-safe; the sorted classes_ are stamped into metadata for predict-time
+    inverse mapping by callers that don't carry classes_ on the estimator.
+    """
+    if target_type != TargetTypes.MULTICLASS_CLASSIFICATION:
+        return target_values
+    if isinstance(target_values, (pd.Series, pl.Series)):
+        arr = target_values.to_numpy()
+    else:
+        arr = np.asarray(target_values)
+    if arr.ndim != 1 or arr.dtype.kind not in ("O", "U", "S"):
+        return target_values
+    classes_ = np.unique(arr)
+    codes = np.searchsorted(classes_, arr).astype(np.int64)
+    metadata.setdefault("target_label_classes", {})[target_name] = list(classes_)
+    return codes
 # CODE-P1-8: single consolidated import for all per-phase entry points (was 8 separate ``from
 # ._phase_X import Y`` lines). Call e.g. ``pr.apply_polars_categorical_fixes(...)``.
 from . import _phase_runners as pr
@@ -714,6 +744,10 @@ def train_mlframe_models_suite(
 
         # !TODO ! optimize for creation of inner feature matrices of cb,lgb,xgb here. They should be created once per featureset, not once per target.
         for cur_target_name, cur_target_values in tqdmu_lazy_start(targets.items(), desc="target"):
+            cur_target_values = _encode_string_multiclass_target(
+                target_type, cur_target_name, cur_target_values, metadata,
+            )
+            targets[cur_target_name] = cur_target_values
             pr._train_one_target(ctx, target_type, targets, cur_target_name, cur_target_values)
 
     export_votenrank_leaderboards(ctx=ctx, data_dir=data_dir, verbose=verbose)

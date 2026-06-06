@@ -91,6 +91,7 @@ def predict_from_models(
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
     from .predict import _apply_extensions_pipeline, _apply_pre_pipeline_with_passthrough, _coerce_cat_dtype_for_lgb_xgb, _combine_probs, _ensure_pandas_view, _is_polars_native_model, _is_post_hoc_calibrated_model, _replay_suite_datetime_decomposition, _resolve_chosen_flavour, _resolve_quantile_alphas, _run_batched, _try_predict_with_pp_fallback
+    from .._classif_helpers import _canonical_predict_proba_shape
     # Validate inputs
     if not isinstance(df, (pd.DataFrame, pl.DataFrame)):
         raise TypeError(f"df must be pandas or polars DataFrame, got {type(df).__name__}")
@@ -488,7 +489,17 @@ def predict_from_models(
                     _primary_for_model = df_pre_pipeline if isinstance(model, _CTE_cls) else input_for_model
                     if return_probabilities and hasattr(model, "predict_proba"):
                         probs = _try_predict(model.predict_proba, _primary_for_model, df_pre_pipeline)
+                        # Keep the raw per-model output (multilabel MultiOutputClassifier returns a
+                        # list of (N, 2) per-label arrays consumers rely on); canonicalize to (N, K)
+                        # for the ensemble + shape-based decision logic so the list path does not crash
+                        # at probs.ndim and the multilabel ensemble combine actually runs.
                         results["probabilities"][model_name] = probs
+                        _ml_classes = getattr(model_obj, "classes_", None)
+                        if _ml_classes is None:
+                            _estimators = getattr(model_obj, "estimators_", None)
+                            if _estimators is not None:
+                                _ml_classes = [getattr(_e, "classes_", None) for _e in _estimators]
+                        probs = _canonical_predict_proba_shape(probs, classes_=_ml_classes)
                         all_probs.append(probs)
                         per_target_probs.setdefault((target_type, target_name), []).append(probs)
                         _is_cal = _is_post_hoc_calibrated_model(model_obj)

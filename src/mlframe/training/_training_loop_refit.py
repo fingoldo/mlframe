@@ -219,6 +219,10 @@ def _maybe_refit_on_collapsed_predictions(
         return False
     if _y.ndim != 1 or _y.size < 10:
         return False
+    # Regression-only collapse detector; np.isfinite is undefined on string/object label arrays
+    # (string multiclass targets reach this guard before any numeric coercion). Skip non-numeric dtypes.
+    if not np.issubdtype(_y.dtype, np.number):
+        return False
     _y_finite = _y[np.isfinite(_y)]
     if _y_finite.size < 10:
         return False
