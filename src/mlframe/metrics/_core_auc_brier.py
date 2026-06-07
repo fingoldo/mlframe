@@ -26,10 +26,43 @@ import os as _os
 # ``MLFRAME_METRICS_STABLE_SORT=1``. Bench c0083 / c0091 honest_diagnostics
 # bootstrap loop: 2.25x (n=200k) to 2.75x (n=20k); deviations from the
 # stable variant under 1e-12 on Gaussian / uniform predictions.
+# GPU argsort gate. ISOLATED micro-bench (cupy vs numpy argsort+transfer) on this host (RTX 500 Ada laptop):
+# 0.42x@10k, 1.95x@50k, 3.92x@200k, 4.94x@1M. But that win does NOT transfer to the END-TO-END suite, because each
+# metric argsort is a one-off call (H2D+kernel+D2H+sync) the interleaved pipeline can't amortise, and the argsort is
+# a small slice of a model-fit-dominated run: A/B on combo c0023 -- 200k CPU 10.12/10.16s vs GPU 11.31/10.65s (~8%
+# REGRESSION); 1M CPU 41.99/37.60s vs GPU 38.44/37.66s (~neutral, within noise). So the gate defaults to 1M -- below
+# it the CPU path is faster (and 200k was an outright regression); at/above it the GPU path is at-worst-neutral here
+# and should win on a faster GPU (datacenter PCIe/NVLink + bigger argsort share). Tune per host via
+# MLFRAME_METRICS_ARGSORT_GPU_MIN_N (set huge to force CPU everywhere). Stable-sort opt-in always stays on CPU.
+_GPU_ARGSORT_MIN_N = int(_os.environ.get("MLFRAME_METRICS_ARGSORT_GPU_MIN_N", "1000000"))
+_GPU_ARGSORT_AVAILABLE: "bool | None" = None
+
+
+def _gpu_argsort_available() -> bool:
+    """cupy + a visible CUDA device (cached once). Probes cupy directly (this path IS cupy, not numba) so it does not
+    depend on CUDA_HOME / numba's cached CUDA detection. The metrics argsort is the unstable default, so a GPU radix
+    sort is a valid backend -- fast_aucs uses tie-order-invariant fractional ranks (verified byte-identical AUC)."""
+    global _GPU_ARGSORT_AVAILABLE
+    if _GPU_ARGSORT_AVAILABLE is None:
+        try:
+            import cupy as cp
+            _GPU_ARGSORT_AVAILABLE = cp.cuda.runtime.getDeviceCount() > 0
+        except Exception:
+            _GPU_ARGSORT_AVAILABLE = False
+    return _GPU_ARGSORT_AVAILABLE
+
+
 def _argsort_desc_for_metrics(y_score: np.ndarray) -> np.ndarray:
-    """Descending argsort used by every metric kernel; stable-opt-in via env."""
+    """Descending argsort used by every metric kernel; stable-opt-in via env, GPU-dispatched for very large N."""
     if _os.environ.get("MLFRAME_METRICS_STABLE_SORT") == "1":
         return np.argsort(y_score, kind="stable")[::-1]
+    n = y_score.shape[0] if hasattr(y_score, "shape") else len(y_score)
+    if n >= _GPU_ARGSORT_MIN_N and _gpu_argsort_available():
+        try:
+            import cupy as cp
+            return cp.asnumpy(cp.argsort(cp.asarray(y_score))[::-1])
+        except Exception:
+            pass  # GPU OOM / transient device error -> exact CPU fallback
     return np.argsort(y_score)[::-1]
 
 
