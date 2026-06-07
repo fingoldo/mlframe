@@ -29,9 +29,7 @@ from __future__ import annotations
 
 import logging
 
-import numpy as np
 import pandas as pd
-import pytest
 
 
 # ---- #1 + #2: target_temporal_audit -----------------------------------
@@ -65,20 +63,30 @@ def test_coerce_timestamps_for_audit_passthrough_tz_naive():
 
 
 def test_recommended_filter_mask_handles_tz_aware_segments():
-    """Source-level guard: the bin_ts normalisation helper is present."""
-    import pathlib
-    import mlframe as _mlframe
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "training" / "targets" / "target_temporal_audit.py"
-    ).read_text(encoding="utf-8")
-    assert "def _normalize_bin_ts(_t):" in src, (
-        "Wave 34 P1 regression: _normalize_bin_ts helper removed; "
-        "tz-aware bin_start vs tz-naive ts comparison would re-raise "
-        "TypeError on tz-aware polars inputs."
+    """A result whose bins carry tz-AWARE ``bin_start`` Timestamps must produce
+    a mask without raising ``TypeError: Cannot compare tz-naive and tz-aware``
+    against the tz-naive timestamps coerced from the input."""
+    from mlframe.training.targets.target_temporal_audit import (
+        TemporalAuditResult, TimeBin,
     )
-    assert "start_ts = _normalize_bin_ts(kept[start_idx].bin_start)" in src
-    assert "end_ts = _normalize_bin_ts(kept[end_idx].bin_start)" in src
+
+    # tz-AWARE bin edges (the polars Datetime(time_zone='UTC') hazard).
+    starts = pd.date_range("2024-01-01", periods=4, freq="D", tz="UTC")
+    bins = [
+        TimeBin(bin_label=str(s.date()), bin_start=s, n_obs=10, target_rate=0.3, kept=True)
+        for s in starts
+    ]
+    result = TemporalAuditResult(
+        target_name="y", target_type="binary", timestamp_col="ts",
+        granularity="day", bins=bins, change_point_indices=[],
+        segments=[{"start_idx": 0, "end_idx": 4, "n_obs": 40, "n_bins": 4, "mean_rate": 0.3}],
+        warnings=[],
+    )
+    timestamps = pd.Series(pd.date_range("2024-01-01", periods=8, freq="12h", tz="UTC"))
+    mask = result.recommended_filter_mask(timestamps, segment="all_stable")
+    assert mask.shape[0] == len(timestamps)
+    assert mask.dtype == bool
+    assert mask.any()
 
 
 # ---- #3 cleaning.py datetime64 unit probe -----------------------------
@@ -95,8 +103,8 @@ def test_cleaning_datetime_probe_strips_tz_before_astype():
     ).read_text(encoding="utf-8")
     # Pre-fix shape direct on values MUST be gone:
     assert "if np.all(values.astype(f\"datetime64[{date_fract}]\") == values):" not in src, (
-        "Wave 34 Low regression: cleaning.py reverted to .astype on "
-        "the raw values, which raises on pandas >=2.0 for tz-aware Series."
+        "cleaning.py reverted to .astype on the raw values, which raises on "
+        "pandas >=2.0 for tz-aware Series."
     )
     # Post-fix marker:
     assert "_vals_naive = values" in src

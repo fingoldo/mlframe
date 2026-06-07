@@ -27,27 +27,53 @@ from __future__ import annotations
 import logging
 
 import numpy as np
+import pandas as pd
 import pytest
 
 
 # ---- #1 early_stopping zero-val-samples ----------------------------------
 
 
+def _make_es_estimator(validation_fraction):
+    """Build an EarlyStoppingEstimator over a partial_fit-spy base model."""
+    from mlframe.estimators.early_stopping import EarlyStoppingWrapper
+
+    class _SpyBase:
+        def __init__(self):
+            self.train_sizes = []
+        def partial_fit(self, X, y, classes=None):
+            self.train_sizes.append(len(X))
+            return self
+        def predict(self, X):
+            return np.zeros(len(X))
+
+    return EarlyStoppingWrapper(
+        base_model=_SpyBase(), start_iter=1, max_iter=1,
+        validation_fraction=validation_fraction,
+    )
+
+
 def test_early_stopping_zero_val_samples_raises_not_silent():
-    """Pre-fix: n_val_samples=int(9 * 0.05)=0 -> X[:-0] is EMPTY ->
-    silent no-training. Post-fix: explicit raise."""
-    import pathlib
-    import mlframe as _mlframe
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "estimators" / "early_stopping.py"
-    ).read_text(encoding="utf-8")
-    assert "n_val_samples = max(1, int(len(X) * self.validation_fraction))" in src, (
-        "Wave 24 P0 regression: clamp `max(1, ...)` for n_val_samples removed."
-    )
-    assert "leaves zero training rows" in src, (
-        "Wave 24 P0 regression: defensive raise text removed."
-    )
+    """Pre-fix: n_val_samples=int(9 * 0.05)=0 -> X[:-0] is EMPTY -> silent
+    no-training. Post-fix: a fraction that leaves zero TRAIN rows raises."""
+    X = np.arange(9 * 2, dtype=np.float64).reshape(9, 2)
+    y = np.array([0, 1] * 4 + [0])
+    # validation_fraction=1.0 -> n_val_samples=9 == len(X) -> zero train rows.
+    est = _make_es_estimator(validation_fraction=1.0)
+    with pytest.raises(ValueError, match="zero training rows"):
+        est.fit(X, y)
+
+
+def test_early_stopping_clamps_val_samples_to_at_least_one():
+    """Tiny fraction that floors to 0 must clamp to >=1 val sample and STILL
+    train on a non-empty slice (pre-fix X[:-0] silently gave an empty trainset)."""
+    X = np.arange(9 * 2, dtype=np.float64).reshape(9, 2)
+    y = np.array([0, 1] * 4 + [0])
+    est = _make_es_estimator(validation_fraction=0.05)  # int(9*0.05)=0 -> clamp to 1
+    est.fit(X, y)
+    # One val row clamped off; the rest (8) are the training slice.
+    assert est.base_model.train_sizes
+    assert all(sz == 8 for sz in est.base_model.train_sizes)
 
 
 # ---- #2 probabilities chunked-tail garbage --------------------------------
@@ -85,98 +111,75 @@ def test_probabilities_chunked_tail_no_garbage():
     )
 
 
-def test_probabilities_uses_zeros_init_not_empty():
-    """Source-level guard: np.empty -> np.zeros for the result buffer."""
-    import pathlib
-    import mlframe as _mlframe
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "calibration" / "probabilities.py"
-    ).read_text(encoding="utf-8")
-    assert "probs = np.zeros(n, dtype=np.float32)" in src, (
-        "Wave 24 P0 regression: probs buffer reverted to np.empty; "
-        "uninitialised tail-row garbage will re-emerge when n % chunk_size != 0."
+def test_probabilities_tail_row_synthesized_not_garbage():
+    """The residual tail rows (n % chunk_size != 0) must be SYNTHESIZED from the
+    outcome frequency, not left as uninitialised buffer memory. n=10, chunk=4 ->
+    chunks [0:4],[4:8], tail [8:10]; the all-1 tail must land in the high bucket."""
+    from mlframe.calibration.probabilities import generate_probs_from_outcomes
+    y = np.array([0, 1, 0, 1, 1, 0, 0, 1, 1, 1])
+    probs = generate_probs_from_outcomes(
+        y, chunk_size=4, nbins=2, scale=0.0, bins_std=0.0, flip_percent=0.0,
     )
-
-
-def test_probabilities_synthesizes_tail():
-    """Source-level guard: the explicit tail-row synthesis is present."""
-    import pathlib
-    import mlframe as _mlframe
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "calibration" / "probabilities.py"
-    ).read_text(encoding="utf-8")
-    assert "Wave 24 P0 follow-up: handle the tail rows" in src
-    assert "if l < n:" in src
-    assert "freq = outcomes[l:n].mean()" in src
+    assert probs.shape == y.shape
+    assert np.all(np.isfinite(probs))
+    assert np.all((probs >= 0.0) & (probs <= 1.0))
+    # Tail rows 8,9 are outcome=1 -> synthesized high probability.
+    assert probs[8] >= 0.5 and probs[9] >= 0.5
 
 
 # ---- #3 composite_screening column-0 NaN gate ----------------------------
 
 
 def test_composite_screening_gate_on_target_only_not_col0():
-    """Source-level guard: the size-gate now uses ``finite =
-    np.isfinite(target)`` alone. Pre-fix it was
-    ``np.isfinite(target) & (feature_binned[:, 0] >= 0)`` which
-    zero'd MI for every feature in the batch when col-0 was NaN-heavy."""
-    import pathlib
-    import mlframe as _mlframe
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "training" / "composite" / "discovery" / "screening.py"
-    ).read_text(encoding="utf-8")
-    # Pre-fix shape MUST be gone:
-    assert "finite = np.isfinite(target) & (feature_binned[:, 0] >= 0)" not in src, (
-        "Wave 24 P1 regression: column-0-only NaN gate restored; "
-        "MI silently zeroes for every feature when col-0 is NaN-heavy."
+    """Behaviour: a NaN-heavy column-0 must NOT zero MI for the OTHER (clean,
+    informative) columns in the batch. Pre-fix the size-gate ANDed
+    ``feature_binned[:, 0] >= 0`` and silently returned 0.0 for the whole batch."""
+    from mlframe.training.composite.discovery.screening import (
+        _prebin_feature_columns, _mi_to_target_prebinned,
     )
+    rng = np.random.default_rng(0)
+    n, nbins = 4000, 5
+    target = rng.normal(size=n)
+    informative = target + rng.normal(scale=0.2, size=n)  # high MI with target
+    col0 = informative.copy()
+    col0[: int(n * 0.9)] = np.nan  # column-0 NaN-heavy -> -1 sentinel rows
+    feature_matrix = np.column_stack([col0, informative])
+    binned = _prebin_feature_columns(feature_matrix, nbins=nbins)
+    mi = _mi_to_target_prebinned(binned, target, nbins=nbins, aggregation="sum")
+    # Pre-fix this was 0.0 (whole-batch gate masked col-0 sentinels); post-fix
+    # the clean informative column still contributes its MI.
+    assert mi > 0.0, mi
 
 
 # ---- #4 _reporting searchsorted IndexError -------------------------------
 
 
-def test_reporting_searchsorted_handles_unseen_predict():
-    """Source-level guard: dict-lookup + unseen-class WARN are present.
-    Pre-fix ``np.searchsorted(classes_, preds_fallback)`` IndexErrored
-    when predict() returned a value outside classes_."""
-    import pathlib
-    import mlframe as _mlframe
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "training" / "reporting" / "_reporting_probabilistic.py"
-    ).read_text(encoding="utf-8")
-    # Pre-fix shape MUST be gone:
-    assert "class_indices = np.searchsorted(model.classes_, preds_fallback)" not in src, (
-        "Wave 24 P2 regression: raw searchsorted IndexErrors on unseen "
-        "predict() values reappeared."
-    )
-    # Post-fix dict-lookup marker:
-    assert "_class_to_idx = {c: i for i, c in enumerate(model.classes_)}" in src
-    assert "were NOT in" in src, (
-        "Unseen-value WARN text missing."
-    )
-
-
 def test_reporting_unseen_predict_warns(caplog):
-    """Behavioural test: a mock model whose predict() returns a value
-    outside classes_ triggers the WARN + fallback-to-class-0 path."""
-    from unittest.mock import MagicMock
-    import importlib
-    # The relevant logic is inside a private helper; reaching it via
-    # ``report_perf`` requires a full estimator. Instead exercise the
-    # post-fix branch directly via a structured test using the helper
-    # the code now constructs.
-    classes_ = np.array(["A", "B", "C"])
-    preds_fallback = np.array(["A", "Z", "C", "Z"])  # Z is unseen
-    _class_to_idx = {c: i for i, c in enumerate(classes_)}
-    _unseen = 0
-    _class_indices_list = []
-    for _p in preds_fallback:
-        if _p in _class_to_idx:
-            _class_indices_list.append(_class_to_idx[_p])
-        else:
-            _class_indices_list.append(0)
-            _unseen += 1
-    assert _class_indices_list == [0, 0, 2, 0]
-    assert _unseen == 2
+    """A model with no predict_proba whose predict() returns a value OUTSIDE
+    classes_ must (a) not IndexError on the one-hot fill (pre-fix
+    ``np.searchsorted`` returned index==n_classes -> IndexError) and (b) WARN
+    about the unseen outputs, mapping them to class-0."""
+    class _UnseenModel:
+        classes_ = np.array([0, 1])
+        def predict(self, X):
+            # 2 is OUTSIDE classes_ -- the unseen value that pre-fix crashed.
+            return np.array([0, 1, 2, 1])
+        # Deliberately NO predict_proba so the fallback path is taken.
+
+    targets = np.array([0, 1, 0, 1])
+    df = pd.DataFrame({"f0": [0.1, 0.2, 0.3, 0.4]})
+    from mlframe.training.reporting._reporting_probabilistic import (
+        report_probabilistic_model_perf,
+    )
+    with caplog.at_level(logging.WARNING):
+        preds, probs = report_probabilistic_model_perf(
+            targets=targets, columns=["f0"], model_name="unseen",
+            model=_UnseenModel(), df=df,
+            print_report=False, show_perf_chart=False, verbose=False,
+        )
+    # The unseen value 2 was mapped to a valid one-hot column (no IndexError).
+    assert probs.shape[0] == 4
+    assert np.all((probs >= 0.0) & (probs <= 1.0))
+    assert any("were NOT in" in r.getMessage() for r in caplog.records), (
+        "unseen-class WARN not emitted"
+    )

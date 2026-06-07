@@ -249,20 +249,27 @@ def test_objectwise_isnull_raises_when_both_paths_fail(monkeypatch):
 # ---- Site #5: preprocessing/transforms pd.NA clearing ---------------------
 
 
-def test_transforms_extension_dtype_clear_logs_on_failure(caplog):
+def test_transforms_extension_dtype_clear_logs_on_failure(caplog, monkeypatch):
     """When the extension-dtype astype call fails, a WARN log must fire so
-    operators see the pd.NA stayed in the frame (CatBoost will crash later)."""
-    import pathlib
-    import mlframe as _mlframe
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "preprocessing" / "transforms.py"
-    ).read_text(encoding="utf-8")
-    # Pre-fix shape MUST be gone:
-    assert "df[var] = df[var].astype(target)\n                    except Exception:\n                        pass" not in src, (
-        "Pre-fix `except Exception: pass` for pd.NA-clearing branch reappeared; "
-        "silent dtype-cast failure leaves pd.NA in frame, CatBoost crashes later "
-        "with no upstream signal (wave 16 P0 regression)."
-    )
-    assert "Could not convert extension-dtype column" in src
-    assert "CatBoost cannot" in src
+    operators see the pd.NA stayed in the frame (CatBoost will crash later).
+    Pre-fix this branch swallowed the failure silently."""
+    import pandas as pd
+    from mlframe.preprocessing import transforms as tr
+
+    df = pd.DataFrame({"x": pd.array([1, 2, None], dtype="Int64")})
+
+    real_astype = pd.Series.astype
+    def _flaky_astype(self, dtype, *a, **k):
+        if dtype in (np.float32, np.float64):
+            raise RuntimeError("synthetic extension-dtype cast failure")
+        return real_astype(self, dtype, *a, **k)
+    monkeypatch.setattr(pd.Series, "astype", _flaky_astype)
+
+    with caplog.at_level(logging.WARNING, logger="mlframe.preprocessing.transforms"):
+        out = tr.prepare_df_for_catboost(df)
+    # The failed cast leaves the column an extension dtype (pd.NA still present).
+    assert pd.api.types.is_extension_array_dtype(out["x"].dtype)
+    assert any(
+        "Could not convert extension-dtype column" in r.getMessage()
+        for r in caplog.records
+    ), f"expected WARN; got {[r.getMessage() for r in caplog.records]}"

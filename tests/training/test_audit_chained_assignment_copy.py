@@ -22,40 +22,38 @@ Post-fix: unconditional ``sub_df.copy()`` + ``sub_df[col] = df.loc[...]``.
 """
 from __future__ import annotations
 
-import pathlib
+import numpy as np
+import pandas as pd
 
-import mlframe as _mlframe
 
+def test_update_sub_df_col_refreshes_from_df_loc_not_stale_subdf():
+    """``_update_sub_df_col`` must value_count the FRESH ``df.loc[analyse_mask]``
+    values, not a stale copy already living in ``sub_df``. Pre-fix the
+    ``values.base`` view-heuristic inverted under pandas 2.x CoW and the refresh
+    silently skipped, so value_counts reflected pre-mutation state."""
+    from mlframe.preprocessing.cleaning import _update_sub_df_col
 
-def test_cleaning_is_view_heuristic_removed():
-    """The unreliable ``values.base`` heuristic must be gone."""
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "preprocessing" / "cleaning.py"
-    ).read_text(encoding="utf-8")
-    # Pre-fix shape MUST be gone:
-    assert "is_view = vals is not None and getattr(vals, \"base\", None) is not None" not in src, (
-        "Wave 33 P1 regression: the unreliable values.base heuristic "
-        "reappeared in cleaning.py; under pandas 2.x CoW the gate "
-        "inverts and the refresh silently skips."
+    df = pd.DataFrame({"c": ["a", "a", "b", "b", "b"]})
+    # sub_df carries a STALE version of the column (all 'z').
+    sub_df = pd.DataFrame({"c": ["z", "z", "z", "z", "z"]})
+    mask = np.array([True, True, True, False, False])  # selects the 3 fresh rows
+
+    counts, nunique = _update_sub_df_col(
+        df, sub_df, "c", col_unique_values=None, nunique=0, analyse_mask=mask,
     )
-    assert "if not is_view:\n            sub_df[col] = df.loc" not in src
-    # Post-fix marker: the unconditional refresh path lives in
-    # ``_update_sub_df_col`` and uses ``sub_df = sub_df.copy()``. We assert the
-    # copy pattern itself, not a wave-attribution comment (banned by
-    # CLAUDE.md no-audit/phase-in-comments).
-    assert "sub_df = sub_df.copy()" in src
-    assert "df.loc[analyse_mask, col]" in src
+    # Fresh df.loc[mask] -> ['a','a','b'] (unmasked rows become NaN via index
+    # alignment); the stale 'z' must NOT appear at all.
+    assert "z" not in counts.index, f"stale sub_df value leaked: {counts.to_dict()}"
+    assert counts.get("a") == 2 and counts.get("b") == 1
 
 
-def test_cleaning_unconditional_copy_pattern():
-    """The post-fix unconditional sub_df = sub_df.copy() must be present."""
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "preprocessing" / "cleaning.py"
-    ).read_text(encoding="utf-8")
-    assert "sub_df = sub_df.copy() if col in sub_df else sub_df" in src, (
-        "Wave 33 P1 regression: defensive copy before sub_df[col] = "
-        "assignment is gone; SettingWithCopyWarning will reappear "
-        "under pandas <2."
-    )
+def test_update_sub_df_col_does_not_mutate_caller_subdf():
+    """The defensive copy must shield the caller's sub_df from the column write."""
+    from mlframe.preprocessing.cleaning import _update_sub_df_col
+
+    df = pd.DataFrame({"c": ["a", "b", "c"]})
+    sub_df = pd.DataFrame({"c": ["x", "y", "z"]})
+    mask = np.array([True, True, True])
+    _update_sub_df_col(df, sub_df, "c", None, 0, analyse_mask=mask)
+    # Caller's sub_df keeps its original values (copy-on-write semantics).
+    assert list(sub_df["c"]) == ["x", "y", "z"]

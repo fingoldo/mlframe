@@ -126,22 +126,48 @@ def test_multilabel_log_loss_failed_class_warns_and_uses_nanmean(caplog):
 # ---- #2: _has_any_infinity -------------------------------------------------
 
 
-def test_has_any_infinity_returns_true_on_detection_failure(caplog):
-    """Pre-fix returned False on detection failure -> infs reached XGB/HGB.
-    Post-fix returns True (force the fix_infinities path) + WARN log."""
-    import pathlib
-    import mlframe as _mlframe
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "training" / "preprocessing.py"
-    ).read_text(encoding="utf-8")
-    # Both branches (inner specific + outer broad) must force True + WARN.
-    assert "returning True to force the " in src, (
-        "Wave 16 P1 regression: _has_any_infinity reverted to silent False "
-        "return on detection failure; infs will reach XGB/HGB with no signal."
+def test_has_any_infinity_returns_true_on_detection_failure(caplog, monkeypatch):
+    """When inf-detection fails entirely (the float-column helper raises an
+    unexpected error), the detector must return True (force the fix_infinities
+    path) + WARN -- pre-fix it silently returned False so infs reached XGB/HGB."""
+    import pandas as pd
+    from mlframe.training import preprocessing as pp
+
+    def _boom(_d):
+        raise RuntimeError("synthetic detection failure")
+
+    monkeypatch.setattr(pp, "_pandas_float_like_columns", _boom)
+    with caplog.at_level(logging.WARNING, logger="mlframe.training.preprocessing"):
+        result = pp._frame_contains_inf(pd.DataFrame({"f0": [1.0, 2.0, 3.0]}))
+    assert result is True
+    assert any("detection failed" in r.getMessage() for r in caplog.records), (
+        f"expected WARN on detection failure; got {[r.getMessage() for r in caplog.records]}"
     )
-    # The pre-fix outer shape (silent broad-except return False) must be gone.
-    assert "except Exception:\n        return False" not in src
+
+
+def test_has_any_infinity_true_on_numpy_conversion_failure(caplog, monkeypatch):
+    """Inner branch: a float-like column whose ``to_numpy`` raises must also
+    force True + WARN (nullable-Float coercion failure must not pass infs)."""
+    import pandas as pd
+    from mlframe.training import preprocessing as pp
+
+    df = pd.DataFrame({"f0": [1.0, 2.0, 3.0]})
+
+    class _BadNum:
+        shape = (3, 1)
+        def to_numpy(self, *a, **k):
+            raise ValueError("synthetic numpy conversion failure")
+
+    monkeypatch.setattr(pp, "_pandas_float_like_columns", lambda d: ["f0"])
+    real_getitem = pd.DataFrame.__getitem__
+    monkeypatch.setattr(
+        pd.DataFrame, "__getitem__",
+        lambda self, key: _BadNum() if isinstance(key, list) else real_getitem(self, key),
+    )
+    with caplog.at_level(logging.WARNING, logger="mlframe.training.preprocessing"):
+        result = pp._frame_contains_inf(df)
+    assert result is True
+    assert any("numpy conversion failed" in r.getMessage() for r in caplog.records)
 
 
 # ---- #3: detect_time/group skips -------------------------------------------
@@ -230,13 +256,45 @@ def test_clone_failure_warns_with_pipeline_type(caplog):
 
 
 def test_multilabel_cb_stack_failure_warns(caplog):
-    """np.stack failure on object-array labels warns; pre-fix label_arr=None
-    silently bypassed MultiLogloss config."""
-    import pathlib
-    import mlframe as _mlframe
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "training" / "_training_loop.py"
-    ).read_text(encoding="utf-8")
-    assert "multilabel CB auto-config: failed to stack label rows" in src
-    assert "single-label default loss" in src
+    """A ragged object-array label set makes the row-stack raise; pre-fix this
+    silently set label_arr=None (single-label default loss) with no signal.
+    Post-fix: WARN + the model is NOT reconfigured to MultiLogloss."""
+    from mlframe.training._training_loop import _ensure_cb_multilabel_loss
+
+    set_calls = []
+
+    class CatBoostClassifier:  # name drives the type-name gate in prod
+        def get_param(self):
+            return {"loss_function": None}
+        def set_params(self, **kw):
+            set_calls.append(kw)
+
+    # Ragged rows -> np.array(obj.tolist()) raises -> stack-failure branch.
+    ragged = np.empty(2, dtype=object)
+    ragged[0] = np.array([1, 0])
+    ragged[1] = np.array([1, 0, 1])
+
+    model = CatBoostClassifier()
+    with caplog.at_level(logging.WARNING, logger="mlframe.training._training_loop"):
+        _ensure_cb_multilabel_loss(model, ragged)
+    assert any("failed to stack label rows" in r.getMessage() for r in caplog.records)
+    # MultiLogloss must NOT have been configured (label_arr stayed None).
+    assert all("MultiLogloss" not in str(c) for c in set_calls)
+
+
+def test_multilabel_cb_stack_success_sets_multilogloss(caplog):
+    """Control: a uniform-width 2D object-array stacks cleanly and DOES configure
+    MultiLogloss -- proves the WARN branch above is the failure path, not a no-op."""
+    from mlframe.training._training_loop import _ensure_cb_multilabel_loss
+
+    set_calls = []
+
+    class CatBoostClassifier:
+        def get_param(self):
+            return {"loss_function": None}
+        def set_params(self, **kw):
+            set_calls.append(kw)
+
+    target = np.array([[1, 0], [0, 1], [1, 1]])
+    _ensure_cb_multilabel_loss(CatBoostClassifier(), target)
+    assert any(c.get("loss_function") == "MultiLogloss" for c in set_calls)

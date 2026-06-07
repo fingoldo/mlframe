@@ -12,10 +12,6 @@ Post-fix: ``copy.deepcopy`` at the assignment site decouples the caller's bundle
 """
 from __future__ import annotations
 
-import copy
-
-import pytest
-
 
 def _read_main_or_split() -> str:
     """The ``train_mlframe_models_suite`` body was carved out of ``main.py``
@@ -35,35 +31,60 @@ def _read_main_or_split() -> str:
     return primary
 
 
-def test_main_py_uses_deepcopy_for_precomputed_composite_specs():
-    """Source-level guard: the deepcopy must remain at the assignment site."""
-    src = _read_main_or_split()
-    # The deepcopy import alias was renamed to ``_copy_mod`` after the
-    # _main_train_suite_phases carve; accept either alias so the sensor
-    # stays valid across the rename.
-    assert (
-        "_copy.deepcopy(precomputed.composite_target_specs)" in src
-        or "_copy_mod.deepcopy(precomputed.composite_target_specs)" in src
-    ), (
-        "main.py (or _main_train_suite.py sibling) must use deepcopy when "
-        "assigning precomputed.composite_target_specs to metadata. Without "
-        "this, a downstream phase mutating the metadata slot also mutates "
-        "the caller's precomputed bundle -- the leak resurfaces in the next "
-        "suite call reusing the same bundle (wave 11 #3 regression)."
+def test_precomputed_composite_specs_decoupled_from_metadata_slot():
+    """Mutating ``metadata['composite_target_specs']`` after the precomputed
+    branch fires must NOT mutate the caller's precomputed bundle -- the deepcopy
+    decouples them (wave 11 #3 regression: shared alias leaked across suite calls)."""
+    from types import SimpleNamespace
+    from mlframe.training.core._main_train_suite_phases import (
+        maybe_apply_composite_target_specs_precomputed,
     )
 
-
-def test_main_py_uses_deepcopy_for_precomputed_dummy_baselines():
-    src = _read_main_or_split()
-    # Same _copy / _copy_mod / _copy_db alias drift; accept any of the three.
-    assert (
-        "_copy.deepcopy(precomputed.dummy_baselines)" in src
-        or "_copy_mod.deepcopy(precomputed.dummy_baselines)" in src
-        or "_copy_db.deepcopy(precomputed.dummy_baselines)" in src
-    ), (
-        "main.py (or _main_train_suite.py sibling) must use deepcopy when "
-        "assigning precomputed.dummy_baselines (wave 11 #3)."
+    bundle = {"targ_A": {"recipe": ["a", "b"]}}
+    precomputed = SimpleNamespace(composite_target_specs=bundle, dummy_baselines={})
+    metadata: dict = {}
+    fired = maybe_apply_composite_target_specs_precomputed(
+        _precomp_fp_ok=True, precomputed=precomputed, metadata=metadata, verbose=0,
     )
+    assert fired is True
+    assert metadata["composite_target_specs"] == bundle
+    # Downstream mutation of the metadata slot.
+    metadata["composite_target_specs"]["targ_LATE"] = {"recipe": ["x"]}
+    metadata["composite_target_specs"]["targ_A"]["recipe"].append("MUT")
+    # Caller's bundle stays pristine.
+    assert "targ_LATE" not in bundle
+    assert bundle["targ_A"]["recipe"] == ["a", "b"]
+
+
+def test_precomputed_dummy_baselines_decoupled_from_metadata_slot():
+    from types import SimpleNamespace
+    from mlframe.training.core._main_train_suite_phases import (
+        maybe_apply_dummy_baselines_precomputed,
+    )
+
+    bundle = {"targ_A": {"rmse": [1.0, 2.0]}}
+    precomputed = SimpleNamespace(composite_target_specs={}, dummy_baselines=bundle)
+
+    class _Cfg:
+        enabled = True
+        def model_copy(self, update):
+            new = _Cfg()
+            new.enabled = update["enabled"]
+            return new
+
+    ctx = SimpleNamespace()
+    metadata: dict = {}
+    cfg_out = maybe_apply_dummy_baselines_precomputed(
+        _precomp_fp_ok=True, precomputed=precomputed, metadata=metadata,
+        dummy_baselines_config=_Cfg(), ctx=ctx, verbose=0,
+    )
+    # Per-target compute is short-circuited.
+    assert cfg_out.enabled is False
+    assert metadata["dummy_baselines"] == bundle
+    metadata["dummy_baselines"]["targ_A"]["rmse"].append(99.0)
+    metadata["dummy_baselines"]["targ_LATE"] = {"rmse": [0.0]}
+    assert "targ_LATE" not in bundle
+    assert bundle["targ_A"]["rmse"] == [1.0, 2.0]
 
 
 def test_setup_helpers_slug_maps_dict_copy():

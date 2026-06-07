@@ -100,12 +100,6 @@ def test_extractors_display_diagnostic_initialises_desc_data() -> None:
     assert "if desc_data is not None:" in src
 
 
-def test_pipeline_select_scalable_validates_method() -> None:
-    src = _read("training/pipeline.py")
-    assert "_select_scalable_numeric_columns: unknown method=" in src
-    assert "expected one of 'robust', 'standard', 'min_max'" in src
-
-
 # ---------------------------------------------------------------------------
 # Behavioural sensors
 # ---------------------------------------------------------------------------

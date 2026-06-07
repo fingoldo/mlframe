@@ -18,9 +18,6 @@ Two protections, two test classes:
 """
 from __future__ import annotations
 
-import os
-from pathlib import Path
-
 import numpy as np
 import pytest
 
@@ -143,20 +140,70 @@ class TestTtrPredictClip:
 
 
 class TestSourceIntegrity:
-    """Source-grep sensors so refactors that drop the protection get
+    """Behavioural sensors so refactors that drop the protection get
     caught early."""
 
     def test_model_configs_has_skip_default_False(self) -> None:
-        from mlframe.training import _model_configs as mc
-        src = Path(mc.__file__).read_text(encoding="utf-8")
-        assert "mlp_extreme_ar_group_aware_skip: bool = False" in src
+        from mlframe.training._model_configs import TrainingBehaviorConfig
+        field = TrainingBehaviorConfig.model_fields["mlp_extreme_ar_group_aware_skip"]
+        assert field.annotation is bool
+        assert field.default is False
+        assert TrainingBehaviorConfig().mlp_extreme_ar_group_aware_skip is False
 
     def test_ttr_module_has_y_train_clip(self) -> None:
-        from mlframe.training.targets import _ttr_eval_set_scaling as ttr
-        src = Path(ttr.__file__).read_text(encoding="utf-8")
-        assert "_y_train_clip_low_" in src
-        assert "_y_train_clip_high_" in src
-        assert "MLFRAME_TTR_DISABLE_PREDICT_CLIP" in src
+        from sklearn.preprocessing import StandardScaler
+        from mlframe.training.targets._ttr_eval_set_scaling import _TTRWithEvalSetScaling
+
+        class _Reg:
+            def fit(self, X, y, **kw):
+                return self
+            def predict(self, X, **kw):
+                n = len(X) if hasattr(X, "__len__") else X.shape[0]
+                return np.zeros(n, dtype=np.float64)
+            def get_params(self, deep=True):
+                return {}
+            def set_params(self, **p):
+                return self
+
+        y_train = np.linspace(0.0, 100.0, 200).astype(np.float64)
+        rng = np.random.default_rng(0)
+        ttr = _TTRWithEvalSetScaling(regressor=_Reg(), transformer=StandardScaler())
+        ttr.fit(rng.normal(0, 1, (len(y_train), 2)).astype(np.float64), y_train)
+        # Clip envelope attrs are produced at fit time.
+        assert hasattr(ttr, "_y_train_clip_low_") and hasattr(ttr, "_y_train_clip_high_")
+        assert ttr._y_train_clip_low_ < ttr._y_train_clip_high_
+
+    def test_ttr_predict_clip_disable_env_var_is_honored(self, monkeypatch) -> None:
+        """The MLFRAME_TTR_DISABLE_PREDICT_CLIP escape hatch must actually
+        change predict behaviour (proves the env var is wired, not just present)."""
+        from sklearn.preprocessing import StandardScaler
+        from mlframe.training.targets._ttr_eval_set_scaling import _TTRWithEvalSetScaling
+
+        class _Reg:
+            t_hat = None
+            def fit(self, X, y, **kw):
+                return self
+            def predict(self, X, **kw):
+                n = len(X) if hasattr(X, "__len__") else X.shape[0]
+                return np.full(n, 100.0) if self.t_hat is None else self.t_hat
+            def get_params(self, deep=True):
+                return {}
+            def set_params(self, **p):
+                return self
+
+        y_train = np.linspace(0.0, 100.0, 200).astype(np.float64)
+        rng = np.random.default_rng(0)
+        X = rng.normal(0, 1, (len(y_train), 2)).astype(np.float64)
+
+        ttr = _TTRWithEvalSetScaling(regressor=_Reg(), transformer=StandardScaler())
+        ttr.fit(X, y_train)
+        clipped = ttr.predict(X[:20]).max()
+        assert clipped <= ttr._y_train_clip_high_ + 1e-6
+
+        monkeypatch.setenv("MLFRAME_TTR_DISABLE_PREDICT_CLIP", "1")
+        ttr2 = _TTRWithEvalSetScaling(regressor=_Reg(), transformer=StandardScaler())
+        ttr2.fit(X, y_train)
+        assert ttr2.predict(X[:20]).max() > ttr2._y_train_clip_high_ + 100
 
 
 # ---------------------------------------------------------------------
@@ -248,10 +295,14 @@ class TestMlpOutputActivationBoundedBehavior:
         assert "center" not in dict(head.named_parameters())
 
     def test_source_integrity_bounded_head_present(self) -> None:
-        from mlframe.training.neural import flat as flat_mod
-        src = Path(flat_mod.__file__).read_text(encoding="utf-8")
-        assert "class _BoundedTanhOutput" in src
-        assert "tanh_train_range" in src
+        from mlframe.training.neural.flat import generate_mlp, _BoundedTanhOutput
+        # _BoundedTanhOutput is importable and the 'tanh_train_range' mode wires it in.
+        model = generate_mlp(
+            num_features=4, num_classes=1, nlayers=2, verbose=0,
+            output_activation="tanh_train_range",
+            output_activation_scale=2.0, output_activation_center=1.0,
+        )
+        assert any(isinstance(m, _BoundedTanhOutput) for m in model.modules())
 
     def test_bounded_head_forward_and_grad_equal_separate_op_reference(self) -> None:
         """The device-guarded ``addcmul`` fast path (used on CUDA) must produce
@@ -522,25 +573,39 @@ class TestMlpOutputActivationApplier:
 
 
 class TestPhaseBodySourceIntegrity:
-    """Source-grep sensors for the per-group drop + weight_decay bump
-    wiring in ``_phase_train_one_target_body``."""
+    """Sensors that the per-group drop + weight_decay bump + output-activation
+    helpers are present and callable in ``_phase_train_one_target_body``."""
 
     def test_phase_body_wires_per_group_drop(self) -> None:
         from mlframe.training.core import _phase_train_one_target_body as body
-        src = Path(body.__file__).read_text(encoding="utf-8")
-        assert "_identify_per_group_columns" in src
-        assert "_drop_columns_for_mlp" in src
-        # Wiring point: gated on the knob.
-        assert "mlp_drop_per_group_constants" in src
+        from mlframe.training._model_configs import TrainingBehaviorConfig
+        # Helpers the body uses for the per-group drop are importable + callable.
+        assert callable(body._identify_per_group_columns)
+        assert callable(body._drop_columns_for_mlp)
+        # Wiring point: the gating knob is a real config field.
+        assert "mlp_drop_per_group_constants" in TrainingBehaviorConfig.model_fields
 
     def test_phase_body_wires_weight_decay_bump(self) -> None:
+        import torch
         from mlframe.training.core import _phase_train_one_target_body as body
-        src = Path(body.__file__).read_text(encoding="utf-8")
-        assert "_apply_mlp_extreme_ar_weight_decay_bump" in src
-        # Trigger gate uses the shared predicate.
-        assert "_mlp_extreme_ar_fired" in src
+        bump = body._apply_mlp_extreme_ar_weight_decay_bump
+        assert callable(bump)
+
+        class _Inner:
+            model_params = {"optimizer": torch.optim.Adam, "optimizer_kwargs": {}, "learning_rate": 3e-3}
+            network_params = {"nlayers": 4}
+        inner = _Inner()
+        assert bump(inner, factor=100.0, base_weight_decay=1e-4) is True
+        assert inner.model_params["optimizer_kwargs"]["weight_decay"] == pytest.approx(1e-2)
+        assert inner.model_params["optimizer"] is torch.optim.AdamW
 
     def test_phase_body_wires_output_activation(self) -> None:
         from mlframe.training.core import _phase_train_one_target_body as body
-        src = Path(body.__file__).read_text(encoding="utf-8")
-        assert "_apply_mlp_extreme_ar_output_activation" in src
+        apply = body._apply_mlp_extreme_ar_output_activation
+        assert callable(apply)
+
+        class _Inner:
+            network_params = {"nlayers": 4}
+        inner = _Inner()
+        assert apply(inner) is True
+        assert inner.network_params["output_activation"] == "tanh_train_range"
