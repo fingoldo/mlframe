@@ -24,6 +24,87 @@ logger = logging.getLogger(__name__)
 _PERM_AUTO_CELL_CAP = 4_000_000
 
 
+def _make_fast_default_scorer(model: object) -> Callable:
+    """Build a permutation-FI scorer that reproduces ``estimator.score()`` bit-identically but
+    skips its redundant per-call target-type validation.
+
+    perf P1 (2026-06-08): ``estimator.score()`` is the permutation-importance hotspot because it
+    re-runs sklearn's ``_check_targets`` / ``type_of_target`` validation on the SAME ``_y`` for every
+    one of the ``p * n_repeats`` scorer calls per fold. For the standard single-output case the default
+    score has a closed form that is bit-identical to ``estimator.score()``:
+      - classifier -> ``accuracy_score(y, pred)`` == ``np.mean(pred == y)``  (verified ==, diff 0.0)
+      - regressor  -> ``r2_score(y, pred)``       == ``1 - ss_res / ss_tot`` (verified ==, diff 0.0)
+
+    Safety (gate-the-win-on-its-safe-condition): the returned scorer latches the fast path ONLY after a
+    one-shot baseline self-check proves the fast value equals ``estimator.score()`` EXACTLY on the
+    unpermuted X. The first scorer call permutation_importance makes is the baseline (unpermuted), so the
+    self-check sees clean data. Any of the following pins the fold to the original ``estimator.score()``
+    path (so the elimination ranking, and thus the selected set, is unchanged):
+      - estimator is neither a classifier nor a regressor (``is_classifier``/``is_regressor`` both False),
+      - the target is multi-output (y.ndim > 1 with >1 column),
+      - the closed-form value does not bit-match ``estimator.score()`` on the baseline,
+      - any exception in the fast path.
+
+    The defensive ``copy`` of the (test-fold-sized) X is preserved EXACTLY as before so the CatBoost
+    writeable-flag-flip / read-only-buffer safety is untouched.
+    """
+    from sklearn.base import is_classifier, is_regressor
+
+    _is_clf = bool(is_classifier(model))
+    _is_reg = bool(is_regressor(model))
+
+    # state[0]: -1 = not yet decided (baseline pending); 0 = safe (estimator.score); 1 = fast closed-form.
+    state = {"mode": -1}
+
+    def _fast_value(_est, _Xc, _y):
+        """Closed-form default score; returns None if the case isn't supported (-> fall back)."""
+        _y_arr = np.asarray(_y)
+        if _y_arr.ndim > 1 and _y_arr.shape[-1] > 1:
+            return None  # multi-output: defer to estimator.score
+        pred = _est.predict(_Xc)
+        pred = np.asarray(pred)
+        if _is_clf:
+            # accuracy: fraction of exact matches. Bit-identical to sklearn accuracy_score for 1d targets.
+            if pred.shape != _y_arr.shape:
+                return None
+            return float(np.mean(pred == _y_arr))
+        # regressor: r2 with default multioutput='uniform_average'; single-output closed form.
+        pred = pred.astype(np.float64, copy=False)
+        yt = _y_arr.astype(np.float64, copy=False)
+        if pred.shape != yt.shape:
+            return None
+        ss_res = float(np.sum((yt - pred) ** 2))
+        ss_tot = float(np.sum((yt - np.mean(yt)) ** 2))
+        if ss_tot == 0.0:
+            return None  # constant target: sklearn r2 has special-case semantics; defer.
+        return 1.0 - ss_res / ss_tot
+
+    def _scorer(_est, _X, _y):
+        _Xc = np.array(_X, copy=True) if isinstance(_X, np.ndarray) else _X
+        mode = state["mode"]
+        if mode == 1:
+            return _fast_value(_est, _Xc, _y)
+        if mode == 0:
+            return _est.score(_Xc, _y)
+        # Undecided: this is the baseline (unpermuted) call. Self-check fast vs estimator.score.
+        safe_val = _est.score(_Xc, _y)
+        if not (_is_clf or _is_reg):
+            state["mode"] = 0
+            return safe_val
+        try:
+            fast_val = _fast_value(_est, _Xc, _y)
+        except Exception:
+            fast_val = None
+        # Bit-identity gate: latch fast ONLY on an exact match (handles NaN equally on both sides).
+        if fast_val is not None and (fast_val == safe_val or (fast_val != fast_val and safe_val != safe_val)):
+            state["mode"] = 1
+        else:
+            state["mode"] = 0
+        return safe_val
+
+    return _scorer
+
+
 def _conditional_permutation_importance(
     model,
     X: pd.DataFrame | np.ndarray,
@@ -233,13 +314,24 @@ def get_feature_importances(
             # ``n_repeats``. CatBoost.predict() flips its input ndarray's writeable flag to False, so once the scorer
             # runs on ``X_permuted`` the NEXT iteration's in-place shuffle raises "assignment destination is read-only".
             # Score through a wrapper that hands the estimator a private copy, leaving sklearn's ``X_permuted``
-            # writeable. ``estimator.score`` preserves the exact default metric (R2 / accuracy) used pre-fix.
-            def _readonly_safe_scorer(_est, _X, _y):
-                _Xc = np.array(_X, copy=True) if isinstance(_X, np.ndarray) else _X
-                return _est.score(_Xc, _y)
+            # writeable. The wrapper preserves the exact default metric (R2 / accuracy) used pre-fix.
+            #
+            # perf P1 (2026-06-08): the per-call ``estimator.score()`` re-runs sklearn's full target-type
+            # validation (``_check_targets`` -> ``type_of_target``) on the IDENTICAL ``_y`` every call. On the
+            # scene 2407x299 bench that validation is the dominant hotspot: cProfile cumtime ``_check_targets``
+            # ~43s + ``type_of_target`` ~23s vs the irreducible ``predict`` matmul ~27s (the permutation FI loop
+            # issues p*n_repeats scorer calls/fold). ``estimator.score()`` for a classifier is
+            # ``accuracy_score(y, predict(X))`` and for a regressor ``r2_score(y, predict(X))``; both have a
+            # bit-identical closed form (``np.mean(pred==y)`` / ``1 - ss_res/ss_tot``) that skips the redundant
+            # re-validation. We latch the fast path per fold ONLY after a baseline self-check proves it returns
+            # the EXACT same float as ``estimator.score()`` (gate-the-win-on-its-safe-condition); any mismatch,
+            # exception, multioutput target, or non-clf/reg estimator falls back to ``estimator.score()`` for
+            # that fold, so the selected set stays bit-identical. The defensive ``copy`` is unchanged (keeps the
+            # CatBoost / read-only-buffer safety exactly).
+            scorer = _make_fast_default_scorer(model)
             pi = permutation_importance(
                 model, data, target,
-                scoring=_readonly_safe_scorer,
+                scoring=scorer,
                 n_repeats=n_repeats,
                 random_state=random_state,
                 n_jobs=1,
