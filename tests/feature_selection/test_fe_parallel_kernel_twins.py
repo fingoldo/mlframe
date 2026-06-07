@@ -111,12 +111,24 @@ def test_discretize_2d_quantile_batch_parallel_flag_byte_identical():
 
 def test_dispatch_predicate_gates_on_serial_main_thread():
     """The OPT-A dispatch predicate MUST return False on the joblib path
-    (``serial_main_thread`` False) regardless of column count -- nesting a numba prange
-    inside the threading layer deadlocks."""
-    from mlframe.feature_selection.filters._feature_engineering_pairs import _fe_use_parallel_kernels
-    # joblib path: never parallel, even for a huge chunk.
-    assert _fe_use_parallel_kernels(100_000, serial_main_thread=False) is False
-    # main-thread path, large chunk: parallel (fallback heuristic >= 256 cols).
-    assert _fe_use_parallel_kernels(4096, serial_main_thread=True) is True
-    # main-thread path, tiny chunk: serial (prange overhead not worth it).
-    assert _fe_use_parallel_kernels(8, serial_main_thread=True) is False
+    (``serial_main_thread`` False) regardless of column count OR the per-host tuned cache --
+    nesting a numba prange inside the threading layer deadlocks. On the main-thread path the
+    parallel-vs-serial choice is DELEGATED to the per-host kernel_tuning_cache, whose crossover
+    is tuned per machine; that crossover is therefore asserted only against the deterministic
+    fallback heuristic, never against the tuned predicate output (which legitimately varies by
+    host -- e.g. a host whose sweep finds the prange twin faster even at tiny column counts)."""
+    from mlframe.feature_selection.filters._feature_engineering_pairs import (
+        _fe_use_parallel_kernels,
+        _fe_parallelism_fallback_choice,
+    )
+    # INVARIANT (the deadlock guard): joblib path -> never parallel, for ANY column count or cache state.
+    for n in (8, 256, 4096, 100_000):
+        assert _fe_use_parallel_kernels(n, serial_main_thread=False) is False
+    # main-thread path: a bool delegated to the per-host tuned kernel_tuning_cache (do not hardcode
+    # the tuned crossover -- it varies by host).
+    assert isinstance(_fe_use_parallel_kernels(4096, serial_main_thread=True), bool)
+    # the DETERMINISTIC fallback crossover (used when the cache is cold / fails): >= 256 cols -> parallel.
+    assert _fe_parallelism_fallback_choice(8) == "serial"
+    assert _fe_parallelism_fallback_choice(255) == "serial"
+    assert _fe_parallelism_fallback_choice(256) == "parallel"
+    assert _fe_parallelism_fallback_choice(4096) == "parallel"
