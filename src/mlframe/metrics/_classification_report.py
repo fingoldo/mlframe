@@ -26,7 +26,7 @@ import pandas as pd
 import numba
 
 from ._numba_params import NUMBA_NJIT_PARAMS, _PARALLEL_REDUCTION_THRESHOLD  # noqa: F401
-from ._calibration_plot import (  # noqa: F401
+from .calibration._calibration_plot import (  # noqa: F401
     DEFAULT_TITLE_METRICS_TOKENS,
     fast_calibration_binning,
     render_title_metric_token,
@@ -36,7 +36,7 @@ from ._auc_per_group import (  # noqa: F401
     fast_aucs_per_group_optimized,
     compute_mean_aucs_per_group,
 )
-from ._calibration_metrics import (  # noqa: F401
+from .calibration._calibration_metrics import (  # noqa: F401
     calibration_metrics_from_freqs,
     compute_ece_and_brier_decomposition,
     integral_calibration_error_from_metrics,

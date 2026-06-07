@@ -32,7 +32,7 @@ import plotly.graph_objects as go
 from plotly.io import write_image
 
 # Single source of truth for numba kwargs across mlframe.metrics modules.
-from ._numba_params import NUMBA_NJIT_PARAMS
+from .._numba_params import NUMBA_NJIT_PARAMS
 
 logger = logging.getLogger(__name__)
 

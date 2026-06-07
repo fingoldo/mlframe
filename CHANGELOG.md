@@ -10,6 +10,7 @@
 ### Changed
 
 - Reorganized the flat `metrics/` regression modules into a cohesive `metrics/regression/` subpackage: `_regression_metrics.py`, `_regression_extras.py`, and `_regression_deviance.py` now live under `metrics/regression/`, re-exported through the new `metrics/regression/__init__.py`. The public surface is unchanged -- `mlframe.metrics` and `mlframe.metrics.core` continue to expose every regression metric exactly as before -- and `mlframe.metrics.regression` is the new public path for direct imports.
+- Reorganized the flat `metrics/` calibration modules into a cohesive `metrics/calibration/` subpackage: `_calibration_plot.py` and `_calibration_metrics.py` now live under `metrics/calibration/`, re-exported through the new `metrics/calibration/__init__.py`. The public surface is unchanged -- `mlframe.metrics.core` still exposes `show_calibration_plot` / `fast_calibration_metrics` / `integral_calibration_error_from_metrics` etc. and `mlframe.metrics.show_plots_unless_agg` is preserved -- and `mlframe.metrics.calibration` is the new public path for direct imports.
 
 ### Fixed
 

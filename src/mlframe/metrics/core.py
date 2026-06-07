@@ -124,7 +124,7 @@ TITLE_METRIC_TOKENS: frozenset = frozenset({
 # calibration plot rendering (render_title_metric_token, fast_calibration_binning,
 # _close_unless_interactive, show_calibration_plot, DEFAULT_TITLE_METRICS_TOKENS)
 # moved to sibling _calibration_plot.py; re-exported below.
-from ._calibration_plot import (  # noqa: F401, E402
+from .calibration import (  # noqa: F401, E402
     DEFAULT_TITLE_METRICS_TOKENS,
     render_title_metric_token,
     fast_calibration_binning,
@@ -138,7 +138,7 @@ from ._calibration_plot import (  # noqa: F401, E402
 # below so historical
 # ``from mlframe.metrics.core import calibration_metrics_from_freqs`` (and the
 # other moved names) imports continue to resolve.
-from ._calibration_metrics import (  # noqa: E402,F401
+from .calibration import (  # noqa: E402,F401
     calibration_metrics_from_freqs,
     compute_ece_and_brier_decomposition,
     fast_calibration_metrics,
@@ -182,7 +182,7 @@ from ._ice_metric import (  # noqa: E402,F401
 # composes the calibration outputs into the single ICE score). Re-exported
 # below so historical ``from mlframe.metrics.core import integral_calibration_error_from_metrics``
 # imports keep resolving.
-from ._calibration_metrics import integral_calibration_error_from_metrics  # noqa: E402,F401
+from .calibration import integral_calibration_error_from_metrics  # noqa: E402,F401
 
 
 # Regression metrics live in ``_regression_metrics.py``; re-exported below to keep
