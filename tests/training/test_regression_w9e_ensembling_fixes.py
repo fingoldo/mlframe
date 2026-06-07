@@ -20,8 +20,8 @@ import types
 import numpy as np
 import pytest
 
-from mlframe.models._ensembling_base import compute_high_correlation_pairs
-from mlframe.models._ensembling_quality_gate import compute_member_quality_gate
+from mlframe.models.ensembling.base import compute_high_correlation_pairs
+from mlframe.models.ensembling.quality_gate import compute_member_quality_gate
 from mlframe.models import ensembling as _ens_mod
 from mlframe.models.ensembling import compare_ensembles, score_ensemble
 
@@ -320,7 +320,7 @@ def test_w9e_f6_weighted_median_branch_does_not_lie_about_weights():
     the unweighted call -- because the post-fix code does NOT apply weights to this median (the
     anchor is per-member, not per-row).
     """
-    from mlframe.models._ensembling_predict import ensemble_probabilistic_predictions
+    from mlframe.models.ensembling.predict import ensemble_probabilistic_predictions
     rng = np.random.default_rng(0)
     n = 50
     p1 = rng.random(n)

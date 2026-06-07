@@ -14,8 +14,8 @@ from typing import Any, Callable, Dict, Optional, Sequence
 import numpy as np
 import pandas as pd
 
-from ._ensembling_base import build_predictive_kwargs
-from ._ensembling_predict import ensemble_probabilistic_predictions
+from .base import build_predictive_kwargs
+from .predict import ensemble_probabilistic_predictions
 
 logger = logging.getLogger("mlframe.models.ensembling")
 

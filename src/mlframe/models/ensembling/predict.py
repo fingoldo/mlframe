@@ -22,7 +22,7 @@ import numpy as np
 
 # Shared helpers live in the leaf so siblings can import them without
 # re-entering the parent (which would close an import cycle).
-from ._ensembling_base import (
+from .base import (
     RANK_FUSION_METHODS,
     SIMPLE_ENSEMBLING_METHODS,
     _WelfordAccumulator,

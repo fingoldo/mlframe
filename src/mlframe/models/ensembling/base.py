@@ -949,7 +949,7 @@ def _emit_pairs_above_threshold(
     return pairs, split_used
 
 
-from ._ensembling_member_metrics import (  # noqa: E402,F401
+from .member_metrics import (  # noqa: E402,F401
     _PER_MEMBER_KERNEL_NAME,
     _PER_MEMBER_NUMBA_FLOOR_ELEMENTS,
     _per_member_mae_std,

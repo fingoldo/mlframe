@@ -20,7 +20,7 @@ import numpy as np
 import pytest
 
 # Test the helper directly. Sibling-leaf import keeps the boundary narrow.
-from mlframe.models._ensembling_process_method import _select_member_probs
+from mlframe.models.ensembling.process_method import _select_member_probs
 
 
 class _FakeMember:

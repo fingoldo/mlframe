@@ -89,7 +89,7 @@ def test_per_member_std_constant_input_is_exactly_zero_not_negative():
     """The two-pass form yields a non-negative variance by construction (no clamp band-aid).
     On a constant |diff| input the naive ``E[X^2]-E[X]^2`` form could go slightly negative;
     the post-fix kernel must return exactly 0.0 std with no NaN/negative."""
-    from mlframe.models._ensembling_base import _per_member_mae_std_njit
+    from mlframe.models.ensembling.base import _per_member_mae_std_njit
 
     median = np.zeros(100_000, dtype=np.float64)
     arr = np.full((2, 100_000), 1000.0, dtype=np.float64)

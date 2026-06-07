@@ -17,7 +17,7 @@ from typing import Any, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from ._ensembling_base import _per_member_mae_std
+from .base import _per_member_mae_std
 
 logger = logging.getLogger("mlframe.models.ensembling")
 

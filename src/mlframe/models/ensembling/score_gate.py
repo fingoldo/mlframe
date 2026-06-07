@@ -1,4 +1,4 @@
-"""Quality-gate source-selection + catastrophic-MAE early-drop helpers carved out of ``mlframe.models._ensembling_score``.
+"""Quality-gate source-selection + catastrophic-MAE early-drop helpers carved out of ``mlframe.models.score``.
 
 Three helpers, each behavioural-equivalent to the original inline block:
 

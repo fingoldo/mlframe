@@ -1,4 +1,4 @@
-"""Wave 12a monolith-split sensor for ``mlframe.models._ensembling_score``.
+"""Wave 12a monolith-split sensor for ``mlframe.models.ensembling.score``.
 
 Carve pattern: three pure helpers extracted to ``_ensembling_score_gate``:
 - ``select_gate_source_split`` (OOF vs val/test/train preference + coarse-gate threshold flip)
@@ -19,13 +19,13 @@ import pytest
 
 @pytest.fixture(scope="module")
 def parent_module():
-    from mlframe.models import _ensembling_score
+    from mlframe.models.ensembling import score as _ensembling_score
     return _ensembling_score
 
 
 @pytest.fixture(scope="module")
 def gate_sibling():
-    from mlframe.models import _ensembling_score_gate
+    from mlframe.models.ensembling import score_gate as _ensembling_score_gate
     return _ensembling_score_gate
 
 

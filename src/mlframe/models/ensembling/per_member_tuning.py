@@ -40,7 +40,7 @@ import timeit
 
 import numpy as np
 
-from ._ensembling_base import _per_member_mae_std_njit, _HAS_NUMBA_PER_MEMBER, _PER_MEMBER_KERNEL_NAME
+from .base import _per_member_mae_std_njit, _HAS_NUMBA_PER_MEMBER, _PER_MEMBER_KERNEL_NAME
 
 logger = logging.getLogger("mlframe.models.ensembling")
 

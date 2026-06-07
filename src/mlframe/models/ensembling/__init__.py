@@ -1,23 +1,24 @@
-"""Thin facade for ``mlframe.models.ensembling``.
+"""Ensembling subpackage: probabilistic ensembling, scoring and leaderboards.
 
-The implementation was split across themed sibling modules to drop the
-monolith below 1k LOC:
+The implementation is split across themed submodules:
 
-  - ``_ensembling_base`` (shared helpers, constants, numba probe,
-    StreamingAccumulator / Welford, ``combine_probs``, ``rrf_ensemble``,
-    ``build_predictive_kwargs``, ``compute_high_correlation_pairs``,
-    ``batch_numaggs``, ``enrich_ensemble_preds_with_numaggs``,
-    ``_stacked_corrcoef``, ``_per_member_mae_std``).
-  - ``_ensembling_quality_gate`` (``compute_member_quality_gate``).
-  - ``_ensembling_predict`` (``ensemble_probabilistic_predictions`` +
-    streaming variant).
-  - ``_ensembling_process_method`` (``_process_single_ensemble_method``).
-  - ``_ensembling_score`` (``score_ensemble``).
+  - ``base`` (shared helpers, constants, numba probe, StreamingAccumulator /
+    Welford, ``combine_probs``, ``rrf_ensemble``, ``build_predictive_kwargs``,
+    ``compute_high_correlation_pairs``, ``batch_numaggs``,
+    ``enrich_ensemble_preds_with_numaggs``, ``_stacked_corrcoef``,
+    ``_per_member_mae_std``).
+  - ``quality_gate`` (``compute_member_quality_gate``).
+  - ``predict`` (``ensemble_probabilistic_predictions`` + streaming variant).
+  - ``process_method`` (``_process_single_ensemble_method``).
+  - ``score`` / ``score_gate`` / ``score_flavours`` / ``score_validate``
+    (``score_ensemble`` and its gate / flavour / validation helpers).
+  - ``member_metrics`` / ``per_member_tuning`` (per-member metrics and the
+    auto-tune-on-first-miss kernel sweep).
 
-This file keeps ``EnsembleLeaderboard``, ``_build_votenrank_leaderboard_from_results``
-and ``compare_ensembles`` because they reference ``score_ensemble``
-(circular if pulled into a sibling) and they form the small remaining
-public-facade surface.
+This ``__init__`` keeps ``EnsembleLeaderboard``,
+``_build_votenrank_leaderboard_from_results`` and ``compare_ensembles``
+because they reference ``score_ensemble`` (circular if pulled into a
+submodule) and they form the small remaining public-facade surface.
 
 Re-exports below preserve every historical
 ``from mlframe.models.ensembling import X`` import path.
@@ -33,7 +34,7 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 # Leaf helpers, constants, classes, numba probe.
-from ._ensembling_base import (  # noqa: E402,F401
+from .base import (  # noqa: E402,F401
     SIMPLE_ENSEMBLING_METHODS,
     RANK_FUSION_METHODS,
     StreamingAccumulator,
@@ -51,13 +52,13 @@ from ._ensembling_base import (  # noqa: E402,F401
     compute_high_correlation_pairs,
 )
 # Siblings.
-from ._ensembling_quality_gate import compute_member_quality_gate  # noqa: E402,F401
-from ._ensembling_predict import (  # noqa: E402,F401
+from .quality_gate import compute_member_quality_gate  # noqa: E402,F401
+from .predict import (  # noqa: E402,F401
     ensemble_probabilistic_predictions,
     ensemble_probabilistic_predictions_streaming,
 )
-from ._ensembling_process_method import _process_single_ensemble_method  # noqa: E402,F401
-from ._ensembling_score import score_ensemble  # noqa: E402,F401
+from .process_method import _process_single_ensemble_method  # noqa: E402,F401
+from .score import score_ensemble  # noqa: E402,F401
 
 
 class EnsembleLeaderboard:

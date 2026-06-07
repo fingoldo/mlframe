@@ -1,4 +1,4 @@
-"""Wave 11a monolith-split sensor for ``mlframe.models._ensembling_score``.
+"""Wave 11a monolith-split sensor for ``mlframe.models.ensembling.score``.
 
 Carve pattern: input-validation prelude extracted to sibling. score_ensemble dispatcher stays in parent. Identity / behavioural equivalence preserved for the single-member / no-members short-circuit.
 """
@@ -14,13 +14,13 @@ import pytest
 
 @pytest.fixture(scope="module")
 def parent_module():
-    from mlframe.models import _ensembling_score
+    from mlframe.models.ensembling import score as _ensembling_score
     return _ensembling_score
 
 
 @pytest.fixture(scope="module")
 def sibling_validate():
-    from mlframe.models import _ensembling_score_validate
+    from mlframe.models.ensembling import score_validate as _ensembling_score_validate
     return _ensembling_score_validate
 
 

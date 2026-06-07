@@ -339,7 +339,7 @@ def apply_quality_gate_kn(
     ``compute_member_quality_gate_fn`` is injected by the caller so existing tests that monkey-patch ``_ensembling_score.compute_member_quality_gate`` see their patch hit -- without injection the helper would resolve the function via its own top-level import and silently bypass the test's spy. When ``None`` (the default), falls back to ``_ensembling_quality_gate.compute_member_quality_gate``.
     """
     if compute_member_quality_gate_fn is None:
-        from ._ensembling_quality_gate import compute_member_quality_gate as compute_member_quality_gate_fn  # noqa: E501
+        from .quality_gate import compute_member_quality_gate as compute_member_quality_gate_fn  # noqa: E501
 
     _gate_stats: Any = None
     if not (_gate_preds_for_check is not None and len(_gate_preds_for_check) > 2):
@@ -457,7 +457,7 @@ def maybe_build_votenrank_leaderboard(
 ) -> None:
     """Build the votenrank Leaderboard over per-flavour metrics and stamp it under ``res["_leaderboard"]``.
 
-    VOTENRANK: one table per (flavour x split.metric) cell; regression suites still get a leaderboard but with regression-appropriate columns only. Defined at the tail of ``ensembling.py`` (after the ``from ._ensembling_score import score_ensemble`` re-export), so import lazily.
+    VOTENRANK: one table per (flavour x split.metric) cell; regression suites still get a leaderboard but with regression-appropriate columns only. Defined at the tail of ``ensembling.py`` (after the ``from .score import score_ensemble`` re-export), so import lazily.
     """
     if not build_votenrank_leaderboard_flag:
         return

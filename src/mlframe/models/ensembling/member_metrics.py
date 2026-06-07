@@ -55,7 +55,7 @@ def _per_member_use_numba(elements_per_member: int, n_groups: int, ndim: int = 2
     (Caution: an earlier async measurement timed kernel *launch* not completion
     and falsely showed cupy_VRAM winning 16x -- always synchronize GPU timings.)
     """
-    from ._ensembling_base import _HAS_NUMBA_PER_MEMBER
+    from .base import _HAS_NUMBA_PER_MEMBER
     if not _HAS_NUMBA_PER_MEMBER:
         return False
     env = os.environ.get("MLFRAME_PER_MEMBER_BACKEND", "").strip().lower()
@@ -63,7 +63,7 @@ def _per_member_use_numba(elements_per_member: int, n_groups: int, ndim: int = 2
         return env == "numba"
     try:
         from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
-        from ._per_member_tuning import run_per_member_sweep, per_member_code_version
+        from .per_member_tuning import run_per_member_sweep, per_member_code_version
         autotune = os.environ.get("MLFRAME_PER_MEMBER_AUTOTUNE", "1").strip() != "0"
         # Shared orchestrator: env override -> per-host cache (code-version
         # checked) -> on-miss sweep (once/process, cross-process locked, logs
@@ -104,7 +104,7 @@ def _per_member_mae_std(arr: np.ndarray, median_preds: np.ndarray) -> tuple:
     per-column std so it is now bit-identical to numpy; the numpy path here is
     the fallback / sub-floor tier.
     """
-    from ._ensembling_base import _HAS_NUMBA_PER_MEMBER, _per_member_mae_std_njit
+    from .base import _HAS_NUMBA_PER_MEMBER, _per_member_mae_std_njit
     K = arr.shape[0]
     elements_per_member = int(arr.size // max(K, 1))
     # Both 2-D and 3-D dispatch to numba now. The 3-D njit branch was fixed to

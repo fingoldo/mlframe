@@ -21,14 +21,14 @@ import numpy as np
 
 
 def test_w14a_ensembling_score_facade_under_budget():
-    parent = Path(__file__).parent.parent.parent / "src" / "mlframe" / "models" / "_ensembling_score.py"
+    parent = Path(__file__).parent.parent.parent / "src" / "mlframe" / "models" / "ensembling" / "score.py"
     facade_loc = sum(1 for _ in parent.open(encoding="utf-8"))
-    assert facade_loc < 500, f"_ensembling_score.py LOC={facade_loc} exceeds 500 budget"
+    assert facade_loc < 500, f"ensembling/score.py LOC={facade_loc} exceeds 500 budget"
 
 
 def test_w14a_ensembling_score_flavours_identity():
-    from mlframe.models import _ensembling_score as parent
-    from mlframe.models import _ensembling_score_flavours as flav
+    from mlframe.models.ensembling import score as parent
+    from mlframe.models.ensembling import score_flavours as flav
 
     # Every helper imported into the parent must be the same object exported from the sibling.
     assert parent.build_member_tag_lists is flav.build_member_tag_lists
@@ -42,7 +42,7 @@ def test_w14a_ensembling_score_flavours_identity():
 
 def test_w14a_build_member_tag_lists_with_name_attr():
     """``model_name`` (TVT augmented) feeds the full-tag list; underlying class feeds the short-tag list."""
-    from mlframe.models._ensembling_score_flavours import build_member_tag_lists
+    from mlframe.models.ensembling.score_flavours import build_member_tag_lists
 
     class _FakeReg:
         pass
@@ -59,7 +59,7 @@ def test_w14a_build_member_tag_lists_with_name_attr():
 
 def test_w14a_filter_sign_sensitive_flavours_drops_harm_geo_quad_on_sign_changing():
     """Regression flavour filter must drop harm / geo / quad when preds span zero."""
-    from mlframe.models._ensembling_score_flavours import filter_sign_sensitive_flavours
+    from mlframe.models.ensembling.score_flavours import filter_sign_sensitive_flavours
 
     m1 = SimpleNamespace(val_preds=np.array([-2.0, -1.0, 0.5, 2.0]), test_preds=None, train_preds=None)
     m2 = SimpleNamespace(val_preds=np.array([-1.5, 0.8, 1.0, 1.5]), test_preds=None, train_preds=None)
@@ -79,7 +79,7 @@ def test_w14a_filter_sign_sensitive_flavours_drops_harm_geo_quad_on_sign_changin
 
 def test_w14a_filter_sign_sensitive_flavours_keeps_all_positive():
     """All-positive preds should not trip the sign-flip filter."""
-    from mlframe.models._ensembling_score_flavours import filter_sign_sensitive_flavours
+    from mlframe.models.ensembling.score_flavours import filter_sign_sensitive_flavours
 
     m1 = SimpleNamespace(val_preds=np.array([1.0, 2.0, 3.0]), test_preds=None, train_preds=None)
     m2 = SimpleNamespace(val_preds=np.array([1.5, 2.5, 3.5]), test_preds=None, train_preds=None)
@@ -94,7 +94,7 @@ def test_w14a_filter_sign_sensitive_flavours_keeps_all_positive():
 
 def test_w14a_filter_sign_sensitive_skips_classification():
     """Classification suites bypass the sign-flip filter even with sign-changing preds."""
-    from mlframe.models._ensembling_score_flavours import filter_sign_sensitive_flavours
+    from mlframe.models.ensembling.score_flavours import filter_sign_sensitive_flavours
 
     m1 = SimpleNamespace(val_preds=np.array([-1.0, 0.0, 1.0]), test_preds=None, train_preds=None)
     res = filter_sign_sensitive_flavours(
@@ -108,7 +108,7 @@ def test_w14a_filter_sign_sensitive_skips_classification():
 
 def test_w14a_collapse_identical_returns_arithm_when_all_close():
     """When all member preds are byte-identical and early_exit_if_identical=True, collapse to arithm."""
-    from mlframe.models._ensembling_score_flavours import collapse_to_single_flavour_if_identical
+    from mlframe.models.ensembling.score_flavours import collapse_to_single_flavour_if_identical
 
     ref = np.array([0.1, 0.2, 0.3, 0.4])
     res_dict: dict = {}
@@ -128,7 +128,7 @@ def test_w14a_collapse_identical_returns_arithm_when_all_close():
 
 def test_w14a_collapse_identical_disabled_by_default():
     """When early_exit_if_identical=False, the methods list passes through untouched."""
-    from mlframe.models._ensembling_score_flavours import collapse_to_single_flavour_if_identical
+    from mlframe.models.ensembling.score_flavours import collapse_to_single_flavour_if_identical
 
     ref = np.array([0.1, 0.2, 0.3])
     res = collapse_to_single_flavour_if_identical(

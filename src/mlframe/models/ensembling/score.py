@@ -23,20 +23,20 @@ import pandas as pd
 # (quality_gate / predict / process_method) come from their own siblings.
 # No ``from .ensembling import`` here: the parent re-imports this module at
 # its bottom; routing every dependency through leaves breaks the cycle.
-from ._ensembling_base import (  # noqa: F401
+from .base import (  # noqa: F401
     SIMPLE_ENSEMBLING_METHODS,
     compute_high_correlation_pairs,
 )
-from ._ensembling_predict import ensemble_probabilistic_predictions  # noqa: F401 -- re-exported for monkey-patch
-from ._ensembling_process_method import _process_single_ensemble_method
-from ._ensembling_quality_gate import compute_member_quality_gate  # noqa: F401 -- monkey-patched by tests
-from ._ensembling_score_validate import _validate_score_ensemble_inputs
-from ._ensembling_score_gate import (
+from .predict import ensemble_probabilistic_predictions  # noqa: F401 -- re-exported for monkey-patch
+from .process_method import _process_single_ensemble_method
+from .quality_gate import compute_member_quality_gate  # noqa: F401 -- monkey-patched by tests
+from .score_validate import _validate_score_ensemble_inputs
+from .score_gate import (
     catastrophic_drop_k2,
     catastrophic_drop_kn,
     select_gate_source_split,
 )
-from ._ensembling_score_flavours import (
+from .score_flavours import (
     apply_diversity_drop,
     apply_quality_gate_kn,
     build_member_tag_lists,
@@ -54,7 +54,7 @@ from pyutilz.pythonlib import is_jupyter_notebook
 
 # Use the parent module's logger name so caplog filters on
 # ``"mlframe.models.ensembling"`` continue to capture our records.
-# The sibling lives at ``mlframe.models._ensembling_score`` but the public
+# The sibling lives at ``mlframe.models.score`` but the public
 # API surface (and the tests that assert on log lines) all reference the
 # parent module name.
 logger = logging.getLogger("mlframe.models.ensembling")
@@ -319,7 +319,7 @@ def score_ensemble(
         res=res,
         verbose=verbose,
         # Pass the parent-module bound name so tests that monkey-patch
-        # ``mlframe.models._ensembling_score.compute_member_quality_gate`` still
+        # ``mlframe.models.score.compute_member_quality_gate`` still
         # see their spy hit. Resolved here per-call (not closed over) so the
         # patch can be installed AFTER the helper module has been imported.
         compute_member_quality_gate_fn=compute_member_quality_gate,

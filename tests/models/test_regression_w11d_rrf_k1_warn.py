@@ -12,7 +12,7 @@ import logging
 import numpy as np
 import pytest
 
-from mlframe.models._ensembling_base import _rrf_aggregate_probs
+from mlframe.models.ensembling.base import _rrf_aggregate_probs
 
 
 def test_k1_input_emits_warn(caplog):

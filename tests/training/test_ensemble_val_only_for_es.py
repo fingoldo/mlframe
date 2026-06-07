@@ -61,7 +61,7 @@ def test_member_quality_gate_routes_to_oof_not_val():
     # module top. Patching the re-exporter on ``mlframe.models.ensembling``
     # has no effect on that binding - we must patch the score module's
     # local reference. (Same pattern as the rrf_njit dispatch fix.)
-    import mlframe.models._ensembling_score as ens_score_mod
+    import mlframe.models.ensembling.score as ens_score_mod
     real_gate = ens_score_mod.compute_member_quality_gate
 
     def _spy_gate(preds_list, **kw):

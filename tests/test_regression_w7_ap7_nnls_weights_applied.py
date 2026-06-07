@@ -25,8 +25,8 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from mlframe.models._ensembling_base import combine_probs
-from mlframe.models._ensembling_predict import ensemble_probabilistic_predictions
+from mlframe.models.ensembling.base import combine_probs
+from mlframe.models.ensembling.predict import ensemble_probabilistic_predictions
 from mlframe.models.ensembling import score_ensemble
 
 

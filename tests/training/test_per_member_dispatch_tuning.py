@@ -1,5 +1,5 @@
 """Unit tests for the HW-calibrated numpy-vs-numba dispatch of _per_member_mae_std
-and its auto-tune-on-first-miss sweep (mlframe.models._per_member_tuning).
+and its auto-tune-on-first-miss sweep (mlframe.models.ensembling.per_member_tuning).
 
 Cache I/O is isolated to a tmp dir via PYUTILZ_KERNEL_CACHE_DIR so these never
 touch the real ~/.pyutilz cache.
@@ -7,8 +7,8 @@ touch the real ~/.pyutilz cache.
 import numpy as np
 import pytest
 
-from mlframe.models import _ensembling_base as eb
-from mlframe.models import _per_member_tuning as pmt
+from mlframe.models.ensembling import base as eb
+from mlframe.models.ensembling import per_member_tuning as pmt
 
 
 @pytest.fixture(autouse=True)
