@@ -177,3 +177,30 @@ def test_empty_and_single_edge_cases():
                  np.array([0.25, 0.25, 0.25, 0.25]), 3, np.uint64(0), 0.99, False, np.int32)
         assert out.shape == (3,)
         assert np.array_equal(out, np.zeros(3))
+
+
+@pytest.mark.skipif(not _CUPY_AVAIL, reason="cupy unavailable")
+@pytest.mark.parametrize("size,flatlen", [(64, 5000), (1000, 120000), (24000, 800000), (50, 200)])
+def test_cupy_bincount_known_size_byte_identical(size, flatlen):
+    """OPT-D: the known-size bincount helper (skips cupy.bincount's (x<0).any() +
+    cupy.max(x) host-sync validations) must be BYTE-IDENTICAL to cupy.bincount, for
+    every (size, flatlen) the FE-MI gate exercises. Covers a flat index whose max
+    is < size-1 (so the size-difference path is hit) and a fully-saturated one."""
+    import cupy as cp
+    from mlframe.feature_selection.filters.batch_mi_noise_gate_gpu import _cupy_bincount_known_size
+    rng = np.random.default_rng(size * 7 + flatlen)
+    # indices strictly < size (non-negative by construction, as in the gate)
+    idx = rng.integers(0, size, size=flatlen).astype(np.int64)
+    d_idx = cp.asarray(idx)
+    ref = cp.asnumpy(cp.bincount(d_idx, minlength=size)[:size])
+    got = cp.asnumpy(_cupy_bincount_known_size(d_idx, size))
+    assert got.shape == (size,)
+    assert got.dtype == ref.dtype
+    assert np.array_equal(got, ref)
+    # an index set whose observed max is well below size-1: cupy.bincount would size
+    # via minlength here; the helper must still produce all `size` slots (trailing zeros).
+    idx2 = rng.integers(0, max(1, size // 2), size=flatlen).astype(np.int64)
+    d_idx2 = cp.asarray(idx2)
+    ref2 = cp.asnumpy(cp.bincount(d_idx2, minlength=size)[:size])
+    got2 = cp.asnumpy(_cupy_bincount_known_size(d_idx2, size))
+    assert np.array_equal(got2, ref2)

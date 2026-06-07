@@ -63,6 +63,39 @@ except Exception:
     _cp = None
     _CUPY_AVAIL = False
 
+# OPT-D (2026-06-07): cupy's public ``cupy.bincount`` runs TWO host-blocking
+# synchronizations on EVERY call -- ``(x < 0).any()`` (non-negativity validation)
+# and ``int(cupy.max(x))`` (output sizing) -- before the actual histogram kernel.
+# In ``batch_mi_with_noise_gate_cupy`` both are pure overhead: the flat index is
+# constructed non-negative (offsets + non-negative codes) and the output size is
+# already known exactly (``rows*total_size`` = the ``minlength`` we pass). Those two
+# syncs were the dominant cost of the scene MRMR ``bincount`` hotspot (~26% of fit
+# wall in the sampler) -- NOT the count kernel. ``cupy._statistics.histogram._bincount_kernel``
+# is the SAME ElementwiseKernel ``cupy.bincount`` dispatches into, so calling it
+# directly into a pre-zeroed array of the known size is BYTE-IDENTICAL (verified:
+# profiling/bench_cupy_bincount_sync.py, 3.0-5.4x faster, byte_identical=True on every
+# scene FE-MI shape) while skipping both barriers. Probe the private symbol once at
+# import; if a future cupy renames it we fall back to public ``cupy.bincount``.
+try:
+    from cupy._statistics.histogram import _bincount_kernel as _cupy_bincount_kernel
+except Exception:
+    _cupy_bincount_kernel = None
+
+
+def _cupy_bincount_known_size(d_flat, size):
+    """``cupy.bincount(d_flat, minlength=size)[:size]`` for the case where ``size`` is
+    KNOWN exactly and ``d_flat`` is non-negative by construction -- skips cupy.bincount's
+    ``(x<0).any()`` + ``cupy.max(x)`` host-sync barriers. BYTE-IDENTICAL output (same
+    underlying ElementwiseKernel). Falls back to public ``cupy.bincount`` if the private
+    kernel symbol is unavailable on this cupy build."""
+    cp = _cp
+    if _cupy_bincount_kernel is not None:
+        import numpy as _np
+        b = cp.zeros((size,), dtype=_np.intp)
+        _cupy_bincount_kernel(d_flat, b)
+        return b
+    return cp.bincount(d_flat, minlength=size)[:size]
+
 
 # ---------------------------------------------------------------------------
 # Bit-exact CPU entropy-from-counts (shared by both GPU backends)
@@ -253,7 +286,9 @@ def batch_mi_with_noise_gate_cupy_v1(
         against ``y_codes_host`` (length n)."""
         d_y = cp.asarray(np.ascontiguousarray(y_codes_host, dtype=np.int64)).reshape(n, 1)  # (n,1)
         d_idx = (d_base + d_y).reshape(-1)  # (n*K,) flat global indices
-        flat = cp.bincount(d_idx, minlength=total_size)[:total_size]
+        # OPT-D: known-size bincount (skip cupy.bincount's host-sync validations);
+        # byte-identical counts. ``total_size`` is exact, ``d_idx`` non-negative by construction.
+        flat = _cupy_bincount_known_size(d_idx, total_size)
         return cp.asnumpy(flat)  # (total_size,) int64 on host
 
     # Original MI.
@@ -422,7 +457,10 @@ def batch_mi_with_noise_gate_cupy(
         d_idx = (d_base_3d + d_y_tile).reshape(rows, n * K)              # (rows, n*K)
         d_row_off = (cp.arange(rows, dtype=cp.int64) * np.int64(total_size)).reshape(rows, 1)
         d_flat = (d_idx + d_row_off).reshape(-1)                         # (rows*n*K,)
-        tile_counts = cp.bincount(d_flat, minlength=rows * total_size)[: rows * total_size]
+        # OPT-D: known-size bincount (skip cupy.bincount's two host-sync validations);
+        # byte-identical counts (same kernel). ``rows*total_size`` is the exact size and
+        # ``d_flat`` is non-negative by construction (offsets + non-negative codes).
+        tile_counts = _cupy_bincount_known_size(d_flat, rows * total_size)
         # ONE D2H for the whole tile.
         counts_all[start:stop, :] = cp.asnumpy(tile_counts).reshape(rows, total_size)
         del d_y_tile, d_idx, d_row_off, d_flat, tile_counts
