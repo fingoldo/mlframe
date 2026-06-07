@@ -214,6 +214,17 @@ def reset_gpu_model_available_cache() -> None:
     _GPU_MODEL_AVAILABLE_CACHE = None
 
 
+def _as_nameless_array(X):
+    """Return ``X`` as a nameless numpy array for a ranking booster fit.
+
+    Speed lever (2026-06-08): the prefilter ranking boosters consume only ``feature_importances_``,
+    a POSITIONAL vector, so feeding xgboost a *named* pandas DataFrame only pays the per-fit
+    ``from_cstr_to_pystr`` + ``_validate_features`` feature-name marshalling for nothing. Tree splits
+    depend on column values + positions, never names, so the importance vector is bit-identical to
+    the named-DataFrame fit. ndarray input passes through (already nameless)."""
+    return X.values if hasattr(X, "values") else np.asarray(X)
+
+
 def _importances_from_fitted(est, n_features: int) -> Optional[np.ndarray]:
     """Pull a length-``n_features`` non-negative importance vector from a fitted estimator, or None."""
     if hasattr(est, "feature_importances_"):
@@ -259,7 +270,10 @@ def _rank_model(model_template, X, y, *, n_features: int, n_estimators_cap=None)
 
     pf = clone(model_template)
     _apply_booster_cap(pf, n_estimators_cap)
-    pf.fit(X, y)
+    # Fit on a nameless numpy view: the ranking consumes only ``feature_importances_`` (positional),
+    # so stripping pandas feature names skips xgboost's per-fit name marshalling; bit-identical
+    # (importances derive from trees that depend on values + positions, never names).
+    pf.fit(_as_nameless_array(X), y)
     return _importances_from_fitted(_unwrap_estimator(pf), n_features)
 
 
@@ -299,7 +313,8 @@ def _rank_fast_model(model_template, X, y, *, n_features: int, n_estimators_cap=
             pf.set_params(**fast)
         except (ValueError, TypeError):
             pass
-    pf.fit(X, y)
+    # Nameless numpy fit (positional importances; bit-identical) -- see ``_rank_model``.
+    pf.fit(_as_nameless_array(X), y)
     return _importances_from_fitted(_unwrap_estimator(pf), n_features)
 
 
@@ -327,14 +342,16 @@ def _rank_gpu_model(model_template, X, y, *, n_features: int, n_estimators_cap=N
         logger.warning(
             "ShapProxiedFS: prefilter_method='gpu_model' requested but the model template does not "
             "expose an xgboost-style device= param; running the prefilter fit on CPU.")
+    # Nameless numpy fit (positional importances; bit-identical) -- see ``_rank_model``.
+    X_arr = _as_nameless_array(X)
     try:
-        pf.fit(X, y)
+        pf.fit(X_arr, y)
     except Exception as exc:  # device/build hiccup -> CPU fallback (never lose the prefilter)
         if routed:
             logger.warning("ShapProxiedFS: GPU prefilter fit failed (%s); retrying on CPU.", exc)
             pf = clone(model_template)
             _apply_booster_cap(pf, n_estimators_cap)
-            pf.fit(X, y)
+            pf.fit(X_arr, y)
         else:
             raise
     return _importances_from_fitted(_unwrap_estimator(pf), n_features)
@@ -409,11 +426,14 @@ def _rank_two_stage(
           f"kept {len(stage1_cols)}/{n_features}", flush=True)
 
     # Stage B: fit a capped booster on the survivors only and rank by native importances.
+    # Keep the survivor slice as a NAMELESS numpy array (do NOT rewrap into a named DataFrame): the
+    # ranking consumes only ``feature_importances_``, a POSITIONAL vector, and tree splits depend on
+    # column values + positions, never names. Fitting on the numpy slice avoids xgboost's per-fit
+    # ``from_cstr_to_pystr`` + ``_validate_features`` feature-name marshalling (bit-identical to the
+    # named path -- importances are derived from identical trees; see the honest-loss numpy-slice
+    # lever for the proven values-only/positional equivalence).
     Xv = X.values if isinstance(X, pd.DataFrame) else np.asarray(X)
-    X_stage1 = Xv[:, stage1_cols]
-    if isinstance(X, pd.DataFrame):
-        cols_stage1 = X.columns[stage1_cols]
-        X_stage1 = pd.DataFrame(X_stage1, columns=cols_stage1, index=X.index)
+    X_stage1 = np.ascontiguousarray(Xv[:, stage1_cols])
     t1 = time.perf_counter()
     # Route stage-B to the GPU when the problem is big enough that upload + kernel-launch overhead
     # amortizes; on small problems / no GPU build the CPU model path stays faster (and is the only
