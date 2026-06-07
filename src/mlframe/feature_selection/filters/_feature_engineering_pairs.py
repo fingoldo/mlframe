@@ -1278,6 +1278,23 @@ def check_prospective_fe_pairs(
 
     # Hoist ``final_transformed_vals`` outside the per-pair loop: precompute each pair's ``combs``, find the max length, allocate one shared buffer. Each pair writes
     # then reads the same ``[:, i]`` slice so stale tail data is never observed.
+    #
+    # OPT-C structural-candidate-dedup analysed + REJECTED (2026-06-07, 0% yield): a proposal to
+    # dedup PROVABLY-EQUAL candidate columns (symmetric binaries on equal operand-key sets) before
+    # discretize+MI was measured to remove NOTHING -- this generation ALREADY eliminates every
+    # provable structural duplicate:
+    #   (1) ``combinations`` below emits each UNORDERED operand pair ONCE -> no symmetric-op order
+    #       dups within a pair (``mul((a,u1),(b,u2))`` and ``mul((b,u2),(a,u1))`` never both appear);
+    #   (2) ``tp[0][0] != tp[1][0]`` keeps operands from DISTINCT raw vars;
+    #   (3) ``prospective_pairs`` keys are unique raw {a,b} pairs -> no two candidate columns across
+    #       pairs share the same (op, operand-key set);
+    #   (4) the shared UNARY operand columns (``sqr(a)`` reused across pairs (a,b),(a,c)) are already
+    #       materialised ONCE via the ``vars_transformations`` {(var,unary):col} dict below.
+    # Empirical: a canonical-(op, frozenset-of-operand-keys) scan over a 40-raw-pair x 13-unary x
+    # 9-op pool = 60840 candidate columns (33800 symmetric-op) found ZERO provable duplicates
+    # (0.00%). Any remaining "duplicate" would be VALUE-equal (not structurally provable) operands,
+    # which the proposal explicitly excludes. So a structural-dedup pass is pure complexity for no
+    # win; do NOT re-implement without a NEW source of structural collisions.
     pair_combs: dict = {}
     max_n_combs = 0
     for (raw_vars_pair, _), _ in prospective_pairs.items():
