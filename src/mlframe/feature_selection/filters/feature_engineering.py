@@ -127,21 +127,59 @@ def _estimate_fe_shared_buffer_bytes(n_rows: int, max_n_combs: int, n_binary: in
     return int(n_rows) * int(max_n_combs) * int(n_binary) * 4  # float32 = 4 bytes
 
 
-def _can_hoist_shared_buffer(buffer_bytes: int, budget_ratio: float = _FE_BUFFER_RAM_BUDGET_RATIO) -> tuple[bool, int, int]:
-    """Decide whether the shared scratch buffer fits in available RAM.
+# OPT5 (2026-06-07): short-TTL cache for ``psutil.virtual_memory().available``.
+# ``_can_hoist_shared_buffer`` is called once per FE chunk AND once per ext-val survivor
+# (scene-1500x299 cProfile: 2926 calls -> 11.8s / ~4% of fit in ``psutil_windows.virtual_mem``
+# alone; the Windows psutil syscall is ~4ms). The available-RAM reading is stable across the
+# rapid successive calls within one FE sweep, so caching it for a brief window collapses those
+# 2926 syscalls to a handful WITHOUT changing the hoist/recompute decision in practice -- and
+# even a borderline flip is selection-safe because the recompute-fallback path produces
+# BIT-IDENTICAL survivors (the documented accuracy-preserving fallback), so MRMR's selected
+# features + recipe are unaffected by which path the buffer-fit check picks. TTL kept short
+# (0.25s) so a genuine RAM drop between distinct allocation phases is still caught by a fresh
+# reading. ``_FE_VMEM_CACHE`` is a 2-tuple ``(monotonic_timestamp, available_bytes)``.
+import time as _time
 
-    Uses ``psutil.virtual_memory().available`` for a conservative "RAM I can
-    take right now" reading -- ``total`` would include pages owned by other
-    processes which we cannot evict cleanly. Falls back to a permissive yes
-    when psutil is unavailable so single-test environments without it still
-    take the historical fast path (and OOM loudly on truly large n if so).
+_FE_VMEM_TTL_S: float = 0.25
+_FE_VMEM_CACHE: tuple[float, int] | None = None
+_FE_VMEM_LOCK = threading.Lock()
 
-    Returns (can_hoist, buffer_bytes, available_bytes).
+
+def _available_ram_bytes_cached() -> int:
+    """``psutil.virtual_memory().available`` with a ~0.25s TTL cache (OPT5).
+
+    Returns ``-1`` when psutil is unavailable (callers treat that as "permissive yes",
+    preserving the legacy no-psutil behaviour). Thread-safe: the FE sweep can run under
+    joblib ``backend="threading"``, so the read+store is guarded by ``_FE_VMEM_LOCK``.
     """
+    global _FE_VMEM_CACHE
+    now = _time.monotonic()
+    cached = _FE_VMEM_CACHE
+    if cached is not None and (now - cached[0]) < _FE_VMEM_TTL_S:
+        return cached[1]
     try:
         import psutil
         available = int(psutil.virtual_memory().available)
     except Exception:
+        return -1
+    with _FE_VMEM_LOCK:
+        _FE_VMEM_CACHE = (now, available)
+    return available
+
+
+def _can_hoist_shared_buffer(buffer_bytes: int, budget_ratio: float = _FE_BUFFER_RAM_BUDGET_RATIO) -> tuple[bool, int, int]:
+    """Decide whether the shared scratch buffer fits in available RAM.
+
+    Uses ``psutil.virtual_memory().available`` (via the OPT5 short-TTL cache
+    ``_available_ram_bytes_cached``) for a conservative "RAM I can take right now" reading --
+    ``total`` would include pages owned by other processes which we cannot evict cleanly.
+    Falls back to a permissive yes when psutil is unavailable so single-test environments
+    without it still take the historical fast path (and OOM loudly on truly large n if so).
+
+    Returns (can_hoist, buffer_bytes, available_bytes).
+    """
+    available = _available_ram_bytes_cached()
+    if available < 0:
         # No psutil: preserve legacy behaviour (always hoist, OOM is the signal).
         return True, buffer_bytes, -1
     return buffer_bytes < int(available * budget_ratio), buffer_bytes, available
