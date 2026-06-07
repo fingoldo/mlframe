@@ -341,6 +341,14 @@ def batch_mi_with_noise_gate_cupy(
     (``_mi_from_counts_cpu``), so the result is identical to v1 AND to the CPU njit
     kernel. Raises ``RuntimeError`` if cupy is unavailable.
     """
+    # NEUTRALIZED 2026-06-07: the GPU-resident permutation path below is bit-WRONG for npermutations>0
+    # (test_gpu_bit_identical_to_cpu fails nperm=3/10 -- the on-device shuffle diverges from the CPU LCG, flipping
+    # noise-gate verdicts: a large diff, not float-rounding, so a 1e-9 tolerance can't absorb it). Route to the
+    # bit-exact original kernel (v1) until the resident permutation path is fixed; code below preserved for that fix.
+    return batch_mi_with_noise_gate_cupy_v1(
+        disc_2d, factors_nbins, classes_y, classes_y_safe, freqs_y,
+        npermutations, base_seed, min_nonzero_confidence, use_su, dtype,
+    )
     if not _CUPY_AVAIL:
         raise RuntimeError("cupy is not available on this host")
     cp = _cp

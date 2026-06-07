@@ -1,5 +1,5 @@
 {
-  "generated_utc": "2026-06-07T07:56:02+00:00",
+  "generated_utc": "2026-06-07T09:31:34+00:00",
   "hosts": 1,
   "kernels": {
     "batch_mi_noise_gate": {
@@ -423,6 +423,106 @@
           "device": "gpu",
           "max_abs_diff": 1.7763632627065817e-06,
           "n_cells_max": null
+        }
+      ],
+      "salt": 1
+    },
+    "friend_graph_build": {
+      "axes": [
+        "n_rows",
+        "k"
+      ],
+      "code_version": "476e8341ce838204b06323128ccc745cf1a4537c7fc5dfa9ad34535311ee2757",
+      "regions": [
+        {
+          "backend_choice": "cpu",
+          "device": "cpu",
+          "k_max": 32,
+          "max_abs_diff": 0.0,
+          "n_rows_max": 2000
+        },
+        {
+          "backend_choice": "cupy",
+          "device": "gpu",
+          "k_max": 64,
+          "max_abs_diff": 0.0,
+          "n_rows_max": 2000
+        },
+        {
+          "backend_choice": "cuda",
+          "device": "gpu",
+          "k_max": 128,
+          "max_abs_diff": 0.0,
+          "n_rows_max": 2000
+        },
+        {
+          "backend_choice": "cuda",
+          "device": "gpu",
+          "k_max": 256,
+          "max_abs_diff": 0.0,
+          "n_rows_max": 2000
+        },
+        {
+          "backend_choice": "cuda",
+          "device": "gpu",
+          "k_max": 32,
+          "max_abs_diff": 0.0,
+          "n_rows_max": 5000
+        },
+        {
+          "backend_choice": "cuda",
+          "device": "gpu",
+          "k_max": 64,
+          "max_abs_diff": 0.0,
+          "n_rows_max": 5000
+        },
+        {
+          "backend_choice": "cuda",
+          "device": "gpu",
+          "k_max": 128,
+          "max_abs_diff": 0.0,
+          "n_rows_max": 5000
+        },
+        {
+          "backend_choice": "cuda",
+          "device": "gpu",
+          "k_max": 256,
+          "max_abs_diff": 0.0,
+          "n_rows_max": 5000
+        },
+        {
+          "backend_choice": "cuda",
+          "device": "gpu",
+          "k_max": 32,
+          "max_abs_diff": 0.0,
+          "n_rows_max": 20000
+        },
+        {
+          "backend_choice": "cuda",
+          "device": "gpu",
+          "k_max": 64,
+          "max_abs_diff": 0.0,
+          "n_rows_max": 20000
+        },
+        {
+          "backend_choice": "cuda",
+          "device": "gpu",
+          "k_max": 128,
+          "max_abs_diff": 0.0,
+          "n_rows_max": 20000
+        },
+        {
+          "backend_choice": "cuda",
+          "device": "gpu",
+          "k_max": 256,
+          "max_abs_diff": 0.0,
+          "n_rows_max": 20000
+        },
+        {
+          "backend_choice": "cuda",
+          "device": "gpu",
+          "k_max": null,
+          "n_rows_max": null
         }
       ],
       "salt": 1
