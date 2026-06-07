@@ -61,7 +61,7 @@ from ._classif_helpers import (  # noqa: E402,F401
     _ChainEnsemble,
     _build_classifier_chain_ensemble,
 )  # _build_classifier_chain_ensemble kept in helpers.py (line 86)
-from ._callbacks import (  # noqa: E402,F401
+from .callbacks import (  # noqa: E402,F401
     UniversalCallback,
     LightGBMCallback,
     XGBoostCallback,

@@ -58,7 +58,7 @@ def _fit_one(seed: int, slice_k: int = 0, source: str = "temporal",
               patience: int = 25) -> float:
     """Fit one LGB on the heteroscedastic-temporal synthetic; return test RMSE."""
     import lightgbm as lgb
-    from mlframe.training._callbacks import LightGBMCallback
+    from mlframe.training.callbacks._callbacks import LightGBMCallback
     from mlframe.training._data_helpers import _setup_eval_set
     from mlframe.training._slice_helpers import build_slice_eval_sets
 

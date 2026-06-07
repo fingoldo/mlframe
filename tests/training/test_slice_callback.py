@@ -19,7 +19,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from mlframe.training._callbacks import UniversalCallback
+from mlframe.training.callbacks._callbacks import UniversalCallback
 from mlframe.training._helpers_training_configs import disable_native_es_for_slice_stable
 
 

@@ -14,9 +14,9 @@
   },
   "CatBoostCallback": {
     "kind": "class",
-    "module": "mlframe.training._callbacks",
+    "module": "mlframe.training.callbacks._callbacks",
     "mro": [
-      "mlframe.training._callbacks.UniversalCallback",
+      "mlframe.training.callbacks._callbacks.UniversalCallback",
       "builtins.object"
     ]
   },
@@ -102,9 +102,9 @@
   },
   "LightGBMCallback": {
     "kind": "class",
-    "module": "mlframe.training._callbacks",
+    "module": "mlframe.training.callbacks._callbacks",
     "mro": [
-      "mlframe.training._callbacks.UniversalCallback",
+      "mlframe.training.callbacks._callbacks.UniversalCallback",
       "builtins.object"
     ]
   },
@@ -338,9 +338,9 @@
   },
   "XGBoostCallback": {
     "kind": "class",
-    "module": "mlframe.training._callbacks",
+    "module": "mlframe.training.callbacks._callbacks",
     "mro": [
-      "mlframe.training._callbacks.UniversalCallback",
+      "mlframe.training.callbacks._callbacks.UniversalCallback",
       "xgboost.callback.TrainingCallback",
       "abc.ABC",
       "builtins.object"

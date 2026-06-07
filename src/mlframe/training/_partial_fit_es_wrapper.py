@@ -245,7 +245,7 @@ class PartialFitESWrapper:
     # -- internal: partial_fit strategy ---------------------------------------
 
     def _fit_partial(self, X_tr, y_tr, X_val, y_val, metric_fn, metric_name, mode) -> None:
-        from ._callbacks import UniversalCallback
+        from .callbacks import UniversalCallback
         # partial_fit on classification often needs the class list on first call.
         classes = np.unique(y_tr) if self.is_classification else None
         cb = UniversalCallback(

@@ -35,7 +35,7 @@ def _gen_overfit_prone(seed: int, n_train: int = 600, n_val: int = 200, n_test: 
 def _fit(*, seed: int, worsening_enabled: bool, max_iter: int = 500) -> tuple[int, float]:
     """Fit one XGB with our callback; return (best_iter, test RMSE)."""
     import xgboost as xgb
-    from mlframe.training._callbacks import XGBoostCallback
+    from mlframe.training.callbacks._callbacks import XGBoostCallback
     from mlframe.training._data_helpers import _setup_eval_set
 
     (X_tr, y_tr), (X_val, y_val), (X_te, y_te) = _gen_overfit_prone(seed)

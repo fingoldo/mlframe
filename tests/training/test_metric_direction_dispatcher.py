@@ -114,7 +114,7 @@ def test_metric_name_higher_is_better_handles_non_string():
     ("val_KL", "min"),
 ])
 def test_callbacks_derive_mode_correct_direction(name, expected):
-    from mlframe.training._callbacks import UniversalCallback
+    from mlframe.training.callbacks._callbacks import UniversalCallback
 
     class _MockCallback(UniversalCallback):
         def __init__(self):
@@ -134,7 +134,7 @@ def test_derive_mode_unknown_warns_and_defaults_min(caplog):
     """Genuinely unknown metric must WARN loudly + return 'min'. The
     WARN is the loud-fail surface: pre-fix the unknown silently became
     'min' with no log signal."""
-    from mlframe.training._callbacks import UniversalCallback
+    from mlframe.training.callbacks._callbacks import UniversalCallback
 
     class _MockCallback(UniversalCallback):
         def __init__(self):
@@ -142,7 +142,7 @@ def test_derive_mode_unknown_warns_and_defaults_min(caplog):
             self.metric_history = {}
 
     cb = _MockCallback()
-    with caplog.at_level(logging.WARNING, logger="mlframe.training._callbacks"):
+    with caplog.at_level(logging.WARNING, logger="mlframe.training.callbacks._callbacks"):
         out = cb.derive_mode("totally_made_up_metric")
     assert out == "min"
     assert any(
@@ -194,7 +194,7 @@ def test_composite_post_uses_central_dispatcher():
 def test_callbacks_derive_mode_not_endswith_e_heuristic():
     """derive_mode must classify by the registry, NOT the pre-fix endswith('e') fallback that
     silently sent custom metrics to 'min' and trained the WORST iteration."""
-    from mlframe.training._callbacks import UniversalCallback
+    from mlframe.training.callbacks._callbacks import UniversalCallback
 
     class _MockCallback(UniversalCallback):
         def __init__(self):

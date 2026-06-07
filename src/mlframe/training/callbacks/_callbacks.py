@@ -105,7 +105,7 @@ class UniversalCallback:
         # Skip the bump when slice mode is diagnostic-only (single-val drives ES, no penalty
         # to compensate for).
         if slice_k and patience is not None and not slice_diagnostic_only:
-            from ._slice_helpers import effective_patience as _eff_pat
+            from .._slice_helpers import effective_patience as _eff_pat
             bumped = _eff_pat(int(patience), int(slice_k))
             if bumped != patience and self.verbose > 0:
                 logger.info(
@@ -160,7 +160,7 @@ class UniversalCallback:
         ``mode=`` kwarg if they pass a custom metric the registry doesn't
         know about.
         """
-        from .metrics_registry import metric_name_higher_is_better
+        from ..metrics_registry import metric_name_higher_is_better
         direction = metric_name_higher_is_better(metric_name)
         if direction is True:
             return "max"
@@ -219,7 +219,7 @@ class UniversalCallback:
         a fresh value into history -- this is the CB ``metric_period > 1`` guard: phantom values
         on intermediate iterations would give std=0 and a spurious "stable" signal.
         """
-        from ._cv_aggregation import aggregate_fold_scores
+        from .._cv_aggregation import aggregate_fold_scores
 
         names = self._resolve_slice_dataset_names()
         if len(names) < 2:

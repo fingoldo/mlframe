@@ -22,7 +22,7 @@ import time
 
 import pytest
 
-from mlframe.training._callbacks import UniversalCallback
+from mlframe.training.callbacks._callbacks import UniversalCallback
 
 
 def _build(*, patience: int = 100, mode: str = "min", worsening_enabled: bool = True,

@@ -27,7 +27,7 @@ from pyutilz.system import ensure_dir_exists
 from pyutilz.strings import slugify
 from mlframe.config import TABNET_MODEL_TYPES, XGBOOST_MODEL_TYPES
 
-from ._callbacks import LightGBMCallback, CatBoostCallback, XGBoostCallback
+from .callbacks import LightGBMCallback, CatBoostCallback, XGBoostCallback
 
 try:
     from xgboost.callback import TrainingCallback as XGBTrainingCallback

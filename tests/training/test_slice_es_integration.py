@@ -29,7 +29,7 @@ def _make_tiny_data(n_train=400, n_val=200, n_test=200, d=5, seed=42):
 def test_lgb_with_slice_callback_records_shard_history() -> None:
     pytest.importorskip("lightgbm")
     import lightgbm as lgb
-    from mlframe.training._callbacks import LightGBMCallback
+    from mlframe.training.callbacks._callbacks import LightGBMCallback
     from mlframe.training._data_helpers import _setup_eval_set
     from mlframe.training._slice_helpers import build_slice_eval_sets
 
@@ -65,7 +65,7 @@ def test_lgb_slice_off_bit_identical_to_baseline() -> None:
     """When ``slice_k=0``, the callback path is the legacy single-val one (no shard registration)."""
     pytest.importorskip("lightgbm")
     import lightgbm as lgb
-    from mlframe.training._callbacks import LightGBMCallback
+    from mlframe.training.callbacks._callbacks import LightGBMCallback
     from mlframe.training._data_helpers import _setup_eval_set
 
     (X_tr, y_tr), (X_val, y_val), _ = _make_tiny_data(seed=7)
