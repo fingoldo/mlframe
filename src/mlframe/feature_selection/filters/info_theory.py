@@ -701,6 +701,7 @@ def batch_mi_with_noise_gate(
     min_nonzero_confidence: float,
     use_su: bool,
     dtype: type = np.int32,
+    classes_dtype: type = np.int32,
 ) -> np.ndarray:
     """Batched FE-candidate MI + permutation noise-gate, BIT-IDENTICAL to a per-column
     ``mi_direct`` loop on the default FE path (``parallelism='outer'``, ``n_workers=1``,
@@ -749,7 +750,17 @@ def batch_mi_with_noise_gate(
 
     # Per-column densified codes + dense marginals, replicating ``merge_vars`` for a single
     # variable: histogram, prune empty bins, renumber to a dense 0..Kx-1 range.
-    classes_dense = np.zeros((n, K), dtype=dtype)
+    # OPT-B (2026-06-07): ``classes_dense`` holds DENSE codes in ``[0, n_dense) <= n_bins``, so it
+    # is sized by the narrow ``classes_dtype`` (int8 on the FE path where n_bins ~10) instead of
+    # the int32 ``dtype``. This is the SAME (n, K) shape as ``disc_2d`` -- on the scene 2407x64152
+    # chunk that is 147 MiB int8 vs 589 MiB int32 (the allocation that OOM'd RAM-tight hosts), and
+    # it halves/quarters the bandwidth of the strided ``classes_dense[r, k]`` gathers re-read once
+    # per permutation in ``_relevance_from_dense``. BIT-IDENTICAL: the codes are non-negative
+    # ordinals only ever READ as histogram indices (``joint_counts[classes_dense[r,k], ...]``), so
+    # the narrower storage width does not change a single count; ``joint_counts`` itself stays at
+    # the wide ``dtype`` (the actual counter). Default ``classes_dtype=int32`` preserves the legacy
+    # width for any caller that does not opt in.
+    classes_dense = np.zeros((n, K), dtype=classes_dtype)
     freqs_dense = np.zeros((K, max_nbins), dtype=np.float64)
     kx = np.zeros(K, dtype=np.int64)
     original_mi = np.zeros(K, dtype=np.float64)

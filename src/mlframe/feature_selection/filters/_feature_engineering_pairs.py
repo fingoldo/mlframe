@@ -155,6 +155,11 @@ def _dispatch_batch_mi_with_noise_gate(
         min_nonzero_confidence=float(min_nonzero_confidence),
         use_su=bool(use_su),
         dtype=np.int32,
+        # OPT-B: size the (n, K) densified-code buffer to disc_2d's (now narrow) width -- the
+        # dense codes live in the SAME [0, n_bins) range, so int8/int16 is value-identical and
+        # cuts both the alloc (the 589MiB->147MiB classes_dense that OOM'd RAM-tight hosts) and
+        # the per-permutation strided gather bandwidth. joint_counts (the real counter) stays int32.
+        classes_dtype=disc_2d.dtype if disc_2d.dtype.itemsize <= 4 else np.int32,
     )
 
 
@@ -418,6 +423,33 @@ def _njit_binary_op_codes(binary_transformations) -> "np.ndarray | None":
             return None
         codes.append(c)
     return np.asarray(codes, dtype=np.int8)
+
+
+def _narrow_code_dtype(n_bins: int, requested_dtype) -> object:
+    """OPT-B (2026-06-07): pick the NARROWEST signed-int dtype that holds the FE discretiser's
+    ordinal codes ``[0, n_bins)`` -- ``int8`` when ``n_bins <= 127`` (the single-column
+    ``discretize_array`` ALREADY defaults to ``int8``), else ``int16`` (``n_bins <= 32767``),
+    else the requested dtype (or int32). The codes are non-negative ordinals, so a narrower
+    storage width is VALUE-IDENTICAL -- only the bytes-per-element of the ``disc_2d`` code matrix
+    shrink (1-2 vs the 4 of the ``quantization_dtype=int32`` default). That directly cuts the DRAM
+    traffic of the two memory-bound hotspots that gather ``disc_2d[:, k]`` column-by-column out of
+    a row-major buffer: the ``_searchsorted_2d_right`` code WRITE and the
+    ``batch_mi_with_noise_gate`` per-column histogram READ (and it quarters the chunk-disc_2d
+    allocation -- on the scene 2407x64152 chunk that is 147 MiB int8 vs 589 MiB int32).
+
+    BIT-IDENTICAL MI: inside ``batch_mi_with_noise_gate`` the per-column histogram ``counts`` and
+    the dense ``classes_dense`` / ``joint_counts`` accumulators are typed by the kernel's OWN
+    ``dtype`` argument (>= int32), INDEPENDENTLY of ``disc_2d.dtype`` -- the kernel only READS
+    ``disc_2d[r, k]`` as a non-negative index (``counts[col[r]] += 1``), which is width-agnostic.
+    Every GPU twin re-casts ``disc_2d`` to int32 on H2D upload, so the device path is unaffected.
+    ``requested_dtype`` is honoured only when the bins genuinely exceed int16 (never on the FE path
+    where ``quantization_nbins`` ~10); we only ever NARROW from the int32 default, never widen."""
+    nb = int(n_bins)
+    if nb <= 127:
+        return np.int8
+    if nb <= 32767:
+        return np.int16
+    return requested_dtype if requested_dtype is not None else np.int32
 
 
 @njit(nogil=True, cache=True, error_model="numpy")
@@ -870,7 +902,8 @@ def _compute_one_fe_chunk(
         return out
 
     disc_2d = discretize_2d_quantile_batch(
-        chunk_buffer[:, :col], n_bins=quantization_nbins, dtype=quantization_dtype,
+        chunk_buffer[:, :col], n_bins=quantization_nbins,
+        dtype=_narrow_code_dtype(quantization_nbins, quantization_dtype),  # OPT-B narrow codes
         parallel=_fe_use_parallel_kernels(col, serial_main_thread),  # OPT-A
     )
     fe_mi_arr = _dispatch_batch_mi_with_noise_gate(
@@ -1679,7 +1712,8 @@ def check_prospective_fe_pairs(
                     # ``i`` advanced once per materialised candidate from 0 (reset per raw-pair),
                     # so the filled buffer slice is exactly [:, :i], densely packed 0..i-1.
                     _disc_2d = discretize_2d_quantile_batch(
-                        final_transformed_vals[:, :i], n_bins=quantization_nbins, dtype=quantization_dtype
+                        final_transformed_vals[:, :i], n_bins=quantization_nbins,
+                        dtype=_narrow_code_dtype(quantization_nbins, quantization_dtype),  # OPT-B narrow codes
                     )
 
                     # Phase 3: BATCHED MI + permutation noise-gate across ALL K candidate
@@ -2060,7 +2094,8 @@ def check_prospective_fe_pairs(
                                             _ev_buf[:, _ev_col] = valid_bin_func(param_a, _pb_vals)
                                             _ev_col += 1
                             _ev_disc = discretize_2d_quantile_batch(
-                                _ev_buf[:, :_ev_col], n_bins=quantization_nbins, dtype=quantization_dtype
+                                _ev_buf[:, :_ev_col], n_bins=quantization_nbins,
+                                dtype=_narrow_code_dtype(quantization_nbins, quantization_dtype),  # OPT-B narrow codes
                             )
                             _ev_mi = _dispatch_batch_mi_with_noise_gate(
                                 disc_2d=_ev_disc,
