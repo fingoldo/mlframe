@@ -26,15 +26,15 @@ import os as _os
 # ``MLFRAME_METRICS_STABLE_SORT=1``. Bench c0083 / c0091 honest_diagnostics
 # bootstrap loop: 2.25x (n=200k) to 2.75x (n=20k); deviations from the
 # stable variant under 1e-12 on Gaussian / uniform predictions.
-# GPU argsort gate. ISOLATED micro-bench (cupy vs numpy argsort+transfer) on this host (RTX 500 Ada laptop):
-# 0.42x@10k, 1.95x@50k, 3.92x@200k, 4.94x@1M. But that win does NOT transfer to the END-TO-END suite, because each
-# metric argsort is a one-off call (H2D+kernel+D2H+sync) the interleaved pipeline can't amortise, and the argsort is
-# a small slice of a model-fit-dominated run: A/B on combo c0023 -- 200k CPU 10.12/10.16s vs GPU 11.31/10.65s (~8%
-# REGRESSION); 1M CPU 41.99/37.60s vs GPU 38.44/37.66s (~neutral, within noise). So the gate defaults to 1M -- below
-# it the CPU path is faster (and 200k was an outright regression); at/above it the GPU path is at-worst-neutral here
-# and should win on a faster GPU (datacenter PCIe/NVLink + bigger argsort share). Tune per host via
-# MLFRAME_METRICS_ARGSORT_GPU_MIN_N (set huge to force CPU everywhere). Stable-sort opt-in always stays on CPU.
-_GPU_ARGSORT_MIN_N = int(_os.environ.get("MLFRAME_METRICS_ARGSORT_GPU_MIN_N", "1000000"))
+# GPU argsort gate -- the size threshold is everything. ISOLATED micro-bench (cupy vs numpy argsort+transfer) on this
+# host (RTX 500 Ada laptop): 0.42x@10k, 1.95x@50k, 3.92x@200k, 4.94x@1M. A metric run issues MANY argsorts of MIXED
+# size (full-array per-class AUC at N, plus many small per-bin/bootstrap-resample sorts), so the gate MUST send only
+# the big ones to the GPU: routing ALL of them (gate=1) regressed the c0023 200k suite ~8% (the small sorts pay
+# H2D/D2H/sync overhead the tight micro-bench hides), but size-gating at 50k -- GPU for argsorts >= 50k, CPU below --
+# nets a CONSISTENT ~10% END-TO-END win at 200k (A/B: CPU 9.37/8.29s vs GPU 7.98/7.89s, both GPU runs beat both CPU).
+# Default = 50k (the measured isolated crossover). Tune per host via MLFRAME_METRICS_ARGSORT_GPU_MIN_N (huge = force
+# CPU). Stable-sort opt-in always stays on CPU. (Lesson: never reject on the extremes -- sweep the gated middle.)
+_GPU_ARGSORT_MIN_N = int(_os.environ.get("MLFRAME_METRICS_ARGSORT_GPU_MIN_N", "50000"))
 _GPU_ARGSORT_AVAILABLE: "bool | None" = None
 
 
