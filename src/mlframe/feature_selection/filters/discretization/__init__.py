@@ -632,6 +632,16 @@ def discretize_2d_quantile_batch(arr2d: np.ndarray, n_bins: int = 10, dtype: obj
     """
     n_rows, n_cols = arr2d.shape
     quantiles = np.linspace(0, 100, n_bins + 1)
+    # bench-attempt-rejected (2026-06-07): FUSING searchsorted INTO the quantile sort
+    # (Q1, top ceiling on the ~21% discretize hotspot). The only fusion that reuses the
+    # per-column sort is ARGSORT (sorted->orig index) + an edge-pointer walk that SCATTERS
+    # codes to ``out[orig]``. That scatter is random-access (cache-hostile) and replaces the
+    # current cache-friendly column-strided binary search. Isolated bench on scene FE buffer
+    # shapes (parallel kernels): 300 cols/f32 1.27x (only win, tiny K), 300/f64 0.78x,
+    # 1000 cols 0.49x, 4000 cols 0.04x (28x REGRESSION at the K=4000-8000 the FE buffer
+    # actually uses -- the scatter blows the LLC). The existing 2-pass (parallel edges-sort
+    # + parallel searchsorted, the latter only 26-34% of full) is already optimal; do not
+    # re-attempt argsort-fusion. (proto D:/Temp/q1_fused_proto.py)
     # Fast path: NaN-free buffer -> ``_quantile_edges_2d_njit`` (sort each column ONCE,
     # read all quantiles) is BIT-IDENTICAL to ``np.percentile(axis=0, method='linear')``
     # (verified across float32/64, ties, constant columns) and removes the numpy
