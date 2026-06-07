@@ -1134,12 +1134,14 @@ def check_prospective_fe_pairs(
         # for a var shared across pairs (pairs are processed most-prospective-
         # first, so a shared var binds to its strongest interaction). None specs
         # leave the pseudo-unary unregistered for that var.
-        def _operand_vals(_var):
-            if _var not in original_cols:
-                return None
-            if isinstance(X, pd.DataFrame):
-                return X.iloc[:, original_cols[_var]].values
-            return X[:, original_cols[_var]].to_numpy()
+        # Q8 (2026-06-07): route the prewarp operand extraction through the SHARED
+        # ``_extval_raw_col`` memo (the single {var: raw-ndarray} cache) instead of a
+        # second un-memoised ``X.iloc[...].values`` per call. The prewarp loop reads each
+        # pair's two operands, and a var shared across many prospective pairs was previously
+        # re-extracted once PER pair; the shared memo extracts each distinct var ONCE.
+        # Bit-identical: ``_extval_raw_col`` performs the IDENTICAL ``.values`` / ``.to_numpy()``
+        # extract (same None-on-missing guard) -- only the redundant re-reads are removed.
+        _operand_vals = _extval_raw_col
 
         # OUT-OF-SAMPLE PREWARP VALIDATION (2026-06-03). The ALS prewarp is a
         # SUPERVISED per-operand fit; at small n it overfits noise operands (the
@@ -1238,10 +1240,10 @@ def check_prospective_fe_pairs(
                     continue
                 if _gv not in original_cols:
                     continue
-                if isinstance(X, pd.DataFrame):
-                    _gvals = X.iloc[:, original_cols[_gv]].values
-                else:
-                    _gvals = X[:, original_cols[_gv]].to_numpy()
+                # Q8: shared {var: raw-ndarray} memo (bit-identical extract).
+                _gvals = _extval_raw_col(_gv)
+                if _gvals is None:
+                    continue
                 _gf = np.asarray(_gvals, dtype=np.float64)
                 # Reject no-variance operands (a constant gate is dead).
                 _gmed = float(np.nanmedian(_gf)) if _gf.size else 0.0
@@ -1386,11 +1388,12 @@ def check_prospective_fe_pairs(
             # Skip silently rather than KeyError out of the whole FE block.
             if var not in original_cols:
                 continue
-            # Polars vs pandas int-column indexing: ``X[:, idx].to_numpy()`` (polars, zero-copy for numerics) vs ``X.iloc[:, idx].values`` (pandas).
-            if isinstance(X, pd.DataFrame):
-                vals = X.iloc[:, original_cols[var]].values
-            else:
-                vals = X[:, original_cols[var]].to_numpy()
+            # Q8 (2026-06-07): SHARED {var: raw-ndarray} memo. This main unary-materialise
+            # loop iterates over (pair, var); a var shared across prospective pairs was
+            # previously re-extracted via ``X.iloc[...].values`` once per occurrence. Reading
+            # the shared ``_extval_raw_col`` memo (same Polars/pandas extract: ``X[:, idx].to_numpy()``
+            # / ``X.iloc[:, idx].values``) extracts each distinct var ONCE. Bit-identical raw values.
+            vals = _extval_raw_col(var)
             for tr_name in _unary_names_eff:
                 tr_func = unary_transformations.get(tr_name)
                 key = (var, tr_name)
