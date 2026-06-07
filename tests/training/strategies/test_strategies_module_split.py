@@ -1,13 +1,8 @@
-"""Wave 104 (2026-05-21): split training/strategies.py (1492 lines)
-into strategies.py (now 857 lines) + two new siblings:
+"""Package-facade sensors for ``mlframe.training.strategies``.
 
-  - _strategies_base.py (375 lines): ModelPipelineStrategy ABC
-  - _strategies_xgboost.py (331 lines): XGBoostStrategy concrete impl
-
-The other 6 concrete strategies (CatBoostStrategy, TreeModelStrategy,
-HGBStrategy, NeuralNetStrategy, LinearModelStrategy,
-RecurrentModelStrategy) plus get_strategy + PipelineCache stay in the
-parent. Re-exports keep every existing import path working.
+The strategies subpackage re-exports every strategy class + ``get_strategy`` +
+``PipelineCache`` from its ``__init__`` so historical
+``from mlframe.training.strategies import X`` import paths keep working.
 """
 from __future__ import annotations
 
@@ -46,22 +41,22 @@ def test_factory_and_cache_still_importable() -> None:
 
 
 def test_facade_below_1k_line_threshold() -> None:
-    root = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe" / "training"
-    facade = root / "strategies.py"
+    pkg = Path(__file__).resolve().parents[3] / "src" / "mlframe" / "training" / "strategies"
+    facade = pkg / "__init__.py"
     n = len(facade.read_text(encoding="utf-8").splitlines())
-    assert n < 1000, f"strategies.py is {n} lines, still over the 1k threshold"
+    assert n < 1000, f"strategies/__init__.py is {n} lines, still over the 1k threshold"
 
 
 def test_siblings_own_their_moved_classes() -> None:
-    """Identity: facade and sibling expose the SAME class objects."""
-    from mlframe.training import strategies, _strategies_base, _strategies_xgboost
-    assert strategies.ModelPipelineStrategy is _strategies_base.ModelPipelineStrategy
-    assert strategies.XGBoostStrategy is _strategies_xgboost.XGBoostStrategy
+    """Identity: facade and submodule expose the SAME class objects."""
+    from mlframe.training import strategies
+    from mlframe.training.strategies import base, xgboost
+    assert strategies.ModelPipelineStrategy is base.ModelPipelineStrategy
+    assert strategies.XGBoostStrategy is xgboost.XGBoostStrategy
 
 
 def test_xgb_strategy_is_treemodel_subclass() -> None:
-    """The XGBoostStrategy class chain stays correct across the split:
-    XGBoostStrategy -> TreeModelStrategy -> ModelPipelineStrategy."""
+    """XGBoostStrategy -> TreeModelStrategy -> ModelPipelineStrategy chain stays correct."""
     from mlframe.training.strategies import XGBoostStrategy, TreeModelStrategy, ModelPipelineStrategy
     assert issubclass(XGBoostStrategy, TreeModelStrategy)
     assert issubclass(XGBoostStrategy, ModelPipelineStrategy)

@@ -52,7 +52,7 @@ def _make_complementary(n: int, d: int, seed: int):
 def test_biz_val_mtr_shared_trunk_matches_independent(seed):
     """Shared-trunk MultiRMSE macro RMSE must not exceed K-independent CatBoost by >2% (parity contract)."""
     catboost = pytest.importorskip("catboost")
-    from mlframe.training._strategies_tree_cb import CatBoostStrategy
+    from mlframe.training.strategies import CatBoostStrategy
 
     X_tr, y_tr = _make_shared_latent(1500, 8, 3, seed)
     X_te, y_te = _make_shared_latent(800, 8, 3, seed + 1000)

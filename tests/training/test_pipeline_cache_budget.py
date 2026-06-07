@@ -13,7 +13,7 @@ import os
 
 import psutil
 
-from mlframe.training._strategies_pipeline_cache import (
+from mlframe.training.strategies import (
     _resolve_pipeline_cache_budget,
 )
 

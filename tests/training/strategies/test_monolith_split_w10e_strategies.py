@@ -1,12 +1,9 @@
-"""Wave 10e monolith-split sensor for ``mlframe.training.strategies``.
+"""Identity + facade sensors for the ``mlframe.training.strategies`` subpackage.
 
-Verifies:
-- Identity preservation: parent re-exports point at the SAME class / function objects
-  as the sibling modules (so ``isinstance(x, parent.HGBStrategy)`` keeps working
-  for objects built from the sibling import path).
-- Facade LOC budget (parent under 600 lines).
-- Smoke: every sibling-owned symbol resolves via the parent and basic constructors
-  return the expected type.
+Verifies the package ``__init__`` re-exports point at the SAME class / function
+objects the submodules own (so ``isinstance(x, strategies.HGBStrategy)`` keeps
+working for objects built via the submodule import path), the facade stays under
+its LOC budget, and basic constructors return the expected types.
 """
 
 from __future__ import annotations
@@ -24,17 +21,17 @@ def parent_module():
 
 @pytest.fixture(scope="module")
 def siblings():
-    from mlframe.training import (
-        _strategies_pipeline_cache,
-        _strategies_tree_cb,
-        _strategies_hgb,
-        _strategies_neural,
+    from mlframe.training.strategies import (
+        pipeline_cache,
+        tree_cb,
+        hgb,
+        neural,
     )
     return {
-        "pipeline_cache": _strategies_pipeline_cache,
-        "tree_cb": _strategies_tree_cb,
-        "hgb": _strategies_hgb,
-        "neural": _strategies_neural,
+        "pipeline_cache": pipeline_cache,
+        "tree_cb": tree_cb,
+        "hgb": hgb,
+        "neural": neural,
     }
 
 
@@ -62,7 +59,7 @@ def test_neural_linear_recurrent_identity(parent_module, siblings):
 def test_facade_loc_budget(parent_module):
     path = Path(parent_module.__file__)
     n_lines = len(path.read_text(encoding="utf-8").splitlines())
-    assert n_lines <= 600, f"strategies.py facade is {n_lines} LOC, expected <= 600"
+    assert n_lines <= 600, f"strategies/__init__.py facade is {n_lines} LOC, expected <= 600"
 
 
 def test_smoke_get_strategy_returns_catboost(parent_module):
@@ -79,6 +76,5 @@ def test_smoke_pipeline_cache_construct_and_set(parent_module):
 
 
 def test_smoke_isinstance_cross_module(parent_module, siblings):
-    # isinstance through parent re-export must match against the sibling's own class object.
     sibling_inst = siblings["hgb"].HGBStrategy()
     assert isinstance(sibling_inst, parent_module.HGBStrategy)

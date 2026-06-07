@@ -56,7 +56,7 @@ def test_1_leak_corr_filter_drops_strong_y_correlate_after_in_place_fix():
 # Fix 3 - PipelineCache default 0.15 + 16 GB floor.
 # ---------------------------------------------------------------------------
 def test_3_pipeline_cache_default_fraction_is_0p15():
-    from mlframe.training._strategies_pipeline_cache import _DEFAULT_PIPELINE_CACHE_RAM_FRACTION
+    from mlframe.training.strategies.pipeline_cache import _DEFAULT_PIPELINE_CACHE_RAM_FRACTION
     assert _DEFAULT_PIPELINE_CACHE_RAM_FRACTION == 0.15, (
         "default RAM fraction must be 0.15 (was 0.4) to keep room for big-frame "
         "transient peaks during pipeline-fit + composite-discovery on 100+ GB processes."
@@ -73,7 +73,7 @@ def test_3_pipeline_cache_budget_clamped_to_available_minus_16gb_floor():
     """When available is small (mock 20 GB), the clamp ensures the cache budget
     never exceeds available - 16 GB floor; the 2 GB minimum prevents the cap from
     collapsing to zero on a fully-saturated host."""
-    from mlframe.training import _strategies_pipeline_cache as mod
+    from mlframe.training.strategies import pipeline_cache as mod
 
     fake_vm = SimpleNamespace(total=int(137 * 1024 ** 3), available=int(20 * 1024 ** 3))
     with patch.dict(os.environ, {"MLFRAME_PIPELINE_CACHE_BYTES_LIMIT": ""}, clear=False), \

@@ -1,12 +1,7 @@
-"""NeuralNetStrategy / LinearModelStrategy / RecurrentModelStrategy carved out of
-``mlframe.training.strategies``.
-
-Re-imported at the parent module's bottom so historical
-``from mlframe.training.strategies import LinearModelStrategy`` import sites keep working.
-"""
+"""``NeuralNetStrategy`` / ``LinearModelStrategy`` / ``RecurrentModelStrategy`` pipeline strategies."""
 from __future__ import annotations
 
-from ._strategies_base import ModelPipelineStrategy
+from .base import ModelPipelineStrategy
 
 
 class NeuralNetStrategy(ModelPipelineStrategy):
@@ -51,7 +46,7 @@ class NeuralNetStrategy(ModelPipelineStrategy):
         ``mlp_kwargs.datamodule_params.labels_dtype``. Returns the empty
         dict for binary (default ``F.cross_entropy`` already correct).
         """
-        from .configs import TargetTypes
+        from ..configs import TargetTypes
 
         # Lazy import torch so a non-MLP run doesn't pay for PL/torch import.
         import torch
@@ -177,7 +172,7 @@ class RecurrentModelStrategy(ModelPipelineStrategy):
         the default (None / 'multiclass') already uses CrossEntropy +
         softmax -- empty return suffices.
         """
-        from .configs import TargetTypes
+        from ..configs import TargetTypes
 
         if target_type == TargetTypes.MULTILABEL_CLASSIFICATION:
             return {"task_type": "multilabel"}

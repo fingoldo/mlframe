@@ -25,15 +25,9 @@ if TYPE_CHECKING:
 # =============================================================================
 # Unified categorical type constants
 # =============================================================================
-# Used across pipeline.py, trainer.py, utils.py, core.py to detect categoricals.
-# Import these instead of hardcoding type lists.
-#
-# PANDAS_CATEGORICAL_DTYPES is the SINGLE source of truth in
-# _strategies_base.py. This module re-exports it (and includes it in __all__
-# at the bottom of the file) so all the historical
-# ``from .strategies import PANDAS_CATEGORICAL_DTYPES`` import sites keep
-# working without duplicating the set.
-from ._strategies_base import (  # noqa: F401
+# Used across pipeline.py, trainer.py, utils.py, core.py to detect categoricals; import these instead of hardcoding type lists.
+# ``PANDAS_CATEGORICAL_DTYPES`` is the single source of truth in ``base``; re-exported here (and in ``__all__``) so callers don't duplicate the set.
+from .base import (  # noqa: F401
     PANDAS_CATEGORICAL_DTYPES,
     PANDAS_CATEGORICAL_SELECT_DTYPES,
     ModelPipelineStrategy,
@@ -72,10 +66,10 @@ def get_polars_cat_columns(df: "pl.DataFrame") -> list:
     return [name for name, dtype in df.schema.items() if is_polars_categorical(dtype)]
 
 
-from ._strategies_tree_cb import TreeModelStrategy, CatBoostStrategy  # noqa: E402, F401
-from ._strategies_xgboost import XGBoostStrategy  # noqa: E402, F401
-from ._strategies_hgb import HGBStrategy  # noqa: E402, F401
-from ._strategies_neural import (  # noqa: E402, F401
+from .tree_cb import TreeModelStrategy, CatBoostStrategy  # noqa: E402, F401
+from .xgboost import XGBoostStrategy  # noqa: E402, F401
+from .hgb import HGBStrategy  # noqa: E402, F401
+from .neural import (  # noqa: E402, F401
     NeuralNetStrategy,
     LinearModelStrategy,
     RecurrentModelStrategy,
@@ -286,9 +280,7 @@ def _resolve_model_spec(
     return key, entry, strat
 
 
-# PipelineCache + budget helpers carved into ``_strategies_pipeline_cache``.
-# Imported at module bottom so ``from .strategies import PipelineCache`` still resolves.
-from ._strategies_pipeline_cache import (  # noqa: E402, F401
+from .pipeline_cache import (  # noqa: E402, F401
     PipelineCache,
     _resolve_pipeline_cache_budget,
     _estimate_slot_nbytes,

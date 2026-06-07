@@ -31,7 +31,7 @@ def test_sklearn_linear_native_multi_target_works():
     accepts (N, K) y out-of-the-box."""
     from sklearn.linear_model import LinearRegression
 
-    from mlframe.training._strategies_neural import LinearModelStrategy
+    from mlframe.training.strategies import LinearModelStrategy
     X, y = _make_mtr_data()
     strat = LinearModelStrategy()
     assert strat.supports_native_multi_target is True
@@ -48,7 +48,7 @@ def test_sklearn_linear_native_multi_target_works():
 def test_catboost_multirmse_native_multi_target_works():
     """CatBoost MultiRMSE: single ensemble outputs (N, K)."""
     catboost = pytest.importorskip("catboost")
-    from mlframe.training._strategies_tree_cb import CatBoostStrategy
+    from mlframe.training.strategies import CatBoostStrategy
 
     X, y = _make_mtr_data()
     strat = CatBoostStrategy()
@@ -77,7 +77,7 @@ def test_lightgbm_wrap_multi_target_works():
     lgb = pytest.importorskip("lightgbm")
     from sklearn.multioutput import MultiOutputRegressor
 
-    from mlframe.training._strategies_tree_cb import TreeModelStrategy
+    from mlframe.training.strategies import TreeModelStrategy
 
     X, y = _make_mtr_data()
     strat = TreeModelStrategy()  # the LGB strategy base — no native MTR
@@ -101,7 +101,7 @@ def test_xgboost_multi_output_tree_native_works():
     if Version(xgboost.__version__) < Version("2.0"):
         pytest.skip(f"XGBoost {xgboost.__version__} < 2.0; native MTR unavailable")
 
-    from mlframe.training._strategies_xgboost import XGBoostStrategy
+    from mlframe.training.strategies import XGBoostStrategy
 
     X, y = _make_mtr_data()
     strat = XGBoostStrategy()
@@ -120,7 +120,7 @@ def test_mlframe_mlp_via_strategy_metadata_only():
     PytorchLightningRegressor auto-detects (N, K) y at fit-time
     (F-24 commit 2d300944). Strategy just declares native support
     so the suite skips the MultiOutputRegressor wrap."""
-    from mlframe.training._strategies_neural import NeuralNetStrategy
+    from mlframe.training.strategies import NeuralNetStrategy
 
     strat = NeuralNetStrategy()
     assert strat.supports_native_multi_target is True

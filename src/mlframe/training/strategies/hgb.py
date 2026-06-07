@@ -1,13 +1,9 @@
-"""HGBStrategy carved out of ``mlframe.training.strategies``.
-
-Re-imported at the parent module's bottom so historical
-``from mlframe.training.strategies import HGBStrategy`` import sites keep working.
-"""
+"""``HGBStrategy`` -- the HistGradientBoosting model pipeline strategy."""
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
-from ._strategies_base import ModelPipelineStrategy
+from .base import ModelPipelineStrategy
 
 if TYPE_CHECKING:
     import polars as pl
@@ -81,7 +77,7 @@ class HGBStrategy(ModelPipelineStrategy):
         """
         import polars as pl
 
-        from .utils import filter_existing
+        from ..utils import filter_existing
 
         schema_cats = set(_get_polars_cat_columns(df))
         all_cats = schema_cats | set(cat_features or [])

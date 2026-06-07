@@ -854,8 +854,6 @@
   "training/pipeline.py::create_polarsds_pipeline",
   "training/preprocessing.py::save_split_artifacts",
   "training/ranking.py::fit_ranker",
-  "training/strategies.py::get_strategy",
-  "training/strategies.py::is_polars_categorical",
   "training/train_eval.py::optimize_model_for_storage",
   "training/utils.py::coerce_to_1d_numpy",
   "training/utils.py::coerce_to_numpy",

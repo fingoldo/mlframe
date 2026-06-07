@@ -13,7 +13,7 @@ import pandas as pd
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler
 
-from mlframe.training._strategies_base import ModelPipelineStrategy
+from mlframe.training.strategies import ModelPipelineStrategy
 
 
 class _ScalingStrategy(ModelPipelineStrategy):
@@ -62,7 +62,7 @@ def test_linear_pipeline_downcasts_float64_input_too() -> None:
 
 
 def test_cast_helper_is_idempotent_and_preserves_values() -> None:
-    from mlframe.training._strategies_base import _cast_numeric_to_float32
+    from mlframe.training.strategies.base import _cast_numeric_to_float32
     x = np.array([[1.5, 2.25], [3.125, 4.0]], dtype=np.float64)
     out = _cast_numeric_to_float32(x)
     assert out.dtype == np.float32

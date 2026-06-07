@@ -1,15 +1,11 @@
-"""TreeModelStrategy + CatBoostStrategy carved out of ``mlframe.training.strategies``.
-
-Re-imported at the parent module's bottom so historical
-``from mlframe.training.strategies import TreeModelStrategy`` import sites keep working.
-"""
+"""``TreeModelStrategy`` + ``CatBoostStrategy`` pipeline strategies."""
 from __future__ import annotations
 
 from typing import Any, List, Optional
 
 from sklearn.pipeline import Pipeline
 
-from ._strategies_base import ModelPipelineStrategy
+from .base import ModelPipelineStrategy
 
 
 class TreeModelStrategy(ModelPipelineStrategy):

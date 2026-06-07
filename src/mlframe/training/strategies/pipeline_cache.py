@@ -1,8 +1,4 @@
-"""PipelineCache + byte-budget helpers carved out of ``mlframe.training.strategies``.
-
-Re-imported at the parent module's bottom so historical
-``from mlframe.training.strategies import PipelineCache`` import sites keep working.
-"""
+"""``PipelineCache`` + byte-budget helpers."""
 from __future__ import annotations
 
 import logging

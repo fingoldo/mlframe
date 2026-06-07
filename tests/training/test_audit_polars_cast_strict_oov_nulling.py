@@ -82,26 +82,19 @@ def test_phase_polars_fixes_test_cast_logs_oov_delta() -> None:
 
 
 def test_strategies_xgb_cat_cast_logs_oov_delta() -> None:
-    """The xgb cat-cast logging moved into the sibling
-    _strategies_xgboost.py during the strategies monolith split; check
-    both locations."""
-    facade = _read("training/strategies.py")
-    sibling = _read("training/_strategies_xgboost.py")
+    """The xgb cat-cast OOV-delta logging lives in the XGBoost strategy submodule."""
+    sibling = _read("training/strategies/xgboost.py")
     needle = "[xgb cat-cast] %d col(s) had OOV nulls cast-failed"
-    assert needle in facade or needle in sibling
+    assert needle in sibling
 
 
 def test_strategies_hgb_cat_cast_logs_oov_delta() -> None:
-    """The hgb cat-cast logging moved into the sibling
-    _strategies_hgb.py during the strategies monolith split; check
-    both the facade and the sibling so the sensor stays valid."""
-    facade = _read("training/strategies.py")
-    sibling = _read("training/_strategies_hgb.py")
+    """The hgb cat-cast OOV-delta logging lives in the HGB strategy submodule."""
+    sibling = _read("training/strategies/hgb.py")
     needle = "[hgb cat-cast] %d col(s) had OOV nulls cast-failed"
-    assert needle in facade or needle in sibling
-    # _strict_false_cols list-tracking is the wave-72 wiring.
+    assert needle in sibling
     track_needle = "_strict_false_cols: list[str] = []"
-    assert track_needle in facade or track_needle in sibling
+    assert track_needle in sibling
 
 
 # ---------------------------------------------------------------------------

@@ -49,7 +49,7 @@ _USER_DEFERRED_CYCLES: set[str] = {
     # monolith splits in this whitelist.
     "mlframe.training._reporting → mlframe.training._reporting_probabilistic → mlframe.training._reporting_regression",
     "mlframe.training.composite.estimator → mlframe.training.composite.estimator._estimator",
-    "mlframe.training._strategies_xgboost → mlframe.training.strategies",
+    "mlframe.training.strategies → mlframe.training.strategies.xgboost",
     "mlframe.training._target_temporal_audit_from_agg → mlframe.training._target_temporal_changepoint → mlframe.training.target_temporal_audit",
     # hermite_fe monolith split: _hermite_fe_mi.py contains @njit'd
     # functions that reference parent's _quantile_bin_njit. numba doesn't

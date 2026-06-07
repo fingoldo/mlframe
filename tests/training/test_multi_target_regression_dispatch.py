@@ -26,11 +26,11 @@ from sklearn.multioutput import MultiOutputRegressor
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from mlframe.training import TargetTypes
-from mlframe.training._strategies_base import ModelPipelineStrategy
-from mlframe.training._strategies_hgb import HGBStrategy
-from mlframe.training._strategies_neural import LinearModelStrategy, NeuralNetStrategy
-from mlframe.training._strategies_tree_cb import CatBoostStrategy, TreeModelStrategy
-from mlframe.training._strategies_xgboost import XGBoostStrategy
+from mlframe.training.strategies import ModelPipelineStrategy
+from mlframe.training.strategies import HGBStrategy
+from mlframe.training.strategies import LinearModelStrategy, NeuralNetStrategy
+from mlframe.training.strategies import CatBoostStrategy, TreeModelStrategy
+from mlframe.training.strategies import XGBoostStrategy
 
 
 # ----- Strategy gate flags -----------------------------------------------
