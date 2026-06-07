@@ -330,8 +330,11 @@ def pytest_collection_modifyitems(config, items):
     # even though they pass in isolation (observed 2026-05-20 on S: with
     # test_stacked_improves_holdout_mae_on_2level_synthetic and
     # test_iter118_year100k_cb_r2_iter102).
+    # ``config.option.dist`` reads "no" on each xdist WORKER (only the controller sees the -n
+    # value), so check the per-worker PYTEST_XDIST_WORKER env too -- otherwise no_xdist items
+    # silently run (and native-crash) on workers.
     _dist_opt = getattr(config.option, "dist", "no")
-    if _dist_opt != "no":
+    if _dist_opt != "no" or running_under_xdist():
         skip_xdist = pytest.mark.skip(
             reason="requires sequential execution; xdist parallelism active"
         )
