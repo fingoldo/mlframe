@@ -119,7 +119,7 @@ def test_train_eval_select_handles_numpy_bool_false():
     # guard survives the split.
     _dir = pathlib.Path(_mlframe.__file__).resolve().parent / "training"
     src = (_dir / "train_eval.py").read_text(encoding="utf-8")
-    sib = _dir / "_train_eval_select_target.py"
+    sib = _dir / "targets" / "_train_eval_select_target.py"
     if sib.exists():
         src += "\n" + sib.read_text(encoding="utf-8")
     # Pre-fix shape MUST be gone:

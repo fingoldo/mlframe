@@ -43,7 +43,17 @@ def _read(rel: str) -> str:
     Monolith-split compat: concat parent + every matching sibling so
     source-grep sensors still match after the recent splits.
     """
-    primary = (_ROOT / rel).read_text(encoding="utf-8")
+    _path = _ROOT / rel
+    if not _path.exists() and _path.suffix == ".py":
+        _pkg = _path.with_suffix("")
+        _init = _pkg / "__init__.py"
+        if _init.exists():
+            parts = [_init.read_text(encoding="utf-8")]
+            for _sub in sorted(_pkg.glob("*.py")):
+                if _sub.name != "__init__.py":
+                    parts.append(_sub.read_text(encoding="utf-8"))
+            return "\n".join(parts)
+    primary = _path.read_text(encoding="utf-8")
     if rel == "training/core/main.py":
         # main.py was carved into ``_main_train_suite.py`` (suite entry) plus
         # ``_main_train_suite_phases.py`` (PathLike coerce / leaderboard phase

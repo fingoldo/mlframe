@@ -126,9 +126,9 @@ def test_median_safe_all_nan_fallback(caplog):
     # training/core/predict.py - two argmax sites migrated:
     ("training/core/predict.py",
      "argmax_classes_safe"),
-    # training/_reporting_probabilistic.py - one site (moved out of _reporting.py
+    # training/reporting/_reporting_probabilistic.py - one site (moved out of _reporting.py
     # during the probabilistic-report monolith split):
-    ("training/_reporting_probabilistic.py",
+    ("training/reporting/_reporting_probabilistic.py",
      "argmax_classes_safe"),
     # evaluation/reports.py - one site:
     ("evaluation/reports.py",
@@ -143,11 +143,10 @@ def test_median_safe_all_nan_fallback(caplog):
     # ``_fairness_metrics.py`` sibling when ``core.py`` was split below 1k LOC.
     ("metrics/_fairness_metrics.py",
      "np.nanquantile(performances"),
-    # ``compute_member_quality_gate`` moved to ``_ensembling_quality_gate.py``
-    # when ``models/ensembling.py`` was split below 1k LOC.
-    ("models/_ensembling_quality_gate.py",
+    # ``compute_member_quality_gate`` lives in ``models/ensembling/quality_gate.py``.
+    ("models/ensembling/quality_gate.py",
      "np.nanmedian(per_member_mae)"),
-    ("models/_ensembling_quality_gate.py",
+    ("models/ensembling/quality_gate.py",
      "np.nanmedian(per_member_std)"),
     # feature_selection/general.py:200/202 -> nanmax/nanquantile:
     ("feature_selection/general.py",

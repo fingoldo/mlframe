@@ -37,12 +37,9 @@ MLFRAME_ROOT = Path(importlib.import_module("mlframe").__file__).parent
 
 
 def _read(rel: str) -> str:
-    """Read a source file under src/mlframe.
-
-    2026-05-22 monolith split compat: when ``training/ranker_suite.py``
-    is requested, also append ``_ranker_suite_train.py`` so source-pattern
-    sensors for the relocated artefact-naming code still match.
-    """
+    """Read a source file under src/mlframe. A flat module that became a
+    subpackage (``X.py`` -> ``X/__init__.py`` + submodules) is read as the
+    package __init__ plus every submodule so source-pattern sensors match."""
     _path = MLFRAME_ROOT / rel
     if not _path.exists() and _path.suffix == ".py":
         # Monolith-split compat: the flat module became a subpackage
@@ -59,10 +56,6 @@ def _read(rel: str) -> str:
             primary = _path.read_text(encoding="utf-8")
     else:
         primary = _path.read_text(encoding="utf-8")
-    if rel == "training/ranker_suite.py":
-        sibling = MLFRAME_ROOT / "training" / "_ranker_suite_train.py"
-        if sibling.exists():
-            primary = primary + "\n" + sibling.read_text(encoding="utf-8")
     return primary
 
 
@@ -82,7 +75,7 @@ def test_phase_helpers_ltr_save_dir_slugifies_model_name() -> None:
 
 
 def test_ranker_suite_artefact_basenames_slugify_model_name() -> None:
-    src = _read("training/ranker_suite.py")
+    src = _read("training/ranking.py")
     # Forbid the raw f-string interpolation.
     assert 'f"{model_name}_{flavor}.joblib"' not in src
     assert 'f"{model_name}_metadata.json"' not in src

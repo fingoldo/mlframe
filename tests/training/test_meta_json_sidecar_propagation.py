@@ -33,26 +33,28 @@ import pytest
 
 
 def _read_src(rel_path: str) -> str:
-    """Read a source file under src/mlframe.
-
-    2026-05-22 monolith split compat: when ``training/ranker_suite.py``
-    is requested, append the relocated sibling so source-pattern sensors
-    still match.
-    """
+    """Read a source file under src/mlframe. A flat module that became a
+    subpackage (``X.py`` -> ``X/__init__.py`` + submodules) is read as the
+    package __init__ plus every submodule so source-pattern sensors match."""
     import mlframe as _mlframe
     _pkg = pathlib.Path(_mlframe.__file__).resolve().parent
-    primary = (_pkg / rel_path).read_text(encoding="utf-8")
-    if rel_path == "training/ranker_suite.py":
-        sibling = _pkg / "training" / "_ranker_suite_train.py"
-        if sibling.exists():
-            primary = primary + "\n" + sibling.read_text(encoding="utf-8")
-    return primary
+    _path = _pkg / rel_path
+    if not _path.exists() and _path.suffix == ".py":
+        _sub_pkg = _path.with_suffix("")
+        _init = _sub_pkg / "__init__.py"
+        if _init.exists():
+            parts = [_init.read_text(encoding="utf-8")]
+            for _sub in sorted(_sub_pkg.glob("*.py")):
+                if _sub.name != "__init__.py":
+                    parts.append(_sub.read_text(encoding="utf-8"))
+            return "\n".join(parts)
+    return _path.read_text(encoding="utf-8")
 
 
 def test_ranker_suite_per_flavor_dump_writes_sidecar():
-    """training/ranker_suite.py write loop calls _write_save_meta_sidecar
+    """training/ranking write loop calls _write_save_meta_sidecar
     immediately after each joblib.dump."""
-    src = _read_src("training/ranker_suite.py")
+    src = _read_src("training/ranking.py")
     # Both the helper-import line and the call must be present in the loop body.
     assert "_write_save_meta_sidecar as _wsms" in src, (
         "Wave 19 P0 #3 regression: ranker_suite no longer imports the "

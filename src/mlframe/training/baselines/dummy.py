@@ -205,7 +205,7 @@ def _warmup_numba_kernels_body(verbose: bool = False) -> None:
     # populates the on-disk ``__pycache__/*.nbc`` files for ALL subsequent
     # processes too. Best-effort; failures fall back to lazy compile.
     try:
-        from ..metrics.core import prewarm_numba_cache as _prewarm_metric_kernels
+        from ...metrics.core import prewarm_numba_cache as _prewarm_metric_kernels
         _t1 = _time.time()
         _prewarm_metric_kernels()
         log(

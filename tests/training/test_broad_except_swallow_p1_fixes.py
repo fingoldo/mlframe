@@ -112,9 +112,8 @@ def test_multilabel_log_loss_failed_class_warns_and_uses_nanmean(caplog):
     # sibling is searched so the WARN-log shape sensor stays valid.
     import pathlib
     import mlframe as _mlframe
-    _train = pathlib.Path(_mlframe.__file__).resolve().parent / "training"
-    _files = [_train / "dummy_baselines.py", *_train.glob("_dummy_*.py")]
-    src = "\n".join(p.read_text(encoding="utf-8") for p in _files if p.exists())
+    _baselines = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "baselines"
+    src = "\n".join(p.read_text(encoding="utf-8") for p in sorted(_baselines.glob("*.py")))
     assert "multilabel log-loss: %d/%d class component(s) failed" in src, (
         "Wave 16 P1 regression: per-class log_loss WARN log shape gone."
     )

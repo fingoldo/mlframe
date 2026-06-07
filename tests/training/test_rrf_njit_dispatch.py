@@ -31,7 +31,7 @@ def _make_probs(M: int, N: int, K: int, *, dtype=np.float64, seed: int = 0):
 def test_rrf_njit_fastpath_fires_on_typical_input():
     """Typical mlframe ensemble shape (M=5, N=10k, K=2) on float64 must
     route to the njit kernel, not the numpy fallback."""
-    from mlframe.models import _ensembling_base as ens_base
+    from mlframe.models.ensembling import base as ens_base
 
     preds = _make_probs(M=5, N=10_000, K=2)
     seen = {"njit": 0, "numpy_loop": 0}
@@ -59,7 +59,7 @@ def test_rrf_njit_fastpath_fires_on_typical_input():
 def test_rrf_njit_skipped_for_float32():
     """float32 input must fall through to numpy. The njit kernel is
     typed for float64 and would either reject or silently cast."""
-    from mlframe.models import _ensembling_base as ens_base
+    from mlframe.models.ensembling import base as ens_base
 
     preds = _make_probs(M=5, N=1_000, K=2, dtype=np.float32)
     seen = {"njit": 0}
@@ -88,7 +88,7 @@ def test_rrf_njit_equivalent_to_numpy_within_1e_15():
     + reduction order), but RRF output must agree with the numpy reference
     to ~1e-15. The bench harness measured max abs delta = 1.1e-16 across
     12 (M, N, K) points; this sensor pins a relaxed 1e-14 floor."""
-    from mlframe.models import _ensembling_base as ens_base
+    from mlframe.models.ensembling import base as ens_base
 
     preds = _make_probs(M=5, N=2_000, K=3)
     out_dispatched = ens_base._rrf_aggregate_probs(preds, k=60)
@@ -113,7 +113,7 @@ def test_rrf_njit_memory_guard_skips_njit_when_intermediate_too_large(monkeypatc
     blow RAM. We can't allocate >512MB in tests, so we drop the njit kernel
     to None and confirm the dispatcher still produces correct output via
     the numpy fallback (i.e. doesn't crash when the guard fires)."""
-    from mlframe.models import _ensembling_base as ens_base
+    from mlframe.models.ensembling import base as ens_base
 
     preds = _make_probs(M=5, N=2_000, K=3)
 

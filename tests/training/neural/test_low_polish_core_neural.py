@@ -178,7 +178,7 @@ def test_low_s1_no_dated_audit_tags_in_neural_scope() -> None:
     # to its own location in the tests/ tree.
     _mlframe_root = pathlib.Path(_mlframe.__file__).resolve().parent
     targets = [
-        _mlframe_root / "training" / "ranker_suite.py",
+        _mlframe_root / "training" / "ranking" / "ranker_suite.py",
         _mlframe_root / "training" / "neural" / "_recurrent_config.py",
     ]
     for p in targets:

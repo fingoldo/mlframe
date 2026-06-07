@@ -144,7 +144,7 @@ def test_reporting_searchsorted_handles_unseen_predict():
     import mlframe as _mlframe
     src = (
         pathlib.Path(_mlframe.__file__).resolve().parent
-        / "training" / "_reporting_probabilistic.py"
+        / "training" / "reporting" / "_reporting_probabilistic.py"
     ).read_text(encoding="utf-8")
     # Pre-fix shape MUST be gone:
     assert "class_indices = np.searchsorted(model.classes_, preds_fallback)" not in src, (

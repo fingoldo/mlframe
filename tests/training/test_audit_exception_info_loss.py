@@ -168,8 +168,8 @@ def test_evaluation_plot_fi_uses_exc_info() -> None:
 def test_reporting_predict_proba_fallback_uses_exc_info() -> None:
     """The predict_proba fallback log moved from training/_reporting.py to the
     sibling training/_reporting_probabilistic.py during the monolith split."""
-    src_parent = _read("training/_reporting.py")
-    src_sibling = _read("training/_reporting_probabilistic.py")
+    src_parent = _read("training/reporting/_reporting.py")
+    src_sibling = _read("training/reporting/_reporting_probabilistic.py")
     src = src_parent + "\n" + src_sibling
     assert 'logger.warning(f"predict_proba not available for {type(model).__name__}, using predict() instead: {e}")' not in src
     assert 'logger.warning("predict_proba not available for %s, using predict() instead", type(model).__name__, exc_info=True)' in src

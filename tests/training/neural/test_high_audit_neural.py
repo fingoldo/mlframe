@@ -369,7 +369,8 @@ def test_h_neu_16_ranks_within_group_equivalent_and_faster() -> None:
     Python loop on a non-trivial dataset and report timings.
     """
     import timeit
-    from mlframe.training import ranking as _r
+    from mlframe.training.ranking import ranking as _r
+    from tests.conftest import running_under_xdist
 
     # The lexsort vectorisation amortises one full-array sort against the
     # naive path's per-group Python-loop + per-group argsort. Its win is
@@ -404,6 +405,9 @@ def test_h_neu_16_ranks_within_group_equivalent_and_faster() -> None:
     naive_out = _naive(scores, group_starts)
     fast_out = _r._ranks_within_group(scores, group_starts)
     np.testing.assert_array_equal(naive_out, fast_out)
+
+    if running_under_xdist():
+        pytest.skip("timing comparison flakes under -n contention; equivalence asserted above")
 
     # Best-of-N timings: take the minimum across repeats so transient CPU
     # contention (concurrent test workers, scheduler jitter) cannot flip the

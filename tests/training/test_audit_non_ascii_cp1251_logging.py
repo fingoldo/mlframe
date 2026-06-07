@@ -26,18 +26,20 @@ MLFRAME_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe"
 
 
 def _read(rel: str) -> str:
-    """Read a source file. For ``training/pipeline.py`` (which had its
-    extensions / fit-transform / to_pandas-fallback logic carved into
-    sibling modules), concat the siblings so the source-grep boundary
-    check still matches the relocated code."""
-    primary = (MLFRAME_ROOT / rel).read_text(encoding="utf-8")
-    if rel == "training/pipeline.py":
-        _dir = MLFRAME_ROOT / "training"
-        for nm in ("_pipeline_extensions.py", "_pipeline_fit_transform.py"):
-            _sib = _dir / nm
-            if _sib.exists():
-                primary = primary + "\n" + _sib.read_text(encoding="utf-8")
-    return primary
+    """Read a source file. A flat module that became a subpackage
+    (``X.py`` -> ``X/__init__.py`` + submodules) is read as the package
+    __init__ plus every submodule so structural source pins still match."""
+    _path = MLFRAME_ROOT / rel
+    if not _path.exists() and _path.suffix == ".py":
+        _pkg = _path.with_suffix("")
+        _init = _pkg / "__init__.py"
+        if _init.exists():
+            parts = [_init.read_text(encoding="utf-8")]
+            for _sub in sorted(_pkg.glob("*.py")):
+                if _sub.name != "__init__.py":
+                    parts.append(_sub.read_text(encoding="utf-8"))
+            return "\n".join(parts)
+    return _path.read_text(encoding="utf-8")
 
 
 def test_bench_mrmr_no_em_dash_in_print() -> None:

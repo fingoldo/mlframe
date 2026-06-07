@@ -219,13 +219,10 @@ def test_plotly_legend_documented_as_explicit_skip() -> None:
 
 
 def test_ensembling_p2_quantile_design_decision_documented() -> None:
-    # The two TODOs lived in ``models/ensembling.py`` and migrated with
-    # the helper extraction into the ``_ensembling_base.py`` leaf when
-    # ``models/ensembling.py`` was split below 1k LOC.
-    src = (
-        _read("models/ensembling.py")
-        + _read("models/_ensembling_base.py")
-    )
+    # The two TODOs were replaced with explicit design decisions in the
+    # ``models/ensembling`` package (``base.py`` leaf); reading the package
+    # concats every submodule.
+    src = _read("models/ensembling.py")
     # The two TODOs are replaced with explicit design decisions.
     assert "TODO(session-5+) P^2-Quantile numba-jit per-cell impl" not in src
     assert "TODO(future): For N*K*M*8 > EnsemblingConfig" not in src
@@ -254,10 +251,10 @@ def test_no_remaining_open_todo_markers_in_closed_files() -> None:
         ("feature_selection/filters/hermite_fe.py", "TODO: separate eval for x_a"),
         ("reporting/renderers/plotly.py", "(plotly 5.x feature) — TODO"),
         # Both ensembling TODOs lived in the helpers that moved to the
-        # ``_ensembling_base.py`` leaf during the monolith split. Check the
-        # sibling where the TODO would actually surface if it crept back.
-        ("models/_ensembling_base.py", "TODO(session-5+) P^2-Quantile"),
-        ("models/_ensembling_base.py", "TODO(future): For N*K*M*8"),
+        # ``models/ensembling`` package during the monolith split; reading
+        # the package concats every submodule where a TODO could resurface.
+        ("models/ensembling.py", "TODO(session-5+) P^2-Quantile"),
+        ("models/ensembling.py", "TODO(future): For N*K*M*8"),
     ]
     for rel, phrase in closed_phrases:
         src = _read(rel)
