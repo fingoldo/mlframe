@@ -1,0 +1,78 @@
+name: GPU test matrix (self-hosted)
+
+# Runs the actual GPU-marked tests (cupy / numba.cuda / torch.cuda kernels) across CuPy/CUDA +
+# torch versions on a SELF-HOSTED GPU runner. GitHub-hosted free runners have no GPU, so this
+# workflow targets a self-hosted runner you register on a GPU box:
+#
+#   1. On the GPU machine: Settings -> Actions -> Runners -> New self-hosted runner; follow the
+#      steps, then add the label `gpu` (e.g. `./config.cmd --labels gpu` / `--labels gpu`).
+#   2. Start it (`run.cmd` / `./run.sh`, or install as a service).
+#   3. (Security) Only run this on your own branch pushes / manual dispatch -- NOT untrusted PRs.
+#
+# One CUDA-12/13-driver box can test BOTH cupy-cuda11x and cuda12x (newer driver runs the older
+# CUDA runtime via forward-compat); the only constraint is the runner's Python -- cupy-cuda11x
+# needs Python <=3.12. Pick `cuda_extra` accordingly.
+
+on:
+  workflow_dispatch:
+    inputs:
+      cuda_extra:
+        description: "Which GPU extra to install"
+        type: choice
+        default: "gpu"
+        options: ["gpu", "gpu-cuda11"]
+      torch_spec:
+        description: "torch pin (blank = whatever [all] resolves)"
+        type: string
+        default: ""
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gpu-tests:
+    name: GPU tests (${{ github.event.inputs.cuda_extra }})
+    runs-on: [self-hosted, gpu]
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show GPU + driver
+        run: nvidia-smi
+
+      - name: Clone & install pyutilz (sibling dependency)
+        run: |
+          git clone --depth 1 https://github.com/fingoldo/pyutilz.git
+          pip install "./pyutilz[system,pandas,polars,database]"
+
+      - name: Install mlframe with all runtime extras + dev tooling + the chosen GPU extra
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[all,dev,${{ github.event.inputs.cuda_extra }}]"
+
+      - name: Pin torch (optional)
+        if: ${{ github.event.inputs.torch_spec != '' }}
+        run: pip install "torch==${{ github.event.inputs.torch_spec }}"
+
+      - name: Show GPU stack versions + device visibility
+        run: |
+          python -c "import cupy as cp; print('cupy', cp.__version__, 'devices', cp.cuda.runtime.getDeviceCount())"
+          python -c "from numba import cuda; print('numba.cuda available:', cuda.is_available())"
+          python -c "import torch; print('torch', torch.__version__, 'cuda', torch.cuda.is_available())"
+
+      - name: Run GPU-marked tests
+        env:
+          PYTHONUNBUFFERED: "1"
+          # numba.cuda needs CUDA_HOME pointing at the pip-installed nvcc components (ptxas/nvvm/libdevice).
+          # cupy auto-resolves via cuda-pathfinder. Adjust if the runner has a system CUDA toolkit.
+        run: |
+          python - <<'PY'
+          import os, pathlib, nvidia
+          os.environ.setdefault("CUDA_HOME", str(pathlib.Path(nvidia.__file__).parent / "cuda_nvcc"))
+          os.environ.setdefault("CUDA_PATH", os.environ["CUDA_HOME"])
+          print("CUDA_HOME =", os.environ["CUDA_HOME"])
+          import subprocess, sys
+          sys.exit(subprocess.call([sys.executable, "-m", "pytest", "-m", "gpu", "--no-cov",
+                                    "-n", "0", "-p", "no:randomly", "--timeout=600", "-ra", "-v"], env=os.environ))
+          PY
