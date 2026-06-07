@@ -308,19 +308,15 @@ def select_best_scorer_per_column(
             default=0.0,
         )
         per_scorer_max[s] = float(max(max_s, 1e-12))
-    # Guard against a degenerate per-scorer ceiling. A scorer whose ENTIRE
-    # raw-pool LCB sits near its own noise floor (e.g. HSIC's RKHS statistic
-    # is ~2 orders of magnitude smaller than the nat-scale MI scorers) gets a
-    # tiny denominator, so ANY engineered LCB inflates to a dominating ratio
-    # and the scorer wins every column regardless of real signal. Floor each
-    # scorer's ceiling at a small fraction of the strongest raw ceiling across
-    # ALL scorers: a scorer that never clears a meaningful fraction of the best
-    # raw signal cannot manufacture a win via a near-zero denominator.
-    _global_ceiling = max(per_scorer_max.values(), default=1e-12)
-    _ceiling_floor = _global_ceiling * 0.05
+    # Per-scorer self-referential scale for the headroom denominator below. Each scorer's natural magnitude differs by orders (HSIC's RKHS
+    # statistic vs nat-scale MI), so the floor on the denominator MUST live on the scorer's OWN scale, never a global cross-scorer ceiling.
+    # We take the larger of the scorer's raw-pool max and the median of its raw-pool LCBs; a scorer whose entire raw pool is its noise floor
+    # then has a denominator that tracks that noise floor rather than a near-zero value that would inflate any engineered LCB into a win.
+    per_scorer_scale = {}
     for s in SCORER_NAMES:
-        if per_scorer_max[s] < _ceiling_floor:
-            per_scorer_max[s] = _ceiling_floor
+        raw_vals = [float(source_lcb[src].get(s, 0.0)) for src in raw_cols]
+        med_s = float(np.median(raw_vals)) if raw_vals else 0.0
+        per_scorer_scale[s] = float(max(per_scorer_max[s], med_s, 1e-12))
 
     rows = []
     for eng_name in eng_cols:
@@ -335,13 +331,14 @@ def select_best_scorer_per_column(
                     int(random_state) + b,
                 )
             per_scorer[s] = _compute_lcb(vals)
-        # Normalised LCB: divide each scorer's LCB by ITS per-scorer max
-        # on the raw source pool. Cross-scorer comparison is now
-        # dimensionless ("fraction of own-scorer max"), so the scorer
-        # that gets CLOSEST to its own ceiling on this engineered
-        # column wins -- not the scorer with the largest natural scale.
+        # Normalised score = per-scorer HEADROOM over its own raw baseline, on its own scale: ``(engineered_lcb - raw_max) / scale``. This is
+        # dimensionless and self-calibrating, so the winner is the scorer that demonstrates the most REAL additional signal beyond the strongest
+        # raw signal IT could detect -- not the scorer with the largest natural scale, nor a scorer whose tiny raw ceiling would let any engineered
+        # value inflate into a degenerate ratio. A scorer whose engineered LCB merely matches its own noise floor scores ~0 and cannot win a column;
+        # a scorer that genuinely lifts above its own raw baseline (HSIC on a non-monotone signal) scores high and can win where it is strongest.
         per_scorer_norm = {
-            s: per_scorer[s] / per_scorer_max[s] for s in SCORER_NAMES
+            s: (per_scorer[s] - per_scorer_max[s]) / per_scorer_scale[s]
+            for s in SCORER_NAMES
         }
         best_scorer = max(
             SCORER_NAMES, key=lambda s: per_scorer_norm[s],

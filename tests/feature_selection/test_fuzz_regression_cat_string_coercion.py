@@ -157,6 +157,26 @@ class TestMrmrOrphanRecipeReplay:
         assert "round_round_a" in out.columns and "round_a" in out.columns
         assert out["round_round_a"].notna().all()
 
+    def test_raw_seed_only_kind_raises_on_missing_source(self):
+        """A ``mi_greedy_transform`` recipe consumes raw input columns only, so a source absent from X is a recipe-vs-X mismatch and MUST raise
+        (naming the column), never silently emit NaN -- the raise-vs-NaN split is keyed on the recipe kind's data-flow contract."""
+        from mlframe.feature_selection.filters.mrmr import MRMR
+        from mlframe.feature_selection.filters.engineered_recipes import EngineeredRecipe
+
+        sel = MRMR()
+        sel.verbose = 0
+        sel.feature_names_in_ = ["a", "b"]
+        base = pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0]})
+        bad = EngineeredRecipe(
+            name="square(missing_input)",
+            kind="mi_greedy_transform",
+            src_names=("missing_input",),
+            extra={"transform": "square"},
+        )
+        with pytest.raises(KeyError) as exc_info:
+            sel._append_engineered(base.copy(), base.copy(), [bad])
+        assert "missing_input" in str(exc_info.value)
+
 
 class TestMrmrNbinsQuantileAlias:
     """``nbins_strategy='quantile'`` is a natural user alias for quantile-spacing

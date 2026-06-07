@@ -22,6 +22,11 @@ from sklearn.preprocessing import OrdinalEncoder
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
+# Recipe kinds whose ``src_names`` reference raw input columns only and never a chained engineered intermediate. For these, a source absent
+# from the transform-time frame is a recipe-vs-X mismatch (raise); for every other kind a missing unproducible source is treated as a pruned
+# chained producer and degrades to a NaN column. Keep additions here when a new raw-input-only consumer kind is added.
+_RAW_SEED_ONLY_RECIPE_KINDS = frozenset({"mi_greedy_transform"})
+
 
 def _validate_string_params(self):
     """Raise ValueError on bad constructor strings. Each branch lists the
@@ -507,12 +512,6 @@ def _append_engineered(self, base_out, X, recipes):
         _results: dict = {}
         _pending = list(recipes)
         _unresolved: set = set()
-        # Names a recipe in this set can legitimately produce as a chained
-        # engineered intermediate. A missing source that is one of these was
-        # a pruned chained producer (NaN-fallback is fine); a missing source
-        # that is neither in ``chained`` nor a recipe output is a genuinely
-        # missing INPUT column -- a recipe-vs-X mismatch we must raise on.
-        _recipe_output_names = {r.name for r in recipes}
         while _pending:
             _progress = False
             _still: list = []
@@ -528,20 +527,18 @@ def _append_engineered(self, base_out, X, recipes):
             if not _progress:
                 for r in _still:
                     _missing = [s for s in (getattr(r, "src_names", ()) or ()) if s not in chained.columns]
-                    # A missing source that no recipe produces (and isn't an
-                    # input column) is a genuine recipe-vs-X mismatch, not a
-                    # pruned chained producer -- fail loudly and name it.
-                    _phantom = [s for s in _missing if s not in _recipe_output_names]
-                    if _phantom:
+                    # Raise-vs-NaN is keyed on the recipe kind's data-flow contract. Raw-seed-only kinds (``mi_greedy_transform``) consume
+                    # input columns exclusively -- a missing source is a genuine recipe-vs-X mismatch (corrupted/stale recipe, or wrong X)
+                    # and must fail loudly and name the column. Chained-capable kinds (modular / numeric_decompose / numeric_rounding /
+                    # orth_spline / cross families) may reference an engineered intermediate that fit-time pruning dropped its producer for;
+                    # that source is unreconstructable at transform, so emit a NaN column rather than crash.
+                    if r.kind in _RAW_SEED_ONLY_RECIPE_KINDS:
                         raise KeyError(
                             f"MRMR.transform: recipe {r.name!r} (kind={r.kind}) references "
-                            f"source column(s) {_phantom} that are absent from X and are not "
-                            f"produced by any engineered recipe. The recipe set does not match "
-                            f"the input frame (corrupted/stale recipe, or wrong X)."
+                            f"source column(s) {_missing} that are absent from X. This kind consumes "
+                            f"input columns only, so the recipe set does not match the input frame "
+                            f"(corrupted/stale recipe, or wrong X)."
                         )
-                    # Remaining recipes reference a pruned chained engineered
-                    # producer (fit-time pruning dropped it). Unreconstructable
-                    # at transform; emit a NaN column rather than crash.
                     logger.warning(
                         "MRMR.transform: recipe %r (kind=%s) references unresolved engineered "
                         "source(s) %s; emitting NaN column (feature dropped from replay).",
