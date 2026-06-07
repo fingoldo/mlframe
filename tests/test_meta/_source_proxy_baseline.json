@@ -74,7 +74,7 @@
   "training/test_broad_except_swallow_p1_fixes.py::reusing ",
   "training/test_broad_except_swallow_p1_fixes.py::single-label default loss",
   "training/test_broad_except_swallow_p1_fixes.py::sklearn.clone failed for base_pipeline",
-  "training/test_cb_pool_cache_clear.py::from mlframe.training.cb import _CB_POOL_CACHE",
+  "training/cb/test_cb_pool_cache_clear.py::from mlframe.training.cb import _CB_POOL_CACHE",
   "training/test_composite_ct_get_best_iter_and_loss.py::_set_kwargs.update(_extra_params)",
   "training/test_composite_ct_get_best_iter_and_loss.py::rec.get(f\"{_backend}_extra_params\")",
   "training/test_composite_ct_get_best_iter_and_loss.py::return (\"eval_metric\", _value)",
