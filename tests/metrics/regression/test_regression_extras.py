@@ -184,7 +184,7 @@ def test_iter607_pearson_corr_mixed_dtypes_bit_equivalent():
     ``dtype=np.float64`` cast. Pin bit-equivalence across the dtype
     pairs that appear in regression reporting (fired from
     ``fast_regression_metrics_block_extended`` per c0013 profile)."""
-    from mlframe.metrics._regression_extras import fast_pearson_corr
+    from mlframe.metrics.regression._regression_extras import fast_pearson_corr
     from scipy.stats import pearsonr
     rng = np.random.default_rng(20260607)
     n = 5_000
@@ -211,7 +211,7 @@ def test_iter606_explained_variance_mixed_dtypes_bit_equivalent():
     """iter606: fast_explained_variance dropped the unconditional
     ``dtype=np.float64`` cast. Pin bit-equivalence across the dtype
     pairs that appear in regression reporting."""
-    from mlframe.metrics._regression_extras import fast_explained_variance
+    from mlframe.metrics.regression._regression_extras import fast_explained_variance
     from sklearn.metrics import explained_variance_score
     rng = np.random.default_rng(20260606)
     n = 5_000
@@ -341,7 +341,7 @@ def test_kendall_tau_mid_range_uses_scipy_and_matches_numba_kernel():
     implement the same tie-corrected tau-b formula -- pin that equivalence so
     the threshold cannot silently drift back."""
     from scipy.stats import kendalltau
-    from mlframe.metrics._regression_extras import _kendall_tau_b_kernel
+    from mlframe.metrics.regression._regression_extras import _kendall_tau_b_kernel
     rng = np.random.default_rng(20260528)
     for N in (600, 1500, 3000):
         y = rng.standard_normal(N)

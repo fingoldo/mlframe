@@ -52,7 +52,7 @@ from mlframe.metrics._classification_extras import (
 )
 from mlframe.metrics._core_auc_brier import fast_brier_score_loss
 from mlframe.metrics._log_loss_and_separation import fast_log_loss_binary
-from mlframe.metrics._regression_extras import (
+from mlframe.metrics.regression import (
     fast_rmsle, fast_mape_mean, fast_smape, fast_mdape, fast_wmape,
     fast_mean_bias_error, fast_cv_rmse, fast_nash_sutcliffe, fast_explained_variance,
     fast_huber_loss, fast_pearson_corr, fast_spearman_corr, fast_kendall_tau,

@@ -9,8 +9,8 @@ import numpy as np
 
 
 def test_deviance_reexport_identity():
-    from mlframe.metrics import _regression_deviance as sib
-    from mlframe.metrics import _regression_extras as parent
+    from mlframe.metrics.regression import _regression_deviance as sib
+    from mlframe.metrics.regression import _regression_extras as parent
     from mlframe.metrics import core
 
     for nm in ("fast_poisson_deviance", "fast_gamma_deviance", "fast_tweedie_deviance"):
@@ -21,7 +21,7 @@ def test_deviance_reexport_identity():
 def test_deviance_bodies_callable_with_sklearn_parity():
     from sklearn.metrics import mean_poisson_deviance, mean_gamma_deviance, mean_tweedie_deviance
 
-    from mlframe.metrics._regression_deviance import (
+    from mlframe.metrics.regression._regression_deviance import (
         fast_gamma_deviance, fast_poisson_deviance, fast_tweedie_deviance,
     )
 
@@ -35,7 +35,7 @@ def test_deviance_bodies_callable_with_sklearn_parity():
 
 
 def test_deviance_invalid_rows_return_nan():
-    from mlframe.metrics._regression_deviance import fast_poisson_deviance
+    from mlframe.metrics.regression._regression_deviance import fast_poisson_deviance
 
     # all rows invalid (y_pred <= 0) -> NaN
     assert np.isnan(fast_poisson_deviance(np.array([1.0, 2.0]), np.array([-1.0, 0.0])))

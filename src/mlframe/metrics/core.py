@@ -187,7 +187,7 @@ from ._calibration_metrics import integral_calibration_error_from_metrics  # noq
 
 # Regression metrics live in ``_regression_metrics.py``; re-exported below to keep
 # ``from mlframe.metrics.core import fast_*`` imports stable. See sibling for SSOT.
-from ._regression_metrics import (  # noqa: E402,F401
+from .regression import (  # noqa: E402,F401
     _fast_mae_seq, _fast_mae_par, _fast_mse_seq, _fast_mse_par,
     _fast_max_error_seq, _fast_r2_score_seq, _fast_r2_score_par,
     _fast_r2_variance_seq,
@@ -268,7 +268,7 @@ from ._classification_extras import (  # noqa: F401, E402
 
 
 # Additional regression metrics (RMSLE / MAPE-mean / SMAPE / ...) - 2026-05-28.
-from ._regression_extras import (  # noqa: F401, E402
+from .regression import (  # noqa: F401, E402
     fast_rmsle,
     fast_mape_mean,
     fast_smape,

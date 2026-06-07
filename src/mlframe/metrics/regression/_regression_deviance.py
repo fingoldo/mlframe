@@ -11,7 +11,7 @@ from typing import Tuple
 import numpy as np
 import numba
 
-from ._numba_params import NUMBA_NJIT_PARAMS
+from .._numba_params import NUMBA_NJIT_PARAMS
 
 
 # ============================================================================

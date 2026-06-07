@@ -45,7 +45,7 @@ from typing import Dict, Union
 import numpy as np
 import numba
 
-from ._numba_params import NUMBA_NJIT_PARAMS, _PARALLEL_REDUCTION_THRESHOLD
+from .._numba_params import NUMBA_NJIT_PARAMS, _PARALLEL_REDUCTION_THRESHOLD
 
 
 # ---------- 1-D unweighted ----------

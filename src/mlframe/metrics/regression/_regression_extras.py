@@ -31,7 +31,7 @@ from typing import Tuple
 import numpy as np
 import numba
 
-from ._numba_params import NUMBA_NJIT_PARAMS, _PARALLEL_REDUCTION_THRESHOLD
+from .._numba_params import NUMBA_NJIT_PARAMS, _PARALLEL_REDUCTION_THRESHOLD
 # iter592: hoist the rank_correlation import out of fast_spearman_corr's
 # body. c0103_2a635557 @100k profile attributed 140 ms of
 # fast_spearman_corr's 182 ms cumtime / 10 calls (~14 ms per call avg) to
@@ -43,7 +43,7 @@ from ._numba_params import NUMBA_NJIT_PARAMS, _PARALLEL_REDUCTION_THRESHOLD
 # time (paid once at startup, amortised across the whole suite) and
 # fast_spearman_corr's runtime profile drops the import attribution
 # entirely. Per-call cost becomes ~4.2 ms (just _spearmanr_batched_numpy).
-from .rank_correlation import _spearmanr_batched_numpy
+from ..rank_correlation import _spearmanr_batched_numpy
 
 
 # ============================================================================
