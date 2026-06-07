@@ -671,6 +671,15 @@ def discretize_2d_quantile_batch(arr2d: np.ndarray, n_bins: int = 10, dtype: obj
     # ``np.ascontiguousarray(arr2d)`` (no dtype) is a no-op view when arr2d is already
     # C-contiguous (the common FE case incl. column-slices ``buf[:, :k]``); a genuinely
     # non-contiguous input copies at the native float32 width, still half the float64 cost.
+    # bench-attempt-rejected (2026-06-07): F-CONTIGUOUS buffers (Q4) so the kernels'
+    # ``for j(cols): for r(rows): arr2d[r,j]`` inner r-loop is unit-stride instead of
+    # column-strided. Bit-identical (layout-only) but a NET LOSS at the real FE width:
+    # ``np.asfortranarray(arr2d)`` copies the whole (n x K) buffer, and that copy costs
+    # more than the cache win once K is large. Bench (scene FE shapes, copy included):
+    #   300 cols/f32 1.30-1.46x (only win, tiny K); 1000 cols 0.76-0.91x; 4000 cols 0.80-0.88x.
+    # The edges kernel already copies each column into a contiguous scratch (so it gains
+    # nothing from F-layout); only searchsorted reads strided, and enabling that via a
+    # full-buffer transpose-copy regresses. Keep C-contiguous. (proto D:/Temp/q4_fcontig_proto.py)
     if n_cols > 0 and n_rows > 0:
         edges_inner = np.ascontiguousarray(edges[1:-1], dtype=np.float64)
         arr_c = np.ascontiguousarray(arr2d)
