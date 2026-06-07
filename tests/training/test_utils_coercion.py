@@ -100,6 +100,6 @@ class TestBackwardCompatAliases:
         assert out.shape == (4,)
 
     def test_composite_estimator_alias_preserved(self):
-        from mlframe.training import composite_estimator
+        from mlframe.training.composite import estimator as composite_estimator
         out = composite_estimator._to_1d_numpy(np.arange(4).reshape(2, 2))
         assert out.shape == (4,)

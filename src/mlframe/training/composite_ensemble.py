@@ -35,7 +35,7 @@ def _is_polars_df(x: Any) -> bool:
     return _HAS_POLARS and isinstance(x, pl.DataFrame)
 
 
-from .composite_estimator import CompositeTargetEstimator
+from .composite.estimator import CompositeTargetEstimator
 from .composite_post_shim import PrePipelinePredictShim
 from .composite.transforms import get_transform
 

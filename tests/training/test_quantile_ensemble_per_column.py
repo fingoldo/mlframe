@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from mlframe.training.composite_estimator import predict_quantile_ensemble
+from mlframe.training.composite import predict_quantile_ensemble
 
 
 class _MultiQuantileMember:

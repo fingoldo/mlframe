@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 from sklearn.linear_model import LinearRegression
 
-from mlframe.training.composite_estimator import CompositeTargetEstimator
+from mlframe.training.composite import CompositeTargetEstimator
 
 
 class _NumpyAdapter:

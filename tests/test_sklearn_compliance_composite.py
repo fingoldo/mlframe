@@ -102,7 +102,7 @@ class TestCompositeTargetEstimatorCompliance:
     """
 
     def _make(self):
-        from mlframe.training.composite_estimator import CompositeTargetEstimator
+        from mlframe.training.composite import CompositeTargetEstimator
         return CompositeTargetEstimator(
             base_estimator=LinearRegression(),
             transform_name="diff",

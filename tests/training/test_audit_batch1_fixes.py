@@ -74,7 +74,7 @@ def test_save_split_artifacts_positional_on_non_rangeindex(tmp_path):
 def test_composite_from_fitted_inner_envelope_gates_on_finite_count():
     from sklearn.linear_model import LinearRegression
 
-    from mlframe.training._composite_target_estimator import CompositeTargetEstimator
+    from mlframe.training.composite.estimator._estimator import CompositeTargetEstimator
 
     inner = LinearRegression().fit(
         np.arange(20, dtype=float).reshape(-1, 1), np.arange(20, dtype=float)

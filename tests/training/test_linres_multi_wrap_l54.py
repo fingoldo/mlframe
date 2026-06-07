@@ -37,7 +37,7 @@ import pandas as pd
 import pytest
 from sklearn.linear_model import Ridge
 
-from mlframe.training.composite_estimator import CompositeTargetEstimator
+from mlframe.training.composite import CompositeTargetEstimator
 from mlframe.training.composite.transforms import _linear_residual_multi_fit
 
 

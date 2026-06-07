@@ -48,7 +48,7 @@ _USER_DEFERRED_CYCLES: set[str] = {
     # re-exports them at its bottom). Same sibling-file pattern as the other
     # monolith splits in this whitelist.
     "mlframe.training._reporting → mlframe.training._reporting_probabilistic → mlframe.training._reporting_regression",
-    "mlframe.training._composite_target_estimator → mlframe.training.composite_estimator",
+    "mlframe.training.composite.estimator → mlframe.training.composite.estimator._estimator",
     "mlframe.training._strategies_xgboost → mlframe.training.strategies",
     "mlframe.training._target_temporal_audit_from_agg → mlframe.training._target_temporal_changepoint → mlframe.training.target_temporal_audit",
     # hermite_fe monolith split: _hermite_fe_mi.py contains @njit'd

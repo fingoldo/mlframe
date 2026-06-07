@@ -59,7 +59,7 @@ def fit_stacked(
     top_specs = ranked[: int(max_pass1_specs_to_stack)]
 
     from .composite_feature_stacking import composite_oof_predictions
-    from .composite_estimator import CompositeTargetEstimator
+    from .composite.estimator import CompositeTargetEstimator
 
     # Lightweight Ridge inner so pass 2 cost stays small.
     from sklearn.linear_model import Ridge
@@ -198,7 +198,7 @@ def fit_stacked_on_residual(
         key=lambda s: rank_by_tiny.get(s.name, float("inf")),
     )
 
-    from .composite_estimator import CompositeTargetEstimator
+    from .composite.estimator import CompositeTargetEstimator
     from .composite_feature_stacking import composite_oof_predictions
 
     _train_idx_arr = np.asarray(train_idx)

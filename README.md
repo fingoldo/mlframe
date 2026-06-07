@@ -132,7 +132,7 @@ transparently, and pins cross-version behaviour in CI.
 
 ```python
 from sklearn.linear_model import Ridge
-from mlframe.training.composite_estimator import CompositeTargetEstimator
+from mlframe.training.composite import CompositeTargetEstimator
 
 est = CompositeTargetEstimator(
     base_estimator=Ridge(),

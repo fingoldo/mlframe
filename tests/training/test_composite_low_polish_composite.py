@@ -181,7 +181,7 @@ def test_polish_drop_columns_docstring_preserved() -> None:
     """``_drop_columns`` docstring kept the WHY (LightGBM rejects object/string
     dtypes). The em-dash em-dash variant was replaced with a hyphen to honour
     the project-wide "no em-dash in prose" rule; the meaning must survive."""
-    from mlframe.training.composite_estimator import CompositeTargetEstimator
+    from mlframe.training.composite import CompositeTargetEstimator
 
     doc = CompositeTargetEstimator._drop_columns.__doc__ or ""
     assert "LightGBM" in doc

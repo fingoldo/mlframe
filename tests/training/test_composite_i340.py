@@ -26,7 +26,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from mlframe.training.composite_estimator import CompositeTargetEstimator
+from mlframe.training.composite import CompositeTargetEstimator
 
 
 class _StubInnerWithSklearnNames:

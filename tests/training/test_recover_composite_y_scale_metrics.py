@@ -47,7 +47,7 @@ class _LinearInner(BaseEstimator, RegressorMixin):
 
 def _build_problem():
     """Tiny linear_residual composite: y = 1.5 * base + epsilon."""
-    from mlframe.training.composite_estimator import CompositeTargetEstimator
+    from mlframe.training.composite import CompositeTargetEstimator
     from mlframe.training.composite.transforms import get_transform
 
     rng = np.random.default_rng(42)
@@ -192,7 +192,7 @@ class TestRecoveryNoDoubleWrap:
     """MEDIUM#11 2026-05-18: the wrap step inside ``_run_composite_target_wrapping`` is idempotent against entries whose inner is already a CompositeTargetEstimator. Pre-fix the recovery helper would have double-wrapped, feeding y-scale predictions back through transform.inverse a second time and producing garbage. This test pins the idempotency by inspecting the entry's inner BEFORE and AFTER the recovery call."""
 
     def test_inner_not_double_wrapped_after_recovery(self) -> None:
-        from mlframe.training.composite_estimator import CompositeTargetEstimator
+        from mlframe.training.composite import CompositeTargetEstimator
         from mlframe.training.core._phase_composite_post import (
             recover_composite_y_scale_metrics,
         )

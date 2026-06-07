@@ -190,7 +190,7 @@ class TestCompositeTargetEstimatorTClip:
         """Build a synthetic CompositeTargetEstimator with diff transform
         and a constant-blowup inner. Uses from_fitted_inner to bypass
         sklearn.clone (the blowup inner is a stub, not sklearn-compat)."""
-        from mlframe.training._composite_target_estimator import (
+        from mlframe.training.composite.estimator._estimator import (
             CompositeTargetEstimator,
         )
 

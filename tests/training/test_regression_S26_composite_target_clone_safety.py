@@ -40,7 +40,7 @@ def test_clone_of_from_fitted_inner_raises_with_actionable_message(fitted_inner_
     underscore-suffixed attrs outside the init signature. Refuse clone
     with a clear message instead of returning a silent unfitted shell.
     """
-    from mlframe.training.composite_estimator import CompositeTargetEstimator
+    from mlframe.training.composite import CompositeTargetEstimator
 
     X, y, inner = fitted_inner_kit
     cte = CompositeTargetEstimator.from_fitted_inner(
@@ -69,7 +69,7 @@ def test_clone_of_standard_fit_built_instance_still_works(fitted_inner_kit):
     pipeline -> clone -> fit) must keep working. Only from_fitted_inner
     instances are off-limits to clone.
     """
-    from mlframe.training.composite_estimator import CompositeTargetEstimator
+    from mlframe.training.composite import CompositeTargetEstimator
 
     X, y, _ = fitted_inner_kit
     cte = CompositeTargetEstimator(
@@ -95,7 +95,7 @@ def test_fitted_instance_via_fit_clones_to_unfitted_shell(fitted_inner_kit):
     returns an unfitted shell carrying the init params, fitted state
     is dropped. This is the desired behaviour and must not regress.
     """
-    from mlframe.training.composite_estimator import CompositeTargetEstimator
+    from mlframe.training.composite import CompositeTargetEstimator
 
     X, y, _ = fitted_inner_kit
     cte = CompositeTargetEstimator(

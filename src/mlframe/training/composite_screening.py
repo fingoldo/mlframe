@@ -31,7 +31,7 @@ def _is_polars_df(x: Any) -> bool:
     return _HAS_POLARS and isinstance(x, pl.DataFrame)
 
 
-from .composite_estimator import CompositeTargetEstimator, _y_train_clip_bounds
+from .composite.estimator import CompositeTargetEstimator, _y_train_clip_bounds
 from .composite.transforms import get_transform
 
 if TYPE_CHECKING:

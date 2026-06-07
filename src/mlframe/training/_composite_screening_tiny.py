@@ -32,14 +32,14 @@ import pandas as pd
 
 # Hoisted from a lazy import inside ``_one_fold`` (wave 98 split-out). The lazy form raced
 # under joblib threading + n_jobs > 1: two folds simultaneously executing
-# ``from .composite_estimator import _y_train_clip_bounds`` could see a partially-loaded
-# composite_estimator module on Python's import dance, leaving the local name unbound for
+# ``from .composite.estimator import _y_train_clip_bounds`` could see a partially-loaded
+# composite.estimator module on Python's import dance, leaving the local name unbound for
 # the second thread. Symptom observed in a prod log: 4x
 # ``composite_screening: tiny-model CV fold failed (name '_y_train_clip_bounds' is not defined)``
 # warnings -- the lazy import silently raised NameError, the outer ``except Exception`` swallowed
 # it, and the fold returned NaN. Sibling ``composite_screening.py`` already imports at module
 # level (line 34) so there is no circular-dep concern.
-from .composite_estimator import _y_train_clip_bounds
+from .composite.estimator import _y_train_clip_bounds
 
 logger = logging.getLogger(__name__)
 

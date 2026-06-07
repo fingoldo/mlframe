@@ -347,7 +347,7 @@ def test_fix7_composite_estimator_extract_returns_correct_dtype_no_extra_copy():
     """composite_estimator must extract polars columns via Series.to_numpy() directly, not via
     np.asarray(get_column(...)). Behavioural check: feed a float64 polars column and assert the
     returned ndarray (a) is float64 and (b) shares memory with no avoidable extra copy."""
-    from mlframe.training.composite_estimator import _extract_base
+    from mlframe.training.composite import _extract_base
 
     df = pl.DataFrame({"base": np.arange(50, dtype=np.float64)})
     out = _extract_base(df, "base")
@@ -391,7 +391,7 @@ def test_fix7_composite_auto_detect_monotonicity_handles_float_input():
 
 def test_fix7_extract_base_returns_float64_ndarray():
     """Correctness: the dropped wrap must not change observable behaviour."""
-    from mlframe.training.composite_estimator import _extract_base
+    from mlframe.training.composite import _extract_base
 
     df = pl.DataFrame({"base": [1.0, 2.5, np.nan, 4.0]})
     out = _extract_base(df, "base")

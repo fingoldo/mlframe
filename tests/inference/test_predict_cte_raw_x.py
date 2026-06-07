@@ -51,7 +51,7 @@ def test_cte_wrapped_model_receives_raw_base_at_predict():
     from sklearn.linear_model import Ridge
     from sklearn.preprocessing import StandardScaler
 
-    from mlframe.training._composite_target_estimator import CompositeTargetEstimator
+    from mlframe.training.composite.estimator._estimator import CompositeTargetEstimator
     from mlframe.training.composite.transforms import (
         _linear_residual_fit, get_transform,
     )

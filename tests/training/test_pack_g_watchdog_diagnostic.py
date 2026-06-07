@@ -25,7 +25,7 @@ class TestWatchdogDiagnosticFormat:
         """Construct a scenario where the watchdog fires: a wrapper whose inner.predict returns SCALED predictions instead of T-scale (simulating the production TTR transformer_ corruption hypothesis). Then assert the log line carries the diagnostic dump."""
         from sklearn.base import BaseEstimator, RegressorMixin
 
-        from mlframe.training.composite_estimator import CompositeTargetEstimator
+        from mlframe.training.composite import CompositeTargetEstimator
         from mlframe.training.composite.transforms import get_transform
 
         class _BrokenInner(BaseEstimator, RegressorMixin):

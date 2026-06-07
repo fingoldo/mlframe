@@ -22,7 +22,7 @@ def test_readme_training_quickstart_symbols():
 
 
 def test_readme_composite_estimator_symbol():
-    _assert_importable("mlframe.training.composite_estimator", "CompositeTargetEstimator")
+    _assert_importable("mlframe.training.composite", "CompositeTargetEstimator")
 
 
 def test_readme_calibration_symbols():

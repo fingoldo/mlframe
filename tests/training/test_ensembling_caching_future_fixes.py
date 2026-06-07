@@ -236,7 +236,7 @@ class TestENS_P2_6_NoDuckTyping:
     polars frames."""
 
     def test_non_polars_mock_not_misdetected(self) -> None:
-        from mlframe.training.composite_estimator import _is_polars_df
+        from mlframe.training.composite import _is_polars_df
         from mlframe.training.composite_screening import (
             _is_polars_df as _scr_is,
         )
@@ -263,7 +263,7 @@ class TestENS_P2_6_NoDuckTyping:
 
     def test_real_polars_detected(self) -> None:
         pl = pytest.importorskip("polars")
-        from mlframe.training.composite_estimator import _is_polars_df
+        from mlframe.training.composite import _is_polars_df
         df = pl.DataFrame({"a": [1, 2, 3]})
         assert _is_polars_df(df) is True
 

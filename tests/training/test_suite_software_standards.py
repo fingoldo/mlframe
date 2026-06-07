@@ -149,7 +149,7 @@ def test_normalize_eval_set_single_pair_in_list():
 
 def test_composite_estimator_predict_methods_in_body():
     """predict / predict_quantile are defined on the class body (discoverable to tooling)."""
-    from mlframe.training.composite_estimator import CompositeTargetEstimator
+    from mlframe.training.composite import CompositeTargetEstimator
     assert "predict" in CompositeTargetEstimator.__dict__
     assert "predict_quantile" in CompositeTargetEstimator.__dict__
     assert (CompositeTargetEstimator.predict.__doc__ or "")
@@ -159,7 +159,7 @@ def test_composite_estimator_predict_methods_in_body():
 def test_composite_estimator_clone_refuses_from_fitted_inner():
     from sklearn.linear_model import LinearRegression
     from sklearn.base import clone
-    from mlframe.training.composite_estimator import CompositeTargetEstimator
+    from mlframe.training.composite import CompositeTargetEstimator
 
     inner = LinearRegression()
     inner.fit(np.arange(20).reshape(-1, 1).astype(float), np.arange(20).astype(float))
@@ -215,7 +215,7 @@ _CTE_EXPECTED_FAILED = {
 def test_check_estimator_runs_on_composite_with_pinned_failures():
     from sklearn.utils.estimator_checks import check_estimator
     from sklearn.linear_model import Ridge
-    from mlframe.training.composite_estimator import CompositeTargetEstimator
+    from mlframe.training.composite import CompositeTargetEstimator
 
     est = CompositeTargetEstimator(base_estimator=Ridge(), transform_name="diff", base_column="__base__")
     # Raises only if a NON-pinned check fails -> the generic-protocol checks must pass.
@@ -229,10 +229,10 @@ def test_check_estimator_runs_on_composite_with_pinned_failures():
 def test_top_level_docstring_composite_import_path_truthful():
     import mlframe
     doc = mlframe.__doc__ or ""
-    assert "from mlframe.training.composite_estimator import CompositeTargetEstimator" in doc
+    assert "from mlframe.training.composite import CompositeTargetEstimator" in doc
     assert "from mlframe.training import CompositeTargetEstimator" not in doc
     # And the documented path must actually import.
-    from mlframe.training.composite_estimator import CompositeTargetEstimator  # noqa: F401
+    from mlframe.training.composite import CompositeTargetEstimator  # noqa: F401
 
 
 # ----------------------------------------------------------------------------

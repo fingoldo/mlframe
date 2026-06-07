@@ -47,7 +47,7 @@ from .composite_ensemble import (
     detect_gpu_in_use,
     env_signature,
 )
-from .composite_estimator import CompositeTargetEstimator
+from .composite.estimator import CompositeTargetEstimator
 from .composite_feature_stacking import (
     composite_oof_predictions,
     composite_predictions_as_feature,

@@ -28,7 +28,7 @@ def test_extract_base_matrix_single_select():
     """The multi-column extract must use a single .select(cols).to_numpy() under polars, returning the
     same content as the prior per-column path."""
     pl = pytest.importorskip("polars")
-    from mlframe.training.composite_estimator import _extract_base_matrix
+    from mlframe.training.composite import _extract_base_matrix
 
     df = pl.DataFrame({
         "a": [1.0, 2.0, 3.0],
@@ -43,7 +43,7 @@ def test_extract_base_matrix_single_select():
 
 def test_extract_base_matrix_pandas_branch():
     """Pandas branch uses ``loc[:, cols].to_numpy(dtype=np.float64, copy=False)``."""
-    from mlframe.training.composite_estimator import _extract_base_matrix
+    from mlframe.training.composite import _extract_base_matrix
 
     df = pd.DataFrame({
         "a": [1.0, 2.0, 3.0],
@@ -56,7 +56,7 @@ def test_extract_base_matrix_pandas_branch():
 
 def test_extract_base_matrix_missing_column_raises():
     """Missing column produces a helpful KeyError mentioning the missing column name."""
-    from mlframe.training.composite_estimator import _extract_base_matrix
+    from mlframe.training.composite import _extract_base_matrix
 
     df = pd.DataFrame({"a": [1, 2, 3]})
     with pytest.raises(KeyError, match="b"):
@@ -65,7 +65,7 @@ def test_extract_base_matrix_missing_column_raises():
 
 def test_extract_base_matrix_empty_raises():
     """Empty base_columns is an immediate ValueError (legacy contract preserved)."""
-    from mlframe.training.composite_estimator import _extract_base_matrix
+    from mlframe.training.composite import _extract_base_matrix
 
     df = pd.DataFrame({"a": [1, 2, 3]})
     with pytest.raises(ValueError, match="empty"):

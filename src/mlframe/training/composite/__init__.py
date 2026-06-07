@@ -149,7 +149,7 @@ from .transforms import (  # noqa: E402,F401
 # Re-export CompositeTargetEstimator + helpers from composite_estimator
 # for full back-compat (callers import from this module).
 # ----------------------------------------------------------------------
-from ..composite_estimator import (  # noqa: E402,F401
+from .estimator import (  # noqa: E402,F401
     CompositeTargetEstimator,
     _Y_CLIP_LOW_FRAC,
     _Y_CLIP_HIGH_FRAC,
@@ -158,6 +158,8 @@ from ..composite_estimator import (  # noqa: E402,F401
     _extract_base,
     _extract_groups,
     _extract_base_matrix,
+    _is_polars_df,
+    predict_quantile_ensemble,
 )
 
 

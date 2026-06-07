@@ -342,7 +342,7 @@ class TestBizValStackedDiscovery:
         from sklearn.linear_model import Ridge
 
         from mlframe.training.composite_discovery import CompositeTargetDiscovery
-        from mlframe.training.composite_estimator import CompositeTargetEstimator
+        from mlframe.training.composite import CompositeTargetEstimator
         from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
         rng = np.random.default_rng(456)

@@ -5,7 +5,7 @@ The top-level ``mlframe`` namespace intentionally exports ONLY ``__version__`` a
 ``mlframe.config`` enums; everything else is reached via its subpackage path:
 
     from mlframe.training import train_mlframe_models_suite
-    from mlframe.training.composite_estimator import CompositeTargetEstimator
+    from mlframe.training.composite import CompositeTargetEstimator
     from mlframe.feature_selection import MRMR, RFECV
     from mlframe.metrics.core import expected_calibration_error
     from mlframe.calibration.quality import pick_best_calibrator

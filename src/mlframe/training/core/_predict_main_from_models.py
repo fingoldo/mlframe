@@ -485,7 +485,7 @@ def predict_from_models(
                     # std=residual_std). This branch hands the wrapper the RAW
                     # frame; the inner non-composite estimators stay on the
                     # post-pipeline path.
-                    from .._composite_target_estimator import CompositeTargetEstimator as _CTE_cls
+                    from ..composite import CompositeTargetEstimator as _CTE_cls
                     _primary_for_model = df_pre_pipeline if isinstance(model, _CTE_cls) else input_for_model
                     if return_probabilities and hasattr(model, "predict_proba"):
                         probs = _try_predict(model.predict_proba, _primary_for_model, df_pre_pipeline)

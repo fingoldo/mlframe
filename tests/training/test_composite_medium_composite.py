@@ -34,7 +34,7 @@ import numpy as np
 import pytest
 from sklearn.exceptions import NotFittedError
 
-from mlframe.training import composite_estimator as _ce
+from mlframe.training.composite import estimator as _ce
 from mlframe.training import composite_cache as _cc
 from mlframe.training import composite_ensemble as _cen
 from mlframe.training import composite_discovery as _cd
