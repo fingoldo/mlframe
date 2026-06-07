@@ -94,3 +94,37 @@ def test_fast_scorer_falls_back_on_constant_target_regressor():
     # Whatever estimator.score returns on a constant target, the scorer must echo it exactly
     # and NOT a bogus closed-form value.
     assert val == model.score(X, y)
+
+
+# ---------------------------------------------------------------------------
+# P2 (2026-06-08): per-call copy elision via writeable-flag detection.
+# ---------------------------------------------------------------------------
+
+def test_p2_copy_elision_does_not_corrupt_inplace_shuffle():
+    """After the writeable-flag self-check latches ``need_copy=False`` for a non-flag-flipping estimator,
+    permutation_importance still produces identical importances. sklearn's permutation loop reuses one
+    ``X_permuted`` buffer and shuffles a column in place each repeat; reading that buffer directly (no
+    per-call copy) must NOT corrupt the shuffle or the score."""
+    rng = np.random.RandomState(2)
+    X = rng.randn(400, 10).copy()  # writeable, contiguous (the X_estimator-mirror shape)
+    y = (X[:, 0] - X[:, 3] > 0).astype(int)
+    model = LogisticRegression(max_iter=400).fit(X, y)
+
+    pi_legacy = _perm(model, X, y, _legacy_scorer)
+    pi_fast = _perm(model, X, y, _make_fast_default_scorer(model))
+    assert np.array_equal(pi_legacy, pi_fast)
+
+
+def test_p2_keeps_copy_for_writeable_flag_flipping_estimator():
+    """An estimator whose ``predict`` flips the input ndarray's writeable flag to False (CatBoost) must
+    keep the defensive copy: otherwise sklearn's next in-place column shuffle on its reused buffer raises
+    'assignment destination is read-only'. The run must complete AND match the legacy scorer exactly."""
+    cb = pytest.importorskip("catboost")
+    rng = np.random.RandomState(3)
+    X = rng.randn(400, 8).copy()
+    y = (X[:, 1] > 0).astype(int)
+    model = cb.CatBoostClassifier(iterations=40, depth=3, verbose=0, allow_writing_files=False).fit(X, y)
+
+    pi_legacy = _perm(model, X, y, _legacy_scorer)
+    pi_fast = _perm(model, X, y, _make_fast_default_scorer(model))
+    assert np.array_equal(pi_legacy, pi_fast)

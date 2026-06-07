@@ -45,16 +45,25 @@ def _make_fast_default_scorer(model: object) -> Callable:
       - the closed-form value does not bit-match ``estimator.score()`` on the baseline,
       - any exception in the fast path.
 
-    The defensive ``copy`` of the (test-fold-sized) X is preserved EXACTLY as before so the CatBoost
-    writeable-flag-flip / read-only-buffer safety is untouched.
+    perf P2 (2026-06-08): the per-call defensive ``np.array(_X, copy=True)`` is only required for
+    estimators whose ``predict`` flips the input ndarray's writeable flag to False (CatBoost), which would
+    make sklearn's NEXT in-place column shuffle of its reused ``X_permuted`` buffer raise
+    "assignment destination is read-only". For every estimator that does NOT flip the flag (sklearn
+    linear / tree / ensemble, LightGBM, XGBoost, ...) the copy is pure waste -- it was ~36k array copies on
+    the scene bench. We detect the flip on the baseline call: predict on a copy, then inspect that copy's
+    writeable flag. If still writeable the estimator is flag-safe and we latch ``need_copy=False`` (read
+    sklearn's ``X_permuted`` directly); if flipped (or the buffer was already read-only) we keep the copy.
+    Either way the values fed to ``predict`` are identical, so the score -- and the selected set -- is
+    bit-identical.
     """
     from sklearn.base import is_classifier, is_regressor
 
     _is_clf = bool(is_classifier(model))
     _is_reg = bool(is_regressor(model))
 
-    # state[0]: -1 = not yet decided (baseline pending); 0 = safe (estimator.score); 1 = fast closed-form.
-    state = {"mode": -1}
+    # mode:      -1 = baseline pending; 0 = safe (estimator.score); 1 = fast closed-form.
+    # need_copy: True = defensive copy each call (writeable-flip / read-only buffer); False = read _X directly.
+    state = {"mode": -1, "need_copy": True}
 
     def _fast_value(_est, _Xc, _y):
         """Closed-form default score; returns None if the case isn't supported (-> fall back)."""
@@ -80,14 +89,28 @@ def _make_fast_default_scorer(model: object) -> Callable:
         return 1.0 - ss_res / ss_tot
 
     def _scorer(_est, _X, _y):
-        _Xc = np.array(_X, copy=True) if isinstance(_X, np.ndarray) else _X
         mode = state["mode"]
-        if mode == 1:
-            return _fast_value(_est, _Xc, _y)
-        if mode == 0:
-            return _est.score(_Xc, _y)
-        # Undecided: this is the baseline (unpermuted) call. Self-check fast vs estimator.score.
+        if mode != -1:
+            # Latched. Copy only if the estimator was found to flip the writeable flag (or non-ndarray X).
+            if state["need_copy"] and isinstance(_X, np.ndarray):
+                _Xc = np.array(_X, copy=True)
+            else:
+                _Xc = _X
+            return _fast_value(_est, _Xc, _y) if mode == 1 else _est.score(_Xc, _y)
+
+        # Undecided: this is the baseline (unpermuted) call. Always copy HERE so the probe can't corrupt
+        # sklearn's reused ``X_permuted`` buffer; then decide whether subsequent calls may skip the copy.
+        _Xc = np.array(_X, copy=True) if isinstance(_X, np.ndarray) else _X
         safe_val = _est.score(_Xc, _y)
+
+        # need_copy decision: if predicting through ``_est.score`` left our private copy still writeable,
+        # the estimator does not flip the flag -> subsequent calls can read sklearn's buffer directly.
+        # A non-ndarray X (pandas/polars) keeps the historical pass-through (no copy was made anyway).
+        if isinstance(_X, np.ndarray):
+            state["need_copy"] = not bool(getattr(_Xc.flags, "writeable", True))
+        else:
+            state["need_copy"] = False
+
         if not (_is_clf or _is_reg):
             state["mode"] = 0
             return safe_val
