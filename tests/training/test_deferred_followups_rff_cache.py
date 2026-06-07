@@ -141,7 +141,7 @@ def test_phase_recurrent_todo_replaced_with_closure_note() -> None:
 
 
 def test_per_cluster_composite_marked_rejected() -> None:
-    src = _read("training/composite_discovery.py")
+    src = _read("training/composite/discovery/__init__.py")
     # The "TODO(per-cluster composite, follow-up):" marker is gone.
     assert "TODO(per-cluster composite, follow-up)" not in src
     # Replaced with explicit user-decision REJECT.
@@ -243,7 +243,7 @@ def test_no_remaining_open_todo_markers_in_closed_files() -> None:
     closed_phrases = [
         # The literal text fragments that EACH closed-out TODO used:
         ("training/core/_phase_recurrent.py", "(currently locked) does not re-run"),
-        ("training/composite_discovery.py", "TODO(per-cluster composite, follow-up)"),
+        ("training/composite/discovery/__init__.py", "TODO(per-cluster composite, follow-up)"),
         # ``_compute_target_encoding`` was moved to the sibling when
         # ``cat_interactions.py`` was split below 1k LOC; check the
         # sibling where the TODO would actually surface if it crept back.

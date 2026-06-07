@@ -56,7 +56,7 @@ def test_mps_nan_to_num_does_not_write_back_into_view() -> None:
 
 def test_extract_column_array_documents_read_only_contract() -> None:
     """composite_screening._extract_column_array must document its zero-copy contract."""
-    src = _read("training/composite_screening.py")
+    src = _read("training/composite/discovery/screening.py")
     # The docstring must warn about read-only contract.
     assert "read-only" in src.lower(), (
         "training/composite_screening.py: _extract_column_array returns a zero-copy view "
