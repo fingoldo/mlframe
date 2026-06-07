@@ -24,6 +24,24 @@ logger = logging.getLogger(__name__)
 _PERM_AUTO_CELL_CAP = 4_000_000
 
 
+def _fold_is_all_finite(arr) -> bool:
+    """True iff every element of ``arr`` is finite (no NaN / inf). Used by P3 to decide whether the
+    permutation-FI call may run under ``assume_finite=True``. One O(n*p) scan replaces the per-scorer-call
+    rescans sklearn would otherwise do. Returns False (conservative -> keep sklearn validation) for any
+    array it can't cheaply check as a numeric ndarray (object/categorical/non-array)."""
+    if arr is None:
+        return False
+    try:
+        a = arr.to_numpy(copy=False) if hasattr(arr, "to_numpy") else np.asarray(arr)
+    except Exception:
+        return False
+    if a.dtype.kind in ("f", "c"):
+        return bool(np.isfinite(a).all())
+    if a.dtype.kind in ("i", "u", "b"):
+        return True  # integer / bool arrays are always finite
+    return False  # object / string / datetime: don't assume; let sklearn validate
+
+
 def _make_fast_default_scorer(model: object) -> Callable:
     """Build a permutation-FI scorer that reproduces ``estimator.score()`` bit-identically but
     skips its redundant per-call target-type validation.
@@ -352,13 +370,34 @@ def get_feature_importances(
             # that fold, so the selected set stays bit-identical. The defensive ``copy`` is unchanged (keeps the
             # CatBoost / read-only-buffer safety exactly).
             scorer = _make_fast_default_scorer(model)
-            pi = permutation_importance(
-                model, data, target,
-                scoring=scorer,
-                n_repeats=n_repeats,
-                random_state=random_state,
-                n_jobs=1,
-            )
+            # perf P3 (2026-06-08): the estimator's ``predict`` re-validates the permuted X on every one of
+            # the p*n_repeats scorer calls -- ``check_array`` -> ``_assert_all_finite`` rescans the whole
+            # (test-fold-sized) array for NaN/inf each time even though permutation only RESHUFFLES already-
+            # validated finite values within a column. sklearn's own ``assume_finite=True`` config skips that
+            # rescan WITHOUT touching any numeric result. We enable it ONLY after verifying the fold's
+            # (data, target) are actually all-finite ONCE up front: if they are, skipping the per-call
+            # re-checks is bit-identical (the check would have passed every time); if they are NOT (NaN in X,
+            # which LightGBM/tree models accept), we keep the default context so sklearn validates / raises
+            # exactly as before. Bit-identity verified (np.array_equal, max|diff| 0.0).
+            _assume_finite = _fold_is_all_finite(data) and _fold_is_all_finite(target)
+            if _assume_finite:
+                import sklearn as _sklearn
+                with _sklearn.config_context(assume_finite=True):
+                    pi = permutation_importance(
+                        model, data, target,
+                        scoring=scorer,
+                        n_repeats=n_repeats,
+                        random_state=random_state,
+                        n_jobs=1,
+                    )
+            else:
+                pi = permutation_importance(
+                    model, data, target,
+                    scoring=scorer,
+                    n_repeats=n_repeats,
+                    random_state=random_state,
+                    n_jobs=1,
+                )
             res = pi.importances_mean
         elif importance_getter == "conditional_permutation":
             if target is None:

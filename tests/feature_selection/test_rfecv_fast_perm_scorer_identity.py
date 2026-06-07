@@ -128,3 +128,41 @@ def test_p2_keeps_copy_for_writeable_flag_flipping_estimator():
     pi_legacy = _perm(model, X, y, _legacy_scorer)
     pi_fast = _perm(model, X, y, _make_fast_default_scorer(model))
     assert np.array_equal(pi_legacy, pi_fast)
+
+
+# ---------------------------------------------------------------------------
+# P3 (2026-06-08): assume_finite=True around permutation_importance, gated on a
+# one-time finite check of the fold so the per-call _assert_all_finite rescans
+# are skipped bit-identically.
+# ---------------------------------------------------------------------------
+
+def test_p3_assume_finite_path_is_bit_identical():
+    """``get_feature_importances('permutation')`` runs under ``assume_finite=True`` when the fold is all
+    finite. The resulting importances must equal a default-context permutation_importance with the SAME
+    fast scorer EXACTLY (assume_finite only skips a validation that would have passed)."""
+    from mlframe.feature_selection.wrappers._helpers_importance import get_feature_importances
+
+    rng = np.random.RandomState(1)
+    X = rng.randn(600, 20).copy()
+    y = (X[:, 0] + X[:, 1] > 0).astype(int)
+    model = LogisticRegression(max_iter=400).fit(X, y)
+
+    ref = _perm(model, X, y, _make_fast_default_scorer(model), seed=11)  # default context
+    fi = get_feature_importances(model, list(range(20)), "permutation", data=X, target=y,
+                                 n_repeats=5, random_state=11)
+    got = np.array([fi[i] for i in range(20)])
+    assert np.array_equal(ref, got)
+
+
+def test_p3_finite_gate_off_on_nan_feature():
+    """A NaN in X must turn the finite gate OFF so sklearn's per-call validation stays in force (the
+    permutation path must not silently run under assume_finite when the data isn't finite)."""
+    from mlframe.feature_selection.wrappers._helpers_importance import _fold_is_all_finite
+
+    X = np.random.RandomState(2).randn(300, 10).copy()
+    assert _fold_is_all_finite(X) is True
+    X[5, 2] = np.nan
+    assert _fold_is_all_finite(X) is False
+    # integer arrays are always finite; object arrays conservatively False.
+    assert _fold_is_all_finite(np.arange(20)) is True
+    assert _fold_is_all_finite(np.array(["a", "b"], dtype=object)) is False
