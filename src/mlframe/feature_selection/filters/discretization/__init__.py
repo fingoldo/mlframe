@@ -513,6 +513,13 @@ def _quantile_edges_2d_njit(arr2d: np.ndarray, quantiles: np.ndarray, edges_out:
                     edges_out[qi, j] = a + diff_b_a * t
 
 
+# bench-attempt-rejected (2026-06-07): ``fastmath=True`` on the searchsorted kernels (Q6).
+# UNSAFE: fastmath asserts no-NaN, which silently breaks the load-bearing NaN -> rightmost-bin
+# contract. Verified directly -- on a 5%-NaN buffer the plain kernel assigns NaN code 9 (rightmost,
+# correct) while the fastmath kernel assigns code 0, which would re-bin NaN columns and DRIFT the
+# selection. The speedup is also negligible (1.802ms -> 1.777ms, ~1%, the loop is integer-compare
+# bound -- no float-reassociation to win). NOT applied. (Integer/count kernels gain nothing from
+# fastmath since it is a float-only flag; the MI log-sum/div kernels are excluded by the user.)
 @njit(nogil=True, cache=True)
 def _searchsorted_2d_right_njit(edges_inner: np.ndarray, arr2d: np.ndarray, out: np.ndarray) -> None:
     """Per-column ``np.searchsorted(edges_inner[:, j], arr2d[:, j], side='right')`` in ONE

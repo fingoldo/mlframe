@@ -2097,6 +2097,15 @@ def check_prospective_fe_pairs(
                                 # the numpy ``for ext: for bin_func`` order, so the discretise +
                                 # MI + max reduction below is unchanged. ``param_a`` may be a
                                 # float32 buffer slice; the kernel upcasts per-element to float64.
+                                # bench-attempt-rejected (2026-06-07): "drop the _ev_pb_mat repack"
+                                # (Q7). The external-factor columns are DISTINCT memoised arrays
+                                # (_extval_raw_col per var) so they genuinely must be assembled into
+                                # a 2-D matrix for the njit kernel; there is no view to substitute.
+                                # This per-column-assign loop is already the fastest assembly
+                                # (n_ext=50/150/300: 0.68/1.39/3.13ms vs np.column_stack
+                                # 0.96/2.10/3.98ms) and is a tiny fraction of the per-call kernel +
+                                # discretise + MI cost (never appears in the scene sampler top-30).
+                                # No actionable speedup; kept as-is.
                                 _ev_pb_mat = np.empty((len(X), len(_ev_param_bs)), dtype=np.float64)
                                 for _ei, _pb_vals in enumerate(_ev_param_bs):
                                     _ev_pb_mat[:, _ei] = _pb_vals
