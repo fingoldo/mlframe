@@ -198,8 +198,15 @@ def run_polynom_pair_fe(
         X_ndarr = X.values if hasattr(X, "values") else np.asarray(X)
 
     def _eval_one_pair_impl(raw_vars_pair, X_arr, y_arr):
-        vals_a_full = X_arr[:, raw_vars_pair[0]]
-        vals_b_full = X_arr[:, raw_vars_pair[1]]
+        # X_arr is X.to_numpy()/.values; a frame with ANY string column makes the WHOLE array object dtype, so even a
+        # numeric operand extracts as an object slice that the Hermite basis (np.isfinite / z-score / minmax) rejects.
+        # The pair already passed the numeric-position guard above, so coerce to float64; a genuinely non-numeric operand
+        # that slipped the guard raises here and the pair is skipped (no polynomial FE for it).
+        try:
+            vals_a_full = np.ascontiguousarray(X_arr[:, raw_vars_pair[0]], dtype=np.float64)
+            vals_b_full = np.ascontiguousarray(X_arr[:, raw_vars_pair[1]], dtype=np.float64)
+        except (ValueError, TypeError):
+            return None
         if np.std(vals_a_full) < 1e-12 or np.std(vals_b_full) < 1e-12:
             return None
         # 2026-05-18 subsample for CMA-ES inner search. Final transform on
