@@ -272,6 +272,7 @@ dev = [
 
 [project.scripts]
 mlframe-tune-kernels = "mlframe.system.kernel_tuning_cache:main"
+mlframe-gen-default-tuning = "mlframe.feature_selection._benchmarks.gen_default_tuning:main"
 
 [project.urls]
 Homepage = "https://github.com/fingoldo/mlframe"
@@ -290,6 +291,9 @@ exclude = ["tests*", "legacy*", "benchmarks*", "profiling*", "docs*", "scripts*"
 # Static data files shipped with the wheel (if any).
 [tool.setuptools.package-data]
 mlframe = ["py.typed"]
+# The anonymized default kernel-tuning JSON is consulted at runtime by
+# filters._kernel_tuning (register_default_cache), so it MUST ship in the wheel.
+"mlframe.feature_selection._benchmarks" = ["default_kernel_tuning.json"]
 
 # ---------------------------------------------------------------------------
 # Pytest

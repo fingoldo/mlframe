@@ -1,0 +1,525 @@
+{
+  "generated_utc": "2026-06-07T07:56:02+00:00",
+  "hosts": 1,
+  "kernels": {
+    "batch_mi_noise_gate": {
+      "axes": [
+        "n_rows",
+        "n_cols"
+      ],
+      "code_version": "87536a667b9a087536671b4669bd1201471138195a3f17320d418aec97d6484d",
+      "regions": [
+        {
+          "backend_choice": "cpu",
+          "device": "cpu",
+          "max_abs_diff": 0.0,
+          "n_cols_max": 64,
+          "n_rows_max": 700
+        },
+        {
+          "backend_choice": "cpu",
+          "device": "cpu",
+          "max_abs_diff": 0.0,
+          "n_cols_max": 256,
+          "n_rows_max": 700
+        },
+        {
+          "backend_choice": "cpu",
+          "device": "cpu",
+          "max_abs_diff": 0.0,
+          "n_cols_max": 1024,
+          "n_rows_max": 700
+        },
+        {
+          "backend_choice": "cpu",
+          "device": "cpu",
+          "max_abs_diff": 0.0,
+          "n_cols_max": 4096,
+          "n_rows_max": 700
+        },
+        {
+          "backend_choice": "cpu",
+          "device": "cpu",
+          "max_abs_diff": 0.0,
+          "n_cols_max": 64,
+          "n_rows_max": 2407
+        },
+        {
+          "backend_choice": "cupy",
+          "device": "gpu",
+          "max_abs_diff": 0.0,
+          "n_cols_max": 256,
+          "n_rows_max": 2407
+        },
+        {
+          "backend_choice": "cupy",
+          "device": "gpu",
+          "max_abs_diff": 0.0,
+          "n_cols_max": 1024,
+          "n_rows_max": 2407
+        },
+        {
+          "backend_choice": "cuda",
+          "device": "gpu",
+          "max_abs_diff": 0.0,
+          "n_cols_max": 4096,
+          "n_rows_max": 2407
+        },
+        {
+          "backend_choice": "cupy",
+          "device": "gpu",
+          "max_abs_diff": 0.0,
+          "n_cols_max": 64,
+          "n_rows_max": 10000
+        },
+        {
+          "backend_choice": "cupy",
+          "device": "gpu",
+          "max_abs_diff": 0.0,
+          "n_cols_max": 256,
+          "n_rows_max": 10000
+        },
+        {
+          "backend_choice": "cuda",
+          "device": "gpu",
+          "max_abs_diff": 0.0,
+          "n_cols_max": 1024,
+          "n_rows_max": 10000
+        },
+        {
+          "backend_choice": "cuda",
+          "device": "gpu",
+          "max_abs_diff": 0.0,
+          "n_cols_max": 4096,
+          "n_rows_max": 10000
+        },
+        {
+          "backend_choice": "cuda",
+          "device": "gpu",
+          "n_cols_max": null,
+          "n_rows_max": null
+        }
+      ],
+      "salt": 1
+    },
+    "batch_pair_mi": {
+      "axes": [
+        "n_samples",
+        "n_pairs"
+      ],
+      "code_version": "afd640b42e96d5d154d26755fc3e3351f3374a752e15e6e34605fd2c953c6feb",
+      "regions": [
+        {
+          "backend_choice": "njit_parallel",
+          "device": "cpu",
+          "max_abs_diff": 0.0,
+          "n_pairs_max": 16,
+          "n_samples_max": 200000
+        },
+        {
+          "backend_choice": "cuda",
+          "device": "gpu",
+          "max_abs_diff": 8.673617379884035e-19,
+          "n_pairs_max": 64,
+          "n_samples_max": 200000
+        },
+        {
+          "backend_choice": "cuda",
+          "device": "gpu",
+          "max_abs_diff": 7.589415207398531e-19,
+          "n_pairs_max": 256,
+          "n_samples_max": 200000
+        },
+        {
+          "backend_choice": "cuda",
+          "device": "gpu",
+          "max_abs_diff": 3.5236570605778894e-19,
+          "n_pairs_max": 16,
+          "n_samples_max": 500000
+        },
+        {
+          "backend_choice": "cuda",
+          "device": "gpu",
+          "max_abs_diff": 3.2526065174565133e-19,
+          "n_pairs_max": 64,
+          "n_samples_max": 500000
+        },
+        {
+          "backend_choice": "cuda",
+          "device": "gpu",
+          "max_abs_diff": 4.0657581468206416e-19,
+          "n_pairs_max": 256,
+          "n_samples_max": 500000
+        },
+        {
+          "backend_choice": "cuda",
+          "device": "gpu",
+          "max_abs_diff": 1.6263032587282567e-19,
+          "n_pairs_max": 16,
+          "n_samples_max": 1000000
+        },
+        {
+          "backend_choice": "cuda",
+          "device": "gpu",
+          "max_abs_diff": 1.8973538018496328e-19,
+          "n_pairs_max": 64,
+          "n_samples_max": 1000000
+        },
+        {
+          "backend_choice": "cuda",
+          "device": "gpu",
+          "max_abs_diff": 2.168404344971009e-19,
+          "n_pairs_max": 256,
+          "n_samples_max": 1000000
+        },
+        {
+          "backend_choice": "cuda",
+          "device": "gpu",
+          "max_abs_diff": 1.1519648082658485e-19,
+          "n_pairs_max": 16,
+          "n_samples_max": 2000000
+        },
+        {
+          "backend_choice": "cuda",
+          "device": "gpu",
+          "max_abs_diff": 1.0842021724855044e-19,
+          "n_pairs_max": 64,
+          "n_samples_max": 2000000
+        },
+        {
+          "backend_choice": "cuda",
+          "device": "gpu",
+          "max_abs_diff": 1.7618285302889447e-19,
+          "n_pairs_max": 256,
+          "n_samples_max": 2000000
+        },
+        {
+          "backend_choice": "cuda",
+          "device": "gpu",
+          "max_abs_diff": 5.759824041329242e-20,
+          "n_pairs_max": 16,
+          "n_samples_max": 5000000
+        },
+        {
+          "backend_choice": "cuda",
+          "device": "gpu",
+          "max_abs_diff": 7.792703114739563e-20,
+          "n_pairs_max": 64,
+          "n_samples_max": 5000000
+        },
+        {
+          "backend_choice": "cuda",
+          "device": "gpu",
+          "max_abs_diff": 8.131516293641283e-20,
+          "n_pairs_max": 256,
+          "n_samples_max": 5000000
+        },
+        {
+          "backend_choice": "cuda",
+          "device": "gpu",
+          "n_pairs_max": null,
+          "n_samples_max": null
+        }
+      ],
+      "salt": 2
+    },
+    "batch_rmse": {
+      "axes": [
+        "n_samples",
+        "n_targets"
+      ],
+      "code_version": "bf5a8c513df5fddc86425749d22653a8796e6536ef0e2d739fe2bd2ea0fb6b18",
+      "regions": [
+        {
+          "backend_choice": "cpu",
+          "device": "cpu",
+          "max_abs_diff": 0.0,
+          "n_samples_max": 10000,
+          "n_targets_max": 1
+        },
+        {
+          "backend_choice": "cpu",
+          "device": "cpu",
+          "max_abs_diff": 0.0,
+          "n_samples_max": 10000,
+          "n_targets_max": 5
+        },
+        {
+          "backend_choice": "gpu",
+          "device": "gpu",
+          "max_abs_diff": 1.887379141862766e-15,
+          "n_samples_max": 10000,
+          "n_targets_max": 20
+        },
+        {
+          "backend_choice": "gpu",
+          "device": "gpu",
+          "max_abs_diff": 2.3314683517128287e-15,
+          "n_samples_max": 10000,
+          "n_targets_max": 100
+        },
+        {
+          "backend_choice": "cpu",
+          "device": "cpu",
+          "max_abs_diff": 0.0,
+          "n_samples_max": 50000,
+          "n_targets_max": 1
+        },
+        {
+          "backend_choice": "gpu",
+          "device": "gpu",
+          "max_abs_diff": 2.220446049250313e-15,
+          "n_samples_max": 50000,
+          "n_targets_max": 5
+        },
+        {
+          "backend_choice": "gpu",
+          "device": "gpu",
+          "max_abs_diff": 3.552713678800501e-15,
+          "n_samples_max": 50000,
+          "n_targets_max": 20
+        },
+        {
+          "backend_choice": "gpu",
+          "device": "gpu",
+          "max_abs_diff": 3.774758283725532e-15,
+          "n_samples_max": 50000,
+          "n_targets_max": 100
+        },
+        {
+          "backend_choice": "cpu",
+          "device": "cpu",
+          "max_abs_diff": 0.0,
+          "n_samples_max": 200000,
+          "n_targets_max": 1
+        },
+        {
+          "backend_choice": "gpu",
+          "device": "gpu",
+          "max_abs_diff": 6.106226635438361e-15,
+          "n_samples_max": 200000,
+          "n_targets_max": 5
+        },
+        {
+          "backend_choice": "gpu",
+          "device": "gpu",
+          "max_abs_diff": 5.773159728050814e-15,
+          "n_samples_max": 200000,
+          "n_targets_max": 20
+        },
+        {
+          "backend_choice": "gpu",
+          "device": "gpu",
+          "max_abs_diff": 9.880984919163893e-15,
+          "n_samples_max": 200000,
+          "n_targets_max": 100
+        },
+        {
+          "backend_choice": "gpu",
+          "device": "gpu",
+          "max_abs_diff": 0.0,
+          "n_samples_max": 1000000,
+          "n_targets_max": 1
+        },
+        {
+          "backend_choice": "gpu",
+          "device": "gpu",
+          "max_abs_diff": 1.2101430968414206e-14,
+          "n_samples_max": 1000000,
+          "n_targets_max": 5
+        },
+        {
+          "backend_choice": "gpu",
+          "device": "gpu",
+          "max_abs_diff": 1.2101430968414206e-14,
+          "n_samples_max": 1000000,
+          "n_targets_max": 20
+        },
+        {
+          "backend_choice": "gpu",
+          "device": "gpu",
+          "max_abs_diff": 2.220446049250313e-14,
+          "n_samples_max": 1000000,
+          "n_targets_max": 100
+        },
+        {
+          "backend_choice": "gpu",
+          "device": "gpu",
+          "n_samples_max": null,
+          "n_targets_max": null
+        }
+      ],
+      "salt": 1
+    },
+    "cat_fe_perm_kernel": {
+      "axes": [
+        "n_samples",
+        "n_perms"
+      ],
+      "code_version": "d9713d17869f0f025a8b2d05f900afa7ce530e11c260eaf2cce028ada0d06ef8",
+      "regions": [
+        {
+          "backend_choice": "cpu",
+          "device": "cpu",
+          "max_abs_diff": 0.0,
+          "n_perms": 50,
+          "n_samples_max": null
+        }
+      ],
+      "salt": 2
+    },
+    "discretize_2d_array": {
+      "axes": [
+        "n_cells"
+      ],
+      "code_version": "022b71c531d459c8ec619a835eba2fd10ea85fa84025771102a678f0efe729ce",
+      "regions": [
+        {
+          "backend_choice": "cuda",
+          "device": "gpu",
+          "max_abs_diff": 0.0,
+          "n_cells_max": 50000
+        },
+        {
+          "backend_choice": "cuda",
+          "device": "gpu",
+          "max_abs_diff": 0.0,
+          "n_cells_max": 200000
+        },
+        {
+          "backend_choice": "cuda",
+          "device": "gpu",
+          "max_abs_diff": 0.0,
+          "n_cells_max": 500000
+        },
+        {
+          "backend_choice": "cuda",
+          "device": "gpu",
+          "max_abs_diff": 0.0,
+          "n_cells_max": 2000000
+        },
+        {
+          "backend_choice": "cuda",
+          "device": "gpu",
+          "max_abs_diff": 0.0,
+          "n_cells_max": 8000000
+        },
+        {
+          "backend_choice": "cuda",
+          "device": "gpu",
+          "n_cells_max": null
+        }
+      ],
+      "salt": 1
+    },
+    "dtw_dispatch": {
+      "axes": [
+        "n_cells"
+      ],
+      "code_version": "35972b9c215f780f8a258dfd4b9378ee08d3d867de3dd7b2542aa1c9bdb368e6",
+      "regions": [
+        {
+          "backend_choice": "cupy",
+          "device": "gpu",
+          "max_abs_diff": 1.7763632627065817e-06,
+          "n_cells_max": null
+        }
+      ],
+      "salt": 1
+    },
+    "unary_elementwise": {
+      "axes": [
+        "n_samples",
+        "location"
+      ],
+      "code_version": "10fe4779dc596c35543138053fb627743a96478c729532e04e7e431baeb0f6dd",
+      "regions": [
+        {
+          "backend_choice": "numpy",
+          "device": "cpu",
+          "location_eq": "host",
+          "max_abs_diff": 0.0,
+          "n_samples_max": 50000
+        },
+        {
+          "backend_choice": "numpy",
+          "device": "cpu",
+          "location_eq": "device",
+          "max_abs_diff": 0.0,
+          "n_samples_max": 50000
+        },
+        {
+          "backend_choice": "numpy",
+          "device": "cpu",
+          "location_eq": "host",
+          "max_abs_diff": 0.0,
+          "n_samples_max": 200000
+        },
+        {
+          "backend_choice": "numpy",
+          "device": "cpu",
+          "location_eq": "device",
+          "max_abs_diff": 0.0,
+          "n_samples_max": 200000
+        },
+        {
+          "backend_choice": "numpy",
+          "device": "cpu",
+          "location_eq": "host",
+          "max_abs_diff": 0.0,
+          "n_samples_max": 800000
+        },
+        {
+          "backend_choice": "cupy",
+          "device": "gpu",
+          "location_eq": "device",
+          "max_abs_diff": 5.960464477539063e-08,
+          "n_samples_max": 800000
+        },
+        {
+          "backend_choice": "numpy",
+          "device": "cpu",
+          "location_eq": "host",
+          "max_abs_diff": 0.0,
+          "n_samples_max": 3200000
+        },
+        {
+          "backend_choice": "cupy",
+          "device": "gpu",
+          "location_eq": "device",
+          "max_abs_diff": 5.960464477539063e-08,
+          "n_samples_max": 3200000
+        },
+        {
+          "backend_choice": "numpy",
+          "device": "cpu",
+          "location_eq": "host",
+          "max_abs_diff": 0.0,
+          "n_samples_max": 12800000
+        },
+        {
+          "backend_choice": "cupy",
+          "device": "gpu",
+          "location_eq": "device",
+          "max_abs_diff": 5.960464477539063e-08,
+          "n_samples_max": 12800000
+        },
+        {
+          "backend_choice": "numpy",
+          "device": "cpu",
+          "location_eq": "host",
+          "n_samples_max": null
+        },
+        {
+          "backend_choice": "cupy",
+          "device": "gpu",
+          "location_eq": "device",
+          "n_samples_max": null
+        }
+      ],
+      "salt": 3
+    }
+  },
+  "package": "mlframe",
+  "schema_version": 3
+}

@@ -129,3 +129,40 @@ repos:
         pass_filenames: false
         always_run: false
         stages: [manual]
+
+  # Keep the committed anonymized default kernel-tuning JSON in sync. On commit
+  # this runs --check ONLY (skip_existing): it reads every kernel's live
+  # code_version + the committed file and FAILS the commit if they drifted
+  # (kernel edited / added / removed but defaults not regenerated). It never
+  # sweeps (PYUTILZ_KERNEL_DISABLE_SWEEP=1 in the wrapper) so the commit is fast.
+  #
+  # On drift:
+  #   * Regenerate (may sweep newly-changed kernels): mlframe-gen-default-tuning
+  #     then `git add src/mlframe/feature_selection/_benchmarks/default_kernel_tuning.json`
+  #   * Or skip this commit's hooks: git commit --no-verify
+  #
+  # Runs only when Python under src/mlframe changes (a code_version can only move
+  # if kernel source moved); pure-doc / test commits don't pay the import cost.
+  - repo: local
+    hooks:
+      - id: gen-default-tuning-check
+        name: "default kernel-tuning JSON in sync (--check, no sweep)"
+        entry: python scripts/check_default_tuning.py
+        language: system
+        files: '^src/mlframe/.*\.py$'
+        pass_filenames: false
+        always_run: false
+        stages: [pre-commit]
+
+      # MANUAL fast stage: actually (re)generate the defaults. Use after a kernel
+      # edit moved a code_version:  pre-commit run --hook-stage manual gen-default-tuning
+      # (equivalent to running ``mlframe-gen-default-tuning`` directly). This MAY
+      # run a synchronous sweep for any kernel whose code_version changed, so it
+      # is manual-only — never on the commit path.
+      - id: gen-default-tuning
+        name: "regenerate default kernel-tuning JSON (manual; may sweep)"
+        entry: mlframe-gen-default-tuning
+        language: system
+        pass_filenames: false
+        always_run: false
+        stages: [manual]
