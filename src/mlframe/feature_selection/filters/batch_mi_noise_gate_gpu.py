@@ -464,6 +464,15 @@ def batch_mi_with_noise_gate_cupy(
         # ``d_flat`` is non-negative by construction (offsets + non-negative codes).
         tile_counts = _cupy_bincount_known_size(d_flat, rows * total_size)
         # ONE D2H for the whole tile.
+        # bench-attempt-rejected (2026-06-07): NARROW this D2H int64 -> int32 (the counts are
+        # bounded by n << 2^31 so a cast is byte-identical) to halve the transferred bytes (Q2b).
+        # Net LOSS: the on-device ``astype(int32)`` kernel launch + sync costs MORE than the saved
+        # bytes on the scene tile shapes (0.42-0.99x; only the largest 1200col x 4perm tile wins
+        # 1.43x). Crucially the ~16% "asnumpy" the scene sampler attributes here is NOT the
+        # transfer -- it is the main thread BLOCKED in asnumpy's implicit sync waiting on the
+        # preceding async index-build + bincount GPU kernels (the real, irreducible cost on the
+        # PCIe-bound 1050 Ti). Narrowing the transfer cannot shrink GPU compute, and the cast
+        # adds more of it. (proto profiling/bench_cupy_d2h_narrow.py)
         counts_all[start:stop, :] = cp.asnumpy(tile_counts).reshape(rows, total_size)
         del d_y_tile, d_idx, d_row_off, d_flat, tile_counts
         start = stop
