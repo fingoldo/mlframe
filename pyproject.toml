@@ -213,9 +213,12 @@ stats = [
     "statsmodels>=0.14",
 ]
 
-# GPU acceleration (CuPy). Install matches your CUDA toolkit via pip extras at install time.
+# GPU acceleration (CuPy on CUDA 12.x). Uses the prebuilt cuda12x wheel + [ctk] (bundled NVRTC/ptxas/nvvm/headers)
+# so `pip install mlframe[gpu]` gives a working runtime-compile GPU stack with no system CUDA toolkit needed;
+# nvidia-cuda-nvcc-cu12 adds ptxas/nvvm/libdevice for numba.cuda. CUDA-11 / non-NVIDIA users stay on CPU (extra is opt-in).
 gpu = [
-    "cupy>=12.0",
+    "cupy-cuda12x[ctk]>=14.0,<15.0",
+    "nvidia-cuda-nvcc-cu12>=12.9",
     "gpu-info>=0.1",
 ]
 
