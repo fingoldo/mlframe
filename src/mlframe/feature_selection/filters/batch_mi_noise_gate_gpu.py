@@ -36,7 +36,7 @@ import math
 from typing import Any
 
 import numpy as np
-from numba import njit
+from numba import njit, prange
 
 # CPU reference kernel (the required win + always-correct fallback).
 from .info_theory import batch_mi_with_noise_gate as _cpu_batch_mi_with_noise_gate
@@ -288,6 +288,10 @@ def batch_mi_with_noise_gate_cupy_v1(
 # one njit-prange pass -- the GPU-resident kernel uploads this matrix ONCE instead
 # of one cp.asarray(shuffled) per permutation. Each row i reproduces
 # ``_fisher_yates_shuffle(classes_y_safe, base_seed, i)`` EXACTLY.
+# NOTE: ``prange`` MUST be imported from numba (see the module-level import); with
+# ``parallel=True`` a bare ``prange`` is an undefined global -> TypingError at JIT
+# compile, which previously crashed the GPU-resident permutation path for every
+# npermutations>0 call (nperm=0 never builds the matrix, so it appeared to "work").
 @njit(nogil=True, cache=True, parallel=True)
 def _build_shuffle_matrix(classes_y_safe: np.ndarray, base_seed: np.uint64, npermutations: int) -> np.ndarray:
     """``out[i, :]`` = ``classes_y_safe`` Fisher-Yates-shuffled with the per-perm LCG
@@ -341,14 +345,6 @@ def batch_mi_with_noise_gate_cupy(
     (``_mi_from_counts_cpu``), so the result is identical to v1 AND to the CPU njit
     kernel. Raises ``RuntimeError`` if cupy is unavailable.
     """
-    # NEUTRALIZED 2026-06-07: the GPU-resident permutation path below is bit-WRONG for npermutations>0
-    # (test_gpu_bit_identical_to_cpu fails nperm=3/10 -- the on-device shuffle diverges from the CPU LCG, flipping
-    # noise-gate verdicts: a large diff, not float-rounding, so a 1e-9 tolerance can't absorb it). Route to the
-    # bit-exact original kernel (v1) until the resident permutation path is fixed; code below preserved for that fix.
-    return batch_mi_with_noise_gate_cupy_v1(
-        disc_2d, factors_nbins, classes_y, classes_y_safe, freqs_y,
-        npermutations, base_seed, min_nonzero_confidence, use_su, dtype,
-    )
     if not _CUPY_AVAIL:
         raise RuntimeError("cupy is not available on this host")
     cp = _cp
