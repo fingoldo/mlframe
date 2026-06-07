@@ -82,7 +82,7 @@ def bayesian_alpha_fit(
     if n < 4:
         # Degenerate: no posterior to compute. Mirror the legacy degenerate
         # contract so swapping implementations is safe.
-        from .composite import _linear_residual_fit
+        from .. import _linear_residual_fit
         params = _linear_residual_fit(y_f, base_f)
         return {
             "alpha_mean": params["alpha"],
@@ -109,7 +109,7 @@ def bayesian_alpha_fit(
         XtX_inv = np.linalg.inv(XtX)
     except np.linalg.LinAlgError:
         # Degenerate design (constant base). Return a wide-but-finite posterior.
-        from .composite import _linear_residual_fit
+        from .. import _linear_residual_fit
         params = _linear_residual_fit(y_f, base_f)
         return {
             "alpha_mean": params["alpha"],
@@ -254,7 +254,7 @@ def bayesian_alpha_fit_bootstrap(
     - ``ci_level``: float.
     """
     # Lazy-import composite-internal helper to break the import cycle.
-    from .composite import _linear_residual_fit
+    from .. import _linear_residual_fit
     y_f = np.asarray(y, dtype=np.float64).reshape(-1)
     base_f = np.asarray(base, dtype=np.float64).reshape(-1)
     n = y_f.size

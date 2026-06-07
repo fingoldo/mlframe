@@ -79,7 +79,7 @@ class TestRidgeTinyScreenerNaNHandling:
     SimpleImputer pipeline so NaN inputs don't crash every fold."""
 
     def test_linear_family_handles_nan_inputs(self) -> None:
-        from mlframe.training._composite_screening_tiny import _build_tiny_model
+        from mlframe.training.composite.discovery._screening_tiny import _build_tiny_model
         model = _build_tiny_model(
             "linear", n_estimators=10, num_leaves=15,
             learning_rate=0.1, random_state=0,
@@ -109,11 +109,11 @@ class TestCompositeResidualStdDegeneracyFilter:
         Verify the source guard is present so a refactor that
         accidentally drops it gets caught at test time."""
         from pathlib import Path
-        import mlframe.training._composite_discovery_fit as mod
+        import mlframe.training.composite.discovery._fit as mod
         src = Path(mod.__file__).read_text(encoding="utf-8")
         # The residual-std degeneracy check moved to the _composite_discovery_eval.py
         # sibling during the discovery-fit split; concat so the source guard matches.
-        _sib = Path(mod.__file__).parent / "_composite_discovery_eval.py"
+        _sib = Path(mod.__file__).parent / "_eval.py"
         if _sib.exists():
             src += "\n" + _sib.read_text(encoding="utf-8")
         assert "_residual_ratio < 0.001" in src, (

@@ -35,7 +35,7 @@ class TestSuiteRoutesToResidualStackedWhenEnabled:
     """When ``use_stacked_discovery_residual=True`` the suite phase invokes ``fit_stacked_on_residual`` (not ``fit`` or ``fit_stacked``)."""
 
     def test_calls_fit_stacked_on_residual(self) -> None:
-        from mlframe.training.composite_discovery import CompositeTargetDiscovery
+        from mlframe.training.composite.discovery import CompositeTargetDiscovery
 
         df = _make_problem()
         n = len(df)
@@ -105,7 +105,7 @@ class TestSuiteRealPhaseRoutesToResidualStacked:
 
     def test_real_phase_invokes_fit_stacked_on_residual(self) -> None:
         from unittest.mock import patch
-        from mlframe.training.composite_discovery import CompositeTargetDiscovery
+        from mlframe.training.composite.discovery import CompositeTargetDiscovery
         from mlframe.training.configs import (
             BaselineDiagnosticsConfig, CompositeTargetDiscoveryConfig,
         )
@@ -177,7 +177,7 @@ class TestStackedResidualAggregationFirst:
     """MEDIUM#9 2026-05-18: ``stacked_residual_aggregation="first"`` mode must produce a coherent specs_ list (previously only ``mean`` was exercised). ``first`` uses the best pass-1 spec instead of averaging across all pass-1 OOF predictions."""
 
     def test_first_aggregation_does_not_raise_and_produces_specs(self) -> None:
-        from mlframe.training.composite_discovery import CompositeTargetDiscovery
+        from mlframe.training.composite.discovery import CompositeTargetDiscovery
         from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
         df = _make_problem()
@@ -209,7 +209,7 @@ class TestBothFlagsWarnAndPreferResidual:
     """When BOTH ``use_stacked_discovery=True`` AND ``use_stacked_discovery_residual=True``, the suite logs a warning AND routes to residual mode."""
 
     def test_warning_logged_when_both_flags_set(self, caplog) -> None:
-        from mlframe.training.composite_discovery import CompositeTargetDiscovery
+        from mlframe.training.composite.discovery import CompositeTargetDiscovery
         from mlframe.training.configs import CompositeTargetDiscoveryConfig
         from mlframe.training.core import _phase_composite_discovery as phase_mod
 

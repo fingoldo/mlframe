@@ -8,7 +8,7 @@ _tiny_cv_rmse_y_scale_multiseed, _tiny_cv_rmse_raw_y_multiseed,
 _per_bin_rmse, _tiny_cv_rmse_y_scale).
 
 Original re-exports all 7 so existing
-``from mlframe.training.composite_screening import _build_tiny_model``
+``from mlframe.training.composite.discovery.screening import _build_tiny_model``
 imports continue to work.
 """
 from __future__ import annotations
@@ -17,7 +17,7 @@ from pathlib import Path
 
 
 def test_tiny_model_symbols_still_importable_from_facade() -> None:
-    from mlframe.training.composite_screening import (
+    from mlframe.training.composite.discovery.screening import (
         _silence_tiny_model_output,
         _build_tiny_model,
         _tiny_cv_rmse_raw_y,
@@ -40,7 +40,7 @@ def test_tiny_model_symbols_still_importable_from_facade() -> None:
 
 def test_mi_symbols_still_in_parent_module() -> None:
     """The MI / correlation helpers stay in the original file."""
-    from mlframe.training.composite_screening import (
+    from mlframe.training.composite.discovery.screening import (
         _is_polars_df,
         _extract_column_array,
         _is_numeric_column,
@@ -74,16 +74,16 @@ def test_mi_symbols_still_in_parent_module() -> None:
 
 
 def test_facade_below_1k_line_threshold() -> None:
-    root = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe" / "training"
-    facade = root / "composite_screening.py"
+    root = Path(__file__).resolve().parents[3] / "src" / "mlframe" / "training" / "composite" / "discovery"
+    facade = root / "screening.py"
     n = len(facade.read_text(encoding="utf-8").splitlines())
-    assert n < 1000, f"composite_screening.py is {n} lines, still over the 1k threshold"
+    assert n < 1000, f"screening.py is {n} lines, still over the 1k threshold"
 
 
 def test_sibling_module_owns_the_moved_symbols() -> None:
     """Identity: facade and sibling module expose the SAME objects."""
-    from mlframe.training import composite_screening as cs
-    from mlframe.training import _composite_screening_tiny as tiny
+    from mlframe.training.composite.discovery import screening as cs
+    from mlframe.training.composite.discovery import _screening_tiny as tiny
     for name in (
         "_silence_tiny_model_output",
         "_build_tiny_model",
@@ -99,7 +99,7 @@ def test_sibling_module_owns_the_moved_symbols() -> None:
 def test_silence_context_manager_works() -> None:
     """Functional smoke: the @contextlib.contextmanager decorator
     survived the split."""
-    from mlframe.training.composite_screening import _silence_tiny_model_output
+    from mlframe.training.composite.discovery.screening import _silence_tiny_model_output
     with _silence_tiny_model_output():
         # Just exercising the with-block exit path.
         pass

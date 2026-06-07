@@ -21,10 +21,10 @@ import pytest
 # 1: phase RAM report logs one INFO line per call, tracks baseline + prev.
 # ---------------------------------------------------------------------------
 def test_1_phase_ram_report_records_baseline_then_delta(caplog):
-    from mlframe.training._composite_discovery_fit import _phase_ram_report
+    from mlframe.training.composite.discovery._fit import _phase_ram_report
 
     state: dict = {}
-    with caplog.at_level(logging.INFO, logger="mlframe.training._composite_discovery_fit"):
+    with caplog.at_level(logging.INFO, logger="mlframe.training.composite.discovery._fit"):
         _phase_ram_report(state, "entry")
         _phase_ram_report(state, "filter_features_done")
         _phase_ram_report(state, "transforms_evaluated")
@@ -47,13 +47,13 @@ def test_1_phase_ram_report_records_baseline_then_delta(caplog):
 def test_1_phase_ram_report_flags_page_thrashing(caplog):
     """When USS >> RSS by 2x+ on a 1 GB+ process, emit a PAGE_THRASHING marker.
     This is the signal the prior version masked entirely by reporting just RSS."""
-    from mlframe.training import _composite_discovery_fit as mod
+    from mlframe.training.composite.discovery import _fit as mod
     state: dict = {}
     # Post-EmptyWorkingSet artefact: USS=60 GB, RSS=4 MB, commit roughly = USS.
     with patch.object(mod, "_process_mem_mb", return_value=(4.0, 60_000.0, 60_500.0)):
         mod._phase_ram_report(state, "entry")  # baseline
     with patch.object(mod, "_process_mem_mb", return_value=(4.0, 60_500.0, 61_000.0)):
-        with caplog.at_level(logging.INFO, logger="mlframe.training._composite_discovery_fit"):
+        with caplog.at_level(logging.INFO, logger="mlframe.training.composite.discovery._fit"):
             mod._phase_ram_report(state, "after_phase")
     thrash = [r for r in caplog.records if "PAGE_THRASHING" in r.getMessage()]
     assert thrash, "PAGE_THRASHING marker must fire when USS >> RSS"
@@ -63,14 +63,14 @@ def test_1_phase_ram_report_flags_commit_pressure(caplog):
     """When commit >> USS the process holds large committed-but-untouched memory.
     On Windows that consumes the system-wide commit limit and is the proximate
     OOM-kernel-kill cause even when USS / RSS look benign."""
-    from mlframe.training import _composite_discovery_fit as mod
+    from mlframe.training.composite.discovery import _fit as mod
     state: dict = {}
     # Mid-discovery: USS=20 GB, RSS=20 GB, commit=90 GB (private bytes reserved
     # for committed-but-paged-out buffers from pyarrow / numba intermediate work).
     with patch.object(mod, "_process_mem_mb", return_value=(20_000.0, 20_000.0, 20_000.0)):
         mod._phase_ram_report(state, "entry")
     with patch.object(mod, "_process_mem_mb", return_value=(20_000.0, 20_000.0, 90_000.0)):
-        with caplog.at_level(logging.INFO, logger="mlframe.training._composite_discovery_fit"):
+        with caplog.at_level(logging.INFO, logger="mlframe.training.composite.discovery._fit"):
             mod._phase_ram_report(state, "after_phase")
     pressure = [r for r in caplog.records if "COMMIT_PRESSURE" in r.getMessage()]
     assert pressure, "COMMIT_PRESSURE marker must fire when commit >> USS"
@@ -79,7 +79,7 @@ def test_1_phase_ram_report_flags_commit_pressure(caplog):
 def test_1_phase_ram_report_tolerates_psutil_failure():
     """The profiler must not raise when memory read fails -- it's diagnostic-only
     and must never block a real fit() path."""
-    from mlframe.training import _composite_discovery_fit as mod
+    from mlframe.training.composite.discovery import _fit as mod
     state: dict = {}
     with patch.object(mod, "_process_mem_mb", side_effect=RuntimeError("psutil down")):
         try:

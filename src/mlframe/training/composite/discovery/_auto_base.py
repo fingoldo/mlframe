@@ -23,7 +23,7 @@ try:
 except ImportError:
     rankdata = None  # type: ignore[assignment]
 
-from .composite_screening import (
+from .screening import (
     _mi_from_binned_pair,
     _mi_pair_bin,
     _mi_per_feature_y_fixed,

@@ -11,7 +11,7 @@ import pytest
 
 pl = pytest.importorskip("polars")
 
-from mlframe.training.composite_auto_detect import detect_group_column_candidates
+from mlframe.training.composite.discovery.auto_detect import detect_group_column_candidates
 
 
 def _make_gid_frames(seed: int = 11):

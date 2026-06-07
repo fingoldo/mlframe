@@ -1,4 +1,4 @@
-"""biz_val tests for ``mlframe.training.composite_screening`` +
+"""biz_val tests for ``mlframe.training.composite.discovery.screening`` +
 ``mlframe.training.composite_transforms`` -- pure functions tested
 outside of a pipeline fit.
 
@@ -23,7 +23,7 @@ def test_biz_val_residualise_removes_linear_component():
     """y = 3*x + noise -> after _residualise, |corr(residual, x)| ~ 0
     AND mean(residual) ~ 0. Catches regressions in the regression
     projection."""
-    from mlframe.training.composite_screening import _residualise
+    from mlframe.training.composite.discovery.screening import _residualise
     rng = np.random.default_rng(42)
     n = 200
     x = rng.normal(size=n)
@@ -41,7 +41,7 @@ def test_biz_val_residualise_removes_linear_component():
 @pytest.mark.parametrize("n_samples", [50, 200, 1000])
 def test_biz_val_residualise_scales_with_size(n_samples):
     """_residualise must handle small / medium / large N."""
-    from mlframe.training.composite_screening import _residualise
+    from mlframe.training.composite.discovery.screening import _residualise
     rng = np.random.default_rng(42)
     x = rng.normal(size=n_samples)
     y = 1.5 * x + 0.3 * rng.normal(size=n_samples)
@@ -57,7 +57,7 @@ def test_biz_val_residualise_scales_with_size(n_samples):
 
 def test_biz_val_safe_corr_perfect_correlation():
     """``_safe_corr`` with y = x must return 1.0."""
-    from mlframe.training.composite_screening import _safe_corr
+    from mlframe.training.composite.discovery.screening import _safe_corr
     rng = np.random.default_rng(42)
     x = rng.normal(size=200)
     corr = _safe_corr(x, x)
@@ -67,7 +67,7 @@ def test_biz_val_safe_corr_perfect_correlation():
 def test_biz_val_safe_corr_constant_input():
     """Constant input must NOT crash _safe_corr (zero-variance guard).
     Returns NaN or 0 rather than division-by-zero."""
-    from mlframe.training.composite_screening import _safe_corr
+    from mlframe.training.composite.discovery.screening import _safe_corr
     x = np.ones(200, dtype=np.float64)
     y = np.random.default_rng(42).normal(size=200)
     corr = _safe_corr(x, y)

@@ -27,19 +27,19 @@ try:
 except ImportError:  # pragma: no cover - scipy is a hard dep in pyproject; allow graceful fallback
     rankdata = None  # type: ignore[assignment]
 
-from .composite_spec import CompositeSpec
-from .composite_auto_detect import (
+from ...composite_spec import CompositeSpec
+from .auto_detect import (
     detect_time_column_candidates,
     sort_df_by_time_column,
     detect_group_column_candidates,
 )
-from .composite_bayesian import bayesian_alpha_fit
-from .composite_cache import (
+from .bayesian import bayesian_alpha_fit
+from ...composite_cache import (
     DiscoveryCache,
     data_signature,
     make_discovery_cache_key,
 )
-from .composite.ensemble import (
+from ..ensemble import (
     CompositeCrossTargetEnsemble,
     _is_monotone_nondecreasing,
     compute_oof_holdout_predictions,
@@ -47,18 +47,18 @@ from .composite.ensemble import (
     detect_gpu_in_use,
     env_signature,
 )
-from .composite.estimator import CompositeTargetEstimator
-from .composite.ensemble.feature_stacking import (
+from ..estimator import CompositeTargetEstimator
+from ..ensemble.feature_stacking import (
     composite_oof_predictions,
     composite_predictions_as_feature,
 )
-from .composite_forward_stepwise import forward_stepwise_multi_base
-from .composite.transforms.interaction_bases import generate_interaction_bases
-from .composite_provenance import (
+from .forward_stepwise import forward_stepwise_multi_base
+from ..transforms.interaction_bases import generate_interaction_bases
+from ...composite_provenance import (
     CompositeProvenance,
     report_to_markdown,
 )
-from .composite_screening import (
+from .screening import (
     _build_tiny_model,
     _extract_column_array,
     _is_numeric_column,
@@ -78,13 +78,13 @@ from .composite_screening import (
     _tiny_cv_rmse_y_scale,
     _tiny_cv_rmse_y_scale_multiseed,
 )
-from .composite.ensemble.stacking import (
+from ..ensemble.stacking import (
     max_off_diagonal_correlation,
     residual_correlation_matrix,
     stacking_aware_gate,
 )
-from .composite_streaming import streaming_alpha_check_and_refit
-from .composite.transforms import (
+from ...composite_streaming import streaming_alpha_check_and_refit
+from ..transforms import (
     DomainViolationError,
     Transform,
     UnknownTransformError,
@@ -129,7 +129,7 @@ class CompositeTargetDiscovery:
 
     def __init__(self, config: Any) -> None:
         if isinstance(config, dict):
-            from .configs import CompositeTargetDiscoveryConfig
+            from ...configs import CompositeTargetDiscoveryConfig
             config = CompositeTargetDiscoveryConfig(**config)
         self.config = config
         self._patterns_compiled: list[re.Pattern] = [
@@ -416,11 +416,11 @@ class CompositeTargetDiscovery:
 # binding here makes ``CompositeTargetDiscovery._tiny_model_rerank`` resolve
 # to that function so ``self._tiny_model_rerank(...)`` call sites keep
 # working unchanged.
-from ._composite_discovery_tiny_rerank import _tiny_model_rerank as _tiny_model_rerank_impl  # noqa: E402
-from ._composite_discovery_auto_base import _auto_base as _auto_base_impl  # noqa: E402
-from ._composite_discovery_fit import fit as _fit_impl  # noqa: E402
-from ._composite_discovery_filter import _filter_features as _filter_features_impl  # noqa: E402
-from ._composite_discovery_stacked import (  # noqa: E402
+from ._tiny_rerank import _tiny_model_rerank as _tiny_model_rerank_impl  # noqa: E402
+from ._auto_base import _auto_base as _auto_base_impl  # noqa: E402
+from ._fit import fit as _fit_impl  # noqa: E402
+from ._filter import _filter_features as _filter_features_impl  # noqa: E402
+from ._stacked import (  # noqa: E402
     fit_stacked as _fit_stacked_impl,
     fit_stacked_on_residual as _fit_stacked_on_residual_impl,
 )
@@ -439,28 +439,28 @@ CompositeTargetDiscovery.fit_stacked_on_residual = _fit_stacked_on_residual_impl
 # sub-module import (`mlframe.training.composite_auto_detect`) for
 # clearer dependency boundaries.
 # ----------------------------------------------------------------------
-from .composite_auto_detect import (  # noqa: E402,F401
+from .auto_detect import (  # noqa: E402,F401
     _GROUP_DETECT_DEFAULT_MIN_UNIQUE,
     _GROUP_DETECT_DEFAULT_MAX_UNIQUE,
     _GROUP_DETECT_DEFAULT_MIN_SIZE_RATIO,
 )
-from .composite_cache import (  # noqa: E402,F401
+from ...composite_cache import (  # noqa: E402,F401
     _DISCOVERY_SIGNATURE_SAMPLE_N,
 )
-from .composite.transforms.interaction_bases import (  # noqa: E402,F401
+from ..transforms.interaction_bases import (  # noqa: E402,F401
     _INTERACTION_OPS_DEFAULT,
 )
 
 # Dependent helper re-exports.
-from .composite_forward_stepwise import (  # noqa: E402,F401
+from .forward_stepwise import (  # noqa: E402,F401
     _MULTI_BASE_DEFAULT_MAX_K,
     _MULTI_BASE_DEFAULT_MIN_MARGINAL_GAIN,
 )
-from .composite_streaming import (  # noqa: E402,F401
+from ...composite_streaming import (  # noqa: E402,F401
     _STREAMING_DEFAULT_Z_THRESHOLD,
     _STREAMING_DEFAULT_MIN_BUFFER_N,
 )
-from .composite_bayesian import (  # noqa: E402,F401
+from .bayesian import (  # noqa: E402,F401
     _BAYESIAN_ALPHA_DEFAULT_N_BOOTSTRAP,
     _BAYESIAN_ALPHA_DEFAULT_CI_LEVEL,
 )

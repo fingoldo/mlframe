@@ -496,7 +496,7 @@ def _auto_detect_group_cols(X: pd.DataFrame, max_cols: int = 4) -> list[str]:
     self-contained scan if that import is unavailable.
     """
     try:
-        from ...training.composite_auto_detect import (
+        from ...training.composite import (
             detect_group_column_candidates,
         )
         cands = detect_group_column_candidates(X)

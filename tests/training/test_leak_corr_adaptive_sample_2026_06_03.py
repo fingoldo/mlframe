@@ -22,7 +22,7 @@ def test_no_sample_when_ram_is_plentiful():
     """Small arrays + tons of free RAM -> return inputs untouched (bit-identical
     legacy path). Catches an accidental regression where the sampler triggers
     on every call regardless of headroom."""
-    from mlframe.training._composite_discovery_filter import _maybe_sample_for_leak_corr
+    from mlframe.training.composite.discovery._filter import _maybe_sample_for_leak_corr
 
     arrs = [np.arange(100, dtype=np.float32) for _ in range(5)]
     y = np.arange(100, dtype=np.float32)
@@ -43,7 +43,7 @@ def test_sample_when_alloc_exceeds_available_headroom():
     available-RAM mock forces the sampler to trip on a small fixture array,
     keeping the test memory budget under a few MB while exercising the actual
     branch."""
-    from mlframe.training._composite_discovery_filter import _maybe_sample_for_leak_corr
+    from mlframe.training.composite.discovery._filter import _maybe_sample_for_leak_corr
 
     # 1 M rows x 5 cols x 4 B = 20 MB matrix.
     n_rows = 1_000_000
@@ -69,7 +69,7 @@ def test_psutil_unavailable_falls_back_to_legacy_path():
     """When psutil raises we can't measure headroom; fall back to the
     full-frame path so callers' existing MemoryError try/except continues to
     work the way it did before the sampler was added."""
-    from mlframe.training._composite_discovery_filter import _maybe_sample_for_leak_corr
+    from mlframe.training.composite.discovery._filter import _maybe_sample_for_leak_corr
 
     arrs = [np.zeros(1000, dtype=np.float32) for _ in range(5)]
     y = np.zeros(1000, dtype=np.float32)
@@ -84,7 +84,7 @@ def test_psutil_unavailable_falls_back_to_legacy_path():
 
 def test_empty_candidates_no_crash():
     """The sampler must handle the no-candidates degenerate case gracefully."""
-    from mlframe.training._composite_discovery_filter import _maybe_sample_for_leak_corr
+    from mlframe.training.composite.discovery._filter import _maybe_sample_for_leak_corr
 
     out_arrs, out_y = _maybe_sample_for_leak_corr([], [], None)
     assert out_arrs == []
@@ -96,7 +96,7 @@ def test_sample_emits_info_log(caplog):
     (alloc size, available, sampled size) -- silently shrinking the corr
     estimate without telling them would be opaque."""
     import logging
-    from mlframe.training._composite_discovery_filter import _maybe_sample_for_leak_corr
+    from mlframe.training.composite.discovery._filter import _maybe_sample_for_leak_corr
 
     n_rows = 1_000_000
     n_cols = 5
@@ -104,7 +104,7 @@ def test_sample_emits_info_log(caplog):
     y = np.zeros(n_rows, dtype=np.float32)
     fake_vm = SimpleNamespace(available=int(10 * 1024 ** 2))
     with patch("psutil.virtual_memory", return_value=fake_vm):
-        with caplog.at_level(logging.INFO, logger="mlframe.training._composite_discovery_filter"):
+        with caplog.at_level(logging.INFO, logger="mlframe.training.composite.discovery._filter"):
             _maybe_sample_for_leak_corr(["c"] * n_cols, arrs, y)
     sample_lines = [
         r for r in caplog.records

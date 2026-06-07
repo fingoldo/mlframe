@@ -22,7 +22,7 @@ import pytest
 def test_module_level_clip_bounds_import():
     """The lazy import was replaced with a module-level one; verify the name
     is in the module namespace immediately after import (no fold setup needed)."""
-    mod = importlib.import_module("mlframe.training._composite_screening_tiny")
+    mod = importlib.import_module("mlframe.training.composite.discovery._screening_tiny")
     assert hasattr(mod, "_y_train_clip_bounds"), (
         "module-level import of _y_train_clip_bounds missing -- the race-safe hoist regressed."
     )
@@ -43,7 +43,7 @@ def test_nan_fold_count_warn_fires_when_any_fold_fails(caplog):
 
     import numpy as np
 
-    from mlframe.training._composite_screening_tiny import _tiny_cv_rmse_raw_y
+    from mlframe.training.composite.discovery._screening_tiny import _tiny_cv_rmse_raw_y
 
     # Build a working scenario then monkey-patch the underlying fold computation
     # to NaN out the first 3 folds. Easier: pass tiny n + an unstable family that
@@ -54,7 +54,7 @@ def test_nan_fold_count_warn_fires_when_any_fold_fails(caplog):
     # data where the underlying fit raises on most folds (e.g. degenerate target
     # of all-zeros except 1 row -- LightGBM rejects single-class regression).
     # If that doesn't reliably reproduce, we patch _build_tiny_model directly.
-    from mlframe.training import _composite_screening_tiny as mod
+    from mlframe.training.composite.discovery import _screening_tiny as mod
 
     real_build = mod._build_tiny_model
     fail_count = {"n": 0}
@@ -84,7 +84,7 @@ def test_nan_fold_count_warn_fires_when_any_fold_fails(caplog):
     monkey_attr = "_build_tiny_model"
     setattr(mod, monkey_attr, _fail_first_3)
     try:
-        with caplog.at_level(logging.WARNING, logger="mlframe.training._composite_screening_tiny"):
+        with caplog.at_level(logging.WARNING, logger="mlframe.training.composite.discovery._screening_tiny"):
             _result = _tiny_cv_rmse_raw_y(
                 y_train=y, x_train_matrix=x,
                 cv_folds=5,
@@ -123,7 +123,7 @@ def test_concurrent_import_does_not_raise():
             importlib.invalidate_caches()
         except KeyError:
             pass
-        from mlframe.training._composite_screening_tiny import _y_train_clip_bounds
+        from mlframe.training.composite.discovery._screening_tiny import _y_train_clip_bounds
         lo, hi = _y_train_clip_bounds(np.array([1.0, 2.0, 3.0, 4.0, 5.0]))
         return float(lo), float(hi)
 

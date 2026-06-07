@@ -75,7 +75,7 @@ def forward_stepwise_multi_base(
     """
     from sklearn.model_selection import KFold, TimeSeriesSplit  # lazy
     # Lazy-import composite-internal transforms to break the import cycle (composite.py re-exports this module at the bottom; importing at module top would deadlock).
-    from .composite import (
+    from .. import (
         _linear_residual_multi_fit,
         _linear_residual_multi_forward,
         _linear_residual_multi_inverse,
@@ -100,7 +100,7 @@ def forward_stepwise_multi_base(
     kept = list(seeds)
     diagnostics: list[dict[str, Any]] = []
 
-    from ._cv_aggregation import aggregate_fold_scores
+    from ..._cv_aggregation import aggregate_fold_scores
 
     def _cv_rmse_with_folds(base_names: list[str]) -> tuple[float, list[float]]:
         """Return ``(aggregated_score, per_fold_rmses)`` so callers can persist the full table

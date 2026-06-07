@@ -25,21 +25,21 @@ import os
 import warnings
 from typing import Any, Callable, Dict, List, Optional, Sequence, TYPE_CHECKING, Tuple
 if TYPE_CHECKING:
-    from .composite.transforms import Transform
+    from ..transforms import Transform
 
 import numpy as np
 import pandas as pd
 
 # Hoisted from a lazy import inside ``_one_fold`` (wave 98 split-out). The lazy form raced
 # under joblib threading + n_jobs > 1: two folds simultaneously executing
-# ``from .composite.estimator import _y_train_clip_bounds`` could see a partially-loaded
+# ``from ..estimator import _y_train_clip_bounds`` could see a partially-loaded
 # composite.estimator module on Python's import dance, leaving the local name unbound for
 # the second thread. Symptom observed in a prod log: 4x
 # ``composite_screening: tiny-model CV fold failed (name '_y_train_clip_bounds' is not defined)``
 # warnings -- the lazy import silently raised NameError, the outer ``except Exception`` swallowed
 # it, and the fold returned NaN. Sibling ``composite_screening.py`` already imports at module
 # level (line 34) so there is no circular-dep concern.
-from .composite.estimator import _y_train_clip_bounds
+from ..estimator import _y_train_clip_bounds
 
 logger = logging.getLogger(__name__)
 
@@ -371,7 +371,7 @@ def _tiny_cv_rmse_raw_y(
         if return_per_bin:
             return float("nan"), np.full(n_bins, float("nan"))
         return float("nan")
-    from ._cv_aggregation import aggregate_fold_scores
+    from ..._cv_aggregation import aggregate_fold_scores
     mean_rmse = aggregate_fold_scores(
         fold_rmses,
         mode=cv_selector_mode,  # type: ignore[arg-type]
@@ -767,7 +767,7 @@ def _tiny_cv_rmse_y_scale(
         if return_per_bin:
             return float("nan"), np.full(n_bins, float("nan"))
         return float("nan")
-    from ._cv_aggregation import aggregate_fold_scores
+    from ..._cv_aggregation import aggregate_fold_scores
     mean_rmse = aggregate_fold_scores(
         fold_rmses,
         mode=cv_selector_mode,  # type: ignore[arg-type]

@@ -104,7 +104,7 @@ def test_extract_column_array_caller_must_copy_before_mutation() -> None:
     """When the polars source column is float64, _extract_column_array returns a view;
     a defensive .copy() at the call site protects the source frame."""
     pl = pytest.importorskip("polars")
-    from mlframe.training.composite_screening import _extract_column_array
+    from mlframe.training.composite.discovery.screening import _extract_column_array
 
     df = pl.DataFrame({"x": [1.0, 2.0, 3.0, 4.0]})
     arr = _extract_column_array(df, "x")

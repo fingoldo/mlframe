@@ -29,7 +29,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from mlframe.training.composite_discovery import CompositeTargetDiscovery
+from mlframe.training.composite.discovery import CompositeTargetDiscovery
 from mlframe.training.composite_spec import CompositeSpec
 
 

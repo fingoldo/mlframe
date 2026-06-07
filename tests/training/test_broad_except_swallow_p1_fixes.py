@@ -152,7 +152,7 @@ def test_detect_group_column_candidates_logs_per_skip(caplog):
     """A column whose access raises emits a DEBUG skip line (group detector), so operators
     can see why a candidate was bypassed instead of it vanishing silently."""
     import pandas as pd
-    from mlframe.training import composite_auto_detect as cad
+    from mlframe.training.composite.discovery import auto_detect as cad
 
     class _BadGet(pd.DataFrame):
         def __getitem__(self, key):
@@ -161,7 +161,7 @@ def test_detect_group_column_candidates_logs_per_skip(caplog):
             return super().__getitem__(key)
 
     df = _BadGet({"boom": [1, 2, 3, 4, 5, 6], "ok": [1, 1, 2, 2, 3, 3]})
-    with caplog.at_level(logging.DEBUG, logger="mlframe.training.composite_auto_detect"):
+    with caplog.at_level(logging.DEBUG, logger="mlframe.training.composite.discovery.auto_detect"):
         result = cad.detect_group_column_candidates(df, candidate_columns=["boom", "ok"])
     assert all(name != "boom" for name, _ in result)
     assert any("detect_group_column_candidates: skipping col=" in r.message for r in caplog.records), (
@@ -171,7 +171,7 @@ def test_detect_group_column_candidates_logs_per_skip(caplog):
 
 def test_detect_skip_emits_debug_when_col_raises(caplog):
     """Behavioural: a column that raises on dtype access emits a DEBUG line."""
-    from mlframe.training import composite_auto_detect as cad
+    from mlframe.training.composite.discovery import auto_detect as cad
     import pandas as pd
 
     class _BadCol(pd.DataFrame):
@@ -182,7 +182,7 @@ def test_detect_skip_emits_debug_when_col_raises(caplog):
             return super().__getitem__(key)
 
     df = _BadCol({"col_x": [1.0, 2.0, 3.0]})
-    with caplog.at_level(logging.DEBUG, logger="mlframe.training.composite_auto_detect"):
+    with caplog.at_level(logging.DEBUG, logger="mlframe.training.composite.discovery.auto_detect"):
         result = cad.detect_time_column_candidates(df)
     assert result == []
     assert any(
@@ -201,8 +201,8 @@ def test_composite_screening_failed_fold_warns(caplog):
     during the screening monolith split; check both locations."""
     import pathlib
     import mlframe as _mlframe
-    root = pathlib.Path(_mlframe.__file__).resolve().parent / "training"
-    candidates = [root / "composite_screening.py", root / "_composite_screening_tiny.py"]
+    root = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "composite" / "discovery"
+    candidates = [root / "screening.py", root / "_screening_tiny.py"]
     src_combined = ""
     for p in candidates:
         if p.exists():

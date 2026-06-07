@@ -68,7 +68,7 @@ def test_tiny_rerank_n_jobs_zero_sentinel_reaches_branch():
     ``_composite_discovery_tiny_rerank.py`` sibling when
     ``composite_discovery.py`` was split below 1k LOC.
     """
-    src = _read("training/_composite_discovery_tiny_rerank.py")
+    src = _read("training/composite/discovery/_tiny_rerank.py")
     assert "int(getattr(self.config, \"tiny_rerank_n_jobs\", 1) or 1)" not in src, (
         "Pre-fix `or 1` pattern reappeared: tiny_rerank_n_jobs=0 sentinel is "
         "silently rewritten to 1 BEFORE the `if cfg == 0:` auto-pick branch "

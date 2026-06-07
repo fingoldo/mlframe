@@ -656,7 +656,7 @@ def score_grouped_quantile_by_mi_uplift(
 
 def _auto_detect_group_cols(X: pd.DataFrame, max_cols: int = 4) -> list[str]:
     try:
-        from ...training.composite_auto_detect import detect_group_column_candidates
+        from ...training.composite import detect_group_column_candidates
         cands = detect_group_column_candidates(X)
         return [name for name, _info in cands[:max_cols]]
     except Exception as _e:

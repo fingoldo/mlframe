@@ -31,11 +31,11 @@ def _is_polars_df(x: Any) -> bool:
     return _HAS_POLARS and isinstance(x, pl.DataFrame)
 
 
-from .composite.estimator import CompositeTargetEstimator, _y_train_clip_bounds
-from .composite.transforms import get_transform
+from ..estimator import CompositeTargetEstimator, _y_train_clip_bounds
+from ..transforms import get_transform
 
 if TYPE_CHECKING:
-    from .composite.transforms import Transform  # used as forward annotation in _tiny_cv_rmse_y_scale signature
+    from ..transforms import Transform  # used as forward annotation in _tiny_cv_rmse_y_scale signature
 
 logger = logging.getLogger(__name__)
 
@@ -457,7 +457,7 @@ def _mi_to_target(
 # _per_bin_rmse, _tiny_cv_rmse_y_scale) moved to sibling file
 # _composite_screening_tiny.py to drop this file below the 1k-line
 # monolith threshold. Re-exported below.
-from ._composite_screening_tiny import (  # noqa: F401, E402
+from ._screening_tiny import (  # noqa: F401, E402
     _silence_tiny_model_output,
     _build_tiny_model,
     _tiny_cv_rmse_raw_y,

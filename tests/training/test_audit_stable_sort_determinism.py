@@ -206,8 +206,8 @@ def test_composite_ensemble_trim_uses_lexsort() -> None:
     _composite_cross_target_ensemble.py during the cross-target-ensemble
     monolith split. Either location is acceptable - pin the pattern
     in whichever module currently houses it."""
-    facade_src = _read("training/composite_ensemble.py")
-    sibling_src = _read("training/_composite_cross_target_ensemble.py")
+    facade_src = _read("training/composite/ensemble/__init__.py")
+    sibling_src = _read("training/composite/ensemble/_cross_target.py")
     pattern = "order = np.lexsort((np.arange(len(_abs_w)), -_abs_w))"
     assert pattern in facade_src or pattern in sibling_src
 
@@ -215,14 +215,14 @@ def test_composite_ensemble_trim_uses_lexsort() -> None:
 def test_composite_discovery_aggregated_score_uses_lexsort() -> None:
     # ``_tiny_model_rerank`` moved to the ``_composite_discovery_tiny_rerank.py``
     # sibling when ``composite_discovery.py`` was split below 1k LOC.
-    src = _read("training/_composite_discovery_tiny_rerank.py")
+    src = _read("training/composite/discovery/_tiny_rerank.py")
     assert "order = np.lexsort((_names, agg_scores))" in src
 
 
 def test_composite_discovery_mi_gain_uses_secondary_name() -> None:
     # ``fit`` (where the mi_gain top-K sort lives) moved to
     # ``_composite_discovery_fit.py``.
-    src = _read("training/_composite_discovery_fit.py")
+    src = _read("training/composite/discovery/_fit.py")
     assert "key=lambda s: (-s.mi_gain, getattr(s, \"name\", \"\"))" in src
 
 

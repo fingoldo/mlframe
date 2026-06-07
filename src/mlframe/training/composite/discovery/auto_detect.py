@@ -22,7 +22,7 @@ def _is_polars_df(x: Any) -> bool:
     return _HAS_POLARS and isinstance(x, pl.DataFrame)
 
 
-from .composite_screening import _is_numeric_column
+from .screening import _is_numeric_column
 
 
 # ----------------------------------------------------------------------

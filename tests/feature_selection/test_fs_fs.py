@@ -157,7 +157,7 @@ def test_composite_oof_predictions_time_aware_uses_timeseries_split():
 
 def test_composite_forward_stepwise_time_aware():
     """``forward_stepwise_multi_base(..., time_aware=True)`` routes to TimeSeriesSplit."""
-    from mlframe.training.composite_forward_stepwise import forward_stepwise_multi_base
+    from mlframe.training.composite.discovery.forward_stepwise import forward_stepwise_multi_base
 
     n = 80
     y = np.linspace(0.0, 1.0, n)

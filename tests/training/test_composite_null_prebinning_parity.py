@@ -15,7 +15,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from mlframe.training.composite_screening import _mi_from_binned_pair, _mi_pair_bin
+from mlframe.training.composite.discovery.screening import _mi_from_binned_pair, _mi_pair_bin
 
 
 def _bin_codes(arr: np.ndarray, nbins: int) -> np.ndarray:

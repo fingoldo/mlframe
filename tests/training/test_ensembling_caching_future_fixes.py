@@ -207,10 +207,12 @@ class TestENS_P2_5_CachedPerBin:
         # 2026-05-21 split: composite_discovery moved code to sibling files.
         # Walk parent + every sibling so the per_bin sensor still matches.
         import pathlib
-        import mlframe.training.composite_discovery as cd
+        import mlframe.training.composite.discovery as cd
         _dir = pathlib.Path(cd.__file__).resolve().parent
         src = open(cd.__file__, encoding="utf-8").read()
-        for sibling in _dir.glob("_composite_discovery*.py"):
+        for sibling in _dir.glob("*.py"):
+            if sibling.name == "__init__.py":
+                continue
             src += "\n" + sibling.read_text(encoding="utf-8")
         assert "_per_bin_first_pass" in src, (
             "ENS-P2-5: the per-bin caching dict was removed/renamed; "
@@ -237,10 +239,10 @@ class TestENS_P2_6_NoDuckTyping:
 
     def test_non_polars_mock_not_misdetected(self) -> None:
         from mlframe.training.composite import _is_polars_df
-        from mlframe.training.composite_screening import (
+        from mlframe.training.composite.discovery.screening import (
             _is_polars_df as _scr_is,
         )
-        from mlframe.training.composite_auto_detect import (
+        from mlframe.training.composite.discovery.auto_detect import (
             _is_polars_df as _ad_is,
         )
         from mlframe.training.composite_cache import (
@@ -399,10 +401,12 @@ class TestENS_Low_6_PoolArraysHoist:
         # (_composite_discovery_fit.py etc.); read parent + every matching
         # sibling so the source-pattern sensor still matches.
         import pathlib
-        import mlframe.training.composite_discovery as cd
+        import mlframe.training.composite.discovery as cd
         _dir = pathlib.Path(cd.__file__).resolve().parent
         src = open(cd.__file__, encoding="utf-8").read()
-        for sibling in _dir.glob("_composite_discovery*.py"):
+        for sibling in _dir.glob("*.py"):
+            if sibling.name == "__init__.py":
+                continue
             src += "\n" + sibling.read_text(encoding="utf-8")
         # Verify the cache dict exists with the expected (base, pool_sig)
         # tuple key.

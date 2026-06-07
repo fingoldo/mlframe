@@ -7,7 +7,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from mlframe.training.composite_screening import _tiny_cv_rmse_y_scale
+from mlframe.training.composite.discovery.screening import _tiny_cv_rmse_y_scale
 from mlframe.training.composite.transforms import get_transform
 
 

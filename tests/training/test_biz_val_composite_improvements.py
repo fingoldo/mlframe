@@ -137,7 +137,7 @@ class TestBizValTimeAwareOOF:
     def test_time_aware_higher_rmse_than_random_kfold_on_random_walk(self) -> None:
         """A random-walk target ``y_t = y_{t-1} + N(0, 1)``. Random K-fold sees rows from BOTH past and future of any held-out row, so its train-set mean is close to the val-set mean -- CV-RMSE under-estimates the honest holdout RMSE on this non-stationary target. Time-aware (TimeSeriesSplit) trains on PAST rows only, so the train mean lags the val mean -- CV-RMSE is strictly LARGER and matches what a production rolling-forecast would actually see.
         """
-        from mlframe.training.composite_screening import _tiny_cv_rmse_raw_y
+        from mlframe.training.composite.discovery.screening import _tiny_cv_rmse_raw_y
 
         rng = np.random.default_rng(42)
         n = 2000
@@ -233,7 +233,7 @@ class TestBizValQuantileLoss:
 class TestBizValStabilityCheck:
     def test_unstable_specs_get_filtered(self) -> None:
         """A noise-only synthetic. Random discovery seeds may CHANCE-find a few specs (lucky split). The stability gate (3-of-5 majority) must drop them."""
-        from mlframe.training.composite_discovery import CompositeTargetDiscovery
+        from mlframe.training.composite.discovery import CompositeTargetDiscovery
         from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
         rng = np.random.default_rng(99)
@@ -279,7 +279,7 @@ class TestBizValStackedDiscovery:
         """
         if running_under_xdist():
             pytest.skip("heavy in-process fit_stacked native-crashes under -n parallel load; run sequentially")
-        from mlframe.training.composite_discovery import CompositeTargetDiscovery
+        from mlframe.training.composite.discovery import CompositeTargetDiscovery
         from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
         rng = np.random.default_rng(123)
@@ -341,7 +341,7 @@ class TestBizValStackedDiscovery:
             pytest.skip("heavy in-process fit_stacked native-crashes under -n parallel load; run sequentially")
         from sklearn.linear_model import Ridge
 
-        from mlframe.training.composite_discovery import CompositeTargetDiscovery
+        from mlframe.training.composite.discovery import CompositeTargetDiscovery
         from mlframe.training.composite import CompositeTargetEstimator
         from mlframe.training.configs import CompositeTargetDiscoveryConfig
 

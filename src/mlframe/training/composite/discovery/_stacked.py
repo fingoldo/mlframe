@@ -12,7 +12,7 @@ from typing import Any, Sequence
 
 import numpy as np
 
-from .composite_screening import _extract_column_array
+from .screening import _extract_column_array
 
 logger = logging.getLogger(__name__)
 
@@ -58,8 +58,8 @@ def fit_stacked(
     )
     top_specs = ranked[: int(max_pass1_specs_to_stack)]
 
-    from .composite.ensemble.feature_stacking import composite_oof_predictions
-    from .composite.estimator import CompositeTargetEstimator
+    from ..ensemble.feature_stacking import composite_oof_predictions
+    from ..estimator import CompositeTargetEstimator
 
     # Lightweight Ridge inner so pass 2 cost stays small.
     from sklearn.linear_model import Ridge
@@ -198,8 +198,8 @@ def fit_stacked_on_residual(
         key=lambda s: rank_by_tiny.get(s.name, float("inf")),
     )
 
-    from .composite.estimator import CompositeTargetEstimator
-    from .composite.ensemble.feature_stacking import composite_oof_predictions
+    from ..estimator import CompositeTargetEstimator
+    from ..ensemble.feature_stacking import composite_oof_predictions
 
     _train_idx_arr = np.asarray(train_idx)
     y_full = _extract_column_array(df, target_col)

@@ -30,7 +30,7 @@ import time
 import numpy as np
 import pytest
 
-from mlframe.training.composite_screening import (
+from mlframe.training.composite.discovery.screening import (
     _mi_pair_bin,
     _mi_per_feature_y_fixed,
 )

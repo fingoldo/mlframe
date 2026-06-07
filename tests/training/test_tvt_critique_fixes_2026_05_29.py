@@ -29,7 +29,7 @@ def test_C_extract_column_array_returns_float32():
     """
     pl = pytest.importorskip("polars")
     import pandas as pd
-    from mlframe.training.composite_screening import _extract_column_array
+    from mlframe.training.composite.discovery.screening import _extract_column_array
 
     pl_df = pl.DataFrame({"a": [1.0, 2.0, 3.0, 4.0]})
     pd_df = pd.DataFrame({"a": [1.0, 2.0, 3.0, 4.0]})
@@ -47,7 +47,7 @@ def test_C_build_feature_matrix_shape_and_dtype():
     only changes float64 -> float32. Catches an accidental drop of rows / cols
     during the share-across-bases refactor."""
     pl = pytest.importorskip("polars")
-    from mlframe.training.composite_discovery import CompositeTargetDiscovery
+    from mlframe.training.composite.discovery import CompositeTargetDiscovery
     from mlframe.training._composite_target_discovery_config import (
         CompositeTargetDiscoveryConfig,
     )

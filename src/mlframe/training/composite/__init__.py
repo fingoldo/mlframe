@@ -189,7 +189,7 @@ from .ensemble import (  # noqa: E402,F401
 # ----------------------------------------------------------------------
 # Re-export screening helpers.
 # ----------------------------------------------------------------------
-from ..composite_screening import (  # noqa: E402,F401
+from .discovery.screening import (  # noqa: E402,F401
     _extract_column_array,
     _is_numeric_column,
     _safe_corr,
@@ -210,7 +210,7 @@ from ..composite_screening import (  # noqa: E402,F401
 # ----------------------------------------------------------------------
 # Re-export independent + dependent helper modules.
 # ----------------------------------------------------------------------
-from ..composite_auto_detect import (  # noqa: E402,F401
+from .discovery.auto_detect import (  # noqa: E402,F401
     detect_time_column_candidates,
     sort_df_by_time_column,
     detect_group_column_candidates,
@@ -237,11 +237,11 @@ from ..composite_streaming import (  # noqa: E402,F401
     _STREAMING_DEFAULT_Z_THRESHOLD,
     _STREAMING_DEFAULT_MIN_BUFFER_N,
 )
-from ..composite_bayesian import (  # noqa: E402,F401
+from .discovery.bayesian import (  # noqa: E402,F401
     bayesian_alpha_fit,
     bayesian_alpha_fit_bootstrap,
 )
-from ..composite_forward_stepwise import (  # noqa: E402,F401
+from .discovery.forward_stepwise import (  # noqa: E402,F401
     forward_stepwise_multi_base,
     _MULTI_BASE_DEFAULT_MAX_K,
     _MULTI_BASE_DEFAULT_MIN_MARGINAL_GAIN,
@@ -255,4 +255,4 @@ from .ensemble.feature_stacking import (  # noqa: E402,F401
 # ----------------------------------------------------------------------
 # Re-export CompositeTargetDiscovery.
 # ----------------------------------------------------------------------
-from ..composite_discovery import CompositeTargetDiscovery  # noqa: E402,F401
+from .discovery import CompositeTargetDiscovery  # noqa: E402,F401

@@ -362,7 +362,7 @@ def test_fix7_composite_screening_extract_returns_float32_view():
     Behavioural check: float64 polars column extracts to a float32 ndarray (the function
     halves memory of the 4M-row discovery matrix per the module docstring), values intact
     within float32 precision."""
-    from mlframe.training.composite_screening import _extract_column_array
+    from mlframe.training.composite.discovery.screening import _extract_column_array
 
     df = pl.DataFrame({"x": np.arange(40, dtype=np.float64), "y": np.linspace(0.0, 1.0, 40)})
     out = _extract_column_array(df, "y")
@@ -376,7 +376,7 @@ def test_fix7_composite_auto_detect_monotonicity_handles_float_input():
     ``np.asarray + astype(np.float64)`` without copy=False, paying an extra allocation per call.
     Behavioural check: pass a float64 polars column with strictly-increasing values and verify
     detect_time_column_candidates flags it as monotonic without raising on already-float input."""
-    from mlframe.training.composite_auto_detect import detect_time_column_candidates
+    from mlframe.training.composite.discovery.auto_detect import detect_time_column_candidates
 
     df = pl.DataFrame({
         "asc": np.arange(30, dtype=np.float64),
@@ -402,7 +402,7 @@ def test_fix7_extract_base_returns_float64_ndarray():
 def test_fix7_screening_extract_column_array_float32():
     """_extract_column_array intentionally returns float32 (see module docstring)
     to halve memory of the 4M-row discovery matrix."""
-    from mlframe.training.composite_screening import _extract_column_array
+    from mlframe.training.composite.discovery.screening import _extract_column_array
 
     df = pl.DataFrame({"x": [1, 2, 3, 4]})
     out = _extract_column_array(df, "x")

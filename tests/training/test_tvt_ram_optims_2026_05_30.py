@@ -28,7 +28,7 @@ def test_1_leak_corr_filter_drops_strong_y_correlate_after_in_place_fix():
     correlate. Regression check that removing the .copy() didn't break correctness."""
     pytest.importorskip("polars")
     import polars as pl
-    from mlframe.training.composite_discovery import CompositeTargetDiscovery
+    from mlframe.training.composite.discovery import CompositeTargetDiscovery
     from mlframe.training._composite_target_discovery_config import CompositeTargetDiscoveryConfig
 
     rng = np.random.default_rng(0)

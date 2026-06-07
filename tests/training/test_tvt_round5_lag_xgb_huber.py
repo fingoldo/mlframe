@@ -677,7 +677,7 @@ class TestGroupAwareTinyRerank:
 
     def test_y_scale_accepts_groups_kwarg(self) -> None:
         import inspect
-        from mlframe.training._composite_screening_tiny import (
+        from mlframe.training.composite.discovery._screening_tiny import (
             _tiny_cv_rmse_y_scale, _tiny_cv_rmse_raw_y,
         )
         sig_y = inspect.signature(_tiny_cv_rmse_y_scale)
@@ -689,7 +689,7 @@ class TestGroupAwareTinyRerank:
         """Behavioural check: the rerank entry point is callable; the
         end-to-end groups-routing is verified by
         test_groupkfold_used_when_groups_supplied below."""
-        from mlframe.training import _composite_discovery_tiny_rerank as mod
+        from mlframe.training.composite.discovery import _tiny_rerank as mod
         rerank = getattr(mod, "_tiny_model_rerank", None)
         assert callable(rerank), "_composite_discovery_tiny_rerank dropped _tiny_model_rerank"
 
@@ -706,7 +706,7 @@ class TestGroupAwareTinyRerank:
         it routes through GroupKFold (different fold assignment than
         random KFold)."""
         pytest.importorskip("lightgbm")
-        from mlframe.training._composite_screening_tiny import (
+        from mlframe.training.composite.discovery._screening_tiny import (
             _tiny_cv_rmse_y_scale,
         )
         from mlframe.training.composite.transforms import get_transform

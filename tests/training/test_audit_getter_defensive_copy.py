@@ -55,7 +55,7 @@ def test_composite_discovery_report_isolates_inner_dicts():
     """Behavioural: build a fake CompositeTargetDiscovery instance with
     a synthetic report_ list, call report(), mutate the returned inner
     dict, call report() again, assert original value preserved."""
-    from mlframe.training.composite_discovery import CompositeTargetDiscovery
+    from mlframe.training.composite.discovery import CompositeTargetDiscovery
 
     # Sidestep the full constructor (which builds a config) by attaching
     # the attribute on a bare instance via __new__.
@@ -83,7 +83,7 @@ def test_composite_discovery_report_isolates_inner_dicts():
 
 def test_composite_discovery_filter_drops_isolates_inner_dicts():
     """Same shape for filter_drops()."""
-    from mlframe.training.composite_discovery import CompositeTargetDiscovery
+    from mlframe.training.composite.discovery import CompositeTargetDiscovery
 
     disc = CompositeTargetDiscovery.__new__(CompositeTargetDiscovery)
     disc._filter_drops = [
@@ -106,7 +106,7 @@ def test_composite_discovery_filter_drops_isolates_inner_dicts():
 def test_composite_discovery_report_and_filter_drops_return_fresh_outer_list():
     """report()/filter_drops() must also decouple the OUTER list (not just inner dicts): mutating
     the returned list (append/clear) must not change the next call's result."""
-    from mlframe.training.composite_discovery import CompositeTargetDiscovery
+    from mlframe.training.composite.discovery import CompositeTargetDiscovery
 
     disc = CompositeTargetDiscovery.__new__(CompositeTargetDiscovery)
     disc.report_ = [{"name": "spec_a", "score": 0.5}]

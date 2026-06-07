@@ -30,7 +30,7 @@ import pytest
 
 def test_detect_cat_columns_picks_real_categoricals() -> None:
     """A column with 5 categories x ~200 samples each is a strong FHC candidate."""
-    from mlframe.training.composite_auto_detect import detect_cat_columns
+    from mlframe.training.composite.discovery.auto_detect import detect_cat_columns
 
     rng = np.random.default_rng(42)
     df = pd.DataFrame({
@@ -47,7 +47,7 @@ def test_detect_cat_columns_picks_real_categoricals() -> None:
 
 def test_detect_cat_columns_rejects_high_cardinality_id() -> None:
     """A column with 10_000 unique values should be REJECTED (above max_unique)."""
-    from mlframe.training.composite_auto_detect import detect_cat_columns
+    from mlframe.training.composite.discovery.auto_detect import detect_cat_columns
 
     df = pd.DataFrame({"user_id": np.arange(10_000), "y": np.ones(10_000)})
     out = detect_cat_columns(df, max_unique=1000)
@@ -58,7 +58,7 @@ def test_detect_cat_columns_rejects_high_cardinality_id() -> None:
 def test_detect_cat_columns_rejects_too_few_samples_per_cat() -> None:
     """A column with many categories but only 1-2 samples each should be REJECTED
     (FHC encoding produces unreliable target_mean / WoE on rare levels)."""
-    from mlframe.training.composite_auto_detect import detect_cat_columns
+    from mlframe.training.composite.discovery.auto_detect import detect_cat_columns
 
     # 50 categories x 2 samples each = 100 rows, min_per_cat=2 < default 20.
     df = pd.DataFrame({"rare": np.repeat(np.arange(50), 2), "y": np.zeros(100)})
@@ -69,7 +69,7 @@ def test_detect_cat_columns_rejects_too_few_samples_per_cat() -> None:
 
 def test_detect_cat_columns_handles_low_card_int_as_cat() -> None:
     """Per memory note, int columns with low cardinality ARE valid cat candidates."""
-    from mlframe.training.composite_auto_detect import detect_cat_columns
+    from mlframe.training.composite.discovery.auto_detect import detect_cat_columns
 
     rng = np.random.default_rng(0)
     df = pd.DataFrame({
@@ -82,7 +82,7 @@ def test_detect_cat_columns_handles_low_card_int_as_cat() -> None:
 
 def test_detect_cat_columns_score_higher_for_better_signal() -> None:
     """A 5-cat balanced column beats a 2-cat highly-skewed column at score."""
-    from mlframe.training.composite_auto_detect import detect_cat_columns
+    from mlframe.training.composite.discovery.auto_detect import detect_cat_columns
 
     rng = np.random.default_rng(123)
     df = pd.DataFrame({
@@ -101,7 +101,7 @@ def test_detect_cat_columns_score_higher_for_better_signal() -> None:
 
 
 def test_detect_cat_columns_empty_dataframe() -> None:
-    from mlframe.training.composite_auto_detect import detect_cat_columns
+    from mlframe.training.composite.discovery.auto_detect import detect_cat_columns
 
     df = pd.DataFrame({"a": [], "b": []})
     out = detect_cat_columns(df)
@@ -109,7 +109,7 @@ def test_detect_cat_columns_empty_dataframe() -> None:
 
 
 def test_detect_cat_columns_all_null_column_skipped() -> None:
-    from mlframe.training.composite_auto_detect import detect_cat_columns
+    from mlframe.training.composite.discovery.auto_detect import detect_cat_columns
 
     df = pd.DataFrame({
         "always_null": [None] * 100,
@@ -124,7 +124,7 @@ def test_detect_cat_columns_all_null_column_skipped() -> None:
 def test_detect_cat_columns_polars_input() -> None:
     """Polars DataFrame parity: same detection logic."""
     pl = pytest.importorskip("polars")
-    from mlframe.training.composite_auto_detect import detect_cat_columns
+    from mlframe.training.composite.discovery.auto_detect import detect_cat_columns
 
     rng = np.random.default_rng(7)
     df = pl.DataFrame({
@@ -139,7 +139,7 @@ def test_detect_cat_columns_polars_input() -> None:
 
 def test_detect_cat_columns_returns_info_dict_fields() -> None:
     """Verify the info_dict contract."""
-    from mlframe.training.composite_auto_detect import detect_cat_columns
+    from mlframe.training.composite.discovery.auto_detect import detect_cat_columns
 
     df = pd.DataFrame({"x": np.repeat(["a", "b", "c"], 100)})
     out = detect_cat_columns(df)
@@ -155,7 +155,7 @@ def test_detect_cat_columns_returns_info_dict_fields() -> None:
 def test_detect_cat_columns_calibration_vs_group_detect() -> None:
     """Symmetric-sibling contract: detect_cat_columns has different thresholds
     than detect_group_column_candidates. Verify both don't agree on edge cases."""
-    from mlframe.training.composite_auto_detect import (
+    from mlframe.training.composite.discovery.auto_detect import (
         detect_cat_columns,
         detect_group_column_candidates,
     )

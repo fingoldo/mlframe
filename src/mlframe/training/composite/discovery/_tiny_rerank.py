@@ -14,9 +14,9 @@ from typing import Any, Optional, Sequence
 
 import numpy as np
 
-from .composite_spec import CompositeSpec
-from .composite.ensemble import _is_monotone_nondecreasing
-from .composite_screening import (
+from ...composite_spec import CompositeSpec
+from ..ensemble import _is_monotone_nondecreasing
+from .screening import (
     _extract_column_array,
     _sample_indices,
     _tiny_cv_rmse_raw_y,
@@ -24,7 +24,7 @@ from .composite_screening import (
     _tiny_cv_rmse_y_scale,
     _tiny_cv_rmse_y_scale_multiseed,
 )
-from .composite.transforms import get_transform
+from ..transforms import get_transform
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ def _tiny_rerank_ram_checkpoint(label: str) -> None:
     edge.
     """
     try:
-        from ._composite_discovery_fit import _process_mem_mb
+        from ._fit import _process_mem_mb
         rss_mb, uss_mb, commit_mb = _process_mem_mb()
     except Exception:
         return

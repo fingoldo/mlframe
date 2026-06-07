@@ -58,7 +58,7 @@ class TestDiscoveryHonoursSkipFlag:
     """Wiring smoke: discovery sees the config knob without crash."""
 
     def test_discovery_with_skip_flag_does_not_crash(self) -> None:
-        from mlframe.training.composite_discovery import CompositeTargetDiscovery
+        from mlframe.training.composite.discovery import CompositeTargetDiscovery
         rng = np.random.default_rng(2)
         n = 1500
         x_a = rng.normal(50.0, 10.0, n)

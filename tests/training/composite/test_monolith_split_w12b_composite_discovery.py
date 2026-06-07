@@ -6,9 +6,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from mlframe.training import composite_discovery as parent
-from mlframe.training import _composite_discovery_filter as filter_mod
-from mlframe.training import _composite_discovery_stacked as stacked_mod
+from mlframe.training.composite import discovery as parent
+from mlframe.training.composite.discovery import _filter as filter_mod
+from mlframe.training.composite.discovery import _stacked as stacked_mod
 from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
 

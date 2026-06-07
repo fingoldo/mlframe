@@ -12,12 +12,12 @@ from tests.conftest import is_fast_mode
 
 class TestFitStackedOnResidualWiring:
     def test_method_exists(self) -> None:
-        from mlframe.training.composite_discovery import CompositeTargetDiscovery
+        from mlframe.training.composite.discovery import CompositeTargetDiscovery
         assert hasattr(CompositeTargetDiscovery, "fit_stacked_on_residual")
 
     def test_pass1_only_when_pass1_empty(self) -> None:
         """When pass-1 discovers nothing, pass-2 must not run."""
-        from mlframe.training.composite_discovery import CompositeTargetDiscovery
+        from mlframe.training.composite.discovery import CompositeTargetDiscovery
         from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
         rng = np.random.default_rng(0)
@@ -39,7 +39,7 @@ class TestFitStackedOnResidualWiring:
 class TestFitStackedOnResidualBizVal:
     def test_finds_at_least_pass1_specs_on_two_signal_synthetic(self) -> None:
         """y = 1.5*x_a + 2*x_b + noise -- pass 1 should find linres on x_a or x_b; pass 2 on residual may find the other."""
-        from mlframe.training.composite_discovery import CompositeTargetDiscovery
+        from mlframe.training.composite.discovery import CompositeTargetDiscovery
         from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
         rng = np.random.default_rng(11)

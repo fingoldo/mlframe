@@ -13,7 +13,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from mlframe.training.composite_forward_stepwise import forward_stepwise_multi_base
+from mlframe.training.composite.discovery.forward_stepwise import forward_stepwise_multi_base
 
 
 @pytest.fixture
@@ -135,7 +135,7 @@ def test_tiny_cv_rmse_raw_y_accepts_selector_kwargs() -> None:
     Full numerical validation lives in the aggregate_fold_scores unit tests; here we just
     confirm the plumbing didn't break the tiny-rerank API signature.
     """
-    from mlframe.training._composite_screening_tiny import _tiny_cv_rmse_raw_y
+    from mlframe.training.composite.discovery._screening_tiny import _tiny_cv_rmse_raw_y
 
     rng = np.random.default_rng(0)
     n = 200

@@ -10,7 +10,7 @@ from typing import Any, Sequence
 
 import numpy as np
 
-from .composite_screening import (
+from .screening import (
     _extract_column_array,
     _is_numeric_column,
     _safe_abs_corr_all,

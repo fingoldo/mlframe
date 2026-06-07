@@ -1,4 +1,4 @@
-"""Biz-value and unit tests for mlframe.training.composite_auto_detect.
+"""Biz-value and unit tests for mlframe.training.composite.discovery.auto_detect.
 
 Three public detectors:
   - ``detect_time_column_candidates``
@@ -18,7 +18,7 @@ import pandas as pd
 import polars as pl
 import pytest
 
-from mlframe.training.composite_auto_detect import (
+from mlframe.training.composite.discovery.auto_detect import (
     detect_cat_columns,
     detect_group_column_candidates,
     detect_time_column_candidates,

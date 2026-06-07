@@ -124,7 +124,7 @@ def test_composite_screening_gate_on_target_only_not_col0():
     import mlframe as _mlframe
     src = (
         pathlib.Path(_mlframe.__file__).resolve().parent
-        / "training" / "composite_screening.py"
+        / "training" / "composite" / "discovery" / "screening.py"
     ).read_text(encoding="utf-8")
     # Pre-fix shape MUST be gone:
     assert "finite = np.isfinite(target) & (feature_binned[:, 0] >= 0)" not in src, (

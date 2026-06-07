@@ -13,26 +13,26 @@ from typing import Any, Sequence
 
 import numpy as np
 
-from .composite_spec import CompositeSpec
-from .composite_forward_stepwise import forward_stepwise_multi_base
-from .composite_screening import (
+from ...composite_spec import CompositeSpec
+from .forward_stepwise import forward_stepwise_multi_base
+from .screening import (
     _extract_column_array,
     _mi_to_target,
     _mi_to_target_prebinned,
     _prebin_feature_columns,
     _sample_indices,
 )
-from .composite.transforms import (
+from ..transforms import (
     UnknownTransformError,
     _linear_residual_fit,
     _linear_residual_multi_fit,
     compose_target_name,
     get_transform,
 )
-from ._ram_helpers import (
+from ..._ram_helpers import (
     get_process_rss_mb as _rss_mb,
 )
-from ._composite_discovery_eval import eval_one_transform
+from ._eval import eval_one_transform
 
 logger = logging.getLogger(__name__)
 

@@ -14,7 +14,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from mlframe.training.composite_bayesian import (
+from mlframe.training.composite.discovery.bayesian import (
     bayesian_alpha_fit,
     bayesian_alpha_fit_bootstrap,
 )
