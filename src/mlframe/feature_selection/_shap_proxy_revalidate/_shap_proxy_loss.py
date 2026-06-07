@@ -21,6 +21,27 @@ from sklearn.metrics import (
 logger = logging.getLogger(__name__)
 
 
+def _slice_cols_to_numpy(X, cols):
+    """Gather ``cols`` from ``X`` (DataFrame or ndarray) as a plain float numpy array.
+
+    Speed lever (2026-06-08): the honest-retrain hot loop (revalidation / within-cluster refine /
+    trust guard / ablation) trains + predicts the booster hundreds of times per fit on a column
+    slice of the SAME ``X_search`` / ``X_hold`` frames. Passing the slice as a *named* pandas
+    DataFrame forces xgboost to (a) extract C-string feature names via ``from_cstr_to_pystr`` on
+    every fit AND every predict, and (b) run ``_validate_features`` name-matching -- cProfile @
+    width=4000 attributed ~1.0s (8% of a 12.6s fit) to ``from_cstr_to_pystr`` / ``_get_feature_info``
+    / ``_validate_features``, all GIL-holding Python work that also serialises the threaded honest
+    pool. Tree splits depend only on column VALUES + POSITIONS, never names; a microbench confirmed
+    fit-on-numpy then predict-on-numpy is BIT-IDENTICAL to the named-DataFrame path (max abs diff
+    0.0, ``np.array_equal`` True) at ~1.13x per fit. So we strip the names: slice columns to a
+    contiguous numpy array once and hand xgboost positional columns. Identity is preserved because
+    fit and predict use the SAME column order (``cols``) so positional alignment == name alignment.
+    Accepts ndarray input unchanged (already nameless) for callers that pre-converted upstream."""
+    if hasattr(X, "iloc"):
+        return X.iloc[:, cols].to_numpy(copy=False)
+    return np.asarray(X)[:, cols]
+
+
 # Cache-key namespace for the cross-process honest_loss disk cache. Keeps entries from this consumer
 # from colliding with the shap_phi_ entries the OOF-SHAP path writes into the same cache_dir, and
 # makes the cache human-greppable (``ls cache_dir/honest_loss_*`` shows reval/trust entries).
@@ -301,11 +322,15 @@ def _honest_loss(model_template, X_tr, y_tr, X_ev, y_ev, idx, classification, me
             est.set_params(n_jobs=int(inner_n_jobs))
         except (ValueError, TypeError):
             pass
-    est.fit(X_tr.iloc[:, cols], y_tr)
+    # Numpy-slice the fit/predict columns (strip pandas feature names -> xgboost skips the
+    # per-call ``from_cstr_to_pystr`` + ``_validate_features`` marshalling; bit-identical, see
+    # ``_slice_cols_to_numpy``). Same ``cols`` order on both sides keeps positional == named.
+    est.fit(_slice_cols_to_numpy(X_tr, cols), y_tr)
+    X_ev_arr = _slice_cols_to_numpy(X_ev, cols)
     if classification:
-        p = est.predict_proba(X_ev.iloc[:, cols])[:, 1]
+        p = est.predict_proba(X_ev_arr)[:, 1]
     else:
-        p = est.predict(X_ev.iloc[:, cols])
+        p = est.predict(X_ev_arr)
     loss = _loss_from_predictions(p, y_ev, classification, metric)
     if cache is not None:
         cache.put(idx, seed, loss, template_id)
@@ -370,36 +395,40 @@ def _permutation_importance_ranking(model_template, X_tr, y_tr, X_ev, y_ev, curr
                 est.set_params(n_jobs=int(inner_n_jobs))
             except (ValueError, TypeError):
                 pass
-        est.fit(X_tr.iloc[:, cols], y_tr)
+        # Fit on a nameless numpy slice (strip pandas feature names -> xgboost skips the
+        # ``from_cstr_to_pystr`` + ``_validate_features`` marshalling; bit-identical to the named
+        # path, see ``_slice_cols_to_numpy``). The shuffle-predict loop below feeds numpy too.
+        est.fit(_slice_cols_to_numpy(X_tr, cols), y_tr)
         if disk_cache is not None and fit_disk_key is not None:
             try:
                 disk_cache.put(fit_disk_key, est)
             except Exception as exc:
                 logger.debug("_permutation_importance_ranking: disk cache put failed (%s); skipping", exc)
     # Score the un-permuted base once; cheaper to use the same model with the un-shuffled matrix.
-    X_ev_sub = X_ev.iloc[:, cols]
-    X_ev_arr = X_ev_sub.to_numpy(copy=False)
+    X_ev_arr = _slice_cols_to_numpy(X_ev, cols)
     if classification:
-        base_p = est.predict_proba(X_ev_sub)[:, 1]
+        base_p = est.predict_proba(X_ev_arr)[:, 1]
     else:
-        base_p = est.predict(X_ev_sub)
+        base_p = est.predict(X_ev_arr)
     base_loss = _loss_from_predictions(base_p, y_ev, classification, metric)
 
     rng = np.random.default_rng(int(seed))
     # Pre-build column-major copy so we can swap one column at a time without re-allocating the matrix.
-    X_perm = X_ev_arr.copy()
+    # Predict directly on the numpy buffer: the booster was fit nameless above, so it accepts
+    # positional numpy columns -- this drops the per-shuffle DataFrame rewrap (k extra allocations +
+    # name marshalling per ranking pass), bit-identical because the column order never changes.
+    # Own a contiguous, writable copy (X_ev_arr may be a view into X_ev) so the in-place column
+    # swaps below never touch the caller's buffer; ``predict`` needs C-contiguous input anyway.
+    X_perm = np.ascontiguousarray(X_ev_arr).copy()
     perm = rng.permutation(X_perm.shape[0])
     importances = np.zeros(len(cols), dtype=np.float64)
-    cols_names = list(X_ev_sub.columns)
     for j in range(len(cols)):
         orig = X_perm[:, j].copy()
         X_perm[:, j] = orig[perm]
-        # Wrap in a DataFrame matching the training column order so booster accepts it cleanly.
-        shuf_df = pd.DataFrame(X_perm, columns=cols_names, index=X_ev_sub.index, copy=False)
         if classification:
-            p = est.predict_proba(shuf_df)[:, 1]
+            p = est.predict_proba(X_perm)[:, 1]
         else:
-            p = est.predict(shuf_df)
+            p = est.predict(X_perm)
         loss_shuf = _loss_from_predictions(p, y_ev, classification, metric)
         importances[j] = loss_shuf - base_loss
         X_perm[:, j] = orig  # restore so the next column shuffles against an otherwise-clean matrix
