@@ -5712,6 +5712,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 unique_max_degree=self.friend_graph_unique_max_degree,
                 max_nodes=self.friend_graph_max_nodes,
                 seed=self.random_seed,
+                gpu_backend=getattr(self, "friend_graph_gpu_backend", None),
             )
             if self.friend_graph_prune:
                 # Protect cluster-aggregate columns from pruning: they are correlated with all their

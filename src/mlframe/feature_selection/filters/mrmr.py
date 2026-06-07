@@ -692,6 +692,13 @@ class MRMR(BaseEstimator, TransformerMixin):
         # Guard on the O(k^2) edge pass: above this many selected features the graph keeps
         # node stats only and skips edges (warns). Raise for large opt-in graphs.
         friend_graph_max_nodes: int = 200,
+        # GPU acceleration of the friend-graph O(k^2) pairwise-MI edge pass + the k node
+        # entropy/relevance stats (the diagnostic build + the prune/cluster path). None
+        # (default) -> per-host kernel_tuning dispatch keyed by (k, n), CPU fallback when
+        # no GPU / not chosen; "cpu" forces the legacy CPU pass; "cupy"/"cuda" force a GPU
+        # backend. BIT-IDENTICAL (GPU does only integer counting; entropy + every keep/drop
+        # decision stay on the bit-exact CPU path).
+        friend_graph_gpu_backend: Optional[str] = None,
         # Edge kept only when I(X_a; X_b) exceeds this absolute floor (nats).
         friend_graph_mi_eps: float = 1e-6,
         # ...and exceeds ``friend_graph_edge_significance`` times the finite-sample MI bias

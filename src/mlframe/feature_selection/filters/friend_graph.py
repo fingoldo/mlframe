@@ -194,6 +194,23 @@ def pairwise_mi_edge(factors_data, a, b, factors_nbins, n_samples, mi_eps=1e-6, 
     return m if m > floor else None
 
 
+def _apply_edge_floor(m, a, b, factors_nbins, n_samples, mi_eps=1e-6, edge_significance=3.0):
+    """Apply ``pairwise_mi_edge``'s finite-sample significance floor to a PRE-COMPUTED
+    raw edge MI ``m`` (e.g. the bit-identical GPU value ``H_a + H_b - H_ab`` clamped >=0).
+
+    Returns ``m`` if it clears the floor, else ``None`` -- the IDENTICAL keep/drop rule as
+    ``pairwise_mi_edge``, just without recomputing the MI (the GPU already produced it).
+    ``m is None`` (pair absent from the GPU result -- should not happen for an in-``sel``
+    pair) is treated as "no edge". The floor formula is duplicated verbatim from
+    ``pairwise_mi_edge`` so the two paths can never diverge in their gating threshold.
+    """
+    if m is None:
+        return None
+    na, nb = int(factors_nbins[a]), int(factors_nbins[b])
+    floor = max(mi_eps, edge_significance * (na - 1) * (nb - 1) / (2.0 * max(1, int(n_samples))))
+    return m if m > floor else None
+
+
 def neighbor_unique_target(factors_data, i, neighbor_indices, target, rel_i, factors_nbins, dtype=np.int32):
     """Sum_j I(Y; X_j | X_i) over neighbors via the chain rule ``I((X_i,X_j);Y) - I(X_i;Y)`` (clamped >=0).
 
@@ -253,6 +270,7 @@ def build_friend_graph(
     compute_layout: bool = True,
     dtype=np.int32,
     seed=None,
+    gpu_backend: Optional[str] = None,
 ) -> FriendGraph:
     """Build the friend graph for ``selected_vars`` over the discretized matrix.
 
@@ -266,6 +284,15 @@ def build_friend_graph(
     warning is logged. True higher-order "unique information" is intractable at
     hundreds-to-thousands of features / 100+ lags; the neighbor-aggregated
     ``sum_j I(Y; X_j | X)`` is the practical proxy this graph reports.
+
+    ``gpu_backend`` controls the GPU acceleration of the O(k^2) pairwise-MI edge
+    pass + the k node entropy/relevance stats (``friend_graph_gpu``): ``None``
+    (default) dispatches via the per-host kernel_tuning cache keyed by ``(k, n)``
+    and falls back to CPU when no GPU / not chosen; ``"cpu"`` forces the legacy
+    CPU edge pass; ``"cupy"`` / ``"cuda"`` force a GPU backend. The GPU path is
+    BIT-IDENTICAL: the GPU does only the integer joint/marginal counting, the
+    entropy + every keep/drop decision (significance floor, ADC direction,
+    garbage classification) stay on the bit-exact CPU path.
     """
     sel = [int(v) for v in selected_vars]
     target = np.asarray(target_indices, dtype=np.int64)
@@ -278,17 +305,6 @@ def build_friend_graph(
     if not sel:
         return graph
 
-    # Per-node entropy + target relevance.
-    H: Dict[int, float] = {}
-    rel: Dict[int, float] = {}
-    for i in sel:
-        H[i] = _node_entropy(factors_data, i, factors_nbins, entropy_cache, dtype)
-        rel[i] = node_relevance(factors_data, i, target, factors_nbins, dtype=dtype)
-
-    edges: List[FriendGraphEdge] = []
-    neighbors: Dict[int, List[Tuple[int, float]]] = {i: [] for i in sel}
-    weighted_degree: Dict[int, float] = {i: 0.0 for i in sel}
-
     edges_skipped = len(sel) > max_nodes
     if edges_skipped:
         logger.warning(
@@ -296,8 +312,49 @@ def build_friend_graph(
             "stats only and skipping the O(k^2) edge pass. Raise max_nodes to force it.",
             len(sel), max_nodes,
         )
-    else:
+
+    # GPU dispatch for the O(k^2) edge pass + the k node entropy/relevance stats.
+    # BIT-IDENTICAL (GPU does only integer counting; entropy + every keep/drop decision
+    # stay on the bit-exact CPU path). ``None`` -> per-host kernel_tuning dispatch (CPU
+    # fallback default); "cpu" -> force the legacy CPU pass; "cupy"/"cuda" -> force GPU.
+    # Skipped when the edge pass is skipped (max_nodes guard) -- no O(k^2) cost to offload.
+    gpu_stats = None
+    if not edges_skipped and gpu_backend != "cpu":
+        try:
+            from .friend_graph_gpu import dispatch_friend_graph_stats
+
+            gpu_stats = dispatch_friend_graph_stats(
+                sel, factors_data, factors_nbins, target,
+                dtype=dtype, force_backend=gpu_backend,
+            )
+        except Exception:
+            logger.debug("friend_graph GPU dispatch unavailable; using CPU edge pass", exc_info=True)
+            gpu_stats = None
+
+    # Per-node entropy + target relevance (from GPU stats when present, else CPU
+    # primitives). GPU H/rel are bit-identical to ``_node_entropy`` / ``node_relevance``.
+    H: Dict[int, float] = {}
+    rel: Dict[int, float] = {}
+    gpu_rel = gpu_stats.rel if (gpu_stats is not None) else None
+    for i in sel:
+        if gpu_stats is not None and i in gpu_stats.H:
+            H[i] = gpu_stats.H[i]
+            if entropy_cache is not None:
+                entropy_cache.setdefault((int(i),), H[i])
+        else:
+            H[i] = _node_entropy(factors_data, i, factors_nbins, entropy_cache, dtype)
+        if gpu_rel is not None and i in gpu_rel:
+            rel[i] = gpu_rel[i]
+        else:
+            rel[i] = node_relevance(factors_data, i, target, factors_nbins, dtype=dtype)
+
+    edges: List[FriendGraphEdge] = []
+    neighbors: Dict[int, List[Tuple[int, float]]] = {i: [] for i in sel}
+    weighted_degree: Dict[int, float] = {i: 0.0 for i in sel}
+
+    if not edges_skipped:
         n_samples = max(1, int(factors_data.shape[0]))
+        gpu_edges = gpu_stats.edge_mi if (gpu_stats is not None) else None
         for a, b in combinations(sel, 2):
             # Pairwise feature-feature MI gated by the finite-sample significance floor (see
             # ``pairwise_mi_edge``): suppresses spurious links between independent features.
@@ -305,11 +362,21 @@ def build_friend_graph(
             # computes the joint entropy (1 merge_vars vs mi()'s 3). On
             # k selected features this drops the O(k^2) edge pass from
             # 3*C(k,2) marginal+joint passes to C(k,2)+k.
-            m = pairwise_mi_edge(
-                factors_data, a, b, factors_nbins, n_samples,
-                mi_eps=mi_eps, edge_significance=edge_significance, dtype=dtype,
-                h_a=H[a], h_b=H[b],
-            )
+            #
+            # GPU path: the raw I(X_a; X_b) is the bit-identical GPU value
+            # (H_a + H_b - H_ab, clamped >=0); the SAME significance floor is then
+            # applied here so the keep/drop decision + topology are unchanged.
+            if gpu_edges is not None:
+                m = _apply_edge_floor(
+                    gpu_edges.get((a, b)), a, b, factors_nbins, n_samples,
+                    mi_eps=mi_eps, edge_significance=edge_significance,
+                )
+            else:
+                m = pairwise_mi_edge(
+                    factors_data, a, b, factors_nbins, n_samples,
+                    mi_eps=mi_eps, edge_significance=edge_significance, dtype=dtype,
+                    h_a=H[a], h_b=H[b],
+                )
             if m is None:
                 continue
             # ADC / uncertainty-coefficient direction: arrow points to the more-explained
