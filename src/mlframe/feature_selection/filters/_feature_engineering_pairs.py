@@ -1495,6 +1495,16 @@ def check_prospective_fe_pairs(
     # Operands recur across pairs, so memoise by cols-space var index.
     _operand_marginal_mi_cache: dict = {}
 
+    # bench-attempt-rejected (2026-06-07): BATCH all distinct operands' marginal MI through
+    # one discretize_2d_quantile_batch + one _dispatch_batch_mi_with_noise_gate (Q9), instead
+    # of this per-var single-column discretize_array + mi_direct. It WOULD be bit-identical
+    # (the batch discretise + batch gate are already proven equal to the per-column path), but
+    # it is not worth the invasive control-flow change + the risk to the load-bearing uplift
+    # gate comparison below: _operand_marginal_mi is already memoised (each distinct operand
+    # computed at most once) AND it only fires on the marginal-uplift FALLBACK gate (pairs that
+    # miss the joint + prewarp gates), so on the scene scene-profile the ENTIRE mi_direct family
+    # is only 0.1-0.3% of fit wall -- batching it saves a sub-noise fraction that is dwarfed by
+    # the GPU-clock variance between runs. Re-evaluate only if a workload makes this gate hot.
     def _operand_marginal_mi(_var) -> float:
         if _var in _operand_marginal_mi_cache:
             return _operand_marginal_mi_cache[_var]
