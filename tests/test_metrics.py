@@ -390,6 +390,9 @@ class TestLogLossPerformance:
         np.testing.assert_allclose(custom_result, sklearn_result, rtol=1e-6)
 
         # Should be significantly faster
+        from tests.conftest import running_under_xdist
+        if running_under_xdist():
+            pytest.skip("wall-clock comparison flakes under -n contention; correctness asserted above")
         assert custom_time < sklearn_time
 
 

@@ -101,11 +101,19 @@ class TestMLPMulticlassEndToEnd:
     """``train_mlframe_models_suite(target_type=MULTICLASS)`` with mlp."""
 
     def test_smoke_fits_predicts_returns_3_class_probs(self, synthetic_3class_data):
+        from tests.conftest import is_fast_mode
         df, y = synthetic_3class_data
         fte = SimpleFeaturesAndTargetsExtractor(
             target_column="target", regression=False,
             target_type=TargetTypes.MULTICLASS_CLASSIFICATION,
         )
+        # The MLP relies on early-stopping to bound epochs; under heavy -n
+        # contention the full fit can exceed the per-test timeout. Cap epochs
+        # in fast mode -- the smoke assertion (suite returns a multiclass
+        # entry) is unaffected by the epoch budget.
+        kwargs = {}
+        if is_fast_mode():
+            kwargs["hyperparams_config"] = {"iterations": 5}
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             models, _ = train_mlframe_models_suite(
@@ -113,6 +121,7 @@ class TestMLPMulticlassEndToEnd:
                 features_and_targets_extractor=fte,
                 mlframe_models=["mlp"],
                 use_mlframe_ensembles=False, verbose=0,
+                **kwargs,
             )
         assert TargetTypes.MULTICLASS_CLASSIFICATION in models
 
