@@ -1,8 +1,8 @@
 """``_run_suite_profiled`` carved out of
-``mlframe.training._profile_fuzz_1m``.
+``mlframe.training._benchmarks._profile_fuzz_1m``.
 
 Re-imported at the parent's module bottom so historical
-``from mlframe.training._profile_fuzz_1m import _run_suite_profiled``
+``from mlframe.training._benchmarks._profile_fuzz_1m import _run_suite_profiled``
 resolves transparently.
 """
 from __future__ import annotations

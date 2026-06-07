@@ -794,7 +794,7 @@
   "training/_precompute.py::precompute_composite_target_specs",
   "training/_precompute.py::precompute_dummy_baselines",
   "training/_precompute.py::precompute_trainset_features_stats",
-  "training/_profile_fuzz_1m.py::main",
+  "training/_benchmarks/_profile_fuzz_1m.py::main",
   "training/_ram_helpers.py::estimate_df_size_mb",
   "training/ranking/_ranker_suite_train.py::train_mlframe_ranker_suite",
   "training/_trainer_configure.py::configure_training_params",

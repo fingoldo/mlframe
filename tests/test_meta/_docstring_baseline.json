@@ -583,7 +583,7 @@
   "training/callbacks/_callbacks.py::LightGBMCallback",
   "training/callbacks/_callbacks.py::UniversalCallback",
   "training/callbacks/_callbacks.py::XGBoostCallback",
-  "training/_profile_fuzz_1m.py::main",
+  "training/_benchmarks/_profile_fuzz_1m.py::main",
   "training/baselines/_profile_dummy_baselines.py::main",
   "training/baselines/_profile_dummy_baselines_recent.py::main",
   "training/baselines/_smoke_dummy_baselines_e2e.py::main",

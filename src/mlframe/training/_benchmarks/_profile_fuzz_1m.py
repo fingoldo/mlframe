@@ -11,11 +11,11 @@ Reports per-combo wall time + cProfile top-N cumulative.
 
 Usage::
 
-    python -m mlframe.training._profile_fuzz_1m
-    python -m mlframe.training._profile_fuzz_1m --target regression
-    python -m mlframe.training._profile_fuzz_1m --n-rows 500000 --top 50
-    python -m mlframe.training._profile_fuzz_1m --models cb,xgb,lgb
-    python -m mlframe.training._profile_fuzz_1m --save-charts  # surface kaleido cost
+    python -m mlframe.training._benchmarks._profile_fuzz_1m
+    python -m mlframe.training._benchmarks._profile_fuzz_1m --target regression
+    python -m mlframe.training._benchmarks._profile_fuzz_1m --n-rows 500000 --top 50
+    python -m mlframe.training._benchmarks._profile_fuzz_1m --models cb,xgb,lgb
+    python -m mlframe.training._benchmarks._profile_fuzz_1m --save-charts  # surface kaleido cost
 
 == Findings (2026-05-10, n_rows=1M, regression x lgb) ==
 
