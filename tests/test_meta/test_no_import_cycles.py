@@ -41,7 +41,7 @@ _USER_DEFERRED_CYCLES: set[str] = {
     # ``_<topic>_common.py`` and have both siblings import from it
     # (see _numerical_constants.py for the canonical pattern). Drained
     # in a follow-up.
-    "mlframe.training._extractors_simple → mlframe.training.extractors",
+    "mlframe.training.extractors._extractors_simple → mlframe.training.extractors",
     # _reporting monolith split: 2-node (with _reporting_probabilistic) became
     # a 3-node SCC after _reporting_regression was carved out in the same way
     # (both siblings import constants from _reporting at top level; _reporting

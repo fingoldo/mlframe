@@ -15,8 +15,8 @@ import polars as pl
 
 from mlframe.feature_engineering.basic import create_date_features
 
-from .configs import TargetTypes
-from .extractors import FeaturesAndTargetsExtractor
+from ..configs import TargetTypes
+from . import FeaturesAndTargetsExtractor
 from ._extractors_dtype_helpers import (
     get_sample_weights_by_recency,
     intize_targets,

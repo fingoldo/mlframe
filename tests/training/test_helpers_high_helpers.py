@@ -316,7 +316,7 @@ def test_hhus15_showcase_seeded_subsample_reproducible(monkeypatch):
     # matplotlib import) moved to ``_extractors_showcase``; the parent module
     # re-exports the function but does not import ``plt`` itself. Reach into
     # the sibling for the matplotlib monkey-patches.
-    import mlframe.training._extractors_showcase as _ext_showcase
+    import mlframe.training.extractors._extractors_showcase as _ext_showcase
 
     captured_seeds: list[int] = []
     real_default_rng = np.random.default_rng

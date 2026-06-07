@@ -15,7 +15,7 @@ def parent_module():
 
 @pytest.fixture(scope="module")
 def siblings():
-    from mlframe.training import (
+    from mlframe.training.extractors import (
         _extractors_dtype_helpers,
         _extractors_showcase,
         _extractors_simple,

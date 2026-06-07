@@ -27,7 +27,7 @@ from ._extractors_dtype_helpers import (  # noqa: F401  -- re-export
     intize_targets,
 )
 from ._extractors_showcase import showcase_features_and_targets  # noqa: F401  -- re-export
-from .utils import get_pandas_view_of_polars_df, log_ram_usage
+from ..utils import get_pandas_view_of_polars_df, log_ram_usage
 
 logger = logging.getLogger(__name__)
 

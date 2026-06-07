@@ -29,7 +29,7 @@
   "models/tuning.py:333",
   "models/tuning.py:544",
   "training/_cb_pool.py:692",
-  "training/_extractors_showcase.py:50",
+  "training/extractors/_extractors_showcase.py:50",
   "training/_nan_processing.py:109",
   "training/_nan_processing.py:126",
   "training/_nan_processing.py:157",
