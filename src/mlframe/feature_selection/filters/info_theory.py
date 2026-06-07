@@ -864,6 +864,14 @@ def _relevance_from_dense(
     """
     n = classes_dense.shape[0]
     K_y = len(freqs_y)
+    # bench-attempt-rejected (2026-06-07): REUSE a thread-local joint_counts scratch
+    # (indexed by numba.get_thread_id()) instead of this per-call ``np.zeros`` to remove
+    # the K*(nperm+1) allocations (Q5). BYTE-IDENTICAL but a NET LOSS: 0.58x (K=300) ..
+    # 0.77x (K=4000) on the scene-like CPU gate. numba pool/stack-allocates this tiny
+    # (K_x x K_y ~ 10x2) array essentially for free; a shared (nthreads, max_Kx*K_y)
+    # scratch adds get_thread_id() + a manual zeroing loop + flat-index arithmetic +
+    # cross-thread false sharing that all cost MORE than the elided alloc. Keep the
+    # per-call np.zeros. (proto D:/Temp/q5_scratch_proto.py)
     joint_counts = np.zeros((K_x, K_y), dtype=dtype)
     for r in range(n):
         joint_counts[classes_dense[r, k], classes_y[r]] += 1
