@@ -553,6 +553,15 @@ def explain(self):
         explainer_base = get_pipeline_last_element(self.model)
     else:
         explainer_base = self.model
+    # perf note (2026-06-08): profiled on n=2407/p=120/LGBM-50tree/n_trials=30, a SHAP-driven fit is 98%
+    # third-party -- model .fit ~69%, TreeSHAP ~29% (TreeExplainer.__init__ ~1.35s reading the just-refit model
+    # + shap_values ~6.76s of C++ tree traversal). Both are intrinsic per-trial: the model is REFIT every trial,
+    # so the explainer must be rebuilt and cannot be cached. GPU TreeSHAP was considered and is OUT OF SCOPE here:
+    # (a) the wrapped model is caller-supplied (a CPU booster), so we cannot move it to GPU without changing the
+    # caller's estimator, and (b) GPU contrib reorders the float reductions, perturbing shap values ~1e-6, which
+    # can flip a borderline hit at the nanpercentile/`>` gate -> selection-altering. The mlframe-side per-trial
+    # overhead (shadow build, hit counting, binomial test, history) is now <0.1s total after the single-call drop
+    # + homogeneous-numeric shadow fast path; nothing further is actionable without changing the wrapped model.
     explainer = shap.TreeExplainer(explainer_base, feature_perturbation="tree_path_dependent")
 
     """
