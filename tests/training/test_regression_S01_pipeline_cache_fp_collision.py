@@ -18,7 +18,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from mlframe.training._pipeline_cache import _pre_pipeline_cache_key
+from mlframe.training.pipeline._pipeline_cache import _pre_pipeline_cache_key
 
 
 def _make_collision_pair_series(n: int = 1000) -> tuple[pd.Series, pd.Series]:
@@ -114,7 +114,7 @@ def test_full_target_content_hash_bit_identical_to_tobytes_reference():
     the copy-elision can never silently drift the cache key.
     """
     import hashlib
-    from mlframe.training._pipeline_cache import _full_target_content_hash
+    from mlframe.training.pipeline._pipeline_cache import _full_target_content_hash
 
     def _reference(np_arr: np.ndarray) -> str:
         h = hashlib.blake2b(np.ascontiguousarray(np_arr).tobytes(), digest_size=16)

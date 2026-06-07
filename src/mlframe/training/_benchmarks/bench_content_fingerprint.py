@@ -26,7 +26,7 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 
-from mlframe.training._pipeline_helpers import _content_fingerprint_for_cache
+from mlframe.training.pipeline._pipeline_helpers import _content_fingerprint_for_cache
 
 
 RESULTS_DIR = Path(__file__).parent / "_results"

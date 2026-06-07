@@ -56,7 +56,7 @@ def test_pysr_temp_target_column_restored_when_pysr_raises(monkeypatch):
     would leak the column. The fix moves injection INSIDE the try so the
     ``finally`` unconditionally drops it for EVERY exit path.
     """
-    from mlframe.training._pipeline_extensions import _apply_pysr_fe
+    from mlframe.training.pipeline._pipeline_extensions import _apply_pysr_fe
 
     _install_stub_run_pysr_feature_engineering(
         monkeypatch, raise_with=RuntimeError("simulated PySR failure"),
@@ -110,7 +110,7 @@ def test_pysr_temp_target_column_restored_when_random_seed_cast_raises(monkeypat
     The fix moves the injection INSIDE the try block, so the ``finally``
     drops the temp column for EVERY exit path including this one.
     """
-    from mlframe.training._pipeline_extensions import _apply_pysr_fe
+    from mlframe.training.pipeline._pipeline_extensions import _apply_pysr_fe
 
     # Stub PySR so we never reach it; the test exercises the pre-PySR path.
     _install_stub_run_pysr_feature_engineering(

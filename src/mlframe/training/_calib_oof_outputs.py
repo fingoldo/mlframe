@@ -12,7 +12,7 @@ from typing import Any, Optional, Tuple
 
 import numpy as np
 
-from ._pipeline_helpers import _prepare_test_split
+from .pipeline import _prepare_test_split
 from ._feature_name_sanitize import sanitize_frame_columns as _sanitize_frame_columns
 from ._cb_pool import _predict_with_fallback
 from ._eval_helpers import run_confidence_analysis

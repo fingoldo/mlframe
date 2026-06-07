@@ -34,7 +34,7 @@ try:
 except ImportError:
     XGBTrainingCallback = None  # type: ignore[assignment] -- only used when xgboost is the chosen backend
 
-from ._pipeline_helpers import _extract_feature_selector, _prepare_test_split
+from .pipeline import _extract_feature_selector, _prepare_test_split
 from .utils import filter_existing
 
 logger = logging.getLogger(__name__)

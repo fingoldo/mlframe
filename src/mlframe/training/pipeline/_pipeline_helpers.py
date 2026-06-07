@@ -24,8 +24,8 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 import pandas as pd
 
-from .utils import maybe_clean_ram_adaptive as _maybe_clean_ram
-from .phases import phase
+from ..utils import maybe_clean_ram_adaptive as _maybe_clean_ram
+from ..phases import phase
 
 try:
     import polars as pl
@@ -34,7 +34,7 @@ except ImportError:
 
 from sklearn.pipeline import Pipeline
 
-from .utils import log_ram_usage
+from ..utils import log_ram_usage
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +113,7 @@ def _prepare_test_split(
 ):
     """Prepare test DataFrame and target for evaluation."""
     # Lazy import: _data_helpers and _pipeline_helpers depend on each other; importing at top-level creates a circular load.
-    from ._data_helpers import _subset_dataframe, _extract_target_subset
+    from .._data_helpers import _subset_dataframe, _extract_target_subset
     if (df is not None) or (test_df is not None):
         if test_df is None:
             test_df = _subset_dataframe(df, test_idx, real_drop_columns)
@@ -490,7 +490,7 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
             # to object dtype). Route through the project's Arrow split-blocks bridge so passthrough columns
             # preserve their CategoricalDtype / DatetimeTZDtype etc.
             if is_polars:
-                from .utils import get_pandas_view_of_polars_df as _get_pandas_view
+                from ..utils import get_pandas_view_of_polars_df as _get_pandas_view
                 held_pd = _get_pandas_view(held)
             else:
                 held_pd = held
@@ -517,7 +517,7 @@ def _passthrough_cols_fit_transform(fn, df, *args, passthrough_cols=None, fit=Fa
         out = pd.DataFrame(out, columns=col_names, index=getattr(reduced, "index", None))
         # Mirror the sibling branch above (lines 373-378): bare ``held.to_pandas()`` consolidates Arrow buffers (~30x slower on wide frames + degrades pl.Enum to object dtype). Route through the project Arrow split-blocks bridge.
         if is_polars:
-            from .utils import get_pandas_view_of_polars_df as _get_pandas_view
+            from ..utils import get_pandas_view_of_polars_df as _get_pandas_view
             held_pd = _get_pandas_view(held)
         else:
             held_pd = held

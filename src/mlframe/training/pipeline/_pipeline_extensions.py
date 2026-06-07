@@ -26,11 +26,11 @@ import polars.selectors as cs
 from typing import Dict, Union, Optional, List, Tuple
 from collections import Counter
 from pyutilz.system import clean_ram
-from .utils import maybe_clean_ram_adaptive, log_ram_usage
+from ..utils import maybe_clean_ram_adaptive, log_ram_usage
 from pyutilz.pandaslib import ensure_dataframe_float32_convertability
 
-from .configs import PreprocessingBackendConfig, PreprocessingExtensionsConfig
-from .strategies import PANDAS_CATEGORICAL_DTYPES, get_polars_cat_columns
+from ..configs import PreprocessingBackendConfig, PreprocessingExtensionsConfig
+from ..strategies import PANDAS_CATEGORICAL_DTYPES, get_polars_cat_columns
 
 logger = logging.getLogger("mlframe.training.pipeline")
 
@@ -100,7 +100,7 @@ def _apply_pysr_fe(
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from .pipeline import PySRTransformer, _maybe_set_pysr_thread_env
+    from . import PySRTransformer, _maybe_set_pysr_thread_env
     if y_train is None:
         logger.warning(
             "_apply_pysr_fe: pysr_enabled=True but y_train was not passed in "
@@ -400,7 +400,7 @@ def apply_preprocessing_extensions(
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from .pipeline import PreprocessingExtensionsBundle, _build_extension_steps
+    from . import PreprocessingExtensionsBundle, _build_extension_steps
     if config is None:
         return train_df, val_df, test_df, None
     # Fastpath: zero active stages -> no work to do. Return inputs UNTOUCHED (no polars->pandas down-convert). Without this gate the function paid the full Arrow->pandas conversion on every frame even when nothing was configured, defeating the polars fastpath and risking OOM on 100+GB polars frames for a no-op call.

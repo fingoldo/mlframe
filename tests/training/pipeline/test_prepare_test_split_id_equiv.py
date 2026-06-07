@@ -32,7 +32,7 @@ def _fitted_reducing_selector(n_in=8, k=4, seed=0):
 
 
 def test_stale_identity_flag_does_not_skip_reducing_test_transform():
-    from mlframe.training._pipeline_helpers import _prepare_test_split
+    from mlframe.training.pipeline._pipeline_helpers import _prepare_test_split
 
     sel = _fitted_reducing_selector(n_in=8, k=4)
     # Simulate the stale flag: a column-reducing selector wrongly marked identity.
@@ -68,7 +68,7 @@ def test_already_transformed_test_frame_is_not_double_transformed():
     """Guard: when the test frame is ALREADY the selector's narrow output width
     (a skip-path cache hit), the is_raw check keeps it untouched even with the
     identity flag forced off -- no double-transform / shape error."""
-    from mlframe.training._pipeline_helpers import _prepare_test_split
+    from mlframe.training.pipeline._pipeline_helpers import _prepare_test_split
 
     sel = _fitted_reducing_selector(n_in=8, k=4)
     sel._mlframe_identity_equivalent = True

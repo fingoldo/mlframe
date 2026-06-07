@@ -26,7 +26,7 @@ import pytest
 def test_passthrough_forwards_sample_weight_when_marker_set():
     """A selector marked with ``_mlframe_use_sample_weights_in_fs_=True`` MUST receive
     ``sample_weight`` in its fit kwargs when one is supplied."""
-    from mlframe.training._pipeline_helpers import _passthrough_cols_fit_transform
+    from mlframe.training.pipeline._pipeline_helpers import _passthrough_cols_fit_transform
 
     captured: dict = {}
 
@@ -60,7 +60,7 @@ def test_passthrough_forwards_sample_weight_when_marker_set():
 def test_passthrough_skips_sample_weight_when_marker_unset():
     """Default-OFF: when the selector is NOT marked weight-aware, sample_weight is NOT forwarded
     so the FS cache stays valid across weight schemas."""
-    from mlframe.training._pipeline_helpers import _passthrough_cols_fit_transform
+    from mlframe.training.pipeline._pipeline_helpers import _passthrough_cols_fit_transform
 
     captured: dict = {}
 
@@ -113,7 +113,7 @@ def test_build_pre_pipelines_stamps_marker_when_flag_true():
 def test_pre_pipeline_cache_key_folds_sample_weight_only_when_marker_set():
     """Cache key MUST diverge across weight schemas when the pipeline is weight-aware,
     and stay invariant otherwise (so default-OFF uniform-weight FS shares cache slots)."""
-    from mlframe.training._pipeline_helpers import _pre_pipeline_cache_key
+    from mlframe.training.pipeline._pipeline_helpers import _pre_pipeline_cache_key
 
     class _MarkedPipeline:
         _mlframe_use_sample_weights_in_fs_ = True

@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from mlframe.training import _pipeline_cache as ppc
+from mlframe.training.pipeline import _pipeline_cache as ppc
 
 
 def test_approx_entry_bytes_positive_on_pandas_frame():

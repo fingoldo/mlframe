@@ -20,7 +20,7 @@ from sklearn.pipeline import Pipeline
 
 
 def test_is_stale_fit_state_value_error_classifies_messages():
-    from mlframe.training._pipeline_helpers import _is_stale_fit_state_value_error
+    from mlframe.training.pipeline._pipeline_helpers import _is_stale_fit_state_value_error
 
     # Width / count mismatch variants.
     assert _is_stale_fit_state_value_error(ValueError("Unexpected input dimension 8, expected 4"))
@@ -38,7 +38,7 @@ def test_is_stale_fit_state_value_error_classifies_messages():
 
 
 def test_apply_pre_pipeline_recovers_from_stale_fit_width():
-    from mlframe.training._pipeline_helpers import _apply_pre_pipeline_transforms
+    from mlframe.training.pipeline._pipeline_helpers import _apply_pre_pipeline_transforms
 
     rng = np.random.default_rng(0)
     # Pipeline fitted on 4 features (the stale state from a prior reduced round).

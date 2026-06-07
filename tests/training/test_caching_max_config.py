@@ -13,7 +13,7 @@ import pandas as pd
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 
-from mlframe.training._pipeline_helpers import (
+from mlframe.training.pipeline._pipeline_helpers import (
     _PRE_PIPELINE_CACHE,
     _pre_pipeline_cache_clear,
     _pre_pipeline_cache_set,

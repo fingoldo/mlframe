@@ -55,12 +55,12 @@ import polars.selectors as cs
 from typing import Dict, Union, Optional, List, Tuple
 from collections import Counter
 from pyutilz.system import clean_ram
-from .utils import maybe_clean_ram_adaptive
+from ..utils import maybe_clean_ram_adaptive
 from pyutilz.pandaslib import ensure_dataframe_float32_convertability
 
-from .utils import log_ram_usage
-from .configs import PreprocessingBackendConfig, PreprocessingExtensionsConfig
-from .strategies import PANDAS_CATEGORICAL_DTYPES, get_polars_cat_columns
+from ..utils import log_ram_usage
+from ..configs import PreprocessingBackendConfig, PreprocessingExtensionsConfig
+from ..strategies import PANDAS_CATEGORICAL_DTYPES, get_polars_cat_columns
 
 
 _SCALER_FACTORIES = {
@@ -843,8 +843,35 @@ __all__ = [
 # file stays below the 1k-LOC monolith threshold.
 # ----------------------------------------------------------------------
 from ._pipeline_extensions import (  # noqa: E402,F401
-    _apply_pysr_fe, apply_preprocessing_extensions,
+    _apply_pysr_fe, apply_preprocessing_extensions, sparse_df_from_spmatrix,
 )
 from ._pipeline_fit_transform import (  # noqa: E402,F401
     fit_and_transform_pipeline,
+)
+
+# Public package surface for the pre-pipeline application + cache helpers. These were historically imported as ``from mlframe.training._pipeline_helpers import ...`` / ``_pipeline_cache``; the package re-exports them so importers resolve from the documented package path.
+from ._pipeline_helpers import (  # noqa: E402,F401
+    _test_df_is_raw_pipeline_input,
+    _prepare_test_split,
+    _extract_feature_selector,
+    _is_fitted,
+    _is_stale_fit_state_value_error,
+    _multilabel_target_to_1d_for_supervised_encoders,
+    _passthrough_cols_fit_transform,
+    _apply_pre_pipeline_transforms,
+)
+from ._pipeline_cache import (  # noqa: E402,F401
+    _PRE_PIPELINE_CACHE,
+    _PRE_PIPELINE_CACHE_LOCK,
+    _PRE_PIPELINE_CACHE_MAX,
+    _UncachableSentinel,
+    _fresh_uncachable,
+    _content_fingerprint_for_cache,
+    _full_x_content_hash,
+    _full_target_content_hash,
+    _pipeline_signature_for_cache,
+    _pre_pipeline_cache_key,
+    _pre_pipeline_cache_get,
+    _pre_pipeline_cache_set,
+    _pre_pipeline_cache_clear,
 )

@@ -1,6 +1,6 @@
 """Regression sensor for S02: ``_filter_to_numeric`` must NOT call ``.copy()`` on the full frame when bool columns are present.
 
-The CRITICAL "no df.copy() on hot paths" rule (CLAUDE.md "Memory / RAM constraints") forbids cloning a 100+ GB pandas frame to satisfy a bool->int8 promotion. The pre-fix code in ``mlframe.training._pipeline_extensions.apply_preprocessing_extensions._filter_to_numeric`` did ``_df = _df.copy()`` whenever any bool column was present, doubling peak RAM on a wide frame.
+The CRITICAL "no df.copy() on hot paths" rule (CLAUDE.md "Memory / RAM constraints") forbids cloning a 100+ GB pandas frame to satisfy a bool->int8 promotion. The pre-fix code in ``mlframe.training.pipeline._pipeline_extensions.apply_preprocessing_extensions._filter_to_numeric`` did ``_df = _df.copy()`` whenever any bool column was present, doubling peak RAM on a wide frame.
 
 Post-fix: the function casts bool columns in place per-column on the caller's frame (single-column ``_df[c] = _df[c].astype(np.int8)`` is a block-level dtype swap that does NOT clone the float / numeric blocks). The caller's frame DOES see the bool->int8 promotion -- this is the documented price of obeying the no-full-frame-copy rule on 100+GB workloads. The float blocks keep their original buffers (verified via ``np.shares_memory``).
 """
@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from mlframe.training._pipeline_extensions import _filter_to_numeric
+from mlframe.training.pipeline._pipeline_extensions import _filter_to_numeric
 
 
 def _make_frame_with_bools(n: int = 10_000) -> pd.DataFrame:

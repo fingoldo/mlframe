@@ -35,7 +35,7 @@ except Exception as exc:  # pragma: no cover
         allow_module_level=True,
     )
 
-from .shared import SimpleFeaturesAndTargetsExtractor
+from ..shared import SimpleFeaturesAndTargetsExtractor
 
 
 def _build_small_classif_df(seed: int = 11, n: int = 600) -> pd.DataFrame:

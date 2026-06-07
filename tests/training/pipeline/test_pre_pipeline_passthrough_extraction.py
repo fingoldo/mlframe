@@ -189,7 +189,7 @@ def test_outer_try_body_shrunk_after_wave90() -> None:
     # The 2026-05-22 sub-split further moved the call site into
     # _predict_main_from_models.py (the predict_from_models body). The
     # structural sensor checks need to see all five files concatenated.
-    _core = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe" / "training" / "core"
+    _core = Path(__file__).resolve().parent.parent.parent.parent / "src" / "mlframe" / "training" / "core"
     src = "\n".join(
         (_core / nm).read_text(encoding="utf-8")
         for nm in (

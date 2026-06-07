@@ -179,7 +179,7 @@ def test_passthrough_cols_actually_make_it_through_pre_pipeline() -> None:
     is wrapped via ``_passthrough_cols_fit_transform``, text/embedding
     cols are re-attached. This isolates the fix without the full
     predict_from_models machinery."""
-    from mlframe.training._pipeline_helpers import _passthrough_cols_fit_transform
+    from mlframe.training.pipeline._pipeline_helpers import _passthrough_cols_fit_transform
     df, models, metadata, _ = _build_minimal_suite()
     pre_pipeline = models["regression"]["y_MRMR"][0].pre_pipeline
 

@@ -114,7 +114,7 @@ def test_pre_pipeline_cache_key_distinguishes_x_content_with_shared_sample_cells
     """`_pre_pipeline_cache_key` builds its X fingerprint from 4 sampled rows; two frames with identical
     sample positions but different unsampled rows should NOT collide (mirrors the MRMR full-x-hash fix).
     """
-    from mlframe.training._pipeline_cache import _pre_pipeline_cache_key
+    from mlframe.training.pipeline._pipeline_cache import _pre_pipeline_cache_key
 
     rng = np.random.default_rng(0)
     n = 100

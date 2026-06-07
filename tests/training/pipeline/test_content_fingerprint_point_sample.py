@@ -14,7 +14,7 @@ import pandas as pd
 import polars as pl
 import pytest
 
-from mlframe.training._pipeline_helpers import _content_fingerprint_for_cache
+from mlframe.training.pipeline._pipeline_helpers import _content_fingerprint_for_cache
 
 
 def _make_polars(n_rows: int, n_cols: int, seed: int = 1) -> pl.DataFrame:

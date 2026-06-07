@@ -108,7 +108,7 @@ def test_f15_extractors_module_source_routes_head_tail_via_bridge():
 # ---------------------------------------------------------------------------
 
 def test_f3_pipeline_helpers_ndarray_branch_uses_bridge_for_held():
-    from mlframe.training import _pipeline_helpers as ph
+    from mlframe.training.pipeline import _pipeline_helpers as ph
     src = _module_source(ph)
     # The pre-fix shape was ``held_pd = held.to_pandas() if is_polars else held``; the fix routes is_polars=True through the bridge.
     assert "held_pd = held.to_pandas() if is_polars else held" not in src, (
@@ -168,7 +168,7 @@ def test_f4_f5_dict_of_numpy_back_merge_behaviour_matches_from_pandas():
 # ---------------------------------------------------------------------------
 
 def test_f7_filter_to_numeric_uses_split_blocks_for_polars_input():
-    from mlframe.training import _pipeline_extensions as pe
+    from mlframe.training.pipeline import _pipeline_extensions as pe
     # Read the module source (Path.read_text, NOT inspect.getsource per
     # ``feedback_behavioral_tests``) and grep for the contract anchors. The
     # ``_filter_to_numeric`` function body is the only place ``split_blocks``
@@ -183,7 +183,7 @@ def test_f7_filter_to_numeric_uses_split_blocks_for_polars_input():
 
 def test_f7_filter_to_numeric_accepts_polars_and_preserves_numeric_dtypes():
     """End-to-end: polars frame in -> pandas with numeric dtypes preserved, non-numeric dropped (existing behaviour, just verifies the bridge path didn't break the contract)."""
-    from mlframe.training._pipeline_extensions import _filter_to_numeric
+    from mlframe.training.pipeline._pipeline_extensions import _filter_to_numeric
     pl_df = pl.DataFrame(
         {
             "f_float": np.arange(4, dtype=np.float32),

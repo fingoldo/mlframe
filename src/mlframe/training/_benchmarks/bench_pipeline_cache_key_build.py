@@ -34,7 +34,7 @@ from mlframe.training.core._phase_train_one_target import (
     _canonical_dtype_pairs_compute,
     _compute_pipeline_cache_key,
 )
-from mlframe.training._pipeline_cache import _full_target_content_hash
+from mlframe.training.pipeline._pipeline_cache import _full_target_content_hash
 
 
 def _make_polars_frame(n_rows: int, n_cols: int) -> pl.DataFrame:
@@ -90,7 +90,7 @@ def run(trials: int = 2000) -> None:
         print(f"| {n_cols} | {tb:.2f} | {tm:.2f} | {sp:.2f}x |")
 
     # --- A4-03: _full_target_content_hash cold (cache cleared each call) vs warm (memo hit) ---
-    from mlframe.training import _pipeline_cache as _pc
+    from mlframe.training.pipeline import _pipeline_cache as _pc
     print("\n## A4-03 _full_target_content_hash cold(recompute) vs warm(id-memo hit)")
     print("| n_rows | cold us | warm us | speedup |")
     print("|--------|---------|---------|---------|")

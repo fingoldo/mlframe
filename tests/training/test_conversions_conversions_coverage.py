@@ -90,7 +90,7 @@ def test_passthrough_cols_held_uses_arrow_bridge_for_pl_enum():
     pl.Enum passthrough column, ``_passthrough_cols_fit_transform`` must hand the passthrough
     block through the Arrow bridge so the Enum survives as Categorical on the re-attached frame
     (else CatBoost / XGB sklearn API sees object and emits warnings or crashes)."""
-    from mlframe.training._pipeline_helpers import _passthrough_cols_fit_transform
+    from mlframe.training.pipeline._pipeline_helpers import _passthrough_cols_fit_transform
 
     enum_dt = pl.Enum(["red", "green", "blue"])
     n = 30

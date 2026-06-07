@@ -5,7 +5,7 @@ Pre-fix _pipeline_signature_for_cache built the signature only from ``step.get_p
 
 from __future__ import annotations
 
-from mlframe.training._pipeline_cache import _pipeline_signature_for_cache
+from mlframe.training.pipeline._pipeline_cache import _pipeline_signature_for_cache
 
 
 class _SimpleStep:

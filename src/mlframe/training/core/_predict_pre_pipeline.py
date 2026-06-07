@@ -90,7 +90,7 @@ def _apply_extensions_pipeline(df: Any, ext_pipeline: Any, verbose: int = 0):
             except Exception:
                 _n_feats = _spmat.shape[1]
             _new_cols = [f"{_col}__tfidf_{i}" for i in range(_n_feats)]
-            from .._pipeline_extensions import sparse_df_from_spmatrix
+            from ..pipeline import sparse_df_from_spmatrix
             _new_df = sparse_df_from_spmatrix(_spmat, _new_cols, df.index)
             df = df.drop(columns=[_col]).join(_new_df)
         return df
@@ -151,7 +151,7 @@ def _apply_extensions_pipeline(df: Any, ext_pipeline: Any, verbose: int = 0):
         _is_sparse = False
     if _is_sparse:
         try:
-            from .._pipeline_extensions import sparse_df_from_spmatrix
+            from ..pipeline import sparse_df_from_spmatrix
             return sparse_df_from_spmatrix(_arr, _names, df.index)
         except Exception:
             _arr = _arr.toarray()

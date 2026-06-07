@@ -493,7 +493,7 @@
   },
   "fit_and_transform_pipeline": {
     "kind": "callable",
-    "module": "mlframe.training._pipeline_fit_transform",
+    "module": "mlframe.training.pipeline._pipeline_fit_transform",
     "signature": "(train_df:any:0, val_df:any:0, test_df:any:0, config:any:0, ensure_float32:any:1, verbose:any:1, text_features:any:1, embedding_features:any:1)"
   },
   "fit_ranker": {

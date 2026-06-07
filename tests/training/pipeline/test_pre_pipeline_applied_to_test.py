@@ -76,7 +76,7 @@ def test_prepare_test_split_transforms_even_when_skip_flag_is_true():
     """Simulate the cache-hit path: pre_pipeline is fitted on train,
     skip_pre_pipeline_transform=True (from cached_dfs), but test_df MUST
     still be transformed.  Without this, NaN reaches LinearRegression."""
-    from mlframe.training._pipeline_helpers import (
+    from mlframe.training.pipeline._pipeline_helpers import (
         _prepare_test_split, _is_fitted,
     )
 

@@ -13,7 +13,7 @@ import pandas as pd
 import pytest
 from sklearn.model_selection import KFold
 
-from mlframe.training._pipeline_cache import (
+from mlframe.training.pipeline._pipeline_cache import (
     _pipeline_signature_for_cache,
 )
 from mlframe.feature_selection.filters._mrmr_fingerprints import (

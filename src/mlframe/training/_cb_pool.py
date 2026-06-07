@@ -473,7 +473,7 @@ def _predict_with_fallback(
 # (shared between fit-time populate in _maybe_get_or_build_cb_pool and
 # predict-time lookup in _predict_with_fallback).
 from ._predict_guards import _CB_VAL_POOL_CACHE  # noqa: E402,F401
-from ._pipeline_helpers import (  # noqa: E402,F401
+from .pipeline import (  # noqa: E402,F401
     _apply_pre_pipeline_transforms,
     _extract_feature_selector,
     _is_fitted,

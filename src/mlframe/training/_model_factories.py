@@ -537,7 +537,7 @@ from .utils import log_ram_usage, get_categorical_columns, get_numeric_columns, 
 
 # 2026-05-13 refactor: extracted modules
 from ._predict_guards import _CB_VAL_POOL_CACHE  # noqa: E402,F401
-from ._pipeline_helpers import (  # noqa: E402,F401
+from .pipeline import (  # noqa: E402,F401
     _apply_pre_pipeline_transforms,
     _extract_feature_selector,
     _is_fitted,

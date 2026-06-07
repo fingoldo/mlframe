@@ -13,7 +13,7 @@ import pandas as pd
 import polars as pl
 import pytest
 
-from mlframe.training._pipeline_extensions import (
+from mlframe.training.pipeline._pipeline_extensions import (
     _filter_to_numeric,
     _has_active_extension_stage,
     apply_preprocessing_extensions,

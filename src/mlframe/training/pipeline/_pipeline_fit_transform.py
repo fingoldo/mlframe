@@ -26,11 +26,11 @@ import polars.selectors as cs
 from typing import Dict, Union, Optional, List, Tuple
 from collections import Counter
 from pyutilz.system import clean_ram
-from .utils import maybe_clean_ram_adaptive, log_ram_usage
+from ..utils import maybe_clean_ram_adaptive, log_ram_usage
 from pyutilz.pandaslib import ensure_dataframe_float32_convertability
 
-from .configs import PreprocessingBackendConfig, PreprocessingExtensionsConfig
-from .strategies import PANDAS_CATEGORICAL_DTYPES, get_polars_cat_columns
+from ..configs import PreprocessingBackendConfig, PreprocessingExtensionsConfig
+from ..strategies import PANDAS_CATEGORICAL_DTYPES, get_polars_cat_columns
 
 logger = logging.getLogger("mlframe.training.pipeline")
 
@@ -67,7 +67,7 @@ def fit_and_transform_pipeline(
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from .pipeline import _warn_on_schema_drift, create_polarsds_pipeline, prepare_dfs_for_catboost_joint
+    from . import _warn_on_schema_drift, create_polarsds_pipeline, prepare_dfs_for_catboost_joint
     # Columns that must be excluded from encoding (they're not categoricals)
     _exclude_from_encoding = set(text_features or []) | set(embedding_features or [])
     pipeline = None

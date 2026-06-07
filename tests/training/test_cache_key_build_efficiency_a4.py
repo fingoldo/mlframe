@@ -17,8 +17,8 @@ from mlframe.training.core._phase_train_one_target import (
     _canonical_dtype_pairs,
     _canonical_dtype_pairs_compute,
 )
-from mlframe.training import _pipeline_cache as _pc
-from mlframe.training._pipeline_cache import (
+from mlframe.training.pipeline import _pipeline_cache as _pc
+from mlframe.training.pipeline._pipeline_cache import (
     _full_target_content_hash,
     _pre_pipeline_cache_clear,
     _pre_pipeline_cache_get,

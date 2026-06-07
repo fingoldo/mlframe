@@ -5,7 +5,7 @@ signature, get/set/clear) moved to the sibling file; the original
 re-exports the cache symbols so existing imports keep working.
 
 Backward-compat preserved: every symbol previously importable from
-``mlframe.training._pipeline_helpers`` is still importable from there.
+``mlframe.training.pipeline._pipeline_helpers`` is still importable from there.
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from pathlib import Path
 
 
 def test_cache_symbols_still_importable_from_facade() -> None:
-    from mlframe.training._pipeline_helpers import (
+    from mlframe.training.pipeline._pipeline_helpers import (
         _UncachableSentinel,
         _fresh_uncachable,
         _content_fingerprint_for_cache,
@@ -37,7 +37,7 @@ def test_cache_symbols_still_importable_from_facade() -> None:
 
 
 def test_pipeline_ops_symbols_still_importable_from_facade() -> None:
-    from mlframe.training._pipeline_helpers import (
+    from mlframe.training.pipeline._pipeline_helpers import (
         _prepare_test_split,
         _extract_feature_selector,
         _is_fitted,
@@ -57,7 +57,7 @@ def test_pipeline_ops_symbols_still_importable_from_facade() -> None:
 
 
 def test_facade_below_1k_line_threshold() -> None:
-    root = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe" / "training"
+    root = Path(__file__).resolve().parent.parent.parent.parent / "src" / "mlframe" / "training" / "pipeline"
     facade = root / "_pipeline_helpers.py"
     n = len(facade.read_text(encoding="utf-8").splitlines())
     assert n < 1000, f"_pipeline_helpers.py is {n} lines, still over the 1k threshold"
@@ -65,7 +65,7 @@ def test_facade_below_1k_line_threshold() -> None:
 
 def test_cache_module_owns_the_moved_symbols() -> None:
     """Identity: the facade and the cache module expose the SAME object."""
-    from mlframe.training import _pipeline_helpers, _pipeline_cache
+    from mlframe.training.pipeline import _pipeline_helpers, _pipeline_cache
     for name in (
         "_UncachableSentinel",
         "_fresh_uncachable",
@@ -82,7 +82,7 @@ def test_cache_module_owns_the_moved_symbols() -> None:
 def test_content_fingerprint_round_trips_via_facade() -> None:
     """Functional smoke: fingerprint two identical frames -> identical key."""
     import pandas as pd
-    from mlframe.training._pipeline_helpers import _content_fingerprint_for_cache
+    from mlframe.training.pipeline._pipeline_helpers import _content_fingerprint_for_cache
 
     df_a = pd.DataFrame({"x": [1.0, 2.0, 3.0]})
     df_b = pd.DataFrame({"x": [1.0, 2.0, 3.0]})
@@ -94,7 +94,7 @@ def test_content_fingerprint_round_trips_via_facade() -> None:
 def test_cache_get_set_clear_round_trip() -> None:
     """The LRU dict works after the split: set -> get returns the same value; clear empties."""
     import pandas as pd
-    from mlframe.training._pipeline_helpers import (
+    from mlframe.training.pipeline._pipeline_helpers import (
         _pre_pipeline_cache_set,
         _pre_pipeline_cache_get,
         _pre_pipeline_cache_clear,

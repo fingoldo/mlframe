@@ -70,7 +70,7 @@ except ImportError:  # pragma: no cover
     XGBClassifier = XGBRegressor = None  # type: ignore[assignment]
 
 from ._predict_guards import _CB_VAL_POOL_CACHE  # noqa: E402,F401
-from ._pipeline_helpers import (  # noqa: E402,F401
+from .pipeline import (  # noqa: E402,F401
     _PRE_PIPELINE_CACHE, _PRE_PIPELINE_CACHE_LOCK, _PRE_PIPELINE_CACHE_MAX,
     _apply_pre_pipeline_transforms, _extract_feature_selector,
     _is_fitted, _multilabel_target_to_1d_for_supervised_encoders,

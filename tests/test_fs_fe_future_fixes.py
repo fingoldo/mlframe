@@ -27,7 +27,7 @@ import pytest
 
 def test_fs_p1_1_groups_kwarg_in_apply_pre_pipeline_signature():
     """``_apply_pre_pipeline_transforms`` must accept ``groups`` (was missing pre-fix)."""
-    from mlframe.training._pipeline_helpers import _apply_pre_pipeline_transforms
+    from mlframe.training.pipeline._pipeline_helpers import _apply_pre_pipeline_transforms
     sig = inspect.signature(_apply_pre_pipeline_transforms)
     assert "groups" in sig.parameters, (
         "groups kwarg missing from _apply_pre_pipeline_transforms signature; "
@@ -38,7 +38,7 @@ def test_fs_p1_1_groups_kwarg_in_apply_pre_pipeline_signature():
 def test_fs_p1_1_passthrough_fit_transform_forwards_groups():
     """``_passthrough_cols_fit_transform`` forwards ``groups`` when the
     wrapped callable accepts it (RFECV with cv=GroupKFold() requires it)."""
-    from mlframe.training._pipeline_helpers import _passthrough_cols_fit_transform
+    from mlframe.training.pipeline._pipeline_helpers import _passthrough_cols_fit_transform
 
     received: dict = {}
 
