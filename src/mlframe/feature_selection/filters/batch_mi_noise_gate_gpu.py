@@ -188,7 +188,7 @@ def _gate_from_mi(
 # ---------------------------------------------------------------------------
 
 
-def batch_mi_with_noise_gate_cupy(
+def batch_mi_with_noise_gate_cupy_v1(
     disc_2d: np.ndarray,
     factors_nbins: np.ndarray,
     classes_y: np.ndarray,
@@ -201,6 +201,15 @@ def batch_mi_with_noise_gate_cupy(
     dtype: type = np.int32,
 ) -> np.ndarray:
     """CuPy GPU twin of ``batch_mi_with_noise_gate``. BIT-IDENTICAL.
+
+    PRIOR (v1) kernel -- kept per the keep-all-kernel-versions rule so it can be
+    re-benched on bigger GPUs. SUPERSEDED on small/consumer cards by
+    ``batch_mi_with_noise_gate_cupy`` (GPU-resident, O(1) transfers per batch).
+
+    bench-note (GTX 1050 Ti, 4GB Pascal cc6.1, n=2407 K=2000 nperm=3): this v1
+    does 1 H2D + 1 D2H PER permutation (cp.asarray(shuffled) + cp.asnumpy(flat)),
+    so a self-profile of MRMR.fit spent 82.7% wall-time here at ~18% GPU-util --
+    transfer/sync-bound. The resident rewrite collapses that to O(1) transfers.
 
     GPU work: for the original y and each CPU-shuffled y, compute the joint
     histogram ``(nbins_k, K_y)`` for every candidate column via a single batched
@@ -273,6 +282,172 @@ def batch_mi_with_noise_gate_cupy(
         perm_mis.append(mp)
 
     return _gate_from_mi(original_mi, perm_mis, npermutations, min_nonzero_confidence)
+
+
+# Bit-identical host LCG used to fill a WHOLE (npermutations, n) shuffle matrix in
+# one njit-prange pass -- the GPU-resident kernel uploads this matrix ONCE instead
+# of one cp.asarray(shuffled) per permutation. Each row i reproduces
+# ``_fisher_yates_shuffle(classes_y_safe, base_seed, i)`` EXACTLY.
+@njit(nogil=True, cache=True, parallel=True)
+def _build_shuffle_matrix(classes_y_safe: np.ndarray, base_seed: np.uint64, npermutations: int) -> np.ndarray:
+    """``out[i, :]`` = ``classes_y_safe`` Fisher-Yates-shuffled with the per-perm LCG
+    seed ``base_seed*2654435761 + (i+1)`` -- bit-identical to the CPU kernel's stream
+    for every permutation, materialised as one (npermutations, n) int matrix for a
+    single H2D upload."""
+    ny = classes_y_safe.shape[0]
+    out = np.empty((npermutations, ny), dtype=classes_y_safe.dtype)
+    for i in prange(npermutations):
+        for t in range(ny):
+            out[i, t] = classes_y_safe[t]
+        state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(i + 1)
+        for j in range(ny - 1, 0, -1):
+            state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
+            kk = int(state >> np.uint64(33)) % (j + 1)
+            tmp = out[i, j]
+            out[i, j] = out[i, kk]
+            out[i, kk] = tmp
+    return out
+
+
+def batch_mi_with_noise_gate_cupy(
+    disc_2d: np.ndarray,
+    factors_nbins: np.ndarray,
+    classes_y: np.ndarray,
+    classes_y_safe: np.ndarray,
+    freqs_y: np.ndarray,
+    npermutations: int,
+    base_seed: np.uint64,
+    min_nonzero_confidence: float,
+    use_su: bool,
+    dtype: type = np.int32,
+) -> np.ndarray:
+    """GPU-RESIDENT CuPy twin of ``batch_mi_with_noise_gate``. BIT-IDENTICAL.
+
+    Collapses the v1 kernel's O(npermutations) tiny H2D/D2H round-trips to O(1)
+    transfers per batch (the win on small consumer GPUs + modest PCIe, where v1
+    was transfer/sync-bound -- ~83% wall-time at ~18% GPU-util on a GTX 1050 Ti):
+
+      1. ONE H2D up front: ``disc_2d`` (as ``d_base``), the original target codes,
+         and the FULL ``(npermutations, n)`` shuffle matrix built on the host with
+         the IDENTICAL LCG (``_build_shuffle_matrix``).
+      2. ALL permutations' joint histograms are computed ON THE DEVICE, tiled over
+         the permutation axis to fit a queried free-memory budget (so the 1050 Ti's
+         4GB never OOMs). Each tile bincounts ``(rows_in_tile)`` flattened indices.
+      3. ONE D2H per batch: the stacked integer count matrix
+         ``(npermutations+1, total_size)`` int64 -- a single length-``(P+1)*total``
+         copy, NOT a per-permutation count matrix.
+
+    The MI / SU is then reduced from those INTEGER counts on the bit-exact CPU path
+    (``_mi_from_counts_cpu``), so the result is identical to v1 AND to the CPU njit
+    kernel. Raises ``RuntimeError`` if cupy is unavailable.
+    """
+    if not _CUPY_AVAIL:
+        raise RuntimeError("cupy is not available on this host")
+    cp = _cp
+
+    n = int(disc_2d.shape[0])
+    K = int(disc_2d.shape[1])
+    fe_mi = np.zeros(K, dtype=np.float64)
+    if K == 0 or n == 0:
+        return fe_mi
+
+    K_y = int(freqs_y.shape[0])
+    nbins_arr = np.asarray(factors_nbins, dtype=np.int64)
+    per_col_size = nbins_arr * K_y
+    offsets = np.zeros(K + 1, dtype=np.int64)
+    offsets[1:] = np.cumsum(per_col_size)
+    total_size = int(offsets[K])
+
+    # ---- ONE H2D: discretized frame + per-(r,k) base index (offsets[k] + disc*K_y).
+    d_disc = cp.asarray(np.ascontiguousarray(disc_2d, dtype=np.int32))  # (n, K)
+    d_offsets = cp.asarray(offsets[:K].reshape(1, K))                   # (1, K)
+    d_base = d_offsets + d_disc.astype(cp.int64) * np.int64(K_y)        # (n, K) int64
+
+    nperm = int(npermutations) if npermutations and npermutations > 0 else 0
+
+    # ---- ONE H2D: the original codes + the full shuffle matrix, stacked as the
+    # set of y-vectors to score: row 0 = original y, rows 1.. = the nperm shuffles.
+    y_orig = np.ascontiguousarray(classes_y, dtype=np.int64).reshape(1, n)
+    if nperm > 0:
+        shuf = _build_shuffle_matrix(np.asarray(classes_y_safe), np.uint64(base_seed), nperm)
+        y_all_host = np.empty((nperm + 1, n), dtype=np.int64)
+        y_all_host[0, :] = y_orig[0, :]
+        y_all_host[1:, :] = shuf.astype(np.int64)
+    else:
+        y_all_host = y_orig
+    P1 = y_all_host.shape[0]  # number of y-vectors = nperm + 1
+    d_y_all = cp.asarray(y_all_host)  # (P1, n) int64
+
+    # ---- 4GB tiling over the permutation axis. Each tile of ``rows`` y-vectors
+    # materialises a (rows, n) int64 index array + a (rows, total_size) int64 count
+    # array on device. Budget the bigger of the two (~ rows * max(n, total_size) * 8B)
+    # against queried free memory (use a fraction to leave headroom for d_base etc.).
+    try:
+        free_b, _tot_b = cp.cuda.runtime.memGetInfo()
+    except Exception:
+        free_b = 512 * 1024 * 1024  # conservative default
+    budget = int(free_b * 0.35)
+    # Per y-row device cost of a tile: the flat index array (n*K int64) + the
+    # bincount output slot (total_size int64) + the y-codes (n int64). The n*K
+    # index array dominates; keep the divisor honest so the 1050 Ti never OOMs.
+    bytes_per_row = 8 * (n * K + total_size + n)
+    rows_per_tile = max(1, budget // max(1, bytes_per_row))
+    if rows_per_tile > P1:
+        rows_per_tile = P1
+    if rows_per_tile < P1:
+        import logging
+        logging.getLogger(__name__).info(
+            "batch_mi_noise_gate cupy: tiling %d y-vectors into tiles of %d (free=%dMB, n=%d, total_size=%d)",
+            P1, rows_per_tile, free_b // (1024 * 1024), n, total_size,
+        )
+
+    # Output integer counts for every y-vector, kept compact (P1, total_size) and
+    # downloaded with ONE D2H PER TILE (O(num_tiles) D2H total, == 1 when it all fits).
+    counts_all = np.empty((P1, total_size), dtype=np.int64)
+    d_base_3d = d_base.reshape(1, n, K)  # broadcast base over the y-rows of a tile
+
+    start = 0
+    while start < P1:
+        stop = min(start + rows_per_tile, P1)
+        rows = stop - start
+        # (rows, n) y-codes for this tile.
+        d_y_tile = d_y_all[start:stop].reshape(rows, n, 1)  # (rows, n, 1) int64
+        # per-(row, r, k) global index, then offset each row into its own
+        # ``total_size`` slot so a SINGLE bincount fills all rows of the tile at once:
+        #   slot = row*total_size + (base[r,k] + y[row,r])
+        d_idx = (d_base_3d + d_y_tile).reshape(rows, n * K)              # (rows, n*K)
+        d_row_off = (cp.arange(rows, dtype=cp.int64) * np.int64(total_size)).reshape(rows, 1)
+        d_flat = (d_idx + d_row_off).reshape(-1)                         # (rows*n*K,)
+        tile_counts = cp.bincount(d_flat, minlength=rows * total_size)[: rows * total_size]
+        # ONE D2H for the whole tile.
+        counts_all[start:stop, :] = cp.asnumpy(tile_counts).reshape(rows, total_size)
+        del d_y_tile, d_idx, d_row_off, d_flat, tile_counts
+        start = stop
+    del d_base, d_base_3d, d_disc, d_offsets, d_y_all
+
+    # ---- Bit-exact CPU MI reduction from the integer counts (same as v1).
+    original_mi = np.zeros(K, dtype=np.float64)
+    for k in range(K):
+        nb_k = int(nbins_arr[k])
+        block = counts_all[0, offsets[k]: offsets[k] + nb_k * K_y].reshape(nb_k, K_y)
+        original_mi[k] = _mi_from_counts_cpu(block, nb_k, freqs_y, n, use_su)
+
+    if nperm <= 0:
+        return _gate_from_mi(original_mi, [], 0, min_nonzero_confidence)
+
+    perm_mis = []
+    for i in range(nperm):
+        cp_row = counts_all[i + 1]
+        mp = np.zeros(K, dtype=np.float64)
+        for k in range(K):
+            if original_mi[k] <= 0.0:
+                continue
+            nb_k = int(nbins_arr[k])
+            block = cp_row[offsets[k]: offsets[k] + nb_k * K_y].reshape(nb_k, K_y)
+            mp[k] = _mi_from_counts_cpu(block, nb_k, freqs_y, n, use_su)
+        perm_mis.append(mp)
+
+    return _gate_from_mi(original_mi, perm_mis, nperm, min_nonzero_confidence)
 
 
 # ---------------------------------------------------------------------------
@@ -497,6 +672,7 @@ def _batch_mi_noise_gate_code_version():
             fns.append(batch_mi_with_noise_gate_cuda)
         if _CUPY_AVAIL:
             fns.append(batch_mi_with_noise_gate_cupy)
+            fns.append(_build_shuffle_matrix)
         return compute_code_version(*fns, salt=_BMING_SALT)
     except Exception:
         return None
@@ -619,6 +795,7 @@ except Exception:
 
 __all__ = [
     "batch_mi_with_noise_gate_cupy",
+    "batch_mi_with_noise_gate_cupy_v1",
     "batch_mi_with_noise_gate_cuda",
     "dispatch_batch_mi_with_noise_gate_gpu",
     "_batch_mi_noise_gate_code_version",
