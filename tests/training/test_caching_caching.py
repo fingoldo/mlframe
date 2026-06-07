@@ -147,7 +147,7 @@ def test_data_signature_preserves_int_stats_with_nan_sentinel():
     """An integer column with a sentinel marking nulls used to fall through to the str-uniques
     path, dropping min/max/null info. Post-fix the int-kind branch keeps those stats."""
     import pandas as pd
-    from mlframe.training.composite_cache import data_signature
+    from mlframe.training.composite.cache import data_signature
 
     df1 = pd.DataFrame({
         "id": np.arange(100, dtype=np.int64),
@@ -204,7 +204,7 @@ def test_discovery_config_signature_clips_patch_versions(monkeypatch):
 
 def test_discovery_cache_touch_lru_uses_filelock_when_available(tmp_path):
     _need_filelock()
-    from mlframe.training.composite_cache import DiscoveryCache
+    from mlframe.training.composite.cache import DiscoveryCache
     cache = DiscoveryCache(str(tmp_path), max_entries=10)
 
     # Drive _touch_lru in parallel from two threads; without the lock the JSON file would

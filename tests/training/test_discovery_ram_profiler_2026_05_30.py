@@ -96,7 +96,7 @@ def test_2_discovery_cache_skips_oversized_entry(tmp_path, caplog):
     miss and emit a WARNING. The file itself stays on disk for operator
     inspection."""
     pytest.importorskip("pyutilz")
-    from mlframe.training.composite_cache import DiscoveryCache
+    from mlframe.training.composite.cache import DiscoveryCache
 
     cache = DiscoveryCache(cache_dir=str(tmp_path))
     key = "abc123"
@@ -110,7 +110,7 @@ def test_2_discovery_cache_skips_oversized_entry(tmp_path, caplog):
 
     with patch.dict(os.environ, {"MLFRAME_DISCOVERY_CACHE_MAX_BYTES": "10000"}):
         sentinel = object()
-        with caplog.at_level(logging.WARNING, logger="mlframe.training.composite_cache"):
+        with caplog.at_level(logging.WARNING, logger="mlframe.training.composite.cache"):
             value = cache.get(key, default=sentinel)
     assert value is sentinel, "oversized entry must read as miss"
     assert any("oversized entry" in r.getMessage() for r in caplog.records), \
@@ -122,7 +122,7 @@ def test_2_discovery_cache_skips_oversized_entry(tmp_path, caplog):
 def test_2_discovery_cache_loads_small_entry_normally(tmp_path):
     """Sanity gate: an entry well under the cap loads exactly the pickled value."""
     pytest.importorskip("pyutilz")
-    from mlframe.training.composite_cache import DiscoveryCache
+    from mlframe.training.composite.cache import DiscoveryCache
     cache = DiscoveryCache(cache_dir=str(tmp_path))
     key = "abc123"
     payload = {"value": 42, "spec_name": "TVT-diff-foo"}

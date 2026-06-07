@@ -99,7 +99,7 @@ def test_composite_spec_carries_pack_j_replay_state():
     """CompositeSpec is the persistence layer for Pack J. Building a
     spec from a unary fit and recreating the transform from it must
     reproduce the same forward output."""
-    from mlframe.training.composite_spec import CompositeSpec
+    from mlframe.training.composite.spec import CompositeSpec
     from mlframe.training.composite.transforms import (
         get_transform, compose_target_name,
     )

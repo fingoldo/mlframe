@@ -87,7 +87,7 @@ def test_discovery_random_state_zero_preserved():
     staying deterministic per seed. This exercises the actual signature function the call uses."""
     import numpy as np
     import pandas as pd
-    from mlframe.training.composite_cache import data_signature
+    from mlframe.training.composite.cache import data_signature
 
     rng = np.random.default_rng(0)
     df = pd.DataFrame({"f1": rng.random(5000), "f2": rng.random(5000), "t": rng.random(5000)})

@@ -21,7 +21,7 @@ import pytest
 
 def test_discovery_cache_set_fsyncs_before_replace(tmp_path):
     """``DiscoveryCache.set`` must fsync the tmp fd before the atomic rename."""
-    from mlframe.training.composite_cache import DiscoveryCache
+    from mlframe.training.composite.cache import DiscoveryCache
 
     cache = DiscoveryCache(str(tmp_path))
     call_order: list[str] = []

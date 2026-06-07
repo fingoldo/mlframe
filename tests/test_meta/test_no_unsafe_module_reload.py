@@ -59,7 +59,7 @@ _KNOWN_STUB_ONLY_FILES: frozenset[str] = frozenset({
 _SINGLETON_OWNING_MODULES: frozenset[str] = frozenset({
     "mlframe.feature_selection.filters.mrmr",
     "mlframe.training.phases",
-    "mlframe.training.composite_cache",
+    "mlframe.training.composite.cache",
     "mlframe.training.suite_artefact_cache",
     "mlframe.system.kernel_tuning_cache",
 })

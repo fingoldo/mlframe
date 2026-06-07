@@ -87,7 +87,7 @@ logger = logging.getLogger(__name__)
 # composite_discovery). Re-export below preserves callers doing
 # ``from mlframe.training.composite import CompositeSpec``.
 # ----------------------------------------------------------------------
-from ..composite_spec import CompositeSpec  # noqa: F401
+from .spec import CompositeSpec  # noqa: F401
 
 
 
@@ -166,7 +166,7 @@ from .estimator import (  # noqa: E402,F401
 # ----------------------------------------------------------------------
 # Re-export CompositeProvenance + report_to_markdown.
 # ----------------------------------------------------------------------
-from ..composite_provenance import (  # noqa: E402,F401
+from .provenance import (  # noqa: E402,F401
     CompositeProvenance,
     _format_transform_formulas,
     report_to_markdown,
@@ -218,7 +218,7 @@ from .discovery.auto_detect import (  # noqa: E402,F401
     _GROUP_DETECT_DEFAULT_MAX_UNIQUE,
     _GROUP_DETECT_DEFAULT_MIN_SIZE_RATIO,
 )
-from ..composite_cache import (  # noqa: E402,F401
+from .cache import (  # noqa: E402,F401
     DiscoveryCache,
     data_signature,
     make_discovery_cache_key,
@@ -232,7 +232,7 @@ from .ensemble.stacking import (  # noqa: E402,F401
 from .transforms.interaction_bases import (  # noqa: E402,F401
     generate_interaction_bases,
 )
-from ..composite_streaming import (  # noqa: E402,F401
+from .streaming import (  # noqa: E402,F401
     streaming_alpha_check_and_refit,
     _STREAMING_DEFAULT_Z_THRESHOLD,
     _STREAMING_DEFAULT_MIN_BUFFER_N,

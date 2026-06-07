@@ -10,7 +10,7 @@ from typing import Any
 
 import numpy as np
 
-from ...composite_post_shim import PrePipelinePredictShim
+from ...composite.post_shim import PrePipelinePredictShim
 
 logger = logging.getLogger("mlframe.training.core._phase_composite_post")
 

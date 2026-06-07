@@ -20,7 +20,7 @@ def test_discovery_cache_cache_dir_uses_long_path_prefix_on_windows(tmp_path):
     Windows. ``LocalDiskBackend`` does this; ``DiscoveryCache`` did not
     until now.
     """
-    from mlframe.training.composite_cache import DiscoveryCache
+    from mlframe.training.composite.cache import DiscoveryCache
 
     cache = DiscoveryCache(str(tmp_path / "lp_root"))
     if sys.platform == "win32":
@@ -42,7 +42,7 @@ def test_discovery_cache_set_get_on_deeply_nested_path(tmp_path):
     ``FileNotFoundError`` / ``OSError`` on Windows. POSIX systems have
     no MAX_PATH so this just exercises the happy path there.
     """
-    from mlframe.training.composite_cache import DiscoveryCache
+    from mlframe.training.composite.cache import DiscoveryCache
 
     # Build a nested chain whose total path length exceeds 260 chars.
     nested = tmp_path

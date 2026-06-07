@@ -118,11 +118,11 @@ def test_neural_base_default_root_dir_trust_contract_documented() -> None:
 
 def test_hex_key_re_is_fully_anchored() -> None:
     """The audit's Info finding: verify _HEX_KEY_RE is full-match anchored."""
-    src = _read("training/composite_cache.py")
+    src = _read("training/composite/cache.py")
     # Must use \A and \Z anchors (or ^...$) -- not bare bracket class.
     # Behavioural check: a non-hex tail must NOT match.
     import re
-    from mlframe.training.composite_cache import _HEX_KEY_RE
+    from mlframe.training.composite.cache import _HEX_KEY_RE
     assert _HEX_KEY_RE.match("deadbeef") is not None
     assert _HEX_KEY_RE.match("deadbeef/../etc") is None, (
         "_HEX_KEY_RE must be fully anchored so a partial-hex string with "

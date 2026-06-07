@@ -35,7 +35,7 @@ import pytest
 from sklearn.exceptions import NotFittedError
 
 from mlframe.training.composite import estimator as _ce
-from mlframe.training import composite_cache as _cc
+from mlframe.training.composite import cache as _cc
 from mlframe.training.composite import ensemble as _cen
 from mlframe.training.composite import discovery as _cd
 

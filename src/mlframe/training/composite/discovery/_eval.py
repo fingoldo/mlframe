@@ -9,7 +9,7 @@ from typing import Any
 
 import numpy as np
 
-from ...composite_spec import CompositeSpec
+from ..spec import CompositeSpec
 from .screening import _mi_to_target, _mi_to_target_prebinned
 from ..transforms import compose_target_name
 

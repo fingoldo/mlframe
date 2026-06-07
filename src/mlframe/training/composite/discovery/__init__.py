@@ -27,14 +27,14 @@ try:
 except ImportError:  # pragma: no cover - scipy is a hard dep in pyproject; allow graceful fallback
     rankdata = None  # type: ignore[assignment]
 
-from ...composite_spec import CompositeSpec
+from ..spec import CompositeSpec
 from .auto_detect import (
     detect_time_column_candidates,
     sort_df_by_time_column,
     detect_group_column_candidates,
 )
 from .bayesian import bayesian_alpha_fit
-from ...composite_cache import (
+from ..cache import (
     DiscoveryCache,
     data_signature,
     make_discovery_cache_key,
@@ -54,7 +54,7 @@ from ..ensemble.feature_stacking import (
 )
 from .forward_stepwise import forward_stepwise_multi_base
 from ..transforms.interaction_bases import generate_interaction_bases
-from ...composite_provenance import (
+from ..provenance import (
     CompositeProvenance,
     report_to_markdown,
 )
@@ -83,7 +83,7 @@ from ..ensemble.stacking import (
     residual_correlation_matrix,
     stacking_aware_gate,
 )
-from ...composite_streaming import streaming_alpha_check_and_refit
+from ..streaming import streaming_alpha_check_and_refit
 from ..transforms import (
     DomainViolationError,
     Transform,
@@ -444,7 +444,7 @@ from .auto_detect import (  # noqa: E402,F401
     _GROUP_DETECT_DEFAULT_MAX_UNIQUE,
     _GROUP_DETECT_DEFAULT_MIN_SIZE_RATIO,
 )
-from ...composite_cache import (  # noqa: E402,F401
+from ..cache import (  # noqa: E402,F401
     _DISCOVERY_SIGNATURE_SAMPLE_N,
 )
 from ..transforms.interaction_bases import (  # noqa: E402,F401
@@ -456,7 +456,7 @@ from .forward_stepwise import (  # noqa: E402,F401
     _MULTI_BASE_DEFAULT_MAX_K,
     _MULTI_BASE_DEFAULT_MIN_MARGINAL_GAIN,
 )
-from ...composite_streaming import (  # noqa: E402,F401
+from ..streaming import (  # noqa: E402,F401
     _STREAMING_DEFAULT_Z_THRESHOLD,
     _STREAMING_DEFAULT_MIN_BUFFER_N,
 )

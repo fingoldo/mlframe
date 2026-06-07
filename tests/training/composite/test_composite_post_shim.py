@@ -19,7 +19,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 from mlframe.training.composite.ensemble import compute_oof_holdout_predictions
-from mlframe.training.composite_post_shim import PrePipelinePredictShim
+from mlframe.training.composite.post_shim import PrePipelinePredictShim
 
 
 class _RecordingScaler(BaseEstimator):

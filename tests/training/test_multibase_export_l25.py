@@ -30,7 +30,7 @@ import numpy as np
 import pytest
 
 from mlframe.training.composite.discovery import CompositeTargetDiscovery
-from mlframe.training.composite_spec import CompositeSpec
+from mlframe.training.composite.spec import CompositeSpec
 
 
 def _make_discovery_with_multibase_spec():

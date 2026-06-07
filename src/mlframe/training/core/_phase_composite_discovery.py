@@ -16,7 +16,7 @@ import polars as pl
 
 from ..baseline_diagnostics import BaselineDiagnostics
 from ..composite import CompositeTargetDiscovery
-from ..composite_cache import (
+from ..composite.cache import (
     ConfigSignatureV1,
     DiscoveryCache,
     compute_config_signature_v1,
@@ -443,7 +443,7 @@ def run_composite_target_discovery(
                 # downstream forward-applier loop expects one. Reconstruct
                 # the bare-minimum CompositeSpec list from the cached export.
                 try:
-                    from ..composite_spec import CompositeSpec as _Spec
+                    from ..composite.spec import CompositeSpec as _Spec
                     _cached_specs = [
                         _Spec(**s) if isinstance(s, dict) else s
                         for s in _cached_payload.get("specs_export", [])

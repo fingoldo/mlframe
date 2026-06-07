@@ -57,7 +57,7 @@ def update(self, y_recent: Any, base_recent: Any) -> dict[str, Any]:
     # Lazy import to break the composite_estimator <-> composite_streaming
     # cycle (composite_streaming lazy-imports _linear_residual_fit from
     # composite, which re-exports CompositeTargetEstimator from us).
-    from ...composite_streaming import streaming_alpha_check_and_refit
+    from ..streaming import streaming_alpha_check_and_refit
     # Run drift check; the helper handles the buffer-too-small case.
     new_alpha, new_beta, info = streaming_alpha_check_and_refit(
         np.asarray(self._buffer_y_, dtype=np.float64),

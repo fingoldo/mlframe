@@ -534,7 +534,7 @@ class DiscoveryCache:
         artifact path crashed on Windows even though the same directory
         worked under ``LocalDiskBackend``.
         """
-        from .feature_handling.system import long_path_safe
+        from ..feature_handling.system import long_path_safe
         self.cache_dir = long_path_safe(os.path.abspath(str(cache_dir)))
         os.makedirs(self.cache_dir, exist_ok=True)
         self.max_entries = max_entries

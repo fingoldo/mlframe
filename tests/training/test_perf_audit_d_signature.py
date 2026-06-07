@@ -18,7 +18,7 @@ import pytest
 pl = pytest.importorskip("polars")
 import numpy as np
 
-from mlframe.training.composite_cache import data_signature, _row_order_fingerprint
+from mlframe.training.composite.cache import data_signature, _row_order_fingerprint
 from mlframe.training._pipeline_helpers import (
     _PRE_PIPELINE_CACHE_MAX,
     _content_fingerprint_for_cache,

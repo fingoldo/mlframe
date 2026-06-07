@@ -375,7 +375,7 @@ class TestCompositeIntegration:
         # Optional ``PrePipelinePredictShim`` wrap when cross-target components
         # needed an Imputer/StandardScaler pre-pipeline routed through predict;
         # unwrap one shim level so the isinstance check tests the real inner.
-        from mlframe.training.composite_post_shim import PrePipelinePredictShim
+        from mlframe.training.composite.post_shim import PrePipelinePredictShim
         if isinstance(ens_model, PrePipelinePredictShim):
             ens_model = ens_model.model
         # The honest gate-chain can degrade the ensemble through up to THREE

@@ -18,7 +18,7 @@ import numpy as np
 from .._format import format_metric as _fmt, short_model_tag as _short_tag_fn, strip_shim_suffix as _strip
 from ..composite import CompositeCrossTargetEnsemble as _CrossEns, CompositeTargetEstimator
 from ..composite import compute_oof_holdout_predictions, get_transform
-from ..composite_post_shim import PrePipelinePredictShim
+from ..composite.post_shim import PrePipelinePredictShim
 from ..composite.transforms import is_composite_target_name
 from ..dummy_baselines import format_suite_end_summary
 from ..evaluation import report_model_perf

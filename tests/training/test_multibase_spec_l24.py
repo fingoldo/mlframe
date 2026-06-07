@@ -31,7 +31,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from mlframe.training.composite_spec import CompositeSpec
+from mlframe.training.composite.spec import CompositeSpec
 from mlframe.training.composite.transforms import (
     _linear_residual_multi_fit,
     get_transform,

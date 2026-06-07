@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from unittest import mock
 
-from mlframe.training.composite_cache import DiscoveryCache
+from mlframe.training.composite.cache import DiscoveryCache
 
 
 def test_get_returns_default_on_missing_file_without_raising(tmp_path):

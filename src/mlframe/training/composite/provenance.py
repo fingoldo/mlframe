@@ -14,10 +14,10 @@ from typing import (
 
 import numpy as np
 
-from .composite.transforms import _TRANSFORMS_REGISTRY
+from .transforms import _TRANSFORMS_REGISTRY
 
 if TYPE_CHECKING:
-    from .composite_spec import CompositeSpec  # used as a forward annotation in CompositeProvenance.from_spec; importing at runtime is unnecessary and risks circular load.
+    from .spec import CompositeSpec  # used as a forward annotation in CompositeProvenance.from_spec; importing at runtime is unnecessary and risks circular load.
 
 logger = logging.getLogger(__name__)
 

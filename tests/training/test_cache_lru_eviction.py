@@ -19,7 +19,7 @@ import pytest
 def monotonic_lru_clock(monkeypatch):
     """Force a strictly-increasing fake clock for both cache modules so LRU ordering is
     deterministic without wall-clock sleeps."""
-    from mlframe.training import composite_cache as cc_mod
+    from mlframe.training.composite import cache as cc_mod
     from mlframe.training.feature_handling import cache_backend as cb_mod
 
     counter = {"t": 1_700_000_000.0}
@@ -47,7 +47,7 @@ def test_discovery_cache_evicts_oldest_when_over_max_entries(tmp_path, monotonic
     literal key. Verify eviction via ``cache.get()`` (which round-trips through
     the same hash) plus an on-disk file-count check.
     """
-    from mlframe.training.composite_cache import DiscoveryCache
+    from mlframe.training.composite.cache import DiscoveryCache
 
     cache = DiscoveryCache(str(tmp_path), max_entries=3)
     for i in range(5):
@@ -68,7 +68,7 @@ def test_discovery_cache_evicts_oldest_when_over_max_entries(tmp_path, monotonic
 
 def test_discovery_cache_get_refreshes_lru(tmp_path, monotonic_lru_clock):
     """A get() bumps LRU so the touched key survives the next eviction."""
-    from mlframe.training.composite_cache import DiscoveryCache
+    from mlframe.training.composite.cache import DiscoveryCache
 
     cache = DiscoveryCache(str(tmp_path), max_entries=3)
     for i in range(3):
@@ -91,7 +91,7 @@ def test_discovery_cache_get_refreshes_lru(tmp_path, monotonic_lru_clock):
 def test_discovery_cache_no_cap_means_unbounded(tmp_path):
     """Default constructor (no caps) preserves pre-cap semantics. No clock-control needed
     because no eviction runs."""
-    from mlframe.training.composite_cache import DiscoveryCache
+    from mlframe.training.composite.cache import DiscoveryCache
 
     cache = DiscoveryCache(str(tmp_path))
     for i in range(10):

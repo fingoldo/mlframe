@@ -57,7 +57,7 @@ def streaming_alpha_check_and_refit(
     - ``reason``: str -- "drift_detected" / "no_drift" / "buffer_too_small" / "degenerate_buffer".
     """
     # Lazy-import composite-internal helper to break the import cycle.
-    from .composite import _linear_residual_fit
+    from . import _linear_residual_fit
     y_f = np.asarray(y_buffer, dtype=np.float64).reshape(-1)
     base_f = np.asarray(base_buffer, dtype=np.float64).reshape(-1)
     if y_f.size < min_buffer_n:

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from mlframe.training.composite_cache import DiscoveryCache
+from mlframe.training.composite.cache import DiscoveryCache
 
 
 def test_both_caps_none_raises_value_error(tmp_path):

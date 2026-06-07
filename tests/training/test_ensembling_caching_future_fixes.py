@@ -245,7 +245,7 @@ class TestENS_P2_6_NoDuckTyping:
         from mlframe.training.composite.discovery.auto_detect import (
             _is_polars_df as _ad_is,
         )
-        from mlframe.training.composite_cache import (
+        from mlframe.training.composite.cache import (
             _is_polars_df as _c_is,
         )
         from mlframe.training.composite.ensemble import (
@@ -456,7 +456,7 @@ class TestCACHE_P0_2_DataSignature:
     """Appending one row to df should yield a different fingerprint."""
 
     def test_pandas_append_changes_signature(self) -> None:
-        from mlframe.training.composite_cache import data_signature
+        from mlframe.training.composite.cache import data_signature
         rng = np.random.default_rng(0)
         n = 500
         df = pd.DataFrame({
@@ -476,7 +476,7 @@ class TestCACHE_P0_2_DataSignature:
 
     def test_polars_append_changes_signature(self) -> None:
         pl = pytest.importorskip("polars")
-        from mlframe.training.composite_cache import data_signature
+        from mlframe.training.composite.cache import data_signature
         rng = np.random.default_rng(0)
         n = 300
         df = pl.DataFrame({
@@ -557,12 +557,12 @@ class TestCACHE_P2_1_OrderingNote:
 
 class TestCACHE_P2_5_SeedConstant:
     def test_constant_value(self) -> None:
-        from mlframe.training.composite_cache import _DISCOVERY_DEFAULT_SEED
+        from mlframe.training.composite.cache import _DISCOVERY_DEFAULT_SEED
         assert _DISCOVERY_DEFAULT_SEED == 42
 
     def test_both_functions_reference_it(self) -> None:
         import inspect
-        from mlframe.training.composite_cache import (
+        from mlframe.training.composite.cache import (
             data_signature, make_discovery_cache_key, _DISCOVERY_DEFAULT_SEED,
         )
         sig_a = inspect.signature(data_signature)

@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from mlframe.training.composite_cache import (
+from mlframe.training.composite.cache import (
     _row_order_fingerprint,
     data_signature,
 )

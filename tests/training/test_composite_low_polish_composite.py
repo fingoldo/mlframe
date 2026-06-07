@@ -48,7 +48,7 @@ def test_polish_composite_spec_frozen_with_multi_base() -> None:
     Multi-base support is meant to be additive: legacy callers passing only
     ``base_column`` must keep working.
     """
-    from mlframe.training.composite_spec import CompositeSpec
+    from mlframe.training.composite.spec import CompositeSpec
 
     spec = CompositeSpec(
         name="y-linres-x",
@@ -81,7 +81,7 @@ def test_low_streaming_alpha_uses_residual_based_se() -> None:
     inflated SE for high-R^2 regressors (z under-detected drift). Post-fix uses
     residual-based SE so z is correctly large when alpha really drifted.
     """
-    from mlframe.training.composite_streaming import (
+    from mlframe.training.composite.streaming import (
         streaming_alpha_check_and_refit,
     )
 

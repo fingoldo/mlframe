@@ -417,7 +417,7 @@ class TestExternalValHoldoutOOF:
     def _make_components(self) -> tuple:
         """Two trivial raw regressors that just memorise mean(y)."""
         from sklearn.dummy import DummyRegressor
-        from mlframe.training.composite_post_shim import PrePipelinePredictShim
+        from mlframe.training.composite.post_shim import PrePipelinePredictShim
         m_a = DummyRegressor(strategy="mean")
         m_b = DummyRegressor(strategy="median")
         c_a = PrePipelinePredictShim(m_a, None, "raw#0")
@@ -442,7 +442,7 @@ class TestExternalValHoldoutOOF:
         })
         y_val = rng.normal(50, 1, n_val).astype(np.float64)
         # Fit the raw components on train so they exist.
-        from mlframe.training.composite_post_shim import PrePipelinePredictShim
+        from mlframe.training.composite.post_shim import PrePipelinePredictShim
         for c in components:
             assert isinstance(c, PrePipelinePredictShim)
             c.model.fit(X_train, y_train)
@@ -475,7 +475,7 @@ class TestExternalValHoldoutOOF:
             compute_oof_holdout_predictions,
         )
         components, names, specs = self._make_components()
-        from mlframe.training.composite_post_shim import PrePipelinePredictShim
+        from mlframe.training.composite.post_shim import PrePipelinePredictShim
         n_train = 200
         rng = np.random.default_rng(0)
         X_train = pd.DataFrame({
@@ -506,7 +506,7 @@ class TestExternalValHoldoutOOF:
             compute_oof_holdout_predictions,
         )
         components, names, specs = self._make_components()
-        from mlframe.training.composite_post_shim import PrePipelinePredictShim
+        from mlframe.training.composite.post_shim import PrePipelinePredictShim
         rng = np.random.default_rng(0)
         X_train = pd.DataFrame({"a": rng.normal(0, 1, 200)})
         y_train = rng.normal(0, 1, 200).astype(np.float64)

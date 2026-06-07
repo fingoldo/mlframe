@@ -48,7 +48,7 @@ def _read(rel: str) -> str:
 
 
 def test_composite_cache_invalidate_uses_try_remove() -> None:
-    src = _read("training/composite_cache.py")
+    src = _read("training/composite/cache.py")
     # The fix replaces exists+remove with try/remove.
     assert "if os.path.exists(path):\n            os.remove(path)" not in src
     assert "try:\n            os.remove(path)\n        except FileNotFoundError:\n            return False" in src
@@ -128,7 +128,7 @@ def test_kernel_tuning_cli_show_and_clear_tolerate_missing() -> None:
 
 def test_invalidate_missing_key_returns_false_no_crash() -> None:
     """invalidate() on a key that never existed must return False, not raise."""
-    from mlframe.training.composite_cache import DiscoveryCache
+    from mlframe.training.composite.cache import DiscoveryCache
 
     with tempfile.TemporaryDirectory() as td:
         c = DiscoveryCache(cache_dir=td)

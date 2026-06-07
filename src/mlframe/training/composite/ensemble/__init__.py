@@ -36,7 +36,7 @@ def _is_polars_df(x: Any) -> bool:
 
 
 from ..estimator import CompositeTargetEstimator
-from ...composite_post_shim import PrePipelinePredictShim
+from ..post_shim import PrePipelinePredictShim
 from ..transforms import get_transform
 
 

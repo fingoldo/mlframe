@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from mlframe.training.composite_cache import (
+from mlframe.training.composite.cache import (
     DiscoveryCache,
     data_signature,
     make_discovery_cache_key,

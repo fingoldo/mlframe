@@ -13,7 +13,7 @@ from typing import Any, Sequence
 
 import numpy as np
 
-from ...composite_spec import CompositeSpec
+from ..spec import CompositeSpec
 from .forward_stepwise import forward_stepwise_multi_base
 from .screening import (
     _extract_column_array,

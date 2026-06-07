@@ -12,7 +12,7 @@ import numpy as np
 
 from ...composite import CompositeCrossTargetEnsemble as _CrossEns
 from ...composite import compute_oof_holdout_predictions
-from ...composite_post_shim import PrePipelinePredictShim
+from ...composite.post_shim import PrePipelinePredictShim
 from ..utils import _build_full_column_from_splits
 from .._phase_composite_post_lag_predict import _LagPredictDeployableModel
 from ._post_xt_ensemble_mtr import _build_mtr_per_column_ensemble

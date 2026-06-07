@@ -147,7 +147,7 @@ def test_discovery_cache_bytes_total_helper_walks_pkl_files(tmp_path):
     """`_discovery_cache_bytes_total` should report the on-disk pkl+sidecar footprint so callers
     can compare against `max_size_mb` without inlining a directory walk.
     """
-    from mlframe.training.composite_cache import (
+    from mlframe.training.composite.cache import (
         DiscoveryCache,
         _discovery_cache_bytes_total,
     )

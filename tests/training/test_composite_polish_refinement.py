@@ -321,7 +321,7 @@ class TestPredictQuantile:
 
 class TestPlotHelpers:
     def test_plot_target_distribution(self) -> None:
-        from mlframe.training.composite_diagnostics import plot_target_distribution
+        from mlframe.training.composite.diagnostics import plot_target_distribution
         rng = np.random.default_rng(0)
         y = rng.normal(loc=10, scale=3, size=500)
         t = y - 9.5  # diff residual
@@ -330,14 +330,14 @@ class TestPlotHelpers:
         assert hasattr(fig, "savefig")  # matplotlib Figure
 
     def test_plot_qq(self) -> None:
-        from mlframe.training.composite_diagnostics import plot_qq
+        from mlframe.training.composite.diagnostics import plot_qq
         rng = np.random.default_rng(0)
         t = rng.normal(size=500)
         fig = plot_qq(t)
         assert fig is not None and hasattr(fig, "savefig") and len(getattr(fig, "axes", [])) >= 1
 
     def test_plot_linear_fit(self) -> None:
-        from mlframe.training.composite_diagnostics import plot_linear_fit
+        from mlframe.training.composite.diagnostics import plot_linear_fit
         rng = np.random.default_rng(0)
         base = rng.normal(loc=10, scale=3, size=500)
         y = 0.95 * base + rng.normal(scale=0.3, size=500)
@@ -345,7 +345,7 @@ class TestPlotHelpers:
         assert fig is not None and hasattr(fig, "savefig") and len(getattr(fig, "axes", [])) >= 1
 
     def test_plot_mi_gain_with_ci(self) -> None:
-        from mlframe.training.composite_diagnostics import plot_mi_gain_with_ci
+        from mlframe.training.composite.diagnostics import plot_mi_gain_with_ci
         specs = [
             {"name": "TVT__diff__base", "mi_gain": 0.5},
             {"name": "TVT__linear_residual__base", "mi_gain": 0.6},
@@ -355,7 +355,7 @@ class TestPlotHelpers:
         assert fig is not None and hasattr(fig, "savefig") and len(getattr(fig, "axes", [])) >= 1
 
     def test_plot_per_fold_tiny_rmse(self) -> None:
-        from mlframe.training.composite_diagnostics import plot_per_fold_tiny_rmse
+        from mlframe.training.composite.diagnostics import plot_per_fold_tiny_rmse
         per_fold = {
             "spec_a": [1.2, 1.3, 1.1, 1.25],
             "spec_b": [0.9, 1.0, 0.95, 0.92],
@@ -364,14 +364,14 @@ class TestPlotHelpers:
         assert fig is not None and hasattr(fig, "savefig") and len(getattr(fig, "axes", [])) >= 1
 
     def test_plot_per_fold_tiny_rmse_empty(self) -> None:
-        from mlframe.training.composite_diagnostics import plot_per_fold_tiny_rmse
+        from mlframe.training.composite.diagnostics import plot_per_fold_tiny_rmse
         fig = plot_per_fold_tiny_rmse({})
         # Empty input -> graceful empty-state Figure (may have no axes); we only require a real
         # matplotlib Figure object back so callers don't AttributeError on .savefig().
         assert fig is not None and hasattr(fig, "savefig")
 
     def test_plot_per_family_disagreement(self) -> None:
-        from mlframe.training.composite_diagnostics import plot_per_family_disagreement
+        from mlframe.training.composite.diagnostics import plot_per_family_disagreement
         # 3 families, 4 specs.
         per_family = {
             "lightgbm": [1.0, 0.9, 1.2, 1.1],
@@ -384,25 +384,25 @@ class TestPlotHelpers:
 
     def test_plot_per_family_disagreement_single_family(self) -> None:
         """One-family input -> graceful "need >= 2 families" placeholder."""
-        from mlframe.training.composite_diagnostics import plot_per_family_disagreement
+        from mlframe.training.composite.diagnostics import plot_per_family_disagreement
         fig = plot_per_family_disagreement(
             {"lightgbm": [1.0, 0.9, 1.2]}, spec_names=["s1", "s2", "s3"],
         )
         assert fig is not None and hasattr(fig, "savefig") and len(getattr(fig, "axes", [])) >= 1
 
     def test_plot_alpha_stability(self) -> None:
-        from mlframe.training.composite_diagnostics import plot_alpha_stability
+        from mlframe.training.composite.diagnostics import plot_alpha_stability
         alphas = [0.95, 0.97, 0.93, 0.96, 0.98, 0.94, 0.95]
         fig = plot_alpha_stability(alphas, expected_alpha=0.95)
         assert fig is not None and hasattr(fig, "savefig") and len(getattr(fig, "axes", [])) >= 1
 
     def test_plot_alpha_stability_empty(self) -> None:
-        from mlframe.training.composite_diagnostics import plot_alpha_stability
+        from mlframe.training.composite.diagnostics import plot_alpha_stability
         fig = plot_alpha_stability([])
         assert fig is not None and hasattr(fig, "savefig") and len(getattr(fig, "axes", [])) >= 1
 
     def test_plot_predictions_vs_actual(self) -> None:
-        from mlframe.training.composite_diagnostics import plot_predictions_vs_actual
+        from mlframe.training.composite.diagnostics import plot_predictions_vs_actual
         rng = np.random.default_rng(0)
         y_true = rng.normal(size=500)
         y_preds = {
@@ -415,7 +415,7 @@ class TestPlotHelpers:
     def test_plot_predictions_vs_actual_size_mismatch_handled(self) -> None:
         """Mismatched y_pred size for a spec doesn't crash; that
         sub-plot just shows a placeholder error message."""
-        from mlframe.training.composite_diagnostics import plot_predictions_vs_actual
+        from mlframe.training.composite.diagnostics import plot_predictions_vs_actual
         rng = np.random.default_rng(0)
         y_true = rng.normal(size=500)
         y_preds = {

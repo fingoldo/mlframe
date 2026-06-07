@@ -26,7 +26,7 @@ try:
 except ImportError as exc:  # pragma: no cover
     raise SystemExit(f"polars unavailable: {exc}")
 
-from mlframe.training.composite_cache import data_signature
+from mlframe.training.composite.cache import data_signature
 
 
 def _legacy_data_signature(
