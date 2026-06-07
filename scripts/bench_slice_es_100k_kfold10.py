@@ -35,8 +35,8 @@ from catboost import CatBoostClassifier, CatBoostRegressor
 from scipy.stats import wilcoxon
 from sklearn.model_selection import KFold
 
-from mlframe.metrics._classification_report import fast_ice_only
-from mlframe.metrics._classification_extras import (
+from mlframe.metrics.classification._classification_report import fast_ice_only
+from mlframe.metrics.classification import (
     ks_statistic,
     matthews_corrcoef_binary,
     cohen_kappa_binary,

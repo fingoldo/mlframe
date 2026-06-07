@@ -163,7 +163,7 @@ def test_metrics_core_uses_stable_argsort() -> None:
         _read("metrics/core.py")
         + _read("metrics/_core_auc_brier.py")
         + _read("metrics/_auc_per_group.py")
-        + _read("metrics/_classification_report.py")
+        + _read("metrics/classification/_classification_report.py")
     )
     # The pre-fix shape was 3 inline ``np.argsort(y_score, kind="stable")``
     # call-sites; the refactor consolidated them into ONE stable-sort

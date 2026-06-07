@@ -31,7 +31,7 @@ from typing import Optional, Tuple
 import numpy as np
 import numba
 
-from ._numba_params import NUMBA_NJIT_PARAMS, _PARALLEL_REDUCTION_THRESHOLD
+from .._numba_params import NUMBA_NJIT_PARAMS, _PARALLEL_REDUCTION_THRESHOLD
 
 
 # ---------- helpers ----------

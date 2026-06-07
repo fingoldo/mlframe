@@ -1,4 +1,4 @@
-"""Tests for mlframe.metrics._classification_extras.
+"""Tests for mlframe.metrics.classification._classification_extras.
 
 Coverage:
 - KS / MCC / Cohen kappa / BalAcc / G-mean / BSS / Gini / Specificity-NPV

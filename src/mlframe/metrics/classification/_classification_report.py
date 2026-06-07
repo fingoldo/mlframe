@@ -25,23 +25,23 @@ import numpy as np
 import pandas as pd
 import numba
 
-from ._numba_params import NUMBA_NJIT_PARAMS, _PARALLEL_REDUCTION_THRESHOLD  # noqa: F401
-from .calibration._calibration_plot import (  # noqa: F401
+from .._numba_params import NUMBA_NJIT_PARAMS, _PARALLEL_REDUCTION_THRESHOLD  # noqa: F401
+from ..calibration._calibration_plot import (  # noqa: F401
     DEFAULT_TITLE_METRICS_TOKENS,
     fast_calibration_binning,
     render_title_metric_token,
     show_calibration_plot,
 )
-from ._auc_per_group import (  # noqa: F401
+from .._auc_per_group import (  # noqa: F401
     fast_aucs_per_group_optimized,
     compute_mean_aucs_per_group,
 )
-from .calibration._calibration_metrics import (  # noqa: F401
+from ..calibration._calibration_metrics import (  # noqa: F401
     calibration_metrics_from_freqs,
     compute_ece_and_brier_decomposition,
     integral_calibration_error_from_metrics,
 )
-from ._log_loss_and_separation import fast_log_loss  # noqa: F401
+from .._log_loss_and_separation import fast_log_loss  # noqa: F401
 # ``fast_brier_score_loss`` and ``fast_classification_report`` still live in
 # core.py; we import lazily inside the function bodies to dodge the
 # core <-> _classification_report import cycle that the eager form would
@@ -78,7 +78,7 @@ def format_classification_report(
     and ``output_dict=True`` (use ``fast_classification_report`` for the
     raw arrays).
     """
-    from .core import fast_classification_report  # lazy: see import-cycle note at module top
+    from ..core import fast_classification_report  # lazy: see import-cycle note at module top
     hits, misses, accuracy, balanced_accuracy, supports, precisions, recalls, f1s, macro_averages, weighted_averages = (
         fast_classification_report(y_true, y_pred, nclasses=nclasses, zero_division=zero_division)
     )
@@ -227,7 +227,7 @@ def fast_calibration_report(
     ``TITLE_METRIC_TOKENS`` frozenset for the complete grammar.
     """
 
-    from .core import fast_brier_score_loss  # lazy: import-cycle, see module top
+    from ..core import fast_brier_score_loss  # lazy: import-cycle, see module top
 
     if backend not in ("plotly", "matplotlib"):
         raise ValueError(f"backend must be 'plotly' or 'matplotlib'; got {backend!r}.")
@@ -629,7 +629,7 @@ def fast_ice_only(
     the fairness fan-out hot path — verified 1.1-1.7x faster per call
     (bench_ice_only.py, 2026-04-19) with ICE drift < 1e-9.
     """
-    from .core import fast_brier_score_loss  # lazy: import-cycle, see module top
+    from ..core import fast_brier_score_loss  # lazy: import-cycle, see module top
     if len(y_true) == 0:
         return 1.0
     brier_loss = fast_brier_score_loss(y_true=y_true, y_prob=y_pred)

@@ -9,8 +9,8 @@ import numpy as np
 
 
 def test_calibration_reexport_identity():
-    from mlframe.metrics import _classification_calibration as sib
-    from mlframe.metrics import _classification_extras as parent
+    from mlframe.metrics.classification import _classification_calibration as sib
+    from mlframe.metrics.classification import _classification_extras as parent
     from mlframe.metrics import core
 
     for nm in ("hosmer_lemeshow_test", "accuracy_ratio"):
@@ -19,7 +19,7 @@ def test_calibration_reexport_identity():
 
 
 def test_hosmer_lemeshow_body_callable():
-    from mlframe.metrics._classification_calibration import hosmer_lemeshow_test
+    from mlframe.metrics.classification._classification_calibration import hosmer_lemeshow_test
 
     rng = np.random.default_rng(0)
     ys = rng.random(500)
@@ -31,7 +31,7 @@ def test_hosmer_lemeshow_body_callable():
 def test_accuracy_ratio_body_matches_gini():
     from sklearn.metrics import roc_auc_score
 
-    from mlframe.metrics._classification_calibration import accuracy_ratio
+    from mlframe.metrics.classification._classification_calibration import accuracy_ratio
 
     rng = np.random.default_rng(1)
     ys = rng.random(500)
@@ -41,6 +41,6 @@ def test_accuracy_ratio_body_matches_gini():
 
 
 def test_accuracy_ratio_single_class_returns_nan():
-    from mlframe.metrics._classification_calibration import accuracy_ratio
+    from mlframe.metrics.classification._classification_calibration import accuracy_ratio
 
     assert np.isnan(accuracy_ratio(np.zeros(10, dtype=int), np.random.random(10)))

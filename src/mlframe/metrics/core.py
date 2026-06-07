@@ -156,7 +156,7 @@ from ._auc_per_group import (  # noqa: E402,F401
 
 
 # Classification + calibration report block moved to _classification_report.py.
-from ._classification_report import (  # noqa: F401, E402
+from .classification._classification_report import (  # noqa: F401, E402
     format_classification_report,
     _compute_pr_recall_f1_metrics_seq,
     _compute_pr_recall_f1_metrics_par,
@@ -243,7 +243,7 @@ from ._core_numba_warmup import (  # noqa: F401, E402
 # audit batch. Re-exported here so historical
 # ``from mlframe.metrics.core import ks_statistic`` style imports resolve
 # at module scope.
-from ._classification_extras import (  # noqa: F401, E402
+from .classification._classification_extras import (  # noqa: F401, E402
     ks_statistic,
     matthews_corrcoef_binary,
     cohen_kappa_binary,

@@ -31,7 +31,7 @@ from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
 # (rather than at module top) to dodge the ``metrics -> core -> _ice_metric
 # -> core`` import cycle that an eager ``from . import core`` would trigger
 # (and that ``tests/test_meta/test_no_import_cycles.py`` flags as a hard fail).
-from ._classification_report import (
+from .classification._classification_report import (
     fast_calibration_report,
     _batch_per_class_ice_kernel,
     fast_ice_only,

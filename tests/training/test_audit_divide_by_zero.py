@@ -58,7 +58,7 @@ def test_numerical_weighted_arithmetic_mean_guards_zero_sum() -> None:
 def test_metrics_fast_r2_guards_zero_wsum() -> None:
     # ``fast_r2_score`` was moved to ``_regression_metrics.py`` when
     # ``metrics/core.py`` was split into siblings.
-    src = _read("metrics/_regression_metrics.py")
+    src = _read("metrics/regression/_regression_metrics.py")
     # The fix introduces an explicit `if wsum <= 0.0: ss_tots[j] = 0.0; continue`.
     assert "if wsum <= 0.0:" in src and "ss_tots[j] = 0.0" in src and "continue" in src
 
