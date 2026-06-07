@@ -108,7 +108,7 @@ def test_lgb_ranker_smoke_with_object_cats() -> None:
     """End-to-end: train an LGBMRanker on a frame whose cat columns
     are encoded via the ranker_suite path. Predict must not raise."""
     pytest.importorskip("lightgbm")
-    from mlframe.training.ranker_suite import train_mlframe_ranker_suite
+    from mlframe.training.ranking.ranker_suite import train_mlframe_ranker_suite
     from mlframe.training.configs import LearningToRankConfig
 
     n = 60

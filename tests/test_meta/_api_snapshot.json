@@ -437,7 +437,7 @@
   },
   "ensemble_ranker_scores": {
     "kind": "callable",
-    "module": "mlframe.training.ranking",
+    "module": "mlframe.training.ranking.ranking",
     "signature": "(scores_per_model:any:0, group_ids:any:0, method:any:1, rrf_k:any:1, assume_comparable_scales:any:1)"
   },
   "estimate_c_from_unbiased_positives": {
@@ -498,7 +498,7 @@
   },
   "fit_ranker": {
     "kind": "callable",
-    "module": "mlframe.training.ranking",
+    "module": "mlframe.training.ranking.ranking",
     "signature": "(strategy:any:0, X_train:any:0, y_train:any:0, group_ids_train:any:0, X_val:any:1, y_val:any:1, group_ids_val:any:1, ranking_config:any:1, cat_features:any:1, model_kwargs:any:1, early_stopping_rounds:any:1, verbose:any:1)"
   },
   "format_drift_report": {
@@ -642,7 +642,7 @@
   },
   "predict_ranker_scores": {
     "kind": "callable",
-    "module": "mlframe.training.ranking",
+    "module": "mlframe.training.ranking.ranking",
     "signature": "(fitted:any:0, X:any:0, group_ids:any:1)"
   },
   "prepare_df_for_catboost": {
@@ -766,7 +766,7 @@
   },
   "train_mlframe_ranker_suite": {
     "kind": "callable",
-    "module": "mlframe.training._ranker_suite_train",
+    "module": "mlframe.training.ranking._ranker_suite_train",
     "signature": "(df:any:0, target_name:any:0, model_name:any:0, features_and_targets_extractor:any:0, mlframe_models:kw:1, use_mlframe_ensembles:kw:1, ranking_config:kw:1, test_size:kw:1, val_size:kw:1, iterations:kw:1, learning_rate:kw:1, early_stopping_rounds:kw:1, eval_at:kw:1, ensemble_method:kw:1, save_dir:kw:1, random_seed:kw:1, verbose:kw:1, plot_file:kw:1, plot_outputs:kw:1, ltr_panels:kw:1, mlp_kwargs:kw:1, dummy_baselines_config:kw:1)"
   },
   "trainer": {

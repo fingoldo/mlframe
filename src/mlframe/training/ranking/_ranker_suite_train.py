@@ -105,7 +105,7 @@ def train_mlframe_ranker_suite(
     from .ranker_suite import _filter_models_for_ranking, _strategy_for_model
     from mlframe.training.configs import TargetTypes, LearningToRankConfig
     from mlframe.training.splitting import make_train_test_split
-    from mlframe.training.ranking import (
+    from .ranking import (
         fit_ranker, predict_ranker_scores, ensemble_ranker_scores,
     )
     from mlframe.metrics.ranking import compute_ranking_summary
@@ -247,7 +247,7 @@ def train_mlframe_ranker_suite(
         # instead of consolidating into fresh numpy blocks -- ~32x faster on multi-million-row
         # frames (bench: 30s -> 0.95s on 7.3M x 118 with 18 dict cols). String/Categorical
         # columns still materialise to pandas-native dtypes that CatBoost can ingest.
-        from .utils import get_pandas_view_of_polars_df as _get_pandas_view
+        from ..utils import get_pandas_view_of_polars_df as _get_pandas_view
         df_features = _get_pandas_view(df_features)
     elif isinstance(df_features, pd.DataFrame):
         # Pandas path: inf cleaning (pandas .replace on full frame, one copy).
@@ -901,7 +901,7 @@ def train_mlframe_ranker_suite(
             # detect the skew until predict() crashes deep with a cryptic
             # AttributeError. Reuses the io.py helper for consistent shape.
             try:
-                from .io import _write_save_meta_sidecar as _wsms
+                from ..io import _write_save_meta_sidecar as _wsms
                 _wsms(artefact_path, durable=False)
             except Exception as _meta_e:
                 logger.warning(

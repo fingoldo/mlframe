@@ -33,7 +33,7 @@ from mlframe.training.neural.ranker import (
     GroupBatchSampler, MLPRanker, listnet_top1_loss, ranknet_pairwise_loss,
 )
 from mlframe.training.ranking import fit_ranker, predict_ranker_scores
-from mlframe.training.ranker_suite import _filter_models_for_ranking
+from mlframe.training.ranking.ranker_suite import _filter_models_for_ranking
 from mlframe.training.strategies import NeuralNetStrategy
 
 

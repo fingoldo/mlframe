@@ -208,7 +208,7 @@ def test_m_neu_08_ranks_within_group_correctness_and_perf() -> None:
     """Verify both correctness (rank assignment) and that the lexsort path
     handles many groups without quadratic blow-up.
     """
-    from mlframe.training.ranking import _ranks_within_group, _group_starts_from_ids
+    from mlframe.training.ranking.ranking import _ranks_within_group, _group_starts_from_ids
 
     # Tiny correctness case.
     group_ids = np.array([0, 0, 0, 1, 1])
@@ -226,7 +226,7 @@ def test_m_neu_08_ranks_within_group_scales_to_100k_queries() -> None:
     (lexsort O(n log n)); the pre-fix per-group Python loop took >30s.
     """
     import time
-    from mlframe.training.ranking import _ranks_within_group, _group_starts_from_ids
+    from mlframe.training.ranking.ranking import _ranks_within_group, _group_starts_from_ids
 
     rng = np.random.default_rng(42)
     n_groups = 100_000
@@ -284,13 +284,13 @@ def test_m_neu_09_ensemble_method_conflict_warns(caplog) -> None:
     cfg.ensemble_method = "score_mean"
     cfg.ltr_ensemble_method = "borda"
 
-    with caplog.at_level(logging.WARNING, logger="mlframe.training.ranker_suite"):
+    with caplog.at_level(logging.WARNING, logger="mlframe.training.ranking.ranker_suite"):
         # Inline-exec the resolver from ranker_suite.py - the function body
         # was extracted from train_mlframe_ranker_suite. Replicate the gist:
         _legacy = cfg.ensemble_method
         _typed = cfg.ltr_ensemble_method
         if _legacy != "rrf" and _typed != "rrf" and _typed != _legacy:
-            logging.getLogger("mlframe.training.ranker_suite").warning(
+            logging.getLogger("mlframe.training.ranking.ranker_suite").warning(
                 "conflict: legacy=%s typed=%s", _legacy, _typed,
             )
     assert any("conflict" in r.message for r in caplog.records), caplog.records

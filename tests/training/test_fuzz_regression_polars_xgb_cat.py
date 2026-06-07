@@ -131,7 +131,7 @@ class TestRankerCategoricalRobustness:
 
     def test_lgb_ranker_predict_on_object_cat_frame(self):
         pytest.importorskip("lightgbm")
-        from mlframe.training.ranking import _fit_lgb_ranker, predict_ranker_scores
+        from mlframe.training.ranking.ranking import _fit_lgb_ranker, predict_ranker_scores
 
         import pandas as pd
         Xtr, ytr, gtr, Xva = self._ranker_frames(
@@ -151,7 +151,7 @@ class TestRankerCategoricalRobustness:
 
     def test_xgb_ranker_predict_on_object_cat_frame(self):
         pytest.importorskip("xgboost")
-        from mlframe.training.ranking import _fit_xgb_ranker, predict_ranker_scores
+        from mlframe.training.ranking.ranking import _fit_xgb_ranker, predict_ranker_scores
 
         Xtr, ytr, gids_tr, Xva = self._ranker_frames(
             [["A", "B", "C"][i % 3] for i in range(60)],
@@ -169,7 +169,7 @@ class TestRankerCategoricalRobustness:
 
     def test_cb_ranker_fits_with_none_in_object_cat(self):
         pytest.importorskip("catboost")
-        from mlframe.training.ranking import _fit_cb_ranker, predict_ranker_scores
+        from mlframe.training.ranking.ranking import _fit_cb_ranker, predict_ranker_scores
 
         Xtr, ytr, gids_tr, Xva = self._ranker_frames(
             [["A", "B", None][i % 3] for i in range(60)],

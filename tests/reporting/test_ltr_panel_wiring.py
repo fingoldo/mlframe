@@ -21,7 +21,7 @@ import pytest
 
 from mlframe.training.configs import TargetTypes
 from mlframe.training.extractors import FeaturesAndTargetsExtractor
-from mlframe.training.ranker_suite import train_mlframe_ranker_suite
+from mlframe.training.ranking.ranker_suite import train_mlframe_ranker_suite
 
 
 class _MiniRankFTE(FeaturesAndTargetsExtractor):

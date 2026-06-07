@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from mlframe.training.ranker_suite import rrf_fuse, borda_fuse
+from mlframe.training.ranking.ranker_suite import rrf_fuse, borda_fuse
 from mlframe.training.configs import LearningToRankConfig
 
 

@@ -808,7 +808,7 @@ def _maybe_dispatch_to_ltr_ranker_suite(
     """
     if target_type is None or target_type != TargetTypes.LEARNING_TO_RANK:
         return None
-    from mlframe.training.ranker_suite import train_mlframe_ranker_suite
+    from mlframe.training.ranking import train_mlframe_ranker_suite
 
     _save_dir = None
     _data_dir = _cfg_get(ctx.output_config, "data_dir")

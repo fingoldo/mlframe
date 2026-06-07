@@ -254,7 +254,7 @@ def test_fix5_ranker_suite_polars_path_uses_bridge():
     referential check: the bridge function must exist in mlframe.training.utils so the
     function-scope import resolves; if a future refactor removes the bridge, the ranker_suite
     polars branch breaks at import time."""
-    from mlframe.training import ranker_suite as rs
+    from mlframe.training.ranking import ranker_suite as rs
     from mlframe.training.utils import get_pandas_view_of_polars_df
 
     # Sanity: the function-scope import in ranker_suite (line ~315) targets this exact path.
