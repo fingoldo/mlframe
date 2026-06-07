@@ -19,7 +19,7 @@ import pytest
 
 def test_compute_quantile_baselines_resolves_to_canonical_module():
     """The name resolves to the imported version, not an in-file shadow."""
-    from mlframe.training import dummy_baselines
+    from mlframe.training.baselines import dummy as dummy_baselines
 
     fn = dummy_baselines._compute_quantile_baselines
     # Wave 92: canonical module is now the sibling split file; the original
@@ -27,8 +27,8 @@ def test_compute_quantile_baselines_resolves_to_canonical_module():
     # acceptable but a local shadow def (mlframe.training.dummy_baselines)
     # would be the bug we're guarding against.
     assert fn.__module__ in (
-        "mlframe.training._dummy_baseline_quantile",
-        "mlframe.training._dummy_baseline_compute",
+        "mlframe.training.baselines._dummy_baseline_quantile",
+        "mlframe.training.baselines._dummy_baseline_compute",
     ), (
         f"_compute_quantile_baselines must come from the compute / quantile "
         f"split module, got {fn.__module__}"
@@ -42,8 +42,8 @@ def test_compute_quantile_baselines_defined_only_in_compute_module():
     the SAME function object as the one re-exported from
     _dummy_baseline_compute -- not a wrapper, not a shadow.
     """
-    from mlframe.training import dummy_baselines
-    from mlframe.training import _dummy_baseline_compute
+    from mlframe.training.baselines import dummy as dummy_baselines
+    from mlframe.training.baselines import _dummy_baseline_compute
 
     # Identity: dummy_baselines._compute_quantile_baselines IS the function
     # from the compute module - not a wrapper, not a shadow.
@@ -57,7 +57,7 @@ def test_compute_quantile_baselines_callable_via_dummy_baselines():
     """Smoke: the re-exported symbol is callable and returns the expected shape."""
     import numpy as np
 
-    from mlframe.training.dummy_baselines import _compute_quantile_baselines
+    from mlframe.training.baselines.dummy import _compute_quantile_baselines
 
     rng = np.random.default_rng(0)
     train_y = rng.normal(size=200)

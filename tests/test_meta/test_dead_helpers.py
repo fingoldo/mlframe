@@ -116,7 +116,7 @@ _USER_DEFERRED_DEAD_HELPERS: set[str] = {
     "feature_selection/filters/hermite_fe.py::optimise_pair_multimode",
     "feature_selection/filters/screen.py::ScreenState",
     "feature_selection/filters/supervised_binning.py::apply_bin_edges",
-    "training/dummy_baselines.py::plot_best_dummy_baseline_overlay",
+    "training/baselines/dummy.py::plot_best_dummy_baseline_overlay",
     # 2026-05-21 — surfaced after the recent refactors split helpers
     # into new sibling modules. Pending owner decision (delete vs.
     # public-API re-export).

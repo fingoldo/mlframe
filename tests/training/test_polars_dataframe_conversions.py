@@ -136,7 +136,7 @@ def test_fix2_shap_branch_localimport_is_the_arrow_bridge():
 
 
 def test_fix3_baseline_diagnostics_coerce_uses_bridge():
-    from mlframe.training import baseline_diagnostics as bd
+    from mlframe.training.baselines import diagnostics as bd
     from mlframe.training import utils as utils_mod
 
     df = _make_numeric_pl_df(n_rows=200)
@@ -156,7 +156,7 @@ def test_fix3_baseline_diagnostics_coerce_uses_bridge():
 
 
 def test_fix3_baseline_diagnostics_coerce_equivalence():
-    from mlframe.training import baseline_diagnostics as bd
+    from mlframe.training.baselines import diagnostics as bd
 
     df = _make_numeric_pl_df(n_rows=200)
     out_new = bd._coerce_to_pandas(df, ["f0", "f1"])
@@ -426,7 +426,7 @@ def test_fix8_per_group_predict_converts_once_per_frame():
     objects that expose ``.to_pandas`` but are NOT pl.DataFrame -- so the
     pandas branch runs and the bridge is called per frame.
     """
-    from mlframe.training import _dummy_baseline_compute as dbc
+    from mlframe.training.baselines import _dummy_baseline_compute as dbc
 
     n = 200
     rng = np.random.default_rng(0)
@@ -458,7 +458,7 @@ def test_fix8_per_group_predict_converts_once_per_frame():
 
 
 def test_fix8_pick_per_group_categorical_uses_bridge():
-    from mlframe.training import _dummy_baseline_compute as dbc
+    from mlframe.training.baselines import _dummy_baseline_compute as dbc
 
     rng = np.random.default_rng(0)
     df = pl.DataFrame({"cat": rng.integers(0, 4, size=200), "x": rng.normal(size=200)})

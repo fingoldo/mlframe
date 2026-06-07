@@ -62,7 +62,7 @@ def _fit_quick_and_score(
     dominant features at percentage-point resolution.
     """
     from sklearn.model_selection import train_test_split
-    from .baseline_diagnostics import _compute_metric
+    from .diagnostics import _compute_metric
 
     # Single train_test_split that includes init_score when present;
     # this guarantees the (X_tr, y_tr, init_score_tr) triple stays

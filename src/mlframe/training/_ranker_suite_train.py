@@ -543,7 +543,7 @@ def train_mlframe_ranker_suite(
     # never blocks training.
     try:
         from mlframe.training.configs import DummyBaselinesConfig
-        from mlframe.training.dummy_baselines import compute_dummy_baselines
+        from mlframe.training.baselines import compute_dummy_baselines
         from mlframe.training.phases import phase as _phase_ctx
         _db_cfg = dummy_baselines_config or DummyBaselinesConfig()
         if _db_cfg.enabled and "learning_to_rank" in _db_cfg.apply_to_target_types:

@@ -370,7 +370,7 @@
     "module": "mlframe.training.target_temporal_audit",
     "signature": "(df:any:0, timestamp_col:any:0, targets:any:0, granularity:kw:1, min_bin_fraction:kw:1, method:kw:1, pelt_model:kw:1, pelt_penalty:kw:1, pelt_min_segment_size:kw:1, z_threshold:kw:1, z_window:kw:1, min_anomaly_run:kw:1, drift_warn_threshold:kw:1)"
   },
-  "baseline_diagnostics": {
+  "baselines": {
     "kind": "value",
     "type": "module"
   },
@@ -434,10 +434,6 @@
     "kind": "callable",
     "module": "mlframe.training.utils",
     "signature": "(df:any:0, additional_columns_to_drop:any:1, config_drop_columns:any:1, verbose:any:1)"
-  },
-  "dummy_baselines": {
-    "kind": "value",
-    "type": "module"
   },
   "ensemble_ranker_scores": {
     "kind": "callable",

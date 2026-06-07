@@ -225,7 +225,7 @@ def setup_configuration(
     # Pre-warm numba kernels so first call doesn't pay 6-10s JIT cold-start.
     if dummy_baselines_config.enabled:
         try:
-            from ..dummy_baselines import _warmup_numba_kernels
+            from ..baselines import _warmup_numba_kernels
             _warmup_numba_kernels()
         except Exception:
             pass

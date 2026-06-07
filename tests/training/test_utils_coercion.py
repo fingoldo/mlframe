@@ -94,7 +94,7 @@ class TestBackwardCompatAliases:
         )
 
     def test_baseline_diagnostics_alias_preserved(self):
-        from mlframe.training import baseline_diagnostics
+        from mlframe.training.baselines import diagnostics as baseline_diagnostics
         # baseline_diagnostics uses the 1-D variant; reshape applies
         out = baseline_diagnostics._to_1d_numpy(np.arange(4).reshape(2, 2))
         assert out.shape == (4,)

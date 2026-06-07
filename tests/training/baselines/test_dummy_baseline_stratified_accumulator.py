@@ -54,10 +54,10 @@ class _Cfg:
 
 
 def test_stratified_accumulator_matches_legacy_implementation():
-    from mlframe.training._dummy_baseline_classification import (
+    from mlframe.training.baselines._dummy_baseline_classification import (
         _compute_classification_baselines,
     )
-    from mlframe.training._dummy_baseline_compute import _per_target_seed
+    from mlframe.training.baselines._dummy_baseline_compute import _per_target_seed
 
     rng = np.random.default_rng(0)
     n_train, n_val, n_test = 5000, 1500, 1500
@@ -91,7 +91,7 @@ def test_stratified_accumulator_matches_legacy_implementation():
 
 def test_stratified_skips_when_val_test_empty():
     """The accumulator init is guarded by n_val/n_test > 0; this test pins it."""
-    from mlframe.training._dummy_baseline_classification import (
+    from mlframe.training.baselines._dummy_baseline_classification import (
         _compute_classification_baselines,
     )
 
@@ -112,7 +112,7 @@ def test_stratified_skips_when_val_test_empty():
 
 def test_stratified_mean_converges_to_train_prior():
     """Average over many reps should approximate train_prior per column."""
-    from mlframe.training._dummy_baseline_classification import (
+    from mlframe.training.baselines._dummy_baseline_classification import (
         _compute_classification_baselines,
     )
 

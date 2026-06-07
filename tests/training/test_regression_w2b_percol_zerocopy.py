@@ -18,7 +18,7 @@ pl = pytest.importorskip("polars")
 
 def test_extract_col_1d_polars_pandas_array_parity():
     """Helper must return identical flat ndarrays for polars/pandas/list inputs of the same data."""
-    from mlframe.training._dummy_baseline_regression import _extract_col_1d
+    from mlframe.training.baselines._dummy_baseline_regression import _extract_col_1d
 
     base = np.arange(50, dtype=np.float64)
     pdf = pd.DataFrame({"x": base})
@@ -36,7 +36,7 @@ def test_extract_col_1d_polars_pandas_array_parity():
 
 
 def test_extract_col_1d_none_returns_empty_array():
-    from mlframe.training._dummy_baseline_regression import _extract_col_1d
+    from mlframe.training.baselines._dummy_baseline_regression import _extract_col_1d
 
     out = _extract_col_1d(None, "x")
     assert out.size == 0

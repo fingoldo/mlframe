@@ -42,7 +42,7 @@ def test_warmup_numba_kernels_calls_prewarm_metric_cache(monkeypatch):
         _spy_prewarm,
     )
 
-    from mlframe.training.dummy_baselines import _warmup_numba_kernels
+    from mlframe.training.baselines.dummy import _warmup_numba_kernels
     _warmup_numba_kernels(verbose=False)
 
     assert seen["count"] >= 1, (
@@ -68,6 +68,6 @@ def test_warmup_numba_kernels_survives_metric_prewarm_failure(monkeypatch):
         _broken_prewarm,
     )
 
-    from mlframe.training.dummy_baselines import _warmup_numba_kernels
+    from mlframe.training.baselines.dummy import _warmup_numba_kernels
     # Must not raise.
     _warmup_numba_kernels(verbose=False)

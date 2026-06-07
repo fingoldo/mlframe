@@ -219,7 +219,7 @@ def test_G_verdict_picks_ensemble_when_better_than_best_model():
     floor cleanly while the best single model only marginally beats it. The
     suite-end verdict must prefer whichever is stronger - before this fix it
     silently ignored CT_ENSEMBLE and falsely flagged BEST_MODEL_BELOW_DUMMY."""
-    from mlframe.training._dummy_summary_format import format_suite_end_summary
+    from mlframe.training.baselines._dummy_summary_format import format_suite_end_summary
 
     dummy_metadata = {
         "regression": {

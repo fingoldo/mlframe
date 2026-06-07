@@ -50,7 +50,7 @@ def _compute_regression_baselines(
     """
     # Lazy local imports break the circular load with dummy_baselines.py and
     # the helpers that live in _dummy_baseline_compute.
-    from .dummy_baselines import _is_temporally_monotonic, _normalize_timestamps, _resolve_ts_periods
+    from .dummy import _is_temporally_monotonic, _normalize_timestamps, _resolve_ts_periods
     from ._dummy_baseline_compute import _pick_per_group_categorical, _per_group_predict
 
     val_preds: dict[str, np.ndarray] = {}

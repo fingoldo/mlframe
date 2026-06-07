@@ -40,7 +40,7 @@ def test_vectorised_binary_logloss_matches_sklearn_loop_percentiles():
     sklearn loop on the same seed. Allows small drift from sklearn's input-
     validation casts but the 2.5 / 50 / 97.5 percentiles must agree to 2 dp.
     """
-    from mlframe.training.dummy_baselines import _vectorized_bootstrap_logloss_samples
+    from mlframe.training.baselines.dummy import _vectorized_bootstrap_logloss_samples
 
     rng = np.random.default_rng(0)
     n = 600
@@ -70,7 +70,7 @@ def test_vectorised_multilabel_logloss_macro_returns_finite_samples():
     because sklearn's per-label log_loss + outer mean has a slightly
     different numerical path.
     """
-    from mlframe.training.dummy_baselines import _vectorized_bootstrap_logloss_samples
+    from mlframe.training.baselines.dummy import _vectorized_bootstrap_logloss_samples
 
     rng = np.random.default_rng(1)
     n, K = 400, 4
@@ -88,7 +88,7 @@ def test_vectorised_multilabel_logloss_macro_returns_finite_samples():
 
 def test_vectorised_returns_none_on_bad_shapes():
     """Shape mismatch / 3D y must return None so caller falls back."""
-    from mlframe.training.dummy_baselines import _vectorized_bootstrap_logloss_samples
+    from mlframe.training.baselines.dummy import _vectorized_bootstrap_logloss_samples
     rng = np.random.default_rng(2)
     # Mismatch
     assert _vectorized_bootstrap_logloss_samples(
@@ -111,7 +111,7 @@ def test_vectorised_binary_logloss_is_faster_than_sklearn_loop():
     loop at n=600, n_resamples=300. Picked >=5x (not >=10x) to leave margin
     on slow CI / cold cache. The actual observed speedup at n=600 is ~40x.
     """
-    from mlframe.training.dummy_baselines import _vectorized_bootstrap_logloss_samples
+    from mlframe.training.baselines.dummy import _vectorized_bootstrap_logloss_samples
 
     rng = np.random.default_rng(3)
     n, n_resamples = 600, 300

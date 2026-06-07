@@ -24,7 +24,7 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 
-from mlframe.training._dummy_baseline_compute import _per_group_predict
+from mlframe.training.baselines._dummy_baseline_compute import _per_group_predict
 
 
 RESULTS_DIR = Path(__file__).parent / "_results"

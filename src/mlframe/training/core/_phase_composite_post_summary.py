@@ -11,7 +11,7 @@ from typing import Any
 
 import numpy as np
 
-from ..dummy_baselines import format_suite_end_summary
+from ..baselines import format_suite_end_summary
 from .utils import _entry_metric
 
 logger = logging.getLogger("mlframe.training.core._phase_composite_post")

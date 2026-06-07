@@ -1,4 +1,4 @@
-"""Sensor: baseline_diagnostics method-rebinding preserves identity + class invariants."""
+"""Sensor: baselines.diagnostics method-rebinding preserves identity + class invariants."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -6,11 +6,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from mlframe.training import baseline_diagnostics as parent
-from mlframe.training import _baseline_diagnostics_ablation as ablation_mod
-from mlframe.training import _baseline_diagnostics_init_score as init_score_mod
-from mlframe.training import _baseline_diagnostics_quick_model as quick_model_mod
-from mlframe.training import _baseline_diagnostics_recommend as recommend_mod
+from mlframe.training.baselines import diagnostics as parent
+from mlframe.training.baselines import _baseline_diagnostics_ablation as ablation_mod
+from mlframe.training.baselines import _baseline_diagnostics_init_score as init_score_mod
+from mlframe.training.baselines import _baseline_diagnostics_quick_model as quick_model_mod
+from mlframe.training.baselines import _baseline_diagnostics_recommend as recommend_mod
 from mlframe.training.configs import BaselineDiagnosticsConfig
 
 
@@ -25,7 +25,7 @@ def test_w12b_baseline_diagnostics_methods_rebound():
 
 def test_w12b_baseline_diagnostics_facade_under_budget():
     facade_loc = sum(1 for _ in Path(parent.__file__).open(encoding="utf-8"))
-    assert facade_loc < 750, f"baseline_diagnostics.py LOC={facade_loc} exceeds 750 budget"
+    assert facade_loc < 750, f"baselines/diagnostics.py LOC={facade_loc} exceeds 750 budget"
 
 
 def test_w12b_baseline_diagnostics_class_identity_preserved():

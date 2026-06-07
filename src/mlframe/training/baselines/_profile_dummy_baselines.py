@@ -46,7 +46,7 @@ import pandas as pd
 from sklearn.preprocessing import LabelEncoder
 
 from mlframe.training.configs import DummyBaselinesConfig
-from mlframe.training.dummy_baselines import compute_dummy_baselines
+from .dummy import compute_dummy_baselines
 
 # Logger to INFO so we see verdict lines but not DEBUG full tables.
 logging.basicConfig(level=logging.INFO, format="%(message)s")

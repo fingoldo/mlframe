@@ -59,7 +59,7 @@ def test_biz_val_baseline_diagnostics_ablation_finds_dominant_feature():
     ablation rank-1 entry must be that feature. Catches regressions
     in the per-feature ablation loop."""
     pytest.importorskip("lightgbm")
-    from mlframe.training.baseline_diagnostics import BaselineDiagnostics
+    from mlframe.training.baselines.diagnostics import BaselineDiagnostics
 
     df = _dominant_one_target(n=2000, seed=42)
     feature_cols = ["x_dominant", "x_other", "x_noise1", "x_noise2"]
@@ -85,7 +85,7 @@ def test_biz_val_baseline_diagnostics_dominant_features_finds_signal():
     """``report.dominant_features`` must list features in the same
     rank order as ablation. The dominant feature must be #1."""
     pytest.importorskip("lightgbm")
-    from mlframe.training.baseline_diagnostics import BaselineDiagnostics
+    from mlframe.training.baselines.diagnostics import BaselineDiagnostics
 
     df = _dominant_one_target(n=2000, seed=42)
     diag = BaselineDiagnostics(_make_config(ablation_top_k=4))
@@ -117,7 +117,7 @@ def test_biz_val_baseline_diagnostics_sample_n_caps_runtime():
     cost. Floor: complete in < 30s. Measured fast on this hardware
     in 1-3s; 30s leaves CI headroom."""
     pytest.importorskip("lightgbm")
-    from mlframe.training.baseline_diagnostics import BaselineDiagnostics
+    from mlframe.training.baselines.diagnostics import BaselineDiagnostics
 
     rng = np.random.default_rng(42)
     n = 50_000
@@ -158,7 +158,7 @@ def test_biz_val_baseline_diagnostics_disabled_returns_quickly():
     dataframe. Catches regressions where someone forgets to honor
     the gate."""
     pytest.importorskip("lightgbm")
-    from mlframe.training.baseline_diagnostics import BaselineDiagnostics
+    from mlframe.training.baselines.diagnostics import BaselineDiagnostics
 
     rng = np.random.default_rng(42)
     n = 100_000
@@ -189,7 +189,7 @@ def test_biz_val_baseline_diagnostics_report_has_init_score_field():
     score / dummy baseline check (the headline diagnostic). Catches
     regressions in the report schema."""
     pytest.importorskip("lightgbm")
-    from mlframe.training.baseline_diagnostics import BaselineDiagnostics
+    from mlframe.training.baselines.diagnostics import BaselineDiagnostics
 
     df = _dominant_one_target(n=2000, seed=42)
     diag = BaselineDiagnostics(_make_config())

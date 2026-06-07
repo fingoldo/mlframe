@@ -24,7 +24,7 @@ from pathlib import Path
 def test_all_public_symbols_still_importable_from_facade() -> None:
     """Backward-compat: every name previously importable from
     `_dummy_baseline_compute` is still there."""
-    from mlframe.training._dummy_baseline_compute import (
+    from mlframe.training.baselines._dummy_baseline_compute import (
         _per_target_seed,
         _to_pandas_for_baseline,
         _pick_per_group_categorical,
@@ -55,7 +55,7 @@ def test_all_public_symbols_still_importable_from_facade() -> None:
 
 def test_sibling_files_exist_and_define_the_moved_symbol() -> None:
     """Each sibling file owns one of the moved symbols (the facade just re-exports)."""
-    from mlframe.training import (
+    from mlframe.training.baselines import (
         _dummy_baseline_regression,
         _dummy_baseline_classification,
         _dummy_baseline_quantile,
@@ -68,7 +68,7 @@ def test_sibling_files_exist_and_define_the_moved_symbol() -> None:
 def test_facade_below_1k_line_threshold() -> None:
     """The user's directive: monoliths >1k lines must be split.
     After wave 92, _dummy_baseline_compute.py is below the threshold."""
-    root = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe" / "training"
+    root = Path(__file__).resolve().parents[3] / "src" / "mlframe" / "training" / "baselines"
     facade = root / "_dummy_baseline_compute.py"
     assert facade.exists()
     n = len(facade.read_text(encoding="utf-8").splitlines())
@@ -78,7 +78,7 @@ def test_facade_below_1k_line_threshold() -> None:
 def test_per_target_seed_still_deterministic_after_split() -> None:
     """Sanity: import via the facade and exercise one of the helpers
     that the moved sub-modules lazy-import back."""
-    from mlframe.training._dummy_baseline_compute import _per_target_seed
+    from mlframe.training.baselines._dummy_baseline_compute import _per_target_seed
     a = _per_target_seed(42, "revenue")
     b = _per_target_seed(42, "revenue")
     c = _per_target_seed(42, "churn")
@@ -90,7 +90,7 @@ def test_compute_quantile_baselines_round_trips_via_facade() -> None:
     """Quick functional check: the moved _compute_quantile_baselines
     behaves the same when called via the facade re-export."""
     import numpy as np
-    from mlframe.training._dummy_baseline_compute import _compute_quantile_baselines
+    from mlframe.training.baselines._dummy_baseline_compute import _compute_quantile_baselines
 
     class _Config:
         pass

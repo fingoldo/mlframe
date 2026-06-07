@@ -112,7 +112,7 @@ def test_warmup_numba_kernels_does_not_recurse():
     Python recursion limit. The sentinel attribute makes the second
     forward+reverse traversal a no-op."""
     pytest.importorskip("numba")
-    from mlframe.training.dummy_baselines import _warmup_numba_kernels
+    from mlframe.training.baselines.dummy import _warmup_numba_kernels
 
     # Two back-to-back calls: previously the second one re-entered the cycle.
     _warmup_numba_kernels(verbose=False)

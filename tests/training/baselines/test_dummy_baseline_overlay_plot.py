@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from mlframe.training.dummy_baselines import (
+from mlframe.training.baselines.dummy import (
     compute_dummy_baselines,
     plot_best_dummy_baseline_overlay,
     BaselineReport,

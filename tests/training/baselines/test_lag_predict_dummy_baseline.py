@@ -53,7 +53,7 @@ def _dummy_config():
 
 class TestLagPredictBaseline:
     def test_lag_predict_added_for_ar_target(self) -> None:
-        from mlframe.training._dummy_baseline_regression import (
+        from mlframe.training.baselines._dummy_baseline_regression import (
             _compute_regression_baselines,
         )
         df, y = _ar_synthetic_frame()
@@ -81,7 +81,7 @@ class TestLagPredictBaseline:
     def test_lag_predict_beats_mean_baseline_on_ar1(self) -> None:
         """The whole point: on AR(1) data the lag baseline should
         crush the mean baseline. Verifies the RMSE delta exists."""
-        from mlframe.training._dummy_baseline_regression import (
+        from mlframe.training.baselines._dummy_baseline_regression import (
             _compute_regression_baselines,
         )
         df, y = _ar_synthetic_frame(n=4000, seed=1)
@@ -111,7 +111,7 @@ class TestLagPredictBaseline:
         )
 
     def test_lag_predict_skipped_when_no_lag_column(self) -> None:
-        from mlframe.training._dummy_baseline_regression import (
+        from mlframe.training.baselines._dummy_baseline_regression import (
             _compute_regression_baselines,
         )
         rng = np.random.default_rng(0)
@@ -135,7 +135,7 @@ class TestLagPredictBaseline:
 
     def test_lag_predict_picks_lag_1_suffix(self) -> None:
         """Verifies the ``_lag_1`` suffix variant is also detected."""
-        from mlframe.training._dummy_baseline_regression import (
+        from mlframe.training.baselines._dummy_baseline_regression import (
             _compute_regression_baselines,
         )
         df, y = _ar_synthetic_frame()

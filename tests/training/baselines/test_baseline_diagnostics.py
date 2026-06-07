@@ -32,7 +32,7 @@ import pytest
 # tests that actually fit models need the library available.
 pytest.importorskip("lightgbm")
 
-from mlframe.training.baseline_diagnostics import (  # noqa: E402
+from mlframe.training.baselines.diagnostics import (  # noqa: E402
     AblationEntry,
     BaselineDiagnostics,
     BaselineDiagnosticsReport,

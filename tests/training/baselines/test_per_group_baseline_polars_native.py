@@ -31,7 +31,7 @@ def _synth(n_rows: int, n_groups: int, n_extra_cols: int, seed: int) -> tuple["p
 
 def test_polars_input_dispatches_to_polars_native_branch():
     """Polars input must hit ``_per_group_predict_polars``; pandas input must NOT."""
-    from mlframe.training import _dummy_baseline_compute as mod
+    from mlframe.training.baselines import _dummy_baseline_compute as mod
 
     train_pl, y = _synth(2_000, 50, 3, seed=1)
     val_pl, _ = _synth(500, 55, 3, seed=2)
@@ -51,7 +51,7 @@ def test_polars_input_dispatches_to_polars_native_branch():
 
 def test_polars_native_outputs_bit_equal_to_pandas_branch():
     """Numerical equivalence: max abs diff across all three prediction arrays <= 1e-12."""
-    from mlframe.training._dummy_baseline_compute import _per_group_predict
+    from mlframe.training.baselines._dummy_baseline_compute import _per_group_predict
 
     train_pl, y = _synth(5_000, 50, 3, seed=10)
     val_pl, _ = _synth(1_000, 60, 3, seed=11)
@@ -73,7 +73,7 @@ def test_polars_native_outputs_bit_equal_to_pandas_branch():
 
 def test_polars_native_handles_unseen_groups_with_global_mean_fallback():
     """Val / test rows whose group never appeared in train must map to global_mean. Mirrors the pandas-branch fillna(global_mean) contract."""
-    from mlframe.training._dummy_baseline_compute import _per_group_predict
+    from mlframe.training.baselines._dummy_baseline_compute import _per_group_predict
 
     train_pl = pl.DataFrame({"g": np.array([0, 0, 1, 1, 1], dtype=np.int64)})
     val_pl = pl.DataFrame({"g": np.array([0, 99, 1, 99], dtype=np.int64)})
@@ -97,7 +97,7 @@ def test_biz_val_per_group_baseline_polars_faster_than_pandas_at_1m_rows():
     Measured 2.57x in the development benchmark; floor 1.7x leaves >30% headroom for runtime noise. Regressions in the polars-native path (e.g. dropping the
     fused group_by, falling back to two passes, accidentally reintroducing the polars->pandas bridge) trip this assertion.
     """
-    from mlframe.training._dummy_baseline_compute import _per_group_predict
+    from mlframe.training.baselines._dummy_baseline_compute import _per_group_predict
 
     n_rows = 1_000_000
     train_pl, y = _synth(n_rows, 1_000, 20, seed=20)

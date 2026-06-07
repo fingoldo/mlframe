@@ -88,7 +88,7 @@ import numpy as np
 import pandas as pd
 
 from mlframe.training.configs import DummyBaselinesConfig
-from mlframe.training.dummy_baselines import (
+from .dummy import (
     _bootstrap_ci_for_strongest,
     _paired_bootstrap_vs_runner_up,
     _per_target_seed,

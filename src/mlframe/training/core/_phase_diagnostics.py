@@ -7,7 +7,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
-from ..baseline_diagnostics import BaselineDiagnostics, format_baseline_diagnostics_report
+from ..baselines import BaselineDiagnostics, format_baseline_diagnostics_report
 from ..drift_report import compute_label_distribution_drift, format_drift_report
 from ..feature_drift_report import compute_feature_distribution_drift
 

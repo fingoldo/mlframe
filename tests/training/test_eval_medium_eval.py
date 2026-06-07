@@ -57,7 +57,7 @@ import pytest
 def test_pick_per_group_categorical_alphabetical_tiebreaker():
     """When two cat features tie on cardinality the alphabetically-first wins,
     regardless of caller-supplied ``cat_features`` ordering."""
-    from mlframe.training._dummy_baseline_compute import _pick_per_group_categorical
+    from mlframe.training.baselines._dummy_baseline_compute import _pick_per_group_categorical
 
     n = 200
     rng = np.random.default_rng(0)
@@ -155,7 +155,7 @@ def test_compute_ml_perf_by_time_no_futurewarning_on_M_alias():
 
 
 def _build_minimal_report(primary_metric, strongest, trivial, primary_val, trivial_val):
-    from mlframe.training.dummy_baselines import BaselineReport
+    from mlframe.training.baselines.dummy import BaselineReport
 
     table = pd.DataFrame(
         {primary_metric: [primary_val, trivial_val]},
@@ -205,7 +205,7 @@ def test_baseline_report_lift_direction_aware_minimize_metric():
 def test_pick_strongest_alphabetical_tiebreaker_on_minimize():
     """Two baselines tying on the optimum metric value resolve to the
     alphabetically first name (order-independent)."""
-    from mlframe.training.dummy_baselines import _pick_strongest
+    from mlframe.training.baselines.dummy import _pick_strongest
 
     primary_metric = "val_log_loss"
     extras = {"strongest_pick_excluded": []}
@@ -287,7 +287,7 @@ def test_baseline_diagnostics_outer_try_does_not_swallow_keyboard_interrupt(monk
     the worker.
     """
     import pandas as _pd
-    from mlframe.training import baseline_diagnostics
+    from mlframe.training.baselines import diagnostics as baseline_diagnostics
 
     dummy_df = _pd.DataFrame({"a": [1.0, 2.0]})
     dummy_target = [0, 1]
@@ -398,7 +398,7 @@ def test_dummy_baselines_numba_log_loss_kernel_narrow_catch(monkeypatch):
     """Behavioural: when the log_loss numba kernel raises MemoryError
     or KeyboardInterrupt, it MUST propagate (not be swallowed by the
     narrow fallback tuple)."""
-    from mlframe.training import dummy_baselines
+    from mlframe.training.baselines import dummy as dummy_baselines
 
     # The narrow catch only catches (TypeError, ValueError,
     # FloatingPointError, RuntimeError). MemoryError must propagate.
@@ -408,7 +408,7 @@ def test_dummy_baselines_numba_log_loss_kernel_narrow_catch(monkeypatch):
     # sklearn.metrics or dummy_baselines.log_loss misses because the
     # in-function call binds the local module-namespace alias at
     # import time, not the sklearn original.
-    from mlframe.training import _dummy_metrics_pick_plot as _dmpp
+    from mlframe.training.baselines import _dummy_metrics_pick_plot as _dmpp
 
     def _mem(*a, **kw):
         raise MemoryError("simulated")

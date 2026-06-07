@@ -48,7 +48,7 @@ def _sklearn_paired_loop(y, p1, p2, n_resamples, seed, minimize=True):
 
 def _vec_paired(y, p1, p2, n_resamples, seed, minimize=True):
     """Mirror of the new vectorised path in _paired_bootstrap_vs_runner_up."""
-    from mlframe.training.dummy_baselines import _vectorized_bootstrap_logloss_samples
+    from mlframe.training.baselines.dummy import _vectorized_bootstrap_logloss_samples
     s1 = _vectorized_bootstrap_logloss_samples(y, p1, n_resamples, seed)
     s2 = _vectorized_bootstrap_logloss_samples(y, p2, n_resamples, seed)
     mask = np.isfinite(s1) & np.isfinite(s2)
@@ -139,7 +139,7 @@ def test_paired_macro_path_still_returns_none():
     # all its constructor args, so we verify the helper alone returns the
     # right kind of structure for 1D / 2D inputs and the caller still respects
     # the gate by reading the source-level guard.
-    from mlframe.training.dummy_baselines import _vectorized_bootstrap_logloss_samples
+    from mlframe.training.baselines.dummy import _vectorized_bootstrap_logloss_samples
     rng = np.random.default_rng(3)
     # 2D macro shape (n, K) is allowed by the helper itself; the gate against
     # log_loss_macro is at the caller (_paired_bootstrap_vs_runner_up) which

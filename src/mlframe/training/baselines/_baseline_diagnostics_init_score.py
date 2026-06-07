@@ -48,7 +48,7 @@ def _fit_init_score_baseline(
     (regression) or LogisticRegression (binary). Falls back to top-1 if
     the combiner is degenerate.
     """
-    from .baseline_diagnostics import InitScoreBaseline, _delta_pct
+    from .diagnostics import InitScoreBaseline, _delta_pct
 
     top_k = max(1, min(self.config.init_score_top_k, len(ablation)))
     # Use only features with positive ablation delta - dropping them actually

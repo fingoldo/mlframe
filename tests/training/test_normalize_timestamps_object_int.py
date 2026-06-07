@@ -16,7 +16,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from mlframe.training.dummy_baselines import _normalize_timestamps
+from mlframe.training.baselines.dummy import _normalize_timestamps
 
 
 def test_object_array_of_int_epoch_seconds_detected_correctly():

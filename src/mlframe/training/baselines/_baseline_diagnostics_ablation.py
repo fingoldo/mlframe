@@ -35,7 +35,7 @@ def _run_ablation(
     pool. Profiled wall-time on n=2000, K=4: 627 ms serial -> ~250 ms
     parallel (2.5x).
     """
-    from .baseline_diagnostics import AblationEntry, _delta_pct
+    from .diagnostics import AblationEntry, _delta_pct
 
     if raw_fi.size == 0 or raw_fi.sum() == 0:
         logger.info(

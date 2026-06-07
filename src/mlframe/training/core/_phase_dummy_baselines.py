@@ -70,7 +70,7 @@ def run_dummy_baselines(
                 cur_target_name,
             )
 
-        from ..dummy_baselines import compute_dummy_baselines
+        from ..baselines import compute_dummy_baselines
 
         _ts_train = (
             timestamps[filtered_train_idx]

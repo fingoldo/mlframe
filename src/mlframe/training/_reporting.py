@@ -113,7 +113,7 @@ def _canonical_multilabel_y(targets) -> np.ndarray:
     downstream metrics expect ``{0, 1}`` indicators.
 
     Extracted from the inline canonicalization at evaluation.py so
-    ``mlframe.training.dummy_baselines`` and other consumers share
+    ``mlframe.training.baselines.dummy`` and other consumers share
     one path.
     """
     if isinstance(targets, pd.DataFrame):

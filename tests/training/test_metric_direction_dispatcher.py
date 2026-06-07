@@ -172,7 +172,7 @@ def test_dummy_baselines_uses_central_dispatcher():
     """The dummy-baseline pick path must route metric direction through the central registry
     helper (verified via the 47-case direction tests above), not a local whitelist."""
     from mlframe.training.metrics_registry import metric_name_higher_is_better
-    from mlframe.training import _dummy_metrics_pick_plot as pick
+    from mlframe.training.baselines import _dummy_metrics_pick_plot as pick
 
     assert _imports_dispatcher(pick), (
         "Wave 20 P0: _dummy_metrics_pick_plot must import the central dispatcher, not a local whitelist"

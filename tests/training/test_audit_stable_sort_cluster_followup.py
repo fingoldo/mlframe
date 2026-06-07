@@ -142,7 +142,7 @@ def test_baseline_diagnostics_ablation_uses_lexsort() -> None:
     """The ablation block moved to sibling _baseline_diagnostics_ablation.py
     when baseline_diagnostics.py was split below 1k LOC; concat so the
     source sensor matches the post-carve layout."""
-    src = _read("training/baseline_diagnostics.py")
+    src = _read("training/baselines/diagnostics.py")
     _sibling = MLFRAME_ROOT / "training" / "_baseline_diagnostics_ablation.py"
     if _sibling.exists():
         src += "\n" + _sibling.read_text(encoding="utf-8")

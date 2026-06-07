@@ -57,7 +57,7 @@ def _run_once(target_name: str) -> int:
     code = (
         "import sys\n"
         f"sys.path.insert(0, r'{_src_root}')\n"
-        "from mlframe.training._dummy_baseline_compute import _per_target_seed\n"
+        "from mlframe.training.baselines._dummy_baseline_compute import _per_target_seed\n"
         f"print(_per_target_seed(42, {target_name!r}))\n"
     )
     proc = subprocess.run(
@@ -97,7 +97,7 @@ def test_per_target_seed_no_hash_call_in_source():
     import mlframe as _mlframe
     src = (
         pathlib.Path(_mlframe.__file__).resolve().parent
-        / "training" / "_dummy_baseline_compute.py"
+        / "training" / "baselines" / "_dummy_baseline_compute.py"
     ).read_text(encoding="utf-8")
     # AST-walk so docstrings don't show up as code. Walk the function body's
     # statements and search for any `Name(id="hash")` Call (the builtin).

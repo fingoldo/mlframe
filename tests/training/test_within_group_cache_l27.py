@@ -34,7 +34,7 @@ def test_numba_within_group_decorator_has_cache_true() -> None:
     ``_cache`` (NullCache vs IndexDataCacheFile) which surfaces the
     flag's value."""
     pytest.importorskip("numba")
-    from mlframe.training.dummy_baselines import _numba_within_group_descending_rank
+    from mlframe.training.baselines.dummy import _numba_within_group_descending_rank
 
     # Numba's CPUDispatcher stores the cache backend on ``_cache``.
     # The NullCache class signals cache=False; FunctionCache (or its
@@ -52,7 +52,7 @@ def test_numba_within_group_decorator_has_cache_true() -> None:
 def test_within_group_descending_index_behaviour_unchanged() -> None:
     """The cache=True flip is a perf change; the per-row output must
     be bit-identical to the cache=False baseline."""
-    from mlframe.training.dummy_baselines import _within_group_descending_index
+    from mlframe.training.baselines.dummy import _within_group_descending_index
 
     # 3 groups, 2 rows each, then 2 more from groups 0 and 1.
     gids = np.array([0, 0, 1, 1, 2, 2, 0, 1], dtype=np.int64)
@@ -69,7 +69,7 @@ def test_within_group_handles_string_keys_via_python_fallback() -> None:
     """String group_ids must still work via the Python-loop fallback
     (the kernel only handles integer dtypes; the wrapper falls back
     on `dtype.kind` not in {'i','u'})."""
-    from mlframe.training.dummy_baselines import _within_group_descending_index
+    from mlframe.training.baselines.dummy import _within_group_descending_index
 
     gids = np.array(["a", "a", "b", "a", "b"], dtype=object)
     out = _within_group_descending_index(gids, len(gids))
@@ -83,7 +83,7 @@ def test_within_group_empty_input_returns_empty_array() -> None:
     """n=0 short-circuit must not invoke the kernel (would compile
     on an empty array which the dispatcher handles fine, but the
     short-circuit saves a dispatch)."""
-    from mlframe.training.dummy_baselines import _within_group_descending_index
+    from mlframe.training.baselines.dummy import _within_group_descending_index
 
     out = _within_group_descending_index(np.array([], dtype=np.int64), 0)
     assert out.shape == (0,)

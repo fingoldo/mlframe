@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
-from ..baseline_diagnostics import BaselineDiagnostics
+from ..baselines import BaselineDiagnostics
 from ..composite import CompositeTargetDiscovery
 from ..composite.cache import (
     ConfigSignatureV1,

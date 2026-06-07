@@ -20,7 +20,7 @@ from ..composite import CompositeCrossTargetEnsemble as _CrossEns, CompositeTarg
 from ..composite import compute_oof_holdout_predictions, get_transform
 from ..composite.post_shim import PrePipelinePredictShim
 from ..composite.transforms import is_composite_target_name
-from ..dummy_baselines import format_suite_end_summary
+from ..baselines import format_suite_end_summary
 from ..evaluation import report_model_perf
 from .utils import _build_full_column_from_splits, _entry_metric
 

@@ -21,7 +21,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from mlframe.training._dummy_baseline_compute import _per_target_seed
+from mlframe.training.baselines._dummy_baseline_compute import _per_target_seed
 
 
 class _LtrCfg:
@@ -45,7 +45,7 @@ def _legacy_first_run(seed: int, n_val: int, n_test: int, n_repeats: int):
 
 
 def test_random_within_query_matches_legacy_first_run():
-    from mlframe.training.dummy_baselines import _compute_ltr_baselines
+    from mlframe.training.baselines.dummy import _compute_ltr_baselines
 
     rng = np.random.default_rng(0)
     n_train, n_val, n_test = 600, 200, 200
@@ -80,7 +80,7 @@ def test_random_within_query_matches_legacy_first_run():
 
 
 def test_random_within_query_handles_empty_splits():
-    from mlframe.training.dummy_baselines import _compute_ltr_baselines
+    from mlframe.training.baselines.dummy import _compute_ltr_baselines
 
     rng = np.random.default_rng(0)
     n_train = 600

@@ -89,7 +89,7 @@ def prewarm_numba_cache():
 
     Calls all @njit functions with small dummy data to trigger JIT compilation before timing-sensitive operations. Warms up both float32 and float64 paths.
 
-    Re-entrancy guard: this function calls ``training.dummy_baselines._warmup_numba_kernels``
+    Re-entrancy guard: this function calls ``training.baselines.dummy._warmup_numba_kernels``
     (forward), and that function calls back into us (reverse). Without the
     ``_in_progress`` sentinel the pair mutually recurses past the stack limit
     before either try/except sees the failure (observed 2026-05-20 on S:
@@ -369,7 +369,7 @@ def _prewarm_numba_cache_body():
 
     # Warm dummy_baselines kernels. The suite already calls `_warmup_numba_kernels` early in `train_mlframe_models_suite`, but that lands inside the suite wall-time; warming here shifts cost out of the user-visible timer.
     try:
-        from mlframe.training.dummy_baselines import _warmup_numba_kernels
+        from mlframe.training.baselines import _warmup_numba_kernels
         _warmup_numba_kernels()
     except Exception:
         pass

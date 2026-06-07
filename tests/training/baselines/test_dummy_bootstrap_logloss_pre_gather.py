@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from mlframe.training.dummy_baselines import _vectorized_bootstrap_logloss_samples
+from mlframe.training.baselines.dummy import _vectorized_bootstrap_logloss_samples
 
 
 def _legacy_post_gather(y, p, n_resamples, seed, eps=1e-15):
