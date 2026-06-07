@@ -196,6 +196,57 @@ def test_discretize_2d_quantile_batch_constant_and_tie_columns():
     assert np.array_equal(got, ref)
 
 
+def test_discretize_2d_quantile_batch_no_full_buffer_float64_copy(monkeypatch):
+    """REGRESSION (2026-06-07): the njit-searchsorted optimisation must NOT upcast the
+    full-width float32 FE buffer to a float64 copy. The original optimisation did
+    ``arr_c = np.ascontiguousarray(arr2d, dtype=np.float64)`` which DOUBLED a multi-GB
+    float32 buffer into float64 and OOM-crashed ``MRMR.fit`` on the wide canonical
+    fixture (20000 x ~19000 cols -> 2.9 GiB float64 alloc on top of numpy.percentile's
+    own copy). The fix passes ``arr2d`` at its native float32 dtype to the kernel (numba
+    promotes per-element against the float64 edges, byte-identically). This test pins
+    that contract: discretising a float32 buffer must never request a float64-dtyped
+    ``ascontiguousarray`` of an array as large as the buffer.
+
+    We spy on ``np.ascontiguousarray`` inside the discretization module: a float64 cast
+    of an array with >= n_rows*n_cols elements is the forbidden full-buffer upcast. (The
+    small ``edges[1:-1]`` float64 contiguity call is allowed -- it is (n_bins-1) x n_cols,
+    far smaller than the buffer.)
+    """
+    import mlframe.feature_selection.filters.discretization as _disc_mod
+
+    n, K, nbins = 2000, 64, 10
+    raw = _candidate_columns(n, K, seed=314).astype(np.float32)
+    buffer_cells = n * K
+
+    real_ascontig = np.ascontiguousarray
+    forbidden = {"hit": False}
+
+    def _spy_ascontiguousarray(a, dtype=None):
+        arr = np.asarray(a)
+        if (
+            dtype is not None
+            and np.dtype(dtype) == np.float64
+            and arr.dtype == np.float32
+            and arr.size >= buffer_cells
+        ):
+            forbidden["hit"] = True
+        return real_ascontig(a, dtype=dtype) if dtype is not None else real_ascontig(a)
+
+    monkeypatch.setattr(_disc_mod.np, "ascontiguousarray", _spy_ascontiguousarray)
+
+    got = discretize_2d_quantile_batch(raw, n_bins=nbins, dtype=np.int32)
+
+    assert not forbidden["hit"], (
+        "discretize_2d_quantile_batch made a full-buffer float64 copy of the float32 "
+        "input -- the OOM regression. Pass arr2d to the njit kernel at its native dtype."
+    )
+    # And it must still be code-identical to the per-column 1-D path (native float32 kernel).
+    ref = np.empty_like(got)
+    for k in range(K):
+        ref[:, k] = discretize_array(arr=raw[:, k], n_bins=nbins, method="quantile", dtype=np.int32)
+    assert np.array_equal(got, ref), "native-float32 njit searchsorted diverged from per-column reference"
+
+
 # ---------------------------------------------------------------------------
 # njit external-validation candidate materialisation (_materialise_extval_njit):
 # ALL (external_factor x bin_func) columns in one nogil kernel. Must produce the

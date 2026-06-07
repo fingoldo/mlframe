@@ -442,8 +442,13 @@ def _searchsorted_2d_right_njit(edges_inner: np.ndarray, arr2d: np.ndarray, out:
     concurrently across cores; on the n_jobs=1 path it runs single-threaded but still removes
     the per-column numpy dispatch overhead.
 
-    ``edges_inner`` is ``edges[1:-1]`` (the interior bin edges), shape ``(n_edges, n_cols)``;
-    ``arr2d`` is ``(n_rows, n_cols)``; ``out`` is the pre-allocated ordinal-code array.
+    ``edges_inner`` is ``edges[1:-1]`` (the interior bin edges), shape ``(n_edges, n_cols)``,
+    always float64; ``arr2d`` is ``(n_rows, n_cols)`` at its NATIVE dtype (float32 or float64 --
+    numba compiles a specialisation per dtype). The per-element ``arr2d[r,j] < edges_inner[mid,j]``
+    promotes a float32 value to float64 against the float64 edge, byte-identically to numpy's
+    ``searchsorted(float64_edges, float32_col)``; this lets the caller pass the full-width FE
+    buffer WITHOUT a float64 upcast copy (which would double a multi-GB float32 buffer and OOM).
+    ``out`` is the pre-allocated ordinal-code array.
     """
     n_rows = arr2d.shape[0]
     n_cols = arr2d.shape[1]
@@ -502,13 +507,24 @@ def discretize_2d_quantile_batch(arr2d: np.ndarray, n_bins: int = 10, dtype: obj
     else:
         edges = np.percentile(arr2d, quantiles, axis=0)
     out = np.empty((n_rows, n_cols), dtype=dtype)
-    # njit-prange per-column searchsorted (bit-identical to the numpy loop, incl. NaN
+    # njit per-column searchsorted (bit-identical to the numpy loop, incl. NaN
     # -> rightmost bin; see ``_searchsorted_2d_right_njit``). ``edges`` is float64 from
-    # percentile; ensure both operands are C-contiguous float64 so the kernel's column
-    # strides are tight. ``edges[1:-1]`` is the interior-edge view searchsorted indexes.
+    # percentile and is small ((n_bins-1) x n_cols) so we make it C-contiguous float64.
+    # ``arr2d`` is passed at its NATIVE dtype (do NOT upcast to float64): the FE buffer is
+    # float32 and full-width (n_rows x n_cols, often >1e8 cells on a wide pool), so a
+    # ``np.ascontiguousarray(arr2d, dtype=np.float64)`` would DOUBLE it into a multi-GB
+    # float64 copy and OOM -- the regression that crashed MRMR.fit on the wide canonical
+    # fixture (20000 x ~19000 cols -> 2.9 GiB float64 alloc). The kernel's per-element
+    # ``arr2d[r,j] < edges_inner[mid,j]`` promotes a float32 value to float64 against the
+    # float64 edge in numba, EXACTLY matching numpy's ``searchsorted(float64_edges,
+    # float32_col)`` (which finds the float64 common dtype and compares there) -- so the
+    # codes are byte-identical to both the float64-copy path and the per-column 1-D path.
+    # ``np.ascontiguousarray(arr2d)`` (no dtype) is a no-op view when arr2d is already
+    # C-contiguous (the common FE case incl. column-slices ``buf[:, :k]``); a genuinely
+    # non-contiguous input copies at the native float32 width, still half the float64 cost.
     if n_cols > 0 and n_rows > 0:
         edges_inner = np.ascontiguousarray(edges[1:-1], dtype=np.float64)
-        arr_c = np.ascontiguousarray(arr2d, dtype=np.float64)
+        arr_c = np.ascontiguousarray(arr2d)
         _searchsorted_2d_right_njit(edges_inner, arr_c, out)
     return out
 
