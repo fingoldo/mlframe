@@ -203,12 +203,21 @@ def is_variable_truly_continuous(
     if var_is_numeric is None:
         var_is_numeric = is_numeric_dtype(values)
 
-    # Wave 31 (2026-05-20): assert -> TypeError.
     if not (var_is_numeric or var_is_datetime):
         raise TypeError(
             "is_variable_truly_continuous: values must be numeric or "
             "datetime-typed; got non-numeric non-datetime data."
         )
+
+    if var_is_datetime:
+        # Normalize any pandas datetime carrier (tz-aware Series / DatetimeArray) to a tz-naive numpy datetime64 array up front.
+        # The resolution probe + quantile/span arithmetic below all assume numpy: np.nanquantile / the q-diff yield pandas
+        # Timestamp/Timedelta scalars on a DatetimeArray, which lack the .astype the span computation calls (and pandas >=2.0
+        # rejects casting a DatetimeArray straight to datetime64[h]). Callers passing numpy already (df[col].to_numpy()) are unaffected.
+        _tz = getattr(getattr(values, "dtype", None), "tz", None)
+        if _tz is not None:
+            values = values.tz_convert("UTC").tz_localize(None)
+        values = np.asarray(values, dtype="datetime64[ns]")
 
     if var_is_numeric:
         nz_fract_digits = 0
@@ -238,20 +247,8 @@ def is_variable_truly_continuous(
                     cur_fract_digits = 1
         cur_fract_digits = cur_fract_digits - 1
     elif var_is_datetime:
-        # Wave 34 Low fix (2026-05-20): the ``.astype("datetime64[D]")``
-        # call on a tz-aware Series RAISES on pandas >=2.0 (the tz info
-        # cannot survive the unit-truncation) and silently DROPS tz on
-        # pandas <2.0 emitting a FutureWarning. Strip tz upfront so the
-        # rounding-resolution probe works uniformly across pandas eras.
+        # values is a tz-naive numpy datetime64 array (normalized above), so the rounding-resolution probe works uniformly across pandas eras.
         _vals_naive = values
-        _tz_attr = getattr(getattr(values, "dtype", None), "tz", None)
-        if _tz_attr is not None:
-            try:
-                # values is a pandas DatetimeArray / Series here.
-                _vals_naive = values.tz_convert("UTC").tz_localize(None)
-            except (AttributeError, TypeError):
-                # numpy or scalar fallback: cast through to_numpy.
-                _vals_naive = pd.to_datetime(values, utc=True).tz_localize(None).to_numpy()
         full_multiplier = 1
         prev_date_fract = "D"
         for date_fract, multiplier in zip(DATEFRACTS_CODES, DATEFRACTS_MULTIPLIERS):
