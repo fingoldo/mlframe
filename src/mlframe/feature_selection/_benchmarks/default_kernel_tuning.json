@@ -1,5 +1,5 @@
 {
-  "generated_utc": "2026-06-07T09:31:34+00:00",
+  "generated_utc": "2026-06-07T17:13:29+00:00",
   "hosts": 1,
   "kernels": {
     "batch_mi_noise_gate": {
@@ -523,6 +523,50 @@
           "device": "gpu",
           "k_max": null,
           "n_rows_max": null
+        }
+      ],
+      "salt": 1
+    },
+    "mrmr_fe_kernel_parallelism": {
+      "axes": [
+        "n_cols"
+      ],
+      "code_version": "c0a8be1faebbd8500da855d26a70be2fc410aac605f19eeb6e87b26bb7214008",
+      "regions": [
+        {
+          "backend_choice": "parallel",
+          "device": "cpu",
+          "max_abs_diff": 0.0,
+          "n_cols_max": 16
+        },
+        {
+          "backend_choice": "parallel",
+          "device": "cpu",
+          "max_abs_diff": 0.0,
+          "n_cols_max": 64
+        },
+        {
+          "backend_choice": "parallel",
+          "device": "cpu",
+          "max_abs_diff": 0.0,
+          "n_cols_max": 256
+        },
+        {
+          "backend_choice": "parallel",
+          "device": "cpu",
+          "max_abs_diff": 0.0,
+          "n_cols_max": 1024
+        },
+        {
+          "backend_choice": "parallel",
+          "device": "cpu",
+          "max_abs_diff": 0.0,
+          "n_cols_max": 4096
+        },
+        {
+          "backend_choice": "parallel",
+          "device": "cpu",
+          "n_cols_max": null
         }
       ],
       "salt": 1

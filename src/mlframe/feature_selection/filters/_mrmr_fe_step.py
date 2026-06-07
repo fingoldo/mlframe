@@ -662,6 +662,14 @@ def _run_fe_step(
                 prewarp_specs_out=_prewarp_specs,
                 fe_gate_med_enable=_gate_med_enable,
                 gate_med_specs_out=_gate_med_specs,
+                # OPT-A (2026-06-07): THIS is the serial-main-thread branch -- the whole FE
+                # search runs here with NO joblib threads (the ``else`` below is the
+                # ``len(X) >= 50000`` joblib ``backend="threading"`` path). On this branch a
+                # numba prange does not nest inside Python threads, so the FE materialise /
+                # searchsorted kernels may dispatch to their byte-identical ``parallel=True``
+                # column-prange twins (gated further by the per-host crossover). The joblib
+                # path below leaves ``serial_main_thread`` at its default False -> serial kernels.
+                serial_main_thread=True,
             )
         else:
 

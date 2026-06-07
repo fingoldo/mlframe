@@ -16,12 +16,15 @@ from typing import Sequence
 
 import numpy as np
 import pandas as pd
-from numba import njit
+from numba import njit, prange
 from numpy.polynomial.hermite import hermval
 from scipy import special as sp
 
 from pyutilz.pythonlib import sort_dict_by_value
 from pyutilz.system import tqdmu
+# OPT-A (2026-06-07): per-host serial-vs-parallel crossover for the FE materialise /
+# searchsorted kernels on the serial-main-thread path (no hardcoded threshold).
+from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
 # Module-level logger for module-scope helpers (e.g. _dispatch_batch_mi_with_noise_gate).
 # ``check_prospective_fe_pairs`` still lazy-imports the parent's ``logger`` for its own body.
@@ -475,6 +478,163 @@ def _materialise_chunk_njit(tv, a_cols, b_cols, op_codes, out):
                 v = zero
             out[r, k] = v
 
+
+@njit(parallel=True, cache=True, error_model="numpy")
+def _materialise_chunk_njit_parallel(tv, a_cols, b_cols, op_codes, out):
+    """``parallel=True`` (prange over CANDIDATE COLUMNS) twin of ``_materialise_chunk_njit`` --
+    BYTE-IDENTICAL output, only the outer ``for k`` candidate loop is a numba ``prange`` so the
+    per-candidate float32 op fills spread across cores (OPT-A, 2026-06-07).
+
+    Kept SEPARATE from the serial ``nogil`` kernel (``feedback_keep_all_kernel_versions``): the
+    serial variant MUST stay for the joblib ``backend="threading"`` FE path (>=50000 rows) where
+    a nested numba ``prange`` deadlocks the threading layer (observed 0% CPU / 28 idle threads --
+    documented in the serial kernel). This twin is dispatched ONLY from the SERIAL-MAIN-THREAD FE
+    path (``len(X) < 50000`` in ``_mrmr_fe_step`` -> ``check_prospective_fe_pairs`` runs with NO
+    joblib threads), mirroring the column-prange already shipped in ``_quantile_edges_2d_njit`` /
+    the searchsorted parallel twin.
+
+    BIT-IDENTICAL: each candidate ``k`` reads its own operand columns ``tv[:, a_cols[k]]`` /
+    ``tv[:, b_cols[k]]`` and writes ONLY ``out[:, k]`` -- zero cross-column dependence -> result
+    independent of thread count. The per-element arithmetic (the float32 ops, the float64-promoted
+    div/ratio_abs literals, the nan_to_num) is the IDENTICAL body as the serial kernel.
+    """
+    n = tv.shape[0]
+    K = op_codes.shape[0]
+    eps = np.float32(1e-9)
+    one = np.float32(1.0)
+    zero = np.float32(0.0)
+    for k in prange(K):
+        ai = a_cols[k]
+        bi = b_cols[k]
+        op = op_codes[k]
+        for r in range(n):
+            a = tv[r, ai]
+            b = tv[r, bi]
+            if op == 0:        # mul
+                v = a * b
+            elif op == 1:      # add
+                v = a + b
+            elif op == 2:      # sub
+                v = a - b
+            elif op == 3:      # div = x / (y + sign(y)*eps + eps); float64-promoted like the serial twin
+                sgn = zero if b == zero else (one if b > zero else -one)
+                v = np.float32(np.float64(a) / (np.float64(b) + np.float64(sgn) * 1e-9 + 1e-9))
+            elif op == 4:      # max = np.maximum (nan-propagating)
+                if a != a or b != b:
+                    v = a + b
+                else:
+                    v = a if a > b else b
+            elif op == 5:      # min = np.minimum (nan-propagating)
+                if a != a or b != b:
+                    v = a + b
+                else:
+                    v = a if a < b else b
+            elif op == 6:      # abs_diff = |a - b|
+                v = abs(a - b)
+            elif op == 7:      # signed = sign(a)*|b|
+                if a != a or b != b:
+                    v = a + b
+                else:
+                    sgn = zero if a == zero else (one if a > zero else -one)
+                    v = sgn * abs(b)
+            else:              # op == 8: ratio_abs = a/(|b|+1); float64-promoted like the serial twin
+                v = np.float32(np.float64(a) / (np.float64(abs(b)) + 1.0))
+            if not (v == v and v != np.inf and v != -np.inf):
+                v = zero
+            out[r, k] = v
+
+
+# OPT-A SERIAL-vs-PARALLEL CROSSOVER (2026-06-07). On the serial-main-thread FE path
+# (``len(X) < 50000`` in ``_mrmr_fe_step`` -> ``check_prospective_fe_pairs`` runs with NO
+# joblib threads) the materialise + searchsorted kernels can use their ``parallel=True``
+# (column-prange) twins instead of the serial ``nogil`` variants -- spreading the per-column
+# work across cores. But ``prange`` has a fixed dispatch/fork-join overhead per call, so for a
+# TINY chunk (few candidate columns) the serial kernel is faster. The crossover column-count is
+# HARDWARE-dependent (core count, mem bandwidth), so it is resolved per-host via the canonical
+# ``kernel_tuning_cache`` (NO hardcoded threshold -- ``feedback_use_kernel_tuning_cache_for_gpu``)
+# with a measurement-backed fallback. ``choose(n_cols=K)`` returns "parallel" or "serial".
+_FE_PARALLELISM_SWEEP_COLS = [16, 64, 256, 1024, 4096]
+_FE_PARALLELISM_SALT = 1
+
+
+def _make_fe_parallelism_inputs(dims: dict):
+    """A (2407-ish rows x ``n_cols``) float32 operand table + index/op arrays mirroring the
+    materialise kernel's call shape, so the sweep measures the SERIAL-vs-PARALLEL crossover on
+    the real kernel signature."""
+    rng = np.random.default_rng(0)
+    n_rows = 2048
+    K = int(dims["n_cols"])
+    n_operands = max(2, min(K, 64))
+    tv = rng.standard_normal((n_rows, n_operands)).astype(np.float32)
+    a_cols = (rng.integers(0, n_operands, size=K)).astype(np.int64)
+    b_cols = (rng.integers(0, n_operands, size=K)).astype(np.int64)
+    ops = (rng.integers(0, 9, size=K)).astype(np.int8)
+    out = np.empty((n_rows, K), dtype=np.float32)
+    return (tv, a_cols, b_cols, ops, out)
+
+
+def _run_fe_parallelism_sweep() -> list:
+    """Real serial-vs-parallel materialise sweep over ``n_cols`` -> "serial" / "parallel"
+    regions, fastest EQUIVALENT per band. CPU-only (no GPU axis); the two njit kernels are
+    byte-identical so the sweep just times them."""
+    from pyutilz.dev.benchmarking import sweep_backend_grid
+
+    def _serial(tv, a_cols, b_cols, ops, out):
+        _materialise_chunk_njit(tv, a_cols, b_cols, ops, out)
+        return out
+
+    def _parallel(tv, a_cols, b_cols, ops, out):
+        _materialise_chunk_njit_parallel(tv, a_cols, b_cols, ops, out)
+        return out
+
+    return sweep_backend_grid(
+        {"serial": _serial, "parallel": _parallel},
+        {"n_cols": list(_FE_PARALLELISM_SWEEP_COLS)},
+        _make_fe_parallelism_inputs,
+        reference="serial", repeats=3, equiv_rtol=0.0, equiv_atol=0.0,
+    )
+
+
+def _fe_parallelism_fallback_choice(n_cols: int) -> str:
+    """Pre-sweep heuristic: parallel above a conservative column count where the prange
+    fork-join overhead is amortised by the per-column work (each column does n_rows binary
+    searches + n_rows float ops); serial below. 256 columns is a deliberately conservative
+    floor -- the scene chunks carry thousands of columns, far above it."""
+    return "parallel" if int(n_cols) >= 256 else "serial"
+
+
+_FE_PARALLELISM_SPEC = kernel_tuner(
+    kernel_name="mrmr_fe_kernel_parallelism",
+    # Both materialise variants participate in the code_version salt (a numerics edit to either
+    # invalidates the per-host cache). The searchsorted twins live in the discretization module
+    # and share the SAME serial-vs-parallel decision; they are not imported here to avoid an
+    # import cycle (this module is imported during discretization's own import graph).
+    variant_fns=(_materialise_chunk_njit, _materialise_chunk_njit_parallel),
+    tuner=_run_fe_parallelism_sweep,
+    axes={"n_cols": list(_FE_PARALLELISM_SWEEP_COLS)},
+    fallback=_fe_parallelism_fallback_choice,  # callable (n_cols) -> str
+    gpu_capable=False,
+    salt=_FE_PARALLELISM_SALT,
+    cli_label="mrmr_fe_kernel_parallelism",
+)
+
+
+def _fe_use_parallel_kernels(n_cols: int, serial_main_thread: bool) -> bool:
+    """OPT-A dispatch predicate: use the ``parallel=True`` materialise/searchsorted twins iff
+    (a) we are on the SERIAL-MAIN-THREAD FE path (no joblib threading nest -- the ONLY place a
+    numba prange is safe here) AND (b) the per-host kernel_tuning_cache says the column count is
+    above the serial-vs-parallel crossover. On the joblib ``backend="threading"`` path
+    (``serial_main_thread`` False) ALWAYS return False -> serial ``nogil`` kernels (nesting a
+    prange inside the threading layer deadlocks)."""
+    if not serial_main_thread:
+        return False
+    try:
+        return _FE_PARALLELISM_SPEC.choose(n_cols=int(n_cols)) == "parallel"
+    except Exception:
+        # Cache/pyutilz failure -> heuristic fallback (still gated on serial_main_thread).
+        return _fe_parallelism_fallback_choice(int(n_cols)) == "parallel"
+
+
 @njit(nogil=True, cache=True, error_model="numpy")
 def _materialise_extval_njit(param_a, param_b_mat, op_codes, out):
     """Fill ``out[:, e*n_ops + o] = op_o(param_a, param_b_mat[:, e])`` for the external-
@@ -605,6 +765,7 @@ def _compute_one_fe_chunk(
     prewarp_unary,
     logger,
     discretize_2d_quantile_batch,
+    serial_main_thread: bool = False,
 ):
     """Fill ``chunk_buffer[:, :K]`` with EVERY candidate column of EVERY pair in
     ``chunk_pairs``, then run ONE ``discretize_2d_quantile_batch`` + ONE
@@ -656,13 +817,19 @@ def _compute_one_fe_chunk(
             _cands_by_pair[raw_vars_pair] = cands
         _t0 = timer()
         if col > 0:
-            _materialise_chunk_njit(
+            # OPT-A: on the serial-main-thread path (no joblib nest) use the byte-identical
+            # column-prange twin above the per-host crossover; else the serial nogil kernel.
+            _mat_args = (
                 transformed_vars,
                 np.asarray(_a_cols, dtype=np.int64),
                 np.asarray(_b_cols, dtype=np.int64),
                 np.asarray(_ops, dtype=np.int8),
                 chunk_buffer[:, :col],
             )
+            if _fe_use_parallel_kernels(col, serial_main_thread):
+                _materialise_chunk_njit_parallel(*_mat_args)
+            else:
+                _materialise_chunk_njit(*_mat_args)
         # Fold the single batched materialise time evenly across the bin_func names (diagnostic only -- the
         # per-bin_func breakdown does not affect recovery; the MI/feature selection below is index-driven).
         _per = (timer() - _t0) / max(len(_name_list), 1)
@@ -703,7 +870,8 @@ def _compute_one_fe_chunk(
         return out
 
     disc_2d = discretize_2d_quantile_batch(
-        chunk_buffer[:, :col], n_bins=quantization_nbins, dtype=quantization_dtype
+        chunk_buffer[:, :col], n_bins=quantization_nbins, dtype=quantization_dtype,
+        parallel=_fe_use_parallel_kernels(col, serial_main_thread),  # OPT-A
     )
     fe_mi_arr = _dispatch_batch_mi_with_noise_gate(
         disc_2d=disc_2d,
@@ -811,6 +979,15 @@ def check_prospective_fe_pairs(
     # library). Default OFF so behaviour is byte-identical when not requested.
     fe_gate_med_enable: bool = False,
     gate_med_specs_out: dict | None = None,
+    # OPT-A (2026-06-07): True when the caller (``_mrmr_fe_step``) dispatches this on the
+    # SERIAL MAIN THREAD with NO joblib threading nest (the ``len(X) < 50000`` /
+    # ``len(prospective_pairs) < 2`` branch). On that path the FE materialise / searchsorted
+    # kernels may use their ``parallel=True`` column-prange twins (a numba prange is safe --
+    # nothing nests it). On the joblib ``backend="threading"`` path this stays False so the
+    # serial ``nogil`` kernels are used (a nested prange deadlocks the threading layer).
+    # Byte-identical either way -- only thread-count of the embarrassingly-parallel per-column
+    # work changes. Default False = the always-safe serial path.
+    serial_main_thread: bool = False,
 ):
     # Starting from the most heavily connected pairs, create a big pool of original features + their unary transforms. Individual vars referenced more than once go
     # to the global pool, the rest to the local (not stored)?
@@ -1418,6 +1595,7 @@ def check_prospective_fe_pairs(
                         prewarp_unary=_PREWARP_UNARY,
                         logger=logger,
                         discretize_2d_quantile_batch=discretize_2d_quantile_batch,
+                        serial_main_thread=serial_main_thread,  # OPT-A
                     )
                     _loaded_chunk_idx = _my_chunk
                 _chunk_entry = _chunk_mi_cache.get(raw_vars_pair)

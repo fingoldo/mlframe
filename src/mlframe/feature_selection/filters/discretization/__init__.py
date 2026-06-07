@@ -562,7 +562,45 @@ def _searchsorted_2d_right_njit(edges_inner: np.ndarray, arr2d: np.ndarray, out:
             out[r, j] = lo
 
 
-def discretize_2d_quantile_batch(arr2d: np.ndarray, n_bins: int = 10, dtype: object = np.int8) -> np.ndarray:
+@njit(parallel=True, nogil=True, cache=True)
+def _searchsorted_2d_right_njit_parallel(edges_inner: np.ndarray, arr2d: np.ndarray, out: np.ndarray) -> None:
+    """``parallel=True`` (prange over COLUMNS) twin of ``_searchsorted_2d_right_njit`` --
+    BYTE-IDENTICAL output, only the outer column loop is a numba ``prange`` so the per-column
+    binary searches spread across cores (OPT-A, 2026-06-07).
+
+    Kept as a SEPARATE kernel (``feedback_keep_all_kernel_versions``): the serial ``nogil``
+    variant above MUST stay for the joblib ``backend="threading"`` FE path (>=50000 rows),
+    where nesting a numba ``prange`` inside Python threads deadlocks the threading layer
+    (the documented hazard in the serial kernel's docstring). This parallel twin is dispatched
+    by ``discretize_2d_quantile_batch(..., parallel=True)`` ONLY from the SERIAL-MAIN-THREAD FE
+    path (``len(X) < 50000`` in ``_mrmr_fe_step``: ``check_prospective_fe_pairs`` runs with NO
+    joblib threads there, so numba-parallel does not nest), mirroring the already-shipped
+    column-prange in ``_quantile_edges_2d_njit``.
+
+    BIT-IDENTICAL: each column ``j`` owns a private edge slice ``edges_inner[:, j]`` and writes
+    only its own ``out[:, j]``; there is ZERO cross-column data dependence, so the result is
+    independent of thread count (the identical proof the serial ``_quantile_edges_2d_njit``
+    column-prange already relies on). NaN handling (``v < edge`` always False -> ``lo`` walks to
+    ``n_edges`` -> rightmost bin) is per-element and unchanged.
+    """
+    n_rows = arr2d.shape[0]
+    n_cols = arr2d.shape[1]
+    n_edges = edges_inner.shape[0]
+    for j in prange(n_cols):
+        for r in range(n_rows):
+            v = arr2d[r, j]
+            lo = 0
+            hi = n_edges
+            while lo < hi:
+                mid = (lo + hi) >> 1
+                if v < edges_inner[mid, j]:
+                    hi = mid
+                else:
+                    lo = mid + 1
+            out[r, j] = lo
+
+
+def discretize_2d_quantile_batch(arr2d: np.ndarray, n_bins: int = 10, dtype: object = np.int8, parallel: bool = False) -> np.ndarray:
     """Batch (quantile-only) discretiser: bit-identical to per-column ``discretize_array(method='quantile')``.
 
     ``arr2d`` is ``(n_rows, n_cols)``; each column is discretised independently into ``n_bins`` ordinal codes
@@ -626,7 +664,18 @@ def discretize_2d_quantile_batch(arr2d: np.ndarray, n_bins: int = 10, dtype: obj
     if n_cols > 0 and n_rows > 0:
         edges_inner = np.ascontiguousarray(edges[1:-1], dtype=np.float64)
         arr_c = np.ascontiguousarray(arr2d)
-        _searchsorted_2d_right_njit(edges_inner, arr_c, out)
+        # OPT-A (2026-06-07): on the SERIAL-MAIN-THREAD FE path the searchsorted kernel
+        # runs single-threaded on one core while the rest sit idle (the serial kernel is
+        # ``nogil`` not ``parallel`` to avoid deadlocking the joblib threading layer on the
+        # >=50000-row path -- but that path is NOT active here). ``parallel=True`` selects the
+        # byte-identical column-prange twin so the per-column binary searches spread across
+        # cores. The caller (check_prospective_fe_pairs) passes ``parallel=True`` ONLY when it
+        # knows it is on the main-thread/no-joblib branch (threaded down from _mrmr_fe_step's
+        # ``len(X) < 50000`` dispatch); the joblib path keeps the serial kernel (parallel=False).
+        if parallel:
+            _searchsorted_2d_right_njit_parallel(edges_inner, arr_c, out)
+        else:
+            _searchsorted_2d_right_njit(edges_inner, arr_c, out)
     return out
 
 
