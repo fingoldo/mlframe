@@ -15,7 +15,7 @@ from typing import Any, Optional, Sequence
 import numpy as np
 
 from .composite_spec import CompositeSpec
-from .composite_ensemble import _is_monotone_nondecreasing
+from .composite.ensemble import _is_monotone_nondecreasing
 from .composite_screening import (
     _extract_column_array,
     _sample_indices,

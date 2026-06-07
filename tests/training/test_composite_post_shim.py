@@ -18,7 +18,7 @@ from sklearn.linear_model import LinearRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
-from mlframe.training.composite_ensemble import compute_oof_holdout_predictions
+from mlframe.training.composite.ensemble import compute_oof_holdout_predictions
 from mlframe.training.composite_post_shim import PrePipelinePredictShim
 
 
@@ -136,7 +136,7 @@ class TestOofRefitWithShim:
         inner_raw = LinearRegression().fit(pp.transform(X), y)
         shim = PrePipelinePredictShim(model=inner_raw, pre_pipeline=pp, name="raw#0")
 
-        with caplog.at_level(logging.WARNING, logger="mlframe.training.composite_ensemble"):
+        with caplog.at_level(logging.WARNING, logger="mlframe.training.composite.ensemble"):
             matrix, y_hold, surviving = compute_oof_holdout_predictions(
                 component_models=[shim],
                 component_names=["raw#0"],
@@ -167,7 +167,7 @@ class TestOofRefitWithShim:
             for i in range(3)
         ]
 
-        with caplog.at_level(logging.WARNING, logger="mlframe.training.composite_ensemble"):
+        with caplog.at_level(logging.WARNING, logger="mlframe.training.composite.ensemble"):
             matrix, _, surviving = compute_oof_holdout_predictions(
                 component_models=shims,
                 component_names=[s.name for s in shims],

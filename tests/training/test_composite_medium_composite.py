@@ -36,7 +36,7 @@ from sklearn.exceptions import NotFittedError
 
 from mlframe.training.composite import estimator as _ce
 from mlframe.training import composite_cache as _cc
-from mlframe.training import composite_ensemble as _cen
+from mlframe.training.composite import ensemble as _cen
 from mlframe.training import composite_discovery as _cd
 
 
@@ -94,7 +94,7 @@ def test_m2_dropout_predict_is_deterministic_no_refit():
     survive pickle. The deployed policy drops the failed column's weight and recombines deterministically.
     """
     import numpy as np
-    from mlframe.training.composite_ensemble import CompositeCrossTargetEnsemble
+    from mlframe.training.composite.ensemble import CompositeCrossTargetEnsemble
 
     class _Const:
         def __init__(self, v):

@@ -608,7 +608,7 @@ def _build_cross_target_ensemble_for_target(
                 and _oof_pred_matrix is not None
                 and _oof_pred_matrix.shape[1] > 2):
             try:
-                from ...composite_stacking import residual_dedup_indices
+                from ...composite import residual_dedup_indices
                 _dedup_thr = float(getattr(
                     composite_target_discovery_config,
                     "ct_ensemble_dedup_corr_threshold", 0.95,
@@ -652,7 +652,7 @@ def _build_cross_target_ensemble_for_target(
                     "stacking_aware_gate_enabled", False,
                 ) and _pred_matrix.shape[1] >= 2):
                     try:
-                        from ...composite_stacking import stacking_aware_gate
+                        from ...composite import stacking_aware_gate
                         _gate_preds = {
                             _oof_names[_i]: _pred_matrix[:, _i]
                             for _i in range(_pred_matrix.shape[1])

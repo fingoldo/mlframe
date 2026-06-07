@@ -88,7 +88,7 @@ def test_dropout_predict_is_deterministic_across_repeated_calls():
     leaky refit-on-dropout (with its surviving-subset cache) was removed: predict must not depend
     on which batch dropped a column, so there is nothing to cache."""
     pytest.importorskip("scipy.optimize")
-    from mlframe.training.composite_ensemble import CompositeCrossTargetEnsemble
+    from mlframe.training.composite.ensemble import CompositeCrossTargetEnsemble
 
     rng = np.random.default_rng(0)
     n = 200
@@ -130,7 +130,7 @@ def test_dropout_combines_surviving_columns_with_original_weights_no_refit():
     solver weights (no refit). Equivalent to zeroing the dropped column's contribution -- a
     deterministic linear fallback rather than a per-batch re-solve."""
     pytest.importorskip("scipy.optimize")
-    from mlframe.training.composite_ensemble import CompositeCrossTargetEnsemble
+    from mlframe.training.composite.ensemble import CompositeCrossTargetEnsemble
 
     rng = np.random.default_rng(0)
     n = 100
@@ -165,7 +165,7 @@ def test_dropout_combines_surviving_columns_with_original_weights_no_refit():
 def test_from_train_metrics_default_baseline_keeps_all_components(caplog):
     """MEDIAN-BASELINE: without baseline arg, default baseline=max(rmse) keeps every component."""
     import logging
-    from mlframe.training.composite_ensemble import CompositeCrossTargetEnsemble
+    from mlframe.training.composite.ensemble import CompositeCrossTargetEnsemble
 
     models = [MagicMock(name=f"c{i}") for i in range(4)]
     names = [f"c{i}" for i in range(4)]
@@ -186,7 +186,7 @@ def test_from_train_metrics_default_baseline_keeps_all_components(caplog):
 
 def test_from_train_metrics_prefers_oof_rmse_when_supplied():
     """VAL-LEAK (from_train_metrics): when component_oof_rmse is given, train rmse is ignored."""
-    from mlframe.training.composite_ensemble import CompositeCrossTargetEnsemble
+    from mlframe.training.composite.ensemble import CompositeCrossTargetEnsemble
 
     models = [MagicMock(name=f"c{i}") for i in range(3)]
     names = [f"c{i}" for i in range(3)]
@@ -209,7 +209,7 @@ def test_from_train_metrics_prefers_oof_rmse_when_supplied():
 def test_linear_stack_negative_weights_logged_as_warning(caplog):
     """WEIGHT-NEGATIVE-WARN: ridge negative coefficients emit a structured WARN."""
     import logging
-    from mlframe.training.composite_ensemble import CompositeCrossTargetEnsemble
+    from mlframe.training.composite.ensemble import CompositeCrossTargetEnsemble
 
     rng = np.random.default_rng(0)
     n = 200
@@ -236,7 +236,7 @@ def test_linear_stack_negative_weights_logged_as_warning(caplog):
 
 def test_stash_avoids_redundant_copy():
     """SOLVER-COPY: boolean-indexed train matrices are stored directly (no extra .copy)."""
-    from mlframe.training.composite_ensemble import CompositeCrossTargetEnsemble
+    from mlframe.training.composite.ensemble import CompositeCrossTargetEnsemble
 
     rng = np.random.default_rng(0)
     n = 100

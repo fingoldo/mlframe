@@ -36,7 +36,7 @@ import numpy as np
 import pandas as pd
 from sklearn.linear_model import Ridge
 
-from mlframe.training.composite_ensemble import compute_oof_holdout_predictions
+from mlframe.training.composite import compute_oof_holdout_predictions
 
 
 def _bench_oof_cost(n: int = 4000, k_components: int = 4, kfold: int = 5) -> dict:

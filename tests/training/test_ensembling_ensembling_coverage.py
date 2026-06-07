@@ -118,7 +118,7 @@ def test_composite_ensemble_has_no_per_family_calibrators_today():
     coverage gap can be filled with a behavioural assertion. Doubles as a structural sentry that
     blocks accidental silent introduction of a calibrator that is never replayed at predict
     time."""
-    from mlframe.training.composite_ensemble import CompositeCrossTargetEnsemble
+    from mlframe.training.composite.ensemble import CompositeCrossTargetEnsemble
     # Construct via the cheapest factory available -- from_train_metrics needs only model metrics.
     from unittest.mock import MagicMock
     ens = CompositeCrossTargetEnsemble.from_train_metrics(

@@ -253,7 +253,7 @@ def run_stacking_aware_gate(
     if not (enable_stacking_aware_gate and _gate_preds_for_check is not None and target_arr is not None):
         return _nnls_weights_for_blend
     try:
-        from mlframe.training.composite_stacking import stacking_aware_gate as _saw_gate
+        from mlframe.training.composite import stacking_aware_gate as _saw_gate
 
         _saw_y = np.asarray(target_arr).reshape(-1)
         # Keep two parallel views: a member-tag -> array dict for the gate, plus a list of

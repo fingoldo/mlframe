@@ -31,7 +31,7 @@ class TestENS_P1_7_FilterMaskHoist:
 
     def test_polars_mask_construction_count(self) -> None:
         pl = pytest.importorskip("polars")
-        from mlframe.training.composite_feature_stacking import (
+        from mlframe.training.composite.ensemble.feature_stacking import (
             composite_oof_predictions,
         )
 
@@ -55,7 +55,7 @@ class TestENS_P1_7_FilterMaskHoist:
         # Spy on np.isin to confirm vectorised filter path runs (one isin
         # call per fold per train/val pair == 2*n_splits total).
         with mock.patch(
-            "mlframe.training.composite_feature_stacking.np.isin",
+            "mlframe.training.composite.ensemble.feature_stacking.np.isin",
             wraps=np.isin,
         ) as spy:
             out = composite_oof_predictions(
@@ -246,7 +246,7 @@ class TestENS_P2_6_NoDuckTyping:
         from mlframe.training.composite_cache import (
             _is_polars_df as _c_is,
         )
-        from mlframe.training.composite_ensemble import (
+        from mlframe.training.composite.ensemble import (
             _is_polars_df as _e_is,
         )
 
@@ -280,7 +280,7 @@ class TestENS_Low_1_KFoldParameter:
 
     def test_signature_accepts_kfold(self) -> None:
         import inspect
-        from mlframe.training.composite_ensemble import (
+        from mlframe.training.composite.ensemble import (
             compute_oof_holdout_predictions,
         )
         sig = inspect.signature(compute_oof_holdout_predictions)
@@ -291,7 +291,7 @@ class TestENS_Low_1_KFoldParameter:
         """With kfold=3, the matrix should have ~n_train rows (full OOF),
         not just holdout_frac*n_train."""
         from sklearn.linear_model import LinearRegression
-        from mlframe.training.composite_ensemble import (
+        from mlframe.training.composite.ensemble import (
             compute_oof_holdout_predictions,
         )
         n = 200
@@ -323,7 +323,7 @@ class TestENS_Low_1_KFoldParameter:
     def test_kfold_1_legacy_behaviour(self) -> None:
         """kfold=1 produces the legacy single-split shape (holdout_frac*n)."""
         from sklearn.linear_model import LinearRegression
-        from mlframe.training.composite_ensemble import (
+        from mlframe.training.composite.ensemble import (
             compute_oof_holdout_predictions,
         )
         n = 200
@@ -421,7 +421,7 @@ class TestENS_Low_7_RidgeImportHoisted:
     path; Ridge/ElasticNetCV/RidgeCV are imported at module top."""
 
     def test_module_top_imports_present(self) -> None:
-        import mlframe.training.composite_ensemble as ce
+        import mlframe.training.composite.ensemble as ce
         # The names must be bound at the module level.
         assert hasattr(ce, "Ridge")
         assert hasattr(ce, "RidgeCV")
@@ -430,7 +430,7 @@ class TestENS_Low_7_RidgeImportHoisted:
     def test_predict_path_no_lazy_import(self) -> None:
         """The predict() body shouldn't contain ``from sklearn.linear_model
         import Ridge`` lazy lines (the audit-marked sites)."""
-        import mlframe.training.composite_ensemble as ce
+        import mlframe.training.composite.ensemble as ce
         src = open(ce.__file__, encoding="utf-8").read()
         # The fix replaces both lazy imports inside class methods with
         # the module-top binding. Permit none, allow one in the hot path

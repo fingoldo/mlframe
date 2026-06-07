@@ -25,7 +25,7 @@ from datetime import datetime
 import numpy as np
 from scipy.optimize import nnls
 
-from mlframe.training.composite_stacking import residual_dedup_indices
+from mlframe.training.composite import residual_dedup_indices
 
 
 def _nnls_stack_test_rmse(oof_preds, y_oof, test_preds, y_test):

@@ -32,7 +32,7 @@ def _module_source(mod) -> str:
 class TestCarveInnerEvalSplitGroupAware:
     def test_group_ids_keeps_groups_whole(self) -> None:
         """No group spans fit and eval slices when group_ids is given."""
-        from mlframe.training.composite_ensemble import _carve_inner_eval_split
+        from mlframe.training.composite.ensemble import _carve_inner_eval_split
 
         n = 2000
         rng = np.random.default_rng(42)
@@ -54,7 +54,7 @@ class TestCarveInnerEvalSplitGroupAware:
     def test_no_group_ids_falls_back_to_last_tail(self) -> None:
         """Backwards-compat: without group_ids the carve is the legacy
         last-``frac`` tail."""
-        from mlframe.training.composite_ensemble import _carve_inner_eval_split
+        from mlframe.training.composite.ensemble import _carve_inner_eval_split
 
         n = 2000
         X = np.arange(n).reshape(-1, 1).astype(np.float64)
@@ -70,7 +70,7 @@ class TestCarveInnerEvalSplitGroupAware:
     def test_group_ids_too_few_groups_falls_back(self) -> None:
         """When unique groups < 4, group-aware carve isn't reliable;
         fall back to legacy split."""
-        from mlframe.training.composite_ensemble import _carve_inner_eval_split
+        from mlframe.training.composite.ensemble import _carve_inner_eval_split
 
         n = 2000
         X = np.arange(n).reshape(-1, 1).astype(np.float64)
@@ -95,7 +95,7 @@ class TestAR1FailsafeToleranceDefault:
 class TestComputeOofPassesGroupIds:
     def test_external_holdout_signature_accepts_group_ids(self) -> None:
         import inspect
-        from mlframe.training.composite_ensemble import (
+        from mlframe.training.composite.ensemble import (
             _compute_oof_with_external_holdout,
             compute_oof_holdout_predictions,
         )

@@ -131,7 +131,7 @@ def test_rfecv_polars_to_pandas_arrow_bridge():
 def test_composite_oof_predictions_time_aware_uses_timeseries_split():
     """``composite_oof_predictions(..., time_aware=True)`` routes to TimeSeriesSplit instead of KFold."""
     import pandas as pd
-    from mlframe.training.composite_feature_stacking import composite_oof_predictions
+    from mlframe.training.composite.ensemble.feature_stacking import composite_oof_predictions
 
     class _Identity:
         def fit(self, X, y):

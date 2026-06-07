@@ -123,7 +123,7 @@ def test_low_stacking_gate_uniform_fallback_on_degenerate_input() -> None:
     """Too-few finite rows force the uniform-weights fallback branch. Tighter
     exception types around the NNLS call must not change observable behavior:
     survivors == input names; weights uniform."""
-    from mlframe.training.composite_stacking import stacking_aware_gate
+    from mlframe.training.composite.ensemble.stacking import stacking_aware_gate
 
     # Only 2 rows of finite data, 3 transforms -> need >= max(3, 4) finite rows
     # for NNLS; uniform fallback fires.
@@ -152,7 +152,7 @@ def test_low_composite_predictions_as_feature_pandas_roundtrip() -> None:
     without mutating the input frame.
     """
     pd = pytest.importorskip("pandas")
-    from mlframe.training.composite_feature_stacking import (
+    from mlframe.training.composite.ensemble.feature_stacking import (
         composite_predictions_as_feature,
     )
 

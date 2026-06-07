@@ -39,7 +39,7 @@ from .composite_cache import (
     data_signature,
     make_discovery_cache_key,
 )
-from .composite_ensemble import (
+from .composite.ensemble import (
     CompositeCrossTargetEnsemble,
     _is_monotone_nondecreasing,
     compute_oof_holdout_predictions,
@@ -48,7 +48,7 @@ from .composite_ensemble import (
     env_signature,
 )
 from .composite.estimator import CompositeTargetEstimator
-from .composite_feature_stacking import (
+from .composite.ensemble.feature_stacking import (
     composite_oof_predictions,
     composite_predictions_as_feature,
 )
@@ -78,7 +78,7 @@ from .composite_screening import (
     _tiny_cv_rmse_y_scale,
     _tiny_cv_rmse_y_scale_multiseed,
 )
-from .composite_stacking import (
+from .composite.ensemble.stacking import (
     max_off_diagonal_correlation,
     residual_correlation_matrix,
     stacking_aware_gate,

@@ -395,7 +395,7 @@ class TestBizValStackedDiscovery:
         # holdout scorer can evaluate pass-2 specs that reference _oof_ bases.
         # We compute OOF over the ENTIRE df here (not just train) so the val
         # rows have a usable column too.
-        from mlframe.training.composite_feature_stacking import composite_oof_predictions
+        from mlframe.training.composite.ensemble.feature_stacking import composite_oof_predictions
         pass1_specs = [s for s in stacked.specs_ if not s.base_column.startswith("_oof_")]
         df_aug = df.copy()
         for spec in pass1_specs[:2]:

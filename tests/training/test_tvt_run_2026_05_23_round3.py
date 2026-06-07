@@ -33,7 +33,7 @@ import pytest
 
 class TestOOFRefitEvalSetPassthrough:
     def test_maybe_pass_sample_weight_accepts_eval_set(self) -> None:
-        from mlframe.training.composite_ensemble import _maybe_pass_sample_weight
+        from mlframe.training.composite.ensemble import _maybe_pass_sample_weight
         sig = inspect.signature(_maybe_pass_sample_weight)
         assert "eval_set" in sig.parameters, (
             "OOF refit helper must accept eval_set so LightGBM clones with "
@@ -43,7 +43,7 @@ class TestOOFRefitEvalSetPassthrough:
 
     def test_carve_inner_eval_split_returns_tail(self) -> None:
         import pandas as pd
-        from mlframe.training.composite_ensemble import _carve_inner_eval_split
+        from mlframe.training.composite.ensemble import _carve_inner_eval_split
         X = pd.DataFrame({"x": np.arange(2000, dtype=np.float64)})
         y = np.arange(2000, dtype=np.float64)
         X_fit, y_fit, X_eval, y_eval = _carve_inner_eval_split(X, y, frac=0.1)
@@ -57,7 +57,7 @@ class TestOOFRefitEvalSetPassthrough:
 
     def test_carve_inner_eval_split_skips_below_threshold(self) -> None:
         import pandas as pd
-        from mlframe.training.composite_ensemble import _carve_inner_eval_split
+        from mlframe.training.composite.ensemble import _carve_inner_eval_split
         X = pd.DataFrame({"x": np.arange(500, dtype=np.float64)})
         y = np.arange(500, dtype=np.float64)
         X_fit, y_fit, X_eval, y_eval = _carve_inner_eval_split(X, y)
@@ -68,7 +68,7 @@ class TestOOFRefitEvalSetPassthrough:
     def test_passes_eval_set_to_lightgbm_like_estimator(self) -> None:
         """A mock estimator whose fit signature accepts ``eval_set``
         should receive it; verifies the inspect-based dispatch path."""
-        from mlframe.training.composite_ensemble import _maybe_pass_sample_weight
+        from mlframe.training.composite.ensemble import _maybe_pass_sample_weight
         calls = []
 
         class Fake:

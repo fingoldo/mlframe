@@ -425,7 +425,7 @@ class TestExternalValHoldoutOOF:
         return [c_a, c_b], ["raw#0", "raw#1"], [None, None]
 
     def test_external_holdout_returns_external_y(self) -> None:
-        from mlframe.training.composite_ensemble import (
+        from mlframe.training.composite.ensemble import (
             compute_oof_holdout_predictions,
         )
         components, names, specs = self._make_components()
@@ -471,7 +471,7 @@ class TestExternalValHoldoutOOF:
     def test_train_tail_path_still_works(self) -> None:
         """Default external_holdout_X=None retains the legacy
         trailing-slice / random-shuffle behaviour."""
-        from mlframe.training.composite_ensemble import (
+        from mlframe.training.composite.ensemble import (
             compute_oof_holdout_predictions,
         )
         components, names, specs = self._make_components()
@@ -502,7 +502,7 @@ class TestExternalValHoldoutOOF:
 
     def test_external_holdout_with_short_y_falls_through(self) -> None:
         """Empty external_holdout_y triggers the train-tail fallback."""
-        from mlframe.training.composite_ensemble import (
+        from mlframe.training.composite.ensemble import (
             compute_oof_holdout_predictions,
         )
         components, names, specs = self._make_components()
@@ -544,7 +544,7 @@ class TestExternalValHoldoutOOF:
         external_holdout_base_per_spec kwargs through to the OOF
         function. Drops the source-grep idiom per feedback_behavioral_tests."""
         import inspect
-        from mlframe.training.composite_ensemble import (
+        from mlframe.training.composite.ensemble import (
             compute_oof_holdout_predictions,
         )
         sig = inspect.signature(compute_oof_holdout_predictions)

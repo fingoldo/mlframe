@@ -11,7 +11,7 @@ import logging
 import numpy as np
 import pandas as pd
 
-from mlframe.training.composite_ensemble import compute_oof_holdout_predictions
+from mlframe.training.composite.ensemble import compute_oof_holdout_predictions
 
 
 def test_monotone_base_column_does_not_auto_switch(caplog) -> None:
@@ -22,7 +22,7 @@ def test_monotone_base_column_does_not_auto_switch(caplog) -> None:
     monotone_base = np.arange(n, dtype=np.float64)  # weakly monotone non-decreasing
     base_train_full_per_spec = {"monotone_ts": monotone_base}
 
-    with caplog.at_level(logging.INFO, logger="mlframe.training.composite_ensemble"):
+    with caplog.at_level(logging.INFO, logger="mlframe.training.composite.ensemble"):
         compute_oof_holdout_predictions(
             component_models=[],
             component_names=[],
@@ -49,7 +49,7 @@ def test_non_monotone_base_does_not_log(caplog) -> None:
     non_monotone_base = rng.normal(size=n)
     base_train_full_per_spec = {"noise_col": non_monotone_base}
 
-    with caplog.at_level(logging.INFO, logger="mlframe.training.composite_ensemble"):
+    with caplog.at_level(logging.INFO, logger="mlframe.training.composite.ensemble"):
         compute_oof_holdout_predictions(
             component_models=[],
             component_names=[],
@@ -74,7 +74,7 @@ def test_explicit_time_ordering_monotone_logs_distinct_line(caplog) -> None:
     base_train_full_per_spec = {"some_base": np.arange(n, dtype=np.float64)}
     time_ordering = np.arange(n, dtype=np.float64)
 
-    with caplog.at_level(logging.INFO, logger="mlframe.training.composite_ensemble"):
+    with caplog.at_level(logging.INFO, logger="mlframe.training.composite.ensemble"):
         compute_oof_holdout_predictions(
             component_models=[],
             component_names=[],

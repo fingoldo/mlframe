@@ -176,12 +176,13 @@ from ..composite_provenance import (  # noqa: E402,F401
 # ----------------------------------------------------------------------
 # Re-export ensemble + OOF + util symbols.
 # ----------------------------------------------------------------------
-from ..composite_ensemble import (  # noqa: E402,F401
+from .ensemble import (  # noqa: E402,F401
     CompositeCrossTargetEnsemble,
     compute_oof_holdout_predictions,
     derive_seeds,
     detect_gpu_in_use,
     env_signature,
+    _is_monotone_nondecreasing,
 )
 
 
@@ -222,10 +223,11 @@ from ..composite_cache import (  # noqa: E402,F401
     data_signature,
     make_discovery_cache_key,
 )
-from ..composite_stacking import (  # noqa: E402,F401
+from .ensemble.stacking import (  # noqa: E402,F401
     residual_correlation_matrix,
     max_off_diagonal_correlation,
     stacking_aware_gate,
+    residual_dedup_indices,
 )
 from .transforms.interaction_bases import (  # noqa: E402,F401
     generate_interaction_bases,
@@ -244,7 +246,7 @@ from ..composite_forward_stepwise import (  # noqa: E402,F401
     _MULTI_BASE_DEFAULT_MAX_K,
     _MULTI_BASE_DEFAULT_MIN_MARGINAL_GAIN,
 )
-from ..composite_feature_stacking import (  # noqa: E402,F401
+from .ensemble.feature_stacking import (  # noqa: E402,F401
     composite_predictions_as_feature,
     composite_oof_predictions,
 )
