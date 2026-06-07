@@ -105,7 +105,7 @@ class UniversalCallback:
         # Skip the bump when slice mode is diagnostic-only (single-val drives ES, no penalty
         # to compensate for).
         if slice_k and patience is not None and not slice_diagnostic_only:
-            from .._slice_helpers import effective_patience as _eff_pat
+            from ..slicing import effective_patience as _eff_pat
             bumped = _eff_pat(int(patience), int(slice_k))
             if bumped != patience and self.verbose > 0:
                 logger.info(

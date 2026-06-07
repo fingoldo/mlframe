@@ -472,7 +472,7 @@ def train_and_evaluate_model(
         )
         _slice_diag_only = _slice_cfg is not None and getattr(_slice_cfg, "diagnostic_only", False) and not getattr(_slice_cfg, "enabled", False)
         if _slice_active:
-            from ._slice_helpers import build_slice_eval_sets
+            from .slicing import build_slice_eval_sets
             _supports_multi_eval = model_category in {"cb", "lgb", "xgb"}
             _policy = getattr(_slice_cfg, "on_unsupported", "posthoc")
             if _supports_multi_eval:

@@ -1,4 +1,4 @@
-"""Unit tests for ``mlframe.training._slice_helpers``.
+"""Unit tests for ``mlframe.training.slicing._slice_helpers``.
 
 Covers:
   - build_slice_eval_sets() across all 4 source modes (random, temporal, fairness, both)
@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from mlframe.training._slice_helpers import (
+from mlframe.training.slicing._slice_helpers import (
     SliceEvalSet,
     build_slice_eval_sets,
     effective_patience,

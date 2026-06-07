@@ -1,4 +1,4 @@
-"""Tests for ``mlframe.training._slice_pareto_plot.generate_pareto_artifact``.
+"""Tests for ``mlframe.training.slicing._slice_pareto_plot.generate_pareto_artifact``.
 
 The plot itself is hard to assert pixel-for-pixel; we verify the contract instead:
   - artefact paths land on disk
@@ -55,7 +55,7 @@ def _make_config(**overrides):
 
 
 def test_pareto_plot_default_on_writes_matplotlib_png(tmp_path) -> None:
-    from mlframe.training._slice_pareto_plot import generate_pareto_artifact
+    from mlframe.training.slicing._slice_pareto_plot import generate_pareto_artifact
     cb = _make_callback_with_history(n_iters=30)
     ctx = _make_ctx()
     cfg = _make_config()
@@ -74,7 +74,7 @@ def test_pareto_plot_default_on_writes_matplotlib_png(tmp_path) -> None:
 
 
 def test_pareto_plot_alternative_selections_populated(tmp_path) -> None:
-    from mlframe.training._slice_pareto_plot import generate_pareto_artifact
+    from mlframe.training.slicing._slice_pareto_plot import generate_pareto_artifact
     cb = _make_callback_with_history(n_iters=40)
     ctx = _make_ctx()
     cfg = _make_config(pareto_plot_show_alt_quantiles=[0.5, 0.7, 0.9, 0.95])
@@ -90,7 +90,7 @@ def test_pareto_plot_alternative_selections_populated(tmp_path) -> None:
 
 
 def test_pareto_plot_disabled_emits_nothing(tmp_path) -> None:
-    from mlframe.training._slice_pareto_plot import generate_pareto_artifact
+    from mlframe.training.slicing._slice_pareto_plot import generate_pareto_artifact
     cb = _make_callback_with_history(n_iters=30)
     ctx = _make_ctx()
     cfg = _make_config(pareto_plot_enabled=False)
@@ -105,7 +105,7 @@ def test_pareto_plot_disabled_emits_nothing(tmp_path) -> None:
 
 def test_pareto_plot_short_run_skip(tmp_path, caplog) -> None:
     import logging
-    from mlframe.training._slice_pareto_plot import generate_pareto_artifact
+    from mlframe.training.slicing._slice_pareto_plot import generate_pareto_artifact
     cb = _make_callback_with_history(n_iters=5)  # < min_iterations=10
     ctx = _make_ctx()
     cfg = _make_config()
@@ -119,7 +119,7 @@ def test_pareto_plot_short_run_skip(tmp_path, caplog) -> None:
 
 
 def test_pareto_plot_persist_shard_history(tmp_path) -> None:
-    from mlframe.training._slice_pareto_plot import generate_pareto_artifact
+    from mlframe.training.slicing._slice_pareto_plot import generate_pareto_artifact
     cb = _make_callback_with_history(n_iters=30, k=5)
     ctx = _make_ctx()
     cfg = _make_config(pareto_persist_shard_history=True)
@@ -139,7 +139,7 @@ def test_pareto_plot_persist_shard_history(tmp_path) -> None:
 
 def test_pareto_plot_plotly_backend_writes_html(tmp_path) -> None:
     pytest.importorskip("plotly")
-    from mlframe.training._slice_pareto_plot import generate_pareto_artifact
+    from mlframe.training.slicing._slice_pareto_plot import generate_pareto_artifact
     cb = _make_callback_with_history(n_iters=30)
     ctx = _make_ctx()
     cfg = _make_config(pareto_plot_backends=["plotly"], pareto_plot_formats={"plotly": ["html"]})
@@ -156,7 +156,7 @@ def test_pareto_plot_plotly_backend_writes_html(tmp_path) -> None:
 
 def test_pareto_plot_save_failure_warns_doesnt_raise(tmp_path, caplog, monkeypatch) -> None:
     import logging
-    from mlframe.training import _slice_pareto_plot as mod
+    from mlframe.training.slicing import _slice_pareto_plot as mod
     cb = _make_callback_with_history(n_iters=20)
     ctx = _make_ctx()
     cfg = _make_config(pareto_plot_backends=["matplotlib"])

@@ -31,7 +31,7 @@ def test_lgb_with_slice_callback_records_shard_history() -> None:
     import lightgbm as lgb
     from mlframe.training.callbacks._callbacks import LightGBMCallback
     from mlframe.training._data_helpers import _setup_eval_set
-    from mlframe.training._slice_helpers import build_slice_eval_sets
+    from mlframe.training.slicing._slice_helpers import build_slice_eval_sets
 
     (X_tr, y_tr), (X_val, y_val), _ = _make_tiny_data()
 

@@ -28,7 +28,7 @@ from typing import Any, Sequence
 
 import numpy as np
 
-from ._cv_aggregation import compute_pareto_frontier, select_from_pareto
+from .._cv_aggregation import compute_pareto_frontier, select_from_pareto
 
 logger = logging.getLogger(__name__)
 

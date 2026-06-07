@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 
 from mlframe.training._data_helpers import _setup_eval_set, _groupids_to_sizes
-from mlframe.training._slice_helpers import SliceEvalSet
+from mlframe.training.slicing._slice_helpers import SliceEvalSet
 
 
 @pytest.fixture
