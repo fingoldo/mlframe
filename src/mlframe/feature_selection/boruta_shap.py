@@ -558,13 +558,14 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         """
 
         if len(self.features_to_remove) != 0:
-            for feature in self.features_to_remove:
-                try:
-                    self.X.drop(feature, axis=1, inplace=True)
-                except KeyError:
-                    # ValueError previously also swallowed here; that masked dtype-mismatch bugs.
-                    # KeyError is the only expected case (feature already dropped in a prior loop).
-                    pass
+            # Single-call drop instead of a per-feature loop: each in-place ``DataFrame.drop`` rebuilds the
+            # block manager, so dropping N rejected features one at a time was the dominant mlframe-side cost
+            # (profiled 1.56 s = 5.2% of a 299/120-col SHAP fit, almost all in pandas ``base.drop``). Dropping
+            # the whole list in one call rebuilds the manager once. ``errors="ignore"`` reproduces the prior
+            # per-feature ``except KeyError: pass`` exactly (a feature already dropped in a prior trial is
+            # skipped), and the resulting column set + ORDER is bit-identical to the loop (drop preserves the
+            # surviving columns' relative order regardless of how many are removed per call).
+            self.X.drop(list(self.features_to_remove), axis=1, inplace=True, errors="ignore")
 
         else:
             pass
