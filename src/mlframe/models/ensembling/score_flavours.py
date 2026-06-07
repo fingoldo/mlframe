@@ -462,7 +462,7 @@ def maybe_build_votenrank_leaderboard(
     if not build_votenrank_leaderboard_flag:
         return
     try:
-        from .ensembling import _build_votenrank_leaderboard_from_results
+        from . import _build_votenrank_leaderboard_from_results
         _lb_obj = _build_votenrank_leaderboard_from_results(res, is_regression=is_regression)
         if _lb_obj is not None:
             res["_leaderboard"] = _lb_obj
