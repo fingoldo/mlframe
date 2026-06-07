@@ -445,9 +445,14 @@ def _run_rff_sweep() -> list:
     )
 
 
-def _rff_fallback_choice(work: int) -> str:
+def _rff_fallback_choice(work: int = 0, **_dims) -> str:
     """Pre-sweep heuristic (the spec's dynamic fallback callable): cupy above the
-    work threshold when a GPU is available, else numpy."""
+    work threshold when a GPU is available, else numpy.
+
+    ``work`` defaults to 0 and extra dims are absorbed so the callable never raises
+    when get_or_tune invokes the fallback with no/partial dims (e.g. an offline
+    sweep with an empty dims probe) -- a missing ``work`` simply means "no GPU win
+    assumed" -> numpy, never a TypeError that aborts the whole sweep/dispatch."""
     if is_gpu_available() and work >= _RFF_DEFAULT_WORK_THRESHOLD:
         return "cupy"
     return "numpy"
