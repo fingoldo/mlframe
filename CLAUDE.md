@@ -335,6 +335,34 @@ wrappers, and new pipeline integration points. It does NOT apply to
 trivial helper additions or pure refactors that don't change the
 hot path.
 
+## A measured speedup is a LEAD, not a verdict — never dump it on a hasty measurement (CRITICAL)
+
+When a profile or micro-bench shows ANY speedup, that is a lead to investigate rigorously — NEVER a thing to dismiss
+with a hand-wave ("transfer overhead eats it", "marginal", "not worth a dispatcher", "carries some risk"). A 30% — or
+even a 1-5% — win is worth pursuing; throwing it away on one hasty/cold measurement is a real, repeated failure mode
+(2026-06-08: a GPU argsort was almost discarded on a single cold-cupy shot reading "1.3x, transfer eats it" — a proper
+warm multi-size bench showed 1.95x@50k / 3.92x@200k / 4.94x@1M, bit-identical).
+
+Before concluding ANYTHING about an optimization:
+
+1. **Measure properly, not once.** Warm the kernel (numba JIT / cupy NVRTC / cache), loop enough iterations to dwarf
+   timer noise, and run it MULTIPLE times. A single cold run is not a measurement — it is noise. The first GPU call
+   pays a one-time compile/sweep that has nothing to do with steady-state cost.
+2. **Sweep the size range, small AND large.** The crossover is the whole story: a kernel that loses at 10k can win 5x
+   at 1M (GPU/transfer-amortised kernels especially). "It's marginal" at one size says nothing about another — find
+   where it wins and gate there, do not reject globally from one point.
+3. **Validate END-TO-END, then gate — do not reject.** A micro-win that does not survive the full pipeline (per
+   "Profile full pipeline always") is still real data: it means the gate threshold is higher, or the path needs
+   batching, NOT that the option dies. Find the size/condition where it nets out positive and gate to it.
+4. **Hardware-relativity: the dev box can HIDE a win.** A weak laptop GPU (or a contended CPU) can make a real win
+   look neutral/negative when it would clearly win on production HW (datacenter GPU, NVLink, uncontended cores). When
+   isolated-faster but end-to-end-neutral HERE, you KEEP it as an env/size-gated option (see "REJECTED != DELETED")
+   defaulted to the locally-measured-best — you do NOT delete a hardware-relative win. Promote to kernel_tuning_cache
+   so each host picks its own crossover.
+5. **The only valid rejection is a measured, multi-size, end-to-end one — written down with the numbers.** "Felt
+   marginal" is not a rejection; it is a skipped investigation. If you catch yourself reaching for a one-line dismissal
+   of a measured speedup, STOP — that is the warning sign you are about to waste the win.
+
 ## Gate a big win on its safe condition (CRITICAL)
 
 When an optimization gives a LARGE speedup but is only bit-identical
