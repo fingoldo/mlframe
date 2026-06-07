@@ -303,6 +303,8 @@ def batch_mi_with_noise_gate_cupy_v1(
         return _gate_from_mi(original_mi, [], 0, min_nonzero_confidence)
 
     cy_safe = np.asarray(classes_y_safe)
+    # bench-attempt-rejected (2026-06-07): perm-reduction early-exit (see cupy-v2 path) --
+    # BYTE-IDENTICAL but no scene wall win; keep full reduction + _gate_from_mi.
     perm_mis = []
     for i in range(npermutations):
         shuffled = _fisher_yates_shuffle(cy_safe, np.uint64(base_seed), i)
@@ -477,6 +479,12 @@ def batch_mi_with_noise_gate_cupy(
     if nperm <= 0:
         return _gate_from_mi(original_mi, [], 0, min_nonzero_confidence)
 
+    # bench-attempt-rejected (2026-06-07): a fused ``if nfailed[k] >= max_failed: continue``
+    # early-exit over this host perm reduction (skip doomed columns' remaining
+    # _mi_from_counts_cpu) is BYTE-IDENTICAL but gave NO scene wall win (595.75s without
+    # -> 641/650s with, 2 runs, idle box): small default npermutations rarely triggers the
+    # cutoff while the per-(perm,col) branch costs more than it saves. Keep the simple
+    # full-reduction + _gate_from_mi. Re-evaluate only under high-npermutations workloads.
     perm_mis = []
     for i in range(nperm):
         cp_row = counts_all[i + 1]
@@ -610,6 +618,8 @@ def batch_mi_with_noise_gate_cuda(
         return _gate_from_mi(original_mi, [], 0, min_nonzero_confidence)
 
     cy_safe = np.asarray(classes_y_safe)
+    # bench-attempt-rejected (2026-06-07): perm-reduction early-exit (see cupy-v2 path) --
+    # BYTE-IDENTICAL but no scene wall win; keep full reduction + _gate_from_mi.
     perm_mis = []
     for i in range(npermutations):
         shuffled = _fisher_yates_shuffle(cy_safe, np.uint64(base_seed), i)

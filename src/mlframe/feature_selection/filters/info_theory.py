@@ -819,6 +819,13 @@ def batch_mi_with_noise_gate(
             local[kk] = tmp
 
         # Score ALL columns against this single shuffled y, in parallel.
+        # bench-attempt-rejected (2026-06-07): a ``if nfailed[k] >= max_failed: continue``
+        # early-exit here (skip doomed columns' remaining perm MI) is BYTE-IDENTICAL but
+        # showed NO wall win on the scene 2407x299 hard-gate (595.75s without -> 641/650s
+        # with, across 2 runs on an idle box) -- with the small default npermutations the
+        # early-exit rarely fires while the extra per-(perm,col) branch in this hot prange
+        # costs more than it saves. Do not re-add without a perm-heavy (high npermutations,
+        # low min_nonzero_confidence) workload that actually triggers the cutoff.
         for k in prange(K):
             if original_mi[k] <= 0.0:
                 continue
