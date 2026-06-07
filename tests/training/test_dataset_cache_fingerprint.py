@@ -201,7 +201,7 @@ class TestCBTrainPoolCacheKeyUsesHelper:
 
     def test_no_id_train_df_in_cache_key_construction(self) -> None:
         from pathlib import Path
-        import mlframe.training._cb_pool_build as mod
+        import mlframe.training.cb._cb_pool_build as mod
         src = Path(mod.__file__).read_text(encoding="utf-8")
         # The cache-key construction site must not re-introduce id().
         # The historical commentary still mentions ``id(train_df)`` as
@@ -229,7 +229,7 @@ class TestCBValPoolCacheKeyUsesHelper:
 
     def test_no_id_val_df_in_cache_key_construction(self) -> None:
         from pathlib import Path
-        import mlframe.training._cb_pool as mod
+        import mlframe.training.cb._cb_pool as mod
         src = Path(mod.__file__).read_text(encoding="utf-8")
         assert "compute_signature" in src, (
             "_cb_pool.py no longer uses compute_signature for val Pool "

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import threading
 
-from mlframe.training import _cb_pool
+from mlframe.training.cb import _cb_pool
 
 
 def test_gpu_probe_lock_is_reentrant() -> None:

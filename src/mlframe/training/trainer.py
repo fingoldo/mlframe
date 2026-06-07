@@ -77,7 +77,7 @@ from .pipeline import (  # noqa: E402,F401
     _pre_pipeline_cache_clear, _pre_pipeline_cache_get,
     _pre_pipeline_cache_set, _prepare_test_split,
 )
-from ._cb_pool import (  # noqa: E402,F401
+from .cb import (  # noqa: E402,F401
     _cached_gpu_info, _maybe_get_or_build_cb_pool,
     _maybe_rewrite_eval_set_as_cb_pool,
     _polars_df_has_null_in_categorical,
@@ -197,7 +197,7 @@ from ._data_helpers import (  # noqa: E402,F401
 # silently cleared an empty dict and the real cache kept its stale Pool entries.
 # Aliasing here so the existing clear-callers route through to the real cache without
 # code changes; new code should import _CB_POOL_CACHE from mlframe.training._cb_pool directly.
-from mlframe.training._cb_pool import _CB_POOL_CACHE  # noqa: E402,F401
+from mlframe.training.cb import _CB_POOL_CACHE  # noqa: E402,F401
 
 logger = logging.getLogger(__name__)
 

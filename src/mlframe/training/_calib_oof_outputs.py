@@ -14,7 +14,7 @@ import numpy as np
 
 from .pipeline import _prepare_test_split
 from ._feature_name_sanitize import sanitize_frame_columns as _sanitize_frame_columns
-from ._cb_pool import _predict_with_fallback
+from .cb import _predict_with_fallback
 from ._eval_helpers import run_confidence_analysis
 
 logger = logging.getLogger("mlframe.training.trainer")

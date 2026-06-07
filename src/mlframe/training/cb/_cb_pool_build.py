@@ -20,7 +20,7 @@ import polars as pl
 from mlframe.config import CATBOOST_MODEL_TYPES
 from pyutilz.system import get_gpuinfo_gpu_info
 
-from .phases import phase
+from ..phases import phase
 
 logger = logging.getLogger(__name__)
 
@@ -178,7 +178,7 @@ def _maybe_get_or_build_cb_pool(
     # all four booster dataset caches (xgb_shim, lgb_shim, this train
     # Pool, val Pool). Now keyed on (cols, shape, 3-row content hash,
     # cat/text/embedding feature tuples).
-    from ._dataset_cache_fingerprint import compute_signature
+    from .._dataset_cache_fingerprint import compute_signature
     key = compute_signature(
         train_df,
         extra=(cat_features, text_features, embedding_features),

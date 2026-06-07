@@ -25,7 +25,7 @@ import polars as pl
 from mlframe.config import CATBOOST_MODEL_TYPES
 from pyutilz.system import get_gpuinfo_gpu_info
 
-from .phases import phase
+from ..phases import phase
 
 logger = logging.getLogger(__name__)
 
@@ -349,7 +349,7 @@ def _predict_with_fallback(
     _model_type: str = type(model).__name__
 
     # ── Import the guard helpers ──────────────────────────────────────
-    from ._predict_guards import (
+    from .._predict_guards import (
         _apply_nan_guard,
         _cb_polars_to_pandas,
         _cb_val_pool_cache_lookup,
@@ -472,8 +472,8 @@ def _predict_with_fallback(
 # 2026-05-13 refactor: _CB_VAL_POOL_CACHE lives in _predict_guards.py
 # (shared between fit-time populate in _maybe_get_or_build_cb_pool and
 # predict-time lookup in _predict_with_fallback).
-from ._predict_guards import _CB_VAL_POOL_CACHE  # noqa: E402,F401
-from .pipeline import (  # noqa: E402,F401
+from .._predict_guards import _CB_VAL_POOL_CACHE  # noqa: E402,F401
+from ..pipeline import (  # noqa: E402,F401
     _apply_pre_pipeline_transforms,
     _extract_feature_selector,
     _is_fitted,
@@ -659,7 +659,7 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:
         # ``id(val_df)`` cache key broke across sklearn.clone() and
         # .iloc[...] slicing -- same id(X) bug as xgb_shim / lgb_shim /
         # CB train Pool. Consolidated.
-        from ._dataset_cache_fingerprint import compute_signature
+        from .._dataset_cache_fingerprint import compute_signature
         key = compute_signature(
             val_df,
             extra=(cat_features, text_features, embedding_features),

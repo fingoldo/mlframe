@@ -23,7 +23,7 @@ from sklearn.isotonic import IsotonicRegression
 from mlframe.core.helpers import get_model_best_iter
 from mlframe.config import CATBOOST_MODEL_TYPES
 
-from ._cb_pool import (
+from .cb import (
     _maybe_get_or_build_cb_pool,
     _maybe_rewrite_eval_set_as_cb_pool,
     _polars_schema_diagnostic,

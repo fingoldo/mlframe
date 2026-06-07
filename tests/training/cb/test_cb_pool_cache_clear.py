@@ -3,7 +3,7 @@
 Pre-fix shape (race + state-leak audit finding P0): _phase_config_setup.py
 imported _CB_POOL_CACHE from mlframe.training.trainer module. That symbol was
 a DEAD STUB at trainer.py:217 -- an empty dict that no code wrote to or read
-from. The real CatBoost-train Pool cache lived in mlframe.training._cb_pool.
+from. The real CatBoost-train Pool cache lived in mlframe.training.cb._cb_pool.
 
 Result: suite-startup .clear() ran on the dead stub, succeeded silently, and
 the LIVE cache kept its entries from the prior suite call. Python recycles
@@ -20,7 +20,7 @@ from __future__ import annotations
 def test_trainer_alias_points_to_live_cache():
     """trainer._CB_POOL_CACHE must be the SAME object as _cb_pool._CB_POOL_CACHE."""
     from mlframe.training import trainer
-    from mlframe.training import _cb_pool
+    from mlframe.training.cb import _cb_pool
     assert trainer._CB_POOL_CACHE is _cb_pool._CB_POOL_CACHE, (
         "trainer._CB_POOL_CACHE must alias the live cache in _cb_pool, "
         "otherwise clear() at suite startup silently scrubs an empty dict."
@@ -31,7 +31,7 @@ def test_trainer_side_clear_actually_scrubs_live_cache():
     """The exact pattern used by tests + _phase_config_setup pre-fix: trainer-side clear()
     must purge entries from the live cache."""
     from mlframe.training import trainer
-    from mlframe.training import _cb_pool
+    from mlframe.training.cb import _cb_pool
 
     # Write to the live cache directly.
     _cb_pool._CB_POOL_CACHE.clear()  # start clean
@@ -60,7 +60,7 @@ def test_phase_config_setup_imports_from_cb_pool():
         pathlib.Path(_mlframe.__file__).resolve().parent
         / "training" / "core" / "_phase_config_setup.py"
     ).read_text(encoding="utf-8")
-    assert "from mlframe.training._cb_pool import _CB_POOL_CACHE" in src, (
-        "_phase_config_setup.py must import _CB_POOL_CACHE from _cb_pool (the live cache), "
+    assert "from mlframe.training.cb import _CB_POOL_CACHE" in src, (
+        "_phase_config_setup.py must import _CB_POOL_CACHE from the cb package (the live cache), "
         "not from trainer (which was the dead-stub source pre-fix)."
     )

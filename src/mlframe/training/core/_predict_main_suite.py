@@ -25,7 +25,7 @@ from ..configs import TargetTypes
 from ..extractors import FeaturesAndTargetsExtractor
 from ..io import load_mlframe_model
 from ..pipeline import prepare_df_for_catboost
-from .._cb_pool import _predict_with_fallback
+from ..cb import _predict_with_fallback
 from ..utils import drop_columns_from_dataframe, get_pandas_view_of_polars_df
 from .utils import (
     DEFAULT_PROBABILITY_THRESHOLD,

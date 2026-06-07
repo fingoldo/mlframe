@@ -176,7 +176,7 @@ def get_training_configs(
         or any(str(m).lower() in ("cb", "catboost") for m in enabled_models)
     )
     if has_gpu and _cb_in_scope:
-        from ._cb_pool import _cb_gpu_usable as _cb_gpu_probe
+        from .cb import _cb_gpu_usable as _cb_gpu_probe
         _cb_task = "GPU" if _cb_gpu_probe() else "CPU"
     else:
         _cb_task = "CPU"

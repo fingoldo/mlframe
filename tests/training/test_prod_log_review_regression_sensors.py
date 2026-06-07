@@ -1616,7 +1616,7 @@ class TestCBValPoolCacheContentFallback:
 
             pytest.skip("catboost not installed")
 
-        from mlframe.training._cb_pool import (
+        from mlframe.training.cb._cb_pool import (
             _maybe_rewrite_eval_set_as_cb_pool,
             _CB_VAL_POOL_CACHE,
         )

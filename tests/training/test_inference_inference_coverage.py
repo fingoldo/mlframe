@@ -80,7 +80,7 @@ def test_cb_val_pool_cache_only_used_at_fit_time():
     """The CatBoost validation Pool cache (``_CB_VAL_POOL_CACHE``) is keyed on fit-time tuple
     components; the predict path does NOT call into it. Regression sentinel: assert the dict
     interface exists but is empty after a fresh import (no leak from prior tests)."""
-    cb_mod = pytest.importorskip("mlframe.training._cb_pool")
+    cb_mod = pytest.importorskip("mlframe.training.cb._cb_pool")
     cache = getattr(cb_mod, "_CB_VAL_POOL_CACHE", None)
     if cache is None:
         pytest.skip("_CB_VAL_POOL_CACHE not present in this build")

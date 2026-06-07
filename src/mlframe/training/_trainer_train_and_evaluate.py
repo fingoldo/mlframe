@@ -78,7 +78,7 @@ from .pipeline import (  # noqa: E402,F401
     _pre_pipeline_cache_clear, _pre_pipeline_cache_get,
     _pre_pipeline_cache_set, _prepare_test_split,
 )
-from ._cb_pool import (  # noqa: E402,F401
+from .cb import (  # noqa: E402,F401
     _cached_gpu_info, _maybe_get_or_build_cb_pool,
     _maybe_rewrite_eval_set_as_cb_pool,
     _polars_df_has_null_in_categorical,
