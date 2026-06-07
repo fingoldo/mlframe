@@ -114,7 +114,7 @@ except ImportError:
 
 
 from mlframe.feature_selection.importance import plot_feature_importance
-from ._reporting import (  # noqa: E402,F401
+from .reporting import (  # noqa: E402,F401
     _canonical_multilabel_y,
     report_model_perf,
     report_regression_model_perf,

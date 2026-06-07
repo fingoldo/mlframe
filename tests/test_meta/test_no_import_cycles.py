@@ -47,7 +47,7 @@ _USER_DEFERRED_CYCLES: set[str] = {
     # (both siblings import constants from _reporting at top level; _reporting
     # re-exports them at its bottom). Same sibling-file pattern as the other
     # monolith splits in this whitelist.
-    "mlframe.training._reporting → mlframe.training._reporting_probabilistic → mlframe.training._reporting_regression",
+    "mlframe.training.reporting._reporting → mlframe.training.reporting._reporting_probabilistic → mlframe.training.reporting._reporting_regression",
     "mlframe.training.composite.estimator → mlframe.training.composite.estimator._estimator",
     "mlframe.training.strategies → mlframe.training.strategies.xgboost",
     "mlframe.training.targets._target_temporal_audit_from_agg → mlframe.training.targets._target_temporal_changepoint → mlframe.training.targets.target_temporal_audit",

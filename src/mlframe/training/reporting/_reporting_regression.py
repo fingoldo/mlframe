@@ -175,8 +175,8 @@ def report_regression_model_perf(
     #     just looped K times). Fairness / MASE / prediction-envelope
     #     clip stay skipped (they assume 1-D y).
     if targets_arr.ndim == 2 and targets_arr.shape[1] >= 2:
-        from .configs import TargetTypes
-        from .metrics_registry import iter_extra_metrics
+        from ..configs import TargetTypes
+        from ..metrics_registry import iter_extra_metrics
         _mtr_extra = dict(iter_extra_metrics(
             TargetTypes.MULTI_TARGET_REGRESSION,
             targets_arr, None, preds_arr,
@@ -210,7 +210,7 @@ def report_regression_model_perf(
                 from mlframe.reporting.charts.regression import build_regression_panel_spec
                 from mlframe.reporting.output import parse_plot_output_dsl
                 from mlframe.reporting.renderers import render_and_save
-                from .targets import audit_residuals
+                from ..targets import audit_residuals
                 _render_config = parse_plot_output_dsl(plot_outputs)
                 # render_and_save appends the format extension from
                 # the DSL config -- strip a trailing common image
@@ -302,7 +302,7 @@ def report_regression_model_perf(
     _envelope_source = "none"
     if (y_train_min is not None and y_train_max is not None
             and y_train_std is not None and y_train_std > 0):
-        from ._prediction_envelope_clip import TrainEnvelopeStats
+        from .._prediction_envelope_clip import TrainEnvelopeStats
         _env_stats = TrainEnvelopeStats(
             y_min=float(y_train_min),
             y_max=float(y_train_max),
@@ -314,7 +314,7 @@ def report_regression_model_perf(
         if _y_eval.size >= 10:
             _y_std = float(_y_eval.std())
             if _y_std > 0:
-                from ._prediction_envelope_clip import TrainEnvelopeStats
+                from .._prediction_envelope_clip import TrainEnvelopeStats
                 _env_stats = TrainEnvelopeStats(
                     y_min=float(_y_eval.min()),
                     y_max=float(_y_eval.max()),
@@ -322,7 +322,7 @@ def report_regression_model_perf(
                 )
                 _envelope_source = "eval-fallback"
     if _env_stats is not None:
-        from ._prediction_envelope_clip import clip_predictions_to_train_envelope
+        from .._prediction_envelope_clip import clip_predictions_to_train_envelope
         preds_arr = clip_predictions_to_train_envelope(
             preds_arr, _env_stats,
             k_sigma=(3.0 if _envelope_source == "train" else _K_FALLBACK_SIGMA),
@@ -611,14 +611,14 @@ def report_regression_model_perf(
     # Compute residual audit ONCE (used by both the chart and the print-report block; cheap thanks to internal sampling).
     # ``behavior_config.report_residual_audit`` is a LOG-ONLY toggle. When False we MUST still compute the audit so the chart's hist + resid-vs-pred panels stay populated -- only the multi-line verdict text in the log is suppressed. Multi-output targets still skip the audit (no scalar residuals to fit a distribution to).
     _residual_audit = None
-    from .evaluation import _get_residual_audit_enabled  # lazy: breaks cycle with .evaluation
+    from ..evaluation import _get_residual_audit_enabled  # lazy: breaks cycle with .evaluation
     _audit_log_enabled = bool(_get_residual_audit_enabled())
     if not (
         (targets_arr.ndim > 1 and targets_arr.shape[1] > 1)
         or (preds_arr.ndim > 1 and preds_arr.shape[1] > 1)
     ):
         try:
-            from .targets import audit_residuals as _audit_residuals_fn
+            from ..targets import audit_residuals as _audit_residuals_fn
             _residual_audit = _audit_residuals_fn(targets, preds)
             if metrics is not None:
                 metrics["residual_audit"] = _residual_audit.to_dict()
@@ -716,7 +716,7 @@ def report_regression_model_perf(
             f" [{nfeatures}{get_human_readable_set_size(len(targets))} rows]"
             + _scale_tag
         )
-        from ._format import format_metric as _fmt
+        from .._format import format_metric as _fmt
 
         # 2026-05-28 audit batch: token-based regression title.
         # The legacy hardcoded "MAE/RMSE/MaxError/R2" string is now a
@@ -811,7 +811,7 @@ def report_regression_model_perf(
                     targets_arr.shape,
                 )
         else:
-            from .targets import (
+            from ..targets import (
                 plot_residual_diagnostics as _plot_residual_diagnostics,
             )
             _audit = _residual_audit  # reuse pre-computed audit
@@ -841,7 +841,7 @@ def report_regression_model_perf(
                 # Local RNG -- do not pollute global numpy state. Cache
                 # by (n, size, seed) so repeated reports on the same
                 # prediction length reuse the sample.
-                from .evaluation import _get_cached_plot_idx  # lazy: breaks cycle with .evaluation
+                from ..evaluation import _get_cached_plot_idx  # lazy: breaks cycle with .evaluation
                 idx = _get_cached_plot_idx(len(preds), plot_sample_size, DEFAULT_RANDOM_SEED)
                 idx = idx[np.argsort(preds[idx])]
 
@@ -925,7 +925,7 @@ def report_regression_model_perf(
         # -> cell output ok but file handler not. Operators using
         # init_logging in jupyter notebooks lost the metric blocks
         # from on-disk logs.
-        from ._format import format_metric as _fmt
+        from .._format import format_metric as _fmt
         # Annotate composite-target reports as T-scale. Composite targets carry ``MTRESID=`` in the model_name (stamped by ``select_target``); this indicates the printed metrics live on the RESIDUAL scale, not the raw y-scale. The wrap pass separately emits y-scale numbers via ``[CompositeTargetEstimator] ... y-scale metrics:`` so the operator can compare apples-to-apples with raw-target reports.
         # 2026-05-27 (user bug report): same fix as the chart-skip gate
         # above -- only ``MTRESID`` token marks a T-scale chart. The
@@ -972,7 +972,7 @@ def report_regression_model_perf(
         # ``behavior_config.report_residual_audit=False``. Also suppressed for
         # composite targets: the audit residuals are on the composite scale.
         if _residual_audit is not None and _audit_log_enabled and not _is_t_scale_composite:
-            from .targets import (
+            from ..targets import (
                 format_residual_audit_report as _fmt_residual_audit,
             )
             _report_lines.append(_fmt_residual_audit(_residual_audit))

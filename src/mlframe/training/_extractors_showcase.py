@@ -53,7 +53,7 @@ def showcase_features_and_targets(
 
     if in_jupyter:
         from IPython.display import display
-        from ._reporting import _style_with_caption
+        from .reporting import _style_with_caption
 
         display(_style_with_caption(non_floats, "Non-float32 dtypes"))
 

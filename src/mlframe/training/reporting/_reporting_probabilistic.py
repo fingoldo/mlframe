@@ -37,7 +37,7 @@ from sklearn.preprocessing import LabelEncoder
 from mlframe.metrics.core import compute_fairness_metrics, fast_calibration_report, fast_roc_auc
 from pyutilz.pythonlib import get_human_readable_set_size
 
-from .phases import phase
+from ..phases import phase
 # Wave 97 (2026-05-21): _canonical_multilabel_y / _maybe_display + the
 # DEFAULT_* constants all live in ``_reporting``; that module imports us
 # from its bottom (after the helpers + constants are bound at module top),
@@ -57,7 +57,7 @@ from ._reporting import (  # noqa: E402
 )
 
 if TYPE_CHECKING:
-    from .configs import MultilabelDispatchConfig
+    from ..configs import MultilabelDispatchConfig
 
 logger = logging.getLogger(__name__)
 
@@ -237,8 +237,8 @@ def report_probabilistic_model_perf(
         )
         if _targets_2d:
             # MultiOutputClassifier returns list[(N,2)] for predict_proba -- canonicalize to (N, K).
-            from .helpers import _canonical_predict_proba_shape, _predict_from_probs
-            from .configs import TargetTypes
+            from ..helpers import _canonical_predict_proba_shape, _predict_from_probs
+            from ..configs import TargetTypes
             probs = _canonical_predict_proba_shape(probs)
             # Honour MultilabelDispatchConfig.per_label_thresholds when
             # supplied: per-column decision threshold tuned for label
@@ -261,7 +261,7 @@ def report_probabilistic_model_perf(
             preds = np.where(probs[:, 1] >= 0.5, classes_[1], classes_[0])
         else:
             # Wave 21 P2: nan-safe argmax.
-            from ..utils.nan_safe import argmax_classes_safe
+            from ...utils.nan_safe import argmax_classes_safe
             preds = argmax_classes_safe(probs, context="_reporting.report_perf")
             if model is not None and hasattr(model, "classes_"):
                 preds = model.classes_[preds]
@@ -676,10 +676,10 @@ def report_probabilistic_model_perf(
         # ``register_metric(target_type, name, fn)`` -- no code change to
         # this report function required.
         try:
-            from .metrics_registry import iter_extra_metrics
+            from ..metrics_registry import iter_extra_metrics
             # Heuristic inference: multilabel if targets is 2-D binary.
             if hasattr(targets, "ndim") and targets.ndim == 2:
-                from .configs import TargetTypes
+                from ..configs import TargetTypes
                 extra = list(iter_extra_metrics(
                     TargetTypes.MULTILABEL_CLASSIFICATION, targets, probs, preds,
                 ))

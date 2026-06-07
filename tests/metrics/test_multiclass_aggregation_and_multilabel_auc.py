@@ -93,7 +93,7 @@ def test_multilabel_auc_registered_in_registry():
 def test_multiclass_aggregation_macro_keys_present_in_metrics():
     """When report_probabilistic_model_perf runs on a 4-class target it
     should stamp per-class blocks AND macro_/weighted_ aggregates."""
-    from mlframe.training._reporting_probabilistic import report_probabilistic_model_perf
+    from mlframe.training.reporting._reporting_probabilistic import report_probabilistic_model_perf
     from sklearn.linear_model import LogisticRegression
     rng = np.random.default_rng(20)
     N = 500
@@ -133,7 +133,7 @@ def test_multiclass_aggregation_macro_keys_present_in_metrics():
 
 
 def test_multiclass_aggregation_macro_equals_mean_of_per_class():
-    from mlframe.training._reporting_probabilistic import report_probabilistic_model_perf
+    from mlframe.training.reporting._reporting_probabilistic import report_probabilistic_model_perf
     from sklearn.linear_model import LogisticRegression
     rng = np.random.default_rng(21)
     N = 400
@@ -170,7 +170,7 @@ def test_multiclass_aggregation_weighted_uses_support():
     """The weighted aggregate must use class supports as weights, not equal
     weighting (otherwise it would match macro and the test below would be
     vacuous). Build a SKEWED multiclass target where one class dominates."""
-    from mlframe.training._reporting_probabilistic import report_probabilistic_model_perf
+    from mlframe.training.reporting._reporting_probabilistic import report_probabilistic_model_perf
     from sklearn.linear_model import LogisticRegression
     rng = np.random.default_rng(22)
     N = 600
@@ -208,7 +208,7 @@ def test_multiclass_aggregation_weighted_uses_support():
 def test_multiclass_aggregation_skipped_on_binary():
     """Binary classification path should NOT emit macro_/weighted_ rows
     (collapses to the single positive-class scalar; no new info)."""
-    from mlframe.training._reporting_probabilistic import report_probabilistic_model_perf
+    from mlframe.training.reporting._reporting_probabilistic import report_probabilistic_model_perf
     from sklearn.linear_model import LogisticRegression
     rng = np.random.default_rng(23)
     N = 400
@@ -255,7 +255,7 @@ def test_mase_knob_validates_int():
 def test_mase_stamped_when_naive_mae_supplied():
     """When the caller passes ``mase_naive_mae`` to the regression report
     we expect MASE = MAE / naive_mae stamped into the metrics dict."""
-    from mlframe.training._reporting_regression import report_regression_model_perf
+    from mlframe.training.reporting._reporting_regression import report_regression_model_perf
     rng = np.random.default_rng(30)
     N = 200
     y = rng.standard_normal(N).astype(np.float64)
@@ -282,7 +282,7 @@ def test_mase_stamped_when_naive_mae_supplied():
 
 def test_mase_nan_when_no_naive_mae_supplied():
     """No naive_mae -> MASE is NaN. The seasonality field is None."""
-    from mlframe.training._reporting_regression import report_regression_model_perf
+    from mlframe.training.reporting._reporting_regression import report_regression_model_perf
     rng = np.random.default_rng(31)
     N = 100
     y = rng.standard_normal(N).astype(np.float64)

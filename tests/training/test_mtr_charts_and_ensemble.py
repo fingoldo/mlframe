@@ -208,7 +208,7 @@ def test_mtr_per_target_charts_render_k_files(tmp_path):
     """When plot_outputs + plot_file are set on the MTR report path,
     one chart file per target column is rendered under
     ``{base}_target{k}{ext}``."""
-    from mlframe.training._reporting_regression import report_regression_model_perf
+    from mlframe.training.reporting._reporting_regression import report_regression_model_perf
 
     rng = np.random.default_rng(0)
     n, k = 80, 3

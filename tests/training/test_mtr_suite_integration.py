@@ -90,7 +90,7 @@ def test_report_regression_mtr_path_returns_metrics_only(caplog):
     """When targets/preds are (N, K) with K>=2, the reporter skips the
     chart / audit / fairness branches and stamps MTR metrics into the
     metrics dict instead. Returns preds unchanged + None."""
-    from mlframe.training._reporting_regression import report_regression_model_perf
+    from mlframe.training.reporting._reporting_regression import report_regression_model_perf
 
     rng = np.random.default_rng(0)
     n, k = 60, 3
@@ -98,7 +98,7 @@ def test_report_regression_mtr_path_returns_metrics_only(caplog):
     preds = targets + 0.05 * rng.normal(size=(n, k)).astype(np.float32)
     metrics = {}
 
-    with caplog.at_level(logging.INFO, logger="mlframe.training._reporting_regression"):
+    with caplog.at_level(logging.INFO, logger="mlframe.training.reporting._reporting_regression"):
         ret_preds, ret_extra = report_regression_model_perf(
             targets=targets,
             columns=["f1", "f2", "f3", "f4"],

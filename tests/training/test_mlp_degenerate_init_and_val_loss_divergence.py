@@ -208,11 +208,11 @@ class TestOutsideTrainYEnvelopeSensorBranch:
     predictions land > 3 sigma outside [y_train_min, y_train_max]."""
 
     def test_branch_fires_when_y_train_stats_supplied(self, caplog, monkeypatch) -> None:
-        from mlframe.training import _reporting
+        from mlframe.training.reporting import _reporting
         # report_regression_model_perf was carved out of _reporting.py into
         # sibling _reporting_regression.py during the 1k-LOC monolith split;
         # the logger.warning fires on the sibling's logger now.
-        caplog.set_level(logging.WARNING, logger="mlframe.training._reporting_regression")
+        caplog.set_level(logging.WARNING, logger="mlframe.training.reporting._reporting_regression")
         # Disable the prediction-envelope-clip that runs BEFORE the
         # regression-collapse-sensor. Without this, preds[0]=14000 gets
         # clipped to (y_train_max + 3*std) = 13100 inside
@@ -253,11 +253,11 @@ class TestOutsideTrainYEnvelopeSensorBranch:
     def test_no_warn_when_train_stats_not_supplied(self, caplog) -> None:
         """Backward compat: callers that don't pass y_train stats see
         the same behaviour as pre-fix (only in-batch checks fire)."""
-        from mlframe.training import _reporting
+        from mlframe.training.reporting import _reporting
         # report_regression_model_perf was carved out of _reporting.py into
         # sibling _reporting_regression.py during the 1k-LOC monolith split;
         # the logger.warning fires on the sibling's logger now.
-        caplog.set_level(logging.WARNING, logger="mlframe.training._reporting_regression")
+        caplog.set_level(logging.WARNING, logger="mlframe.training.reporting._reporting_regression")
         rng_t = np.random.default_rng(0)
         rng_p = np.random.default_rng(1)
         targets = 11500 + rng_t.normal(0, 100, 1000)

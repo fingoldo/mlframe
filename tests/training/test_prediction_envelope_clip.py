@@ -158,7 +158,7 @@ class TestReportingIntegration:
 
     def test_source_has_envelope_clip_wiring(self) -> None:
         from pathlib import Path
-        from mlframe.training import _reporting as rep
+        from mlframe.training.reporting import _reporting as rep
         # ``report_regression_model_perf`` was carved out of ``_reporting.py``
         # into ``_reporting_regression.py``; the envelope-clip wiring moved
         # with it. Concat both files so the source-grep guard still matches.
@@ -173,7 +173,7 @@ class TestReportingIntegration:
         """Legacy callers that didn't pass y_train_{min,max,std} get a
         no-op (back-compat)."""
         from pathlib import Path
-        from mlframe.training import _reporting as rep
+        from mlframe.training.reporting import _reporting as rep
         # Same carve as ``test_source_has_envelope_clip_wiring``: the
         # gate moved to ``_reporting_regression.py``.
         src = Path(rep.__file__).read_text(encoding="utf-8")
@@ -191,7 +191,7 @@ class TestReportingIntegration:
         replaces the prior 16+ -callsite y_train_min/max/std threading
         that nobody ever wired."""
         import inspect
-        from mlframe.training._reporting import report_model_perf
+        from mlframe.training.reporting._reporting import report_model_perf
         sig = inspect.signature(report_model_perf)
         assert "y_train_envelope_stats" in sig.parameters
 

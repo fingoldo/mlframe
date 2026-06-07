@@ -183,7 +183,7 @@ def test_regression_collapse_sensor_fires(caplog):
     """The sensor in ``report_regression_model_perf`` must emit a HARD
     WARNING when predictions are collapsed (low std + R^2 < 0). Simulate
     by passing a near-constant ``preds`` array."""
-    from mlframe.training._reporting import report_regression_model_perf
+    from mlframe.training.reporting._reporting import report_regression_model_perf
 
     rng = np.random.default_rng(42)
     n = 200
@@ -193,7 +193,7 @@ def test_regression_collapse_sensor_fires(caplog):
     preds = (10050 + rng.normal(0, 5, n)).astype(np.float32)
 
     caplog.clear()
-    with caplog.at_level(logging.WARNING, logger="mlframe.training._reporting"):
+    with caplog.at_level(logging.WARNING, logger="mlframe.training.reporting._reporting"):
         report_regression_model_perf(
             targets=targets,
             columns=["dummy"],
@@ -225,7 +225,7 @@ def test_regression_collapse_sensor_silent_on_healthy_predictions(caplog):
     """The sensor must NOT fire when the model produces reasonable
     predictions (R^2 > 0 OR pred_std close to y_std). Guards against
     sensor noise on legitimate runs."""
-    from mlframe.training._reporting import report_regression_model_perf
+    from mlframe.training.reporting._reporting import report_regression_model_perf
 
     rng = np.random.default_rng(42)
     n = 200
@@ -234,7 +234,7 @@ def test_regression_collapse_sensor_silent_on_healthy_predictions(caplog):
     preds = (targets + rng.normal(0, 50, n)).astype(np.float32)
 
     caplog.clear()
-    with caplog.at_level(logging.WARNING, logger="mlframe.training._reporting"):
+    with caplog.at_level(logging.WARNING, logger="mlframe.training.reporting._reporting"):
         report_regression_model_perf(
             targets=targets,
             columns=["dummy"],

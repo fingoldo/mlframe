@@ -78,7 +78,7 @@ def test_mtresid_t_scale_chart_returns_early_without_rendering(monkeypatch) -> N
     happen before the skip) but no scatter / no plot file is written.
     """
     monkeypatch.delenv("MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS", raising=False)
-    from mlframe.training._reporting_regression import (
+    from mlframe.training.reporting._reporting_regression import (
         report_regression_model_perf,
     )
 

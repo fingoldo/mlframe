@@ -38,10 +38,10 @@ from pyutilz.pythonlib import get_human_readable_set_size
 
 # .evaluation imports back from ._reporting; deferring breaks the cycle.
 # (See line 477 / 580 for the two call-sites.)
-from .phases import phase
+from ..phases import phase
 
 if TYPE_CHECKING:
-    from .configs import MultilabelDispatchConfig  # forward annotation only; importing at runtime is unnecessary
+    from ..configs import MultilabelDispatchConfig  # forward annotation only; importing at runtime is unnecessary
 
 # Inline to avoid circular import (_reporting <- evaluation <- _reporting)
 DEFAULT_PLOT_SAMPLE_SIZE = 500
@@ -378,7 +378,7 @@ def report_model_perf(
             n_cols=len(columns) if columns is not None and len(columns) > 0 else 0,
         ):
             # Lazy import: _reporting <- evaluation <- _reporting cycle (see comment at top of file).
-            from .evaluation import plot_model_feature_importances
+            from ..evaluation import plot_model_feature_importances
             # Thread df + targets through to power the permutation-FI
             # fallback for estimators without native ``feature_importances_``
             # / ``coef_`` (PyTorch-Lightning MLP, Keras nets, custom predict-

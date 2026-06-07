@@ -68,7 +68,7 @@ def test_compose_multiclass_figure_handles_string_and_unseen_labels():
 
 
 def test_weighted_metric_supports_use_class_label_not_enumerate_index():
-    from mlframe.training._reporting_probabilistic import report_probabilistic_model_perf
+    from mlframe.training.reporting._reporting_probabilistic import report_probabilistic_model_perf
 
     classes = [1, 2, 3]  # non-0-indexed integer multiclass labels
     # Skewed supports: 60 of class 1, 30 of class 2, 10 of class 3.

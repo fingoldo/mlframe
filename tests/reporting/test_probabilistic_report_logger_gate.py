@@ -28,7 +28,7 @@ def test_classification_report_skipped_when_info_filtered(monkeypatch):
     + no file handler), the multilabel path must NOT call
     sklearn.metrics.classification_report — its 45ms/call cost is pure waste
     when the text gets dropped by the logger."""
-    from mlframe.training import _reporting
+    from mlframe.training.reporting import _reporting
 
     # Silence the module logger so isEnabledFor(INFO) returns False.
     _reporting.logger.setLevel(logging.WARNING)

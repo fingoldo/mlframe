@@ -246,7 +246,7 @@ def test_scenario01_near_perfect_autoregressive(tmp_path, caplog):
     )
     df["target"] = y
 
-    caplog.set_level(logging.WARNING, logger="mlframe.training._reporting")
+    caplog.set_level(logging.WARNING, logger="mlframe.training.reporting._reporting")
     models, _meta, recs = _run_resiliency_suite(
         df, tmp_path, regression=True,
         mlframe_models=("lgb", "linear") + (("mlp",) if _has_lightning() else ()),
@@ -292,7 +292,7 @@ def test_scenario02_group_aware_strong_ar(tmp_path, caplog):
         "target": y,
     })
 
-    caplog.set_level(logging.WARNING, logger="mlframe.training._reporting")
+    caplog.set_level(logging.WARNING, logger="mlframe.training.reporting._reporting")
     models, _meta, recs = _run_resiliency_suite(
         df, tmp_path, regression=True,
         mlframe_models=("lgb", "linear") + (("mlp",) if _has_lightning() else ()),
@@ -343,7 +343,7 @@ def test_scenario03_clustered_features_multimodal_target(tmp_path, caplog):
     df = pd.DataFrame(X, columns=[f"f{i}" for i in range(4)])
     df["target"] = y
 
-    caplog.set_level(logging.WARNING, logger="mlframe.training._reporting")
+    caplog.set_level(logging.WARNING, logger="mlframe.training.reporting._reporting")
     models, _meta, recs = _run_resiliency_suite(
         df, tmp_path, regression=True,
         mlframe_models=("lgb", "linear") + (("mlp",) if _has_lightning() else ()),
@@ -394,7 +394,7 @@ def test_scenario04_heavy_tail_lognormal_target(tmp_path, caplog):
     df = pd.DataFrame(X, columns=[f"f{i}" for i in range(5)])
     df["target"] = y
 
-    caplog.set_level(logging.WARNING, logger="mlframe.training._reporting")
+    caplog.set_level(logging.WARNING, logger="mlframe.training.reporting._reporting")
     # Skip MLP on heavy-tail unless lightning available -- noisy fits.
     models, _meta, recs = _run_resiliency_suite(
         df, tmp_path, regression=True,
@@ -467,7 +467,7 @@ def test_scenario05_mixed_scale_features(tmp_path, caplog):
         "target": y,
     })
 
-    caplog.set_level(logging.WARNING, logger="mlframe.training._reporting")
+    caplog.set_level(logging.WARNING, logger="mlframe.training.reporting._reporting")
     models, _meta, recs = _run_resiliency_suite(
         df, tmp_path, regression=True,
         mlframe_models=("lgb", "linear"),
@@ -513,7 +513,7 @@ def test_scenario05_mlp_collapse_on_mixed_scale_features(tmp_path, caplog):
         "col_a_tiny": col_a, "col_b_huge": col_b,
         "col_c_norm": col_c, "target": y,
     })
-    caplog.set_level(logging.WARNING, logger="mlframe.training._reporting")
+    caplog.set_level(logging.WARNING, logger="mlframe.training.reporting._reporting")
     _models, _meta, recs = _run_resiliency_suite(
         df, tmp_path, regression=True,
         mlframe_models=("mlp",),
@@ -547,7 +547,7 @@ def test_scenario06_constant_feature(tmp_path, caplog):
         "target": y,
     })
 
-    caplog.set_level(logging.WARNING, logger="mlframe.training._reporting")
+    caplog.set_level(logging.WARNING, logger="mlframe.training.reporting._reporting")
     models, _meta, recs = _run_resiliency_suite(
         df, tmp_path, regression=True,
         mlframe_models=("lgb", "linear"),
@@ -587,7 +587,7 @@ def test_scenario07_nan_injected_features(tmp_path, caplog):
     df = pd.DataFrame(X_with_nan, columns=[f"f{i}" for i in range(6)])
     df["target"] = y
 
-    caplog.set_level(logging.WARNING, logger="mlframe.training._reporting")
+    caplog.set_level(logging.WARNING, logger="mlframe.training.reporting._reporting")
     models, _meta, recs = _run_resiliency_suite(
         df, tmp_path, regression=True,
         mlframe_models=("lgb", "linear"),
@@ -636,7 +636,7 @@ def test_scenario08_multilabel_three_binary(tmp_path, caplog):
     # multilabel branch handles this.
     df["target"] = [list(row) for row in y_multi]
 
-    caplog.set_level(logging.WARNING, logger="mlframe.training._reporting")
+    caplog.set_level(logging.WARNING, logger="mlframe.training.reporting._reporting")
     try:
         models, _meta, recs = _run_resiliency_suite(
             df, tmp_path,

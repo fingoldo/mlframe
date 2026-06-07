@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from mlframe.training._reporting import report_regression_model_perf
+from mlframe.training.reporting._reporting import report_regression_model_perf
 
 
 class TestPandasIndexColumns:

@@ -605,7 +605,7 @@ def train_and_evaluate_model(
                 logger.info("training dataset shape: %s", train_df.shape)
 
             if display_sample_size:
-                from ._reporting import _style_with_caption
+                from .reporting import _style_with_caption
                 ipython_display(_style_with_caption(train_df.head(display_sample_size), f"{model_name} features head"))
                 ipython_display(_style_with_caption(train_df.tail(display_sample_size), f"{model_name} features tail"))
 

@@ -689,6 +689,10 @@
     "module": "mlframe.training._nan_processing",
     "signature": "(df:any:0, verbose:any:1)"
   },
+  "reporting": {
+    "kind": "value",
+    "type": "module"
+  },
   "run_grid": {
     "kind": "callable",
     "module": "mlframe.training.grid",

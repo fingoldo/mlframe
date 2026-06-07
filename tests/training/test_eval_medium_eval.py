@@ -333,8 +333,8 @@ def test_reporting_classification_report_fallback_narrow(monkeypatch):
     """Behavioural: KeyboardInterrupt and MemoryError raised inside the
     classification_report fallback path MUST propagate (no bare except).
     """
-    from mlframe.training import _reporting
-    from mlframe.training import _reporting_probabilistic as _rp
+    from mlframe.training.reporting import _reporting
+    from mlframe.training.reporting import _reporting_probabilistic as _rp
 
     def _ki(*a, **kw):
         raise KeyboardInterrupt("simulated")

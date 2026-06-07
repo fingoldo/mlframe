@@ -112,8 +112,8 @@ class TestRegressionCollapseSensorBranches:
     (composite-target / tree booster / group-split verification) intact."""
 
     def test_linear_extrapolation_branch_trips(self, caplog, monkeypatch) -> None:
-        from mlframe.training import _reporting
-        caplog.set_level(logging.WARNING, logger="mlframe.training._reporting")
+        from mlframe.training.reporting import _reporting
+        caplog.set_level(logging.WARNING, logger="mlframe.training.reporting._reporting")
         # Disable envelope-clip so the sensor sees the raw wildly-out-of-range
         # predictions instead of the clipped-to-envelope ones. With clipping
         # enabled the preds collapse to a single value and the std-collapse
@@ -138,8 +138,8 @@ class TestRegressionCollapseSensorBranches:
         ), [r.message for r in caplog.records if "sensor" in r.message]
 
     def test_mean_shift_branch_trips(self, caplog) -> None:
-        from mlframe.training import _reporting
-        caplog.set_level(logging.WARNING, logger="mlframe.training._reporting")
+        from mlframe.training.reporting import _reporting
+        caplog.set_level(logging.WARNING, logger="mlframe.training.reporting._reporting")
         # Land in MEAN-SHIFT-only regime: pred mean shifted >3 sigma but
         # within <5 sigma envelope. group-ood-shift covers both the old
         # mean-shift and linear-extrapolation regimes since they're the

@@ -26,7 +26,7 @@ class TestTScaleCompositeReportSkip:
         """Source-grep sensor: skip block + MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS
         env-var opt-out are wired into report_regression_model_perf
         (which lives in _reporting_regression.py)."""
-        from mlframe.training import _reporting_regression as rep
+        from mlframe.training.reporting import _reporting_regression as rep
         src = Path(rep.__file__).read_text(encoding="utf-8")
         # Skip message body changed 2026-05-27 to point at the wrap-pass
         # y-scale chart explicitly; sensor accepts either phrasing.
@@ -47,6 +47,6 @@ class TestTScaleCompositeReportSkip:
     def test_opt_in_env_var_keyword(self) -> None:
         """Opt-out env var name is stable and matches the prefix
         convention (MLFRAME_*) used by other operator overrides."""
-        from mlframe.training import _reporting_regression as rep
+        from mlframe.training.reporting import _reporting_regression as rep
         src = Path(rep.__file__).read_text(encoding="utf-8")
         assert src.count("MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS") >= 1
