@@ -259,6 +259,9 @@ def test_fairness_features_emits_per_group_path(tmp_path, common_init_params, se
 # Test 2 — Inverse-frequency sample weights lift minority-class recall / F1
 # --------------------------------------------------------------------------------------
 
+# Two full suite trainings of a 6000-row imbalanced frame; ~8s standalone but the recall floor needs the large n for a stable estimate, so the
+# fix for full-suite ``-n`` starvation is a generous timeout rather than shrinking n (which would make the 0.05 lift seed-flaky).
+@pytest.mark.timeout(600)
 @pytest.mark.parametrize("seed", fast_subset([42, 7, 99], representative=42))
 @pytest.mark.parametrize("mlframe_model", fast_subset(["lgb", "cb", "xgb"], representative="lgb"))
 def test_sample_weights_lift_minority_recall(tmp_path, common_init_params, seed, mlframe_model):

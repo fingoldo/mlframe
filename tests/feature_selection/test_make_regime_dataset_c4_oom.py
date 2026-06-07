@@ -19,6 +19,8 @@ import time
 import numpy as np
 import pytest
 
+from tests.conftest import is_fast_mode
+
 psutil = pytest.importorskip("psutil")
 
 
@@ -94,11 +96,14 @@ def test_make_regime_dataset_c4_peak_rss_under_cap():
     assert sum(1 for r in roles.values() if r == "noise") == 19960
 
 
+@pytest.mark.timeout(600)
 def test_make_regime_dataset_recall_path_on_chunked_noise():
     """Downscaled recall check that still exercises the chunked-noise codepath.
 
-    width=3000 still triggers multiple 64-MiB chunks (n_samples*n_noise*8 > 64 MiB),
-    so the same fill path runs as at C4.
+    The noise pool is streamed in multiple column-block chunks whenever
+    ``n_noise`` exceeds the per-chunk column budget (~32 MiB / (n_samples * 4));
+    both the full and the ``--fast`` sizes below cross that boundary, so the
+    same fill path runs as at C4.
     """
     pytest.importorskip("shap")
     pytest.importorskip("xgboost")
@@ -108,9 +113,13 @@ def test_make_regime_dataset_recall_path_on_chunked_noise():
     )
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
+    # Fewer rows + a noise pool that still crosses the multi-chunk boundary under --fast: the SHAP-proxied xgboost fit (cost ~ rows * columns)
+    # is what starves a worker into a timeout under full-suite ``-n`` contention; the recall floor and the chunked-noise path are preserved.
+    n_samples = 2000 if is_fast_mode() else 4000
+    n_noise = 4300 if is_fast_mode() else 2985
     X, y, roles = make_regime_dataset(
-        n_samples=4000, n_informative=10, n_redundant=5, redundancy_rho=0.8,
-        n_noise=2985, snr=8.0, task="binary", seed=0,
+        n_samples=n_samples, n_informative=10, n_redundant=5, redundancy_rho=0.8,
+        n_noise=n_noise, snr=8.0, task="binary", seed=0,
     )
     informatives = set(oracle_subset(roles))
     assert len(informatives) == 10

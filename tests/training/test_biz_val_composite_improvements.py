@@ -17,6 +17,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests.conftest import running_under_xdist
+
 from mlframe.training.composite_transforms import (
     get_transform,
     _linear_residual_fit,
@@ -267,8 +269,16 @@ class TestBizValStabilityCheck:
 
 
 class TestBizValStackedDiscovery:
+    @pytest.mark.no_xdist
     def test_stacked_finds_more_specs_than_plain_on_2level_residual(self) -> None:
-        """y = f(x_a) + g(x_b) + small_noise. Plain discovery absorbs f(x_a) via linres-x_a. Stacked discovery's pass 2 sees the OOF prediction of pass 1 as a new feature and should find g(x_b) on the leftover residual."""
+        """y = f(x_a) + g(x_b) + small_noise. Plain discovery absorbs f(x_a) via linres-x_a. Stacked discovery's pass 2 sees the OOF prediction of pass 1 as a new feature and should find g(x_b) on the leftover residual.
+
+        @no_xdist: same heavy in-process ``fit_stacked`` chain of Ridge fits as
+        the holdout-MAE sibling; passes cleanly in isolation but native-crashes
+        / starves the xdist worker under heavy parallel load. Run sequentially.
+        """
+        if running_under_xdist():
+            pytest.skip("heavy in-process fit_stacked native-crashes under -n parallel load; run sequentially")
         from mlframe.training.composite_discovery import CompositeTargetDiscovery
         from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
@@ -327,6 +337,8 @@ class TestBizValStackedDiscovery:
         linres-x_a, recognises that x_b still correlates with the residual,
         and finds a chain composite that captures cube(x_b) on top.
         """
+        if running_under_xdist():
+            pytest.skip("heavy in-process fit_stacked native-crashes under -n parallel load; run sequentially")
         from sklearn.linear_model import Ridge
 
         from mlframe.training.composite_discovery import CompositeTargetDiscovery

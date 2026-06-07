@@ -342,11 +342,14 @@ def test_strategy_preserves_or_improves_auc(strategy, synthetic_pu):
             "elkan_noto needs the full unbiased subset to keep AUC; "
             "fast-mode shrink violates the 5pp slack legitimately."
         )
+    # Fewer boosting iterations under --fast so two HGB fits don't push a full-suite ``-n`` contended worker past the timeout; the AUC slack
+    # is comparison-relative (PU vs naive at the SAME max_iter) so reducing both arms keeps the 5pp contract honest.
+    max_iter = 100 if is_fast_mode() else 200
     naive = _naive_test_metrics(synthetic_pu, lambda: HistGradientBoostingClassifier(
-        max_iter=200, random_state=0))
+        max_iter=max_iter, random_state=0))
 
     pu = PULearningWrapper(
-        base_estimator=HistGradientBoostingClassifier(max_iter=200, random_state=0),
+        base_estimator=HistGradientBoostingClassifier(max_iter=max_iter, random_state=0),
         strategy=strategy,
         true_prior=0.40 if strategy == "prior_shift_correction" else None,
         min_unbiased_positives=100,

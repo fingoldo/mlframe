@@ -42,7 +42,7 @@ import pytest
 from mlframe.utils._param_oracle import ParamOracle
 from mlframe.feature_selection.filters import hermite_fe as H
 from mlframe.feature_selection.filters.hermite_fe import _hermite_oracle as HO
-from tests.conftest import is_fast_mode
+from tests.conftest import is_fast_mode, running_under_xdist
 
 FIXED_TS = "2026-01-01T00:00:00+00:00"
 _BASES = ("hermite", "legendre", "chebyshev", "laguerre")
@@ -134,6 +134,13 @@ def test_bridge_from_classmethod(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_oracle_learns_cpu_crossover(tmp_path):
+    if running_under_xdist():
+        pytest.skip(
+            "wall-time-learned njit/njit_par crossover inverts under -n CPU "
+            "contention (a sibling worker can starve either bench arm); the "
+            "ordering + the oracle recommendation derived from it are honest "
+            "only standalone."
+        )
     oracle = _fresh_oracle(tmp_path)
     res = H.benchmark_polyeval_cpu_backends(
         "hermite", sizes=(200, 500_000), repeats=5, oracle=oracle,
@@ -150,6 +157,12 @@ def test_oracle_learns_cpu_crossover(tmp_path):
 
 
 def test_dispatch_uses_oracle_when_enabled(tmp_path, monkeypatch):
+    if running_under_xdist():
+        pytest.skip(
+            "the dispatcher's CPU pick is derived from the wall-time-learned "
+            "njit/njit_par crossover, which inverts under -n CPU contention; "
+            "honest only standalone."
+        )
     oracle = _fresh_oracle(tmp_path)
     # Fewer repeats under --fast: the njit/njit_par crossover signal at these sizes is stable with 2 repeats, and the
     # full 5-repeat 500k bench is what starves a worker into a timeout under full-suite ``-n`` contention.

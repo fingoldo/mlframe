@@ -360,6 +360,7 @@ class TestLockMedianSeeds:
     CV-RMSE estimate by at least 30% on small-noisy fixtures."""
 
     def test_median_of_seeds_reduces_variance(self) -> None:
+        from tests.conftest import is_fast_mode
         rng = np.random.default_rng(0)
         n = 600
         base = rng.normal(loc=10, scale=2, size=n)
@@ -371,7 +372,10 @@ class TestLockMedianSeeds:
         x_matrix = np.column_stack([x1, x2])
         single = []
         median5 = []
-        for s in range(10):
+        # Fewer outer seeds under --fast: each seed fits 1 single + 1 multiseed-5 LightGBM CV-RMSE; 10 seeds starve a worker into a timeout under
+        # full-suite ``-n`` contention. 5 seeds keep the std estimate usable and the 30% lock reachable (demo separation is large at 47.8%).
+        n_seeds = 5 if is_fast_mode() else 10
+        for s in range(n_seeds):
             r1 = _tiny_cv_rmse_y_scale(
                 y_train=y, base_train=base, transform=transform,
                 fitted_params=fp, x_train_matrix=x_matrix,
