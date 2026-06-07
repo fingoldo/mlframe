@@ -210,7 +210,7 @@ def report_regression_model_perf(
                 from mlframe.reporting.charts.regression import build_regression_panel_spec
                 from mlframe.reporting.output import parse_plot_output_dsl
                 from mlframe.reporting.renderers import render_and_save
-                from .regression_residual_audit import audit_residuals
+                from .targets import audit_residuals
                 _render_config = parse_plot_output_dsl(plot_outputs)
                 # render_and_save appends the format extension from
                 # the DSL config -- strip a trailing common image
@@ -618,7 +618,7 @@ def report_regression_model_perf(
         or (preds_arr.ndim > 1 and preds_arr.shape[1] > 1)
     ):
         try:
-            from .regression_residual_audit import audit_residuals as _audit_residuals_fn
+            from .targets import audit_residuals as _audit_residuals_fn
             _residual_audit = _audit_residuals_fn(targets, preds)
             if metrics is not None:
                 metrics["residual_audit"] = _residual_audit.to_dict()
@@ -811,7 +811,7 @@ def report_regression_model_perf(
                     targets_arr.shape,
                 )
         else:
-            from .regression_residual_audit import (
+            from .targets import (
                 plot_residual_diagnostics as _plot_residual_diagnostics,
             )
             _audit = _residual_audit  # reuse pre-computed audit
@@ -972,7 +972,7 @@ def report_regression_model_perf(
         # ``behavior_config.report_residual_audit=False``. Also suppressed for
         # composite targets: the audit residuals are on the composite scale.
         if _residual_audit is not None and _audit_log_enabled and not _is_t_scale_composite:
-            from .regression_residual_audit import (
+            from .targets import (
                 format_residual_audit_report as _fmt_residual_audit,
             )
             _report_lines.append(_fmt_residual_audit(_residual_audit))

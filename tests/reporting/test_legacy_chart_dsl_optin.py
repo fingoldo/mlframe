@@ -1,8 +1,8 @@
 """Verify the opt-in DSL render path on the 3 legacy chart functions:
 
 - ``mlframe.metrics.core.show_calibration_plot``
-- ``mlframe.training.regression_residual_audit.plot_residual_diagnostics``
-- ``mlframe.training.target_temporal_audit.plot_target_over_time``
+- ``mlframe.training.targets.regression_residual_audit.plot_residual_diagnostics``
+- ``mlframe.training.targets.target_temporal_audit.plot_target_over_time``
 
 Each function gained ``plot_outputs`` + ``base_path`` kwargs in 2026-05-08:
 when set, the function delegates to the shared spec pipeline
@@ -121,7 +121,7 @@ class TestPlotResidualDiagnostics:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        from mlframe.training.regression_residual_audit import plot_residual_diagnostics
+        from mlframe.training.targets.regression_residual_audit import plot_residual_diagnostics
         y, yp = reg_inputs
         fig, (ax1, ax2) = plt.subplots(1, 2)
         with warnings.catch_warnings():
@@ -134,7 +134,7 @@ class TestPlotResidualDiagnostics:
         plt.close(fig)
 
     def test_dsl_optin_matplotlib(self, reg_inputs, tmp_path):
-        from mlframe.training.regression_residual_audit import plot_residual_diagnostics
+        from mlframe.training.targets.regression_residual_audit import plot_residual_diagnostics
         y, yp = reg_inputs
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -151,7 +151,7 @@ class TestPlotResidualDiagnostics:
         assert os.path.getsize(tmp_path / "resid.png") > 5000
 
     def test_dsl_optin_plotly(self, reg_inputs, tmp_path):
-        from mlframe.training.regression_residual_audit import plot_residual_diagnostics
+        from mlframe.training.targets.regression_residual_audit import plot_residual_diagnostics
         y, yp = reg_inputs
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -163,7 +163,7 @@ class TestPlotResidualDiagnostics:
         assert os.path.exists(tmp_path / "resid.html")
 
     def test_degenerate_input_returns_audit_no_crash(self, tmp_path):
-        from mlframe.training.regression_residual_audit import plot_residual_diagnostics
+        from mlframe.training.targets.regression_residual_audit import plot_residual_diagnostics
         # < 5 finite points -> legacy path returns audit (None); opt-in too.
         y = np.array([1.0, 2.0])
         yp = np.array([1.1, 2.1])
@@ -186,7 +186,7 @@ class TestPlotResidualDiagnostics:
 def temporal_audit_result():
     """Build a tiny TemporalAuditResult by calling the real audit."""
     import pandas as pd
-    from mlframe.training.target_temporal_audit import audit_target_over_time
+    from mlframe.training.targets.target_temporal_audit import audit_target_over_time
     rng = np.random.default_rng(0)
     n = 600
     timestamps = pd.date_range("2024-01-01", periods=n, freq="D")
@@ -200,7 +200,7 @@ def temporal_audit_result():
 
 class TestPlotTargetOverTime:
     def test_legacy_path_unchanged(self, temporal_audit_result, tmp_path):
-        from mlframe.training.target_temporal_audit import plot_target_over_time
+        from mlframe.training.targets.target_temporal_audit import plot_target_over_time
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             plot_target_over_time(
@@ -211,7 +211,7 @@ class TestPlotTargetOverTime:
         assert os.path.exists(tmp_path / "legacy.png")
 
     def test_dsl_optin_matplotlib(self, temporal_audit_result, tmp_path):
-        from mlframe.training.target_temporal_audit import plot_target_over_time
+        from mlframe.training.targets.target_temporal_audit import plot_target_over_time
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             result = plot_target_over_time(
@@ -223,7 +223,7 @@ class TestPlotTargetOverTime:
         assert os.path.exists(tmp_path / "dsl.png")
 
     def test_dsl_optin_plotly(self, temporal_audit_result, tmp_path):
-        from mlframe.training.target_temporal_audit import plot_target_over_time
+        from mlframe.training.targets.target_temporal_audit import plot_target_over_time
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             plot_target_over_time(

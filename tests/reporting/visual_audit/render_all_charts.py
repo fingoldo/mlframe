@@ -87,7 +87,7 @@ def audit_calibration(out_dir: str) -> None:
 def audit_regression(out_dir: str) -> None:
     print("[2/7] regression (3-panel)...")
     from mlframe.reporting.charts.regression import build_regression_panel_spec
-    from mlframe.training.regression_residual_audit import audit_residuals
+    from mlframe.training.targets.regression_residual_audit import audit_residuals
     rng = np.random.default_rng(1)
     n = 5000
     y_true = rng.standard_normal(n) * 100 + 11000

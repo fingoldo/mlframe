@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 def test_moved_symbols_still_importable() -> None:
-    from mlframe.training.target_temporal_audit import (
+    from mlframe.training.targets.target_temporal_audit import (
         find_change_points_pelt,
         find_change_points_zscore,
         find_change_points,
@@ -27,7 +27,7 @@ def test_moved_symbols_still_importable() -> None:
 
 
 def test_other_symbols_still_importable() -> None:
-    from mlframe.training.target_temporal_audit import (
+    from mlframe.training.targets.target_temporal_audit import (
         audit_target_over_time,
         audit_targets_over_time,
         format_temporal_audit_report,
@@ -42,12 +42,12 @@ def test_other_symbols_still_importable() -> None:
 
 
 def test_facade_below_1k_line_threshold() -> None:
-    root = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe" / "training"
+    root = Path(__file__).resolve().parents[3] / "src" / "mlframe" / "training" / "targets"
     facade = root / "target_temporal_audit.py"
     n = len(facade.read_text(encoding="utf-8").splitlines())
     assert n < 1000, f"target_temporal_audit.py is {n} lines, still over the 1k threshold"
 
 
 def test_changepoint_module_identity() -> None:
-    from mlframe.training import target_temporal_audit, _target_temporal_changepoint
+    from mlframe.training.targets import target_temporal_audit, _target_temporal_changepoint
     assert target_temporal_audit.find_change_points_pelt is _target_temporal_changepoint.find_change_points_pelt

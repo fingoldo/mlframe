@@ -264,7 +264,7 @@
   },
   "ResidualAudit": {
     "kind": "class",
-    "module": "mlframe.training.regression_residual_audit",
+    "module": "mlframe.training.targets.regression_residual_audit",
     "mro": [
       "builtins.object"
     ]
@@ -281,7 +281,7 @@
   },
   "TemporalAuditResult": {
     "kind": "class",
-    "module": "mlframe.training.target_temporal_audit",
+    "module": "mlframe.training.targets.target_temporal_audit",
     "mro": [
       "builtins.object"
     ]
@@ -357,17 +357,17 @@
   },
   "audit_residuals": {
     "kind": "callable",
-    "module": "mlframe.training.regression_residual_audit",
+    "module": "mlframe.training.targets.regression_residual_audit",
     "signature": "(y_true:any:0, y_pred:any:0, sample_size:kw:1, seed:kw:1)"
   },
   "audit_target_over_time": {
     "kind": "callable",
-    "module": "mlframe.training.target_temporal_audit",
+    "module": "mlframe.training.targets.target_temporal_audit",
     "signature": "(df:any:0, timestamp_col:any:0, target_col:any:0, target_name:kw:1, target_type:kw:1, granularity:kw:1, min_bin_fraction:kw:1, method:kw:1, pelt_model:kw:1, pelt_penalty:kw:1, pelt_min_segment_size:kw:1, z_threshold:kw:1, z_window:kw:1, min_anomaly_run:kw:1, drift_warn_threshold:kw:1)"
   },
   "audit_targets_over_time": {
     "kind": "callable",
-    "module": "mlframe.training.target_temporal_audit",
+    "module": "mlframe.training.targets.target_temporal_audit",
     "signature": "(df:any:0, timestamp_col:any:0, targets:any:0, granularity:kw:1, min_bin_fraction:kw:1, method:kw:1, pelt_model:kw:1, pelt_penalty:kw:1, pelt_min_segment_size:kw:1, z_threshold:kw:1, z_window:kw:1, min_anomaly_run:kw:1, drift_warn_threshold:kw:1)"
   },
   "baselines": {
@@ -478,17 +478,17 @@
   },
   "find_change_points": {
     "kind": "callable",
-    "module": "mlframe.training._target_temporal_changepoint",
+    "module": "mlframe.training.targets._target_temporal_changepoint",
     "signature": "(rates:any:0, method:kw:1, weights:kw:1, method_kwargs:**kw:0)"
   },
   "find_change_points_pelt": {
     "kind": "callable",
-    "module": "mlframe.training._target_temporal_changepoint",
+    "module": "mlframe.training.targets._target_temporal_changepoint",
     "signature": "(rates:any:0, model:kw:1, penalty:kw:1, min_segment_size:kw:1, weights:kw:1)"
   },
   "find_change_points_zscore": {
     "kind": "callable",
-    "module": "mlframe.training._target_temporal_changepoint",
+    "module": "mlframe.training.targets._target_temporal_changepoint",
     "signature": "(rates:any:0, weights:kw:1, z_threshold:kw:1, min_anomaly_run:kw:1, window:kw:1, abs_min_spread:kw:1)"
   },
   "fit_and_transform_pipeline": {
@@ -508,12 +508,12 @@
   },
   "format_residual_audit_report": {
     "kind": "callable",
-    "module": "mlframe.training.regression_residual_audit",
+    "module": "mlframe.training.targets.regression_residual_audit",
     "signature": "(audit:any:0, ndigits:kw:1)"
   },
   "format_temporal_audit_report": {
     "kind": "callable",
-    "module": "mlframe.training.target_temporal_audit",
+    "module": "mlframe.training.targets.target_temporal_audit",
     "signature": "(result:any:0)"
   },
   "get_categorical_columns": {
@@ -627,12 +627,12 @@
   },
   "plot_residual_diagnostics": {
     "kind": "callable",
-    "module": "mlframe.training.regression_residual_audit",
+    "module": "mlframe.training.targets.regression_residual_audit",
     "signature": "(y_true:any:0, y_pred:any:0, audit:any:1, ax_hist:kw:1, ax_resid_vs_pred:kw:1, plot_sample_size:kw:1, seed:kw:1, plot_outputs:kw:1, base_path:kw:1, header_str:kw:1, metrics_str:kw:1, dpi:kw:1)"
   },
   "plot_target_over_time": {
     "kind": "callable",
-    "module": "mlframe.training._target_temporal_plot",
+    "module": "mlframe.training.targets._target_temporal_plot",
     "signature": "(result:any:0, save_path:kw:1, show:kw:1, figsize:kw:1, plot_outputs:kw:1, base_path:kw:1)"
   },
   "predict_from_probs": {
@@ -711,7 +711,7 @@
   },
   "select_target": {
     "kind": "callable",
-    "module": "mlframe.training._train_eval_select_target",
+    "module": "mlframe.training.targets._train_eval_select_target",
     "signature": "(model_name:any:0, target:any:0, target_type:any:0, df:any:0, train_df:any:1, test_df:any:1, val_df:any:1, train_idx:any:1, val_idx:any:1, test_idx:any:1, train_details:any:1, val_details:any:1, test_details:any:1, group_ids:any:1, cat_features:any:1, text_features:any:1, embedding_features:any:1, hyperparams_config:any:1, behavior_config:any:1, common_params:any:1, sample_weight:any:1, mlframe_models:any:1, linear_model_config:any:1, train_df_size_bytes:any:1, val_df_size_bytes:any:1, multilabel_dispatch_config:any:1)"
   },
   "short_model_tag": {
@@ -737,7 +737,7 @@
     "module": "mlframe.training._format",
     "signature": "(name:any:0)"
   },
-  "target_temporal_audit": {
+  "targets": {
     "kind": "value",
     "type": "module"
   },

@@ -176,7 +176,7 @@ def test_fix4_temporal_audit_aggregate_polars_uses_bridge(monkeypatch):
     """Both single- and multi-target aggregate helpers must source pandas output via the bridge.
     Behavioural check: spy on utils.get_pandas_view_of_polars_df, drive each helper, and assert
     the spy fired."""
-    from mlframe.training import target_temporal_audit as tta
+    from mlframe.training.targets import target_temporal_audit as tta
     from mlframe.training import utils as utils_mod
 
     real_bridge = utils_mod.get_pandas_view_of_polars_df
@@ -221,7 +221,7 @@ def test_fix4_temporal_audit_aggregate_polars_uses_bridge(monkeypatch):
 def test_fix4_temporal_audit_aggregate_equivalence():
     """End-to-end: aggregate output must be identical (within float tolerance)
     to a control built off ``.to_pandas()`` on the same intermediate frame."""
-    from mlframe.training.target_temporal_audit import _aggregate_by_time_polars
+    from mlframe.training.targets.target_temporal_audit import _aggregate_by_time_polars
 
     rng = np.random.default_rng(2026)
     n = 200

@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from mlframe.training.target_temporal_audit import (
+from mlframe.training.targets.target_temporal_audit import (
     coerce_timestamps_for_audit as _coerce_timestamps_for_audit,
     _pick_granularity,
 )

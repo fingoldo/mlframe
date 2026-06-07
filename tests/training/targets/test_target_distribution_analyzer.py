@@ -1,4 +1,4 @@
-"""Tests for :mod:`mlframe.training._target_distribution_analyzer`.
+"""Tests for :mod:`mlframe.training.targets._target_distribution_analyzer`.
 
 Each pathology in the analyzer's contract is exercised against a synthetic
 distribution where the pathology is unambiguously present (positive case)
@@ -9,7 +9,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from mlframe.training._target_distribution_analyzer import (
+from mlframe.training.targets._target_distribution_analyzer import (
     TargetDistributionReport,
     _detect_multi_modal,
     _excess_kurtosis,

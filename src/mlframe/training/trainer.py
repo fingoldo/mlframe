@@ -817,7 +817,7 @@ def _configure_mlp_params(
         # ``Could not save model: cannot pickle '_abc._abc_data' object``).
         from sklearn.preprocessing import StandardScaler
 
-        from ._ttr_eval_set_scaling import _TTRWithEvalSetScaling
+        from .targets import _TTRWithEvalSetScaling
 
         mlp_model = _TTRWithEvalSetScaling(regressor=mlp_model, transformer=StandardScaler())
     else:

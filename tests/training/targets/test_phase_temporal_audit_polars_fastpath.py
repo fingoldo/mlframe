@@ -122,7 +122,7 @@ def test_pick_granularity_accepts_min_max_tuple_shortcut():
     """
     import datetime as _dt
 
-    from mlframe.training.target_temporal_audit import _pick_granularity
+    from mlframe.training.targets.target_temporal_audit import _pick_granularity
 
     base = _dt.datetime(2024, 1, 1)
     full = [base + _dt.timedelta(days=i) for i in range(120)]  # ~4 months
@@ -138,7 +138,7 @@ def test_pick_granularity_accepts_min_max_tuple_shortcut():
 def test_pick_granularity_minmax_zero_span_returns_month():
     """Degenerate single-point span via (min, max) must NOT raise; falls
     back to the 'month' default the full-sequence path also uses."""
-    from mlframe.training.target_temporal_audit import _pick_granularity
+    from mlframe.training.targets.target_temporal_audit import _pick_granularity
 
     import datetime as _dt
     ts = _dt.datetime(2024, 1, 1)

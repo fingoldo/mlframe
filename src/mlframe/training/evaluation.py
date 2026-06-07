@@ -641,7 +641,7 @@ def compute_ml_perf_by_time(
     # spanning the entire data, silently turning a *time-resolved* metric report into a
     # *single-bucket* report -- caller sees one row with the global metric value and
     # cannot tell from the output that the time axis collapsed.
-    from .target_temporal_audit import coerce_timestamps_for_audit as _coerce_ts
+    from .targets import coerce_timestamps_for_audit as _coerce_ts
     df = pd.DataFrame(
         {
             "y_true": np.asarray(y_true),

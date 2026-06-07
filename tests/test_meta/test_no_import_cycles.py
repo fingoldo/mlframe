@@ -50,7 +50,7 @@ _USER_DEFERRED_CYCLES: set[str] = {
     "mlframe.training._reporting → mlframe.training._reporting_probabilistic → mlframe.training._reporting_regression",
     "mlframe.training.composite.estimator → mlframe.training.composite.estimator._estimator",
     "mlframe.training.strategies → mlframe.training.strategies.xgboost",
-    "mlframe.training._target_temporal_audit_from_agg → mlframe.training._target_temporal_changepoint → mlframe.training.target_temporal_audit",
+    "mlframe.training.targets._target_temporal_audit_from_agg → mlframe.training.targets._target_temporal_changepoint → mlframe.training.targets.target_temporal_audit",
     # hermite_fe monolith split: _hermite_fe_mi.py contains @njit'd
     # functions that reference parent's _quantile_bin_njit. numba doesn't
     # compile IMPORT_NAME bytecode so the import must be top-level; the
@@ -76,7 +76,7 @@ _USER_DEFERRED_CYCLES: set[str] = {
     # composite_transforms cycle above — parent defines them BEFORE
     # importing siblings at its bottom, so the cycle resolves at runtime
     # without an actual ImportError.
-    "mlframe.training._target_distribution_analyzer → mlframe.training._target_distribution_analyzer_features → mlframe.training._target_distribution_analyzer_modes → mlframe.training._target_distribution_analyzer_target_fn",
+    "mlframe.training.targets._target_distribution_analyzer → mlframe.training.targets._target_distribution_analyzer_features → mlframe.training.targets._target_distribution_analyzer_modes → mlframe.training.targets._target_distribution_analyzer_target_fn",
 }
 
 

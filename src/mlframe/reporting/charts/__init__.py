@@ -5,8 +5,8 @@ returned spec renders identically on either backend via
 ``mlframe.reporting.renderers.render_and_save(spec, output, base_path)``.
 
 Existing chart functions in ``mlframe.metrics.core`` /
-``mlframe.training.regression_residual_audit`` /
-``mlframe.training.target_temporal_audit`` are kept as back-compat
+``mlframe.training.targets.regression_residual_audit`` /
+``mlframe.training.targets.target_temporal_audit`` are kept as back-compat
 wrappers that internally delegate to these builders + render via the
 ``ReportingConfig.plot_outputs`` DSL.
 """

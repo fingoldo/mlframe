@@ -1,5 +1,5 @@
 """Tests for the FEATURE-side detectors in
-``mlframe.training._target_distribution_analyzer.analyze_feature_distribution``.
+``mlframe.training.targets._target_distribution_analyzer.analyze_feature_distribution``.
 
 Five pathology classes (positive + negative cases each):
 - Low-variance features
@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from mlframe.training._target_distribution_analyzer import (
+from mlframe.training.targets._target_distribution_analyzer import (
     FeatureDistributionReport,
     analyze_feature_distribution,
 )

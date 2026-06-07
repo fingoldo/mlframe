@@ -6,9 +6,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from mlframe.training import target_temporal_audit as parent
-from mlframe.training import _target_temporal_audit_aggregate as agg
-from mlframe.training import _target_temporal_audit_coerce as coerce
+from mlframe.training.targets import target_temporal_audit as parent
+from mlframe.training.targets import _target_temporal_audit_aggregate as agg
+from mlframe.training.targets import _target_temporal_audit_coerce as coerce
 
 
 def test_w12b_target_temporal_audit_identity_preserved():

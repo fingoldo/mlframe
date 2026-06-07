@@ -147,7 +147,7 @@ def _run_target_distribution_analyzer(
         return hyperparams_config, train_df, val_df, test_df
 
     try:
-        from .._target_distribution_analyzer import analyze_target_distribution
+        from ..targets import analyze_target_distribution
         from ..configs import TargetTypes as _TT
 
         # Pick a representative target: prefer regression (the typical
@@ -342,7 +342,7 @@ def _run_target_distribution_analyzer(
             # features. Both reports are stamped into metadata so operators see the full
             # diagnostic table on every default run.
             try:
-                from .._target_distribution_analyzer import analyze_feature_distribution
+                from ..targets import analyze_feature_distribution
                 # Use train_df_polars_pre / train_df / whatever is available at this point;
                 # _phase_train_val_test_split has already returned train_df at this scope.
                 if train_df is not None:

@@ -48,7 +48,7 @@ def _normalize_timestamps(ts: Any) -> np.ndarray | None:
                 None,
             )
             if isinstance(_first_non_null, (int, np.integer)) and not isinstance(_first_non_null, bool):
-                from ..target_temporal_audit import coerce_timestamps_for_audit as _coerce_ts
+                from ..targets import coerce_timestamps_for_audit as _coerce_ts
                 _num = np.asarray([v if v is not None else 0 for v in ts], dtype=np.int64)
                 # coerce returns datetime64[ns]; view-cast directly to int64 ns since epoch.
                 ts = _coerce_ts(_num).view("int64")

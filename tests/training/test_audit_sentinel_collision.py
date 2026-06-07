@@ -91,7 +91,7 @@ def test_dummy_baselines_factorize_filters_negative_codes() -> None:
     # The LTR factorize fast-path was moved to the
     # ``_dummy_compute_helpers.py`` sibling when ``dummy_baselines.py`` was
     # split below 1k LOC.
-    src = _read("training/_dummy_compute_helpers.py")
+    src = _read("training/baselines/_dummy_compute_helpers.py")
     # The fix filters codes>=0 before bincount.
     assert "_factor_codes = pd.factorize(g_train)[0]" in src
     assert "np.bincount(_factor_codes[_factor_codes >= 0])" in src
@@ -115,8 +115,8 @@ def test_target_temporal_audit_drops_nan_before_rate() -> None:
     """The per-bin positive-rate lambda moved to sibling
     _target_temporal_audit_aggregate.py after the audit module split;
     concat so the source sensor matches the post-carve layout."""
-    src = _read("training/target_temporal_audit.py")
-    _sib = MLFRAME_ROOT / "training" / "_target_temporal_audit_aggregate.py"
+    src = _read("training/targets/target_temporal_audit.py")
+    _sib = MLFRAME_ROOT / "training" / "targets" / "_target_temporal_audit_aggregate.py"
     if _sib.exists():
         src += "\n" + _sib.read_text(encoding="utf-8")
     # Pre-fix lambda was `(c.fillna(0) > 0).mean()` -- gone.

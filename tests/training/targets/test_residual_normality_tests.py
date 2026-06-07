@@ -8,7 +8,7 @@ import numpy as np
 
 
 def test_shim_reexports_normality_verdict() -> None:
-    from mlframe.training._residual_normality_tests import normality_verdict
+    from mlframe.training.targets._residual_normality_tests import normality_verdict
 
     rng = np.random.default_rng(0)
     out = normality_verdict(rng.standard_normal(1000))
@@ -17,7 +17,7 @@ def test_shim_reexports_normality_verdict() -> None:
 
 
 def test_shim_reexports_underscored_aliases() -> None:
-    from mlframe.training._residual_normality_tests import (
+    from mlframe.training.targets._residual_normality_tests import (
         _dagostino_k2,
         _anderson_darling_normal,
     )

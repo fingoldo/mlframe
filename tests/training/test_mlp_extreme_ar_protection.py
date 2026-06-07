@@ -54,7 +54,7 @@ class TestTtrPredictClip:
     def _fit_ttr(self, y_train: np.ndarray):
         """Helper: fit a TTR with StandardScaler on synthetic y."""
         from sklearn.preprocessing import StandardScaler
-        from mlframe.training._ttr_eval_set_scaling import _TTRWithEvalSetScaling
+        from mlframe.training.targets._ttr_eval_set_scaling import _TTRWithEvalSetScaling
 
         class _MockRegressor:
             """sklearn-compat: scaled-space identity on the first feature.
@@ -152,7 +152,7 @@ class TestSourceIntegrity:
         assert "mlp_extreme_ar_group_aware_skip: bool = False" in src
 
     def test_ttr_module_has_y_train_clip(self) -> None:
-        from mlframe.training import _ttr_eval_set_scaling as ttr
+        from mlframe.training.targets import _ttr_eval_set_scaling as ttr
         src = Path(ttr.__file__).read_text(encoding="utf-8")
         assert "_y_train_clip_low_" in src
         assert "_y_train_clip_high_" in src

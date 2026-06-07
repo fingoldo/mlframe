@@ -40,9 +40,9 @@ import pytest
 def test_coerce_timestamps_for_audit_returns_datetime64ns_on_tz_aware(caplog):
     """Documented contract: returns datetime64[ns]. Pre-fix tz-aware
     input returned an OBJECT dtype array."""
-    from mlframe.training.target_temporal_audit import coerce_timestamps_for_audit
+    from mlframe.training.targets.target_temporal_audit import coerce_timestamps_for_audit
     ts_aware = pd.Series(pd.date_range("2024-01-01", periods=5, tz="UTC"))
-    with caplog.at_level(logging.WARNING, logger="mlframe.training.target_temporal_audit"):
+    with caplog.at_level(logging.WARNING, logger="mlframe.training.targets.target_temporal_audit"):
         out = coerce_timestamps_for_audit(ts_aware)
     assert str(out.dtype) == "datetime64[ns]", (
         f"Wave 34 P2 regression: contract violation -- expected "
@@ -58,7 +58,7 @@ def test_coerce_timestamps_for_audit_returns_datetime64ns_on_tz_aware(caplog):
 
 def test_coerce_timestamps_for_audit_passthrough_tz_naive():
     """tz-naive input must not trigger the WARN (no spurious noise)."""
-    from mlframe.training.target_temporal_audit import coerce_timestamps_for_audit
+    from mlframe.training.targets.target_temporal_audit import coerce_timestamps_for_audit
     ts_naive = pd.Series(pd.date_range("2024-01-01", periods=5))
     out = coerce_timestamps_for_audit(ts_naive)
     assert str(out.dtype) == "datetime64[ns]"
@@ -70,7 +70,7 @@ def test_recommended_filter_mask_handles_tz_aware_segments():
     import mlframe as _mlframe
     src = (
         pathlib.Path(_mlframe.__file__).resolve().parent
-        / "training" / "target_temporal_audit.py"
+        / "training" / "targets" / "target_temporal_audit.py"
     ).read_text(encoding="utf-8")
     assert "def _normalize_bin_ts(_t):" in src, (
         "Wave 34 P1 regression: _normalize_bin_ts helper removed; "
@@ -109,7 +109,7 @@ def test_cleaning_datetime_probe_strips_tz_before_astype():
 def test_audit_does_not_crash_on_tz_aware_input():
     """End-to-end-ish: coerce_timestamps_for_audit + a manual
     tz-aware ``ts`` Series comparison succeeds post-fix."""
-    from mlframe.training.target_temporal_audit import coerce_timestamps_for_audit
+    from mlframe.training.targets.target_temporal_audit import coerce_timestamps_for_audit
     ts_aware = pd.Series(pd.date_range("2024-01-01", periods=10, tz="UTC"))
     ts_naive = coerce_timestamps_for_audit(ts_aware)
     # Simulating the downstream comparison shape from recommended_filter_mask:

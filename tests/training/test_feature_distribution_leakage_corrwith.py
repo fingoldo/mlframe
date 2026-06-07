@@ -19,7 +19,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from mlframe.training._target_distribution_analyzer import analyze_feature_distribution
+from mlframe.training.targets._target_distribution_analyzer import analyze_feature_distribution
 
 
 def test_strong_leakage_is_detected():

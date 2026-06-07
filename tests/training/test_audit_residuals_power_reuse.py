@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from mlframe.training.regression_residual_audit import audit_residuals
+from mlframe.training.targets.regression_residual_audit import audit_residuals
 
 
 def test_skew_kurt_match_z_pow_oracle():

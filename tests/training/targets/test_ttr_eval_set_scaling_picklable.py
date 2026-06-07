@@ -13,7 +13,7 @@ import pytest
 class TestTTRWithEvalSetScalingPickle:
     def test_module_level_class_importable(self) -> None:
         """The class lives at module level, not inside a function."""
-        from mlframe.training._ttr_eval_set_scaling import _TTRWithEvalSetScaling
+        from mlframe.training.targets._ttr_eval_set_scaling import _TTRWithEvalSetScaling
         # Module-level class: __qualname__ is just the class name, NOT
         # "_configure_neural_params.<locals>._TTRWithEvalSetScaling" (the
         # pre-fix qualname that broke pickle).
@@ -25,7 +25,7 @@ class TestTTRWithEvalSetScalingPickle:
         from sklearn.linear_model import Ridge
         from sklearn.preprocessing import StandardScaler
 
-        from mlframe.training._ttr_eval_set_scaling import _TTRWithEvalSetScaling
+        from mlframe.training.targets._ttr_eval_set_scaling import _TTRWithEvalSetScaling
 
         m = _TTRWithEvalSetScaling(regressor=Ridge(alpha=1e-3), transformer=StandardScaler())
         buf = io.BytesIO()
@@ -40,7 +40,7 @@ class TestTTRWithEvalSetScalingPickle:
         from sklearn.linear_model import Ridge
         from sklearn.preprocessing import StandardScaler
 
-        from mlframe.training._ttr_eval_set_scaling import _TTRWithEvalSetScaling
+        from mlframe.training.targets._ttr_eval_set_scaling import _TTRWithEvalSetScaling
 
         rng = np.random.default_rng(0)
         X = rng.normal(0, 1, (200, 4))
@@ -61,7 +61,7 @@ class TestTTRWithEvalSetScalingPickle:
         from sklearn.linear_model import Ridge
         from sklearn.preprocessing import StandardScaler
 
-        from mlframe.training._ttr_eval_set_scaling import _TTRWithEvalSetScaling
+        from mlframe.training.targets._ttr_eval_set_scaling import _TTRWithEvalSetScaling
 
         rng = np.random.default_rng(1)
         X = rng.normal(0, 1, (100, 3))

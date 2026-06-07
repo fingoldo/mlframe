@@ -116,7 +116,7 @@ def test_mlp_ttr_no_collapse_on_autoregressive_data(_ar_group_split_data):
     )
     from mlframe.training.neural.base import PytorchLightningRegressor
     from mlframe.training.neural.data import TorchDataModule
-    from mlframe.training._ttr_eval_set_scaling import _TTRWithEvalSetScaling
+    from mlframe.training.targets._ttr_eval_set_scaling import _TTRWithEvalSetScaling
 
     X_tr_df, X_va_df, X_te_df, y_tr, y_va, y_te = _ar_group_split_data
 

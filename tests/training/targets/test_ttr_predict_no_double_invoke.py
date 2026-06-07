@@ -56,7 +56,7 @@ def test_ttr_predict_invokes_inner_exactly_once():
     fitted clone, accessed via ``ttr.regressor_``.
     """
     from sklearn.preprocessing import StandardScaler
-    from mlframe.training._ttr_eval_set_scaling import _TTRWithEvalSetScaling
+    from mlframe.training.targets._ttr_eval_set_scaling import _TTRWithEvalSetScaling
 
     X, y = _make_data(n=300)
     ttr = _TTRWithEvalSetScaling(regressor=_CountingRegressor(), transformer=StandardScaler())
@@ -82,7 +82,7 @@ def test_ttr_predict_invokes_inner_exactly_once():
 def test_ttr_predict_passthrough_when_no_transformer():
     """The no-transformer branch (transformer_ is None) MUST still work and
     still only invoke the inner once."""
-    from mlframe.training._ttr_eval_set_scaling import _TTRWithEvalSetScaling
+    from mlframe.training.targets._ttr_eval_set_scaling import _TTRWithEvalSetScaling
 
     X, y = _make_data(n=200)
     ttr = _TTRWithEvalSetScaling(regressor=_CountingRegressor(), transformer=None)
@@ -100,7 +100,7 @@ def test_ttr_predict_2d_output_squeeze():
     """2-D inner-predict output of shape (n, 1) must be squeezed back to 1-D
     (mirrors sklearn's TransformedTargetRegressor.predict squeeze behaviour)."""
     from sklearn.preprocessing import StandardScaler
-    from mlframe.training._ttr_eval_set_scaling import _TTRWithEvalSetScaling
+    from mlframe.training.targets._ttr_eval_set_scaling import _TTRWithEvalSetScaling
 
     class _2DOutputRegressor(_CountingRegressor):
         def predict(self, X, **predict_params):

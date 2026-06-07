@@ -45,7 +45,7 @@ def mock_configure(monkeypatch):
     # intercepts the call. Patch the upstream module + sibling so the lazy
     # import resolves to the stub regardless of call order.
     import mlframe.training.trainer as _trainer
-    import mlframe.training._train_eval_select_target as _select_target_mod
+    import mlframe.training.targets._train_eval_select_target as _select_target_mod
     monkeypatch.setattr(_trainer, "configure_training_params", _stub)
     if hasattr(_select_target_mod, "configure_training_params"):
         monkeypatch.setattr(_select_target_mod, "configure_training_params", _stub)

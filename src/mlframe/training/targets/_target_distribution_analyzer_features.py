@@ -133,7 +133,7 @@ def _normalise_X(
             # 29.3s to a single _normalise_X call via raw to_pandas; the
             # helper drops it to ~6s. Lazy import to avoid utils <-> *
             # cycle.
-            from .utils import get_pandas_view_of_polars_df as _pl2pd
+            from ..utils import get_pandas_view_of_polars_df as _pl2pd
             if _typename == "LazyFrame":
                 # Materialise to DataFrame then convert. LazyFrame has neither
                 # to_pandas nor columns directly, so caller must accept the

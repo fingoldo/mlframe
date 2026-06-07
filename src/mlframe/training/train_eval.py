@@ -235,7 +235,7 @@ def optimize_model_for_storage(
 
 
 # select_target carved to ``_train_eval_select_target``; re-exported below.
-from ._train_eval_select_target import select_target  # noqa: F401, E402
+from .targets import select_target  # noqa: F401, E402
 
 
 

@@ -143,7 +143,7 @@ def test_baseline_diagnostics_ablation_uses_lexsort() -> None:
     when baseline_diagnostics.py was split below 1k LOC; concat so the
     source sensor matches the post-carve layout."""
     src = _read("training/baselines/diagnostics.py")
-    _sibling = MLFRAME_ROOT / "training" / "_baseline_diagnostics_ablation.py"
+    _sibling = MLFRAME_ROOT / "training" / "baselines" / "_baseline_diagnostics_ablation.py"
     if _sibling.exists():
         src += "\n" + _sibling.read_text(encoding="utf-8")
     assert "order = np.lexsort((np.arange(len(raw_fi)), -raw_fi))[:top_k]" in src

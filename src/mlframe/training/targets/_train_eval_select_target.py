@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
-from .configs import (
+from ..configs import (
     LinearModelConfig,
     ModelHyperparamsConfig,
     MultilabelDispatchConfig,
@@ -81,7 +81,7 @@ def select_target(
     """
     # Lazy import of trainer.configure_training_params to avoid the
     # heavyweight trainer module being imported on every train_eval import.
-    from .trainer import configure_training_params
+    from ..trainer import configure_training_params
 
     # Per-split target summary. Previously the BT= / MT= / ML= summary was
     # computed on the FULL target (train+val+test), which masked
@@ -115,8 +115,8 @@ def select_target(
     train_t = _to_arr(_select(target, train_idx))
 
     if target_type == TargetTypes.REGRESSION:
-        from ._format import format_metric as _fmt
-        from .composite.transforms import is_composite_target_name
+        from .._format import format_metric as _fmt
+        from ..composite.transforms import is_composite_target_name
         _is_composite = is_composite_target_name(model_name)
         _tag = "MTRESID" if _is_composite else "MTTR"
         if train_t is not None and train_t.size > 0:

@@ -73,7 +73,7 @@ def test_format_provenance_table_renders():
 
 def test_analyzer_records_provenance_via_target_distribution():
     """Smoke: TargetDistributionReport.knob_overrides_provenance is populated for known pathologies."""
-    from mlframe.training._target_distribution_analyzer import analyze_target_distribution
+    from mlframe.training.targets._target_distribution_analyzer import analyze_target_distribution
 
     rng = np.random.default_rng(42)
     # Heavy-tailed regression target -> should produce loss_fn/huber/scale_pos_weight overrides
@@ -93,7 +93,7 @@ def test_analyzer_records_provenance_via_target_distribution():
 
 def test_analyzer_provenance_imbalanced_classes():
     """Class imbalance triggers scale_pos_weight + class_weight + auto_class_weights stamping."""
-    from mlframe.training._target_distribution_analyzer import analyze_target_distribution
+    from mlframe.training.targets._target_distribution_analyzer import analyze_target_distribution
 
     # 99/1 split
     y = np.concatenate([np.zeros(990), np.ones(10)]).astype(int)

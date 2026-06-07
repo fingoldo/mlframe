@@ -15,7 +15,7 @@ def parent_module():
 
 @pytest.fixture(scope="module")
 def sibling():
-    from mlframe.training import _train_eval_select_target
+    from mlframe.training.targets import _train_eval_select_target
     return _train_eval_select_target
 
 

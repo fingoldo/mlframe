@@ -105,7 +105,7 @@ def _make_fixture(n=400, with_drift=True, seed=0):
 def test_audit_fires_with_explicit_ts_col():
     """Sanity-baseline: when caller passes the timestamp column
     explicitly, audit produces multi-segment output."""
-    from mlframe.training.target_temporal_audit import audit_target_over_time
+    from mlframe.training.targets.target_temporal_audit import audit_target_over_time
 
     df = _make_fixture(n=400, with_drift=True)
     result = audit_target_over_time(
