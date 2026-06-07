@@ -17,9 +17,9 @@ fit) ever runs, and write only under ``tmp_path``. They cover:
 """
 from __future__ import annotations
 
-import json
 import os
 
+import orjson
 import pytest
 
 from pyutilz.performance.kernel_tuning.cache import (
@@ -33,13 +33,31 @@ from mlframe.feature_selection._benchmarks import gen_default_tuning as gdt
 _SEED_FP = "cpu_test_no-gpu"
 
 
+def _assert_canonical_on_disk(raw: str, doc: dict) -> None:
+    """``write_defaults`` writes the document sorted (keys) + 2-space indented +
+    trailing newline. Verify the on-disk text round-trips to ``doc``, ends in a
+    newline, and has every (nested) object's keys in sorted order."""
+    assert orjson.loads(raw) == doc
+    assert raw.endswith("\n")
+
+    def _keys_sorted(obj) -> bool:
+        if isinstance(obj, dict):
+            keys = list(obj.keys())
+            return keys == sorted(keys) and all(_keys_sorted(v) for v in obj.values())
+        if isinstance(obj, list):
+            return all(_keys_sorted(v) for v in obj)
+        return True
+
+    assert _keys_sorted(orjson.loads(raw))
+
+
 def _seed_hw_fingerprint(cache_dir: str) -> None:
     """Write a fresh ``.hw_fingerprint.json`` into ``cache_dir`` so
     ``hw_fingerprint()`` resolves from disk and never imports cupy (which stalls
     under disk saturation)."""
     os.makedirs(cache_dir, exist_ok=True)
-    with open(os.path.join(cache_dir, ".hw_fingerprint.json"), "w", encoding="utf-8") as f:
-        json.dump({"schema_version": 1, "fingerprint": _SEED_FP, "ts_utc": "2026-06-07T00:00:00"}, f)
+    with open(os.path.join(cache_dir, ".hw_fingerprint.json"), "wb") as f:
+        f.write(orjson.dumps({"schema_version": 1, "fingerprint": _SEED_FP, "ts_utc": "2026-06-07T00:00:00"}))
 
 
 # --------------------------------------------------------------------------- #
@@ -149,9 +167,9 @@ def test_anonymize_drops_wall_ms_adds_device_keeps_caps():
 
 def test_anonymize_does_not_mutate_input():
     src = _seed_regions()
-    before = json.dumps(src, sort_keys=True)
+    before = orjson.dumps(src, option=orjson.OPT_SORT_KEYS)
     gdt.anonymize_regions(src)
-    assert json.dumps(src, sort_keys=True) == before
+    assert orjson.dumps(src, option=orjson.OPT_SORT_KEYS) == before
 
 
 # --------------------------------------------------------------------------- #
@@ -184,9 +202,9 @@ def test_generate_emits_valid_sorted_json(tmp_cache, patched_registry):
     gdt.write_defaults(doc, out)
     with open(out, "r", encoding="utf-8") as f:
         raw = f.read()
-    reparsed = json.loads(raw)
+    reparsed = orjson.loads(raw)
     assert reparsed == doc
-    assert json.dumps(reparsed, sort_keys=True, indent=2) + "\n" == raw  # sorted on disk
+    _assert_canonical_on_disk(raw, doc)
 
 
 def test_generate_kernels_sorted_by_name(tmp_cache):
@@ -331,11 +349,11 @@ def test_committed_defaults_file_is_valid():
         pytest.skip("default_kernel_tuning.json not present in this checkout")
     with open(path, "r", encoding="utf-8") as f:
         raw = f.read()
-    doc = json.loads(raw)
+    doc = orjson.loads(raw)
     assert doc["schema_version"] == gdt.DEFAULTS_SCHEMA_VERSION
     assert isinstance(doc["kernels"], dict)
     assert "hw_fingerprint" not in doc
-    assert json.dumps(doc, sort_keys=True, indent=2) + "\n" == raw  # sorted on disk
+    _assert_canonical_on_disk(raw, doc)
     for name, entry in doc["kernels"].items():
         assert "axes" in entry and "regions" in entry and "code_version" in entry, name
         for r in entry["regions"]:
