@@ -59,7 +59,7 @@ import json
 import logging
 import os
 import sys
-from typing import Optional
+from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -145,7 +145,7 @@ def _sort_region(region: dict) -> dict:
     return ordered
 
 
-def build_kernel_entry(spec, regions: list, code_version: Optional[str]) -> dict:
+def build_kernel_entry(spec: Any, regions: list, code_version: Optional[str]) -> dict:
     """Build one kernel's defaults entry: ``{axes, code_version, regions}`` (+
     ``salt`` when set). ``code_version`` is REQUIRED in the entry so the consumer's
     ``_code_version_stale`` check passes (otherwise the default is ignored as
@@ -190,9 +190,9 @@ def generate_defaults(
     output_path: str = DEFAULT_OUTPUT_PATH,
     force: bool = False,
     skip_existing: bool = True,
-    discover_fn=None,
-    tune_fn=None,
-    cache_cls=None,
+    discover_fn: Optional[Callable] = None,
+    tune_fn: Optional[Callable] = None,
+    cache_cls: Optional[type] = None,
 ) -> dict:
     """Discover, ensure-tuned, anonymize, and assemble the defaults document
     (does NOT write -- the caller decides). Returns the full document dict.
