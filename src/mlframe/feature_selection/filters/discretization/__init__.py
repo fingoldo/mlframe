@@ -418,6 +418,50 @@ def discretize_array(
     return np.searchsorted(bins_edges[1:-1], arr, side="right").astype(dtype)
 
 
+@njit(nogil=True, cache=True)
+def _searchsorted_2d_right_njit(edges_inner: np.ndarray, arr2d: np.ndarray, out: np.ndarray) -> None:
+    """Per-column ``np.searchsorted(edges_inner[:, j], arr2d[:, j], side='right')`` in ONE
+    nogil kernel, writing ordinal codes into ``out``.
+
+    Replaces the Python ``for j in range(n_cols): out[:, j] = np.searchsorted(...)`` loop
+    in ``discretize_2d_quantile_batch`` (370k dispatched searchsorted calls on scene's
+    FE buffers -> serial-dispatch-bound). BIT-IDENTICAL to numpy's ``searchsorted(side='right')``:
+
+      * ``side='right'`` returns the count of edges ``<= v`` (largest ``i`` with
+        ``edges[:i] <= v``); the branch ``v < edges[mid] -> hi=mid else lo=mid+1``
+        reproduces that exactly (ties advance ``lo`` -> rightmost).
+      * NaN ``v``: every ``v < edges[mid]`` is False (IEEE), so ``lo`` walks to the end
+        -> returns ``len(edges)``, the SAME index numpy assigns NaN (sorts after all),
+        so a NaN row lands in the post-max bin identically to the per-column numpy path.
+
+    SERIAL + ``nogil=True`` ON PURPOSE (not ``parallel=True``): ``discretize_2d_quantile_batch``
+    is called inside ``_compute_one_fe_chunk`` under joblib ``backend="threading"`` (the FE
+    pair-search dispatch), so a numba ``parallel=True`` prange here would nest numba-parallel
+    inside Python threads and deadlock the threading layer (the same hazard that keeps
+    ``_materialise_chunk_njit`` serial). With ``nogil`` the joblib threads run this kernel
+    concurrently across cores; on the n_jobs=1 path it runs single-threaded but still removes
+    the per-column numpy dispatch overhead.
+
+    ``edges_inner`` is ``edges[1:-1]`` (the interior bin edges), shape ``(n_edges, n_cols)``;
+    ``arr2d`` is ``(n_rows, n_cols)``; ``out`` is the pre-allocated ordinal-code array.
+    """
+    n_rows = arr2d.shape[0]
+    n_cols = arr2d.shape[1]
+    n_edges = edges_inner.shape[0]
+    for j in range(n_cols):
+        for r in range(n_rows):
+            v = arr2d[r, j]
+            lo = 0
+            hi = n_edges
+            while lo < hi:
+                mid = (lo + hi) >> 1
+                if v < edges_inner[mid, j]:
+                    hi = mid
+                else:
+                    lo = mid + 1
+            out[r, j] = lo
+
+
 def discretize_2d_quantile_batch(arr2d: np.ndarray, n_bins: int = 10, dtype: object = np.int8) -> np.ndarray:
     """Batch (quantile-only) discretiser: bit-identical to per-column ``discretize_array(method='quantile')``.
 
@@ -458,8 +502,14 @@ def discretize_2d_quantile_batch(arr2d: np.ndarray, n_bins: int = 10, dtype: obj
     else:
         edges = np.percentile(arr2d, quantiles, axis=0)
     out = np.empty((n_rows, n_cols), dtype=dtype)
-    for j in range(n_cols):
-        out[:, j] = np.searchsorted(edges[1:-1, j], arr2d[:, j], side="right").astype(dtype)
+    # njit-prange per-column searchsorted (bit-identical to the numpy loop, incl. NaN
+    # -> rightmost bin; see ``_searchsorted_2d_right_njit``). ``edges`` is float64 from
+    # percentile; ensure both operands are C-contiguous float64 so the kernel's column
+    # strides are tight. ``edges[1:-1]`` is the interior-edge view searchsorted indexes.
+    if n_cols > 0 and n_rows > 0:
+        edges_inner = np.ascontiguousarray(edges[1:-1], dtype=np.float64)
+        arr_c = np.ascontiguousarray(arr2d, dtype=np.float64)
+        _searchsorted_2d_right_njit(edges_inner, arr_c, out)
     return out
 
 

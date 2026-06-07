@@ -475,6 +475,59 @@ def _materialise_chunk_njit(tv, a_cols, b_cols, op_codes, out):
                 v = zero
             out[r, k] = v
 
+@njit(nogil=True, cache=True, error_model="numpy")
+def _materialise_extval_njit(param_a, param_b_mat, op_codes, out):
+    """Fill ``out[:, e*n_ops + o] = op_o(param_a, param_b_mat[:, e])`` for the external-
+    validation MI sweep -- ALL (external_factor x binary_op) candidate columns in ONE
+    nogil kernel.
+
+    Unlike ``_materialise_chunk_njit`` this produces the RAW float64 bin_func output with
+    NO nan_to_num: the external-validation path discretises the raw values (the per-
+    candidate ``discretize_array`` it replaces never scrubbed NaN/inf either --
+    ``nanpercentile`` ignores NaN and ``searchsorted`` routes NaN/inf to the rightmost
+    bin), so scrubbing here would change the codes. float64 throughout so the arithmetic
+    is bit-identical to the numpy bin_funcs (which upcast the float32 ``param_a`` to
+    float64 against the float64 ``param_b``): mul/add/sub/max/min are the exact numpy ops
+    and ``div`` is ``_safe_div``'s ``x/(y + sign(y)*1e-9 + 1e-9)`` in float64.
+
+    ``op_codes`` are the ``_NJIT_BINARY_OP_CODES`` (0=mul 1=add 2=sub 3=div 4=max 5=min);
+    callers MUST gate on ``_njit_binary_op_codes(...) is not None`` (only the minimal/
+    medium closed ops are coded) and fall back to the numpy loop otherwise. ``op_codes``
+    is in registry (bin_func) order; the inner loop walks it so the column index matches
+    the Python ``for ext: for bin_func:`` materialise order exactly.
+    """
+    n = param_b_mat.shape[0]
+    n_ext = param_b_mat.shape[1]
+    n_ops = op_codes.shape[0]
+    for e in range(n_ext):
+        for o in range(n_ops):
+            op = op_codes[o]
+            col = e * n_ops + o
+            for r in range(n):
+                a = np.float64(param_a[r])
+                b = param_b_mat[r, e]
+                if op == 0:        # mul
+                    v = a * b
+                elif op == 1:      # add
+                    v = a + b
+                elif op == 2:      # sub
+                    v = a - b
+                elif op == 3:      # div = _safe_div: x / (y + sign(y)*1e-9 + 1e-9)
+                    sgn = 0.0 if b == 0.0 else (1.0 if b > 0.0 else -1.0)
+                    v = a / (b + sgn * 1e-9 + 1e-9)
+                elif op == 4:      # max = np.maximum (nan-propagating)
+                    if a != a or b != b:
+                        v = a + b
+                    else:
+                        v = a if a > b else b
+                else:              # op == 5: min = np.minimum (nan-propagating)
+                    if a != a or b != b:
+                        v = a + b
+                    else:
+                        v = a if a < b else b
+                out[r, col] = v
+
+
 # Shared subsample default across the two FE entry points. ``polynom_pair_fe``
 # already uses 200_000 (validated 2026-05-18: 100k could lose a marginal hermite
 # feature, 200k kept it). The accuracy bench for ``check_prospective_fe_pairs``
@@ -1719,39 +1772,119 @@ def check_prospective_fe_pairs(
                         if fe_max_external_validation_factors and len(external_factors) > fe_max_external_validation_factors:
                             external_factors = np.random.choice(external_factors, fe_max_external_validation_factors)
 
-                        for external_factor in tqdmu(external_factors, desc="external validation factor", leave=False, disable=not verbose):
+                        # BATCHED EXTERNAL VALIDATION (2026-06-07): the per-(external_factor x
+                        # valid_bin_func) ``discretize_array`` + ``mi_direct`` double loop was the
+                        # single dominant serial FE hotspot at wide p (call-site profile on scene
+                        # 2407x299: 228k discretize_array + 228k mi_direct here, ~80% of fit wall;
+                        # CPU near-idle => GIL-bound per-candidate dispatch). ``best_valid_mi`` is a
+                        # pure ``max`` over an order-INDEPENDENT per-candidate MI, and every
+                        # candidate is scored against the SAME y with the SAME estimator the per-pair
+                        # sweep already batches, so we materialise ALL candidate columns into one
+                        # buffer, run ONE ``discretize_2d_quantile_batch`` + ONE
+                        # ``_dispatch_batch_mi_with_noise_gate`` (CPU njit / GPU by size), then take
+                        # the max. BIT-IDENTICAL to the loop on the default FE path
+                        # (``parallelism='outer'``, ``n_workers=1``, ``base_seed=0``,
+                        # ``npermutations=fe_npermutations<32`` so no GPU permutation route) -- the
+                        # batch kernel shuffles y once per permutation and scores all columns against
+                        # it, exactly matching the per-candidate ``mi_direct`` noise-gate. Only the
+                        # ``quantile`` method is batched (matches ``discretize_2d_quantile_batch``'s
+                        # bit-identity domain); any other method falls back to the per-candidate
+                        # loop below.
+                        _ev_param_bs = []
+                        for external_factor in external_factors:
                             if external_factor not in original_cols:
                                 continue
                             if isinstance(X, pd.DataFrame):
-                                param_b = X.iloc[:, original_cols[external_factor]].values
+                                _pb_vals = X.iloc[:, original_cols[external_factor]].values
                             else:
-                                param_b = X[:, original_cols[external_factor]].to_numpy()
+                                _pb_vals = X[:, original_cols[external_factor]].to_numpy()
+                            _ev_param_bs.append(_pb_vals)
 
-                            for valid_bin_func_name, valid_bin_func in binary_transformations.items():
-
-                                valid_vals = valid_bin_func(param_a, param_b)
-
-                                discretized_transformed_values = discretize_array(
-                                    arr=valid_vals, n_bins=quantization_nbins, method=quantization_method, dtype=quantization_dtype
+                        # Memory guard: the batch buffer is (n_rows x ext_factors*n_binary)
+                        # float64. On the common wide-but-shallow bed (e.g. scene 2407x299:
+                        # ~1680 cols -> 32 MB) this is trivial, but an unbounded ext-factor set
+                        # on a multi-million-row frame could OOM. Reuse the SAME available-RAM
+                        # budget the shared-buffer hoist uses; if the batch buffer would not fit,
+                        # fall back to the (bit-identical) per-candidate loop below.
+                        _ev_n_bin = len(binary_transformations)
+                        _ev_buf_bytes = len(X) * max(1, len(_ev_param_bs)) * _ev_n_bin * 8
+                        _ev_can_batch, _, _ = _can_hoist_shared_buffer(_ev_buf_bytes)
+                        if quantization_method == "quantile" and _ev_param_bs and _ev_can_batch:
+                            _ev_bin_funcs = list(binary_transformations.values())
+                            _ev_K = len(_ev_param_bs) * len(_ev_bin_funcs)
+                            # float64 buffer: the per-candidate path discretises the RAW
+                            # ``valid_bin_func(...)`` output (numpy bin_funcs return float64) with
+                            # NO nan_to_num -- ``discretize_array``/``discretize_2d_quantile_batch``
+                            # both bin via ``np.nanpercentile`` (NaN-ignoring edges) + per-column
+                            # ``searchsorted`` (NaN -> rightmost bin), identically. Writing into a
+                            # float64 buffer (not float32) preserves the bin_func's native precision
+                            # so the percentile edges match the 1-D path to the bit.
+                            _ev_buf = np.empty((len(X), _ev_K), dtype=np.float64)
+                            _ev_op_codes = _njit_binary_op_codes(binary_transformations)
+                            if _ev_op_codes is not None:
+                                # NJIT materialise: ALL (ext x op) candidate columns in one nogil
+                                # kernel (bit-identical to the numpy bin_funcs; see
+                                # ``_materialise_extval_njit``). Column order ext-outer/op-inner ==
+                                # the numpy ``for ext: for bin_func`` order, so the discretise +
+                                # MI + max reduction below is unchanged. ``param_a`` may be a
+                                # float32 buffer slice; the kernel upcasts per-element to float64.
+                                _ev_pb_mat = np.empty((len(X), len(_ev_param_bs)), dtype=np.float64)
+                                for _ei, _pb_vals in enumerate(_ev_param_bs):
+                                    _ev_pb_mat[:, _ei] = _pb_vals
+                                _materialise_extval_njit(
+                                    np.ascontiguousarray(param_a), _ev_pb_mat, _ev_op_codes,
+                                    _ev_buf[:, :_ev_K],
                                 )
-                                fe_mi, fe_conf = mi_direct(
-                                    discretized_transformed_values.reshape(-1, 1),
-                                    x=np.array([0], dtype=np.int64),
-                                    y=None,
-                                    factors_nbins=np.array([quantization_nbins], dtype=np.int64),
-                                    classes_y=classes_y,
-                                    classes_y_safe=classes_y_safe,
-                                    freqs_y=freqs_y,
-                                    min_nonzero_confidence=fe_min_nonzero_confidence,
-                                    npermutations=fe_npermutations,
-                                )
+                                _ev_col = _ev_K
+                            else:
+                                # NUMPY FALLBACK: a bin_func is not njit-coded (maximal-preset
+                                # special) -> materialise per-candidate with the exact numpy ufuncs.
+                                _ev_col = 0
+                                with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+                                    for _pb_vals in _ev_param_bs:
+                                        for valid_bin_func in _ev_bin_funcs:
+                                            _ev_buf[:, _ev_col] = valid_bin_func(param_a, _pb_vals)
+                                            _ev_col += 1
+                            _ev_disc = discretize_2d_quantile_batch(
+                                _ev_buf[:, :_ev_col], n_bins=quantization_nbins, dtype=quantization_dtype
+                            )
+                            _ev_mi = _dispatch_batch_mi_with_noise_gate(
+                                disc_2d=_ev_disc,
+                                quantization_nbins=quantization_nbins,
+                                classes_y=classes_y,
+                                classes_y_safe=classes_y_safe,
+                                freqs_y=freqs_y,
+                                npermutations=fe_npermutations,
+                                min_nonzero_confidence=fe_min_nonzero_confidence,
+                                use_su=use_su_normalization(),
+                                batch_mi_kernel=batch_mi_with_noise_gate,
+                            )
+                            if _ev_mi is not None and len(_ev_mi):
+                                best_valid_mi = float(np.max(_ev_mi))
+                        else:
+                            for _pb_vals in _ev_param_bs:
+                                param_b = _pb_vals
+                                for valid_bin_func_name, valid_bin_func in binary_transformations.items():
 
-                                if fe_mi > best_valid_mi:
-                                    best_valid_mi = fe_mi
-                                    if verbose > 2:
-                                        print(
-                                            f"MI of transformed pair {valid_bin_func_name}({(transformations_pair,bin_func_name)} with ext factor {external_factor})={fe_mi:.4f}"
-                                        )
+                                    valid_vals = valid_bin_func(param_a, param_b)
+
+                                    discretized_transformed_values = discretize_array(
+                                        arr=valid_vals, n_bins=quantization_nbins, method=quantization_method, dtype=quantization_dtype
+                                    )
+                                    fe_mi, fe_conf = mi_direct(
+                                        discretized_transformed_values.reshape(-1, 1),
+                                        x=np.array([0], dtype=np.int64),
+                                        y=None,
+                                        factors_nbins=np.array([quantization_nbins], dtype=np.int64),
+                                        classes_y=classes_y,
+                                        classes_y_safe=classes_y_safe,
+                                        freqs_y=freqs_y,
+                                        min_nonzero_confidence=fe_min_nonzero_confidence,
+                                        npermutations=fe_npermutations,
+                                    )
+
+                                    if fe_mi > best_valid_mi:
+                                        best_valid_mi = fe_mi
 
                         valid_pairs_perf[config] = best_valid_mi
 
