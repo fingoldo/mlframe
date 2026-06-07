@@ -18,7 +18,6 @@ import pandas as pd
 import pytest
 
 from mlframe.training import (
-    _cb_pool,
     _classif_helpers,
     _ram_helpers,
     helpers as helpers_mod,
@@ -28,6 +27,7 @@ from mlframe.training import (
     splitting as splitting_mod,
     utils as utils_mod,
 )
+from mlframe.training.cb import _cb_pool
 
 
 # ---------------------------------------------------------------------------
