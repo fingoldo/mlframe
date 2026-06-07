@@ -289,3 +289,49 @@ def test_materialise_extval_njit_codes_match_numpy(n, n_ext, a_dtype):
         f"extval njit materialise codes != numpy: n={n} n_ext={n_ext} a_dtype={a_dtype}; "
         f"mismatched cols={np.where(~(got_codes == ref_codes).all(axis=0))[0][:10]}"
     )
+
+
+# ---------------------------------------------------------------------------
+# OPT4 (2026-06-07): _quantile_edges_2d_njit replaces np.percentile(axis=0) in
+# discretize_2d_quantile_batch (the FE sweep's dominant numpy hotspot: ndarray.partition
+# = ~20% of fit, re-partitioning the whole buffer once per quantile). Must be BIT-IDENTICAL
+# to np.percentile(method='linear') for BOTH float32 and float64 (numpy sorts in the array
+# dtype but lerps in float64), across ties / constant / heavy-tail columns and any nbins.
+# ---------------------------------------------------------------------------
+from mlframe.feature_selection.filters.discretization import _quantile_edges_2d_njit
+
+
+@pytest.mark.parametrize("n,K", [(200, 7), (500, 33), (1500, 16), (300, 4), (2407, 11)])
+@pytest.mark.parametrize("nbins", [3, 4, 7, 10, 20])
+@pytest.mark.parametrize("dt", [np.float32, np.float64])
+def test_quantile_edges_2d_njit_bit_identical_to_numpy(n, K, nbins, dt):
+    """``_quantile_edges_2d_njit`` == ``np.percentile(arr, q, axis=0)`` to the BIT."""
+    rng = np.random.default_rng(7 + n + K + nbins)
+    arr = rng.standard_normal((n, K)).astype(dt)
+    q = np.linspace(0, 100, nbins + 1)
+    ref = np.percentile(arr, q, axis=0)
+    out = np.empty((q.shape[0], K), dtype=np.float64)
+    _quantile_edges_2d_njit(np.ascontiguousarray(arr), q, out)
+    assert np.array_equal(ref, out), (
+        f"quantile edges != np.percentile: n={n} K={K} nbins={nbins} dtype={dt}; "
+        f"maxabs={np.abs(ref - out).max():.3e}"
+    )
+
+
+@pytest.mark.parametrize("dt", [np.float32, np.float64])
+def test_quantile_edges_2d_njit_ties_constant_heavytail(dt):
+    """Tie-heavy, constant, and heavy-tailed columns must match np.percentile bit-for-bit."""
+    rng = np.random.default_rng(123)
+    n = 1000
+    arr = np.column_stack([
+        rng.integers(0, 5, n).astype(dt),                 # tie-heavy
+        np.full(n, 2.5, dtype=dt),                        # constant
+        rng.standard_t(2.0, n).astype(dt),                # heavy tail
+        np.r_[np.zeros(n - 3), [10.0, 20.0, 30.0]].astype(dt),  # near-constant + outliers
+    ])
+    for nbins in (4, 10, 16):
+        q = np.linspace(0, 100, nbins + 1)
+        ref = np.percentile(arr, q, axis=0)
+        out = np.empty((q.shape[0], arr.shape[1]), dtype=np.float64)
+        _quantile_edges_2d_njit(np.ascontiguousarray(arr), q, out)
+        assert np.array_equal(ref, out), f"nbins={nbins} dtype={dt} maxabs={np.abs(ref-out).max():.3e}"

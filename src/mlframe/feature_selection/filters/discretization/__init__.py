@@ -14,6 +14,7 @@ strategy is documented and applied identically to both engines (legacy pandas si
 from __future__ import annotations
 
 import logging
+import math
 import warnings
 
 import numpy as np
@@ -418,6 +419,100 @@ def discretize_array(
     return np.searchsorted(bins_edges[1:-1], arr, side="right").astype(dtype)
 
 
+@njit(parallel=True, nogil=True, cache=True)
+def _quantile_edges_2d_njit(arr2d: np.ndarray, quantiles: np.ndarray, edges_out: np.ndarray) -> None:
+    """Per-column linear-interpolation quantiles, BIT-IDENTICAL to
+    ``np.percentile(arr2d, quantiles, axis=0)`` on a NaN-free buffer.
+
+    Writes ``edges_out`` of shape ``(len(quantiles), n_cols)``; ``edges_out[q, j]`` is the
+    ``quantiles[q]``-th percentile (0..100) of column ``j``. Replaces the numpy
+    ``np.percentile(axis=0)`` call in ``discretize_2d_quantile_batch`` whose internal
+    ``ndarray.partition`` was the FE-sweep's single dominant numpy hotspot (call-site
+    profile on scene 1500x299: 114.5s / 20% of fit in ``partition``, 14208 calls -- the
+    vectorised C partition re-partitions the FULL (n_rows x n_cols) buffer ONCE PER
+    quantile (n_bins+1 of them) per discretise; this kernel sorts each column ONCE in a
+    ``nogil`` per-column loop and reads ALL quantiles from the sorted column).
+
+    BIT-IDENTITY to numpy's default ``method='linear'`` percentile (verified across
+    float32/float64, ties, constant + heavy-tail columns, and every nbins):
+      * SORT in the INPUT dtype: ``np.percentile(arr2d, axis=0)`` partitions the array in
+        its OWN dtype (verified the 2-D ``axis=0`` float32 call equals the per-column 1-D
+        float32 path), so the selected order statistics ``col[lo]`` / ``col[lo+1]`` must be
+        the float32 values -- promoting to float64 BEFORE the sort can reorder float32 ties
+        at distinct float64 values and diverge by ~1 ULP.
+      * LERP in float64: numpy keeps the interpolation WEIGHT ``t`` in float64 even for a
+        float32 array, so ``col[lo]`` is promoted to float64 in the multiply and the
+        interpolation result is float64 -- matched here via ``float(col[lo])`` + a float64
+        ``t``. (Net: select float32 order statistics, lerp them in float64 = numpy exactly.)
+      * Full ``np.sort`` produces the exact ascending order statistics numpy's
+        ``introselect`` partition selects at indices ``lo``/``lo+1`` (a sort IS a valid
+        partition at every index), so ``col[lo]`` / ``col[lo+1]`` are identical values.
+      * Virtual index: ``v = (q/100) * (n-1)``; ``lo = floor(v)``; numpy's exact ``_lerp``
+        (``a + (b-a)*t`` for t<0.5, ``b - (b-a)*(1-t)`` for t>=0.5) with the ``lo == n-1``
+        clamp -- the asymmetric form numpy uses to stay monotone + endpoint-exact.
+
+    ``parallel=True`` (prange over columns) + ``nogil``: a SERIAL sort-per-column is actually
+    ~0.6x SLOWER than numpy's vectorised C ``partition`` single-threaded (measured), so the win
+    comes ONLY from spreading the per-column sorts across cores. The default scene FE path runs
+    ``check_prospective_fe_pairs`` (-> ``_compute_one_fe_chunk`` -> here) on the MAIN thread for
+    the common ``len(X) < 50000`` case (the ``else`` joblib branch only fires at >=50000 rows),
+    so numba-parallel does NOT nest inside Python threads there. ``nogil`` is also set so that
+    on the rare wide-data joblib (``backend="threading"``) path the GIL is released; numba's
+    threading layer serialises nested parallel regions rather than deadlocking, so the worst
+    case there is "no extra speedup", never a hang. Bit-identity is independent of thread count
+    (each column is reduced independently). bench (scene FE buffer 1500-2407 x 4000-8000 cols):
+    serial 0.62-0.67x vs numpy; parallel restores the win on multi-core.
+
+    ``arr2d`` is ``(n_rows, n_cols)`` at its native dtype (float32/float64 -- one numba
+    specialisation each). ``quantiles`` is float64 in [0, 100]. NaN handling is NOT done
+    here (the caller routes NaN-bearing buffers to ``np.nanpercentile``); a NaN in a column
+    would sort last and bias the edges, exactly as a raw ``np.percentile`` (non-nan) would,
+    so the caller's NaN guard is what preserves correctness, identically to before.
+    """
+    n_rows = arr2d.shape[0]
+    n_cols = arr2d.shape[1]
+    n_q = quantiles.shape[0]
+    if n_rows == 0 or n_cols == 0:
+        return
+    # prange over COLUMNS: each iteration owns a private ``col`` scratch (numba allocates it
+    # per-iteration on the worker thread, no cross-thread aliasing) so the per-column sort runs
+    # in parallel across cores. This is what turns the serial sort-per-column (which is SLOWER
+    # than numpy's vectorised C partition single-threaded) into a net win: at K=4000-8000 FE
+    # columns the parallel sort beats numpy's single-threaded partition by spreading the work.
+    for j in prange(n_cols):
+        # Sort each column in the INPUT dtype: numpy's ``np.percentile(axis=0)`` partitions the
+        # array IN ITS OWN DTYPE (a float32 buffer is partitioned in float32 -- verified that the
+        # 2-D ``axis=0`` call equals the per-column 1-D float32 path), so the selected order
+        # statistics ``col[lo]`` / ``col[lo+1]`` must be the float32 values, not float64-promoted
+        # ones (promoting before the sort can reorder float32 ties at distinct float64 values).
+        col = np.empty(n_rows, dtype=arr2d.dtype)
+        for r in range(n_rows):
+            col[r] = arr2d[r, j]
+        col.sort()
+        for qi in range(n_q):
+            # ``v`` / ``t`` are float64 (the quantile virtual index). numpy keeps the lerp
+            # WEIGHT in float64 even for a float32 array, so ``col[lo]`` (float32) is promoted
+            # to float64 in the multiply and the interpolation result is float64 -- matching
+            # numpy bit-for-bit. (Sort in float32 order statistics, lerp them in float64.)
+            v = (quantiles[qi] / 100.0) * (n_rows - 1)
+            lo = int(math.floor(v))
+            if lo >= n_rows - 1:
+                edges_out[qi, j] = col[n_rows - 1]
+            else:
+                a = float(col[lo])
+                b = float(col[lo + 1])
+                t = v - lo
+                # numpy's exact ``_lerp`` (numpy/lib/function_base): ``a + (b-a)*t`` for
+                # t < 0.5 and ``b - (b-a)*(1-t)`` for t >= 0.5 -- the asymmetric form numpy
+                # uses to keep the result monotone + endpoint-exact. Matching this branch
+                # (in float64) makes the edges bit-identical to ``np.percentile``.
+                diff_b_a = b - a
+                if t >= 0.5:
+                    edges_out[qi, j] = b - diff_b_a * (1.0 - t)
+                else:
+                    edges_out[qi, j] = a + diff_b_a * t
+
+
 @njit(nogil=True, cache=True)
 def _searchsorted_2d_right_njit(edges_inner: np.ndarray, arr2d: np.ndarray, out: np.ndarray) -> None:
     """Per-column ``np.searchsorted(edges_inner[:, j], arr2d[:, j], side='right')`` in ONE
@@ -499,13 +594,19 @@ def discretize_2d_quantile_batch(arr2d: np.ndarray, n_bins: int = 10, dtype: obj
     """
     n_rows, n_cols = arr2d.shape
     quantiles = np.linspace(0, 100, n_bins + 1)
-    # Fast path: NaN-free buffer -> np.percentile(axis=0) is vectorised AND bit-identical to the 1-D
-    # nanpercentile the per-column path uses. Fall back to nanpercentile(axis=0) (bit-identical, slower)
-    # only when NaN is actually present, so general callers stay correct.
+    # Fast path: NaN-free buffer -> ``_quantile_edges_2d_njit`` (sort each column ONCE,
+    # read all quantiles) is BIT-IDENTICAL to ``np.percentile(axis=0, method='linear')``
+    # (verified across float32/64, ties, constant columns) and removes the numpy
+    # ``ndarray.partition`` hotspot -- the FE sweep's single dominant numpy cost
+    # (scene 1500x299 cProfile: 114.5s / 20% of fit in ``partition``, re-partitioning the
+    # whole buffer once per quantile). NaN path keeps ``np.nanpercentile`` (the njit kernel
+    # does not NaN-handle; callers that pass NaN are rare and stay correct + bit-identical).
     if np.isnan(arr2d).any():
         edges = np.nanpercentile(arr2d, quantiles, axis=0)
     else:
-        edges = np.percentile(arr2d, quantiles, axis=0)
+        edges = np.empty((quantiles.shape[0], n_cols), dtype=np.float64)
+        if n_cols > 0 and n_rows > 0:
+            _quantile_edges_2d_njit(np.ascontiguousarray(arr2d), quantiles, edges)
     out = np.empty((n_rows, n_cols), dtype=dtype)
     # njit per-column searchsorted (bit-identical to the numpy loop, incl. NaN
     # -> rightmost bin; see ``_searchsorted_2d_right_njit``). ``edges`` is float64 from
