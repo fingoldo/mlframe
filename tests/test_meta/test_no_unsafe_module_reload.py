@@ -50,7 +50,7 @@ TESTS_DIR = Path(__file__).resolve().parent.parent
 # (e.g. ``polars_ds`` mock injection) where rebinding does not split
 # mlframe class identity. Listed by repo-relative posix path.
 _KNOWN_STUB_ONLY_FILES: frozenset[str] = frozenset({
-    "training/test_pipeline_json_roundtrip_cache.py",
+    "training/pipeline/test_pipeline_json_roundtrip_cache.py",
 })
 
 # mlframe modules that own module-level mutable singletons (caches / registries / locks).
