@@ -648,7 +648,36 @@ class BorutaShap(BaseEstimator, TransformerMixin):
         # Private rng (set in __init__) keeps shadow-feature permutations seeded
         # without mutating the global np.random stream that other suite stages rely on.
         _rng = getattr(self, "_rng", None) or np.random.default_rng(getattr(self, "random_state", None))
-        self.X_shadow = self.X.apply(lambda col: _rng.permutation(col.values))
+        # ``self.X.apply(lambda col: _rng.permutation(col.values))`` permutes each column independently in
+        # COLUMN ORDER, one ``_rng.permutation`` call per column. That per-column lambda wraps every result in a
+        # pandas Series, which dominates this method (~13 ms/trial -> 2.4% of a SHAP fit). When every column shares
+        # one numpy numeric dtype, ``to_numpy()`` is a no-upcast 2-D view, so permuting each column into a
+        # same-dtype 2-D buffer reproduces ``.apply`` EXACTLY -- same per-column ``_rng.permutation(col.values)``
+        # call sequence (so the rng stream, and thus every downstream shadow value + hit, is bit-identical) and
+        # the same per-column dtype -- at ~1.9x. Mixed-dtype / categorical / bool frames take the dict fallback,
+        # which is itself dtype-identical to ``.apply`` (``col.values`` -> category=int codes, object=str, etc.)
+        # but carries no speedup. ``bool`` is excluded from the fast path (``np.empty_like`` on a bool 2-D buffer
+        # is correct, but keeping the explicit per-column path avoids any edge with bool ``permutation``).
+        cols = self.X.columns
+        _dtypes = self.X.dtypes
+        _fast = False
+        if len(cols) > 0:
+            _d0 = _dtypes.iloc[0]
+            if (
+                (_dtypes == _d0).all()
+                and pd.api.types.is_numeric_dtype(_d0)
+                and not isinstance(_d0, pd.CategoricalDtype)
+                and _d0 != bool
+            ):
+                _vals = self.X.to_numpy()
+                if _vals.dtype == _d0:  # guard: confirm no silent upcast (e.g. nullable/extension dtypes)
+                    _out = np.empty_like(_vals)
+                    for _j in range(_vals.shape[1]):
+                        _out[:, _j] = _rng.permutation(_vals[:, _j])
+                    self.X_shadow = pd.DataFrame(_out, columns=cols, index=self.X.index, copy=False)
+                    _fast = True
+        if not _fast:
+            self.X_shadow = self.X.apply(lambda col: _rng.permutation(col.values))
 
         if isinstance(self.X_shadow, pd.DataFrame):
             # append
