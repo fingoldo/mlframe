@@ -709,7 +709,7 @@ class TestGroupAwareTinyRerank:
         from mlframe.training._composite_screening_tiny import (
             _tiny_cv_rmse_y_scale,
         )
-        from mlframe.training.composite_transforms import get_transform
+        from mlframe.training.composite.transforms import get_transform
         rng = np.random.default_rng(0)
         n = 600
         # Two well-separable groups, each predictable from its own subset.

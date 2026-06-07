@@ -48,7 +48,7 @@ class _LinearInner(BaseEstimator, RegressorMixin):
 def _build_problem():
     """Tiny linear_residual composite: y = 1.5 * base + epsilon."""
     from mlframe.training.composite_estimator import CompositeTargetEstimator
-    from mlframe.training.composite_transforms import get_transform
+    from mlframe.training.composite.transforms import get_transform
 
     rng = np.random.default_rng(42)
     n = 200

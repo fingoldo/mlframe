@@ -23,7 +23,7 @@ from typing import Any, Mapping
 import numpy as np
 import pytest
 
-from mlframe.training.composite_transforms import TRANSFORMS_REGISTRY
+from mlframe.training.composite.transforms import TRANSFORMS_REGISTRY
 
 
 _RNG = np.random.default_rng(0)

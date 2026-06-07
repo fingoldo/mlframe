@@ -33,7 +33,7 @@ logger = logging.getLogger("mlframe.training.composite_transforms")
 # The parent defines all five BEFORE its bottom-of-module sibling import,
 # so this static cycle resolves at runtime. Whitelisted in
 # tests/test_meta/test_no_import_cycles.py.
-from .composite_transforms import (  # noqa: E402
+from . import (  # noqa: E402
     _QUANTILE_RESIDUAL_DEFAULT_N_BINS,
     _QUANTILE_RESIDUAL_DEFAULT_MIN_BIN_N,
     _MONOTONIC_RESIDUAL_DEFAULT_N_KNOTS,
@@ -302,7 +302,7 @@ def _quantile_residual_fit(
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from .composite_transforms import _QUANTILE_RESIDUAL_DEFAULT_MIN_BIN_N, _QUANTILE_RESIDUAL_DEFAULT_N_BINS
+    from . import _QUANTILE_RESIDUAL_DEFAULT_MIN_BIN_N, _QUANTILE_RESIDUAL_DEFAULT_N_BINS
     n_bins = max(2, int(n_bins))
     min_bin_n = max(2, int(min_bin_n))
     y_f = np.asarray(y, dtype=np.float64).reshape(-1)
@@ -413,7 +413,7 @@ def _monotonic_residual_fit(
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from .composite_transforms import _MONOTONIC_RESIDUAL_DEFAULT_MIN_KNOT_N, _MONOTONIC_RESIDUAL_DEFAULT_N_KNOTS
+    from . import _MONOTONIC_RESIDUAL_DEFAULT_MIN_KNOT_N, _MONOTONIC_RESIDUAL_DEFAULT_N_KNOTS
     base_f_for_unique = np.asarray(base, dtype=np.float64).reshape(-1)
     _n_unique_base = int(np.unique(base_f_for_unique[np.isfinite(base_f_for_unique)]).size)
     _auto_knots = max(3, _n_unique_base // 200) if _n_unique_base else n_knots
@@ -563,7 +563,7 @@ def _ewma_residual_fit(
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from .composite_transforms import _EWMA_RESIDUAL_DEFAULT_K
+    from . import _EWMA_RESIDUAL_DEFAULT_K
     k = max(1, int(k))
     base_f = np.asarray(base, dtype=np.float64).reshape(-1)
     finite = _finite_mask if _finite_mask is not None else np.isfinite(base_f)
@@ -854,7 +854,7 @@ def _frac_diff_fit(
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from .composite_transforms import _FRAC_DIFF_DEFAULT_D, _FRAC_DIFF_DEFAULT_LAGS
+    from . import _FRAC_DIFF_DEFAULT_D, _FRAC_DIFF_DEFAULT_LAGS
     d = float(d)
     lags = max(1, int(lags))
     y_f = np.asarray(y, dtype=np.float64).reshape(-1)
@@ -912,7 +912,7 @@ def _make_chain_transform(
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from .composite_transforms import TAG_EXTENDED, TAG_REGRESSION, Transform, _chain_fit_raw, _chain_forward_raw, _chain_inverse_raw
+    from . import TAG_EXTENDED, TAG_REGRESSION, Transform, _chain_fit_raw, _chain_forward_raw, _chain_inverse_raw
     unary_tup = (unary_fit, unary_forward, unary_inverse)
 
     def _fit(y, base):
@@ -962,7 +962,7 @@ def _make_multi_chain_transform(
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from .composite_transforms import TAG_EXTENDED, TAG_REGRESSION, Transform, _chain_multi_fit_raw, _chain_multi_forward_raw, _chain_multi_inverse_raw
+    from . import TAG_EXTENDED, TAG_REGRESSION, Transform, _chain_multi_fit_raw, _chain_multi_forward_raw, _chain_multi_inverse_raw
 
     def _fit(y, base):
         return _chain_multi_fit_raw(

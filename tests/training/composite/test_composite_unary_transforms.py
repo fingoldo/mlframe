@@ -7,12 +7,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from mlframe.training.composite_transforms import (
+from mlframe.training.composite import (
     _linear_residual_fit,
     _linear_residual_forward,
     _linear_residual_inverse,
 )
-from mlframe.training.composite_unary_transforms import (
+from mlframe.training.composite.transforms.unary import (
     cbrt_y_fit, cbrt_y_forward, cbrt_y_inverse, cbrt_y_domain,
     log_y_fit, log_y_forward, log_y_inverse, log_y_domain,
     yeo_johnson_y_fit, yeo_johnson_y_forward, yeo_johnson_y_inverse,

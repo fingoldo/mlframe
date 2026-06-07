@@ -18,7 +18,7 @@ from mlframe.training.composite_bayesian import (
     bayesian_alpha_fit,
     bayesian_alpha_fit_bootstrap,
 )
-from mlframe.training.composite_transforms import _linear_residual_fit
+from mlframe.training.composite.transforms import _linear_residual_fit
 
 
 class TestPosteriorMeanMatchesOLS:

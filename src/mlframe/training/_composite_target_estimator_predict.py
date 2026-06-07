@@ -10,7 +10,7 @@ from typing import Any, Sequence
 import numpy as np
 
 from .composite_estimator import _extract_groups
-from .composite_transforms import get_transform
+from .composite.transforms import get_transform
 
 logger = logging.getLogger(__name__)
 

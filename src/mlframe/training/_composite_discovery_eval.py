@@ -11,7 +11,7 @@ import numpy as np
 
 from .composite_spec import CompositeSpec
 from .composite_screening import _mi_to_target, _mi_to_target_prebinned
-from .composite_transforms import compose_target_name
+from .composite.transforms import compose_target_name
 
 logger = logging.getLogger(__name__)
 

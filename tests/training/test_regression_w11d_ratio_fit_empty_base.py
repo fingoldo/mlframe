@@ -12,7 +12,7 @@ import warnings
 import numpy as np
 import pytest
 
-from mlframe.training._composite_transforms_simple import _ratio_fit
+from mlframe.training.composite.transforms.simple import _ratio_fit
 
 
 def test_all_zero_base_does_not_raise_or_warn():

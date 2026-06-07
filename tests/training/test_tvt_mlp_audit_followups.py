@@ -25,7 +25,7 @@ import pytest
 
 class TestAdditiveResidualTransform:
     def test_registered_with_short_alias(self) -> None:
-        from mlframe.training.composite_transforms import (
+        from mlframe.training.composite.transforms import (
             TRANSFORM_NAME_SHORT, get_transform,
         )
         t = get_transform("additive_residual")
@@ -41,7 +41,7 @@ class TestAdditiveResidualTransform:
         """T = y - base - beta; inverse y = T + base + beta -- pure
         additive, no nonlinear branch. On AR(1) data with small noise
         the residual std should be << y std (MLP-friendly target)."""
-        from mlframe.training.composite_transforms import get_transform
+        from mlframe.training.composite.transforms import get_transform
         rng = np.random.default_rng(0)
         n = 500
         y = np.zeros(n)

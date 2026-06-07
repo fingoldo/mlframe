@@ -26,7 +26,7 @@ class TestWatchdogDiagnosticFormat:
         from sklearn.base import BaseEstimator, RegressorMixin
 
         from mlframe.training.composite_estimator import CompositeTargetEstimator
-        from mlframe.training.composite_transforms import get_transform
+        from mlframe.training.composite.transforms import get_transform
 
         class _BrokenInner(BaseEstimator, RegressorMixin):
             """Predicts T_hat = T_true / 10 -- i.e., something close to but not exactly T."""

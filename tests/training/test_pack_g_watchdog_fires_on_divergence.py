@@ -64,7 +64,7 @@ def _setup_wrapper_models(*, broken_inner_factor: float | None = None):
     inner is replaced post-wrap with one that returns scaled-wrong predictions,
     simulating the production failure mode."""
     from mlframe.training.composite_estimator import CompositeTargetEstimator
-    from mlframe.training.composite_transforms import get_transform
+    from mlframe.training.composite.transforms import get_transform
 
     df, y, base = _build_problem()
     n = len(df)

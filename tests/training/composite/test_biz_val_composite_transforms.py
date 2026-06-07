@@ -88,7 +88,7 @@ def test_biz_val_diff_transform_roundtrip_identity():
     """``_diff_forward`` then ``_diff_inverse`` must recover the
     original y exactly (diff is just y - base, so inversion is
     t_hat + base = y)."""
-    from mlframe.training.composite_transforms import (
+    from mlframe.training.composite import (
         _diff_fit, _diff_forward, _diff_inverse,
     )
     rng = np.random.default_rng(42)
@@ -107,7 +107,7 @@ def test_biz_val_diff_transform_roundtrip_identity():
 def test_biz_val_linear_residual_transform_roundtrip():
     """``_linear_residual_forward`` then ``_linear_residual_inverse``
     must recover the original y within numerical precision."""
-    from mlframe.training.composite_transforms import (
+    from mlframe.training.composite import (
         _linear_residual_fit, _linear_residual_forward,
         _linear_residual_inverse,
     )
@@ -129,7 +129,7 @@ def test_biz_val_linear_residual_fit_recovers_true_coefficients():
     """On y = 1.0 + 2.5*x + tiny noise, ``_linear_residual_fit``
     must recover slope ~2.5, intercept ~1.0. Note: in this codebase
     ``alpha`` = slope, ``beta`` = intercept (inverted naming)."""
-    from mlframe.training.composite_transforms import _linear_residual_fit
+    from mlframe.training.composite import _linear_residual_fit
     rng = np.random.default_rng(42)
     n = 500
     x = rng.normal(size=n).astype(np.float64)
@@ -148,7 +148,7 @@ def test_biz_val_linear_residual_fit_recovers_true_coefficients():
 def test_biz_val_ratio_transform_finite_roundtrip():
     """``_ratio_forward`` / ``_ratio_inverse`` roundtrip on
     positive inputs is algebraically exact."""
-    from mlframe.training.composite_transforms import (
+    from mlframe.training.composite import (
         _ratio_fit, _ratio_forward, _ratio_inverse,
     )
     rng = np.random.default_rng(42)

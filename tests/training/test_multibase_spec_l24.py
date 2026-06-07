@@ -32,7 +32,7 @@ import pandas as pd
 import pytest
 
 from mlframe.training.composite_spec import CompositeSpec
-from mlframe.training.composite_transforms import (
+from mlframe.training.composite.transforms import (
     _linear_residual_multi_fit,
     get_transform,
 )
@@ -149,7 +149,7 @@ def test_single_base_spec_path_unchanged() -> None:
     test_idx = np.arange(50, 60)
     b1_full = rng.standard_normal(n_total).astype(np.float64)
     y_full = 0.7 * b1_full + 1.0 + 0.05 * rng.standard_normal(n_total)
-    from mlframe.training.composite_transforms import _linear_residual_fit
+    from mlframe.training.composite.transforms import _linear_residual_fit
     fitted_params = _linear_residual_fit(
         y=y_full[train_idx], base=b1_full[train_idx], sample_weight=None,
     )

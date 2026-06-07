@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 
 from .._format import format_metric as _dummy_fmt
-from ..composite_transforms import is_composite_target_name
+from ..composite.transforms import is_composite_target_name
 from ..evaluation import report_model_perf
 from ..phases import phase
 from .utils import _augment_with_dropped_high_card_cols

@@ -14,7 +14,7 @@ from typing import (
 
 import numpy as np
 
-from .composite_transforms import _TRANSFORMS_REGISTRY
+from .composite.transforms import _TRANSFORMS_REGISTRY
 
 if TYPE_CHECKING:
     from .composite_spec import CompositeSpec  # used as a forward annotation in CompositeProvenance.from_spec; importing at runtime is unnecessary and risks circular load.

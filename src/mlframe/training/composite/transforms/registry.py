@@ -20,13 +20,13 @@ import numpy as np
 # AFTER defining Transform + the TAG constants. The static cycle is
 # whitelisted in ``tests/test_meta/test_no_import_cycles.py`` (same
 # pattern as ``_composite_transforms_linear`` / ``_nonlinear``).
-from .composite_transforms import (
+from . import (
     TAG_CORE,
     TAG_EXTENDED,
     TAG_REGRESSION,
     Transform,
 )
-from ._composite_transforms_simple import (
+from .simple import (
     _additive_residual_domain,
     _additive_residual_fit,
     _additive_residual_forward,
@@ -52,7 +52,7 @@ from ._composite_transforms_simple import (
     _y_quantile_clip_forward,
     _y_quantile_clip_inverse,
 )
-from ._composite_transforms_linear import (
+from .linear import (
     _linear_residual_domain,
     _linear_residual_fit,
     _linear_residual_forward,
@@ -71,7 +71,7 @@ from ._composite_transforms_linear import (
     _logratio_forward,
     _logratio_inverse,
 )
-from ._composite_transforms_nonlinear import (
+from .nonlinear import (
     _ewma_residual_domain,
     _ewma_residual_fit,
     _ewma_residual_forward,
@@ -91,7 +91,7 @@ from ._composite_transforms_nonlinear import (
     _quantile_residual_forward,
     _quantile_residual_inverse,
 )
-from ._composite_transforms_extended import (
+from .extended import (
     _asinh_residual_domain,
     _asinh_residual_fit,
     _asinh_residual_forward,
@@ -125,7 +125,7 @@ from ._composite_transforms_extended import (
     _smoothing_spline_residual_forward,
     _smoothing_spline_residual_inverse,
 )
-from .composite_unary_transforms import (
+from .unary import (
     cbrt_y_domain as _cbrt_y_domain_raw,
     cbrt_y_fit as _cbrt_y_fit_raw,
     cbrt_y_forward as _cbrt_y_forward_raw,

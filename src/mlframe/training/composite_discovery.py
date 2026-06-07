@@ -53,7 +53,7 @@ from .composite_feature_stacking import (
     composite_predictions_as_feature,
 )
 from .composite_forward_stepwise import forward_stepwise_multi_base
-from .composite_interaction_bases import generate_interaction_bases
+from .composite.transforms.interaction_bases import generate_interaction_bases
 from .composite_provenance import (
     CompositeProvenance,
     report_to_markdown,
@@ -84,7 +84,7 @@ from .composite_stacking import (
     stacking_aware_gate,
 )
 from .composite_streaming import streaming_alpha_check_and_refit
-from .composite_transforms import (
+from .composite.transforms import (
     DomainViolationError,
     Transform,
     UnknownTransformError,
@@ -447,7 +447,7 @@ from .composite_auto_detect import (  # noqa: E402,F401
 from .composite_cache import (  # noqa: E402,F401
     _DISCOVERY_SIGNATURE_SAMPLE_N,
 )
-from .composite_interaction_bases import (  # noqa: E402,F401
+from .composite.transforms.interaction_bases import (  # noqa: E402,F401
     _INTERACTION_OPS_DEFAULT,
 )
 

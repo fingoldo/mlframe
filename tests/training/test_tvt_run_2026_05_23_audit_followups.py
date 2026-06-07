@@ -131,7 +131,7 @@ class TestCompositeResidualStdDegeneracyFilter:
         threshold lines up with what we documented in the run analysis
         (production TVT-logr-TVT_prev had T_std=0.001, y_std=644,
         ratio=1.5e-6 << 0.001)."""
-        from mlframe.training.composite_transforms import get_transform
+        from mlframe.training.composite.transforms import get_transform
         rng = np.random.default_rng(0)
         n = 2000
         base = rng.uniform(100, 200, n).astype(np.float64)
@@ -198,7 +198,7 @@ class TestMedianResidualTransform:
     function."""
 
     def test_registered_with_short_alias(self) -> None:
-        from mlframe.training.composite_transforms import (
+        from mlframe.training.composite.transforms import (
             TRANSFORM_NAME_SHORT, get_transform,
         )
         t = get_transform("median_residual")
@@ -211,7 +211,7 @@ class TestMedianResidualTransform:
         assert "median_residual" in cfg.transforms
 
     def test_forward_inverse_roundtrip(self) -> None:
-        from mlframe.training.composite_transforms import get_transform
+        from mlframe.training.composite.transforms import get_transform
         rng = np.random.default_rng(0)
         n = 1000
         base = rng.uniform(-1, 1, n)
@@ -228,7 +228,7 @@ class TestMedianResidualTransform:
         """The MLP-saving invariant: inverse(T_hat) = T_hat + g(base);
         if MLP outputs T_hat=0 (degenerate), y_hat = g(base) (bin-median
         lookup), bounded by train-y range."""
-        from mlframe.training.composite_transforms import get_transform
+        from mlframe.training.composite.transforms import get_transform
         rng = np.random.default_rng(0)
         n = 1000
         base = rng.uniform(-1, 1, n)
@@ -246,7 +246,7 @@ class TestMedianResidualTransform:
 
 class TestYQuantileClipTransform:
     def test_registered_with_short_alias(self) -> None:
-        from mlframe.training.composite_transforms import (
+        from mlframe.training.composite.transforms import (
             TRANSFORM_NAME_SHORT, get_transform,
         )
         t = get_transform("y_quantile_clip")
@@ -261,7 +261,7 @@ class TestYQuantileClipTransform:
         assert "y_quantile_clip" in cfg.transforms
 
     def test_clips_to_train_quantiles(self) -> None:
-        from mlframe.training.composite_transforms import get_transform
+        from mlframe.training.composite.transforms import get_transform
         rng = np.random.default_rng(0)
         y_train = rng.normal(0, 1, 10000)
         transform = get_transform("y_quantile_clip")
@@ -280,7 +280,7 @@ class TestYQuantileClipTransform:
         """Symmetric: a wild T_hat gets clipped to the same quantile
         range on inverse, so downstream MLP can't extrapolate past
         train-y bounds."""
-        from mlframe.training.composite_transforms import get_transform
+        from mlframe.training.composite.transforms import get_transform
         rng = np.random.default_rng(0)
         y_train = rng.normal(0, 1, 10000)
         transform = get_transform("y_quantile_clip")

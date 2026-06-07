@@ -818,7 +818,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 # end-of-target pass still runs the full train/val/test
                 # metrics block + watchdog on the (now wrapped) entry.
                 try:
-                    from ..composite_transforms import is_composite_target_name as _is_comp
+                    from ..composite.transforms import is_composite_target_name as _is_comp
                     if _is_comp(cur_target_name):
                         _specs = (
                             (metadata.get("composite_target_specs") or {})

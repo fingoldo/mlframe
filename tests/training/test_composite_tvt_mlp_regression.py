@@ -176,7 +176,7 @@ class TestTVTPureLagSurvivesDefaults:
         # variance by at least 10x; pick a conservative 5x guard so
         # tiny-MI-screening noise doesn't trip the test.
         y_full = df["y"].to_numpy()
-        from mlframe.training.composite_transforms import get_transform
+        from mlframe.training.composite.transforms import get_transform
         spec = pure_lag_specs[0]
         transform = get_transform(spec.transform_name)
         lag_full = df["lag_y"].to_numpy()

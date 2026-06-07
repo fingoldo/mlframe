@@ -19,7 +19,7 @@ from .._format import format_metric as _fmt, short_model_tag as _short_tag_fn, s
 from ..composite import CompositeCrossTargetEnsemble as _CrossEns, CompositeTargetEstimator
 from ..composite import compute_oof_holdout_predictions, get_transform
 from ..composite_post_shim import PrePipelinePredictShim
-from ..composite_transforms import is_composite_target_name
+from ..composite.transforms import is_composite_target_name
 from ..dummy_baselines import format_suite_end_summary
 from ..evaluation import report_model_perf
 from .utils import _build_full_column_from_splits, _entry_metric

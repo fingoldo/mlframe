@@ -39,8 +39,8 @@ import pytest
 
 from tests.conftest import running_under_xdist
 
-from mlframe.training import composite_unary_transforms as cut
-from mlframe.training.composite_unary_transforms import (
+from mlframe.training.composite.transforms import unary as cut
+from mlframe.training.composite.transforms.unary import (
     _yj_forward,
     _yj_forward_numpy,
     _yj_inverse,

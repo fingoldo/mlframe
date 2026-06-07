@@ -32,10 +32,10 @@ def _is_polars_df(x: Any) -> bool:
 
 
 from .composite_estimator import CompositeTargetEstimator, _y_train_clip_bounds
-from .composite_transforms import get_transform
+from .composite.transforms import get_transform
 
 if TYPE_CHECKING:
-    from .composite_transforms import Transform  # used as forward annotation in _tiny_cv_rmse_y_scale signature
+    from .composite.transforms import Transform  # used as forward annotation in _tiny_cv_rmse_y_scale signature
 
 logger = logging.getLogger(__name__)
 

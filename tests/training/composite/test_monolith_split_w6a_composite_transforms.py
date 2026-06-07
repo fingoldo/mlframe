@@ -1,22 +1,25 @@
-"""Sensor test for the ``composite_transforms`` monolith split (Wave 6a).
+"""Sensor test for the composite transforms subpackage split.
 
-The parent ``mlframe.training.composite_transforms`` was carved into three
-new siblings:
+The transforms registry lives in the ``mlframe.training.composite.transforms``
+subpackage. Its ``__init__`` re-exports the public surface from cohesive
+submodules:
 
-- ``_composite_transforms_simple`` (diff, additive_residual, median_residual,
-  y_quantile_clip, ratio, rolling_quantile_ratio)
-- ``_composite_transforms_registry`` (``_TRANSFORMS_REGISTRY`` + unary adapters)
-- ``_composite_transforms_naming`` (compose_target_name + get_transform +
-  list_transforms + is_composite_target_name + short-name aliases)
+- ``simple`` (diff, additive_residual, median_residual, y_quantile_clip,
+  ratio, rolling_quantile_ratio)
+- ``registry`` (``_TRANSFORMS_REGISTRY`` + unary adapters)
+- ``naming`` (compose_target_name + get_transform + list_transforms +
+  is_composite_target_name + short-name aliases)
 
 This sensor pins:
 
-1. Identity preserved: every re-exported symbol on the parent is the SAME
-   object as on the sibling (catches the canonical "redefinition in parent"
-   regression where carve becomes a copy instead of a re-export).
-2. Facade LOC budget: parent stays well under the 800-line target.
-3. Smoke: one fit/forward/inverse call per sibling routed through the
-   parent re-export, exercising at least one function body per carve.
+1. Identity preserved: every re-exported symbol on the package ``__init__`` is
+   the SAME object as on the owning submodule (catches the canonical
+   "redefinition in parent" regression where carve becomes a copy instead of
+   a re-export).
+2. Facade LOC budget: the package ``__init__`` stays well under the 800-line
+   target.
+3. Smoke: one fit/forward/inverse call per submodule routed through the
+   package re-export, exercising at least one function body per carve.
 """
 from __future__ import annotations
 
@@ -27,8 +30,8 @@ import pytest
 
 
 def test_composite_transforms_simple_identity_preserved():
-    from mlframe.training import composite_transforms as parent
-    from mlframe.training import _composite_transforms_simple as simple
+    from mlframe.training.composite import transforms as parent
+    from mlframe.training.composite.transforms import simple
 
     for name in (
         "_diff_fit", "_diff_forward", "_diff_inverse", "_diff_domain",
@@ -45,13 +48,13 @@ def test_composite_transforms_simple_identity_preserved():
         "_Y_QUANTILE_CLIP_HI", "_ROLLING_QUANTILE_DEFAULT_K",
     ):
         assert getattr(parent, name) is getattr(simple, name), (
-            f"parent.{name} differs from simple sibling -- carve became a copy"
+            f"parent.{name} differs from simple submodule -- carve became a copy"
         )
 
 
 def test_composite_transforms_registry_identity_preserved():
-    from mlframe.training import composite_transforms as parent
-    from mlframe.training import _composite_transforms_registry as registry
+    from mlframe.training.composite import transforms as parent
+    from mlframe.training.composite.transforms import registry
 
     assert parent._TRANSFORMS_REGISTRY is registry._TRANSFORMS_REGISTRY
     assert parent._make_unary_registry_adapter is registry._make_unary_registry_adapter
@@ -63,8 +66,8 @@ def test_composite_transforms_registry_identity_preserved():
 
 
 def test_composite_transforms_naming_identity_preserved():
-    from mlframe.training import composite_transforms as parent
-    from mlframe.training import _composite_transforms_naming as naming
+    from mlframe.training.composite import transforms as parent
+    from mlframe.training.composite.transforms import naming
 
     for name in (
         "TRANSFORM_NAME_SHORT", "_COMPOSITE_NAME_FRAGMENTS",
@@ -76,17 +79,17 @@ def test_composite_transforms_naming_identity_preserved():
 
 def test_composite_transforms_facade_loc_budget():
     parent_path = (
-        Path(__file__).resolve().parents[2]
-        / "src" / "mlframe" / "training" / "composite_transforms.py"
+        Path(__file__).resolve().parents[3]
+        / "src" / "mlframe" / "training" / "composite" / "transforms" / "__init__.py"
     )
     n_lines = len(parent_path.read_text(encoding="utf-8").splitlines())
     # Plan target: <800; current carve lands ~300. Budget guard at 800 so
-    # future additions trigger the split rule rather than re-grow the parent.
-    assert n_lines <= 800, f"composite_transforms.py grew to {n_lines} lines"
+    # future additions trigger the split rule rather than re-grow the facade.
+    assert n_lines <= 800, f"transforms/__init__.py grew to {n_lines} lines"
 
 
 def test_composite_transforms_smoke_simple_via_parent():
-    from mlframe.training.composite_transforms import get_transform
+    from mlframe.training.composite.transforms import get_transform
 
     rng = np.random.default_rng(0)
     y = rng.normal(size=200).astype(np.float64)
@@ -99,7 +102,7 @@ def test_composite_transforms_smoke_simple_via_parent():
 
 
 def test_composite_transforms_smoke_registry_unary_via_parent():
-    from mlframe.training.composite_transforms import get_transform
+    from mlframe.training.composite.transforms import get_transform
 
     rng = np.random.default_rng(1)
     y = np.abs(rng.normal(size=300)).astype(np.float64) + 0.1
@@ -111,7 +114,7 @@ def test_composite_transforms_smoke_registry_unary_via_parent():
 
 
 def test_composite_transforms_smoke_naming_via_parent():
-    from mlframe.training.composite_transforms import (
+    from mlframe.training.composite.transforms import (
         compose_target_name,
         is_composite_target_name,
         list_transforms,

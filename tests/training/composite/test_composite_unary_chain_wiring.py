@@ -13,7 +13,7 @@ import pytest
 from sklearn.linear_model import Ridge
 
 from mlframe.training.composite_estimator import CompositeTargetEstimator
-from mlframe.training.composite_transforms import _TRANSFORMS_REGISTRY, get_transform
+from mlframe.training.composite import _TRANSFORMS_REGISTRY, get_transform
 from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
 

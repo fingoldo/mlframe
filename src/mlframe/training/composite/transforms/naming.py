@@ -10,11 +10,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ._composite_transforms_registry import _TRANSFORMS_REGISTRY
-from .composite_transforms import UnknownTransformError
+from .registry import _TRANSFORMS_REGISTRY
+from . import UnknownTransformError
 
 if TYPE_CHECKING:
-    from .composite_transforms import Transform
+    from . import Transform
 
 
 # Short-name aliases for composite-target naming. Used in

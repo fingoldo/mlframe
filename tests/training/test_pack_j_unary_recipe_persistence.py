@@ -6,7 +6,7 @@ Earlier I dismissed T1#9 "Pack J unary recipe" as duplicative of T1#3
 to reproduce the forward output. The transform registry IS the recipe.
 
 Specifically: for each unary y-transform that lives in
-``mlframe.training.composite_transforms``,
+``mlframe.training.composite.transforms``,
 
     transform.forward(y, base=zeros, params) -> T_train
     transform.forward(y_new, base=zeros, params) -> T_new
@@ -36,7 +36,7 @@ _PACK_J_UNARY_NAMES = ["cbrt_y", "log_y", "yeo_johnson_y", "quantile_normal_y"]
 def test_unary_y_transform_reproducible_via_params_only(transform_name):
     """T1#9 invariant: unary y-transform forward is a pure function of
     (y, params); no other state is needed for predict-time replay."""
-    from mlframe.training.composite_transforms import get_transform
+    from mlframe.training.composite.transforms import get_transform
 
     transform = get_transform(transform_name)
     assert transform.requires_base is False, (
@@ -74,7 +74,7 @@ def test_unary_y_transform_reproducible_via_params_only(transform_name):
 def test_unary_y_params_pickle_round_trip(transform_name):
     """``fitted_params`` must survive pickle (CompositeSpec is frozen
     dataclass so the dict gets pickled as part of CompositeSpec)."""
-    from mlframe.training.composite_transforms import get_transform
+    from mlframe.training.composite.transforms import get_transform
 
     transform = get_transform(transform_name)
     rng = np.random.default_rng(0)
@@ -100,7 +100,7 @@ def test_composite_spec_carries_pack_j_replay_state():
     spec from a unary fit and recreating the transform from it must
     reproduce the same forward output."""
     from mlframe.training.composite_spec import CompositeSpec
-    from mlframe.training.composite_transforms import (
+    from mlframe.training.composite.transforms import (
         get_transform, compose_target_name,
     )
 

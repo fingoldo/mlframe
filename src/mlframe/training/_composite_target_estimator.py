@@ -47,7 +47,7 @@ from .composite_estimator import (
 # predict_invert paths all use them, so leaving them unimported turned every
 # CompositeTargetEstimator instantiation into a NameError at the very first
 # call site. 2026-05-21 fix.
-from .composite_transforms import get_transform, DomainViolationError
+from .composite.transforms import get_transform, DomainViolationError
 
 logger = logging.getLogger(__name__)
 

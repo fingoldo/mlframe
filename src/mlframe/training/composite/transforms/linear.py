@@ -33,7 +33,7 @@ logger = logging.getLogger("mlframe.training.composite_transforms")
 # The parent defines all four BEFORE its bottom-of-module sibling import,
 # so this static cycle resolves at runtime. Whitelisted in
 # tests/test_meta/test_no_import_cycles.py.
-from .composite_transforms import (  # noqa: E402
+from . import (  # noqa: E402
     _GROUPED_MIN_GROUP_SIZE,
     _LINRES_ROBUST_MAD_K,
     _LINRES_ROBUST_MIN_KEEP_FRAC,
@@ -98,7 +98,7 @@ def _logratio_fit(y: np.ndarray, base: np.ndarray) -> dict[str, Any]:
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from .composite_transforms import _MAD_FLOOR_FRAC, _MAD_SOFT_CAP_K
+    from . import _MAD_FLOOR_FRAC, _MAD_SOFT_CAP_K
     t_train = np.log(y) - np.log(base)
     median_t = float(np.median(t_train))
     mad_train = float(np.median(np.abs(t_train - median_t)))
@@ -425,7 +425,7 @@ def _linear_residual_grouped_fit(
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from .composite_transforms import _GROUPED_MIN_GROUP_SIZE, _james_stein_shrinkage_factor
+    from . import _GROUPED_MIN_GROUP_SIZE, _james_stein_shrinkage_factor
     if groups is None:
         raise ValueError(
             "linear_residual_grouped requires a 1-D ``groups`` array of "
@@ -522,7 +522,7 @@ def _linear_residual_grouped_forward(
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from .composite_transforms import _row_alpha_beta
+    from . import _row_alpha_beta
     if groups is None:
         raise ValueError(
             "linear_residual_grouped.forward: groups kwarg is required."
@@ -537,7 +537,7 @@ def _linear_residual_grouped_inverse(
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from .composite_transforms import _row_alpha_beta
+    from . import _row_alpha_beta
     if groups is None:
         raise ValueError(
             "linear_residual_grouped.inverse: groups kwarg is required."

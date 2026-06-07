@@ -38,7 +38,7 @@ import pytest
 from sklearn.linear_model import Ridge
 
 from mlframe.training.composite_estimator import CompositeTargetEstimator
-from mlframe.training.composite_transforms import _linear_residual_multi_fit
+from mlframe.training.composite.transforms import _linear_residual_multi_fit
 
 
 def _build_inner_and_spec_multi():

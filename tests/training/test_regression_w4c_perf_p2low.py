@@ -27,8 +27,8 @@ import pytest
 
 
 def test_rolling_median_matches_pandas_baseline_on_finite_windows():
-    import mlframe.training.composite_transforms  # noqa: F401 - parent first to avoid cycle
-    from mlframe.training._composite_transforms_nonlinear import _rolling_median
+    import mlframe.training.composite.transforms  # noqa: F401 - parent first to avoid cycle
+    from mlframe.training.composite.transforms.nonlinear import _rolling_median
 
     rng = np.random.default_rng(0)
     arr = rng.standard_normal(2000)

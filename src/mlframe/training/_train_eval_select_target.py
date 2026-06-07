@@ -116,7 +116,7 @@ def select_target(
 
     if target_type == TargetTypes.REGRESSION:
         from ._format import format_metric as _fmt
-        from .composite_transforms import is_composite_target_name
+        from .composite.transforms import is_composite_target_name
         _is_composite = is_composite_target_name(model_name)
         _tag = "MTRESID" if _is_composite else "MTTR"
         if train_t is not None and train_t.size > 0:

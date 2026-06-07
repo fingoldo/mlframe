@@ -17,7 +17,7 @@ from mlframe.feature_selection.filters.mrmr import (
     _mrmr_compute_x_fingerprint,
     _mrmr_compute_y_fingerprint_sample,
 )
-from mlframe.training.composite_transforms import _monotonic_residual_fit
+from mlframe.training.composite.transforms import _monotonic_residual_fit
 
 
 @pytest.fixture(autouse=True)

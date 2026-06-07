@@ -37,7 +37,7 @@ def _make_inputs(n: int, n_bins: int, seed: int = 17):
 ])
 def test_median_residual_per_bin_medians_dispatcher_matches_v1(n, n_bins):
     """Dispatcher output == v1 reference at every routed size class. ``rtol=1e-12`` because median is exact on float64."""
-    from mlframe.training.composite_transforms import (
+    from mlframe.training.composite.transforms import (
         _median_residual_per_bin_medians,
         _median_residual_per_bin_medians_v1_pyloop,
     )
@@ -53,7 +53,7 @@ def test_median_residual_per_bin_medians_dispatcher_matches_v1(n, n_bins):
 ])
 def test_median_residual_pandas_variant_matches_v1(n, n_bins):
     """Explicit v2 (pandas groupby) variant -- numerical identity vs v1."""
-    from mlframe.training.composite_transforms import (
+    from mlframe.training.composite.transforms import (
         _median_residual_per_bin_medians_v1_pyloop,
         _median_residual_per_bin_medians_v2_pandas_groupby,
     )
@@ -65,7 +65,7 @@ def test_median_residual_pandas_variant_matches_v1(n, n_bins):
 
 def test_median_residual_per_bin_empty_bin_uses_global_median():
     """When a bin has zero rows, both variants fall back to ``np.median(y)``."""
-    from mlframe.training.composite_transforms import (
+    from mlframe.training.composite.transforms import (
         _median_residual_per_bin_medians,
         _median_residual_per_bin_medians_v1_pyloop,
         _median_residual_per_bin_medians_v2_pandas_groupby,
@@ -92,7 +92,7 @@ def test_median_residual_per_bin_empty_bin_uses_global_median():
 ])
 def test_quantile_residual_per_bin_stats_dispatcher_matches_v1(n, n_bins, min_bin_n):
     """Dispatcher for quantile-residual per-bin stats agrees with the v1 mask-loop bit-for-bit."""
-    from mlframe.training._composite_transforms_nonlinear import (
+    from mlframe.training.composite.transforms.nonlinear import (
         _quantile_residual_per_bin_stats,
         _quantile_residual_per_bin_stats_v1_pyloop,
     )
@@ -112,7 +112,7 @@ def test_quantile_residual_per_bin_stats_dispatcher_matches_v1(n, n_bins, min_bi
 
 def test_quantile_residual_per_bin_under_populated_bin_falls_back_to_global():
     """Bins with count < ``min_bin_n`` keep the global median / IQR fallback in BOTH variants. This is the load-bearing semantics carve-out: pandas groupby naturally returns all bins; we must reset under-populated rows."""
-    from mlframe.training._composite_transforms_nonlinear import (
+    from mlframe.training.composite.transforms.nonlinear import (
         _quantile_residual_per_bin_stats_v1_pyloop,
         _quantile_residual_per_bin_stats_v2_pandas_groupby,
     )
@@ -139,7 +139,7 @@ def test_quantile_residual_per_bin_under_populated_bin_falls_back_to_global():
 
 def test_median_residual_fit_end_to_end_matches_pre_dispatch_semantics():
     """End-to-end check: ``_median_residual_fit`` output schema + values match what the pre-dispatch pyloop produced. Uses the v1 helper to reconstruct the expected ``bin_medians`` array directly."""
-    from mlframe.training.composite_transforms import (
+    from mlframe.training.composite.transforms import (
         _median_residual_fit,
         _median_residual_per_bin_medians_v1_pyloop,
         _MEDIAN_RESIDUAL_N_BINS,
@@ -158,7 +158,7 @@ def test_median_residual_fit_end_to_end_matches_pre_dispatch_semantics():
 
 def test_quantile_residual_fit_end_to_end_matches_pre_dispatch_semantics():
     """End-to-end equivalent for ``_quantile_residual_fit``: ``bin_medians`` / ``bin_iqrs`` / ``bin_sizes`` must match the pre-dispatch mask-loop."""
-    from mlframe.training._composite_transforms_nonlinear import (
+    from mlframe.training.composite.transforms.nonlinear import (
         _quantile_residual_fit,
         _quantile_residual_per_bin_stats_v1_pyloop,
     )

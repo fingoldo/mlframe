@@ -19,7 +19,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from mlframe.training._composite_transforms_extended import (
+from mlframe.training.composite.transforms.extended import (
     _asinh_residual_domain,
     _asinh_residual_fit,
     _asinh_residual_forward,

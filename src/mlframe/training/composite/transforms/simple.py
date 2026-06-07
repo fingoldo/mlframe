@@ -357,7 +357,7 @@ def _rolling_quantile_ratio_forward(
 ) -> np.ndarray:
     # Lazy import: ``_rolling_median`` lives in the nonlinear sibling, which
     # imports the parent at top, so this top-level import would cycle.
-    from ._composite_transforms_nonlinear import _rolling_median
+    from .nonlinear import _rolling_median
     k = int(params["k"])
     eps = float(params["eps"])
     base_f = np.asarray(base, dtype=np.float64).reshape(-1)
@@ -369,7 +369,7 @@ def _rolling_quantile_ratio_forward(
 def _rolling_quantile_ratio_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
-    from ._composite_transforms_nonlinear import _rolling_median
+    from .nonlinear import _rolling_median
     k = int(params["k"])
     base_f = np.asarray(base, dtype=np.float64).reshape(-1)
     roll_med = _rolling_median(base_f, k)

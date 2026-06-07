@@ -22,7 +22,7 @@ from .composite_screening import (
     _prebin_feature_columns,
     _sample_indices,
 )
-from .composite_transforms import (
+from .composite.transforms import (
     UnknownTransformError,
     _linear_residual_fit,
     _linear_residual_multi_fit,

@@ -14,14 +14,14 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from mlframe.training._composite_transforms_simple import (
+from mlframe.training.composite.transforms.simple import (
     _additive_residual_fit,
     _median_residual_fit,
     _y_quantile_clip_fit,
     _ratio_fit,
     _rolling_quantile_ratio_fit,
 )
-from mlframe.training._composite_transforms_nonlinear import (
+from mlframe.training.composite.transforms.nonlinear import (
     _quantile_residual_fit,
     _monotonic_residual_fit,
     _ewma_residual_fit,

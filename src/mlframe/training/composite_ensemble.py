@@ -37,7 +37,7 @@ def _is_polars_df(x: Any) -> bool:
 
 from .composite_estimator import CompositeTargetEstimator
 from .composite_post_shim import PrePipelinePredictShim
-from .composite_transforms import get_transform
+from .composite.transforms import get_transform
 
 
 def _unwrap_shim(model: Any) -> tuple[Any, Any]:

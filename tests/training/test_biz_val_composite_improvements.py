@@ -19,7 +19,7 @@ import pytest
 
 from tests.conftest import running_under_xdist
 
-from mlframe.training.composite_transforms import (
+from mlframe.training.composite.transforms import (
     get_transform,
     _linear_residual_fit,
     _linear_residual_robust_fit,

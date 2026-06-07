@@ -30,7 +30,7 @@ def _is_polars_df(x: Any) -> bool:
     return _HAS_POLARS and isinstance(x, pl.DataFrame)
 
 
-from .composite_transforms import (
+from .composite.transforms import (
     DomainViolationError,
     Transform,
     UnknownTransformError,

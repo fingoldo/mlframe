@@ -37,7 +37,7 @@ def _make_discovery_with_multibase_spec():
     """Build a discovery shell with a multi-base CompositeSpec pinned
     into specs_. We don't run the actual MI / tiny-model loop --
     the test only exercises export_specs's dict-builder layer."""
-    from mlframe.training.composite_transforms import _linear_residual_multi_fit
+    from mlframe.training.composite.transforms import _linear_residual_multi_fit
 
     rng = np.random.default_rng(0)
     n = 50
@@ -88,7 +88,7 @@ def test_export_specs_legacy_single_base_returns_empty_tuple() -> None:
     """Legacy single-base specs export an empty tuple under the new
     key so downstream `dict.get("extra_base_columns") or ()` returns
     `()` and the 1-D fast path stays active."""
-    from mlframe.training.composite_transforms import _linear_residual_fit
+    from mlframe.training.composite.transforms import _linear_residual_fit
 
     rng = np.random.default_rng(1)
     n = 50

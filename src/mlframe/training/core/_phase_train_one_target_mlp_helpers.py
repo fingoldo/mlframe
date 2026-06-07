@@ -216,7 +216,7 @@ def extreme_ar_skip_decision(
     Composite targets are NEVER skipped: residual/diff/linres targets bound
     the variance and are exactly where neural nets belong.
     """
-    from ..composite_transforms import is_composite_target_name
+    from ..composite.transforms import is_composite_target_name
 
     if is_composite_target_name(target_name):
         return False, False

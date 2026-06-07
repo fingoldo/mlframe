@@ -24,7 +24,7 @@ from .composite_screening import (
     _tiny_cv_rmse_y_scale,
     _tiny_cv_rmse_y_scale_multiseed,
 )
-from .composite_transforms import get_transform
+from .composite.transforms import get_transform
 
 logger = logging.getLogger(__name__)
 

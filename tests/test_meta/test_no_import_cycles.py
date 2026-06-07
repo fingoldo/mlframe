@@ -64,7 +64,7 @@ _USER_DEFERRED_CYCLES: set[str] = {
     # at runtime because parent defines all constants BEFORE importing siblings.
     # 2026-05-24: extended to 5-node cycle as ``_naming`` and ``_registry``
     # siblings landed.
-    "mlframe.training._composite_transforms_linear → mlframe.training._composite_transforms_naming → mlframe.training._composite_transforms_nonlinear → mlframe.training._composite_transforms_registry → mlframe.training.composite_transforms",
+    "mlframe.training.composite.transforms.linear → mlframe.training.composite.transforms.naming → mlframe.training.composite.transforms.nonlinear → mlframe.training.composite.transforms.registry → mlframe.training.composite.transforms",
     # _phase_helpers_fit_split monolith split: the body sibling
     # _phase_helpers_fit_pipeline references the parent's FitPipelineResult
     # NamedTuple at top-level. Resolves at runtime because parent defines

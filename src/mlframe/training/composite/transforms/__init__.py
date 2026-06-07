@@ -196,7 +196,7 @@ _FRAC_DIFF_DEFAULT_LAGS: int = 30  # maximum weight tail used in the truncated s
 # Re-export of unary raw helpers; the wrapping into the registry's
 # (y, base, params) signature happens in _composite_transforms_registry.
 # ----------------------------------------------------------------------
-from .composite_unary_transforms import (  # noqa: E402,F401
+from .unary import (  # noqa: E402,F401
     cbrt_y_fit as _cbrt_y_fit_raw,
     cbrt_y_forward as _cbrt_y_forward_raw,
     cbrt_y_inverse as _cbrt_y_inverse_raw,
@@ -228,7 +228,7 @@ from .composite_unary_transforms import (  # noqa: E402,F401
 # ``_composite_transforms_simple.py``. Imported here so the registry
 # build below sees the public-name functions.
 # ----------------------------------------------------------------------
-from ._composite_transforms_simple import *  # noqa: E402,F401,F403
+from .simple import *  # noqa: E402,F401,F403
 
 
 # ----------------------------------------------------------------------
@@ -242,7 +242,7 @@ from ._composite_transforms_simple import *  # noqa: E402,F401,F403
 # parent helpers from inside function bodies, so loading them here does not
 # deadlock.
 # ----------------------------------------------------------------------
-from ._composite_transforms_linear import (  # noqa: E402,F401
+from .linear import (  # noqa: E402,F401
     _linear_residual_domain, _linear_residual_fit, _linear_residual_forward,
     _linear_residual_grouped_domain, _linear_residual_grouped_fit,
     _linear_residual_grouped_forward, _linear_residual_grouped_inverse,
@@ -251,7 +251,7 @@ from ._composite_transforms_linear import (  # noqa: E402,F401
     _linear_residual_multi_inverse, _linear_residual_robust_fit,
     _logratio_domain, _logratio_fit, _logratio_forward, _logratio_inverse,
 )
-from ._composite_transforms_nonlinear import (  # noqa: E402,F401
+from .nonlinear import (  # noqa: E402,F401
     _ewma_compute, _ewma_compute_batched, _ewma_dispatch, _ewma_residual_domain,
     _ewma_residual_fit, _ewma_residual_forward, _ewma_residual_inverse,
     _frac_diff_domain, _frac_diff_fit, _frac_diff_forward, _frac_diff_inverse,
@@ -273,7 +273,7 @@ from ._composite_transforms_nonlinear import (  # noqa: E402,F401
 # naming sibling consumes the registry; both re-exported here so callers
 # keep using ``from mlframe.training.composite_transforms import ...``.
 # ----------------------------------------------------------------------
-from ._composite_transforms_registry import (  # noqa: E402,F401
+from .registry import (  # noqa: E402,F401
     _TRANSFORMS_REGISTRY,
     _make_unary_registry_adapter,
     _cbrt_fit, _cbrt_forward, _cbrt_inverse, _cbrt_domain,
@@ -281,7 +281,7 @@ from ._composite_transforms_registry import (  # noqa: E402,F401
     _yj_fit_a, _yj_forward_a, _yj_inverse_a, _yj_domain_a,
     _qn_fit_a, _qn_forward_a, _qn_inverse_a, _qn_domain_a,
 )
-from ._composite_transforms_naming import (  # noqa: E402,F401
+from .naming import (  # noqa: E402,F401
     TRANSFORM_NAME_SHORT,
     _COMPOSITE_NAME_FRAGMENTS,
     compose_target_name,

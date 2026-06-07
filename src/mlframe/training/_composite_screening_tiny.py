@@ -25,7 +25,7 @@ import os
 import warnings
 from typing import Any, Callable, Dict, List, Optional, Sequence, TYPE_CHECKING, Tuple
 if TYPE_CHECKING:
-    from .composite_transforms import Transform
+    from .composite.transforms import Transform
 
 import numpy as np
 import pandas as pd

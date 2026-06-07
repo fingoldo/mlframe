@@ -7,7 +7,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from mlframe.training.composite_transforms import _linear_residual_robust_fit
+from mlframe.training.composite.transforms import _linear_residual_robust_fit
 
 
 class TestLinresRobustRedundancyFlag:
