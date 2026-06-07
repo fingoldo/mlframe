@@ -1731,6 +1731,10 @@ def check_prospective_fe_pairs(
                     _disc_2d = discretize_2d_quantile_batch(
                         final_transformed_vals[:, :i], n_bins=quantization_nbins,
                         dtype=_narrow_code_dtype(quantization_nbins, quantization_dtype),  # OPT-B narrow codes
+                        # OPT-A extension (2026-06-07): same main-thread parallel searchsorted
+                        # gate as the chunk + marginal-uplift discretise -- byte-identical
+                        # column-prange twin when serial_main_thread (no joblib nest).
+                        parallel=_fe_use_parallel_kernels(i, serial_main_thread),
                     )
 
                     # Phase 3: BATCHED MI + permutation noise-gate across ALL K candidate
@@ -2113,6 +2117,15 @@ def check_prospective_fe_pairs(
                             _ev_disc = discretize_2d_quantile_batch(
                                 _ev_buf[:, :_ev_col], n_bins=quantization_nbins,
                                 dtype=_narrow_code_dtype(quantization_nbins, quantization_dtype),  # OPT-B narrow codes
+                                # OPT-A extension (2026-06-07): the marginal-uplift gate's
+                                # discretise ran the SERIAL searchsorted kernel on the main
+                                # thread (post-OPT-D the top sampler hotspot, ~21% of fit) while
+                                # the other cores sat idle. ``check_prospective_fe_pairs`` carries
+                                # ``serial_main_thread`` down from _mrmr_fe_step's ``len(X)<50000``
+                                # dispatch, so the same OPT-A predicate that already gates the
+                                # main chunk's discretise (line ~907) safely selects the
+                                # byte-identical column-prange twin here too (no joblib nest).
+                                parallel=_fe_use_parallel_kernels(_ev_col, serial_main_thread),
                             )
                             _ev_mi = _dispatch_batch_mi_with_noise_gate(
                                 disc_2d=_ev_disc,
