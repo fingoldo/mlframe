@@ -38,6 +38,18 @@ from ._setup_helpers import _apply_outlier_detection_global, _compute_fairness_s
 logger = logging.getLogger(__name__)
 
 _DEFAULT_TEST_SIZE = 0.15
+
+# The post-pipeline forced 2x gc.collect (in _phase_pandas_conversion_and_cat_prep) relieves Windows commit-charge
+# pressure before composite-discovery, which only matters once the released Polars frame is large; the collect itself
+# costs ~0.85s (object-count driven, not frame-size), so on small frames it is pure overhead. Skip it below this
+# released-frame size. Override via MLFRAME_FORCED_GC_MIN_DF_MB; set to 0 to always force (legacy behaviour).
+_FORCED_GC_MIN_DF_MB = float(os.environ.get("MLFRAME_FORCED_GC_MIN_DF_MB", "256"))
+
+
+def _should_force_post_pipeline_gc(df_size_mb: Optional[float]) -> bool:
+    """Whether the post-pipeline forced 2x gc.collect is worth its ~0.85s cost: only once the released Polars frame
+    is large enough that downstream commit-charge pressure is real (gate ``_FORCED_GC_MIN_DF_MB``)."""
+    return (df_size_mb or 0) >= _FORCED_GC_MIN_DF_MB
 _DEFAULT_VAL_SIZE = 0.15
 _DEFAULT_LTR_ITER = 200
 _DEFAULT_LTR_LR = 0.1
@@ -646,11 +658,17 @@ def _phase_pandas_conversion_and_cat_prep(
         # the unbreakable gap is uncollected cycles + pyarrow / numba intermediate
         # buffers. Two passes are required because the first collect can promote
         # gen-2 candidates that the second pass actually reclaims.
-        import gc as _gc
-        for _ in range(2):
-            _gc.collect()
-        if verbose:
-            logger.info("  Released post-pipeline Polars DFs (pandas views retained); forced 2x gc.collect()")
+        if _should_force_post_pipeline_gc(df_size_mb):
+            import gc as _gc
+            for _ in range(2):
+                _gc.collect()
+            if verbose:
+                logger.info("  Released post-pipeline Polars DFs (pandas views retained); forced 2x gc.collect()")
+        elif verbose:
+            logger.info(
+                "  Released post-pipeline Polars DFs (pandas views retained); skipped forced gc "
+                "(frame %.0f MB < %.0f MB gate)", df_size_mb or 0, _FORCED_GC_MIN_DF_MB,
+            )
 
     if verbose:
         log_ram_usage()
