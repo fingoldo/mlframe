@@ -213,12 +213,24 @@ stats = [
     "statsmodels>=0.14",
 ]
 
-# GPU acceleration (CuPy on CUDA 12.x). Uses the prebuilt cuda12x wheel + [ctk] (bundled NVRTC/ptxas/nvvm/headers)
-# so `pip install mlframe[gpu]` gives a working runtime-compile GPU stack with no system CUDA toolkit needed;
-# nvidia-cuda-nvcc-cu12 adds ptxas/nvvm/libdevice for numba.cuda. CUDA-11 / non-NVIDIA users stay on CPU (extra is opt-in).
+# GPU acceleration (CuPy). The CuPy wheel is CUDA-major-specific, so pick the extra matching your CUDA toolkit:
+#   - mlframe[gpu]  / mlframe[gpu-cuda12]  -> CUDA 12.x (Python 3.10-3.14). cuda12x wheel + [ctk] (bundled
+#     NVRTC/ptxas/nvvm/headers) so it runtime-compiles with no system CUDA toolkit; nvcc-cu12 adds ptxas/nvvm/
+#     libdevice for numba.cuda.
+#   - mlframe[gpu-cuda11]                  -> CUDA 11.x. NOTE: cupy ships cuda11x wheels only through cupy 13.x on
+#     Python <=3.12; there is NO cuda11x wheel for Python 3.13+/cupy 14, so CUDA-11 is supported on Python <=3.12.
+# The mlframe code itself uses only long-stable CuPy APIs (RawKernel/ReductionKernel/cuda.runtime/einsum/...) and
+# numba.cuda (>=CUDA 11.2), so nothing here requires CUDA 12 -- the constraint is purely wheel availability.
+# CUDA-11 / non-NVIDIA users stay on CPU (these extras are opt-in).
 gpu = [
     "cupy-cuda12x[ctk]>=14.0,<15.0",
     "nvidia-cuda-nvcc-cu12>=12.9",
+    "gpu-info>=0.1",
+]
+gpu-cuda12 = ["mlframe[gpu]"]
+gpu-cuda11 = [
+    "cupy-cuda11x>=12.0,<14.0",
+    "nvidia-cuda-nvcc-cu11>=11.8",
     "gpu-info>=0.1",
 ]
 
@@ -238,6 +250,10 @@ transformer_ann = [
 ]
 transformer_gpu = [
     "cupy-cuda12x>=13.0,<15.0",
+]
+# CUDA-11 variant (Python <=3.12 only -- no cuda11x wheel for cupy 14 / Python 3.13+).
+transformer_gpu_cuda11 = [
+    "cupy-cuda11x>=12.0,<14.0",
 ]
 transformer_full = [
     "mlframe[transformer_ann,transformer_gpu]",
