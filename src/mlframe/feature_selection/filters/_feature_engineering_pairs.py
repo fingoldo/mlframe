@@ -866,6 +866,41 @@ def check_prospective_fe_pairs(
                 int(subsample_n), _full_n_rows, 100.0 * subsample_n / _full_n_rows,
             )
 
+    # EXTERNAL-VALIDATION raw-column EXTRACTION MEMO (2026-06-07, LEVER 1).
+    # The lazy external-validation tie-break (below) extracts the RAW values of
+    # every external factor via ``X.iloc[:, original_cols[ext]].values`` (or the
+    # polars ``.to_numpy()``) once per tied-leader config. The external-factor set
+    # is ``numeric_vars_to_consider`` minus the 2 pair operands, so the SAME raw
+    # column is re-extracted across every config AND every raw pair: on the wide
+    # scene bed (2407x299) that is ~276k pandas ``.iloc`` calls / ~43s of pure
+    # pandas-indexing (call-site cProfile). The extraction is DETERMINISTIC -- a
+    # var-index maps to a FIXED column-values ndarray for the lifetime of this
+    # call (``X`` is fixed after the subsample reassignment above) -- so memoising
+    # it by the var key (the ``external_factor`` index into ``original_cols``)
+    # yields BYTE-IDENTICAL values while collapsing the per-config re-extraction to
+    # one extraction per distinct external factor. Keyed by the var id only, never
+    # by array contents, so it cannot collide across distinct columns. The cache is
+    # a plain local dict scoped to this call -> never pickled (no __getstate__
+    # concern; the MRMR estimator never holds a reference to it).
+    _extval_raw_col_cache: dict = {}
+
+    def _extval_raw_col(_var):
+        """Memoised raw-values ndarray for external factor ``_var`` (var index into
+        ``original_cols``). Returns ``None`` when the var is not in ``original_cols``
+        (skipped by the caller, exactly as the inline guard did). Deterministic +
+        bit-identical to the inline ``X.iloc[...].values`` / ``.to_numpy()`` extract."""
+        if _var in _extval_raw_col_cache:
+            return _extval_raw_col_cache[_var]
+        if _var not in original_cols:
+            _extval_raw_col_cache[_var] = None
+            return None
+        if isinstance(X, pd.DataFrame):
+            _vals = X.iloc[:, original_cols[_var]].values
+        else:
+            _vals = X[:, original_cols[_var]].to_numpy()
+        _extval_raw_col_cache[_var] = _vals
+        return _vals
+
     # PER-OPERAND PRE-WARP setup (2026-06-02). When enabled, fit ONE learned
     # 1-D pre-warp per raw operand against the (subsample-aligned) target, and
     # expose it as an extra pseudo-unary named ``_PREWARP_UNARY`` so the existing
@@ -1792,12 +1827,13 @@ def check_prospective_fe_pairs(
                         # loop below.
                         _ev_param_bs = []
                         for external_factor in external_factors:
-                            if external_factor not in original_cols:
+                            # Memoised raw-values extract (LEVER 1): one extraction
+                            # per distinct external factor for the whole call, reused
+                            # across every config + raw pair. ``None`` => factor not in
+                            # ``original_cols`` -> skip (identical to the prior guard).
+                            _pb_vals = _extval_raw_col(external_factor)
+                            if _pb_vals is None:
                                 continue
-                            if isinstance(X, pd.DataFrame):
-                                _pb_vals = X.iloc[:, original_cols[external_factor]].values
-                            else:
-                                _pb_vals = X[:, original_cols[external_factor]].to_numpy()
                             _ev_param_bs.append(_pb_vals)
 
                         # Memory guard: the batch buffer is (n_rows x ext_factors*n_binary)
