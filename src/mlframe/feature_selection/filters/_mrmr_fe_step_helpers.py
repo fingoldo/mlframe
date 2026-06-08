@@ -226,6 +226,7 @@ def log_fe_summary(
     fe_min_nonzero_confidence,
     fe_good_to_best_feature_mi_threshold,
     verbose,
+    fe_acceptance: str = "conditional_mi",
 ) -> None:
     """Log the per-step FE summary (pairs considered / with additions / total engineered + gate thresholds).
 
@@ -260,13 +261,30 @@ def log_fe_summary(
             float(fe_good_to_best_feature_mi_threshold),
         )
         if n_recommended_features == 0 and _n_pairs_considered > 0:
+            # Suggest a value STRICTLY BELOW the value actually in effect -- the
+            # old text hardcoded "lower to 0.90", which is a no-op once 0.90 IS
+            # the default (regression: it literally told the operator to set the
+            # knob to the value it was already at). Derive the suggestion from the
+            # live threshold (5% under it, floored away from 0) so it is always
+            # actionable regardless of how the knob was configured.
+            _cur_eng = float(fe_min_engineered_mi_prevalence)
+            _suggest_eng = round(max(0.50, _cur_eng * 0.95), 3)
+            _cur_pair = float(fe_min_pair_mi_prevalence)
+            _suggest_pair = round(max(1.0, 1.0 + (_cur_pair - 1.0) * 0.5), 3)
             logger.warning(
-                "FE produced 0 engineered features despite %d pair(s) "
-                "passing the pair-MI gate. Likely cause: the "
-                "fe_min_engineered_mi_prevalence=%.3f threshold is "
-                "tight relative to the pair-level MI. Try lowering "
-                "to 0.90 (5%% under the default) or set "
-                "fe_min_pair_mi_prevalence=1.02 to widen the pool.",
+                "FE produced 0 engineered features despite %d pair(s) passing the "
+                "pair-MI gate. Likely cause: the fe_min_engineered_mi_prevalence=%.3f "
+                "threshold is tight relative to the pair-level MI. Try lowering it to "
+                "%.3f (5%% under the value currently in effect), or widen the pool with "
+                "fe_min_pair_mi_prevalence=%.3f. The principled fix is to leave "
+                "fe_acceptance='conditional_mi' (the default S5 conditional-MI "
+                "redundancy gate, currently '%s'), which admits genuine engineered "
+                "summaries of real interactions WITHOUT a hand-tuned prevalence "
+                "constant; the prevalence ratios above are only the cheap upstream "
+                "pre-screen.",
                 _n_pairs_considered,
-                float(fe_min_engineered_mi_prevalence),
+                _cur_eng,
+                _suggest_eng,
+                _suggest_pair,
+                str(fe_acceptance),
             )

@@ -1134,6 +1134,7 @@ def _run_fe_step(
             fe_min_engineered_mi_prevalence=fe_min_engineered_mi_prevalence,
             fe_min_nonzero_confidence=fe_min_nonzero_confidence,
             fe_good_to_best_feature_mi_threshold=fe_good_to_best_feature_mi_threshold,
+            fe_acceptance=str(getattr(self, "fe_acceptance", "conditional_mi")),
             verbose=verbose,
         )
 

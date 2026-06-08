@@ -293,3 +293,71 @@ def test_default_on_drops_redundant_keeps_genuine():
         f"CMI gate admitted MORE engineered features than the legacy ratio "
         f"(should be stricter): cmi={eng_cmi} ratio={eng_ratio}"
     )
+
+
+def _make_user_f2(seed=0, n=20_000):
+    """The USER'S EXACT F2 (2026-06-08): ``y = 0.2*a**2/b + f/5 + log(c*2)*sin(d/3)``.
+
+    f unobserved, e noise. This is the harder formula (weak 0.2 coeff on the
+    (a,b) term; (c,d) carried by ``log(c*2)*sin(d/3)``). It is reproduced through
+    the WHOLE MRMR.fit pipeline -- screen + FE pair pre-screen + S5 CMI gate --
+    NOT just the isolated gate function. Variable ranges match the gate-function
+    fixture ``_build`` so the two suites stay in lockstep."""
+    rng = np.random.default_rng(seed)
+    a = rng.uniform(0.5, 3.0, n)
+    b = rng.uniform(0.5, 3.0, n)
+    c = rng.uniform(0.5, 5.0, n)
+    d = rng.uniform(0.0, 2.0 * np.pi, n)
+    e = rng.normal(0.0, 1.0, n)
+    f = rng.normal(0.0, 1.0, n)
+    y = 0.2 * a**2 / b + f / 5.0 + np.log(c * 2.0) * np.sin(d / 3.0)
+    X = pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e})
+    yb = pd.qcut(y, 10, labels=False, duplicates="drop")
+    return X, np.asarray(yb, dtype=np.int64)
+
+
+@pytest.mark.timeout(600)
+@pytest.mark.parametrize("n", [20_000, 30_000])
+def test_user_f2_e2e_recovers_genuine_drops_noise_and_cross_signal(n):
+    """END-TO-END on the USER'S EXACT F2, default ``MRMR()`` (S5 conditional_mi).
+
+    REGRESSION GUARD (2026-06-08): the original report was that default MRMR on
+    F2 returned only ``['b', 'div(log(a),cbrt(c))']`` -- a weak CROSS-SIGNAL wrong
+    form, with neither genuine pair recovered. The S5 e2e test only exercised the
+    F1-formula-with-scale fixture, so F2 was never validated through MRMR.fit.
+
+    This locks the four load-bearing properties of the recovered behaviour:
+      (1) a GENUINE (a,b) form (a**2/b) is recovered -- pure a,b operands;
+      (2) a GENUINE (c,d) form is recovered -- pure c,d operands;
+      (3) pure noise ``e`` is NOT selected;
+      (4) the S5 CMI gate is the decisive filter -- it admits NO MORE engineered
+          features than the legacy ``prevalence_ratio`` path (which, on F2, lets
+          spurious cross-signal forms like div(exp(a),invsquared(c)) through).
+    """
+    X, y = _make_user_f2(n=n)
+
+    fs = MRMR(verbose=0, n_jobs=1, random_state=0)  # default == conditional_mi (S5)
+    fs.fit(X, y)
+    support = list(fs.get_feature_names_out())
+
+    def _covers(va, vb, exclude=()):
+        want, excl = {va, vb}, set(exclude)
+        return [nm for nm in support if want <= _bare_vars(nm) and not (_bare_vars(nm) & excl)]
+
+    ab = _covers("a", "b", exclude=("c", "d"))
+    cd = _covers("c", "d", exclude=("a", "b"))
+    assert ab, f"[F2 n={n}] no genuine (a,b) a**2/b form recovered: support={support}"
+    assert cd, f"[F2 n={n}] no genuine (c,d) form recovered: support={support}"
+    assert "e" not in support, f"[F2 n={n}] pure-noise 'e' wrongly selected: support={support}"
+
+    # The S5 CMI gate is the stricter principled filter: on F2 the legacy ratio
+    # path admits redundant cross-signal engineered forms (e.g. a-with-c, b-with-d)
+    # that S5 rejects, so S5 must admit no MORE engineered features than legacy.
+    eng_cmi = _engineered(fs)
+    fs_ratio = MRMR(verbose=0, n_jobs=1, random_state=0, fe_acceptance="prevalence_ratio")
+    fs_ratio.fit(X, y)
+    eng_ratio = _engineered(fs_ratio)
+    assert len(eng_cmi) <= len(eng_ratio), (
+        f"[F2 n={n}] CMI gate admitted MORE engineered features than legacy ratio "
+        f"(should be stricter): cmi={eng_cmi} ratio={eng_ratio}"
+    )
