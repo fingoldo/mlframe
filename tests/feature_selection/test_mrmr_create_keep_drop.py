@@ -1,0 +1,848 @@
+"""Default-config MRMR create / keep / drop verification across 5 formula families.
+
+This is a *data-gathering* biz-value suite (not a green-or-red gate): it fits a
+DEFAULT ``MRMR()`` on each synthetic target, reads the selected feature set, and
+records -- per (formula, n) -- whether
+
+  * every ``should_keep`` signal is captured (the raw column itself OR an
+    engineered feature whose operand-token set covers the same raw operands and
+    transform family), and
+  * every ``should_drop`` column (a raw operand fully subsumed by an engineered
+    survivor, a monotone re-encoding decoy, or a pure-noise column) is absent
+    from the selection.
+
+The matcher is deliberately TOLERANT: a kept signal is satisfied by any selected
+column whose bare operand-token set is a superset of the required operands (and,
+when an ``exclude`` set is given to isolate a term, pulls in none of the excluded
+operands). The library is free to pick a monotone-equivalent unary (on U(0,1)
+``cbrt`` vs ``identity``, ``neg`` vs ``sqr``, ``abs`` vs ``identity`` are all
+MI-interchangeable for the SELECTOR), so we never pin an exact string -- only a
+MISSING signal or an ADMITTED noise/redundant column is a failure.
+
+Families (easy -> hard inside each):
+  weak-scaled          : faint engineered signal vs additive noise; discover the
+                         transform, drop subsumed raw + pure noise.
+  nested-composite     : single-step -> 3-term additive -> TRUE nested composite
+                         (product/ratio of two engineered atoms, fe_max_steps>1).
+  competing-correlated : monotone re-encoding decoys with ~identical marginal MI;
+                         the conditional-MI gate must drop the redundant twin.
+  noise-traps          : permutation / prevalence / marginal-uplift admission
+                         gates; cross-signal artefacts must NOT be admitted.
+  mixed-strength-n     : strong+weak+noise mixtures whose recoverability is
+                         n-dependent (n-sweep probes the floor).
+
+Per the task contract every result is recorded; the suite is committed WITH any
+failures because they are the data for the MRMR create/keep/drop verdict.
+
+Run with: MLFRAME_DISABLE_HNSW=1 (set by the harness); each fit is seeded.
+"""
+from __future__ import annotations
+
+import os
+import re
+from typing import Optional
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from mlframe.feature_selection.filters.mrmr import MRMR
+
+# A focused, RAM-tight broad-coverage size: big enough for the redundancy /
+# prevalence gates to behave like production, small enough for an 8GB box to run
+# one fit at a time. The n-sweep below adds {1000, 5000, 20000, 50000} for a few
+# representative formulas (NEVER 100k -- it OOMs here).
+BROAD_N = 25_000
+SEED = 42
+# Per-fit wall budget. A cold n=50k fit measured ~50s incl. numba warmup; 300s is
+# generous slack so a slow first-JIT case never trips the global 60s timeout.
+FIT_TIMEOUT = 300
+
+_PROGRESS = r"D:/Temp/ckd_suite_progress.txt"
+
+
+def _checkpoint(msg: str) -> None:
+    """Append a one-line liveness checkpoint (best-effort; never fails a test)."""
+    try:
+        with open(_PROGRESS, "a", encoding="utf-8") as fh:
+            fh.write(msg.rstrip("\n") + "\n")
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Tolerant operand-token matcher
+# ---------------------------------------------------------------------------
+# Engineered names are printed as ``binary(unaryA(colA), unaryB(colB))`` with the
+# identity unary elided, e.g. ``div(sqr(a),b)``, ``mul(log(c),sin(d))``. To decide
+# which RAW df columns a selected feature is built from, we tokenize the name into
+# identifiers and keep those that are actual df columns. This is robust to
+# multi-char column names (``a_exp``, ``g_partner``, ``b_invsq``, ``ab``, ``c2``,
+# ``z``) which the single-letter canonical ``_bare_vars`` cannot handle.
+
+_IDENT = re.compile(r"[A-Za-z_][A-Za-z_0-9]*")
+
+
+def _operand_tokens(name: str, df_cols: set) -> set:
+    """Raw df-column tokens that appear as whole identifiers in ``name``.
+
+    A bare column ``a`` matches itself. ``div(sqr(a),b)`` -> {a, b}. Function
+    names (div, sqr, log, ...) are not df columns so they are ignored. Multi-char
+    column names are matched as whole identifiers, so ``a`` does NOT spuriously
+    match inside ``a_exp`` and vice-versa.
+    """
+    return {tok for tok in _IDENT.findall(name) if tok in df_cols}
+
+
+def _is_engineered(name: str, df_cols: set) -> bool:
+    """A selected feature is 'engineered' iff its name is not a bare df column."""
+    return name not in df_cols
+
+
+def _covers(selected_names, df_cols, want, exclude=()):
+    """True iff some selected feature's operand tokens ⊇ ``want`` and ∩ ``exclude`` = ∅.
+
+    ``want`` / ``exclude`` are sets of raw df-column tokens. A bare raw column
+    counts (its own token set is itself). This is the tolerant "captures the same
+    operand-set + transform family" check -- we never demand an exact unary.
+    """
+    want = set(want)
+    excl = set(exclude)
+    for nm in selected_names:
+        toks = _operand_tokens(nm, df_cols)
+        if want <= toks and not (toks & excl):
+            return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Formula registry
+# ---------------------------------------------------------------------------
+# Each spec is a callable producing (df, y) for a given (seed, n), plus:
+#   keep  : list of "signals" each a dict {want:set, exclude:set(optional),
+#           any_of: list[set](optional)} -- a signal is satisfied if ANY listed
+#           operand-set is covered (any_of) OR the single want-set is covered.
+#   drop  : set of raw df columns that must NOT appear in the selection.
+#   needs_unavailable_op : note string if ground truth needs an op absent from the
+#           DEFAULT preset (unary='medium', binary='minimal'; cos/tan are
+#           maximal-only). Recorded for the verdict; such cases are EXPECTED to
+#           fail the keep-check on default config and that failure is the datum.
+
+FORMULAS = {}
+
+
+def _reg(name, builder, keep, drop, family, needs_unavailable_op=None, fe_max_steps=1):
+    FORMULAS[name] = dict(
+        builder=builder,
+        keep=keep,
+        drop=set(drop),
+        family=family,
+        needs_unavailable_op=needs_unavailable_op,
+        fe_max_steps=fe_max_steps,
+    )
+
+
+def _sig(want, exclude=()):
+    return {"want": set(want), "exclude": set(exclude)}
+
+
+# ====================== weak-scaled ======================
+
+def _ws1(seed, n):
+    rng = np.random.default_rng(seed)
+    a, b, e = (rng.uniform(0, 1, n) for _ in range(3))
+    y = 0.30 * (a ** 2) / b + 0.01 * e
+    return pd.DataFrame({"a": a, "b": b, "e": e}), pd.Series(y, name="y")
+
+
+_reg("ws1_easy_ratio_sqr", _ws1, keep=[_sig({"a", "b"})], drop={"a", "b", "e"}, family="weak-scaled")
+
+
+def _ws2(seed, n):
+    rng = np.random.default_rng(seed)
+    c, d, e1, e2 = (rng.uniform(0, 1, n) for _ in range(4))
+    y = 0.15 * np.log(c) * np.sin(d) + 0.02 * e1 + 0.02 * e2
+    return pd.DataFrame({"c": c, "d": d, "e1": e1, "e2": e2}), pd.Series(y, name="y")
+
+
+_reg("ws2_log_sin_product", _ws2, keep=[_sig({"c", "d"})], drop={"c", "d", "e1", "e2"}, family="weak-scaled")
+
+
+def _ws3(seed, n):
+    rng = np.random.default_rng(seed)
+    c, k, d, m, e = (rng.uniform(0, 1, n) for _ in range(5))
+    y = 0.20 * np.log(c * k) * np.sin(d / m) + 0.02 * e
+    return pd.DataFrame({"c": c, "k": k, "d": d, "m": m, "e": e}), pd.Series(y, name="y")
+
+
+# ws3 is a deep 4-operand interaction; the canonical single-step pair-FE can only
+# build 2-operand atoms, so a full mul(log(mul(c,k)),sin(div(d,m))) needs
+# fe_max_steps>1. On default (fe_max_steps=1) we at minimum expect SOME (c,k) or
+# (d,m) pair to surface; keep is encoded as "any of the inner pairs covered".
+_reg(
+    "ws3_innerscale_ratio_log",
+    _ws3,
+    keep=[{"any_of": [{"c", "k"}, {"d", "m"}, {"c", "d"}, {"c", "k", "d", "m"}]}],
+    drop={"e"},
+    family="weak-scaled",
+)
+
+
+def _ws4(seed, n):
+    rng = np.random.default_rng(seed)
+    a, b, e, g_partner = (rng.uniform(0, 1, n) for _ in range(4))
+    # g is the true driver (unobserved); g_partner is a spurious proxy that must
+    # NOT be kept. y = 0.08*a^2/b + 0.40*g + 0.02*e ; g not in df.
+    g = rng.uniform(0, 1, n)
+    y = 0.08 * (a ** 2) / b + 0.40 * g + 0.02 * e
+    return pd.DataFrame({"a": a, "b": b, "e": e, "g_partner": g_partner}), pd.Series(y, name="y")
+
+
+_reg(
+    "ws4_weak_sqr_with_unobserved",
+    _ws4,
+    keep=[_sig({"a", "b"})],
+    drop={"a", "b", "e", "g_partner"},
+    family="weak-scaled",
+)
+
+
+def _ws5(seed, n):
+    rng = np.random.default_rng(seed)
+    a, b, c, d, e1, e2, e3 = (rng.uniform(0, 1, n) for _ in range(7))
+    y = 0.10 * (a / b) * np.sqrt(c / d) + 0.015 * (e1 + e2 + e3)
+    return (
+        pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e1": e1, "e2": e2, "e3": e3}),
+        pd.Series(y, name="y"),
+    )
+
+
+_reg(
+    "ws5_double_ratio_product_hard",
+    _ws5,
+    keep=[{"any_of": [{"a", "b"}, {"c", "d"}, {"a", "b", "c", "d"}]}],
+    drop={"e1", "e2", "e3"},
+    family="weak-scaled",
+)
+
+
+# ====================== nested-composite ======================
+
+def _F1(seed, n):
+    rng = np.random.default_rng(seed)
+    a = rng.uniform(1, 5, n)
+    b = rng.uniform(1, 5, n)
+    e = rng.normal(0, 1, n)
+    f = rng.normal(0, 1, n)  # unobserved
+    y = a ** 2 / b + f / 5.0 + 0.3 * e
+    return pd.DataFrame({"a": a, "b": b, "e": e}), pd.Series(y, name="y")
+
+
+_reg("F1_easy_single_ratio_plus_noise", _F1, keep=[_sig({"a", "b"})], drop={"a", "b", "e"}, family="nested-composite")
+
+
+def _F2(seed, n):
+    rng = np.random.default_rng(seed)
+    a = rng.uniform(1, 5, n)
+    b = rng.uniform(1, 5, n)
+    c = rng.uniform(1, 5, n)
+    d = rng.uniform(0, 2 * np.pi, n)
+    e = rng.normal(0, 1, n)
+    y = a ** 2 / b + 3.0 * np.log(c) * np.sin(d) + 0.3 * e
+    return pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e}), pd.Series(y, name="y")
+
+
+_reg(
+    "F2_easy_two_pairs_marginal_zero_guard",
+    _F2,
+    keep=[_sig({"a", "b"}, exclude={"c", "d"}), _sig({"c", "d"}, exclude={"a", "b"})],
+    drop={"a", "b", "c", "d", "e"},
+    family="nested-composite",
+)
+
+
+def _F3(seed, n):
+    rng = np.random.default_rng(seed)
+    a = rng.uniform(1, 5, n)
+    b = rng.uniform(1, 5, n)
+    c = rng.uniform(1, 5, n)
+    g = rng.uniform(1, 5, n)
+    d = rng.uniform(0, 2 * np.pi, n)
+    h = rng.uniform(0, 2 * np.pi, n)
+    e = rng.normal(0, 1, n)
+    y = a ** 2 / b + 0.7 * np.sqrt(np.abs(g)) * np.sin(h) + 2.5 * np.log(c) * np.cos(d) + 0.3 * e
+    return pd.DataFrame({"a": a, "b": b, "c": c, "g": g, "d": d, "h": h, "e": e}), pd.Series(y, name="y")
+
+
+# cos(d) needs the MAXIMAL preset; on DEFAULT (unary medium) the log(c)*cos(d)
+# term is not buildable, so the (c,d) keep is EXPECTED to fail -> recorded datum.
+_reg(
+    "F3_medium_three_term_additive_composite",
+    _F3,
+    keep=[
+        _sig({"a", "b"}, exclude={"c", "d", "g", "h"}),
+        _sig({"g", "h"}, exclude={"a", "b", "c", "d"}),
+        _sig({"c", "d"}, exclude={"a", "b", "g", "h"}),
+    ],
+    drop={"a", "b", "c", "d", "g", "h", "e"},
+    family="nested-composite",
+    needs_unavailable_op="cos (maximal-only) for log(c)*cos(d)",
+)
+
+
+def _F4(seed, n):
+    rng = np.random.default_rng(seed)
+    a = rng.uniform(1, 5, n)
+    b = rng.uniform(1, 5, n)
+    d = rng.uniform(0, 2 * np.pi, n)
+    e = rng.normal(0, 1, n)
+    y = a ** 2 / b + 1.5 * np.log(b) * np.sin(d) + 0.3 * e
+    return pd.DataFrame({"a": a, "b": b, "d": d, "e": e}), pd.Series(y, name="y")
+
+
+# b is a SHARED operand (in both terms) so it carries independent signal and may
+# legitimately survive raw; only a and d/e are pure-drop. keep encodes the two
+# composites; b is allowed to stay (NOT in drop).
+_reg(
+    "F4_medium_shared_operand_additive_composite",
+    _F4,
+    keep=[_sig({"a", "b"}, exclude={"d"}), _sig({"b", "d"}, exclude={"a"})],
+    drop={"a", "d", "e"},
+    family="nested-composite",
+)
+
+
+def _F5(seed, n):
+    rng = np.random.default_rng(seed)
+    a = rng.uniform(1, 5, n)
+    b = rng.uniform(1, 5, n)
+    c = rng.uniform(1, 5, n)
+    d = rng.uniform(0, 2 * np.pi, n)
+    e = rng.normal(0, 1, n)
+    y = (a ** 2 / b) * (np.log(c) * np.sin(d)) + 0.3 * e
+    return pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e}), pd.Series(y, name="y")
+
+
+# TRUE nested composite: product of two engineered atoms. Requires fe_max_steps=2.
+# Even at fit, the nested replay is documented as future-work, but the atoms
+# (a,b) and (c,d) should still be discoverable as step-1 columns.
+_reg(
+    "F5_hard_nested_product_of_composites",
+    _F5,
+    keep=[_sig({"a", "b"}, exclude={"c", "d"}), _sig({"c", "d"}, exclude={"a", "b"})],
+    drop={"a", "b", "c", "d", "e"},
+    family="nested-composite",
+    fe_max_steps=2,
+)
+
+
+def _F6(seed, n):
+    rng = np.random.default_rng(seed)
+    a = rng.uniform(1, 5, n)
+    b = rng.uniform(1, 5, n)
+    c = rng.uniform(1, 5, n)
+    d = rng.uniform(0, 2 * np.pi, n)
+    e = rng.normal(0, 1, n)
+    y = (a ** 2 / b + np.log(c)) / (1.0 + np.sin(d) ** 2) + 0.3 * e
+    return pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e}), pd.Series(y, name="y")
+
+
+# Nested ratio of three engineered atoms; div(sqr(a),b), log(c), sqr(sin(d)).
+# Needs fe_max_steps>=2 and the medium unary (sqr/reciproc available by default).
+_reg(
+    "F6_hard_nested_ratio_three_engineered_atoms",
+    _F6,
+    keep=[{"any_of": [{"a", "b"}, {"a", "b", "c"}]}],
+    drop={"a", "b", "e"},
+    family="nested-composite",
+    fe_max_steps=2,
+)
+
+
+# ====================== competing-correlated ======================
+
+def _CC1(seed, n):
+    rng = np.random.default_rng(seed)
+    a, c, e = (rng.uniform(0, 1, n) for _ in range(3))
+    y = a ** 2 + 0.30 * c
+    df = pd.DataFrame({"a": a, "a_exp": np.exp(a), "a_log": np.log(a + 1.0), "c": c, "e": e})
+    return df, pd.Series(y, name="y")
+
+
+# a / a_exp / a_log are MI-interchangeable on (0,1); the gate may keep the decoy
+# instead of raw a. So the a-signal is "any one of {a, a_exp, a_log}" covered;
+# drop only requires e absent + NOT keeping MORE than one of the a-twins. We
+# encode keep as a-twin (any_of) + c, and drop as {e}; redundant-twin admission
+# is checked separately via the interchangeable-pair rule.
+_reg(
+    "F1_single_operand_monotone_decoy",
+    _CC1,
+    keep=[{"any_of": [{"a"}, {"a_exp"}, {"a_log"}]}, _sig({"c"})],
+    drop={"e"},
+    family="competing-correlated",
+)
+
+
+def _CC2(seed, n):
+    rng = np.random.default_rng(seed)
+    a, b, e1, e2 = (rng.uniform(0, 1, n) for _ in range(4))
+    y = (a ** 2) / (b + 0.5)
+    df = pd.DataFrame(
+        {"a": a, "b": b, "a_cbrt": np.cbrt(a), "b_log": np.log(b + 1.0), "e1": e1, "e2": e2}
+    )
+    return df, pd.Series(y, name="y")
+
+
+_reg(
+    "F2_ratio_with_reencoded_numerator_decoy",
+    _CC2,
+    keep=[{"any_of": [{"a"}, {"a_cbrt"}]}, {"any_of": [{"b"}, {"b_log"}]}],
+    drop={"e1", "e2"},
+    family="competing-correlated",
+)
+
+
+def _CC3(seed, n):
+    rng = np.random.default_rng(seed)
+    a, b, d, e = (rng.uniform(0, 1, n) for _ in range(4))
+    y = (a ** 2) * b + 0.20 * d
+    df = pd.DataFrame(
+        {"a": a, "b": b, "d": d, "a_exp": np.exp(a), "a_recip": 1.0 / (a + 0.5), "b_sqrt": np.sqrt(b), "e": e}
+    )
+    return df, pd.Series(y, name="y")
+
+
+_reg(
+    "F3_product_square_two_competing_decoys",
+    _CC3,
+    keep=[{"any_of": [{"a"}, {"a_exp"}, {"a_recip"}]}, {"any_of": [{"b"}, {"b_sqrt"}]}, _sig({"d"})],
+    drop={"e"},
+    family="competing-correlated",
+)
+
+
+def _CC4(seed, n):
+    rng = np.random.default_rng(seed)
+    a, c, e = (rng.uniform(0, 1, n) for _ in range(3))
+    f = rng.uniform(0, 1, n)  # unobserved
+    y = np.log(a + 1.0) * c + 0.40 * f
+    df = pd.DataFrame({"a": a, "c": c, "a_sqr": a ** 2, "c_exp": np.exp(c), "e": e})
+    return df, pd.Series(y, name="y")
+
+
+_reg(
+    "F4_unobserved_operand_irreducible_noise_plus_mimic_decoy",
+    _CC4,
+    keep=[{"any_of": [{"a"}, {"a_sqr"}]}, {"any_of": [{"c"}, {"c_exp"}]}],
+    drop={"e"},
+    family="competing-correlated",
+)
+
+
+def _CC5(seed, n):
+    rng = np.random.default_rng(seed)
+    a, b, c, e = (rng.uniform(0, 1, n) for _ in range(4))
+    y = np.minimum(np.log(a + 1.0), np.log(b + 1.0)) + 0.25 * c
+    df = pd.DataFrame({"a": a, "b": b, "c": c, "a_neg": -a, "b_invsq": 1.0 / (b + 0.5) ** 2, "e": e})
+    return df, pd.Series(y, name="y")
+
+
+_reg(
+    "F5_min_of_logs_with_anti_monotone_decoy",
+    _CC5,
+    keep=[{"any_of": [{"a"}, {"a_neg"}]}, {"any_of": [{"b"}, {"b_invsq"}]}, _sig({"c"})],
+    drop={"e"},
+    family="competing-correlated",
+)
+
+
+def _CC6(seed, n):
+    rng = np.random.default_rng(seed)
+    a, b, d, e1, e2 = (rng.uniform(0, 1, n) for _ in range(5))
+    y = np.sqrt(a * b) + 0.20 * d
+    df = pd.DataFrame(
+        {"a": a, "b": b, "d": d, "ab": a * b, "ab_log": np.log(a * b + 1.0), "a_exp": np.exp(a), "e1": e1, "e2": e2}
+    )
+    return df, pd.Series(y, name="y")
+
+
+# Decoy ab_log re-encodes the ENGINEERED feature sqrt(a*b) itself; the gate must
+# condition on the constructed ab/engineered col. keep: the (a,b) signal (raw pair
+# or precomputed ab) + d. drop: ab_log, a_exp, e1, e2 must be absent.
+_reg(
+    "F6_decoy_reencodes_the_engineered_feature_itself",
+    _CC6,
+    keep=[{"any_of": [{"a", "b"}, {"ab"}]}, _sig({"d"})],
+    drop={"ab_log", "a_exp", "e1", "e2"},
+    family="competing-correlated",
+)
+
+
+# ====================== noise-traps ======================
+
+def _NT1(seed, n):
+    rng = np.random.default_rng(seed)
+    a, b, c, e = (rng.uniform(0, 1, n) for _ in range(4))
+    y = a ** 2 / (b + 0.5) + 0.05 * np.sin(3 * c)
+    return pd.DataFrame({"a": a, "b": b, "c": c, "e": e}), pd.Series(y, name="y")
+
+
+_reg(
+    "NT_F1_single_ratio_plus_pure_noise",
+    _NT1,
+    keep=[_sig({"a", "b"})],
+    drop={"e"},
+    family="noise-traps",
+)
+
+
+def _NT2(seed, n):
+    rng = np.random.default_rng(seed)
+    a, b, c, d, e = (rng.uniform(0, 1, n) for _ in range(5))
+    y = np.log(a + 1.0) * np.sin(2 * b) + (c + 0.5) / (d + 0.5)
+    return pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e}), pd.Series(y, name="y")
+
+
+# keep two genuine pairs (a,b) and (c,d); drop pure noise e AND the cross-signal
+# artefacts (any engineered col mixing an {a,b}-operand with a {c,d}-operand).
+_reg(
+    "NT_F2_cross_signal_artifact_two_terms",
+    _NT2,
+    keep=[_sig({"a", "b"}, exclude={"c", "d"}), _sig({"c", "d"}, exclude={"a", "b"})],
+    drop={"e"},
+    family="noise-traps",
+)
+
+
+def _NT3(seed, n):
+    rng = np.random.default_rng(seed)
+    a, b, c, e = (rng.uniform(0, 1, n) for _ in range(4))
+    c2 = c + 0.001 * rng.random(n)
+    y = np.sqrt(a) * (b + 0.5) + 0.02 * c2
+    return pd.DataFrame({"a": a, "b": b, "c": c, "c2": c2, "e": e}), pd.Series(y, name="y")
+
+
+_reg(
+    "NT_F3_correlated_decoy_plus_noise",
+    _NT3,
+    keep=[_sig({"a", "b"}, exclude={"c", "c2"})],
+    drop={"e"},
+    family="noise-traps",
+)
+
+
+def _NT4(seed, n):
+    rng = np.random.default_rng(seed)
+    a, c, d, e = (rng.uniform(0, 1, n) for _ in range(4))
+    f = rng.uniform(0, 1, n)  # unobserved
+    y = (a + 0.5) / (f + 0.5) + np.sin(2 * c) * np.cos(2 * d)
+    return pd.DataFrame({"a": a, "c": c, "d": d, "e": e}), pd.Series(y, name="y")
+
+
+# cos(2d) needs the maximal preset -> the (c,d) mul(sin(c),cos(d)) term is not
+# buildable on default; keep encodes c & d (raw or engineered pair); recorded.
+_reg(
+    "NT_F4_unobserved_operand_partial_recovery",
+    _NT4,
+    keep=[{"any_of": [{"c", "d"}, {"c"}, {"d"}]}],
+    drop={"e"},
+    family="noise-traps",
+    needs_unavailable_op="cos (maximal-only) for sin(c)*cos(d)",
+)
+
+
+def _NT5(seed, n):
+    rng = np.random.default_rng(seed)
+    a, b, c, d, e = (rng.uniform(0, 1, n) for _ in range(5))
+    y = np.maximum(a, b) - 0.3 * np.minimum(c, d) + 0.0 * e
+    return pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e}), pd.Series(y, name="y")
+
+
+_reg(
+    "NT_F5_max_min_extrema_with_anticorrelated_noise",
+    _NT5,
+    keep=[_sig({"a", "b"}, exclude={"c", "d"}), _sig({"c", "d"}, exclude={"a", "b"})],
+    drop={"e"},
+    family="noise-traps",
+)
+
+
+# ====================== mixed-strength-n ======================
+
+def _MS1(seed, n):
+    rng = np.random.default_rng(seed)
+    a = rng.uniform(1, 5, n)
+    b = rng.uniform(1, 5, n)
+    c = rng.uniform(0, 1, n)
+    d = rng.uniform(0, 1, n)
+    e = rng.uniform(0, 1, n)
+    g = rng.uniform(0, 1, n)
+    h = rng.uniform(0, 1, n)
+    y = a ** 2 / b + 0.6 * (c - d) + e / 40.0
+    return pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e, "g": g, "h": h}), pd.Series(y, name="y")
+
+
+# Dominant a^2/b recoverable at all n; (c-d) mid term; e/40 too-weak. keep the
+# strong pair (raw a,b or engineered) + the (c,d) pair where recoverable.
+_reg(
+    "MS_ratio_n_floor",
+    _MS1,
+    keep=[{"any_of": [{"a", "b"}]}],
+    drop={"g", "h"},
+    family="mixed-strength-n",
+)
+
+
+def _MS2(seed, n):
+    rng = np.random.default_rng(seed)
+    a = rng.uniform(0, 2 * np.pi, n)
+    b = rng.uniform(1, 3, n)
+    c = rng.uniform(1, 5, n)
+    g = rng.uniform(0, 1, n)
+    h = rng.uniform(0, 1, n)
+    k = rng.uniform(0, 1, n)
+    f = rng.uniform(0, 1, n)  # unobserved
+    y = 3.0 * np.sin(a) * b + 0.25 * np.log(c) + f / 3.0 + 0.0 * g
+    return pd.DataFrame({"a": a, "b": b, "c": c, "g": g, "h": h, "k": k}), pd.Series(y, name="y")
+
+
+_reg(
+    "MS_sin_phase_weak",
+    _MS2,
+    keep=[{"any_of": [{"a", "b"}]}],
+    drop={"g", "h", "k"},
+    family="mixed-strength-n",
+)
+
+
+def _MS3(seed, n):
+    rng = np.random.default_rng(seed)
+    a = rng.uniform(0, 1, n)
+    b = rng.uniform(0, 1, n)
+    c = rng.uniform(0, 1, n)
+    d = rng.uniform(0, 1, n)
+    e = rng.uniform(0, 1, n)
+    h = rng.uniform(0, 1, n)
+    m = rng.uniform(0, 1, n)
+    p = rng.uniform(0, 1, n)
+    y = 5.0 * (a * b) + 1.0 * np.sqrt(c) + 0.15 * (d - e) + h / 50.0
+    return (
+        pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e, "h": h, "m": m, "p": p}),
+        pd.Series(y, name="y"),
+    )
+
+
+_reg(
+    "MS_three_tier_strength",
+    _MS3,
+    keep=[{"any_of": [{"a", "b"}]}, {"any_of": [{"c"}]}],
+    drop={"m", "p"},
+    family="mixed-strength-n",
+)
+
+
+def _MS4(seed, n):
+    rng = np.random.default_rng(seed)
+    a = rng.uniform(0, 1, n)
+    b = rng.uniform(0, 1, n)
+    c = rng.uniform(0, 2 * np.pi, n)
+    z = a + 3.0 * rng.standard_normal(n)  # decoy
+    d = rng.uniform(0, 1, n)
+    q = rng.uniform(0, 1, n)
+    y = (a + 1.0) / (b + 1.0) + 2.0 * np.cos(c) + 0.0 * d
+    return pd.DataFrame({"a": a, "b": b, "c": c, "z": z, "d": d, "q": q}), pd.Series(y, name="y")
+
+
+# cos(c) needs maximal preset; on default the cos(c) term is unrecoverable so the
+# c keep is EXPECTED to fail. The decoy z + pure noise d,q must drop.
+_reg(
+    "MS_ratio_plus_decoy",
+    _MS4,
+    keep=[{"any_of": [{"a", "b"}]}, {"any_of": [{"c"}]}],
+    drop={"z", "d", "q"},
+    family="mixed-strength-n",
+    needs_unavailable_op="cos (maximal-only) for cos(c)",
+)
+
+
+def _MS5(seed, n):
+    rng = np.random.default_rng(seed)
+    a = rng.uniform(0, 2, n)
+    b = rng.uniform(0, 1, n)
+    c = rng.uniform(0, 2 * np.pi, n)
+    d = rng.uniform(0, 1, n)
+    e = rng.uniform(0, 1, n)
+    w = rng.uniform(0, 1, n)
+    r = rng.uniform(0, 1, n)
+    s = rng.uniform(0, 1, n)
+    u = rng.uniform(0, 1, n)  # unobserved
+    y = 4.0 * (a ** 2 / (b + 0.5)) + 1.2 * np.sin(c) * np.sqrt(d) + 0.18 * np.log(e + 1.0) + u / 5.0 + 0.0 * w
+    return (
+        pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e, "w": w, "r": r, "s": s}),
+        pd.Series(y, name="y"),
+    )
+
+
+_reg(
+    "MS_nested_mixed_six",
+    _MS5,
+    keep=[{"any_of": [{"a", "b"}]}, {"any_of": [{"c", "d"}]}],
+    drop={"w", "r", "s", "e"},
+    family="mixed-strength-n",
+)
+
+
+# ---------------------------------------------------------------------------
+# Result recording -- shared accumulator written to a JSON sidecar so the harness
+# can read the full pass/fail ledger even when pytest exits non-zero.
+# ---------------------------------------------------------------------------
+_LEDGER = []
+
+
+def _record(formula, n, selected, keep_results, drop_results, eng_recipes, notes=""):
+    _LEDGER.append(
+        dict(
+            formula=formula,
+            n=int(n),
+            selected=list(selected),
+            keep=keep_results,
+            drop=drop_results,
+            eng_recipes=list(eng_recipes),
+            notes=notes,
+        )
+    )
+
+
+def _evaluate(formula, spec, selected, df_cols):
+    """Return (keep_results, drop_results, failures) for one fit."""
+    selected = list(selected)
+    keep_results = []
+    failures = []
+    for sig in spec["keep"]:
+        if "any_of" in sig:
+            ok = any(_covers(selected, df_cols, w) for w in sig["any_of"])
+            label = " | ".join("+".join(sorted(w)) for w in sig["any_of"])
+            kr = {"want": label, "covered": ok}
+            if not ok:
+                failures.append(
+                    dict(kind="missing_signal", expected=f"any_of[{label}]", actual=str(selected))
+                )
+        else:
+            ok = _covers(selected, df_cols, sig["want"], sig.get("exclude", ()))
+            label = "+".join(sorted(sig["want"]))
+            excl = sorted(sig.get("exclude", ()))
+            if excl:
+                label += f" (excl {','.join(excl)})"
+            kr = {"want": label, "covered": ok}
+            if not ok:
+                failures.append(
+                    dict(kind="missing_signal", expected=label, actual=str(selected))
+                )
+        keep_results.append(kr)
+
+    drop_results = []
+    for col in sorted(spec["drop"]):
+        admitted = col in selected
+        drop_results.append({"col": col, "admitted": admitted})
+        if admitted:
+            # classify: a pure-noise name (e*, g/h/k/m/p/q/r/s/w, z decoy) is
+            # admitted_noise; a subsumed raw operand or monotone decoy is
+            # admitted_redundant.
+            noiseish = bool(re.fullmatch(r"e\d*|[ghkmpqrsw]|z|q", col)) or col.startswith("e")
+            kind = "admitted_noise" if noiseish else "admitted_redundant"
+            failures.append(dict(kind=kind, expected=f"{col} dropped", actual=f"{col} in {selected}"))
+    return keep_results, drop_results, failures
+
+
+def _fit_and_eval(formula, n, fe_max_steps=1):
+    spec = FORMULAS[formula]
+    df, y = spec["builder"](SEED, n)
+    df_cols = set(df.columns)
+    kwargs = dict(verbose=0, random_seed=SEED)
+    if fe_max_steps and fe_max_steps != 1:
+        kwargs["fe_max_steps"] = fe_max_steps
+    fs = MRMR(**kwargs)
+    fs.fit(df, y)
+    selected = list(fs.get_feature_names_out())
+    eng_recipes = [getattr(r, "name", None) for r in getattr(fs, "_engineered_recipes_", [])]
+    keep_results, drop_results, failures = _evaluate(formula, spec, selected, df_cols)
+    _record(
+        formula,
+        n,
+        selected,
+        keep_results,
+        drop_results,
+        eng_recipes,
+        notes=spec.get("needs_unavailable_op") or "",
+    )
+    return spec, selected, failures
+
+
+# ---------------------------------------------------------------------------
+# Broad-coverage parametrization: every formula once at BROAD_N.
+# ---------------------------------------------------------------------------
+@pytest.mark.timeout(FIT_TIMEOUT)
+@pytest.mark.parametrize("formula", sorted(FORMULAS.keys()))
+def test_create_keep_drop_broad(formula):
+    _checkpoint(f"BROAD start {formula} n={BROAD_N}")
+    spec = FORMULAS[formula]
+    fe_steps = spec.get("fe_max_steps", 1)
+    spec, selected, failures = _fit_and_eval(formula, BROAD_N, fe_max_steps=fe_steps)
+    _checkpoint(f"BROAD done  {formula} n={BROAD_N} sel={selected} fails={len(failures)}")
+    if failures:
+        msg = "; ".join(f"[{f['kind']}] expected {f['expected']}" for f in failures)
+        # The note (unavailable op) is surfaced so the verdict can separate
+        # "default-preset can't build this" from genuine selector misses.
+        note = spec.get("needs_unavailable_op")
+        if note:
+            msg += f"  (NOTE: ground truth needs {note})"
+        pytest.fail(f"{formula} n={BROAD_N}: {msg}  selected={selected}", pytrace=False)
+
+
+# ---------------------------------------------------------------------------
+# n-sweep for 2-3 representative formulas (one per difficulty axis we can afford):
+#   ws1_easy_ratio_sqr        -- single weak ratio, weak-scaled family
+#   F2_easy_two_pairs...      -- two genuine pairs w/ marginal-zero guard
+#   MS_three_tier_strength    -- explicit n-dependent strong/mid/weak tiers
+# NEVER n=100000 (OOMs on the 8GB box).
+# ---------------------------------------------------------------------------
+_NSWEEP_FORMULAS = ["ws1_easy_ratio_sqr", "F2_easy_two_pairs_marginal_zero_guard", "MS_three_tier_strength"]
+_NSWEEP_NS = [1000, 5000, 20000, 50000]
+
+
+@pytest.mark.timeout(FIT_TIMEOUT)
+@pytest.mark.parametrize("formula", _NSWEEP_FORMULAS)
+@pytest.mark.parametrize("n", _NSWEEP_NS)
+def test_create_keep_drop_nsweep(formula, n):
+    _checkpoint(f"NSWEEP start {formula} n={n}")
+    spec = FORMULAS[formula]
+    fe_steps = spec.get("fe_max_steps", 1)
+    spec, selected, failures = _fit_and_eval(formula, n, fe_max_steps=fe_steps)
+    _checkpoint(f"NSWEEP done  {formula} n={n} sel={selected} fails={len(failures)}")
+    if failures:
+        msg = "; ".join(f"[{f['kind']}] expected {f['expected']}" for f in failures)
+        note = spec.get("needs_unavailable_op")
+        if note:
+            msg += f"  (NOTE: ground truth needs {note})"
+        pytest.fail(f"{formula} n={n}: {msg}  selected={selected}", pytrace=False)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _dump_ledger():
+    """At session teardown, dump the full create/keep/drop ledger so the harness
+    has the complete pass/fail data even when pytest exits non-zero."""
+    yield
+    try:
+        import orjson
+
+        payload = orjson.dumps(_LEDGER, option=orjson.OPT_INDENT_2)
+        with open(r"D:/Temp/ckd_suite_ledger.json", "wb") as fh:
+            fh.write(payload)
+    except Exception:
+        try:
+            import json
+
+            with open(r"D:/Temp/ckd_suite_ledger.json", "w", encoding="utf-8") as fh:
+                json.dump(_LEDGER, fh, indent=2)
+        except Exception:
+            pass
