@@ -24,8 +24,12 @@ def test_strategy_declares_requires_scaling(strategy_cls_name: str) -> None:
     import mlframe.training.strategies as _strat
     cls = getattr(_strat, strategy_cls_name)
     assert cls.requires_scaling is True
-    assert cls.requires_encoding is True
     assert cls.requires_imputation is True
+    # NeuralNetStrategy defaults to learnable cat embeddings, so it does NOT target-encode (requires_encoding False); Linear still encodes.
+    if strategy_cls_name == "NeuralNetStrategy":
+        assert cls().requires_encoding is False
+    else:
+        assert cls.requires_encoding is True
 
 
 @pytest.mark.parametrize("strategy_cls_name", ["LinearModelStrategy", "NeuralNetStrategy"])

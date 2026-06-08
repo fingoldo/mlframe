@@ -163,18 +163,30 @@ class TestNeuralNetStrategy:
         strategy = NeuralNetStrategy()
         assert strategy.requires_scaling is True
 
-    def test_requires_encoding_true(self):
-        """Test neural networks require encoding."""
+    def test_requires_encoding_false_when_learnable_cat_embeddings(self):
+        """With learnable cat embeddings ON (the default), the neural strategy must NOT target-encode cats -- they reach the MLP raw so its
+        fit-boundary factorizer + nn.Embedding can index them -- so requires_encoding is False."""
         strategy = NeuralNetStrategy()
-        assert strategy.requires_encoding is True
+        assert strategy.use_learnable_cat_embeddings is True
+        assert strategy.requires_encoding is False
+
+    def test_requires_encoding_true_when_learnable_cat_embeddings_off(self):
+        """Flipping the knob OFF restores the legacy CatBoostEncoder path -> requires_encoding True."""
+        strategy = NeuralNetStrategy()
+        try:
+            type(strategy).use_learnable_cat_embeddings = False
+            assert strategy.requires_encoding is True
+        finally:
+            type(strategy).use_learnable_cat_embeddings = True
 
     def test_requires_imputation_true(self):
         """Test neural networks require imputation."""
         strategy = NeuralNetStrategy()
         assert strategy.requires_imputation is True
 
-    def test_build_pipeline_full(self):
-        """Test that neural strategy adds all preprocessing steps."""
+    def test_build_pipeline_skips_encoder_keeps_numeric_imp_scale(self):
+        """Learnable cat embeddings ON: the CatBoostEncoder step ('ce') is SKIPPED (cats reach the MLP raw), but imputation + scaling steps
+        stay (restricted to the numeric block via _NumericOnlyTransformer)."""
         strategy = NeuralNetStrategy()
         encoder = OrdinalEncoder()
         imputer = SimpleImputer()
@@ -191,9 +203,28 @@ class TestNeuralNetStrategy:
         assert result is not None
         assert isinstance(result, Pipeline)
         step_names = [name for name, _ in result.steps]
-        assert 'ce' in step_names
+        assert 'ce' not in step_names  # cats reach the MLP raw -> no target encoder
         assert 'imp' in step_names
         assert 'scaler' in step_names
+
+    def test_build_pipeline_full_when_learnable_cat_embeddings_off(self):
+        """Knob OFF: the legacy full preprocessing (encoder + imputer + scaler) is restored verbatim."""
+        strategy = NeuralNetStrategy()
+        try:
+            type(strategy).use_learnable_cat_embeddings = False
+            result = strategy.build_pipeline(
+                base_pipeline=None,
+                cat_features=['cat1'],
+                category_encoder=OrdinalEncoder(),
+                imputer=SimpleImputer(),
+                scaler=StandardScaler(),
+            )
+            step_names = [name for name, _ in result.steps]
+            assert 'ce' in step_names
+            assert 'imp' in step_names
+            assert 'scaler' in step_names
+        finally:
+            type(strategy).use_learnable_cat_embeddings = True
 
 
 class TestLinearModelStrategy:
@@ -219,14 +250,16 @@ class TestLinearModelStrategy:
         strategy = LinearModelStrategy()
         assert strategy.requires_imputation is True
 
-    def test_same_requirements_as_neural(self):
-        """Test that linear and neural have same requirements."""
+    def test_same_scaling_imputation_as_neural(self):
+        """Linear shares neural's scaling + imputation requirements. Encoding now DIFFERS: neural defaults to learnable cat embeddings
+        (requires_encoding False) while linear still target-encodes (True), so they are compared separately."""
         linear = LinearModelStrategy()
         neural = NeuralNetStrategy()
 
         assert linear.requires_scaling == neural.requires_scaling
-        assert linear.requires_encoding == neural.requires_encoding
         assert linear.requires_imputation == neural.requires_imputation
+        assert linear.requires_encoding is True
+        assert neural.requires_encoding is False
 
     def test_different_cache_key_from_neural(self):
         """Test that linear and neural have different cache keys."""

@@ -212,6 +212,8 @@ def generate_mlp(
     use_residual: bool = False,
     numerical_embedding: Optional[str] = None,
     numerical_embedding_kwargs: Optional[dict] = None,
+    categorical_cardinalities: Optional[list] = None,
+    categorical_embed_dim: Optional[int] = None,
     groupnorm_num_groups: int = 0,
     layer_norm_kwargs: dict = None,
     batch_norm_kwargs: dict = None,
@@ -284,6 +286,11 @@ def generate_mlp(
             ``sklearn.preprocessing.StandardScaler`` upstream of fit().
         use_batchnorm: Apply BatchNorm after each layer
         use_layernorm_per_layer: Apply LayerNorm after each layer (in addition to input LayerNorm)
+        categorical_cardinalities: Per-categorical category counts (excluding the reserved unknown row). When set, a learnable
+            ``CategoricalEmbedding`` is prepended; the first ``len(categorical_cardinalities)`` input columns are treated as integer cat
+            codes (leading columns, set by the estimator's fit-boundary factorizer) and the rest as numeric passthrough. ``None`` (default)
+            = no categorical embedding (hook is a no-op).
+        categorical_embed_dim: Fixed per-cat embedding width; ``None`` (default) uses the fastai heuristic ``min(50, round(1.6*card**0.56))``.
         groupnorm_num_groups: Number of groups for GroupNorm (0 = disabled)
         layer_norm_kwargs: Kwargs for LayerNorm
         batch_norm_kwargs: Kwargs for BatchNorm
@@ -391,14 +398,29 @@ def generate_mlp(
     layers = []
     layer_sizes = [num_features]  # tracked for verbose logging
 
-    # C7 (F-32, 2026-05-31): numerical-feature embeddings. When set,
-    # the PLR (Periodic-Linear-ReLU) embedding maps each scalar feature
-    # to a high-dim representation via sin/cos at K learnable
-    # frequencies + a per-feature Linear projection. Per RealMLP-TD
-    # (Holzmuller et al., NeurIPS 2024) ablation: +20.6% R^2 regression
-    # / +2.3% accuracy classification. The rest of the MLP trunk
-    # downstream then operates on the embedded (N, in_features * embed_dim)
-    # representation as if it were the raw feature vector.
+    # Learnable categorical entity embeddings. When ``categorical_cardinalities`` is set, the FIRST ``k`` input columns are integer category
+    # codes (the estimator factorizes raw cats into codes at the fit boundary and reorders them leading); the rest are numeric. A
+    # ``CategoricalEmbedding`` maps each cat code through its own ``nn.Embedding`` (trained end-to-end) and passes the numeric block through.
+    # Per Guo & Berkhahn 2016 this recovers non-monotone category->target structure a single target-encoded scalar column cannot. Runs BEFORE
+    # the numerical embedding so the post-cat-embedding width is what the PLR / trunk sees; cats being the leading columns is the layout
+    # contract with the estimator boundary.
+    if categorical_cardinalities:
+        from ._categorical_embeddings import CategoricalEmbedding
+        _k_cat = len(categorical_cardinalities)
+        _cat_emb = CategoricalEmbedding(
+            cardinalities=list(categorical_cardinalities),
+            embed_dim=categorical_embed_dim,
+        )
+        _cat_emb.set_num_numeric(max(0, num_features - _k_cat))
+        layers.append(_cat_emb)
+        layer_sizes.append(_cat_emb.out_features)
+        # Override num_features so the input-side Dropout / LayerNorm / GroupNorm and the first hidden Linear (and any numerical embedding
+        # below) size to the post-embedding width, not the raw code+numeric width.
+        num_features = _cat_emb.out_features
+
+    # Numerical-feature embeddings: the PLR (Periodic-Linear-ReLU) embedding maps each scalar feature to a high-dim representation via sin/cos
+    # at K learnable frequencies + a per-feature Linear projection (RealMLP-TD, Holzmuller et al. NeurIPS 2024: +20.6% R^2 regression / +2.3%
+    # accuracy classification). The trunk downstream then operates on the embedded representation as if it were the raw feature vector.
     if numerical_embedding is not None:
         from ._numerical_embeddings import PeriodicLinearEmbedding
         _ne_kwargs = dict(numerical_embedding_kwargs or {})

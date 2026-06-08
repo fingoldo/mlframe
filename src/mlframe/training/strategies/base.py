@@ -135,6 +135,70 @@ class _InfToNaNTransformer(TransformerMixin, BaseEstimator):
         return _np.asarray([f"x{i}" for i in range(n)])
 
 
+class _NumericOnlyTransformer(TransformerMixin, BaseEstimator):
+    """Apply an inner transformer (imputer / scaler) to all columns EXCEPT the named categoricals, passing cats through unchanged in place.
+
+    Used by ``build_pipeline`` when ``requires_encoding`` is False (learnable cat embeddings active): the raw categorical columns must reach the
+    MLP estimator un-scaled / un-imputed so its fit-boundary factorizer + ``nn.Embedding`` can index them, while the numeric block still gets
+    the strategy's imputation + scaling. We avoid sklearn's ``ColumnTransformer`` because it reorders (transformed first, passthrough last) and
+    drops the original column NAMES the estimator's name-based cat reorder relies on; this wrapper preserves both the original column order and
+    names. Operates on pandas frames only (the build_pipeline output is pinned to pandas via set_output); on a non-frame input it falls back to
+    transforming the whole array (cats can't be identified by name).
+    """
+
+    def __init__(self, inner, cat_features):
+        self.inner = inner
+        self.cat_features = list(cat_features or [])
+
+    def _num_cols(self, X):
+        return [c for c in X.columns if c not in set(self.cat_features)]
+
+    def fit(self, X, y=None):
+        import numpy as _np
+        if hasattr(X, "columns"):
+            self.feature_names_in_ = _np.asarray(list(X.columns))
+            num_cols = self._num_cols(X)
+            self._num_cols_ = num_cols
+            if num_cols:
+                self.inner.fit(X[num_cols], y)
+        else:
+            self._num_cols_ = None
+            self.inner.fit(X, y)
+        _shape = getattr(X, "shape", None)
+        if _shape is not None and len(_shape) >= 2:
+            self.n_features_in_ = int(_shape[1])
+        return self
+
+    def transform(self, X):
+        if getattr(self, "_num_cols_", None) is None or not hasattr(X, "columns"):
+            return self.inner.transform(X)
+        num_cols = self._num_cols_
+        if not num_cols:
+            return X
+        transformed = self.inner.transform(X[num_cols])
+        if not hasattr(transformed, "columns"):
+            import pandas as _pd
+            transformed = _pd.DataFrame(transformed, columns=num_cols, index=X.index)
+        # Reassemble in the ORIGINAL column order so the cat columns keep their positions + names (the estimator reorders cats leading by name,
+        # but downstream feature-name continuity + the input-width contract still expect a stable layout here).
+        out = X.copy()
+        for c in num_cols:
+            out[c] = transformed[c].to_numpy() if hasattr(transformed[c], "to_numpy") else transformed[c]
+        return out
+
+    def fit_transform(self, X, y=None):
+        return self.fit(X, y).transform(X)
+
+    def get_feature_names_out(self, input_features=None):
+        import numpy as _np
+        if input_features is not None:
+            return _np.asarray(input_features)
+        if hasattr(self, "feature_names_in_"):
+            return self.feature_names_in_
+        n = getattr(self, "n_features_in_", 0)
+        return _np.asarray([f"x{i}" for i in range(n)])
+
+
 # Pre-compiled slug pattern (MEMORY.md: pre-compile regex at module level).
 # Only allow alnum, dash, underscore; everything else collapses to a single "_".
 _SLUG_PATTERN = re.compile(r"[^A-Za-z0-9_-]+")
@@ -524,6 +588,12 @@ class ModelPipelineStrategy(ABC):
                     type(self).__name__, len(cat_features),
                 )
 
+        # ``_cats_passthrough_raw``: when the strategy declares requires_encoding=False (learnable cat embeddings active) AND cat columns are
+        # present, the cats must survive imputation + scaling UNCHANGED so the downstream MLP estimator can factorize them and index its
+        # nn.Embedding. The numeric block still gets imputation + scaling via the _NumericOnlyTransformer wrapper. When True (the encoder path)
+        # the cats are already numeric by the time the imputer runs, so the wrapper is unnecessary.
+        _cats_passthrough_raw = (not self.requires_encoding) and bool(cat_features)
+
         # Add imputation if required.
         # WARN when requires_imputation=True but caller passed imputer=None: silently skipping the step sent raw NaN into LinearRegression.fit (prod log 2026-05-14 4M-row regression suite).
         # Mirrors the requires_encoding WARN above. Root-cause was in caller (ctx.imputer not propagated from _get_pipeline_components); see ef123ff + regression suite in test_strategy_imputer_propagation.py.
@@ -533,9 +603,15 @@ class ModelPipelineStrategy(ABC):
                 # (SimpleImputer only handles NaN). Guards the inf-intolerant
                 # scaler / linear / MLP when the global fix_infinities flag is
                 # off. Paired with the imputer so the introduced NaN is always
-                # filled; no-op on finite data.
-                steps.append(("inf_to_nan", _InfToNaNTransformer()))
-                steps.append(("imp", imputer))
+                # filled; no-op on finite data. Restricted to numeric columns
+                # when raw cats must pass through (inf-replace on a string cat
+                # column is a no-op anyway, but the imputer would choke on it).
+                if _cats_passthrough_raw:
+                    steps.append(("inf_to_nan", _NumericOnlyTransformer(_InfToNaNTransformer(), cat_features)))
+                    steps.append(("imp", _NumericOnlyTransformer(imputer, cat_features)))
+                else:
+                    steps.append(("inf_to_nan", _InfToNaNTransformer()))
+                    steps.append(("imp", imputer))
             else:
                 logger.warning(
                     "%s.build_pipeline: requires_imputation=True but imputer is None. Imputation step skipped - downstream model.fit may raise ValueError on NaN input. "
@@ -547,7 +623,11 @@ class ModelPipelineStrategy(ABC):
         # Same defence-in-depth: WARN on silent skip when requires_scaling=True but scaler=None (LinearRegression doesn't crash without scaling but regularised variants converge slower; surface the misconfiguration).
         if self.requires_scaling:
             if scaler is not None:
-                steps.append(("scaler", scaler))
+                # Scale numerics only when raw cats must pass through; scaling integer cat codes would destroy them as embedding indices.
+                if _cats_passthrough_raw:
+                    steps.append(("scaler", _NumericOnlyTransformer(scaler, cat_features)))
+                else:
+                    steps.append(("scaler", scaler))
                 # Guarantee float32 output: SimpleImputer/StandardScaler
                 # upcast float32 -> float64 on older sklearn, doubling the
                 # cached transformed-frame memory (the prod 4.1M x 470 linear
@@ -556,8 +636,14 @@ class ModelPipelineStrategy(ABC):
                 # Uses a tiny custom transformer (not FunctionTransformer)
                 # because sklearn 1.8's feature_names_out="one-to-one"
                 # validator crashes on numpy 0-d at transform-time on the
-                # test split (TypeError: iteration over a 0-d array).
-                steps.append(("to_float32", _Float32CastTransformer()))
+                # test split (TypeError: iteration over a 0-d array). When raw
+                # cats pass through they may still be string/category dtype
+                # here (the estimator factorizes them later), so the float32
+                # cast must skip them or it raises on the string column.
+                if _cats_passthrough_raw:
+                    steps.append(("to_float32", _NumericOnlyTransformer(_Float32CastTransformer(), cat_features)))
+                else:
+                    steps.append(("to_float32", _Float32CastTransformer()))
             else:
                 logger.warning(
                     "%s.build_pipeline: requires_scaling=True but scaler is None. Scaling step skipped - Ridge/Lasso/ElasticNet regularisation will be feature-magnitude-dependent. Supply a sklearn.preprocessing.StandardScaler.",
