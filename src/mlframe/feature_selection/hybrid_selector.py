@@ -43,19 +43,30 @@ _TREE_OPS = {
 
 def corr_clusters(X: pd.DataFrame, thr: float = 0.92):
     """Greedy |Pearson| >= thr clustering. Returns (reps, members) where reps is the representative list (first
-    column of each cluster) and members maps rep -> [member columns incl. the rep]. Computed once and shared."""
+    column of each cluster) and members maps rep -> [member columns incl. the rep]. Computed once and shared.
+
+    Vectorized inner scan: the per-pair Python ``abs(C[i,j]) >= thr`` test is replaced by a single boolean adjacency
+    matrix ``A = |C| >= thr`` and an ``np.flatnonzero`` of each rep's upper row -- byte-identical to the prior greedy
+    (same rep order = first unassigned column; same member order = ascending column index), but skips the full j-loop
+    for the common all-singleton frame where each row has few/no above-threshold candidates (measured 3.83x on the
+    p=240 mostly-singleton hybrid frame; the glue floor's single largest item, ~86% of the hybrid's own tottime)."""
     cols = list(X.columns)
     C = np.nan_to_num(np.corrcoef(X.values, rowvar=False))
     if C.ndim == 0:  # single column
         return [cols[0]], {cols[0]: [cols[0]]}
-    reps, members, assigned = [], {}, set()
-    for i, c in enumerate(cols):
-        if c in assigned:
+    A = np.abs(C) >= thr                          # adjacency once (vectorized), replaces the per-pair Python compare
+    p = len(cols)
+    reps, members, assigned = [], {}, np.zeros(p, dtype=bool)
+    for i in range(p):
+        if assigned[i]:
             continue
-        reps.append(c); members[c] = [c]; assigned.add(c)
-        for j in range(i + 1, len(cols)):
-            if cols[j] not in assigned and abs(C[i, j]) >= thr:
-                members[c].append(cols[j]); assigned.add(cols[j])
+        assigned[i] = True
+        reps.append(cols[i]); ms = [cols[i]]
+        cand = np.flatnonzero(A[i, i + 1:]) + (i + 1)   # only the above-threshold j>i (ascending index preserved)
+        for j in cand:
+            if not assigned[j]:
+                assigned[j] = True; ms.append(cols[j])
+        members[cols[i]] = ms
     return reps, members
 
 
@@ -392,7 +403,17 @@ class HybridSelector:
             relevant = list(cols)
         self.relevant_ = relevant
 
-        # STAGE 2 -- reuse the member selectors on the shared, narrowed augmented space
+        # STAGE 2 -- reuse the member selectors on the shared, narrowed augmented space.
+        # bench-attempt-rejected (2026-06-08, member-parallelism): _run_shap (~7s) and _run_boruta_premerge (~17s)
+        # are independent (no shared mutable state) so they LOOK parallelizable, but each already runs n_jobs=-1
+        # internally (sklearn RF / njit / LGBM) and SATURATES all cores on its own. Probed on the 8-core dev box
+        # (hard_synth 1500x220): a 2-thread overlap won only 1.02x (22.34s -> 21.95s; bit-identical) -- no real
+        # overlap, the inner pools time-slice the same cores. loky/process parallelism would be WORSE here: the
+        # members are unequal (17s vs 7s) and RF/LGBM scale ~linearly with cores, so capping each to 4 cores to fit
+        # two processes roughly doubles the 17s member to ~33s > the 24s sequential sum, and it multiplies the
+        # RAM-tight ~8GB footprint + risks RNG non-determinism (re-seeded children break the bit-identical combine).
+        # So the members stay SEQUENTIAL: the wall is irreducible sub-selector compute (already optimized upstream),
+        # not glue. The hybrid's OWN glue is ~0.05s (<0.15% of wall); see corr_clusters for the one glue micro-opt.
         member_sel = {}
         member_sel["mrmr"] = [c for c in (self.mrmr_selected_ + sorted(engineered)) if c in relevant] or list(relevant)
         try:

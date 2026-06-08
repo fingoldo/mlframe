@@ -158,3 +158,54 @@ def inspect_default(param):
     import inspect
     from mlframe.feature_selection._benchmarks.fs_hybrid.hybrid_selector import HybridSelector
     return inspect.signature(HybridSelector.__init__).parameters[param].default
+
+
+# --------------------------------------------------------- corr_clusters vectorization (perf-opt regression)
+def _corr_clusters_reference(X, thr=0.92):
+    """The pre-vectorization greedy reference (per-pair Python compare). The shipped corr_clusters replaced this
+    with an adjacency-matrix + flatnonzero scan; this reference pins that the vectorization is BYTE-IDENTICAL."""
+    import numpy as _np
+    cols = list(X.columns)
+    C = _np.nan_to_num(_np.corrcoef(X.values, rowvar=False))
+    if C.ndim == 0:
+        return [cols[0]], {cols[0]: [cols[0]]}
+    reps, members, assigned = [], {}, set()
+    for i, c in enumerate(cols):
+        if c in assigned:
+            continue
+        reps.append(c); members[c] = [c]; assigned.add(c)
+        for j in range(i + 1, len(cols)):
+            if cols[j] not in assigned and abs(C[i, j]) >= thr:
+                members[c].append(cols[j]); assigned.add(cols[j])
+    return reps, members
+
+
+@pytest.mark.parametrize("p,seed", [(6, 0), (40, 1), (120, 2), (240, 3)])
+def test_corr_clusters_vectorized_byte_identical_to_reference(p, seed):
+    """The vectorized corr_clusters must return reps + members BYTE-IDENTICAL to the per-pair greedy reference:
+    same rep order (first unassigned column) and same member order (ascending column index), across widths and
+    cluster structures (mostly-singleton AND big-cluster frames)."""
+    from mlframe.feature_selection.hybrid_selector import corr_clusters
+    rng = np.random.default_rng(seed)
+    # mix of tight clusters (few latents replicated) + pure-noise singletons -> exercises both scan branches
+    n_latent = max(2, p // 4)
+    base = rng.standard_normal((300, n_latent))
+    cols = {}
+    for k in range(p):
+        if k % 3 == 0:                                  # ~1/3 are noisy copies of a latent -> form clusters
+            cols[f"c{k}"] = base[:, k % n_latent] + 0.02 * rng.standard_normal(300)
+        else:                                            # the rest are pure-noise singletons
+            cols[f"c{k}"] = rng.standard_normal(300)
+    X = pd.DataFrame(cols)
+    reps_v, mem_v = corr_clusters(X)
+    reps_r, mem_r = _corr_clusters_reference(X)
+    assert reps_v == reps_r                              # identical representative order
+    assert mem_v == mem_r                               # identical member lists (keys + ascending-index order)
+
+
+def test_corr_clusters_single_column_edge():
+    """Single-column frame: corrcoef collapses to 0-d; both paths must return the lone column as its own cluster."""
+    from mlframe.feature_selection.hybrid_selector import corr_clusters
+    X = pd.DataFrame({"only": np.arange(10, dtype=float)})
+    reps, members = corr_clusters(X)
+    assert reps == ["only"] and members == {"only": ["only"]}
