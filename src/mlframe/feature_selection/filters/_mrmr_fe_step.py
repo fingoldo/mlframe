@@ -794,6 +794,12 @@ def _run_fe_step(
                         # ENGINEERED-OPERAND FEED-FORWARD (2026-06-08): see the serial branch above.
                         allow_engineered_operands=(_eng_cap != 0),
                         engineered_operand_values=getattr(self, "_engineered_continuous_", None),
+                        # LARGE-N PEAK-MEMORY FIX (2026-06-08): joblib ``backend="threading"``
+                        # runs up to ``n_jobs`` of these CONCURRENTLY in the shared address space,
+                        # each allocating its own candidate/chunk/disc/MI buffers; divide the
+                        # per-call RAM budget by the worker count so N threads don't collectively
+                        # blow past 0.4*available and OOM a worker.
+                        concurrent_workers=int(n_jobs) if n_jobs and n_jobs > 0 else 1,
                     )
                     for chunk in jobs_list
                 ],

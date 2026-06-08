@@ -184,6 +184,14 @@ def check_prospective_fe_pairs(
     # additive composite below the engineered-MI gate). ``None`` (default) -> fall
     # back to the by-name frame extract (bin codes), preserving the legacy behaviour.
     engineered_operand_values: dict | None = None,
+    # LARGE-N PEAK-MEMORY FIX (2026-06-08). Number of ``check_prospective_fe_pairs`` calls
+    # that may run CONCURRENTLY in this process. On the serial-main-thread path this is 1; on
+    # the joblib ``backend="threading"`` path it is ``n_jobs`` (each thread allocates its OWN
+    # candidate / chunk / disc / MI buffers in the SHARED address space, so the per-call RAM
+    # budget must be divided by the worker count or N threads collectively OOM). Used only to
+    # SIZE the candidate buffers (chunk width + shared-buffer fit check) -- never changes which
+    # candidates are produced or their MI, so selection stays byte-identical.
+    concurrent_workers: int = 1,
 ):
     # Starting from the most heavily connected pairs, create a big pool of original features + their unary transforms. Individual vars referenced more than once go
     # to the global pool, the rest to the local (not stored)?
@@ -191,7 +199,7 @@ def check_prospective_fe_pairs(
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from ..feature_engineering import FE_DEFAULT_SUBSAMPLE_N, _FE_BUFFER_RAM_BUDGET_RATIO, _can_hoist_shared_buffer, _estimate_fe_shared_buffer_bytes, _rebuild_full_survivor_col, discretize_array, discretize_2d_quantile_batch, get_new_feature_name, gpu_compatible_unary_names, logger, mi_direct
+    from ..feature_engineering import FE_DEFAULT_SUBSAMPLE_N, _FE_BUFFER_RAM_BUDGET_RATIO, _can_hoist_shared_buffer, _estimate_fe_shared_buffer_bytes, _fe_effective_buffer_budget_bytes, _rebuild_full_survivor_col, discretize_array, discretize_2d_quantile_batch, get_new_feature_name, gpu_compatible_unary_names, logger, mi_direct
     # 2026-06-05: batched FE-candidate MI + permutation noise-gate (bit-identical to the
     # per-candidate mi_direct on the default outer/n_workers=1 path -- see kernel docstring).
     from ..info_theory import batch_mi_with_noise_gate, use_su_normalization
@@ -533,9 +541,17 @@ def check_prospective_fe_pairs(
     # Filled below when the single-pair buffer fits RAM: the chunk buffer reuses the
     # SAME available-RAM budget but may hold MANY pairs (each pair packed whole).
     _fe_chunk_max_cols = 0
+    # LARGE-N PEAK-MEMORY FIX (2026-06-08): the candidate buffers (chunk float32 + disc
+    # int8 codes + batch-MI working set + the held-alive single-pair buffer) coexist while a
+    # chunk is scored, and on the joblib ``backend="threading"`` path ``concurrent_workers``
+    # copies of them are alive at once. So BOTH the single-pair fit check and the chunk-width
+    # cap use the overhead+worker-aware envelope (raw 0.4*available / _FE_PEAK_OVERHEAD_FACTOR
+    # / concurrent_workers) instead of the raw 0.4*available that under-counted the siblings
+    # and ignored the thread multiplication. Byte-identical selection (width only).
+    _n_workers = max(1, int(concurrent_workers))
     if max_n_combs > 0:
         _buf_bytes = _estimate_fe_shared_buffer_bytes(len(X), max_n_combs, _n_binary)
-        _can_hoist, _bb, _avail = _can_hoist_shared_buffer(_buf_bytes)
+        _can_hoist, _bb, _avail = _can_hoist_shared_buffer(_buf_bytes, n_workers=_n_workers)
         if _can_hoist:
             try:
                 final_transformed_vals_shared = np.empty(
@@ -543,13 +559,14 @@ def check_prospective_fe_pairs(
                     dtype=np.float32,
                 )
                 # Cross-pair chunk width cap: the largest column count whose
-                # ``n_rows * cols * 4`` float32 buffer stays inside the SAME RAM
-                # budget the single-pair check used (``_FE_BUFFER_RAM_BUDGET_RATIO``
-                # of available). One pair (``max_n_combs * _n_binary`` cols) already
-                # passed, so this is always >= one pair; we pack whole pairs up to it.
+                # ``n_rows * cols * 4`` float32 buffer stays inside the overhead+worker-aware
+                # envelope (the SUM of the coexisting per-worker buffers fits the SAME 0.4
+                # global budget). One pair (``max_n_combs * _n_binary`` cols) already passed,
+                # so this is always >= one pair; we pack whole pairs up to it.
                 _per_row_bytes = max(1, int(len(X)) * 4)
-                if _avail >= 0:
-                    _fe_chunk_max_cols = int((_avail * _FE_BUFFER_RAM_BUDGET_RATIO) // _per_row_bytes)
+                _eff_budget_bytes = _fe_effective_buffer_budget_bytes(_avail, n_workers=_n_workers)
+                if _eff_budget_bytes >= 0:
+                    _fe_chunk_max_cols = int(_eff_budget_bytes // _per_row_bytes)
                 else:
                     # No psutil reading -> bound the chunk to the hard cap only.
                     _fe_chunk_max_cols = _FE_CHUNK_MAX_COLS_HARD_CAP
@@ -1335,7 +1352,10 @@ def check_prospective_fe_pairs(
                         # fall back to the (bit-identical) per-candidate loop below.
                         _ev_n_bin = len(binary_transformations)
                         _ev_buf_bytes = len(X) * max(1, len(_ev_param_bs)) * _ev_n_bin * 8
-                        _ev_can_batch, _, _ = _can_hoist_shared_buffer(_ev_buf_bytes)
+                        # LARGE-N FIX (2026-06-08): this float64 ext-val buffer coexists with the
+                        # chunk/disc/MI buffers and is allocated per concurrent worker, so use the
+                        # SAME overhead+worker-aware envelope as the candidate buffer above.
+                        _ev_can_batch, _, _ = _can_hoist_shared_buffer(_ev_buf_bytes, n_workers=_n_workers)
                         if quantization_method == "quantile" and _ev_param_bs and _ev_can_batch:
                             _ev_bin_funcs = list(binary_transformations.values())
                             _ev_K = len(_ev_param_bs) * len(_ev_bin_funcs)

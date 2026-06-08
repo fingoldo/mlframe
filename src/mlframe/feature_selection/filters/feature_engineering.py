@@ -59,6 +59,52 @@ _TIMES_SPENT_LOCK = threading.Lock()
 # auto-engages when the shared buffer would OOM.
 _FE_BUFFER_RAM_BUDGET_RATIO: float = 0.4
 
+# LARGE-N PEAK-MEMORY FIX (2026-06-08). The ``_FE_BUFFER_RAM_BUDGET_RATIO`` budget was
+# applied PER buffer in isolation -- it sized the cross-pair ``_chunk_buffer`` (n x W
+# float32) to fill ~0.4*available, but did NOT account for the buffers that are ALIVE AT
+# THE SAME TIME while that chunk is scored:
+#   (1) the discretised int8/int16 code matrix produced by ``discretize_2d_quantile_batch``
+#       over the chunk slice (n x W x {1,2} bytes);
+#   (2) the ``batch_mi_with_noise_gate`` per-column working set + the MI output
+#       (the ``_pairs_dispatch`` allocation -- ~n x W float32-class transient);
+#   (3) the per-pair ``final_transformed_vals_shared`` buffer (n x max_n_combs*n_binary
+#       float32) which is held ALIVE for the whole pair loop even when the chunk path is on.
+# A tracemalloc n=100000 / 5-col / F1 snapshot at the native RSS peak measured:
+#   _chunk_buffer 2225 MiB + final_transformed_vals_shared 742 MiB + disc 556 MiB +
+#   batch-mi dispatch 556 MiB  =>  ~4.2 GiB peak from a chunk buffer the 0.4 budget
+# thought was the ONLY large allocation. On an 8 GiB box (or once the joblib threading
+# path multiplies the per-call buffers across workers) this OOMs in a worker with numba's
+# "Allocation failed (probably too large)". The fix below caps the chunk/shared width so
+# the SUM of the coexisting buffers stays inside the SAME 0.4*available envelope: divide the
+# raw budget by ``_FE_PEAK_OVERHEAD_FACTOR`` (the measured coexisting-buffer multiple,
+# rounded up for safety) AND by the number of CONCURRENTLY-RUNNING workers on the joblib
+# ``backend="threading"`` path (each thread allocates its OWN buffers in the shared address
+# space, so N threads each taking 0.4*available collectively need 0.4*N*available -- a
+# guaranteed OOM for N>=3). Selection stays BYTE-IDENTICAL: this only changes the chunk
+# WIDTH (how many candidate columns are materialised+scored per batched pass), never which
+# candidates are produced, their order, codes, MI, or the per-pair best/tie-break replay --
+# the chunk batching is already documented bit-identical to the per-pair path, and a
+# narrower chunk simply means more (smaller) batched passes over the SAME candidates.
+_FE_PEAK_OVERHEAD_FACTOR: float = 3.0
+
+
+def _fe_effective_buffer_budget_bytes(available_bytes: int, n_workers: int = 1) -> int:
+    """Per-call byte budget for the FE candidate buffer that keeps the SUM of the
+    coexisting buffers (chunk float32 + disc codes + batch-MI working set + the
+    held-alive single-pair buffer) AND the concurrent-worker multiplication inside
+    ``_FE_BUFFER_RAM_BUDGET_RATIO * available`` (see the block comment above).
+
+    ``available_bytes < 0`` (no psutil) preserves the legacy permissive behaviour by
+    returning ``-1`` (callers treat that as "no cap"). ``n_workers`` is the number of
+    threads that may run ``check_prospective_fe_pairs`` CONCURRENTLY (1 on the
+    serial-main-thread path; ``n_jobs`` on the joblib ``backend="threading"`` path)."""
+    if available_bytes < 0:
+        return -1
+    nw = max(1, int(n_workers))
+    raw = float(available_bytes) * _FE_BUFFER_RAM_BUDGET_RATIO
+    return int(raw / (_FE_PEAK_OVERHEAD_FACTOR * nw))
+
+
 # Shared subsample default across the two FE entry points. ``polynom_pair_fe``
 # already uses 200_000 (validated 2026-05-18: 100k could lose a marginal hermite
 # feature, 200k kept it). The accuracy bench for ``check_prospective_fe_pairs``
@@ -167,7 +213,12 @@ def _available_ram_bytes_cached() -> int:
     return available
 
 
-def _can_hoist_shared_buffer(buffer_bytes: int, budget_ratio: float = _FE_BUFFER_RAM_BUDGET_RATIO) -> tuple[bool, int, int]:
+def _can_hoist_shared_buffer(
+    buffer_bytes: int,
+    budget_ratio: float = _FE_BUFFER_RAM_BUDGET_RATIO,
+    n_workers: int = 1,
+    overhead_aware: bool = True,
+) -> tuple[bool, int, int]:
     """Decide whether the shared scratch buffer fits in available RAM.
 
     Uses ``psutil.virtual_memory().available`` (via the OPT5 short-TTL cache
@@ -176,13 +227,26 @@ def _can_hoist_shared_buffer(buffer_bytes: int, budget_ratio: float = _FE_BUFFER
     Falls back to a permissive yes when psutil is unavailable so single-test environments
     without it still take the historical fast path (and OOM loudly on truly large n if so).
 
+    LARGE-N FIX (2026-06-08): with ``overhead_aware=True`` (default) the fit check uses the
+    ``_fe_effective_buffer_budget_bytes`` envelope -- the raw ``budget_ratio*available``
+    divided by ``_FE_PEAK_OVERHEAD_FACTOR`` (the coexisting disc/MI/single-pair buffers) and
+    by ``n_workers`` (concurrent joblib-threading callers, each allocating its own buffers in
+    the shared address space). This is what stops the n=100000 chunk buffer from sizing itself
+    to fill 0.4*available while 1.85 GiB of sibling buffers push the real footprint past it
+    (the measured 4.2 GiB peak on the 5-col F1 repro). Pass ``overhead_aware=False`` for the
+    raw single-buffer check (legacy semantics) when no coexisting buffers are in play.
+
     Returns (can_hoist, buffer_bytes, available_bytes).
     """
     available = _available_ram_bytes_cached()
     if available < 0:
         # No psutil: preserve legacy behaviour (always hoist, OOM is the signal).
         return True, buffer_bytes, -1
-    return buffer_bytes < int(available * budget_ratio), buffer_bytes, available
+    if overhead_aware:
+        budget = _fe_effective_buffer_budget_bytes(available, n_workers=n_workers)
+    else:
+        budget = int(available * budget_ratio)
+    return buffer_bytes < budget, buffer_bytes, available
 
 
 # Domain-validity tags for unary transforms produced by ``create_unary_transformations(preset="maximal")``. Consumers that need to clip / reject inputs before
