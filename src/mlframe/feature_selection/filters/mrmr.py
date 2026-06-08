@@ -411,6 +411,20 @@ class MRMR(BaseEstimator, TransformerMixin):
         # ``full_npermutations=3``; cost ~3% FE wall time.
         fe_npermutations=3,
         fe_ntop_features=0,
+        # ENGINEERED-OPERAND FEED-FORWARD CAP (2026-06-08). At FE step k>1 the
+        # operand pool also carries the engineered columns selected by the prior
+        # step(s), so the pair search can build COMPOSITES of two engineered
+        # features -- e.g. the additive ``add(div(sqr(a),abs(b)), mul(log(c),sin(d)))``
+        # that captures ~the entire deterministic signal of
+        # ``y = a**2/b + log(c)*sin(d)``. To bound the O(k^2) pair blow-up (engineered
+        # cols accumulate across steps), only the top-K engineered operands BY THEIR
+        # SCREENING MI WITH THE TARGET are fed back each step; the rest still reach
+        # ``support_`` as selected features, they just don't seed further composites.
+        # 8 covers the realistic "a handful of strong engineered factors recombine"
+        # case while keeping the extra pair count small. 0 disables the feed-forward
+        # (raw-only operands, the pre-2026-06-08 behaviour); a negative value means
+        # "no cap" (feed back every selected engineered operand).
+        fe_max_engineered_operands: int = 8,
         fe_unary_preset="medium",
         fe_binary_preset="minimal",
         # ``fe_max_pair_features`` default 1->10:

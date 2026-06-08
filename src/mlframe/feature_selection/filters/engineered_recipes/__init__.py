@@ -811,8 +811,23 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
             f"'{recipe.binary_preset}' preset."
         )
 
-    vals_a = _extract_column(X, name_a)
-    vals_b = _extract_column(X, name_b)
+    # NESTED-ENGINEERED PARENTS (2026-06-08): when an operand is itself an engineered
+    # column (a higher-order composite), its values are NOT in ``X`` at transform time
+    # (X carries only raw columns). Recompute it by recursively replaying the stored
+    # parent recipe, forced to its CONTINUOUS output (quantization stripped) so the
+    # composite is built on continuous values exactly as at fit time -- the fit-time
+    # operand was the parent's continuous engineered value, not its bin codes.
+    def _nested_continuous(parent: "EngineeredRecipe") -> np.ndarray:
+        if parent.quantization is not None:
+            # Replay the parent WITHOUT quantization (continuous output).
+            import dataclasses as _dc
+            parent = _dc.replace(parent, quantization=None)
+        return np.asarray(apply_recipe(parent, X), dtype=np.float64)
+
+    _np_a = recipe.extra.get("nested_parent_a")
+    _np_b = recipe.extra.get("nested_parent_b")
+    vals_a = _nested_continuous(_np_a) if _np_a is not None else _extract_column(X, name_a)
+    vals_b = _nested_continuous(_np_b) if _np_b is not None else _extract_column(X, name_b)
 
     def _apply_side(side: str, uname: str, vals):
         if uname == _GATE_MED:
@@ -1054,6 +1069,8 @@ def build_unary_binary_recipe(
     prewarp_b: dict | None = None,
     gate_med_a: float | None = None,
     gate_med_b: float | None = None,
+    nested_parent_a: "EngineeredRecipe | None" = None,
+    nested_parent_b: "EngineeredRecipe | None" = None,
 ) -> EngineeredRecipe:
     """Build an ``EngineeredRecipe`` of kind ``"unary_binary"``. ``quantization`` is ``None`` if no discretization, else a dict carrying the binning
     parameters AND, when ``fit_values_for_edges`` is provided, the fit-time bin edges so transform-time replay maps each row to the SAME bin
@@ -1061,7 +1078,16 @@ def build_unary_binary_recipe(
 
     2026-05-30 Wave 9.1 iter 28: ``fit_values_for_edges`` lets the caller pin the quantile boundaries. Without it (legacy code paths) the
     recipe emits a UserWarning at replay time about the train/test leakage risk.
-    """
+
+    NESTED-ENGINEERED PARENTS (2026-06-08): ``nested_parent_a`` / ``nested_parent_b`` are
+    the ``EngineeredRecipe`` objects for operands that are THEMSELVES engineered columns
+    (a step-k>1 composite of two prior engineered features, e.g.
+    ``add(div(sqr(a),abs(b)), mul(log(c),sin(d)))``). When supplied, the parent recipe is
+    stored in ``extra["nested_parent_<side>"]`` and ``_apply_unary_binary`` recomputes that
+    operand at transform time by recursively replaying the parent (forced to its CONTINUOUS
+    output -- quantization stripped -- so the composite is built on continuous values exactly
+    as at fit time) rather than reading ``src_<side>_name`` from ``X`` (which only carries
+    raw columns at transform time). This makes higher-order composites fully replayable."""
     # Pre-warp recipes emit a CONTINUOUS learned-polynomial product (the same
     # nature as the orthogonal-poly ``hermite_pair`` recipe, which is NOT
     # quantised at replay). Quantile-binning the heavy-tailed product to integer
@@ -1117,6 +1143,14 @@ def build_unary_binary_recipe(
         if _med is None:
             continue
         extra[f"gate_med_{_side}_median"] = float(_med)
+    # Nested-engineered parents (2026-06-08): store the parent recipe per side so
+    # replay recomputes the engineered operand recursively. ``_extra_equal`` compares
+    # them via ``EngineeredRecipe.__eq__`` (the else branch), and ``__post_init__``
+    # deep-copies extra so the stored parents are owned by this recipe.
+    for _side, _parent in (("a", nested_parent_a), ("b", nested_parent_b)):
+        if _parent is None:
+            continue
+        extra[f"nested_parent_{_side}"] = _parent
     return EngineeredRecipe(
         name=name,
         kind="unary_binary",

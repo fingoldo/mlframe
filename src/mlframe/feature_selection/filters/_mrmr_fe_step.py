@@ -239,6 +239,38 @@ def _run_fe_step(
         verbose=verbose,
     )
 
+    # ENGINEERED-OPERAND FEED-FORWARD CAP (2026-06-08). At FE step k>1 the operand
+    # pool now also carries the engineered columns selected by the prior step(s)
+    # (their cols-space indices are promoted into ``selected_vars`` at this
+    # function's bottom and re-confirmed by the next screening pass). Feeding them
+    # back lets the pair search build COMPOSITES of two engineered features -- e.g.
+    # the additive ``add(div(sqr(a),abs(b)), mul(log(c),sin(d)))`` that captures ~the
+    # entire deterministic signal. But engineered columns accumulate across steps,
+    # so an uncapped feed-forward makes the O(k^2) pair count blow up. Keep only the
+    # top-K engineered operands BY THEIR MARGINAL SCREENING MI (``cached_MIs[(idx,)]``,
+    # populated by screen_predictors for every selected var); the rest still reach
+    # ``support_`` -- they just don't seed further composites. ``fe_max_engineered_operands``:
+    # 0 -> raw-only pool (legacy, no composites), <0 -> no cap, >0 -> top-K cap.
+    _raw_name_set = set(getattr(self, "feature_names_in_", []) or [])
+    _eng_cap = int(getattr(self, "fe_max_engineered_operands", 8))
+    _engineered_in_pool = [v for v in numeric_vars_to_consider if cols[v] not in _raw_name_set]
+    if _engineered_in_pool and _eng_cap >= 0:
+        if _eng_cap == 0:
+            _keep_eng: set = set()
+        else:
+            # Rank by marginal MI; missing single-var MI sorts last (kept only if it fits the cap).
+            _ranked = sorted(_engineered_in_pool, key=lambda v: cached_MIs.get((v,), 0.0), reverse=True)
+            _keep_eng = set(_ranked[:_eng_cap])
+        _drop_eng = set(_engineered_in_pool) - _keep_eng
+        if _drop_eng:
+            numeric_vars_to_consider = set(numeric_vars_to_consider) - _drop_eng
+            if verbose:
+                logger.info(
+                    "MRMR FE feed-forward: kept top %d engineered operand(s) by marginal MI for composite pairing, "
+                    "dropped %d below fe_max_engineered_operands=%d to bound the pair count (they remain selected).",
+                    len(_keep_eng), len(_drop_eng), _eng_cap,
+                )
+
     # `combinations(...)` is consumed lazily by tqdmu (small path) or by
     # `_lazy_chunks` (large path). Pair count is closed-form, avoiding
     # `list(combinations(...))` materialisation (O(k^2) tuples, ~300 MB at
@@ -670,6 +702,13 @@ def _run_fe_step(
                 # column-prange twins (gated further by the per-host crossover). The joblib
                 # path below leaves ``serial_main_thread`` at its default False -> serial kernels.
                 serial_main_thread=True,
+                # ENGINEERED-OPERAND FEED-FORWARD (2026-06-08): resolve engineered operands by
+                # name so (eng_i, eng_j) composites materialise. Off when the cap is 0 (raw-only
+                # pool); the pool already excludes them in that case. ``engineered_operand_values``
+                # supplies the CONTINUOUS engineered values so the composite is built on them
+                # rather than the lossy bin codes.
+                allow_engineered_operands=(_eng_cap != 0),
+                engineered_operand_values=getattr(self, "_engineered_continuous_", None),
             )
         else:
 
@@ -733,6 +772,9 @@ def _run_fe_step(
                         prewarp_specs_out=None,  # loky: recovered from result dict below
                         fe_gate_med_enable=_gate_med_enable,
                         gate_med_specs_out=None,  # loky: recovered from result dict below
+                        # ENGINEERED-OPERAND FEED-FORWARD (2026-06-08): see the serial branch above.
+                        allow_engineered_operands=(_eng_cap != 0),
+                        engineered_operand_values=getattr(self, "_engineered_continuous_", None),
                     )
                     for chunk in jobs_list
                 ],
@@ -835,11 +877,35 @@ def _run_fe_step(
                         for _jc, col in enumerate(new_cols):
                             X[col] = new_vals[:, _jc]
 
+                    # ENGINEERED-OPERAND FEED-FORWARD (2026-06-08): stash the CONTINUOUS
+                    # engineered values (``transformed_vals``) keyed by column name. The
+                    # augmented frame ``X`` only carries the DISCRETISED bin codes (needed
+                    # for screening), but the NEXT FE step's pair search must combine the
+                    # CONTINUOUS values: ``add(bin_codes(eng1), bin_codes(eng2))`` is
+                    # severely lossy (measured: the additive composite of the two real
+                    # step-1 features keeps MI 0.88 from bin codes vs 1.81 -- the full
+                    # signal -- from continuous values, so the code form fails the
+                    # engineered-MI gate). ``check_prospective_fe_pairs`` reads this store
+                    # (threaded as ``engineered_operand_values``) so ``(eng_i, eng_j)``
+                    # composites are built on the continuous values and recover the signal.
+                    _eng_cont_store = getattr(self, "_engineered_continuous_", None)
+                    if _eng_cont_store is None:
+                        _eng_cont_store = {}
+                        self._engineered_continuous_ = _eng_cont_store
+                    for _jc, col in enumerate(new_cols):
+                        if transformed_vals.shape[1] > _jc:
+                            _eng_cont_store[col] = np.asarray(transformed_vals[:, _jc], dtype=np.float64)
+
                     # Build EngineeredRecipe for each newly-appended column so transform() can replay it.
-                    # Runs whenever columns were added (fe_max_steps >= 1). Best-effort: parents that are
-                    # themselves engineered (higher-order interaction) are skipped (nested replay is future work).
+                    # Runs whenever columns were added (fe_max_steps >= 1). NESTED-ENGINEERED PARENTS
+                    # (2026-06-08): a parent that is itself an engineered column (a higher-order
+                    # composite, e.g. add(div(sqr(a),abs(b)), mul(log(c),sin(d)))) is now REPLAYABLE --
+                    # we pass the parent's own EngineeredRecipe (already in ``engineered_recipes`` from
+                    # the prior step) so replay recomputes it recursively. Only when a parent is
+                    # engineered AND has no replayable recipe do we skip (cannot reconstruct it).
                     if engineered_recipes is not None:
                         from .engineered_recipes import build_unary_binary_recipe
+                        _raw_names = set(self.feature_names_in_)
                         for config, _j in this_pair_features:
                             # config = (transformations_pair, bin_func_name, i)
                             # transformations_pair = ((var_a_idx, unary_a_name),
@@ -847,23 +913,23 @@ def _run_fe_step(
                             transformations_pair, bin_func_name, _ = config
                             (var_a_idx, unary_a_name) = transformations_pair[0]
                             (var_b_idx, unary_b_name) = transformations_pair[1]
-                            # Map cols-index -> feature_names_in_-name. If a parent is itself engineered,
-                            # cols[var] is not in feature_names_in_; skip with a warning rather than produce
-                            # an unreplayable recipe.
+                            # Map cols-index -> name. A RAW parent resolves to a ``feature_names_in_``
+                            # name; an ENGINEERED parent resolves to its prior recipe (nested replay).
                             src_a_name_raw = cols[var_a_idx]
                             src_b_name_raw = cols[var_b_idx]
-                            if (
-                                src_a_name_raw not in self.feature_names_in_
-                                or src_b_name_raw not in self.feature_names_in_
-                            ):
+                            _nested_a = None if src_a_name_raw in _raw_names else engineered_recipes.get(src_a_name_raw)
+                            _nested_b = None if src_b_name_raw in _raw_names else engineered_recipes.get(src_b_name_raw)
+                            # Skip only when an operand is engineered but its parent recipe is missing
+                            # (un-replayable) -- e.g. a parent from a stage that did not register one.
+                            _a_unreplayable = (src_a_name_raw not in _raw_names) and (_nested_a is None)
+                            _b_unreplayable = (src_b_name_raw not in _raw_names) and (_nested_b is None)
+                            if _a_unreplayable or _b_unreplayable:
                                 if verbose:
                                     logger.info(
-                                        "Skipping recipe construction for nested "
-                                        "engineered feature '%s' (parents %s, %s "
-                                        "are not in feature_names_in_); higher-"
-                                        "order replay is future work.",
+                                        "Skipping recipe construction for nested engineered feature "
+                                        "'%s' (parent %s has no replayable recipe).",
                                         get_new_feature_name(config, cols),
-                                        src_a_name_raw, src_b_name_raw,
+                                        src_a_name_raw if _a_unreplayable else src_b_name_raw,
                                     )
                                 continue
                             eng_name = get_new_feature_name(config, cols)
@@ -904,6 +970,10 @@ def _run_fe_step(
                                 prewarp_b=_pw_b,
                                 gate_med_a=_gm_a,
                                 gate_med_b=_gm_b,
+                                # Nested-engineered parents (2026-06-08): None for raw operands,
+                                # else the parent's recipe so replay recomputes it recursively.
+                                nested_parent_a=_nested_a,
+                                nested_parent_b=_nested_b,
                             )
 
                 n_recommended_features += len(this_pair_features)

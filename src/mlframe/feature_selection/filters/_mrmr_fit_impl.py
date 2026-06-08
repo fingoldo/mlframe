@@ -5628,6 +5628,18 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 continue
             break  # uncomment to avoid recheck of single-rounded FE
 
+    # ENGINEERED-OPERAND FEED-FORWARD (2026-06-08): the continuous engineered-value
+    # store is FIT-TIME SCRATCH (full-length float64 arrays of training data) used
+    # only to feed engineered operands into the next FE step's pair search. Drop it
+    # once the FE loop is done so it never bloats the fitted estimator or breaks
+    # pickle (the replayable composite carries only its parent recipes, never these
+    # arrays). No-op when the attr was never created (no engineered columns).
+    if hasattr(self, "_engineered_continuous_"):
+        try:
+            del self._engineered_continuous_
+        except Exception:
+            self._engineered_continuous_ = {}
+
     if verbose > 2:
         logger.info("time spent by binary func: %s", sort_dict_by_value(times_spent))
     # Possibly decide on eliminating original features? (if constructed ones cover 90%+ of MI)

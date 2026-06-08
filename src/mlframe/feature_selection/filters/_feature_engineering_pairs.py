@@ -1037,6 +1037,25 @@ def check_prospective_fe_pairs(
     # Byte-identical either way -- only thread-count of the embarrassingly-parallel per-column
     # work changes. Default False = the always-safe serial path.
     serial_main_thread: bool = False,
+    # ENGINEERED-OPERAND FEED-FORWARD (2026-06-08). When True (default), an operand var
+    # that is NOT a raw ``feature_names_in_`` column (i.e. it is an engineered column
+    # appended by a prior FE step, hence absent from ``original_cols``) is resolved by
+    # NAME from the augmented frame ``X`` rather than skipped. This lets the step-k>1
+    # pair search build COMPOSITES of two engineered features -- e.g. the additive
+    # ``add(div(sqr(a),abs(b)), mul(log(c),sin(d)))`` that captures ~the entire
+    # deterministic signal of ``y = a**2/b + log(c)*sin(d)``. The number of engineered
+    # operands fed back is capped UPSTREAM (``fe_max_engineered_operands`` in
+    # ``_mrmr_fe_step``) so the O(k^2) pair count stays bounded. Set False to restore
+    # the legacy raw-only operand pool (no engineered x engineered composites).
+    allow_engineered_operands: bool = True,
+    # ENGINEERED-OPERAND CONTINUOUS VALUES (2026-06-08). ``{engineered_col_name ->
+    # full-n float64 ndarray}`` of the CONTINUOUS engineered values produced by prior
+    # FE steps. ``_extval_raw_col`` reads this for engineered operands so the pair
+    # search combines the CONTINUOUS values rather than the augmented frame's
+    # DISCRETISED bin codes (combining codes is severely lossy -- it sinks the
+    # additive composite below the engineered-MI gate). ``None`` (default) -> fall
+    # back to the by-name frame extract (bin codes), preserving the legacy behaviour.
+    engineered_operand_values: dict | None = None,
 ):
     # Starting from the most heavily connected pairs, create a big pool of original features + their unary transforms. Individual vars referenced more than once go
     # to the global pool, the rest to the local (not stored)?
@@ -1111,21 +1130,68 @@ def check_prospective_fe_pairs(
     _extval_raw_col_cache: dict = {}
 
     def _extval_raw_col(_var):
-        """Memoised raw-values ndarray for external factor ``_var`` (var index into
-        ``original_cols``). Returns ``None`` when the var is not in ``original_cols``
-        (skipped by the caller, exactly as the inline guard did). Deterministic +
-        bit-identical to the inline ``X.iloc[...].values`` / ``.to_numpy()`` extract."""
+        """Memoised operand-values ndarray for var ``_var`` (cols-space index).
+
+        For a RAW operand (``_var in original_cols``) returns ``X``'s column at the
+        ``original_cols[_var]`` position (the RAW position into ``feature_names_in_``),
+        bit-identical to the legacy ``X.iloc[...].values`` / ``.to_numpy()`` extract.
+
+        ENGINEERED-OPERAND FEED-FORWARD (2026-06-08): at FE step k>1 the operand pool
+        also carries the engineered columns appended by the prior step(s)
+        (``selected_vars`` includes their cols-space indices, so the pair-MI sweep
+        surfaces ``(eng_i, eng_j)`` pairs -- e.g. the additive composite of the two
+        real step-1 features that captures ~the entire deterministic signal). Those
+        columns are NOT in ``original_cols`` (which holds raw ``feature_names_in_``
+        positions only), but they ARE present in the AUGMENTED frame ``X`` under their
+        ``cols[_var]`` name (``_mrmr_fe_step`` appends each engineered column to BOTH
+        ``cols`` and ``X`` in lockstep). When ``allow_engineered_operands`` is on we
+        fetch them by NAME so ``(eng_i, eng_j)`` can produce a real composite candidate.
+        Returns ``None`` only when the var is neither a raw position nor a resolvable
+        augmented-frame column (the caller then skips it, exactly as before)."""
         if _var in _extval_raw_col_cache:
             return _extval_raw_col_cache[_var]
-        if _var not in original_cols:
-            _extval_raw_col_cache[_var] = None
-            return None
-        if isinstance(X, pd.DataFrame):
-            _vals = X.iloc[:, original_cols[_var]].values
-        else:
-            _vals = X[:, original_cols[_var]].to_numpy()
-        _extval_raw_col_cache[_var] = _vals
-        return _vals
+        if _var in original_cols:
+            if isinstance(X, pd.DataFrame):
+                _vals = X.iloc[:, original_cols[_var]].values
+            else:
+                _vals = X[:, original_cols[_var]].to_numpy()
+            _extval_raw_col_cache[_var] = _vals
+            return _vals
+        # Engineered operand: resolve by name. PREFER the CONTINUOUS engineered values
+        # (``engineered_operand_values[name]``) over the augmented frame's column, which
+        # holds the DISCRETISED bin codes -- combining bin codes (e.g. ``add(codes_a,
+        # codes_b)``) is severely lossy and sinks the composite below the engineered-MI
+        # gate (measured: 0.88 from codes vs 1.81 -- the full signal -- from continuous
+        # values). Fall back to the by-name frame extract when no continuous value is
+        # stored (e.g. an engineered column produced by a stage that did not register one).
+        if allow_engineered_operands and 0 <= _var < len(cols):
+            _name = cols[_var]
+            _vals = None
+            if engineered_operand_values is not None:
+                _cv = engineered_operand_values.get(_name)
+                if _cv is not None:
+                    _cv = np.asarray(_cv)
+                    # The continuous store is full-n; align to the (possibly subsampled) X.
+                    if _cv.shape[0] == len(X):
+                        _vals = _cv
+                    elif _use_subsample and _cv.shape[0] == _full_n_rows:
+                        _vals = _cv[_sample_idx]
+            if _vals is None:
+                try:
+                    if isinstance(X, pd.DataFrame):
+                        _vals = X[_name].to_numpy() if hasattr(X[_name], "to_numpy") else X[_name].values
+                    elif hasattr(X, "columns") and _name in getattr(X, "columns", []):
+                        _vals = X[_name].to_numpy()  # polars
+                    else:
+                        _vals = None
+                except Exception:
+                    _vals = None
+            if _vals is not None:
+                _vals = np.asarray(_vals)
+                _extval_raw_col_cache[_var] = _vals
+                return _vals
+        _extval_raw_col_cache[_var] = None
+        return None
 
     # PER-OPERAND PRE-WARP setup (2026-06-02). When enabled, fit ONE learned
     # 1-D pre-warp per raw operand against the (subsample-aligned) target, and
@@ -1399,17 +1465,21 @@ def check_prospective_fe_pairs(
     i = 0
     for (raw_vars_pair, _pair_mi), _uplift in prospective_pairs.items():
         for var in raw_vars_pair:
-            # ``original_cols`` is built only for cols that survived the prior
-            # selection pass; a temp / dropped column index may not be present.
-            # Skip silently rather than KeyError out of the whole FE block.
-            if var not in original_cols:
-                continue
             # Q8 (2026-06-07): SHARED {var: raw-ndarray} memo. This main unary-materialise
             # loop iterates over (pair, var); a var shared across prospective pairs was
             # previously re-extracted via ``X.iloc[...].values`` once per occurrence. Reading
             # the shared ``_extval_raw_col`` memo (same Polars/pandas extract: ``X[:, idx].to_numpy()``
             # / ``X.iloc[:, idx].values``) extracts each distinct var ONCE. Bit-identical raw values.
+            #
+            # ENGINEERED-OPERAND FEED-FORWARD (2026-06-08): ``_extval_raw_col`` now also
+            # resolves engineered operands (var not in ``original_cols``) by NAME from the
+            # augmented frame, so a step-k>1 ``(eng_i, eng_j)`` pair materialises a real
+            # composite candidate. It returns ``None`` only when the var resolves to neither
+            # a raw position nor an augmented-frame column (a temp / dropped index); skip
+            # silently in that case rather than KeyError out of the whole FE block.
             vals = _extval_raw_col(var)
+            if vals is None:
+                continue
             for tr_name in _unary_names_eff:
                 tr_func = unary_transformations.get(tr_name)
                 key = (var, tr_name)

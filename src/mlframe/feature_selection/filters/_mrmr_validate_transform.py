@@ -512,12 +512,32 @@ def _append_engineered(self, base_out, X, recipes):
         _results: dict = {}
         _pending = list(recipes)
         _unresolved: set = set()
+
+        def _unresolved_sources(r) -> list:
+            """Source names a recipe still needs from ``chained`` that are NOT
+            available. NESTED-ENGINEERED PARENTS (2026-06-08): a ``unary_binary``
+            recipe whose operand is itself engineered carries that parent's recipe
+            in ``extra['nested_parent_a'|'nested_parent_b']`` and recomputes it
+            recursively in ``apply_recipe`` -- so that side is self-resolving and
+            must NOT be treated as a missing column dependency (its engineered
+            ``src_name`` is never present in the raw-only transform frame)."""
+            _src = tuple(getattr(r, "src_names", ()) or ())
+            _extra = getattr(r, "extra", {}) or {}
+            _nested_by_pos = (_extra.get("nested_parent_a"), _extra.get("nested_parent_b"))
+            out = []
+            for _pos, s in enumerate(_src):
+                if s in chained.columns:
+                    continue
+                if _pos < 2 and _nested_by_pos[_pos] is not None:
+                    continue  # resolved recursively via the stored parent recipe
+                out.append(s)
+            return out
+
         while _pending:
             _progress = False
             _still: list = []
             for r in _pending:
-                _src = tuple(getattr(r, "src_names", ()) or ())
-                if all((s in chained.columns) for s in _src):
+                if not _unresolved_sources(r):
                     col = apply_recipe(r, chained)
                     _results[r.name] = col
                     chained = chained.assign(**{r.name: col})
@@ -526,7 +546,7 @@ def _append_engineered(self, base_out, X, recipes):
                     _still.append(r)
             if not _progress:
                 for r in _still:
-                    _missing = [s for s in (getattr(r, "src_names", ()) or ()) if s not in chained.columns]
+                    _missing = _unresolved_sources(r)
                     # Raise-vs-NaN is keyed on the recipe kind's data-flow contract. Raw-seed-only kinds (``mi_greedy_transform``) consume
                     # input columns exclusively -- a missing source is a genuine recipe-vs-X mismatch (corrupted/stale recipe, or wrong X)
                     # and must fail loudly and name the column. Chained-capable kinds (modular / numeric_decompose / numeric_rounding /
