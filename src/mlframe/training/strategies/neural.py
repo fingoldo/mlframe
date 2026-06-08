@@ -190,10 +190,20 @@ class RecurrentModelStrategy(ModelPipelineStrategy):
 
     cache_key = "recurrent"
     requires_scaling = True
-    requires_encoding = True
     requires_imputation = True
     supports_native_multiclass = True
     supports_native_multilabel = True
+
+    # Mirror NeuralNetStrategy: when True (default), the recurrent estimator factorizes raw TABULAR categoricals into integer codes at its fit
+    # boundary and learns an ``nn.Embedding`` per cat on the aux block (HYBRID / FEATURES_ONLY). In that mode the strategy must NOT target-encode
+    # the cats -- they reach the estimator RAW -- so ``requires_encoding`` flips False, the CatBoostEncoder step is skipped in ``build_pipeline``,
+    # and imputation/scaling are restricted to the numeric block via ``_NumericOnlyTransformer``. SEQUENCE_ONLY has no tabular cat block so this is
+    # inert there. Set False for the legacy CatBoostEncoder path (cats target-encoded upstream; the estimator's factorizer no-ops).
+    use_learnable_cat_embeddings: bool = True
+
+    @property
+    def requires_encoding(self) -> bool:
+        return not self.use_learnable_cat_embeddings
     # supports_native_ranking stays False -- group-batching for sequences
     # would require a custom sampler that yields one query's sequences
     # per batch; non-trivial integration with RecurrentDataModule.

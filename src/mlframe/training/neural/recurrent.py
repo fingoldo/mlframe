@@ -99,6 +99,7 @@ __all__ = [
 
 
 from .base import _ensure_numpy  # noqa: E402,F401  shared with _recurrent_data
+from ._recurrent_cat_embeddings import _RecurrentCatEmbeddingMixin  # noqa: E402
 from ._recurrent_config import RNNType, InputMode, RecurrentConfig  # noqa: E402,F401
 from ._recurrent_data import RecurrentDataset, recurrent_collate_fn, RecurrentDataModule  # noqa: E402,F401
 from ._recurrent_arch import AttentionPooling, PositionalEncoding, TransformerSequenceEncoder, MLPHead  # noqa: E402,F401
@@ -155,7 +156,7 @@ from ._recurrent_torch_model import RecurrentTorchModel  # noqa: F401, E402
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
-class _RecurrentWrapperBase(BaseEstimator):
+class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
     """
     Base class for sklearn-compatible recurrent model wrappers.
 
@@ -168,15 +169,30 @@ class _RecurrentWrapperBase(BaseEstimator):
         self,
         config: RecurrentConfig | None = None,
         random_state: int = 42,
+        use_learnable_cat_embeddings: bool = True,
+        categorical_embed_dim: int | None = None,
     ) -> None:
         self.config = config or RecurrentConfig()
         self.random_state = random_state
+        # ``use_learnable_cat_embeddings`` (default True): when fit() receives ``cat_features`` and the input_mode keeps a tabular block
+        # (HYBRID / FEATURES_ONLY), factorize those raw cat columns to integer codes at the fit boundary and learn an ``nn.Embedding`` per cat
+        # (trained end-to-end) on the TABULAR features, mirroring the flat MLP. SEQUENCE_ONLY has no tabular block so the path no-ops. Set False
+        # to fall back to the strategy's CatBoostEncoder path (cats target-encoded upstream; the factorizer no-ops). ``categorical_embed_dim``:
+        # fixed per-cat embedding width; None uses the fastai heuristic.
+        self.use_learnable_cat_embeddings = use_learnable_cat_embeddings
+        self.categorical_embed_dim = categorical_embed_dim
         self.model: RecurrentTorchModel | None = None
         self.trainer: L.Trainer | None = None
         self._aux_input_size: int = 0
         self._seq_input_size: int = _DEFAULT_SEQ_INPUT_SIZE
         self._feature_scaler: StandardScaler | None = None
         self._prediction_cache: dict[bytes, np.ndarray] = {}
+        # Categorical factorization state (tabular block only; sequences never carry cats). Populated by ``_factorize_cats_fit`` and replayed by
+        # ``_apply_cat_codes`` at predict. ``_cat_cardinalities_`` None == no learnable-cat embedding active for this fit.
+        self._cat_code_maps_: dict | None = None
+        self._cat_cols_: list | None = None
+        self._cat_cardinalities_: list[int] | None = None
+        self._n_cat_features_: int = 0
 
     def _validate_inputs(
         self,
@@ -221,7 +237,14 @@ class _RecurrentWrapperBase(BaseEstimator):
 
         scaled_features = _ensure_numpy(features)
         if scaled_features is not None and self._feature_scaler is not None:
-            scaled_features = self._feature_scaler.transform(scaled_features).astype(np.float32)
+            n_cat = self._n_cat_features_ if self._cat_cardinalities_ else 0
+            if n_cat > 0:
+                # Scale ONLY the trailing numeric block; the leading cat-code columns pass through unscaled so they stay valid embedding indices.
+                scaled_features = np.ascontiguousarray(scaled_features, dtype=np.float32)
+                if scaled_features.shape[1] > n_cat:
+                    scaled_features[:, n_cat:] = self._feature_scaler.transform(scaled_features[:, n_cat:]).astype(np.float32)
+            else:
+                scaled_features = self._feature_scaler.transform(scaled_features).astype(np.float32)
 
         return RecurrentDataset(
             sequences=processed_seqs,
@@ -232,13 +255,13 @@ class _RecurrentWrapperBase(BaseEstimator):
         )
 
     def _create_eval_dataset(self, eval_set: tuple) -> RecurrentDataset:
-        """Create validation dataset from eval_set tuple."""
+        """Create validation dataset from eval_set tuple. Replays the fit-time cat factorization on the val tabular block (no-op when none)."""
         if len(eval_set) == 2:
             features, labels = eval_set
-            return self._create_dataset(None, features, labels)
+            return self._create_dataset(None, self._apply_cat_codes(features), labels)
         elif len(eval_set) == 3:
             sequences, features, labels = eval_set
-            return self._create_dataset(sequences, features, labels)
+            return self._create_dataset(sequences, self._apply_cat_codes(features), labels)
         else:
             raise ValueError(f"eval_set must have 2 or 3 elements, got {len(eval_set)}")
 
@@ -376,6 +399,9 @@ class _RecurrentWrapperBase(BaseEstimator):
 
         # Thread task_type='multilabel' when fit() detected 2-D y; LightningModule switches to BCE loss + sigmoid output.
         _task_type = "multilabel" if getattr(self, "_is_multilabel", False) else None
+        # Thread the fit-time tabular cat cardinalities so the model prepends a CategoricalEmbedding on the aux block. None when no cats were
+        # factorized (or SEQUENCE_ONLY, where there is no aux block). The embedding lives BEFORE the shared MLPHead output, target-type-agnostic.
+        _cat_cards = list(self._cat_cardinalities_) if self._cat_cardinalities_ else None
         return RecurrentTorchModel(
             config=self.config,
             seq_input_size=seq_input_size,
@@ -383,6 +409,8 @@ class _RecurrentWrapperBase(BaseEstimator):
             class_weight=weight_tensor,
             is_regression=self._is_regression,
             task_type=_task_type,
+            aux_categorical_cardinalities=_cat_cards,
+            aux_categorical_embed_dim=self.categorical_embed_dim,
         )
 
     def _auto_precision(self) -> str:
@@ -469,48 +497,6 @@ class _RecurrentWrapperBase(BaseEstimator):
         """Clear prediction cache."""
         self._prediction_cache.clear()
 
-    @staticmethod
-    def _compute_cache_key(
-        features: np.ndarray | None,
-        sequences: list[np.ndarray] | None,
-    ) -> bytes:
-        """Compute content-hash cache key from input arrays.
-
-        Sampling 3 scalars + shape and hashing the tuple-of-str was
-        collision-prone: any two predict-batches that agreed on (shape,
-        dtype, first/middle/last value) returned the cached prediction of
-        the first, which silently mis-predicted on near-duplicate inputs.
-
-        Hash full ``tobytes()`` payload (xxhash if available, blake2b
-        otherwise) keyed on shape+dtype to make sub-cell changes always
-        invalidate the cache.
-        """
-        # Module-top imports (hashlib + optional xxhash) keep the predict-hot
-        # path import-free; the previous try/except ImportError ran on EVERY
-        # predict call. xxhash is ~5x faster than blake2b on tobytes payloads.
-        if _HAS_XXHASH:
-            _hasher = _xxhash.xxh3_128()
-        else:
-            _hasher = _hashlib.blake2b(digest_size=16)
-        _update = _hasher.update
-        _digest = _hasher.digest
-
-        if features is not None:
-            _update(b"FEAT")
-            _update(str(features.shape).encode())
-            _update(features.dtype.str.encode())
-            _arr = np.ascontiguousarray(features)
-            _update(_arr.tobytes())
-        if sequences is not None:
-            _update(b"SEQ")
-            _update(str(len(sequences)).encode())
-            for seq in sequences:
-                _arr = np.ascontiguousarray(seq)
-                _update(str(seq.shape).encode())
-                _update(seq.dtype.str.encode())
-                _update(_arr.tobytes())
-        return _digest()
-
     def save(self, path: str | Path) -> None:
         """Save model to disk.
 
@@ -552,6 +538,14 @@ class _RecurrentWrapperBase(BaseEstimator):
             "seq_input_size": self._seq_input_size,
             "feature_scaler_dict": scaler_dict,
             "is_regression": self._is_regression,
+            # Learnable-cat-embedding state for the tabular block. ``cat_code_maps`` keys/values are plain Python (str/int) so they survive
+            # ``torch.load(weights_only=True)``; the cardinalities drive the model's aux CategoricalEmbedding reconstruction at load.
+            "use_learnable_cat_embeddings": bool(self.use_learnable_cat_embeddings),
+            "categorical_embed_dim": self.categorical_embed_dim,
+            "cat_code_maps": self._cat_code_maps_,
+            "cat_cols": self._cat_cols_,
+            "cat_cardinalities": self._cat_cardinalities_,
+            "n_cat_features": self._n_cat_features_,
         }
         torch.save(state, path)
 
@@ -569,9 +563,18 @@ class _RecurrentWrapperBase(BaseEstimator):
             _cfg_kwargs["rnn_type"] = RNNType(_cfg_kwargs["rnn_type"])
         config = RecurrentConfig(**_cfg_kwargs)
 
-        wrapper = cls(config=config, random_state=state["random_state"])
+        wrapper = cls(
+            config=config,
+            random_state=state["random_state"],
+            use_learnable_cat_embeddings=state.get("use_learnable_cat_embeddings", True),
+            categorical_embed_dim=state.get("categorical_embed_dim"),
+        )
         wrapper._aux_input_size = state.get("aux_input_size", 0)
         wrapper._seq_input_size = state.get("seq_input_size", _DEFAULT_SEQ_INPUT_SIZE)
+        wrapper._cat_code_maps_ = state.get("cat_code_maps")
+        wrapper._cat_cols_ = state.get("cat_cols")
+        wrapper._cat_cardinalities_ = state.get("cat_cardinalities")
+        wrapper._n_cat_features_ = state.get("n_cat_features", 0)
 
         _sd = state.get("feature_scaler_dict")
         if _sd is not None:
@@ -590,6 +593,8 @@ class _RecurrentWrapperBase(BaseEstimator):
             seq_input_size=wrapper._seq_input_size,
             aux_input_size=wrapper._aux_input_size,
             is_regression=state.get("is_regression", wrapper._is_regression),
+            aux_categorical_cardinalities=list(wrapper._cat_cardinalities_) if wrapper._cat_cardinalities_ else None,
+            aux_categorical_embed_dim=wrapper.categorical_embed_dim,
         )
         wrapper.model.load_state_dict(state["model_state_dict"])
         wrapper.model.eval()
@@ -622,6 +627,7 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
         class_weight: dict[int, float] | None = None,
         plot: bool = False,
         plot_file: str | Path | None = None,
+        cat_features: list[str] | None = None,
     ) -> RecurrentClassifierWrapper:
         """
         Train the model.
@@ -635,12 +641,18 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
             class_weight: Class weights dict
             plot: Whether to enable logging
             plot_file: Path for logs (unused, for compatibility)
+            cat_features: Tabular categorical column names to factorize + learn entity embeddings for (HYBRID / FEATURES_ONLY). No-op in
+                SEQUENCE_ONLY (no tabular block) or when ``use_learnable_cat_embeddings`` is False.
 
         Returns:
             self for method chaining
         """
         if labels is None:
             raise ValueError("labels is required")
+
+        # Factorize tabular cat columns to int codes (reordered leading) BEFORE the scaler fit + dataset build, so the learnable aux
+        # CategoricalEmbedding can index them and the scaler skips the code columns. Scopes to ``features`` only; sequences are untouched.
+        features = self._factorize_cats_fit(features, cat_features)
 
         # Detect multilabel from 2-D y: switches model to BCEWithLogitsLoss + sigmoid output.
         # Multilabel torchmetrics are skipped here (metrics come from the suite's downstream evaluation pipeline).
@@ -662,8 +674,8 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
         self._clear_cache()
 
         if self.config.scale_features and features is not None:
-            self._feature_scaler = StandardScaler()
-            self._feature_scaler.fit(features)
+            # Numeric-only scaler fit: skips the leading cat-code columns (scaling embedding indices would corrupt them).
+            self._scaler_fit_numeric_only(features)
 
         L.seed_everything(self.random_state, workers=True)
 
@@ -698,6 +710,8 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
                     seq_input_size=self._seq_input_size,
                     aux_input_size=self._aux_input_size,
                     is_regression=False,
+                    aux_categorical_cardinalities=list(self._cat_cardinalities_) if self._cat_cardinalities_ else None,
+                    aux_categorical_embed_dim=self.categorical_embed_dim,
                     weights_only=False,
                 )
             except Exception:
@@ -730,6 +744,10 @@ class RecurrentClassifierWrapper(_RecurrentWrapperBase, ClassifierMixin):
             raise _NFE("Model not trained. Call fit() first.")
 
         self._validate_inputs(features, sequences)
+
+        # Replay the fit-time cat factorization + coerce to float32 ndarray BEFORE the cache key (the key reads ``.dtype``, a DataFrame lacks it)
+        # and BEFORE dataset construction. No-op when no cats were factorized; ``None`` (SEQUENCE_ONLY) passes through.
+        features = self._prepare_predict_features(features)
 
         cache_key = self._compute_cache_key(features, sequences)
         if cache_key in self._prediction_cache:
@@ -804,8 +822,15 @@ class RecurrentRegressorWrapper(_RecurrentWrapperBase, RegressorMixin):
         self,
         config: RecurrentConfig | None = None,
         random_state: int = 42,
+        use_learnable_cat_embeddings: bool = True,
+        categorical_embed_dim: int | None = None,
     ) -> None:
-        super().__init__(config, random_state)
+        super().__init__(
+            config,
+            random_state,
+            use_learnable_cat_embeddings=use_learnable_cat_embeddings,
+            categorical_embed_dim=categorical_embed_dim,
+        )
         # Override early_stopping_monitor for regression
         if self.config.early_stopping_monitor == "val_auprc":
             self.config.early_stopping_monitor = "val_loss"
@@ -819,6 +844,7 @@ class RecurrentRegressorWrapper(_RecurrentWrapperBase, RegressorMixin):
         eval_set: tuple | None = None,
         plot: bool = False,
         plot_file: str | Path | None = None,
+        cat_features: list[str] | None = None,
     ) -> RecurrentRegressorWrapper:
         """
         Train the model.
@@ -831,6 +857,8 @@ class RecurrentRegressorWrapper(_RecurrentWrapperBase, RegressorMixin):
             eval_set: Validation data tuple
             plot: Whether to enable logging
             plot_file: Path for logs (unused, for compatibility)
+            cat_features: Tabular categorical column names to factorize + learn entity embeddings for (HYBRID / FEATURES_ONLY). No-op in
+                SEQUENCE_ONLY (no tabular block) or when ``use_learnable_cat_embeddings`` is False.
 
         Returns:
             self for method chaining
@@ -838,12 +866,14 @@ class RecurrentRegressorWrapper(_RecurrentWrapperBase, RegressorMixin):
         if labels is None:
             raise ValueError("labels is required")
 
+        # Factorize tabular cat columns to int codes (reordered leading) BEFORE the scaler fit + dataset build (sequences untouched).
+        features = self._factorize_cats_fit(features, cat_features)
+
         self._validate_inputs(features, sequences)
         self._clear_cache()
 
         if self.config.scale_features and features is not None:
-            self._feature_scaler = StandardScaler()
-            self._feature_scaler.fit(features)
+            self._scaler_fit_numeric_only(features)
 
         L.seed_everything(self.random_state, workers=True)
 
@@ -878,6 +908,8 @@ class RecurrentRegressorWrapper(_RecurrentWrapperBase, RegressorMixin):
                     seq_input_size=self._seq_input_size,
                     aux_input_size=self._aux_input_size,
                     is_regression=True,
+                    aux_categorical_cardinalities=list(self._cat_cardinalities_) if self._cat_cardinalities_ else None,
+                    aux_categorical_embed_dim=self.categorical_embed_dim,
                     weights_only=False,
                 )
             except Exception:
@@ -910,6 +942,10 @@ class RecurrentRegressorWrapper(_RecurrentWrapperBase, RegressorMixin):
             raise _NFE("Model not trained. Call fit() first.")
 
         self._validate_inputs(features, sequences)
+
+        # Replay the fit-time cat factorization + coerce to float32 ndarray BEFORE the cache key (the key reads ``.dtype``, a DataFrame lacks it)
+        # and BEFORE dataset construction. No-op when no cats were factorized; ``None`` (SEQUENCE_ONLY) passes through.
+        features = self._prepare_predict_features(features)
 
         cache_key = self._compute_cache_key(features, sequences)
         if cache_key in self._prediction_cache:

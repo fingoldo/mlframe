@@ -142,11 +142,20 @@ class RecurrentTorchModel(L.LightningModule):
         class_weight: torch.Tensor | None = None,
         is_regression: bool = False,
         task_type: str | None = None,
+        aux_categorical_cardinalities: list[int] | None = None,
+        aux_categorical_embed_dim: int | None = None,
     ) -> None:
         super().__init__()
         self.save_hyperparameters(ignore=["class_weight"])
         self.config = config
         self.is_regression = is_regression
+        # Learnable categorical entity embeddings for the TABULAR (aux) block, mirroring the flat-MLP CategoricalEmbedding hook. When set (HYBRID /
+        # FEATURES_ONLY with cat_features at the wrapper boundary), the FIRST ``len(cardinalities)`` aux columns are integer cat codes the wrapper's
+        # factorizer reordered leading; the rest are numeric. The embedding indexes each cat then passes numerics through, so the MLPHead consumes
+        # ``sum(embed_dims) + n_numeric`` (+ the RNN encoding in HYBRID) instead of the raw code width. None (default) = no cat embedding (no-op);
+        # SEQUENCE_ONLY has no aux block so this stays inert there regardless.
+        self.aux_categorical_cardinalities = list(aux_categorical_cardinalities) if aux_categorical_cardinalities else None
+        self.aux_categorical_embed_dim = aux_categorical_embed_dim
         # task_type selects loss + activation:
         #   None / "binary" / "multiclass" -> CrossEntropyLoss + softmax (default)
         #   "multilabel"                   -> BCEWithLogitsLoss + sigmoid (each output binary)
@@ -167,6 +176,7 @@ class RecurrentTorchModel(L.LightningModule):
         """Construct model components based on input mode."""
         mlp_input_size = 0
         self._use_transformer = False
+        self.aux_cat_embedding = None
 
         if self.config.input_mode != InputMode.FEATURES_ONLY:
             if self.config.rnn_type == RNNType.TRANSFORMER:
@@ -204,7 +214,21 @@ class RecurrentTorchModel(L.LightningModule):
                 mlp_input_size += rnn_output_size
 
         if self.config.input_mode != InputMode.SEQUENCE_ONLY:
-            mlp_input_size += aux_input_size
+            # Learnable per-cat embeddings on the tabular block. The first ``len(cardinalities)`` aux columns are int cat codes (the wrapper's
+            # factorizer reordered them leading); the embedding maps each through its own table + passes the trailing numerics through, so the
+            # MLPHead sees ``sum(embed_dims) + (aux_input_size - n_cat)`` instead of the raw ``aux_input_size``. No-op when no cardinalities set.
+            if self.aux_categorical_cardinalities:
+                from ._categorical_embeddings import CategoricalEmbedding
+
+                _n_cat = len(self.aux_categorical_cardinalities)
+                self.aux_cat_embedding = CategoricalEmbedding(
+                    cardinalities=list(self.aux_categorical_cardinalities),
+                    embed_dim=self.aux_categorical_embed_dim,
+                )
+                self.aux_cat_embedding.set_num_numeric(max(0, aux_input_size - _n_cat))
+                mlp_input_size += self.aux_cat_embedding.out_features
+            else:
+                mlp_input_size += aux_input_size
 
         output_size = 1 if self.is_regression else self.config.num_classes
         self.mlp_head = MLPHead(
@@ -297,6 +321,10 @@ class RecurrentTorchModel(L.LightningModule):
         if self.config.input_mode != InputMode.SEQUENCE_ONLY:
             if aux_features is None:
                 raise ValueError("aux_features required for this input mode")
+            # Embed the leading cat-code columns of the tabular block (numerics pass through) BEFORE concatenating with the RNN/Transformer
+            # encoding, so the learnable per-cat vectors enter the shared MLPHead exactly like the flat-MLP path. No-op when no aux embedding.
+            if self.aux_cat_embedding is not None:
+                aux_features = self.aux_cat_embedding(aux_features)
             features_list.append(aux_features)
 
         if len(features_list) > 1:
