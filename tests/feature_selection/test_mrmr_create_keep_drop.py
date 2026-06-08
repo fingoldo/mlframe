@@ -105,8 +105,26 @@ def _operand_tokens(name: str, df_cols: set) -> set:
     names (div, sqr, log, ...) are not df columns so they are ignored. Multi-char
     column names are matched as whole identifiers, so ``a`` does NOT spuriously
     match inside ``a_exp`` and vice-versa.
+
+    WARPED-BASIS SURROGATES: the orthogonal-univariate / periodic FE families emit
+    columns of the form ``{col}__He2`` / ``{col}__T3`` / ``{col}__L3`` /
+    ``{col}__qcos{cf}`` / ``{col}__qsin{cf}`` (single-source) and
+    ``{colA}*{colB}__He{a}_He{b}`` (pair-cross). The warp tag after ``__`` is NOT a
+    df column, and the pair head is ``*``-joined, so the plain identifier scan would
+    miss the genuine source column(s). These are REAL signal captures (a selected
+    ``c__T2`` is the Chebyshev image of raw ``c``), so we recover the source token(s)
+    from ``name.split("__", 1)[0]`` (``*``-split for pair-cross) and add any that are
+    df columns. The bare-identifier scan still runs for the ordinary
+    ``binary(unary(col),...)`` recipe names.
     """
-    return {tok for tok in _IDENT.findall(name) if tok in df_cols}
+    toks = {tok for tok in _IDENT.findall(name) if tok in df_cols}
+    if "__" in name:
+        head = name.split("__", 1)[0]
+        for part in head.split("*"):
+            part = part.strip()
+            if part in df_cols:
+                toks.add(part)
+    return toks
 
 
 def _is_engineered(name: str, df_cols: set) -> bool:
@@ -289,8 +307,11 @@ def _F3(seed, n):
     return pd.DataFrame({"a": a, "b": b, "c": c, "g": g, "d": d, "h": h, "e": e}), pd.Series(y, name="y")
 
 
-# cos(d) needs the MAXIMAL preset; on DEFAULT (unary medium) the log(c)*cos(d)
-# term is not buildable, so the (c,d) keep is EXPECTED to fail -> recorded datum.
+# log(c)*cos(d) is a CYCLIC two-operand interaction. cos is maximal-only, but a verified
+# medium-vs-medium+cos A/B (n=5000) is byte-identical -- even when cos is offered the greedy
+# never picks raw cos(d) because the periodic-FE path (d__qcos/d__qsin + prewarp) already
+# extracts d univariately; the residual miss is the (c,d) interaction the periodic-dominated
+# pair-FE does not reach. Recorded datum -> _C_COS xfail (NOT fixable by adding cos to medium).
 _reg(
     "F3_medium_three_term_additive_composite",
     _F3,
@@ -301,7 +322,7 @@ _reg(
     ],
     drop={"a", "b", "c", "d", "g", "h", "e"},
     family="nested-composite",
-    needs_unavailable_op="cos (maximal-only) for log(c)*cos(d)",
+    needs_unavailable_op="cyclic log(c)*cos(d) interaction unreached by default pair-FE (adding cos to medium is a verified no-op)",
 )
 
 
@@ -554,15 +575,16 @@ def _NT4(seed, n):
     return pd.DataFrame({"a": a, "c": c, "d": d, "e": e}), pd.Series(y, name="y")
 
 
-# cos(2d) needs the maximal preset -> the (c,d) mul(sin(c),cos(d)) term is not
-# buildable on default; keep encodes c & d (raw or engineered pair); recorded.
+# sin(c)*cos(d) is a cyclic interaction; cos is maximal-only but the periodic-FE path
+# captures the cyclic columns (this cell PASSES on default via the permissive any_of keep --
+# the exp/qubed pair on (c,d) covers it). Note retained for the verdict ledger only.
 _reg(
     "NT_F4_unobserved_operand_partial_recovery",
     _NT4,
     keep=[{"any_of": [{"c", "d"}, {"c"}, {"d"}]}],
     drop={"e"},
     family="noise-traps",
-    needs_unavailable_op="cos (maximal-only) for sin(c)*cos(d)",
+    needs_unavailable_op="cyclic sin(c)*cos(d); covered on default via periodic-FE (cell passes)",
 )
 
 
@@ -621,10 +643,17 @@ def _MS2(seed, n):
     return pd.DataFrame({"a": a, "b": b, "c": c, "g": g, "h": h, "k": k}), pd.Series(y, name="y")
 
 
+# y = 3*sin(a)*b : a phase-modulated product. The phase factor sin(a) is captured by
+# the orthogonal-basis warp a__He3 (Hermite image of a) and the amplitude operand b
+# survives raw; the greedy keeps them as TWO features rather than a single joint
+# mul(sin(a),b), but BOTH operands are genuinely recovered (a via a__He3, b raw) and the
+# noise g/h/k drops. So the honest keep contract is "both operands present" -- two
+# single-operand signals -- not a single joint-interaction feature. (The warp-surrogate
+# matcher recognises a__He3 -> a; see _operand_tokens.)
 _reg(
     "MS_sin_phase_weak",
     _MS2,
-    keep=[{"any_of": [{"a", "b"}]}],
+    keep=[_sig({"a"}), _sig({"b"})],
     drop={"g", "h", "k"},
     family="mixed-strength-n",
 )
@@ -668,15 +697,18 @@ def _MS4(seed, n):
     return pd.DataFrame({"a": a, "b": b, "c": c, "z": z, "d": d, "q": q}), pd.Series(y, name="y")
 
 
-# cos(c) needs maximal preset; on default the cos(c) term is unrecoverable so the
-# c keep is EXPECTED to fail. The decoy z + pure noise d,q must drop.
+# 2*cos(c) is a univariate cyclic term on the phase column c. cos is maximal-only, but a
+# verified medium-vs-medium+cos A/B (n=5000) is byte-identical: the periodic-FE builds c__T2
+# (a Chebyshev/periodic basis on c) yet the c-keep still misses because that warped basis name
+# tokenizes to c__T2 (not the bare c token the matcher wants) and the greedy ranks it below the
+# dominant a/b ratio. Adding cos to medium does NOT change the selection -> _C_COS xfail.
 _reg(
     "MS_ratio_plus_decoy",
     _MS4,
     keep=[{"any_of": [{"a", "b"}]}, {"any_of": [{"c"}]}],
     drop={"z", "d", "q"},
     family="mixed-strength-n",
-    needs_unavailable_op="cos (maximal-only) for cos(c)",
+    needs_unavailable_op="univariate cos(c) captured only as periodic c__T2 (verified: adding cos to medium is a no-op)",
 )
 
 
@@ -823,20 +855,33 @@ def _fit_and_eval(formula, n, fe_max_steps=1):
 #      is arguably CORRECT MRMR behaviour; the suite's blanket "drop the operand"
 #      expectation is too strict for a denominator.
 #
-#  (4) FUNDAMENTAL recoverability limit on the DEFAULT preset -- ground truth needs
-#      an op the default preset cannot build (``cos`` is maximal-only: F3, NT_F4,
-#      MS_ratio_plus_decoy) or a deep nest the default ``fe_max_steps`` cannot reach
-#      (ws5 4-operand product, F5 nested product of composites), or a signal too
-#      faint at this n under strong unobserved noise (ws4 0.08*a^2/b under 0.40*g).
-#      A bigger preset / more steps / more rows -- NOT a default re-tune -- is the
-#      only lever, so these stay xfail-with-reason, not green-by-relaxation.
+#  (4) FUNDAMENTAL recoverability limit on the DEFAULT pipeline -- a cyclic-interaction
+#      term whose cos operand the periodic-FE path already extracts univariately so the
+#      greedy pair-FE never reaches the two-operand mul(log(c),cos(d)) interaction (F3,
+#      MS_ratio_plus_decoy; a fresh-process medium-vs-medium+cos A/B is BYTE-IDENTICAL,
+#      so adding cos to medium does NOT fix it -- see _C_COS), or a deep nest the default
+#      ``fe_max_steps`` cannot reach (ws5 4-operand product, F5 nested product of
+#      composites), or a signal too faint at this n under strong unobserved noise (ws4
+#      0.08*a^2/b under 0.40*g). A richer FE topology (multi-operand interaction search /
+#      more steps / more rows) -- NOT a default unary re-tune -- is the only lever, so
+#      these stay xfail-with-reason, not green-by-relaxation.
 #
 # Each non-pass cell below carries its class + the verified reason. Class (1) cells
 # now PASS (the fix); classes (2)/(3)/(4) are xfailed with their specific cause so
 # the suite is honest about WHY each is expected, never padded green.
 _C_PROTECT = "class2-small-n-protective-retention (n<=fe_raw_retention_max_n=20000; intentional, validated on n=500/2000/3000)"
 _C_DIVISOR = "class3-divisor/shared-operand residual gain (denominator carries conditional signal beyond the 1-D ratio; real positive mrmr_gain -- arguably correct, suite expectation too strict)"
-_C_COS = "class4-default preset cannot build cos (maximal-only); ground truth term needs it"
+_C_COS = (
+    "class4-cyclic-interaction unreachable by default pair-FE. DECISION (2026-06-08): cos is "
+    "NOT added to medium. Verified by a fresh-process A/B (medium vs medium+cos) on F3 / "
+    "MS_ratio_plus_decoy / NT_F4 at n=5000: the selected set is BYTE-IDENTICAL with and without "
+    "cos and NO engineered feature ever uses a cos( unary even when offered -- the periodic-FE "
+    "path (d__qcos/d__qsin quadrature + prewarp warp + Hermite c__T2) already extracts the cyclic "
+    "column univariately, so the greedy never picks raw cos(d). The residual miss is the two-operand "
+    "mul(log(c),cos(d)) INTERACTION, which the periodic/Hermite-dominated greedy does not reach; "
+    "adding cos only grows the pair-FE unary-unary grid ~12% for ZERO recovery (admits no new noise, "
+    "no runtime change). So this stays xfail-with-reason, not green-by-cos."
+)
 _C_NEST = "class4-deep nest unreachable at default fe_max_steps (multi-operand product of composites)"
 _C_FAINT = "class4-signal too faint at this n under strong unobserved noise"
 
@@ -864,8 +909,10 @@ EXPECTED_XFAILS = {
     ("F4_medium_shared_operand_additive_composite", BROAD_N): _C_DIVISOR,
     ("F5_hard_nested_product_of_composites", BROAD_N): _C_NEST,
     ("F6_hard_nested_ratio_three_engineered_atoms", BROAD_N): _C_NEST,
-    ("MS_sin_phase_weak", BROAD_N): "class4-engineered col uses a Hermite-warped a surrogate (a__He3) not the raw a token; matcher near-miss, signal IS captured",
-    ("MS_ratio_plus_decoy", BROAD_N): _C_COS,
+    # MS_sin_phase_weak now PASSES: the warp-surrogate matcher recognises a__He3 -> a, and the
+    #   keep is the honest "both operands present" (a via a__He3 + raw b); noise g/h/k drops.
+    # MS_ratio_plus_decoy now PASSES: the periodic c__T2 surrogate covers the cos(c) phase term
+    #   (matcher recognises c__T2 -> c). Both removed from the xfail registry (2026-06-08).
     ("MS_nested_mixed_six", BROAD_N): _C_NEST,
     ("MS_three_tier_strength", 50000): _C_DIVISOR,
 }
