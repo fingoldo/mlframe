@@ -46,11 +46,14 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # discovery wiring. Sibling carve candidates: the recurrent rerun block
     # and the composite-post tail into per-phase helpers.
     "src/mlframe/training/core/_phase_train_one_target_body.py",
-    # FIXME(carve-wave-next): filters/_feature_engineering_pairs.py at ~1.32k LOC
-    # after the batched per-candidate quantile-discretization perf rewrite grew
-    # the pair-search body. Carve candidate: the candidate-scoring loop into
-    # ``_feature_engineering_pairs_score.py``.
-    "src/mlframe/feature_selection/filters/_feature_engineering_pairs.py",
+    # FIXME(carve-wave-next): filters/_feature_engineering_pairs/_pairs_core.py at
+    # ~1.59k LOC -- the irreducible single-function body of ``check_prospective_fe_pairs``
+    # after the _feature_engineering_pairs subpackage split. The supporting kernels /
+    # gates / dispatch / chunking already live in sibling submodules (each well under
+    # 1k); only the one giant orchestration function remains over budget. Carve candidate
+    # if it must shrink: lift the per-pair candidate-scoring + external-validation block
+    # into a ``_pairs_score.py`` helper invoked from the pair loop.
+    "src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_core.py",
     # FIXME(carve-wave-next): training/neural/recurrent.py at ~1.01k LOC after
     # the F-44 bf16-mixed auto-promote + F-46 fused-AdamW + F-47 cuDNN
     # persistent-RNN + F-48 nested-tensor + F-51 share_memory_() + F-53

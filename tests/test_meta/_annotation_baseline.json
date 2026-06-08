@@ -531,7 +531,7 @@
   "feature_selection/filters/_extra_fe_families.py::hybrid_conditional_residual_fe",
   "feature_selection/filters/_extra_fe_families.py::hybrid_rankgauss_fe",
   "feature_selection/filters/_extra_fe_families.py::hybrid_rare_category_fe",
-  "feature_selection/filters/_feature_engineering_pairs.py::check_prospective_fe_pairs",
+  "feature_selection/filters/_feature_engineering_pairs/_pairs_core.py::check_prospective_fe_pairs",
   "feature_selection/filters/_gpu_pairs.py::mi_direct_gpu_batched_pairs",
   "feature_selection/filters/_group_distance_fe.py::build_group_distance_recipe",
   "feature_selection/filters/_group_distance_fe.py::generate_group_distance_features",

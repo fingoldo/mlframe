@@ -56,11 +56,18 @@ def _read(rel: str) -> str:
             if _sib_path.name != "_rfecv.py":
                 primary = primary + "\n" + _sib_path.read_text(encoding="utf-8")
     elif rel == "feature_selection/filters/feature_engineering.py":
-        # 2026-05-22 split: check_prospective_fe_pairs moved to
-        # _feature_engineering_pairs.py.
-        sibling = _ROOT / "feature_selection" / "filters" / "_feature_engineering_pairs.py"
-        if sibling.exists():
-            primary = primary + "\n" + sibling.read_text(encoding="utf-8")
+        # check_prospective_fe_pairs lives in the ``_feature_engineering_pairs``
+        # subpackage; concat every submodule so the source-grep sensor matches the
+        # relocated ``_TIMES_SPENT_LOCK`` declaration + locked ``times_spent[...] +=``
+        # regardless of which submodule owns each now.
+        sibling_pkg = _ROOT / "feature_selection" / "filters" / "_feature_engineering_pairs"
+        if sibling_pkg.is_dir():
+            for _sib_path in sorted(sibling_pkg.glob("*.py")):
+                primary = primary + "\n" + _sib_path.read_text(encoding="utf-8")
+        else:
+            sibling = _ROOT / "feature_selection" / "filters" / "_feature_engineering_pairs.py"
+            if sibling.exists():
+                primary = primary + "\n" + sibling.read_text(encoding="utf-8")
     return primary
 
 

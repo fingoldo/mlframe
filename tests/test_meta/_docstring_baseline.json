@@ -434,7 +434,7 @@
   "feature_selection/filters/_extra_fe_families.py::engineered_name_freq_band",
   "feature_selection/filters/_extra_fe_families.py::engineered_name_is_rare",
   "feature_selection/filters/_extra_fe_families.py::engineered_name_rankgauss",
-  "feature_selection/filters/_feature_engineering_pairs.py::check_prospective_fe_pairs",
+  "feature_selection/filters/_feature_engineering_pairs/_pairs_core.py::check_prospective_fe_pairs",
   "feature_selection/filters/_group_distance_fe.py::engineered_name_group_kl",
   "feature_selection/filters/_group_distance_fe.py::engineered_name_group_wasserstein",
   "feature_selection/filters/_group_distance_fe.py::engineered_name_group_zdist",
