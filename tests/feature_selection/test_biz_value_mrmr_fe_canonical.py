@@ -313,3 +313,86 @@ def test_fit_does_not_mutate_caller_dataframe():
     # And it still actually engineered features (guard against a vacuous pass
     # where FE silently did nothing).
     assert len(_engineered_names(fs)) >= 1, "expected >=1 engineered feature"
+
+
+# ---------------------------------------------------------------------------
+# n-INVARIANT raw-vs-engineered conditional-redundancy drop (2026-06-08).
+# The greedy MRMR order admits a raw operand on its high MARGINAL relevance
+# BEFORE the engineered child built from it is in support, so the redundancy
+# penalty never fires; the retention/augmentation passes then re-add it. The
+# debiased excess-CMI sweep removes such fully-subsumed operands at EVERY n. The
+# SMALL n cells below are the load-bearing ones: pre-fix the n<=20000 protective
+# retention re-added them UNCONDITIONALLY (the device this fix replaces).
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("n", [1000, 2000, 5000])
+def test_subsumed_ratio_operands_drop_at_small_n(n):
+    """``y=(a**2)/b`` is fully determined by ``div(neg(a),sqrt(b))`` (since
+    ``(a/sqrt(b))**2 = a**2/b``), so BOTH raw operands ``a`` and ``b`` are
+    conditionally redundant and MUST drop -- at small n too, where the legacy
+    protective retention used to re-add them unconditionally. The engineered ratio
+    must remain (the signal is captured)."""
+    rng = np.random.default_rng(42)
+    a, b, e = (rng.uniform(0, 1, n) for _ in range(3))
+    y = 0.30 * (a ** 2) / b + 0.01 * e
+    df = pd.DataFrame({"a": a, "b": b, "e": e})
+    fs = MRMR(verbose=0, random_seed=42)
+    fs.fit(df, pd.Series(y, name="y"))
+    out = list(fs.get_feature_names_out())
+    raw_in = {nm for nm in out if nm in {"a", "b", "e"}}
+    assert raw_in == set(), f"subsumed raw operand(s) re-admitted at n={n}: {raw_in}; out={out}"
+    eng = _engineered_names(fs)
+    assert _covers_pair(eng, "a", "b"), f"engineered ratio lost at n={n}: {eng}"
+
+
+@pytest.mark.parametrize("n", [2000, 5000])
+def test_subsumed_operand_drop_opt_out_restores_legacy(n):
+    """``fe_drop_redundant_raw_operands=False`` restores the pre-fix behaviour
+    (the operand re-add is NOT pruned) -- the knob is wired and load-bearing."""
+    rng = np.random.default_rng(42)
+    a, b, e = (rng.uniform(0, 1, n) for _ in range(3))
+    y = 0.30 * (a ** 2) / b + 0.01 * e
+    df = pd.DataFrame({"a": a, "b": b, "e": e})
+    fs = MRMR(verbose=0, random_seed=42, fe_drop_redundant_raw_operands=False)
+    fs.fit(df, pd.Series(y, name="y"))
+    out = list(fs.get_feature_names_out())
+    # With the sweep OFF, at least one subsumed raw operand survives (the legacy
+    # protective re-add). The engineered ratio is still present either way.
+    raw_in = {nm for nm in out if nm in {"a", "b"}}
+    assert raw_in, f"opt-out did not restore the legacy operand re-add at n={n}: out={out}"
+
+
+@pytest.mark.parametrize("n", [2000, 5000])
+def test_pure_noise_raw_not_re_added_by_retention(n):
+    """A PURE-NOISE raw column NOT in the target equation (CC4's ``e`` in
+    ``y=log(a)*c+0.4*f``) must NOT be re-admitted: it sits within its own
+    permutation null, so the retention significance gate withholds it."""
+    rng = np.random.default_rng(42)
+    a, c, e = (rng.uniform(0, 1, n) for _ in range(3))
+    f = rng.uniform(0, 1, n)  # unobserved
+    y = np.log(a + 1.0) * c + 0.40 * f
+    df = pd.DataFrame({"a": a, "c": c, "a_sqr": a ** 2, "c_exp": np.exp(c), "e": e})
+    fs = MRMR(verbose=0, random_seed=42)
+    fs.fit(df, pd.Series(y, name="y"))
+    out = list(fs.get_feature_names_out())
+    assert "e" not in out, f"pure-noise raw e re-admitted at n={n}: {out}"
+    # The genuine a-signal and c-signal are still captured (raw or engineered).
+    eng = _engineered_names(fs)
+    assert any(nm in out or _covers_pair(eng, "c", "c") for nm in ("c", "c_exp")) or "c" in out, (
+        f"genuine c-signal lost at n={n}: {out}"
+    )
+
+
+def test_genuine_independent_raw_kept_alongside_engineered():
+    """The sweep must NOT over-correct: an independent additive raw signal ``c``
+    in ``y=a**2+0.30*c`` (NOT an operand of the ``sqr(a)`` engineered child) keeps
+    a large debiased excess and MUST survive."""
+    n = 2000
+    rng = np.random.default_rng(42)
+    a, c, e = (rng.uniform(0, 1, n) for _ in range(3))
+    y = a ** 2 + 0.30 * c
+    df = pd.DataFrame({"a": a, "a_exp": np.exp(a), "a_log": np.log(a + 1.0), "c": c, "e": e})
+    fs = MRMR(verbose=0, random_seed=42)
+    fs.fit(df, pd.Series(y, name="y"))
+    out = list(fs.get_feature_names_out())
+    assert "c" in out, f"genuine independent raw c wrongly dropped: {out}"
+    assert "e" not in out, f"pure-noise e admitted: {out}"

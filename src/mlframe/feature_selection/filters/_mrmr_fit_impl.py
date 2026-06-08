@@ -5662,6 +5662,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # once the FE loop is done so it never bloats the fitted estimator or breaks
     # pickle (the replayable composite carries only its parent recipes, never these
     # arrays). No-op when the attr was never created (no engineered columns).
+    # SNAPSHOT FIRST (2026-06-08): the raw-vs-engineered conditional-redundancy drop
+    # below needs the CONTINUOUS engineered values to bin the engineered survivor
+    # finely (the ``data`` matrix holds only the lossy ~10-code screening bins, which
+    # leave a fully-subsumed denominator operand a spurious residual CMI). Snapshot
+    # into a LOCAL (never an attr -> stays out of the pickled estimator) so the del
+    # below still keeps the fitted object lean.
+    _eng_continuous_snapshot = dict(getattr(self, "_engineered_continuous_", None) or {})
     if hasattr(self, "_engineered_continuous_"):
         try:
             del self._engineered_continuous_
@@ -5881,9 +5888,44 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # large n: defer to the re-selection's redundancy drop for engineered operands.
             return False
 
+        # PERMUTATION-SIGNIFICANCE GATE on the re-add (2026-06-08): a raw column the
+        # screen flagged as ``_prefe_screened_raw_`` can be a small-n FALSE POSITIVE --
+        # the coarse-binning plug-in MI is upward-biased, so a PURE-NOISE column (one
+        # NOT in the target equation, e.g. CC4's ``e`` in ``y=log(a)*c+0.4*f``) can leave
+        # a tiny residual debiased MI that the screen confirms and retention then
+        # re-injects, padding the support with noise. Gate the re-add on the SAME
+        # within-data permutation-significance test the empty-RAW rescue uses (computed on
+        # the screen's own ``data`` / ``nbins`` so it matches ``cached_MIs``): a candidate
+        # that sits WITHIN its own null (p >= alpha) is genuine-screen noise and is NOT
+        # re-added. A genuinely weak-BUT-real raw (above its null) still passes. Best-
+        # effort: a kernel failure falls through to the permissive re-add (never drop a
+        # screening-confirmed raw on an estimator error).
+        try:
+            from .permutation import mi_direct as _mi_direct_rr
+        except Exception:
+            _mi_direct_rr = None
+        _rr_signif_alpha = float(os.environ.get("MLFRAME_MRMR_NULL_SIGNIF_ALPHA", "0.05"))
+        _rr_q_dtype = getattr(self, "quantization_dtype", np.int32)
+
+        def _rr_raw_is_significant(_idx):
+            """True iff the raw column at cols-index ``_idx`` sits ABOVE its permutation
+            null against y (genuine signal). Pure-screen-noise sits within (p>=alpha)."""
+            if _mi_direct_rr is None:
+                return True
+            try:
+                _sig = _mi_direct_rr(
+                    data, x=np.array([int(_idx)], dtype=np.int64), y=target_indices,
+                    factors_nbins=nbins, npermutations=32, min_nonzero_confidence=0.0,
+                    return_null_mean=True, parallelism="none", dtype=_rr_q_dtype, prefer_gpu=False,
+                )
+                return float(_sig[3]) < _rr_signif_alpha
+            except Exception:
+                return True  # significance unavailable -> permissive re-add
+
         _sv_set = set(selected_vars)
         _readd = []
         _dropped_redundant = []
+        _dropped_insignificant = []
         for _rn in _prefe_raw:
             if _rn in _cur_names or _rn in _substituted:
                 continue
@@ -5899,8 +5941,19 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # re-selection's redundancy verdict (the OLD CORRECT behaviour).
                 _dropped_redundant.append(_rn)
                 continue
+            if not _rr_raw_is_significant(_idx):
+                # Screen false positive (pure noise within its own null) -> do not re-add.
+                _dropped_insignificant.append(_rn)
+                continue
             _readd.append(_idx)
             _sv_set.add(_idx)
+        if _dropped_insignificant and verbose:
+            logger.info(
+                "MRMR raw-retention: withheld %d screening-flagged raw feature(s) that "
+                "sit WITHIN their permutation null (p>=%.2f -- genuine-screen noise, not "
+                "re-added): %s",
+                len(_dropped_insignificant), _rr_signif_alpha, _dropped_insignificant,
+            )
         if _readd:
             selected_vars = list(selected_vars) + _readd
             if verbose:
@@ -5987,6 +6040,86 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # (pinned by layer28). The audit / pickle-replay paths, however, need to recover WHICH mechanism produced each engineered column even when the screen dropped it, so snapshot the full produced set here
     # as a separate read-only ledger. fe_provenance_ reads this to emit one row per produced engineered column (survivors get their real greedy gain/rank, screened-out ones get NaN gain / rank -1).
     self._produced_recipes_ = list(engineered_recipes.values())
+
+    # RAW-VS-ENGINEERED CONDITIONAL-REDUNDANCY DROP (2026-06-08): the greedy MRMR order
+    # selects a raw operand on its high MARGINAL relevance BEFORE the engineered child built
+    # from it is in support, so the redundancy penalty never fires against it, and the
+    # retention / augmentation passes above then re-add it. The result is a subsumed operand
+    # admitted alongside the engineered feature that fully determines y from it (e.g. raw
+    # ``a, b`` beside ``div(neg(a),sqrt(b))`` for ``y=(a**2)/b``, since
+    # ``(a/sqrt(b))**2 = a**2/b``). This final sweep removes such operands using the SAME
+    # debiased excess-CMI idea the engineered-vs-engineered S5 gate validated, so the verdict
+    # is n-INVARIANT (identical at n=1000 and n=50000) and never drops a raw carrying genuine
+    # independent signal (a private additive term keeps a large excess and is KEPT). On by
+    # default; ``fe_drop_redundant_raw_operands=False`` restores the pre-fix behaviour.
+    if getattr(self, "fe_drop_redundant_raw_operands", True) and len(selected_vars) >= 2:
+        try:
+            from ._fe_raw_redundancy_drop import drop_redundant_raw_operands
+            _raw_names_for_redund = set(self.feature_names_in_)
+            # Only worth running when at least one engineered survivor and one raw operand
+            # are both selected (otherwise the helper short-circuits anyway).
+            _sel_names_redund = [cols[i] for i in selected_vars]
+            _has_eng = any(nm not in _raw_names_for_redund for nm in _sel_names_redund)
+            _has_raw = any(nm in _raw_names_for_redund for nm in _sel_names_redund)
+            if _has_eng and _has_raw:
+                # Continuous target for equi-frequency re-binning: the screening
+                # ``classes_y`` is frequently HEAVILY imbalanced on a skewed regression
+                # target (``y=(a**2)/b`` puts ~89% of rows in one bin), which crushes the
+                # engineered anchor's MI and inflates a subsumed operand's apparent residual
+                # fraction. Re-binning the continuous target equi-frequency restores a faithful
+                # anchor. Falls back to ``classes_y`` for already-discrete targets.
+                _y_cont_for_redund = None
+                try:
+                    _yv = y.values if hasattr(y, "values") else np.asarray(y)
+                    _yv = np.asarray(_yv).reshape(-1)
+                    if _yv.shape[0] == int(data.shape[0]) and np.issubdtype(np.asarray(_yv).dtype, np.number):
+                        _y_cont_for_redund = _yv
+                except Exception:
+                    _y_cont_for_redund = None
+                _kept_redund, _dropped_redund_names = drop_redundant_raw_operands(
+                    data=data,
+                    cols=cols,
+                    selected_cols_idx=selected_vars,
+                    raw_name_set=_raw_names_for_redund,
+                    y_binned=classes_y,
+                    y_continuous=_y_cont_for_redund,
+                    engineered_continuous=_eng_continuous_snapshot,
+                    retain_frac=float(getattr(self, "fe_raw_redundancy_retain_frac", 0.15) or 0.15),
+                    seed=int(getattr(self, "random_seed", 0) or 0),
+                    verbose=verbose,
+                )
+                if _dropped_redund_names:
+                    selected_vars = _kept_redund
+                    # Record the verdict so the downstream raw-signal-retention augmentation
+                    # (which re-attaches a raw whose NAME tokenises a confirmed recipe by
+                    # marginal MI) does NOT resurrect an operand this n-invariant conditional-
+                    # redundancy sweep just dropped. The verdict is authoritative at every n.
+                    self._raw_redundancy_dropped_ = set(
+                        getattr(self, "_raw_redundancy_dropped_", None) or set()
+                    ) | set(_dropped_redund_names)
+                    # If the drop left NO raw survivor while engineered children survived, the
+                    # engineered-only support is the INTENDED, complete outcome (every raw operand
+                    # was conditionally subsumed). Flag it so the empty-RAW rescue ``else`` branch
+                    # below does NOT mistake this for a "screen returned 0 raw" emergency and
+                    # re-pollute the support with the dropped operands (or, worse, a pure-noise
+                    # column ranked next by marginal MI).
+                    _remaining_raw_after_drop = [
+                        v for v in selected_vars if cols[v] in set(self.feature_names_in_)
+                    ]
+                    if not _remaining_raw_after_drop:
+                        self._redundancy_emptied_raw_ = True
+                    if verbose:
+                        logger.info(
+                            "MRMR raw-redundancy drop: removed %d raw operand(s) conditionally "
+                            "redundant given their surviving engineered child (debiased excess "
+                            "CMI below the relative bar): %s",
+                            len(_dropped_redund_names), _dropped_redund_names,
+                        )
+        except Exception as _exc_redund:
+            logger.warning(
+                "MRMR raw-redundancy drop failed: %s; keeping the un-pruned support.",
+                _exc_redund,
+            )
 
     # ---------------------------------------------------------------------------------------------------------------
     # selected_vars: cols-indices -> names -> original-frame indices (categorize_dataset may rearrange cat columns).
@@ -6326,9 +6459,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _aug_large_n = int(data.shape[0]) > _aug_max_n
                 _raw_names_for_aug = set(self.feature_names_in_)
                 _surviving_eng_operands = {t for t in _eng_tokens if t in _raw_names_for_aug} if _aug_large_n else set()
+                # Operands the n-invariant conditional-redundancy sweep dropped are authoritative
+                # at EVERY n -- never re-attach them here (the marginal-MI token match cannot tell
+                # a fully-subsumed operand from a genuine independent term; the excess-CMI sweep can).
+                _redund_dropped_names = set(getattr(self, "_raw_redundancy_dropped_", None) or ())
                 _to_add = [i for i, _name, m in sorted(_raw_mi_aug, key=lambda kv: (-kv[2], kv[0]))
                            if m > _floor_aug and i not in _selected_set and _name in _eng_tokens
                            and _name not in _aug_excluded_names
+                           and _name not in _redund_dropped_names
                            and not (_aug_large_n and _name in _surviving_eng_operands)]
                 if _to_add:
                     selected_vars.extend(_to_add)
@@ -6336,6 +6474,15 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     self.n_features_ = len(selected_vars) + n_engineered_out
             except Exception as _exc_aug:
                 logger.warning("MRMR raw-signal-retention augmentation failed: %s; keeping greedy support.", _exc_aug)
+    elif getattr(self, "_redundancy_emptied_raw_", False):
+        # The raw support is empty because the n-invariant conditional-redundancy sweep
+        # deliberately dropped every raw operand (each fully subsumed by a surviving
+        # engineered child) -- an INTENDED, complete engineered-only support, NOT a
+        # "screen returned 0 raw" emergency. SKIP the empty-raw rescue entirely; firing
+        # it would resurrect the dropped operands or pull in the next pure-noise column
+        # ranked by marginal MI (measured ws1: ``e`` rescued at n=1000, ``a`` re-added at
+        # n=25000). n_features_ is the engineered-only count.
+        self.n_features_ = n_engineered_out
     else:
         # No RAW feature survived selection. Engineered-only support (or empty support) lacks a raw signal anchor:
         # on a WIDE engineered candidate pool the top raw signal is frequently out-ranked by overfit-in-sample-MI
@@ -6373,9 +6520,18 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 # in original ``feature_names_in_`` space.
                 _name_to_cols_idx = {c: i for i, c in enumerate(cols)}
                 _cached = self.cached_MIs if hasattr(self, "cached_MIs") else {}
+                # Operands the n-invariant conditional-redundancy sweep deliberately dropped
+                # (fully subsumed by a surviving engineered child) must NOT be resurrected by
+                # this empty-raw rescue -- the rescue exists for "the screen left 0 raw despite
+                # recoverable signal", not to undo an intentional redundancy drop. Excluding them
+                # leaves an engineered-only support, which is legitimate and non-empty (the
+                # never-empty guarantee only forces a column when n_engineered_out == 0).
+                _rescue_redund_dropped = set(getattr(self, "_raw_redundancy_dropped_", None) or ())
                 _raw_mi = []
                 for _i in range(self.n_features_in_):
                     _name = self.feature_names_in_[_i] if _i < len(self.feature_names_in_) else None
+                    if _name in _rescue_redund_dropped:
+                        continue
                     _cols_idx = _name_to_cols_idx.get(_name)
                     _mi = _cached.get((_cols_idx,), 0.0) if _cols_idx is not None else 0.0
                     # Keep the cols-space index alongside the input-space index so the rescue can re-run the permutation-significance / redundancy tests on the screen's own matrices.

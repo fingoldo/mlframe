@@ -400,6 +400,20 @@ class MRMR(BaseEstimator, TransformerMixin):
         # the re-selection for raw columns that ARE operands of a surviving engineered feature;
         # raws absorbed by an UNRELATED engineered feature keep the protective re-add at any n.
         fe_raw_retention_max_n: int = 20000,
+        # RAW-VS-ENGINEERED CONDITIONAL-REDUNDANCY DROP (2026-06-08). After all
+        # retention / augmentation passes, prune any selected RAW operand that is
+        # conditionally redundant given a surviving engineered feature built from it
+        # (e.g. raw ``a, b`` beside ``div(neg(a),sqrt(b))`` for ``y=(a**2)/b``, which the
+        # ratio fully determines). Uses the debiased excess-CMI test (the S5 idea applied
+        # to raw-vs-engineered) so the verdict is n-INVARIANT and never drops a raw that
+        # carries genuine independent signal. ON by default; set False to restore the
+        # pre-fix behaviour (the small-n protective retention re-adds subsumed operands).
+        fe_drop_redundant_raw_operands: bool = True,
+        # TAU for the redundancy drop: a raw operand must retain >= this scale-free
+        # fraction of the weakest consuming engineered survivor's own debiased excess CMI
+        # to be judged a genuine independent term (else it is dropped as redundant). 0.15
+        # mirrors the S5 engineered-vs-engineered gate; validated across n=1000..50000.
+        fe_raw_redundancy_retain_frac: float = 0.15,
         # ``fe_npermutations`` default 0->3:
         # pre-fix value 0 combined with ``fe_min_nonzero_confidence=1.0``
         # made the FE confidence gate STRUCTURALLY UNREACHABLE (confidence
