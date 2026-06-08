@@ -112,18 +112,25 @@ def _operand_tokens(name: str, df_cols: set) -> set:
     ``{colA}*{colB}__He{a}_He{b}`` (pair-cross). The warp tag after ``__`` is NOT a
     df column, and the pair head is ``*``-joined, so the plain identifier scan would
     miss the genuine source column(s). These are REAL signal captures (a selected
-    ``c__T2`` is the Chebyshev image of raw ``c``), so we recover the source token(s)
-    from ``name.split("__", 1)[0]`` (``*``-split for pair-cross) and add any that are
-    df columns. The bare-identifier scan still runs for the ordinary
-    ``binary(unary(col),...)`` recipe names.
+    ``c__T2`` is the Chebyshev image of raw ``c``). The warped column can appear EITHER
+    top-level (bare ``c__T2``) OR nested inside an ordinary recipe (``log(c__T2)``,
+    ``sub(cbrt(b),log(c__T2))``), and the FE path is non-deterministic about which, so we
+    must recover the source whatever the nesting depth. Each identifier token produced by
+    the regex (``__`` and digits are word chars, so ``c__T2`` is ONE token) is checked:
+    if it is a df column it counts as itself; if it carries a ``__`` warp tag we split on
+    ``__``, ``*``-split the head, and add any df-column part(s). This handles both
+    top-level and nested surrogates without spuriously matching ``a`` inside ``a_exp``.
     """
-    toks = {tok for tok in _IDENT.findall(name) if tok in df_cols}
-    if "__" in name:
-        head = name.split("__", 1)[0]
-        for part in head.split("*"):
-            part = part.strip()
-            if part in df_cols:
-                toks.add(part)
+    toks = set()
+    for tok in _IDENT.findall(name):
+        if tok in df_cols:
+            toks.add(tok)
+        elif "__" in tok:
+            head = tok.split("__", 1)[0]
+            for part in head.split("*"):
+                part = part.strip()
+                if part in df_cols:
+                    toks.add(part)
     return toks
 
 
@@ -339,6 +346,14 @@ def _F4(seed, n):
 # b is a SHARED operand (in both terms) so it carries independent signal and may
 # legitimately survive raw; only a and d/e are pure-drop. keep encodes the two
 # composites; b is allowed to stay (NOT in drop).
+# SURROGATE-FORM VERDICT (2026-06-08, P4b): the surrogate forms are CLEAN and reachable --
+# at n=5000 the FE builds div(sqr(a),neg(b)) (=a^2/b) covering {a,b} and mul(qubed(b),sin(d))
+# (a monotone-equivalent of log(b)*sin(d), MI-interchangeable on b>0) covering {b,d}; BOTH
+# keeps are satisfied and NO extra operand is pulled into the keep features. The residual is
+# (i) raw a/d operand retention + (ii) a noise-FE col add(sin(d),log(e)) dragging e in at
+# n=5000, and at large n the composites stop being built and raw a/b/d are kept (class-3
+# divisor/operand residual gain) -> _C_DIVISOR xfail at BROAD_N. The surrogate form is NOT a
+# vocabulary limit and needs no fix.
 _reg(
     "F4_medium_shared_operand_additive_composite",
     _F4,
@@ -861,8 +876,10 @@ def _fit_and_eval(formula, n, fe_max_steps=1):
 #      MS_ratio_plus_decoy; a fresh-process medium-vs-medium+cos A/B is BYTE-IDENTICAL,
 #      so adding cos to medium does NOT fix it -- see _C_COS), or a deep nest the default
 #      ``fe_max_steps`` cannot reach (ws5 4-operand product, F5 nested product of
-#      composites), or a signal too faint at this n under strong unobserved noise (ws4
-#      0.08*a^2/b under 0.40*g). A richer FE topology (multi-operand interaction search /
+#      composites). (ws4 was hypothesised here as "too faint under 0.40*g" but DIRECT MI
+#      measurement disproved it -- b~U(0,1) makes a^2/b heavy-tailed and dominant, MI=0.60;
+#      ws4 is actually a class-3 divisor/operand residual-gain cell, see _C_DIVISOR_WS4.)
+#      A richer FE topology (multi-operand interaction search /
 #      more steps / more rows) -- NOT a default unary re-tune -- is the only lever, so
 #      these stay xfail-with-reason, not green-by-relaxation.
 #
@@ -883,7 +900,23 @@ _C_COS = (
     "no runtime change). So this stays xfail-with-reason, not green-by-cos."
 )
 _C_NEST = "class4-deep nest unreachable at default fe_max_steps (multi-operand product of composites)"
-_C_FAINT = "class4-signal too faint at this n under strong unobserved noise"
+# NOTE (2026-06-08): the original _C_FAINT "signal too faint" hypothesis for ws4 was
+# DISPROVEN by direct MI measurement. Because b~U(0,1), the ratio a**2/b is heavy-tailed
+# and its variance DOMINATES y (var(0.08*a^2/b)=7.05 at n=5000; signal-to-total variance
+# ~0.998), so MI(a^2/b, y)=0.60 -- the STRONGEST term, far above the noise floor
+# (MI(e,y)=MI(g_partner,y)~=0.01). ws4 is therefore NOT faint; it selects raw a + raw b
+# (both operands genuinely captured) but does not build the joint engineered ratio at this
+# config and the divisor b carries real conditional signal (MI(b,y)=0.23 > MI(a,y)=0.12),
+# so it is the SAME class-3 divisor/operand residual-gain case as ws1 -- the suite's
+# "drop a and b, demand a joint engineered ratio" expectation is too strict, not a faint
+# signal. _C_FAINT retained only for the historical ledger; ws4 now maps to _C_DIVISOR_WS4.
+_C_FAINT = "class4-signal too faint at this n under strong unobserved noise (DISPROVEN for ws4; see note)"
+_C_DIVISOR_WS4 = (
+    "class3-divisor/operand residual gain (MI-verified, NOT faint): b~U(0,1) makes a^2/b "
+    "heavy-tailed so MI(a^2/b,y)=0.60 is the strongest term; selector keeps raw a + raw b "
+    "(both operands captured) but builds no joint ratio at default config and the divisor b "
+    "carries real conditional signal (MI(b,y)=0.23>MI(a,y)=0.12) -- suite drop/join expectation too strict"
+)
 
 EXPECTED_XFAILS = {
     # (formula, n) -> reason. Only documented classes (2)/(3)/(4); class (1) is fixed and must pass.
@@ -894,7 +927,7 @@ EXPECTED_XFAILS = {
     ("ws1_easy_ratio_sqr", 50000): _C_DIVISOR,
     ("ws1_easy_ratio_sqr", BROAD_N): _C_DIVISOR,
     ("ws2_log_sin_product", BROAD_N): "class1-residual: a noise-only engineered col add(sin(e1),abs(e2)) drags e2 in; cross-signal noise-FE admission, not a tuning gap",
-    ("ws4_weak_sqr_with_unobserved", BROAD_N): _C_FAINT,
+    ("ws4_weak_sqr_with_unobserved", BROAD_N): _C_DIVISOR_WS4,
     ("ws5_double_ratio_product_hard", BROAD_N): _C_NEST,
     ("F1_easy_single_ratio_plus_noise", BROAD_N): "class1-residual: pure-noise e admitted alongside the correct ratio; marginal-uplift noise-FE, not a tuning gap",
     ("F2_easy_two_pairs_marginal_zero_guard", 1000): _C_PROTECT,
