@@ -257,7 +257,7 @@ def test_user_case_rejects_spurious_cross_signal_feature():
     axes (joint < 0.84 AND uplift < the synergy threshold), so the selection is the same
     on every backend. We additionally simulate the adversarial GPU nudge by dropping the
     BASE floor below the artefact's ratio and assert it is STILL rejected."""
-    import mlframe.feature_selection.filters._feature_engineering_pairs as _FEP
+    import mlframe.feature_selection.filters._feature_engineering_pairs._pairs_core as _FEP
 
     df, y = _make_user_fixture()
 
