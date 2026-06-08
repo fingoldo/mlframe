@@ -582,6 +582,11 @@ def build_mlp_kwargs_from_flat(
     use_lookahead: bool = False,
     use_mixup: bool = False,
     spectral_norm_output_only: bool = False,
+    # Learnable categorical embeddings (default-on nn.Embedding path; False = legacy CatBoostEncoder target-encoding) + the
+    # embed-dim override (None = fastai heuristic, an int forces a fixed width). Both are PytorchLightningEstimator /
+    # recurrent-estimator __init__ params (NOT model_params / network_params), so they emit top-level for BOTH mlp + recurrent.
+    use_learnable_cat_embeddings: bool = True,
+    categorical_embed_dim: "int | None" = None,
 ) -> Optional[Dict[str, Any]]:
     """Build the mlp_kwargs dict forwarded into PytorchLightningEstimator /
     PytorchLightningClassifier constructors. Returns None when neither MLP
@@ -604,6 +609,13 @@ def build_mlp_kwargs_from_flat(
     # variation on combos that wouldn't fire either path.
     if random_state is not None:
         kwargs["random_state"] = random_state
+    # Learnable cat embeddings apply to BOTH mlp + recurrent estimators (shared __init__ contract); emit at top level, not
+    # inside the mlp_active gate, so recurrent-only combos still hit the OFF path. Emit the False override + non-None dim only
+    # when they differ from the source default so the default-True / heuristic-dim path is not shadowed.
+    if not use_learnable_cat_embeddings:
+        kwargs["use_learnable_cat_embeddings"] = False
+    if categorical_embed_dim is not None:
+        kwargs["categorical_embed_dim"] = int(categorical_embed_dim)
     # #4 class_weight: only meaningful for the classifier subclass on
     # imbalanced classification targets. The compound gate at the call
     # site (mlp in models AND classification AND rare_5pct/rare_1pct)
@@ -740,6 +752,8 @@ def build_mlp_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]:
         use_lookahead=combo.mlp_use_lookahead_cfg,
         use_mixup=combo.mlp_use_mixup_cfg,
         spectral_norm_output_only=combo.mlp_spectral_norm_output_only_cfg,
+        use_learnable_cat_embeddings=combo.mlp_use_learnable_cat_embeddings_cfg,
+        categorical_embed_dim=combo.mlp_categorical_embed_dim_cfg,
     )
 
 

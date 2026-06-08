@@ -636,6 +636,8 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         mlp_label_smoothing_cfg=axes.get("mlp_label_smoothing_cfg", 0.0),
         mlp_focal_loss_gamma_cfg=axes.get("mlp_focal_loss_gamma_cfg", None),
         mlp_use_residual_cfg=axes.get("mlp_use_residual_cfg", False),
+        mlp_use_learnable_cat_embeddings_cfg=axes.get("mlp_use_learnable_cat_embeddings_cfg", True),
+        mlp_categorical_embed_dim_cfg=axes.get("mlp_categorical_embed_dim_cfg", None),
         mlp_numerical_embedding_cfg=axes.get("mlp_numerical_embedding_cfg", None),
         mlp_numerical_embedding_kwargs_cfg=axes.get(
             "mlp_numerical_embedding_kwargs_cfg", "paper_default"

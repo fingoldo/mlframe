@@ -704,6 +704,9 @@ class FuzzCombo:
     mrmr_fe_group_distance_enable_cfg: bool = False
     mrmr_fe_rare_category_enable_cfg: bool = False
     mrmr_fe_conditional_residual_enable_cfg: bool = False
+    # Learnable categorical embeddings default-on (nn.Embedding); this axis also samples the legacy CatBoostEncoder OFF path + a fixed embed dim vs the fastai heuristic (None).
+    mlp_use_learnable_cat_embeddings_cfg: bool = True
+    mlp_categorical_embed_dim_cfg: "int | None" = None
 
     def canonical_key(self) -> tuple:
         """Hashable tuple used for dedup. Canonicalizes semantically
@@ -757,6 +760,7 @@ class FuzzCombo:
             # ndarray. Native list-Series targets are a different
             # contract, so keep that axis for a dedicated future sensor.
             target_carrier = "numpy"
+        _has_neural = ("mlp" in self.models) or (self.recurrent_model_cfg is not None) or any(m in self.models for m in ("lstm", "gru", "transformer"))
         return (
             tuple(sorted(self.models)),
             _input_type,
@@ -2564,6 +2568,10 @@ class FuzzCombo:
                 if "mlp" in self.models
                 else False
             ),
+            # Cat learnable-embeddings: only meaningful with raw cats + a neural model; collapse to default elsewhere so dedup
+            # doesn't waste combos on a no-op axis.
+            self.mlp_use_learnable_cat_embeddings_cfg if (self.cat_feature_count > 0 and _has_neural) else True,
+            self.mlp_categorical_embed_dim_cfg if (self.cat_feature_count > 0 and _has_neural and self.mlp_use_learnable_cat_embeddings_cfg) else None,
         )
 
     def _canonical_recurrent_model(self) -> "str | None":

@@ -1353,6 +1353,8 @@ AXES: dict[str, tuple[Any, ...]] = {
     # MLP gate; once a spectral_norm axis is added the canon will be
     # refined to follow it.
     "mlp_use_residual_cfg": (False, True),
+    "mlp_use_learnable_cat_embeddings_cfg": (True, False),
+    "mlp_categorical_embed_dim_cfg": (None, 4, 16),
     # #6 numerical_embedding: generate_mlp(numerical_embedding=...) at
     # flat.py:209-210 + branch at :398-408. None = no embedding (default);
     # "plr" = PeriodicLinearEmbedding (multiplies input dim by
