@@ -80,17 +80,32 @@ class TestMRMRFeatureEngineering:
             warnings.simplefilter("ignore")
             mrmr.fit(X=df, y=y)
 
-        # Get selected feature names
-        selected_indices = mrmr.support_.tolist()
-        selected_names = [df.columns[i] for i in selected_indices]
+        # Re-baselined for the full-mode default (use_simple_mode=False, prewarp
+        # ON by default): on this synergy target ``y=a**2/b + log(c)*sin(d)`` the FE
+        # pipeline recovers BOTH terms as engineered features with an EMPTY raw
+        # ``support_`` -- measured ``div(sqr(a),abs(b))`` (== a**2/|b|) and
+        # ``mul(prewarp(c),sin(d))`` (== log(c)*sin(d) via the learned pre-warp). The
+        # old "informative feature in support_ names" check then fails despite a
+        # PERFECT recovery (all 4 informative columns folded into 2 engineered
+        # survivors, noise 'e' dropped). Credit each source column when referenced by
+        # ANY selected feature (raw or engineered), mirroring the multiplicative /
+        # additive synergy tests. Still falsifiable: if FE failed to combine the
+        # pairs neither the informative columns nor a recovery would appear, and 'e'
+        # leaking into any survivor would still trip the noise assertion.
+        referenced = _referenced_columns(mrmr)
 
-        # Noise feature 'e' should not be selected
-        assert 'e' not in selected_names, "Noise feature 'e' should not be selected"
+        # Noise feature 'e' must not be referenced by any selected feature.
+        assert 'e' not in referenced, (
+            f"Noise feature 'e' should not be selected; "
+            f"names={list(mrmr.get_feature_names_out())}"
+        )
 
-        # At least 3 of the 4 informative features should be selected
-        informative_selected = sum(1 for f in expected_features if f in selected_names)
-        assert informative_selected >= 3, \
-            f"Expected at least 3 informative features, got {informative_selected}: {selected_names}"
+        # At least 3 of the 4 informative features must be referenced by a survivor.
+        informative_selected = sum(1 for f in expected_features if f in referenced)
+        assert informative_selected >= 3, (
+            f"Expected at least 3 informative features referenced, got "
+            f"{informative_selected}: {list(mrmr.get_feature_names_out())}"
+        )
 
     @pytest.mark.slow
     def test_feature_engineering_example(self, feature_engineering_example_data):
@@ -117,16 +132,27 @@ class TestMRMRFeatureEngineering:
             warnings.simplefilter("ignore")
             mrmr.fit(X=df, y=y)
 
-        # Get selected feature names
-        selected_indices = mrmr.support_.tolist()
-        selected_names = [df.columns[i] for i in selected_indices]
+        # Re-baselined for the full-mode default (use_simple_mode=False, prewarp ON):
+        # the user's ticket target ``y=a**2/b + log(c)*sin(d)`` is recovered as
+        # ENGINEERED features (e.g. div(sqr(a),abs(b)) and mul(prewarp(c),sin(d)))
+        # with an empty raw ``support_``, so 'a'/'b' live INSIDE the engineered
+        # survivors rather than in raw support_ -- the old raw-name membership check
+        # then fails despite the intended recovery. Credit a/b when referenced by any
+        # selected feature, mirroring the synergy / multiplicative / additive tests.
+        referenced = _referenced_columns(mrmr)
 
-        # Check that noise is not selected
-        assert 'e' not in selected_names, "Noise feature 'e' should not be selected"
+        # Check that noise is not referenced by any selected feature.
+        assert 'e' not in referenced, (
+            f"Noise feature 'e' should not be selected; "
+            f"names={list(mrmr.get_feature_names_out())}"
+        )
 
-        # Check that key features are selected
+        # Check that the key source columns are referenced by a survivor (raw or engineered).
         for feat in ['a', 'b']:
-            assert feat in selected_names, f"Feature '{feat}' should be selected"
+            assert feat in referenced, (
+                f"Feature '{feat}' should be selected (raw or engineered); "
+                f"names={list(mrmr.get_feature_names_out())}"
+            )
 
     def test_multiplicative_synergy(self, multiplicative_synergy_data):
         """Test that MRMR detects multiplicative synergy: y = a * b."""
