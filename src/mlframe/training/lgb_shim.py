@@ -524,6 +524,24 @@ class _DatasetReuseMixin:
                 X_val, y_val_raw = pair_seq[0], pair_seq[1]
                 # Same Arrow split-blocks bridge as train X: keeps Categorical dtype intact, avoids the ``__array__`` numpy fallthrough.
                 X_val = _maybe_bridge_polars_to_pandas(X_val)
+                # categorical_feature="auto" makes LightGBM re-detect categoricals from each frame's pandas dtypes
+                # independently, so a column that is category-dtype in train X but a different CategoricalDtype (or object)
+                # in X_val raises "train and valid dataset categorical_feature do not match". Align X_val's categorical
+                # columns to the train frame's exact CategoricalDtype. Only X_val (the small val frame) is rebuilt -- via
+                # assign for BlockManager reuse of un-cast columns -- the (potentially huge) train frame X is never touched.
+                if hasattr(X, "columns") and hasattr(X_val, "columns"):
+                    _val_cols = set(X_val.columns)
+                    _realign: dict = {}
+                    for _c, _dt in X.dtypes.items():
+                        if str(_dt) != "category" or _c not in _val_cols or _c in _realign:
+                            continue
+                        try:
+                            if X_val[_c].dtype != _dt:
+                                _realign[_c] = X_val[_c].astype(_dt)
+                        except Exception:
+                            pass
+                    if _realign:
+                        X_val = X_val.assign(**_realign)
                 w_val_inline = pair_seq[2] if len(pair_seq) >= 3 else None
                 # Transform val labels through the encoder for classifier;
                 # regressor returns y unchanged.
