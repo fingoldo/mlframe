@@ -552,8 +552,16 @@ def _apply_hermite_pair(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         )
 
     name_a, name_b = recipe.src_names
-    vals_a = _extract_column(X, name_a)
-    vals_b = _extract_column(X, name_b)
+    try:
+        vals_a = _extract_column(X, name_a)
+        vals_b = _extract_column(X, name_b)
+    except Exception as _src_err:
+        # A source can be a fit-time-pruned engineered intermediate that is unreconstructable at replay. The mrmr
+        # validate-transform contract NaN-degrades chained-capable kinds (hermite_pair references engineered cols)
+        # rather than crash the whole transform; mirror that here for the same missing-source class, re-raise else.
+        if isinstance(_src_err, (KeyError, IndexError)) or "ColumnNotFound" in type(_src_err).__name__:
+            return np.full(len(X), np.nan, dtype=np.float64)
+        raise
 
     basis_info = _POLY_BASES[basis]
     z_a = np.ascontiguousarray(
