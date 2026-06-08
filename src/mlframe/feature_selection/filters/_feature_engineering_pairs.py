@@ -234,6 +234,22 @@ _FE_MARGINAL_UPLIFT_MIN_RATIO: float = 1.30
 # cross-pair artefacts that DO clear the uplift bar are gated out here (their joint recovery is
 # either much lower or -- when high -- comes with a marginal uplift that fails the bar above).
 _FE_MARGINAL_UPLIFT_MIN_JOINT_RATIO: float = 0.82
+# HW-ROBUST TWO-TIER joint-recovery floor (2026-06-08 regression fix). The single 0.82 floor
+# sat a razor-thin 0.006 above a measured CROSS-SIGNAL artefact (``sub(exp(a),invcbrt(c))`` for
+# ``y=a**2/b+log(c)*sin(d)`` recovers joint_ratio 0.8141), so a ~1e-3 GPU-vs-CPU MI divergence on
+# the user's RTX flipped the gate and admitted a spurious feature the 1050-Ti CPU/GPU paths reject
+# -- a HW-DEPENDENT selection divergence (the genuine pairs sit at 0.829 / 0.849, the artefact at
+# 0.814, only a 0.015 gap, and the marginal-UPLIFT axis does NOT separate them: the artefact's
+# uplift 1.441 sits ABOVE one genuine pair's 1.378). The fix needs a DETERMINISTIC margin wider
+# than the cross-HW MI noise. A genuine SAME-SIGNAL pair is one of: (a) high joint recovery
+# (>= STRICT floor) on its own, OR (b) a CLEAR-synergy pair (uplift >= the synergy threshold) that
+# clears the relaxed base floor. The cross-signal artefact clears NEITHER -- its joint recovery is
+# below the strict floor AND its uplift is below the synergy threshold -- so a small MI perturbation
+# on either axis cannot flip it. Measured separations: genuine (0,1) uplift 2.32 (synergy branch,
+# joint 0.829 vs base 0.82 -> +0.009), genuine (2,3) joint 0.849 (strict branch, vs 0.84 -> +0.009),
+# artefact joint 0.814 (< 0.84 by 0.026) AND uplift 1.441 (< 2.0 by 0.56) -- both margins >> 0.006.
+_FE_MARGINAL_UPLIFT_STRICT_JOINT_RATIO: float = 0.84
+_FE_MARGINAL_UPLIFT_SYNERGY_UPLIFT: float = 2.0
 
 # MEDIAN-GATE pseudo-unary (2026-06-04). Mirrors ``_PREWARP_UNARY`` exactly: it
 # lives in the same namespace as the real unary names (``identity``, ``sqr``, ...)
@@ -1978,10 +1994,22 @@ def check_prospective_fe_pairs(
                 _operand_marginal_mi(raw_vars_pair[1]),
             )
             _joint_ratio = best_nonprewarp_mi / pair_mi
+            _uplift_ratio = (best_nonprewarp_mi / _max_operand_marginal) if _max_operand_marginal > 0.0 else 0.0
+            # HW-robust two-tier joint-recovery floor (see the constants above): a genuine
+            # same-signal pair clears EITHER the strict joint floor on its own OR is a clear-synergy
+            # pair (high uplift) that clears the relaxed base floor. A cross-signal artefact clears
+            # neither, so a small cross-HW MI perturbation cannot flip it into the support.
+            _joint_recovery_ok = (
+                _joint_ratio >= _FE_MARGINAL_UPLIFT_STRICT_JOINT_RATIO
+                or (
+                    _uplift_ratio >= _FE_MARGINAL_UPLIFT_SYNERGY_UPLIFT
+                    and _joint_ratio >= _FE_MARGINAL_UPLIFT_MIN_JOINT_RATIO
+                )
+            )
             if (
                 _max_operand_marginal > 0.0
                 and best_nonprewarp_mi >= _max_operand_marginal * _FE_MARGINAL_UPLIFT_MIN_RATIO
-                and _joint_ratio >= _FE_MARGINAL_UPLIFT_MIN_JOINT_RATIO
+                and _joint_recovery_ok
             ):
                 _marginal_uplift_accept = True
                 # Promote the best non-prewarp form so the standard single-best

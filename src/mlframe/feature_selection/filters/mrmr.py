@@ -386,6 +386,20 @@ class MRMR(BaseEstimator, TransformerMixin):
         # no redundancy check, no gain). The re-screen does not run FE again, so
         # there is no unbounded recursion and no extra engineered columns appear.
         fe_reselect_after_engineering: bool = True,
+        # Raw-retention sample-size scope (2026-06-08 regression fix). The post-FE
+        # raw-retention pass re-adds a screening-confirmed raw feature the re-selection
+        # dropped, to recover a genuine weak raw signal an engineered feature absorbed as
+        # a redundant near-duplicate. That override is a SMALL-N device (validated on
+        # n=500/2000/3000 fixtures where the conditional-MI redundancy estimate is noisy).
+        # At large n the re-selection's conditional-MI redundancy term is reliable, so a raw
+        # operand it drops in favour of a surviving MULTI-parent engineered child (e.g. raw
+        # ``a,c,d`` vs ``div(sqr(a),abs(b))`` / ``mul(log(c),sin(d))`` for
+        # ``y=a**2/b+log(c)*sin(d)``) is genuinely redundant and must STAY dropped -- the
+        # blanket re-add padded support_ with redundant raw columns (support_rank -1, no gain)
+        # and regressed the canonical selection. Above this row count, raw-retention defers to
+        # the re-selection for raw columns that ARE operands of a surviving engineered feature;
+        # raws absorbed by an UNRELATED engineered feature keep the protective re-add at any n.
+        fe_raw_retention_max_n: int = 20000,
         # ``fe_npermutations`` default 0->3:
         # pre-fix value 0 combined with ``fe_min_nonzero_confidence=1.0``
         # made the FE confidence gate STRUCTURALLY UNREACHABLE (confidence
@@ -427,7 +441,17 @@ class MRMR(BaseEstimator, TransformerMixin):
         # mul(log(c),sin(d)) [rat~1.01] cleared 0.90 but not 0.98, so the default fit
         # found ZERO engineered cols. 0.90 keeps genuine 1-D summaries of real 2-D
         # interactions while still rejecting noise (which lands well below the pair MI).
-        fe_min_engineered_mi_prevalence: float = 0.97,  # mi of transformed pair must be at least that higher than the mi of the entire pair
+        # 2026-06-08 regression fix: restored to 0.90 (the documented value above). A
+        # campaign tightening to 0.97 (commit 855c2568, to cut optimisation-inflated
+        # noise-FE) rejected GENUINE engineered features on weaker-signal canonical targets
+        # (e.g. ``y=0.2*a**2/b + log(c*2)*sin(d/3)`` produced 0 engineered, with the runtime
+        # warning literally suggesting a 0.90 retry), contradicting the rationale comment
+        # just above which still described 0.90. The noise-FE the 0.97 raise targeted is now
+        # rejected HW-robustly by the two-tier marginal-uplift joint-recovery gate (see
+        # ``_FE_MARGINAL_UPLIFT_STRICT_JOINT_RATIO`` in _feature_engineering_pairs), so the
+        # joint-prevalence floor no longer has to carry that load and can return to the value
+        # that admits genuine 1-D summaries of real 2-D interactions.
+        fe_min_engineered_mi_prevalence: float = 0.90,  # mi of transformed pair must be at least that higher than the mi of the entire pair
         fe_good_to_best_feature_mi_threshold: float = 0.98,  # when multiple good transformations exist for the same factors pair.
         fe_max_external_validation_factors: int = 0,  # how many other factors to validate against
         fe_max_polynoms: int = 0,

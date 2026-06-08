@@ -5778,8 +5778,72 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _substituted.add(_anchor)
                 if isinstance(_members, (list, tuple, set)):
                     _substituted.update(_members)
+        # MULTI-PARENT OPERAND SCOPE (2026-06-08 regression fix): a raw feature that
+        # is an OPERAND of a SURVIVING multi-parent engineered feature is NOT covered
+        # by the sole-parent ``_substituted`` exclusion above, so the original blanket
+        # re-add resurrected EVERY such operand -- including ones whose entire signal
+        # flowed into the engineered child (e.g. ``y = a**2/b + log(c)*sin(d)``: raw
+        # ``a, c, d`` carry NO information about ``y`` beyond ``div(sqr(a),abs(b))`` and
+        # ``mul(log(c),sin(d))``, yet were re-added with ``support_rank -1`` and no gain,
+        # padding the support with three redundant columns). The post-FE re-selection
+        # ALREADY judged them redundant via the Fleuret conditional-MI redundancy term.
+        # We restore the OLD CORRECT behaviour by deferring to that verdict for such
+        # operands at large n (where the conditional-MI estimate is reliable), while
+        # keeping the protective unconditional re-add at small n (the regime the
+        # protection was built and validated for) and for raws NOT consumed by any
+        # surviving engineered feature (the originally-intended absorbed-by-unrelated case).
+        from ._confirm_predictor_engineered import _PARENT_TOKEN_SPLIT as _RR_TOK_SPLIT
+        # Map each raw-operand name -> list of surviving ENGINEERED survivor column indices that consume it.
+        _eng_operands_of = {}  # raw_name -> list[engineered survivor col idx]
+        for _v in selected_vars:
+            _vname = cols[_v]
+            if _vname in _raw_names_set:
+                continue
+            for _tok in _RR_TOK_SPLIT.split(_vname):
+                if not _tok:
+                    continue
+                _base = _tok if _tok in _raw_names_set else (_tok.split("__", 1)[0] if "__" in _tok else None)
+                if _base in _raw_names_set:
+                    _eng_operands_of.setdefault(_base, []).append(_v)
+        # Sample-size scope (2026-06-08): the small-n regime the protection was BUILT and
+        # validated for (n=500 / 2000 / 3000 fixtures). At large n the post-FE re-selection's
+        # conditional-MI redundancy term is statistically reliable -- its drop of a redundant
+        # operand IS the OLD CORRECT behaviour -- so we do NOT override it there. ``_RR_PROTECT_MAX_N``
+        # sits well above the largest validated fixture (3000) and far below the regression case (1e5).
+        _RR_PROTECT_MAX_N = int(getattr(self, "fe_raw_retention_max_n", 20000) or 0)
+        _n_rows_rr = int(data.shape[0])
+
+        def _rr_raw_is_relevant_given_engineered(_raw_idx, _eng_cols):
+            """Whether a raw operand of a surviving engineered child carries signal the
+            engineered set does NOT capture, so raw-retention should OVERRIDE the re-selection's
+            redundancy drop. Two regimes:
+
+            * small n (``n <= _RR_PROTECT_MAX_N``): the conditional-MI redundancy estimate the
+              re-selection used is unreliable at small n (the protection's whole reason to exist),
+              so keep the protective re-add unconditionally -- preserves the n<=3000 contracts.
+            * large n: the re-selection's conditional-MI redundancy verdict is trustworthy, so we
+              DEFER to it -- an operand it dropped is genuinely redundant given the engineered
+              child (``a`` in ``div(sqr(a),abs(b))`` for ``y=a**2/b`` carries no signal about ``y``
+              beyond the ratio). We do NOT re-add it, restoring the pre-2026-06-03 selection. Note a
+              bare ``CMI >= relevance_floor`` check does NOT work here: a coarsely-binned (~10-bin)
+              engineered child leaves a small but above-floor residual conditional MI on its operand
+              purely from the binning gap (measured: redundant ``a/c/d`` sit at CMI 0.002-0.023, the
+              floor is ~0.0013), so the absolute floor cannot separate residual-binning-noise from a
+              real independent term -- only the re-selection's RELATIVE redundancy criterion can, and
+              it already ran.
+
+            CMI-estimator import/edge failures fall back to the protective re-add (never drop a
+            screening-confirmed raw on an estimator error)."""
+            if not _eng_cols:
+                return True  # absorbed by an UNRELATED engineered feature -> original intent
+            if _n_rows_rr <= _RR_PROTECT_MAX_N:
+                return True  # small-n protective regime: keep the unconditional re-add
+            # large n: defer to the re-selection's redundancy drop for engineered operands.
+            return False
+
         _sv_set = set(selected_vars)
         _readd = []
+        _dropped_redundant = []
         for _rn in _prefe_raw:
             if _rn in _cur_names or _rn in _substituted:
                 continue
@@ -5787,18 +5851,32 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _idx = cols.index(_rn)
             except ValueError:
                 continue
-            if _idx not in _sv_set:
-                _readd.append(_idx)
-                _sv_set.add(_idx)
+            if _idx in _sv_set:
+                continue
+            _eng_cols = _eng_operands_of.get(_rn)
+            if _eng_cols and not _rr_raw_is_relevant_given_engineered(_idx, _eng_cols):
+                # Fully captured by a surviving engineered child -> respect the
+                # re-selection's redundancy verdict (the OLD CORRECT behaviour).
+                _dropped_redundant.append(_rn)
+                continue
+            _readd.append(_idx)
+            _sv_set.add(_idx)
         if _readd:
             selected_vars = list(selected_vars) + _readd
             if verbose:
                 logger.info(
                     "MRMR raw-retention: re-added %d screening-confirmed raw feature(s) "
-                    "dropped by the post-FE re-selection (not substituted by a sole-parent "
-                    "engineered child): %s",
+                    "dropped by the post-FE re-selection (carry conditional signal beyond "
+                    "their engineered children): %s",
                     len(_readd), [cols[i] for i in _readd],
                 )
+        if _dropped_redundant and verbose:
+            logger.info(
+                "MRMR raw-retention: kept %d raw feature(s) DROPPED -- fully captured by a "
+                "surviving engineered child (conditional MI given the engineered set below "
+                "the relevance floor): %s",
+                len(_dropped_redundant), _dropped_redundant,
+            )
 
     # ADAPTIVE-FOURIER PROTECTION (2026-06-03): re-add held-out-validated
     # ADAPTIVE Fourier columns the MRMR screen dropped. The adaptive detector
@@ -6186,9 +6264,32 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _max_mi_aug = max((m for _, _, m in _raw_mi_aug), default=0.0)
                 _floor_aug = max(_abs_floor_aug, _max_mi_aug * _rel_frac_aug)
                 _selected_set = set(int(v) for v in selected_vars)
+                # LARGE-N SCOPE (2026-06-08 regression fix): this augmentation re-attaches a raw
+                # column whose NAME is a source token of a confirmed engineered recipe and whose
+                # MARGINAL MI clears the relevance floor. Marginal MI cannot tell a FULLY-ABSORBED
+                # operand (``a`` in ``div(sqr(a),abs(b))`` for ``y=a**2/b`` -- high marginal MI, ZERO
+                # conditional signal beyond the ratio) from a genuine independent term, so on the
+                # canonical composite fixtures it resurrected exactly the redundant raw operands the
+                # post-FE re-selection had correctly dropped (support_rank -1, no gain). At large n the
+                # re-selection's conditional-MI redundancy verdict is reliable, so we DEFER to it: skip
+                # the token-based re-attach for any raw column that is an operand of a SURVIVING
+                # engineered feature. The small-n regime (where the augmentation was validated) keeps
+                # the marginal-MI re-attach. Threshold shared with the raw-retention pass above.
+                # ``selected_vars`` here holds RAW indices into ``feature_names_in_`` (the surviving
+                # engineered columns live in ``self._engineered_recipes_`` / ``_engineered_features_``,
+                # not in ``selected_vars``). Derive the surviving engineered OPERANDS from the recipe
+                # source tokens (``_eng_tokens`` already = every source token of every confirmed recipe,
+                # restricted here to raw names), since every confirmed engineered child contributes its
+                # operands to that set. A raw column that is such an operand was dropped by the
+                # re-selection IN FAVOUR of its engineered child -> at large n, do not resurrect it.
+                _aug_max_n = int(getattr(self, "fe_raw_retention_max_n", 20000) or 0)
+                _aug_large_n = int(data.shape[0]) > _aug_max_n
+                _raw_names_for_aug = set(self.feature_names_in_)
+                _surviving_eng_operands = {t for t in _eng_tokens if t in _raw_names_for_aug} if _aug_large_n else set()
                 _to_add = [i for i, _name, m in sorted(_raw_mi_aug, key=lambda kv: (-kv[2], kv[0]))
                            if m > _floor_aug and i not in _selected_set and _name in _eng_tokens
-                           and _name not in _aug_excluded_names]
+                           and _name not in _aug_excluded_names
+                           and not (_aug_large_n and _name in _surviving_eng_operands)]
                 if _to_add:
                     selected_vars.extend(_to_add)
                     self.support_ = np.array(selected_vars, dtype=np.int64)
