@@ -450,6 +450,14 @@ class _DatasetReuseMixin:
         # numeric columns stay zero-copy and Categorical columns reach LightGBM with their dictionary intact (native cat-split path).
         X = _maybe_bridge_polars_to_pandas(X)
 
+        # Remember the train frame's categorical-column dtypes so predict can realign incoming frames to the SAME
+        # CategoricalDtype. LightGBM compares each predict frame's auto-detected cat schema against the fit-time one and
+        # raises "categorical_feature do not match" when a column's category set (or its category-ness) differs.
+        self._mlframe_train_cat_dtypes = (
+            {_c: _dt for _c, _dt in X.dtypes.items() if str(_dt) == "category"}
+            if hasattr(X, "dtypes") else {}
+        )
+
         # ---- Train Dataset: cache-or-build ---------------------------
         train_key = _signature_of(X, categorical_feature)
         if self._cached_train_key == train_key and self._cached_train_dataset is not None:
@@ -704,6 +712,31 @@ class _DatasetReuseMixin:
         same LabelEncoder used for train; regressor returns y unchanged."""
         return y
 
+    def _align_cats_for_predict(self, X):
+        """Recast the incoming frame's categorical columns to the train frame's CategoricalDtype so LightGBM's per-frame
+        cat-schema check matches the fit-time one. No-op when the model trained without categoricals or nothing differs;
+        only the incoming frame is rebuilt (assign block-reuse), never the caller's data."""
+        train_cats = getattr(self, "_mlframe_train_cat_dtypes", None)
+        if not train_cats:
+            return X
+        X = _maybe_bridge_polars_to_pandas(X)
+        if not hasattr(X, "columns"):
+            return X
+        _cols = set(X.columns)
+        _realign: dict = {}
+        for _c, _dt in train_cats.items():
+            if _c not in _cols or _c in _realign:
+                continue
+            try:
+                if X[_c].dtype != _dt:
+                    _realign[_c] = X[_c].astype(_dt)
+            except Exception:
+                pass
+        return X.assign(**_realign) if _realign else X
+
+    def predict(self, X, *args, **kwargs):
+        return super().predict(self._align_cats_for_predict(X), *args, **kwargs)
+
 
 # ---------------------------------------------------------------------
 # Concrete subclasses
@@ -759,6 +792,9 @@ if _LGB_AVAILABLE:
             if self._le is None:
                 return y
             return self._le.transform(np.asarray(y))
+
+        def predict_proba(self, X, *args, **kwargs):
+            return super().predict_proba(self._align_cats_for_predict(X), *args, **kwargs)
 
 
     class LGBMRegressorWithDatasetReuse(_DatasetReuseMixin, LGBMRegressor):
