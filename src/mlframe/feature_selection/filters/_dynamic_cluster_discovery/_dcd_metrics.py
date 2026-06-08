@@ -106,7 +106,7 @@ def pair_su(state: DCDState, a: int, b: int,
         # lookups (cold) or 0 + 0 + 2 (warm), preserving bit-equivalent
         # SU since both formulations compute the same H(X_a) + H(X_b) +
         # H(X_a, X_b) -> 2*(H_a + H_b - H_ab)/(H_a + H_b).
-        from ..info_theory import entropy, merge_vars
+        from ..info_theory import entropy, merge_vars, joint_freqs_2var
         # iter589: cache the int64 view of factors_nbins on state so it
         # is not re-asarray'd every call. ``fn`` is typically already
         # int64 but np.asarray still pays a dispatch.
@@ -140,11 +140,17 @@ def pair_su(state: DCDState, a: int, b: int,
             )
             h_b = float(entropy(freqs_b))
             ec[b] = h_b
-        pair_buf[0] = a
-        pair_buf[1] = b
-        _, freqs_ab, _ = merge_vars(
-            fd, pair_buf, None, fn_arr, dtype=dtype,
-        )
+        # iter (2026-06-08): the joint H(X_a, X_b) is the ONLY genuinely per-pair term
+        # (the marginals are state-cached above), so it runs on every cache-miss pair --
+        # ~24k pairs at 600 rows / ~345k at full scene. ``merge_vars`` here builds a
+        # length-n ``final_classes`` array + a lookup-table remap pass that this SU path
+        # discards (it only consumes the pruned freqs for ``entropy``); the dedicated 2-var
+        # ``joint_freqs_2var`` kernel returns the IDENTICAL normalized nonzero freqs without
+        # that wasted alloc+remap, ~23x faster per pair at BIT-IDENTICAL numerics (verified
+        # max-abs-diff 0.0 vs merge_vars across uniform/sparse/skew/const data, all n;
+        # bench D:/Temp/microbench_pairsu2.py). ``entropy`` is still the canonical njit call
+        # so the log-sum reduction is reused verbatim.
+        freqs_ab = joint_freqs_2var(fd, a, b, int(fn_arr[a]), int(fn_arr[b]))
         h_ab = float(entropy(freqs_ab))
         denom = h_a + h_b
         if denom <= 1e-12:
