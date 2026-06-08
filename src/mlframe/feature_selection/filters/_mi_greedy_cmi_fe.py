@@ -215,13 +215,16 @@ def _renumber_joint(*cols: np.ndarray) -> tuple[np.ndarray, int]:
     # ``joint + c64 * mult`` reduced to ``c64``, so seed directly from col 0 and
     # skip both the ``np.zeros(n)`` allocation and the redundant add (2.9x on the
     # common single-col conditioning case; bit-identical).
-    joint = np.ascontiguousarray(cols[0], dtype=np.int64)
+    # Conditioning cols are 1-D class arrays; a stray singleton 2nd dim ((n, 1) from an upstream reshape) would make
+    # the njit factorize see a 2-D array -> numba "Cannot unify Literal[int](0) and array(int64)" at compile. ravel()
+    # normalises (no-op for 1-D, squeezes (n, 1)); a genuine (n, k>1) col surfaces downstream as a shape error.
+    joint = np.ascontiguousarray(cols[0], dtype=np.int64).ravel()
     if n:
         joint, mult = _factorize_dense_njit(joint)
     else:
         mult = 1
     for c in cols[1:]:
-        c64 = np.ascontiguousarray(c, dtype=np.int64)
+        c64 = np.ascontiguousarray(c, dtype=np.int64).ravel()
         joint = joint + c64 * mult
         # Renumber after every fold so ``mult`` stays bounded by the actual
         # occupied joint cardinality (~ <= n) instead of the cartesian
