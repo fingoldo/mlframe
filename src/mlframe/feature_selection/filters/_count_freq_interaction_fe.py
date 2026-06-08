@@ -547,9 +547,12 @@ def cat_num_interaction_with_recipes(
     if not cat_cols or not num_cols:
         return X.copy(), [], []
     cat_cols = [c for c in cat_cols if c in X.columns]
+    # ``X[c]`` is a DataFrame (no ``.dtype``) when ``c`` is a duplicated column name; skip such ambiguous columns
+    # (a single numeric dtype can't be determined) instead of raising AttributeError and losing the whole FE pass.
     num_cols = [
         c for c in num_cols
-        if c in X.columns and np.issubdtype(X[c].dtype, np.number)
+        if c in X.columns and getattr(X[c], "ndim", 2) == 1
+        and np.issubdtype(X[c].dtype, np.number)
     ]
     if not cat_cols or not num_cols:
         return X.copy(), [], []
