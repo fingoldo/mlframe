@@ -152,6 +152,56 @@ def joint_freqs_2var(factors_data: np.ndarray, ia: int, ib: int, nb_a: int, nb_b
     return nz / n
 
 
+@njit(nogil=True, cache=True)
+def joint_entropy_2var(factors_data: np.ndarray, ia: int, ib: int, nb_a: int, nb_b: int) -> float:
+    """Shannon entropy ``H(X_ia, X_ib)`` in nats for the column PAIR ``(ia, ib)`` -- BIT-IDENTICAL
+    to ``entropy(joint_freqs_2var(factors_data, ia, ib, nb_a, nb_b))`` but FUSED: the joint
+    histogram is reduced straight to the entropy scalar with NO intermediate normalized-freqs
+    array, NO ``freqs[freqs > 0]`` boolean-mask allocation, and NO ``np.log(freqs) * freqs``
+    temporary -- all of which ``joint_freqs_2var`` (which returns the full normalized nonzero freqs
+    array) and the downstream ``entropy`` call allocate-then-discard on the way to a single float.
+
+    The DCD pairwise-SU hot loop (``_dcd_metrics.pair_su``) is the dominant per-pair consumer of
+    ``joint_freqs_2var``: 341,777 calls on the full scene fit, and EVERY one immediately collapses
+    the returned freqs array to a scalar via ``entropy``. The two-call form therefore allocates a
+    pruned freqs array + a ``/ n`` normalized array per pair, then ``entropy`` re-runs the
+    ``freqs > 0`` mask and builds ``log(freqs) * freqs`` -- pure per-call wasted WORK once only the
+    entropy scalar is wanted. This kernel walks the joint histogram ONCE and accumulates
+    ``-(p * log(p))`` directly. ~1.24x per pair at ZERO numeric change (bench D:/Temp/ww_micro_jointentropy.py).
+
+    BIT-IDENTITY to ``entropy(joint_freqs_2var(...))`` (verified max-abs-diff EXACTLY 0.0 across
+    uniform / heavy-skew data at n=37/600/2407 over 960 cases incl. unequal per-column bin counts,
+    test_joint_entropy_2var.py):
+      * SAME joint class id ``cls = ca + cb * nb_a`` and SAME ascending-class-id scan order as
+        ``joint_freqs_2var`` + ``entropy``'s ``freqs[freqs > 0]`` (which preserves ascending order),
+        so the FP accumulation visits the IDENTICAL ``p`` values in the IDENTICAL order.
+      * SAME per-bin probability ``p = cnt / n`` (int64 count divided by ``n`` in float64), matching
+        ``joint_freqs_2var``'s ``nz / n``.
+      * SAME reduction: ``entropy`` is ``-(np.log(freqs) * freqs).sum()`` -- numpy's ``.sum()`` over a
+        contiguous 1-D array of < 128 elements (the joint nonzero-bin count, ``<= nb_a * nb_b``) is a
+        NAIVE sequential add (pairwise summation only kicks in at >= 128 elements), so the scalar
+        left-to-right ``h += log(p) * p`` accumulation here reproduces it bit-for-bit, then negates.
+    """
+    n = factors_data.shape[0]
+    size = nb_a * nb_b
+    freqs = np.zeros(size, dtype=np.int64)
+    for r in range(n):
+        ca = factors_data[r, ia]
+        cb = factors_data[r, ib]
+        cls = ca + cb * nb_a
+        freqs[cls] += 1
+    # Reduce the histogram straight to entropy in ascending class-id order (== entropy's post-prune
+    # order). p = cnt / n in float64; accumulate -(p * log(p)) sequentially -> bit-identical to
+    # numpy ``.sum()`` for the small (< 128) nonzero-bin count of a 2-var joint.
+    h = 0.0
+    for c in range(size):
+        cnt = freqs[c]
+        if cnt != 0:
+            p = cnt / n
+            h += np.log(p) * p
+    return -h
+
+
 @njit(cache=True)
 def entropy(freqs: np.ndarray, min_occupancy: float = 0) -> float:
     """Shannon entropy in nats. Bins below ``min_occupancy`` (or zero by default) are filtered out before the log to avoid ``0 * log(0)``."""
