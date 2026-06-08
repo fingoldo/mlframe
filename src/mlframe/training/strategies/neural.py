@@ -28,6 +28,11 @@ class NeuralNetStrategy(ModelPipelineStrategy):
     requires_scaling = True
     requires_encoding = True
     requires_imputation = True
+    # The MLP has no native embedding/text input layers, but the estimator now self-encodes those columns at fit/predict
+    # (expand embedding List -> numeric; HF-embed text -> numeric; see NeuralEmbeddingTextEncoder + _encode_emb_text_fit),
+    # so they must be kept in the frame (not dropped) and routed to the estimator -- hence both support flags are True.
+    supports_text_features = True
+    supports_embedding_features = True
     supports_native_multiclass = True
     supports_native_multilabel = True
     supports_native_ranking = True

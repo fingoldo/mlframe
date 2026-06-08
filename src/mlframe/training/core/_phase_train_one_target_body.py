@@ -568,6 +568,22 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                     if _cb_emb_inv:
                         _cb_extra_fit_invariant["embedding_features"] = _cb_emb_inv
 
+            # Neural (MLP / ranker): the tabular Lightning models have no native embedding/text input layers, so the
+            # estimator expands embedding-List + HF-embeds text columns itself at fit/predict. Thread the (prepared-frame
+            # present) feature lists into fit_params so the estimator knows which columns to encode; invariant across the
+            # weight loop. ``_encode_emb_text_fit`` pops these keys before they reach Lightning.
+            _neural_extra_fit_invariant: dict[str, Any] | None = None
+            if getattr(strategy, "cache_key", None) == "neural" and (text_features or embedding_features):
+                _neural_extra_fit_invariant = {}
+                if text_features:
+                    _ntxt_inv = filter_existing(prepared_train, text_features)
+                    if _ntxt_inv:
+                        _neural_extra_fit_invariant["text_features"] = _ntxt_inv
+                if embedding_features:
+                    _nemb_inv = filter_existing(prepared_train, embedding_features)
+                    if _nemb_inv:
+                        _neural_extra_fit_invariant["embedding_features"] = _nemb_inv
+
             for weight_name, weight_values in tqdmu_lazy_start(weight_schemas.items(), desc="weighting schema"):
                 model_name_with_weight = common_params["model_name"]
                 model_file_name=f"{mlframe_model_name}"
@@ -705,6 +721,10 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 if _cb_extra_fit_invariant and "fit_params" in current_model_params:
                     if _cb_extra_fit_invariant:
                         current_model_params["fit_params"] = {**current_model_params["fit_params"], **_cb_extra_fit_invariant}
+
+                # Neural estimators self-encode embedding/text columns; thread the feature lists into their fit_params.
+                if _neural_extra_fit_invariant and "fit_params" in current_model_params:
+                    current_model_params["fit_params"] = {**current_model_params["fit_params"], **_neural_extra_fit_invariant}
 
                 # MLP extreme-AR + group-aware protections. Trigger predicate
                 # ``_mlp_extreme_ar_fired`` is set above (per target, per

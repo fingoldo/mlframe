@@ -43,6 +43,13 @@ class _PredictMixin:
         Returns:
             numpy.ndarray: Model predictions (probabilities for classification, values for regression)
         """
+        # Apply the same embedding/text -> numeric encoding fitted at train (the MLP has no native embedding/text
+        # layers). No-op when the model trained without such columns (encoder is None) or when X arrives already
+        # numeric (encoder skips absent columns). Runs before batch-size probing so the probed width is the encoded one.
+        _emb_text_enc = getattr(self, "_emb_text_encoder_", None)
+        if _emb_text_enc is not None:
+            X = _emb_text_enc.transform(X)
+
         # Lazy import: the package __init__ imports this mixin at class-definition
         # time, so a module-top ``from . import ...`` would be a cycle.
         from . import _PREDICT_ONLY_DM_PARAM_KEYS

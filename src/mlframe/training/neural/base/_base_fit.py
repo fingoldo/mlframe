@@ -36,6 +36,32 @@ logger = __import__("logging").getLogger("mlframe.training.neural.base")
 class _FitMixin:
     """Common fit / partial_fit training run for the estimator."""
 
+    def _encode_emb_text_fit(self, X, eval_set, fit_params):
+        """Expand embedding-``List`` columns + HF-embed free-text columns to numeric for the tabular MLP, which has no
+        native embedding/text input layers. The feature-name lists arrive via ``fit_params`` (``embedding_features`` /
+        ``text_features``, popped so they never reach Lightning); the fitted encoder is stashed on
+        ``self._emb_text_encoder_`` so ``predict`` applies the identical transform. No-op when no such columns are named
+        OR when they were already encoded upstream by the strategy pre-pipeline (the encoder skips absent columns), so
+        this can't double-encode. Applies to train X and the eval_set val X, for every target type.
+        """
+        self._emb_text_encoder_ = None
+        emb = fit_params.pop("embedding_features", None)
+        txt = fit_params.pop("text_features", None)
+        named = list(emb or []) + list(txt or [])
+        if not named or not hasattr(X, "columns") or not any(c in X.columns for c in named):
+            return X, eval_set
+        from ..feature_prep import NeuralEmbeddingTextEncoder
+        enc = NeuralEmbeddingTextEncoder(embedding_features=list(emb or []), text_features=list(txt or []))
+        X = enc.fit_transform(X)
+        self._emb_text_encoder_ = enc
+        if eval_set is not None:
+            _is_list = isinstance(eval_set, list) and len(eval_set) > 0
+            _ev = eval_set[0] if _is_list else eval_set
+            if isinstance(_ev, tuple) and len(_ev) >= 1 and _ev[0] is not None and hasattr(_ev[0], "columns"):
+                _ev_new = (enc.transform(_ev[0]),) + tuple(_ev[1:])
+                eval_set = ([_ev_new] + list(eval_set[1:])) if _is_list else _ev_new
+        return X, eval_set
+
     def _fit_common(
         self,
         X,
@@ -54,6 +80,10 @@ class _FitMixin:
 
         if fit_params is None:
             fit_params = {}
+
+        # Make embedding-vector + free-text columns numeric BEFORE validation + input-dim computation (the MLP has no
+        # native embedding/text layers). Stashes the fitted encoder on self for predict(). No-op when none are named.
+        X, eval_set = self._encode_emb_text_fit(X, eval_set, fit_params)
 
         # F-06 (2026-05-30): sklearn-canonical reproducibility seed. When
         # ``random_state`` is an int, seed torch + numpy + Python random +
