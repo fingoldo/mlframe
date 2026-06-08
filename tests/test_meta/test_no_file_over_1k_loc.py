@@ -41,11 +41,6 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # sibling ``_mrmr_fe_step_score.py``. Pre-existing overflow, not from the
     # engineered_recipes carve.
     "src/mlframe/feature_selection/filters/_mrmr_fe_step.py",
-    # FIXME(carve-wave-next): filters/info_theory.py at ~1.0k LOC -- the MI /
-    # entropy kernel collection edged just over the budget. Carve candidate:
-    # split the conditional-MI / SU helpers into a sibling ``_info_theory_cmi.py``.
-    # Pre-existing overflow, not from the engineered_recipes carve.
-    "src/mlframe/feature_selection/filters/info_theory.py",
     # FIXME(carve-wave-next): training/core/_phase_train_one_target_body.py
     # at ~1.02k LOC after the recurrent-ensemble integration + composite-
     # discovery wiring. Sibling carve candidates: the recurrent rerun block
