@@ -23,6 +23,7 @@ FE features are statistical aggregates and 99% recall is plenty for the signal t
 from __future__ import annotations
 
 import logging
+import os
 from functools import lru_cache
 from typing import Tuple
 
@@ -34,9 +35,25 @@ _HNSW_AVAILABLE: bool | None = None
 
 
 def _check_hnsw_available() -> bool:
-    """Cached check for hnswlib import."""
+    """Cached check for hnswlib import.
+
+    Opt-out via ``MLFRAME_DISABLE_HNSW=1``: forces the exact sklearn ``NearestNeighbors`` path and
+    skips ``import hnswlib`` entirely. This is the escape hatch for hosts where hnswlib's native
+    extension is unstable -- on some Windows / conda boxes ``import hnswlib`` triggers an MSVC-runtime
+    / DLL access violation (a hard C-level crash uncatchable by ``try/except``) when its DLL is loaded
+    into a process that already has other native extensions (cupy CUDA runtime, MKL/OpenBLAS) resident.
+    The sklearn-exact path is the deterministic backend anyway (hnswlib is approximate), so disabling
+    hnswlib only costs the large-N speedup, never correctness. Bit-identity-neutral when unset.
+    """
     global _HNSW_AVAILABLE
     if _HNSW_AVAILABLE is None:
+        if os.environ.get("MLFRAME_DISABLE_HNSW", "").strip() not in ("", "0", "false", "False"):
+            _HNSW_AVAILABLE = False
+            logger.info(
+                "[_knn_helper] MLFRAME_DISABLE_HNSW set; using exact sklearn NearestNeighbors "
+                "(hnswlib import skipped)."
+            )
+            return _HNSW_AVAILABLE
         try:
             import hnswlib  # noqa: F401
             _HNSW_AVAILABLE = True

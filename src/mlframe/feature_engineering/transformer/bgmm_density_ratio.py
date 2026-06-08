@@ -118,6 +118,17 @@ def compute_bgmm_density_ratio_features(
         all_feats = np.zeros((n_q, len(component_counts) * 3), dtype=np.float32)
         if Xt_pos.shape[0] < 2 or Xt_neg.shape[0] < 2:
             return all_feats
+        # bench-attempt-rejected (2026-06-08): the 6 BGM fits (len(component_counts) x {pos,neg}) are
+        # independent and dominate the FE shortlist wall (~96%: this transformer is ~21s of a ~22s
+        # 6k-row FE-transform run; profile attributes 100% to sklearn's EM -- _estimate_log_gaussian_prob
+        # 10.4s + _estimate_gaussian_covariances_full 7.5s -- with ~0.006s in this wrapper). Parallelising
+        # the 6 fits via ThreadPoolExecutor measured 1.45-1.9x (17.6s -> 9.1-12.1s), BUT is NOT
+        # bit-identical: threads>=3 diverged immediately, and threads=2 (identical when idle) diverged
+        # 2/4 trials under background CPU load -- OpenBLAS load-dependent thread-partitioning changes the
+        # GEMM reduction order, perturbing the EM trajectory. Pinning BLAS to 1 thread (threadpool_limits)
+        # is itself non-identical to the current multi-thread output. There is no detectable safe condition
+        # (system load is unpredictable), so the parallel path violates the bit-identity gate. The cost is
+        # 100% inside sklearn's BayesianGaussianMixture -- the correct library kernel -- so this stays serial.
         for scale_idx, n_comp in enumerate(component_counts):
             k_pos = max(2, min(n_comp, Xt_pos.shape[0] // 3))
             k_neg = max(2, min(n_comp, Xt_neg.shape[0] // 3))
