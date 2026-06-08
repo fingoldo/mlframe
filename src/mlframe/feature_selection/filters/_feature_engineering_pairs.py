@@ -900,11 +900,12 @@ def _compute_one_fe_chunk(
                         start = timer()
                         try:
                             chunk_buffer[:, col] = bin_func(param_a, param_b)
-                            _col_view = chunk_buffer[:, col]
                         except Exception:
                             logger.error(f"Error when performing {bin_func}")
                             continue
-                        np.nan_to_num(_col_view, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+                        # NaN/inf scrub DEFERRED to one vectorised pass over chunk_buffer[:, :col]
+                        # below (was a per-column ``nan_to_num`` here -- the same per-column serial
+                        # numpy hotspot the per-pair Phase-1 path had). Elementwise -> byte-identical.
                         local_times[bin_func_name] = local_times.get(bin_func_name, 0.0) + (timer() - start)
                         candidates.append((transformations_pair, bin_func_name, col, uses_pw))
                         col += 1
@@ -916,6 +917,14 @@ def _compute_one_fe_chunk(
             candidates, local_times = chunk_records[raw_vars_pair]
             out[raw_vars_pair] = (candidates, None, local_times)
         return out
+
+    # ONE vectorised NaN/inf scrub over every materialised chunk column [:, :col]
+    # (replaces the per-column ``nan_to_num`` removed in the numpy-fallback loop above).
+    # ONLY on the numpy-fallback path: the njit materialise kernel already scrubs inline
+    # (see _materialise_chunk_njit), so re-scrubbing its output would be a wasted O(n*col)
+    # pass. Elementwise -> byte-identical to the per-column scrub it replaces.
+    if _op_codes_by_name is None:
+        np.nan_to_num(chunk_buffer[:, :col], copy=False, nan=0.0, posinf=0.0, neginf=0.0)
 
     disc_2d = discretize_2d_quantile_batch(
         chunk_buffer[:, :col], n_bins=quantization_nbins,
@@ -1811,14 +1820,26 @@ def check_prospective_fe_pairs(
                             start = timer()
                             try:
                                 final_transformed_vals[:, i] = bin_func(param_a, param_b)
-                                _col_view = final_transformed_vals[:, i]
                             except Exception:
                                 logger.error(f"Error when performing {bin_func}")
                             else:
-                                np.nan_to_num(_col_view, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+                                # DEFER the NaN/inf scrub to ONE vectorised pass over the packed
+                                # buffer slice [:, :i] below (was a per-column ``nan_to_num`` here:
+                                # K tiny 50k-element isposinf/isneginf calls per pair -> profiled at
+                                # 16.5s / 5834 calls on the 5-feat x 50000-row repro, pure serial
+                                # numpy dispatch with the cores idle). ``nan_to_num`` is elementwise
+                                # so scrubbing the whole [:, :i] block at once is byte-identical to
+                                # scrubbing each column as it is written, and runs one C loop over a
+                                # contiguous (n x K) buffer instead of K strided ones.
                                 _local_times[bin_func_name] = _local_times.get(bin_func_name, 0.0) + (timer() - start)
                                 _batch_candidates.append((transformations_pair, bin_func_name, i, _uses_pw))
                                 i += 1
+
+                # Phase 1b: ONE vectorised NaN/inf scrub over every materialised column
+                # [:, :i] (replaces the per-column ``nan_to_num`` removed above). Elementwise
+                # -> byte-identical to the per-column scrub; one contiguous-block C pass.
+                if i > 0:
+                    np.nan_to_num(final_transformed_vals[:, :i], copy=False, nan=0.0, posinf=0.0, neginf=0.0)
 
                 # Phase 2: ONE batch discretisation over the materialised columns [:, :n].
                 # Bit-identical to per-column ``discretize_array(method='quantile')`` -- the
