@@ -581,15 +581,18 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             # estimator expands embedding-List + HF-embeds text columns itself at fit/predict. Thread the (prepared-frame
             # present) feature lists into fit_params so the estimator knows which columns to encode; invariant across the
             # weight loop. ``_encode_emb_text_fit`` pops these keys before they reach Lightning.
-            # ``cat_features`` is threaded ONLY for the MLP (mlframe_model_name=="mlp"): the flat Lightning MLP factorizes raw cats + learns an
-            # nn.Embedding per cat at its fit boundary when the strategy left them un-encoded (requires_encoding=False via the learnable-cat-
-            # embeddings knob). NGB shares the neural strategy but cannot consume learnable embeddings, so it must NOT receive raw cat_features.
+            # ``cat_features`` is threaded for the flat MLP (mlframe_model_name=="mlp") AND the recurrent tabular models (lstm/gru/rnn/transformer):
+            # both factorize raw cats + learn an nn.Embedding per cat at their fit boundary when the strategy left them un-encoded
+            # (requires_encoding=False via the learnable-cat-embeddings knob). For recurrent, this only matters in HYBRID / FEATURES_ONLY where a
+            # tabular block exists; SEQUENCE_ONLY has no aux cats so the wrapper no-ops cleanly even if the kwarg is threaded. NGB shares the neural
+            # strategy but cannot consume learnable embeddings, so it must NOT receive raw cat_features.
+            _RECURRENT_MODEL_NAMES = ("lstm", "gru", "rnn", "transformer")
             _neural_threads_cats = (
-                mlframe_model_name == "mlp"
+                mlframe_model_name in ("mlp",) + _RECURRENT_MODEL_NAMES
                 and not getattr(strategy, "requires_encoding", True)
             )
             _neural_extra_fit_invariant: dict[str, Any] | None = None
-            if getattr(strategy, "cache_key", None) == "neural" and (text_features or embedding_features or _neural_threads_cats):
+            if getattr(strategy, "cache_key", None) in ("neural", "recurrent") and (text_features or embedding_features or _neural_threads_cats):
                 _neural_extra_fit_invariant = {}
                 if text_features:
                     _ntxt_inv = filter_existing(prepared_train, text_features)

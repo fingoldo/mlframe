@@ -114,14 +114,19 @@ def _safe_predict_recurrent(
     """
     if sequences is None and features is None:
         return None
-    cache = getattr(ctx, "_recurrent_numpy_cache", None) if ctx is not None else None
-    if features is not None:
-        _cols = getattr(features, "columns", None)
-        _cols_sig = tuple(_cols) if _cols is not None else None
-        cache_key = (split, id(features), _cols_sig)
-    else:
-        cache_key = None
-    features = _coerce_features_to_float32(features, cache=cache, cache_key=cache_key)
+    # When the model factorized tabular cats at fit (learnable cat embeddings), the raw features frame may still carry string/object cat columns
+    # the float32 coercion would choke on. Pass the DataFrame straight through; the wrapper's predict replays the factorization + coerces internally
+    # (``_prepare_predict_features``). Otherwise keep the fast float32-ndarray coercion (+ per-frame cache) the all-numeric path relies on.
+    _model_has_cat_factorization = bool(getattr(model, "_cat_cardinalities_", None))
+    if not _model_has_cat_factorization:
+        cache = getattr(ctx, "_recurrent_numpy_cache", None) if ctx is not None else None
+        if features is not None:
+            _cols = getattr(features, "columns", None)
+            _cols_sig = tuple(_cols) if _cols is not None else None
+            cache_key = (split, id(features), _cols_sig)
+        else:
+            cache_key = None
+        features = _coerce_features_to_float32(features, cache=cache, cache_key=cache_key)
     if features is None and sequences is None:
         return None
     try:
@@ -554,11 +559,43 @@ def train_recurrent_models(
                 )
                 if _sw_for_target is not None:
                     _fit_kwargs["sample_weight"] = _sw_for_target
+
+                # Thread tabular ``cat_features`` so the recurrent wrapper factorizes them + learns an nn.Embedding per cat on the aux block
+                # (mirrors the flat MLP). Gated on: a tabular features frame is present (SEQUENCE_ONLY passes features=None -> no aux block, the
+                # wrapper no-ops cleanly), the wrapper accepts the kwarg AND has learnable-cat-embeddings on, the cat columns exist in the frame,
+                # and the model's input_mode keeps a tabular block. Falls back to an unweighted/unencoded fit if the wrapper signature is older.
+                _cat_feats = list(getattr(ctx, "cat_features", None) or []) if ctx is not None else []
+                _features_frame = _fit_kwargs["features"]
+                if (
+                    _cat_feats
+                    and _features_frame is not None
+                    and hasattr(_features_frame, "columns")
+                    and getattr(model_clone, "use_learnable_cat_embeddings", False)
+                ):
+                    _cfg = getattr(model_clone, "config", None)
+                    _input_mode = getattr(_cfg, "input_mode", None)
+                    _input_mode_val = getattr(_input_mode, "value", _input_mode)
+                    if _input_mode_val != "sequence":
+                        _present_cats = [c for c in _cat_feats if c in _features_frame.columns]
+                        if _present_cats:
+                            _fit_kwargs["cat_features"] = _present_cats
                 try:
                     try:
                         model_clone.fit(**_fit_kwargs)
                     except TypeError as _fit_te:
-                        if "sample_weight" in str(_fit_te) and "sample_weight" in _fit_kwargs:
+                        _te_msg = str(_fit_te)
+                        # Drop optional kwargs an older wrapper signature rejects, then retry. ``cat_features`` and ``sample_weight`` are both
+                        # additive; without them the fit still runs (unencoded cats route through the strategy CatBoostEncoder path / unweighted).
+                        _dropped_any = False
+                        if "cat_features" in _te_msg and "cat_features" in _fit_kwargs:
+                            logger.warning(
+                                "Recurrent wrapper %s did not accept cat_features (%s); falling back to a fit without learnable cat "
+                                "embeddings. Categorical columns must be encoded upstream. Upgrade the wrapper for native cat embeddings.",
+                                type(model_clone).__name__, _fit_te,
+                            )
+                            _fit_kwargs.pop("cat_features", None)
+                            _dropped_any = True
+                        if "sample_weight" in _te_msg and "sample_weight" in _fit_kwargs:
                             logger.warning(
                                 "Recurrent wrapper %s did not accept sample_weight (%s); "
                                 "falling back to unweighted fit. Ensemble blend may be biased on "
@@ -566,6 +603,8 @@ def train_recurrent_models(
                                 type(model_clone).__name__, _fit_te,
                             )
                             _fit_kwargs.pop("sample_weight", None)
+                            _dropped_any = True
+                        if _dropped_any:
                             model_clone.fit(**_fit_kwargs)
                         else:
                             raise
