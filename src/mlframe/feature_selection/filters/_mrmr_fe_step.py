@@ -658,7 +658,26 @@ def _run_fe_step(
         _gate_med_enable = bool(getattr(self, "fe_gate_med_enable", False))
         _gate_med_specs: dict = {}
 
-        if len(X) < 50_000 or len(prospective_pairs) < 2:
+        # SERIAL-vs-JOBLIB DISPATCH (2026-06-08 narrow+tall fix). The ``else`` branch
+        # spreads the prospective PAIRS across ``n_jobs`` joblib ``backend="threading"``
+        # workers, each running the SERIAL (no-prange) FE kernels (a numba prange would
+        # nest inside the threading layer and deadlock -- see ``_fe_use_parallel_kernels``).
+        # That is the right lever ONLY when there are enough pairs to actually fill the
+        # worker pool. In the NARROW+TALL regime (few features -> 1-2 prospective pairs,
+        # but n large) the joblib path span only 1-2 jobs over 16 threads (14 idle) AND
+        # each job is pinned to a single-core serial kernel -> ~1-2 of 16 cores busy, the
+        # measured 56s-per-pair / fully-idle-HW pathology. The serial-main-thread path
+        # instead runs the WHOLE candidate sweep on the main thread where a numba prange
+        # is safe, so the materialise / searchsorted / MI kernels dispatch to their
+        # BYTE-IDENTICAL ``parallel=True`` column-prange twins and spread each pair's K
+        # candidates across ALL cores. So route to it whenever there are FEWER pairs than
+        # workers (joblib-over-pairs cannot saturate the pool): selection is unchanged
+        # (same ``check_prospective_fe_pairs`` over the same pairs; only kernel
+        # parallelism + chunk-merge differ, both byte-identical). The pair-count crossover
+        # subsumes the old fixed ``len(X) < 50000`` row gate -- a tall narrow frame now
+        # takes the all-cores path it always should have.
+        _fe_serial_min_pairs_per_worker = max(2, int(n_jobs) if n_jobs and n_jobs > 0 else 1)
+        if len(prospective_pairs) < _fe_serial_min_pairs_per_worker:
             prospective_additions = check_prospective_fe_pairs(
                 prospective_pairs,
                 X,
