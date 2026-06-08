@@ -647,16 +647,39 @@ def _run_fe_step(
         _prewarp_max_degree = int(getattr(self, "fe_pair_prewarp_max_degree", 4))
         _prewarp_uplift = float(getattr(self, "fe_pair_prewarp_uplift_threshold", 1.20))
         _prewarp_min_val_corr = float(getattr(self, "fe_pair_prewarp_min_val_corr", 0.08))
-        _prewarp_specs: dict = {}
+        # PREWARP-SPEC PERSISTENCE (2026-06-08 fix). ``_mrmr_fe_step`` is re-entered
+        # once per FE-bearing MRMR iteration, and each call's ``check_prospective_fe_pairs``
+        # fits prewarp specs ONLY for the operands of THIS iteration's prospective pairs
+        # (a var whose pair isn't prospective this round is not re-fit). But the recipe
+        # build below runs per iteration over ``this_pair_features`` and can construct a
+        # recipe whose operand used the ``prewarp`` pseudo-unary in an EARLIER iteration --
+        # if ``_prewarp_specs`` were a fresh per-call dict, that operand's coeffs would be
+        # absent and the recipe would be built with ``prewarp_a/b=None``, producing a
+        # recipe that names ``prewarp`` but lacks ``prewarp_*_coef`` in ``extra`` -> a
+        # KeyError at transform()-time replay (observed: ``sub(prewarp(informative_3),
+        # prewarp(noise_5))`` with informative_3's spec missing). Back the local dict with
+        # a SELF-LEVEL accumulator (mirrors ``self._engineered_continuous_``) so every
+        # spec fit in any prior iteration stays available for recipe construction. Seeded
+        # from the accumulator and written back after each call; specs are keyed by
+        # cols-space var index, which is stable across iterations (no cat reorder mid-fit).
+        _prewarp_specs: dict = getattr(self, "_prewarp_specs_accum_", None)
+        if _prewarp_specs is None:
+            _prewarp_specs = {}
+            self._prewarp_specs_accum_ = _prewarp_specs
 
         # PER-OPERAND MEDIAN GATE (2026-06-04): opt-in flag off the MRMR instance
         # (getattr keeps the signature stable, mirroring the prewarp wiring). When
         # enabled, ``check_prospective_fe_pairs`` fits one TRAIN median per operand
         # and exposes a ``gate_med`` pseudo-unary; ``_gate_med_specs`` collects the
         # fitted medians (by cols-space var index) for leak-safe recipe
-        # construction. Default OFF -> byte-identical legacy path.
+        # construction. Default OFF -> byte-identical legacy path. Same cross-iteration
+        # persistence as the prewarp specs above (a gate_med operand selected in an
+        # earlier iteration must keep its median available for recipe replay).
         _gate_med_enable = bool(getattr(self, "fe_gate_med_enable", False))
-        _gate_med_specs: dict = {}
+        _gate_med_specs: dict = getattr(self, "_gate_med_specs_accum_", None)
+        if _gate_med_specs is None:
+            _gate_med_specs = {}
+            self._gate_med_specs_accum_ = _gate_med_specs
 
         # SERIAL-vs-JOBLIB DISPATCH (2026-06-08 narrow+tall fix). The ``else`` branch
         # spreads the prospective PAIRS across ``n_jobs`` joblib ``backend="threading"``
@@ -807,13 +830,34 @@ def _run_fe_step(
                 n_jobs=n_jobs,
                 **parallel_kwargs,
             )
+            # PREWARP/GATE-MED SPEC-MERGE FIX (2026-06-08). Each chunk's result dict
+            # carries its OWN fitted-spec payload under the SAME reserved key
+            # (``_PREWARP_SPECS_RESULT_KEY`` / ``_GATE_MED_SPECS_RESULT_KEY``). A bare
+            # ``prospective_additions.update(next_dict)`` lets each chunk's reserved-key
+            # entry CLOBBER the previous chunk's -- only the LAST chunk's specs survive,
+            # so an operand whose ``prewarp`` warp was fit in an EARLIER chunk loses its
+            # coeffs. The recipe builder below then constructs a recipe that names
+            # ``prewarp`` but has no ``prewarp_*_coef`` in ``extra`` -> a KeyError at
+            # transform()-time replay (observed with n_jobs=1, which still chunks the
+            # pairs into multiple sequential ``parallel_run`` jobs: e.g.
+            # ``sub(prewarp(informative_3),prewarp(noise_5))`` with informative_3's spec
+            # dropped). Fix: MERGE each chunk's reserved spec payload into the
+            # accumulators DURING the merge loop, before ``update`` overwrites the key.
+            from ._feature_engineering_pairs import _PREWARP_SPECS_RESULT_KEY, _GATE_MED_SPECS_RESULT_KEY
             for next_dict in dicts:
+                _pw_chunk = next_dict.pop(_PREWARP_SPECS_RESULT_KEY, None)
+                if _pw_chunk:
+                    _prewarp_specs.update(_pw_chunk)
+                _gm_chunk = next_dict.pop(_GATE_MED_SPECS_RESULT_KEY, None)
+                if _gm_chunk:
+                    _gate_med_specs.update(_gm_chunk)
                 prospective_additions.update(next_dict)
 
-        # Extract the reserved pre-warp-specs entry the FE-pair helper stuffs
-        # into its result dict (so loky-parallel chunks can return specs); merge
-        # into ``_prewarp_specs`` and remove it so the pair loop below never
-        # treats it as a ``raw_vars_pair``.
+        # Extract any reserved pre-warp / gate-med spec entry the SERIAL path may have
+        # left in ``prospective_additions`` (the serial branch returns a single dict that
+        # also carries the reserved key) and merge it, so the pair loop below never
+        # treats it as a ``raw_vars_pair``. The joblib branch already drained the key
+        # per-chunk above; this pop is then a harmless no-op.
         from ._feature_engineering_pairs import _PREWARP_SPECS_RESULT_KEY, _GATE_MED_SPECS_RESULT_KEY
         _pw_from_res = prospective_additions.pop(_PREWARP_SPECS_RESULT_KEY, None)
         if _pw_from_res:
