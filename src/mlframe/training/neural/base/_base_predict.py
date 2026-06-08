@@ -50,6 +50,11 @@ class _PredictMixin:
         if _emb_text_enc is not None:
             X = _emb_text_enc.transform(X)
 
+        # Replay the fit-time categorical factorization (map values -> codes, unseen -> reserved unknown code, reorder cats leading) so the
+        # predict X matches the layout the network's CategoricalEmbedding was trained on. No-op when the model trained without cat_features.
+        if getattr(self, "_cat_code_maps_", None):
+            X = self._apply_cat_codes(X)
+
         # Lazy import: the package __init__ imports this mixin at class-definition
         # time, so a module-top ``from . import ...`` would be a cycle.
         from . import _PREDICT_ONLY_DM_PARAM_KEYS

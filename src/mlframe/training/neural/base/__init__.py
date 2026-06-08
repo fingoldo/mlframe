@@ -203,6 +203,8 @@ class PytorchLightningEstimator(_FitMixin, _PredictMixin, BaseEstimator):
         early_stopping_rounds: int = 100,
         random_state: Optional[int] = None,
         class_weight=None,
+        use_learnable_cat_embeddings: bool = True,
+        categorical_embed_dim: Optional[int] = None,
     ):
         # ``random_state``: sklearn-canonical seed parameter (F-06, 2026-05-30).
         # When set to an integer, ``_fit_common`` seeds torch / numpy / Python
@@ -211,6 +213,12 @@ class PytorchLightningEstimator(_FitMixin, _PredictMixin, BaseEstimator):
         # produce bit-identical predictions. ``None`` (the default) preserves
         # the pre-fix non-deterministic behaviour: callers who manage their
         # own seed (e.g. via a higher-level pipeline) are not overridden.
+        #
+        # ``use_learnable_cat_embeddings`` (default True): when fit() receives ``cat_features`` via fit_params, factorize those raw cat
+        # columns to integer codes at the fit boundary and prepend a learnable ``nn.Embedding`` per cat (trained end-to-end) instead of
+        # relying on an upstream target encoder. This recovers non-monotone category->target structure a single target-encoded scalar cannot.
+        # Set False to disable the in-estimator factorization (the suite's CatBoostEncoder path, or a caller's own encoding, then handles cats).
+        # ``categorical_embed_dim``: fixed per-cat embedding width; None uses the fastai heuristic min(50, round(1.6*card**0.56)).
         #
         # Don't modify swa_params here (e.g., `swa_params or {}`) because sklearn's clone() requires constructor parameters not be
         # modified. Handle None later.

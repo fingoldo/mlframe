@@ -439,11 +439,20 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             # for the second tier (e.g. MLP after Ridge) on the same 4M rows.
             # The content key folds (requires_imputation, requires_scaling,
             # requires_encoding) into a stable string so any two strategies
-            # with matching requirements share the cache slot.
+            # with matching requirements share the cache slot. The encoding
+            # bit is the EFFECTIVE one (``requires_encoding AND there are cats
+            # to encode``): a strategy that target-encodes only differs in its
+            # produced frame when cat columns actually exist, so on an
+            # all-numeric frame Linear (requires_encoding True) and the MLP
+            # with learnable cat embeddings (requires_encoding False) still
+            # share the identical imp+scale slot. With cats present the bit
+            # diverges -> distinct slots -> the MLP never receives Linear's
+            # target-encoded frame.
+            _effective_enc = bool(getattr(strategy, "requires_encoding", False)) and bool(cat_features)
             _content_key = (
                 f"imp{int(getattr(strategy, 'requires_imputation', False))}"
                 f"_scale{int(getattr(strategy, 'requires_scaling', False))}"
-                f"_enc{int(getattr(strategy, 'requires_encoding', False))}"
+                f"_enc{int(_effective_enc)}"
             )
             cache_key = _compute_pipeline_cache_key(
                 _content_key,
@@ -572,8 +581,15 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             # estimator expands embedding-List + HF-embeds text columns itself at fit/predict. Thread the (prepared-frame
             # present) feature lists into fit_params so the estimator knows which columns to encode; invariant across the
             # weight loop. ``_encode_emb_text_fit`` pops these keys before they reach Lightning.
+            # ``cat_features`` is threaded ONLY for the MLP (mlframe_model_name=="mlp"): the flat Lightning MLP factorizes raw cats + learns an
+            # nn.Embedding per cat at its fit boundary when the strategy left them un-encoded (requires_encoding=False via the learnable-cat-
+            # embeddings knob). NGB shares the neural strategy but cannot consume learnable embeddings, so it must NOT receive raw cat_features.
+            _neural_threads_cats = (
+                mlframe_model_name == "mlp"
+                and not getattr(strategy, "requires_encoding", True)
+            )
             _neural_extra_fit_invariant: dict[str, Any] | None = None
-            if getattr(strategy, "cache_key", None) == "neural" and (text_features or embedding_features):
+            if getattr(strategy, "cache_key", None) == "neural" and (text_features or embedding_features or _neural_threads_cats):
                 _neural_extra_fit_invariant = {}
                 if text_features:
                     _ntxt_inv = filter_existing(prepared_train, text_features)
@@ -583,6 +599,10 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                     _nemb_inv = filter_existing(prepared_train, embedding_features)
                     if _nemb_inv:
                         _neural_extra_fit_invariant["embedding_features"] = _nemb_inv
+                if _neural_threads_cats and cat_features:
+                    _ncat_inv = filter_existing(prepared_train, cat_features)
+                    if _ncat_inv:
+                        _neural_extra_fit_invariant["cat_features"] = _ncat_inv
 
             for weight_name, weight_values in tqdmu_lazy_start(weight_schemas.items(), desc="weighting schema"):
                 model_name_with_weight = common_params["model_name"]

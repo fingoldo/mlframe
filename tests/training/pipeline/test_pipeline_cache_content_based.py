@@ -20,31 +20,43 @@ class TestLinearAndNeuralShareCacheKey:
     they MUST produce the same content-key, hence the same
     PipelineCache lookup."""
 
-    def test_content_key_matches_for_linear_and_neural(self) -> None:
+    @staticmethod
+    def _content_key(s, cat_features):
+        # Mirror the in-source EFFECTIVE-encoding content key: the encoding bit is ``requires_encoding AND there are cats to encode`` (see
+        # _phase_train_one_target_body.py). On an all-numeric frame the target-encoder is a no-op, so the bit folds to 0 regardless of the flag.
+        eff_enc = bool(s.requires_encoding) and bool(cat_features)
+        return (
+            f"imp{int(s.requires_imputation)}"
+            f"_scale{int(s.requires_scaling)}"
+            f"_enc{int(eff_enc)}"
+        )
+
+    def test_content_key_matches_for_linear_and_neural_on_numeric_frame(self) -> None:
+        # All-numeric frame (cat_features empty): Linear (requires_encoding True) and the MLP with learnable cat embeddings (False) produce the
+        # IDENTICAL imp+scale frame, so they MUST share the content key -> one cache slot, no redundant pre-pipeline pass for the second model.
         from mlframe.training.strategies import (
             LinearModelStrategy, NeuralNetStrategy,
         )
         lin = LinearModelStrategy()
         neu = NeuralNetStrategy()
-
-        # All three preprocessing-requirement flags must match for the
-        # content-key contract to hold.
         assert lin.requires_imputation == neu.requires_imputation
         assert lin.requires_scaling == neu.requires_scaling
-        assert lin.requires_encoding == neu.requires_encoding
-
-        # Mirror the in-source content-key construction.
-        def _content_key(s):
-            return (
-                f"imp{int(s.requires_imputation)}"
-                f"_scale{int(s.requires_scaling)}"
-                f"_enc{int(s.requires_encoding)}"
-            )
-        assert _content_key(lin) == _content_key(neu), (
-            f"LinearStrategy and NeuralStrategy must produce the same "
-            f"content key (identical preprocessing requirements); "
-            f"got linear={_content_key(lin)!r}, neural={_content_key(neu)!r}"
+        assert self._content_key(lin, ()) == self._content_key(neu, ()), (
+            f"On an all-numeric frame Linear and Neural must share the content key; "
+            f"got linear={self._content_key(lin, ())!r}, neural={self._content_key(neu, ())!r}"
         )
+
+    def test_content_key_differs_for_linear_and_neural_with_cats(self) -> None:
+        # With categorical columns present, Linear target-encodes them while the MLP (learnable cat embeddings, the default) keeps them raw, so
+        # the produced frames DIFFER -> distinct content keys -> the MLP never receives Linear's target-encoded frame.
+        from mlframe.training.strategies import (
+            LinearModelStrategy, NeuralNetStrategy,
+        )
+        lin = LinearModelStrategy()
+        neu = NeuralNetStrategy()
+        assert neu.use_learnable_cat_embeddings is True
+        assert lin.requires_encoding is True and neu.requires_encoding is False
+        assert self._content_key(lin, ("c1",)) != self._content_key(neu, ("c1",))
 
     def test_tree_and_hgb_have_distinct_content_keys(self) -> None:
         """Sanity: strategies with DIFFERENT preprocessing requirements
@@ -94,40 +106,29 @@ class TestPipelineCacheKeyMatchesAcrossStrategiesWithIdenticalRequirements:
         lin = LinearModelStrategy()
         neu = NeuralNetStrategy()
 
-        def _content_key(s):
+        def _content_key(s, cat_features):
+            # EFFECTIVE-encoding content key (mirrors production): the encoding bit is ``requires_encoding AND there are cats to encode``.
+            eff_enc = bool(s.requires_encoding) and bool(cat_features)
             return (
                 f"imp{int(s.requires_imputation)}"
                 f"_scale{int(s.requires_scaling)}"
-                f"_enc{int(s.requires_encoding)}"
+                f"_enc{int(eff_enc)}"
             )
 
-        # Both call _compute_pipeline_cache_key with the content-key in
-        # the strategy_cache_key slot - mirrors the post-fix call site
-        # at _phase_train_one_target.py:1572.
-        lin_key = _compute_pipeline_cache_key(
-            _content_key(lin),
-            pre_pipeline_name="imp_scaler",
-            feature_tier=(False, False),
-            supports_polars=False,
-            cat_features=(),
-            text_features=(),
-            embedding_features=(),
+        def _key(s, cat_features):
+            return _compute_pipeline_cache_key(
+                _content_key(s, cat_features), pre_pipeline_name="imp_scaler",
+                feature_tier=(False, False), supports_polars=False,
+                cat_features=cat_features, text_features=(), embedding_features=(),
+            )
+
+        # All-numeric frame: identical content-keyed lookups (Linear's target-encoder is a no-op when there are no cats), so the second
+        # strategy HITs the first's slot. With cats, Linear encodes / the MLP keeps raw -> distinct keys (covered by the next class).
+        assert _key(lin, ()) == _key(neu, ()), (
+            f"content-keyed cache lookups MUST match for Linear and Neural on an all-numeric frame. "
+            f"Got: lin={_key(lin, ())!r}, neu={_key(neu, ())!r}"
         )
-        neu_key = _compute_pipeline_cache_key(
-            _content_key(neu),
-            pre_pipeline_name="imp_scaler",
-            feature_tier=(False, False),
-            supports_polars=False,
-            cat_features=(),
-            text_features=(),
-            embedding_features=(),
-        )
-        assert lin_key == neu_key, (
-            f"content-keyed cache lookups MUST match for Linear and "
-            f"Neural (identical preprocessing requirements). "
-            f"Pre-fix these were 'linear_...' vs 'neural_...'. Got: "
-            f"lin={lin_key!r}, neu={neu_key!r}"
-        )
+        assert _key(lin, ("c1",)) != _key(neu, ("c1",))
 
     def test_strategies_with_different_requirements_get_distinct_keys(self) -> None:
         """Inverse guard: TreeModelStrategy (no imp/scale/enc) and
@@ -185,25 +186,26 @@ class TestPipelineCacheRealHitOnSecondStrategy:
         lin = LinearModelStrategy()
         neu = NeuralNetStrategy()
 
-        def _content_key(s):
+        def _content_key(s, cat_features):
+            eff_enc = bool(s.requires_encoding) and bool(cat_features)
             return (
                 f"imp{int(s.requires_imputation)}"
                 f"_scale{int(s.requires_scaling)}"
-                f"_enc{int(s.requires_encoding)}"
+                f"_enc{int(eff_enc)}"
             )
 
-        # Linear computes first, stores in cache.
+        # All-numeric (cat_features empty): Linear and Neural share the content key (Linear's target-encoder is a no-op with no cats), so the
+        # second strategy HITs the first's slot -- the original cache-sharing win, preserved despite the MLP's learnable-cat-embedding default.
         lin_key = _compute_pipeline_cache_key(
-            _content_key(lin), "imp_scaler",
+            _content_key(lin, ()), "imp_scaler",
             (False, False), False, (), (), (),
         )
         cache.set(lin_key, "fake_train_df", "fake_val_df", "fake_test_df")
         assert cache.n_misses == 0
         assert cache.n_hits == 0
 
-        # Neural looks up, MUST hit (same content key as linear).
         neu_key = _compute_pipeline_cache_key(
-            _content_key(neu), "imp_scaler",
+            _content_key(neu, ()), "imp_scaler",
             (False, False), False, (), (), (),
         )
         result = cache.get(neu_key)

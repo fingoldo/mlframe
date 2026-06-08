@@ -26,8 +26,18 @@ class NeuralNetStrategy(ModelPipelineStrategy):
 
     cache_key = "neural"
     requires_scaling = True
-    requires_encoding = True
     requires_imputation = True
+
+    # When True (default), the MLP estimator factorizes raw categoricals into integer codes at its fit boundary and learns an ``nn.Embedding``
+    # per cat end-to-end (see ``PytorchLightningEstimator.use_learnable_cat_embeddings``). In that mode the strategy must NOT target-encode the
+    # cats -- they have to reach the estimator RAW -- so ``requires_encoding`` flips False, the CatBoostEncoder step is skipped in
+    # ``build_pipeline``, and imputation/scaling are restricted to the numeric block (cats pass through untouched as raw codes the embedding
+    # indexes). Set False to fall back to the legacy CatBoostEncoder path (cats target-encoded upstream; the estimator's factorizer no-ops).
+    use_learnable_cat_embeddings: bool = True
+
+    @property
+    def requires_encoding(self) -> bool:
+        return not self.use_learnable_cat_embeddings
     # NOTE: the estimator CAN self-encode embedding/text columns at its fit/predict boundary (NeuralEmbeddingTextEncoder
     # via _encode_emb_text_fit), but ``supports_*`` is deliberately left False (inherited) until the FS layer can pass
     # non-scalar embedding ``List`` columns THROUGH (MRMR's discretiser/selector can't process ndarray cells -- it raises
