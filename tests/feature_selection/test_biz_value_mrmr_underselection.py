@@ -118,3 +118,47 @@ def test_composite_fe_fallback_rescues_real_signal_not_pure_noise(seed):
             f"seed={seed}: pure-noise leg(s) {sorted(leaked_noise)} rescued while no real signal present "
             f"-- the cols-space index translation in the fallback regressed. support_sources={sorted(srcs)}"
         )
+
+
+@pytest.mark.parametrize("seed", [0, 13])
+def test_empty_screen_rescue_conditions_on_engineered_survivors(seed):
+    """Regression (2026-06-08): the empty-RAW-screen rescue must NOT re-inject a raw
+    operand whose y-information is fully carried by a SURVIVING engineered child.
+
+    On a composite target ``y = a**2/b + 3*log(c)*sin(d) + noise`` at n>20000 the greedy
+    screen leaves 0 raw survivors but builds the engineered children ``div(sqr(a),abs(b))``
+    and ``mul(log(c),sin(d))``; the empty-screen rescue then fires. Each raw operand
+    a,b,c,d individually clears the relevance floor AND its own permutation null (it IS a
+    genuine operand) and -- being a mutually-independent uniform -- is not redundant with
+    any OTHER raw operand, so the raw-only redundancy dedup admitted ALL FOUR, re-injecting
+    exactly the operands the engineered children subsume. The rescue now seeds its
+    redundancy-dedup conditioning set with the surviving engineered features, so an operand
+    fully captured by its engineered child fails the redundancy test and drops. We assert
+    the rescue does NOT re-admit the full {a,b,c,d} operand block alongside the two correct
+    engineered pairs (the pre-fix selection carried all four)."""
+    import numpy as np
+    import pandas as pd
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    rng = np.random.default_rng(seed)
+    n = 25_000
+    a = rng.uniform(1, 5, n)
+    b = rng.uniform(1, 5, n)
+    c = rng.uniform(1, 5, n)
+    d = rng.uniform(0, 2 * np.pi, n)
+    e = rng.normal(0, 1, n)
+    y = a ** 2 / b + 3.0 * np.log(c) * np.sin(d) + 0.3 * e
+    df = pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e})
+    fs = MRMR(verbose=0, random_seed=seed).fit(df, pd.Series(y, name="y"))
+    selected = list(fs.get_feature_names_out())
+    raw_operands = {"a", "b", "c", "d"}
+    re_admitted = raw_operands & set(selected)
+    assert len(re_admitted) <= 1, (
+        f"seed={seed}: empty-screen rescue re-injected raw operands {sorted(re_admitted)} "
+        f"fully subsumed by surviving engineered children; the rescue redundancy-dedup must "
+        f"condition on the engineered survivors. selected={selected}"
+    )
+    # The genuine signal must still be captured by at least one engineered child (we never
+    # drop signal -- only the redundant raw operands).
+    eng = [s for s in selected if s not in df.columns]
+    assert eng, f"seed={seed}: no engineered child survived; signal lost. selected={selected}"

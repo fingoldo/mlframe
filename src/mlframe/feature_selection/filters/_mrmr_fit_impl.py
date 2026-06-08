@@ -6415,6 +6415,28 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _q_dtype = getattr(self, "quantization_dtype", np.int32)
                 _accepted = []           # input-space indices accepted into the rescue
                 _accepted_cols = []      # their cols-space indices (for redundancy MI)
+                # ENGINEERED-SURVIVOR CONDITIONING (2026-06-08): seed the redundancy-dedup
+                # conditioning set with the cols-space indices of every SURVIVING engineered
+                # feature. The empty-RAW-screen rescue fires precisely when 0 raw columns
+                # survived the greedy screen but engineered children DID (``n_engineered_out > 0``);
+                # on a composite target (``y = a**2/b + log(c)*sin(d)``) the engineered children
+                # ``div(sqr(a),abs(b))`` / ``mul(log(c),sin(d))`` fully carry their raw operands'
+                # y-information, yet each raw operand a,b,c,d individually clears the relevance
+                # floor AND its own permutation null (it IS a genuine operand), and -- being
+                # mutually independent uniforms -- none is redundant with ANOTHER RAW operand.
+                # So the raw-only dedup admitted all four, re-injecting exactly the operands the
+                # engineered children already subsume (the F2/two-pairs regression: a,b,c,d all
+                # rescued alongside the correct engineered pairs). Conditioning the dedup on the
+                # engineered survivors makes a raw operand whose y-information flows entirely into
+                # its engineered child fail the redundancy test (high MI with the child, a large
+                # fraction of its own relevance) and drop, while a raw column carrying signal NO
+                # engineered survivor captures still passes and is rescued. Structure-independent:
+                # correct at every n, no tuning constant beyond the existing ``_redundancy_frac``.
+                _name_to_cols_idx_eng = {c: i for i, c in enumerate(cols)}
+                for _eng_name in (self._engineered_features_ or []):
+                    _eng_ci = _name_to_cols_idx_eng.get(_eng_name)
+                    if _eng_ci is not None:
+                        _accepted_cols.append(_eng_ci)
                 # Bound the number of permutation-significance probes: ``_above_floor`` is sorted by debiased MI desc, so the genuine signal sits at the top; on a pathological
                 # all-noise wide pool where every candidate fails significance, examining the whole list would run one 32-perm test PER column. Scan at most a modest multiple of the
                 # rescue cap (the genuine multi-signal fixtures carry only a handful of distinct above-floor signals, well inside this window).
