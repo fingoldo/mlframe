@@ -51,13 +51,14 @@ import pytest
 
 def test_boruta_shadow_threshold_uses_nanpercentile(caplog):
     """Source-level guard: the post-fix line MUST use np.nanpercentile,
-    NOT np.percentile, for the shadow threshold."""
+    NOT np.percentile, for the shadow threshold. Scans the whole
+    feature_selection package (the shadow/stats helpers may live in a
+    sibling module after a monolith split), so the guard survives file
+    relocation while still catching a percentile->nanpercentile regression."""
     import pathlib
     import mlframe as _mlframe
-    src = (
-        pathlib.Path(_mlframe.__file__).resolve().parent
-        / "feature_selection" / "boruta_shap.py"
-    ).read_text(encoding="utf-8")
+    fs_dir = pathlib.Path(_mlframe.__file__).resolve().parent / "feature_selection"
+    src = "\n".join(p.read_text(encoding="utf-8") for p in sorted(fs_dir.rglob("*.py")))
     assert "shadow_threshold = np.nanpercentile(self.Shadow_feature_import" in src, (
         "Wave 21 P0 regression: boruta_shap reverted to np.percentile; "
         "any NaN in shadow importances will collapse threshold to NaN "
