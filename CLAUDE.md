@@ -363,6 +363,28 @@ Before concluding ANYTHING about an optimization:
    marginal" is not a rejection; it is a skipped investigation. If you catch yourself reaching for a one-line dismissal
    of a measured speedup, STOP — that is the warning sign you are about to waste the win.
 
+## Audit hot kernels for wasted per-call work — the caller may discard part of the output (CRITICAL)
+
+A kernel can be individually well-tuned and still waste time computing things its CALLER throws away. So a "this kernel
+is already optimal" verdict is NOT the end — once a kernel is hot by tottime AND call count, inspect EVERY call site and
+ask: does the caller use the kernel's FULL output, or only part of it? If it discards part, write a PRUNED fast-path
+kernel that returns ONLY what that caller needs (keep the full kernel for its other callers — see "REJECTED != DELETED"),
+and dispatch the discarding caller to the pruned variant. This is bit-identical BY CONSTRUCTION (you remove work, you do
+not change numerics), and it pays in exact proportion to the call count — so the hottest callers are the biggest wins.
+
+Concrete win (2026-06-08): `_dcd_metrics.pair_su` (24,270 calls, ~29% of the MRMR full fit) computed the joint
+H(X_a, X_b) via `merge_vars`, which allocated a length-n `final_classes` relabel array + a lookup table and walked every
+sample twice — all of which the SU path immediately discarded, needing only the pruned joint frequencies. A new
+`joint_freqs_2var` njit kernel returns exactly those frequencies with none of that waste: **~23x per joint pair**
+(171.9 → 7.4 µs), **+7.1% full-fit wall** (664.8s → 617.4s), selection **BIT-IDENTICAL** (650 selected / 540 engineered),
+commit `22b23835`. This surfaced AFTER a whole-suite re-profile had (wrongly) declared convergence — proof that
+"converged" without auditing call sites for discarded work is a premature verdict.
+
+Method: profile to rank kernels by tottime AND call count → for each, read its call sites → microbench a pruned variant
+in ISOLATION first → only if it shows a real per-call reduction AND the caller genuinely discards that work, wire it in,
+run the full-fit wall + bit-identity gate, then keep+push or write down a tested "caller-uses-all-output" verdict (a
+tested verdict, never an assumed one).
+
 ## Gate a big win on its safe condition (CRITICAL)
 
 When an optimization gives a LARGE speedup but is only bit-identical
