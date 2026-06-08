@@ -287,7 +287,7 @@ def _apply_nan_guard(
             _arr_check = np.asarray(X[:500]) if hasattr(X, "__getitem__") else np.asarray(X)
             # Wave 50 (2026-05-20): use np.isnan (not ~np.isfinite) for parity with
             # the pandas isna() branch above; the prior ~isfinite included +-inf
-            # which SimpleImputer(strategy="mean") does NOT replace, so +-inf rows
+            # which SimpleImputer(strategy="mean", keep_empty_features=True) does NOT replace, so +-inf rows
             # would pass the gate but then propagate unchanged through imputer+scaler.
             _has_nan = bool(np.any(np.isnan(_arr_check[:500])))
     except Exception:
@@ -459,7 +459,7 @@ def _fit_persist_and_transform(
         # Persist as sklearn-compatible objects so the NEXT call hits the transform-only fastpath.
         # The imputer's statistics_ holds the imputation mean (== drop_nans mean == post-fill mean).
         try:
-            imputer = SimpleImputer(strategy="mean")
+            imputer = SimpleImputer(strategy="mean", keep_empty_features=True)
             imputer.statistics_ = _means_post.copy()
             imputer.n_features_in_ = len(cols)
             imputer.feature_names_in_ = np.array(list(cols), dtype=object)
@@ -504,7 +504,7 @@ def _fit_persist_and_transform(
     else:
         _arr = np.asarray(X, dtype=np.float64)
 
-    imputer = SimpleImputer(strategy="mean")
+    imputer = SimpleImputer(strategy="mean", keep_empty_features=True)
     _arr_imp = imputer.fit_transform(_arr)
     scaler = StandardScaler()
     _arr_out = scaler.fit_transform(_arr_imp)
@@ -570,7 +570,7 @@ def prime_nan_guard_stats(
     else:
         _arr = np.asarray(X_train, dtype=np.float64)
 
-    imputer = SimpleImputer(strategy="mean").fit(_arr)
+    imputer = SimpleImputer(strategy="mean", keep_empty_features=True).fit(_arr)
     scaler = StandardScaler().fit(imputer.transform(_arr))
     try:
         setattr(model, "_mlframe_nan_imputer", imputer)
