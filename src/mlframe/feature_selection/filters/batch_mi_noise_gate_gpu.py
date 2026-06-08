@@ -662,20 +662,40 @@ def batch_mi_with_noise_gate_cuda(
 # n_classes_y=4), CPU = njit-prange, speedup = CPU/GPU:
 #   n=700:  K=64 .16x  K=256 .16x  K=1024 .33-.45x  K=4096 .65-.82x  -> CPU all
 #   n=2407: K=64 .26-.43x  K=256 cupy 1.09x  K=1024 ~9-11x  K=4096 ~8-11x -> GPU K>=256
-# So the GPU win starts at n>=~2000 AND K>=256 on this host; below that the launch +
-# H2D overhead loses to the tiny CPU joint-hist pass. (Note the CPU njit-prange has a
-# sharp slowdown at n=2407,K>=1024 -- per-thread (nbins x K_y) joint buffers x 1024
-# columns thrash cache -- which widens the GPU win there; the cache captures it.)
+#   n=100000 (LARGE-N, GTX 1050 Ti 4GB): K=256 26.3x  K=1024 32.9x  (bit-identical to
+#     the CPU kernel); K=4096 GPU OOMs on the 4GB card (3.3GB alloc) -> CPU fallback.
+# So the GPU win starts at n>=~2000 AND K>=256 on this host AND GROWS with n (the O(n*K)
+# counting amortises the fixed H2D + launch overhead); below that the launch + H2D
+# overhead loses to the tiny CPU joint-hist pass. (Note the CPU njit-prange has a sharp
+# slowdown at n=2407,K>=1024 -- per-thread (nbins x K_y) joint buffers x 1024 columns
+# thrash cache -- which widens the GPU win there; the cache captures it.)
 GPU_MIN_ROWS = 2_000
 GPU_MIN_COLS = 256
 
-_BMING_SWEEP_N_ROWS = [700, 2_407, 10_000]
+# LARGE-N ROUTING FIX (2026-06-08). The sweep grid previously topped out at
+# n_rows=10000, so EVERY query beyond it (the n=50000/100000/1M FE batches the
+# large-n MRMR path actually produces) fell through to the multi-dim grid's
+# "catch-all" region -- whose winner is the decision at the LARGEST swept cell
+# (n_rows=10000, n_cols=4096). On a card where that corner does not win for GPU
+# (e.g. the 4GB 1050 Ti, where K=4096 OOMs -> CPU), the catch-all is CPU and the
+# GPU path is DEAD for ALL large n at ALL K -- even though the GPU is measured
+# 26-33x FASTER and bit-identical at n=100000, K=256/1024. Extending the grid to
+# n_rows=50000/100000 makes the catch-all corner a genuine large-n cell, so on
+# capable HW (>=8GB Ampere/Hopper -- e.g. the user's RTX 2070, where the
+# (100000, n_cols[-1]) corner fits in memory and GPU wins) the cache routes large
+# batches to GPU. On this 4GB box the top-K corner still OOMs -> the corner picks
+# CPU (correct locally), but the per-cell large-n bands at GPU-friendly K
+# (256/1024) now exist and the fallback heuristic (n>=2000 & K>=256 -> cupy)
+# already routes large n to GPU before any sweep lands. The GPU variants gracefully
+# skip OOMing sweep cells (sweep_backend_grid try/excepts each cell), so adding
+# large-n cells never breaks the sweep on small cards.
+_BMING_SWEEP_N_ROWS = [700, 2_407, 10_000, 50_000, 100_000]
 _BMING_SWEEP_N_COLS = [64, 256, 1_024, 4_096]
 _BMING_SWEEP_NBINS = 10
 _BMING_SWEEP_N_CLASSES_Y = 4
 _BMING_SWEEP_NPERM = 3
 _BMING_SWEEP_MNC = 0.99
-_BMING_SALT = 1  # bump on any numerics change to invalidate stale per-host cache
+_BMING_SALT = 2  # bump on any numerics change / grid change to invalidate stale per-host cache
 
 
 def _make_batch_mi_noise_gate_inputs(dims: dict):
