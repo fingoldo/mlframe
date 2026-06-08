@@ -230,6 +230,15 @@ def compute_pairs_mis(
     fe_min_pair_mi: float,
     fe_min_pair_mi_prevalence: float,
 ):
+    # Live progress: on the single-thread path ``all_pairs`` is the "getting pairs MIs"
+    # tqdm bar itself, so we surface the running top single feature by its (already-
+    # computed) marginal MI with y, plus the strongest pair MI, in the bar postfix.
+    # ``set_postfix`` exists only on the tqdm object, not on the plain chunk lists handed
+    # to the parallel workers -- guard via ``hasattr``. Pure display: the MIs shown are
+    # exactly the ones we cache, no extra compute.
+    _bar = all_pairs if hasattr(all_pairs, "set_postfix") else None
+    _top_var, _top_var_mi = None, -1.0
+    _top_pair, _top_pair_mi = None, -1.0
     for raw_vars_pair in all_pairs:
         # check that every element of a pair has computed its MI with target
         for var in raw_vars_pair:
@@ -246,6 +255,12 @@ def compute_pairs_mis(
                     npermutations=fe_npermutations,
                 )
                 cached_MIs[(var,)] = mi
+                if _bar is not None:
+                    try:
+                        if mi is not None and float(mi) > _top_var_mi:
+                            _top_var_mi, _top_var = float(mi), var
+                    except (TypeError, ValueError):
+                        pass
 
         # ensure that pair as a whole has computed its MI with target
         if raw_vars_pair not in cached_confident_MIs and raw_vars_pair not in cached_MIs:
@@ -267,6 +282,23 @@ def compute_pairs_mis(
                 # Pre-fix this branch dropped sub-threshold MIs on the floor; adaptive retry with relaxed prevalence (Pack #5) then re-computed them.
                 # The downstream consumer in MRMR.fit applies the prevalence gate on the cached value, so caching unconditionally preserves filtering behaviour.
                 cached_MIs[raw_vars_pair] = mi
+                if _bar is not None:
+                    try:
+                        if mi is not None and float(mi) > _top_pair_mi:
+                            _top_pair_mi, _top_pair = float(mi), raw_vars_pair
+                    except (TypeError, ValueError):
+                        pass
+
+        if _bar is not None and (_top_var is not None or _top_pair is not None):
+            _pf = {}
+            if _top_var is not None:
+                _pf["top_feat"] = f"col{_top_var}={_top_var_mi:.4f}"
+            if _top_pair is not None:
+                _pf["top_pair"] = f"({_top_pair[0]},{_top_pair[1]})={_top_pair_mi:.4f}"
+            try:
+                _bar.set_postfix(_pf, refresh=False)
+            except Exception:
+                pass
 
     return cached_MIs
 

@@ -30,6 +30,23 @@ from .info_theory import merge_vars
 logger = logging.getLogger(__name__)
 
 
+def _short_name(name, maxlen: int = 28) -> str:
+    """Truncate a (possibly long engineered) feature name for live progress-bar display.
+
+    Keeps the head and tail so both the operation and the operand stay legible
+    (``mul(log(c),sin(d))`` -> ``mul(log(..in(d))``). Robust to non-str input.
+    """
+    try:
+        s = str(name)
+    except Exception:
+        return "?"
+    if len(s) <= maxlen:
+        return s
+    head = (maxlen - 2) // 2
+    tail = maxlen - 2 - head
+    return s[:head] + ".." + s[-tail:]
+
+
 def _pool_warmup_noop(i):
     """Module-level no-op handed to the joblib pool so worker spawn cost is paid before
     the screening loop starts. Must be module-level (not a closure) so the ``loky`` backend
@@ -612,6 +629,11 @@ def screen_predictors(
             ctx.failed_candidates = failed_candidates
             ctx.num_possible_candidates = num_possible_candidates
 
+            # Running leader for the live "Confirmed predictors" postfix (reset per
+            # interactions_order). ``_best_confirmed_gain`` starts at -inf so the first
+            # confirmed feature -- even a negative-gain one -- becomes the displayed top.
+            _best_confirmed_gain = float("-inf")
+            _best_confirmed_name = None
             for _n_confirmed_predictors in (predictors_pbar := tqdmu(range(len(candidates)), leave=False, desc="Confirmed predictors", disable=not verbose)):
                 if run_out_of_time:
                     break
@@ -863,6 +885,23 @@ def screen_predictors(
                     if full_npermutations:
                         res["confidence"] = confidence
                     predictors.append(res)
+
+                    # Live progress: surface the winning feature + its mrmr_gain on the
+                    # "Confirmed predictors" bar. ``best_gain`` was just computed by
+                    # confirm_one_predictor -- display-only, zero extra MI work. Track the
+                    # strongest-confirmed so the postfix always names the current leader.
+                    if verbose:
+                        try:
+                            _g = float(best_gain)
+                            if _g > _best_confirmed_gain:
+                                _best_confirmed_gain = _g
+                                _best_confirmed_name = cand_name
+                            _pf = {"last": _short_name(cand_name), "gain": f"{_g:.{ndigits}f}"}
+                            if _best_confirmed_name is not None and _best_confirmed_name != cand_name:
+                                _pf["top"] = f"{_short_name(_best_confirmed_name)}={_best_confirmed_gain:.{ndigits}f}"
+                            predictors_pbar.set_postfix(_pf, refresh=False)
+                        except (TypeError, ValueError):
+                            pass
 
                     if verbose >= 2:
                         mes = f"Added new predictor {cand_name} to the list with expected gain={best_gain:.{ndigits}f}"

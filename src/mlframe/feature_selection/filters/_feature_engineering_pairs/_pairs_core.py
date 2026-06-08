@@ -44,6 +44,21 @@ from ._pairs_materialise import (
     _njit_binary_op_codes,
 )
 
+def _short_fe_name(name, maxlen: int = 30) -> str:
+    """Truncate a (possibly long engineered) feature expression for live progress-bar
+    display, keeping head + tail so both operator and operand stay legible
+    (``mul(log(c),sin(d))`` -> ``mul(log(c..sin(d))``). Robust to non-str input."""
+    try:
+        s = str(name)
+    except Exception:
+        return "?"
+    if len(s) <= maxlen:
+        return s
+    head = (maxlen - 2) // 2
+    tail = maxlen - 2 - head
+    return s[:head] + ".." + s[-tail:]
+
+
 # Shared subsample default across the two FE entry points. ``polynom_pair_fe``
 # already uses 200_000 (validated 2026-05-18: 100k could lose a marginal hermite
 # feature, 200k kept it). The accuracy bench for ``check_prospective_fe_pairs``
@@ -791,13 +806,20 @@ def check_prospective_fe_pairs(
     # Index of the chunk currently materialised in ``_chunk_buffer`` (-1 = none).
     _loaded_chunk_idx = -1
 
+    # Sweep-wide leader for the live "pair" bar postfix: the best engineered MI found
+    # so far across ALL pairs in this FE step + the feature that produced it. Both are
+    # already computed per pair (``best_mi`` / ``best_config``) -- display-only, no extra
+    # MI work. Starts blank so the no-candidate / NaN edge case renders gracefully.
+    _sweep_best_mi = -1.0
+    _sweep_best_name = None
+
     # For every pair from the pool, try all known functions of 2 variables (not storing results in persistent RAM). Record best pairs.
     for (
         raw_vars_pair,
         pair_mi,
-    ), _uplift in tqdmu(
+    ), _uplift in (pair_pbar := tqdmu(
         prospective_pairs.items(), desc="pair", leave=False, disable=not verbose
-    ):  # better to start considering form the most prospective pairs with highest mis ratio!
+    )):  # better to start considering form the most prospective pairs with highest mis ratio!
 
         messages = []
 
@@ -1575,6 +1597,24 @@ def check_prospective_fe_pairs(
                     transformed_vals, new_nbins = None, []
 
             res[raw_vars_pair] = (this_pair_features, transformed_vals, new_cols, new_nbins, messages)
+
+        # Live progress: surface the best engineered feature found so far in this sweep
+        # (its MI with y) plus the pair just evaluated, on the "pair" bar. ``best_mi`` /
+        # ``best_config`` are already computed for this pair -- no extra MI compute. Robust
+        # to the no-config / NaN edge cases (we only adopt a finite, improving best_mi).
+        if verbose:
+            try:
+                _bm = float(best_mi)
+                if best_config is not None and np.isfinite(_bm) and _bm > _sweep_best_mi:
+                    _sweep_best_mi = _bm
+                    _sweep_best_name = get_new_feature_name(fe_tuple=best_config, cols_names=cols)
+                _cur_pair = f"{cols[raw_vars_pair[0]]},{cols[raw_vars_pair[1]]}"
+                _pf = {"pair": _short_fe_name(_cur_pair, 22)}
+                if _sweep_best_name is not None:
+                    _pf["best"] = f"{_short_fe_name(_sweep_best_name)}={_sweep_best_mi:.4f}"
+                pair_pbar.set_postfix(_pf, refresh=False)
+            except (TypeError, ValueError, IndexError):
+                pass
 
     # Surface the fitted per-operand pre-warp specs (keyed by cols-space var
     # index) so the caller (``_mrmr_fe_step``) can persist them in each survivor
