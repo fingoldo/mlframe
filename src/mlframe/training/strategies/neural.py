@@ -28,11 +28,12 @@ class NeuralNetStrategy(ModelPipelineStrategy):
     requires_scaling = True
     requires_encoding = True
     requires_imputation = True
-    # The MLP has no native embedding/text input layers, but the estimator now self-encodes those columns at fit/predict
-    # (expand embedding List -> numeric; HF-embed text -> numeric; see NeuralEmbeddingTextEncoder + _encode_emb_text_fit),
-    # so they must be kept in the frame (not dropped) and routed to the estimator -- hence both support flags are True.
-    supports_text_features = True
-    supports_embedding_features = True
+    # NOTE: the estimator CAN self-encode embedding/text columns at its fit/predict boundary (NeuralEmbeddingTextEncoder
+    # via _encode_emb_text_fit), but ``supports_*`` is deliberately left False (inherited) until the FS layer can pass
+    # non-scalar embedding ``List`` columns THROUGH (MRMR's discretiser/selector can't process ndarray cells -- it raises
+    # "unhashable type: 'numpy.ndarray'" / column-bookkeeping errors). Flipping these True without that passthrough
+    # regresses MRMR+embedding+neural combos to a crash. The boundary encoder still applies whenever such columns DO
+    # reach the estimator (e.g. direct estimator use / a non-FS path).
     supports_native_multiclass = True
     supports_native_multilabel = True
     supports_native_ranking = True
