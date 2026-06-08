@@ -36,7 +36,8 @@ from sklearn.datasets import make_classification
 warnings.filterwarnings("ignore")
 
 
-def build_scene(n: int = 2407, p: int = 120, informative: int = 20, seed: int = 42):
+def build_scene(n: int = 2407, p: int = 120, informative: int = 20, seed: int = 42) -> tuple[pd.DataFrame, np.ndarray]:
+    """Build the representative classification scene (deterministic make_classification) for the BorutaShap profile."""
     X, y = make_classification(
         n_samples=n, n_features=p, n_informative=informative,
         n_redundant=0, n_classes=2, n_clusters_per_class=1,
@@ -45,7 +46,8 @@ def build_scene(n: int = 2407, p: int = 120, informative: int = 20, seed: int = 
     return pd.DataFrame(X, columns=[f"f{i}" for i in range(p)]), y
 
 
-def make_selector():
+def make_selector() -> "object":
+    """Construct the representative SHAP-driven BorutaShap (the path that actually calls TreeExplainer)."""
     import lightgbm as lgb
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
@@ -56,7 +58,8 @@ def make_selector():
     )
 
 
-def extract_golden(bs) -> dict:
+def extract_golden(bs: "object") -> dict:
+    """Extract the bit-identity golden (accept/reject/tentative sets + per-feature hit vector) from a fitted BorutaShap."""
     return {
         "accepted": sorted(bs.accepted),
         "rejected": sorted(bs.rejected),
@@ -67,7 +70,8 @@ def extract_golden(bs) -> dict:
     }
 
 
-def run_once_walltime():
+def run_once_walltime() -> tuple[float, dict]:
+    """Run one un-profiled fit and return (wall seconds, golden) -- the honest baseline number."""
     X, y = build_scene()
     bs = make_selector()
     t0 = time.perf_counter()
@@ -76,7 +80,8 @@ def run_once_walltime():
     return dt, extract_golden(bs)
 
 
-def run_once_profiled(out_dir: Path):
+def run_once_profiled(out_dir: Path) -> tuple[str, dict]:
+    """Run one cProfile'd fit, dump the .prof + top-tottime table to out_dir, and return (table text, golden)."""
     X, y = build_scene()
     bs = make_selector()
     profiler = cProfile.Profile()
@@ -94,7 +99,8 @@ def run_once_profiled(out_dir: Path):
     return stream.getvalue(), extract_golden(bs)
 
 
-def main():
+def main() -> None:
+    """Print the BorutaShap baseline wall + accept/reject summary, write the golden, then the cProfile hotspot table."""
     out_dir = Path(__file__).parent / "_results"
     print("# BorutaShap baseline + hotspot scan")
 

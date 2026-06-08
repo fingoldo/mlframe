@@ -33,7 +33,9 @@ def _disable_kernel_tuning_sweep():
 _disable_kernel_tuning_sweep()
 
 
-def main():
+def main() -> None:
+    """Fit the hybrid once for shared state, then re-run the two independent members sequentially vs in a 2-thread
+    pool, printing the wall speedup and whether each member's output is bit-identical across the two paths."""
     from hard_synth import make_hard_dataset
     from mlframe.feature_selection import HybridSelector
     X, y, _ = make_hard_dataset(n_samples=N_ROWS, seed=SEED)

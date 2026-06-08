@@ -46,19 +46,21 @@ def _disable_kernel_tuning_sweep():
 _disable_kernel_tuning_sweep()
 
 
-def load_data():
+def load_data() -> tuple[pd.DataFrame, pd.Series]:
+    """Load the representative hard_synth bed (220 raw cols at HYB_N rows) that exercises the full combination path."""
     from hard_synth import make_hard_dataset
     X, y, _ = make_hard_dataset(n_samples=N_ROWS, seed=SEED)
     return X, y
 
 
-def make_hybrid():
+def make_hybrid() -> "object":
+    """Construct the HybridSelector in its shipped default config (use_fe=True, tree member ON, vote=1)."""
     from mlframe.feature_selection import HybridSelector
     # the shipped default config (use_fe=True, tree member ON, vote=1) -> exercises the full combination path
     return HybridSelector(random_state=SEED)
 
 
-def _fingerprint(h):
+def _fingerprint(h) -> dict:
     """The golden fingerprint: the exact selected set + ORDER (raw_selected_) and the combined ranking the glue
     produces. Numeric FI scores may differ <=1e-9 under reordered/parallel reduction, so we do NOT pin raw floats;
     we pin the selected SET+ORDER (the hard gate) plus the FI-derived RANK ORDER of the selected columns."""
@@ -76,7 +78,8 @@ def _fingerprint(h):
     }
 
 
-def run_baseline():
+def run_baseline() -> float:
+    """Fit the hybrid once, write the golden (selected set + ranking + member selections), return the wall seconds."""
     X, y = load_data()
     print(f"hard_synth: shape={X.shape} pos={float(y.mean()):.3f} seed={SEED}", flush=True)
     h = make_hybrid()
@@ -93,7 +96,8 @@ def run_baseline():
     return dt
 
 
-def run_verify():
+def run_verify() -> float:
+    """Re-fit and assert the selected set + combined ranking + member selections are BIT-IDENTICAL to the golden."""
     if not os.path.exists(GOLDEN):
         raise SystemExit("no golden; run MODE=baseline first")
     with open(GOLDEN) as f:
@@ -126,7 +130,8 @@ def run_verify():
     return dt
 
 
-def run_profile():
+def run_profile() -> None:
+    """cProfile a warm-JIT hybrid fit and print the top hotspots by tottime + cumtime, plus the glue-only filter."""
     X, y = load_data()
     print(f"hard_synth: shape={X.shape} pos={float(y.mean()):.3f}", flush=True)
     tw = time.time()
