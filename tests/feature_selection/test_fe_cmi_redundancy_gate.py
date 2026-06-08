@@ -18,20 +18,29 @@ These tests lock the two load-bearing claims of the validated design:
       ABOVE its own conditional-permutation floor yet far below the TAU bar, so
       the floor alone would not reject it -- only the relative gap does.
 
-  (3) DEFAULT-ON: ``MRMR()`` defaults to ``fe_acceptance='conditional_mi'`` and
+  (3) n-INVARIANCE (2026-06-08 hardening): the accept/reject decision is correct
+      at EVERY n from 1_000 up, on BOTH formulas. The relative-gap leg compares
+      DEBIASED EXCESS CMI (``cmi - cond-perm-null-mean``), not raw CMI, so the
+      plug-in CMI's residual finite-sample positive bias cancels and no longer
+      lets the spurious feature cross the TAU bar at small n. See the parametrized
+      ``test_gate_n_invariant_*`` cases.
+
+  (4) DEFAULT-ON: ``MRMR()`` defaults to ``fe_acceptance='conditional_mi'`` and
       the CMI gate drops at least one redundant engineered survivor that the
       legacy ``fe_acceptance='prevalence_ratio'`` path keeps, WITHOUT dropping
       the two genuine signal features.
 
 n by test class:
-  * gate-FUNCTION unit tests run at 30_000. The plug-in CMI carries a finite-
-    sample (Miller-Madow residual) bias that, on the WEAKER-signal F2 formula,
-    keeps the spurious feature's conditional MI inflated to ~0.07 at 12k / ~0.04
-    at 20k -- just above the TAU bar (~0.039) -- and only clearly below it at
-    >=30k (~0.028). F1 (the strong-signal canonical) separates cleanly at every n
-    tested. The gate function is cheap (no MRMR fit / no FE candidate buffer), so
-    the unit tests use 30k where BOTH formulas separate, matching the design's
-    validated regime. This finite-n inflation on F2 is the documented limitation.
+  * gate-FUNCTION unit tests are PARAMETRIZED over n in {1_000, 5_000, 20_000,
+    50_000}. BEFORE the debiasing fix the WEAKER-signal F2 formula's spurious
+    feature was inflated above the TAU bar at n~=20k (raw cmi 0.040 > raw rel_bar
+    0.037 -> wrongly admitted), separating cleanly only at >=30k. The hardened
+    gate (debiased-excess relative bar) rejects the spurious feature at EVERY n on
+    BOTH formulas (validated 40/40 over n x formula x 5 seeds). n=100_000 OOMs an
+    8GB box on the downstream FE buffer but the gate LOGIC is n-invariant BY
+    CONSTRUCTION (the bias cancels in the excess), so 100k follows from the
+    construction; the parametrized sweep tops out at 50k to stay in-box. The gate
+    function itself is cheap (no MRMR fit / no FE candidate buffer).
   * the END-TO-END MRMR fit reuses the canonical-fixture construction (F1 with
     the (c,d) signal scaled so it survives screening -- ``E[sin(d)]~=0`` makes
     c's marginal MI near-zero, so without the scale the (c,d) pair is never
@@ -58,9 +67,17 @@ from mlframe.feature_selection.filters._mi_greedy_cmi_fe import (
 from mlframe.feature_selection.filters.discretization import discretize_array
 from mlframe.feature_selection.filters.mrmr import MRMR
 
-# Gate-function unit tests: the design's validated separation regime (both F1 and
-# F2 reject the spurious feature). Cheap -- no MRMR fit -- so n is unconstrained.
-_N_UNIT = 30_000
+# Gate-function unit tests: the hardened (debiased-excess) gate rejects the
+# spurious feature on BOTH formulas at EVERY n. Cheap -- no MRMR fit -- so the
+# parametrized n-sweep covers the full robustness range. The single-n helpers
+# below default to this representative size.
+_N_UNIT = 20_000
+# Parametrized n-invariance sweep: the spurious feature must be rejected (and the
+# two genuine accepted) at every one of these sizes, on both formulas. 20k was the
+# BUG size before the debiasing fix (F2's spurious feature was wrongly admitted).
+# 100k OOMs the 8GB box on the downstream FE buffer; the gate logic is n-invariant
+# by construction, so the sweep tops out at 50k.
+_N_SWEEP = (1_000, 5_000, 20_000, 50_000)
 # End-to-end MRMR fit: canonical-fixture size (matches the green canonical FE suite).
 _N_E2E = 20_000
 # Scale on log(c)*sin(d) so its variance is comparable to a**2/b; without it the
@@ -121,16 +138,57 @@ def test_gate_accepts_genuine_rejects_redundant(formula):
         f"[{formula}] spurious cross-signal feature admitted as independent: {diag['sub']}"
     )
     # The spurious feature is rejected on the RELATIVE-gap (TAU) leg, not by chance:
-    # its CMI is far below the weakest admitted feature's bar.
-    assert diag["sub"]["cmi"] < diag["sub"]["rel_bar"], (
-        f"[{formula}] sub should fail the relative bar: {diag['sub']}"
+    # its DEBIASED EXCESS CMI is far below the weakest admitted feature's bar. (The
+    # rel bar is now on the debiased-excess scale -- raw CMI would re-introduce the
+    # finite-n bias that the excess removes.)
+    assert diag["sub"]["cmi_excess"] < diag["sub"]["rel_bar"], (
+        f"[{formula}] sub should fail the relative bar on debiased excess: {diag['sub']}"
+    )
+
+
+@pytest.mark.parametrize("formula", ["F1", "F2"])
+@pytest.mark.parametrize("n", _N_SWEEP)
+def test_gate_n_invariant_accepts_genuine_rejects_redundant(n, formula):
+    """n-INVARIANCE (2026-06-08 hardening): the gate must ACCEPT the two genuine
+    engineered forms and REJECT the spurious cross-signal feature at EVERY n from
+    1_000 up, on BOTH formulas.
+
+    BEFORE the debiasing fix the WEAKER-signal F2 spurious feature was inflated
+    above the TAU bar at n~=20k (raw cmi 0.040 > raw rel_bar 0.037) and WRONGLY
+    ADMITTED; it separated cleanly only at >=30k. The hardened gate compares
+    DEBIASED EXCESS CMI (``cmi - cond-perm-null-mean``), so the residual plug-in
+    bias cancels and the decision is the same at every n. n tops out at 50k to
+    stay in an 8GB box; the logic is n-invariant by construction (the bias cancels
+    in the excess) so 100k follows."""
+    df, y = _build(formula, n=n)
+    yb = _bin_y(y)
+    cands = _candidates(df, yb)
+    accepted, diag = apply_cmi_redundancy_gate(cands, yb, nbins=10, retain_frac=0.15, seed=0)
+
+    assert "div" in accepted, f"[{formula} n={n}] genuine a**2/b form rejected: {diag['div']}"
+    assert "mul" in accepted, f"[{formula} n={n}] genuine log(c)*sin(d) form rejected: {diag['mul']}"
+    assert "sub" not in accepted, (
+        f"[{formula} n={n}] spurious cross-signal feature admitted as independent "
+        f"(finite-n bias leak?): {diag['sub']}"
+    )
+    # The spurious feature's DEBIASED EXCESS collapses toward ~0 at every n (its
+    # CMI is pure bias/noise given the admitted support), so it fails the rel bar.
+    assert diag["sub"]["cmi_excess"] < diag["sub"]["rel_bar"], (
+        f"[{formula} n={n}] sub excess should be below the relative bar: {diag['sub']}"
+    )
+    # The genuine features keep a POSITIVE excess (real private interaction), so
+    # the separation is not an artefact of everything collapsing to zero.
+    assert diag["div"]["cmi_excess"] > diag["sub"]["cmi_excess"], (
+        f"[{formula} n={n}] genuine div excess should exceed spurious sub excess: "
+        f"div={diag['div']} sub={diag['sub']}"
     )
 
 
 def test_relative_gap_leg_is_load_bearing():
     """The conditional-permutation FLOOR alone is insufficient -- on at least one
-    formula the spurious feature sits ABOVE its own floor yet below the TAU bar, so
-    the relative-gap leg is what rejects it. Locks the 'implement BOTH legs' design."""
+    formula the spurious feature sits ABOVE its own floor yet its DEBIASED EXCESS
+    is below the TAU bar, so the relative-gap leg is what rejects it. Locks the
+    'implement BOTH legs' design."""
     floor_alone_would_admit = False
     for formula in ("F1", "F2"):
         df, y = _build(formula)
@@ -140,13 +198,15 @@ def test_relative_gap_leg_is_load_bearing():
         sub = diag["sub"]
         # rejected overall...
         assert sub["accept"] is False
-        # ...and on this formula the floor alone would NOT have caught it.
-        if sub["cmi"] > sub["floor"] and sub["cmi"] < sub["rel_bar"]:
+        # ...and on this formula the floor alone would NOT have caught it (raw CMI
+        # clears the floor), so the debiased relative-gap leg is the decisive
+        # rejector.
+        if sub["cmi"] > sub["floor"] and sub["cmi_excess"] < sub["rel_bar"]:
             floor_alone_would_admit = True
     assert floor_alone_would_admit, (
         "expected at least one formula where the spurious feature clears its "
-        "conditional-permutation floor (so the relative-gap TAU leg is the decisive "
-        "rejector); if this fails the two-leg design may have collapsed to one leg"
+        "conditional-permutation floor (so the debiased relative-gap TAU leg is the "
+        "decisive rejector); if this fails the two-leg design may have collapsed to one leg"
     )
 
 

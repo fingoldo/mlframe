@@ -26,12 +26,38 @@ Two legs, BOTH load-bearing:
   1. CMI clears a CONDITIONAL-PERMUTATION floor (the significance bar -- reuses
      the production within-stratum permutation null,
      ``_conditional_permutation.conditional_permutation_test``).
-  2. CMI retains >= ``retain_frac`` (TAU, default 0.15) of the WEAKEST already-
-     admitted feature's CMI (the relative-gap / order-of-magnitude separator
-     that the floor alone misses -- a redundant ``sub`` sits a few x above its
-     own permutation floor yet ~12-84x below every genuine engineered feature).
-     TAU is a SCALE-FREE FRACTION of an in-data quantity, robust over
-     [0.084, 1.0); it is NOT an MI-nats constant.
+  2. The DEBIASED conditional MI retains >= ``retain_frac`` (TAU, default 0.15)
+     of the WEAKEST already-admitted feature's DEBIASED CMI (the relative-gap /
+     order-of-magnitude separator that the floor alone misses -- a redundant
+     ``sub`` sits a few x above its own permutation floor yet far below every
+     genuine engineered feature). TAU is a SCALE-FREE FRACTION of an in-data
+     quantity; it is NOT an MI-nats constant.
+
+n-INVARIANCE (the debiasing -- 2026-06-08 hardening)
+----------------------------------------------------
+The plug-in CMI (even Miller-Madow corrected by ``_cmi_from_binned``) carries a
+RESIDUAL positive finite-sample bias of order O(occupied_cells / n). That bias
+is LARGER (relatively) for a low-true-CMI redundant feature than for a high-
+true-CMI genuine one, so below a few-x10^4 rows the redundant ``sub``'s biased
+raw CMI can cross the TAU bar and be WRONGLY ADMITTED (observed on the weaker-
+signal F2 at n~=20k: raw cmi 0.040 > raw rel_bar 0.037).
+
+The fix makes the redundancy decision n-INVARIANT by comparing DEBIASED EXCESS
+CMI instead of raw CMI. For each candidate we already compute its OWN
+conditional-permutation null (within-stratum shuffle of the candidate, which
+PRESERVES the candidate's conditional marginal and so reproduces the SAME
+finite-sample bias). The null's MEAN is an estimate of that bias; the EXCESS
+
+    cmi_excess = max(0, cmi_obs - null_mean)
+
+cancels the bias at any n (the bias is present in BOTH terms). The TAU relative
+bar and the admitted-feature anchors are taken on the EXCESS, not the raw CMI.
+A redundant feature's excess collapses to ~0 (its CMI is pure bias/noise given
+the admitted support) while a genuine feature keeps a large positive excess ->
+clean separation at every n from 1k up. The significance FLOOR leg is unchanged
+(it is already a debiased comparison: both ``cmi_obs`` and the floor quantile
+carry the same bias). The seed feature's anchor likewise uses a marginal-
+permutation-debiased excess so all anchors live on one debiased scale.
 
 Greedy: seed on the highest-marginal-MI engineered candidate (admitted on its
 marginal significance -- nothing to condition on yet), then admit remaining
@@ -77,7 +103,7 @@ _SUPPORT_FRAG_DIVISOR = 5
 _MIN_ROWS_FOR_CMI = 500
 
 
-def _conditional_perm_floor(
+def _conditional_perm_null(
     cand_bin: np.ndarray,
     y_bin: np.ndarray,
     z_support: Optional[np.ndarray],
@@ -85,33 +111,57 @@ def _conditional_perm_floor(
     n_permutations: int = _CMI_FLOOR_PERMUTATIONS,
     quantile: float = _CMI_FLOOR_QUANTILE,
     seed: int = 0,
-) -> float:
-    """Conditional-permutation null floor for ``CMI(cand; y | z_support)``.
+) -> tuple[float, float]:
+    """Conditional-permutation null for ``CMI(cand; y | z_support)``.
 
     Reuses the production within-stratum permutation infrastructure
     (``conditional_permutation_test``): the candidate column is permuted WITHIN
     each support stratum, preserving the ``cand | support`` distribution, so the
     null measures the CMI a candidate of the SAME conditional marginal would show
-    by chance. Returns the ``quantile`` of the null distribution -- the
-    data-derived significance bar.
+    by chance.
 
-    When ``z_support`` is ``None`` (seed step, nothing to condition on) there is
-    no conditional null; returns 0.0 (the marginal-significance path handles the
-    seed admission separately).
+    Returns ``(floor, null_mean)``:
+
+      * ``floor``     -- the ``quantile`` of the null distribution; the
+                         data-derived SIGNIFICANCE bar (leg 1).
+      * ``null_mean`` -- the MEAN of the null distribution; an estimate of the
+                         candidate's finite-sample CMI BIAS at this n. Subtracted
+                         from the observed CMI to form the n-invariant DEBIASED
+                         EXCESS that the relative-gap leg (leg 2) compares (the
+                         bias is present in both ``cmi_obs`` and ``null_mean`` and
+                         cancels). The within-stratum shuffle reproduces the SAME
+                         bias because it leaves ``cand | support`` (hence the
+                         occupied-cell structure that drives the bias) intact.
+
+    When ``z_support`` is ``None`` (the seed step, nothing to condition on) the
+    null is the MARGINAL-permutation null: ``cand`` is freely shuffled and the
+    null statistic is the marginal ``MI(cand_perm; y)``. This debiases the seed
+    anchor on the SAME footing as the conditional candidates, so every admitted
+    feature's relative-bar anchor is a debiased excess.
     """
-    if z_support is None or z_support.size == 0:
-        return 0.0
-    # Sparse, renumber-based plug-in CMI -- the SAME estimator used for the
-    # observed CMI (``_cmi_from_binned``), so the floor and the point estimate
-    # are directly comparable, and the memory stays bounded by n (no dense
-    # (K_x, K_y, K_z) contingency allocation when the frozen support's joint
-    # cardinality climbs into the thousands).
+    # Sparse, renumber-based plug-in CMI/MI -- the SAME estimator used for the
+    # observed value (``_cmi_from_binned``), so the floor / null mean and the
+    # point estimate are directly comparable, and the memory stays bounded by n
+    # (no dense (K_x, K_y, K_z) contingency allocation when the frozen support's
+    # joint cardinality climbs into the thousands).
     from ._mi_greedy_cmi_fe import _cmi_from_binned
 
     x = np.ascontiguousarray(cand_bin, dtype=np.int64).ravel()
     y = np.ascontiguousarray(y_bin, dtype=np.int64).ravel()
-    z = np.ascontiguousarray(z_support, dtype=np.int64).ravel()
     rng = np.random.default_rng(int(seed))
+
+    if z_support is None or z_support.size == 0:
+        # Marginal-permutation null (seed step): free shuffle of the candidate
+        # -> null MARGINAL MI(cand; y). Mean estimates the marginal MI bias at
+        # this n; the seed's debiased excess = max(0, marginal_mi - this mean).
+        nperm = int(n_permutations)
+        nulls = np.empty(nperm, dtype=np.float64)
+        for i in range(nperm):
+            x_perm = x[rng.permutation(x.size)]
+            nulls[i] = float(_cmi_from_binned(x_perm, y, None))
+        return float(np.quantile(nulls, quantile)), float(np.mean(nulls))
+
+    z = np.ascontiguousarray(z_support, dtype=np.int64).ravel()
     # Group row indices by support stratum once; permute the CANDIDATE column
     # within each stratum (preserves the ``cand | support`` distribution -- the
     # conditional permutation null of Berrett et al. 2020).
@@ -120,14 +170,14 @@ def _conditional_perm_floor(
     boundaries = np.flatnonzero(np.diff(sorted_z)) + 1
     groups = [g for g in np.split(order, boundaries) if g.size > 1]
     if not groups:
-        return 0.0
+        return 0.0, 0.0
     nulls = np.empty(int(n_permutations), dtype=np.float64)
     for i in range(int(n_permutations)):
         x_perm = x.copy()
         for g in groups:
             x_perm[g] = x[g[rng.permutation(g.size)]]
         nulls[i] = float(_cmi_from_binned(x_perm, y, z))
-    return float(np.quantile(nulls, quantile))
+    return float(np.quantile(nulls, quantile)), float(np.mean(nulls))
 
 
 def apply_cmi_redundancy_gate(
@@ -169,7 +219,9 @@ def apply_cmi_redundancy_gate(
     (accepted_names, diagnostics)
         ``accepted_names`` is the set of candidate names to KEEP; everything
         else is dropped as redundant. ``diagnostics`` maps each name to a dict
-        with ``accept`` / ``cmi`` / ``floor`` / ``rel_bar`` / ``reason``.
+        with ``accept`` / ``cmi`` (raw observed CMI) / ``cmi_excess`` (debiased
+        excess = ``max(0, cmi - null_mean)``, what the relative bar compares) /
+        ``floor`` / ``null_mean`` / ``rel_bar`` / ``reason``.
 
     Degenerate fallback: with <2 candidates, or fewer than ``_MIN_ROWS_FOR_CMI``
     rows, there is nothing to condition on (or the conditional estimate is
@@ -195,7 +247,8 @@ def apply_cmi_redundancy_gate(
     if len(names) < 2 or n_rows < _MIN_ROWS_FOR_CMI:
         for nm in names:
             diagnostics[nm] = dict(
-                accept=True, cmi=float(candidates[nm][1]), floor=0.0,
+                accept=True, cmi=float(candidates[nm][1]),
+                cmi_excess=float(candidates[nm][1]), floor=0.0, null_mean=0.0,
                 rel_bar=0.0, reason="degenerate_marginal_admit",
             )
         return set(names), diagnostics
@@ -209,49 +262,65 @@ def apply_cmi_redundancy_gate(
 
     accepted: list[str] = []          # admitted candidate names, in selection order
     accepted_bins: list[np.ndarray] = []
-    admitted_cmis: list[float] = []   # CMI-scale of admitted features (for the rel bar)
+    admitted_excess: list[float] = []  # DEBIASED-EXCESS CMI of admitted features (for the rel bar)
     remaining = set(names)
     frag_cap = max(2, n_rows // _SUPPORT_FRAG_DIVISOR)
     z_support: Optional[np.ndarray] = None
 
     # Seed: highest-marginal-MI candidate, admitted on its marginal significance
-    # (nothing to condition on yet). Its marginal MI anchors the relative bar.
+    # (nothing to condition on yet). Its DEBIASED-EXCESS marginal MI (marginal MI
+    # minus its marginal-permutation null mean) anchors the relative bar -- so the
+    # anchor lives on the SAME n-invariant debiased scale as the conditional
+    # candidate excesses below (the raw marginal MI would re-introduce the bias the
+    # excess removes).
     seed_name = max(remaining, key=lambda nm: marg[nm])
+    seed_floor, seed_null_mean = _conditional_perm_null(
+        cand_bins[seed_name], y_dense, None,
+        n_permutations=n_permutations, quantile=quantile, seed=seed,
+    )
+    seed_excess = max(0.0, marg[seed_name] - seed_null_mean)
     accepted.append(seed_name)
     accepted_bins.append(cand_bins[seed_name])
-    admitted_cmis.append(marg[seed_name])
+    admitted_excess.append(seed_excess)
     remaining.discard(seed_name)
     diagnostics[seed_name] = dict(
-        accept=True, cmi=marg[seed_name], floor=0.0,
-        rel_bar=0.0, reason="seed_marginal",
+        accept=True, cmi=marg[seed_name], cmi_excess=seed_excess,
+        floor=seed_floor, null_mean=seed_null_mean, rel_bar=0.0,
+        reason="seed_marginal",
     )
 
     while remaining:
         z_support, _ = _renumber_joint(*accepted_bins)
-        rel_bar = float(retain_frac) * min(admitted_cmis)
+        # Relative bar is a fraction of the WEAKEST admitted feature's DEBIASED
+        # EXCESS CMI -- n-invariant because the finite-sample bias cancels in the
+        # excess (cmi_obs - null_mean). A redundant candidate's excess ~ 0; a
+        # genuine candidate's excess stays a large positive value.
+        rel_bar = float(retain_frac) * min(admitted_excess)
         best_name = None
-        best_cmi = -1.0
+        best_excess = -1.0
         scored: dict = {}
         for nm in list(remaining):
             cmi = float(_cmi_from_binned(cand_bins[nm], y_dense, z_support))
-            floor = _conditional_perm_floor(
+            floor, null_mean = _conditional_perm_null(
                 cand_bins[nm], y_dense, z_support,
                 n_permutations=n_permutations, quantile=quantile, seed=seed,
             )
-            scored[nm] = (cmi, floor)
-            passes_floor = cmi > floor
-            passes_rel = cmi >= rel_bar
+            cmi_excess = max(0.0, cmi - null_mean)
+            scored[nm] = (cmi, cmi_excess)
+            passes_floor = cmi > floor                 # leg 1: significance
+            passes_rel = cmi_excess >= rel_bar         # leg 2: debiased relative gap
             passes = passes_floor and passes_rel
             if nm not in diagnostics:
                 diagnostics[nm] = {}
             diagnostics[nm].update(
-                accept=False, cmi=cmi, floor=floor, rel_bar=rel_bar,
+                accept=False, cmi=cmi, cmi_excess=cmi_excess, floor=floor,
+                null_mean=null_mean, rel_bar=rel_bar,
                 reason=("redundant_below_floor" if not passes_floor
                         else "redundant_below_rel_bar" if not passes_rel
                         else "pending"),
             )
-            if passes and cmi > best_cmi:
-                best_cmi = cmi
+            if passes and cmi_excess > best_excess:
+                best_excess = cmi_excess
                 best_name = nm
         if best_name is None:
             # No remaining candidate adds enough NEW information -> stop; the
@@ -266,17 +335,18 @@ def apply_cmi_redundancy_gate(
             accepted_bins.append(new_bin)
         # else: keep accepted_bins frozen; the feature is still admitted.
         accepted.append(best_name)
-        admitted_cmis.append(best_cmi)
+        admitted_excess.append(best_excess)
         remaining.discard(best_name)
 
     if verbose:
         for nm in names:
             d = diagnostics.get(nm, {})
             logger.info(
-                "CMI-redundancy gate: %s accept=%s cmi=%.4f floor=%.4f rel_bar=%.4f (%s)",
+                "CMI-redundancy gate: %s accept=%s cmi=%.4f excess=%.4f "
+                "floor=%.4f rel_bar=%.4f (%s)",
                 nm, d.get("accept"), d.get("cmi", float("nan")),
-                d.get("floor", float("nan")), d.get("rel_bar", float("nan")),
-                d.get("reason", "-"),
+                d.get("cmi_excess", float("nan")), d.get("floor", float("nan")),
+                d.get("rel_bar", float("nan")), d.get("reason", "-"),
             )
     return set(accepted), diagnostics
 
