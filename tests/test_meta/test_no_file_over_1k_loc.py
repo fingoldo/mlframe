@@ -35,12 +35,17 @@ LOC_BUDGET_EXEMPT: set[str] = {
     # Carve candidates: the empty-support fallback block + the FE/RFECV
     # post-pass into ``_mrmr_fit_impl_finalise.py``.
     "src/mlframe/feature_selection/filters/_mrmr_fit_impl.py",
-    # FIXME(carve-wave-next): filters/engineered_recipes/__init__.py at ~1.25k LOC --
-    # the recipe-replay dispatch grew with the cluster-aggregate + hermite-pair
-    # + factorize / target-encoding branches. Sensible carve: lift each remaining recipe
-    # kind's ``_apply_*`` body into a further package submodule, keep the dispatch
-    # table + dataclass in __init__.
-    "src/mlframe/feature_selection/filters/engineered_recipes/__init__.py",
+    # FIXME(carve-wave-next): filters/_mrmr_fe_step.py at ~1.03k LOC -- the
+    # per-step FE materialisation body grew past the budget. Carve candidate:
+    # lift the per-candidate scoring / quantile-discretization block into a
+    # sibling ``_mrmr_fe_step_score.py``. Pre-existing overflow, not from the
+    # engineered_recipes carve.
+    "src/mlframe/feature_selection/filters/_mrmr_fe_step.py",
+    # FIXME(carve-wave-next): filters/info_theory.py at ~1.0k LOC -- the MI /
+    # entropy kernel collection edged just over the budget. Carve candidate:
+    # split the conditional-MI / SU helpers into a sibling ``_info_theory_cmi.py``.
+    # Pre-existing overflow, not from the engineered_recipes carve.
+    "src/mlframe/feature_selection/filters/info_theory.py",
     # FIXME(carve-wave-next): training/core/_phase_train_one_target_body.py
     # at ~1.02k LOC after the recurrent-ensemble integration + composite-
     # discovery wiring. Sibling carve candidates: the recurrent rerun block
