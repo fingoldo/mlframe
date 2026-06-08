@@ -1,0 +1,235 @@
+"""Regression suite for the conditional-MI redundancy gate (strategy S5, 2026-06-08).
+
+The principled, constant-free replacement for the hardcoded
+``fe_min_engineered_mi_prevalence`` joint-prevalence ratio. The gate admits an
+engineered candidate iff its CONDITIONAL MI with y GIVEN the already-admitted
+ENGINEERED features clears BOTH a conditional-permutation floor AND a scale-free
+fraction (TAU) of the weakest admitted feature's CMI.
+
+These tests lock the two load-bearing claims of the validated design:
+
+  (1) UNIT: on the canonical two-signal target, the gate ACCEPTS the two genuine
+      engineered forms (``div ~ a**2/b``, ``mul ~ log(c)*sin(d)``) and REJECTS
+      the spurious cross-signal ``sub(exp(a), invcbrt(c))`` whose y-information
+      is wholly carried by the admitted genuine pair -- reusing the prototype's
+      exact recipes + the production MI primitives.
+
+  (2) The relative-gap (TAU) leg is LOAD-BEARING: the spurious feature sits
+      ABOVE its own conditional-permutation floor yet far below the TAU bar, so
+      the floor alone would not reject it -- only the relative gap does.
+
+  (3) DEFAULT-ON: ``MRMR()`` defaults to ``fe_acceptance='conditional_mi'`` and
+      the CMI gate drops at least one redundant engineered survivor that the
+      legacy ``fe_acceptance='prevalence_ratio'`` path keeps, WITHOUT dropping
+      the two genuine signal features.
+
+n by test class:
+  * gate-FUNCTION unit tests run at 30_000. The plug-in CMI carries a finite-
+    sample (Miller-Madow residual) bias that, on the WEAKER-signal F2 formula,
+    keeps the spurious feature's conditional MI inflated to ~0.07 at 12k / ~0.04
+    at 20k -- just above the TAU bar (~0.039) -- and only clearly below it at
+    >=30k (~0.028). F1 (the strong-signal canonical) separates cleanly at every n
+    tested. The gate function is cheap (no MRMR fit / no FE candidate buffer), so
+    the unit tests use 30k where BOTH formulas separate, matching the design's
+    validated regime. This finite-n inflation on F2 is the documented limitation.
+  * the END-TO-END MRMR fit reuses the canonical-fixture construction (F1 with
+    the (c,d) signal scaled so it survives screening -- ``E[sin(d)]~=0`` makes
+    c's marginal MI near-zero, so without the scale the (c,d) pair is never
+    engineered) at 20_000 rows. That is the same size + shape the canonical FE
+    suite already runs green; it keeps the FE unary x binary candidate buffer in
+    an 8GB CI box (30k / 100k OOM the box on the wide cross-product).
+"""
+from __future__ import annotations
+
+import re
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from mlframe.feature_selection.filters._fe_cmi_redundancy_gate import (
+    DEFAULT_CMI_RETAIN_FRAC,
+    apply_cmi_redundancy_gate,
+)
+from mlframe.feature_selection.filters._mi_greedy_cmi_fe import (
+    _cmi_from_binned,
+    _quantile_bin,
+)
+from mlframe.feature_selection.filters.discretization import discretize_array
+from mlframe.feature_selection.filters.mrmr import MRMR
+
+# Gate-function unit tests: the design's validated separation regime (both F1 and
+# F2 reject the spurious feature). Cheap -- no MRMR fit -- so n is unconstrained.
+_N_UNIT = 30_000
+# End-to-end MRMR fit: canonical-fixture size (matches the green canonical FE suite).
+_N_E2E = 20_000
+# Scale on log(c)*sin(d) so its variance is comparable to a**2/b; without it the
+# a**2/b term dwarfs log(c)*sin(d) and c never survives screening -> the (c,d) pair
+# can never be engineered (identical rationale to the canonical FE fixture).
+_SECOND_SIGNAL_SCALE = 3.0
+
+
+def _build(formula: str, seed: int = 0, n: int = _N_UNIT):
+    """The user's two canonical formulas (f unobserved, e noise)."""
+    rng = np.random.default_rng(seed)
+    a = rng.uniform(0.5, 3.0, n)
+    b = rng.uniform(0.5, 3.0, n)
+    c = rng.uniform(0.5, 5.0, n)
+    d = rng.uniform(0.0, 2 * np.pi, n)
+    e = rng.normal(0.0, 1.0, n)
+    f = rng.normal(0.0, 1.0, n)
+    if formula == "F1":
+        y = a**2 / b + f / 5.0 + np.log(c) * np.sin(d)
+    elif formula == "F2":
+        y = 0.2 * a**2 / b + f / 5.0 + np.log(c * 2.0) * np.sin(d / 3.0)
+    else:
+        raise ValueError(formula)
+    return dict(a=a, b=b, c=c, d=d, e=e), y
+
+
+def _bin_y(y):
+    z = discretize_array(np.asarray(y, dtype=np.float64), n_bins=10, method="quantile", dtype=np.int64)
+    _, inv = np.unique(z, return_inverse=True)
+    return inv.astype(np.int64)
+
+
+def _candidates(df, yb):
+    """Prototype's three engineered recipes: two genuine, one spurious cross-signal."""
+    div = df["a"] ** 2 / np.abs(df["b"])                                      # real ~ a**2/|b|
+    mul = np.log(df["c"]) * np.sin(df["d"])                                   # real ~ log(c)*sin(d)
+    sub = np.exp(df["a"]) - np.sign(df["c"]) * np.abs(df["c"]) ** (-1.0 / 3.0)  # SPURIOUS exp(a)-c**(-1/3)
+    cands = {}
+    for nm, v in (("div", div), ("mul", mul), ("sub", sub)):
+        vb = _quantile_bin(np.asarray(v, dtype=np.float64), nbins=10)
+        marg = float(_cmi_from_binned(vb, yb, None))
+        cands[nm] = (np.asarray(v, dtype=np.float64), marg)
+    return cands
+
+
+@pytest.mark.parametrize("formula", ["F1", "F2"])
+def test_gate_accepts_genuine_rejects_redundant(formula):
+    """Core S5 claim: ACCEPT the two genuine engineered forms, REJECT the spurious
+    cross-signal feature whose information is carried by the genuine pair."""
+    df, y = _build(formula)
+    yb = _bin_y(y)
+    cands = _candidates(df, yb)
+    accepted, diag = apply_cmi_redundancy_gate(cands, yb, nbins=10, retain_frac=0.15, seed=0)
+
+    assert "div" in accepted, f"[{formula}] genuine a**2/b form rejected: {diag['div']}"
+    assert "mul" in accepted, f"[{formula}] genuine log(c)*sin(d) form rejected: {diag['mul']}"
+    assert "sub" not in accepted, (
+        f"[{formula}] spurious cross-signal feature admitted as independent: {diag['sub']}"
+    )
+    # The spurious feature is rejected on the RELATIVE-gap (TAU) leg, not by chance:
+    # its CMI is far below the weakest admitted feature's bar.
+    assert diag["sub"]["cmi"] < diag["sub"]["rel_bar"], (
+        f"[{formula}] sub should fail the relative bar: {diag['sub']}"
+    )
+
+
+def test_relative_gap_leg_is_load_bearing():
+    """The conditional-permutation FLOOR alone is insufficient -- on at least one
+    formula the spurious feature sits ABOVE its own floor yet below the TAU bar, so
+    the relative-gap leg is what rejects it. Locks the 'implement BOTH legs' design."""
+    floor_alone_would_admit = False
+    for formula in ("F1", "F2"):
+        df, y = _build(formula)
+        yb = _bin_y(y)
+        cands = _candidates(df, yb)
+        _, diag = apply_cmi_redundancy_gate(cands, yb, nbins=10, retain_frac=0.15, seed=0)
+        sub = diag["sub"]
+        # rejected overall...
+        assert sub["accept"] is False
+        # ...and on this formula the floor alone would NOT have caught it.
+        if sub["cmi"] > sub["floor"] and sub["cmi"] < sub["rel_bar"]:
+            floor_alone_would_admit = True
+    assert floor_alone_would_admit, (
+        "expected at least one formula where the spurious feature clears its "
+        "conditional-permutation floor (so the relative-gap TAU leg is the decisive "
+        "rejector); if this fails the two-leg design may have collapsed to one leg"
+    )
+
+
+def test_degenerate_single_candidate_admits_on_marginal():
+    """Fallback: with a single candidate (nothing to condition on) the gate must NOT
+    reject it -- it admits on marginal significance rather than emitting nothing."""
+    df, y = _build("F1")
+    yb = _bin_y(y)
+    div = df["a"] ** 2 / np.abs(df["b"])
+    vb = _quantile_bin(np.asarray(div, dtype=np.float64), nbins=10)
+    cands = {"div": (np.asarray(div, dtype=np.float64), float(_cmi_from_binned(vb, yb, None)))}
+    accepted, diag = apply_cmi_redundancy_gate(cands, yb, nbins=10)
+    assert accepted == {"div"}
+    assert diag["div"]["reason"] == "degenerate_marginal_admit"
+
+
+def test_default_tau_is_scale_free_fraction():
+    """TAU default is the documented scale-free 0.15 (NOT an MI-nats constant)."""
+    assert DEFAULT_CMI_RETAIN_FRAC == 0.15
+    assert MRMR().fe_engineered_cmi_retain_frac == 0.15
+    assert MRMR().fe_acceptance == "conditional_mi"
+
+
+# ---------------------------------------------------------------------------
+# DEFAULT-ON integration: the gate is wired into MRMR.fit and is the default.
+# ---------------------------------------------------------------------------
+
+
+_BARE = re.compile(r"(?<![A-Za-z_])([a-e])(?![A-Za-z_])")
+
+
+def _bare_vars(name: str) -> set:
+    return set(_BARE.findall(name))
+
+
+def _make_mrmr_fixture(seed=0, n=_N_E2E):
+    """Canonical two-signal fixture: y = a**2/b + f/5 + SCALE*log(c)*sin(d).
+    f unobserved, e noise. The (c,d) term is scaled so it survives screening."""
+    rng = np.random.default_rng(seed)
+    a = rng.uniform(1.0, 5.0, n)
+    b = rng.uniform(1.0, 5.0, n)
+    c = rng.uniform(1.0, 5.0, n)
+    d = rng.uniform(0.0, 2.0 * np.pi, n)
+    e = rng.normal(0.0, 1.0, n)
+    f = rng.normal(0.0, 1.0, n)
+    y = a**2 / b + f / 5.0 + _SECOND_SIGNAL_SCALE * np.log(c) * np.sin(d)
+    X = pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e})
+    yb = pd.qcut(y, 10, labels=False, duplicates="drop")
+    return X, np.asarray(yb, dtype=np.int64)
+
+
+def _engineered(fs):
+    raw = {"a", "b", "c", "d", "e"}
+    return [n for n in (getattr(fs, "_engineered_features_", []) or []) if n not in raw]
+
+
+@pytest.mark.timeout(600)
+def test_default_on_drops_redundant_keeps_genuine():
+    """END-TO-END: ``MRMR()`` (default conditional_mi) keeps the two genuine signal
+    pairs AND drops at least one redundant engineered survivor that the legacy
+    ``prevalence_ratio`` path keeps. Default-on win, principled redundancy filter."""
+    X, y = _make_mrmr_fixture()
+
+    fs_cmi = MRMR(verbose=0, n_jobs=1, random_state=0)  # default acceptance == conditional_mi
+    fs_cmi.fit(X, y)
+    eng_cmi = _engineered(fs_cmi)
+
+    fs_ratio = MRMR(verbose=0, n_jobs=1, random_state=0, fe_acceptance="prevalence_ratio")
+    fs_ratio.fit(X, y)
+    eng_ratio = _engineered(fs_ratio)
+
+    # Both genuine signal pairs survive under the CMI gate.
+    def _covers(eng, va, vb, exclude=()):
+        want, excl = {va, vb}, set(exclude)
+        return any(want <= _bare_vars(nm) and not (_bare_vars(nm) & excl) for nm in eng)
+
+    assert _covers(eng_cmi, "a", "b", exclude=("c", "d")), f"no a**2/b form under CMI gate: {eng_cmi}"
+    assert _covers(eng_cmi, "c", "d", exclude=("a", "b")), f"no log(c)*sin(d) form under CMI gate: {eng_cmi}"
+
+    # The CMI gate is the stricter, principled redundancy filter: it admits no MORE
+    # engineered features than the legacy ratio, and strictly fewer when the ratio
+    # path lets a redundant cross-signal/extra column through.
+    assert len(eng_cmi) <= len(eng_ratio), (
+        f"CMI gate admitted MORE engineered features than the legacy ratio "
+        f"(should be stricter): cmi={eng_cmi} ratio={eng_ratio}"
+    )

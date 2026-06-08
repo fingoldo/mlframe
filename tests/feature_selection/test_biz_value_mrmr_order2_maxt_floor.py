@@ -219,11 +219,24 @@ class TestOrder2MaxTFloorDisabled:
         genuine pairs; floor-ON admits 0 spurious and keeps all 3 genuine. Assert that
         contract (same shape as Gate A, now demonstrated on the DEFAULT config), which
         is a strictly STRONGER guarantee than the obsolete byte-identity premise.
+
+        RE-FRAMED AGAIN (2026-06-08, CMI-redundancy gate S5): with the new default
+        ``fe_acceptance='conditional_mi'`` a DOWNSTREAM conditional-MI redundancy gate
+        runs after the per-pair search and removes the very spurious noise pairs this
+        floor backstops -- so floor-OFF would admit 0 spurious and the test could no
+        longer EXERCISE the floor. To measure the floor's contribution IN ISOLATION
+        (the actual subject of this test), pin ``fe_acceptance='prevalence_ratio'`` so
+        the CMI gate does not pre-empt it. The CMI gate's own spurious-rejection is
+        covered separately by ``test_fe_cmi_redundancy_gate``. This is the legacy
+        acceptance path -- intentionally selected here to keep the floor observable.
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
         X, y = _wide_synergy_frame(n_noise=40)
         base = dict(verbose=0, random_seed=42, fe_max_steps=1,
-                    fe_synergy_screen_max_features=60)
+                    fe_synergy_screen_max_features=60,
+                    # Isolate the order-2 maxT floor: the default CMI-redundancy gate
+                    # would otherwise remove the spurious pairs the floor backstops.
+                    fe_acceptance="prevalence_ratio")
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             m_on = MRMR(fe_pair_maxt_null_permutations=25, **base).fit(X, y)

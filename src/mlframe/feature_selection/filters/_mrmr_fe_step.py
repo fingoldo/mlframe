@@ -798,6 +798,112 @@ def _run_fe_step(
         if _gm_from_res:
             _gate_med_specs.update(_gm_from_res)
 
+        # CONDITIONAL-MI REDUNDANCY GATE (strategy S5, 2026-06-08). The PRINCIPLED,
+        # constant-free replacement for the hardcoded ``fe_min_engineered_mi_prevalence``
+        # joint-prevalence ratio. After the per-pair acceptance machinery has selected one
+        # best engineered column per pair, run a greedy CMI-MRMR over the SURVIVING pool:
+        # admit a candidate iff its CONDITIONAL MI with y GIVEN the already-admitted
+        # ENGINEERED features clears (1) a conditional-permutation floor AND (2) a scale-free
+        # fraction (TAU=``fe_engineered_cmi_retain_frac``, default 0.15) of the weakest
+        # admitted feature's CMI. A redundant engineered column whose y-information is wholly
+        # carried by the admitted features collapses to ~0 CMI and is dropped here; a genuine
+        # column carrying a PRIVATE interaction term keeps a large CMI and is kept. Default
+        # path (``fe_acceptance == 'conditional_mi'``); the old ratio remains available via
+        # ``fe_acceptance == 'prevalence_ratio'`` (then this block is skipped and the per-pair
+        # ratio gate alone decides, exactly as before). Validated 10/10 vs four failing
+        # approaches across 16 (seed, formula) cells; see ``_fe_cmi_redundancy_gate``.
+        _fe_acceptance = str(getattr(self, "fe_acceptance", "conditional_mi"))
+        _cmi_dropped: set = set()
+        if _fe_acceptance == "conditional_mi" and prospective_additions:
+            from ._fe_cmi_redundancy_gate import apply_cmi_redundancy_gate
+            from .mrmr import discretize_array  # already imported above; re-bind for clarity
+
+            # Build the surviving-candidate pool: {engineered_col_name -> (continuous_vals,
+            # marginal_mi)}. The continuous values are the pair search's ``transformed_vals``
+            # (full-n float, NOT pre-binned). Marginal MI is computed cheaply from the binned
+            # values via the same plug-in primitive (z=None) so the seed/relative-bar anchor
+            # matches the production CMI estimator -- no separate MI kernel.
+            from ._mi_greedy_cmi_fe import _cmi_from_binned, _quantile_bin
+
+            # y codes: reuse the discretised target the MI sweep scored against.
+            _y_codes = np.asarray(classes_y).ravel()
+            _, _y_dense = np.unique(_y_codes, return_inverse=True)
+            _y_dense = _y_dense.astype(np.int64)
+
+            _cmi_cands: dict = {}
+            for _rp, (_tpf, _tvals, _ncols, _nnb, _msgs) in prospective_additions.items():
+                if not _tpf or _tvals is None or not _ncols:
+                    continue
+                for _jc, _cname in enumerate(_ncols):
+                    if _tvals.shape[1] <= _jc:
+                        continue
+                    _vals = np.asarray(_tvals[:, _jc], dtype=np.float64)
+                    _vb = _quantile_bin(_vals, nbins=int(self.quantization_nbins))
+                    _marg = float(_cmi_from_binned(_vb, _y_dense, None))
+                    _cmi_cands[_cname] = (_vals, _marg)
+
+            if len(_cmi_cands) >= 2:
+                _retain = float(getattr(self, "fe_engineered_cmi_retain_frac", 0.15))
+                _accepted, _diag = apply_cmi_redundancy_gate(
+                    _cmi_cands, _y_dense,
+                    nbins=int(self.quantization_nbins),
+                    retain_frac=_retain,
+                    seed=int(getattr(self, "random_state", 0) or 0),
+                    verbose=int(bool(verbose)),
+                )
+                _cmi_dropped = set(_cmi_cands) - _accepted
+                if _cmi_dropped and verbose:
+                    logger.info(
+                        "CMI-redundancy gate: dropped %d/%d engineered survivors as redundant "
+                        "given the admitted engineered support (TAU=%.3f): %s",
+                        len(_cmi_dropped), len(_cmi_cands), _retain, sorted(_cmi_dropped),
+                    )
+
+        # Apply the CMI-redundancy drops to ``prospective_additions`` IN PLACE so the
+        # materialise / recipe loop below never appends a redundant engineered column.
+        # Each entry's parallel arrays (``this_pair_features`` set of (config, j),
+        # ``transformed_vals`` columns, ``new_cols`` names, ``new_nbins``) are filtered to
+        # the surviving columns by NAME. ``new_cols[i]`` is the name of the i-th
+        # ``transformed_vals`` column; the matching ``(config, j)`` is the one whose
+        # ``get_new_feature_name(config, cols)`` equals that name. Both downstream
+        # consumers index ``transformed_vals`` by the per-column position
+        # (materialise: ``for j in range(len(this_pair_features))``; recipe: the tuple's
+        # stored ``j``), so the kept tuples are re-emitted as ``(config, new_position)``
+        # with the new packed column position. Entries whose every column was dropped
+        # are removed entirely. In the common one-best-per-pair case a pair holds a
+        # single column, so this reduces to keep-entry / drop-entry.
+        if _cmi_dropped:
+            from .mrmr import get_new_feature_name as _get_new_feature_name
+            _filtered_additions: dict = {}
+            for _rp, (_tpf, _tvals, _ncols, _nnb, _msgs) in prospective_additions.items():
+                if not _tpf or _tvals is None or not _ncols:
+                    _filtered_additions[_rp] = (_tpf, _tvals, _ncols, _nnb, _msgs)
+                    continue
+                _keep_idx = [i for i, nm in enumerate(_ncols) if nm not in _cmi_dropped]
+                if not _keep_idx:
+                    continue  # whole pair redundant -> drop the entry
+                if len(_keep_idx) == len(_ncols):
+                    _filtered_additions[_rp] = (_tpf, _tvals, _ncols, _nnb, _msgs)
+                    continue
+                # Name -> config map (authoritative column<->config link).
+                _name_to_cfg = {
+                    _get_new_feature_name(_cfg, cols): _cfg for _cfg, _ in _tpf
+                }
+                _new_tpf = set()
+                for _new_pos, _old_i in enumerate(_keep_idx):
+                    _cfg = _name_to_cfg.get(_ncols[_old_i])
+                    if _cfg is not None:
+                        _new_tpf.add((_cfg, _new_pos))
+                _new_tvals = _tvals[:, _keep_idx]
+                _new_ncols = [_ncols[i] for i in _keep_idx]
+                _new_nnb = (
+                    [_nnb[i] for i in _keep_idx]
+                    if _nnb is not None and hasattr(_nnb, "__len__") and len(_nnb) == len(_ncols)
+                    else _nnb
+                )
+                _filtered_additions[_rp] = (_new_tpf, _new_tvals, _new_ncols, _new_nnb, _msgs)
+            prospective_additions = _filtered_additions
+
         # ROOT CAUSE 5 fix (2026-06-01): collect the cols-space indices of the
         # engineered columns appended below so they can be added DIRECTLY to
         # ``selected_vars`` for the default single-step (``fe_max_steps==1``)

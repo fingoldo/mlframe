@@ -466,6 +466,30 @@ class MRMR(BaseEstimator, TransformerMixin):
         # joint-prevalence floor no longer has to carry that load and can return to the value
         # that admits genuine 1-D summaries of real 2-D interactions.
         fe_min_engineered_mi_prevalence: float = 0.90,  # mi of transformed pair must be at least that higher than the mi of the entire pair
+        # ENGINEERED-FEATURE ACCEPTANCE STRATEGY (strategy S5, 2026-06-08).
+        # ``"conditional_mi"`` (default): the PRINCIPLED, constant-free gate. After the
+        # per-pair search has chosen one best engineered column per pair, a greedy CMI-MRMR
+        # runs over the surviving pool -- a candidate is admitted iff its CONDITIONAL MI with
+        # y GIVEN the already-admitted ENGINEERED features clears BOTH a conditional-
+        # permutation floor (significance) AND a scale-free fraction
+        # (``fe_engineered_cmi_retain_frac``) of the weakest admitted feature's CMI (the
+        # order-of-magnitude redundancy separator). This rejects a redundant engineered
+        # column whose y-information is wholly carried by the admitted features -- WITHOUT a
+        # hand-tuned per-dataset ratio constant -- while keeping every genuine column that
+        # carries a private interaction term. The per-pair ``fe_min_engineered_mi_prevalence``
+        # ratio still acts as the cheap upstream pre-screen; the CMI gate is the principled
+        # FINAL redundancy filter. Validated 10/10 vs four failing approaches across 16
+        # (seed, formula) cells.  ``"prevalence_ratio"``: legacy/compat -- skip the CMI gate
+        # and let the per-pair ``fe_min_engineered_mi_prevalence`` ratio alone decide (the
+        # exact pre-S5 behaviour), kept for fallback and byte-reproduction of old fits.
+        fe_acceptance: str = "conditional_mi",
+        # TAU for the ``conditional_mi`` acceptance: a candidate must RETAIN at least this
+        # fraction of the WEAKEST already-admitted engineered feature's conditional MI.
+        # SCALE-FREE -- it is a fraction of an in-data CMI quantity, NOT an MI-nats constant.
+        # Measured robust window [0.084, 1.0) across 16 (seed, formula) cells (a redundant
+        # feature never exceeds 8.3% of the weakest genuine one); 0.15 sits in the middle
+        # with ~2x margin both sides. Larger = stricter (drops more as redundant).
+        fe_engineered_cmi_retain_frac: float = 0.15,
         fe_good_to_best_feature_mi_threshold: float = 0.98,  # when multiple good transformations exist for the same factors pair.
         fe_max_external_validation_factors: int = 0,  # how many other factors to validate against
         fe_max_polynoms: int = 0,
