@@ -120,6 +120,8 @@ neural = [
     "lightning>=2.0",
     "pytorch-lightning>=2.0",
     "captum>=0.7",
+    # Frozen text-embedding path for neural models (HuggingFaceProvider: AutoTokenizer + AutoModel -> pooled vectors).
+    "transformers>=4.30",
 ]
 
 # AutoML + hyperparameter optimization.
