@@ -53,8 +53,12 @@ class TreeModelStrategy(ModelPipelineStrategy):
         category_encoder: Optional[Any] = None,
         imputer: Optional[Any] = None,
         scaler: Optional[Any] = None,
+        embedding_features: Optional[List[str]] = None,
+        text_features: Optional[List[str]] = None,
     ) -> Optional[Pipeline]:
-        """Tree models just use the base pipeline (feature selection) if any."""
+        """Tree models just use the base pipeline (feature selection) if any. ``embedding_features`` / ``text_features``
+        are accepted for signature parity but ignored here -- tree libraries consume those columns natively (CatBoost)
+        or via the feature-handling layer, not through a sklearn pre-pipeline step."""
         return base_pipeline
 
 

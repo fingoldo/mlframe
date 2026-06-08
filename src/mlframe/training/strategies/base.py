@@ -447,6 +447,15 @@ class ModelPipelineStrategy(ABC):
         """
         return df
 
+    def _extra_pre_encoding_steps(self, embedding_features, text_features) -> list:
+        """Extra pipeline steps inserted after feature selection and BEFORE category encoding / imputation / scaling.
+
+        Base: none. Strategies that consume embedding-vector (``List``) or free-text columns but feed a numeric-only
+        model (e.g. neural) override this to expand / encode those columns to numeric here, so the downstream numeric
+        steps and the model see a pure-numeric frame.
+        """
+        return []
+
     def build_pipeline(
         self,
         base_pipeline: Optional[Pipeline],
@@ -454,6 +463,8 @@ class ModelPipelineStrategy(ABC):
         category_encoder: Optional[Any] = None,
         imputer: Optional[Any] = None,
         scaler: Optional[Any] = None,
+        embedding_features: Optional[List[str]] = None,
+        text_features: Optional[List[str]] = None,
     ) -> Optional[Pipeline]:
         """
         Build the preprocessing pipeline for this model type.
@@ -483,6 +494,10 @@ class ModelPipelineStrategy(ABC):
         # Feature selectors go FIRST (before preprocessing)
         if base_pipeline is not None and is_feature_selector:
             steps.append(("pre", base_pipeline))
+
+        # Embedding-vector + text columns -> numeric, BEFORE cat-encoding / imputation / scaling, so every downstream
+        # numeric step and the model see a pure-numeric frame. No-op unless the strategy overrides the hook.
+        steps.extend(self._extra_pre_encoding_steps(embedding_features, text_features))
 
         # Add category encoding if required and categorical features exist.
         # Observability guard (2026-04-19 round-9 probe): if the strategy

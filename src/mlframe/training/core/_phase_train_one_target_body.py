@@ -417,6 +417,8 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                 category_encoder=category_encoder if cat_features else None,
                 imputer=imputer,
                 scaler=scaler,
+                embedding_features=embedding_features,
+                text_features=text_features,
             )
             # Cache key = strategy.cache_key + pre_pipeline_name + feature_tier + container kind + feature-list digest.
             # feature_tier is required because CB/LGB/XGB all share cache_key="tree" but have different

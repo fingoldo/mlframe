@@ -87,6 +87,25 @@ class NeuralNetStrategy(ModelPipelineStrategy):
             loss_fn = getattr(ranking_config, "mlp_loss_fn", None) or loss_fn
         return {"loss_fn": loss_fn}
 
+    def _extra_pre_encoding_steps(self, embedding_features, text_features):
+        """Make embedding-vector + free-text columns numeric for the MLP, which has no native embedding/text layers.
+
+        Embedding ``List`` columns are expanded to their float components and text columns are turned into dense
+        HuggingFace transformer embeddings (see ``neural.feature_prep.NeuralEmbeddingTextEncoder``). Runs before
+        cat-encoding/imputation/scaling, so the result is numeric for every target type (regression / binary /
+        multiclass / multilabel / learning-to-rank). No-op when no embedding/text columns are present.
+        """
+        if not embedding_features and not text_features:
+            return []
+        from ..neural.feature_prep import NeuralEmbeddingTextEncoder
+        return [(
+            "neural_emb_text",
+            NeuralEmbeddingTextEncoder(
+                embedding_features=list(embedding_features or []),
+                text_features=list(text_features or []),
+            ),
+        )]
+
 
 class LinearModelStrategy(ModelPipelineStrategy):
     """
