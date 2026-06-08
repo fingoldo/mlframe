@@ -41,6 +41,25 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 # the import cost. Every alternate scorer's ``*_with_recipes`` returns the
 # same ``(X_aug, scores_df, recipes_list)`` 3-tuple as Layer 21's plain
 # univariate path -- so the caller plumbing in ``_fit_impl`` is unchanged.
+def _orth_fe_numeric_cols(X, cols):
+    """Keep only numeric (incl. bool) scalar columns from ``cols`` for the orthogonal / polynomial hybrid-FE family,
+    which converts operands to float. Raw categorical / string columns (e.g. a string-coded cat 'B') would otherwise
+    raise ``ValueError: could not convert string to float`` and the whole FE pass would be silently dropped. Duplicated
+    column names (``X[c]`` -> DataFrame, ndim 2) are skipped as ambiguous."""
+    out = []
+    for c in cols:
+        if c not in X.columns:
+            continue
+        s = X[c]
+        if getattr(s, "ndim", 1) != 1:
+            continue
+        # pd.api.types.is_numeric_dtype handles category / object / string gracefully (False) and keeps bool as numeric;
+        # np.issubdtype would RAISE "Cannot interpret CategoricalDtype as a data type" on the very cat cols we exclude.
+        if pd.api.types.is_numeric_dtype(s):
+            out.append(c)
+    return out
+
+
 def _dispatch_default_scorer(
     scorer: str,
     *,
@@ -975,6 +994,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         c for c in X.columns
                         if c not in _hybrid_already_appended
                     ]
+                # The orthogonal/polynomial FE converts operands to float; drop non-numeric columns (raw cat / string,
+                # e.g. 'B') so it doesn't raise "could not convert string to float" and silently lose the whole FE pass.
+                _aa_cols = _orth_fe_numeric_cols(X, _aa_cols)
                 _aa_max_arity = int(
                     getattr(self, "fe_hybrid_orth_adaptive_arity_max_arity", 3)
                 )
@@ -1574,6 +1596,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         c for c in X.columns
                         if c not in _hybrid_already_appended
                     ]
+                # Orthogonal/polynomial FE is numeric-only; drop non-numeric cols (raw cat / string) before the float
+                # conversion, else it raises "could not convert string to float" and the whole FE pass is dropped.
+                _tg_cols = _orth_fe_numeric_cols(X, _tg_cols)
                 _tg_degrees = tuple(int(d) for d in getattr(
                     self, "fe_hybrid_orth_degrees", (2, 3),
                 ))
@@ -2541,6 +2566,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         c for c in X.columns
                         if c not in _hybrid_already_appended
                     ]
+                # Orthogonal/polynomial FE is numeric-only; drop non-numeric cols (raw cat / string) before the float
+                # conversion, else it raises "could not convert string to float" and the whole FE pass is dropped.
+                _meta_cols = _orth_fe_numeric_cols(X, _meta_cols)
                 _meta_degrees = tuple(int(d) for d in getattr(
                     self, "fe_hybrid_orth_degrees", (2, 3),
                 ))
