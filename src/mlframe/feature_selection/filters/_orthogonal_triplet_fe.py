@@ -298,6 +298,7 @@ def hybrid_orth_mi_triplet_fe(
     triplet_min_uplift: float = 1.05,
     triplet_min_abs_mi_frac: float = 0.1,
     nbins: int = 10,
+    explicit_triplets: Optional[Sequence[tuple]] = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Two-stage hybrid: (1) univariate orthogonal-poly FE + MI-greedy,
     then (2) cross-basis TRIPLET FE on the top-N raw source columns by
@@ -393,15 +394,41 @@ def hybrid_orth_mi_triplet_fe(
             order = np.argsort(-raw_mi_arr)
             seed_sources = [raw_cols_all[i] for i in order[: int(top_triplet_seed_k)]]
 
-    if len(seed_sources) < 3 or int(top_triplet_count) <= 0:
-        return X_aug_uni, uni_scores, pd.DataFrame(columns=_TRIPLET_SCORE_EMPTY_COLS)
+    # EXPLICIT TRIPLETS (backlog #6 GBM seeder): when the caller passes an order-3
+    # proposer's surviving triples (each already order-3-maxT-floored), enumerate EXACTLY
+    # those triples instead of the C(seed_k, 3) over the univariate-MI seed pool -- the whole
+    # point of the surrogate seeder is to reach the zero-marginal 3-way needle whose operands
+    # the univariate seed_k never ranks. The proposer GENERATES; the per-triplet uplift / abs-MI
+    # gates below still GATE, so a spurious explicit triple cannot survive. Only triples whose
+    # legs all map to valid numeric columns in X are kept.
+    if explicit_triplets:
+        _xset = set(X.columns)
+        triplets = []
+        _seen = set()
+        for _tr in explicit_triplets:
+            if len(_tr) != 3:
+                continue
+            if not all((c in _xset and pd.api.types.is_numeric_dtype(X[c])) for c in _tr):
+                continue
+            _key = tuple(sorted(_tr))
+            if _key in _seen:
+                continue
+            _seen.add(_key)
+            triplets.append(tuple(_tr))
+        if not triplets:
+            return X_aug_uni, uni_scores, pd.DataFrame(columns=_TRIPLET_SCORE_EMPTY_COLS)
+        # The MI-uplift baseline / seed-X frame need the union of explicit-triple legs.
+        seed_sources = sorted({c for _tr in triplets for c in _tr})
+    else:
+        if len(seed_sources) < 3 or int(top_triplet_count) <= 0:
+            return X_aug_uni, uni_scores, pd.DataFrame(columns=_TRIPLET_SCORE_EMPTY_COLS)
 
-    triplets = [
-        (seed_sources[i], seed_sources[j], seed_sources[k])
-        for i in range(len(seed_sources))
-        for j in range(i + 1, len(seed_sources))
-        for k in range(j + 1, len(seed_sources))
-    ]
+        triplets = [
+            (seed_sources[i], seed_sources[j], seed_sources[k])
+            for i in range(len(seed_sources))
+            for j in range(i + 1, len(seed_sources))
+            for k in range(j + 1, len(seed_sources))
+        ]
     triplet_eng = generate_triplet_cross_basis_features(
         X, triplets, max_degree=triplet_max_degree, basis=basis,
     )
@@ -474,11 +501,15 @@ def hybrid_orth_mi_triplet_fe_with_recipes(
     triplet_min_uplift: float = 1.05,
     triplet_min_abs_mi_frac: float = 0.1,
     nbins: int = 10,
+    explicit_triplets: Optional[Sequence[tuple]] = None,
 ):
     """Same as :func:`hybrid_orth_mi_triplet_fe` but additionally returns
     a flat list of recipes (univariate + triplet, in append order) so
     that ``MRMR.transform`` can replay each engineered column from X
-    alone (no y).
+    alone (no y). ``explicit_triplets`` (backlog #6 GBM seeder) forces the
+    triplet stage to enumerate EXACTLY the given column-name triples (the
+    order-3-floored proposer survivors) instead of the C(seed_k, 3) over the
+    univariate-MI seed pool.
     """
     from .engineered_recipes import (
         build_orth_univariate_recipe,
@@ -494,6 +525,7 @@ def hybrid_orth_mi_triplet_fe_with_recipes(
         triplet_min_uplift=triplet_min_uplift,
         triplet_min_abs_mi_frac=triplet_min_abs_mi_frac,
         nbins=nbins,
+        explicit_triplets=explicit_triplets,
     )
     appended = [c for c in X_aug.columns if c not in X.columns]
     code_to_basis = {"He": "hermite", "LL": "laguerre", "T": "chebyshev", "L": "legendre"}

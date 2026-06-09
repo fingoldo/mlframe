@@ -96,6 +96,190 @@ def apply_synergy_bootstrap(
     return numeric_vars_to_consider, synergy_added_idx
 
 
+def apply_surrogate_gbm_seeder(
+    self,
+    *,
+    num_fs_steps: int,
+    data,
+    nbins,
+    cols,
+    categorical_vars,
+    target_indices,
+    classes_y,
+    freqs_y,
+    numeric_vars_to_consider: set,
+    non_numeric_idx: set,
+    verbose,
+):
+    """Surrogate-GBM split-co-occurrence interaction seeder (backlog #6) + its order-3 maxT rail (#7).
+
+    Fits one shallow LightGBM on the discretised matrix, walks root-to-leaf paths, and tallies
+    depth-discounted split-gain co-occurrence to propose interaction PAIRS + TRIPLES whose operands
+    have ~0 univariate MI (so the univariate ``seed_count`` never reaches them). The proposer
+    SELF-GATES on a permuted-y OOF comparison (pure noise -> no seeds). Seeded PAIRS are MERGED into
+    ``numeric_vars_to_consider`` so their joint MI is screened by the existing pair pipeline (the
+    seed_count bypass). Seeded TRIPLES are gated by the order-3 Westfall-Young maxT permutation-null
+    floor (``batch_triple_mi_prange``-based, the #7 rail) and the survivors stamped onto
+    ``self._seeded_triplets_`` for the triplet FE stage. Runs only on the FIRST FE step.
+
+    Returns ``(numeric_vars_to_consider, seeded_pairs)`` -- the (possibly widened) operand pool and
+    the surviving seeded pair-index tuples (empty when the seeder is off / self-gate fails). The
+    seeded triples + raw seeder diagnostics are stamped on ``self`` (``_seeded_pairs_`` /
+    ``_seeded_triplets_`` / ``fe_gbm_seeder_info_``). OPT-IN (``fe_gbm_seeder_enable``); self-routes
+    OFF below ``fe_gbm_seeder_min_features`` columns where seed_count is not the blocker.
+    """
+    self._seeded_pairs_ = []
+    self._seeded_triplets_ = []
+    self._seeded_triplets_names_ = []
+    self.fe_gbm_seeder_info_ = {}
+    if not bool(getattr(self, "fe_gbm_seeder_enable", False)) or num_fs_steps != 0:
+        return numeric_vars_to_consider, []
+
+    # Self-routing cost gate: seed_count is not the blocker on a narrow pool (it already
+    # sees every operand), so the LightGBM fit cost is not worth paying there.
+    _raw_name_set = set(getattr(self, "feature_names_in_", []) or [])
+    _target_idx_set = {int(t) for t in np.atleast_1d(target_indices)}
+    _cat_set = set(categorical_vars)
+    _raw_numeric_idx = {
+        i for i, nm in enumerate(cols)
+        if nm in _raw_name_set and i not in _target_idx_set and i not in _cat_set
+    }
+    _raw_numeric_idx -= set(non_numeric_idx)
+    if self.factors_to_use is not None:
+        _raw_numeric_idx &= set(self.factors_to_use)
+    if self.factors_names_to_use is not None:
+        _raw_numeric_idx &= {cols.index(n) for n in self.factors_names_to_use if n in cols}
+    _min_feats = int(getattr(self, "fe_gbm_seeder_min_features", 30))
+    if len(_raw_numeric_idx) < _min_feats:
+        if verbose:
+            logger.info(
+                "MRMR FE GBM seeder: %d raw numeric cols < fe_gbm_seeder_min_features=%d; "
+                "skipping (seed_count already sees every operand on this narrow pool).",
+                len(_raw_numeric_idx), _min_feats,
+            )
+        return numeric_vars_to_consider, []
+
+    try:
+        from ._surrogate_interaction_seeder import surrogate_gbm_interaction_seeds
+
+        # The seeder's candidate pool is ALL raw numeric columns (the operands the
+        # univariate seed_count ranks among) -- the whole point is to reach the
+        # zero-marginal ones the top-N cut drops.
+        _cand = sorted(_raw_numeric_idx)
+        # The surrogate predicts the DISCRETISED ordinal target ``classes_y`` -- the SAME
+        # small-cardinality representation every FE-gate MI is scored against -- so the
+        # split co-occurrence is on the exact signal the pair/triple floors gate. The binned
+        # target is always a low-cardinality ordinal (a multiclass classification problem for
+        # the surrogate), whether the original task was classification or regression.
+        seeded_pairs, seeded_triples, info = surrogate_gbm_interaction_seeds(
+            data, np.ascontiguousarray(classes_y), _cand,
+            is_classification=True,
+            top_k_pairs=int(getattr(self, "fe_gbm_seeder_top_k_pairs", 12)),
+            top_k_triples=int(getattr(self, "fe_gbm_seeder_top_k_triples", 8)),
+            n_estimators=int(getattr(self, "fe_gbm_seeder_n_estimators", 150)),
+            max_depth=int(getattr(self, "fe_gbm_seeder_max_depth", 4)),
+            self_gate_margin=float(getattr(self, "fe_gbm_seeder_self_gate_margin", 0.0)),
+            random_seed=int(getattr(self, "random_seed", 0) or 0),
+        )
+        self.fe_gbm_seeder_info_ = {k: v for k, v in info.items()
+                                    if k in ("oof_real", "oof_perm", "gated", "n_pairs", "n_triples")}
+        if not info.get("gated", False):
+            return numeric_vars_to_consider, []
+
+        # --- ORDER-3 maxT FLOOR (#7) on the seeded triples (the mandatory rail) ---
+        _kept_triples = _gate_seeded_triples_order3(
+            self, seeded_triples, data=data, nbins=nbins, classes_y=classes_y,
+            freqs_y=freqs_y, verbose=verbose,
+        )
+        self._seeded_pairs_ = list(seeded_pairs)
+        self._seeded_triplets_ = list(_kept_triples)
+        # Map the surviving triple COLUMN INDICES -> column NAMES for the triplet FE stage
+        # (which operates on the original X DataFrame). Only RAW-column triples (all three
+        # legs map to a name) are forwarded; an index out of range is skipped defensively.
+        _ncols = len(cols)
+        _named = []
+        for (a, b, c) in _kept_triples:
+            if 0 <= a < _ncols and 0 <= b < _ncols and 0 <= c < _ncols:
+                _named.append((cols[a], cols[b], cols[c]))
+        self._seeded_triplets_names_ = _named
+
+        # Merge seeded-pair operands into the pool so their JOINT MI gets screened by
+        # the existing pair pipeline (bypassing the univariate seed_count that dropped them).
+        _new_ops = set()
+        for a, b in seeded_pairs:
+            _new_ops.add(int(a)); _new_ops.add(int(b))
+        _added = _new_ops - set(numeric_vars_to_consider)
+        if _added:
+            numeric_vars_to_consider = set(numeric_vars_to_consider) | _new_ops
+            if verbose:
+                logger.info(
+                    "MRMR FE GBM seeder: self-gate PASSED (OOF %.4f > permuted %.4f); merged %d "
+                    "co-occurrence-seeded operand(s) into the pair pool, kept %d order-3-floored "
+                    "triple(s) for the triplet FE -- recovering zero-marginal interactions the "
+                    "univariate seed_count misses.",
+                    info.get("oof_real", float("nan")), info.get("oof_perm", float("nan")),
+                    len(_added), len(_kept_triples),
+                )
+        return numeric_vars_to_consider, list(seeded_pairs)
+    except Exception:
+        logger.warning(
+            "MRMR FE GBM seeder failed; continuing without seeded interactions.",
+            exc_info=True,
+        )
+        return numeric_vars_to_consider, []
+
+
+def _gate_seeded_triples_order3(
+    self, seeded_triples, *, data, nbins, classes_y, freqs_y, verbose,
+) -> list:
+    """Apply the order-3 Westfall-Young maxT permutation-null floor (#7) to the seeded triples.
+
+    Computes the floor ONCE over the proposed-triple pool (smaller proposer family => less
+    punishing, still bounds the chance-max 3-way joint MI), scores each seeded triple's observed
+    3-way joint MI with the SAME ``batch_triple_mi_prange`` estimator, and keeps only triples whose
+    joint MI clears the floor. SELF-GATING: below ``fe_triple_maxt_min_triples`` candidate triples
+    (or ``fe_triple_maxt_null_permutations=0``) the floor is 0.0 (no-op => all seeded triples kept).
+    """
+    if not seeded_triples:
+        return []
+    _perms = int(getattr(self, "fe_triple_maxt_null_permutations", 25) or 0)
+    _min_triples = int(getattr(self, "fe_triple_maxt_min_triples", 4))
+    if _perms <= 0 or len(seeded_triples) < _min_triples:
+        return list(seeded_triples)
+    try:
+        from ._permutation_null import pooled_triple_permutation_null_joint_mi_floor
+        from .info_theory import batch_triple_mi_prange
+
+        _ta = np.fromiter((t[0] for t in seeded_triples), dtype=np.int64, count=len(seeded_triples))
+        _tb = np.fromiter((t[1] for t in seeded_triples), dtype=np.int64, count=len(seeded_triples))
+        _tc = np.fromiter((t[2] for t in seeded_triples), dtype=np.int64, count=len(seeded_triples))
+        _nb = np.ascontiguousarray(nbins)
+        _fy = np.ascontiguousarray(freqs_y, dtype=np.float64)
+        _cy = np.ascontiguousarray(classes_y)
+        _floor = pooled_triple_permutation_null_joint_mi_floor(
+            data, _nb, _ta, _tb, _tc, _cy, _fy,
+            n_permutations=_perms,
+            quantile=float(getattr(self, "fe_triple_maxt_null_quantile", 0.95)),
+            random_seed=getattr(self, "random_seed", None),
+        )
+        _obs = batch_triple_mi_prange(data, _ta, _tb, _tc, _nb, _cy, _fy)
+        _kept = [seeded_triples[i] for i in range(len(seeded_triples)) if float(_obs[i]) >= _floor]
+        if verbose >= 1:
+            logger.info(
+                "MRMR FE: order-3 maxT permutation-null joint-MI floor=%.5f over %d seeded triple(s) "
+                "(q=%.2f, K=%d) -- %d/%d clear it (rejects best-of-pool chance-max noise triples).",
+                _floor, len(seeded_triples), float(getattr(self, "fe_triple_maxt_null_quantile", 0.95)),
+                _perms, len(_kept), len(seeded_triples),
+            )
+        return _kept
+    except Exception:
+        logger.warning(
+            "MRMR FE: order-3 maxT floor on seeded triples failed; keeping un-floored triples.",
+            exc_info=True,
+        )
+        return list(seeded_triples)
+
+
 def compute_pair_maxt_floor(
     self,
     *,

@@ -101,6 +101,106 @@ def batch_pair_mi_prange(
 
 
 @njit(parallel=True, nogil=True, cache=True)
+def batch_triple_mi_prange(
+    factors_data: np.ndarray,
+    triple_a: np.ndarray,
+    triple_b: np.ndarray,
+    triple_c: np.ndarray,
+    nbins: np.ndarray,
+    classes_y: np.ndarray,
+    freqs_y: np.ndarray,
+) -> np.ndarray:
+    """Vectorised batch JOINT MI ``I((x_a, x_b, x_c); y)`` over an array of (a, b, c) variable-index triples.
+
+    The order-3 twin of :func:`batch_pair_mi_prange` -- the per-shuffle kernel the
+    order-3 Westfall-Young maxT permutation-null floor
+    (:func:`pooled_triple_permutation_null_joint_mi_floor`) runs to bound the best-of-pool
+    chance-max 3-way joint MI, and the same plug-in estimator a 3-way candidate's observed
+    joint MI is scored with, so the floor is on the exact scale of the values it gates.
+
+    The naive 3-way joint cardinality ``nb_a*nb_b*nb_c`` blows up the per-triple histogram
+    (10^3 = 1000 cells at nbins=10, far beyond the ``n`` distinct rows actually present and
+    a memory hazard at higher nbins). This kernel DENSE-RENUMBERS the 3-way joint to its
+    OCCUPIED classes (cardinality <= n) before the MI reduction, exactly as ``merge_vars``
+    prunes empty joint cells:
+
+      1. Per row build the raw 3-way code ``ra = (va*nb_b + vb)*nb_c + vc`` into a thread-local
+         buffer (monotone in (a, b, c), same encoding convention as ``merge_vars``).
+      2. Dense-renumber the raw codes via a hash-free direct-address remap table of size
+         ``nb_a*nb_b*nb_c`` (zeroed once per triple): first pass marks occupied raw codes,
+         a prefix-style scan assigns each occupied raw code a dense id in ``[0, n_dense)``,
+         ``n_dense <= n``. (The remap table is the only allocation that scales with the raw
+         cardinality; for nbins ~ 10 it is a 1000-int8 scratch, trivially stack/pool-allocated.)
+      3. Accumulate the dense joint-with-y counts ``(dense_x, y)`` and the dense-x marginal,
+         then the standard plug-in ``sum jf * log(jf / (px * py))`` MI.
+
+    BIT-CONSISTENT with the pair kernel's MI reduction (same ``jf * log(jf / (px * py))``
+    accumulation, same float64 ``inv_n`` normalisation), differing only in the 3-way dense
+    code construction. ``factors_data`` MUST be the ordinal-encoded (int) screening matrix;
+    a float matrix gives undefined results. Returns ``float64[n_triples]``; an empty
+    ``factors_data`` yields all-zero (no-information baseline), matching the pair kernel.
+    """
+    n_samples = factors_data.shape[0]
+    n_triples = triple_a.shape[0]
+    out = np.empty(n_triples, dtype=np.float64)
+    n_classes_y = freqs_y.shape[0]
+
+    if n_samples == 0:
+        out[:] = 0.0
+        return out
+
+    for p in prange(n_triples):
+        a = triple_a[p]
+        b = triple_b[p]
+        c = triple_c[p]
+        nb_b = int(nbins[b])
+        nb_c = int(nbins[c])
+        raw_card = int(nbins[a]) * nb_b * nb_c
+
+        # Thread-local per-row raw 3-way codes + a direct-address remap table.
+        raw_codes = np.empty(n_samples, dtype=np.int64)
+        remap = np.full(raw_card, -1, dtype=np.int64)  # raw code -> dense id (-1 = unseen)
+        n_dense = 0
+        for i in range(n_samples):
+            va = int(factors_data[i, a])
+            vb = int(factors_data[i, b])
+            vc = int(factors_data[i, c])
+            rc = (va * nb_b + vb) * nb_c + vc
+            raw_codes[i] = rc
+            if remap[rc] == -1:
+                remap[rc] = n_dense
+                n_dense += 1
+
+        # Dense joint-with-y counts + dense-x marginal (cardinality n_dense <= n).
+        joint_counts = np.zeros((n_dense, n_classes_y), dtype=np.int64)
+        freqs_x_int = np.zeros(n_dense, dtype=np.int64)
+        for i in range(n_samples):
+            dx = remap[raw_codes[i]]
+            cy = int(classes_y[i])
+            joint_counts[dx, cy] += 1
+            freqs_x_int[dx] += 1
+
+        total = 0.0
+        inv_n = 1.0 / n_samples
+        for i in range(n_dense):
+            fx = freqs_x_int[i]
+            if fx == 0:
+                continue
+            prob_x = fx * inv_n
+            for j in range(n_classes_y):
+                jc = joint_counts[i, j]
+                if jc == 0:
+                    continue
+                jf = jc * inv_n
+                prob_y = freqs_y[j]
+                if prob_y > 0.0:
+                    total += jf * math.log(jf / (prob_x * prob_y))
+        out[p] = total
+
+    return out
+
+
+@njit(parallel=True, nogil=True, cache=True)
 def batch_mi_with_noise_gate(
     disc_2d: np.ndarray,
     factors_nbins: np.ndarray,

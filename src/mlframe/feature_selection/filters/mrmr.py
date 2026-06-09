@@ -1154,6 +1154,49 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_ii_routing_null_permutations: int = 25,
         fe_ii_routing_null_quantile: float = 0.95,
         fe_ii_routing_min_pairs: int = 30,
+        # SURROGATE-GBM SPLIT-CO-OCCURRENCE INTERACTION SEEDER (backlog idea #6). The
+        # univariate-MI ``seed_count`` that the prospective-pair sweep / triplet FE pick
+        # source columns by is BLIND to pure synergy: a zero-marginal interaction operand
+        # (``y = sign(x_a*x_b*x_c) + noise`` -- every marginal MI ~= 0) is never ranked
+        # top-N, so the pair is never enumerated and the triple never seeded -> the needle
+        # is MISSED. This proposer fits ONE shallow LightGBM (~150 depth-4 trees) on the
+        # discretised matrix, walks every root-to-leaf path, and tallies a depth-discounted
+        # split-gain co-occurrence weight for every co-splitting PAIR + TRIPLE: a zero-marginal
+        # operand still appears as a split partner CONDITIONED on its co-splitter, so
+        # co-occurrence ranks the true interaction members at the top. Top-K pairs feed the
+        # prospective pool (BYPASSING seed_count); top-K triples feed the order-3-floored
+        # triplet FE. Cost O(n*trees*depth) -- INDEPENDENT of p^2/p^3 (the large-p scaling
+        # lever). SELF-GATE: emits NOTHING unless the surrogate's OOF score beats a permuted-y
+        # baseline (pure noise -> tie -> no seeds -> pool not polluted). The order-2/order-3
+        # maxT floors then gate every emitted candidate (proposer GENERATES, floors GATE).
+        #
+        # OPT-IN default (``fe_gbm_seeder_enable=False``) per the iron rule's "ship behind a
+        # flag if cost-risky on small p": a LightGBM fit + a permuted-y refit per FE step is a
+        # fixed cost that is NOT worth paying on the narrow tabular pools where seed_count
+        # already sees every operand; it pays off on LARGE-p frames with zero-marginal
+        # interactions. ``fe_gbm_seeder_min_features`` self-routes it OFF below a pool width
+        # where seed_count is not the blocker; raise the flag to enable. Needs lightgbm.
+        fe_gbm_seeder_enable: bool = False,
+        fe_gbm_seeder_min_features: int = 30,
+        fe_gbm_seeder_top_k_pairs: int = 12,
+        fe_gbm_seeder_top_k_triples: int = 8,
+        fe_gbm_seeder_n_estimators: int = 150,
+        fe_gbm_seeder_max_depth: int = 4,
+        fe_gbm_seeder_self_gate_margin: float = 0.0,
+        # ORDER-3 Westfall-Young maxT permutation-null floor on the candidate-TRIPLE pool
+        # (backlog idea #7 -- the MANDATORY rail for any 3-way proposer, ships in the same
+        # change as the GBM seeder which opens 3-way). The triplet/quadruplet FE modules lack
+        # an order-MATCHED floor; opening 3-way generation WILL surface chance-max noise triples
+        # (a wide noise matrix's MAX 3-D joint MI is a positive order statistic growing with the
+        # pool -- best-of-pool selection bias at order 3, STRONGER than order 2 because the 3-way
+        # joint cardinality inflates the plug-in MI further). This floor shuffles the target K
+        # times, takes the per-shuffle MAX 3-way joint MI over the proposed-triple pool via the
+        # SAME batched dense-renumber estimator (``batch_triple_mi_prange``, cardinality <= n),
+        # and floors at the q-quantile. Gates every GBM-seeded triple. SELF-GATING + mirrors the
+        # order-2 knobs; ``=0`` disables. See ``_permutation_null.py``.
+        fe_triple_maxt_null_permutations: int = 25,
+        fe_triple_maxt_null_quantile: float = 0.95,
+        fe_triple_maxt_min_triples: int = 4,
         fe_hybrid_orth_degrees: tuple = (2, 3),
         fe_hybrid_orth_basis: str = "auto",
         # Combined cap on appended columns (univariate + pair). Top-K is
@@ -2545,6 +2588,19 @@ class MRMR(BaseEstimator, TransformerMixin):
             # backlog #1 + #4). bench-rejected as default (admits cross-mix noise on
             # weak F2); kept OPT-IN. Pre-MM pickles default to OFF for re-fits.
             "fe_mm_debias_prevalence": False,
+            # SURROGATE-GBM SPLIT-CO-OCCURRENCE SEEDER (#6) + ORDER-3 maxT floor (#7),
+            # 2026-06-09. Seeder is OPT-IN; the order-3 floor mirrors the order-2 knobs.
+            # Pre-seeder pickles default to the same safe values for re-fits.
+            "fe_gbm_seeder_enable": False,
+            "fe_gbm_seeder_min_features": 30,
+            "fe_gbm_seeder_top_k_pairs": 12,
+            "fe_gbm_seeder_top_k_triples": 8,
+            "fe_gbm_seeder_n_estimators": 150,
+            "fe_gbm_seeder_max_depth": 4,
+            "fe_gbm_seeder_self_gate_margin": 0.0,
+            "fe_triple_maxt_null_permutations": 25,
+            "fe_triple_maxt_null_quantile": 0.95,
+            "fe_triple_maxt_min_triples": 4,
         }
         for k, v in defaults.items():
             state.setdefault(k, v)

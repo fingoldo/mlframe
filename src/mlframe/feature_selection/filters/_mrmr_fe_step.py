@@ -28,6 +28,7 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 from ._mrmr_fe_step_helpers import (
     apply_interaction_information_routing,
+    apply_surrogate_gbm_seeder,
     apply_synergy_bootstrap,
     compute_pair_maxt_floor,
     log_fe_summary,
@@ -235,6 +236,32 @@ def _run_fe_step(
         cols=cols,
         target_indices=target_indices,
         categorical_vars=categorical_vars,
+        numeric_vars_to_consider=numeric_vars_to_consider,
+        non_numeric_idx=_non_numeric_idx,
+        verbose=verbose,
+    )
+
+    # SURROGATE-GBM SPLIT-CO-OCCURRENCE SEEDER (2026-06-09, backlog #6) + its mandatory
+    # order-3 maxT rail (#7). Fits one shallow LightGBM on the discretised matrix, walks
+    # root-to-leaf paths, and tallies depth-discounted split-gain co-occurrence to propose
+    # interaction PAIRS + TRIPLES whose operands have ~0 univariate MI -- the zero-marginal
+    # needles (``y = sign(x_a*x_b*x_c)``) the univariate seed_count never reaches. Seeded PAIR
+    # operands are MERGED into ``numeric_vars_to_consider`` so their joint MI is screened by the
+    # existing pair pipeline below (bypassing seed_count); seeded TRIPLES are order-3-floored and
+    # stamped onto ``self._seeded_triplets_`` for the triplet FE stage. SELF-GATES on a permuted-y
+    # OOF comparison (pure noise -> no seeds -> pool not polluted); the order-2/order-3 maxT floors
+    # then gate every emitted candidate. OPT-IN (``fe_gbm_seeder_enable``); self-routes OFF below
+    # ``fe_gbm_seeder_min_features`` where seed_count is not the blocker. No-op otherwise.
+    numeric_vars_to_consider, _gbm_seeded_pairs = apply_surrogate_gbm_seeder(
+        self,
+        num_fs_steps=num_fs_steps,
+        data=data,
+        nbins=nbins,
+        cols=cols,
+        categorical_vars=categorical_vars,
+        target_indices=target_indices,
+        classes_y=classes_y,
+        freqs_y=freqs_y,
         numeric_vars_to_consider=numeric_vars_to_consider,
         non_numeric_idx=_non_numeric_idx,
         verbose=verbose,

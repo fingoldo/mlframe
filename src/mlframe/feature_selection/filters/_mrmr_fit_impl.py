@@ -713,7 +713,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # that the pair stage cannot. O(seed_k^3 * deg^3) candidate count is
     # bounded by seed_k=4 default. Recipes (``orth_triplet_cross``) replay
     # from X only, no y, leakage-free by construction.
-    if bool(getattr(self, "fe_hybrid_orth_triplet_enable", False)):
+    # The GBM seeder (#6) opens 3-way generation via order-3-floored explicit triples
+    # (``_seeded_triplets_names_``); run the triplet stage for those even when the legacy
+    # univariate-seeded triplet path (``fe_hybrid_orth_triplet_enable``) is OFF.
+    _gbm_seeded_triplet_names = list(getattr(self, "_seeded_triplets_names_", []) or [])
+    if bool(getattr(self, "fe_hybrid_orth_triplet_enable", False)) or _gbm_seeded_triplet_names:
         _is_pandas_for_triplet = isinstance(X, pd.DataFrame)
         if not _is_pandas_for_triplet:
             warnings.warn(
@@ -781,6 +785,17 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 )
                 _t_top_k = int(getattr(self, "fe_hybrid_orth_top_k", 5))
                 _X_before_triplet_cols = list(X.columns)
+                # Forward the GBM seeder's order-3-floored explicit triples (raw column-name
+                # legs) so the triplet stage enumerates EXACTLY the zero-marginal 3-way needle
+                # the univariate seed_k never ranks; the per-triplet uplift/abs-MI gates still
+                # filter. Restrict to legs present + numeric in the current X.
+                _explicit_triplets = None
+                if _gbm_seeded_triplet_names:
+                    _xcols = set(X.columns)
+                    _explicit_triplets = [
+                        tr for tr in _gbm_seeded_triplet_names
+                        if all((c in _xcols and pd.api.types.is_numeric_dtype(X[c])) for c in tr)
+                    ] or None
                 X_t, _t_uni_sc, _t_triplet_sc, _t_recipes = (
                     hybrid_orth_mi_triplet_fe_with_recipes(
                         X, _y_for_triplet,
@@ -791,6 +806,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         triplet_max_degree=_t_max_degree,
                         top_triplet_seed_k=_t_seed_k,
                         top_triplet_count=_t_top_count,
+                        explicit_triplets=_explicit_triplets,
                     )
                 )
                 _t_appended = [

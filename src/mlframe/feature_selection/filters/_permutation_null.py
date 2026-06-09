@@ -302,6 +302,81 @@ def pooled_pair_permutation_null_joint_mi_floor(
     return float(np.quantile(maxes, float(quantile)))
 
 
+def pooled_triple_permutation_null_joint_mi_floor(
+    factors_data: np.ndarray,
+    nbins: np.ndarray,
+    triple_a: np.ndarray,
+    triple_b: np.ndarray,
+    triple_c: np.ndarray,
+    classes_y: np.ndarray,
+    freqs_y: np.ndarray,
+    *,
+    n_permutations: int = 25,
+    quantile: float = 0.95,
+    random_seed: int | None = None,
+) -> float:
+    """Return the ORDER-3 maxT permutation-null floor for a candidate-TRIPLE pool.
+
+    The mandatory safety rail (backlog #7) for any 3-way interaction proposer (the
+    surrogate-GBM split-co-occurrence seeder #6, the CMI-lattice #10, ...): the
+    triplet / quadruplet FE modules historically seed by univariate top-N and lack
+    an order-MATCHED permutation floor, so OPENING 3-way generation WILL surface
+    chance-max noise triples -- a wide noise matrix's MAXIMUM 3-D joint MI over the
+    proposed triple pool is a positive order statistic that grows with the pool size,
+    the SAME best-of-pool selection bias the order-1 / order-2 floors reject, now at
+    order 3 (and STRONGER: the 3-way joint cardinality inflates the plug-in joint MI
+    further).
+
+    This is the Westfall-Young maxT step-down null on the order-3 selection statistic:
+    shuffle the discretised target ``classes_y`` K times (destroying every X-y
+    dependency while preserving each column's marginal AND the pool size), and for each
+    shuffle record the MAXIMUM 3-way joint MI over the WHOLE candidate-triple pool via
+    the SAME batched plug-in joint-MI estimator the screen scores a triple with
+    (:func:`batch_triple_mi_prange`, which dense-renumbers the 3-way joint so its
+    cardinality stays <= n). The ``quantile``-th quantile of that K-sample
+    max-distribution is a joint-MI floor a genuine 3-way needle (XOR / triple product
+    -- joint MI FAR above chance) clears and the best-of-pool noise triple does not.
+
+    ``classes_y`` is the per-row ordinal target code; ``freqs_y`` its class-probability
+    vector, INVARIANT under permutation, so it is reused across shuffles. The floor is
+    applied IN ADDITION to any per-triple gates, mirroring the order-2 floor's role.
+
+    Returns ``0.0`` (a no-op floor) when the pool is degenerate (n too small, fewer than
+    two candidate triples, single-class target, or no permutations requested), so callers
+    can unconditionally compare ``triple_mi >= floor``. ``->`` the raw chance ceiling as
+    the pool shrinks (a proposer-pruned small triple pool is LESS punishing than all
+    C(p, 3) -- tighter multiple-comparison correction, the architectural through-line).
+    """
+    n = int(factors_data.shape[0])
+    n_triples = int(triple_a.shape[0])
+    if n < 8 or n_permutations < 1 or n_triples < 2:
+        return 0.0
+    k_y = int(np.asarray(freqs_y).shape[0])
+    if k_y < 2:
+        return 0.0
+
+    # Reuse the exact batched plug-in 3-way joint-MI kernel a triple is scored with
+    # (CPU njit prange -- deterministic, GPU-independent for the floor compute), so the
+    # per-shuffle max is on the same scale as the gated ``triple_mi``.
+    from .info_theory import batch_triple_mi_prange
+
+    ta = np.ascontiguousarray(triple_a, dtype=np.int64)
+    tb = np.ascontiguousarray(triple_b, dtype=np.int64)
+    tc = np.ascontiguousarray(triple_c, dtype=np.int64)
+    nb = np.ascontiguousarray(nbins)
+    fy = np.ascontiguousarray(freqs_y, dtype=np.float64)
+
+    rng = np.random.default_rng(random_seed)
+    y_perm = np.ascontiguousarray(classes_y).copy()
+    maxes = np.empty(int(n_permutations), dtype=np.float64)
+    for k in range(int(n_permutations)):
+        rng.shuffle(y_perm)  # in-place uniform permutation of the target codes
+        mis = batch_triple_mi_prange(factors_data, ta, tb, tc, nb, y_perm, fy)
+        maxes[k] = float(np.max(mis)) if mis.size else 0.0
+
+    return float(np.quantile(maxes, float(quantile)))
+
+
 def pairwise_mm_joint_bias(
     factors_data: np.ndarray,
     pair_a: np.ndarray,

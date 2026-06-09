@@ -51,6 +51,7 @@ from ._batch_kernels import (
     _relevance_from_dense,
     batch_mi_with_noise_gate,
     batch_pair_mi_prange,
+    batch_triple_mi_prange,
 )
 
 __all__ = [
@@ -77,5 +78,6 @@ __all__ = [
     "compute_relevance_score",
     "mi_or_su_from_classes",
     "batch_pair_mi_prange",
+    "batch_triple_mi_prange",
     "batch_mi_with_noise_gate",
 ]
