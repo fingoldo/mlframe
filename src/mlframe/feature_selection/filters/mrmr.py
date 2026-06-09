@@ -1076,6 +1076,54 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_pair_maxt_null_permutations: int = 25,
         fe_pair_maxt_null_quantile: float = 0.95,
         fe_pair_maxt_min_pairs: int = 30,
+        # SIGNED INTERACTION-INFORMATION (co-information) routing on the prospective
+        # pairs (backlog idea #8). The prevalence ratio gate + order-2 maxT floor
+        # admit a pair whose JOINT MI beats the marginal sum, but that fires for BOTH
+        # genuine synergy (a,b JOINTLY carry y: a**2/b, log(c)*sin(d), XOR) AND for an
+        # ADDITIVE cross-mix where a feeds one independent term of y and b a DIFFERENT
+        # one (the user's weak-F2 surrogate ``add(invqubed(a), invsqrt(c))`` mixing an
+        # (a,b)-term operand with a (c,d)-term operand -- a and c do NOT interact in y).
+        # Signed ``II(a;b;y) = I((a,b);y) - I(a;y) - I(b;y)`` separates them: >0 genuine
+        # synergy, ~0 additive (no interaction), <0 redundancy. All three terms are
+        # ALREADY computed by the gate (``cached_MIs`` marginals + ``pair_mi`` joint), so
+        # II is a near-free signed re-read. Each term is Miller-Madow corrected on its own
+        # cardinality before differencing (the JOINT term has nbins_a*nbins_b bins, ~nbins x
+        # the marginal bias, so an un-corrected difference would manufacture a positive II
+        # out of finite-sample inflation). A deterministic/low-noise SUM still yields a
+        # SMALL positive "completion" II, so positive II is FLOORED by a permutation null on
+        # the per-shuffle MAX II (same maxT machinery as the joint-MI floor): a genuine
+        # multiplicative synergy sits far above it, the additive cross-mix below. Pairs that
+        # already passed the gate AND are speculative (synergy-bootstrap-added operand) AND
+        # route ADDITIVE (II <= floor) are DEMOTED out of the per-pair FE search so no
+        # cross-mix surrogate is built; positive-II -> product/cross-basis, negative-II ->
+        # cluster-aggregate-eligible (tags surfaced in ``fe_interaction_routes_``). This
+        # changes RANKING/ROUTING only -- the maxT floor + ratio gate stay as the detection
+        # guards (iron rule (d)). SELF-GATING: floor==0.0 (narrow pool / disabled) => every
+        # pair kept (byte-stable). Set ``fe_ii_routing_null_permutations=0`` to disable.
+        #
+        # bench-rejected (2026-06-09) as a DEFAULT for the user's weak-F2 cross-mix --
+        # DEFAULT-OFF. The mechanism is correct and DOES cleanly separate STRONG synergy from
+        # additive/redundancy (synthetic n=3000: synergy II=+0.55 vs additive II=+0.03 below the
+        # null floor vs redundancy II=-1.10; unit tests pin this). But on the user's WEAK F2
+        # (``0.2*a**2/b + f/5 + log(c*2)*sin(d/3)``, coefficient 0.2, unobserved f, 6-8 supervised
+        # bins) it does NOT reduce the cross-mix: measured per-pair II on the 3 cross-mix seeds
+        # {0,6,8} at n=20000 shows the CROSS-MIX pair (b,c) has the HIGHEST II on EVERY seed
+        # (+0.0132/+0.0135/+0.0139) -- ABOVE the genuine (a,b) a**2/b pair (+0.0114/+0.0120/
+        # +0.0132). The y-shuffle null floor sits at ~0.0007, two orders of magnitude BELOW every
+        # real pair, so all route ``synergy`` and nothing is demoted. Because the cross-mix II
+        # EXCEEDS a genuine-interaction II in this regime, NO II threshold (absolute, relative, or
+        # null-floored) can demote the cross-mix without also demoting the genuine pair: under
+        # coarse binning + weak signal the "completion synergy" of two weakly-informative columns
+        # is information-theoretically as large as the genuine 2-way signal. F2 10-seed result was
+        # NEUTRAL (cross_mix 3/10 -> 3/10, genuine_ab 10/10 -> 10/10, genuine_cd 0/10 -> 0/10).
+        # Kept as an OPT-IN (``fe_ii_routing_enable=True``) -- it is a sound co-information router
+        # for strong-signal / large-n / fine-binned pools (see ``_interaction_information.py`` +
+        # ``test_interaction_information_routing.py``); it just cannot beat the F2 detection floor,
+        # which is the same too-weak-signal floor the backlog flags (log*sin recovers 0/10).
+        fe_ii_routing_enable: bool = False,
+        fe_ii_routing_null_permutations: int = 25,
+        fe_ii_routing_null_quantile: float = 0.95,
+        fe_ii_routing_min_pairs: int = 30,
         fe_hybrid_orth_degrees: tuple = (2, 3),
         fe_hybrid_orth_basis: str = "auto",
         # Combined cap on appended columns (univariate + pair). Top-K is

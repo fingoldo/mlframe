@@ -27,6 +27,7 @@ from joblib import delayed
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 from ._mrmr_fe_step_helpers import (
+    apply_interaction_information_routing,
     apply_synergy_bootstrap,
     compute_pair_maxt_floor,
     log_fe_summary,
@@ -488,6 +489,43 @@ def _run_fe_step(
                     prospective_pairs[(raw_vars_pair, pair_mi)] = vars_usage_counter[raw_vars_pair[0]] + vars_usage_counter[raw_vars_pair[1]]
                     for var in raw_vars_pair:
                         vars_usage_counter[var] += 1
+
+    # SIGNED INTERACTION-INFORMATION ROUTING (2026-06-09, backlog idea #8). Among the
+    # pairs that PASSED the ratio gate + order-2 maxT floor above, separate genuine
+    # synergy (II > null floor) from the ADDITIVE cross-mix (II <= floor: a feeds one
+    # independent term of y, b a DIFFERENT one -- the weak-F2 ``add(invqubed(a),
+    # invsqrt(c))`` surrogate that mixes an (a,b)-term operand with a (c,d)-term operand)
+    # and from REDUNDANCY (II < 0). ``II(a;b;y) = I((a,b);y) - I(a;y) - I(b;y)`` is the
+    # signed difference of terms the gate ALREADY computed (cached marginals + pair_mi),
+    # Miller-Madow corrected per term so the joint's nbins_a*nbins_b-bin finite-sample
+    # bias does not masquerade as synergy. Positive II is floored by a permutation null on
+    # the per-shuffle MAX II (the additive-completion + finite-sample chance ceiling).
+    # DEMOTE additive speculative (synergy-added) cross-mix pairs out of the FE search so
+    # no cross-mix surrogate is built; this is a ROUTING change, the maxT floor + ratio
+    # gate stay as the detection guards. Runs BEFORE the synergy budget cap so demoted
+    # pairs do not consume budget. SELF-GATING => byte-stable on narrow pools / when
+    # disabled. See ``_interaction_information.py``.
+    #
+    # bench-rejected (2026-06-09) as a DEFAULT (now ``fe_ii_routing_enable=False``): on the
+    # user's WEAK F2 the cross-mix pair (b,c) has HIGHER interaction information than the
+    # genuine (a,b) a**2/b pair on every cross-mix seed (II +0.0132/+0.0135/+0.0139 vs
+    # +0.0114/+0.0120/+0.0132 at n=20000, seeds 0/6/8), and the y-shuffle null floor sits at
+    # ~0.0007 -- so no II threshold demotes the cross-mix without also dropping the genuine
+    # pair. F2 10-seed result NEUTRAL (cross_mix 3/10 -> 3/10). The router is correct on
+    # STRONG synergy (synthetic synergy II +0.55 vs additive +0.03 below floor) and stays an
+    # opt-in; see the default-off rationale in ``mrmr.py`` (fe_ii_routing_enable). The call
+    # below is a structural no-op while disabled (returns the un-routed pairs unchanged).
+    prospective_pairs = apply_interaction_information_routing(
+        self,
+        prospective_pairs=prospective_pairs,
+        cached_MIs=cached_MIs,
+        nbins=nbins,
+        freqs_y=freqs_y,
+        classes_y=classes_y,
+        data=data,
+        synergy_added_idx=_synergy_added_idx,
+        verbose=verbose,
+    )
 
     # SYNERGY-PAIR BUDGET (2026-06-02): cap the synergy pairs (>=1 operand is a
     # bootstrap-added unselected column) at ``fe_synergy_max_pairs`` top-joint-MI

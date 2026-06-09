@@ -216,6 +216,88 @@ def run_cluster_aggregate_emission(
     return data, cols, nbins, X, selected_vars, n_recommended_features
 
 
+def apply_interaction_information_routing(
+    self,
+    *,
+    prospective_pairs,
+    cached_MIs,
+    nbins,
+    freqs_y,
+    classes_y,
+    data,
+    synergy_added_idx,
+    verbose,
+):
+    """Signed interaction-information routing over the prospective pairs (backlog idea #8).
+
+    Computes the order-2 permutation-null floor on the MAX positive interaction information over the SAME
+    prospective-pair pool, then tags every pair by signed MM-corrected ``II(a;b;y) = I((a,b);y) - I(a;y) - I(b;y)``
+    and DEMOTES the additive cross-mix (``II <= floor``) speculative pairs out of the FE search so no spurious
+    cross-mix surrogate is built. Positive II -> synergy (product/cross-basis), negative II -> redundant
+    (cluster-aggregate). Changes routing/ranking only; the order-2 maxT floor + ratio gate remain the detection
+    guards. SELF-GATING: below ``fe_ii_routing_min_pairs`` candidate pairs (or floor==0.0 / disabled) every pair
+    is kept (byte-stable). Stamps ``self.fe_interaction_routes_`` / ``self.fe_interaction_ii_`` for provenance.
+
+    Returns the (possibly trimmed) ``prospective_pairs`` dict.
+    """
+    if not bool(getattr(self, "fe_ii_routing_enable", True)) or not prospective_pairs:
+        return prospective_pairs
+    _perms = int(getattr(self, "fe_ii_routing_null_permutations", 25) or 0)
+    _min_pairs = int(getattr(self, "fe_ii_routing_min_pairs", 30))
+    if _perms <= 0 or len(prospective_pairs) < _min_pairs:
+        return prospective_pairs
+    try:
+        from ._interaction_information import pooled_pair_ii_null_floor, route_prospective_pairs
+
+        _keys = list(prospective_pairs.keys())
+        _pa = np.fromiter((k[0][0] for k in _keys), dtype=np.int64, count=len(_keys))
+        _pb = np.fromiter((k[0][1] for k in _keys), dtype=np.int64, count=len(_keys))
+        _n = int(data.shape[0]) if hasattr(data, "shape") else 0
+        _nbins_y = int(np.asarray(freqs_y).shape[0])
+        _ii_floor = pooled_pair_ii_null_floor(
+            factors_data=data,
+            nbins=nbins,
+            pair_a=_pa,
+            pair_b=_pb,
+            marginal_mi_a=np.zeros(len(_keys)),
+            marginal_mi_b=np.zeros(len(_keys)),
+            classes_y=classes_y,
+            freqs_y=freqs_y,
+            n_permutations=_perms,
+            quantile=float(getattr(self, "fe_ii_routing_null_quantile", 0.95)),
+            miller_madow=True,
+            random_seed=getattr(self, "random_seed", None),
+        )
+        kept, routes, ii_values = route_prospective_pairs(
+            prospective_pairs,
+            cached_MIs=cached_MIs,
+            nbins=nbins,
+            nbins_y=_nbins_y,
+            n=_n,
+            ii_floor=_ii_floor,
+            synergy_added_idx=synergy_added_idx,
+            miller_madow=True,
+            verbose=verbose,
+        )
+        # Provenance: routes/II keyed by the raw (var_a, var_b) tuple, plus the null floor used.
+        self.fe_interaction_routes_ = routes
+        self.fe_interaction_ii_ = ii_values
+        self.fe_interaction_ii_floor_ = float(_ii_floor)
+        if _ii_floor > 0.0 and verbose >= 1:
+            logger.info(
+                "MRMR FE: interaction-information null floor=%.5f over %d prospective pairs (q=%.2f, K=%d); "
+                "routed synergy/additive/redundant, demoted additive speculative cross-mix pairs.",
+                _ii_floor, len(_keys), float(getattr(self, "fe_ii_routing_null_quantile", 0.95)), _perms,
+            )
+        return kept
+    except Exception:
+        logger.warning(
+            "MRMR FE: interaction-information routing failed; continuing with the un-routed prospective pairs.",
+            exc_info=True,
+        )
+        return prospective_pairs
+
+
 def log_fe_summary(
     *,
     prospective_pairs,
