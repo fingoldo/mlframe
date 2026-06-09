@@ -484,6 +484,14 @@ class TestDefaultDisabledByteIdentical:
         assert len(list(getattr(m, "conditional_residual_features_", []) or [])) >= 1
 
     def test_mrmr_rankgauss_enabled_adds_columns(self):
+        # As with the rare-category sibling above, the default-on general-FE
+        # competitors (univariate basis/Fourier + the pair-FE step) independently
+        # consume the rankgauss column into a composite (e.g.
+        # ``mul(exp(z2),exp(rankgauss__x1))``), so the post-selection
+        # ``rankgauss_features_`` roster reconciles empty -- a redundant sibling
+        # winning, NOT a mechanism failure (the rankgauss col still reaches the
+        # output). Isolate the family under test by disabling those competitors so
+        # the roster reflects the rankgauss mechanism's own output.
         from mlframe.feature_selection.filters.mrmr import MRMR
         X, y = _build_heavytail_linear(42, n=4000)
         m = MRMR(
@@ -491,6 +499,9 @@ class TestDefaultDisabledByteIdentical:
             fe_rankgauss_enable=True,
             fe_rankgauss_cols=("x1",),
             fe_rankgauss_top_k=4,
+            fe_max_steps=0,
+            fe_univariate_basis_enable=False,
+            fe_univariate_fourier_enable=False,
         )
         m.fit(X, pd.Series(y, name="y"))
         assert len(list(getattr(m, "rankgauss_features_", []) or [])) >= 1

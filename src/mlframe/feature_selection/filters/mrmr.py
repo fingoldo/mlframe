@@ -1973,6 +1973,24 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_conditional_residual_n_bins: int = 10,
         fe_conditional_residual_top_k: int = 10,
         fe_conditional_residual_max_pair_cols: int = 6,
+        # FAMILY D (backlog #12, 2026-06-09) -- CONDITIONAL DISPERSION / 2nd-moment.
+        # Bin x_j; per bin store conditional STD of x_i (Family B stores the mean);
+        # emit the conditional z-score |z|=|(x_i-mu_hat_bin)/sigma_hat_bin| and the
+        # squared anomaly z^2. Models conditional SCALE (volatility / dispersion
+        # regimes) -- the gap Family B's conditional MEAN leaves. DEFAULT-ON: it is
+        # MI-gateable (|z| is a NON-monotone fold -> genuine MI on heteroscedastic
+        # targets, unlike the MI-invariant hinge/isotonic) and SELF-LIMITING (a
+        # dual-uplift gate admits a column only when its MI beats BOTH raw x_i AND
+        # the |mean-residual| Family-B sibling; on homoscedastic data |z| is a
+        # scaled |residual| -> no uplift -> dropped; on the canonical pair-FE
+        # fixture the noise floor + dual-uplift admit 0, so it does NOT perturb
+        # genuine-feature recovery). Leak-safe replay (kind ``conditional_dispersion``)
+        # stores x_j edges + per-bin (mu_hat, sigma_hat); replay is closed-form.
+        fe_conditional_dispersion_enable: bool = True,
+        fe_conditional_dispersion_cols: tuple = (),
+        fe_conditional_dispersion_n_bins: int = 10,
+        fe_conditional_dispersion_top_k: int = 10,
+        fe_conditional_dispersion_max_pair_cols: int = 6,
         # RankGauss = rank -> Phi^-1(empirical CDF); leak-safe (TRAIN sorted values,
         # replay via searchsorted + extreme-clip). Stays default-OFF on purpose.
         # bench-rejected (2026-06-03) flipping it default-ON / adding a duplicate
@@ -2625,11 +2643,20 @@ class MRMR(BaseEstimator, TransformerMixin):
             "fe_conditional_residual_n_bins": 10,
             "fe_conditional_residual_top_k": 10,
             "fe_conditional_residual_max_pair_cols": 6,
+            # Family D conditional dispersion. Pre-#12 pickles default OFF so the
+            # legacy reload path is byte-identical (the live default is ON for new
+            # fits via __init__); the fitted-attr list defaults empty.
+            "fe_conditional_dispersion_enable": False,
+            "fe_conditional_dispersion_cols": (),
+            "fe_conditional_dispersion_n_bins": 10,
+            "fe_conditional_dispersion_top_k": 10,
+            "fe_conditional_dispersion_max_pair_cols": 6,
             "fe_rankgauss_enable": False,
             "fe_rankgauss_cols": (),
             "fe_rankgauss_top_k": 10,
             "rare_category_features_": [],
             "conditional_residual_features_": [],
+            "conditional_dispersion_features_": [],
             "rankgauss_features_": [],
             # ADAPTIVE-FREQUENCY Fourier. Pre-adaptive pickles
             # default to the on/0.15 contract for re-fits; the fitted-attr

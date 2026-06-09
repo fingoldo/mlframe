@@ -85,6 +85,15 @@ __all__ = [
     "apply_rankgauss",
     "build_rankgauss_recipe",
     "hybrid_rankgauss_fe",
+    # Family D (conditional dispersion / 2nd-moment) -- re-exported from
+    # the sibling module ``_extra_fe_families_dispersion`` (kept in its own
+    # file under the module-size limit; the public import path stays here).
+    "engineered_name_conditional_dispersion",
+    "generate_conditional_dispersion_features",
+    "apply_conditional_dispersion",
+    "build_conditional_dispersion_recipe",
+    "_apply_conditional_dispersion_recipe",
+    "hybrid_conditional_dispersion_fe",
 ]
 
 
@@ -845,3 +854,25 @@ def hybrid_rankgauss_fe(
         for name in winners
     ]
     return X_aug, winners, recipes, enc_df
+
+
+# ===========================================================================
+# FAMILY D -- cross-feature conditional DISPERSION / 2nd-moment (NUM x NUM)
+# ===========================================================================
+# Family D extends Family B from conditional LOCATION to conditional SCALE
+# (volatility / dispersion regimes). It lives in the sibling module
+# ``_extra_fe_families_dispersion`` to keep this file under the module-size
+# limit; the public names are re-exported here so the established import path
+# ``from .._extra_fe_families import _apply_conditional_dispersion_recipe`` (used
+# by the recipe dispatcher, mirroring Families A-C) stays stable. The import is
+# at the bottom AFTER the Family-B helpers Family D reuses (``_quantile_edges`` /
+# ``_digitize_with_edges`` / ``_top_mi_num_cols``) are defined, so the
+# parent->sibling->parent cycle resolves cleanly.
+from ._extra_fe_families_dispersion import (  # noqa: E402
+    engineered_name_conditional_dispersion,
+    generate_conditional_dispersion_features,
+    apply_conditional_dispersion,
+    build_conditional_dispersion_recipe,
+    _apply_conditional_dispersion_recipe,
+    hybrid_conditional_dispersion_fe,
+)

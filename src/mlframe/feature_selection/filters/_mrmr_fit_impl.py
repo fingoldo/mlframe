@@ -3478,6 +3478,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     _group_distance_pre_recipes: dict = {}
     _rare_category_pre_recipes: dict = {}
     _conditional_residual_pre_recipes: dict = {}
+    _conditional_dispersion_pre_recipes: dict = {}
     _rankgauss_pre_recipes: dict = {}
     _ratio_pre_recipes: dict = {}
     _log_ratio_pre_recipes: dict = {}
@@ -4241,8 +4242,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 )
 
     # Layer 104 (2026-06-01): THREE new recipe-based FE families.
+    # Family D (backlog #12, 2026-06-09): conditional dispersion / 2nd-moment.
     self.rare_category_features_ = []
     self.conditional_residual_features_ = []
+    self.conditional_dispersion_features_ = []
     self.rankgauss_features_ = []
 
     # FAMILY A -- rare-category indicator + frequency-band encoding. A category
@@ -4361,6 +4364,70 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     "MRMR.fit conditional_residual FE raised %s: %s; continuing "
                     "without conditional-residual columns.",
                     type(_cr_exc).__name__, _cr_exc,
+                )
+
+    # FAMILY D -- NUM x NUM conditional DISPERSION / 2nd-moment (backlog #12).
+    # Bin x_j; per bin store conditional STD of x_i; emit |z| / z^2 (conditional
+    # dispersion anomaly). DEFAULT-ON: MI-gateable (|z| is a non-monotone fold ->
+    # genuine MI on heteroscedastic targets) + SELF-LIMITING (a dual-uplift gate
+    # admits a column only when its MI beats BOTH raw x_i AND the |mean-residual|
+    # Family-B sibling, so homoscedastic / canonical fixtures admit 0 and the
+    # operator does not perturb pair-FE recovery). Routing piggybacks on
+    # hybrid_orth_features_; recipes carry no y -> leak-safe replay.
+    if bool(getattr(self, "fe_conditional_dispersion_enable", False)):
+        if not isinstance(X, pd.DataFrame):
+            warnings.warn(
+                "MRMR: Family D conditional_dispersion FE enabled but X is not a "
+                "pandas DataFrame; the features are skipped. Convert via "
+                "X.to_pandas() before fit() to apply them.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from ._extra_fe_families import hybrid_conditional_dispersion_fe
+
+                _y_for_cd = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                _cd_cols = tuple(
+                    getattr(self, "fe_conditional_dispersion_cols", ()) or ()
+                )
+                _cd_cols = [c for c in _cd_cols if c in X.columns] or None
+                _X_before_cd_cols = list(X.columns)
+                X_cd, _cd_appended, _cd_recipes, _ = hybrid_conditional_dispersion_fe(
+                    X, _y_for_cd,
+                    num_cols=_cd_cols,
+                    n_bins=int(getattr(self, "fe_conditional_dispersion_n_bins", 10)),
+                    top_k=int(getattr(self, "fe_conditional_dispersion_top_k", 10)),
+                    max_pair_cols=int(
+                        getattr(self, "fe_conditional_dispersion_max_pair_cols", 6)
+                    ),
+                    mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
+                    mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
+                )
+                _cd_appended = [
+                    c for c in _cd_appended if c not in _X_before_cd_cols
+                ]
+                if _cd_appended:
+                    X = X_cd
+                    self.conditional_dispersion_features_ = list(_cd_appended)
+                    self.hybrid_orth_features_ = (
+                        list(self.hybrid_orth_features_ or []) + list(_cd_appended)
+                    )
+                    for _r in _cd_recipes:
+                        if _r.name in _cd_appended:
+                            _conditional_dispersion_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit conditional_dispersion: appended %d "
+                            "engineered column(s): %s",
+                            len(_cd_appended), _cd_appended[:8],
+                        )
+            except Exception as _cd_exc:
+                logger.warning(
+                    "MRMR.fit conditional_dispersion FE raised %s: %s; continuing "
+                    "without conditional-dispersion columns.",
+                    type(_cd_exc).__name__, _cd_exc,
                 )
 
     # FAMILY C -- RankGauss (rank-Gaussianisation). NOT MI-gated: monotone ->
@@ -4801,7 +4868,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _cat_pair_pre_recipes, _cat_triple_pre_recipes,
                 _numeric_decompose_pre_recipes, _modular_pre_recipes,
                 _group_distance_pre_recipes, _rare_category_pre_recipes,
-                _conditional_residual_pre_recipes, _rankgauss_pre_recipes,
+                _conditional_residual_pre_recipes,
+                _conditional_dispersion_pre_recipes, _rankgauss_pre_recipes,
                 _temporal_agg_pre_recipes,
             )
             while True:
@@ -4977,6 +5045,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             for _c in list(_conditional_residual_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _conditional_residual_pre_recipes.pop(_c, None)
+            for _c in list(_conditional_dispersion_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _conditional_dispersion_pre_recipes.pop(_c, None)
             for _c in list(_rankgauss_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _rankgauss_pre_recipes.pop(_c, None)
@@ -5054,7 +5125,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         "numeric_decompose_features_",
                         "modular_features_", "group_distance_features_",
                         "rare_category_features_",
-                        "conditional_residual_features_", "rankgauss_features_",
+                        "conditional_residual_features_",
+                        "conditional_dispersion_features_", "rankgauss_features_",
                         "temporal_agg_features_",
                     ):
                         setattr(self, _attr, [
@@ -5087,6 +5159,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _modular_pre_recipes, _group_distance_pre_recipes,
                         _rare_category_pre_recipes,
                         _conditional_residual_pre_recipes,
+                        _conditional_dispersion_pre_recipes,
                         _rankgauss_pre_recipes,
                         _temporal_agg_pre_recipes,
                     ):
@@ -5378,6 +5451,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         engineered_recipes.update(_rare_category_pre_recipes)
     if _conditional_residual_pre_recipes:
         engineered_recipes.update(_conditional_residual_pre_recipes)
+    if _conditional_dispersion_pre_recipes:
+        engineered_recipes.update(_conditional_dispersion_pre_recipes)
     if _rankgauss_pre_recipes:
         engineered_recipes.update(_rankgauss_pre_recipes)
     # Layer 92: same routing for temporal leak-safe aggregation recipes.
@@ -6700,7 +6775,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         "composite_group_agg_features_", "grouped_quantile_features_",
         "cat_pair_features_", "cat_triple_features_", "numeric_decompose_features_",
         "modular_features_", "group_distance_features_", "rare_category_features_",
-        "conditional_residual_features_", "rankgauss_features_", "temporal_agg_features_",
+        "conditional_residual_features_", "conditional_dispersion_features_",
+        "rankgauss_features_", "temporal_agg_features_",
     ):
         _roster = getattr(self, _roster_attr, None)
         if _roster:

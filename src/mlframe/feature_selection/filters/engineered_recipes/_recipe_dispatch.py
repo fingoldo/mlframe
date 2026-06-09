@@ -213,6 +213,14 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         # edges and subtracts the stored per-bin mean of x_i; reads only X.
         from .._extra_fe_families import _apply_conditional_residual_recipe
         return _apply_conditional_residual_recipe(recipe, X)
+    if recipe.kind == "conditional_dispersion":
+        # Family D (backlog #12, 2026-06-09): NUM x NUM conditional DISPERSION /
+        # 2nd-moment. Replay digitises x_j with the stored quantile edges, looks
+        # up the per-bin (mu_hat, sigma_hat) of x_i, and computes the conditional
+        # z-score / |z| / z^2 closed-form; reads only X. Extends Family B's
+        # bin_mean payload with bin_std.
+        from .._extra_fe_families import _apply_conditional_dispersion_recipe
+        return _apply_conditional_dispersion_recipe(recipe, X)
     if recipe.kind == "rankgauss":
         # Layer 104 (2026-06-01): rank-Gaussianisation (RankGauss). Replay
         # interpolates each test value's rank against the stored sorted fit
