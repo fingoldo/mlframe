@@ -81,6 +81,15 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
         # apply helper lives with the hinge generator one package level up.
         from .._hinge_basis_fe import _apply_hinge_basis
         return _apply_hinge_basis(recipe, X)
+    if recipe.kind == "orth_wavelet":
+        # Backlog #13 (2026-06-09): Haar wavelet / localized multiresolution basis.
+        # Replay is the closed-form dyadic indicator ``psi_{j,k}(clip((x-lo)/span,
+        # 0,1))`` from the stored ``{j, k, lo, span}`` -- a pure function of the
+        # source column, no y reference (structurally like orth_spline). Lazy
+        # import keeps this dispatcher dependency-light; the apply helper lives
+        # with the wavelet generator one package level up.
+        from .._wavelet_basis_fe import _apply_orth_wavelet
+        return _apply_orth_wavelet(recipe, X)
     if recipe.kind == "mi_greedy_transform":
         from ._missingness_ratio_recipes import _apply_mi_greedy_transform
         return _apply_mi_greedy_transform(recipe, X)

@@ -1991,6 +1991,31 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_conditional_dispersion_n_bins: int = 10,
         fe_conditional_dispersion_top_k: int = 10,
         fe_conditional_dispersion_max_pair_cols: int = 6,
+        # HAAR WAVELET / localized multiresolution basis (backlog #13, 2026-06-09).
+        # A NEW operator for LOCALIZED bump / multiscale piecewise structure the
+        # catalog cannot capture: y jumps only inside a narrow sub-window of x, or
+        # has step/contrast structure at several scales at once. The catalog has
+        # the WRONG form -- Fourier is GLOBAL (Gibbs-rings a bump), spline knots
+        # are FIXED quantiles (a bump between knots is smoothed away), rounding is
+        # global. On x's support emit a SMALL dyadic set of Haar indicators
+        # psi_{j,k} (+1 left half / -1 right half of a dyadic interval, 0 outside),
+        # scales j=0..3. DEFAULT-ON: each leg is held-out-scale-selected (a
+        # noise-aware MAD floor over candidate legs' held-out MIs + a max-legs cap
+        # bound the candidate explosion) and then admitted on its held-out
+        # INCREMENTAL MI over raw x AND a complementarity guard (it must beat a
+        # SMOOTH location-refinement of x), so it is SELF-LIMITING: on a localized
+        # step/bump the leg sharpens y beyond raw x -> admitted; on a SMOOTH (sin /
+        # monotone) column the smooth refinement wins -> 0 legs (Fourier owns that
+        # regime, complementary not redundant); on pure noise the held-out floor
+        # rejects all -> 0 legs. Non-monotone leg -> MI-VISIBLE (unlike the
+        # monotone hinge), so the gate is MI-based (conditioned on raw x). Leak-safe
+        # replay (kind ``orth_wavelet``) stores (lo, span) + dyadic (j, k); replay
+        # is the closed-form indicator, no y. Structurally like orth_spline.
+        fe_wavelet_enable: bool = True,
+        fe_wavelet_cols: tuple = (),
+        fe_wavelet_max_scale: int = 3,
+        fe_wavelet_max_legs: int = 6,
+        fe_wavelet_top_k: int = 8,
         # RankGauss = rank -> Phi^-1(empirical CDF); leak-safe (TRAIN sorted values,
         # replay via searchsorted + extreme-clip). Stays default-OFF on purpose.
         # bench-rejected (2026-06-03) flipping it default-ON / adding a duplicate
@@ -2651,6 +2676,15 @@ class MRMR(BaseEstimator, TransformerMixin):
             "fe_conditional_dispersion_n_bins": 10,
             "fe_conditional_dispersion_top_k": 10,
             "fe_conditional_dispersion_max_pair_cols": 6,
+            # Haar wavelet basis (backlog #13). Pre-#13 pickles default OFF so the
+            # legacy reload path is byte-identical (the live default is ON for new
+            # fits via __init__); the fitted-attr list defaults empty.
+            "fe_wavelet_enable": False,
+            "fe_wavelet_cols": (),
+            "fe_wavelet_max_scale": 3,
+            "fe_wavelet_max_legs": 6,
+            "fe_wavelet_top_k": 8,
+            "wavelet_features_": [],
             "fe_rankgauss_enable": False,
             "fe_rankgauss_cols": (),
             "fe_rankgauss_top_k": 10,

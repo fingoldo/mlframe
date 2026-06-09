@@ -108,6 +108,15 @@ from .._hinge_basis_fe import (  # noqa: F401
     _apply_hinge_basis,
 )
 
+# Haar wavelet / localized multiresolution basis builder + replay helper (backlog
+# #13, 2026-06-09) live in the sibling ``_wavelet_basis_fe`` one package level up;
+# re-exported so external importers resolve the builder from this module (mirrors
+# the hinge re-export above).
+from .._wavelet_basis_fe import (  # noqa: F401
+    build_orth_wavelet_recipe,
+    _apply_orth_wavelet,
+)
+
 # Orthogonal-basis recipe builders + replay helpers live in the sibling
 # ``_orth_basis_recipes`` (apply path dispatched lazily in the dispatcher);
 # re-exported so external importers keep resolving them from this module.

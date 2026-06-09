@@ -26,7 +26,13 @@ __all__ = [
 ]
 
 
-_EXTRA_BASIS_KINDS = ("spline", "fourier")
+# Backlog #13 (2026-06-09): ``"wavelet"`` adds the Haar / localized
+# multiresolution basis alongside the global Fourier + fixed-knot spline. Its
+# legs are held-out-scale-selected in ``_wavelet_basis_fe`` and emitted here so
+# the extra-basis path (``fe_hybrid_orth_enable`` / ``extra_bases``) can route
+# them through the same MI-uplift gate. The standalone default-on stage
+# (``fe_wavelet_enable``) reuses the same generator + recipe builder.
+_EXTRA_BASIS_KINDS = ("spline", "fourier", "wavelet")
 
 
 def _fit_spline_for_col(x: np.ndarray, n_inner_knots: int):
@@ -787,6 +793,42 @@ def generate_extra_basis_features(
                     "%r; skipping fourier for that column.",
                     col, exc,
                 )
+        # Backlog #13 (2026-06-09): Haar wavelet / localized multiresolution
+        # legs. The per-column held-out scale-selection lives in the standalone
+        # ``_wavelet_basis_fe`` module (candidate-count control via the noise-aware
+        # held-out MAD floor + max_legs cap); here we only emit the selected legs
+        # so the extra-basis MI-uplift gate can screen them like spline/Fourier.
+        if "wavelet" in extra_bases and y is not None:
+            try:
+                from .._wavelet_basis_fe import (
+                    _select_wavelet_legs, _dyadic_haar_leg,
+                )
+                _yv = np.asarray(y).ravel()
+                if _yv.size == x.size:
+                    xf = x[np.isfinite(x)]
+                    _w_lo = float(xf.min())
+                    _w_hi = float(xf.max())
+                    _w_span = max(_w_hi - _w_lo, 1e-12)
+                    _w_legs = _select_wavelet_legs(x, _yv, _w_lo, _w_span)
+                    if _w_legs:
+                        _w_z = np.clip((x - _w_lo) / _w_span, 0.0, 1.0)
+                        for (_wj, _wk) in _w_legs:
+                            _w_leg = _dyadic_haar_leg(_w_z, _wj, _wk)
+                            if float(np.std(_w_leg)) <= 1e-12:
+                                continue
+                            name = f"{col}__haar_j{_wj}k{_wk}"
+                            out_cols[name] = _w_leg
+                            meta[name] = {
+                                "basis": "wavelet", "src": col,
+                                "j": int(_wj), "k": int(_wk),
+                                "lo": float(_w_lo), "span": float(_w_span),
+                            }
+            except Exception as exc:
+                logger.warning(
+                    "generate_extra_basis_features: wavelet on col=%r raised "
+                    "%r; skipping wavelet for that column.",
+                    col, exc,
+                )
     return pd.DataFrame(out_cols, index=X.index), meta
 
 
@@ -803,6 +845,14 @@ def _build_recipe_from_meta(name: str, meta_entry: dict):
             knots=np.asarray(meta_entry["knots"], dtype=np.float64),
             idx=int(meta_entry["idx"]),
             lo=float(meta_entry["lo"]), hi=float(meta_entry["hi"]),
+        )
+    if basis == "wavelet":
+        # Backlog #13 (2026-06-09): Haar wavelet leg recipe (orth_wavelet).
+        from .._wavelet_basis_fe import build_orth_wavelet_recipe
+        return build_orth_wavelet_recipe(
+            name=name, src_name=str(meta_entry["src"]),
+            j=int(meta_entry["j"]), k=int(meta_entry["k"]),
+            lo=float(meta_entry["lo"]), span=float(meta_entry["span"]),
         )
     if basis == "fourier":
         return build_orth_fourier_recipe(

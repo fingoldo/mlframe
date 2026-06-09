@@ -3479,6 +3479,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     _rare_category_pre_recipes: dict = {}
     _conditional_residual_pre_recipes: dict = {}
     _conditional_dispersion_pre_recipes: dict = {}
+    _wavelet_pre_recipes: dict = {}
     _rankgauss_pre_recipes: dict = {}
     _ratio_pre_recipes: dict = {}
     _log_ratio_pre_recipes: dict = {}
@@ -4246,6 +4247,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     self.rare_category_features_ = []
     self.conditional_residual_features_ = []
     self.conditional_dispersion_features_ = []
+    self.wavelet_features_ = []
     self.rankgauss_features_ = []
 
     # FAMILY A -- rare-category indicator + frequency-band encoding. A category
@@ -4428,6 +4430,70 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     "MRMR.fit conditional_dispersion FE raised %s: %s; continuing "
                     "without conditional-dispersion columns.",
                     type(_cd_exc).__name__, _cd_exc,
+                )
+
+    # HAAR WAVELET / localized multiresolution basis (backlog #13, 2026-06-09).
+    # A NEW operator for LOCALIZED bump / multiscale piecewise structure: y jumps
+    # only inside a narrow sub-window of x (Fourier Gibbs-rings it, spline's fixed
+    # quantile knots smooth it away). Emits a small held-out-scale-selected dyadic
+    # set of Haar indicators psi_{j,k} (+1 left / -1 right half of a dyadic
+    # interval). DEFAULT-ON + SELF-LIMITING: the noise-aware held-out MAD floor +
+    # max-legs cap bound the candidate explosion, and each leg is admitted on its
+    # held-out INCREMENTAL MI over raw x AND a complementarity guard (must beat a
+    # SMOOTH location-refinement of x) -- so a localized step/bump admits legs, a
+    # SMOOTH (sin / monotone) column admits 0 (Fourier owns it, complementary),
+    # pure noise admits 0. The leg is NON-monotone -> MI-VISIBLE, so it routes
+    # through the MI-based gate (no deferred-materialise / re-add dance the
+    # MI-invariant hinge needs). Recipes (``orth_wavelet``) store (lo, span) +
+    # dyadic (j, k); replay is the closed-form indicator -- no y, leak-safe.
+    # Routing piggybacks on hybrid_orth_features_ (like Family D dispersion).
+    if bool(getattr(self, "fe_wavelet_enable", False)):
+        if not isinstance(X, pd.DataFrame):
+            warnings.warn(
+                "MRMR: Haar wavelet FE enabled but X is not a pandas DataFrame; "
+                "the features are skipped. Convert via X.to_pandas() before fit() "
+                "to apply them.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from ._wavelet_basis_fe import hybrid_wavelet_fe_with_recipes
+
+                _y_for_wv = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                _wv_cols = tuple(getattr(self, "fe_wavelet_cols", ()) or ())
+                _wv_cols = [c for c in _wv_cols if c in X.columns] or None
+                _X_before_wv_cols = list(X.columns)
+                X_wv, _wv_appended, _wv_recipes, _ = hybrid_wavelet_fe_with_recipes(
+                    X, _y_for_wv,
+                    cols=_wv_cols,
+                    max_scale=int(getattr(self, "fe_wavelet_max_scale", 3)),
+                    max_legs=int(getattr(self, "fe_wavelet_max_legs", 6)),
+                    top_k=int(getattr(self, "fe_wavelet_top_k", 8)),
+                )
+                _wv_appended = [
+                    c for c in _wv_appended if c not in _X_before_wv_cols
+                ]
+                if _wv_appended:
+                    X = X_wv
+                    self.wavelet_features_ = list(_wv_appended)
+                    self.hybrid_orth_features_ = (
+                        list(self.hybrid_orth_features_ or []) + list(_wv_appended)
+                    )
+                    for _r in _wv_recipes:
+                        if _r.name in _wv_appended:
+                            _wavelet_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit wavelet: appended %d engineered column(s): %s",
+                            len(_wv_appended), _wv_appended[:8],
+                        )
+            except Exception as _wv_exc:
+                logger.warning(
+                    "MRMR.fit Haar wavelet FE raised %s: %s; continuing without "
+                    "wavelet columns.",
+                    type(_wv_exc).__name__, _wv_exc,
                 )
 
     # FAMILY C -- RankGauss (rank-Gaussianisation). NOT MI-gated: monotone ->
@@ -4869,7 +4935,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 _numeric_decompose_pre_recipes, _modular_pre_recipes,
                 _group_distance_pre_recipes, _rare_category_pre_recipes,
                 _conditional_residual_pre_recipes,
-                _conditional_dispersion_pre_recipes, _rankgauss_pre_recipes,
+                _conditional_dispersion_pre_recipes, _wavelet_pre_recipes,
+                _rankgauss_pre_recipes,
                 _temporal_agg_pre_recipes,
             )
             while True:
@@ -5048,6 +5115,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             for _c in list(_conditional_dispersion_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _conditional_dispersion_pre_recipes.pop(_c, None)
+            for _c in list(_wavelet_pre_recipes.keys()):
+                if _c in _eng_drop:
+                    _wavelet_pre_recipes.pop(_c, None)
             for _c in list(_rankgauss_pre_recipes.keys()):
                 if _c in _eng_drop:
                     _rankgauss_pre_recipes.pop(_c, None)
@@ -5126,7 +5196,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         "modular_features_", "group_distance_features_",
                         "rare_category_features_",
                         "conditional_residual_features_",
-                        "conditional_dispersion_features_", "rankgauss_features_",
+                        "conditional_dispersion_features_", "wavelet_features_",
+                        "rankgauss_features_",
                         "temporal_agg_features_",
                     ):
                         setattr(self, _attr, [
@@ -5160,6 +5231,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         _rare_category_pre_recipes,
                         _conditional_residual_pre_recipes,
                         _conditional_dispersion_pre_recipes,
+                        _wavelet_pre_recipes,
                         _rankgauss_pre_recipes,
                         _temporal_agg_pre_recipes,
                     ):
@@ -5453,6 +5525,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         engineered_recipes.update(_conditional_residual_pre_recipes)
     if _conditional_dispersion_pre_recipes:
         engineered_recipes.update(_conditional_dispersion_pre_recipes)
+    if _wavelet_pre_recipes:
+        engineered_recipes.update(_wavelet_pre_recipes)
     if _rankgauss_pre_recipes:
         engineered_recipes.update(_rankgauss_pre_recipes)
     # Layer 92: same routing for temporal leak-safe aggregation recipes.
@@ -6776,6 +6850,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         "cat_pair_features_", "cat_triple_features_", "numeric_decompose_features_",
         "modular_features_", "group_distance_features_", "rare_category_features_",
         "conditional_residual_features_", "conditional_dispersion_features_",
+        "wavelet_features_",
         "rankgauss_features_", "temporal_agg_features_",
     ):
         _roster = getattr(self, _roster_attr, None)
