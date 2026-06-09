@@ -655,6 +655,23 @@ def hybrid_conditional_residual_fe(
 # MI(rankgauss(x); y) == MI(x; y) up to binning noise (data-processing
 # inequality). NOT MI-gated -- the value is DOWNSTREAM (linear / NN), pinned by
 # a linear-model lift test, never an MI-gain test.
+#
+# bench-rejected (2026-06-10): an ISOTONIC (monotone-constrained, free-shape)
+# Family-D sibling to RankGauss was proposed (backlog #14) and benchmarked. The
+# decisive held-out Ridge R^2 subsumption test (y=sigmoid(3x)+noise, the monotone
+# link, 24 seeds, feature set [x, T(x)]) shows isotonic LOSES to the SHIPPED
+# 5-inner-knot (8-basis) quantile cubic B-spline in ALL 6 (n,noise) cells
+# [n in {500,1500,4000} x noise in {0.15,0.35}], by -0.0014 .. -0.0110 R^2 (0/6
+# isotonic wins). The "monotone prior cuts small-n variance" claim is FALSIFIED
+# vs the production spline -- the spline wins by the LARGEST margin at the
+# smallest-n/highest-noise cell. Isotonic only beats a 16-knot over-parameterised
+# spline that mlframe does NOT ship (and explicitly chose against -- see the
+# supervised-knots bench-reject in _orth_extra_basis_fe._fit_spline_for_col). The
+# cubic spline's own regularisation already subsumes the monotone prior, exactly
+# as it subsumes RankGauss. Complementarity control passes (isotonic loses on
+# non-monotone y=x^2); noise control passes (admits 0). So NO Family-D isotonic
+# kind / fe_isotonic_enable was added. Don't re-attempt as a default-on feature.
+# Numbers: D:/Temp/isotonic_results.md.
 
 
 def engineered_name_rankgauss(col: str) -> str:
