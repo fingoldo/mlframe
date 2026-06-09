@@ -32,12 +32,25 @@ report. The pytest assertions pin the qualitative finding (so a future change th
 fixes the instability, or regresses it, is caught) without demanding a specific
 unstable seed outcome. Seeded + deterministic; n<=30000.
 
-THREE DIRECT LEVERS EXHAUSTED -- the F2 cross-mix is a CONFIRMED FUNDAMENTAL
+FOUR DIRECT LEVERS EXHAUSTED -- the F2 cross-mix is a CONFIRMED FUNDAMENTAL
 weak-signal DETECTABILITY limit, not a scorer/binning/estimator bug:
 
   * #1 MM-debias (Miller-Madow on the prevalence ratio): bench-rejected -- the
     over-correction makes the gate too permissive and TRIPLES cross-mix admission
     (CHANGELOG 2026-06-09).
+  * #5 permutation-null-calibrated prevalence bar (replace the hardcoded 0.90 ratio
+    gate with the q95 of the per-pool null-ratio best_1d_engineered_MI/joint_pair_MI
+    over K y-shuffles): bench-rejected (2026-06-09). The null ceiling calibrates to
+    CLEAN-noise pairs (~0.167), but every weak-F2 pair -- genuine_ab ~0.81, genuine_cd
+    ~0.73, AND all four cross-mix 0.56-0.72 (5 seeds, n=20000) -- sits FAR above it, so
+    the null bar ADMITS every cross-mix on every seed (the #1 failure mode). Same root
+    cause: the cross-mix smuggles the dominant MONOTONE predictor c, so its 1-D summary
+    recovers most of its (cross) joint -- a high ratio no MI threshold separates from
+    genuine synergy. In ISOLATION the bar is sound (it unblocks He2(a)*b small-n synergy
+    the hardcode kills, admits only the 5% chance rate of pure noise), but the existing
+    marginal-uplift/prewarp FALLBACK already recovers the genuine F2 pairs end-to-end, so
+    it adds 0 recovery while weakening cross-mix rejection. Numbers in
+    D:/Temp/null_prev_results.md + the gate-site note in _feature_engineering_pairs/_pairs_core.py.
   * #8 II-routing (signed interaction information): bench-rejected -- the cross-mix
     pair carries HIGHER interaction information than the genuine pair on every
     cross-seed, so no II threshold demotes it without dropping the genuine pair
@@ -56,7 +69,7 @@ weak-signal DETECTABILITY limit, not a scorer/binning/estimator bug:
     the generator uses ``sin(d/3)``). A finer estimator measures the SAME ordering.
     Numbers + decomposition in ``D:/Temp/ksg_results.md``.
 
-VERDICT: the F2 resolution thread is CLOSED -- all three direct MI-based levers
+VERDICT: the F2 resolution thread is CLOSED -- all four direct MI-based levers
 fail by construction because the binned/continuous MI of a column that carries the
 dominant monotone predictor ``c`` exceeds that of the genuine corrupted-by-``sin(d)``
 joint. Suppressing the cross-mix would also drop the genuine weak forms (same MI

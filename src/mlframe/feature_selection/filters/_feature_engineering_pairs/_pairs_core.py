@@ -1223,6 +1223,40 @@ def check_prospective_fe_pairs(
         # as ``n -> inf`` (bias terms vanish) => large-n selection byte-untouched. The order-2
         # maxT floor (the outer guard) is MM-debiased CONSISTENTLY upstream (the IRON RULE),
         # so admitting more pairs here does NOT weaken the best-of-pool noise floor.
+        #
+        # bench-attempt-rejected (2026-06-09, FS backlog #5 "permutation-null-calibrated
+        # prevalence bar"). The idea: REPLACE the hardcoded ``fe_min_engineered_mi_prevalence``
+        # (0.90) with a SELF-CALIBRATING per-pool null ratio -- in the SAME K y-shuffles the
+        # order-2 maxT floor runs, ALSO mirror the max-over-transforms search (discretise the
+        # elementary binary bank mul/add/sub/div/max/min over the CONTINUOUS operands ONCE --
+        # permutation-invariant -- then per shuffle take max 1-D engineered MI / joint pair MI),
+        # and gate ``best_mi/pair_mi`` against the q95 of that null-ratio distribution (the chance
+        # ceiling), admitting only ABOVE it. Unlike #1 (a DETERMINISTIC bias subtraction that
+        # uniformly relaxes the bar) the null ratio is calibrated to what NOISE actually produces.
+        # MEASURED (standalone probe, N_BINS=8, K=25, q=0.95):
+        #   * PURE NOISE (n=2000, p=12): null q95 ratio ~0.16; real noise-pair ratios <=0.17 ->
+        #     ~5% admitted = pure (1-q) chance rate. The HARD noise-FP gate PASSES on clean noise.
+        #   * He2(a)*b genuine synergy (n=500/2000/8000): real ratio 0.28/0.275/0.268 >> null
+        #     0.15/0.16/0.17 -> ADMIT, while the hardcoded 0.90 bar REJECTS at every n. In a mixed
+        #     He2-signal+8-noise frame the null bar admits the genuine (a,b) pair and 0-1/28 noise
+        #     pairs (chance rate). So in ISOLATION #5 is a genuine improvement over #1.
+        # BUT bench-REJECTED on the case that matters -- the user's WEAK F2
+        # (``0.2*a**2/b + log(c*2)*sin(d/3)``, the SAME target that rejected #1/#8/#19): the null
+        # ceiling is ~0.167 (calibrated to clean-noise pairs, ratio ~0.13-0.17), but EVERY weak-F2
+        # pair sits FAR above it (5 seeds, n=20000): genuine_ab ~0.81, genuine_cd ~0.73, AND all four
+        # cross-mix pairs 0.56-0.72 (cross(b,d) ~0.717 >= genuine_cd). So the null bar ADMITS every
+        # cross-mix on every seed -- the IRON-RULE failure mode, identical to #1 (cross-mix 3/10 ->
+        # 9/10). ROOT CAUSE is the documented fundamental detectability limit (see
+        # ``test_mrmr_weak_f2_seed_stability.py`` "THREE DIRECT LEVERS EXHAUSTED"): the cross-mix
+        # smuggles the dominant MONOTONE predictor ``c`` across the pair boundary, so its 1-D
+        # engineered summary recovers a large fraction of its (real, cross) joint -- a HIGH ratio
+        # indistinguishable from genuine synergy by ANY MI threshold. The null bar measures the
+        # noise floor, but the weak-F2 problem is NOT noise admission; it is a real-monotone-predictor
+        # cross-mix whose ratio is nowhere near the noise floor. AND the existing marginal-uplift /
+        # prewarp FALLBACK already recovers the genuine pairs end-to-end at n=500/2000/8000, so #5
+        # adds ZERO incremental recovery while WEAKENING cross-mix rejection. #5 is structurally a
+        # 4th MI-threshold lever and fails by construction like #1/#8/#19; do NOT re-attempt an
+        # MI-threshold/ratio fix here. Numbers + verdict in D:/Temp/null_prev_results.md.
         _gate_ratio = (best_mi / pair_mi) if pair_mi > 0.0 else 0.0
         if fe_mm_debias_prevalence and pair_mi > 0.0 and best_config is not None:
             from ._pairs_gates import _occupied_k, mm_debiased_prevalence_ratio

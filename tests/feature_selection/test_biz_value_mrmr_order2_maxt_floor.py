@@ -60,9 +60,13 @@ def _classify(engineered) -> tuple[list, list]:
 
 def _wide_synergy_frame(n=None, n_noise=74, seed=20260603):
     # Smaller n under --fast cuts per-pair MI cost across the wide pool; the synergy signal (sign products / XOR) is
-    # still strong at 1200 rows, and the noise-pool width (n_noise) -- not n -- drives the best-of-pool spurious hits.
+    # still strong, and the noise-pool width (n_noise) -- not n -- drives the best-of-pool spurious hits. n=1600 (not
+    # the prior 1200) is the floor: at 1200 the per-pair synergy gates already filter EVERY noise pair on this seed
+    # (floor-OFF surfaces 0 spurious -> the ``assert len(spur_off) >= 1`` premise of the wide-noise test fails
+    # vacuously); at 1600 the floor-OFF run surfaces 2 spurious + all 3 genuine (still ~8s, well inside the budget),
+    # so the floor's spurious-reduction is observable.
     if n is None:
-        n = 1200 if is_fast_mode() else 2000
+        n = 1600 if is_fast_mode() else 2000
     # 6 genuine operands feeding 3 genuine synergy pairs (XOR sign product /
     # product / bilinear), each with ~zero per-operand marginal MI but strong
     # joint dependence with y; the rest is pure Gaussian noise.
