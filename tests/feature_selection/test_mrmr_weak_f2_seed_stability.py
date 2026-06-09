@@ -31,6 +31,38 @@ The per-seed counts are written to ``D:/Temp/weak_f2_stability.json`` for the
 report. The pytest assertions pin the qualitative finding (so a future change that
 fixes the instability, or regresses it, is caught) without demanding a specific
 unstable seed outcome. Seeded + deterministic; n<=30000.
+
+THREE DIRECT LEVERS EXHAUSTED -- the F2 cross-mix is a CONFIRMED FUNDAMENTAL
+weak-signal DETECTABILITY limit, not a scorer/binning/estimator bug:
+
+  * #1 MM-debias (Miller-Madow on the prevalence ratio): bench-rejected -- the
+    over-correction makes the gate too permissive and TRIPLES cross-mix admission
+    (CHANGELOG 2026-06-09).
+  * #8 II-routing (signed interaction information): bench-rejected -- the cross-mix
+    pair carries HIGHER interaction information than the genuine pair on every
+    cross-seed, so no II threshold demotes it without dropping the genuine pair
+    (CHANGELOG 2026-06-09).
+  * #19 KSG / k-NN CONTINUOUS MI (sklearn ``mutual_info_regression``, raw values,
+    no coarse bins): bench-rejected (2026-06-09). On the user's exact F2, n=20000,
+    10 seeds, CONTINUOUS KSG does NOT separate the cross-mix from the genuine pair
+    -- 0/10 seeds separate under EITHER binned OR KSG, identical ranking. The
+    cross-mix ``sub(invcbrt(b),invsqrt(c))`` scores binned 0.61 / KSG 0.71 vs the
+    genuine ``log(c)*sin(d)`` joint 0.35 / 0.45 and the genuine ``a**2/b`` ratio
+    0.15 / 0.21; KSG WIDENS the cross-mix lead. ROOT CAUSE: ``c`` enters ``y``
+    MONOTONICALLY via ``log(c*2)`` so RAW ``c`` alone has MI 0.62 binned / 0.74 KSG
+    -- the dominant single predictor; the cross-mix smuggles ``c`` across the pair
+    boundary almost cleanly (``invsqrt(c)`` is monotone in ``c``) while the GENUINE
+    engineered form CORRUPTS ``c`` by multiplying in ``sin(d)`` (wrong frequency:
+    the generator uses ``sin(d/3)``). A finer estimator measures the SAME ordering.
+    Numbers + decomposition in ``D:/Temp/ksg_results.md``.
+
+VERDICT: the F2 resolution thread is CLOSED -- all three direct MI-based levers
+fail by construction because the binned/continuous MI of a column that carries the
+dominant monotone predictor ``c`` exceeds that of the genuine corrupted-by-``sin(d)``
+joint. Suppressing the cross-mix would also drop the genuine weak forms (same MI
+scale). Do NOT re-attempt an MI-threshold fix; an out-of-sample / linear-usability
+correction on the FINAL model (not the per-pair MI gate) is the only remaining
+research direction, tracked separately.
 """
 from __future__ import annotations
 
