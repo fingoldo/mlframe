@@ -315,7 +315,6 @@ def _select_wavelet_legs(
     for j in range(int(max_scale) + 1):
         for k in range(2 ** j):
             leg = _dyadic_haar_leg(z, j, k)
-            nz = leg != 0.0
             nz_left = int(np.count_nonzero(leg > 0))
             nz_right = int(np.count_nonzero(leg < 0))
             # Require enough rows in each non-zero half-cell for a trustworthy MI.
