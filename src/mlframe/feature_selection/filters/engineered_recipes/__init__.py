@@ -100,6 +100,14 @@ from .._periodic_fe import build_modular_recipe  # noqa: F401
 # Per-group distribution-distance recipe builder (sibling FE module); apply is dispatched inline.
 from .._group_distance_fe import build_group_distance_recipe  # noqa: F401
 
+# Hinge / piecewise-linear change-point basis recipe builder + replay (sibling
+# FE module, backlog #11). Apply path dispatched lazily in the dispatcher;
+# re-exported so external importers resolve the builder from this module.
+from .._hinge_basis_fe import (  # noqa: F401
+    build_hinge_basis_recipe,
+    _apply_hinge_basis,
+)
+
 # Orthogonal-basis recipe builders + replay helpers live in the sibling
 # ``_orth_basis_recipes`` (apply path dispatched lazily in the dispatcher);
 # re-exported so external importers keep resolving them from this module.

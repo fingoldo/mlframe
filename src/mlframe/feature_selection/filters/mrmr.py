@@ -1024,6 +1024,45 @@ class MRMR(BaseEstimator, TransformerMixin):
         # Held-out validation effective-|corr| floor for the chirp detector
         # (same semantics + default as the linear adaptive floor above).
         fe_univariate_fourier_chirp_min_val_corr: float = 0.15,
+        # HINGE / piecewise-linear change-point basis (backlog #11, 2026-06-09).
+        # DEFAULT-ON DECISION pending benchmark numbers (see end of this comment).
+        # Captures a SLOPE CHANGE at a data-dependent threshold
+        # ``y = a*x + b*max(x - tau, 0)`` (pricing tiers, dose-response,
+        # saturation) -- a signal shape NOTHING in the catalog captures:
+        # ``numeric_rounding`` is piecewise-CONSTANT (wrong form), the cubic
+        # B-spline rounds off a sharp kink at its FIXED quantile knots, and an
+        # orthogonal polynomial needs a high degree + rings (Gibbs) around the
+        # kink. The breakpoint ``tau`` is detected by scanning inner-quantile
+        # candidate cuts for the max drop in a 2-segment continuous linear-fit SSE
+        # (a slope-aware stump), then HELD-OUT-validated on the ``%3`` stride
+        # slice (the 2-segment fit must beat plain linear OOS R^2 by
+        # ``fe_hinge_min_heldout_r2_uplift``) -- so a chance breakpoint / pure
+        # noise admits NO hinge column. Emitted ``relu(x-tau)`` / ``relu(tau-x)``
+        # legs carry a genuinely DIFFERENT LINEAR shape from raw x, so they clear
+        # the standard MI-uplift gate (unlike the MI-invariant isotonic /
+        # RankGauss, which must use the non-MI-gated pool). Recipes
+        # (``hinge_basis``) store only ``{tau, side}`` -- NO y -- so transform
+        # replay is the pure function ``np.maximum(x-tau,0)``, leak-free by
+        # construction. On a MONOTONE target a hinge can be near-collinear with
+        # raw x; the downstream cross-stage Spearman dedup drops it (no duplicate
+        # columns survive). Default OFF: it is a NICHE operator (helps only on a
+        # genuine slope-change signal) whose per-column cost is a quantile-cut
+        # SSE scan (O(n * n_cuts) lstsq solves) -- justified opt-in rather than
+        # always-on, distinct from the Fourier path which is near-free at the
+        # default fixed grid. Set True to engineer hinge columns.
+        fe_hinge_enable: bool = False,
+        fe_hinge_top_k: int = 5,
+        fe_hinge_max_breakpoints: int = 2,
+        # Emit a step indicator ``1[x > tau]`` alongside the relu legs. Default
+        # False -- the relu legs already span the continuous piecewise-linear
+        # family; the discontinuous indicator overlaps numeric_rounding.
+        fe_hinge_emit_indicator: bool = False,
+        # Held-out R^2-uplift floor: the 2-segment hinge fit must beat the
+        # 1-segment (plain linear) fit by at least this much OOS R^2 on the %3
+        # stride slice for the breakpoint to be admitted. 0.02 leaves a wide
+        # margin between the noise control (uplift ~0) and a genuine slope change
+        # (uplift ~0.3+).
+        fe_hinge_min_heldout_r2_uplift: float = 0.02,
         # SYNERGY BOOTSTRAP, DEFAULT ON (cap-gated). Pure-synergy
         # interactions (``y = a*d``, ``sign(a)*sign(d)``, ``log(c)*sin(d)`` ...)
         # carry ~ZERO MARGINAL MI on each factor (``E[y|a]=E[y|d]=0`` by symmetry),

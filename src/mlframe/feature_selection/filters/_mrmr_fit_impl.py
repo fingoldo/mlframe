@@ -707,6 +707,108 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         "continuing without extra-basis columns.",
                         type(_e_exc).__name__, _e_exc,
                     )
+    # 2026-06-09 backlog #11 — HINGE / piecewise-linear change-point basis stage.
+    # Independent opt-in via ``fe_hinge_enable`` (does NOT require
+    # ``fe_hybrid_orth_enable``): captures a SLOPE CHANGE at a data-dependent
+    # threshold ``y = a*x + b*max(x-tau,0)`` (pricing tiers / dose-response /
+    # saturation) that the catalog cannot -- ``numeric_rounding`` is piecewise-
+    # CONSTANT, the cubic B-spline rounds off a sharp kink at its fixed quantile
+    # knots, and orth-poly needs a high degree + rings (Gibbs) around the kink.
+    # The breakpoint ``tau`` is detected by scanning inner-quantile cuts for the
+    # max 2-segment-SSE drop, HELD-OUT-validated on the ``%3`` stride slice (the
+    # 2-segment fit must beat plain linear OOS) so a chance kink / pure noise
+    # admits no hinge. Emitted ``relu(x-tau)`` / ``relu(tau-x)`` legs carry a
+    # genuinely different LINEAR shape from raw x, so they clear the standard
+    # MI-uplift gate (unlike the MI-invariant isotonic / RankGauss). Recipes
+    # (``hinge_basis``) store only ``{tau, side}`` -- no y -- so replay is the
+    # pure function ``np.maximum(x-tau,0)``, leak-free. On a monotone target a
+    # hinge can be near-collinear with raw x -> the downstream cross-stage
+    # Spearman dedup drops it (no duplicate columns survive).
+    if bool(getattr(self, "fe_hinge_enable", False)):
+        _is_pandas_for_hinge = isinstance(X, pd.DataFrame)
+        if not _is_pandas_for_hinge:
+            warnings.warn(
+                "MRMR: fe_hinge_enable=True but X is not a pandas DataFrame; "
+                "hinge change-point FE is skipped. Convert to pandas via "
+                "X.to_pandas() before fit() if you want hinge FE applied.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from ._hinge_basis_fe import hybrid_hinge_fe_with_recipes
+                # The hinge detector + admission are REGRESSION-style (2-segment
+                # SSE breakpoint search + held-out incremental linear-R^2 gate),
+                # so they want the RAW continuous y -- NOT the qcut-to-10-bins
+                # coercion the MI-based FE stages use. Quantile-binning a
+                # monotone slope-change target (y = a*x + b*relu(x-tau)) collapses
+                # the saturating top tier into one bin and DESTROYS the very slope
+                # change the hinge detects (measured: qcut y -> 0 breakpoints
+                # found; raw y -> tau recovered). Raw class codes work for a
+                # discrete classification y too (the linear-fit slope detection is
+                # scale/shift invariant). y carries no leak: the recipe stores only
+                # {tau, side}, never y.
+                _y_for_hinge = (
+                    y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                )
+                _y_for_hinge = np.asarray(_y_for_hinge, dtype=np.float64).ravel()
+                # Seed pool restricted to RAW source columns: a hinge built on a
+                # prior-stage engineered column would create a recipe whose
+                # src_name references an engineered column absent at transform
+                # time (KeyError on replay). Honour factors_names_to_use.
+                _hinge_already_appended = set(
+                    getattr(self, "hybrid_orth_features_", None) or []
+                )
+                if getattr(self, "factors_names_to_use", None):
+                    _hinge_cols = [
+                        c for c in self.factors_names_to_use
+                        if c in X.columns and c not in _hinge_already_appended
+                        and pd.api.types.is_numeric_dtype(X[c])
+                    ]
+                else:
+                    _hinge_cols = [
+                        c for c in X.columns
+                        if c not in _hinge_already_appended
+                        and pd.api.types.is_numeric_dtype(X[c])
+                    ]
+                _hinge_top_k = int(getattr(self, "fe_hinge_top_k", 5))
+                _hinge_max_bp = int(getattr(self, "fe_hinge_max_breakpoints", 2))
+                _hinge_emit_ind = bool(getattr(self, "fe_hinge_emit_indicator", False))
+                _hinge_mvu = float(
+                    getattr(self, "fe_hinge_min_heldout_r2_uplift", 0.02)
+                )
+                _X_before_hinge_cols = list(X.columns)
+                X_h, _h_scores, _h_recipes = hybrid_hinge_fe_with_recipes(
+                    X, _y_for_hinge,
+                    cols=_hinge_cols,
+                    max_breakpoints=_hinge_max_bp,
+                    emit_indicator=_hinge_emit_ind,
+                    min_heldout_r2_uplift=_hinge_mvu,
+                    top_k=_hinge_top_k,
+                )
+                _h_appended = [
+                    c for c in X_h.columns if c not in _X_before_hinge_cols
+                ]
+                if _h_appended:
+                    X = X_h
+                    self.hybrid_orth_features_ = (
+                        list(self.hybrid_orth_features_ or []) + list(_h_appended)
+                    )
+                    _h_kept = set(_h_appended)
+                    for _r in _h_recipes:
+                        if _r.name in _h_kept:
+                            _hybrid_orth_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit hinge change-point FE: appended %d "
+                            "engineered column(s): %s",
+                            len(_h_appended), _h_appended[:8],
+                        )
+            except Exception as _h_exc:
+                logger.warning(
+                    "MRMR.fit hinge change-point FE raised %s: %s; "
+                    "continuing without hinge columns.",
+                    type(_h_exc).__name__, _h_exc,
+                )
     # 2026-05-31 Layer 56 — TRI-PRODUCT cross-basis FE stage.
     # Independent opt-in (does NOT require fe_hybrid_orth_enable): captures
     # genuine 3-way interactions like 3-way XOR and price*quantity*count

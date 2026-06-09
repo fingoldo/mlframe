@@ -73,6 +73,14 @@ def apply_recipe(recipe: EngineeredRecipe, X: Any) -> np.ndarray:
     if recipe.kind == "orth_fourier":
         from ._orth_basis_recipes import _apply_orth_fourier
         return _apply_orth_fourier(recipe, X)
+    if recipe.kind == "hinge_basis":
+        # Backlog #11 (2026-06-09): hinge / piecewise-linear change-point basis.
+        # Replay is closed-form ``max(x-tau,0)`` / ``max(tau-x,0)`` / ``1[x>tau]``
+        # from the stored ``{tau, side}`` -- a pure function of the source column,
+        # no y reference. Lazy import keeps this dispatcher dependency-light; the
+        # apply helper lives with the hinge generator one package level up.
+        from .._hinge_basis_fe import _apply_hinge_basis
+        return _apply_hinge_basis(recipe, X)
     if recipe.kind == "mi_greedy_transform":
         from ._missingness_ratio_recipes import _apply_mi_greedy_transform
         return _apply_mi_greedy_transform(recipe, X)
