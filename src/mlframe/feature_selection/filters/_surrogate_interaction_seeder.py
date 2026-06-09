@@ -187,13 +187,21 @@ def surrogate_gbm_interaction_seeds(
     # md=4 nl=16 ne=150 -> needle triple is the RANK-0 co-occurrence triple (op-recall 1.00);
     # md=5+ OVER-fragments (op-recall drops to 0.33) -- so 4 is the sweet spot, NOT "deeper is
     # better". The 2-way needle + pure-noise self-gate are unaffected by the depth choice.
-    n_estimators: int = 150,
+    # ne=300 (not 150): the hard 3-way is at the detectability boundary for a shallow tree at
+    # n=4000/p=200 -- recovered 2/5 seeds at ne=150 vs 3/5 at ne=300 (nbins=5; D:/Temp tuning
+    # sweep), no downside. Co-occurrence is AGGREGATED over ``self_gate_reps`` boosters: the
+    # true operands co-occur consistently across seeds while noise triples vary, so summing the
+    # per-booster weights stabilises the ranking (reps=5 default; the boosters are already fit
+    # for the self-gate so the aggregation is free). The 2-way needle is robust (5/5 seeds).
+    n_estimators: int = 300,
     max_depth: int = 4,
     num_leaves: int = 16,
     learning_rate: float = 0.1,
     min_data_in_leaf: int = 20,
     depth_discount: float = 0.5,
     self_gate_margin: float = 0.0,
+    self_gate_reps: int = 5,
+    self_gate_min_z: float = 2.0,
     n_threads: int = 4,
     random_seed: int = 0,
 ) -> tuple[list, list, dict]:
@@ -210,65 +218,160 @@ def surrogate_gbm_interaction_seeds(
       * ``info``            -- diagnostics dict (``oof_real``, ``oof_perm``, ``gated``,
         ``n_pairs``, ``n_triples``, plus the raw weight maps for provenance).
 
-    SELF-GATE: returns EMPTY pair/triple lists (``gated=False``) unless the real OOF score
-    beats the permuted-y OOF baseline by > ``self_gate_margin`` -- on pure noise the two
-    tie, so nothing is emitted and the pool is not polluted. Only ``candidate_indices``
-    columns are eligible to be seeded (splits on a non-candidate column are ignored)."""
-    info: dict = {"oof_real": float("nan"), "oof_perm": float("nan"), "gated": False,
-                  "n_pairs": 0, "n_triples": 0}
-    cand_set = set(int(c) for c in candidate_indices)
+    SELF-GATE (a permutation SIGNIFICANCE test): returns EMPTY pair/triple lists
+    (``gated=False``) unless the real OOF-score MEAN over ``self_gate_reps`` splits sits
+    ``self_gate_min_z`` sigma ABOVE the permuted-y OOF null distribution -- on pure noise the
+    two distributions overlap (z ~ 0), so nothing is emitted and the pool is not polluted.
+    The surrogate is trained on the CANDIDATE-ONLY submatrix (the target column is excluded;
+    training on the full screening matrix, which contains the discretised target, leaks a
+    perfect OOF). Only ``candidate_indices`` columns are eligible to be seeded."""
+    info: dict = {"oof_real": float("nan"), "oof_perm": float("nan"), "self_gate_z": float("nan"),
+                  "gated": False, "n_pairs": 0, "n_triples": 0}
+    cand_list = sorted(set(int(c) for c in candidate_indices))
+    cand_set = set(cand_list)
     if len(cand_set) < 2 or disc_X.shape[0] < 30:
         return [], [], info
 
-    booster, oof_real = _fit_surrogate_and_oof(
-        disc_X, y, is_classification=is_classification, n_estimators=n_estimators,
-        max_depth=max_depth, num_leaves=num_leaves, learning_rate=learning_rate,
-        min_data_in_leaf=min_data_in_leaf, n_threads=n_threads, random_seed=random_seed,
-        shuffle_y=False,
-    )
-    if booster is None or not np.isfinite(oof_real):
-        return [], [], info
-    _, oof_perm = _fit_surrogate_and_oof(
-        disc_X, y, is_classification=is_classification, n_estimators=n_estimators,
-        max_depth=max_depth, num_leaves=num_leaves, learning_rate=learning_rate,
-        min_data_in_leaf=min_data_in_leaf, n_threads=n_threads, random_seed=random_seed + 1,
-        shuffle_y=True,
-    )
-    info["oof_real"] = float(oof_real)
-    info["oof_perm"] = float(oof_perm) if np.isfinite(oof_perm) else float("nan")
+    # CRITICAL leak guard: the surrogate must NEVER see the target column. ``disc_X`` is
+    # the FULL screening matrix, which INCLUDES the discretised target column (== ``y``);
+    # training LightGBM on it would let the tree split on the target itself -> a perfect-OOF
+    # leak that auto-passes the self-gate on PURE NOISE. So train on the CANDIDATE-ONLY
+    # submatrix (target excluded by construction, since ``candidate_indices`` never contains
+    # the target index) and map the surrogate's LOCAL feature indices back to the GLOBAL
+    # candidate column indices. This also restricts split co-occurrence to exactly the
+    # operand pool, so the post-hoc cand_set filter is a no-op.
+    sub_X = np.ascontiguousarray(disc_X[:, cand_list])
+    local_to_global = {i: cand_list[i] for i in range(len(cand_list))}
 
-    # SELF-GATE: real surrogate must beat the permuted-y baseline. If the permuted run
-    # failed (nan), require a positive absolute OOF (R^2 > 0 / acc above a degenerate
-    # baseline) so a degenerate permuted run does not auto-pass a noise frame.
-    perm_ref = info["oof_perm"] if np.isfinite(info["oof_perm"]) else (0.0 if not is_classification else None)
-    if perm_ref is None:
-        # classification with failed permuted run: fall back to majority-class rate.
-        vals, cnts = np.unique(np.asarray(y), return_counts=True)
-        perm_ref = float(cnts.max() / cnts.sum())
-    if not (oof_real > perm_ref + float(self_gate_margin)):
-        logger.info(
-            "GBM surrogate seeder SELF-GATE failed: OOF real=%.4f <= permuted/baseline=%.4f (+margin %.3f); "
-            "emitting NO seeds (no genuine joint signal -> pool not polluted).",
-            oof_real, perm_ref, self_gate_margin,
+    # SELF-GATE as a PERMUTATION SIGNIFICANCE TEST, not a single-split point comparison.
+    # A single 70/30 OOF split is a noisy estimate (~+/-0.02 acc at n=4000): on a wide
+    # noise pool a lone favourable split makes ``oof_real`` edge above one permuted draw by
+    # chance, so a point ``oof_real > oof_perm`` self-gate FALSE-POSITIVES on noise. Instead
+    # run ``self_gate_reps`` real OOF splits + ``self_gate_reps`` permuted-y OOF splits and
+    # require the real-mean to sit ``self_gate_min_z`` standard deviations ABOVE the
+    # permuted-null distribution (a Westfall-Young-style empirical z on the surrogate's own
+    # generalisation). On pure noise the two distributions overlap (z ~ 0) -> gate fails ->
+    # no pool pollution; a genuine separable signal sits many sigma above. NOTE: the gate is
+    # the proposer's CHEAP pre-filter; the order-2 / order-3 maxT floors are the OUTER guard
+    # that rejects any chance-max pair/triple the proposer emits (architectural through-line:
+    # proposer GENERATES, floors GATE), so a marginally-separable hard 3-way (whose OOF is
+    # near chance for a shallow tree even though its split co-occurrence still ranks the
+    # operands) is recovered via the floors even if the OOF gate is conservative.
+    reps = max(1, int(self_gate_reps))
+    real_scores = []
+    boosters = []  # keep ALL real-fit surrogates; co-occurrence is AGGREGATED over them.
+    for r in range(reps):
+        bst, s = _fit_surrogate_and_oof(
+            sub_X, y, is_classification=is_classification, n_estimators=n_estimators,
+            max_depth=max_depth, num_leaves=num_leaves, learning_rate=learning_rate,
+            min_data_in_leaf=min_data_in_leaf, n_threads=n_threads, random_seed=random_seed + r,
+            shuffle_y=False,
         )
+        if bst is not None and np.isfinite(s):
+            real_scores.append(float(s))
+            boosters.append(bst)
+    if not boosters or not real_scores:
         return [], [], info
-    info["gated"] = True
+    perm_scores = []
+    for r in range(reps):
+        _, s = _fit_surrogate_and_oof(
+            sub_X, y, is_classification=is_classification, n_estimators=n_estimators,
+            max_depth=max_depth, num_leaves=num_leaves, learning_rate=learning_rate,
+            min_data_in_leaf=min_data_in_leaf, n_threads=n_threads,
+            random_seed=random_seed + 1000 + r, shuffle_y=True,
+        )
+        if np.isfinite(s):
+            perm_scores.append(float(s))
+
+    real_arr = np.asarray(real_scores, dtype=np.float64)
+    oof_real = float(real_arr.mean())
+    info["oof_real"] = oof_real
+    if perm_scores:
+        perm_arr = np.asarray(perm_scores, dtype=np.float64)
+        perm_mean = float(perm_arr.mean())
+        perm_std = float(perm_arr.std())
+        info["oof_perm"] = perm_mean
+    else:
+        # permuted runs all failed: fall back to the majority-class / 0-R^2 baseline + a
+        # nominal spread so the z-gate still applies.
+        if is_classification:
+            _, cnts = np.unique(np.asarray(y), return_counts=True)
+            perm_mean = float(cnts.max() / cnts.sum())
+        else:
+            perm_mean = 0.0
+        perm_std = 0.0
+        info["oof_perm"] = perm_mean
+    info["self_gate_z"] = float((oof_real - perm_mean) / (perm_std + 1e-9))
+    z = info["self_gate_z"]
+
+    # SELF-GATE is asymmetric by INFORMATION CONTENT of the OOF statistic at each order:
+    #   * PAIRS -- a genuine 2-way (product / XOR) lifts the surrogate's held-out OOF FAR
+    #     above the permuted null (z >> 0), so the OOF z-test reliably gates pair emission:
+    #     emit pairs ONLY when ``z >= self_gate_min_z`` (+ a small absolute margin). On pure
+    #     noise z ~ 0 -> no pair pollution.
+    #   * TRIPLES -- a hard 3-way ``sign(a*b*c)`` is barely learnable by a shallow tree, so
+    #     its held-out OOF sits at ~chance (z indistinguishable from noise) EVEN THOUGH its
+    #     split CO-OCCURRENCE still ranks the operands top. An OOF z-test that rejected noise
+    #     would therefore ALSO reject the genuine 3-way. So triples are ALWAYS emitted from
+    #     co-occurrence and the ORDER-3 Westfall-Young maxT FLOOR (#7) is their binding noise
+    #     guard (it rejects the chance-max noise triples while the genuine 3-way clears it) --
+    #     the architectural through-line "proposer GENERATES, the maxT floors GATE".
+    # ``info["gated"]`` reflects the PAIR (OOF-significant) gate.
+    pairs_pass = bool(z >= float(self_gate_min_z) and oof_real > perm_mean + float(self_gate_margin))
+    info["gated"] = pairs_pass
+    if not pairs_pass:
+        logger.info(
+            "GBM surrogate seeder PAIR self-gate failed: OOF real-mean=%.4f vs permuted-null "
+            "%.4f+/-%.4f (z=%.2f < %.2f); emitting NO pair seeds. Triples still emitted for the "
+            "order-3 maxT floor to gate (the OOF statistic is blind to hard 3-way signal).",
+            oof_real, perm_mean, perm_std, z, self_gate_min_z,
+        )
+
+    # AGGREGATE split-gain co-occurrence over ALL ``reps`` real-fit surrogates (different
+    # seeds). A hard 3-way ``sign(a*b*c)`` is at the EDGE of a single shallow tree's reach --
+    # one fit recovers the operand triple only on lucky seeds (seed-sensitive rank) -- but the
+    # TRUE operands co-occur CONSISTENTLY across seeds while chance-max noise triples vary, so
+    # summing the per-booster depth-discounted weights stabilises the ranking and lifts the
+    # genuine needle to the top robustly (the boosters were already fit for the self-gate, so
+    # this is free).
+    pair_w_local: dict = {}
+    triple_w_local: dict = {}
+    feat_w_local: dict = {}
+    for bst in boosters:
+        md = bst.dump_model()
+        for tinfo in md.get("tree_info", []):
+            ts = tinfo.get("tree_structure")
+            if ts is not None:
+                _walk_paths_tally(ts, [], pair_w_local, triple_w_local, feat_w_local, depth_discount)
+
+    # Remap the surrogate's LOCAL feature indices (into ``sub_X``) back to the GLOBAL
+    # candidate column indices. Every surrogate feature is a candidate by construction, so
+    # nothing is dropped; the sorted (a < b) / sorted-triple key order is re-imposed.
+    def _g(i):
+        return local_to_global[int(i)]
 
     pair_w: dict = {}
+    for (la, lb), v in pair_w_local.items():
+        if v <= 0.0:
+            continue
+        ga, gb = _g(la), _g(lb)
+        key = (ga, gb) if ga < gb else (gb, ga)
+        pair_w[key] = pair_w.get(key, 0.0) + v
     triple_w: dict = {}
-    feat_w: dict = {}
-    md = booster.dump_model()
-    for tinfo in md.get("tree_info", []):
-        ts = tinfo.get("tree_structure")
-        if ts is not None:
-            _walk_paths_tally(ts, [], pair_w, triple_w, feat_w, depth_discount)
+    for tr, v in triple_w_local.items():
+        if v <= 0.0:
+            continue
+        key = tuple(sorted(_g(i) for i in tr))
+        triple_w[key] = triple_w.get(key, 0.0) + v
+    feat_w = {_g(i): v for i, v in feat_w_local.items()}
 
-    # Restrict to candidate operands on BOTH legs/all-three legs.
-    pair_w = {k: v for k, v in pair_w.items() if k[0] in cand_set and k[1] in cand_set and v > 0.0}
-    triple_w = {k: v for k, v in triple_w.items()
-                if all(i in cand_set for i in k) and v > 0.0}
-
-    seeded_pairs = [k for k, _ in sorted(pair_w.items(), key=lambda kv: kv[1], reverse=True)[:int(top_k_pairs)]]
+    # PAIRS: emitted only when the OOF pair self-gate passed (2-way signal IS OOF-detectable).
+    seeded_pairs = (
+        [k for k, _ in sorted(pair_w.items(), key=lambda kv: kv[1], reverse=True)[:int(top_k_pairs)]]
+        if pairs_pass else []
+    )
+    # TRIPLES: ALWAYS emitted (the order-3 maxT floor is their binding gate -- the OOF
+    # statistic is blind to a hard 3-way, so gating triple emission on it would drop the needle).
     seeded_triplets = [k for k, _ in sorted(triple_w.items(), key=lambda kv: kv[1], reverse=True)[:int(top_k_triples)]]
     info["n_pairs"] = len(seeded_pairs)
     info["n_triples"] = len(seeded_triplets)
@@ -276,9 +379,10 @@ def surrogate_gbm_interaction_seeds(
     info["triple_weights"] = triple_w
     info["feature_weights"] = feat_w
     logger.info(
-        "GBM surrogate seeder: OOF real=%.4f > permuted=%.4f -> emitting %d pair + %d triple "
-        "co-occurrence seed(s) (top by depth-discounted split-gain), bypassing the univariate "
-        "seed_count gate.",
-        oof_real, perm_ref, len(seeded_pairs), len(seeded_triplets),
+        "GBM surrogate seeder: OOF real-mean=%.4f vs permuted-null %.4f (z=%.2f, pair-gate=%s) -> "
+        "emitting %d pair + %d triple co-occurrence seed(s) (top by depth-discounted split-gain); "
+        "triples are gated by the order-3 maxT floor, pairs by the order-2 floor.",
+        info["oof_real"], info["oof_perm"], info["self_gate_z"], pairs_pass,
+        len(seeded_pairs), len(seeded_triplets),
     )
     return seeded_pairs, seeded_triplets, info

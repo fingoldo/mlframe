@@ -179,14 +179,20 @@ def apply_surrogate_gbm_seeder(
             n_estimators=int(getattr(self, "fe_gbm_seeder_n_estimators", 150)),
             max_depth=int(getattr(self, "fe_gbm_seeder_max_depth", 4)),
             self_gate_margin=float(getattr(self, "fe_gbm_seeder_self_gate_margin", 0.0)),
+            self_gate_reps=int(getattr(self, "fe_gbm_seeder_self_gate_reps", 3)),
+            self_gate_min_z=float(getattr(self, "fe_gbm_seeder_self_gate_min_z", 2.0)),
             random_seed=int(getattr(self, "random_seed", 0) or 0),
         )
         self.fe_gbm_seeder_info_ = {k: v for k, v in info.items()
-                                    if k in ("oof_real", "oof_perm", "gated", "n_pairs", "n_triples")}
-        if not info.get("gated", False):
+                                    if k in ("oof_real", "oof_perm", "self_gate_z", "gated", "n_pairs", "n_triples")}
+        # The seeder fit failed entirely (no surrogate) -> nothing to do. ``gated`` is the PAIR
+        # self-gate; TRIPLES are emitted regardless (the order-3 floor gates them), so we do NOT
+        # early-return on ``gated=False`` -- only when there is no co-occurrence output at all.
+        if not seeded_pairs and not seeded_triples:
             return numeric_vars_to_consider, []
 
-        # --- ORDER-3 maxT FLOOR (#7) on the seeded triples (the mandatory rail) ---
+        # --- ORDER-3 maxT FLOOR (#7) on the seeded triples (the mandatory rail + binding
+        # noise guard for 3-way, since the OOF self-gate is blind to hard 3-way signal) ---
         _kept_triples = _gate_seeded_triples_order3(
             self, seeded_triples, data=data, nbins=nbins, classes_y=classes_y,
             freqs_y=freqs_y, verbose=verbose,
@@ -203,23 +209,26 @@ def apply_surrogate_gbm_seeder(
                 _named.append((cols[a], cols[b], cols[c]))
         self._seeded_triplets_names_ = _named
 
-        # Merge seeded-pair operands into the pool so their JOINT MI gets screened by
-        # the existing pair pipeline (bypassing the univariate seed_count that dropped them).
+        # Merge seeded-pair operands into the pool so their JOINT MI gets screened by the
+        # existing pair pipeline (bypassing the univariate seed_count that dropped them).
+        # ``seeded_pairs`` is non-empty ONLY when the OOF pair self-gate passed; the order-2
+        # maxT floor in that pipeline is the outer guard on the merged pairs.
         _new_ops = set()
         for a, b in seeded_pairs:
             _new_ops.add(int(a)); _new_ops.add(int(b))
         _added = _new_ops - set(numeric_vars_to_consider)
         if _added:
             numeric_vars_to_consider = set(numeric_vars_to_consider) | _new_ops
-            if verbose:
-                logger.info(
-                    "MRMR FE GBM seeder: self-gate PASSED (OOF %.4f > permuted %.4f); merged %d "
-                    "co-occurrence-seeded operand(s) into the pair pool, kept %d order-3-floored "
-                    "triple(s) for the triplet FE -- recovering zero-marginal interactions the "
-                    "univariate seed_count misses.",
-                    info.get("oof_real", float("nan")), info.get("oof_perm", float("nan")),
-                    len(_added), len(_kept_triples),
-                )
+        if verbose and (_added or _kept_triples):
+            logger.info(
+                "MRMR FE GBM seeder: OOF %.4f vs permuted %.4f (z=%.2f, pair-gate=%s); merged %d "
+                "co-occurrence-seeded operand(s) into the pair pool, kept %d order-3-floored "
+                "triple(s) for the triplet FE -- recovering zero-marginal interactions the "
+                "univariate seed_count misses.",
+                info.get("oof_real", float("nan")), info.get("oof_perm", float("nan")),
+                info.get("self_gate_z", float("nan")), info.get("gated", False),
+                len(_added), len(_kept_triples),
+            )
         return numeric_vars_to_consider, list(seeded_pairs)
     except Exception:
         logger.warning(

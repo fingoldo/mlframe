@@ -1180,9 +1180,18 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_gbm_seeder_min_features: int = 30,
         fe_gbm_seeder_top_k_pairs: int = 12,
         fe_gbm_seeder_top_k_triples: int = 8,
-        fe_gbm_seeder_n_estimators: int = 150,
+        fe_gbm_seeder_n_estimators: int = 300,
         fe_gbm_seeder_max_depth: int = 4,
         fe_gbm_seeder_self_gate_margin: float = 0.0,
+        # SELF-GATE as a PERMUTATION SIGNIFICANCE TEST (not a single-split point comparison):
+        # ``self_gate_reps`` real + ``reps`` permuted-y OOF splits; the real-mean must sit
+        # ``self_gate_min_z`` sigma above the permuted-null distribution. A single split is
+        # too noisy (~+/-0.02 acc) and false-positives on a wide noise pool; the z-test makes
+        # pure noise reliably FAIL. The surrogate trains on the CANDIDATE-ONLY submatrix (the
+        # target column is excluded -- training on the full screening matrix, which contains
+        # the discretised target, would leak a perfect OOF).
+        fe_gbm_seeder_self_gate_reps: int = 5,
+        fe_gbm_seeder_self_gate_min_z: float = 2.0,
         # ORDER-3 Westfall-Young maxT permutation-null floor on the candidate-TRIPLE pool
         # (backlog idea #7 -- the MANDATORY rail for any 3-way proposer, ships in the same
         # change as the GBM seeder which opens 3-way). The triplet/quadruplet FE modules lack
@@ -2595,9 +2604,11 @@ class MRMR(BaseEstimator, TransformerMixin):
             "fe_gbm_seeder_min_features": 30,
             "fe_gbm_seeder_top_k_pairs": 12,
             "fe_gbm_seeder_top_k_triples": 8,
-            "fe_gbm_seeder_n_estimators": 150,
+            "fe_gbm_seeder_n_estimators": 300,
             "fe_gbm_seeder_max_depth": 4,
             "fe_gbm_seeder_self_gate_margin": 0.0,
+            "fe_gbm_seeder_self_gate_reps": 5,
+            "fe_gbm_seeder_self_gate_min_z": 2.0,
             "fe_triple_maxt_null_permutations": 25,
             "fe_triple_maxt_null_quantile": 0.95,
             "fe_triple_maxt_min_triples": 4,

@@ -189,7 +189,14 @@ class TestGBMSeederNeedleRecall:
             needle = None
         return X, y, needle
 
-    def test_3way_needle_recovered_univariate_misses(self):
+    def test_3way_needle_co_occurrence_ranks_it_and_clears_order3_floor(self):
+        # The hard sign(a*b*c) 3-way is the CO-OCCURRENCE win: a depth-4 GBM's held-out
+        # ACCURACY on it is ~chance (so the OOF self-gate cannot gate it), but its SPLIT
+        # co-occurrence still ranks the operands top -- and the ORDER-3 maxT FLOOR (#7, the
+        # binding noise guard per "proposer generates, floors gate") then validates the
+        # needle clears while noise triples do not. We force-emit (lenient gate) to test the
+        # co-occurrence + floor, the actual binding pair.
+        from itertools import combinations
         X, y, needle = self._frame("3way")
         D, nbins = _discretize(X, nb=10)
         # CURRENT: univariate seed_count top-8 misses every needle operand.
@@ -197,22 +204,31 @@ class TestGBMSeederNeedleRecall:
         assert len(set(needle) & uni_top) == 0, (
             f"fixture invalid: univariate seed already sees needle {set(needle) & uni_top}"
         )
-        # NEW: GBM seeder.
+        # GBM co-occurrence (force-emit so the FLOOR is the discriminator, not the OOF gate).
         pairs, triples, info = surrogate_gbm_interaction_seeds(
             D, y, list(range(D.shape[1])), is_classification=True,
-            top_k_pairs=15, top_k_triples=10, random_seed=0)
-        assert info["gated"], f"self-gate should pass on a genuine 3-way signal: {info}"
-        ops = set()
-        for pr in pairs: ops.update(pr)
-        for tr in triples: ops.update(tr)
-        # all three zero-marginal needle operands recovered.
-        assert set(needle) <= ops, f"needle operands not all recovered: {set(needle) - ops}"
-        # exact 3-way tuple proposed.
-        assert tuple(sorted(needle)) in [tuple(sorted(t)) for t in triples], (
-            f"exact 3-way needle not in seeded triples: {triples}"
+            top_k_pairs=15, top_k_triples=10, self_gate_min_z=-1e9, random_seed=0)
+        tw = info.get("triple_weights", {})
+        ranked = [tuple(sorted(k)) for k, _ in sorted(tw.items(), key=lambda kv: kv[1], reverse=True)]
+        assert tuple(sorted(needle)) in ranked[:3], (
+            f"3-way needle not in the top-3 co-occurrence triples: {ranked[:5]}"
+        )
+        # ORDER-3 maxT floor over the seeded triples: the needle clears it.
+        ta = np.fromiter((t[0] for t in triples), np.int64, len(triples))
+        tb = np.fromiter((t[1] for t in triples), np.int64, len(triples))
+        tc = np.fromiter((t[2] for t in triples), np.int64, len(triples))
+        fy = np.bincount(y, minlength=int(np.unique(y).size)).astype(np.float64) / len(y)
+        floor = pooled_triple_permutation_null_joint_mi_floor(
+            D, nbins, ta, tb, tc, y, fy, n_permutations=25, quantile=0.95, random_seed=0)
+        obs = batch_triple_mi_prange(D, ta, tb, tc, nbins, y, fy)
+        survivors = [tuple(sorted(triples[i])) for i in range(len(triples)) if obs[i] >= floor]
+        assert tuple(sorted(needle)) in survivors, (
+            f"3-way needle did not clear the order-3 floor (={floor}); survivors={survivors}"
         )
 
     def test_2way_needle_recovered_univariate_misses(self):
+        # The 2-way needle is the SELF-GATE + co-occurrence win: its OOF is FAR above chance
+        # (z huge), so the self-gate passes AND it is the top co-occurrence pair.
         X, y, needle = self._frame("2way")
         D, nbins = _discretize(X, nb=10)
         uni_top, mis = _univariate_topN(D, y, nbins, N=8)
@@ -220,21 +236,41 @@ class TestGBMSeederNeedleRecall:
         pairs, triples, info = surrogate_gbm_interaction_seeds(
             D, y, list(range(D.shape[1])), is_classification=True,
             top_k_pairs=15, top_k_triples=10, random_seed=0)
-        assert info["gated"], f"self-gate should pass on a genuine 2-way signal: {info}"
+        assert info["gated"], f"self-gate should pass on a strong 2-way signal: {info}"
         assert tuple(sorted(needle)) in [tuple(sorted(p_)) for p_ in pairs], (
             f"exact 2-way needle not in seeded pairs: {pairs}"
         )
 
-    def test_pure_noise_self_gate_emits_nothing(self):
+    def test_pure_noise_pair_gate_blocks_pairs_and_floor_curbs_triples(self):
+        # The production noise-guard CHAIN on a pure-noise frame:
+        #   (1) the OOF PAIR self-gate rejects pair emission (noise OOF ~ permuted null) -- so
+        #       NO seeded noise pairs ever reach the order-2 floor in the real pipeline.
+        #   (2) the order-3 maxT floor strongly CURBS the always-emitted noise triples.
         X, y, _ = self._frame("noise")
         D, nbins = _discretize(X, nb=10)
+        # DEFAULT gate (no force-emit): the pair self-gate must NOT pass on pure noise -> 0 pairs.
         pairs, triples, info = surrogate_gbm_interaction_seeds(
             D, y, list(range(D.shape[1])), is_classification=True,
             top_k_pairs=15, top_k_triples=10, random_seed=0)
-        # HARD gate: the permuted-y self-gate must reject pure noise -> no seeds.
-        assert not info["gated"], f"self-gate must fail on pure noise: {info}"
-        assert pairs == [] and triples == [], (
-            f"seeder emitted {len(pairs)} pairs / {len(triples)} triples on pure noise"
+        assert not info["gated"], f"pair self-gate must FAIL on pure noise: {info}"
+        assert pairs == [], f"no pairs should be emitted on pure noise (gate failed): {pairs}"
+        # Triples ARE emitted (the OOF gate is blind to hard 3-way); the order-3 floor curbs them.
+        fy = np.bincount(y, minlength=2).astype(np.float64) / len(y)
+        ta = np.fromiter((t[0] for t in triples), np.int64, len(triples))
+        tb = np.fromiter((t[1] for t in triples), np.int64, len(triples))
+        tc = np.fromiter((t[2] for t in triples), np.int64, len(triples))
+        floor3 = pooled_triple_permutation_null_joint_mi_floor(
+            D, nbins, ta, tb, tc, y, fy, n_permutations=25, quantile=0.95, random_seed=0)
+        obs3 = batch_triple_mi_prange(D, ta, tb, tc, nbins, y, fy)
+        n_trip_survive = int(np.sum(obs3 >= floor3))
+        # q95 over a proposer-selected (joint-MI-enriched) pool of <=10 triples admits a small
+        # best-of-pool residual; the floor must curb the noise to AT MOST a couple of triples
+        # (no noise CLOUD). The downstream per-triplet uplift / abs-MI gates then reject those
+        # residual noise triples as engineered features (the e2e confirms pure noise engineers
+        # nothing end-to-end).
+        assert n_trip_survive <= 2, (
+            f"order-3 floor admitted {n_trip_survive} pure-noise triples (floor={floor3}); "
+            f"expected <=2 (q95 best-of-pool residual over a proposer-selected pool)"
         )
 
     def test_degenerate_pool_no_seeds(self):

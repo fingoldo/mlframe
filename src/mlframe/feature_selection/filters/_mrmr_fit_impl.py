@@ -796,13 +796,23 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                         tr for tr in _gbm_seeded_triplet_names
                         if all((c in _xcols and pd.api.types.is_numeric_dtype(X[c])) for c in tr)
                     ] or None
+                # When the triplet stage runs SOLELY because the GBM seeder forwarded explicit
+                # triples (the legacy univariate-seeded triplet path is OFF), SUPPRESS the
+                # stage-1 univariate hybrid (``top_k=0``): we want ONLY the seeded 3-way cross
+                # features, not univariate transforms of the seeded operands -- on a pure-noise
+                # frame the seeded noise triples' univariate stage would otherwise engineer a
+                # spurious univariate Fourier/poly on a noise operand (a noise admission). When
+                # the user ALSO enabled the legacy triplet path, keep their univariate budget.
+                _t_top_k_eff = _t_top_k
+                if _explicit_triplets is not None and not bool(getattr(self, "fe_hybrid_orth_triplet_enable", False)):
+                    _t_top_k_eff = 0
                 X_t, _t_uni_sc, _t_triplet_sc, _t_recipes = (
                     hybrid_orth_mi_triplet_fe_with_recipes(
                         X, _y_for_triplet,
                         cols=_t_cols,
                         degrees=_t_degrees,
                         basis=_t_basis,
-                        top_k=_t_top_k,
+                        top_k=_t_top_k_eff,
                         triplet_max_degree=_t_max_degree,
                         top_triplet_seed_k=_t_seed_k,
                         top_triplet_count=_t_top_count,
