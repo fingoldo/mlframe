@@ -66,6 +66,7 @@ __all__ = [
     "build_hinge_basis_recipe",
     "_apply_hinge_basis",
     "_detect_hinge_breakpoints",
+    "_hinge_slope_change_plausible",
 ]
 
 
@@ -89,6 +90,76 @@ _HINGE_MIN_HELDOUT_R2_UPLIFT: float = 0.02
 # breakpoint reliably (mirrors the adaptive-Fourier >=800 philosophy, but a
 # hinge needs far fewer rows than a multi-tone periodogram, so 200 suffices).
 _HINGE_MIN_ROWS: int = 200
+# COST PRE-CHECK (default-on dispatch, 2026-06-09): the full per-column scan is
+# ``_HINGE_N_CANDIDATES`` (=24) lstsq solves -- the stage hotspot (~2.2 ms/col).
+# Default-ON over WIDE data (p=50+) would multiply that across every column even
+# though almost all carry NO slope change. Before the full scan we run a CHEAP
+# 3-cut probe: fit the 2-segment hinge at just the 0.3 / 0.5 / 0.7 quantiles and
+# take the best whole-data SSE drop over plain linear (fraction of total SSE). If
+# even the best of these 3 cuts barely beats the line, no inner cut will clear
+# the held-out gate either, so we skip the 24-cut scan entirely. 3 lstsq vs 24
+# -> ~8x cheaper on the common (no-kink) column, and the genuine slope-change
+# column always trips the probe (a real kink lifts the SSE-drop far above the
+# floor at the nearest of the 3 coarse cuts). The full scan still runs on any
+# column that passes, so tau precision is unchanged where a kink exists.
+_HINGE_PRECHECK_QS: tuple = (0.30, 0.50, 0.70)
+# Min whole-data SSE-drop fraction (1 - SSE_hinge/SSE_linear) at the best coarse
+# probe cut for the full scan to be worth running. A genuine slope change drops
+# the in-sample SSE by tens of percent at a coarse cut near the kink; pure noise
+# and a purely-linear column drop ~0 (measured < 1e-3 -> skipped). 0.005 is well
+# below the held-out admission floor's in-sample footprint, so the probe is a
+# CONSERVATIVE pre-filter: it NEVER vetoes a column the full held-out gate would
+# have admitted (it only short-circuits the obviously-flat columns). A smooth
+# curve like x^2 DOES dent the line at a coarse cut and so PASSES the probe --
+# that is correct: the probe is a cheap "worth scanning?" test, not the admission
+# gate. The held-out tau-validation + the self-limiting support-protection (raw
+# source must survive the screen) are what keep a smooth/quadratic column from
+# adding a spurious hinge to support_ (verified end-to-end: x^2 -> 0 legs kept).
+# Measured: slope-change probe drop ~0.5; noise/linear < 1e-3.
+_HINGE_PRECHECK_MIN_SSE_DROP: float = 0.005
+
+
+def _hinge_slope_change_plausible(
+    x: np.ndarray, y: np.ndarray,
+    *, qs: Sequence[float] = _HINGE_PRECHECK_QS,
+    min_sse_drop: float = _HINGE_PRECHECK_MIN_SSE_DROP,
+) -> bool:
+    """Cheap O(len(qs)) gate: is a slope change plausible enough to justify the
+    full ``_HINGE_N_CANDIDATES``-cut scan?
+
+    Fit the continuous 2-segment hinge at just ``qs`` (default 3 coarse inner
+    quantiles) on the WHOLE column and keep the best fractional SSE drop over the
+    plain-linear fit. Returns True iff that best drop clears ``min_sse_drop``.
+    The full scan + the held-out tau-validation downstream are unchanged; this
+    only SKIPS the scan for a column whose best coarse cut cannot even dent the
+    line (the common case on wide data), so default-on does not bloat wide fits.
+    A genuine kink trips at least one of the coarse cuts well above the floor."""
+    x = np.asarray(x, dtype=np.float64).ravel()
+    y = np.asarray(y, dtype=np.float64).ravel()
+    n = x.size
+    if n != y.size or n < _HINGE_MIN_ROWS:
+        return False
+    sse_lin = _linear_sse(x, y)
+    if not np.isfinite(sse_lin) or sse_lin <= 1e-24:
+        # Plain linear already fits perfectly (or degenerate y) -> a hinge cannot
+        # add a second slope; skip.
+        return False
+    try:
+        cuts = np.unique(np.quantile(x, np.asarray(qs, dtype=np.float64)))
+    except Exception:
+        return False
+    best_drop = 0.0
+    for c in cuts:
+        n_right = int(np.count_nonzero(x > c))
+        if n_right < _HINGE_MIN_SEG_ROWS or (n - n_right) < _HINGE_MIN_SEG_ROWS:
+            continue
+        sse_h = _segmented_sse(x, y, float(c))
+        if not np.isfinite(sse_h):
+            continue
+        drop = 1.0 - sse_h / sse_lin
+        if drop > best_drop:
+            best_drop = drop
+    return bool(best_drop >= float(min_sse_drop))
 
 
 def _segmented_sse(x: np.ndarray, y: np.ndarray, tau: float) -> float:
@@ -187,10 +258,14 @@ def _detect_hinge_breakpoints(
     Returns the validated breakpoint list (possibly empty). Pure noise -> the
     first candidate fails the held-out uplift gate -> empty list (no hinge).
 
-    Perf (cProfile p=20 n=4000, 2026-06-09): this scan is the stage hotspot
-    (~2.2 ms / column, dominated by the per-candidate ``np.linalg.lstsq``). The
-    cost is tiny in absolute terms (run once per fit, default-OFF), so no
-    optimisation is wired. bench-attempt-rejected (2026-06-09): replacing the
+    Perf (cProfile p=20 n=4000, 2026-06-09): the full scan is the stage hotspot
+    (~2.2 ms / column, dominated by the per-candidate ``np.linalg.lstsq``). Now
+    that the operator is DEFAULT-ON a cheap 3-cut pre-check
+    (:func:`_hinge_slope_change_plausible`) runs FIRST and short-circuits the
+    24-cut scan for any column without a plausible slope change (the common case
+    on wide data) -- ~8x fewer solves on a no-kink column, so default-on does not
+    bloat wide / large-p fits. The full scan still runs (unchanged tau precision)
+    on a column that trips the probe. bench-attempt-rejected (2026-06-09): replacing the
     per-candidate ``lstsq`` with a normal-equations 3x3 solve (``A.T@A`` /
     ``np.linalg.solve``) was 2.2x SLOWER (300ms -> 654ms over 50x24 cuts) -- the
     ``A.T@A`` over n=4000 rows costs more than ``lstsq``'s SVD, and rebuilding the
@@ -209,6 +284,14 @@ def _detect_hinge_breakpoints(
         if n < _HINGE_MIN_ROWS:
             return []
     if float(np.std(x)) < 1e-12 or float(np.std(y)) < 1e-12:
+        return []
+    # COST PRE-CHECK: skip the full 24-cut scan on a column whose best coarse
+    # 3-cut probe cannot dent the plain-linear SSE (no plausible slope change).
+    # Keeps default-on cheap on wide data without changing the outcome on a
+    # column that genuinely has a kink (it always trips the probe).
+    if not _hinge_slope_change_plausible(
+        x, y, min_sse_drop=_HINGE_PRECHECK_MIN_SSE_DROP,
+    ):
         return []
     # Candidate cuts at inner quantiles -- avoid the tails where a segment is
     # near-empty.

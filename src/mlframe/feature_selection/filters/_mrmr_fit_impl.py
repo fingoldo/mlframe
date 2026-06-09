@@ -383,6 +383,15 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # screen dropped. Always present (empty when no adaptive freq detected) so
     # transform / pickle / clone never trip on a missing attribute.
     self._adaptive_fourier_features_ = []
+    # HINGE / change-point (2026-06-09): names of the held-out-tau-validated
+    # hinge legs the change-point stage emitted. Used by the support-
+    # finalisation HINGE-PROTECTION block to re-add any the MRMR screen dropped
+    # (a single relu leg is MONOTONE -> MI-INVARIANT by the DPI, so the greedy
+    # MI screen drops it as redundant with raw x exactly as it drops the adaptive
+    # Fourier legs -- its value is downstream linear usability, not MI). Always
+    # present (empty when hinge off / no kink) so transform / pickle / clone
+    # never trip on a missing attribute.
+    self._hinge_features_ = []
     _hybrid_orth_pre_recipes: dict = {}
     # Snapshot the raw input columns BEFORE any FE stage appends engineered
     # intermediates. The cat_pair / cat_triple auto-detect paths restrict their
@@ -792,6 +801,16 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     X = X_h
                     self.hybrid_orth_features_ = (
                         list(self.hybrid_orth_features_ or []) + list(_h_appended)
+                    )
+                    # Track the held-out-validated hinge legs so the support-
+                    # finalisation HINGE-PROTECTION block can re-add any the
+                    # greedy MI screen drops (the legs are MI-invariant -> the
+                    # screen drops them as redundant with raw x; their value is
+                    # downstream linear usability, the same situation the
+                    # adaptive-Fourier protection handles).
+                    self._hinge_features_ = (
+                        list(getattr(self, "_hinge_features_", None) or [])
+                        + list(_h_appended)
                     )
                     _h_kept = set(_h_appended)
                     for _r in _h_recipes:
@@ -4569,6 +4588,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     c for c in (getattr(self, "_adaptive_fourier_features_", None) or [])
                     if c not in _gate_drop_set
                 ]
+                # Mirror the cleanup for hinge legs: a hinge the accuracy gate
+                # drops (no held-out uplift over its raw source) must NOT be
+                # re-added by the HINGE-PROTECTION block, so prune it here too.
+                self._hinge_features_ = [
+                    c for c in (getattr(self, "_hinge_features_", None) or [])
+                    if c not in _gate_drop_set
+                ]
                 for _c in list(_hybrid_orth_pre_recipes.keys()):
                     if _c in _gate_drop_set:
                         _hybrid_orth_pre_recipes.pop(_c, None)
@@ -4783,6 +4809,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             X = X.drop(columns=list(_eng_drop))
             self.hybrid_orth_features_ = [
                 c for c in (self.hybrid_orth_features_ or []) if c not in _eng_drop
+            ]
+            # Mirror cleanup for hinge legs (a hinge near-duplicate of another
+            # engineered column the Spearman dedup removed must not be re-added
+            # by the HINGE-PROTECTION block).
+            self._hinge_features_ = [
+                c for c in (getattr(self, "_hinge_features_", None) or [])
+                if c not in _eng_drop
             ]
             self.mi_greedy_features_ = [
                 c for c in (self.mi_greedy_features_ or []) if c not in _eng_drop
@@ -5018,6 +5051,17 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                             c for c in (getattr(self, _attr, []) or [])
                             if c not in _eng_drop_u
                         ])
+                    # Private hinge / adaptive-fourier protection rosters are not
+                    # in the public-roster loop above; prune them explicitly so a
+                    # second-pass-dropped leg is not re-added by its protection.
+                    self._hinge_features_ = [
+                        c for c in (getattr(self, "_hinge_features_", None) or [])
+                        if c not in _eng_drop_u
+                    ]
+                    self._adaptive_fourier_features_ = [
+                        c for c in (getattr(self, "_adaptive_fourier_features_", None) or [])
+                        if c not in _eng_drop_u
+                    ]
                     for _pre in (
                         _hybrid_orth_pre_recipes, _mi_greedy_pre_recipes,
                         _kfold_te_pre_recipes, _count_enc_pre_recipes,
@@ -6161,6 +6205,56 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     "is_missing__ indicator(s) the screen dropped in favour of "
                     "the redundant raw NaN-bin source: %s",
                     len(_readd_miss), [cols[i] for i in _readd_miss],
+                )
+
+    # HINGE / CHANGE-POINT PROTECTION (2026-06-09): re-add the held-out-tau-
+    # validated hinge legs the MRMR screen dropped. A single relu leg
+    # ``max(x-tau,0)`` is MONOTONE in x, hence MI-INVARIANT by the data-processing
+    # inequality, and near-collinear with raw x -- so the greedy MI screen drops
+    # it as redundant with its raw source, EXACTLY as it drops a single adaptive
+    # Fourier leg (low marginal MI) and the clean missingness indicator (tied MI
+    # with its raw NaN-bin twin). But the hinge's value is NOT marginal MI: it is
+    # the SECOND SLOPE it hands a downstream linear / shallow model
+    # (``[1, x, relu(x-tau)]`` fits a two-slope kink ``[1, x]`` cannot). The
+    # generating stage already (a) detected the breakpoint, (b) HELD-OUT-validated
+    # it (2-segment beats 1-segment OOS R^2 on the %3 slice), and (c) admitted the
+    # leg only on its held-out INCREMENTAL linear usability over raw x -- so a
+    # surviving ``_hinge_features_`` name is a confirmed win, not noise. Without
+    # this re-add, default-on hinge would GENERATE-then-DROP every leg (wasted
+    # compute + the project's MI-vs-linear-usability rule violated, the same fix
+    # the adaptive-Fourier protection block applies). SELF-LIMITING GATE: re-add a
+    # leg ONLY when its raw SOURCE column survived the screen -- a hinge built on a
+    # pure-noise / never-selected column is left out (so smooth / linear / noise
+    # data with no exploitable slope change adds zero columns to support). Runs
+    # BEFORE the ``selected_vars_names`` remap so the re-added index routes
+    # correctly; the recipe is already in ``engineered_recipes`` (merged from
+    # ``_hybrid_orth_pre_recipes``) -> transform() replays it byte-for-byte.
+    _hinge_feats = getattr(self, "_hinge_features_", None)
+    if _hinge_feats and len(selected_vars):
+        _cols_index = {c: i for i, c in enumerate(cols)}
+        _sv_set = set(selected_vars)
+        _sel_names_now = {cols[i] for i in selected_vars if 0 <= i < len(cols)}
+        _readd_hinge = []
+        for _hn in _hinge_feats:
+            _idx = _cols_index.get(_hn)
+            if _idx is None or _idx in _sv_set:
+                continue
+            _rec_h = _hybrid_orth_pre_recipes.get(_hn)
+            _src_h = tuple(getattr(_rec_h, "src_names", ()) or ())
+            # Self-limit: only protect a hinge whose raw source is in support
+            # (the source carries a real signal the screen selected). This keeps
+            # a hinge on a never-selected noise column out of support.
+            if _src_h and _src_h[0] in _sel_names_now:
+                _readd_hinge.append(_idx)
+                _sv_set.add(_idx)
+        if _readd_hinge:
+            selected_vars = list(selected_vars) + _readd_hinge
+            if verbose:
+                logger.info(
+                    "MRMR hinge change-point protection: re-added %d held-out-"
+                    "validated hinge leg(s) the MI screen dropped (MI-invariant; "
+                    "value is downstream linear usability): %s",
+                    len(_readd_hinge), [cols[i] for i in _readd_hinge],
                 )
 
     # PRODUCED-RECIPES AUDIT LEDGER: ``engineered_recipes`` at this point holds EVERY recipe the FE stages produced this fit, before the greedy CMI screen / accuracy gate / cross-stage dedup drop the

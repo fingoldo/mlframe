@@ -1025,9 +1025,8 @@ class MRMR(BaseEstimator, TransformerMixin):
         # (same semantics + default as the linear adaptive floor above).
         fe_univariate_fourier_chirp_min_val_corr: float = 0.15,
         # HINGE / piecewise-linear change-point basis (backlog #11, 2026-06-09).
-        # DEFAULT-ON DECISION pending benchmark numbers (see end of this comment).
-        # Captures a SLOPE CHANGE at a data-dependent threshold
-        # ``y = a*x + b*max(x - tau, 0)`` (pricing tiers, dose-response,
+        # DEFAULT ON (2026-06-09). Captures a SLOPE CHANGE at a data-dependent
+        # threshold ``y = a*x + b*max(x - tau, 0)`` (pricing tiers, dose-response,
         # saturation) -- a signal shape NOTHING in the catalog captures:
         # ``numeric_rounding`` is piecewise-CONSTANT (wrong form), the cubic
         # B-spline rounds off a sharp kink at its FIXED quantile knots, and an
@@ -1037,20 +1036,32 @@ class MRMR(BaseEstimator, TransformerMixin):
         # (a slope-aware stump), then HELD-OUT-validated on the ``%3`` stride
         # slice (the 2-segment fit must beat plain linear OOS R^2 by
         # ``fe_hinge_min_heldout_r2_uplift``) -- so a chance breakpoint / pure
-        # noise admits NO hinge column. Emitted ``relu(x-tau)`` / ``relu(tau-x)``
-        # legs carry a genuinely DIFFERENT LINEAR shape from raw x, so they clear
-        # the standard MI-uplift gate (unlike the MI-invariant isotonic /
-        # RankGauss, which must use the non-MI-gated pool). Recipes
-        # (``hinge_basis``) store only ``{tau, side}`` -- NO y -- so transform
-        # replay is the pure function ``np.maximum(x-tau,0)``, leak-free by
-        # construction. On a MONOTONE target a hinge can be near-collinear with
-        # raw x; the downstream cross-stage Spearman dedup drops it (no duplicate
-        # columns survive). Default OFF: it is a NICHE operator (helps only on a
-        # genuine slope-change signal) whose per-column cost is a quantile-cut
-        # SSE scan (O(n * n_cuts) lstsq solves) -- justified opt-in rather than
-        # always-on, distinct from the Fourier path which is near-free at the
-        # default fixed grid. Set True to engineer hinge columns.
-        fe_hinge_enable: bool = False,
+        # noise admits NO hinge column.
+        #
+        # RETENTION (the reason this can be default-ON correctly): a single relu
+        # leg is MONOTONE in x, hence MI-INVARIANT by the DPI and near-collinear
+        # with raw x, so the greedy MI screen DROPS it as redundant -- exactly as
+        # it drops a single adaptive-Fourier leg. Its value is downstream LINEAR
+        # usability (the SECOND SLOPE ``[1, x, relu(x-tau)]`` hands a linear model),
+        # NOT marginal MI. The leg is therefore admitted on its held-out
+        # incremental linear-R^2 over raw x in the FE stage, and the support-
+        # finalisation HINGE-PROTECTION block re-adds any leg the MI screen drops
+        # whose raw SOURCE survived (self-limiting: a hinge on a never-selected
+        # noise / smooth / linear column is left out). So a genuine slope-change
+        # column keeps its leg in support_ on the DEFAULT path while neutral data
+        # adds zero hinge columns -- no generate-then-drop waste, no spurious cols.
+        #
+        # COST (the legitimate concern behind the old opt-in): the full per-column
+        # scan is O(n * n_cuts) lstsq solves (~2.2 ms/col). Default-on is kept
+        # cheap by a 3-cut SSE PRE-CHECK (``_hinge_slope_change_plausible``) that
+        # short-circuits the 24-cut scan for any column without a plausible slope
+        # change (the common case on wide data) -- ~8x fewer solves on a no-kink
+        # column, so wide / large-p fits are not bloated (measured p=50 n=4000:
+        # the default-on wall add is small -- see bench in the FE backlog doc).
+        # Recipes (``hinge_basis``) store only ``{tau, side}`` -- NO y -- so
+        # transform replay is the pure function ``np.maximum(x-tau,0)``, leak-free.
+        # Set False to disable hinge engineering entirely.
+        fe_hinge_enable: bool = True,
         fe_hinge_top_k: int = 5,
         fe_hinge_max_breakpoints: int = 2,
         # Emit a step indicator ``1[x > tau]`` alongside the relu legs. Default

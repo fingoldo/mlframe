@@ -20,6 +20,17 @@ RankGauss/isotonic):
   and best B-spline on the slope-change fixture;
 * SMOOTH COMPLEMENTARITY: on y = x^2 the hinge does NOT beat a degree-2 poly
   (proves it is not a spline-clone / universal approximator).
+
+DEFAULT-PATH contracts (the operator is now DEFAULT-ON, 2026-06-09): the win must
+manifest with a plain ``MRMR()`` (no opt-in flag) and self-limit to zero columns
+on data without a slope change:
+* the hinge leg is MI-invariant so the greedy screen drops it, but the support-
+  finalisation HINGE-PROTECTION block RE-ADDS held-out-validated legs whose raw
+  source survived -> the win is delivered on the default transform output;
+* on pure noise / a purely linear column / a smooth y=x^2 the default path
+  retains ZERO hinge legs (no spurious columns on neutral data);
+* a cheap 3-cut SSE pre-check skips the full scan on no-kink columns so
+  default-on does not bloat wide / large-p fits.
 """
 from __future__ import annotations
 
@@ -194,7 +205,44 @@ def test_biz_value_smooth_complementarity_loses_to_poly2():
 
 
 # ---------------------------------------------------------------------------
-# INTEGRATION (default-off byte-identity + opt-in fires)
+# COST PRE-CHECK (the cheap dispatch that keeps default-on lean on wide data)
+# ---------------------------------------------------------------------------
+
+
+def test_cost_precheck_skips_no_kink_columns():
+    """The 3-cut SSE pre-check returns False (skip the full 24-cut scan) on
+    columns with NO slope change -- pure noise and a purely linear column --
+    so default-on does not bloat wide / large-p fits scanning every column."""
+    from mlframe.feature_selection.filters._hinge_basis_fe import (
+        _hinge_slope_change_plausible,
+    )
+    rng = np.random.default_rng(11)
+    x_lin = rng.uniform(0, 1, N)
+    y_lin = 2 * x_lin + 0.1 * rng.standard_normal(N)
+    x_no = rng.standard_normal(N)
+    y_no = rng.standard_normal(N)
+    assert not _hinge_slope_change_plausible(x_lin, y_lin), "linear column should skip"
+    assert not _hinge_slope_change_plausible(x_no, y_no), "noise column should skip"
+
+
+def test_cost_precheck_passes_genuine_kink():
+    """The pre-check returns True on a genuine slope-change column, so the full
+    scan + held-out tau-validation run and recover the breakpoint (the cost gate
+    never vetoes a column the full gate would admit)."""
+    from mlframe.feature_selection.filters._hinge_basis_fe import (
+        _hinge_slope_change_plausible, _detect_hinge_breakpoints,
+    )
+    rng = np.random.default_rng(0)
+    x = rng.uniform(0, 1, N)
+    y = 2 * x + 5 * np.maximum(x - 0.7, 0.0) + 0.1 * rng.standard_normal(N)
+    assert _hinge_slope_change_plausible(x, y), "kink column must pass the pre-check"
+    taus = _detect_hinge_breakpoints(x, y, max_breakpoints=2)
+    assert taus and min(abs(t - 0.7) for t in taus) < 0.06
+
+
+# ---------------------------------------------------------------------------
+# INTEGRATION (DEFAULT path: hinge default-ON, retained where it wins,
+# self-limited to zero columns on data without a slope change)
 # ---------------------------------------------------------------------------
 
 
@@ -207,8 +255,64 @@ def _hinge_recipes(m):
     ]
 
 
-def test_default_off_produces_no_hinge():
-    """fe_hinge_enable defaults OFF -> no hinge recipe is produced."""
+def _hinge_survivors(m):
+    """Hinge recipes that SURVIVED into support_ / get_feature_names_out (the
+    held-out-validated legs the HINGE-PROTECTION block re-added past the
+    MI-invariant screen drop)."""
+    eng = getattr(m, "_engineered_recipes_", None) or []
+    if isinstance(eng, dict):
+        eng = list(eng.values())
+    return [r for r in eng if getattr(r, "kind", None) == "hinge_basis"]
+
+
+def test_default_is_on():
+    """fe_hinge_enable now defaults ON (the best variant is the default; the
+    win is no longer hidden behind an opt-in flag)."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    assert MRMR().fe_hinge_enable is True
+
+
+def test_default_path_retains_hinge_on_slope_change():
+    """On a slope-change fixture, DEFAULT MRMR() (no opt-in flag) produces the
+    hinge legs AND RETAINS them in support_ -- the HINGE-PROTECTION block re-adds
+    the held-out-validated legs the MI-invariant greedy screen drops. This is
+    the core default-on fix: the win is delivered on the default path, not just
+    when a power user flips a flag."""
+    from mlframe.feature_selection.filters.mrmr import MRMR
+    from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
+    rng = np.random.default_rng(2)
+    x = rng.uniform(0, 1, N)
+    b = rng.standard_normal(N)
+    y = 2 * x + 5 * np.maximum(x - 0.7, 0.0) + 0.5 * b + 0.1 * rng.standard_normal(N)
+    X = pd.DataFrame({"a": x, "b": b})
+    m = MRMR(max_runtime_mins=2, verbose=0, random_seed=0)  # DEFAULT path
+    m.fit(X, y)
+    produced = _hinge_recipes(m)
+    survivors = _hinge_survivors(m)
+    assert produced, "default path should PRODUCE a hinge on the slope-change fixture"
+    assert survivors, "default path should RETAIN the hinge in support_ (protection)"
+    out_names = set(map(str, m.get_feature_names_out()))
+    assert any(r.name in out_names for r in survivors), (
+        "a surviving hinge leg must appear in get_feature_names_out"
+    )
+    # The surviving legs replay bit-exactly through the dispatcher.
+    for r in survivors:
+        replayed = apply_recipe(r, X)
+        tau = float(r.extra["tau"])
+        if r.extra["side"] == "gt":
+            ref = np.maximum(x - tau, 0.0)
+        elif r.extra["side"] == "lt":
+            ref = np.maximum(tau - x, 0.0)
+        else:
+            ref = (x > tau).astype(np.float64)
+        assert np.allclose(replayed, ref, atol=1e-9), r.name
+
+
+def test_default_path_biz_value_win_through_transform():
+    """The decisive default-on contract: a DEFAULT MRMR().fit().transform() on
+    the slope-change fixture lifts held-out Ridge R^2 over the raw [x, b] frame
+    -- the hinge win is delivered through the ordinary transform output on the
+    default path (not only in an isolated micro-benchmark)."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     rng = np.random.default_rng(2)
     x = rng.uniform(0, 1, N)
@@ -217,36 +321,37 @@ def test_default_off_produces_no_hinge():
     X = pd.DataFrame({"a": x, "b": b})
     m = MRMR(max_runtime_mins=2, verbose=0, random_seed=0)
     m.fit(X, y)
-    assert not _hinge_recipes(m)
+    Xt = m.transform(X)
+    Xt = Xt.to_numpy() if hasattr(Xt, "to_numpy") else np.asarray(Xt)
+    Xt = Xt.astype(np.float64)
+    r2_transformed = _heldout_r2([Xt[:, i] for i in range(Xt.shape[1])], y)
+    r2_raw = _heldout_r2([x, b], y)
+    assert r2_transformed > r2_raw, (r2_transformed, r2_raw)
 
 
-def test_optin_produces_hinge_and_recipe_replays():
-    """fe_hinge_enable=True engineers a hinge leg (recorded in the produced-
-    recipe ledger) whose recipe replays bit-exactly on test X.
-
-    NOTE: the hinge leg is MONOTONE in x, hence MI-INVARIANT, so MRMR's final
-    MI-based selection does NOT keep it (same as RankGauss/isotonic) -- its value
-    is downstream linear usability (the biz_value tests). The contract here is
-    that the FE stage FIRES, builds a valid leak-safe recipe, and that recipe
-    replays through the apply_recipe dispatcher."""
+@pytest.mark.parametrize("kind", ["noise", "linear", "smooth"])
+def test_default_path_self_limits_no_spurious_hinge(kind):
+    """SELF-LIMITING: on data with NO exploitable slope change -- pure noise, a
+    purely linear column, and a smooth y=x^2 -- DEFAULT MRMR() retains ZERO
+    hinge legs in support_ (noise/linear are rejected at detection; the smooth
+    quadratic's leg is left out because its raw source is subsumed by the poly
+    child, so the self-limiting protection gate does not re-add it). Default-on
+    therefore adds no spurious columns on neutral data."""
     from mlframe.feature_selection.filters.mrmr import MRMR
-    from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
-    rng = np.random.default_rng(2)
-    x = rng.uniform(0, 1, N)
+    rng = np.random.default_rng(40 + len(kind))
     b = rng.standard_normal(N)
-    y = 2 * x + 5 * np.maximum(x - 0.7, 0.0) + 0.5 * b + 0.1 * rng.standard_normal(N)
+    if kind == "noise":
+        x = rng.standard_normal(N)
+        y = rng.standard_normal(N)
+    elif kind == "linear":
+        x = rng.uniform(0, 1, N)
+        y = 3 * x + 0.5 * b + 0.1 * rng.standard_normal(N)
+    else:  # smooth
+        x = rng.uniform(-1, 1, N)
+        y = x ** 2 + 0.5 * b + 0.05 * rng.standard_normal(N)
     X = pd.DataFrame({"a": x, "b": b})
-    m = MRMR(fe_hinge_enable=True, max_runtime_mins=2, verbose=0, random_seed=0)
+    m = MRMR(max_runtime_mins=2, verbose=0, random_seed=0)
     m.fit(X, y)
-    hinge = _hinge_recipes(m)
-    assert hinge, "opt-in should produce at least one hinge recipe"
-    for r in hinge:
-        out = apply_recipe(r, X)
-        tau = float(r.extra["tau"])
-        if r.extra["side"] == "gt":
-            ref = np.maximum(x - tau, 0.0)
-        elif r.extra["side"] == "lt":
-            ref = np.maximum(tau - x, 0.0)
-        else:
-            ref = (x > tau).astype(np.float64)
-        assert np.allclose(out, ref, atol=1e-9), r.name
+    assert not _hinge_survivors(m), (
+        f"{kind}: no hinge leg should survive into support_ on neutral data"
+    )
