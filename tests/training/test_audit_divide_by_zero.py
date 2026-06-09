@@ -34,6 +34,13 @@ MLFRAME_ROOT = Path(importlib.import_module("mlframe").__file__).parent
 
 
 def _read(rel: str) -> str:
+    # info_theory.py was carved into the ``info_theory/`` subpackage; the
+    # empty-factors guard now lives in a submodule (``_batch_kernels.py``).
+    # Concat every submodule so the source-grep sensor matches the relocated
+    # guard regardless of which submodule owns it now.
+    pkg_dir = MLFRAME_ROOT / "feature_selection" / "filters" / "info_theory"
+    if rel == "feature_selection/filters/info_theory.py" and pkg_dir.is_dir():
+        return "\n".join(p.read_text(encoding="utf-8") for p in sorted(pkg_dir.glob("*.py")))
     return (MLFRAME_ROOT / rel).read_text(encoding="utf-8")
 
 

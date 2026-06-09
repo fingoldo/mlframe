@@ -54,7 +54,8 @@ def _estimator():
     )
 
 
-def main():
+def main() -> None:
+    """Run the cProfile harness and print the top cumulative frames for a fit+predict of the categorical-embedding path."""
     X, y = _make()
     cat_cols = [c for c in X.columns if c.startswith("cat_")]
 
