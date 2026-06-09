@@ -1329,6 +1329,57 @@ def _run_fe_step(
             _sv_set = set(_sv)
             selected_vars = _sv + [i for i in _newly_engineered_indices if i not in _sv_set]
 
+        # CROSS-FOLD RECIPE STABILITY VOTING (2026-06-10, backlog #15). A near-free
+        # consensus layer OVER the existing FE gates. The expensive search above ran
+        # ONCE on the full data; here we add a cheap K-fold CONFIRMATION -- each
+        # surviving unary_binary recipe is REPLAYED (leak-safe: the recipe is frozen,
+        # only the rows change) on K held-out folds, its uplift gate statistic
+        # recomputed per fold, and the recipe ADMITTED only if it clears the gate in
+        # >= ceil(q*K) folds. This complements the order-2/order-3 maxT floors: maxT
+        # kills the chance-MAX candidate WITHIN a fold (best-of-pool selection bias);
+        # this kills a recipe that won only on a fold-specific QUIRK of the full-data
+        # split (its uplift carried by a few rows in the train split, collapses on the
+        # held-out folds). NO REFIT -- only K plug-in-MI replays per recipe, so the
+        # cost is negligible. Failed recipes are dropped from BOTH ``engineered_recipes``
+        # (so they never reach ``self._engineered_recipes_`` at fit-end) and from
+        # ``selected_vars`` (so they never reach ``support_``). Default-ON; self-gates
+        # to a no-op below 2 unary_binary survivors / k<2 / tiny n. ``fe_stability_vote_enable=False``
+        # byte-reproduces the pre-vote support.
+        if (
+            engineered_recipes
+            and bool(getattr(self, "fe_stability_vote_enable", True))
+            and _newly_engineered_indices
+        ):
+            try:
+                from ._fe_stability_vote import confirm_recipes_cross_fold
+
+                _failed_eng = confirm_recipes_cross_fold(
+                    recipes=engineered_recipes,
+                    X=X,
+                    y_codes=classes_y,
+                    feature_names_in=list(self.feature_names_in_),
+                    nbins=int(self.quantization_nbins),
+                    k=int(getattr(self, "fe_stability_vote_k", 5)),
+                    quorum=float(getattr(self, "fe_stability_vote_quorum", 0.6)),
+                    rng=np.random.default_rng(int(getattr(self, "random_seed", 0) or 0)),
+                    verbose=int(verbose),
+                )
+                if _failed_eng:
+                    # Drop the failed engineered names from selected_vars (by cols-index)
+                    # and from the recipe dict so neither support_ nor _engineered_recipes_
+                    # admits a fold-specific winner.
+                    _failed_idx = {i for i in selected_vars if 0 <= i < len(cols) and cols[i] in _failed_eng}
+                    if _failed_idx:
+                        selected_vars = [i for i in selected_vars if i not in _failed_idx]
+                    for _fn in _failed_eng:
+                        engineered_recipes.pop(_fn, None)
+            except Exception as _vote_exc:
+                if verbose:
+                    logger.warning(
+                        "MRMR cross-fold stability vote failed (%s: %s); keeping the un-voted FE support.",
+                        type(_vote_exc).__name__, _vote_exc,
+                    )
+
         log_fe_summary(
             prospective_pairs=prospective_pairs,
             prospective_additions=prospective_additions,

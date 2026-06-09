@@ -414,6 +414,27 @@ class MRMR(BaseEstimator, TransformerMixin):
         # to be judged a genuine independent term (else it is dropped as redundant). 0.15
         # mirrors the S5 engineered-vs-engineered gate; validated across n=1000..50000.
         fe_raw_redundancy_retain_frac: float = 0.15,
+        # CROSS-FOLD RECIPE STABILITY VOTING (2026-06-10, backlog #15). After the
+        # expensive FE search has selected its survivors on the FULL data, REPLAY each
+        # surviving numeric-pair (``unary_binary``) recipe -- leak-safe, the recipe is
+        # frozen, only the rows change -- on K held-out folds and recompute its uplift
+        # gate per fold; admit the recipe only if it clears the gate in >= ceil(quorum*K)
+        # folds. A near-FREE consensus layer OVER the existing gates (no refit -- only K
+        # plug-in-MI replays per recipe): it kills recipes that won on a fold-specific
+        # quirk of the full-data split, complementing the order-2/order-3 maxT floors
+        # (which kill chance-MAX candidates WITHIN a fold). ON by default -- it cuts
+        # fold-specific NOISE survivors with no measured loss of genuine signal recovery
+        # at negligible cost. Self-gates to a no-op below 2 unary_binary survivors / k<2 /
+        # tiny n. Set False to byte-reproduce the pre-vote support.
+        fe_stability_vote_enable: bool = True,
+        # Number of held-out folds for the stability vote (>= 2; below 2 the vote is a
+        # structural no-op). 5 mirrors the backlog spec -- enough folds that a genuine
+        # recipe clears the quorum comfortably while a single-fold-quirk winner fails.
+        fe_stability_vote_k: int = 5,
+        # Fraction of folds a recipe must clear (pass bar = ceil(quorum*K) folds). 0.6 ->
+        # "in at least 3 of 5 folds" (the Meinshausen-Buhlmann-style support threshold).
+        # Higher = stricter (drops more as fold-specific); 0 disables the vote.
+        fe_stability_vote_quorum: float = 0.6,
         # ``fe_npermutations`` default 0->3:
         # pre-fix value 0 combined with ``fe_min_nonzero_confidence=1.0``
         # made the FE confidence gate STRUCTURALLY UNREACHABLE (confidence
