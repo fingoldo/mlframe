@@ -392,6 +392,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # present (empty when hinge off / no kink) so transform / pickle / clone
     # never trip on a missing attribute.
     self._hinge_features_ = []
+    # Deferred hinge-leg buffer: the hinge stage detects + held-out-validates the
+    # legs early (it needs the raw source columns before pair-FE rewrites them) but
+    # DEFERS materialising them into the candidate matrix until support finalisation,
+    # so the legs never perturb pair-composite recovery. {name: float64 values} and
+    # {name: EngineeredRecipe}. Empty when the operator is off / detects nothing.
+    _hinge_deferred_values: dict = {}
+    _hinge_deferred_recipes: dict = {}
     _hybrid_orth_pre_recipes: dict = {}
     # Snapshot the raw input columns BEFORE any FE stage appends engineered
     # intermediates. The cat_pair / cat_triple auto-detect paths restrict their
@@ -798,28 +805,31 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     c for c in X_h.columns if c not in _X_before_hinge_cols
                 ]
                 if _h_appended:
-                    X = X_h
-                    self.hybrid_orth_features_ = (
-                        list(self.hybrid_orth_features_ or []) + list(_h_appended)
-                    )
-                    # Track the held-out-validated hinge legs so the support-
-                    # finalisation HINGE-PROTECTION block can re-add any the
-                    # greedy MI screen drops (the legs are MI-invariant -> the
-                    # screen drops them as redundant with raw x; their value is
-                    # downstream linear usability, the same situation the
-                    # adaptive-Fourier protection handles).
-                    self._hinge_features_ = (
-                        list(getattr(self, "_hinge_features_", None) or [])
-                        + list(_h_appended)
-                    )
-                    _h_kept = set(_h_appended)
-                    for _r in _h_recipes:
-                        if _r.name in _h_kept:
-                            _hybrid_orth_pre_recipes[_r.name] = _r
+                    # DEFERRED MATERIALISATION (2026-06-09): the hinge legs are a
+                    # TERMINAL univariate linear-usability stage -- they must NOT
+                    # enter the pair-FE / screening candidate matrix, or (a) the
+                    # pair search consumes a leg as an operand (replacing a clean
+                    # raw operand with a hinge-transformed one) and (b) a leg's
+                    # high marginal MI crowds the genuine pair composites out of
+                    # selection (measured on y=a**2/b+log(c)*sin(d): the legs on
+                    # b/d displaced div(sqr(a),abs(b)) / mul(log(c),sin(d))). So
+                    # we do NOT append the legs to X here; we BUFFER the leg values
+                    # + recipes and materialise + protect them only at support
+                    # finalisation (after the FE loop has recovered the composites
+                    # untouched). This keeps the hidden-champion win (a pure
+                    # slope-change column with no competing composite still gets
+                    # its leg) without regressing multi-signal pair recovery.
+                    _hinge_deferred_values = {
+                        c: np.asarray(X_h[c].to_numpy(), dtype=np.float64)
+                        for c in _h_appended
+                    }
+                    _hinge_deferred_recipes = {
+                        _r.name: _r for _r in _h_recipes if _r.name in set(_h_appended)
+                    }
                     if verbose:
                         logger.info(
-                            "MRMR.fit hinge change-point FE: appended %d "
-                            "engineered column(s): %s",
+                            "MRMR.fit hinge change-point FE: detected %d held-out-"
+                            "validated leg(s) (deferred to support finalisation): %s",
                             len(_h_appended), _h_appended[:8],
                         )
             except Exception as _h_exc:
@@ -6207,6 +6217,70 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     len(_readd_miss), [cols[i] for i in _readd_miss],
                 )
 
+    # HINGE / CHANGE-POINT DEFERRED MATERIALISATION (2026-06-09): the hinge stage
+    # ran BEFORE the pair-FE loop (it needs the raw source columns) but DEFERRED
+    # appending its legs so they could not perturb composite recovery. Now that the
+    # FE loop has settled (composites recovered untouched), materialise the buffered
+    # legs into the candidate matrix (``data`` bin-codes / ``cols`` / ``nbins``),
+    # the augmented frame ``X``, and the recipe registry, then let the protection
+    # block below re-add the deserving ones into ``selected_vars``. Skipped wholesale
+    # when nothing was detected (legacy / no-kink path: the buffer is empty).
+    if _hinge_deferred_values and isinstance(X, pd.DataFrame):
+        try:
+            from .mrmr import discretize_array
+            _hinge_added_names = []
+            _n_cols_before_hinge = len(cols)
+            _new_hinge_codes = []
+            _new_hinge_nbins = []
+            for _hn, _vals in _hinge_deferred_values.items():
+                if _hn in X.columns:
+                    continue  # already present (defensive)
+                _vals = np.asarray(_vals, dtype=np.float64)
+                if _vals.shape[0] != data.shape[0]:
+                    continue
+                _codes = discretize_array(
+                    arr=_vals,
+                    n_bins=self.quantization_nbins,
+                    method=self.quantization_method,
+                    dtype=self.quantization_dtype,
+                )
+                _new_hinge_codes.append(np.asarray(_codes).reshape(-1, 1))
+                _new_hinge_nbins.append(int(self.quantization_nbins))
+                X[_hn] = _vals
+                cols = cols + [_hn]
+                _hinge_added_names.append(_hn)
+                _r = _hinge_deferred_recipes.get(_hn)
+                if _r is not None:
+                    _hybrid_orth_pre_recipes[_hn] = _r
+                    engineered_recipes[_hn] = _r
+            if _new_hinge_codes:
+                data = np.append(
+                    data, np.hstack(_new_hinge_codes).astype(data.dtype), axis=1,
+                )
+                nbins = np.concatenate([
+                    np.asarray(nbins),
+                    np.asarray(_new_hinge_nbins, dtype=nbins.dtype),
+                ])
+                self.hybrid_orth_features_ = (
+                    list(self.hybrid_orth_features_ or []) + list(_hinge_added_names)
+                )
+                self._hinge_features_ = (
+                    list(getattr(self, "_hinge_features_", None) or [])
+                    + list(_hinge_added_names)
+                )
+                if verbose:
+                    logger.info(
+                        "MRMR.fit hinge change-point FE: materialised %d deferred "
+                        "leg(s) post-loop: %s",
+                        len(_hinge_added_names), _hinge_added_names[:8],
+                    )
+        except Exception as _h_mat_exc:
+            logger.warning(
+                "MRMR.fit hinge deferred materialisation raised %s: %s; "
+                "continuing without hinge columns.",
+                type(_h_mat_exc).__name__, _h_mat_exc,
+            )
+
     # HINGE / CHANGE-POINT PROTECTION (2026-06-09): re-add the held-out-tau-
     # validated hinge legs the MRMR screen dropped. A single relu leg
     # ``max(x-tau,0)`` is MONOTONE in x, hence MI-INVARIANT by the data-processing
@@ -6219,21 +6293,101 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # generating stage already (a) detected the breakpoint, (b) HELD-OUT-validated
     # it (2-segment beats 1-segment OOS R^2 on the %3 slice), and (c) admitted the
     # leg only on its held-out INCREMENTAL linear usability over raw x -- so a
-    # surviving ``_hinge_features_`` name is a confirmed win, not noise. Without
+    # candidate ``_hinge_features_`` name is a confirmed univariate win. Without
     # this re-add, default-on hinge would GENERATE-then-DROP every leg (wasted
     # compute + the project's MI-vs-linear-usability rule violated, the same fix
-    # the adaptive-Fourier protection block applies). SELF-LIMITING GATE: re-add a
-    # leg ONLY when its raw SOURCE column survived the screen -- a hinge built on a
-    # pure-noise / never-selected column is left out (so smooth / linear / noise
-    # data with no exploitable slope change adds zero columns to support). Runs
-    # BEFORE the ``selected_vars_names`` remap so the re-added index routes
-    # correctly; the recipe is already in ``engineered_recipes`` (merged from
-    # ``_hybrid_orth_pre_recipes``) -> transform() replays it byte-for-byte.
+    # the adaptive-Fourier protection block applies). TWO-PART SELF-LIMITING GATE
+    # (the legs were deferred + just materialised above, so neutral data adds zero
+    # cols): (1) the raw SOURCE must have survived the screen (a hinge on a never-
+    # selected noise column is left out); (2) the leg must lift a HELD-OUT linear
+    # fit over the ALREADY-SELECTED feature set PLUS the source + its degree-2 poly
+    # ``[src, src^2]`` -- so a leg subsumed by a surviving pair composite (b/d on
+    # ``y=a**2/b+log(c)*sin(d)``) or a smooth curve a quadratic already fits
+    # (``y=x^2``) adds ~0 and is rejected, while a genuine slope change with no
+    # competing composite clears the floor. Runs BEFORE the ``selected_vars_names``
+    # remap so the re-added index routes correctly; the recipe is in
+    # ``engineered_recipes`` -> transform() replays it byte-for-byte.
     _hinge_feats = getattr(self, "_hinge_features_", None)
     if _hinge_feats and len(selected_vars):
         _cols_index = {c: i for i, c in enumerate(cols)}
         _sv_set = set(selected_vars)
         _sel_names_now = {cols[i] for i in selected_vars if 0 <= i < len(cols)}
+        # SELECTED-SET INCREMENTAL-R^2 GATE (the principled self-limit). A hinge
+        # leg is admitted on its held-out linear usability over raw x in the FE
+        # stage, but on a MULTI-SIGNAL frame the SELECTED pair composite may
+        # already capture the source's structure better than a univariate kink
+        # (e.g. on y=a**2/b+log(c)*sin(d) the hinge fires on b / d, but
+        # div(sqr(a),abs(b)) / mul(log(c),sin(d)) subsume them). So the protection
+        # re-adds a leg ONLY when it lifts a held-out linear fit over the ALREADY-
+        # SELECTED feature set -- a leg whose value is subsumed by a surviving
+        # composite adds ~0 and is dropped (no spurious cols on multi-signal data),
+        # while a genuine slope-change leg with no competing composite clears the
+        # floor (the hidden-champion win is kept). y is read only here at fit.
+        _y_for_hinge_gate = None
+        try:
+            _yv = y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+            _yv = np.asarray(_yv, dtype=np.float64).reshape(-1)
+            if _yv.shape[0] == int(data.shape[0]) and np.all(np.isfinite(_yv)):
+                _y_for_hinge_gate = _yv
+        except Exception:
+            _y_for_hinge_gate = None
+        # Continuous values of the currently-selected columns (engineered from the
+        # snapshot, raw from X) -> the baseline design the leg must beat OOS.
+        _sel_value_cols = []
+        if _y_for_hinge_gate is not None and isinstance(X, pd.DataFrame):
+            for _sn in _sel_names_now:
+                _cv = _eng_continuous_snapshot.get(_sn)
+                if _cv is None and _sn in X.columns:
+                    _cv = X[_sn].to_numpy()
+                if _cv is None:
+                    continue
+                _cv = np.asarray(_cv, dtype=np.float64).reshape(-1)
+                if _cv.shape[0] == _y_for_hinge_gate.shape[0] and np.all(np.isfinite(_cv)):
+                    _sel_value_cols.append(_cv)
+
+        def _heldout_incr_over_selected(_leg_vals, _src_vals=None) -> float:
+            """Held-out R^2 gain of adding ``_leg_vals`` to the selected design
+            PLUS the source and its degree-2 poly, scored on the %3 stride slice.
+
+            Including ``[src, src^2]`` in the baseline is the SMOOTH-CURVE guard:
+            a parabola (y=x^2) is captured by ``src^2`` so a kink adds ~0 over it
+            and is rejected (no spurious hinge on a smooth target -- matches the
+            biz_value complementarity contract); a GENUINE slope change still beats
+            ``[src, src^2]`` OOS (a quadratic cannot fit a sharp two-slope kink) so
+            the hidden-champion leg is kept."""
+            if _y_for_hinge_gate is None:
+                return 1.0  # gate disabled -> fall back to the source-survived rule
+            leg = np.asarray(_leg_vals, dtype=np.float64).reshape(-1)
+            n = leg.shape[0]
+            if n != _y_for_hinge_gate.shape[0] or not np.all(np.isfinite(leg)):
+                return 0.0
+            idx = np.arange(n); va = (idx % 3) == 0; tr = ~va
+            if int(tr.sum()) < 32 or int(va.sum()) < 16:
+                return 1.0
+            yv = _y_for_hinge_gate[va]
+            ss = float(np.sum((yv - yv.mean()) ** 2))
+            if ss < 1e-24:
+                return 0.0
+            base = [np.ones(n)] + _sel_value_cols
+            if _src_vals is not None:
+                _sv = np.asarray(_src_vals, dtype=np.float64).reshape(-1)
+                if _sv.shape[0] == n and np.all(np.isfinite(_sv)):
+                    base = base + [_sv, _sv * _sv]
+            def _r2(design_cols):
+                A = np.column_stack(design_cols)
+                try:
+                    coef, *_ = np.linalg.lstsq(A[tr], _y_for_hinge_gate[tr], rcond=None)
+                except Exception:
+                    return -np.inf
+                pred = A[va] @ coef
+                return 1.0 - float(np.sum((yv - pred) ** 2)) / ss
+            r2_base = _r2(base)
+            r2_full = _r2(base + [leg])
+            if not (np.isfinite(r2_base) and np.isfinite(r2_full)):
+                return 0.0
+            return float(r2_full - r2_base)
+
+        _HINGE_PROTECT_MIN_INCR_R2 = 0.003
         _readd_hinge = []
         for _hn in _hinge_feats:
             _idx = _cols_index.get(_hn)
@@ -6241,12 +6395,24 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 continue
             _rec_h = _hybrid_orth_pre_recipes.get(_hn)
             _src_h = tuple(getattr(_rec_h, "src_names", ()) or ())
-            # Self-limit: only protect a hinge whose raw source is in support
-            # (the source carries a real signal the screen selected). This keeps
-            # a hinge on a never-selected noise column out of support.
-            if _src_h and _src_h[0] in _sel_names_now:
-                _readd_hinge.append(_idx)
-                _sv_set.add(_idx)
+            # Self-limit #1: source must have survived the screen (real signal).
+            if not (_src_h and _src_h[0] in _sel_names_now):
+                continue
+            # Self-limit #2: the leg must lift a held-out linear fit OVER the
+            # already-selected set + the source and its degree-2 poly (not
+            # subsumed by a surviving composite, and a genuine kink not a smooth
+            # curve a quadratic already fits).
+            _leg_vals = _hinge_deferred_values.get(_hn)
+            if _leg_vals is None and isinstance(X, pd.DataFrame) and _hn in X.columns:
+                _leg_vals = X[_hn].to_numpy()
+            _src_vals_gate = None
+            if isinstance(X, pd.DataFrame) and _src_h and _src_h[0] in X.columns:
+                _src_vals_gate = X[_src_h[0]].to_numpy()
+            if _leg_vals is not None:
+                if _heldout_incr_over_selected(_leg_vals, _src_vals_gate) < _HINGE_PROTECT_MIN_INCR_R2:
+                    continue
+            _readd_hinge.append(_idx)
+            _sv_set.add(_idx)
         if _readd_hinge:
             selected_vars = list(selected_vars) + _readd_hinge
             if verbose:
