@@ -301,6 +301,43 @@ def _run_fe_step(
     # never recovers a SPECIFIC needle, so it is not implemented. Do NOT re-attempt as a default or opt-in
     # proposer without a fundamentally different (non-random-support) coverage scheme.
 
+    # bench-rejected (2026-06-09) -- backlog #10 "Conditional-MI complementarity growth (Apriori lattice)":
+    # grow triples from the order-2 SURVIVOR frontier (the prospective pairs below) by testing only third
+    # columns c maximising the conditional-MI uplift I((a,b,c);y) - I((a,b);y) (reusing batch_triple_mi_prange
+    # for scale-consistency with the #7 order-3 maxT floor), keeping triples above that floor; meant to catch a
+    # 3rd operand that matters ONLY given (a,b) -- pure higher-order synergy the univariate triplet seed_count
+    # misses. Prototyped + benchmarked end-to-end (D:/Temp/cmi_lattice_proto{,2,3,4,5}.py, cmi_lattice_cost.py;
+    # n=3000, p=40, the backlog fixture). REJECTED: the Apriori ANTI-MONOTONE premise is FALSE for the exact
+    # signal class #10 targets, and the part that DOES work is already shipped as #6.
+    #   1) NOT GREEDY-TRAPPABLE (the binding wall). The backlog fixture y=sign(x1*x2)*x3>0 is, mathematically, a
+    #      PURE 3-way sign XOR (verified 100% agreement with sign(x0)*sign(x1)*sign(x2)>0), NOT a "detectable
+    #      2-way (x1,x2) + conditional x3" as the backlog text claims. For a pure k-way interaction ALL its
+    #      (k-1)-way sub-tuples have joint MI AT THE NOISE FLOOR: the needle pair ranks ~39th of C(40,2) (jMI
+    #      0.0002-0.0107 across nbins 2..8, indistinguishable from the noise-pair max), so it NEVER enters the
+    #      top-N order-2 frontier -> the needle triple is NEVER grown (frontier in {6,8,12} all miss it). This is
+    #      the same conditional-MI-is-not-greedy-trappable wall that killed beam-search for MRMR -- Apriori
+    #      pruning ("grow only from surviving (k-1)-tuples") structurally CANNOT reach a pure higher-order
+    #      synergy whose every lower-order projection is null.
+    #   2) The GROWTH KERNEL itself is sound but moot. Given a base pair holding 2 of the 3 needle legs, the
+    #      CMI uplift ranks the true 3rd operand RANK-0 every time (6/6, uplift 0.21-0.61 >> noise) -- but that
+    #      base pair is exactly what the frontier never contains (point 1).
+    #   3) NOISE ADMISSION on the one fixture where the lattice CAN grow the needle (a marginal-signal base x0
+    #      plus a conditional-only x2, y=(x0>0)^((x1>0)&(x2>0))): the lattice grows (0,1,2) as the #1 triple
+    #      (jMI 0.4495) BUT the order-3 maxT floor (0.0287) admits 31/31 grown noise triples, ALL sharing the
+    #      marginal-signal leg x0 (a (0,noise,noise) triple inherits x0's MI and clears the floor). This is not
+    #      a lattice-specific defect (#6's seeded triples admit 8/8 on the same fixture) -- it is the downstream
+    #      per-triplet uplift gate's job, NOT the maxT floor's, so the lattice adds NO admission advantage.
+    #   4) FULLY REDUNDANT with the shipped #6 GBM seeder. On the pure-3-way-XOR fixture the GBM
+    #      split-co-occurrence proposer recovers the SAME needle {x1,x2,x3} as its RANK-0 triple (z=5.46),
+    #      order-3-floored -- because path co-occurrence conditions a zero-marginal operand on its co-splitter
+    #      WITHOUT requiring a detectable (k-1)-tuple, so it is immune to the anti-monotone wall that blocks #10.
+    #      #10's whole purpose (reach a 3-way the univariate seeder misses) is already delivered by #6.
+    # The lattice's ONLY edge is cost (19.5 ms growth vs 1641 ms for the GBM fit+self-gate at n=3000/p=40) -- but
+    # that merely buys a proposer that misses its own target signal class. Do NOT re-implement as the backlog
+    # specifies. A non-Apriori conditional-growth scheme (e.g. seed triples from the GBM's co-occurrence pool,
+    # THEN refine the 3rd operand by CMI uplift) could compose with #6, but the recovery is already complete via
+    # #6 alone, so there is no measured gap to close.
+
     # ENGINEERED-OPERAND FEED-FORWARD CAP (2026-06-08). At FE step k>1 the operand
     # pool now also carries the engineered columns selected by the prior step(s)
     # (their cols-space indices are promoted into ``selected_vars`` at this
