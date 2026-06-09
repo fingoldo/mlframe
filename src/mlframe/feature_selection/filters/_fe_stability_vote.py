@@ -180,6 +180,24 @@ def confirm_recipes_cross_fold(
     if n < 2 * k:
         return failed
 
+    from ._mi_greedy_cmi_fe import _quantile_bin
+
+    # TARGET ANCHOR RE-BINNING (IRON RULE / drop_redundant_raw_operands precedent,
+    # _mrmr_fit_impl.py:6603). The ``classes_y`` codes the FE sweep scored against
+    # are the SCREENING-level target binning -- on a skewed regression target that
+    # is value-edge, HIGH-cardinality and HEAVILY imbalanced (e.g. 26 unequal
+    # levels for ``y=a**2/b + log(c)*sin(d)``). Scoring the held-out uplift gate
+    # with that anchor while the engineered column + source operands are re-binned
+    # equi-frequency to ``nbins`` mismatches the two MI scales: the high-cardinality
+    # target inflates the finite-sample joint-MI bias ASYMMETRICALLY (more for the
+    # 2-D engineered leg than the 1-D source legs), which collapsed the uplift ratio
+    # and DROPPED the genuine div(sqr(a),abs(b)) / mul(log(c),sin(d)) recipes (passes
+    # 1/5). Re-bin the target equi-frequency to ``nbins`` so y, the engineered column
+    # and the source operands share ONE balanced binning -> the ratio is faithful and
+    # the genuine recipes clear the quorum. Monotone re-binning of integer codes
+    # preserves the target's information ordering.
+    y_codes = _quantile_bin(np.asarray(y_codes, dtype=np.float64), nbins=nbins)
+
     if rng is None:
         rng = np.random.default_rng()
     folds = _fold_indices(n, k, rng)
@@ -201,7 +219,6 @@ def confirm_recipes_cross_fold(
     # Pre-extract per-source RAW column codes per fold is wasteful; instead bin
     # the fold's source operand on demand. Cache the full-frame raw column float
     # values once per source name so each fold only re-bins its slice.
-    from ._mi_greedy_cmi_fe import _quantile_bin
     from .engineered_recipes._recipe_extract import _extract_column
 
     _raw_col_cache: dict = {}
