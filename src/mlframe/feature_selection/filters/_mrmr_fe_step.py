@@ -267,6 +267,40 @@ def _run_fe_step(
         verbose=verbose,
     )
 
+    # bench-rejected (2026-06-09) -- backlog #9 "RFF / random-projection interaction pre-screen
+    # (detect-without-enumerate)": a sibling proposer to the GBM seeder above that would draw R
+    # random SPARSE (support 2-4 cols) hyperplane projections phi_r(x)=cos(w_r^T x_std + b_r), score
+    # each phi_r's MI vs y, and promote supports whose best-of-trials MI uplift over the additive
+    # baseline clears a permutation-null maxT floor -- meant to recover zero-marginal/smooth
+    # interaction supports the all-pairs synergy bootstrap SKIPS when p > fe_synergy_screen_max_features.
+    # Prototyped + benchmarked end-to-end (D:/Temp/rff_proto*.py, rff_coverage.py, rff_vs_allpairs.py,
+    # rff_smooth_check.py, rff_largep_birthday.py; n=2000, p=500-3000). The MECHANISM is sound -- when
+    # the needle support is COVERED, best-of-T RFF ranks it #0 with uplift 0.146 vs a null floor 0.0145
+    # (10x), 0 noise false-promote -- but it loses in EVERY regime against the direct joint-MI sweep:
+    #   1) COVERAGE is the binding constraint, not enumeration. A SPECIFIC localized k=2 needle in p=500
+    #      has hit-probability R / C(p,2): R=2000 -> 1.6%, R=16000 -> 12%, R=124750 (== full all-pairs) ->
+    #      63%; reaching 0.95 recall of ONE needle needs ~374k random draws. Random sparse supports cannot
+    #      guarantee recall of a specific needle without ~enumerating all pairs.
+    #   2) The BIRTHDAY-PARADOX rationale is wrong for sparse planted needles: with K=30 planted needles at
+    #      p=3000 (C(p,2)=4.5M), R=20000 x T=6 = 120k evals (65s) DREW 0/30 needles -> recall 0/30. Hitting
+    #      a fixed K-needle set needs draws ~ C(p,2)/K (~150k here), not R << p^2; the birthday paradox is
+    #      about collisions AMONG draws, not hitting a fixed small target set.
+    #   3) COST: one RFF best-of-T (T=8) support evaluation is 17x the cost of one direct joint-MI pair
+    #      evaluation (4.1ms vs 0.24ms). 0.95-recall of one needle ~1533s of RFF vs ~30s for the full
+    #      deterministic C(500,2) joint-MI sweep.
+    #   4) NO EXCLUSIVE SWEET SPOT: the 2-D joint-MI estimator is a nonparametric (x_i, x_j, y) contingency
+    #      MI, so it recovers the SMOOTH sin(x1*x2) needle (rank #0/2000, jMI 1.29) exactly as well as the
+    #      zero-marginal product x3*x400 (rank #0/2000, jMI 1.51). The "smooth/rotated interactions trees
+    #      miss" argument applies to the GBM seeder's AXIS-ALIGNED trees (#6/#21), NOT to the joint-MI sweep
+    #      that #9 was meant to replace.
+    # The correct fix for "needle missed when p > fe_synergy_screen_max_features" is to RAISE/relax that cap
+    # (and its fe_synergy_max_sweep_cost n*p^2 budget): the direct all-pairs joint-MI bootstrap recovers
+    # both the zero-marginal and the smooth needle DETERMINISTICALLY and ~17x cheaper at p<=1000 (full sweep
+    # ~30s at p=500, ~120s at p=1000). RFF random-support prescreen would only conceivably help at p >~ 5000
+    # where C(p,2) joint-MI is itself infeasible -- but even there it is coverage-bound (test #2 above) and
+    # never recovers a SPECIFIC needle, so it is not implemented. Do NOT re-attempt as a default or opt-in
+    # proposer without a fundamentally different (non-random-support) coverage scheme.
+
     # ENGINEERED-OPERAND FEED-FORWARD CAP (2026-06-08). At FE step k>1 the operand
     # pool now also carries the engineered columns selected by the prior step(s)
     # (their cols-space indices are promoted into ``selected_vars`` at this
