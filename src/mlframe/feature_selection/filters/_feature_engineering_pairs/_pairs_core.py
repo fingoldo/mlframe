@@ -192,6 +192,21 @@ def check_prospective_fe_pairs(
     # SIZE the candidate buffers (chunk width + shared-buffer fit check) -- never changes which
     # candidates are produced or their MI, so selection stays byte-identical.
     concurrent_workers: int = 1,
+    # MILLER-MADOW DEBIAS of the joint-prevalence RATIO gate (2026-06-09, backlog #1 + #4).
+    # The gate ``best_mi / pair_mi > fe_min_engineered_mi_prevalence`` compares a 1-D
+    # engineered MI (over ~``quantization_nbins`` bins) against a 2-D joint MI (over
+    # ~``nbins^2`` bins). Both are RAW plug-in MIs whose positive finite-sample bias is
+    # ``(k_x-1)(k_y-1)/2n``; the JOINT denominator's term is ~``nbins``x larger, so the raw
+    # ratio is structurally depressed below 1.0 at small/moderate n. When True we subtract the
+    # Miller-Madow MI bias term (OCCUPIED bin counts, #4) from BOTH sides before the ratio,
+    # with a denominator-positivity guard that falls back to the raw ratio when the joint bias
+    # swamps the finite-sample joint MI; the order-2 maxT floor is MM-debiased CONSISTENTLY
+    # upstream (IRON RULE). bench-rejected as DEFAULT (2026-06-09): the isolated ratio fix is
+    # real but it adds 0 end-to-end recovery on clean synergy (the marginal-uplift fallback
+    # already recovers it) and ADMITS cross-mix noise on the weak F2 (cross-mix 3/10 -> 9/10
+    # seeds, genuine_ab 10/10 -> 8/10). Default False (opt-in); see the full numbers + rationale
+    # on ``MRMR.fe_mm_debias_prevalence``. False == legacy raw-plug-in ratio (byte-reproduction).
+    fe_mm_debias_prevalence: bool = False,
 ):
     # Starting from the most heavily connected pairs, create a big pool of original features + their unary transforms. Individual vars referenced more than once go
     # to the global pool, the rest to the local (not stored)?
@@ -760,6 +775,29 @@ def check_prospective_fe_pairs(
         _operand_marginal_mi_cache[_var] = _mi_val
         return _mi_val
 
+    # MM-DEBIAS (2026-06-09, backlog #1 + #4): per-operand DISCRETISED codes for the
+    # occupied-joint-K of a raw pair. Memoised + bit-identical to the discretise the
+    # gate's ``pair_mi`` was computed over (same ``quantization_nbins`` / method /
+    # ``transformed_vars`` identity column ``_operand_marginal_mi`` uses). Returns the
+    # int code array, or None when the operand has no identity transform.
+    _operand_disc_cache: dict = {}
+
+    def _operand_discretized(_var):
+        if _var in _operand_disc_cache:
+            return _operand_disc_cache[_var]
+        _codes = None
+        _idx = vars_transformations.get((_var, "identity"))
+        if _idx is not None:
+            try:
+                _codes = discretize_array(
+                    arr=transformed_vars[:, _idx], n_bins=quantization_nbins,
+                    method=quantization_method, dtype=quantization_dtype,
+                )
+            except Exception:
+                _codes = None
+        _operand_disc_cache[_var] = _codes
+        return _codes
+
     # CROSS-PAIR (CHUNK) BATCHING precompute (2026-06-06). Only on the hoist+quantile
     # path (the per-pair 3-phase batch path). We partition the prospective pairs into
     # CHUNKS whose total candidate-column count fits the RAM-budgeted chunk buffer,
@@ -1170,7 +1208,52 @@ def check_prospective_fe_pairs(
         # noise (+1 support). Prevalence gating subsumes the win -> not shipped.
         # Standard acceptance: the best engineered MI clears the configured
         # fraction of the 2-D pair-joint MI.
-        _passes_joint_gate = best_mi / pair_mi > fe_min_engineered_mi_prevalence * (1.0 if num_fs_steps < 1 else 1.025)
+        #
+        # MILLER-MADOW DEBIAS (2026-06-09, backlog #1 + #4). The RAW ratio
+        # ``best_mi / pair_mi`` compares a 1-D engineered MI (over ~``quantization_nbins``
+        # bins) against a 2-D joint MI (over ~``nbins^2`` bins). Both are plug-in MIs whose
+        # positive bias is ``(k_x-1)(k_y-1)/2n``; the JOINT denominator's term is ~``nbins``x
+        # larger, so the raw ratio is structurally depressed below 1.0 even when the 1-D
+        # feature captures all the joint information (worst at small/moderate n) -- this is
+        # exactly the documented reason the marginal-uplift fallback gate had to be added.
+        # When ``fe_mm_debias_prevalence`` we subtract the MM MI-bias term from BOTH sides,
+        # using the OCCUPIED bin counts (#4: nominal ``nbins`` over-corrects heavy-tailed
+        # columns that collapse), with a denominator-positivity guard that defers to the raw
+        # ratio when the joint bias term swamps the finite-sample joint MI. ``->`` raw ratio
+        # as ``n -> inf`` (bias terms vanish) => large-n selection byte-untouched. The order-2
+        # maxT floor (the outer guard) is MM-debiased CONSISTENTLY upstream (the IRON RULE),
+        # so admitting more pairs here does NOT weaken the best-of-pool noise floor.
+        _gate_ratio = (best_mi / pair_mi) if pair_mi > 0.0 else 0.0
+        if fe_mm_debias_prevalence and pair_mi > 0.0 and best_config is not None:
+            from ._pairs_gates import _occupied_k, mm_debiased_prevalence_ratio
+            _n_rows = int(len(classes_y))
+            _k_y = int(np.asarray(freqs_y).shape[0])
+            # Engineered winner occupied-K: discretise its CONTINUOUS column (the buffer
+            # column ``best_config[2]``) with the SAME quantiser the MI was scored under.
+            _k_eng = quantization_nbins
+            try:
+                _win_codes = discretize_array(
+                    arr=np.nan_to_num(final_transformed_vals[:, best_config[2]]),
+                    n_bins=quantization_nbins, method=quantization_method, dtype=quantization_dtype,
+                )
+                _k_eng = _occupied_k(_win_codes)
+            except Exception:
+                _k_eng = quantization_nbins
+            # 2-D joint occupied-K of the raw operands (bit-identical discretise to the
+            # pair_mi compute); fall back to nominal ``nbins^2`` if either operand is
+            # missing an identity transform.
+            _ca = _operand_discretized(raw_vars_pair[0])
+            _cb = _operand_discretized(raw_vars_pair[1])
+            if _ca is not None and _cb is not None:
+                _nb_b = int(np.asarray(_cb).max()) + 1 if np.asarray(_cb).size else quantization_nbins
+                _joint_codes = np.asarray(_ca, dtype=np.int64) * _nb_b + np.asarray(_cb, dtype=np.int64)
+                _k_joint = _occupied_k(_joint_codes)
+            else:
+                _k_joint = quantization_nbins * quantization_nbins
+            _gate_ratio = mm_debiased_prevalence_ratio(
+                best_mi, pair_mi, k_eng=_k_eng, k_joint=_k_joint, k_y=_k_y, n=_n_rows,
+            )
+        _passes_joint_gate = _gate_ratio > fe_min_engineered_mi_prevalence * (1.0 if num_fs_steps < 1 else 1.025)
 
         # Alternative pre-warp acceptance (2026-06-02): the joint-prevalence gate
         # structurally rejects a 1-D summary of a 2-D pair on a non-monotone inner

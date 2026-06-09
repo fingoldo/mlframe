@@ -417,7 +417,7 @@ def _run_fe_step(
     # branch below. SELF-GATING: below ``fe_pair_maxt_min_pairs`` candidate pairs
     # the floor is 0.0 (no-op => byte-identical narrow pools), mirroring
     # ``screen_fdr_min_features``. ``fe_pair_maxt_null_permutations=0`` disables.
-    _pair_maxt_floor = compute_pair_maxt_floor(
+    _pair_maxt_floor, _pair_mm_bias = compute_pair_maxt_floor(
         self,
         numeric_vars_to_consider=numeric_vars_to_consider,
         n_pairs=n_pairs,
@@ -443,6 +443,15 @@ def _run_fe_step(
                 # Guard against ZeroDivisionError: when both individual features have zero MI with target
                 # (canonical 3-way XOR case: MI(x_i, y) = 0 for all i but the joint signal exists), any positive pair_mi
                 # qualifies as infinite uplift -- keep the pair.
+                # MM-DEBIAS (2026-06-09, IRON RULE): the maxT floor was computed on the
+                # Miller-Madow-debiased joint-MI scale (per-pair bias subtracted inside the
+                # null kernel), so subtract the SAME per-pair joint-MI bias from the observed
+                # ``pair_mi`` before the ``>= floor`` comparison -- consistent debias on both
+                # sides keeps the outer best-of-pool guard at full strength even though the
+                # prevalence ratio bar downstream was lowered. No-op (0.0) when MM is off or
+                # the pool is below the floor's min-pairs self-gate.
+                _mm_pair_bias = _pair_mm_bias.get(tuple(sorted(raw_vars_pair)), 0.0)
+                _pair_mi_floor_cmp = pair_mi - _mm_pair_bias
                 if ind_elems_mi_sum <= 0:
                     # ORDER-2 maxT floor (computed once above): a zero-individual-MI
                     # pair enters via the canonical XOR branch on ANY positive joint
@@ -451,7 +460,7 @@ def _run_fe_step(
                     # to clear the pool's permutation-null max before keeping it;
                     # genuine pure-synergy (XOR / sign product) joint MI is FAR above
                     # the chance ceiling, so it survives. No-op when floor==0.0.
-                    if pair_mi > 0 and pair_mi >= _pair_maxt_floor:
+                    if pair_mi > 0 and _pair_mi_floor_cmp >= _pair_maxt_floor:
                         uplift = float("inf")
                         if verbose >= 2:
                             logger.info(
@@ -479,7 +488,8 @@ def _run_fe_step(
                 # per-pair prevalence gate: the pair's JOINT MI must clear the pool's
                 # permutation-null max as well, rejecting best-of-p chance-max noise
                 # pairs the per-pair prevalence bar misses. No-op when floor==0.0.
-                if pair_mi > ind_elems_mi_sum * _prev_thresh and pair_mi >= _pair_maxt_floor:
+                # ``_pair_mi_floor_cmp`` is the MM-debiased joint MI (IRON RULE, see above).
+                if pair_mi > ind_elems_mi_sum * _prev_thresh and _pair_mi_floor_cmp >= _pair_maxt_floor:
                     uplift = pair_mi / ind_elems_mi_sum
                     if verbose >= 2:
                         logger.info(
@@ -789,6 +799,11 @@ def _run_fe_step(
                 # rather than the lossy bin codes.
                 allow_engineered_operands=(_eng_cap != 0),
                 engineered_operand_values=getattr(self, "_engineered_continuous_", None),
+                # MM-DEBIAS (2026-06-09, backlog #1 + #4): debias the joint-prevalence
+                # ratio gate (see check_prospective_fe_pairs). Co-updated with the maxT
+                # floor below (IRON RULE). Default-on; ``fe_mm_debias_prevalence=False``
+                # byte-reproduces pre-2026-06-09 fits.
+                fe_mm_debias_prevalence=bool(getattr(self, "fe_mm_debias_prevalence", False)),
             )
         else:
 
@@ -855,6 +870,8 @@ def _run_fe_step(
                         # ENGINEERED-OPERAND FEED-FORWARD (2026-06-08): see the serial branch above.
                         allow_engineered_operands=(_eng_cap != 0),
                         engineered_operand_values=getattr(self, "_engineered_continuous_", None),
+                        # MM-DEBIAS (2026-06-09, backlog #1 + #4): see the serial branch above.
+                        fe_mm_debias_prevalence=bool(getattr(self, "fe_mm_debias_prevalence", False)),
                         # LARGE-N PEAK-MEMORY FIX (2026-06-08): joblib ``backend="threading"``
                         # runs up to ``n_jobs`` of these CONCURRENTLY in the shared address space,
                         # each allocating its own candidate/chunk/disc/MI buffers; divide the

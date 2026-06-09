@@ -51,6 +51,37 @@ def entropy_miller_madow(freqs: np.ndarray, n_samples: int, min_occupancy: float
 
 
 @njit(cache=True)
+def mi_miller_madow_correct(mi_plugin: float, k_x: int, k_y: int, n_samples: int) -> float:
+    """Miller-Madow bias-correct a PLUG-IN mutual-information estimate.
+
+    The plug-in MI ``I_hat(X;Y) = H_hat(X) + H_hat(Y) - H_hat(X,Y)`` carries a
+    POSITIVE finite-sample bias because the joint ``H(X,Y)`` term is the most
+    over-binned. Carrying the Miller-Madow ``(k-1)/(2n)`` entropy correction
+    through ``I = H(X)+H(Y)-H(X,Y)`` gives the closed-form MI correction
+    ``bias = (k_x - 1)(k_y - 1)/(2n)`` (the marginal corrections cancel against the
+    joint one down to the product term). Subtracting it yields the Miller-Madow MI
+    estimate ``I_mm = I_plugin - (k_x-1)(k_y-1)/(2n)``.
+
+    ``k_x`` / ``k_y`` are the OCCUPIED (non-empty) bin counts of X and Y -- the SAME
+    ``k = #{bins with count>0}`` that :func:`entropy_miller_madow` uses internally
+    (backlog #4: nominal ``nbins`` over-corrects heavy-tailed columns that collapse
+    to few occupied bins). The bias term is zero when either variable is degenerate
+    (``k <= 1``), so the plug-in value passes through unchanged there.
+
+    Used by the FE joint-prevalence gate: the numerator (1-D engineered MI over
+    ~``nbins`` bins) and the denominator (2-D joint MI over ~``nbins^2`` bins) carry
+    bias terms differing by ~``nbins``x, so the RAW ratio ``best_mi/pair_mi`` is
+    structurally depressed below 1.0 even when the 1-D feature captures all the joint
+    information -- worst at small/moderate ``n``. MM-correcting BOTH sides before the
+    ratio removes that asymmetry. ``->0`` as ``n -> inf``, so large-n selection is
+    byte-untouched. References: Miller (1955); Paninski (2003).
+    """
+    if k_x <= 1 or k_y <= 1:
+        return mi_plugin
+    return mi_plugin - (k_x - 1) * (k_y - 1) / (2.0 * n_samples)
+
+
+@njit(cache=True)
 def mi(
     factors_data,
     x: np.ndarray,

@@ -86,6 +86,67 @@ _GATE_MED_UNARY = "gate_med"
 _GATE_MED_SPECS_RESULT_KEY = ("__gate_med_specs__", -1, -1)
 
 
+def _occupied_k(codes: np.ndarray) -> int:
+    """Number of OCCUPIED (non-empty) ordinal bins in a 1-D code array -- the same
+    ``k = #{bins with count>0}`` :func:`entropy_miller_madow` counts internally
+    (backlog #4). Heavy-tailed engineered columns collapse to a few occupied bins,
+    so the nominal ``nbins`` over-states the cardinality and over-corrects the MM
+    bias term; the occupied count is the cardinality the plug-in MI actually sees."""
+    arr = np.asarray(codes)
+    if arr.size == 0:
+        return 0
+    return int(np.unique(arr).size)
+
+
+def mm_debiased_prevalence_ratio(
+    best_mi: float,
+    pair_mi: float,
+    *,
+    k_eng: int,
+    k_joint: int,
+    k_y: int,
+    n: int,
+) -> float:
+    """Miller-Madow-debiased ``best_mi / pair_mi`` for the FE joint-prevalence gate
+    (backlog #1 + #4).
+
+    The numerator ``best_mi`` is the 1-D engineered MI over ``k_eng`` occupied bins;
+    the denominator ``pair_mi`` is the 2-D joint MI over ``k_joint`` occupied bins
+    (``~nbins^2``). Both are RAW plug-in MIs and both carry the positive bias
+    ``(k_x-1)(k_y-1)/2n``, but the JOINT denominator's term is ~``nbins``x larger, so
+    the raw ratio is structurally depressed below 1.0 even when the 1-D feature
+    captures all the joint information (worst at small/moderate ``n``). We subtract
+    the Miller-Madow MI bias term from EACH side (occupied-K per backlog #4) and take
+    the corrected ratio.
+
+    DENOMINATOR-POSITIVITY GUARD (the #1 stability risk): the joint bias term can
+    exceed the small finite-sample ``pair_mi`` at small ``n`` / high ``k_joint``,
+    driving the corrected denominator to <=0 (ratio sign-flips / explodes). When the
+    corrected denominator is not safely positive we FALL BACK to the raw plug-in ratio
+    -- never admit on a degenerate correction. ``->`` raw ratio as ``n -> inf`` (the
+    bias terms vanish), so large-n selection is byte-untouched.
+    """
+    from ..info_theory import mi_miller_madow_correct
+
+    if pair_mi <= 0.0:
+        return 0.0
+    raw_ratio = best_mi / pair_mi
+    if n <= 0 or k_y <= 1:
+        return raw_ratio
+    num_mm = mi_miller_madow_correct(best_mi, k_eng, k_y, n)
+    den_mm = mi_miller_madow_correct(pair_mi, k_joint, k_y, n)
+    # Guard: a non-positive (or vanishing) corrected denominator means the joint
+    # bias term swamped the finite-sample joint MI -- the correction is unreliable
+    # here, so defer to the raw plug-in ratio (the existing gate behaviour).
+    if den_mm <= 1e-9 * max(pair_mi, 1.0):
+        return raw_ratio
+    # A debiased numerator can go slightly negative for a near-zero engineered MI;
+    # clamp at 0 so the ratio cannot turn negative and spuriously "pass" / "fail".
+    if num_mm < 0.0:
+        num_mm = 0.0
+    return num_mm / den_mm
+
+
 def _gate_med_apply(vals: np.ndarray, median: float) -> np.ndarray:
     """Replay the median-gate pseudo-unary closed-form: ``(x > train_median).astype(float)``.
 

@@ -2,7 +2,7 @@
 
 Two blocks with explicit inputs/outputs (no shared-local threading with the surrounding orchestrator beyond their declared parameters):
 
-* ``compute_pair_maxt_floor`` -- the order-2 Westfall-Young permutation-null joint-MI floor over the whole candidate-pair pool (returns a single float, applied as an extra gate in both the XOR and uplift branches of the pair loop).
+* ``compute_pair_maxt_floor`` -- the order-2 Westfall-Young permutation-null joint-MI floor over the whole candidate-pair pool. Returns ``(floor, per_pair_mm_bias)``: the float floor applied as an extra gate in both the XOR and uplift branches of the pair loop, plus (when ``fe_mm_debias_prevalence``) the per-pair Miller-Madow joint-MI bias map subtracted from the observed ``pair_mi`` at the floor comparison so the floor stays on the same debiased scale as the prevalence ratio gate (IRON RULE: consistent debias on both sides).
 * ``run_cluster_aggregate_emission`` -- the opt-in clustered-feature aggregation emission block (runs once on the first FE step; returns the updated ``(data, cols, nbins, X, selected_vars, n_recommended_features)`` tuple and stamps the fitted summary onto ``self``).
 
 Both take the ``MRMR`` instance as ``self`` so they read the frozen ``fe_*`` / ``cluster_aggregate_*`` config off it exactly as the inlined blocks did. The heavy kernels stay in their own modules (``_permutation_null``, ``_cluster_aggregate``) and are lazy-imported in-body to avoid import cycles.
@@ -106,7 +106,7 @@ def compute_pair_maxt_floor(
     classes_y,
     freqs_y,
     verbose,
-) -> float:
+) -> tuple[float, dict]:
     """Order-2 Westfall-Young permutation-null joint-MI floor over the candidate-pair pool.
 
     The pair-gating loop ranks O(p^2) candidate pairs by JOINT MI(x_i, x_j; y); at high p the MAX joint MI over PURE-NOISE pairs is a positive order statistic that grows with the
@@ -116,10 +116,16 @@ def compute_pair_maxt_floor(
     ``fe_pair_maxt_min_pairs`` candidate pairs the floor is 0.0 (no-op => byte-identical narrow pools). ``fe_pair_maxt_null_permutations=0`` disables.
     """
     _pair_maxt_floor = 0.0
+    # MM-DEBIAS (2026-06-09, backlog #1 IRON RULE): per-pair Miller-Madow joint-MI bias
+    # (sorted-index tuple -> bias). Subtracted from BOTH the floor's per-shuffle joint MIs
+    # (inside the null kernel) AND the observed ``pair_mi`` at the gate-floor comparison,
+    # so debiasing the prevalence ratio does NOT weaken this outer best-of-pool guard.
+    _pair_mm_bias: dict = {}
+    _mm_debias = bool(getattr(self, "fe_mm_debias_prevalence", False))
     _pair_maxt_perms = int(getattr(self, "fe_pair_maxt_null_permutations", 25) or 0)
     if _pair_maxt_perms > 0 and len(numeric_vars_to_consider) >= 2 and n_pairs >= int(getattr(self, "fe_pair_maxt_min_pairs", 30)):
         try:
-            from ._permutation_null import pooled_pair_permutation_null_joint_mi_floor
+            from ._permutation_null import pooled_pair_permutation_null_joint_mi_floor, pairwise_mm_joint_bias
 
             _maxt_pairs = list(combinations(numeric_vars_to_consider, 2))
             _maxt_pa = np.fromiter((p[0] for p in _maxt_pairs), dtype=np.int64, count=len(_maxt_pairs))
@@ -134,13 +140,19 @@ def compute_pair_maxt_floor(
                 n_permutations=_pair_maxt_perms,
                 quantile=float(getattr(self, "fe_pair_maxt_null_quantile", 0.95)),
                 random_seed=getattr(self, "random_seed", None),
+                mm_debias=_mm_debias,
             )
-            if _pair_maxt_floor > 0.0 and verbose >= 1:
+            if _mm_debias:
+                _k_y = int(np.asarray(freqs_y).shape[0])
+                _bias_vec = pairwise_mm_joint_bias(data, _maxt_pa, _maxt_pb, nbins, _k_y)
+                for _pi, _pr in enumerate(_maxt_pairs):
+                    _pair_mm_bias[tuple(sorted(_pr))] = float(_bias_vec[_pi])
+            if _pair_maxt_floor != 0.0 and verbose >= 1:
                 logger.info(
                     "MRMR FE: order-2 maxT permutation-null joint-MI floor=%.5f over %d candidate "
-                    "pairs (q=%.2f, K=%d) - rejects best-of-p chance-max noise pairs.",
+                    "pairs (q=%.2f, K=%d, mm_debias=%s) - rejects best-of-p chance-max noise pairs.",
                     _pair_maxt_floor, n_pairs, float(getattr(self, "fe_pair_maxt_null_quantile", 0.95)),
-                    _pair_maxt_perms,
+                    _pair_maxt_perms, _mm_debias,
                 )
         except Exception:
             logger.warning(
@@ -148,7 +160,8 @@ def compute_pair_maxt_floor(
                 exc_info=True,
             )
             _pair_maxt_floor = 0.0
-    return _pair_maxt_floor
+            _pair_mm_bias = {}
+    return _pair_maxt_floor, _pair_mm_bias
 
 
 def run_cluster_aggregate_emission(

@@ -480,6 +480,36 @@ class MRMR(BaseEstimator, TransformerMixin):
         # joint-prevalence floor no longer has to carry that load and can return to the value
         # that admits genuine 1-D summaries of real 2-D interactions.
         fe_min_engineered_mi_prevalence: float = 0.90,  # mi of transformed pair must be at least that higher than the mi of the entire pair
+        # MILLER-MADOW DEBIAS of the joint-prevalence ratio gate (2026-06-09, backlog #1 + #4).
+        # The gate ``best_mi / pair_mi > fe_min_engineered_mi_prevalence`` compares a 1-D
+        # engineered MI (over ~``quantization_nbins`` bins) against a 2-D joint MI (over
+        # ~``nbins^2`` bins). Both are RAW plug-in MIs whose positive finite-sample bias is
+        # ``(k_x-1)(k_y-1)/2n``; the JOINT denominator carries ~``nbins``x more bias, so the
+        # raw ratio is structurally depressed below 1.0 at small/moderate n. When True the
+        # Miller-Madow MI-bias term is subtracted from BOTH sides before the ratio (occupied
+        # bin counts, #4) with a denominator-positivity guard, and the order-2 maxT floor is
+        # MM-debiased CONSISTENTLY (IRON RULE, see ``_permutation_null`` / ``compute_pair_maxt_floor``).
+        #
+        # bench-rejected as a DEFAULT (2026-06-09); kept OPT-IN (default False). The ISOLATED
+        # ratio fix is real -- on the He2(a)*b fixture the raw ratio is 0.555 / 0.841 / 1.003
+        # at n=500 / 2000 / 8000 and the MM(occupied-K) ratio is 1.99 / 1.15 / 1.10 (crosses
+        # the 0.90 bar at small n where raw fails; n=8000 raw~=corrected => large-n untouched),
+        # and the pure-NOISE frame stays below the bar both raw AND MM-corrected (0.27 / 0.28 /
+        # 0.56 -- no isolated FP). BUT it does NOT translate to an END-TO-END win and it ADMITS
+        # NOISE on the realistic weak target: (1) on the CLEAN He2(a)*b end-to-end the existing
+        # marginal-uplift FALLBACK gate already recovers the genuine (a,b) pair 5/5 at n=500 and
+        # n=2000 with MM OFF, so MM adds 0 incremental recovery; (2) on the user's WEAK F2
+        # (``0.2*a**2/b + log(c)*sin(d)``, 10 seeds uniform n=20000) MM REGRESSES genuine_ab
+        # 10/10 -> 8/10, does NOT recover genuine_cd (0/10 -> 0/10), and nearly TRIPLES cross-mix
+        # admission 3/10 -> 9/10 seeds (n_cross 6 -> 11): the MM over-correction (ratio -> ~2.0)
+        # makes the prevalence gate uniformly too permissive, so cross-signal artefacts like
+        # ``sub(reciproc(b),sin(d))`` / ``add(reciproc(b),log(d))`` clear the relaxed ratio.
+        # This is the IRON-RULE failure mode and matches the prior-session II-routing rejection
+        # on the SAME target (the cross-mix has HIGHER interaction info than the genuine pair, so
+        # NO ratio threshold separates them). The maxT-floor co-update is correct + green (6/6
+        # order-2 biz tests, noise 100% at/below the MM floor) -- the reject is the RATIO gate
+        # relaxation, not the floor. True enables the full mechanism for re-bench on other data.
+        fe_mm_debias_prevalence: bool = False,
         # ENGINEERED-FEATURE ACCEPTANCE STRATEGY (strategy S5, 2026-06-08).
         # ``"conditional_mi"`` (default): the PRINCIPLED, constant-free gate. After the
         # per-pair search has chosen one best engineered column per pair, a greedy CMI-MRMR
@@ -2511,6 +2541,10 @@ class MRMR(BaseEstimator, TransformerMixin):
             "fe_univariate_fourier_chirp": True,
             "fe_univariate_fourier_chirp_min_val_corr": 0.15,
             "_adaptive_fourier_features_": [],
+            # MILLER-MADOW DEBIAS of the joint-prevalence ratio gate (2026-06-09,
+            # backlog #1 + #4). bench-rejected as default (admits cross-mix noise on
+            # weak F2); kept OPT-IN. Pre-MM pickles default to OFF for re-fits.
+            "fe_mm_debias_prevalence": False,
         }
         for k, v in defaults.items():
             state.setdefault(k, v)

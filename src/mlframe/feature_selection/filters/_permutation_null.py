@@ -183,6 +183,30 @@ def pooled_permutation_null_gain_floor(
     return float(np.quantile(maxes, float(quantile)))
 
 
+def _pairwise_occupied_joint_k(
+    factors_data: np.ndarray, pair_a: np.ndarray, pair_b: np.ndarray, nbins: np.ndarray,
+) -> np.ndarray:
+    """Per-pair OCCUPIED joint-bin count of ``(x_a, x_b)`` -- the cardinality the
+    plug-in joint MI :func:`batch_pair_mi_prange` actually sees (backlog #4).
+
+    Permutation-INVARIANT (depends only on the X-columns, never on y), so it is
+    precomputed ONCE and reused across all shuffles. Returns an ``int64`` array of
+    length ``len(pair_a)``; entry ``k`` is ``#{distinct (a*nbins_b + b) codes}`` for
+    pair ``k``. Used to subtract the per-pair Miller-Madow MI bias term consistently
+    from BOTH the floor's per-shuffle joint MIs AND the gate's observed ``pair_mi``."""
+    n = int(factors_data.shape[0])
+    n_pairs = int(pair_a.shape[0])
+    out = np.empty(n_pairs, dtype=np.int64)
+    for p in range(n_pairs):
+        a = int(pair_a[p]); b = int(pair_b[p])
+        nb_b = int(nbins[b])
+        seen = set()
+        for i in range(n):
+            seen.add(int(factors_data[i, a]) * nb_b + int(factors_data[i, b]))
+        out[p] = len(seen)
+    return out
+
+
 def pooled_pair_permutation_null_joint_mi_floor(
     factors_data: np.ndarray,
     nbins: np.ndarray,
@@ -194,6 +218,7 @@ def pooled_pair_permutation_null_joint_mi_floor(
     n_permutations: int = 25,
     quantile: float = 0.95,
     random_seed: int | None = None,
+    mm_debias: bool = False,
 ) -> float:
     """Return the ORDER-2 maxT permutation-null floor for a prospective-pair pool.
 
@@ -226,12 +251,25 @@ def pooled_pair_permutation_null_joint_mi_floor(
     Returns ``0.0`` (a no-op floor) when the pool is degenerate (n too small,
     fewer than two candidate pairs, single-class target, or no permutations
     requested), so callers can unconditionally compare ``pair_mi >= floor``.
+
+    MM-DEBIAS (2026-06-09, backlog #1 IRON RULE). When ``mm_debias`` the FE
+    joint-prevalence RATIO gate downstream subtracts the Miller-Madow joint-MI
+    bias from its ``pair_mi`` denominator, which LOWERS the bar and admits more
+    pairs. To keep this floor (the outer best-of-pool guard) on the SAME scale --
+    so lowering the ratio bar does NOT weaken the floor -- we subtract the per-pair
+    Miller-Madow MI bias ``(k_joint-1)(k_y-1)/2n`` (occupied joint-K, #4) from EACH
+    pair's joint MI BEFORE the per-shuffle max. The per-pair bias is permutation-
+    invariant (X-columns + k_y unchanged under y-shuffle), so it is precomputed once
+    and applied to every shuffle, and the caller subtracts the IDENTICAL per-pair
+    term from the observed ``pair_mi`` before the ``>= floor`` comparison (consistent
+    debias on both sides). ``->`` the raw floor as ``n -> inf``.
     """
     n = int(factors_data.shape[0])
     n_pairs = int(pair_a.shape[0])
     if n < 8 or n_permutations < 1 or n_pairs < 2:
         return 0.0
-    if int(np.asarray(freqs_y).shape[0]) < 2:
+    k_y = int(np.asarray(freqs_y).shape[0])
+    if k_y < 2:
         return 0.0
 
     # Reuse the exact batched plug-in joint-MI kernel the FE pair screen uses
@@ -244,12 +282,46 @@ def pooled_pair_permutation_null_joint_mi_floor(
     nb = np.ascontiguousarray(nbins)
     fy = np.ascontiguousarray(freqs_y, dtype=np.float64)
 
+    # Per-pair Miller-Madow bias vector (occupied joint-K), permutation-invariant.
+    mm_bias = None
+    if mm_debias:
+        k_joint = _pairwise_occupied_joint_k(factors_data, pa, pb, nb)
+        mm_bias = (k_joint - 1).astype(np.float64) * float(k_y - 1) / (2.0 * n)
+        mm_bias[k_joint <= 1] = 0.0
+
     rng = np.random.default_rng(random_seed)
     y_perm = np.ascontiguousarray(classes_y).copy()
     maxes = np.empty(int(n_permutations), dtype=np.float64)
     for k in range(int(n_permutations)):
         rng.shuffle(y_perm)  # in-place uniform permutation of the target codes
         mis = batch_pair_mi_prange(factors_data, pa, pb, nb, y_perm, fy)
+        if mm_bias is not None and mis.size:
+            mis = mis - mm_bias
         maxes[k] = float(np.max(mis)) if mis.size else 0.0
 
     return float(np.quantile(maxes, float(quantile)))
+
+
+def pairwise_mm_joint_bias(
+    factors_data: np.ndarray,
+    pair_a: np.ndarray,
+    pair_b: np.ndarray,
+    nbins: np.ndarray,
+    k_y: int,
+) -> np.ndarray:
+    """Per-pair Miller-Madow joint-MI bias ``(k_joint-1)(k_y-1)/2n`` (occupied
+    joint-K) for a candidate-pair pool. Public wrapper around
+    :func:`_pairwise_occupied_joint_k` so the FE gate can subtract the SAME per-pair
+    term from the observed ``pair_mi`` that the MM-debiased maxT floor subtracted
+    from its per-shuffle joint MIs (IRON RULE: consistent debias on both sides).
+    Returns an all-zero vector when ``k_y <= 1`` (degenerate target)."""
+    n = int(factors_data.shape[0])
+    pa = np.ascontiguousarray(pair_a, dtype=np.int64)
+    pb = np.ascontiguousarray(pair_b, dtype=np.int64)
+    nb = np.ascontiguousarray(nbins)
+    if int(k_y) <= 1 or n <= 0:
+        return np.zeros(int(pa.shape[0]), dtype=np.float64)
+    k_joint = _pairwise_occupied_joint_k(factors_data, pa, pb, nb)
+    bias = (k_joint - 1).astype(np.float64) * float(int(k_y) - 1) / (2.0 * n)
+    bias[k_joint <= 1] = 0.0
+    return bias

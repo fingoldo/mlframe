@@ -25,6 +25,7 @@ from ._entropy_kernels import (
     entropy,
     entropy_miller_madow,
     mi,
+    mi_miller_madow_correct,
     symmetric_uncertainty,
 )
 from ._state_and_dispatch import (
@@ -58,6 +59,7 @@ __all__ = [
     "joint_entropy_2var",
     "entropy",
     "entropy_miller_madow",
+    "mi_miller_madow_correct",
     "mi",
     "symmetric_uncertainty",
     "conditional_symmetric_uncertainty",
