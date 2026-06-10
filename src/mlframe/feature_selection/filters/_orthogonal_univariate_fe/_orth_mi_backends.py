@@ -159,7 +159,79 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10) -> np.nd
     p=200 n=2000 over the per-column sklearn loop, bit-equivalent to within
     machine epsilon (< 2e-15 across 40 seeds). Set ``MLFRAME_NUMBA_MI=0``
     to force the sklearn reference if a downstream regression demands it.
+
+    Idea #18 (2026-06-10) -- bench-rejected, default OFF: an inverse-prior
+    class-balanced MI was added to test whether plain plug-in MI under-RANKS
+    rare-class-discriminative features under imbalance. It does NOT: balancing is
+    a near-uniform multiplicative rescale (Kendall tau 0.989 vs plain), so it
+    almost never changes the rank-based selection, and where it does (13/120
+    imbalanced frames) the downstream rare-class AP is a net-negative coin-flip
+    (mean dAP -0.0037). Kept opt-in via ``MLFRAME_FE_IMBALANCE_MI=on`` (default
+    ``off`` => this branch is skipped and the path is byte-for-byte the plain MI
+    below). Full numbers in ``_imbalance_mi`` module docstring + the regression
+    test ``tests/feature_selection/test_imbalance_mi.py``.
     """
+    # Fast OFF short-circuit (the default): a single env read, no import / no
+    # bincount, so the common path is byte-for-byte and ~free vs plain numba.
+    import os as _os
+    if _os.environ.get("MLFRAME_FE_IMBALANCE_MI", "").strip().lower() in ("on", "1", "true", "yes", "auto"):
+        class_w = _maybe_class_weights(y)  # opt-in only
+        if class_w is not None:
+            cb = _mi_classif_batch_balanced(X, y, class_w, nbins=nbins)
+            if cb is not None:
+                return cb
     if _MI_BACKEND == "numba":
         return _mi_classif_batch_numba(X, y, nbins=nbins)
     return _mi_classif_batch_sklearn(X, y, nbins=nbins)
+
+
+def _maybe_class_weights(y: np.ndarray):
+    """Auto-detect imbalance and return inverse-prior class weights, or ``None``.
+
+    ``None`` => the caller falls through to the plain-MI path unchanged
+    (balanced data, below the n_rare gate, non-discrete y, or override ``off``).
+    Cheap: a single ``bincount`` + two comparisons; adds ~0 to the balanced path.
+    """
+    try:
+        from ._imbalance_mi import compute_class_weights
+        return compute_class_weights(y)
+    except Exception:
+        return None
+
+
+def _mi_classif_batch_balanced(X: np.ndarray, y: np.ndarray, class_w, *, nbins: int = 10):
+    """Class-balanced batch MI; mirrors ``_mi_classif_batch_numba``'s NaN handling.
+
+    Returns ``None`` on any failure so the caller falls back to plain MI rather
+    than poisoning the whole call.
+    """
+    try:
+        from ._imbalance_mi import _class_balanced_mi_batch_njit
+    except Exception:
+        return None
+    n, p = X.shape
+    y_i64 = np.ascontiguousarray(y, dtype=np.int64)
+    class_w = np.ascontiguousarray(class_w, dtype=np.float64)
+    mis = np.zeros(p, dtype=np.float64)
+    finite_per_col = np.isfinite(X).all(axis=0)
+    dense_cols = np.where(finite_per_col)[0]
+    partial_cols = np.where(~finite_per_col)[0]
+    try:
+        if dense_cols.size:
+            if dense_cols.size == p:
+                X_dense = np.ascontiguousarray(X)
+            else:
+                X_dense = np.ascontiguousarray(X[:, dense_cols])
+            mis[dense_cols] = _class_balanced_mi_batch_njit(X_dense, y_i64, class_w, nbins)
+        for j in partial_cols:
+            col = X[:, j]
+            finite = np.isfinite(col)
+            if not finite.any():
+                mis[j] = 0.0
+                continue
+            col_f = np.ascontiguousarray(col[finite].reshape(-1, 1))
+            y_f = np.ascontiguousarray(y_i64[finite])
+            mis[j] = float(_class_balanced_mi_batch_njit(col_f, y_f, class_w, nbins)[0])
+    except Exception:
+        return None
+    return mis
