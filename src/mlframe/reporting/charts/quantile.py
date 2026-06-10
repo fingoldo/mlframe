@@ -529,12 +529,18 @@ _TOKEN_BUILDERS: Dict[str, Callable] = {
 ALLOWED_QUANTILE_PANEL_TOKENS = frozenset(_TOKEN_BUILDERS)
 
 
+DEFAULT_QUANTILE_PANELS: str = (
+    "RELIABILITY COVERAGE PINBALL_BY_ALPHA INTERVAL_BAND WIDTH_DIST PIT_HIST "
+    "QUANTILE_RELIABILITY PINBALL_DECOMP QUANTILE_CROSSING"
+)
+
+
 def compose_quantile_figure(
     y_true,
     preds_NK,
     alphas: Sequence[float],
     *,
-    panels_template: str = "RELIABILITY PINBALL_BY_ALPHA INTERVAL_BAND WIDTH_DIST PIT_HIST",
+    panels_template: str = DEFAULT_QUANTILE_PANELS,
     suptitle: str = "",
     max_cols: int = 2,
     cell_width: float = 6.0,
@@ -587,5 +593,6 @@ def compose_quantile_figure(
 
 __all__ = [
     "ALLOWED_QUANTILE_PANEL_TOKENS",
+    "DEFAULT_QUANTILE_PANELS",
     "compose_quantile_figure",
 ]

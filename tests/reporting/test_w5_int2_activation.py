@@ -281,6 +281,24 @@ def test_psi_heatmap_has_threshold_contours():
 # ---------------------------------------------------------------------------
 
 
+def test_quantile_default_template_includes_r6_tokens():
+    from mlframe.reporting.charts.quantile import DEFAULT_QUANTILE_PANELS, compose_quantile_figure
+
+    for tok in ("QUANTILE_RELIABILITY", "PINBALL_DECOMP", "QUANTILE_CROSSING"):
+        assert tok in DEFAULT_QUANTILE_PANELS, f"{tok} must be default-on in the composer template"
+
+    rng = np.random.default_rng(8)
+    n = 600
+    alphas = (0.1, 0.25, 0.5, 0.75, 0.9)
+    y = rng.normal(size=n)
+    base = np.column_stack([np.quantile(y, a) + np.zeros(n) for a in alphas])
+    preds = base + rng.normal(scale=0.2, size=n)[:, None]
+    # Default template (all 9 tokens) must build a figure without error.
+    spec = compose_quantile_figure(y, preds, alphas)
+    n_panels = sum(1 for _ in _first_panel(spec))
+    assert n_panels == len(DEFAULT_QUANTILE_PANELS.split())
+
+
 def test_adversarial_roc_uses_per_series_x():
     pytest.importorskip("lightgbm")
     from mlframe.reporting.charts.drift import adversarial_validation

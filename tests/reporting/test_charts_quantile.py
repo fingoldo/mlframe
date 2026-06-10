@@ -135,12 +135,14 @@ class TestPanelTypes:
 
 
 class TestComposer:
-    def test_default_template_returns_5_panels(self, synth_qr_3alpha):
+    def test_default_template_renders_all_default_tokens(self, synth_qr_3alpha):
+        from mlframe.reporting.charts.quantile import DEFAULT_QUANTILE_PANELS
+
         y, p, alphas = synth_qr_3alpha
         spec = compose_quantile_figure(y, p, alphas)
-        # 5 tokens -> 3 rows × 2 cols (one cell padded with None)
         n_set = sum(1 for r in spec.panels for c in r if c is not None)
-        assert n_set == 5
+        # The R-6 reliability tokens (QUANTILE_RELIABILITY / PINBALL_DECOMP / QUANTILE_CROSSING) are default-on.
+        assert n_set == len(DEFAULT_QUANTILE_PANELS.split())
 
     def test_subset_template(self, synth_qr_3alpha):
         y, p, alphas = synth_qr_3alpha
