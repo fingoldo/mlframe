@@ -175,17 +175,16 @@ def _confused_pairs_panel(y_true, y_proba, classes, *, y_pred=None, top_n: int =
             text="No off-diagonal confusion\n(perfect or single-class predictions)",
             title="Most-confused class pairs",
         )
-    # Highest-confusion pair first (left). BarPanelSpec has no horizontal mode in the
-    # read-only spec, so the pairs are vertical bars with rotated "A -> B" tick labels.
+    # Horizontal bars: long "A -> B" labels read cleanly on the y-axis and the highest-confusion pair sits on top.
     categories = tuple(pairs)
     values = np.asarray(vals, dtype=np.float64)
     return BarPanelSpec(
         categories=categories,
         values=values,
         title=f"Most-confused class pairs (top {len(pairs)})",
-        xlabel="true -> pred",
-        ylabel="P(pred | true)",
-        xtick_rotation=45.0,
+        xlabel="P(pred | true)",
+        ylabel="true -> pred",
+        orientation="horizontal",
     )
 
 

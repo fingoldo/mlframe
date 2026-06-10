@@ -249,14 +249,20 @@ def fairness_frame():
     })
 
 
-def test_segments_bar_returns_grouped_bar_with_reference(fairness_frame):
+def _seg_vals(bar):
+    """segments_bar now emits a single metric series + an hline reference; accept either array or 1-tuple."""
+    return bar.values if isinstance(bar.values, np.ndarray) else bar.values[0]
+
+
+def test_segments_bar_returns_single_series_with_hline_reference(fairness_frame):
     fig = segments_bar(fairness_frame, metric_name="accuracy")
     panels = [p for row in fig.panels for p in row if p is not None]
     assert len(panels) == 1
     bar = panels[0]
     assert isinstance(bar, BarPanelSpec)
-    # Grouped bars: metric series + global-reference series.
-    assert isinstance(bar.values, tuple) and len(bar.values) == 2
+    # Single metric series; the global reference is a perpendicular hline, not a 2nd flat series.
+    assert _seg_vals(bar).shape == (4,)
+    assert bar.hline is not None
     assert len(bar.categories) == 4
 
 
@@ -265,13 +271,13 @@ def test_segments_bar_sorts_worst_first(fairness_frame):
     bar = [p for row in fig.panels for p in row if p is not None][0]
     # Lowest accuracy = worst -> leftmost: D(0.55) then B(0.71) then C(0.88) then A(0.92).
     assert bar.categories[0] == "D"
-    assert list(bar.values[0]) == [0.55, 0.71, 0.88, 0.92]
+    assert list(_seg_vals(bar)) == [0.55, 0.71, 0.88, 0.92]
 
 
 def test_segments_bar_count_weighted_reference(fairness_frame):
     fig = segments_bar(fairness_frame, metric_name="accuracy")
     bar = [p for row in fig.panels for p in row if p is not None][0]
-    ref = bar.values[1]
+    ref = bar.hline[0]
     # Count-weighted mean of accuracy.
     expected = np.average([0.92, 0.71, 0.88, 0.55], weights=[1000, 200, 500, 80])
     assert np.allclose(ref, expected)
@@ -283,7 +289,7 @@ def test_segments_bar_higher_is_worse_orders_descending():
     bar = [p for row in fig.panels for p in row if p is not None][0]
     # Highest error = worst -> leftmost.
     assert bar.categories[0] == "Y"
-    assert list(bar.values[0]) == [0.30, 0.12, 0.05]
+    assert list(_seg_vals(bar)) == [0.30, 0.12, 0.05]
 
 
 # ----------------------------------------------------------------------------

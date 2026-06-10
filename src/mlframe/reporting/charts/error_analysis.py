@@ -294,13 +294,13 @@ def segments_bar(
     max_groups: int = 30,
     seed: int = 0,
 ) -> FigureSpec:
-    """Per-subgroup metric bars with a global-reference overlay.
+    """Per-subgroup metric bars with a global-reference hline.
 
     ``slice_frame`` is the existing fairness / slice DataFrame: one row per subgroup with a group-name column and a
-    metric column (auto-detected when not named). The global reference is drawn as a second flat bar series across
-    all categories (renderers have no horizontal-line primitive for bar panels -- a flat companion series reads the
-    same way and stays backend-agnostic). When ``global_value`` is None it defaults to the count-weighted-or-plain
-    mean of the per-group metric. Subgroups are sorted worst-first so the weakest slice is leftmost.
+    metric column (auto-detected when not named). The global reference is drawn as a single ``hline`` across the value
+    axis (perpendicular to the bars), so each subgroup is one honest bar instead of two interleaved series. When
+    ``global_value`` is None it defaults to the count-weighted-or-plain mean of the per-group metric. Subgroups are
+    sorted worst-first so the weakest slice is leftmost.
     """
     import pandas as pd
 
@@ -334,16 +334,16 @@ def segments_bar(
 
     cats = tuple(groups[order])
     vals = metric[order]
-    ref = np.full(vals.shape, global_value, dtype=np.float64)
     bar = BarPanelSpec(
         categories=cats,
-        values=(vals, ref),
-        series_labels=(metric_name, f"global = {global_value:.3g}"),
+        values=vals,
+        series_labels=(metric_name,),
         title=title + f"\n(worst-first; global reference = {global_value:.3g})",
         xlabel=str(group_col),
         ylabel=metric_name,
-        colors=("steelblue", "darkorange"),
+        colors=("steelblue",),
         xtick_rotation=45.0,
+        hline=(float(global_value), "darkorange", f"global = {global_value:.3g}"),
     )
     return FigureSpec(suptitle="", panels=((bar,),), figsize=(max(8.0, len(cats) * 0.5), 5.0))
 
