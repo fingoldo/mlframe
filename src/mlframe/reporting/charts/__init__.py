@@ -45,6 +45,7 @@ from mlframe.reporting.charts.regression import (
     build_regression_panel_spec, compose_regression_figure,
 )
 from mlframe.reporting.charts.temporal import build_temporal_audit_spec
+from mlframe.reporting.charts.training_curve import compose_training_curve_figure
 
 __all__ = [
     "build_calibration_spec",
@@ -59,6 +60,7 @@ __all__ = [
     "compose_multilabel_figure",
     "compose_ltr_figure",
     "compose_quantile_figure",
+    "compose_training_curve_figure",
     "weak_segment_heatmap",
     "error_bias_per_feature",
     "segments_bar",
