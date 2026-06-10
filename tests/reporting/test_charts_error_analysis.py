@@ -7,13 +7,18 @@ builders (heatmap groupby, target overlay histogram, error-bias quantile tagging
 
 from __future__ import annotations
 
+import os
+
 import numpy as np
 import pandas as pd
 import pytest
 
+from mlframe.reporting.output import parse_plot_output_dsl
+from mlframe.reporting.renderers import render_and_save
+
 from mlframe.reporting.charts.error_analysis import (
     ErrorBiasResult, WeakSegmentResult, WorstKResult, error_bias_per_feature,
-    segments_bar, weak_segment_heatmap, worst_k_table,
+    segments_bar, target_dist_overlay, weak_segment_heatmap, worst_k_table,
 )
 from mlframe.reporting.spec import (
     BarPanelSpec, FigureSpec, HeatmapPanelSpec, HistogramPanelSpec, LinePanelSpec,
@@ -279,3 +284,104 @@ def test_segments_bar_higher_is_worse_orders_descending():
     # Highest error = worst -> leftmost.
     assert bar.categories[0] == "Y"
     assert list(bar.values[0]) == [0.30, 0.12, 0.05]
+
+
+# ----------------------------------------------------------------------------
+# target_dist_overlay (R-3 / INV-11)
+# ----------------------------------------------------------------------------
+
+
+def test_target_dist_overlay_regression_panels():
+    rng = np.random.default_rng(0)
+    y = {"train": rng.normal(0, 1, 3000), "val": rng.normal(0, 1, 1000), "test": rng.normal(0, 1, 1000)}
+    pred = {"oof": rng.normal(0, 1, 3000), "test": rng.normal(0, 1, 1000)}
+    fig = target_dist_overlay(y, pred_by_split=pred, task="regression")
+    panels = [p for row in fig.panels for p in row if p is not None]
+    assert len(panels) == 2
+    for p in panels:
+        assert isinstance(p, LinePanelSpec)
+    # Target panel has 3 split series; pred panel has the OOF vs test overlay (2 series).
+    assert len(panels[0].y) == 3
+    assert len(panels[1].y) == 2
+    # Train envelope shading + p01/p99 vlines present on the target panel.
+    assert panels[0].vlines is not None and len(panels[0].vlines) == 2
+    assert panels[0].vspans is not None
+
+
+def test_target_dist_overlay_classification_classrates():
+    rng = np.random.default_rng(1)
+    y = {"train": (rng.uniform(0, 1, 2000) < 0.3).astype(int),
+         "test": (rng.uniform(0, 1, 1000) < 0.3).astype(int)}
+    fig = target_dist_overlay(y, task="classification")
+    panels = [p for row in fig.panels for p in row if p is not None]
+    assert len(panels) == 1
+    bar = panels[0]
+    assert isinstance(bar, BarPanelSpec)
+    # Two classes, two splits.
+    assert len(bar.categories) == 2
+    assert len(bar.values) == 2
+    # Each split's class rates sum to 1.
+    for series in bar.values:
+        assert np.isclose(np.sum(series), 1.0)
+
+
+def test_target_dist_overlay_only_target_when_no_preds():
+    rng = np.random.default_rng(2)
+    y = {"train": rng.normal(0, 1, 500), "test": rng.normal(0, 1, 500)}
+    fig = target_dist_overlay(y, task="regression")
+    panels = [p for row in fig.panels for p in row if p is not None]
+    assert len(panels) == 1
+
+
+def test_biz_val_target_dist_overlay_detects_train_test_shift():
+    """A deliberate +2.0 mean shift between train and test targets MUST surface as per-split mean labels differing by ~2.
+
+    Measured: test mean - train mean ~2.0. Floor the detected gap at 1.7 (15% below injected 2.0). The overlay
+    encodes each split's mean in its series label; we parse it back to assert the shift is captured.
+    """
+    import re
+
+    rng = np.random.default_rng(11)
+    shift = 2.0
+    y = {
+        "train": rng.normal(0.0, 1.0, 5000),
+        "test": rng.normal(shift, 1.0, 2000),
+    }
+    fig = target_dist_overlay(y, task="regression")
+    panel = [p for row in fig.panels for p in row if p is not None][0]
+    means = {}
+    for lab in panel.series_labels:
+        m = re.search(r"(\w+) \(mean=([-\d.eE+]+)\)", lab)
+        if m:
+            means[m.group(1)] = float(m.group(2))
+    assert "train" in means and "test" in means
+    detected = means["test"] - means["train"]
+    assert detected >= 1.7, f"injected train/test shift {shift} should surface as >=1.7, got {detected}"
+
+
+# ----------------------------------------------------------------------------
+# render smoke: every figure-producing builder renders on both backends
+# (the integrator wires these into the suite, so they must survive both).
+# ----------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("backend", ["matplotlib[png]", "plotly[html]"])
+def test_render_smoke_all_figures(reg_clean, fairness_frame, tmp_path, backend):
+    X, yt, yp = reg_clean
+    figs = {
+        "heatmap": weak_segment_heatmap(X, yt, yp).figure,
+        "bias": error_bias_per_feature(X, yt, yp, max_features=2).figure,
+        "segments": segments_bar(fairness_frame, metric_name="accuracy"),
+        "target_reg": target_dist_overlay(
+            {"train": yt[:2000], "test": yt[2000:]},
+            pred_by_split={"oof": yp[:2000], "test": yp[2000:]}, task="regression",
+        ),
+        "target_clf": target_dist_overlay(
+            {"train": (yt[:2000] > 1).astype(int), "test": (yt[2000:] > 1).astype(int)},
+            task="classification",
+        ),
+    }
+    for name, fig in figs.items():
+        base = os.path.join(str(tmp_path), name)
+        render_and_save(fig, parse_plot_output_dsl(backend), base)
+    assert any(os.scandir(str(tmp_path)))
