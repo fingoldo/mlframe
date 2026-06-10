@@ -153,24 +153,33 @@ def _row_order_fingerprint(df: Any, n_edge: int = 8) -> str:
             n_take = min(df.height, _ROW_ORDER_PREFIX_ROWS)
             if n_take == 0:
                 return ""
-            row_hashes = df.hash_rows().slice(0, n_take).to_numpy()
+            # Slice FIRST, then hash: hash_rows() is row-local so slicing the
+            # prefix before hashing is digest-identical to hashing the whole
+            # frame and slicing after -- but O(n_take*C) instead of O(N*C) plus
+            # an N-row u64 allocation. On the 100+ GB frames this module targets
+            # the prior whole-frame scan silently undid the data_signature
+            # gather optimisation (multi-second + multi-GB per cache lookup).
+            row_hashes = df.slice(0, n_take).hash_rows().to_numpy()
             payload = np.ascontiguousarray(row_hashes).tobytes()
             return hashlib.blake2b(payload, digest_size=8).hexdigest()
         elif isinstance(df, pd.DataFrame):
             n_take = min(len(df), n_edge)
             if n_take == 0:
                 return ""
-            try:
-                head_bytes = df.head(n_take).to_numpy().tobytes()
-            except (TypeError, ValueError):
-                # Object dtype frames may fail to_numpy().tobytes(); fall back to repr only on
-                # these rare frames rather than the slow csv round-trip.
-                head_bytes = repr(df.head(n_take).values.tolist()).encode("utf-8")
+            # ``df.to_numpy().tobytes()`` on a frame with object/string columns
+            # coerces the whole block to an object ndarray whose bytes are
+            # PyObject* ADDRESSES -> non-deterministic across processes (and
+            # re-materialised strings within one), silently breaking the cache.
+            # ``hash_pandas_object`` is the content-based, row-order-sensitive
+            # pandas analogue of polars ``hash_rows`` (uint64 per row).
+            from pandas.util import hash_pandas_object
+            head_bytes = np.ascontiguousarray(
+                hash_pandas_object(df.head(n_take), index=False).to_numpy()
+            ).tobytes()
             n_tail = min(len(df), n_edge)
-            try:
-                tail_bytes = df.tail(n_tail).to_numpy().tobytes()
-            except (TypeError, ValueError):
-                tail_bytes = repr(df.tail(n_tail).values.tolist()).encode("utf-8")
+            tail_bytes = np.ascontiguousarray(
+                hash_pandas_object(df.tail(n_tail), index=False).to_numpy()
+            ).tobytes()
             payload = head_bytes + b"|" + tail_bytes
             return hashlib.blake2b(payload, digest_size=8).hexdigest()
         else:
@@ -359,8 +368,13 @@ def data_signature(
                     nc = _stats_row[i + 2 * n]
                     h.update(f"strmin={mn};strmax={mx};null={int(nc) if nc is not None else 0}".encode("utf-8"))
                     # Sample bytes via gather (O(sample_n), no full materialisation).
-                    sampled = df.get_column(c).gather(sample_idx).cast(pl.Utf8).to_numpy()
-                    h.update(np.ascontiguousarray(sampled).tobytes())
+                    # Hash the string CONTENT, not the object array's pointer bytes:
+                    # ``.to_numpy()`` on a Utf8 column yields an object array whose
+                    # ``.tobytes()`` is PyObject* addresses -> non-deterministic across
+                    # processes (and re-materialised strings within one) -> the cache
+                    # NEVER hits on real string/datetime/categorical frames.
+                    sampled = df.get_column(c).gather(sample_idx).cast(pl.Utf8).to_list()
+                    h.update("\x00".join("\x01" if v is None else v for v in sampled).encode("utf-8"))
             # Numeric branch: compute min / max / null in one polars expression for ALL numeric
             # columns at once (one Arrow batch), then route the per-column stats through the
             # existing ``_col_stats`` byte format for digest stability. We rebuild a tiny
@@ -420,7 +434,14 @@ def data_signature(
             h.update(b"|stats=")
             h.update(_col_stats(full))
             sampled = full[sample_idx]
-            h.update(np.ascontiguousarray(sampled).tobytes())
+            if full.dtype.kind in ("O", "U", "S"):
+                # Object/str: tobytes() on an object array hashes PyObject*
+                # ADDRESSES, which differ across processes (and re-materialised
+                # strings within one) -> non-deterministic signature -> the
+                # discovery cache never hits on real frames. Hash the content.
+                h.update("\x00".join(map(str, sampled.tolist())).encode("utf-8"))
+            else:
+                h.update(np.ascontiguousarray(sampled).tobytes())
     else:
         raise TypeError(f"data_signature: unsupported df type {type(df).__name__}")
     return h.hexdigest()
