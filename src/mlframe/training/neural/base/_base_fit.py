@@ -146,8 +146,11 @@ class _FitMixin:
             if col not in X.columns:
                 continue
             mapping = code_maps[col]
-            mapped = X[col].map(mapping)
-            # Values unseen at fit (not in the map) -> NaN from ``map``; route them to the reserved unknown code (``card``).
+            # ``.astype(object)`` BEFORE ``.map``: Series.map on a pandas CATEGORICAL column returns a Categorical (it maps the categories and keeps
+            # the dtype), so the ``.fillna(card)`` unknown-code fill below would try to add ``card`` as a NEW category and raise "Cannot setitem on a
+            # Categorical with a new category". Mapping the plain object values yields a numeric/object Series whose NaN fill (values unseen at fit)
+            # lands as the reserved unknown code, never a new category.
+            mapped = X[col].astype(object).map(mapping)
             encoded_cols[col] = mapped.fillna(float(card)).astype(np.float32)
         other_cols = [c for c in X.columns if c not in self._cat_cols_]
         ordered = [c for c in self._cat_cols_ if c in X.columns] + other_cols

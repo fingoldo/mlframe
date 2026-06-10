@@ -173,3 +173,26 @@ def test_knob_off_disables_factorization():
     assert reg._cat_cardinalities_ is None  # knob off -> no factorization
     preds = np.asarray(reg.predict(X))
     assert preds.shape == (n,)
+
+
+def test_categorical_dtype_cat_predict_routes_unseen_without_setitem_error():
+    """Regression (bug-hunt c0005, mlp): a pandas CATEGORICAL-dtype cat column (not object/string -- the dtype the fuzz frame builder and real
+    callers use). The apply path ``_apply_cat_codes`` (predict, and the eval_set at fit) did ``X[col].map(mapping)``, which on a Categorical
+    RETURNS a Categorical, so ``.fillna(reserved_code)`` then raised "Cannot setitem on a Categorical with a new category (card)" -- a cardinality-7
+    Categorical made the reserved code 7.0 a new category. The original boundary tests only used object/string cats, so they missed this. Fit +
+    predict on an int Categorical-dtype column, including an all-UNSEEN level at predict that must route to the reserved code, must not raise."""
+    rng = np.random.default_rng(0)
+    n = 80
+    X = pd.DataFrame({
+        "c": pd.Categorical(rng.integers(0, 7, size=n)),       # int Categorical DTYPE, cardinality up to 7 (reserved code == 7.0)
+        "num_0": rng.normal(size=n).astype(np.float32),
+    })
+    y = rng.normal(size=n).astype(np.float32)
+    reg = PytorchLightningRegressor(**_common(torch.float32, torch.nn.MSELoss()))
+    reg.fit(X, y, cat_features=["c"])
+    preds = np.asarray(reg.predict(X))                          # predict -> _apply_cat_codes on the Categorical column
+    assert preds.shape == (n,) and np.all(np.isfinite(preds))
+    X_new = X.copy()
+    X_new["c"] = pd.Categorical(np.full(n, 999))               # an all-UNSEEN level -> every cell routes to the reserved unknown code
+    preds2 = np.asarray(reg.predict(X_new))
+    assert preds2.shape == (n,) and np.all(np.isfinite(preds2))
