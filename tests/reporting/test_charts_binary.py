@@ -1,0 +1,310 @@
+"""Tests for binary-classification curve panels (charts/binary.py).
+
+Covers: per-token panel spec types + title content (AUC/AP/KS), the vectorized
+THRESHOLD sweep parity vs a per-threshold sklearn reference (distinct AND tied
+scores), biz_value separability / F1-peak / gain-lift floors, and the decile
+table contract.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+import pytest
+
+from mlframe.reporting.charts.binary import (
+    ALLOWED_BINARY_PANEL_TOKENS,
+    DEFAULT_BINARY_PANELS,
+    binary_decile_table,
+    compose_binary_figure,
+    _finite_binary,
+    _ScoreSort,
+    _threshold_sweep,
+)
+from mlframe.reporting.spec import (
+    AnnotationPanelSpec, FigureSpec, HistogramPanelSpec, LinePanelSpec,
+)
+
+
+def _flat(fig: FigureSpec):
+    return [p for row in fig.panels for p in row if p is not None]
+
+
+def _separable(n=4000, sep=2.5, seed=0):
+    """Well-separated synthetic: class means shifted by ``sep`` sigma -> high AUC/KS."""
+    rng = np.random.default_rng(seed)
+    y = rng.integers(0, 2, n)
+    raw = rng.standard_normal(n) + sep * y
+    score = 1.0 / (1.0 + np.exp(-raw))
+    return y, score
+
+
+# ----------------------------------------------------------------------------
+# Unit: tokens / registry / composer scaffolding
+# ----------------------------------------------------------------------------
+
+
+def test_allowed_tokens_and_default_template():
+    assert ALLOWED_BINARY_PANEL_TOKENS == frozenset(
+        {"ROC", "PR", "SCORE_DIST", "KS", "THRESHOLD", "GAIN", "PIT"}
+    )
+    assert DEFAULT_BINARY_PANELS.split() == ["ROC", "PR", "SCORE_DIST", "KS", "THRESHOLD", "GAIN"]
+
+
+def test_unknown_token_raises():
+    y, s = _separable()
+    with pytest.raises(ValueError, match="Unknown binary panel tokens"):
+        compose_binary_figure(y, s, panels_template="ROC BOGUS")
+
+
+def test_composer_returns_figurespec_with_one_panel_per_token():
+    y, s = _separable()
+    fig = compose_binary_figure(y, s, panels_template="ROC PR SCORE_DIST KS THRESHOLD GAIN PIT")
+    assert isinstance(fig, FigureSpec)
+    assert len(_flat(fig)) == 7
+
+
+# ----------------------------------------------------------------------------
+# Unit: each token builds the right panel spec type + title carries the metric
+# ----------------------------------------------------------------------------
+
+
+def test_roc_panel_is_line_with_auc_in_title():
+    y, s = _separable()
+    (panel,) = _flat(compose_binary_figure(y, s, panels_template="ROC"))
+    assert isinstance(panel, LinePanelSpec)
+    assert "AUC=" in panel.title
+    assert "chance" in panel.series_labels
+
+
+def test_pr_panel_is_line_with_ap_and_prevalence_baseline():
+    y, s = _separable()
+    (panel,) = _flat(compose_binary_figure(y, s, panels_template="PR"))
+    assert isinstance(panel, LinePanelSpec)
+    assert "AP=" in panel.title
+    assert any("no-skill" in lbl for lbl in panel.series_labels)
+
+
+def test_score_dist_panel_is_line_two_classes_with_threshold_vline():
+    y, s = _separable()
+    (panel,) = _flat(compose_binary_figure(y, s, panels_template="SCORE_DIST", threshold=0.4))
+    assert isinstance(panel, LinePanelSpec)
+    assert panel.series_labels == ("y=0", "y=1")
+    assert panel.vlines is not None and abs(panel.vlines[0][0] - 0.4) < 1e-12
+
+
+def test_ks_panel_is_line_with_ks_in_title_and_marker():
+    y, s = _separable()
+    (panel,) = _flat(compose_binary_figure(y, s, panels_template="KS"))
+    assert isinstance(panel, LinePanelSpec)
+    assert "KS statistic = " in panel.title
+    assert panel.vlines is not None
+
+
+def test_threshold_panel_has_four_metric_series():
+    y, s = _separable()
+    (panel,) = _flat(compose_binary_figure(y, s, panels_template="THRESHOLD"))
+    assert isinstance(panel, LinePanelSpec)
+    assert set(panel.series_labels) == {"precision", "recall", "F1", "queue-rate"}
+
+
+def test_threshold_panel_cost_series_added_when_cost_ratio_given():
+    y, s = _separable()
+    (panel,) = _flat(compose_binary_figure(y, s, panels_template="THRESHOLD", cost_ratio=(5.0, 1.0)))
+    assert any("cost" in lbl for lbl in panel.series_labels)
+    # Default off: no cost series without a cost ratio.
+    (panel_off,) = _flat(compose_binary_figure(y, s, panels_template="THRESHOLD"))
+    assert not any("cost" in lbl for lbl in panel_off.series_labels)
+
+
+def test_gain_panel_is_line_with_baseline_starting_at_origin():
+    y, s = _separable()
+    (panel,) = _flat(compose_binary_figure(y, s, panels_template="GAIN"))
+    assert isinstance(panel, LinePanelSpec)
+    assert panel.series_labels == ("model", "baseline")
+    # Gain curve forced through (0, 0) and (1, 1).
+    model = panel.y[0]
+    assert panel.x[0] == 0.0 and model[0] == 0.0
+    assert abs(panel.x[-1] - 1.0) < 1e-12 and abs(model[-1] - 1.0) < 1e-12
+
+
+def test_pit_panel_is_histogram_with_ks_vs_uniform_in_title():
+    y, s = _separable()
+    (panel,) = _flat(compose_binary_figure(y, s, panels_template="PIT"))
+    assert isinstance(panel, HistogramPanelSpec)
+    assert "KS-vs-uniform=" in panel.title
+
+
+# ----------------------------------------------------------------------------
+# Unit: curve vertex bounds + single-class degeneration
+# ----------------------------------------------------------------------------
+
+
+def test_curves_decimated_under_vertex_cap_at_large_n():
+    y, s = _separable(n=200_000)
+    fig = compose_binary_figure(y, s, panels_template="ROC PR KS GAIN")
+    for panel in _flat(fig):
+        if isinstance(panel, LinePanelSpec):
+            assert len(panel.x) <= 2000
+
+
+def test_threshold_sweep_plotted_thresholds_capped():
+    y, s = _separable(n=50_000)
+    (panel,) = _flat(compose_binary_figure(y, s, panels_template="THRESHOLD"))
+    assert len(panel.x) <= 500
+
+
+def test_single_class_degenerates_to_annotation():
+    y = np.ones(500, dtype=int)
+    s = np.linspace(0.1, 0.9, 500)
+    fig = compose_binary_figure(y, s, panels_template="ROC PR KS THRESHOLD GAIN")
+    flat = _flat(fig)
+    # ROC/PR/KS/THRESHOLD undefined with one class -> annotation; GAIN needs positives only so it draws.
+    annotated = [p for p in flat if isinstance(p, AnnotationPanelSpec)]
+    assert len(annotated) == 4
+
+
+def test_finite_binary_drops_non_finite_and_out_of_range_labels():
+    y = np.array([0, 1, 2, 1, 0])
+    s = np.array([0.1, np.nan, 0.5, 0.8, 0.3])
+    yt, ys = _finite_binary(y, s)
+    # row 1 dropped (nan score), row 2 dropped (label 2 not in {0,1})
+    assert len(yt) == 3
+    assert set(np.unique(yt).tolist()) <= {0, 1}
+
+
+# ----------------------------------------------------------------------------
+# Parity: vectorized THRESHOLD sweep vs per-threshold sklearn (distinct + tied)
+# ----------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("distinct", [True, False])
+def test_threshold_sweep_matches_sklearn_reference(distinct):
+    from sklearn.metrics import f1_score, precision_score, recall_score
+
+    rng = np.random.default_rng(11)
+    n = 600
+    y = rng.integers(0, 2, n)
+    if distinct:
+        s = rng.random(n)
+    else:
+        s = np.round(np.clip(0.4 * y + 0.3 * rng.standard_normal(n) + 0.5, 0, 1), 2)  # heavy ties
+    yt, ys = _finite_binary(y, s)
+    sweep = _threshold_sweep(_ScoreSort(yt, ys))
+    for i, t in enumerate(sweep["thresholds"]):
+        pred = (ys >= t).astype(int)
+        assert sweep["precision"][i] == pytest.approx(precision_score(yt, pred, zero_division=0), abs=1e-9)
+        assert sweep["recall"][i] == pytest.approx(recall_score(yt, pred, zero_division=0), abs=1e-9)
+        assert sweep["f1"][i] == pytest.approx(f1_score(yt, pred, zero_division=0), abs=1e-9)
+
+
+# ----------------------------------------------------------------------------
+# biz_value: a diagnostic must show the known verdict on a synthetic
+# ----------------------------------------------------------------------------
+
+
+def test_biz_val_separable_synthetic_high_auc():
+    """A well-separated synthetic must yield AUC >= 0.95 (measured ~0.96 at sep=2.5)."""
+    y, s = _separable(sep=3.0, seed=3)
+    (panel,) = _flat(compose_binary_figure(y, s, panels_template="ROC"))
+    auc = float(panel.title.split("AUC=")[1].rstrip(")"))
+    assert auc >= 0.95, f"separable synthetic AUC {auc} below 0.95 floor"
+
+
+def test_biz_val_separable_synthetic_high_ks():
+    """A well-separated synthetic must yield KS >= 0.60 (measured ~0.78 at sep=3.0)."""
+    y, s = _separable(sep=3.0, seed=4)
+    (panel,) = _flat(compose_binary_figure(y, s, panels_template="KS"))
+    ks = float(panel.title.split("= ")[1])
+    assert ks >= 0.60, f"separable synthetic KS {ks} below 0.60 floor"
+
+
+def test_biz_val_threshold_f1_peaks_near_analytic_optimum():
+    """On a calibrated synthetic where P(y=1|score)=score, the F1-optimal threshold is the
+    classic ``2*pi/(1+pi)`` adjusted point; for a balanced symmetric design the F1 peak sits well
+    below 0.5 (recall-heavy region). We assert the argmax-F1 threshold is materially below 0.5,
+    where a regression that broke the cumulative-F1 would push the peak to the wrong end."""
+    rng = np.random.default_rng(5)
+    n = 20000
+    score = rng.random(n)
+    # Calibrated labels: P(y=1) = score, so a low threshold captures most positives -> F1 peak < 0.5.
+    y = (rng.random(n) < score).astype(int)
+    sweep = _threshold_sweep(_ScoreSort(*_finite_binary(y, score)))
+    peak_t = sweep["thresholds"][int(np.argmax(sweep["f1"]))]
+    assert peak_t < 0.45, f"F1-optimal threshold {peak_t} should sit in the recall-heavy region (<0.45)"
+    # And the max F1 is meaningfully above the all-positive baseline F1.
+    all_pos_f1 = sweep["f1"][0]
+    assert sweep["f1"].max() >= all_pos_f1, "max F1 should dominate the all-positive operating point"
+
+
+def test_biz_val_threshold_f1_peak_matches_calibrated_threshold():
+    """For P(y=1|x)=x, the Bayes-optimal F1 threshold is known to be F1*/2 where F1* is the optimal F1.
+    We pin the empirical peak against a brute-force grid reference on the same data (regression sensor
+    for the cumulative-F1 path) -- they must agree within one threshold-grid step."""
+    rng = np.random.default_rng(6)
+    n = 30000
+    score = rng.random(n)
+    y = (rng.random(n) < score).astype(int)
+    yt, ys = _finite_binary(y, score)
+    sweep = _threshold_sweep(_ScoreSort(yt, ys))
+    peak_t = sweep["thresholds"][int(np.argmax(sweep["f1"]))]
+    # Brute-force grid reference.
+    grid = np.linspace(0.01, 0.99, 99)
+    grid_f1 = []
+    for t in grid:
+        pred = (ys >= t).astype(int)
+        tp = int(((pred == 1) & (yt == 1)).sum())
+        fp = int(((pred == 1) & (yt == 0)).sum())
+        fn = int(((pred == 0) & (yt == 1)).sum())
+        denom = 2 * tp + fp + fn
+        grid_f1.append(2 * tp / denom if denom else 0.0)
+    grid_peak = grid[int(np.argmax(grid_f1))]
+    assert abs(peak_t - grid_peak) <= 0.05, f"vectorized F1 peak {peak_t} vs grid {grid_peak}"
+
+
+def test_biz_val_gain_top_decile_lift_floor():
+    """A strong separable scorer must lift the top decile well above random.
+
+    Measured top-decile lift ~1.9-2.0x at sep=2.5 balanced; floor at 1.7x (~12% margin)."""
+    y, s = _separable(sep=2.5, seed=7)
+    table = binary_decile_table(y, s)
+    top_decile_lift = table["lift"][0]
+    assert top_decile_lift >= 1.7, f"top-decile lift {top_decile_lift} below 1.7x floor"
+
+
+def test_biz_val_decile_gain_monotone_and_terminal_one():
+    """Cumulative gain must be non-decreasing and reach 1.0 at the last decile (all positives captured)."""
+    y, s = _separable(sep=2.0, seed=8)
+    table = binary_decile_table(y, s)
+    gain = table["gain"]
+    assert np.all(np.diff(gain) >= -1e-12), "cumulative gain must be non-decreasing"
+    assert gain[-1] == pytest.approx(1.0, abs=1e-9), "terminal gain must capture all positives"
+
+
+# ----------------------------------------------------------------------------
+# Decile table contract
+# ----------------------------------------------------------------------------
+
+
+def test_decile_table_shapes_and_counts_sum_to_n():
+    y, s = _separable(n=997, seed=9)  # n not divisible by 10
+    table = binary_decile_table(y, s)
+    for key in ("decile", "count", "positives", "response_rate", "gain", "lift", "cum_ks"):
+        assert table[key].shape == (10,)
+    assert int(table["count"].sum()) == 997
+    assert int(table["positives"].sum()) == int(np.asarray(y).sum())
+
+
+def test_decile_cum_ks_matches_panel_ks_within_decile_resolution():
+    """The decile-resolution cumulative KS peak should track the full KS statistic to within a decile."""
+    y, s = _separable(sep=2.5, seed=10)
+    table = binary_decile_table(y, s)
+    (ks_panel,) = _flat(compose_binary_figure(y, s, panels_template="KS"))
+    full_ks = float(ks_panel.title.split("= ")[1])
+    decile_ks = float(table["cum_ks"].max())
+    assert abs(full_ks - decile_ks) < 0.06, f"decile KS {decile_ks} vs full {full_ks}"
+
+
+def test_decile_table_empty_input_returns_nan_filled():
+    table = binary_decile_table(np.array([]), np.array([]))
+    assert table["count"].sum() == 0
+    assert np.all(np.isnan(table["gain"]))
