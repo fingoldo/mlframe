@@ -44,7 +44,7 @@ _SRC_ROOT = pathlib.Path(_mlframe.__file__).resolve().parent
 def _read(rel: str) -> str:
     """Read a source file. For modules that have been split into sibling
     helpers (e.g. ``mrmr.py`` -> ``_mrmr_fit_impl.py`` /
-    ``_mrmr_fingerprints.py`` / ``_mrmr_fe_step.py`` /
+    ``_mrmr_fingerprints.py`` / ``_mrmr_fe_step/`` (subpackage) /
     ``_mrmr_validate_transform.py``), concat every sibling so the
     source-grep boundary check still matches the relocated code."""
     primary = (_SRC_ROOT / rel).read_text(encoding="utf-8")
@@ -52,7 +52,8 @@ def _read(rel: str) -> str:
         _dir = _SRC_ROOT / "feature_selection" / "filters"
         for nm in (
             "_mrmr_fingerprints.py", "_mrmr_fit_impl.py",
-            "_mrmr_fe_step.py", "_mrmr_validate_transform.py",
+            "_mrmr_fe_step/_step_core.py", "_mrmr_fe_step/_helpers.py",
+            "_mrmr_validate_transform.py",
         ):
             _sib = _dir / nm
             if _sib.exists():

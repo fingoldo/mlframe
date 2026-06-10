@@ -1,17 +1,14 @@
-"""``MRMR._run_fe_step`` -- FE-step orchestrator for ``mlframe.feature_selection.filters.mrmr``.
+"""MRMR._run_fe_step -- the FE-step orchestrator for mlframe.feature_selection.filters.mrmr.
 
-Split out of ``mrmr.py`` to keep the parent below the 1k-line monolith
-threshold. ``_run_fe_step`` is bound back onto the ``MRMR`` class at the
-parent's module bottom, so call sites that invoke ``self._run_fe_step(...)``
-continue to work unchanged.
+The single irreducible ~1.36k-line _run_fe_step function lives here, verbatim. The package
+__init__ re-exports it (and the small _helpers symbols), and mrmr.py binds it back onto
+the MRMR class at its module bottom, so self._run_fe_step(...) call sites are unchanged.
 
-Carries the per-fold FE expansion logic (unary / binary / hermite / pysr
-candidate generation, scoring, append-to-data) and the support-map
-bookkeeping. The parent module's helpers (``_lazy_chunks`` etc.) are
-imported lazily in-body since ``.mrmr`` re-imports this module at its bottom
-for method binding (a top-level import would create a hard cycle). The
-self-contained FE sub-blocks (synergy bootstrap, order-2 maxT floor, FE
-summary log, cluster-aggregate emission) live in ``_mrmr_fe_step_helpers``.
+The parent module helpers (_lazy_chunks etc.) and every other intra-filters dependency are
+imported lazily in-body (from ..mrmr import ... etc.) since .mrmr re-imports this package at
+its bottom for method binding -- a top-level import would create a hard cycle. The self-contained FE
+sub-blocks (synergy bootstrap, order-2 maxT floor, FE summary log, cluster-aggregate emission) live in
+the sibling _mrmr_fe_step_helpers module; the two small operand-pool helpers live in ._helpers.
 """
 from __future__ import annotations
 
@@ -26,7 +23,7 @@ from joblib import delayed
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
-from ._mrmr_fe_step_helpers import (
+from .._mrmr_fe_step_helpers import (
     apply_interaction_information_routing,
     apply_surrogate_gbm_seeder,
     apply_synergy_bootstrap,
@@ -34,50 +31,8 @@ from ._mrmr_fe_step_helpers import (
     log_fe_summary,
     run_cluster_aggregate_emission,
 )
-from ._gradient_interaction_seeder import propose_gradient_interaction_pairs
-
-
-def _non_numeric_column_indices(X, cols) -> set:
-    """Positional indices of columns in ``X`` whose dtype is not numeric.
-
-    The pair / synergy FE operands index positionally into ``X``; a string /
-    categorical column reaching the numeric basis transforms raises, so callers
-    subtract these indices from the operand pool. Returns an empty set when the
-    dtype of ``X`` cannot be inspected (array input -> already all-numeric).
-    """
-    idx: set = set()
-    try:
-        schema = getattr(X, "schema", None)
-        if schema is not None:  # polars DataFrame
-            dtypes = [schema[c] for c in X.columns]
-            for i, dt in enumerate(dtypes):
-                if not dt.is_numeric():
-                    idx.add(i)
-            return idx
-        dtypes_attr = getattr(X, "dtypes", None)
-        if dtypes_attr is not None:  # pandas DataFrame
-            for i, dt in enumerate(dtypes_attr):
-                if not pd.api.types.is_numeric_dtype(dt):
-                    idx.add(i)
-    except Exception:
-        return set()
-    return idx
-
-
-def _synergy_bootstrap_can_supply_pool(self, num_fs_steps: int, data) -> bool:
-    """Whether the synergy bootstrap (below) would seed a non-empty interaction-only pair pool.
-
-    Mirrors the bootstrap's own gating (``fe_synergy_screen_max_features`` enabled, first FE step, enough rows) so the empty-screen branch can decide to CONTINUE into the FE
-    step on a pure-interaction target whose marginals all screen out -- rather than returning None and engineering nothing. The actual per-frame caps (feature count, sweep cost)
-    are re-checked at the bootstrap site; this is the cheap necessary-condition probe.
-    """
-    if int(getattr(self, "fe_synergy_screen_max_features", 0) or 0) <= 0:
-        return False
-    if num_fs_steps != 0:
-        return False
-    _min_rows = int(getattr(self, "fe_synergy_min_rows", 300) or 0)
-    _n_rows = int(data.shape[0]) if hasattr(data, "shape") else 0
-    return _n_rows >= _min_rows
+from .._gradient_interaction_seeder import propose_gradient_interaction_pairs
+from ._helpers import _non_numeric_column_indices, _synergy_bootstrap_can_supply_pool
 
 
 def _run_fe_step(
@@ -125,7 +80,7 @@ def _run_fe_step(
     # Lazy import: ``.mrmr`` re-imports this module at its bottom for method
     # binding -> any top-level ``from .mrmr import ...`` here creates a hard
     # import cycle that ``tests/test_meta/test_no_import_cycles.py`` flags.
-    from .mrmr import (
+    from ..mrmr import (
         _lazy_chunks,
         _MRMR_BATCH_PRECOMPUTE_MAX_K,
         _MRMR_BATCH_PRECOMPUTE_MIN_PAIRS,
@@ -708,7 +663,7 @@ def _run_fe_step(
     # dropped (n=5000/p=40 canonical fixture + noise, 5 seeds). Self-gates to a no-op
     # below ``fe_rung_min_pairs`` pairs / all-zero pair_mi (byte-identical flat sweep).
     if bool(getattr(self, "fe_rung_schedule_enable", True)) and len(prospective_pairs) >= int(getattr(self, "fe_rung_min_pairs", 6)):
-        from ._fe_rung_schedule import apply_rung_schedule
+        from .._fe_rung_schedule import apply_rung_schedule
         _rung_n_rows = int(data.shape[0]) if hasattr(data, "shape") else 0
         prospective_pairs, _rung_info = apply_rung_schedule(
             prospective_pairs,
@@ -733,7 +688,7 @@ def _run_fe_step(
         # ``polynom_pair_fe.run_polynom_pair_fe`` (joblib-threaded pair
         # eval + serial inject). ``self._hermite_features_`` is fed
         # through as a target list so the helper stays method-free.
-        from .polynom_pair_fe import run_polynom_pair_fe
+        from ..polynom_pair_fe import run_polynom_pair_fe
         if not hasattr(self, "_hermite_features_"):
             self._hermite_features_ = []
         # SYNERGY pairs feed the STANDARD unary/binary+prewarp search below, but NOT
@@ -1054,7 +1009,7 @@ def _run_fe_step(
             # ``sub(prewarp(informative_3),prewarp(noise_5))`` with informative_3's spec
             # dropped). Fix: MERGE each chunk's reserved spec payload into the
             # accumulators DURING the merge loop, before ``update`` overwrites the key.
-            from ._feature_engineering_pairs import _PREWARP_SPECS_RESULT_KEY, _GATE_MED_SPECS_RESULT_KEY
+            from .._feature_engineering_pairs import _PREWARP_SPECS_RESULT_KEY, _GATE_MED_SPECS_RESULT_KEY
             for next_dict in dicts:
                 _pw_chunk = next_dict.pop(_PREWARP_SPECS_RESULT_KEY, None)
                 if _pw_chunk:
@@ -1069,7 +1024,7 @@ def _run_fe_step(
         # also carries the reserved key) and merge it, so the pair loop below never
         # treats it as a ``raw_vars_pair``. The joblib branch already drained the key
         # per-chunk above; this pop is then a harmless no-op.
-        from ._feature_engineering_pairs import _PREWARP_SPECS_RESULT_KEY, _GATE_MED_SPECS_RESULT_KEY
+        from .._feature_engineering_pairs import _PREWARP_SPECS_RESULT_KEY, _GATE_MED_SPECS_RESULT_KEY
         _pw_from_res = prospective_additions.pop(_PREWARP_SPECS_RESULT_KEY, None)
         if _pw_from_res:
             _prewarp_specs.update(_pw_from_res)
@@ -1095,15 +1050,15 @@ def _run_fe_step(
         _fe_acceptance = str(getattr(self, "fe_acceptance", "conditional_mi"))
         _cmi_dropped: set = set()
         if _fe_acceptance == "conditional_mi" and prospective_additions:
-            from ._fe_cmi_redundancy_gate import apply_cmi_redundancy_gate
-            from .mrmr import discretize_array  # already imported above; re-bind for clarity
+            from .._fe_cmi_redundancy_gate import apply_cmi_redundancy_gate
+            from ..mrmr import discretize_array  # already imported above; re-bind for clarity
 
             # Build the surviving-candidate pool: {engineered_col_name -> (continuous_vals,
             # marginal_mi)}. The continuous values are the pair search's ``transformed_vals``
             # (full-n float, NOT pre-binned). Marginal MI is computed cheaply from the binned
             # values via the same plug-in primitive (z=None) so the seed/relative-bar anchor
             # matches the production CMI estimator -- no separate MI kernel.
-            from ._mi_greedy_cmi_fe import _cmi_from_binned, _quantile_bin
+            from .._mi_greedy_cmi_fe import _cmi_from_binned, _quantile_bin
 
             # y codes: reuse the discretised target the MI sweep scored against.
             _y_codes = np.asarray(classes_y).ravel()
@@ -1153,7 +1108,7 @@ def _run_fe_step(
         # are removed entirely. In the common one-best-per-pair case a pair holds a
         # single column, so this reduces to keep-entry / drop-entry.
         if _cmi_dropped:
-            from .mrmr import get_new_feature_name as _get_new_feature_name
+            from ..mrmr import get_new_feature_name as _get_new_feature_name
             _filtered_additions: dict = {}
             for _rp, (_tpf, _tvals, _ncols, _nnb, _msgs) in prospective_additions.items():
                 if not _tpf or _tvals is None or not _ncols:
@@ -1290,7 +1245,7 @@ def _run_fe_step(
                     # the prior step) so replay recomputes it recursively. Only when a parent is
                     # engineered AND has no replayable recipe do we skip (cannot reconstruct it).
                     if engineered_recipes is not None:
-                        from .engineered_recipes import build_unary_binary_recipe
+                        from ..engineered_recipes import build_unary_binary_recipe
                         _raw_names = set(self.feature_names_in_)
                         for config, _j in this_pair_features:
                             # config = (transformations_pair, bin_func_name, i)
@@ -1412,7 +1367,7 @@ def _run_fe_step(
                 # S5 CMI gate vs the pair's own admitted column) still decide. See
                 # ``find_underdelivering_pairs``.
                 if bool(getattr(self, "fe_escalation_underdelivery_enable", True)):
-                    from ._fe_auto_escalation import find_underdelivering_pairs
+                    from .._fe_auto_escalation import find_underdelivering_pairs
                     _esc_failed.extend(find_underdelivering_pairs(
                         self,
                         prospective_pairs=prospective_pairs,
@@ -1420,8 +1375,8 @@ def _run_fe_step(
                         X=X, cols=cols, classes_y=classes_y, done=_esc_done,
                     ))
                 if _esc_failed:
-                    from ._fe_auto_escalation import run_fe_auto_escalation
-                    from ._mi_greedy_cmi_fe import _cmi_from_binned as _esc_mi, _quantile_bin as _esc_qbin
+                    from .._fe_auto_escalation import run_fe_auto_escalation
+                    from .._mi_greedy_cmi_fe import _cmi_from_binned as _esc_mi, _quantile_bin as _esc_qbin
                     # Admitted-support context for the S5 gate: the engineered columns
                     # the main path just materialised (continuous values + marginal MI).
                     _esc_y = np.asarray(classes_y)
@@ -1548,7 +1503,7 @@ def _run_fe_step(
             and _newly_engineered_indices
         ):
             try:
-                from ._fe_stability_vote import confirm_recipes_cross_fold
+                from .._fe_stability_vote import confirm_recipes_cross_fold
 
                 _failed_eng = confirm_recipes_cross_fold(
                     recipes=engineered_recipes,

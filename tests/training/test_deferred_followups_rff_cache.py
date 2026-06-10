@@ -87,7 +87,7 @@ def _read(rel: str) -> str:
                 primary = primary + "\n" + sibling.read_text(encoding="utf-8")
     elif rel == "feature_selection/filters/mrmr.py":
         _dir = MLFRAME_ROOT / "feature_selection" / "filters"
-        for nm in ("_mrmr_fingerprints.py", "_mrmr_fit_impl.py", "_mrmr_fe_step.py", "_mrmr_validate_transform.py"):
+        for nm in ("_mrmr_fingerprints.py", "_mrmr_fit_impl.py", "_mrmr_fe_step/_step_core.py", "_mrmr_fe_step/_helpers.py", "_mrmr_validate_transform.py"):
             sibling = _dir / nm
             if sibling.exists():
                 primary = primary + "\n" + sibling.read_text(encoding="utf-8")
