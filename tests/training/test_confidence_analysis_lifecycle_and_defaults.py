@@ -43,6 +43,8 @@ def test_beeswarm_saved_to_plot_file_and_figure_closed(tmp_path):
     pytest.importorskip("shap")
     df, target, probs = _toy_inputs()
     out = os.path.join(str(tmp_path), "conf_beeswarm")  # extension-less on purpose
+    # Close any figures a prior test leaked so this measures only THIS call's net effect.
+    plt.close("all")
     n_open_before = len(plt.get_fignums())
     run_confidence_analysis(
         test_df=df, test_target=target, test_probs=probs,
@@ -50,9 +52,9 @@ def test_beeswarm_saved_to_plot_file_and_figure_closed(tmp_path):
     )
     # .png appended when the path has no extension.
     assert os.path.exists(out + ".png"), "confidence beeswarm was not saved to plot_file"
-    assert len(plt.get_fignums()) == n_open_before, (
-        "confidence beeswarm figure leaked: it must be closed after save (INV-49). "
-        f"open before={n_open_before}, after={len(plt.get_fignums())}"
+    assert len(plt.get_fignums()) <= n_open_before, (
+        "confidence beeswarm figure leaked: every figure it opened must be closed after save "
+        f"(INV-49). open before={n_open_before}, after={len(plt.get_fignums())}"
     )
 
 

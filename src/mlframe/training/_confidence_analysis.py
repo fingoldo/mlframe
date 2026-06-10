@@ -409,6 +409,9 @@ def run_confidence_analysis(
         _test_df_for_shap = _get_pandas_view(test_df) if isinstance(test_df, pl.DataFrame) else test_df
         explainer = shap.TreeExplainer(confidence_model)
         shap_values = explainer(_test_df_for_shap)
+        # shap.plots.beeswarm creates its own figure (+ a colorbar axes); snapshot the open
+        # figure ids first so we can close EVERY figure it opened, not just plt.gcf().
+        _figs_before = set(plt.get_fignums())
         shap.plots.beeswarm(
             shap_values,
             max_display=max_features,
@@ -429,11 +432,12 @@ def run_confidence_analysis(
                 logger.warning("Confidence beeswarm savefig failed for %s: %s", _path, _save_err)
         # Guard plt.show() against the non-interactive Agg backend (CI / pytest / headless scripts
         # pin Agg); plt.show() on Agg emits the "FigureCanvasAgg is non-interactive" warning and
-        # renders nothing. Always close afterwards so the figure does not leak in the pyplot registry.
+        # renders nothing. Always close every figure the beeswarm opened so none leak in the registry.
         from mlframe.metrics import show_plots_unless_agg
         from mlframe.metrics.calibration import _close_unless_interactive
         _was_shown = show_plots_unless_agg()
-        _close_unless_interactive(fig, was_shown=_was_shown)
+        _new_figs = [plt.figure(_num) for _num in plt.get_fignums() if _num not in _figs_before]
+        _close_unless_interactive(_new_figs or fig, was_shown=_was_shown)
     else:
         # Lazy import -- see comment near top of module about cycle.
         from .evaluation import plot_model_feature_importances
