@@ -70,7 +70,7 @@ def synth_4class():
 class TestAllowedTokens:
     def test_allowed_set_matches_documented(self):
         assert ALLOWED_MULTICLASS_PANEL_TOKENS == frozenset({
-            "CONFUSION", "PR_F1", "ROC", "PR_CURVES",
+            "CONFUSION", "CONFUSED_PAIRS", "PR_F1", "ROC", "PR_CURVES",
             "CALIB_GRID", "PROB_DIST", "TOP_K_ACC",
         })
 
@@ -102,18 +102,20 @@ class TestPanelTypes:
         spec = compose_multiclass_figure(y, p, c, panels_template="ROC")
         panel = spec.panels[0][0]
         assert isinstance(panel, LinePanelSpec)
-        # K series, each on the same x-grid
-        assert isinstance(panel.y, tuple) and len(panel.y) == 3
-        # AUC value in legend label
-        assert all("AUC=" in lbl for lbl in panel.series_labels)
+        # 1 chance diagonal + K per-class curves, each on the same x-grid.
+        assert isinstance(panel.y, tuple) and len(panel.y) == 4
+        assert panel.series_labels[0] == "chance"
+        # AUC value in each per-class legend label.
+        assert all("AUC=" in lbl for lbl in panel.series_labels[1:])
 
     def test_pr_curves_returns_line_with_K_series(self, synth_3class):
         y, p, c = synth_3class
         spec = compose_multiclass_figure(y, p, c, panels_template="PR_CURVES")
         panel = spec.panels[0][0]
         assert isinstance(panel, LinePanelSpec)
-        assert isinstance(panel.y, tuple) and len(panel.y) == 3
-        assert all("AP=" in lbl for lbl in panel.series_labels)
+        # K curves + K dotted prevalence baselines.
+        assert isinstance(panel.y, tuple) and len(panel.y) == 6
+        assert all("AP=" in lbl for lbl in panel.series_labels[:3])
 
     def test_calib_grid_returns_line_with_K_plus_diagonal(self, synth_3class):
         y, p, c = synth_3class
