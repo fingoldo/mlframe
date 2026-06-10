@@ -149,10 +149,9 @@ def test_wave23_falls_back_to_source_default_when_cache_unavailable():
         # ``cat_interactions.py`` was split; the perm-kernel @kernel_tuner
         # registration lives in the ``_cat_confirm_permutation_tuning`` sibling now.
         "feature_selection/filters/_cat_confirm_permutation_tuning.py",
-        # 2026-05-22: ``feature_engineering.py`` was split; the GPU
-        # dispatch + cache lookup body moved into
-        # ``_feature_engineering_pairs.py``.
-        "feature_selection/filters/_feature_engineering_pairs.py",
+        # ``feature_engineering.py`` was split, then ``_feature_engineering_pairs`` itself was carved into a subpackage;
+        # the batched-MI GPU dispatch + KernelTuningCache.get_or_tune lookup now lives in the ``_pairs_dispatch`` submodule.
+        "feature_selection/filters/_feature_engineering_pairs/_pairs_dispatch.py",
         "feature_selection/filters/_unary_elementwise_tuning.py",
         "feature_engineering/transformer/random_features.py",
     ]
