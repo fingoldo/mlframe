@@ -176,14 +176,17 @@ class DummyBaselinesConfig(BaseConfig):
 
     enabled: bool = True
 
-    # 2026-05-11: render the pre-training "strongest baseline overlay"
-    # chart (predictions-vs-actual scatter + residual histogram for
-    # regression; class-prior bar for classification). Renders BEFORE
-    # the per-model training loop fires so the operator sees the
-    # no-model floor next to the verdict line. Default ON per the
-    # user's repeated request. Set False to suppress (e.g. headless
-    # CI / fuzz where the chart is irrelevant).
+    # Route the strongest dummy baseline through the standard report_model_perf pipeline
+    # (the same scatter / residual / calibration charts + metric-title headers real models
+    # get) so the no-model floor appears in the operator's familiar report format. Default ON.
     plot_strongest: bool = True
+
+    # Render the dedicated single-figure pre-training overlay (predictions-vs-actual scatter +
+    # residual histogram for regression; class-prior bar for classification) via
+    # plot_best_dummy_baseline_overlay, saved next to the standard reports. Default OFF: the
+    # standard per-model charts (plot_strongest) already cover the floor, so this extra PNG was
+    # deliberately removed from the suite; opt in when a one-glance overlay is wanted.
+    overlay_plot: bool = False
 
     # Per-target-type opt-out. Default: every supported target type
     # gets baselines. Operator can disable for specific types via

@@ -553,14 +553,9 @@ def compute_dummy_baselines(
                 target_name, e,
             )
 
-    # Dummy-baselines overlay plot REMOVED.
-    # The standard ``report_regression_model_perf`` / ``report_probabilistic_model_perf``
-    # already produce per-model scatter + residual + calibration charts
-    # with full title-metric headers. Re-rendering a separate
-    # baseline-overlay PNG was redundant noise on disk and operators
-    # asked to "see my standard charts and reports, not a new chart
-    # type". The dummy-baselines TABLE (val/test metric grid + strongest
-    # verdict line) remains the actionable artifact.
+    # The standard report_model_perf pipeline (gated by config.plot_strongest) already
+    # produces per-model scatter + residual + calibration charts, so the dedicated overlay
+    # PNG is off by default; it renders only when the operator opts into config.overlay_plot.
     plot_path = None
 
     # Expose strongest-baseline val/test predictions via
@@ -582,7 +577,7 @@ def compute_dummy_baselines(
             extras["strongest_test_preds"] = np.asarray(st)
 
     elapsed_s = _time.time() - t0
-    return BaselineReport(
+    report = BaselineReport(
         target_type=target_type,
         target_name=target_name,
         table=table,
@@ -595,6 +590,22 @@ def compute_dummy_baselines(
         n_train_finite=n_train_finite, n_val_finite=n_val_finite, n_test_finite=n_test_finite,
         extras=extras,
     )
+
+    # Optional dedicated pre-training overlay (off by default; standard reports cover the floor).
+    # BaselineReport is an immutable NamedTuple, so rebuild it with the saved path via _replace.
+    if getattr(config, "overlay_plot", False) and strongest is not None:
+        _ov_save = (plot_file_prefix + "dummy_overlay.png") if plot_file_prefix else None
+        try:
+            _fig = plot_best_dummy_baseline_overlay(
+                report, val_y=val_y_arr, test_y=test_y_arr,
+                save_path=_ov_save, show=False,
+            )
+            if _fig is not None and _ov_save:
+                report = report._replace(plot_path=_ov_save)
+        except Exception as _ov_err:
+            logger.debug("[dummy-baselines] target='%s' overlay plot failed (%s); skipping", target_name, _ov_err)
+
+    return report
 
 
 # ---------------------------------------------------------------------

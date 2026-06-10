@@ -238,3 +238,40 @@ class TestOverlayHandlesMissingPreds:
             show=False,
         )
         assert fig is not None
+
+
+class TestOverlayPlotConfigFlag:
+    """INV-43: the dedicated overlay PNG is reachable via DummyBaselinesConfig.overlay_plot
+    (default OFF). Pre-fix the flag did not exist and the function was unreachable from configs.
+    """
+
+    def test_overlay_plot_default_off(self) -> None:
+        assert DummyBaselinesConfig().overlay_plot is False
+
+    def test_overlay_plot_renders_and_saves_when_enabled(self, tmp_path) -> None:
+        train_X, val_X, test_X, train_y, val_y, test_y = _make_regression_data()
+        prefix = str(tmp_path) + "/"
+        report = compute_dummy_baselines(
+            target_type="regression", target_name="y",
+            train_X=train_X, val_X=val_X, test_X=test_X,
+            train_y=train_y, val_y=val_y, test_y=test_y,
+            config=DummyBaselinesConfig(overlay_plot=True),
+            plot_file_prefix=prefix,
+        )
+        assert report.strongest is not None
+        assert report.plot_path is not None, (
+            "overlay_plot=True must render the dedicated overlay and stamp report.plot_path"
+        )
+        import os
+        assert os.path.exists(report.plot_path), "overlay PNG should be written to disk"
+
+    def test_overlay_plot_off_leaves_plot_path_none(self, tmp_path) -> None:
+        train_X, val_X, test_X, train_y, val_y, test_y = _make_regression_data()
+        report = compute_dummy_baselines(
+            target_type="regression", target_name="y",
+            train_X=train_X, val_X=val_X, test_X=test_X,
+            train_y=train_y, val_y=val_y, test_y=test_y,
+            config=DummyBaselinesConfig(overlay_plot=False),
+            plot_file_prefix=str(tmp_path) + "/",
+        )
+        assert report.plot_path is None

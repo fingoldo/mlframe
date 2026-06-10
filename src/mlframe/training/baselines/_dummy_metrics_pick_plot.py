@@ -344,15 +344,9 @@ def _pick_strongest(
     return strongest, ts_period_used
 
 
-# ``_save_overlay_plot`` REMOVED. The
-# standard ``report_regression_model_perf`` / ``report_probabilistic_model_perf``
-# pipelines already render per-model scatter / residual / calibration
-# charts; the dummy_baselines side rendering its own PNG was redundant
-# noise on disk. The dummy_baselines TABLE (val/test metric grid +
-# strongest verdict line + paired-bootstrap CI) remains the actionable
-# artifact. To re-enable a baseline-overlay PNG in the future, the
-# call site at ``compute_dummy_baselines`` should be the single place
-# to add it back, gated behind a config flag (default off).
+# The single-figure baseline overlay below is opt-in via DummyBaselinesConfig.overlay_plot
+# (default off); compute_dummy_baselines is the single call site that renders it. The standard
+# report_model_perf pipeline (DummyBaselinesConfig.plot_strongest) covers the floor by default.
 
 
 def plot_best_dummy_baseline_overlay(
@@ -386,9 +380,8 @@ def plot_best_dummy_baseline_overlay(
     further action; returns ``None`` when the report has no plottable
     content (no strongest baseline, no val/test y, etc.).
 
-    User-facing rationale: this chart fires BEFORE any model trains so
-    you can eyeball the no-model floor before sinking compute into
-    XGB/CB/LGB.
+    Opt-in via ``DummyBaselinesConfig.overlay_plot`` (default off); when enabled it shows the
+    no-model floor before sinking compute into XGB/CB/LGB.
     """
     import matplotlib.pyplot as _plt
     if report.strongest is None:
