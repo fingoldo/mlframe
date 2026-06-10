@@ -145,6 +145,38 @@ def test_build_category_code_map_reproduces_discretiser_codes():
     assert build_category_code_map(pd.Series([1.0, 2.0, 3.0])) == {}
 
 
+@pytest.mark.parametrize(
+    "ser, label",
+    [
+        (pd.Series(pd.Categorical(["red", "green", "blue", "red", None, "green"])), "Categorical+NaN"),
+        (pd.Series(pd.Categorical(["red", "green", "blue", "red", "green"])), "Categorical_noNaN"),
+        (pd.Series(["x", "y", "x", "z", None], dtype="object"), "object+NaN"),
+        (pd.Series(["x", "y", "x", "z"], dtype="object"), "object_noNaN"),
+    ],
+    ids=lambda v: v if isinstance(v, str) else "",
+)
+def test_category_code_map_replay_matches_categorize_dataset_exactly(ser, label):
+    """The map-driven replay must produce codes BIT-IDENTICAL to what
+    ``categorize_dataset`` assigns at fit time, INCLUDING the NaN +1 shift
+    (NaN-present columns: real cats -> base+1, NaN -> 0). A +1 / order skew here
+    would silently mis-key the factorize lookup for NaN-bearing categoricals."""
+    from mlframe.feature_selection.filters.discretization import categorize_dataset
+    from mlframe.feature_selection.filters.engineered_recipes._recipe_extract import (
+        build_category_code_map,
+        _coerce_to_int_with_nan_handling,
+    )
+    df = pd.DataFrame({"c": ser})
+    data, cols, nbins = categorize_dataset(df=df, missing_strategy="separate_bin")
+    fit_codes = data[:, cols.index("c")].astype(int)
+    m = build_category_code_map(ser)
+    nb = int(nbins[cols.index("c")])
+    vals = np.asarray(ser.to_numpy(), dtype=object)
+    replay = _coerce_to_int_with_nan_handling(vals, nb, "r", "c", "clip", m)
+    assert np.array_equal(fit_codes, replay), (
+        f"{label}: replay codes {replay.tolist()} != fit codes {fit_codes.tolist()}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Path 1: CLASSIFICATION (binary + multiclass)
 # ---------------------------------------------------------------------------

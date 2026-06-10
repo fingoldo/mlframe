@@ -41,32 +41,49 @@ def _extract_column(X: Any, name: str) -> np.ndarray:
     raise TypeError(f"Unsupported X type for engineered-recipe replay: {type(X)!r}")
 
 
+_NAN_CODE_KEY = "__MLFRAME_CAT_NAN__"
+
+
 def build_category_code_map(values) -> dict:
     """Build the fit-time ``raw_value -> integer_code`` mapping for a categorical
     source column so a ``factorize`` / ``target_encoding`` recipe can reproduce
     the SAME codes at transform time.
 
-    Reproduces ``categorize_dataset`` / ``_multi_col_factorize_native`` exactly:
+    Reproduces ``categorize_dataset`` / ``_multi_col_factorize_native`` EXACTLY,
+    including the NaN +1 shift:
 
-    * pandas Categorical dtype -> ``.cat.codes`` (category-dictionary order),
-      keyed by each distinct category value (NaN -> -1, encoded as sentinel and
-      excluded from the map so unseen/NaN fall through to ``unknown_strategy``);
-    * object / string / bool dtype -> ``pd.factorize(use_na_sentinel=True)``
-      (first-appearance order on the TRAINING data).
+    * base codes: Categorical -> ``.cat.codes`` (category-dictionary order);
+      object / string / bool -> ``pd.factorize(use_na_sentinel=True)`` (first-
+      appearance order on the TRAINING data). NaN gets the sentinel ``-1``.
+    * NaN shift: when the training column had ANY NaN, ``categorize_dataset``
+      shifts every code by ``+1`` so the ``-1`` NaN sentinel becomes ``0`` and
+      real categories become ``1..K``. The map mirrors this: with NaN present,
+      real-category codes are ``base + 1`` and the NaN bin maps to ``0`` (stored
+      under ``_NAN_CODE_KEY`` so the replay can route NaN cells there); without
+      NaN, codes are the un-shifted base (``0..K-1``).
 
-    Returns a plain ``{str(value): int(code)}`` dict (JSON / pickle friendly).
-    Returns ``{}`` for numeric columns (already integer-coded; no map needed).
-    """
+    Returns a plain ``{str(value): int(code)}`` dict (JSON / pickle friendly),
+    optionally with the ``_NAN_CODE_KEY`` entry. Returns ``{}`` for numeric
+    columns (already integer-coded; no map needed)."""
     if pd is None:
         return {}
     ser = values if isinstance(values, pd.Series) else pd.Series(values)
     if isinstance(ser.dtype, pd.CategoricalDtype):
         cats = ser.cat.categories
-        return {str(c): int(i) for i, c in enumerate(cats)}
-    if ser.dtype.kind in ("O", "U", "S", "b") or str(ser.dtype) in ("string", "boolean"):
+        base = {str(c): int(i) for i, c in enumerate(cats)}
+        has_nan = bool(ser.isna().any())
+    elif ser.dtype.kind in ("O", "U", "S", "b") or str(ser.dtype) in ("string", "boolean"):
         codes, uniques = pd.factorize(ser, use_na_sentinel=True)
-        return {str(u): int(i) for i, u in enumerate(uniques)}
-    return {}
+        base = {str(u): int(i) for i, u in enumerate(uniques)}
+        has_nan = bool((np.asarray(codes) < 0).any())
+    else:
+        return {}
+    if has_nan:
+        # ``categorize_dataset`` shifts -1 (NaN) -> 0 and real categories +1 when any NaN present.
+        shifted = {k: v + 1 for k, v in base.items()}
+        shifted[_NAN_CODE_KEY] = 0
+        return shifted
+    return base
 
 
 def _coerce_to_int_with_nan_handling(
@@ -91,10 +108,19 @@ def _coerce_to_int_with_nan_handling(
     if cat_code_map and not (
         np.issubdtype(vals.dtype, np.floating) or np.issubdtype(vals.dtype, np.integer)
     ):
+        # NaN cells route to the dedicated NaN code (``categorize_dataset`` shifts NaN -> 0 when the
+        # training column had any NaN); absent that key (training column was NaN-free) a transform-time
+        # NaN is genuinely unseen and resolves via ``unknown_strategy``.
+        _nan_code = cat_code_map.get(_NAN_CODE_KEY)
         out = np.empty(len(vals), dtype=np.int64)
-        unseen_count = 0
         for _i, _v in enumerate(vals):
-            _code = cat_code_map.get(str(_v))
+            if _v is None or (isinstance(_v, float) and _v != _v):
+                if _nan_code is not None:
+                    out[_i] = _nan_code
+                    continue
+                _code = None  # NaN unseen at fit -> unknown_strategy below
+            else:
+                _code = cat_code_map.get(str(_v))
             if _code is None:
                 if unknown_strategy == "raise":
                     raise ValueError(
@@ -103,7 +129,6 @@ def _coerce_to_int_with_nan_handling(
                         f"or 'sentinel' to handle unseen categories silently."
                     )
                 out[_i] = n_bins - 1  # sentinel bin (clip/sentinel both resolve via lookup)
-                unseen_count += 1
             else:
                 out[_i] = _code
         return out
