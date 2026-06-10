@@ -576,10 +576,19 @@ def _render_split_diagnostics(
     y_arr = np.asarray(target)
     if y_arr.ndim != 1:
         return
-    # For classification the per-row "prediction" the error builders score is the predicted class; preds is that vector.
+    # The per-row error signal the builders score: hard predicted class by default, but for BINARY classification the
+    # positive-class probability is a far richer worst-K / weak-segment signal (log-loss vs coarse 0/1 incorrectness),
+    # so prefer probs[:, 1] when present. Regression / multiclass keep the point prediction.
     y_pred = np.asarray(preds).ravel() if preds is not None else None
-    if y_pred is None or y_pred.ndim != 1 or len(y_pred) != len(y_arr):
+    if task == "classification" and tt == "binary_classification" and probs is not None:
+        probs_arr = np.asarray(probs)
+        if probs_arr.ndim == 2 and probs_arr.shape[1] == 2:
+            y_pred = probs_arr[:, 1]
+        elif probs_arr.ndim == 1:
+            y_pred = probs_arr
+    if y_pred is None or np.ndim(y_pred) != 1 or len(y_pred) != len(y_arr):
         return
+    y_pred = np.asarray(y_pred).ravel()
 
     feature_names = list(columns) if columns else None
     fi = None
