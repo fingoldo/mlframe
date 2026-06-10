@@ -92,10 +92,13 @@ class TestConditionalDispersionUnit:
         absz_name = engineered_name_conditional_dispersion("xi", "xj", "absz")
         assert absz_name in enc.columns
         rec = raw[absz_name]
-        # Closed-form recompute via the stored bins.
-        from mlframe.feature_selection.filters._extra_fe_families_dispersion import (
-            _digitize_with_edges, _zscore_from_bins,
-        )
+        # Closed-form recompute via the stored bins. ``_digitize_with_edges`` is
+        # owned by the parent ``_extra_fe_families`` (the dispersion sibling now
+        # imports it lazily to avoid the parent<->sibling import cycle, so it is no
+        # longer re-exposed at the sibling's module top); ``_zscore_from_bins`` is
+        # the dispersion module's own helper.
+        from mlframe.feature_selection.filters._extra_fe_families import _digitize_with_edges
+        from mlframe.feature_selection.filters._extra_fe_families_dispersion import _zscore_from_bins
         codes = _digitize_with_edges(X["xj"].to_numpy(), rec["edges"])
         z = _zscore_from_bins(
             X["xi"].to_numpy(dtype=float), codes, rec["bin_mean"], rec["bin_std"],

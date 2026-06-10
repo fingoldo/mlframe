@@ -67,11 +67,15 @@ from typing import Optional, Sequence
 import numpy as np
 import pandas as pd
 
-from ._extra_fe_families import (
-    _digitize_with_edges,
-    _quantile_edges,
-    _top_mi_num_cols,
-)
+# NOTE: the binning helpers ``_digitize_with_edges`` / ``_quantile_edges`` /
+# ``_top_mi_num_cols`` live in the PARENT ``_extra_fe_families`` module, which
+# re-imports THIS sibling at its bottom (the Family-D re-export). A top-level
+# ``from ._extra_fe_families import ...`` here therefore closes an import cycle
+# (parent <-> sibling) that ``test_no_import_cycles`` flags. Import them LAZILY
+# in-body in the three consumers below (mirroring the already-lazy
+# ``generate_conditional_residual_features`` / ``engineered_name_conditional_residual``
+# imports in this module) so the parent finishes initialising before the sibling
+# resolves the names. 2026-06-10.
 
 logger = logging.getLogger(__name__)
 
@@ -226,6 +230,7 @@ def generate_conditional_dispersion_features(
     if len(num_cols) < 2:
         return pd.DataFrame(index=X.index), raw_recipes
 
+    from ._extra_fe_families import _digitize_with_edges, _quantile_edges  # lazy: break parent<->sibling cycle
     col_vals = {c: np.asarray(X[c].to_numpy(), dtype=np.float64) for c in num_cols}
     for x_j in num_cols:
         xj = col_vals[x_j]
@@ -281,6 +286,7 @@ def apply_conditional_dispersion(X_test: pd.DataFrame, recipe: dict) -> np.ndarr
     bin_mean = np.asarray(recipe["bin_mean"], dtype=np.float64)
     bin_std = np.asarray(recipe["bin_std"], dtype=np.float64)
     kind = str(recipe.get("kind", "absz"))
+    from ._extra_fe_families import _digitize_with_edges  # lazy: break parent<->sibling cycle
     xi = np.asarray(X_test[x_i].to_numpy(), dtype=np.float64)
     xj = np.asarray(X_test[x_j].to_numpy(), dtype=np.float64)
     codes_j = _digitize_with_edges(xj, edges)
@@ -498,6 +504,7 @@ def hybrid_conditional_dispersion_fe(
         return X.copy(), [], [], pd.DataFrame()
 
     if y is not None:
+        from ._extra_fe_families import _top_mi_num_cols  # lazy: break parent<->sibling cycle
         num_cols = _top_mi_num_cols(X, num_cols, y, max_pair_cols)
     else:
         num_cols = list(num_cols)[: int(max_pair_cols)]
