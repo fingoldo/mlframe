@@ -47,6 +47,13 @@ def optimise_hermite_pair(
     optimizer: str = "cma_batch",
     warm_start: bool = True,
     warm_start_als: bool = True,
+    # CROSS-FIT recipe warm-start prior (backlog idea #20): joint coefficient
+    # vectors (concat(coef_a, coef_b)) from a prior fit on an X-fingerprint-
+    # overlapping fold. Injected as EXTRA optimiser warm-start seeds; never
+    # changes admission (the winner is re-scored on THIS fold's data + passes
+    # the same gates). ``None`` / empty = no cross-fit prior (legacy behaviour,
+    # byte-identical warm-start population).
+    cross_fit_prior_seeds: list | None = None,
     direction_only: bool = False,
     multi_fidelity: bool = True,
     use_trivial_baseline: bool = True,
@@ -417,6 +424,43 @@ def optimise_hermite_pair(
             if seeds_per_feature:
                 s = seeds_per_feature[0]
                 warm_seeds.append(np.concatenate([s, -s]))
+
+        # CROSS-FIT RECIPE WARM-START PRIOR (backlog idea #20), default OFF.
+        # When a prior fit on an X-fingerprint-overlapping fold survived
+        # admission with a polynomial pair recipe, its joint coefficient
+        # vector(s) can be threaded in here as EXTRA warm-start seeds (the
+        # per-parameter ``cross_fit_prior_seeds``). These only widen the
+        # optimiser's INITIAL population / x0; the search then runs the SAME
+        # generations and the winner is re-scored on THIS fold's data, so
+        # admission stays gate-bound. A prior seed whose halves do not match the
+        # current (ca_size, cb_size) for this degree is silently skipped.
+        #
+        # bench-attempt-rejected (2026-06-10, profiling/bench_warmstart_probe.py):
+        # NO measurable win on 5/12 bootstrap folds (85% overlap, n=4000, non-
+        # monotone-inner product target -- the regime where CMA must actually
+        # search). Median iters COLD=78 / WARM=79 (the prior seed adds ONE eval
+        # and saves ZERO generations); wall -0.3%..-3.7% (slightly SLOWER).
+        # ROOT CAUSE: the per-pair ALS warm-start (``warm_start_als``, the block
+        # above) already re-derives the true basin from THIS fold's data each
+        # call and lands x0 there, so a cross-fold coefficient prior is strictly
+        # subsumed. WORSE, the extra seed perturbs the CMA population enough to
+        # land on a DIFFERENT optimum on 8/12 folds (selection NOT byte-identical
+        # -- 6 higher-MI, 2 lower), which fails idea #20's identical-or-stabler
+        # ship gate. Kept OFF by default (``None`` => this block is a no-op and
+        # the warm-start population is byte-identical to legacy) per keep-all-
+        # versions; do NOT flip default-on without a regime that ALS cannot seed.
+        if cross_fit_prior_seeds:
+            for _ps in cross_fit_prior_seeds:
+                _ps = np.asarray(_ps, dtype=np.float64).reshape(-1)
+                if _ps.size == ca_size + cb_size:
+                    # Clip into the optimiser's bounds so the seed is not silently
+                    # truncated (mirrors the ALS-seed rescale rationale above).
+                    _bound = 0.999 * min(abs(coef_range[0]), abs(coef_range[1]))
+                    if _bound > 0:
+                        _m = float(np.max(np.abs(_ps)))
+                        if _m > _bound:
+                            _ps = _ps * (_bound / _m)
+                    warm_seeds.append(_ps)
 
         coef_a_best = None
         coef_b_best = None
