@@ -4422,6 +4422,17 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     getattr(self, "fe_conditional_dispersion_cols", ()) or ()
                 )
                 _cd_cols = [c for c in _cd_cols if c in X.columns] or None
+                # RAW columns only (2026-06-10 fix, same class as the wavelet stage
+                # below): the all-numeric default scope over the already-augmented X
+                # builds dispersion features OF engineered columns -> nested recipes
+                # the 1-deep replay cannot order at transform() time (KeyError on the
+                # engineered parent when it is not selected). Raw scope keeps every
+                # conditional-dispersion recipe replayable.
+                # ``feature_names_in_`` is not yet assigned here; exclude via the
+                # ``hybrid_orth_features_`` ledger (hinge-stage pattern).
+                if _cd_cols is None:
+                    _cd_already = set(getattr(self, "hybrid_orth_features_", None) or [])
+                    _cd_cols = [c for c in X.columns if c not in _cd_already] or None
                 _X_before_cd_cols = list(X.columns)
                 X_cd, _cd_appended, _cd_recipes, _ = hybrid_conditional_dispersion_fe(
                     X, _y_for_cd,
@@ -4491,6 +4502,22 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 )
                 _wv_cols = tuple(getattr(self, "fe_wavelet_cols", ()) or ())
                 _wv_cols = [c for c in _wv_cols if c in X.columns] or None
+                # RAW columns only (2026-06-10 fix, mirrors the extra-basis stage's
+                # guard at the hybrid_orth call above): by this point X is ALREADY
+                # augmented with poly/fourier/spline/hinge engineered columns, so the
+                # all-numeric default scope emitted NESTED recipes (e.g.
+                # ``x0__p2sin1__haar_j3k5`` -- a Haar leg of an engineered Fourier
+                # column) whose 1-deep replay cannot order the parent materialisation
+                # and raised KeyError('x0__p2sin1') at transform() time whenever the
+                # parent was not itself selected. Scoping to ``feature_names_in_``
+                # keeps every wavelet recipe 1-deep and replayable.
+                # NOTE: ``self.feature_names_in_`` is not assigned until the
+                # target-injection block far below, so the exclusion source is the
+                # ``hybrid_orth_features_`` ledger every prior univariate stage
+                # appends to (the hinge stage's exact pattern).
+                if _wv_cols is None:
+                    _wv_already = set(getattr(self, "hybrid_orth_features_", None) or [])
+                    _wv_cols = [c for c in X.columns if c not in _wv_already] or None
                 _X_before_wv_cols = list(X.columns)
                 X_wv, _wv_appended, _wv_recipes, _ = hybrid_wavelet_fe_with_recipes(
                     X, _y_for_wv,
@@ -4546,6 +4573,15 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     getattr(self, "fe_rankgauss_cols", ()) or ()
                 )
                 _rg_cols = [c for c in _rg_cols if c in X.columns] or None
+                # RAW columns only (2026-06-10 fix, same class as the wavelet /
+                # conditional-dispersion stages): keep rankgauss recipes 1-deep and
+                # replayable -- never rank-Gaussianise an engineered column whose
+                # parent the transform()-time replay cannot materialise first.
+                # ``feature_names_in_`` is not yet assigned here; exclude via the
+                # ``hybrid_orth_features_`` ledger (hinge-stage pattern).
+                if _rg_cols is None:
+                    _rg_already = set(getattr(self, "hybrid_orth_features_", None) or [])
+                    _rg_cols = [c for c in X.columns if c not in _rg_already] or None
                 _X_before_rg_cols = list(X.columns)
                 X_rg, _rg_appended, _rg_recipes, _ = hybrid_rankgauss_fe(
                     X, _y_for_rg,
@@ -5340,6 +5376,26 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     self.feature_names_in_ = [c for c in _all_cols if c not in _engineered_names_set]
     self.n_features_in_ = len(self.feature_names_in_)
 
+    # FE AUTO-ESCALATION fitting target (2026-06-10): a RANK transform of the raw
+    # numeric y, stashed for the escalation proposers' corr-based warp fits. The FE
+    # step's ``classes_y`` are LABEL codes from the internal target quantisation
+    # (NOT guaranteed ordinal/monotone in y -- measured 37 unordered codes on a
+    # heavy-tailed regression y), which destroys a Pearson-corr-validated ALS /
+    # periodogram fit; the rank of y is monotone-equivalent to y, heavy-tail-robust,
+    # and exactly as leak-safe (a fit-time supervised target; every emitted recipe
+    # stays a closed-form function of x). Deleted at fit end (transient, keeps the
+    # pickle slim). Non-numeric / multi-output y -> None (escalation falls back to
+    # ``classes_y`` codes).
+    try:
+        _y_esc_arr = y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+        if _y_esc_arr.ndim == 1 and _y_esc_arr.dtype.kind in "fiub" and len(_y_esc_arr) == len(X):
+            _y_esc_rank = np.argsort(np.argsort(_y_esc_arr, kind="stable"), kind="stable").astype(np.float64)
+            self._fe_escalation_y_rank_ = _y_esc_rank / max(len(_y_esc_rank) - 1, 1)
+        else:
+            self._fe_escalation_y_rank_ = None
+    except Exception:
+        self._fe_escalation_y_rank_ = None
+
     # ---------------------------------------------------------------------------------------------------------------
     # Temporarily inject targets
     # ---------------------------------------------------------------------------------------------------------------
@@ -5444,6 +5500,56 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     logger.info("categorized.")
 
     target_indices = np.array([cols.index(col) for col in target_names], dtype=np.int64)
+
+    # TARGET REBIN GUARD (2026-06-10). The adaptive per-column ``nbins_strategy``
+    # (default ``"mdlp"`` since Wave 7) is meant for FEATURE columns; applied to the
+    # injected TARGET column it is SELF-REFERENTIAL (MDLP bins y supervised on y) and
+    # on a heavy-tailed continuous y it produces a DEGENERATE encoding -- measured on
+    # the F2 fixture (y = 0.2*a**2/b + f/5 + log(2c)*sin(d/3), n=20000): 37 bins with
+    # 83.7% of all rows collapsed into ONE bin (vs the clean 10 x 2000 equal-frequency
+    # legacy quantile bins). Every downstream MI/CMI -- screening, pair gates, FE
+    # acceptance -- is computed AGAINST these target codes, so the bulk of the signal
+    # becomes invisible (the genuine (c,d) term's measured CMI drops ~6x). Re-bin the
+    # CONTINUOUS target columns (raw unique count > quantization_nbins; classification
+    # labels are left untouched) with the legacy ``quantization_method`` /
+    # ``quantization_nbins`` equal-frequency quantile path. No-op when
+    # ``nbins_strategy`` is None (legacy fits already bin the target this way).
+    if _nbins_strategy is not None and len(target_indices) > 0:
+        from .discretization import discretize_array as _t_discretize
+        for _ti in target_indices:
+            _t_name = cols[int(_ti)]
+            try:
+                _t_raw = np.asarray(
+                    _x_for_cat[_t_name].to_numpy()
+                    if hasattr(_x_for_cat[_t_name], "to_numpy") else _x_for_cat[_t_name]
+                )
+            except Exception:
+                continue
+            if _t_raw.dtype.kind not in "fiub" or _t_raw.ndim != 1:
+                continue
+            _t_finite = _t_raw[np.isfinite(_t_raw.astype(np.float64))] if _t_raw.dtype.kind == "f" else _t_raw
+            if np.unique(_t_finite).size <= int(self.quantization_nbins):
+                continue  # discrete / classification target: keep its native classes
+            _t_codes = _t_discretize(
+                arr=_t_raw.astype(np.float64),
+                n_bins=int(self.quantization_nbins),
+                method=str(self.quantization_method),
+                dtype=self.quantization_dtype,
+            )
+            _t_nb = int(np.max(_t_codes)) + 1
+            if _t_nb >= 2 and (int(nbins[int(_ti)]) != _t_nb or not np.array_equal(data[:, int(_ti)], _t_codes)):
+                if verbose:
+                    logger.info(
+                        "MRMR.fit target-rebin guard: target %r re-binned from the adaptive "
+                        "nbins_strategy=%r encoding (%d bins, max-bin %.1f%%) to the legacy "
+                        "%s/%d equal-frequency codes (%d bins) -- the adaptive strategy is "
+                        "feature-side only; on the target it degrades MI sensitivity.",
+                        _t_name, str(_nbins_strategy), int(nbins[int(_ti)]),
+                        100.0 * float(np.bincount(data[:, int(_ti)].astype(np.int64)).max()) / max(1, data.shape[0]),
+                        str(self.quantization_method), int(self.quantization_nbins), _t_nb,
+                    )
+                data[:, int(_ti)] = _t_codes
+                nbins[int(_ti)] = _t_nb
 
     # ---------------------------------------------------------------------------------------------------------------
     # Core
@@ -7363,4 +7469,6 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         except Exception:
             # UAED is best-effort post-fit; don't break fit() on internal hiccup.
             pass
+    # Transient FE-escalation fitting target: full-n array, fit-time only.
+    self._fe_escalation_y_rank_ = None
     return self

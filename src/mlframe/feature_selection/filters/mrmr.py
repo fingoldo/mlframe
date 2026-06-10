@@ -545,6 +545,39 @@ class MRMR(BaseEstimator, TransformerMixin):
         # Keep at most this many candidates per escalated pair (by debiased MI) before
         # the floors + S5 gate, so the gate pool stays small.
         fe_escalation_max_candidates_per_pair: int = 3,
+        # PAIR-NESS margin for the escalated orth-poly proposer: the rank-1 PAIR
+        # reconstruction's held-out |corr| must beat the best SINGLE-operand 1-D warp's
+        # held-out |corr| by this factor, else the "pair" is a wrapped univariate trend
+        # (a genuine-marginal x noise cross-mix the ALS collapses to ~constant on the
+        # noise side) and is not proposed -- the univariate stages own that signal.
+        # 1.15 mirrors fe_synergy_min_prevalence; genuine product terms measure >= 1.5.
+        fe_escalation_pairness_margin: float = 1.15,
+        # UNDERDELIVERY trigger (2026-06-10): also escalate a pair whose unary/binary
+        # search DID admit a column when the best admitted capture leaves SIGNIFICANT
+        # conditional pair MI on the table -- leftover CMI(joint(a,b) codes; y | best
+        # admitted column's codes) above its conditional-permutation null floor AND a
+        # debiased excess >= ``fe_escalation_underdelivery_excess_frac`` of the captured
+        # MI. Catches the ``y=sin(3.7a)*b`` envelope capture ``mul(sin(a),qubed(b))``
+        # the marginal-uplift fallback admits while most of the detected signal stays
+        # unexpressed (an MI-ratio bar vs the prescreen pair_mi CANNOT separate that
+        # case: the junk capture measures ratio 1.20, above genuine captures' own
+        # scale, because the 2-D prescreen joint MI under-estimates pair information).
+        # A false trigger is safe (escalation only PROPOSES; the full gates -- incl.
+        # the S5 CMI gate conditioned on the pair's own admitted column -- decide), so
+        # the trigger runs cheap: stride-subsampled rows + an 8-permutation null.
+        # Escalated proposers for such pairs fit the BINNED-MEAN RESIDUAL of the
+        # target given the existing capture (see ``run_fe_auto_escalation``), so only
+        # genuinely-missing signal can be proposed -- a remap of the existing capture
+        # finds ~no residual correlation and dies at the held-out floors.
+        # ``_self_ratio`` is the DISCRETISATION-RESIDUAL control: even a functionally
+        # COMPLETE capture leaves leftover CMI in the 2-D joint (its nbins quantile
+        # code is coarse), so the joint's leftover must also exceed this multiple of
+        # the capture's OWN finer-binning refinement CMI(capture@2*nbins; y |
+        # capture@nbins). Measured: complete captures 0.70-2.44, the sin-fixture
+        # envelope junk capture 14.6 -- 3.0 separates with margin on both sides.
+        fe_escalation_underdelivery_enable: bool = True,
+        fe_escalation_underdelivery_excess_frac: float = 0.05,
+        fe_escalation_underdelivery_self_ratio: float = 3.0,
         # ``fe_npermutations`` default 0->3:
         # pre-fix value 0 combined with ``fe_min_nonzero_confidence=1.0``
         # made the FE confidence gate STRUCTURALLY UNREACHABLE (confidence

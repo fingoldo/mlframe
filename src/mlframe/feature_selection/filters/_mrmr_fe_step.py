@@ -1354,13 +1354,39 @@ def _run_fe_step(
         # produced an admitted column -- the common case. See ``_fe_auto_escalation``.
         if bool(getattr(self, "fe_auto_escalation_enable", True)) and prospective_pairs:
             try:
+                # Per-fit escalation ledger: a pair escalated once is never re-escalated
+                # in a later FE step of the SAME fit (a step-2 retry would re-propose the
+                # identical candidate on identical data and emit a duplicate ``..._2``
+                # column). Reset on the first FE step so re-fits start clean.
+                if num_fs_steps == 0 or not hasattr(self, "_fe_escalation_done_pairs_"):
+                    self._fe_escalation_done_pairs_ = set()
+                    self.fe_escalation_history_ = []
+                _esc_done = self._fe_escalation_done_pairs_
                 _esc_pairs_with_additions = {
                     _rp for _rp, _v in prospective_additions.items() if _v[0]
                 }
                 _esc_failed = [
                     (_k[0], float(_k[1])) for _k in prospective_pairs
-                    if _k[0] not in _esc_pairs_with_additions
+                    if _k[0] not in _esc_pairs_with_additions and _k[0] not in _esc_done
                 ]
+                # UNDERDELIVERY trigger (2026-06-10): a pair that DID admit a column but
+                # whose best capture leaves SIGNIFICANT conditional pair MI on the table
+                # (leftover CMI(joint(a,b); y | best admitted) above its conditional-
+                # permutation null) is escalated too -- e.g. the ``y=sin(3.7a)*b``
+                # envelope capture ``mul(sin(a),qubed(b))`` that the marginal-uplift
+                # fallback admits while most of the detected signal stays unexpressed.
+                # Stride-subsampled + 8-perm null keeps the every-pair-delivers common
+                # case cheap; a false trigger only PROPOSES -- the full gates (incl. the
+                # S5 CMI gate vs the pair's own admitted column) still decide. See
+                # ``find_underdelivering_pairs``.
+                if bool(getattr(self, "fe_escalation_underdelivery_enable", True)):
+                    from ._fe_auto_escalation import find_underdelivering_pairs
+                    _esc_failed.extend(find_underdelivering_pairs(
+                        self,
+                        prospective_pairs=prospective_pairs,
+                        prospective_additions=prospective_additions,
+                        X=X, cols=cols, classes_y=classes_y, done=_esc_done,
+                    ))
                 if _esc_failed:
                     from ._fe_auto_escalation import run_fe_auto_escalation
                     from ._mi_greedy_cmi_fe import _cmi_from_binned as _esc_mi, _quantile_bin as _esc_qbin
@@ -1381,6 +1407,15 @@ def _run_fe_step(
                             _cv = np.asarray(_tvals[:, _jc], dtype=np.float64)
                             _cb = _esc_qbin(_cv, nbins=int(self.quantization_nbins))
                             _esc_admitted_pool[_cname] = (_cv, float(_esc_mi(_cb, _esc_y_dense, None)))
+                    # Per-pair admitted-capture values: UNDERDELIVERY-triggered pairs
+                    # get their proposers fit on the RESIDUAL of the target given the
+                    # existing capture (see ``run_fe_auto_escalation``); zero-admission
+                    # pairs have no entry and fit the full target.
+                    _esc_capture_vals: dict = {}
+                    for _pp, _pmi in _esc_failed:
+                        _v = prospective_additions.get(_pp)
+                        if _v and _v[0] and _v[1] is not None and _v[2]:
+                            _esc_capture_vals[tuple(_pp)] = _v[1][:, : min(int(_v[1].shape[1]), len(_v[2]))]
                     _esc_admitted = run_fe_auto_escalation(
                         self,
                         failed_pairs=_esc_failed,
@@ -1389,6 +1424,13 @@ def _run_fe_step(
                         pair_maxt_floor=float(_pair_maxt_floor),
                         admitted_pool=_esc_admitted_pool,
                         verbose=verbose,
+                        capture_vals=_esc_capture_vals,
+                    )
+                    # Mark the pairs escalation actually PROCESSED (budget-selected
+                    # eligible) as done for this fit, admitted or not -- a retry on
+                    # identical data cannot change the verdict.
+                    _esc_done.update(
+                        getattr(self, "fe_escalation_info_", {}).get("eligible_idx", []) or []
                     )
                     if _esc_admitted:
                         # Materialise exactly like the unary/binary survivors above:

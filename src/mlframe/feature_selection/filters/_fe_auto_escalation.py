@@ -63,7 +63,7 @@ import numpy as np
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
-__all__ = ["run_fe_auto_escalation"]
+__all__ = ["run_fe_auto_escalation", "find_underdelivering_pairs"]
 
 # Signal-adaptive poly basis routing: try all four shipped families, best by held-out
 # reconstruction |corr|. Chebyshev first (the production prewarp default).
@@ -126,11 +126,22 @@ def _candidate_values(x_a: np.ndarray, spec_a: dict, x_b: np.ndarray, spec_b: di
     return out
 
 
-def _propose_poly(x_a, x_b, y_f, *, degree: int, min_val_corr: float):
+def _propose_poly(x_a, x_b, y_f, *, degree: int, min_val_corr: float,
+                  pairness_margin: float = 1.15):
     """Signal-adaptive orth-poly proposer: rank-1 ALS pair warp per shipped basis,
-    held-out stride validation of the rank-1 reconstruction, best basis wins. Returns
-    ``(spec_a, spec_b, basis, val_corr)`` or ``None`` (no basis generalises)."""
-    from .hermite_fe import apply_operand_prewarp, fit_pair_prewarp_als
+    held-out stride validation of the rank-1 reconstruction, best basis wins.
+
+    PAIR-NESS GUARD: the rank-1 PAIR reconstruction's held-out |corr| must beat the
+    best SINGLE-OPERAND warp's held-out |corr| by ``pairness_margin`` (default 1.15,
+    mirroring ``fe_synergy_min_prevalence``). Without it, a (genuine-marginal x noise)
+    cross-mix pair passes trivially -- the ALS collapses the noise side to ~constant
+    and the "pair" reconstruction is just a wrapped univariate trend (measured on the
+    weak F2: 6 cross-mix wrappers admitted without the guard, 0 with it; the genuine
+    product terms keep ratios >= 1.5 because no single operand carries the product).
+
+    Returns ``(spec_a, spec_b, basis, val_corr)`` or ``None`` (no basis generalises /
+    the pair adds nothing over its best single operand)."""
+    from .hermite_fe import apply_operand_prewarp, fit_operand_prewarp, fit_pair_prewarp_als
     xa = _finite_filled(x_a)
     xb = _finite_filled(x_b)
     n = xa.size
@@ -143,6 +154,26 @@ def _propose_poly(x_a, x_b, y_f, *, degree: int, min_val_corr: float):
     y_va = y_f[va] - float(np.mean(y_f[va]))
     if float(np.std(y_tr)) < 1e-12 or float(np.std(y_va)) < 1e-12:
         return None
+
+    def _heldout_corr(vals_va) -> float:
+        vals_va = np.nan_to_num(np.asarray(vals_va, dtype=np.float64),
+                                copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+        if float(np.std(vals_va)) < 1e-12:
+            return 0.0
+        cc = float(np.corrcoef(vals_va, y_va)[0, 1])
+        return abs(cc) if np.isfinite(cc) else 0.0
+
+    # Best SINGLE-operand warp baseline (chebyshev 1-D fit per side, train-fit /
+    # val-scored) -- the bar the PAIR reconstruction must clear by the margin.
+    single_best = 0.0
+    for xs in (xa, xb):
+        try:
+            spec_1d = fit_operand_prewarp(xs[tr], y_tr, basis="chebyshev", max_degree=degree)
+            if spec_1d is not None:
+                single_best = max(single_best, _heldout_corr(apply_operand_prewarp(xs[va], spec_1d)))
+        except Exception:
+            continue
+
     best_corr = -1.0
     best_basis = None
     for basis in _ESCALATION_POLY_BASES:
@@ -150,17 +181,19 @@ def _propose_poly(x_a, x_b, y_f, *, degree: int, min_val_corr: float):
             sa_tr, sb_tr = fit_pair_prewarp_als(xa[tr], xb[tr], y_tr, basis=basis, max_degree=degree)
             if sa_tr is None or sb_tr is None:
                 continue
-            recon = apply_operand_prewarp(xa[va], sa_tr) * apply_operand_prewarp(xb[va], sb_tr)
-            recon = np.nan_to_num(recon, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-            if float(np.std(recon)) < 1e-12:
-                continue
-            c = abs(float(np.corrcoef(recon, y_va)[0, 1]))
+            c = _heldout_corr(
+                apply_operand_prewarp(xa[va], sa_tr) * apply_operand_prewarp(xb[va], sb_tr)
+            )
         except Exception:
             continue
-        if np.isfinite(c) and c > best_corr:
+        if c > best_corr:
             best_corr = c
             best_basis = basis
     if best_basis is None or best_corr < float(min_val_corr):
+        return None
+    if best_corr < float(pairness_margin) * single_best:
+        # Wrapped-marginal cross-mix: the pair form adds nothing over the best single
+        # operand's 1-D warp -> not a PAIR signal, leave it to the univariate stages.
         return None
     try:
         sa, sb = fit_pair_prewarp_als(xa, xb, y_f, basis=best_basis, max_degree=degree)
@@ -279,6 +312,131 @@ def _resolve_operand(X, name: str, engineered_continuous: dict | None) -> np.nda
     return None
 
 
+def find_underdelivering_pairs(
+    self,
+    *,
+    prospective_pairs,
+    prospective_additions,
+    X,
+    cols,
+    classes_y,
+    done,
+    max_rows: int = 20000,
+    n_permutations: int = 8,
+):
+    """UNDERDELIVERY trigger for the auto-escalation (2026-06-10): pairs whose
+    unary/binary search DID admit a column, but whose best admitted capture leaves
+    SIGNIFICANT conditional pair signal on the table.
+
+    Why a leftover-CMI test and not an MI-ratio bar: the prescreen ``pair_mi`` is a
+    2-D joint MI over the (possibly adaptive) operand codes and structurally
+    UNDER-estimates the pair information, so ``best_admitted_mi / pair_mi`` does not
+    separate a weak envelope capture from a genuine one (measured on the
+    ``y=sin(3.7*a)*b`` fixture: the junk ``mul(sin(a),qubed(b))`` envelope capture
+    scores ratio 1.20 -- ABOVE the genuine He3 capture's own scale). The leftover
+    conditional MI ``CMI(joint(a,b) codes; y | best admitted column's codes)`` is the
+    exact quantity of interest: ~bias when the capture is complete (He3 fixture),
+    large when the library form only caught an envelope of the detected signal (the
+    sin fixture, where most of ``sin(3.7a)*b`` lies beyond ``sin(a)*b**3``).
+
+    TRIGGER (three legs): the leftover CMI must clear (1) the conditional-permutation
+    null's quantile floor (same-bias null: the pair codes are permuted WITHIN
+    admitted-code strata), (2) a small debiased-excess bar relative to the captured MI
+    (``fe_escalation_underdelivery_excess_frac``, default 0.05) so a floor-grazing
+    fluctuation cannot fire it, and (3) a DISCRETISATION-RESIDUAL control: even a
+    functionally COMPLETE capture leaves leftover CMI in the 2-D joint, because its
+    own ``nbins`` quantile code is coarse (within-bin variation of the captured value
+    still predicts y) -- so the joint's leftover must exceed
+    ``fe_escalation_underdelivery_self_ratio`` (default 3.0) times the capture's OWN
+    finer-binning refinement ``CMI(capture @ 2*nbins; y | capture @ nbins)``. A
+    complete capture refines itself about as much as the joint refines it (measured:
+    He3 perfect capture ratio 0.70, F2 a**2/b capture 0.83, F2 log*sin capture 2.44),
+    while an envelope junk capture cannot (sin-fixture ``mul(sin(a),qubed(b))``
+    measures 14.6 -- most of ``sin(3.7a)*b`` lies beyond any binning of the envelope).
+    A FALSE trigger is safe -- escalation only PROPOSES and every candidate still
+    faces the full admission gates (incl. the S5 CMI gate conditioned on the pair's
+    own admitted column) -- so the trigger is tuned cheap, not razor-sharp: all
+    arrays are stride-subsampled to ``max_rows`` and the null uses
+    ``n_permutations=8`` (the real gates re-verify at full rigor / full n).
+
+    Returns ``[(pair_idx_tuple, pair_mi), ...]`` ready to append to the escalation's
+    ``failed_pairs`` argument. Never raises (skips a pair on any internal hiccup)."""
+    from ._fe_cmi_redundancy_gate import _conditional_perm_null
+    from ._mi_greedy_cmi_fe import _cmi_from_binned, _quantile_bin
+
+    out = []
+    n = int(len(X))
+    if n <= 0:
+        return out
+    step = max(1, int(np.ceil(n / float(max_rows))))
+    sl = slice(None, None, step)
+    y_arr = np.asarray(classes_y)[sl]
+    _, y_dense = np.unique(y_arr, return_inverse=True)
+    y_dense = y_dense.astype(np.int64)
+    if np.unique(y_dense).size < 2:
+        return out
+    nbq = int(self.quantization_nbins)
+    raw_names = set(getattr(self, "feature_names_in_", []) or [])
+    eng_cont = getattr(self, "_engineered_continuous_", None)
+    seed = int(getattr(self, "random_seed", 0) or 0)
+    excess_frac = float(getattr(self, "fe_escalation_underdelivery_excess_frac", 0.05))
+    self_ratio = float(getattr(self, "fe_escalation_underdelivery_self_ratio", 3.0))
+    for _k in prospective_pairs:
+        try:
+            pair, pair_mi = _k[0], float(_k[1])
+            if pair in done:
+                continue
+            v = prospective_additions.get(pair)
+            # Zero-admission pairs are the PRIMARY trigger's job; here we only look at
+            # pairs that admitted something (values matrix + names present).
+            if not v or not v[0] or v[1] is None or not v[2]:
+                continue
+            na, nb = cols[pair[0]], cols[pair[1]]
+            if na not in raw_names or nb not in raw_names:
+                continue
+            x_a = _resolve_operand(X, na, eng_cont)
+            x_b = _resolve_operand(X, nb, eng_cont)
+            if x_a is None or x_b is None or x_a.size != n or x_b.size != n:
+                continue
+            ca = _quantile_bin(x_a[sl], nbins=nbq).astype(np.int64)
+            cb = _quantile_bin(x_b[sl], nbins=nbq).astype(np.int64)
+            joint = ca * (int(cb.max()) + 1) + cb
+            _, joint = np.unique(joint, return_inverse=True)
+            joint = joint.astype(np.int64)
+            # Conditioning support: the SINGLE best admitted column (by marginal MI on
+            # the same subsample). Conditioning on one column keeps the null's strata
+            # populated; a multi-column capture that is only jointly complete merely
+            # causes a false trigger, which the downstream S5 gate (conditioned on ALL
+            # admitted columns) absorbs.
+            tvals, ncols_names = v[1], v[2]
+            best_mi, best_codes, best_vals = -1.0, None, None
+            for j in range(min(len(ncols_names), int(tvals.shape[1]))):
+                vj = np.asarray(tvals[sl, j], dtype=np.float64)
+                cj = _quantile_bin(vj, nbins=nbq).astype(np.int64)
+                mij = float(_cmi_from_binned(cj, y_dense, None))
+                if mij > best_mi:
+                    best_mi, best_codes, best_vals = mij, cj, vj
+            if best_codes is None or best_mi <= 0.0:
+                continue
+            leftover = float(_cmi_from_binned(joint, y_dense, best_codes))
+            floor, null_mean = _conditional_perm_null(
+                joint, y_dense, best_codes,
+                n_permutations=int(n_permutations),
+                seed=seed + 1009 * int(pair[0]) + int(pair[1]),
+            )
+            if leftover <= floor or (leftover - null_mean) < excess_frac * best_mi:
+                continue
+            # Leg 3 -- discretisation-residual control (see docstring): the capture's
+            # OWN finer-binning refinement bounds the leftover a COMPLETE capture shows.
+            cap_fine = _quantile_bin(best_vals, nbins=2 * nbq).astype(np.int64)
+            leftover_self = max(0.0, float(_cmi_from_binned(cap_fine, y_dense, best_codes)))
+            if leftover > self_ratio * leftover_self:
+                out.append((pair, pair_mi))
+        except Exception:  # pragma: no cover - trigger must never break the FE step
+            continue
+    return out
+
+
 def run_fe_auto_escalation(
     self,
     *,
@@ -289,15 +447,33 @@ def run_fe_auto_escalation(
     pair_maxt_floor: float,
     admitted_pool: dict,
     verbose: int = 0,
+    capture_vals: dict | None = None,
 ):
     """Escalate the FE search to the richer shipped bases for prescreen-surviving pairs
-    the unary/binary step admitted NOTHING for. PROPOSES candidates (signal-adaptive
+    the unary/binary step admitted NOTHING for (or, via the UNDERDELIVERY trigger,
+    admitted only a partial capture for). PROPOSES candidates (signal-adaptive
     orth-poly ALS warps + demodulated adaptive-frequency Fourier/chirp warps), then runs
     them through the EXISTING admission gates (order-2 maxT floor on MM-debiased MI,
     marginal-permutation floor, S5 conditional-MI redundancy gate vs the admitted
-    engineered support). Returns a list of admitted candidate dicts
-    ``{name, values, recipe, mi, kind, pair}`` for the caller to materialise; stamps
-    ``self.fe_escalation_info_`` provenance. Never raises (degrades to ``[]``)."""
+    engineered support).
+
+    ``capture_vals`` (optional): per-pair matrix of the pair's ALREADY-ADMITTED
+    engineered column values (full n). When present for a pair, the proposers fit the
+    RESIDUAL of the supervised target after removing each capture column's BINNED
+    CONDITIONAL MEAN (nonparametric -- removes ANY function of the capture at bin
+    resolution, crucially including the rank-vs-raw monotone remap a linear residual
+    leaves behind), so they hunt for the MISSING part of the signal: a candidate that
+    merely re-expresses the existing capture finds ~no residual correlation and dies
+    at the proposers' held-out floors -- measured on the He3(a)*b fixture, where the
+    default prewarp capture's leftover triggers underdelivery but the full-target /
+    lstsq-residual re-fits both produced a +0.0008-held-out-R^2 remap candidate (the
+    S5 gate's train-side conditional MI admitted it); the binned-mean residual kills
+    it at the proposal stage while the sin(3.7a)*b inner frequency -- genuinely
+    ABSENT from its envelope capture -- survives residualisation and is recovered.
+
+    Returns a list of admitted candidate dicts ``{name, values, recipe, mi, kind,
+    pair}`` for the caller to materialise; stamps ``self.fe_escalation_info_``
+    provenance. Never raises (degrades to ``[]``)."""
     from ._fe_cmi_redundancy_gate import _conditional_perm_null, apply_cmi_redundancy_gate
     from ._mi_greedy_cmi_fe import _cmi_from_binned, _quantile_bin
     from .engineered_recipes import build_unary_binary_recipe
@@ -305,6 +481,11 @@ def run_fe_auto_escalation(
     info: dict = {"eligible_pairs": [], "proposed": 0, "admitted": [], "rejected": {},
                   "pair_maxt_floor": float(pair_maxt_floor)}
     self.fe_escalation_info_ = info
+    # Accumulated per-call history (one entry per FE step that ran escalation), so a
+    # late no-op step does not erase the provenance of an earlier admitting step.
+    if not isinstance(getattr(self, "fe_escalation_history_", None), list):
+        self.fe_escalation_history_ = []
+    self.fe_escalation_history_.append(info)
     if not failed_pairs:
         return []
 
@@ -324,9 +505,19 @@ def run_fe_auto_escalation(
     seed = int(getattr(self, "random_seed", 0) or 0)
     nbins = int(self.quantization_nbins)
 
-    # Target for the supervised warp fits: the SAME discretised codes the MI sweep and
-    # the shipped pair-prewarp fit against (``prewarp_y=classes_y`` convention).
-    y_f = np.ascontiguousarray(np.asarray(classes_y), dtype=np.float64)
+    # Target for the supervised warp fits. PREFER the rank-transformed raw y stashed
+    # by ``_fit_impl`` (``_fe_escalation_y_rank_``): the FE step's ``classes_y`` are
+    # LABEL codes from the internal target quantisation -- NOT guaranteed ordinal /
+    # monotone in y (measured 37 unordered codes on a heavy-tailed regression y) --
+    # which silently destroys a Pearson-validated ALS / periodogram fit (held-out
+    # corr 0.42 on the genuine (c,d) term with rank-y vs ~0 with the label codes).
+    # The rank is monotone-equivalent to y and heavy-tail-robust; fall back to the
+    # codes when the stash is unavailable (multi-output / non-numeric y).
+    _y_rank = getattr(self, "_fe_escalation_y_rank_", None)
+    if _y_rank is not None and np.asarray(_y_rank).shape[0] == n_rows:
+        y_f = np.ascontiguousarray(_y_rank, dtype=np.float64)
+    else:
+        y_f = np.ascontiguousarray(np.asarray(classes_y), dtype=np.float64)
     y_arr = np.asarray(classes_y)
     if not np.issubdtype(y_arr.dtype, np.integer):
         y_arr = y_arr.astype(np.int64)
@@ -345,6 +536,9 @@ def run_fe_auto_escalation(
     eligible.sort(key=lambda e: e[1], reverse=True)
     eligible = eligible[:max_pairs]
     info["eligible_pairs"] = [(na, nb) for _, _, na, nb in eligible]
+    # Raw cols-space index tuples of the processed pairs -- the caller's per-fit
+    # dedup ledger key (stable across FE steps: engineered columns append at the end).
+    info["eligible_idx"] = [tuple(pair) for pair, _, _, _ in eligible]
     if not eligible:
         return []
 
@@ -356,8 +550,40 @@ def run_fe_auto_escalation(
         if x_a is None or x_b is None or x_a.size != n_rows or x_b.size != n_rows:
             continue
         pair_cands: list[dict] = []
+        # RESIDUAL fitting target for UNDERDELIVERY-triggered pairs (see docstring):
+        # remove EVERYTHING a function of the pair's already-admitted capture can
+        # explain, so the proposers hunt for the MISSING part only. The removal is the
+        # per-column BINNED CONDITIONAL MEAN (not lstsq): the supervised target is
+        # rank-y while the capture is raw-valued, so a LINEAR residual leaves the
+        # monotone remap of the capture itself in the residual and a proposer happily
+        # "recovers" that deterministic function of the existing capture (measured on
+        # He3(a)*b: laguerre val_corr 0.72 on the lstsq residual, +0.0008 held-out R^2
+        # -- pure remap; the binned-mean removal kills it while the sin(3.7a)*b inner
+        # frequency, genuinely absent from its envelope capture, survives).
+        # Zero-admission pairs (no capture) fit the full target as before.
+        y_pair = y_f
+        _cv = (capture_vals or {}).get(tuple(pair))
+        if _cv is not None:
+            try:
+                _A = np.asarray(_cv, dtype=np.float64).reshape(n_rows, -1)[:, :8]
+                _r = np.asarray(y_f, dtype=np.float64).copy()
+                _nb_res = int(min(32, max(8, n_rows // 64)))
+                for _j in range(_A.shape[1]):
+                    _cb = _quantile_bin(
+                        np.nan_to_num(_A[:, _j], nan=0.0, posinf=0.0, neginf=0.0), nbins=_nb_res
+                    ).astype(np.int64)
+                    _cnt = np.maximum(np.bincount(_cb, minlength=int(_cb.max()) + 1), 1)
+                    _means = np.bincount(_cb, weights=_r, minlength=int(_cb.max()) + 1) / _cnt
+                    _r = _r - _means[_cb]
+                if float(np.std(_r)) > 1e-9:
+                    y_pair = _r
+            except Exception:
+                pass
         # 1) Signal-adaptive orth-poly ALS warp (higher degree + 4-basis routing).
-        poly = _propose_poly(x_a, x_b, y_f, degree=poly_degree, min_val_corr=min_val_corr)
+        poly = _propose_poly(
+            x_a, x_b, y_pair, degree=poly_degree, min_val_corr=min_val_corr,
+            pairness_margin=float(getattr(self, "fe_escalation_pairness_margin", 1.15)),
+        )
         if poly is not None:
             sa, sb, basis, vcorr = poly
             vals = _candidate_values(x_a, sa, x_b, sb)
@@ -370,7 +596,7 @@ def run_fe_auto_escalation(
                 })
         # 2) Demodulated adaptive-frequency Fourier / chirp, both warp directions.
         for x_w, x_m, nw, nm in ((x_a, x_b, na, nb), (x_b, x_a, nb, na)):
-            for prop in _propose_fourier(x_w, x_m, y_f, min_val_corr=min_val_corr,
+            for prop in _propose_fourier(x_w, x_m, y_pair, min_val_corr=min_val_corr,
                                          max_freqs=max_freqs, chirp=True):
                 spec_m = _identity_prewarp_spec(x_m)
                 if spec_m is None:
