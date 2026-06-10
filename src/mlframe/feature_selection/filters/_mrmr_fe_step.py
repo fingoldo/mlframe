@@ -34,6 +34,7 @@ from ._mrmr_fe_step_helpers import (
     log_fe_summary,
     run_cluster_aggregate_emission,
 )
+from ._gradient_interaction_seeder import propose_gradient_interaction_pairs
 
 
 def _non_numeric_column_indices(X, cols) -> set:
@@ -262,6 +263,37 @@ def _run_fe_step(
         target_indices=target_indices,
         classes_y=classes_y,
         freqs_y=freqs_y,
+        numeric_vars_to_consider=numeric_vars_to_consider,
+        non_numeric_idx=_non_numeric_idx,
+        verbose=verbose,
+    )
+
+    # GRADIENT-INTERACTION (MIXED SECOND PARTIALS) SEEDER (2026-06-10, backlog #21). Fits one
+    # smooth differentiable RFF+ridge surrogate on a row sample, estimates E[(d2f/dxa dxb)^2] per
+    # pair (a large mixed partial is the calculus definition of a non-additive interaction), and
+    # proposes the operands of high-energy pairs into the SAME pool as #6 so their joint MI is
+    # screened by the pipeline below. Targets SMOOTH/ROTATED interactions (a*b saddles, sin(a)*b).
+    # Carries its OWN self-gate: an OOF-R2 vs permuted-y check (no learning -> 0 proposals), a
+    # GAM additive-residual baseline (additive targets -> ~0 mixed partials), and a permutation
+    # null on the max mixed-partial energy. OPT-IN (``fe_gradient_interaction_enable``, default
+    # OFF -- see the module's bench-reject note: on the prescribed sin(x5)*x31 fixture the gradient
+    # detector ranks the saddle #1 but the #6 GBM seeder does NOT under-rank it, so the two are
+    # equally good rather than complementary there, and the full self-gated proposer is ~8 s at
+    # n=2000/p=60). Routed OFF outside its size regime by ``_route_gradient_seeder``. No-op otherwise.
+    numeric_vars_to_consider, _gradient_seeded_idx = propose_gradient_interaction_pairs(
+        self,
+        num_fs_steps=num_fs_steps,
+        data=data,
+        # The smooth surrogate REQUIRES the RAW CONTINUOUS values: ``data`` here is the
+        # discretised (few-bin int) matrix every FE-gate MI is scored on, and a piecewise-constant
+        # ~5-level step function has ~zero mixed partials regardless of the underlying smooth
+        # interaction. ``X`` is the raw float frame (indexed by ``cols``); pass it so the RFF fit
+        # can resolve the smooth saddle. (This is the architectural reason the detector is niche --
+        # unlike the joint-MI sweep / GBM seeder, it cannot operate on the discretised pool.)
+        X_continuous=X,
+        cols=cols,
+        target_indices=target_indices,
+        categorical_vars=categorical_vars,
         numeric_vars_to_consider=numeric_vars_to_consider,
         non_numeric_idx=_non_numeric_idx,
         verbose=verbose,

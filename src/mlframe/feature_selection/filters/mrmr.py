@@ -1409,6 +1409,26 @@ class MRMR(BaseEstimator, TransformerMixin):
         # the discretised target, would leak a perfect OOF).
         fe_gbm_seeder_self_gate_reps: int = 5,
         fe_gbm_seeder_self_gate_min_z: float = 2.0,
+        # GRADIENT-INTERACTION (MIXED SECOND PARTIALS) SEEDER (backlog #21). Fits one smooth
+        # differentiable RFF+ridge surrogate on a row sample and proposes the operands of pairs
+        # (a, b) whose ``E[(d2f/dxa dxb)^2]`` is large -- the calculus definition of a non-additive
+        # interaction (a sum ``g(a)+h(b)`` has mixed partial == 0). Targets SMOOTH/ROTATED
+        # interactions (a*b hyperbolic saddles, sin(a)*b). Same pool plug point as #6: proposes
+        # operands, the maxT floor + CMI/prevalence gates DECIDE. Self-gated by an OOF-R2 vs
+        # permuted-y check, a GAM additive-residual baseline (additive targets emit 0), and a
+        # permutation null on the max mixed-partial energy.
+        #
+        # OPT-IN default (``fe_gradient_interaction_enable=False``). bench-reject (2026-06-10,
+        # ``_gradient_interaction_seeder.py``): on the prescribed cheap-validation fixture
+        # ``y=sin(x5)*x31+noise`` (n=2000, p=60) the gradient detector ranks the (5,31) saddle #1
+        # and proposes exactly that pair, BUT the #6 GBM split-co-occurrence seeder ALSO ranks
+        # (5,31) #1 -- modern boosting represents a smooth 2-way product over N(0,1) fine, so the
+        # two are equally good there, NOT complementary, and the GBM does not under-rank it. The
+        # full self-gated proposer (OOF gate + 12-shuffle null) is ~8 s at n=2000/p=60 -- too heavy
+        # to default-on. Noise control HOLDS (pure-noise and additive both -> 0 proposals). Routed
+        # OFF outside its [min_p, max_p] size regime by ``_route_gradient_seeder`` (thresholds via
+        # kernel_tuning_cache). Needs sklearn. Raise the flag to enable.
+        fe_gradient_interaction_enable: bool = False,
         # ORDER-3 Westfall-Young maxT permutation-null floor on the candidate-TRIPLE pool
         # (backlog idea #7 -- the MANDATORY rail for any 3-way proposer, ships in the same
         # change as the GBM seeder which opens 3-way). The triplet/quadruplet FE modules lack
@@ -2890,6 +2910,9 @@ class MRMR(BaseEstimator, TransformerMixin):
             "fe_gbm_seeder_self_gate_margin": 0.0,
             "fe_gbm_seeder_self_gate_reps": 5,
             "fe_gbm_seeder_self_gate_min_z": 2.0,
+            # GRADIENT-INTERACTION (MIXED SECOND PARTIALS) SEEDER (#21), 2026-06-10. OPT-IN;
+            # pre-feature pickles default to OFF for re-fits (byte-identical legacy path).
+            "fe_gradient_interaction_enable": False,
             "fe_triple_maxt_null_permutations": 25,
             "fe_triple_maxt_null_quantile": 0.95,
             "fe_triple_maxt_min_triples": 4,
