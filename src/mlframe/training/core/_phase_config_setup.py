@@ -245,17 +245,20 @@ def setup_configuration(
     models_dir = output_config.models_dir
     save_charts = output_config.save_charts
 
+    # Render-gating is a behavioral kill-switch, NOT a logging concern: a verbose=0 run with
+    # save_charts=False and a stale plot_file would otherwise render 100+ charts nobody sees
+    # (~60s wasted on 1M-row multiclass). Compute + mutate unconditionally; only the INFO lines
+    # below stay gated on verbose. Cached interactive flag doesn't switch between calls in-process.
+    _is_interactive_logp = _MLFRAME_INTERACTIVE
+    _short_circuit_active = (not _is_interactive_logp) and not save_charts
+    if _short_circuit_active:
+        output_config.plot_file = ""
+
     if verbose:
-        # Cached at module-import time; the interactive/REPL flag doesn't switch between
-        # back-to-back suite calls in the same process.
-        _is_interactive_logp = _MLFRAME_INTERACTIVE
         _plot_dir = (
             f"{data_dir}/{models_dir}/{model_name}" if data_dir and save_charts else "(no save)"
         )
-        _short_circuit_active = (not _is_interactive_logp) and not save_charts
-        # Without this clear, the suite renders 100+ cal plots to a temp dir that is immediately discarded (~60s wasted on 1M-row multiclass).
         if _short_circuit_active:
-            output_config.plot_file = ""
             logger.info(
                 "[reporting] save_charts=%s, interactive=%s -- "
                 "cal-plot short-circuit ACTIVE: clearing plot_file so "
