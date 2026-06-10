@@ -247,8 +247,8 @@ def _coverage_panel(y_true, preds_NK, alphas) -> PanelSpec:
     For each nominal level (alpha_hi - alpha_lo) the empirical coverage is the fraction of
     rows inside [q_lo, q_hi]; a 95% Wilson band shows sampling uncertainty and the identity
     diagonal marks perfect calibration. A well-calibrated model lands on the diagonal; an
-    overconfident (too-narrow) model sits BELOW it. Mean interval width per level is folded
-    into each point's legend label (the read-only LinePanelSpec has no secondary axis).
+    overconfident (too-narrow) model sits BELOW it. Mean interval width per level rides on a
+    secondary y-axis (a different unit than the [0,1] coverage), so sharpness reads directly.
 
     Perf: ~0.125s @2M / 9 alphas (cProfile); cost is the per-pair full-n boolean coverage
     reduction (already vectorised numpy) -- no actionable speedup at the panel scale.
@@ -284,19 +284,20 @@ def _coverage_panel(y_true, preds_NK, alphas) -> PanelSpec:
     ci_hi = ci_hi[order]
     widths = widths[order]
     diag = nominal.copy()
-    width_note = "; ".join(f"nom {nm:g}: width {w:.3g}" for nm, w in zip(nominal, widths))
     return LinePanelSpec(
         x=nominal,
-        y=tuple([diag, empirical]),
-        series_labels=("perfect", f"empirical ({width_note})"),
+        y=tuple([diag, empirical, widths]),
+        series_labels=("perfect", "empirical", "mean interval width"),
         title="Interval coverage (empirical vs nominal)",
         xlabel="Nominal coverage (alpha_hi - alpha_lo)",
         ylabel="Empirical coverage",
-        line_styles=(":", "lines+markers"),
-        colors=("green", "steelblue"),
+        line_styles=(":", "lines+markers", "lines+markers"),
+        colors=("green", "steelblue", "darkorange"),
         band=(ci_lo, ci_hi),
         band_color="steelblue",
         band_label="95% Wilson CI",
+        secondary_y=(False, False, True),
+        secondary_ylabel="Mean interval width",
     )
 
 

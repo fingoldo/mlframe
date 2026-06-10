@@ -231,6 +231,10 @@ def _score_dist_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, thres
         line_styles=("-", "-"),
         colors=("#d62728", "#1f77b4"),
         vlines=((float(threshold), "black", f"threshold={threshold:.2f}"),),
+        # Translucent step fills under each class histogram so the two distributions read as filled humps; step_fill
+        # keeps the left-closed histogram shape rather than linearly interpolating between bin centers.
+        fill_to_baseline=(True, True),
+        step_fill=True,
     )
 
 
@@ -335,6 +339,9 @@ def _threshold_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, thresh
     labels: List[str] = ["precision", "recall", "F1", "queue-rate"]
     styles: List[str] = ["-", "-", "-", "--"]
     colors: List[str] = ["#1f77b4", "#2ca02c", "#9467bd", "#7f7f7f"]
+    # Queue-rate is the fraction of the population flagged at each threshold -- an operating-volume axis, not a quality
+    # metric -- so it rides a secondary y-axis where its own range reads independently of the [0,1] precision/recall/F1.
+    secondary: List[bool] = [False, False, False, True]
     if cost_ratio is not None:
         if isinstance(cost_ratio, (tuple, list)) and len(cost_ratio) == 2:
             c_fp, c_fn = float(cost_ratio[0]), float(cost_ratio[1])
@@ -347,6 +354,7 @@ def _threshold_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, thresh
         labels.append(f"cost (c_fp={c_fp:g}, c_fn={c_fn:g}, norm)")
         styles.append(":")
         colors.append("#d62728")
+        secondary.append(False)
     return LinePanelSpec(
         x=thr,
         y=tuple(series),
@@ -356,6 +364,8 @@ def _threshold_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, thresh
         ylabel="Metric value",
         line_styles=tuple(styles),
         colors=tuple(colors),
+        secondary_y=tuple(secondary),
+        secondary_ylabel="Queue rate (fraction flagged)",
     )
 
 
@@ -383,6 +393,8 @@ def _gain_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, threshold: 
         ylabel="Fraction of positives captured",
         line_styles=("-", ":"),
         colors=("#1f77b4", "gray"),
+        # Fill the model gain curve down to the baseline so the lift area (gap above the random diagonal) is shaded.
+        fill_to_baseline=(True, False),
     )
 
 
