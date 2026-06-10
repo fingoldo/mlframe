@@ -685,9 +685,13 @@ from ._hermite_robust import (  # noqa: E402,F401
     _ROBUST_AXIS_MAX_FRAC,
     _ROBUST_AXIS_OUTER_K,
     _detect_heavy_tail,
+    _huber_irls_lstsq,
+    _ols_lstsq,
     _robust_axis_enabled,
     _robust_lo_hi,
     _robust_scale,
+    _robust_warp_fit_enabled,
+    fit_basis_coef_robust,
 )
 
 

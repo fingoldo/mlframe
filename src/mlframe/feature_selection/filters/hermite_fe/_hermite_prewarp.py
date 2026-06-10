@@ -107,7 +107,9 @@ def _l2_penalty_value(coef_a: np.ndarray, coef_b: np.ndarray,
 
 
 def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
-                         *, iters: int = 3) -> tuple:
+                         *, iters: int = 3,
+                         x_a: np.ndarray | None = None,
+                         x_b: np.ndarray | None = None) -> tuple:
     """Per-operand warm-start coefficients for the multiplicative pair model
     ``y ~ f(x_a) * g(x_b)`` via a rank-1 alternating-least-squares (ALS) sweep
     in the orthogonal-polynomial basis.
@@ -135,11 +137,37 @@ def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
     saturating penalty (:func:`_l2_penalty_value`) makes that scale harmless.
 
     Returns ``(None, None)`` if the target has no variance or ``lstsq`` fails.
+
+    ROBUST WARP FIT (backlog #17, 2026-06-10): ``x_a`` / ``x_b`` (the raw operand
+    columns) are accepted so a heavy-tail-gated robust (Huber-IRLS) ALS sweep COULD
+    be substituted here -- but it is intentionally NOT, because robustifying the
+    rank-1 ALS does not ship safely. The robust fit DID ship for the convex 1-D
+    :func:`fit_operand_prewarp` solve (clean 30/30 win, never regresses); the ALS
+    sweep is different and the params are kept only for call-site symmetry / future
+    work. See the ``# bench-attempt-rejected`` note in the body for the numbers.
     """
     yc = np.ascontiguousarray(np.asarray(y, dtype=np.float64))
     yc = yc - yc.mean()
     if float(np.std(yc)) < 1e-12:
         return None, None
+    # bench-attempt-rejected (2026-06-10): heavy-tail-gated Huber-IRLS inside this
+    # rank-1 ALS sweep was prototyped (robustify each alternating lstsq when the
+    # operand is heavy-tailed). It is a NET LOSS and is NOT shipped. The rank-1 ALS
+    # is a NON-CONVEX alternating fit with a sign/scale ambiguity in its factors;
+    # per-iteration reweighting destabilises the basin and SHRINKS genuine
+    # high-curvature warps whose signal lives in the SAME tail rows the Huber loss
+    # down-weights (a quadratic ``a**2`` is flattened toward linear). 30-seed OOS
+    # measure (n=2000, axis-robust ON both arms, 2% outliers @ 15*IQR in operand a):
+    #   product a*b   : mean dR2 -0.134, 30% of seeds regress >0.01, worst -0.89
+    #   product a^2*b : mean dR2 +0.121 BUT 13% regress, worst -0.96 (high variance)
+    #   product a^3*b : mean dR2 -0.004, worst -0.13
+    # An OOS train/val split + Huber held-out criterion + 5% margin guard was also
+    # tried to keep OLS on ties; it cut but did NOT eliminate the worst-case tail
+    # regressions (the val slice carries the same outliers; the ALS sign ambiguity
+    # makes near-equal held-out error map to very different shapes). Since the
+    # policy forbids shipping a regression for the common heavy-tail product case,
+    # this path stays byte-identical OLS. The robust solver (_huber_irls_lstsq) is
+    # still live for the 1-D prewarp; only the ALS substitution is rejected.
     try:
         # Initialise g(b) from a plain 1-D least-squares fit on the b-basis.
         cb, *_ = np.linalg.lstsq(B_b, yc, rcond=None)
@@ -212,17 +240,31 @@ def fit_operand_prewarp(
     try:
         B = build_basis_matrix(basis, z, deg)
         yc = yf - yf.mean()
-        coef, *_ = np.linalg.lstsq(B, yc, rcond=None)
+        # ROBUST WARP FIT (backlog #17): route through the heavy-tail dispatcher.
+        # On a clean operand the gate is off and this is the byte-identical OLS
+        # solve; on a heavy-tailed / outlier operand it uses Huber-IRLS so the
+        # warp tracks the bulk instead of chasing the outlier rows.
+        from ._hermite_robust import fit_basis_coef_robust
+        coef, _robust_used, _winsor = fit_basis_coef_robust(B, yc, xf)
     except (np.linalg.LinAlgError, ValueError):
         return None
-    if not np.all(np.isfinite(coef)):
+    if coef is None or not np.all(np.isfinite(coef)):
         return None
-    return {
+    spec = {
         "basis": str(basis),
         "degree": int(deg),
         "coef": np.ascontiguousarray(coef, dtype=np.float64),
         "preprocess": dict(params),
     }
+    if _robust_used:
+        # Provenance for leak-safe replay / audit: the operand's MAD-anchored
+        # winsor bounds used to decide the robust fit fired. Replay itself is
+        # closed-form on ``coef`` (apply_operand_prewarp ignores these), so they
+        # are recorded, not required, for byte-identical transform-time replay.
+        spec["robust_fit"] = True
+        spec["winsor_lo"] = float(_winsor[0])
+        spec["winsor_hi"] = float(_winsor[1])
+    return spec
 
 
 def fit_pair_prewarp_als(
@@ -268,7 +310,11 @@ def fit_pair_prewarp_als(
     try:
         Ba = build_basis_matrix(basis, za, deg)
         Bb = build_basis_matrix(basis, zb, deg)
-        coef_a, coef_b = warm_start_als_seed(Ba, Bb, yf, iters=3)
+        # ``x_a``/``x_b`` are passed for call-site symmetry only; the ALS sweep does
+        # NOT robustify (bench-attempt-rejected, see warm_start_als_seed) so this
+        # stays byte-identical to legacy OLS-ALS. No ``robust_fit`` provenance is set
+        # on the returned specs: the ALS coefficients are plain least-squares.
+        coef_a, coef_b = warm_start_als_seed(Ba, Bb, yf, iters=3, x_a=xa, x_b=xb)
     except (np.linalg.LinAlgError, ValueError):
         return None, None
     if coef_a is None or coef_b is None:

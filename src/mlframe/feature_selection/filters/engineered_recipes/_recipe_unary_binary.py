@@ -241,6 +241,15 @@ def build_unary_binary_recipe(
         extra[f"prewarp_{_side}_degree"] = int(_spec["degree"])
         extra[f"prewarp_{_side}_coef"] = np.asarray(_spec["coef"], dtype=np.float64).copy()
         extra[f"prewarp_{_side}_preprocess"] = _orjson_pp(_spec["preprocess"])
+        # ROBUST WARP FIT (backlog #17): when the warp was fit with the Huber-IRLS
+        # heavy-tail path, persist the robust flag + the MAD-anchored winsor bounds
+        # used at fit time. Replay is closed-form on ``coef`` (no y, leak-safe) so
+        # these are provenance / auditability, not required for byte-identical
+        # transform; stored FLAT (scalars) for ``_extra_equal`` comparability.
+        if _spec.get("robust_fit"):
+            extra[f"prewarp_{_side}_robust_fit"] = True
+            extra[f"prewarp_{_side}_winsor_lo"] = float(_spec["winsor_lo"])
+            extra[f"prewarp_{_side}_winsor_hi"] = float(_spec["winsor_hi"])
     # Per-operand median gate (2026-06-04): when a side used the ``gate_med``
     # pseudo-unary, persist its single TRAIN-median float FLAT in ``extra`` so
     # replay reproduces ``(x > median)`` from x alone (leak-safe; no y). A plain
