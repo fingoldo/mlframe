@@ -122,8 +122,11 @@ def _fit_engineered(perms, *, n_noise=40, **overrides):
 
 class TestOrder2MaxTFloorWideNoise:
     def test_floor_reduces_spurious_pairs_keeps_genuine(self):
-        eng_off = _fit_engineered(perms=0)
-        eng_on = _fit_engineered(perms=25)
+        # Pin fe_acceptance='prevalence_ratio' (as the sibling test_default_gates_floor_removes_spurious_keeps_genuine does): under the
+        # default 'conditional_mi' a downstream CMI-redundancy gate removes the spurious noise pairs irrespective of the maxT floor, so
+        # floor-OFF would surface 0 spurious pairs and this test (whose subject is the floor) could not exercise it.
+        eng_off = _fit_engineered(perms=0, fe_acceptance="prevalence_ratio")
+        eng_on = _fit_engineered(perms=25, fe_acceptance="prevalence_ratio")
         gen_off, spur_off = _classify(eng_off)
         gen_on, spur_on = _classify(eng_on)
 

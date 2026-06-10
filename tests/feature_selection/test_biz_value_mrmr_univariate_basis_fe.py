@@ -29,9 +29,13 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 _RAW = {"a", "b", "c", "d", "e"}
 
 
-def _make(make_true, n: int = 4000, seed: int = 0):
+def _make(make_true, n: int = 4000, seed: int = 0, noise: float = 0.1):
     """Symmetric domain so univariate even/odd nonlinearities are NOT recoverable
-    from the raw column (raw a has ~0 correlation with a**2 on [-2.5, 2.5])."""
+    from the raw column (raw a has ~0 correlation with a**2 on [-2.5, 2.5]).
+
+    ``noise`` scales the additive ``e`` term on the target (``y = true + noise*std(true)*e``); pass ``noise=0.0`` for a clean
+    target where the single-source univariate basis is the genuinely-optimal recoverer (a multi-source composite then has no
+    noise component to capture, so it cannot out-score the clean single-source feature)."""
     rng = np.random.default_rng(seed)
     a = rng.uniform(-2.5, 2.5, n)
     b = rng.uniform(-2.5, 2.5, n)
@@ -39,7 +43,7 @@ def _make(make_true, n: int = 4000, seed: int = 0):
     d = rng.uniform(-2.5, 2.5, n)
     e = rng.normal(0.0, 1.0, n)
     true = make_true(a)
-    y = true + 0.1 * np.std(true) * e
+    y = true + noise * np.std(true) * e
     df = pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e})
     return df, pd.Series(y, name="y"), true
 
@@ -106,7 +110,11 @@ def test_univariate_recovery_is_a_clean_single_source_feature():
     path, which (when it recovers a univariate signal at all) must smuggle it
     through a 2-variable feature like ``mul(prewarp(a), log(e))`` that pulls in
     an unrelated column."""
-    df, y, true = _make(lambda a: a ** 2)
+    # Noise-free target so the single-source univariate basis (a__T2 ~ a**2) is the genuinely-optimal recoverer. On the default noisy y the
+    # step-2 multi-step composite add(prewarp(e), a__T2) legitimately outscores it by ALSO capturing the +0.1*std*e term -- that composite is
+    # a real improvement (composite discovery has its own tests), NOT the "unrelated-column 2-var pair hack" this test guards against. With no
+    # noise to capture, the clean single-source univariate feature wins, which is exactly the univariate-basis quality this test asserts.
+    df, y, true = _make(lambda a: a ** 2, noise=0.0)
     MRMR.clear_fit_cache()
     fs = MRMR(verbose=0, random_seed=0).fit(df, y)
     corr, bn = _best_corr(fs, df, true)
