@@ -282,6 +282,72 @@ def weak_segment_heatmap(
     )
 
 
+def segments_bar(
+    slice_frame: Any,
+    *,
+    group_col: Optional[str] = None,
+    metric_col: Optional[str] = None,
+    global_value: Optional[float] = None,
+    metric_name: str = "metric",
+    title: str = "Metric by subgroup",
+    higher_is_worse: bool = False,
+    max_groups: int = 30,
+    seed: int = 0,
+) -> FigureSpec:
+    """Per-subgroup metric bars with a global-reference overlay.
+
+    ``slice_frame`` is the existing fairness / slice DataFrame: one row per subgroup with a group-name column and a
+    metric column (auto-detected when not named). The global reference is drawn as a second flat bar series across
+    all categories (renderers have no horizontal-line primitive for bar panels -- a flat companion series reads the
+    same way and stays backend-agnostic). When ``global_value`` is None it defaults to the count-weighted-or-plain
+    mean of the per-group metric. Subgroups are sorted worst-first so the weakest slice is leftmost.
+    """
+    import pandas as pd
+
+    df = slice_frame
+    cols = list(df.columns)
+    if group_col is None:
+        obj_cols = [c for c in cols if df[c].dtype.kind in "OUS"]
+        group_col = obj_cols[0] if obj_cols else cols[0]
+    if metric_col is None:
+        num_cols = [c for c in cols if c != group_col and df[c].dtype.kind in "fiu"]
+        if not num_cols:
+            raise ValueError("segments_bar: no numeric metric column found in slice_frame")
+        metric_col = num_cols[0]
+
+    groups = df[group_col].astype(str).to_numpy()
+    metric = df[metric_col].to_numpy().astype(np.float64)
+    count_col = next((c for c in cols if str(c).lower() in ("count", "n", "size", "support")), None)
+    if global_value is None:
+        if count_col is not None:
+            w = df[count_col].to_numpy().astype(np.float64)
+            global_value = float(np.average(metric, weights=w)) if w.sum() > 0 else float(np.nanmean(metric))
+        else:
+            global_value = float(np.nanmean(metric))
+
+    order = np.argsort(metric)
+    if not higher_is_worse:
+        order = order  # lowest metric = worst (e.g. accuracy / NDCG) -> leftmost
+    else:
+        order = order[::-1]  # highest metric = worst (e.g. error rate) -> leftmost
+    order = order[:max_groups]
+
+    cats = tuple(groups[order])
+    vals = metric[order]
+    ref = np.full(vals.shape, global_value, dtype=np.float64)
+    bar = BarPanelSpec(
+        categories=cats,
+        values=(vals, ref),
+        series_labels=(metric_name, f"global = {global_value:.3g}"),
+        title=title + f"\n(worst-first; global reference = {global_value:.3g})",
+        xlabel=str(group_col),
+        ylabel=metric_name,
+        colors=("steelblue", "darkorange"),
+        xtick_rotation=45.0,
+    )
+    return FigureSpec(suptitle="", panels=((bar,),), figsize=(max(8.0, len(cats) * 0.5), 5.0))
+
+
 @dataclass(frozen=True)
 class WorstKResult:
     """Top-K worst-error rows DataFrame + the original-row indices for scatter highlighting.
@@ -487,6 +553,7 @@ __all__ = [
     "weak_segment_heatmap",
     "error_bias_per_feature",
     "worst_k_table",
+    "segments_bar",
     "DEFAULT_HEATMAP_BINS",
     "DEFAULT_TREE_DEPTH",
     "DEFAULT_TREE_FIT_CAP",

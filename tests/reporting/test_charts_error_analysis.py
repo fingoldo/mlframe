@@ -13,7 +13,7 @@ import pytest
 
 from mlframe.reporting.charts.error_analysis import (
     ErrorBiasResult, WeakSegmentResult, WorstKResult, error_bias_per_feature,
-    weak_segment_heatmap, worst_k_table,
+    segments_bar, weak_segment_heatmap, worst_k_table,
 )
 from mlframe.reporting.spec import (
     BarPanelSpec, FigureSpec, HeatmapPanelSpec, HistogramPanelSpec, LinePanelSpec,
@@ -228,3 +228,54 @@ def test_worst_k_classification_uses_loss(reg_clean):
     # Worst loss row should be a confidently-wrong prediction.
     worst = res.table.iloc[0]
     assert worst["loss"] > 1.0  # log-loss of a confidently wrong call
+
+
+# ----------------------------------------------------------------------------
+# segments_bar (INV-23)
+# ----------------------------------------------------------------------------
+
+
+@pytest.fixture
+def fairness_frame():
+    return pd.DataFrame({
+        "segment": ["A", "B", "C", "D"],
+        "accuracy": [0.92, 0.71, 0.88, 0.55],
+        "count": [1000, 200, 500, 80],
+    })
+
+
+def test_segments_bar_returns_grouped_bar_with_reference(fairness_frame):
+    fig = segments_bar(fairness_frame, metric_name="accuracy")
+    panels = [p for row in fig.panels for p in row if p is not None]
+    assert len(panels) == 1
+    bar = panels[0]
+    assert isinstance(bar, BarPanelSpec)
+    # Grouped bars: metric series + global-reference series.
+    assert isinstance(bar.values, tuple) and len(bar.values) == 2
+    assert len(bar.categories) == 4
+
+
+def test_segments_bar_sorts_worst_first(fairness_frame):
+    fig = segments_bar(fairness_frame, metric_name="accuracy")
+    bar = [p for row in fig.panels for p in row if p is not None][0]
+    # Lowest accuracy = worst -> leftmost: D(0.55) then B(0.71) then C(0.88) then A(0.92).
+    assert bar.categories[0] == "D"
+    assert list(bar.values[0]) == [0.55, 0.71, 0.88, 0.92]
+
+
+def test_segments_bar_count_weighted_reference(fairness_frame):
+    fig = segments_bar(fairness_frame, metric_name="accuracy")
+    bar = [p for row in fig.panels for p in row if p is not None][0]
+    ref = bar.values[1]
+    # Count-weighted mean of accuracy.
+    expected = np.average([0.92, 0.71, 0.88, 0.55], weights=[1000, 200, 500, 80])
+    assert np.allclose(ref, expected)
+
+
+def test_segments_bar_higher_is_worse_orders_descending():
+    df = pd.DataFrame({"seg": ["X", "Y", "Z"], "error_rate": [0.05, 0.30, 0.12]})
+    fig = segments_bar(df, metric_col="error_rate", higher_is_worse=True, metric_name="error rate")
+    bar = [p for row in fig.panels for p in row if p is not None][0]
+    # Highest error = worst -> leftmost.
+    assert bar.categories[0] == "Y"
+    assert list(bar.values[0]) == [0.30, 0.12, 0.05]
