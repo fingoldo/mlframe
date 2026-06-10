@@ -221,7 +221,7 @@ def evaluate_estimators(
             test_size = len(y_test_test)
 
             if test_size > 0:
-                print("test_size=", test_size)
+                logger.info("test_size=%s", test_size)
                 test_size = get_human_readable_set_size(test_size)
                 is_classification = is_classifier(est)
 
@@ -292,7 +292,7 @@ def evaluate_estimators(
                     if show_classification_report:
 
                         classification_report_text = classification_report(y_test_test, preds, labels=labels_to_use, target_names=target_names_to_use)
-                        print(classification_report_text)
+                        logger.info("classification report:\n%s", classification_report_text)
 
                         if results_log:
                             classification_report_dict = classification_report(
@@ -511,9 +511,10 @@ def plot_pr_curve(
 ):
     """Dual PR + ROC on same axes with PR baseline and classification_report logged at thresh.
 
-    Adapted from OldEnsembling.plot_pr; returns Figure instead of showing plot.
-    Curve vertices are decimated to ~2000 points for plotting; all displayed
-    metrics are computed on the full data.
+    Standalone axes-based shim (returns a Figure; no production suite caller). The canonical
+    binary curve charts in the suite are the FigureSpec panels in reporting/charts/binary.py
+    (ROC / PR / SCORE_DIST / KS / THRESHOLD / GAIN); this helper stays for direct notebook use.
+    Curve vertices are decimated to ~2000 points for plotting; all displayed metrics use full data.
     """
     from sklearn.metrics import (
         precision_recall_curve,
