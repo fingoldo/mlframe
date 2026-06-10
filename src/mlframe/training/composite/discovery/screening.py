@@ -73,9 +73,10 @@ def _extract_column_array(df: Any, col: str, rows: np.ndarray | None = None) -> 
             s = s.gather(rows)
         return s.to_numpy().astype(np.float32, copy=False)
     if isinstance(df, pd.DataFrame):
+        # na_value=np.nan so pandas nullable extension dtypes (Int64/Float64/boolean) holding NA cast to float32 instead of raising; no-op on plain numpy dtypes.
         if rows is not None:
-            return df[col].iloc[rows].to_numpy(dtype=np.float32)
-        return df[col].to_numpy(dtype=np.float32)
+            return df[col].iloc[rows].to_numpy(dtype=np.float32, na_value=np.nan)
+        return df[col].to_numpy(dtype=np.float32, na_value=np.nan)
     raise TypeError(
         f"CompositeTargetDiscovery: unsupported df type {type(df).__name__}"
     )
@@ -300,7 +301,8 @@ def _prebin_feature_columns(
         if col_finite.sum() < 5 * nbins:
             binned[:, j] = -1
             continue
-        cut = np.nanquantile(col, q_edges)
+        # nanquantile drops NaN but not inf; on an all-finite column np.quantile is bit-identical and faster, so take it in the common case.
+        cut = np.quantile(col, q_edges) if col_finite.all() else np.nanquantile(col, q_edges)
         col_idx = np.full(n_rows, -1, dtype=np.int64)
         col_idx[col_finite] = np.searchsorted(
             cut, col[col_finite], side="right",
@@ -602,5 +604,8 @@ def _sample_indices(
             chosen = rng.choice(bin_rows, size=take, replace=False)
             picked.append(chosen)
     out = np.concatenate(picked) if picked else np.arange(min(n, sample_n))
+    # Downsample the per-stratum overshoot uniformly with the seeded rng; truncating after sort would excise only the largest (latest) indices, a systematic temporal bias against the sort-for-temporal-fidelity rationale.
+    if out.size > sample_n:
+        out = rng.choice(out, size=sample_n, replace=False)
     out.sort()
-    return out[:sample_n]
+    return out

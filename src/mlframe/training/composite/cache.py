@@ -39,6 +39,9 @@ logger = logging.getLogger(__name__)
 # start and ``abc-def`` would slip through).
 _HEX_KEY_RE = re.compile(r"\A[0-9a-fA-F]+\Z")
 
+# One-shot guard so the "filelock missing -> LRU/eviction races" warning fires at most once per process instead of on every cache touch.
+_FILELOCK_WARNED = False
+
 import numpy as np
 import pandas as pd
 
@@ -96,18 +99,8 @@ def _is_polars_df(x: Any) -> bool:
     return _HAS_POLARS and isinstance(x, pl.DataFrame)
 
 
-# ----------------------------------------------------------------------
-# Discovery caching layer (content-hash cache for discovery).
-#
-# R&D workflows often re-run ``CompositeTargetDiscovery`` on the same data while only varying the inner-model hyperparameters. The discovery step (MI permutation null, Wilcoxon per spec, tiny-model rerank) burns minutes on multi-million-row datasets. The caching layer keys discovery results by a content hash of (data-sample, target-column, config-signature, random_state) so repeated discovery calls with the same inputs return the cached specs in milliseconds.
-#
-# Three primitives:
-# 1. ``data_signature(df, target_col, feature_cols, sample_n=1000, random_state=42)`` -- blake2b hash over a deterministic sample of the data + column names + dtypes + a head/tail row-order fingerprint. Quantises to a 16-byte fingerprint that is SENSITIVE to row reorder: a shuffled frame produces a different signature than the original, so reorder no longer replays a stale spec.
-# 2. ``DiscoveryCache(cache_dir)`` -- disk-backed key->value store. Keys are hex strings; values are pickled (using stdlib ``pickle``; safe since the values are dataclass-derived dicts, not arbitrary user objects). API: ``get(key)`` / ``set(key, value)`` / ``invalidate(key)`` / ``clear()`` / ``__contains__``.
-# 3. Convenience ``make_discovery_cache_key(df_sig, target_col, config_signature, random_state)`` -- combines the parts into a stable hex key.
-#
-# The cache layer does NOT auto-integrate with ``CompositeTargetDiscovery.fit``; callers manage cache lookup / store at their orchestration level. This keeps the discovery class free of I/O concerns (testability + library hygiene).
-# ----------------------------------------------------------------------
+# Discovery caching layer: key discovery results by a content hash of (data-sample, target-column, config-signature, random_state) so re-runs that only vary inner hyperparameters skip the minutes-long MI-null / Wilcoxon / tiny-rerank phases.
+# Primitives: ``data_signature`` (blake2b over a deterministic sample + dtypes + a reorder-sensitive row fingerprint), ``DiscoveryCache(cache_dir)`` (disk key->pickle store: get/set/invalidate/clear/__contains__), ``make_discovery_cache_key`` (stable hex key). The layer does NOT auto-integrate with fit(); callers manage lookup/store at their orchestration level to keep the discovery class free of I/O.
 
 
 _DISCOVERY_SIGNATURE_SAMPLE_N: int = 1000
@@ -269,10 +262,11 @@ def data_signature(
             # represented as out-of-range ints), so min/max + nunique distinguish dtype-equal
             # columns without going through the lossy str-uniques path.
             try:
+                # ``null=0`` instead of an ``nuniq`` full ``np.unique`` sort: numpy int/bool dtypes hold no NaN so the null count is structurally zero (mirrors the polars int digest; drops the per-int-column O(n log n) sort -- one-time on-disk cache invalidation).
                 return (
                     f"intmin={int(np.min(arr))};"
                     f"intmax={int(np.max(arr))};"
-                    f"nuniq={int(np.unique(arr).size)}"
+                    f"null=0"
                 ).encode("utf-8")
             except Exception:
                 return b"int_opaque"
@@ -516,7 +510,7 @@ class DiscoveryCache:
 
     Values are pickled with stdlib ``pickle`` (safe: stored objects are dataclass-derived dicts). Files live under ``<cache_dir>/<key>.pkl`` with one file per key for easy invalidation / cleanup.
 
-    Thread-safe for single-process use only; concurrent writers from multiple processes will race on the same key (caller's responsibility).
+    Concurrency: value writes are crash-safe via atomic ``os.replace`` (tmp-file + fsync + rename), the LRU sidecar and eviction sweep are guarded by a cross-process ``filelock`` (when ``filelock`` is installed), and ``invalidate`` is idempotent under concurrent callers. ``filelock`` is optional: without it the LRU/eviction read-modify-write can race between processes sharing ``cache_dir`` (a stale-snapshot save may overwrite a fresh access timestamp), though the value files themselves stay consistent.
     """
 
     def __init__(
@@ -595,6 +589,14 @@ class DiscoveryCache:
             from filelock import FileLock as _FileLock  # type: ignore[import-untyped]
             return _FileLock(lock_path, timeout=30)
         except ImportError:  # pragma: no cover
+            global _FILELOCK_WARNED
+            if not _FILELOCK_WARNED:
+                _FILELOCK_WARNED = True
+                logger.warning(
+                    "DiscoveryCache: 'filelock' not installed; LRU/eviction read-modify-write is "
+                    "unprotected across processes sharing the cache dir (value files stay consistent). "
+                    "Install 'filelock' to close the race."
+                )
             return contextlib.nullcontext()
 
     def _load_lru(self) -> Dict[str, float]:
@@ -735,10 +737,14 @@ class DiscoveryCache:
                 # path. The broad except below converts the mismatch to a cache miss so callers see
                 # consistent semantics.
                 value = _safe_pickle_load(path, allow_unverified=True)
-        except (FileNotFoundError, OSError, EOFError, pickle.UnpicklingError, AttributeError,
-                PickleVerificationError):
+        except FileNotFoundError:
             return default
-        except Exception:
+        except Exception as _e:
+            # A persistent corrupt / unverifiable entry would otherwise return a silent miss every run, triggering unbounded multi-minute recomputes with no operator signal. Surface it once per read, then treat as a miss.
+            logger.warning(
+                "DiscoveryCache: unreadable/unverifiable entry %s (%s: %s); treating as miss",
+                path, type(_e).__name__, _e,
+            )
             return default
         # Successful read: bump LRU. Done outside the read try/except so
         # an LRU file failure doesn't break the read path.
@@ -841,10 +847,11 @@ class DiscoveryCache:
                 n -= 1
                 total_bytes -= size
                 lru.pop(stem, None)
-            except OSError:
-                pass
-            try:
-                os.remove(path + ".sha256")
+                # Drop the sidecar only after the value file is gone: if the value remove raised (e.g. Windows lock) the entry survives and must keep its sidecar, else strict load refuses the still-present entry forever.
+                try:
+                    os.remove(path + ".sha256")
+                except OSError:
+                    pass
             except OSError:
                 pass
             i += 1

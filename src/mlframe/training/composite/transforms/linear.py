@@ -41,56 +41,6 @@ from . import (  # noqa: E402
 )
 
 
-# Module-level numba kernels (JIT compile on first call). Pure-Python fallback
-# is the recursion in-line below when numba is not installed.
-if _HAS_NUMBA:
-
-    @_numba.njit(cache=True)
-    def _ewma_kernel(base_f: np.ndarray, alpha: float, anchor: float) -> np.ndarray:
-        n = base_f.size
-        out = np.empty(n, dtype=np.float64)
-        state = anchor
-        for i in range(n):
-            x = base_f[i]
-            if np.isfinite(x):
-                state = (1.0 - alpha) * state + alpha * x
-            out[i] = state
-        return out
-
-    @_numba.njit(cache=True)
-    def _frac_diff_inverse_kernel(
-        t_f: np.ndarray, lags: int, weights: np.ndarray, anchor: float,
-    ) -> np.ndarray:
-        n = t_f.size
-        out = np.empty(n, dtype=np.float64)
-        inv_w0 = 1.0 / weights[0]
-        for i in range(n):
-            lag_sum = 0.0
-            upper = min(i + 1, lags + 1)
-            for k_idx in range(1, upper):
-                lag_sum += weights[k_idx] * out[i - k_idx]
-            for k_idx in range(upper, lags + 1):
-                lag_sum += weights[k_idx] * anchor
-            out[i] = (t_f[i] - lag_sum) * inv_w0
-        return out
-else:
-    _ewma_kernel = None  # type: ignore
-    _frac_diff_inverse_kernel = None  # type: ignore
-
-
-# Soft-cap MAD floor: when MAD(T_train) is below
-# ``_MAD_FLOOR_FRAC * std(y_train)``, we substitute the latter to keep
-# the soft-cap bound numerically meaningful even if the transform
-# produced a degenerate (near-constant) T on train. Without this,
-# logratio's MAD-cap collapses to zero on degenerate train and every
-# prediction inverts to ``base * exp(0) = base`` silently.
-_MAD_FLOOR_FRAC: float = 1e-3
-
-# Multiplier for MAD-soft-cap on T_hat (logratio in particular).
-_MAD_SOFT_CAP_K: float = 10.0
-
-
-
 logger = logging.getLogger("mlframe.training.composite_transforms")
 
 def _logratio_fit(y: np.ndarray, base: np.ndarray) -> dict[str, Any]:

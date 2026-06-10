@@ -230,8 +230,8 @@ def _yj_forward(y: np.ndarray, lam: float) -> np.ndarray:
     """Yeo-Johnson forward transform. Size-dispatches to a numba parallel
     kernel when ``n >= _YJ_NUMBA_MIN_N`` (5-10x speedup at n>=50k, bench
     at tests/perf/bench_yj_forward.py). Falls back to the numpy reference
-    on tiny inputs or when numba is unavailable; both paths produce
-    bit-identical output."""
+    on tiny inputs or when numba is unavailable; the numba path matches
+    the numpy reference within ~1e-13 (fastmath=True)."""
     if _HAS_NUMBA and y.shape[0] >= _YJ_NUMBA_MIN_N:
         return _yj_forward_numba_kernel(y, lam)
     return _yj_forward_numpy(y, lam)

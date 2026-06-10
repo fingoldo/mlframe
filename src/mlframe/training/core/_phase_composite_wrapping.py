@@ -61,13 +61,12 @@ def _emit_yscale_composite_chart(
     # name; fall back to the inner class name.
     _outer = getattr(inner_entry, "model", None) or inner_entry
     _inner_class = type(getattr(_outer, "estimator_", _outer)).__name__
-    _human_inner = _inner_class.replace("Regressor", "").replace("With", " With ")
-    # Compose the MTTR=mean header to match raw-target reports.
+    # Header stats are the TEST-split mean/std (y_target is the test slice), distinct from the suite's MTTR (TRAIN-split mean) -- label them as such to avoid cross-reading drift.
     _mttr = float(np.mean(y_target))
     _mtts = float(np.std(y_target))
     chart_model_name = (
         f"{_inner_class} {target_name} {composite_name} "
-        f"[y-scale wrap-pass] MTTR/MTTS={_mttr:.2f}/{_mtts:.2f}"
+        f"[y-scale wrap-pass] test_mean/test_std={_mttr:.2f}/{_mtts:.2f}"
     )
     # Per-composite plot file (so the chart doesn't overwrite the
     # raw-target one and shows up as a sibling file alongside it).
@@ -213,6 +212,11 @@ def emit_per_model_composite_y_scale_test(
             reporting_config=reporting_config,
             rmse_y=_rmse, mae_y=_mae, r2_y=_r2,
         )
+        # Mark the entry so the end-of-target wrap pass skips re-emitting the identical test-split chart (same _yscale_{composite} path -> overwrite + duplicate predict).
+        try:
+            entry._yscale_chart_emitted = True
+        except Exception:
+            pass
     except Exception as _err:
         logger.warning(
             "[CompositeTargetEstimator] per-model y-scale emit failed for "
@@ -285,6 +289,7 @@ def _run_composite_target_wrapping(
                 continue
             if not isinstance(_entries, list):
                 continue
+            _n_wrapped = 0
             for _i, _entry in enumerate(_entries):
                 _inner = getattr(_entry, "model", None) or _entry
                 if not hasattr(_inner, "predict"):
@@ -329,12 +334,16 @@ def _run_composite_target_wrapping(
                     except Exception:
                         # Read-only attribute: replace the entry itself.
                         _entries[_i] = _wrapper
+                        _n_wrapped += 1
+                    else:
+                        _n_wrapped += 1
                 else:
                     _entries[_i] = _wrapper
+                    _n_wrapped += 1
             logger.info(
                 "[CompositeTargetEstimator] wrapped %d model(s) for composite "
                 "target '%s'; predictions now y-scale.",
-                len(_entries), _composite_name,
+                _n_wrapped, _composite_name,
             )
             # Compute y-scale RMSE/MAE/R2 per split so composite is comparable to raw (per-target metrics were T-scale).
             # ``skip_predict``: bypass the per-split predict + metric block; wrap step above already ran so downstream
@@ -360,6 +369,9 @@ def _run_composite_target_wrapping(
                     if _y_full_chart is not None:
                         _y_arr_chart = np.asarray(_y_full_chart)
                         for _entry in _entries:
+                            # The per-model hook already emitted this entry's test chart; skip to avoid a duplicate predict + overwrite of the same _yscale_{composite} file.
+                            if getattr(_entry, "_yscale_chart_emitted", False):
+                                continue
                             try:
                                 _wrap_chart = getattr(_entry, "model", None) or _entry
                                 _y_split_chart = _y_arr_chart[test_idx]

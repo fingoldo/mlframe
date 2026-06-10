@@ -74,7 +74,23 @@ def _run_suite_end_dummy_baselines_summary(
                             _best_val = float(_v)
                             _best_name = _ye.get("model_name") or "Composite"
                             _best_split = "val"
-                else:
+                    # y-scale entries may carry only TEST metrics (no finite val); fall back to those before declaring "-".
+                    if _best_val is None:
+                        for _ye in _yscale_entries:
+                            _split_metric = _ye.get("metrics", {}).get("test", {})
+                            _v = _split_metric.get(_metric_name)
+                            if _v is None or not np.isfinite(_v):
+                                continue
+                            if (
+                                _best_val is None
+                                or (_is_minimize and _v < _best_val)
+                                or (not _is_minimize and _v > _best_val)
+                            ):
+                                _best_val = float(_v)
+                                _best_name = _ye.get("model_name") or "Composite"
+                                _best_split = "test"
+                # When y-scale entries are absent OR carry no usable metric, fall through to the T-scale model-list metrics.
+                if _best_val is None:
                     # First pass: prefer VAL metrics (aligned with dummy's
                     # primary_metric which is val_*).
                     for _m in _model_list:

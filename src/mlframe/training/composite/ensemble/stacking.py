@@ -3,10 +3,14 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
+
+
+logger = logging.getLogger(__name__)
 
 
 # Stacking-aware transform selection (measure-first gate).
@@ -37,7 +41,7 @@ def residual_correlation_matrix(
     Returns
     -------
     (corr_matrix, names):
-    - ``corr_matrix``: ``(K, K)`` ndarray of Pearson correlations. Diagonal is 1.0. NaN entries indicate degenerate inputs (constant residual).
+    - ``corr_matrix``: ``(K, K)`` ndarray of Pearson correlations. Diagonal is 1.0 for non-degenerate columns; a NaN row/col indicates a constant (zero-variance) residual.
     - ``names``: list of transform names in matrix-order (preserves the input dict's insertion order).
 
     A high max-off-diagonal correlation (>= 0.8 by convention from the brainstorm) means the transforms produce nearly the same residual; stacking them adds compute without information. Low max-off-diagonal means the transforms are orthogonal and stacking can extract more signal than any single transform.
@@ -64,7 +68,8 @@ def residual_correlation_matrix(
     if K == 1:
         # ``np.corrcoef`` on a single column returns a 0-D scalar; return a proper 1x1 matrix for downstream consumers expecting ``.shape[0]``.
         return np.array([[1.0]], dtype=np.float64), names
-    return np.corrcoef(M[finite_rows], rowvar=False), names
+    with np.errstate(invalid="ignore"):
+        return np.corrcoef(M[finite_rows], rowvar=False), names
 
 
 def max_off_diagonal_correlation(corr_matrix: np.ndarray) -> float:
@@ -110,6 +115,8 @@ def residual_dedup_indices(
         residuals = residuals.reshape(residuals.shape[0], -1)
     K = residuals.shape[1]
     oof_rmses = np.asarray(oof_rmses, dtype=np.float64).reshape(-1)
+    if oof_rmses.shape[0] != K:
+        raise ValueError(f"residual_dedup_indices: oof_rmses length {oof_rmses.shape[0]} != residual columns {K}")
     if K <= min_keep:
         return list(range(K)), []
     finite_rows = np.all(np.isfinite(residuals), axis=1)
@@ -117,11 +124,9 @@ def residual_dedup_indices(
         return list(range(K)), []
     with np.errstate(invalid="ignore"):
         corr = np.corrcoef(residuals[finite_rows], rowvar=False)
-    # Process members worst-RMSE-first so a dropped weak member never evicts a strong one it duplicates.
-    order = list(np.argsort(oof_rmses)[::-1])  # worst first
+    # Iterate best-RMSE-first; check each candidate against already-kept stronger members.
     kept: list[int] = []
     dropped: list[int] = []
-    # Iterate best-first for the "kept" reference set; check each candidate (worst-first) against already-kept.
     keep_pref = list(np.argsort(oof_rmses))  # best first
     for cand in keep_pref:
         redundant = False
@@ -177,18 +182,21 @@ def stacking_aware_gate(
     finite_rows = np.all(np.isfinite(X), axis=1) & np.isfinite(y)
     if finite_rows.sum() < max(3, X.shape[1] + 1):
         # Degenerate: too few finite rows for NNLS. Return everything with uniform weights.
+        logger.warning("stacking_aware_gate: only %d finite rows (need %d) for NNLS; gate disabled, all %d transforms kept.", int(finite_rows.sum()), max(3, X.shape[1] + 1), len(names))
         uniform = {n: 1.0 / len(names) for n in names}
         return list(names), uniform
     from scipy.optimize import nnls  # lazy
     try:
         w, _ = nnls(X[finite_rows], y[finite_rows])
-    except (ValueError, RuntimeError, np.linalg.LinAlgError):
+    except (ValueError, RuntimeError, np.linalg.LinAlgError) as exc:
         # NNLS can fail on degenerate / rank-deficient designs; uniform fallback so
         # the caller is never starved of survivors.
+        logger.warning("stacking_aware_gate: NNLS failed (%s); gate disabled, all %d transforms kept.", exc, len(names))
         uniform = {n: 1.0 / len(names) for n in names}
         return list(names), uniform
     raw_weights = {n: float(w[i]) for i, n in enumerate(names)}
-    survivors = [n for n, wv in raw_weights.items() if wv >= min_weight]
+    _wsum = sum(max(v, 0.0) for v in raw_weights.values())
+    survivors = [n for n, wv in raw_weights.items() if (_wsum > 0 and wv / _wsum >= min_weight)]
     if survivors:
         s = sum(raw_weights[n] for n in survivors)
         if s > 0:

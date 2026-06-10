@@ -8,6 +8,7 @@ import logging
 from typing import Any, Sequence
 
 import numpy as np
+from sklearn.exceptions import NotFittedError
 
 from . import _extract_groups
 from ..transforms import get_transform
@@ -23,7 +24,7 @@ def _predict_unclipped(self, X: Any) -> tuple[np.ndarray, int, dict[str, Any]]:
     the inverse twice. ``predict`` is implemented as a thin clip-applying wrapper around this.
     """
     if not hasattr(self, "estimator_"):
-        raise RuntimeError(
+        raise NotFittedError(
             "CompositeTargetEstimator.predict called before fit."
         )
     transform = get_transform(self.transform_name)
@@ -263,7 +264,7 @@ def predict_quantile(
     rather than silently swap the high / low quantiles.
     """
     if not hasattr(self, "estimator_"):
-        raise RuntimeError(
+        raise NotFittedError(
             "CompositeTargetEstimator.predict_quantile called before fit."
         )
     inner = self.estimator_
@@ -304,6 +305,18 @@ def predict_quantile(
                     "base > 0 on every row. Filter the input or use "
                     "predict() with the wrapper's domain fallback."
                 )
+
+        # reciprocal_residual: y = 1/(T + 1/base) is DECREASING in T, so the
+        # inverse swaps the quantile order (the alpha-quantile of T maps to the
+        # (1-alpha)-quantile of y). Raise rather than silently return inverted
+        # intervals.
+        if self.transform_name == "reciprocal_residual":
+            raise NotImplementedError(
+                "predict_quantile is not supported for transform "
+                "'reciprocal_residual': y = 1/(T + 1/base) is monotone "
+                "DECREASING in T, which swaps the quantile ordering. Use "
+                "predict() for point predictions or switch transform."
+            )
     else:
         base_arr = None
 

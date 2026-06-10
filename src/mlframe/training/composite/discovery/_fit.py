@@ -185,6 +185,39 @@ def fit(
         return self
 
     train_idx = np.asarray(train_idx)
+    # A boolean mask is a common idiom but detonates later with a cryptic IndexError (sampling reads the mask LENGTH as the row count); normalise it up front and reject non-integer dtypes loudly.
+    if train_idx.dtype == bool:
+        train_idx = np.flatnonzero(train_idx)
+    elif not np.issubdtype(train_idx.dtype, np.integer):
+        raise TypeError(
+            "train_idx must be integer positions or a boolean mask, got dtype %r" % train_idx.dtype
+        )
+
+    def _normalise_idx(idx: Any, name: str) -> np.ndarray:
+        arr = np.asarray(idx)
+        if arr.dtype == bool:
+            return np.flatnonzero(arr)
+        if not np.issubdtype(arr.dtype, np.integer):
+            raise TypeError(
+                "%s must be integer positions or a boolean mask, got dtype %r" % (name, arr.dtype)
+            )
+        return arr
+
+    val_idx = None if val_idx is None else _normalise_idx(val_idx, "val_idx")
+    test_idx = None if test_idx is None else _normalise_idx(test_idx, "test_idx")
+
+    # Leakage discipline: the class documents val/test integrity as its core discipline but fit performed no check; overlapping train/test rows silently fit params + MI screens on holdout. O(n log n), negligible vs MI screening.
+    if test_idx is not None and np.intersect1d(train_idx, test_idx).size:
+        raise ValueError("[CompositeTargetDiscovery] train_idx overlaps test_idx -- leakage.")
+    if val_idx is not None and np.intersect1d(train_idx, val_idx).size:
+        raise ValueError("[CompositeTargetDiscovery] train_idx overlaps val_idx -- leakage.")
+    if np.unique(train_idx).size != train_idx.size:
+        logger.warning("[CompositeTargetDiscovery] duplicated train_idx rows bias MI estimates.")
+    if train_idx.size and int(train_idx.max()) >= len(df):
+        raise ValueError(
+            "[CompositeTargetDiscovery] train_idx max %d out of bounds for df of %d rows." % (int(train_idx.max()), len(df))
+        )
+
     # Stash the identifiers BEFORE the early-return paths so
     # _filter_features (which reads ``self._target_col``) and
     # iter_transform (which reads ``self._df_ref``) work even on
@@ -287,15 +320,29 @@ def fit(
 
     # Down-sample for MI screening. Stratified-quantile when
     # configured -- guarantees per-bin coverage on heavy-tail y.
-    y_train_for_strat = y_full[train_idx]
     sample_idx = _sample_indices(
         train_idx.size, self.config.mi_sample_n, self.config.random_state,
         strategy=getattr(self.config, "mi_sample_strategy", "random"),
-        y=y_train_for_strat,
+        y=y_train,
         n_strata=getattr(self.config, "mi_n_strata", 10),
     )
     train_idx_screen = train_idx[sample_idx]
     y_screen = y_full[train_idx_screen]
+
+    # Bin-MI floors every value to 0.0 when the screening sample has fewer than
+    # 5*nbins finite rows (joint-histogram cells too sparse), so top-K ranking
+    # silently degenerates to the rerank/alphabetical tiebreaker. Warn rather
+    # than auto-shrink nbins (which would change the MI numerics).
+    if self.config.mi_estimator == "bin":
+        _eff_n = int(train_idx_screen.size)
+        _min_n = 5 * int(self.config.mi_nbins)
+        if _eff_n < _min_n:
+            logger.warning(
+                "[CompositeTargetDiscovery] screening sample %d < 5*mi_nbins(%d): "
+                "bin-MI is inactive (all 0.0); spec ranking is deferred to the "
+                "rerank/tiebreaker. Raise mi_sample_n or lower mi_nbins.",
+                _eff_n, int(self.config.mi_nbins),
+            )
 
     # mi_y baseline is computed PER-BASE because the X-without-base
     # feature set differs per candidate. Comparing MI(T, X_no_base)
@@ -374,9 +421,12 @@ def fit(
                 if _full_x_prebinned is not None else None
             )
         else:
-            # base wasn't in usable_features (rare: explicit base outside the FE pool)
-            x_remaining_matrix = _full_x_matrix
-            _x_prebinned = _full_x_prebinned
+            # Invariant: every base in usable_features is in _col_index, so this arm is unreachable; keeping the base in its own x_remaining would leak it into the MI baseline, so skip rather than mis-score.
+            logger.error(
+                "[CompositeTargetDiscovery] invariant violated: base %r not in usable_features index; skipping (would leak base into its own x_remaining).",
+                base,
+            )
+            continue
         if x_remaining_matrix.shape[1] == 0:
             continue
         _mi_kwargs: dict[str, Any] = dict(
@@ -503,9 +553,9 @@ def fit(
         kept_specs.append(spec)
         entry["kept"] = True
 
-    # Wave 57 (2026-05-20): plugin MI quantises to a fixed grid -> tied
-    # mi_gain realistic. Secondary key on spec name for deterministic
-    # top-K selection across runs.
+    # Plugin MI quantises to a fixed grid, so tied mi_gain is realistic; the spec-name secondary key makes top-K deterministic across runs.
+    # Known minor inconsistency: the gate above admits on mi_gain_lcb but this ranks on the point mi_gain, so under bootstrap a high-variance
+    # big-point/low-LCB spec can outrank a stable better-LCB one (the lcb is not carried on the spec). Default bootstrap_n=0, so ranking is exact.
     kept_specs.sort(key=lambda s: (-s.mi_gain, getattr(s, "name", "")))
     kept_specs = kept_specs[: self.config.top_k_after_mi]
 
@@ -585,7 +635,8 @@ def fit(
                     # Fall back to marginal y-std if too few points to
                     # compute residual variance.
                     sigma_resid = float(y_finite.std()) if y_finite.size > 1 else 1.0
-                se_alpha = sigma_resid / (np.sqrt(half) * base_std)
+                # a1-a2 is a difference of two independent half-fits, so Var(a1-a2)=2*sigma^2/(half*var_base); the sqrt(2) keeps the drift z from being inflated ~1.41x.
+                se_alpha = sigma_resid * np.sqrt(2.0) / (np.sqrt(half) * base_std)
                 z = abs(a1 - a2) / max(se_alpha, 1e-12)
                 self._alpha_drift_flags[s.name] = {
                     "alpha_first_half": a1,
@@ -633,7 +684,9 @@ def fit(
         }
         collapsed: list[CompositeSpec] = []
         collapsed_dropped: list[tuple[str, float]] = []
-        std_y = float(np.std(y_train[np.isfinite(y_train)])) or 1.0
+        # ``float(NaN) or 1.0`` is NaN-truthy (bool(NaN) is True), so an empty/all-NaN slice would set std_y=NaN and silently disable the collapse; gate on finiteness explicitly.
+        _std_y = float(np.std(y_train[np.isfinite(y_train)])) if np.isfinite(y_train).any() else 0.0
+        std_y = _std_y if (np.isfinite(_std_y) and _std_y > 0) else 1.0
         for s in kept_specs:
             if s.transform_name != "linear_residual" \
                     or s.base_column not in diff_bases:
@@ -721,7 +774,7 @@ def fit(
         # pool changes invalidate cleanly.
         _pool_arrays_cache: dict[tuple[str, frozenset], dict[str, np.ndarray]] = {}
         _base_pool_keys_frozen = frozenset(self._auto_base_pool.keys())
-        _y_train_local = y_full[train_idx] if y_full is not None else _extract_column_array(df, target_col)[train_idx]
+        _y_train_local = y_train
         for _spec in kept_specs:
             if _spec.transform_name != "linear_residual":
                 _upgraded_specs.append(_spec)
@@ -785,7 +838,19 @@ def fit(
                 _spec.name, _new_name, len(_kept_bases),
                 [(d["candidate_added"], f"{d['marginal_gain'] * 100:.1f}%") for d in _accepted_steps],
             )
-        kept_specs = _upgraded_specs
+        # Two seeds can converge on the same multi-base set yet emit name 'X+Y' vs 'Y+X' for one identical joint-OLS transform; dedup on the unordered base set so we don't train + ensemble two perfectly-correlated members.
+        _seen_base_sets: set[tuple[str, frozenset]] = set()
+        _deduped_specs: list[CompositeSpec] = []
+        for _s in _upgraded_specs:
+            _set_key = (
+                _s.transform_name,
+                frozenset((_s.base_column,) + tuple(getattr(_s, "extra_base_columns", ()) or ())),
+            )
+            if _set_key in _seen_base_sets:
+                continue
+            _seen_base_sets.add(_set_key)
+            _deduped_specs.append(_s)
+        kept_specs = _deduped_specs
         if _ram_profiler_on:
             _phase_ram_report(_ram_state, "forward_stepwise_done")
 
@@ -830,8 +895,8 @@ def fit(
     # Bookkeeping. (target_col + df_ref + train_idx already stashed.)
     self.specs_ = kept_specs
     self.report_ = [self._entry_to_report(e) for e in candidates]
-    self.val_idx_ = np.asarray(val_idx) if val_idx is not None else None
-    self.test_idx_ = np.asarray(test_idx) if test_idx is not None else None
+    self.val_idx_ = val_idx
+    self.test_idx_ = test_idx
     self.elapsed_seconds_ = elapsed
     return self
 

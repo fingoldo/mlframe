@@ -86,7 +86,7 @@ def _diff_domain(y: np.ndarray | None, base: np.ndarray) -> np.ndarray:
 def _additive_residual_fit(
     y: np.ndarray, base: np.ndarray, _finite_mask: np.ndarray | None = None,
 ) -> dict[str, Any]:
-    # ``_finite_mask`` lets the outer ``Transform.fit`` dispatcher precompute the joint finite mask once per (y, base) pair and thread it through all per-spec fits; saves N x np.isfinite passes on hot discovery paths where the same (y, base) feeds 10+ specs.
+    # Optional precomputed joint finite mask: a caller that already knows the (y, base) finite mask can pass it to skip the per-call np.isfinite. No current call site supplies it (discovery fits plain (y, base)); the recompute below is the live path.
     finite = _finite_mask if _finite_mask is not None else (np.isfinite(y) & np.isfinite(base))
     if not finite.any():
         return {"beta": 0.0}
@@ -161,8 +161,8 @@ def _median_residual_per_bin_medians(
     if y_f.size <= 200_000:
         try:
             return _median_residual_per_bin_medians_v2_pandas_groupby(y_f, bin_idx, n_bins)
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.warning("composite_transforms: pandas-groupby fast path failed (%s); using numpy fallback.", _exc)
     return _median_residual_per_bin_medians_v1_pyloop(y_f, bin_idx, n_bins)
 
 
@@ -248,7 +248,7 @@ _Y_QUANTILE_CLIP_HI: float = 0.995
 def _y_quantile_clip_fit(
     y: np.ndarray, base: np.ndarray, _finite_mask: np.ndarray | None = None,
 ) -> dict[str, Any]:
-    # Unary y-only transform; ``_finite_mask`` (when supplied by the outer dispatcher) is treated as the y-side finite gate (the base argument is ignored either way).
+    # Unary y-only transform; an optional caller-supplied ``_finite_mask`` is treated as the y-side finite gate (the base argument is ignored either way). No current call site supplies it.
     finite = _finite_mask if _finite_mask is not None else np.isfinite(y)
     if not finite.any():
         return {"q_lo": 0.0, "q_hi": 0.0}
@@ -289,12 +289,8 @@ def _y_quantile_clip_domain(
 def _ratio_fit(
     y: np.ndarray, base: np.ndarray, _finite_mask: np.ndarray | None = None,
 ) -> dict[str, Any]:
-    # eps relative to the typical scale of base on train -- small enough
-    # not to bias the transform but large enough to keep division
-    # numerically clean. Stored in params so predict time uses the
-    # SAME eps (no train/test drift). When the outer dispatcher already
-    # validated finiteness, ``_finite_mask`` lets us skip the per-call
-    # np.isfinite recompute on base.
+    # eps relative to the typical scale of base on train -- small enough not to bias the transform but large enough to keep division numerically clean.
+    # Stored in params so predict time uses the SAME eps (no train/test drift). An optional caller-supplied ``_finite_mask`` skips the np.isfinite recompute on base; no current call site supplies it.
     if _finite_mask is not None:
         base_finite = _finite_mask & (base != 0)
     else:
@@ -315,7 +311,10 @@ def _ratio_forward(y: np.ndarray, base: np.ndarray, params: dict[str, Any]) -> n
 
 
 def _ratio_inverse(t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any]) -> np.ndarray:
-    return t_hat * base
+    # Mirror the forward eps-floor so the round-trip is exact on in-domain near-zero base rows (0<|base|<eps would otherwise yield unbounded relative error).
+    eps = float(params["eps"])
+    safe_base = np.where(np.abs(base) < eps, np.sign(base + 1e-300) * eps, base)
+    return t_hat * safe_base
 
 
 def _ratio_domain(y: np.ndarray | None, base: np.ndarray) -> np.ndarray:
@@ -373,7 +372,10 @@ def _rolling_quantile_ratio_inverse(
     k = int(params["k"])
     base_f = np.asarray(base, dtype=np.float64).reshape(-1)
     roll_med = _rolling_median(base_f, k)
-    return np.asarray(t_hat, dtype=np.float64) * roll_med
+    # Mirror the forward eps-floor so the round-trip is exact on near-zero rolling medians.
+    eps = float(params["eps"])
+    safe = np.where(np.abs(roll_med) < eps, np.sign(roll_med + 1e-300) * eps, roll_med)
+    return np.asarray(t_hat, dtype=np.float64) * safe
 
 
 def _rolling_quantile_ratio_domain(

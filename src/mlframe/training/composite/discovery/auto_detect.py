@@ -122,12 +122,13 @@ def detect_time_column_candidates(
         if finite.sum() < 2:
             continue
         diffs = np.diff(arr[finite])
-        if np.all(diffs > 0):
+        # Weak monotonicity: timestamp columns with duplicate ticks (common in event data) are still valid time keys; the np.any(>0)/(<0) guard excludes a constant column.
+        if np.all(diffs >= 0) and np.any(diffs > 0):
             info["is_monotonic"] = True
             info["monotonic_direction"] = "asc"
             info["score"] = 50.0
             results.append((str(col), info))
-        elif np.all(diffs < 0):
+        elif np.all(diffs <= 0) and np.any(diffs < 0):
             info["is_monotonic"] = True
             info["monotonic_direction"] = "desc"
             info["score"] = 50.0
@@ -202,7 +203,7 @@ def detect_group_column_candidates(
                     dtype = df.schema[c]
                 except Exception:
                     continue
-                if dtype in int_dtypes and df.get_column(c).n_unique() <= max_unique:
+                if dtype in int_dtypes and df.get_column(c).drop_nulls().n_unique() <= max_unique:
                     cand.append(c)
             candidate_columns = cand
         def get_col(c):
@@ -215,6 +216,7 @@ def detect_group_column_candidates(
             candidate_columns = [
                 c for c in df.columns
                 if not pd.api.types.is_numeric_dtype(df[c])
+                or pd.api.types.is_bool_dtype(df[c])
                 or (pd.api.types.is_integer_dtype(df[c]) and df[c].nunique() <= max_unique)
             ]
         def get_col(c):
@@ -339,10 +341,24 @@ def detect_cat_columns(
     """
     if _is_polars_df(df):
         if candidate_columns is None:
-            candidate_columns = [
-                c for c in df.columns
-                if not _is_numeric_column(df, c)
-            ]
+            # Mirror the pandas branch: non-numeric cols + low-cardinality integer cols (int-as-cat heuristic), minus temporal dtypes whose target-encoding is a time-leak trap.
+            import polars as pl_local  # type: ignore
+            int_dtypes = {pl_local.Int8, pl_local.Int16, pl_local.Int32, pl_local.Int64, pl_local.UInt8, pl_local.UInt16, pl_local.UInt32, pl_local.UInt64}
+            temporal_dtypes = {pl_local.Date, pl_local.Datetime, pl_local.Duration, pl_local.Time}
+            cand: list[str] = []
+            for c in df.columns:
+                try:
+                    dtype = df.schema[c]
+                except Exception:
+                    continue
+                if dtype in temporal_dtypes:
+                    continue
+                if not _is_numeric_column(df, c):
+                    cand.append(c)
+                    continue
+                if dtype in int_dtypes and df.get_column(c).drop_nulls().n_unique() <= max_unique:
+                    cand.append(c)
+            candidate_columns = cand
         def get_col(c):
             return df.get_column(c).to_numpy()
     elif isinstance(df, pd.DataFrame):
@@ -352,8 +368,13 @@ def detect_cat_columns(
             candidate_columns = [
                 c for c in df.columns
                 if not pd.api.types.is_float_dtype(df[c])
+                # Temporal columns are excluded from defaults: target-encoding a date/time is a time-leak trap. Reachable via explicit candidate_columns.
+                and not pd.api.types.is_datetime64_any_dtype(df[c])
+                and not pd.api.types.is_period_dtype(df[c])
+                and not pd.api.types.is_timedelta64_dtype(df[c])
                 and (
                     not pd.api.types.is_numeric_dtype(df[c])
+                    or pd.api.types.is_bool_dtype(df[c])
                     or (pd.api.types.is_integer_dtype(df[c]) and df[c].nunique() <= max_unique)
                 )
             ]

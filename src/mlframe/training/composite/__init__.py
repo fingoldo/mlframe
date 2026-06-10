@@ -25,6 +25,17 @@ Public surface
 - :class:`CompositeTargetEstimator` -- sklearn-compatible wrapper that
   fits an inner regressor on ``T`` and inverts at predict.
 - :exc:`DomainViolationError`, :exc:`UnknownTransformError`.
+- :class:`CompositeTargetDiscovery` -- auto-finds the best
+  ``(base, transform)`` pairs by MI gain.
+- :class:`CompositeCrossTargetEnsemble` -- cross-target ensembling.
+- :class:`DiscoveryCache` -- caches discovery results across fits.
+- :class:`CompositeProvenance` / :func:`report_to_markdown` -- audit
+  trail + human-readable discovery report.
+- :func:`streaming_alpha_check_and_refit` -- streaming drift refit.
+- :func:`bayesian_alpha_fit` -- Bayesian alpha estimation.
+- :func:`forward_stepwise_multi_base` -- multi-base forward stepwise.
+- :func:`composite_predictions_as_feature` / :func:`composite_oof_predictions`
+  -- feature stacking.
 
 Design choices
 --------------
@@ -50,26 +61,11 @@ Design choices
 
 Out of scope for this module
 ----------------------------
-- Discovery (auto-find ``base`` and best transform): future PR.
-- Cross-target ensembling: future PR.
 - ``base_margin`` / classification residuals: regression only here.
 """
 from __future__ import annotations
 
-import contextlib
 import logging
-import math
-import re
-import warnings
-from dataclasses import dataclass, field
-from timeit import default_timer as timer
-from typing import (
-    Any, Callable, Dict, FrozenSet, Iterator, List, Optional, Sequence, Tuple, Union,
-)
-
-import numpy as np
-import pandas as pd
-from sklearn.base import BaseEstimator, RegressorMixin, clone
 
 logger = logging.getLogger(__name__)
 
@@ -256,3 +252,7 @@ from .ensemble.feature_stacking import (  # noqa: E402,F401
 # Re-export CompositeTargetDiscovery.
 # ----------------------------------------------------------------------
 from .discovery import CompositeTargetDiscovery  # noqa: E402,F401
+
+# Re-export the config alongside the discovery class so a single import
+# location serves both; same module path the lazy dict-config path uses.
+from ..configs import CompositeTargetDiscoveryConfig  # noqa: E402,F401

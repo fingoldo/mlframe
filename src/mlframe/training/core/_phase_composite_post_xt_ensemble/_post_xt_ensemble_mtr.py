@@ -26,9 +26,13 @@ class MTRPerColumnEqualMeanEnsemble:
         per component per column. No fit() needed; works immediately.
       * ``strategy="nnls"`` (E3): non-negative least-squares per-column
         weights learned from a held-out (X, y) set via .fit(X, y).
-        Weights are normalised to sum to 1 (or fall back to equal-mean
-        when NNLS returns the all-zero degenerate solution). Per
-        target column k, solves: y[:, k] = A_k @ w_k, w_k >= 0 where
+        The RAW (non-normalised) NNLS weights are kept -- they are NOT
+        rescaled to sum to 1, because normalising would force a convex-
+        combination interpretation that loses the optimal fit (see the
+        .fit rationale below); only equal_mean weights sum to 1. NNLS
+        falls back to equal-mean for a column when it returns the all-
+        zero degenerate solution. Per target column k, solves:
+        y[:, k] = A_k @ w_k, w_k >= 0 where
         A_k is the (N, n_components) component-prediction matrix on
         the held-out X. Independent solve per column so the K targets
         can have different optimal component mixtures.
@@ -106,9 +110,11 @@ class MTRPerColumnEqualMeanEnsemble:
     @property
     def weights(self) -> np.ndarray:
         """(n_components, n_targets) array. Columns are per-target
-        weight vectors; rows are component contributions. Each column
-        sums to 1.0 by construction (equal_mean) or post-normalisation
-        (nnls). Defensive copy."""
+        weight vectors; rows are component contributions. equal_mean
+        columns sum to 1.0 by construction; nnls columns hold the RAW
+        (non-normalised) NNLS weights and do NOT sum to 1 (the optimal
+        fit can need weights summing to >1; see the .fit rationale).
+        Defensive copy."""
         return self._weights.copy()
 
     def fit(self, X, y) -> "MTRPerColumnEqualMeanEnsemble":

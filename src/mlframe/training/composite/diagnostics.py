@@ -1,6 +1,6 @@
 """Visualisation helpers for composite-target discovery output.
 
-Four plot helpers + Markdown rendering integration. All use matplotlib
+Eight plot helpers + Markdown rendering integration. All use matplotlib
 non-interactively (``Agg`` backend safe), return the ``Figure`` so the
 caller can ``.savefig()`` or ``.show()`` as they prefer. Lazy-imports
 matplotlib so this module's import cost stays zero when the helpers
@@ -19,9 +19,18 @@ Plots
 - :func:`plot_linear_fit`: scatter of ``y`` vs ``base`` with the
   fitted ``alpha * base + beta`` line and the in-sample R^2.
   Justifies ``linear_residual`` to a stakeholder in one image.
-- :func:`plot_mi_gain_with_ci`: bar chart of per-spec ``mi_gain``
-  with bootstrap 95% confidence intervals. Reveals which gains are
-  signal vs noise on the screening sample.
+- :func:`plot_mi_gain_with_jitter`: bar chart of per-spec ``mi_gain``
+  with Gaussian-jitter error bars (NOT a bootstrap CI). Reveals which
+  gains are robustly ranked vs sensitive to small noise.
+  :func:`plot_mi_gain_with_ci` is a deprecated alias.
+- :func:`plot_per_fold_tiny_rmse`: boxplot of per-fold tiny CV-RMSE
+  per spec, flagging specs whose mean is best-by-a-hair but unstable.
+- :func:`plot_per_family_disagreement`: heatmap of Spearman rank-
+  correlation between tiny-model families' rerank rankings.
+- :func:`plot_alpha_stability`: line plot of fitted ``alpha`` across
+  rolling windows; drift signals base->y concept drift.
+- :func:`plot_predictions_vs_actual`: side-by-side ``y_pred`` vs
+  ``y_true`` scatter per composite with the y=x diagonal.
 
 Each helper returns a ``matplotlib.figure.Figure``; the caller is
 responsible for ``savefig`` / display / close. The Figure objects do
@@ -42,12 +51,15 @@ def _lazy_pyplot():
     the current backend is interactive (Agg is the headless default
     in CI / scripts; we don't want a stray ``plt.show()`` blocking)."""
     import matplotlib
-    # Don't switch backend if user already configured one explicitly
-    # via ``matplotlib.use(...)``. Only set Agg if no backend is
-    # configured -- this matches the convention in
-    # ``mlframe/tests/training/conftest.py`` line 10.
-    if not matplotlib.get_backend():
-        matplotlib.use("Agg")
+    # Only force Agg when the backend is still the unresolved auto-sentinel; calling get_backend() would itself resolve (and thus pin) a
+    # backend, so we must read the raw rcParam to tell "user hasn't picked one yet" from "already configured". A user who ran
+    # matplotlib.use(...) keeps their choice.
+    try:
+        _raw = dict.__getitem__(matplotlib.rcParams, "backend")
+        if isinstance(_raw, str) and _raw == matplotlib.rcsetup._auto_backend_sentinel:
+            matplotlib.use("Agg")
+    except (KeyError, AttributeError):
+        pass
     import matplotlib.pyplot as plt
     return plt
 
@@ -380,7 +392,7 @@ def plot_per_fold_tiny_rmse(
         for n in names
     ]
     fig, ax = plt.subplots(figsize=figsize)
-    bp = ax.boxplot(data, tick_labels=names, showfliers=True, patch_artist=True)
+    bp = ax.boxplot(data, showfliers=True, patch_artist=True)
     for patch in bp["boxes"]:
         patch.set_facecolor("tab:blue")
         patch.set_alpha(0.6)
@@ -415,6 +427,7 @@ def plot_per_family_disagreement(
     safe; low = "union" or "borda" aggregation matters.
     """
     plt = _lazy_pyplot()
+    from scipy.stats import spearmanr
     families = list(per_family_scores.keys())
     if len(families) < 2:
         fig, ax = plt.subplots(figsize=figsize)
@@ -434,8 +447,6 @@ def plot_per_family_disagreement(
                 ha="center", va="center", transform=ax.transAxes)
         ax.set_title(title)
         return fig
-    # Spearman = Pearson on ranks.
-    rank_matrix = np.argsort(np.argsort(score_matrix, axis=1), axis=1)
     n_fam = len(families)
     corr = np.zeros((n_fam, n_fam))
     for i in range(n_fam):
@@ -443,12 +454,10 @@ def plot_per_family_disagreement(
             if i == j:
                 corr[i, j] = 1.0
             else:
-                a = rank_matrix[i].astype(np.float64)
-                b = rank_matrix[j].astype(np.float64)
-                if a.std() == 0 or b.std() == 0:
-                    corr[i, j] = float("nan")
-                else:
-                    corr[i, j] = float(np.corrcoef(a, b)[0, 1])
+                # spearmanr uses average ranks for ties (redundant specs with equal RMSE), unlike argsort-of-argsort which assigns ties
+                # arbitrary distinct ranks; it returns nan when either input has zero variance, preserving the prior NaN guard.
+                r = spearmanr(score_matrix[i], score_matrix[j]).statistic
+                corr[i, j] = float("nan") if not np.isfinite(r) else float(r)
     fig, ax = plt.subplots(figsize=figsize)
     im = ax.imshow(corr, cmap="RdYlGn", vmin=-1.0, vmax=1.0, aspect="auto")
     ax.set_xticks(range(n_fam))
@@ -497,6 +506,11 @@ def plot_alpha_stability(
                 ha="center", va="center", transform=ax.transAxes)
         ax.set_title(title)
         return fig
+    if window_indices is not None and len(window_indices) != alpha_arr.size:
+        raise ValueError(
+            f"plot_alpha_stability: window_indices ({len(window_indices)}) and "
+            f"alpha_per_window ({alpha_arr.size}) must have equal length."
+        )
     if window_indices is None:
         x = np.arange(alpha_arr.size)
     else:
@@ -607,6 +621,7 @@ __all__ = [
     "plot_target_distribution",
     "plot_qq",
     "plot_linear_fit",
+    "plot_mi_gain_with_jitter",
     "plot_mi_gain_with_ci",
     "plot_per_fold_tiny_rmse",
     "plot_per_family_disagreement",

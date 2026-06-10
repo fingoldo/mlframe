@@ -159,14 +159,13 @@ def eval_one_transform(
 
     # MI(T, X_remaining) on the same valid rows -- comparable
     # to mi_y_for_base computed on the same x_remaining.
-    # x_screen_valid (the full-precision float slice) is ONLY needed on the
-    # non-prebinned MI path or for the bootstrap CI; in the default config
-    # (mi_estimator='bin', bootstrap off) it was a dead ~80-200 MB copy per
+    # x_screen_valid (the full-precision float slice) is consumed ONLY on the
+    # non-prebinned MI path (mi_t else, mi_y_compare else, and the bootstrap
+    # else); the prebinned path -- the default config (mi_estimator='bin') --
+    # uses _x_prebinned slices instead, so this was a dead ~80-200 MB copy per
     # work item. Gate it, and gate the prebinned slice on valid_screen.all().
-    _bootstrap_n_cfg = int(getattr(self.config, "mi_gain_bootstrap_n", 0))
-    _need_x_screen_valid = (_x_prebinned is None) or (_bootstrap_n_cfg > 0)
     x_screen_valid = (
-        x_remaining_matrix[valid_screen] if _need_x_screen_valid else None
+        x_remaining_matrix[valid_screen] if _x_prebinned is None else None
     )
     if _x_prebinned is not None:
         _x_pb_valid = (
@@ -232,9 +231,9 @@ def eval_one_transform(
         _x_pb_valid_const = (
             _x_prebinned[valid_screen] if _x_prebinned is not None else None
         )
+        _boot_fail_count = 0
         for b in range(bootstrap_n):
             idx_b = boot_rng.integers(0, n_screen, size=n_screen)
-            x_boot = x_screen_valid[idx_b]
             t_boot = t_screen[idx_b]
             y_boot = _y_screen_valid[idx_b]
             try:
@@ -247,6 +246,8 @@ def eval_one_transform(
                         _x_pb_boot, y_boot, **_mi_kwargs,
                     )
                 else:
+                    # Non-prebinned path is the only consumer of the float slice.
+                    x_boot = x_screen_valid[idx_b]
                     mi_t_b = _mi_to_target(
                         x_boot, t_boot,
                         n_neighbors=self.config.mi_n_neighbors,
@@ -263,21 +264,20 @@ def eval_one_transform(
                     )
                 boot_gains[b] = mi_t_b - mi_y_b
             except Exception as _e_boot:
-                # Pre-fix: silent NaN on failure; CI shifted toward
-                # well-behaved bootstraps. Log first per-spec failure
-                # so operators see when the CI is computed over a
-                # reduced bootstrap sample (the `>= bootstrap_n // 2`
-                # guard below only protects against extreme
-                # under-sampling, not the partial-bias case).
-                if b == 0:
+                # Silent NaN on failure shifts the CI toward well-behaved bootstraps; warn on the FIRST failure (any replicate, not just b==0)
+                # so operators see when the CI is computed over a reduced bootstrap sample. The `>= bootstrap_n // 2` guard below only
+                # protects against extreme under-sampling, not the partial-bias case.
+                _boot_fail_count += 1
+                if _boot_fail_count == 1:
                     import logging as _logging
                     _logging.getLogger(__name__).warning(
                         "composite_discovery: MI-bootstrap iteration "
                         "failed (%s); per-bootstrap result reported "
                         "as NaN. Bootstrap CI will use surviving "
                         "samples; with sparse failures the LCB is "
-                        "biased toward well-behaved bootstraps.",
-                        _e_boot,
+                        "biased toward well-behaved bootstraps "
+                        "(failures so far: %d).",
+                        _e_boot, _boot_fail_count,
                     )
                 boot_gains[b] = float("nan")
         boot_finite = boot_gains[np.isfinite(boot_gains)]

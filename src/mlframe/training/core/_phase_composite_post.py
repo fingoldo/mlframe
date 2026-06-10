@@ -10,24 +10,14 @@ Phase 6-7: composite-target post-processing.
 from __future__ import annotations
 
 import logging
-from types import SimpleNamespace
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 
-from .._format import format_metric as _fmt, short_model_tag as _short_tag_fn, strip_shim_suffix as _strip
-from ..composite import CompositeCrossTargetEnsemble as _CrossEns, CompositeTargetEstimator
-from ..composite import compute_oof_holdout_predictions, get_transform
-from ..composite.post_shim import PrePipelinePredictShim
 from ..composite.transforms import is_composite_target_name
-from ..baselines import format_suite_end_summary
-from ..evaluation import report_model_perf
-from .utils import _build_full_column_from_splits, _entry_metric
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_OOF_RANDOM_STATE = 42
-_PROB_NORM_EPS = 1e-12
 # T2#10 2026-05-18 Pack G universal watchdog threshold. ``wrapper.predict(X)``
 # is compared against ``transform.inverse(inner.predict(X), base, params)``;
 # divergence beyond this fraction of ``y_std`` fires a WARNING.
@@ -65,7 +55,7 @@ def recover_composite_y_scale_metrics(
     test_idx,
     test_df_pd,
     enable_watchdog: bool = True,
-) -> dict[int, np.ndarray]:
+) -> dict[tuple, np.ndarray]:
     """T1#7 2026-05-18 lazy recovery of composite-target y-scale metrics.
 
     When the suite runs with ``skip_wrap_pass_predict=True`` (default since

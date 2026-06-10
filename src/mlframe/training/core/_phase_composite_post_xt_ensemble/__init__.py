@@ -55,12 +55,7 @@ def _build_cross_target_ensemble_for_target(
     suite TrainingContext: its ``timestamps`` / ``sample_weights`` / ``group_ids`` (full-data-indexed) drive the
     time-aware, weighted, group-aware honest OOF split when present.
     """
-    # Build-scoped train-prediction cache. The shared ``_train_pred_cache`` carries wrap-pass entries keyed by
-    # ``(id(inner_model),) + frame_key``; ``id()``-based keys are only meaningful while the underlying objects are
-    # alive, so we never let a builder-computed prediction leak to a sibling build. Reads consult the build-local
-    # dict first (this build's own writes), then the shared wrap-pass cache for this exact live frame; all writes go
-    # to the build-local dict, which is discarded when this call returns. This makes a stale cross-build hit
-    # impossible without hashing the (potentially TB-scale) frame.
+    # Build-scoped train-prediction cache. The shared ``_train_pred_cache`` carries wrap-pass entries keyed by ``(id(inner_model),) + frame_key``; ``id()``-based keys are only meaningful while the underlying objects are alive, so we never let a builder-computed prediction leak to a sibling build. Reads consult the build-local dict first (this build's own writes), then the shared wrap-pass cache for this exact live frame; all writes go to the build-local dict, discarded when this call returns. This makes a stale cross-build hit impossible without hashing the (potentially TB-scale) frame.
     _build_pred_cache: dict[tuple, np.ndarray] = {}
 
     def _get_train_pred(_comp, _frame_key):
@@ -74,17 +69,7 @@ def _build_cross_target_ensemble_for_target(
             _build_pred_cache[_key] = _p
         return _p
 
-    # F-34 (2026-05-31) + E2 (2026-05-31): MULTI_TARGET_REGRESSION
-    # cross-target ensemble path. The general CT_ENSEMBLE flow below
-    # assumes 1-D y per component (uses sklearn metrics that expect 1-D
-    # plus the honest-OOF blender that solves a 1-D regression at the
-    # component level). For (N, K) MTR targets we build a SIMPLIFIED
-    # per-column equal-weight mean ensemble: stack each component's
-    # (N, K) predictions across a "component" axis, then average across
-    # components to produce a single (N, K) ensemble output.
-    # Equal-weight is the MVP; future PR can swap in per-column honest-
-    # OOF blended weights without changing the public deployable model
-    # interface.
+    # MULTI_TARGET_REGRESSION path. The general CT_ENSEMBLE flow below assumes 1-D y per component (sklearn metrics + honest-OOF blender solve a 1-D regression at the component level). For (N, K) MTR targets we build a per-column mean ensemble: stack each component's (N, K) predictions across a "component" axis, then average across components for a single (N, K) output. Equal-weight is the floor; per-column honest-OOF blended weights can swap in without changing the public deployable model interface.
     try:
         from mlframe.training import TargetTypes
         _is_mtr = (
@@ -428,6 +413,7 @@ def _build_cross_target_ensemble_for_target(
                 _strongest_pre = _raw_dbl_pre.get("strongest") if isinstance(_raw_dbl_pre, dict) else None
                 _pm_pre = _raw_dbl_pre.get("primary_metric") if isinstance(_raw_dbl_pre, dict) else None
                 _dummy_floor_for_prescreen = None
+                # Assumes an RMSE-family regression primary_metric: the dummy's primary_metric value is compared directly against component RMSEs, so this floor is only unit-consistent while the regression primary is RMSE (currently the only option).
                 if _strongest_pre and _pm_pre and _strongest_pre in _data_pre:
                     _v = _data_pre[_strongest_pre].get(_pm_pre)
                     if _v is not None and np.isfinite(float(_v)):
@@ -549,6 +535,7 @@ def _build_cross_target_ensemble_for_target(
                 _orig_tname, _oof_frac, len(_oof_y_holdout),
             )
             # Dummy-floor gate: drop any component whose honest-OOF RMSE exceeds the raw target's strongest-dummy RMSE by more than the configured tolerance. A trained model that loses to a parameter-free dummy on the honest holdout cannot improve the ensemble; keeping it dilutes NNLS weights and harms test performance.
+            # The dummy's primary_metric value is compared directly against component OOF RMSEs, so the floor is unit-consistent only while the regression primary is RMSE (currently the only option).
             _dummy_floor_enabled = bool(getattr(
                 composite_target_discovery_config,
                 "ct_ensemble_dummy_floor_enabled", True,
@@ -694,6 +681,8 @@ def _build_cross_target_ensemble_for_target(
                                 n in set(_survivors) for n in _oof_names
                             ], dtype=bool)
                             _pred_matrix = _pred_matrix[:, _keep_mask]
+                            # Keep _oof_pred_matrix aligned with the pruned weights so the OOF gate + AR(1) failsafe below still match column-for-column (mirrors the dedup block).
+                            _oof_pred_matrix = _oof_pred_matrix[:, _keep_mask]
                             _oof_components = [
                                 c for c, k in zip(_oof_components, _keep_mask) if k
                             ]

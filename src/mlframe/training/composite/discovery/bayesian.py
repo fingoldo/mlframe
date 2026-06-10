@@ -58,6 +58,7 @@ def bayesian_alpha_fit(
     """Conjugate Normal-Inverse-Gamma posterior for (alpha, beta).
 
     Model: ``y = alpha * base + beta + eps,  eps ~ N(0, sigma^2)``.
+    Caller must filter ``y`` / ``base`` to the valid finite domain first; non-finite rows are not dropped here and silently yield a NaN posterior.
     With a flat improper prior ``p(alpha, beta, sigma^2) propto 1/sigma^2``,
     the posterior is the standard Bayesian linear regression result:
 
@@ -275,6 +276,10 @@ def bayesian_alpha_fit_bootstrap(
             "n_bootstrap": 0,
             "ci_level": float(ci_level),
         }
+    if n_bootstrap < 1:
+        raise ValueError("bayesian_alpha_fit_bootstrap: n_bootstrap must be >= 1, got %d" % n_bootstrap)
+    if not (0.0 < ci_level < 1.0):
+        raise ValueError("bayesian_alpha_fit_bootstrap: ci_level must be in (0,1), got %r" % ci_level)
     rng = np.random.default_rng(random_state)
     sample_size = int(subsample_n) if subsample_n is not None else n
     sample_size = max(2, min(sample_size, n))
@@ -288,17 +293,37 @@ def bayesian_alpha_fit_bootstrap(
     # Posterior summary -- means / stds / percentiles.
     half_tail = (1.0 - float(ci_level)) / 2.0
     q_lo, q_hi = 100.0 * half_tail, 100.0 * (1.0 - half_tail)
+    alpha_mean = float(np.mean(alphas))
+    beta_mean = float(np.mean(betas))
+    alpha_std = float(np.std(alphas, ddof=1)) if n_bootstrap > 1 else float("nan")
+    beta_std = float(np.std(betas, ddof=1)) if n_bootstrap > 1 else float("nan")
+    alpha_ci_low = float(np.percentile(alphas, q_lo))
+    alpha_ci_high = float(np.percentile(alphas, q_hi))
+    beta_ci_low = float(np.percentile(betas, q_lo))
+    beta_ci_high = float(np.percentile(betas, q_hi))
+    # m-out-of-n bootstrap overstates CI width by ~sqrt(n/m); rescale half-widths and std toward the mean by sqrt(m/n) so subsampled CIs match the full-n width.
+    if subsample_n is not None and sample_size < n:
+        f = float(np.sqrt(sample_size / n))
+        alpha_std *= f
+        beta_std *= f
+        alpha_ci_low = alpha_mean + (alpha_ci_low - alpha_mean) * f
+        alpha_ci_high = alpha_mean + (alpha_ci_high - alpha_mean) * f
+        beta_ci_low = beta_mean + (beta_ci_low - beta_mean) * f
+        beta_ci_high = beta_mean + (beta_ci_high - beta_mean) * f
+    else:
+        f = 1.0
     return {
-        "alpha_mean": float(np.mean(alphas)),
-        "alpha_std": float(np.std(alphas, ddof=1)) if n_bootstrap > 1 else float("nan"),
-        "alpha_ci_low": float(np.percentile(alphas, q_lo)),
-        "alpha_ci_high": float(np.percentile(alphas, q_hi)),
-        "beta_mean": float(np.mean(betas)),
-        "beta_std": float(np.std(betas, ddof=1)) if n_bootstrap > 1 else float("nan"),
-        "beta_ci_low": float(np.percentile(betas, q_lo)),
-        "beta_ci_high": float(np.percentile(betas, q_hi)),
+        "alpha_mean": alpha_mean,
+        "alpha_std": alpha_std,
+        "alpha_ci_low": alpha_ci_low,
+        "alpha_ci_high": alpha_ci_high,
+        "beta_mean": beta_mean,
+        "beta_std": beta_std,
+        "beta_ci_low": beta_ci_low,
+        "beta_ci_high": beta_ci_high,
         "alpha_samples": alphas,
         "beta_samples": betas,
         "n_bootstrap": int(n_bootstrap),
         "ci_level": float(ci_level),
+        "subsample_correction_factor": f,
     }

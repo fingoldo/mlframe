@@ -5,8 +5,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import math
-import warnings
 from collections import OrderedDict
 from typing import (
     Any, Dict, List, Optional, Sequence, Tuple, Union,
@@ -14,13 +12,9 @@ from typing import (
 
 import numpy as np
 import pandas as pd
-from sklearn.base import BaseEstimator, RegressorMixin, clone
-# ENS-Low-7: hoist sklearn.linear_model imports out of the predict()
-# hot path so an inference round-trip does not pay the import cost on
-# the first call (previously imported inside CompositeCrossTargetEnsemble
-# fitting helpers; predict already touched the cached Ridge class but the
-# cold-import cost still showed up in profiling).
-from sklearn.linear_model import Ridge, ElasticNetCV, RidgeCV
+from sklearn.base import clone
+# Hoist sklearn.linear_model out of the predict() hot path so an inference round-trip does not pay the cold-import cost on the first call.
+from sklearn.linear_model import Ridge, RidgeCV
 
 try:
     import polars as pl  # type: ignore
@@ -31,7 +25,7 @@ except Exception:  # pragma: no cover
 
 
 def _is_polars_df(x: Any) -> bool:
-    """ENS-P2-6: prefer explicit isinstance check over duck-typing."""
+    """Explicit isinstance check over duck-typing."""
     return _HAS_POLARS and isinstance(x, pl.DataFrame)
 
 
@@ -48,7 +42,7 @@ from ._oof_split import (  # noqa: F401
 def _unwrap_shim(model: Any) -> tuple[Any, Any]:
     """Return ``(inner, pre_pipeline)`` for a possibly shim-wrapped component.
 
-    For ``PrePipelinePredictShim`` returns its fitted ``pre_pipeline`` and the inner model (which may itself be a ``CompositeTargetEstimator``). For any other estimator the pre_pipeline is ``None`` and the model is returned unchanged. Used by the OOF refit path to detect shim wrappers and apply ``pre_pipeline.transform`` to the stack/holdout slices before refitting -- without this, the OOF path would call ``sklearn.clone(shim)`` which (pre-fix) raised ``Cannot clone object ... not a scikit-learn estimator`` for every shim-wrapped component.
+    For ``PrePipelinePredictShim`` returns its fitted ``pre_pipeline`` and the inner model (which may itself be a ``CompositeTargetEstimator``); for any other estimator pre_pipeline is ``None`` and the model is returned unchanged. The OOF refit path uses this to detect shim wrappers and apply ``pre_pipeline.transform`` to stack/holdout slices before refitting -- without it the OOF path would call ``sklearn.clone(shim)``, which raises ``Cannot clone object ... not a scikit-learn estimator`` for every shim-wrapped component.
     """
     if isinstance(model, PrePipelinePredictShim):
         return model.model, model.pre_pipeline
@@ -64,31 +58,24 @@ def _transform_via(pp: Any, X: Any) -> Any:
         return X
     try:
         return pp.transform(X)
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "[ensemble] pre_pipeline.transform failed (%s: %s); falling back to RAW X for this slice -- OOF may evaluate a different space than deployed.",
+            type(exc).__name__, exc,
+        )
         return X
 
 logger = logging.getLogger(__name__)
 
 
-# ----------------------------------------------------------------------
-# CompositeCrossTargetEnsemble
-# ----------------------------------------------------------------------
-
-
 def derive_seeds(random_state: int, components: Sequence[str]) -> dict[str, int]:
     """Derive deterministic per-component seeds from a master seed.
 
-    Uses sha256 truncation to keep the values stable across Python /
-    numpy versions (no dependence on hash() salt randomisation). The
-    returned dict maps each component name to a 32-bit unsigned int.
+    Uses sha256 truncation to keep values stable across Python/numpy versions (no dependence on hash() salt randomisation); returns a dict mapping each component name to a 32-bit unsigned int.
 
-    Why this exists. Discovery has several internal sources of
-    randomness (MI sampling, tiny-model CV split, OOF holdout split,
-    bootstrap CI). Threading the same ``random_state`` through every
-    one of them creates correlation: if the master seed produces an
-    "easy" MI sample it tends to also produce an "easy" CV split.
-    Sub-seeds break the correlation while keeping reproducibility:
-    same master seed -> same sub-seeds -> same downstream randomness.
+    Why: threading one ``random_state`` through several randomness sources (MI sampling, tiny-model CV split, OOF holdout split, bootstrap CI) correlates them (an "easy" MI sample coincides with an "easy" CV split); independent sub-seeds break that while staying reproducible (same master seed -> same sub-seeds).
+
+    Currently provided for external callers only: discovery does NOT yet thread these sub-seeds into its randomness sources, so wiring it in would change every draw and is not bit-identical.
     """
     import struct
     out: dict[str, int] = {}
@@ -101,35 +88,25 @@ def derive_seeds(random_state: int, components: Sequence[str]) -> dict[str, int]
 def detect_gpu_in_use(mlframe_models: Sequence[str]) -> list[str]:
     """Return list of model families that may be using GPU.
 
-    Best-effort detection: imports each library only if it appears in
-    ``mlframe_models`` and probes for GPU availability via the
-    library's standard health-check API. Returns the subset that has
-    GPU detected. Returns empty list when no GPU library is in use.
+    Best-effort detection: imports each library only if it appears in ``mlframe_models`` and probes GPU availability via the library's standard health-check API; returns the GPU-detected subset (empty list when no GPU library is in use).
 
-    Used by the suite to emit a one-shot warning when composite mode
-    is combined with GPU training: GPU non-determinism is amplified
-    by K composite-model fits and can surface as ensemble weight
-    drift across runs even when ``random_state`` is fixed.
+    Used by the suite to emit a one-shot warning when composite mode is combined with GPU training: GPU non-determinism is amplified by K composite-model fits and can surface as ensemble weight drift across runs even when ``random_state`` is fixed.
     """
     detected: list[str] = []
     families = {str(m).lower() for m in mlframe_models}
-    if any(f in families for f in ("lgb", "lightgbm")):
-        try:
-            import lightgbm as lgb  # noqa: F401
-            # LightGBM doesn't have a portable "is GPU available"
-            # check; we infer from the user's stated intent only.
-            # Conservative: skip the warning if we can't tell.
-        except ImportError:
-            pass
     if any(f in families for f in ("xgb", "xgboost")):
         try:
             import xgboost as xgb
             try:
-                # XGBoost build info is the canonical "GPU available?"
-                # signal post-2.x.
+                # build_info().USE_CUDA is only a BUILD flag (stock PyPI wheels are CUDA-enabled); AND it with a real device probe so a CPU-only host does not get a false GPU warning.
                 bi = xgb.build_info()
                 if isinstance(bi, dict) and bi.get("USE_CUDA", False):
-                    detected.append("xgboost")
+                    try:
+                        from pyutilz.system.gpu_dispatch import is_cuda_available
+                        if is_cuda_available():
+                            detected.append("xgboost")
+                    except ImportError:
+                        detected.append("xgboost")
             except Exception:
                 pass
         except ImportError:
@@ -145,29 +122,26 @@ def detect_gpu_in_use(mlframe_models: Sequence[str]) -> list[str]:
 
 
 def env_signature() -> dict[str, str | None]:
-    """Snapshot of library versions relevant to composite-target
-    discovery + serialisation. Stored on metadata so a pickle saved
-    today can be reload-validated tomorrow against version drift.
-
-    Returns ``None`` for any library not installed.
-    """
+    """Snapshot of library versions relevant to composite-target discovery + serialisation, stored on metadata so a pickle saved today can be reload-validated tomorrow against version drift. Returns ``None`` for any library not installed."""
+    import platform
+    from importlib.metadata import version, PackageNotFoundError
+    # Read versions via dist metadata, NOT __import__: catboost/lgb/xgb cold-import is ~0.5-3s each and this runs on the predict-path drift check (keeps cold-import off the predict path).
+    distmap = {"sklearn": "scikit-learn"}
     sig: dict[str, str | None] = {}
     for libname in ("numpy", "pandas", "polars", "sklearn", "lightgbm",
                     "xgboost", "catboost", "scipy", "dill"):
         try:
-            mod = __import__(libname)
-            sig[libname] = getattr(mod, "__version__", None)
-        except Exception:
+            sig[libname] = version(distmap.get(libname, libname))
+        except PackageNotFoundError:
             sig[libname] = None
+    sig["python"] = platform.python_version()
     return sig
 
 
 def _is_monotone_nondecreasing(arr: np.ndarray) -> bool:
     """True iff arr is finite and weakly monotone non-decreasing.
 
-    Used to auto-detect timestamp / time-index columns so the OOF helper
-    can produce a time-respecting split (past-only train, future holdout)
-    instead of a random shuffle that leaks the future into the past.
+    Used to auto-detect timestamp/time-index columns so the OOF helper can produce a time-respecting split (past-only train, future holdout) instead of a random shuffle that leaks the future into the past.
     """
     try:
         a = np.asarray(arr).ravel()
@@ -190,21 +164,15 @@ def _maybe_pass_sample_weight(
     sw: np.ndarray | None,
     eval_set: tuple | None = None,
 ):
-    """Call ``fit_callable.fit(X, y[, sample_weight, eval_set])`` honouring whichever
-    kwargs the inner estimator's fit signature exposes.
+    """Call ``fit_callable.fit(X, y[, sample_weight, eval_set])`` honouring whichever kwargs the inner estimator's fit signature exposes.
 
-    Avoids hard-coding which inner estimators support sample_weight (CatBoost / LGB /
-    sklearn all do; some custom shims may not).
-
-    ``eval_set`` plumbed to fix the OOF-refit silent-drop pathology
-    (observed in prod: LGBM clones with ``early_stopping_rounds`` callback
-    attached but no eval data raised ``"For early stopping, at least one dataset
-    and eval metric is required for evaluation"`` and were dropped from the
-    cross-target ensemble -- ensemble RMSE worse than dummy).
-
-    Falls back to the plain call on TypeError so missing-kwarg shims keep working.
+    Avoids hard-coding which inner estimators support sample_weight (CatBoost/LGB/sklearn all do; some custom shims may not). ``eval_set`` is plumbed to fix the OOF-refit silent-drop pathology (observed in prod: LGBM clones with an ``early_stopping_rounds`` callback but no eval data raised ``"For early stopping, at least one dataset and eval metric is required for evaluation"`` and were dropped from the cross-target ensemble -- ensemble RMSE worse than dummy). Falls back to the plain call on TypeError so missing-kwarg shims keep working.
     """
     import inspect as _inspect
+    if sw is not None and len(sw) != len(y):
+        raise ValueError(
+            f"_maybe_pass_sample_weight: sample_weight length {len(sw)} != y length {len(y)}"
+        )
     try:
         _sig = _inspect.signature(fit_callable.fit)
         _params = _sig.parameters
@@ -219,43 +187,32 @@ def _maybe_pass_sample_weight(
         if eval_set is not None and (
             "eval_set" in _params or _accepts_var_kw
         ):
-            # LightGBM expects a list of (X, y) tuples; XGBoost/CatBoost
-            # accept either (X, y) tuple or list-of-tuples. Normalising to
-            # list-of-tuples covers all three.
+            # LightGBM expects a list of (X, y) tuples; XGBoost/CatBoost accept either (X, y) tuple or list-of-tuples. Normalising to list-of-tuples covers all three.
             _es = eval_set if isinstance(eval_set, list) else [eval_set]
             _kwargs["eval_set"] = _es
         if _kwargs:
             return fit_callable.fit(X, y, **_kwargs)
-    except (TypeError, ValueError):
-        pass
+    except (TypeError, ValueError) as exc:
+        logger.debug(
+            "_maybe_pass_sample_weight: combined fit with kwargs %s failed (%s); retrying without them.",
+            sorted(_kwargs.keys()), exc,
+        )
     # Retry with sample_weight alone if combined call failed
     if sw is not None:
         try:
             return fit_callable.fit(X, y, sample_weight=sw)
-        except (TypeError, ValueError):
-            pass
+        except (TypeError, ValueError) as exc:
+            logger.debug(
+                "_maybe_pass_sample_weight: sample_weight-only fit failed (%s); falling back to unweighted fit.",
+                exc,
+            )
     return fit_callable.fit(X, y)
 
 
-# Module-level memo cache for compute_oof_holdout_predictions. Keyed by (cache_key, kfold, random_state).
-# The cache_key argument is opaque -- callers pass a hashable tuple summarising the (component, X, y, sw) identity.
-#
-# Intentionally UNWIRED on the suite path: the cross-target ensemble builder computes each target's OOF exactly
-# once per suite call on a fresh train frame, so there is no reuse to capture, and a content key on a TB-scale
-# frame is forbidden by the RAM rule. The cache exists for EXTERNAL callers that legitimately repeat an identical
-# OOF call with a cheap stable key (huge hit-speedup; see _benchmarks/bench_oof_cache_reuse.py). Do not wire a
-# frame-hash key into the suite to "use" it -- that buys zero hits at the cost of a forbidden hash.
-#
-# C-P2-2: DO NOT include ``id(train_X)`` in the cache_key. Python recycles object IDs across the
-# lifecycle of a long-lived suite, so two frames with disjoint content can end up sharing the same
-# id and a stale cache entry can mask the swap. Prefer a content fingerprint (the suite already
-# computes one via ``pipeline_cache.fingerprint_df`` /``_hash_frame``) or a stable per-session
-# token. The historical comment that recommended ``id(train_X)`` was wrong; callers passing such
-# a key get cross-contamination across re-runs.
-#
-# 16-entry LRU; once full the least-recently-USED entry is evicted on insertion. Stays in-process;
-# cleared at interpreter shutdown. ``OrderedDict.move_to_end`` on cache hits keeps the eviction
-# order driven by access (true LRU), not just insertion order (which would degrade to FIFO).
+# Module-level memo cache for compute_oof_holdout_predictions, keyed by (cache_key, kfold, random_state). cache_key is opaque -- callers pass a hashable tuple summarising the (component, X, y, sw) identity.
+# Intentionally UNWIRED on the suite path: the cross-target ensemble builder computes each target's OOF exactly once per suite call on a fresh train frame, so there is no reuse to capture, and a content key on a TB-scale frame is forbidden by the RAM rule. The cache exists for EXTERNAL callers that legitimately repeat an identical OOF call with a cheap stable key (huge hit-speedup; see _benchmarks/bench_oof_cache_reuse.py). Do not wire a frame-hash key into the suite to "use" it -- that buys zero hits at the cost of a forbidden hash.
+# DO NOT include ``id(train_X)`` in the cache_key: Python recycles object IDs across a long-lived suite, so two frames with disjoint content can share the same id and a stale entry can mask the swap. Prefer a content fingerprint (the suite computes one via ``pipeline_cache.fingerprint_df`` / ``_hash_frame``) or a stable per-session token. The historical comment that recommended ``id(train_X)`` was wrong; callers passing such a key get cross-contamination across re-runs.
+# 16-entry LRU; once full the least-recently-USED entry is evicted on insertion. Stays in-process; cleared at interpreter shutdown. ``OrderedDict.move_to_end`` on hits keeps eviction order driven by access (true LRU), not insertion order (which would degrade to FIFO).
 _OOF_HOLDOUT_CACHE: "OrderedDict[tuple, tuple[np.ndarray, np.ndarray, list[str]]]" = OrderedDict()
 _OOF_HOLDOUT_CACHE_CAP = 16
 
@@ -279,12 +236,7 @@ def _oof_cache_put(key: tuple, value: tuple) -> None:
 
 def _compute_oof_with_external_holdout(
     *,
-    # Slice-stable ES (mlframe.training.SliceStableESConfig) is NOT propagated into the inner
-    # OOF refit loop: this function builds its own per-fold ``eval_set`` via
-    # ``_carve_eval_set_from_train_with_groups`` and a single (X_holdout, y_holdout) pair, which
-    # is incompatible with the multi-eval-set / per-shard registration path slice-ES needs.
-    # Callers that want robust ES inside OOF refit should use full-K-fold CV with an outer
-    # selector (see ``_cv_aggregation.aggregate_fold_scores``) instead.
+    # Slice-stable ES (mlframe.training.SliceStableESConfig) is NOT propagated into the inner OOF refit loop: this function builds its own per-fold ``eval_set`` via ``_carve_eval_set_from_train_with_groups`` and a single (X_holdout, y_holdout) pair, incompatible with the multi-eval-set / per-shard registration path slice-ES needs. Callers wanting robust ES inside OOF refit should use full-K-fold CV with an outer selector (see ``_cv_aggregation.aggregate_fold_scores``).
     component_models: list[Any],
     component_names: list[str],
     component_specs: list[dict[str, Any] | None],
@@ -298,11 +250,9 @@ def _compute_oof_with_external_holdout(
     full_key: tuple | None,
     group_ids: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray, list[str]]:
-    """Fit each component clone on full train, predict on caller-
-    supplied external holdout (typically the suite's val split).
+    """Fit each component clone on full train, predict on caller-supplied external holdout (typically the suite's val split).
 
-    Mirrors the per-component branch in :func:`compute_oof_holdout_predictions`
-    but skips the internal train/holdout slicing.
+    Mirrors the per-component branch in :func:`compute_oof_holdout_predictions` but skips the internal train/holdout slicing.
     """
     y_train_full = y_train_full.astype(np.float64)
     holdout_cols: list[np.ndarray] = []
@@ -464,79 +414,58 @@ def compute_oof_holdout_predictions(
 ) -> tuple[np.ndarray, np.ndarray, list[str]]:
     """Compute honest holdout predictions for each component.
 
-    Approach: take a ``holdout_frac`` slice of train, re-fit a clone of
-    each component's inner on the remaining (1-holdout_frac) rows, and
-    predict on the held-out slice. For wrapped composite-target components
-    we re-apply the spec's transform on the same stack_train slice to get
-    T values, train the inner clone on (X_stack_train, T_stack_train),
-    then wrap using ``CompositeTargetEstimator.from_fitted_inner`` and
-    predict in y-scale on stack_holdout. For raw-target components the
-    inner clone is fit directly on (X_stack_train, y_stack_train).
+    Approach: take a ``holdout_frac`` slice of train, re-fit a clone of each component's inner on the remaining (1-holdout_frac) rows, and predict on the held-out slice. For wrapped composite-target components re-apply the spec's transform on the same stack_train slice to get T values, train the inner clone on (X_stack_train, T_stack_train), then wrap via ``CompositeTargetEstimator.from_fitted_inner`` and predict in y-scale on stack_holdout. For raw-target components the inner clone is fit directly on (X_stack_train, y_stack_train).
 
     Split strategy:
 
-    - **External holdout** (preferred when ``external_holdout_X`` is
-      supplied): fit each component clone on the FULL train, predict
-      on the caller-provided external frame (the suite's val split).
-      Eliminates the train-tail-vs-test distribution mismatch that
-      biases NNLS weights on group-aware splits of strong-AR targets
-      (observed in prod: train-tail lag_predict RMSE 15.18 vs test
-      11.58 - NNLS underweights the dominant baseline because it
-      looks bad on the train-tail). Caller is responsible for
-      providing the parallel base columns via
-      ``external_holdout_base_per_spec`` for composite components.
-    - ``time_ordering`` provided and monotone-non-decreasing OR
-      ``time_ordering`` is ``None`` but rows are otherwise detected to
-      be time-ordered: take the trailing ``holdout_frac`` slice as the
-      holdout (past-only train, future holdout) -- the analogue of
-      a single ``sklearn.model_selection.TimeSeriesSplit`` fold.
+    - **External holdout** (preferred when ``external_holdout_X`` is supplied): fit each component clone on the FULL train, predict on the caller-provided external frame (the suite's val split). Eliminates the train-tail-vs-test distribution mismatch that biases NNLS weights on group-aware splits of strong-AR targets (observed in prod: train-tail lag_predict RMSE 15.18 vs test 11.58 - NNLS underweights the dominant baseline because it looks bad on the train-tail). Caller must provide parallel base columns via ``external_holdout_base_per_spec`` for composite components.
+    - ``time_ordering`` provided and monotone-non-decreasing OR ``time_ordering`` is ``None`` but rows are otherwise detected to be time-ordered: take the trailing ``holdout_frac`` slice as the holdout (past-only train, future holdout) -- the analogue of a single ``sklearn.model_selection.TimeSeriesSplit`` fold.
     - Otherwise: random shuffle by ``random_state`` (legacy behaviour).
 
     Parameters
     ----------
     kfold
-        ENS-Low-1: when > 1, perform K-fold OOF prediction instead of a single
-        holdout slice. Each fold contributes its hold-out predictions; the
-        concatenated (n_train, K) matrix is returned in the natural row order.
-        ``kfold=1`` preserves the legacy single-split behaviour. Random-shuffle
-        only (time-aware K-fold remains the single-split trailing slice).
+        When > 1, perform K-fold OOF prediction instead of a single holdout slice. Each fold contributes its hold-out predictions; the concatenated (n_train, K) matrix is returned in natural row order. ``kfold=1`` preserves the legacy single-split behaviour. Random-shuffle only (time-aware K-fold remains the single-split trailing slice).
 
     Returns
     -------
-    - ``holdout_preds_matrix``: y-scale predictions; shape
-      ``(n_holdout, K)`` for kfold=1, ``(n_train, K)`` for kfold>1 random.
+    - ``holdout_preds_matrix``: y-scale predictions; shape ``(n_holdout, K)`` for kfold=1, ``(n_train, K)`` for kfold>1 random.
     - ``y_holdout``: y-scale targets aligned row-for-row.
-    - ``surviving_names``: subset of ``component_names`` whose
-      re-fit succeeded (any failures are dropped from the matrix
-      so callers can re-align weight vectors).
+    - ``surviving_names``: subset of ``component_names`` whose re-fit succeeded (failures are dropped from the matrix so callers can re-align weight vectors).
     """
-    from sklearn.model_selection import train_test_split
-
     n_train = len(y_train_full)
     if n_train < 50 or holdout_frac <= 0 or holdout_frac >= 1:
-        # C-Low-1: shape consistency across the three empty-return paths. ``surviving_names=[]``
-        # means zero components survived; both axes are zero. Downstream consumers that probed
-        # ``.shape[1]`` against ``len(surviving_names)`` were correct; consumers that probed
-        # ``.shape[1]`` against ``len(component_models)`` had been silently looking at a
-        # non-empty K dimension with zero rows. Standardise to ``(0, 0)`` everywhere.
+        # Shape consistency across the three empty-return paths: ``surviving_names=[]`` means zero components survived; both axes are zero. Consumers probing ``.shape[1]`` against ``len(surviving_names)`` were correct; those probing against ``len(component_models)`` had been silently reading a non-empty K dimension with zero rows. Standardise to ``(0, 0)`` everywhere.
         return np.zeros((0, 0)), np.zeros(0), []
 
-    # OOF-K-NOT-CACHED: when the caller supplied a cache_key we look up the (key, kfold, rs)
-    # tuple. Cache hit is bit-identical with a previous call -- same components, same X, same y,
-    # same fold strategy; semantics for caller stay unchanged.
+    # When the caller supplies a cache_key we look up the (key, kfold, rs) tuple. A hit is bit-identical with a previous call -- same components, X, y, fold strategy; caller semantics unchanged.
     _full_key = None
     if cache_key is not None:
-        _full_key = (cache_key, int(kfold), int(random_state))
+        # Include every argument that changes the returned matrix so two calls differing only in holdout_frac / time-mode / external-holdout identity / group_ids cannot serve each other a stale entry.
+        if group_ids is not None:
+            _g_fp_arr = np.asarray(group_ids)
+            _group_fp = (
+                _g_fp_arr.shape[0],
+                hash((tuple(_g_fp_arr[:64].tolist()), tuple(_g_fp_arr[-64:].tolist()))),
+            )
+        else:
+            _group_fp = (0, 0)
+        _full_key = (
+            cache_key,
+            int(kfold),
+            int(random_state),
+            round(float(holdout_frac), 6),
+            int(time_ordering is not None),
+            int(external_holdout_X is not None),
+            (int(len(external_holdout_y)) if external_holdout_y is not None else -1),
+            _group_fp,
+        )
         _hit = _oof_cache_get(_full_key)
         if _hit is not None:
             logger.debug("compute_oof_holdout_predictions: cache HIT for key=%r", _full_key)
             return _hit
 
-    # C-P1-3: warn loudly when a caller asks for time-aware K-fold (kfold>1 AND time_ordering supplied) so
-    # they know the suite is silently downgrading to a single trailing-slice holdout. Forward-walking K-fold
-    # is semantically ambiguous (past-only training rules out shuffled K-fold) and intentionally unsupported;
-    # callers who got back ONE OOF slice instead of K used to have no signal that their kfold request was
-    # ignored, biasing every downstream "average across folds" report.
+    # Warn loudly when a caller asks for time-aware K-fold (kfold>1 AND time_ordering supplied) so they know the suite is downgrading to a single trailing-slice holdout. Forward-walking K-fold is semantically ambiguous (past-only training rules out shuffled K-fold) and intentionally unsupported; callers who got back ONE OOF slice instead of K used to have no signal their kfold request was ignored, biasing every downstream "average across folds" report.
     if int(kfold) > 1 and time_ordering is not None:
         logger.warning(
             "compute_oof_holdout_predictions: kfold=%d AND time_ordering supplied; K-fold is "
@@ -545,12 +474,14 @@ def compute_oof_holdout_predictions(
             int(kfold),
         )
     if int(kfold) > 1 and time_ordering is None:
+        if external_holdout_X is not None:
+            logger.warning(
+                "compute_oof_holdout_predictions: both kfold>1 and external_holdout_X supplied; kfold "
+                "takes precedence and the external holdout frame is IGNORED. Pass kfold=1 to use the "
+                "external holdout."
+            )
         from sklearn.model_selection import KFold
-        # Outer OOF split must be group-aware when group_ids is supplied:
-        # plain shuffled K-fold lets same-group rows span refit-train and
-        # holdout, inflating the OOF surface the NNLS weights + dummy-floor
-        # gate consume (the inner eval-carve is group-aware but the OUTER
-        # split was not). GroupKFold keeps whole groups in one fold.
+        # Outer OOF split must be group-aware when group_ids is supplied: plain shuffled K-fold lets same-group rows span refit-train and holdout, inflating the OOF surface the NNLS weights + dummy-floor gate consume (the inner eval-carve is group-aware but the OUTER split was not). GroupKFold keeps whole groups in one fold.
         _kf_groups = None
         if group_ids is not None:
             _g_arr = np.asarray(group_ids)
@@ -566,11 +497,7 @@ def compute_oof_holdout_predictions(
         oof_preds_by_name: dict[str, np.ndarray] = {}
         survived_set: set[str] | None = None
         for fold_train_idx, fold_holdout_idx in _kf_split:
-            fold_frac = float(fold_holdout_idx.size) / float(n_train)
-            # Sub-frame views by index. Reuse the single-split path by
-            # creating a synthetic ``time_ordering`` that forces the
-            # specific fold_holdout slice -- simpler: inline the fit/predict
-            # for this fold.
+            # Sub-frame views by index; fit/predict inlined per fold.
             if _is_polars_df(train_X):
                 fold_train_mask = np.zeros(n_train, dtype=bool)
                 fold_train_mask[fold_train_idx] = True
@@ -614,19 +541,20 @@ def compute_oof_holdout_predictions(
                         else:
                             X_stack_valid = X_stack_t[valid]
                         _sw_stack_valid = None if sample_weight is None else sample_weight[fold_train_idx][valid]
-                        # Carve an inner eval_set so early-stopping boosters do
-                        # not raise (they did, and the per-component except below
-                        # silently dropped every ES composite component each fold
-                        # -- default oof_holdout_source IS kfold). Mirrors the
-                        # single-split composite branch + the raw kfold branch.
+                        # Carve an inner eval_set so early-stopping boosters do not raise (they did, and the per-component except below silently dropped every ES composite component each fold -- default oof_holdout_source IS kfold). Mirrors the single-split composite branch + the raw kfold branch.
                         _group_fold_valid = None
                         if group_ids is not None:
                             try:
                                 _g_arr = np.asarray(group_ids)
-                                if _g_arr.shape[0] >= int(np.max(fold_train_idx)) + 1:
+                                if _g_arr.shape[0] == n_train:
                                     _gf = _g_arr[fold_train_idx]
                                     if _gf.shape[0] == valid.shape[0]:
                                         _group_fold_valid = _gf[valid]
+                                else:
+                                    logger.warning(
+                                        "[ensemble] group_ids length %d != n_train %d; group-aware carve skipped for this split.",
+                                        _g_arr.shape[0], n_train,
+                                    )
                             except (TypeError, IndexError, ValueError):
                                 _group_fold_valid = None
                         _Xf_c, _tf_c, _Xe_c, _te_c, _fm_kc = _carve_inner_eval_split(
@@ -639,9 +567,7 @@ def compute_oof_holdout_predictions(
                             inner_clone, _Xf_c, _tf_c, _sw_fit_kc,
                             eval_set=_eval_set_kc,
                         )
-                        # Multi-base parity with _phase_composite_post: pass
-                        # the full base_columns tuple so predict reconstructs
-                        # the K-column base matrix matching the K alphas.
+                        # Multi-base parity with _phase_composite_post: pass the full base_columns tuple so predict reconstructs the K-column base matrix matching the K alphas.
                         _extra = tuple(spec.get("extra_base_columns") or ())
                         _base_columns = (
                             (spec["base_column"], *_extra) if _extra else None
@@ -662,8 +588,13 @@ def compute_oof_holdout_predictions(
                         if group_ids is not None:
                             try:
                                 _g_arr = np.asarray(group_ids)
-                                if _g_arr.shape[0] >= int(np.max(fold_train_idx)) + 1:
+                                if _g_arr.shape[0] == n_train:
                                     _group_for_fold = _g_arr[fold_train_idx]
+                                else:
+                                    logger.warning(
+                                        "[ensemble] group_ids length %d != n_train %d; group-aware carve skipped for this split.",
+                                        _g_arr.shape[0], n_train,
+                                    )
                             except (TypeError, IndexError, ValueError):
                                 _group_for_fold = None
                         _X_fit, _y_fit, _X_ev, _y_ev, _fm_kr = _carve_inner_eval_split(
@@ -696,7 +627,7 @@ def compute_oof_holdout_predictions(
                 buf = oof_preds_by_name.setdefault(nm, np.full(n_train, np.nan, dtype=np.float64))
                 buf[fold_holdout_idx] = preds
         if not oof_preds_by_name or not survived_set:
-            # C-Low-1: shape consistency -- match the (0, 0) tiny-data short-circuit. No components survived.
+            # Shape consistency -- match the (0, 0) tiny-data short-circuit. No components survived.
             _empty = (np.zeros((0, 0)), np.zeros(0), [])
             if _full_key is not None:
                 _oof_cache_put(_full_key, _empty)
@@ -715,11 +646,7 @@ def compute_oof_holdout_predictions(
             _oof_cache_put(_full_key, _result)
         return _result
 
-    # External honest holdout (caller-supplied val frame). Skip the
-    # train-tail split entirely: fit each component clone on the FULL
-    # train, predict on the external frame, return the parallel y
-    # column the caller supplied. Defends against AR(1) train-tail
-    # distribution mismatch.
+    # External honest holdout (caller-supplied val frame). Skip the train-tail split entirely: fit each component clone on the FULL train, predict on the external frame, return the parallel y column the caller supplied. Defends against AR(1) train-tail distribution mismatch.
     if (external_holdout_X is not None
             and external_holdout_y is not None
             and len(external_holdout_y) > 0):
@@ -740,11 +667,7 @@ def compute_oof_holdout_predictions(
             group_ids=group_ids,
         )
 
-    # Decide whether to do a time-aware split. Only the EXPLICIT ``time_ordering`` signal (the suite threads
-    # ctx.timestamps here) flips to a trailing-slice holdout. The old behaviour also probed every base column and
-    # auto-switched if ANY was monotone -- a false positive on sorted-but-non-temporal bases (sorted ids, binned
-    # features) that silently turned a random holdout into a trailing slice and changed the OOF leakage profile.
-    # Random shuffle is the safe default when no explicit time signal is given.
+    # Decide whether to do a time-aware split. Only the EXPLICIT ``time_ordering`` signal (the suite threads ctx.timestamps here) flips to a trailing-slice holdout. The old behaviour also probed every base column and auto-switched if ANY was monotone -- a false positive on sorted-but-non-temporal bases (sorted ids, binned features) that silently turned a random holdout into a trailing slice and changed the OOF leakage profile. Random shuffle is the safe default when no explicit time signal is given.
     use_time_split = False
     _time_order = None
     if time_ordering is not None:
@@ -754,11 +677,7 @@ def compute_oof_holdout_predictions(
                 "composite OOF: time_ordering signal is monotone non-decreasing; using trailing-slice holdout instead of random shuffle."
             )
         else:
-            # Explicit but non-monotone time signal: recover the forward-walk by
-            # SORTING rows by time, instead of silently random-shuffling (which
-            # discards the very signal the caller passed and leaks future rows
-            # into the refit-train slice). argsort is stable so ties keep their
-            # original order.
+            # Explicit but non-monotone time signal: recover the forward-walk by SORTING rows by time, instead of silently random-shuffling (which discards the very signal the caller passed and leaks future rows into the refit-train slice). argsort is stable so ties keep their original order.
             _time_order = np.argsort(np.asarray(time_ordering), kind="stable")
             use_time_split = True
             logger.warning(
@@ -769,11 +688,7 @@ def compute_oof_holdout_predictions(
             )
 
     n_holdout = max(int(round(n_train * holdout_frac)), 1)
-    # Group-aware outer holdout: carve WHOLE groups so no group spans the
-    # refit-train and holdout slices (a random row permutation lets same-group
-    # rows leak across the split, inflating the OOF surface). Only when
-    # group_ids covers all rows with enough distinct groups and we are not on
-    # the explicit time-split path.
+    # Group-aware outer holdout: carve WHOLE groups so no group spans the refit-train and holdout slices (a random row permutation lets same-group rows leak across the split, inflating the OOF surface). Only when group_ids covers all rows with enough distinct groups and we are not on the explicit time-split path.
     _group_holdout = None
     if not use_time_split and group_ids is not None:
         _g_arr = np.asarray(group_ids)
@@ -800,8 +715,7 @@ def compute_oof_holdout_predictions(
             if cumulative >= n_holdout:
                 break
         hold_mask = np.isin(_group_holdout, hold_groups)
-        # Degenerate carve (all/none) -> fall back to row permutation.
-        if hold_mask.all() or not hold_mask.any():
+        if hold_mask.all() or not hold_mask.any():  # degenerate carve (all/none) -> fall back to row permutation
             rng = np.random.default_rng(random_state)
             perm = rng.permutation(n_train)
             holdout_idx = np.sort(perm[:n_holdout])
@@ -815,8 +729,7 @@ def compute_oof_holdout_predictions(
         holdout_idx = np.sort(perm[:n_holdout])
         train_idx = np.sort(perm[n_holdout:])
 
-    # Subset X. Branch on type so we don't pull pandas APIs on
-    # polars frames.
+    # Subset X. Branch on type so we don't pull pandas APIs on polars frames.
     if _is_polars_df(train_X):
         train_mask = np.zeros(n_train, dtype=bool)
         train_mask[train_idx] = True
@@ -832,15 +745,18 @@ def compute_oof_holdout_predictions(
     y_stack = y_train_full[train_idx].astype(np.float64)
     y_holdout = y_train_full[holdout_idx].astype(np.float64)
 
-    # Group-aware inner eval-carve parity with the raw branch + kfold path: subset the caller-supplied group_ids
-    # to the stack rows so neither the composite nor the raw inner-eval carve splits a group across fit/eval
-    # (within-group leakage under-stops the booster and degrades OOF RMSE on group-aware splits).
+    # Group-aware inner eval-carve parity with the raw branch + kfold path: subset the caller-supplied group_ids to the stack rows so neither the composite nor the raw inner-eval carve splits a group across fit/eval (within-group leakage under-stops the booster and degrades OOF RMSE on group-aware splits).
     _group_stack = None
     if group_ids is not None:
         try:
             _g_arr = np.asarray(group_ids)
-            if _g_arr.shape[0] >= int(np.max(train_idx)) + 1:
+            if _g_arr.shape[0] == n_train:
                 _group_stack = _g_arr[train_idx]
+            else:
+                logger.warning(
+                    "[ensemble] group_ids length %d != n_train %d; group-aware carve skipped for this split.",
+                    _g_arr.shape[0], n_train,
+                )
         except (TypeError, IndexError, ValueError):
             _group_stack = None
 
@@ -852,8 +768,7 @@ def compute_oof_holdout_predictions(
             X_stack_t = _transform_via(pp, X_stack)
             X_holdout_t = _transform_via(pp, X_holdout)
             if isinstance(inner, CompositeTargetEstimator):
-                # Composite-target wrapper. Re-fit the inner on
-                # stack_train T values, then re-wrap and predict.
+                # Composite-target wrapper. Re-fit the inner on stack_train T values, then re-wrap and predict.
                 if spec is None:
                     raise ValueError("composite component with no spec")
                 base_full = base_train_full_per_spec.get(spec["base_column"])
@@ -864,8 +779,7 @@ def compute_oof_holdout_predictions(
                 base_stack = base_full[train_idx]
                 transform = get_transform(spec["transform_name"])
                 valid = transform.domain_check(y_stack, base_stack)
-                # Drop invalid rows from stack_train; the inner will
-                # train only on rows where T is finite.
+                # Drop invalid rows from stack_train; the inner trains only on rows where T is finite.
                 if valid.sum() < 10:
                     raise ValueError("too few valid rows after domain filter")
                 t_stack = transform.forward(
@@ -883,7 +797,7 @@ def compute_oof_holdout_predictions(
                 if _group_stack is not None and _group_stack.shape[0] == valid.shape[0]:
                     _group_stack_valid = _group_stack[valid]
                 _X_fit_c, _t_fit_c, _X_ev_c, _t_ev_c, _fm_sc = _carve_inner_eval_split(
-                    X_stack_valid, t_stack, random_state=0,
+                    X_stack_valid, t_stack, random_state=int(random_state),
                     group_ids=_group_stack_valid, return_fit_mask=True,
                 )
                 _eval_set_c = (_X_ev_c, _t_ev_c) if _X_ev_c is not None else None
@@ -892,9 +806,7 @@ def compute_oof_holdout_predictions(
                     inner_clone, _X_fit_c, _t_fit_c, _sw_fit_c,
                     eval_set=_eval_set_c,
                 )
-                # Multi-base parity: same fix as the kfold OOF branch
-                # above. Without base_columns, predict reconstructs only
-                # the primary base column and trips the K-alphas shape check.
+                # Multi-base parity: same fix as the kfold OOF branch above. Without base_columns, predict reconstructs only the primary base column and trips the K-alphas shape check.
                 _extra = tuple(spec.get("extra_base_columns") or ())
                 _base_columns = (
                     (spec["base_column"], *_extra) if _extra else None
@@ -909,12 +821,11 @@ def compute_oof_holdout_predictions(
                 )
                 preds = wrapped.predict(X_holdout_t)
             else:
-                # Raw-target component. Re-fit the inner on
-                # (X_stack, y_stack) and predict on X_holdout.
+                # Raw-target component. Re-fit the inner on (X_stack, y_stack) and predict on X_holdout.
                 inner_clone = clone(inner)
                 _sw_stack = None if sample_weight is None else sample_weight[train_idx]
                 _X_fit_r, _y_fit_r, _X_ev_r, _y_ev_r, _fm_sr = _carve_inner_eval_split(
-                    X_stack_t, y_stack, random_state=0,
+                    X_stack_t, y_stack, random_state=int(random_state),
                     group_ids=_group_stack, return_fit_mask=True,
                 )
                 _eval_set_r = (_X_ev_r, _y_ev_r) if _X_ev_r is not None else None
@@ -926,8 +837,7 @@ def compute_oof_holdout_predictions(
                 preds = inner_clone.predict(X_holdout_t)
             preds = np.asarray(preds).reshape(-1).astype(np.float64)
             if not np.all(np.isfinite(preds)):
-                # NaN preds on holdout -- exclude from ensemble.
-                raise ValueError("non-finite holdout predictions")
+                raise ValueError("non-finite holdout predictions")  # NaN preds on holdout -- exclude from ensemble
             holdout_cols.append(preds)
             surviving_names.append(name)
         except Exception as exc:
@@ -937,9 +847,7 @@ def compute_oof_holdout_predictions(
             )
             continue
 
-    # C-P2-4: summary log so operators can see "ensemble built with N of K components" at INFO
-    # without grepping per-component WARN lines. ``component_names`` is the full caller-supplied
-    # list; ``surviving_names`` is the subset whose refit succeeded.
+    # Summary log so operators can see "ensemble built with N of K components" at INFO without grepping per-component WARN lines. ``component_names`` is the full caller-supplied list; ``surviving_names`` is the subset whose refit succeeded.
     _surviving_n = len(surviving_names)
     _total_n = len(component_names)
     if _surviving_n < _total_n:
@@ -950,7 +858,7 @@ def compute_oof_holdout_predictions(
             _surviving_n, _total_n, _total_n - _surviving_n, _dropped,
         )
     if not holdout_cols:
-        # C-Low-1: shape consistency -- match the tiny-data + kfold short-circuits.
+        # Shape consistency -- match the tiny-data + kfold short-circuits.
         _empty = (np.zeros((0, 0)), np.zeros(0), [])
         if _full_key is not None:
             _oof_cache_put(_full_key, _empty)
@@ -961,10 +869,5 @@ def compute_oof_holdout_predictions(
     return _final
 
 
-# Wave 101 (2026-05-21): CompositeCrossTargetEnsemble class (~710 lines)
-# moved to sibling _composite_cross_target_ensemble.py to drop this file
-# below the 1k-line monolith threshold. Re-exported below so existing
-# callers (`from mlframe.training.composite import CompositeCrossTargetEnsemble`)
-# keep working.
 from ._cross_target import CompositeCrossTargetEnsemble  # noqa: F401, E402
 

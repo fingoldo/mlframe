@@ -144,6 +144,8 @@ est.predict(X_new)
 est.feature_importances_       # delegated from the fitted inner estimator
 ```
 
+The wrapper above is the manual entry point. `train_mlframe_models_suite` also runs automatic composite-target discovery (`CompositeTargetDiscovery` / `CompositeTargetDiscoveryConfig`), which screens transforms, ensembles the survivors, and caches results; set `MLFRAME_DISABLE_COMPOSITE=1` to turn it off. See [docs/examples/composite_targets.md](docs/examples/composite_targets.md) and the [tutorial notebook](docs/composite_targets_tutorial.ipynb).
+
 **Per-target metric panel.** `fast_calibration_report` computes the Brier
 reliability / resolution / uncertainty decomposition, ICE bands, ECE, ROC/PR AUC,
 and the classification scores in one numba-accelerated pass, returning them as a

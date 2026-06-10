@@ -117,10 +117,13 @@ def _auto_base(
     # at core.py and stored on the discovery instance for this fit.
     # Absent = treat as unknown strength -> use half-slot cap.
     hint_strengths = getattr(self, "_hint_strengths_pct", None)
+    # hint_raw and hint_strengths are positionally aligned; hint_kept drops filtered entries, so realign strengths to the surviving hints before taking the max -- otherwise a dropped strong hint's strength leaks onto a surviving weak one.
+    _kept_set = set(hint_kept)
+    _aligned = [s for f, s in zip(hint_raw, (hint_strengths or [])) if f in _kept_set]
     is_strong_hint = (
         hint_strengths is not None
-        and len(hint_strengths) > 0
-        and max(hint_strengths[:len(hint_kept)]) >= strong_hint_threshold
+        and len(_aligned) > 0
+        and max(_aligned) >= strong_hint_threshold
     )
     if is_strong_hint:
         # Full hint -- no cap. Log so it's auditable.
@@ -128,7 +131,7 @@ def _auto_base(
             "[CompositeTargetDiscovery] auto-base using FULL hint "
             "(%d candidates, max ablation delta%% = %.1f%% >= %.1f%% "
             "threshold; trusting BD over MI ranking).",
-            len(hint_kept), max(hint_strengths[:len(hint_kept)]),
+            len(hint_kept), max(_aligned),
             strong_hint_threshold,
         )
         hint_cap = top_k  # effectively no cap
@@ -200,7 +203,8 @@ def _auto_base(
                 "even after per-column NaN drop + mean impute; falling back "
                 "to feature-list order.", int(finite.sum()),
             )
-            return list(usable_features)[: self.config.auto_base_top_k]
+            # Keep hint features at the front: BD ablation is the one signal not derived from the broken screening sample, and a hint may not fall within the first top_k of the arbitrary column order.
+            return (hint_kept + [c for c in usable_features if c not in hint_kept])[: self.config.auto_base_top_k]
     # Per-feature MI honours config.mi_estimator: bin-based when
     # the screening pipeline opted for the fast estimator. Hoist the
     # y-binning out of the per-feature loop -- y is fixed across all

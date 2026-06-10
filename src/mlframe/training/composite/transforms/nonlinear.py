@@ -1,10 +1,6 @@
-"""Non-linear residual + chain / EWMA / frac-diff / monotonic / quantile
-composite transforms carved out of ``mlframe.training.composite_transforms``.
+"""Non-linear residual + chain / EWMA / frac-diff / monotonic / quantile composite transforms carved out of ``mlframe.training.composite_transforms``.
 
-Bound back into the parent's namespace via re-export at the parent's
-module bottom so historical
-``from mlframe.training.composite_transforms import _monotonic_residual_fit``
-resolves transparently.
+Bound back into the parent's namespace via re-export at the parent's module bottom so historical ``from mlframe.training.composite_transforms import _monotonic_residual_fit`` resolves transparently.
 """
 from __future__ import annotations
 
@@ -27,12 +23,7 @@ except Exception:  # pragma: no cover
 
 logger = logging.getLogger("mlframe.training.composite_transforms")
 
-# Parent-resident constants referenced as default-arg values in function
-# signatures below. Function-signature defaults evaluate at module load, so
-# these MUST be top-level (lazy import inside the body wouldn't see them).
-# The parent defines all five BEFORE its bottom-of-module sibling import,
-# so this static cycle resolves at runtime. Whitelisted in
-# tests/test_meta/test_no_import_cycles.py.
+# Parent-resident constants referenced as default-arg values in signatures below. Signature defaults evaluate at module load, so these MUST be top-level (a lazy in-body import wouldn't see them). The parent defines all five BEFORE its bottom-of-module sibling import, so this static cycle resolves at runtime. Whitelisted in tests/test_meta/test_no_import_cycles.py.
 from . import (  # noqa: E402
     _QUANTILE_RESIDUAL_DEFAULT_N_BINS,
     _QUANTILE_RESIDUAL_DEFAULT_MIN_BIN_N,
@@ -45,9 +36,8 @@ from . import (  # noqa: E402
 )
 
 
-# Module-level numba kernels (JIT compile on first call). Pure-Python fallback is the recursion in-line below when numba is not installed.
-#
-# Backend ladder (per CLAUDE.md / bench_ewma_frac_diff_backends.py 2026-05-24): EWMA + frac-diff-inverse are LEFT-RECURRENT in row order (out[i] = f(out[i-1], ...)) so prange over rows is impossible. The win comes from a BATCHED kernel (K, N) parallelising across K specs while each row recurrence stays serial. CUDA RawKernel implementation tried (one block per spec) and rejected: sequential per-thread recurrence is bandwidth-bound + host-device transfer kills it (CUDA was 5-100x SLOWER than njit at every tested size, see _benchmarks/_results/bench_ewma_frac_diff_backends_*.json). Two backends retained: single-spec njit (production) + parallel-batched njit.
+# Module-level numba kernels (JIT compile on first call); pure-Python fallback is the in-line recursion below when numba is absent.
+# Backend ladder: EWMA + frac-diff-inverse are LEFT-RECURRENT in row order (out[i] = f(out[i-1], ...)) so prange over rows is impossible; the win comes from a BATCHED kernel (K, N) parallelising across K specs while each row recurrence stays serial. CUDA RawKernel (one block per spec) tried and rejected: sequential per-thread recurrence is bandwidth-bound + host-device transfer kills it (5-100x SLOWER than njit at every size, see _benchmarks/_results/bench_ewma_frac_diff_backends_*.json). Two backends retained: single-spec njit (production) + parallel-batched njit.
 if _HAS_NUMBA:
 
     @_numba.njit(cache=True)
@@ -124,17 +114,11 @@ else:
     _frac_diff_inverse_kernel_njit_par_batched = None  # type: ignore
 
 
-# Soft-cap MAD floor: when MAD(T_train) is below
-# ``_MAD_FLOOR_FRAC * std(y_train)``, we substitute the latter to keep
-# the soft-cap bound numerically meaningful even if the transform
-# produced a degenerate (near-constant) T on train. Without this,
-# logratio's MAD-cap collapses to zero on degenerate train and every
-# prediction inverts to ``base * exp(0) = base`` silently.
+# Soft-cap MAD floor: when MAD(T_train) is below ``_MAD_FLOOR_FRAC * std(y_train)``, substitute the latter to keep the soft-cap bound numerically meaningful even if the transform produced a degenerate (near-constant) T on train. Without this, logratio's MAD-cap collapses to zero on degenerate train and every prediction inverts to ``base * exp(0) = base`` silently.
 _MAD_FLOOR_FRAC: float = 1e-3
 
 # Multiplier for MAD-soft-cap on T_hat (logratio in particular).
 _MAD_SOFT_CAP_K: float = 10.0
-
 
 
 logger = logging.getLogger("mlframe.training.composite_transforms")
@@ -147,22 +131,11 @@ def _james_stein_shrinkage_factor(
 ) -> float:
     """Estimate the James-Stein shrinkage factor toward ``global_alpha``.
 
-    Returns a scalar c ∈ [0, 1]:
-    - c = 0: keep per-group alphas as-is (no shrinkage).
-    - c = 1: collapse all per-group alphas to global_alpha (full shrinkage).
+    Returns a scalar c ∈ [0, 1]: c=0 keeps per-group alphas as-is (no shrinkage); c=1 collapses all per-group alphas to global_alpha (full shrinkage).
 
-    The classic JS estimator for K group means with known variance σ² is
+    The classic JS estimator for K group means with known variance σ² is ``c = max(0, 1 - (K - 3) σ² / Σ_g (α_g - global)²)``. We use residual variance as σ² proxy (σ²/n_g per group), weighted by ``group_sizes``: large per-group spread relative to noise -> c->0 (let the data speak); noise dominating spread -> c->1 (shrink heavily).
 
-        c = max(0, 1 - (K - 3) σ² / Σ_g (α_g - global)² )
-
-    We use the variance of residuals as σ² proxy (σ²/n_g per group),
-    weighted by ``group_sizes``. When the per-group spread is large
-    relative to noise, c -> 0 (let the data speak). When noise dominates
-    spread, c -> 1 (shrink heavily).
-
-    A degenerate case (K < 4 groups, or all alphas equal) returns c = 0
-    so the JS correction can't reduce K below the JS-applicability
-    threshold; the per-group estimates pass through unmodified.
+    A degenerate case (K < 4 groups, or all alphas equal) returns c=0 so the JS correction can't reduce K below the JS-applicability threshold; the per-group estimates pass through unmodified.
     """
     k = per_group_alphas.size
     if k < 4:
@@ -171,14 +144,9 @@ def _james_stein_shrinkage_factor(
     sum_sq = float(np.sum(deviations * deviations))
     if sum_sq <= 0:
         return 0.0
-    # σ²_per_group ≈ σ²_total / mean(n_g) (residual variance per group).
-    # Use mean per-group variance as the JS noise proxy.
+    # JS noise proxy: σ²_per_group ≈ σ²_total / mean(n_g) (mean per-group residual variance).
     mean_per_group_variance = float(sigma2_total / max(np.mean(group_sizes), 1.0))
-    # Classic JS shrinkage factor c in
-    #     α_shrunk = (1-c) α_g + c α_global
-    # c = (K-3) σ² / Σ_g (α_g - α_global)², clamped to [0, 1].
-    # High noise / low spread => c -> 1 (full shrink to global).
-    # Low noise / high spread  => c -> 0 (keep per-group alphas).
+    # Classic JS factor c in α_shrunk = (1-c) α_g + c α_global; c = (K-3) σ² / Σ_g (α_g - α_global)², clamped to [0, 1]. High noise / low spread => c->1 (full shrink); low noise / high spread => c->0 (keep per-group).
     raw = (k - 3) * mean_per_group_variance / sum_sq
     return float(max(0.0, min(1.0, raw)))
 def _row_alpha_beta(
@@ -186,23 +154,14 @@ def _row_alpha_beta(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Materialise per-row (alpha, beta) from the grouped params dict.
 
-    Vectorised: ``np.unique`` collapses the n-row groups vector to K
-    unique labels, looks them up in the params dict ONCE per unique
-    label, then uses inverse-indexing to broadcast back to n rows.
-    A naive ``for i, g in enumerate(groups)`` is ~30x slower on 200K
-    rows; cProfile measured the loop at 88% of total fit+predict cost
-    pre-optimisation.
-
-    Unseen group labels (present at predict but not at fit) fall back
-    to global alpha/beta -- a safe identity-like inverse.
+    Vectorised: ``np.unique`` collapses the n-row groups vector to K unique labels, looks them up in the params dict ONCE per unique label, then inverse-indexes to broadcast back to n rows. A naive ``for i, g in enumerate(groups)`` is ~30x slower on 200K rows; cProfile measured the loop at 88% of total fit+predict cost pre-optimisation. Unseen group labels (at predict but not fit) fall back to global alpha/beta -- a safe identity-like inverse.
     """
     alpha_global = float(params["alpha_global"])
     beta_global = float(params["beta_global"])
     pg_alphas = params["per_group_alphas"]
     pg_betas = params["per_group_betas"]
-    # K unique labels; inv maps each row to an index into uniq.
+    # K unique labels; inv maps each row to an index into uniq. Per-unique-label alpha / beta built with global as fallback.
     uniq, inv = np.unique(groups, return_inverse=True)
-    # Build per-unique-label alpha / beta with global as fallback.
     uniq_alpha = np.array(
         [pg_alphas.get(str(g), alpha_global) for g in uniq],
         dtype=np.float64,
@@ -264,17 +223,14 @@ def _quantile_residual_per_bin_stats(
     y_clean: np.ndarray, bin_idx: np.ndarray, actual_n_bins: int,
     min_bin_n: int, global_median: float, global_iqr: float,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Size-aware dispatcher across per-bin quantile-stats variants.
-
-    Bench (bench_median_quantile_residual.py): v2 pandas-groupby wins at small n / large n_bins (e.g. n=100k+20bins: 1.72x over v1) and ties / loses on large n with few bins. Threshold: route to v2 when ``y_clean.size <= 200_000``; otherwise v1 is on par or faster. Sort-based numba variant tried and rejected (extra argsort dominated -- see bench-attempt-rejected note in bench_median_quantile_residual.py).
-    """
+    """Size-aware dispatcher across per-bin quantile-stats variants. Bench (bench_median_quantile_residual.py): v2 pandas-groupby wins at small n / large n_bins (n=100k+20bins: 1.72x over v1) and ties / loses on large n with few bins, so route to v2 when ``y_clean.size <= 200_000`` else v1. Sort-based numba variant tried and rejected (extra argsort dominated -- see bench-attempt-rejected note in bench_median_quantile_residual.py)."""
     if y_clean.size <= 200_000:
         try:
             return _quantile_residual_per_bin_stats_v2_pandas_groupby(
                 y_clean, bin_idx, actual_n_bins, min_bin_n, global_median, global_iqr,
             )
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.warning("composite_transforms: pandas-groupby fast path failed (%s); using numpy fallback.", _exc)
     return _quantile_residual_per_bin_stats_v1_pyloop(
         y_clean, bin_idx, actual_n_bins, min_bin_n, global_median, global_iqr,
     )
@@ -288,20 +244,9 @@ def _quantile_residual_fit(
 ) -> dict[str, Any]:
     """Fit per-bucket median(y) + IQR(y) over ``n_bins`` quantile bins of ``base``.
 
-    Returns
-    -------
-    dict with keys:
-    - ``bin_edges``: 1-D ndarray of length ``n_bins+1`` (open at -inf, +inf).
-    - ``bin_medians``: 1-D ndarray of length ``n_bins`` (median(y) per bin; global median for under-populated bins).
-    - ``bin_iqrs``: 1-D ndarray of length ``n_bins`` (IQR(y) per bin; global IQR with floor for under-populated / constant bins).
-    - ``bin_sizes``: list[int] of length ``n_bins`` (train rows per bin).
-    - ``global_median``: float (median of train y, used as fallback).
-    - ``global_iqr``: float (IQR of train y, used as fallback).
-    - ``n_bins``: int (recorded for predict-time validation).
+    Returns a dict with keys: ``bin_edges`` (1-D ndarray len ``n_bins+1``, open at -inf, +inf), ``bin_medians`` (len ``n_bins``; median(y) per bin, global median for under-populated bins), ``bin_iqrs`` (len ``n_bins``; IQR(y) per bin, global IQR with floor for under-populated / constant bins), ``bin_sizes`` (list[int] len ``n_bins``, train rows per bin), ``global_median``/``global_iqr`` (float fallbacks from train y), ``n_bins`` (int, recorded for predict-time validation).
     """
-    # Lazy import of parent-resident helpers: ``.predict`` re-imports
-    # this sibling at its bottom, so a top-level ``from .predict
-    # import ...`` would create a hard cycle the meta-test flags.
+    # Lazy import: ``.predict`` re-imports this sibling at its bottom, so a top-level ``from .predict import ...`` would create a hard cycle the meta-test flags.
     from . import _QUANTILE_RESIDUAL_DEFAULT_MIN_BIN_N, _QUANTILE_RESIDUAL_DEFAULT_N_BINS
     n_bins = max(2, int(n_bins))
     min_bin_n = max(2, int(min_bin_n))
@@ -324,10 +269,10 @@ def _quantile_residual_fit(
         }
     y_clean = y_f[finite]
     base_clean = base_f[finite]
-    # Quantile edges on train base. ``np.quantile`` with linspace covers the open-open envelope; we replace the outermost edges with +/-inf so the predict-time digitize never produces an out-of-range bucket.
+    # Quantile edges on train base; ``np.quantile`` with linspace covers the open-open envelope, and the outermost edges become +/-inf below so predict-time digitize never produces an out-of-range bucket.
     inner_qs = np.linspace(0.0, 1.0, n_bins + 1)
     edges = np.quantile(base_clean, inner_qs)
-    # Deduplicate edges (when many ties at one quantile, several edges collapse) -- empty bins would otherwise emerge. Tolerate up to n_bins-1 unique edges; clip n_bins accordingly downstream.
+    # Deduplicate edges (ties at one quantile collapse several edges, else empty bins emerge); tolerate up to n_bins-1 unique edges, clip n_bins downstream.
     edges = np.unique(edges)
     if edges.size < 2:
         # All base values identical: degenerate single bucket.
@@ -345,7 +290,7 @@ def _quantile_residual_fit(
     edges[0] = -np.inf
     edges[-1] = np.inf
     actual_n_bins = edges.size - 1
-    # Global stats (fallback for under-populated bins).
+    # Global stats: fallback for under-populated bins.
     global_median = float(np.median(y_clean))
     global_iqr = max(float(np.subtract(*np.percentile(y_clean, [75, 25]))), 1e-6)
     # Per-bin assignment via np.searchsorted (right-side: edges[i-1] <= x < edges[i]).
@@ -403,16 +348,9 @@ def _monotonic_residual_fit(
 ) -> dict[str, Any]:
     """Fit a monotone PCHIP spline g(base) via per-quantile-knot medians and orient by the sign of the global Spearman correlation between y and base. Stores the knot x/y arrays + the global y mean as a fallback. Domain at predict time: base values outside [knots_x[0], knots_x[-1]] are clipped to the edge knots (PCHIP extrapolation is not safe -- it can run off to +/- inf rapidly).
 
-    Pack #3 2026-05-18 auto-knot tuning: when ``base`` has few unique
-    values (categorical / discrete), 12 default knots oversmooth -- many
-    knots collapse to identical x positions, leaving < n_eff effective
-    knots and a wobbly spline that often goes degenerate. Auto-cap
-    ``n_knots`` at ``min(12, max(3, n_unique_base // 200))`` so the
-    knot count scales with the base's effective cardinality.
+    Auto-knot tuning: when ``base`` has few unique values (categorical / discrete), 12 default knots oversmooth -- many knots collapse to identical x positions, leaving < n_eff effective knots and a wobbly spline that often goes degenerate. Auto-cap ``n_knots`` at ``min(12, max(3, n_unique_base // 200))`` so the knot count scales with the base's effective cardinality.
     """
-    # Lazy import of parent-resident helpers: ``.predict`` re-imports
-    # this sibling at its bottom, so a top-level ``from .predict
-    # import ...`` would create a hard cycle the meta-test flags.
+    # Lazy import: ``.predict`` re-imports this sibling at its bottom, so a top-level ``from .predict import ...`` would create a hard cycle the meta-test flags.
     from . import _MONOTONIC_RESIDUAL_DEFAULT_MIN_KNOT_N, _MONOTONIC_RESIDUAL_DEFAULT_N_KNOTS
     base_f_for_unique = np.asarray(base, dtype=np.float64).reshape(-1)
     _n_unique_base = int(np.unique(base_f_for_unique[np.isfinite(base_f_for_unique)]).size)
@@ -431,13 +369,14 @@ def _monotonic_residual_fit(
             "y_train_mean": y_med,
             "monotone_direction": 0,
             "n_knots_effective": 2,
+            "is_degenerate": True,
+            "var_explained": 0.0,
         }
     y_clean = y_f[finite]
     base_clean = base_f[finite]
-    # Knot x positions on quantile cuts of base (NOT linearly-spaced; uneven base distributions benefit from quantile placement).
+    # Knot x positions on quantile cuts of base (NOT linearly-spaced; uneven base distributions benefit from quantile placement). Deduplicate ties (many identical base values collapse to fewer knots).
     qs = np.linspace(0.0, 1.0, n_knots)
     knots_x = np.quantile(base_clean, qs)
-    # Deduplicate ties (many identical base values collapse to fewer knots).
     knots_x = np.unique(knots_x)
     if knots_x.size < 3:
         y_med = float(np.median(y_clean))
@@ -447,12 +386,13 @@ def _monotonic_residual_fit(
             "y_train_mean": y_med,
             "monotone_direction": 0,
             "n_knots_effective": 2,
+            "is_degenerate": True,
+            "var_explained": 0.0,
         }
-    # Per-knot y values: median(y) for rows assigned to each knot's quantile slab.
+    # Per-knot y values: median(y) for rows assigned to each knot's quantile slab. Slab boundaries are midpoints between adjacent knots (left/right edges extend to +/-inf so every row maps to a slab).
     n_eff = knots_x.size
     knots_y = np.empty(n_eff, dtype=np.float64)
     y_global_med = float(np.median(y_clean))
-    # Slab boundaries: midpoints between adjacent knots (left/right edges extend to +/-inf so every row maps to a slab).
     slab_edges = np.empty(n_eff + 1, dtype=np.float64)
     slab_edges[0] = -np.inf
     slab_edges[-1] = np.inf
@@ -467,7 +407,6 @@ def _monotonic_residual_fit(
             knots_y[k] = float(np.median(y_clean[mask]))
     # Orient monotonicity by Spearman correlation between y and base; tie -> increasing (arbitrary but stable).
     if y_clean.size >= 3 and base_clean.size >= 3:
-        # np.corrcoef on ranks ~ Spearman; avoids scipy dep.
         from scipy.stats import spearmanr  # lazy import
         try:
             rho, _ = spearmanr(base_clean, y_clean)
@@ -476,26 +415,15 @@ def _monotonic_residual_fit(
             direction = 1
     else:
         direction = 1
-    # Enforce monotonicity by cumulative max / min over knots in the orientation direction. This protects against per-knot median noise creating local non-monotonicities the PCHIP would otherwise honour (PCHIP is monotone PER SEGMENT but only if the knot values are monotone overall).
+    # Enforce monotonicity by cumulative max / min over knots in the orientation direction; protects against per-knot median noise creating local non-monotonicities PCHIP would otherwise honour (PCHIP is monotone PER SEGMENT but only if the knot values are monotone overall).
     if direction == 1:
         knots_y = np.maximum.accumulate(knots_y)
     else:
         knots_y = np.minimum.accumulate(knots_y)
-    # Degeneracy detection (Pack D 2026-05-18): measure the actual
-    # variance reduction g(base) provides on the TRAIN sample. The
-    # composite T = y - g(base) is useful iff g captures a non-trivial
-    # fraction of y's variance. ``var_explained = 1 - var(T) / var(y)``.
-    # When < ``_MONOTONIC_DEGENERACY_RATIO`` the spline is noise / a
-    # near-constant fit -- downstream models on T produce SAME
-    # predictions as on raw y (observed in prod: CB/XGB/LGB
-    # MAE identical to raw on a monres-Y spec). Surface the degeneracy so discovery can
-    # drop the spec early instead of paying for full training that
-    # produces no win.
+    # Degeneracy detection: measure the actual variance reduction g(base) provides on the TRAIN sample. The composite T = y - g(base) is useful iff g captures a non-trivial fraction of y's variance (``var_explained = 1 - var(T) / var(y)``). When < ``_MONOTONIC_DEGENERACY_RATIO`` the spline is noise / a near-constant fit -- downstream models on T produce SAME predictions as on raw y (observed in prod: CB/XGB/LGB MAE identical to raw on a monres-Y spec). Surface the degeneracy so discovery can drop the spec early instead of paying for full training that produces no win.
     _y_var = float(np.var(y_clean)) if y_clean.size > 1 else 0.0
     if _y_var > 0.0:
-        # Reconstruct g(base_clean) via PCHIP and measure var(y - g).
-        # Use the same PCHIP helper the inverse path uses to keep semantics
-        # aligned with the actual transform.
+        # Reconstruct g(base_clean) via the same PCHIP helper the inverse path uses and measure var(y - g), keeping semantics aligned with the actual transform.
         _g_train = _monotonic_residual_g(
             base_clean,
             {
@@ -531,8 +459,8 @@ def _monotonic_residual_g(base: np.ndarray, params: dict[str, Any]) -> np.ndarra
         slope = (knots_y[-1] - knots_y[0]) / max(knots_x[-1] - knots_x[0], 1e-12)
         return knots_y[0] + slope * (clipped - knots_x[0])
     from scipy.interpolate import PchipInterpolator  # lazy
-    interp = PchipInterpolator(knots_x, knots_y, extrapolate=False)
     # extrapolate=False yields NaN outside [x[0], x[-1]]; fill those with the edge knot values to keep predict-time well-defined.
+    interp = PchipInterpolator(knots_x, knots_y, extrapolate=False)
     out = interp(base_f)
     if np.any(~np.isfinite(out)):
         low_mask = base_f < knots_x[0]
@@ -559,10 +487,8 @@ def _ewma_residual_fit(
     y: np.ndarray, base: np.ndarray, k: int = _EWMA_RESIDUAL_DEFAULT_K,
     _finite_mask: np.ndarray | None = None,
 ) -> dict[str, Any]:
-    """Fit stores only the EWMA half-life span ``k``. The EWMA itself is re-computed at forward / inverse time -- this keeps the fitted params JSON-serialisable and stateless (the alternative of storing the full N-row EWMA trace would bloat metadata and break predict-on-new-data). The first-row anchor is the train-base mean: ``ewma[0] = mean(base_train)``."""
-    # Lazy import of parent-resident helpers: ``.predict`` re-imports
-    # this sibling at its bottom, so a top-level ``from .predict
-    # import ...`` would create a hard cycle the meta-test flags.
+    """Fit stores only the EWMA half-life span ``k``; the EWMA itself is re-computed at forward / inverse time, keeping the fitted params JSON-serialisable and stateless (storing the full N-row EWMA trace would bloat metadata and break predict-on-new-data). The first-row anchor is the train-base mean: ``ewma[0] = mean(base_train)``."""
+    # Lazy import: ``.predict`` re-imports this sibling at its bottom, so a top-level ``from .predict import ...`` would create a hard cycle the meta-test flags.
     from . import _EWMA_RESIDUAL_DEFAULT_K
     k = max(1, int(k))
     base_f = np.asarray(base, dtype=np.float64).reshape(-1)
@@ -570,18 +496,13 @@ def _ewma_residual_fit(
     anchor = float(np.mean(base_f[finite])) if finite.any() else 0.0
     return {"k": k, "anchor": anchor}
 def _ewma_compute(base: np.ndarray, k: int, anchor: float) -> np.ndarray:
-    """Exponentially-weighted moving average using ``alpha = 2 / (k + 1)``. Non-finite base values inherit the previous EWMA state (carry-forward), which keeps the recursion well-defined on rows the upstream domain check did not yet flag.
-
-    Single-spec public API; routes through :func:`_ewma_dispatch` so a future force-override or HW-tuned threshold can replace the default njit path without touching every caller. Numba kernel ~300x over pure Python on n=1M; pure-Python fallback otherwise.
+    """Exponentially-weighted moving average using ``alpha = 2 / (k + 1)``. Non-finite base values inherit the previous EWMA state (carry-forward), keeping the recursion well-defined on rows the upstream domain check did not yet flag. Single-spec public API; routes through :func:`_ewma_dispatch` so a future force-override or HW-tuned threshold can replace the default njit path without touching every caller. Numba kernel ~300x over pure Python on n=1M; pure-Python fallback otherwise.
     """
     base_f = np.ascontiguousarray(np.asarray(base, dtype=np.float64).reshape(-1))
     return _ewma_dispatch(base_f, float(k), float(anchor))
 
 
-# ----------------------------------------------------------------------
-# EWMA / frac-diff-inverse backend dispatch
-# ----------------------------------------------------------------------
-# Crossover constants are measurement-derived (bench_ewma_frac_diff_backends.py 2026-05-24 on GTX 1050 Ti + i7-7700k): batched-parallel is a net win once K>=2 AND N>=50k. Below that the prange spawn cost (~50us) overshoots the per-spec serial work. Module-level so kernel_tuning_cache can override via :func:`_lookup_ewma_backend` / :func:`_lookup_frac_diff_inv_backend`.
+# EWMA / frac-diff-inverse backend dispatch. Crossover constants are measurement-derived (bench_ewma_frac_diff_backends.py on GTX 1050 Ti + i7-7700k): batched-parallel is a net win once K>=2 AND N>=50k; below that the prange spawn cost (~50us) overshoots the per-spec serial work. Module-level so kernel_tuning_cache can override via :func:`_lookup_ewma_backend` / :func:`_lookup_frac_diff_inv_backend`.
 _EWMA_PAR_MIN_K: int = 2
 _EWMA_PAR_MIN_N: int = 50_000
 _FRAC_DIFF_INV_PAR_MIN_K: int = 2
@@ -668,9 +589,7 @@ def _ewma_dispatch(base_f: np.ndarray, k_param: float, anchor: float) -> np.ndar
 def _ewma_compute_batched(
     base_batch: np.ndarray, ks: np.ndarray, anchors: np.ndarray,
 ) -> np.ndarray:
-    """Batched public API: run K independent EWMA specs on a (K, N) base matrix and return the (K, N) EWMA result. Each row carries its own ``k`` (half-life) and ``anchor`` (state-zero value). When K>=2 AND N is sufficiently large, the parallel-batched njit kernel kicks in -- routed through :func:`_lookup_ewma_backend` so HW-tuned thresholds persist via kernel_tuning_cache.
-
-    Bench (bench_ewma_frac_diff_backends.py): 2.7-3.8x over per-spec dispatch at K>=10, N>=100k. Callers that need to evaluate many EWMA specs on the same time series (e.g. cross-target discovery scanning k in [3, 5, 7, 14, 21]) should batch via this entry point.
+    """Batched public API: run K independent EWMA specs on a (K, N) base matrix and return the (K, N) EWMA result. Each row carries its own ``k`` (half-life) and ``anchor`` (state-zero value). When K>=2 AND N is sufficiently large the parallel-batched njit kernel kicks in -- routed through :func:`_lookup_ewma_backend` so HW-tuned thresholds persist via kernel_tuning_cache. Bench: 2.7-3.8x over per-spec dispatch at K>=10, N>=100k; callers evaluating many EWMA specs on the same series (e.g. cross-target discovery scanning k in [3, 5, 7, 14, 21]) should batch via this entry point.
     """
     base_batch = np.ascontiguousarray(np.asarray(base_batch, dtype=np.float64))
     if base_batch.ndim == 1:
@@ -743,8 +662,7 @@ def _frac_diff_inverse_dispatch(
 def _frac_diff_inverse_compute_batched(
     t_batch: np.ndarray, lags: int, weights_batch: np.ndarray, anchors: np.ndarray,
 ) -> np.ndarray:
-    """Batched public API: K independent frac-diff-inverse specs on a (K, N) t_hat matrix. ``weights_batch`` is (K, lags+1), ``anchors`` is (K,). Bench: 3.8-5.4x over per-spec dispatch at K>=10.
-    """
+    """Batched public API: K independent frac-diff-inverse specs on a (K, N) t_hat matrix. ``weights_batch`` is (K, lags+1), ``anchors`` is (K,). Bench: 3.8-5.4x over per-spec dispatch at K>=10."""
     t_batch = np.ascontiguousarray(np.asarray(t_batch, dtype=np.float64))
     if t_batch.ndim == 1:
         t_batch = t_batch.reshape(1, -1)
@@ -804,11 +722,7 @@ def _ewma_residual_domain(
 def _rolling_median(arr: np.ndarray, k: int) -> np.ndarray:
     """Centred rolling median with truncation at boundaries.
 
-    Dispatcher: prefers ``bottleneck.move_median`` (forward-window with O(n log k) per-window quickselect; measured ~8-10x faster than pandas rolling at
-    k in [7, 21] on n=100k) and shifts the result to centre the window. Falls back to pandas ``rolling(center=True, min_periods=1).median()`` when
-    bottleneck is unavailable (matches the legacy 80x-over-pure-Python contract). Both paths return finite values in boundary positions where the
-    window has any finite cell, NaN only when the window is entirely non-finite -- which we then replace with the row's own value (or 0.0 if also
-    non-finite) to match the legacy fallback.
+    Dispatcher: prefers ``bottleneck.move_median`` (forward-window with O(n log k) per-window quickselect; ~8-10x faster than pandas rolling at k in [7, 21] on n=100k) and shifts the result to centre the window. Falls back to pandas ``rolling(center=True, min_periods=1).median()`` when bottleneck is unavailable (matches the legacy 80x-over-pure-Python contract). Both paths return finite values in boundary positions where the window has any finite cell, NaN only when the window is entirely non-finite -- which we then replace with the row's own value (or 0.0 if also non-finite) to match the legacy fallback.
     """
     arr_f = np.asarray(arr, dtype=np.float64).reshape(-1)
     if arr_f.size == 0:
@@ -817,9 +731,7 @@ def _rolling_median(arr: np.ndarray, k: int) -> np.ndarray:
     k = max(1, int(k))
     try:
         import bottleneck as _bn  # lazy; optional dep but present in mlframe[all]
-        # ``move_median`` is forward-looking: position i holds the median of arr[i-k+1..i] (with min_count handling). Centring means position i should
-        # carry the median of arr[i-k//2..i+k//2]; achieved by shifting the forward result LEFT by ``k//2``. Tail rows whose centred window would have
-        # extended past the array end keep the last full-window median (boundary fallback consistent with min_periods=1 semantics).
+        # ``move_median`` is forward-looking: position i holds the median of arr[i-k+1..i] (with min_count handling). Centring means position i should carry the median of arr[i-k//2..i+k//2]; achieved by shifting the forward result LEFT by ``k//2``. Tail rows whose centred window would have extended past the array end keep the last full-window median (boundary fallback consistent with min_periods=1 semantics).
         _fwd = _bn.move_median(arr_f, window=k, min_count=1)
         _shift = k // 2
         if _shift == 0:
@@ -851,9 +763,7 @@ def _frac_diff_fit(
     _finite_mask: np.ndarray | None = None,
 ) -> dict[str, Any]:
     """Store fractional order ``d``, lag truncation ``lags``, and the train-y mean used as a pre-window anchor (rows whose lag history is shorter than ``lags`` need a fallback value for the missing past terms)."""
-    # Lazy import of parent-resident helpers: ``.predict`` re-imports
-    # this sibling at its bottom, so a top-level ``from .predict
-    # import ...`` would create a hard cycle the meta-test flags.
+    # Lazy import: ``.predict`` re-imports this sibling at its bottom, so a top-level ``from .predict import ...`` would create a hard cycle the meta-test flags.
     from . import _FRAC_DIFF_DEFAULT_D, _FRAC_DIFF_DEFAULT_LAGS
     d = float(d)
     lags = max(1, int(lags))
@@ -864,11 +774,7 @@ def _frac_diff_fit(
 def _frac_diff_forward(
     y: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
-    """T_i = sum_{k=0}^{lags} w_k * y_{i-k}, padding y_{i-k} with the train anchor for k > i.
-
-    Vectorised via ``np.convolve(y_padded, weights, 'valid')`` after left-padding ``y`` with
-    ``lags`` copies of the train anchor (~340x over the nested Python loop on n=1M, lags=30).
-    """
+    """T_i = sum_{k=0}^{lags} w_k * y_{i-k}, padding y_{i-k} with the train anchor for k > i. Vectorised via ``np.convolve(y_padded, weights, 'valid')`` after left-padding ``y`` with ``lags`` copies of the train anchor (~340x over the nested Python loop on n=1M, lags=30)."""
     lags = int(params["lags"])
     weights = np.asarray(params["weights"], dtype=np.float64)
     anchor = float(params["anchor"])
@@ -880,10 +786,7 @@ def _frac_diff_forward(
 def _frac_diff_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
-    """Invert: T_i = w_0 * y_i + sum_{k=1}^{lags} w_k * y_{i-k}, so y_i = (T_i - sum_{k=1}^{lags} w_k * y_{i-k}) / w_0. w_0 == 1 by construction. Past y values are unknown at predict, so we ITERATIVELY reconstruct them: y_0 from T_0 + lag-anchors, y_1 from T_1 + y_0 + lag-anchors, etc.
-
-    Routes through :func:`_frac_diff_inverse_compute` -> :func:`_frac_diff_inverse_dispatch` so kernel_tuning_cache + env-var force-override choose the backend; default keeps the scalar njit kernel (~260x over pure Python on n=1M, lags=30).
-    """
+    """Invert: T_i = w_0 * y_i + sum_{k=1}^{lags} w_k * y_{i-k}, so y_i = (T_i - sum_{k=1}^{lags} w_k * y_{i-k}) / w_0. w_0 == 1 by construction. Past y values are unknown at predict, so we ITERATIVELY reconstruct them: y_0 from T_0 + lag-anchors, y_1 from T_1 + y_0 + lag-anchors, etc. Routes through :func:`_frac_diff_inverse_compute` -> :func:`_frac_diff_inverse_dispatch` so kernel_tuning_cache + env-var force-override choose the backend; default keeps the scalar njit kernel (~260x over pure Python on n=1M, lags=30)."""
     lags = int(params["lags"])
     weights = np.ascontiguousarray(np.asarray(params["weights"], dtype=np.float64))
     anchor = float(params["anchor"])
@@ -892,12 +795,10 @@ def _frac_diff_inverse(
 def _frac_diff_domain(
     y: np.ndarray | None, base: np.ndarray,
 ) -> np.ndarray:
-    """Frac-diff is y-only but the contract accepts a base for signature uniformity. Domain: finite y; finite base (when provided)."""
-    base_f = np.asarray(base, dtype=np.float64).reshape(-1)
-    base_ok = np.isfinite(base_f)
+    """Frac-diff is y-only; base is accepted for signature uniformity but never read. Domain when y is present is finite-y only (a non-finite UNUSED base must not drop rows and compact the y sequence). The base-finite mask is kept solely for the ``y is None`` predict-side call."""
     if y is None:
-        return base_ok
-    return base_ok & np.isfinite(np.asarray(y, dtype=np.float64).reshape(-1))
+        return np.isfinite(np.asarray(base, dtype=np.float64).reshape(-1))
+    return np.isfinite(np.asarray(y, dtype=np.float64).reshape(-1))
 def _make_chain_transform(
     *, name: str, short_name: str,
     bivariate_name: str,
@@ -909,9 +810,7 @@ def _make_chain_transform(
 
     The chain inherits ``requires_base=True`` from the bivariate half (it still needs a base column at fit + predict). At fit-time it first fits the bivariate, applies forward to get T1, then fits the unary on T1; the joint params dict stores both. Forward / inverse run in the matching order. Domain check delegates to the bivariate's check since the unary half has no base-dependent constraint at predict.
     """
-    # Lazy import of parent-resident helpers: ``.predict`` re-imports
-    # this sibling at its bottom, so a top-level ``from .predict
-    # import ...`` would create a hard cycle the meta-test flags.
+    # Lazy import: ``.predict`` re-imports this sibling at its bottom, so a top-level ``from .predict import ...`` would create a hard cycle the meta-test flags.
     from . import TAG_EXTENDED, TAG_REGRESSION, Transform, _chain_fit_raw, _chain_forward_raw, _chain_inverse_raw
     unary_tup = (unary_fit, unary_forward, unary_inverse)
 
@@ -955,13 +854,9 @@ def _make_multi_chain_transform(
     unary_stages: list,
     description: str,
 ):
-    """Pack K multi-stage chain: bivariate + N unary stages.
-
-    ``unary_stages`` is a list of ``(fit, forward, inverse)`` tuples; each runs in order at forward, in reverse at inverse. Used to register e.g. ``chain([linres, cbrt, quantile_normal])`` for very heavy-tail residuals.
+    """Multi-stage chain: bivariate + N unary stages. ``unary_stages`` is a list of ``(fit, forward, inverse)`` tuples; each runs in order at forward, in reverse at inverse. Used to register e.g. ``chain([linres, cbrt, quantile_normal])`` for very heavy-tail residuals.
     """
-    # Lazy import of parent-resident helpers: ``.predict`` re-imports
-    # this sibling at its bottom, so a top-level ``from .predict
-    # import ...`` would create a hard cycle the meta-test flags.
+    # Lazy import: ``.predict`` re-imports this sibling at its bottom, so a top-level ``from .predict import ...`` would create a hard cycle the meta-test flags.
     from . import TAG_EXTENDED, TAG_REGRESSION, Transform, _chain_multi_fit_raw, _chain_multi_forward_raw, _chain_multi_inverse_raw
 
     def _fit(y, base):

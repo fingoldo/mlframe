@@ -48,6 +48,7 @@ def select_target(
     target: Union[np.ndarray, pd.Series, pl.Series],
     target_type: TargetTypes,
     df: pd.DataFrame,
+    cur_target_name: Optional[str] = None,
     train_df: Optional[pd.DataFrame] = None,
     test_df: Optional[pd.DataFrame] = None,
     val_df: Optional[pd.DataFrame] = None,
@@ -117,7 +118,7 @@ def select_target(
     if target_type == TargetTypes.REGRESSION:
         from .._format import format_metric as _fmt
         from ..composite.transforms import is_composite_target_name
-        _is_composite = is_composite_target_name(model_name)
+        _is_composite = is_composite_target_name(cur_target_name or model_name)
         _tag = "MTRESID" if _is_composite else "MTTR"
         if train_t is not None and train_t.size > 0:
             model_name += f" {_tag}={_fmt(train_t.mean())}"

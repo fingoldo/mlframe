@@ -14,8 +14,6 @@ from typing import (
 
 import numpy as np
 
-from .transforms import _TRANSFORMS_REGISTRY
-
 if TYPE_CHECKING:
     from .spec import CompositeSpec  # used as a forward annotation in CompositeProvenance.from_spec; importing at runtime is unnecessary and risks circular load.
 
@@ -51,9 +49,10 @@ class CompositeProvenance:
     # Identity
     composite_id: str
     discovery_timestamp: str  # ISO 8601, no datetime obj to keep dict-pickle clean
-    discovery_random_state: int
+    discovery_random_state: int | None
 
     # Origin
+    name: str  # canonical spec name (matches CompositeSpec.name); the legacy target__transform__base key no longer matches it.
     target_col: str
     transform_name: str
     base_column: str
@@ -73,6 +72,9 @@ class CompositeProvenance:
     valid_domain_frac: float
     n_train_rows: int
 
+    # Multi-base extension; empty tuple = single-base spec (base_column authoritative).
+    extra_base_columns: tuple[str, ...] = ()
+
     # Optional: weight in cross-target ensemble (filled at integration time).
     ensemble_weight: float | None = None
     ensemble_strategy: str | None = None
@@ -81,7 +83,7 @@ class CompositeProvenance:
     def from_spec(
         cls,
         spec: CompositeSpec,
-        random_state: int,
+        random_state: int | None,
         *,
         ensemble_weight: float | None = None,
         ensemble_strategy: str | None = None,
@@ -101,7 +103,8 @@ class CompositeProvenance:
                 "base_column": spec.base_column,
                 "fitted_params": spec.fitted_params,
             },
-            sort_keys=True, default=str,
+            sort_keys=True,
+            default=lambda o: o.tolist() if isinstance(o, np.ndarray) else str(o),
         )
         composite_id = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:12]
 
@@ -116,9 +119,11 @@ class CompositeProvenance:
             composite_id=composite_id,
             discovery_timestamp=datetime.now(timezone.utc).isoformat(),
             discovery_random_state=random_state,
+            name=spec.name,
             target_col=spec.target_col,
             transform_name=spec.transform_name,
             base_column=spec.base_column,
+            extra_base_columns=tuple(spec.extra_base_columns),
             forward_formula_human=forward,
             inverse_formula_human=inverse,
             stakeholder_description=description,
@@ -138,9 +143,11 @@ class CompositeProvenance:
             "composite_id": self.composite_id,
             "discovery_timestamp": self.discovery_timestamp,
             "discovery_random_state": self.discovery_random_state,
+            "name": self.name,
             "target_col": self.target_col,
             "transform_name": self.transform_name,
             "base_column": self.base_column,
+            "extra_base_columns": list(self.extra_base_columns),
             "forward_formula_human": self.forward_formula_human,
             "inverse_formula_human": self.inverse_formula_human,
             "stakeholder_description": self.stakeholder_description,
@@ -166,9 +173,9 @@ class CompositeProvenance:
                 f"received weight {self.ensemble_weight:.3f}."
             )
         return (
-            f"Composite '{self.target_col}__{self.transform_name}__{self.base_column}' "
+            f"Composite '{self.name}' "
             f"(id={self.composite_id}) was discovered using "
-            f"random_state={self.discovery_random_state} on "
+            f"random_state={'unspecified' if self.discovery_random_state is None else self.discovery_random_state} on "
             f"{self.n_train_rows} train rows ({self.valid_domain_frac:.1%} of valid domain). "
             f"It was selected because MI(T, X\\base)={self.mi_t:.4f} vs "
             f"MI(y, X\\base)={self.mi_y:.4f} (gain={self.mi_gain:+.4f}), "
@@ -219,9 +226,10 @@ def _format_transform_formulas(
     if transform_name == "logratio":
         median_t = fitted_params.get("median_t", 0.0)
         mad_eff = fitted_params.get("mad_eff", 0.0)
+        k = float(fitted_params.get("soft_cap_k", 10.0))
         return (
             f"T = log({target_col}) - log({base_column})  (requires {target_col}, {base_column} > 0)",
-            f"y_hat = {base_column} * exp(softcap(T_hat, {median_t:.4g} +/- 10*{mad_eff:.4g}))",
+            f"y_hat = {base_column} * exp(clip(T_hat, {median_t:.4g} +/- {k:.4g}*{mad_eff:.4g}))",
             description,
         )
     if transform_name == "linear_residual":
@@ -246,7 +254,7 @@ def report_to_markdown(
     specs: Sequence[CompositeSpec],
     failures: Sequence[dict[str, Any]] = (),
     ensemble_metadata: dict[str, Any] | None = None,
-    random_state: int = 42,
+    random_state: int | None = None,
 ) -> str:
     """Render a stakeholder-ready Markdown report for one target's
     composite-target discovery output.
@@ -290,16 +298,19 @@ def report_to_markdown(
             ensemble_w = None
             ensemble_strat = None
             if ensemble_metadata:
-                # Look up this spec's weight if it appears in the
-                # ensemble's component list.
+                # The spec contributes one component per ensemble model, named ``{spec.name}#{i}``; its true mass is the SUM over those, not the first match.
+                _w_sum = 0.0
+                _k = 0
                 for nm, w in zip(
                     ensemble_metadata.get("component_names", []),
                     ensemble_metadata.get("weights", []),
                 ):
-                    if nm.startswith(spec.name + "#"):
-                        ensemble_w = float(w)
-                        ensemble_strat = ensemble_metadata.get("strategy")
-                        break
+                    if nm.rsplit("#", 1)[0] == spec.name:
+                        _w_sum += float(w)
+                        _k += 1
+                if _k:
+                    ensemble_w = _w_sum
+                    ensemble_strat = ensemble_metadata.get("strategy")
             prov = CompositeProvenance.from_spec(
                 spec=spec, random_state=random_state,
                 ensemble_weight=ensemble_w,

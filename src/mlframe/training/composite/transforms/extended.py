@@ -155,7 +155,11 @@ def _centered_ratio_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
     c = float(params["c"])
-    return np.asarray(t_hat, dtype=np.float64) * (np.asarray(base, dtype=np.float64) + c)
+    # Mirror the forward eps-floor on (base + c) so the round-trip stays exact on near-zero shifted rows (forward divides by the floored value, not the raw one).
+    eps = float(params["eps"])
+    shifted = np.asarray(base, dtype=np.float64) + c
+    safe = np.where(np.abs(shifted) < eps, np.sign(shifted + 1e-300) * eps, shifted)
+    return np.asarray(t_hat, dtype=np.float64) * safe
 
 
 def _centered_ratio_domain(

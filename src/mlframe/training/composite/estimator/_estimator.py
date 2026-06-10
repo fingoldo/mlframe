@@ -14,14 +14,11 @@ helpers are defined, so the partial-module lookup succeeds.
 from __future__ import annotations
 
 import logging
-import math
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
-from collections import deque
 from sklearn.base import BaseEstimator, RegressorMixin, clone
-from sklearn.exceptions import NotFittedError
 
 try:
     import polars as pl
@@ -72,6 +69,10 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         the wrapper extracts ``base`` from this column at both ``fit``
         and ``predict`` time. If the inner feature-selection step drops
         the column, ``predict`` will raise ``KeyError``.
+    base_columns
+        Canonical multi-column path used by ``linear_residual_multi`` and any future multi-base transform. When None and ``base_column`` is non-empty, falls back to a single-element tuple so legacy callers work unchanged. When both are passed, ``base_columns`` wins (``base_column`` is treated as a legacy alias).
+    group_column
+        Column carrying group labels for grouped transforms (``requires_groups=True``, currently only ``linear_residual_grouped``). The wrapper extracts a 1-D groups ndarray from this column and passes it through fit / forward / inverse, then drops the column before the inner estimator sees it. None for ungrouped transforms; configuring a grouped transform without it raises at fit time.
     fallback_predict
         Strategy for rows where the inverse transform cannot be applied
         (e.g. ``base[row] = inf`` for ``ratio``, or ``base[row] <= 0``
@@ -90,6 +91,10 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         Absolute z-score on the running residual mean above which alpha / beta are refit.
     online_refit_min_buffer_n
         Minimum buffer size before a refit can fire; prevents single-row noise from triggering an alpha flip.
+    auto_variance_stabilise
+        For ``ratio`` / ``logratio`` transforms only, auto-compute variance-stabilising sample weights ~ 1/|base| (capped at the 5th percentile) to flatten the heteroscedasticity those targets exhibit under a multiplicative DGP. Default off because it changes the loss; recommended on heavy-tail targets where logratio was already chosen.
+    runtime_stats_callback
+        Optional callable fired at the end of every ``predict`` with a snapshot of the per-batch counters (``batch_n``, ``batch_domain_violation_rows``, ``batch_y_clip_low_hits``, ``batch_y_clip_high_hits`` plus cumulative-since-fit counters under ``cumulative_*``). Hook into Prometheus / StatsD / DataDog without coupling the wrapper to a metrics library. Errors raised by the callback are logged at DEBUG and swallowed so monitoring failures never poison the predict path.
 
     Attributes set at fit
     ---------------------
@@ -244,6 +249,8 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
             data later.
         fallback_predict
             See :meth:`__init__`.
+
+        Note: a lambda / closure ``runtime_stats_callback`` makes the fitted wrapper unpicklable; pass a module-level callable when persisting.
         """
         instance = cls(
             base_estimator=fitted_inner,
@@ -410,9 +417,19 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         sample_weight: np.ndarray | None = None,
         **fit_kwargs: Any,
     ) -> CompositeTargetEstimator:
+        """Fit the inner estimator on the T-scale composite target and stash the inverse-side state.
+
+        ``sample_weight`` is passed through to weight-aware transforms and to the inner estimator (silently ignored where unsupported). ``**fit_kwargs`` are forwarded to the inner estimator's ``fit``. Rows failing ``transform.domain_check`` are dropped when ``drop_invalid_rows`` (else raises :exc:`DomainViolationError`). Returns ``self``.
+        """
         if self.base_estimator is None:
             raise ValueError("CompositeTargetEstimator: base_estimator must not be None.")
         transform = get_transform(self.transform_name)
+        # Validate the fallback strategy in fit (sklearn convention) rather than lazily on the first predict that hits a domain violation, which may be weeks into prod.
+        if self.fallback_predict not in ("y_train_median", "nan"):
+            raise ValueError(
+                f"CompositeTargetEstimator: unknown fallback_predict {self.fallback_predict!r}; "
+                "choose 'y_train_median' or 'nan'."
+            )
         base_columns = self._resolve_base_columns()
         # Pack J: unary y-transforms (cbrt_y, log_y, ...) have ``requires_base=False`` and must not require a base column. Feed a zeros placeholder so downstream calls keep their (y, base, params) signatures without branching.
         if not transform.requires_base:

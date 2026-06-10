@@ -136,6 +136,22 @@ class CompositeTargetDiscovery:
             re.compile(p) for p in config.forbidden_base_patterns
         ]
 
+    def __getstate__(self) -> dict[str, Any]:
+        # fit() pins the (potentially 100+ GB) source frame on ``_df_ref`` and a
+        # per-base column pool on ``_auto_base_pool`` for the post-fit
+        # iter_transform path. Pickling/deep-copy would otherwise serialise the
+        # whole frame and pin it against GC -- exclude both from the pickled
+        # state (re-pass ``df`` to iter_transform after unpickling).
+        state = self.__dict__.copy()
+        state.pop("_df_ref", None)
+        state.pop("_auto_base_pool", None)
+        return state
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        self.__dict__.update(state)
+        self._df_ref = None
+        self._auto_base_pool = {}
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -216,6 +232,10 @@ class CompositeTargetDiscovery:
             return self.fit(df, target_col, feature_cols, train_idx, val_idx, test_idx)
         from collections import Counter
 
+        # Per-run reseeding (and any mid-fit heavy-tail mi_n_strata boost that swaps self.config for a model_copy) must mutate only a config we own:
+        # otherwise the final restore would write back the swapped copy and leave the caller's shared config permanently reseeded, poisoning later targets.
+        _saved_cfg = self.config
+        self.config = self.config.model_copy()
         base_seed = int(self.config.random_state)
         keep_counter: Counter = Counter()
         spec_by_name: dict[str, CompositeSpec] = {}
@@ -232,8 +252,8 @@ class CompositeTargetDiscovery:
             for spec in self.specs_:
                 keep_counter[spec.name] += 1
                 spec_by_name.setdefault(spec.name, spec)
-        # Restore base seed and write the stable spec set.
-        self.config.random_state = base_seed
+        # Restore the caller's original config and write the stable spec set.
+        self.config = _saved_cfg
         threshold = max(1, int(min_keep_fraction * n_bootstrap_runs))
         stable_names = [n for n, c in keep_counter.items() if c >= threshold]
         self.specs_ = [spec_by_name[n] for n in stable_names if n in spec_by_name]

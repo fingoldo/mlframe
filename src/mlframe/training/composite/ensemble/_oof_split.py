@@ -80,13 +80,12 @@ def _carve_inner_eval_split(
     if group_ids is not None:
         g = np.asarray(group_ids)
         if g.shape[0] == n:
-            uniq, first_idx = np.unique(g, return_index=True)
+            uniq, first_idx, counts_orig = np.unique(g, return_index=True, return_counts=True)
             if uniq.size >= 4:
                 order = np.argsort(first_idx)
                 groups_in_order = uniq[order]
                 rng = np.random.default_rng(random_state)
                 shuffled = rng.permutation(groups_in_order)
-                _, _, counts_orig = np.unique(g, return_index=True, return_counts=True)
                 idx_for_group = {gid: i for i, gid in enumerate(uniq)}
                 cumulative = 0
                 eval_groups: list = []
@@ -100,6 +99,9 @@ def _carve_inner_eval_split(
                     eval_mask = np.isin(g, list(eval_set))
                     fit_mask = ~eval_mask
                     return _ret(_slice_rows(X, fit_mask), y[fit_mask], _slice_rows(X, eval_mask), y[eval_mask], fit_mask)
+            # Group carve impossible (too few groups, or one group swamps the eval target): skip ES rather than fall through to the group-blind tail
+            # carve, which would split a group across fit/eval and reintroduce the within-group leakage / under-stopping this path exists to prevent.
+            return _ret(X, y, None, None, None)
     cut = n - n_eval_target
     if hasattr(X, "iloc"):
         return _ret(X.iloc[:cut], y[:cut], X.iloc[cut:], y[cut:], None)

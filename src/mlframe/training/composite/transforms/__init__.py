@@ -106,7 +106,8 @@ class Transform:
     - ``fit(y_train, base_train)`` -> ``dict`` of transform-specific
       fitted parameters (e.g. ``{"alpha": float, "beta": float}``).
       Pure: must NOT mutate inputs and must NOT close over external
-      state. The dict is JSON-serialisable.
+      state. Values may be ndarrays (median/quantile/monotonic/rank/
+      smoothing_spline/quantile_normal): serialise via the spec serialiser, NOT raw json.dumps.
     - ``forward(y, base, params)`` -> ``T``: applies the transform.
     - ``inverse(T_hat, base, params)`` -> ``y_hat``: applies the
       inverse. Wrapper additionally clips the output to the y-bounds

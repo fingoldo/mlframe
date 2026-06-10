@@ -64,7 +64,7 @@ recommendation is `unlikely_to_help`, skip Tier 1 entirely.
 ## Tier 1: minimal opt-in (recommended starting point)
 
 Enable discovery and the cross-target ensemble with sensible defaults.
-Auto-base picks the dominant feature; all four core transforms are tried.
+Auto-base picks the dominant feature; the full default transform set is tried.
 
 ```python
 from mlframe.training.configs import CompositeTargetDiscoveryConfig
@@ -89,9 +89,11 @@ ensemble_entry = models["regression"]["_CT_ENSEMBLE__TVT"][0]
 y_pred = ensemble_entry.model.predict(X_new)
 ```
 
-Inside the defaults: `base_candidates="auto"`, `transforms=["diff", "ratio",
-"logratio", "linear_residual"]`, bin-based MI (`mi_estimator="bin"`), hybrid
-screening (`screening="hybrid"`), `auto_skip_on_baseline_optimal=False`.
+Inside the defaults: `base_candidates="auto"`, the full default transform
+set (24 entries -- residual/ratio/unary/chain families; see
+`CompositeTargetDiscoveryConfig.transforms` or `list_transforms()`), bin-based
+MI (`mi_estimator="bin"`), hybrid screening (`screening="hybrid"`),
+`auto_skip_on_baseline_optimal=False`.
 
 ## Tier 2: production config (all optimisations on)
 

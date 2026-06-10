@@ -200,6 +200,11 @@ def _tiny_model_rerank(
     use_wilcoxon = bool(getattr(
         self.config, "use_wilcoxon_gate", False,
     ))
+    # Forward the CV fold-score selector knobs (honoured by forward stepwise) into every tiny-CV call so the rerank ranks specs by the same selector the production split uses; default 'mean' keeps this bit-identical.
+    _cv_sel_mode = str(getattr(self.config, "cv_selector_mode", "mean"))
+    _cv_sel_alpha = float(getattr(self.config, "cv_selector_alpha", 1.0))
+    _cv_sel_conf = float(getattr(self.config, "cv_selector_confidence", 0.9))
+    _cv_sel_qlevel = float(getattr(self.config, "cv_selector_quantile_level", 0.9))
 
     def _rerank_one_spec(spec: CompositeSpec):
         """Per-spec worker for the rerank loop.
@@ -249,6 +254,10 @@ def _tiny_model_rerank(
                     n_bins=per_bin_n_bins_pre or 5,
                     time_aware=base_t_aware,
                     groups=_groups_screen,
+                    cv_selector_mode=_cv_sel_mode,
+                    cv_selector_alpha=_cv_sel_alpha,
+                    cv_selector_confidence=_cv_sel_conf,
+                    cv_selector_quantile_level=_cv_sel_qlevel,
                 )
                 if want_per_bin:
                     rmse, per_bin_first, per_seed = (
@@ -281,6 +290,10 @@ def _tiny_model_rerank(
                     n_bins=per_bin_n_bins_pre or 5,
                     time_aware=base_t_aware,
                     groups=_groups_screen,
+                    cv_selector_mode=_cv_sel_mode,
+                    cv_selector_alpha=_cv_sel_alpha,
+                    cv_selector_confidence=_cv_sel_conf,
+                    cv_selector_quantile_level=_cv_sel_qlevel,
                 )
                 if want_per_bin and isinstance(result, tuple):
                     rmse, per_bin_first = result[0], result[1]
@@ -434,6 +447,8 @@ def _tiny_model_rerank(
                     self.config, "deterministic_screening_models", False,
                 ),
                 return_per_bin=True, n_bins=per_bin_n_bins,
+                time_aware=bool(_is_monotone_nondecreasing(base_screen)),
+                groups=_groups_screen,
             )
             if isinstance(result, tuple):
                 _, per_bin = result
@@ -494,6 +509,10 @@ def _tiny_model_rerank(
                     return_per_seed=True,
                     time_aware=_any_base_monotone,
                     groups=_groups_screen,
+                    cv_selector_mode=_cv_sel_mode,
+                    cv_selector_alpha=_cv_sel_alpha,
+                    cv_selector_confidence=_cv_sel_conf,
+                    cv_selector_quantile_level=_cv_sel_qlevel,
                 )
                 raw_rmse_per_family[family] = res[0]
                 raw_per_seed_per_family[family] = res[-1]
@@ -514,6 +533,10 @@ def _tiny_model_rerank(
                     base_random_state=self.config.random_state,
                     time_aware=_any_base_monotone,
                     groups=_groups_screen,
+                    cv_selector_mode=_cv_sel_mode,
+                    cv_selector_alpha=_cv_sel_alpha,
+                    cv_selector_confidence=_cv_sel_conf,
+                    cv_selector_quantile_level=_cv_sel_qlevel,
                 )
         # Per-base raw-y per-bin breakdown for the regime gate.
         # Cached by base column so multiple specs sharing a base
@@ -543,6 +566,7 @@ def _tiny_model_rerank(
                     return_per_bin=True, n_bins=per_bin_n_bins,
                     bin_var=base_screen,
                     groups=_groups_screen,
+                    time_aware=_any_base_monotone,
                 )
                 if isinstance(raw_result, tuple):
                     _, raw_per_bin = raw_result

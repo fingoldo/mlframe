@@ -4,10 +4,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Tuple
+from typing import Any
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class CompositeSpec:
     """Frozen description of one discovered composite target.
 

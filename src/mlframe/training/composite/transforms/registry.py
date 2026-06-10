@@ -267,7 +267,8 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
         domain_check=_logratio_domain,
         description=(
             "T = log(y) - log(base). Inverse y_hat = base * exp(softcap(T_hat)). "
-            "Requires y, base > 0."
+            "Requires y, base > 0. The soft-cap (|T-median| > 10*MAD) trades exact "
+            "round-trip on extreme in-domain train rows for bounded inverse blow-up."
         ),
         tags=frozenset({TAG_CORE, TAG_REGRESSION}),
     ),
@@ -369,7 +370,7 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
         fit=_rolling_quantile_ratio_fit,
         domain_check=_rolling_quantile_ratio_domain,
         description=(
-            "Localised multiplicative residual: T = y / RollingMedian_k(base), with a centred window of ``k`` rows and an eps floor derived from train base scale to keep division safe at near-zero rolling medians. Inverse: y_hat = T_hat * RollingMedian_k(base). Like logratio but tracks the LOCAL base level instead of the global scale -- useful when y scales with a windowed median of base rather than the instantaneous value."
+            "Localised multiplicative residual: T = y / RollingMedian_k(base), with a centred window of ``k`` rows and an eps floor derived from train base scale to keep division safe at near-zero rolling medians. Inverse: y_hat = T_hat * RollingMedian_k(base). Like logratio but tracks the LOCAL base level instead of the global scale -- useful when y scales with a windowed median of base rather than the instantaneous value. LOOK-AHEAD: the centred window reads FUTURE base rows, so in time-ordered deployment T leaks forward; gated out of default discovery for this reason (a trailing-only mode is not yet implemented)."
         ),
         tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
     ),
@@ -383,11 +384,15 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
             "Lopez de Prado fractional differencing: T_i = sum_k w_k * y_{i-k} with w_k = -w_{k-1} * (d - k + 1) / k truncated at ``lags`` terms. Preserves long-memory while making the target stationary. Inverse iteratively reconstructs y from T + the previously-reconstructed past terms. Pre-window padding uses the train-y mean."
         ),
         tags=frozenset({TAG_EXTENDED, TAG_REGRESSION}),
+        # y-only transform: forward/inverse never read base, so a single spec must be emitted (not one per base) and base-finiteness must not drop y rows.
+        requires_base=False,
     ),
     # ------------------------------------------------------------------
     # Pack J: unary y-only transforms. ``requires_base=False`` tells the
-    # wrapper to skip base-column extraction. Composite-target name has
-    # no ``base`` segment (e.g. ``y-cbrtY``) since there is no base.
+    # wrapper to skip base-column extraction. The composite-target name
+    # still carries the current-loop base segment (e.g. ``y-cbrtY-<base>``)
+    # because discovery names every spec via compose_target_name(...); the
+    # base is unused by forward/inverse here.
     # ------------------------------------------------------------------
     "cbrt_y": Transform(
         name="cbrt_y",

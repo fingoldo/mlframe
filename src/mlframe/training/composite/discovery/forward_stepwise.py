@@ -86,6 +86,12 @@ def forward_stepwise_multi_base(
     # Materialise the full candidate map ONCE (no removal -- seeds and pool both read from this dict). The "available" set for the next round is simply ``candidates.keys() - kept``.
     candidates = {name: np.asarray(arr, dtype=np.float64).reshape(-1)
                   for name, arr in candidate_bases.items()}
+    # A length mismatch otherwise surfaces much later as an opaque column_stack ValueError; fail at the boundary with the offending column named.
+    for _n, _a in candidates.items():
+        if _a.size != y.size:
+            raise ValueError(
+                f"forward_stepwise_multi_base: candidate '{_n}' has length {_a.size}, expected {y.size} (== len(y_train))."
+            )
     # Validate seeds against the candidate map. Seeds not in candidate_bases are an API misuse; raise loudly so caller fixes their wiring.
     seeds = list(seed_bases or [])
     missing_seeds = [s for s in seeds if s not in candidates]

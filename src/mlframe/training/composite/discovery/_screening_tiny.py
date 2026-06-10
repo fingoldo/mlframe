@@ -171,6 +171,7 @@ def _build_tiny_model(family: str, *, n_estimators: int, num_leaves: int,
             learning_rate=learning_rate,
             random_state=random_state,
             verbose=False,
+            allow_writing_files=False,  # parallel fold/spec fits race on catboost_info/ (Windows file-lock -> silent NaN folds) and litter CWD
         )
         if deterministic:
             kwargs["boosting_type"] = "Plain"
@@ -238,7 +239,7 @@ def _tiny_cv_rmse_raw_y(
     from sklearn.model_selection import KFold, TimeSeriesSplit, GroupKFold
     n = len(y_train)
     if n < cv_folds * 10:
-        return float("nan")
+        return (float("nan"), np.full(n_bins, float("nan"))) if return_per_bin else float("nan")
     y_clean = y_train.astype(np.float64)
     finite_mask = None
     if not np.all(np.isfinite(y_clean)):
@@ -248,7 +249,7 @@ def _tiny_cv_rmse_raw_y(
     else:
         x_clean = x_train_matrix
     if len(y_clean) < cv_folds * 10:
-        return float("nan")
+        return (float("nan"), np.full(n_bins, float("nan"))) if return_per_bin else float("nan")
 
     groups_clean = None
     if groups is not None:
@@ -619,16 +620,16 @@ def _tiny_cv_rmse_y_scale(
     from sklearn.model_selection import KFold, TimeSeriesSplit, GroupKFold
     n = len(y_train)
     if n < cv_folds * 10:
-        return float("nan")
+        return (float("nan"), np.full(n_bins, float("nan"))) if return_per_bin else float("nan")
     valid = transform.domain_check(y_train, base_train)
     if valid.sum() < cv_folds * 10:
-        return float("nan")
+        return (float("nan"), np.full(n_bins, float("nan"))) if return_per_bin else float("nan")
     y_clean = y_train[valid].astype(np.float64)
     base_clean = base_train[valid].astype(np.float64)
     x_clean = x_train_matrix[valid]
     t_clean = transform.forward(y_clean, base_clean, fitted_params)
     if not np.all(np.isfinite(t_clean)):
-        return float("nan")
+        return (float("nan"), np.full(n_bins, float("nan"))) if return_per_bin else float("nan")
 
     groups_clean = None
     if groups is not None:
@@ -769,6 +770,7 @@ def _tiny_cv_rmse_y_scale(
                 and _n_finite_so_far > 0
                 and _fi < len(splits) - 1
                 and _sum_so_far > early_stop_threshold * cv_folds
+                and cv_selector_mode == "mean"  # partial-sum bound only guarantees the MEAN exceeds thr; median/quantile aggregates can stay below
             ):
                 # Final mean cannot reach <= threshold; abort remaining folds.
                 break

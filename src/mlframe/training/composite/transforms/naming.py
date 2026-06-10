@@ -1,10 +1,9 @@
-"""Composite-target naming helpers carved out of
-``mlframe.training.composite_transforms``.
+"""Composite-target naming helpers.
 
-Bound back into the parent's namespace via re-export at the parent's
-module bottom so historical
-``from mlframe.training.composite_transforms import compose_target_name``
-resolves transparently.
+Public import path is ``mlframe.training.composite.transforms`` (e.g.
+``from mlframe.training.composite.transforms import compose_target_name``);
+the pre-split flat ``mlframe.training.composite_transforms`` module no
+longer exists, so do not import from that path.
 """
 from __future__ import annotations
 

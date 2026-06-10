@@ -4,16 +4,16 @@
 from __future__ import annotations
 
 import logging
-import warnings
-from collections import deque
+# ``deque`` is re-exported here as the module-level binding the bound ``update()``
+# rolling-buffer method resolves (pinned by test_m1_update_uses_module_level_deque
+# -- it must NOT be a lazy local reimport).
+from collections import deque  # noqa: F401
 from typing import (
-    Any, Callable, Dict, List, Optional, Sequence, Tuple,
+    Any, Optional, Sequence, Tuple,
 )
 
 import numpy as np
 import pandas as pd
-from sklearn.base import BaseEstimator, RegressorMixin, clone
-from sklearn.exceptions import NotFittedError
 
 try:
     import polars as pl  # type: ignore
@@ -41,10 +41,9 @@ from ..transforms import (
 logger = logging.getLogger(__name__)
 
 
-# Bounds for the post-inverse y-clip, expressed as multipliers on the
-# ``[Q001(y_train), Q999(y_train)]`` envelope. Values outside this
-# extended envelope are unphysical for the training distribution and
-# almost certainly the result of ``exp`` / division blow-up.
+# Post-inverse y-clip bounds: extend the ``[Q001(y_train), Q999(y_train)]`` envelope by a fraction of its span on each side (see ``_y_train_clip_bounds``).
+# Values outside this extended envelope are unphysical for the training distribution and almost certainly the result of ``exp`` / division blow-up.
+# Low side extends by ``(1 - _Y_CLIP_LOW_FRAC)`` spans, high side by ``(_Y_CLIP_HIGH_FRAC - 1)`` spans, so the high tail is given far more room (heavy-tail asymmetry).
 _Y_CLIP_LOW_FRAC: float = 0.1
 _Y_CLIP_HIGH_FRAC: float = 10.0
 
@@ -54,22 +53,17 @@ _Y_CLIP_HIGH_FRAC: float = 10.0
 def _y_train_clip_bounds(y_train: np.ndarray) -> tuple[float, float]:
     """Compute post-inverse y-clip bounds from train target.
 
-    Bounds are extended Q001 / Q999 envelope multiplied by safety
-    factors to keep predictions inside a physically plausible range
-    even when the inverse transform produces extreme values for
-    out-of-distribution rows. The asymmetric multipliers (0.1 lower,
-    10x upper) reflect the typical heavy-tail asymmetry of regression
-    targets in finance / volume / rate domains; symmetric clip would
-    bite legitimate upper-tail predictions on log-normally distributed
-    targets.
+    Bounds are the Q001 / Q999 envelope extended by a fraction of its span (``low = q_low - 0.9*span``, ``high = q_high + 9*span``) to keep predictions
+    inside a physically plausible range even when the inverse transform produces extreme values for out-of-distribution rows. The asymmetric extension
+    (0.9 spans below, 9 spans above) reflects the typical heavy-tail asymmetry of regression targets in finance / volume / rate domains; a symmetric clip
+    would bite legitimate upper-tail predictions on log-normally distributed targets.
     """
     finite = y_train[np.isfinite(y_train)]
     if finite.size == 0:
         return float("-inf"), float("inf")
     q_low = float(np.quantile(finite, 0.001))
     q_high = float(np.quantile(finite, 0.999))
-    # Edge case: q_low or q_high is 0 -> multiplier collapses bound;
-    # fall back to absolute envelope around 0.
+    # Constant / near-constant train target gives zero span (degenerate envelope); fall back to a small wiggle around the median below.
     span = q_high - q_low
     if span <= 0:
         # Constant target on train; allow +/- 10% wiggle.
@@ -84,7 +78,7 @@ from ...utils import coerce_to_1d_numpy as _to_1d_numpy  # noqa: E402,F401
 
 
 def _extract_base(X: Any, base_column: str) -> np.ndarray:
-    """Pull base values from X (pandas / polars / structured ndarray).
+    """Pull base values from X (pandas / polars DataFrame).
 
     Raises ``KeyError`` with a helpful message if the column is missing
     -- this most commonly bites callers who configured MRMR / RFECV
@@ -113,7 +107,7 @@ def _extract_base(X: Any, base_column: str) -> np.ndarray:
         return X[base_column].to_numpy(dtype=np.float64)
     raise TypeError(
         f"CompositeTargetEstimator: unsupported X type {type(X).__name__}; "
-        "pass pandas / polars DataFrame or a structured ndarray with named columns."
+        "pass a pandas or polars DataFrame."
     )
 
 
@@ -186,7 +180,7 @@ def _extract_base_matrix(X: Any, base_columns: Sequence[str]) -> np.ndarray:
                 "Columns: " + ", ".join(map(str, X.columns[:8])) + ("..." if len(X.columns) > 8 else "")
             )
         return X.loc[:, cols_list].to_numpy(dtype=np.float64, copy=False)
-    # Fallback: route per-column for unknown X type (preserves prior behaviour for ndarray-with-names etc.).
+    # Fallback: route per-column for unknown X type (preserves prior behaviour).
     cols = [_extract_base(X, c) for c in cols_list]
     return np.column_stack(cols)
 
@@ -308,7 +302,11 @@ def predict_quantile_ensemble(
             batched_arr = np.asarray(batched, dtype=np.float64)
             if batched_arr.ndim == 2 and batched_arr.shape[1] == len(quantiles_list):
                 member_mat = batched_arr
-        except (TypeError, ValueError):
+        except Exception as _probe_err:
+            logger.debug(
+                "predict_quantile_ensemble: batched probe for member %d (%s) failed (%r); falling back to per-alpha calls.",
+                idx, type(m).__name__, _probe_err,
+            )
             member_mat = None
         if member_mat is None:
             cols: list[np.ndarray] = []

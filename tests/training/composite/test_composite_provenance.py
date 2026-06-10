@@ -173,8 +173,12 @@ class TestFormulas:
             fitted_params={"median_t": 0.1, "mad_eff": 0.05},
         )
         assert "log(y)" in fwd
-        assert "softcap" in inv
+        # The inverse formula now spells out the actual MAD clip (median +/- k*mad)
+        # instead of the opaque "softcap" token, so the provenance string is
+        # self-describing -- which is exactly what this test name asks for.
+        assert "clip" in inv
         assert "0.1" in inv
+        assert "0.05" in inv
 
     def test_unknown_transform_falls_back_gracefully(self) -> None:
         fwd, inv, desc = _format_transform_formulas(

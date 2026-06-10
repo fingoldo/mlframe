@@ -7,10 +7,8 @@ continue to work.
 """
 from __future__ import annotations
 
-import hashlib
 import logging
 import math
-import warnings
 from typing import (
     Any, Dict, List, Optional, Sequence, Tuple, Union,
 )
@@ -18,7 +16,7 @@ from typing import (
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, RegressorMixin, clone
-from sklearn.linear_model import Ridge, ElasticNetCV, RidgeCV
+from sklearn.linear_model import Ridge, RidgeCV
 
 try:
     import polars as pl  # type: ignore
@@ -141,10 +139,9 @@ class CompositeCrossTargetEnsemble:
         """Linear stacking via Ridge regression with internal CV alpha selection.
 
         Fits a Ridge model ``y_train ~ X @ w + b`` where ``X`` is the
-        per-component prediction matrix on train. The resulting
-        weights are the stack coefficients; intercept is folded into
-        the bias by absorbing it as an extra ``+b/n`` per component
-        (good enough when Ridge converges).
+        per-component prediction matrix on train. The resulting weights
+        are the stack coefficients; the intercept is stored separately
+        and added at predict time (``y_hat = X @ w + intercept``).
 
         When ``ridge_alpha`` is None (default), the alpha is chosen via
         ``RidgeCV`` over ``ridge_alpha_grid`` using built-in efficient
@@ -152,8 +149,9 @@ class CompositeCrossTargetEnsemble:
 
         Returns negative weights when a component is anti-correlated
         with the target -- this is fine, the ensemble may still work.
-        ``predict`` re-normalises only the magnitudes, so a negative
-        weight means the component's prediction is subtracted.
+        ``linear_stack`` is a non-convex NO-REFIT strategy: predict does
+        no renormalisation, so a negative weight means the component's
+        prediction is subtracted.
         """
         # ENS-Low-7: Ridge / RidgeCV hoisted to module-top imports.
         n = len(component_models)
@@ -564,6 +562,8 @@ class CompositeCrossTargetEnsemble:
             "strategy": self.strategy,
             "component_names": list(self.component_names),
             "weights": self.weights.tolist(),
+            "is_convex": bool(getattr(self, "is_convex", True)),
+            "intercept": float(getattr(self, "_linear_stack_intercept", 0.0)),
             "notes": dict(self.notes),
         }
 
@@ -620,9 +620,9 @@ class CompositeCrossTargetEnsemble:
                    ]},
             is_convex=getattr(self, "is_convex", True),
         )
-        # Carry over linear/NNLS stash so the trimmed ensemble can still refit on subset-drops.
-        # The training-matrix stash retains ALL original columns; predict-time refit will
-        # select the kept ones via surviving_idx so this is correct without re-slicing here.
+        # Carry over the linear/NNLS stash to the trimmed ensemble. predict (NO-REFIT) never reads
+        # these; the column-slice below only keeps the stash aligned for the votenrank diagnostic
+        # assertion, which expects the train-matrix columns to match the component ordering.
         if self.strategy == "linear_stack" and hasattr(self, "_linear_stack_intercept"):
             new._linear_stack_intercept = self._linear_stack_intercept
         for _attr in (
@@ -630,10 +630,8 @@ class CompositeCrossTargetEnsemble:
             "_nnls_stack_train_preds", "_nnls_stack_train_y",
         ):
             if hasattr(self, _attr):
-                # NB: we keep the full training matrix; predict's surviving_idx selects subset.
-                # cap_inference_components(N) however only stores N components, so surviving_idx
-                # selects relative to N. Slice the training matrix columns to match the new
-                # component ordering.
+                # cap_inference_components(N) stores only N components, so slice the train-matrix
+                # columns to the kept set to keep the stash aligned with the new component ordering.
                 _val = getattr(self, _attr)
                 if _attr.endswith("_train_preds") and _val is not None:
                     setattr(new, _attr, np.asarray(_val)[:, keep])
@@ -642,17 +640,14 @@ class CompositeCrossTargetEnsemble:
         return new
 
     def discard_train_matrix(self) -> CompositeCrossTargetEnsemble:
-        """Drop the stashed (n_train, K) training-prediction matrix and target vector that the
-        dropout-refit path uses at predict time.
+        """Drop the stashed (n_train, K) training-prediction matrix and target vector.
 
-        C-P2-8: the linear/NNLS stack factories cache the train matrix on the instance so the
-        predict path can refit when components are dropped on the fly. For production deploys that
-        will never trigger dropout-refit (single fixed component set, no online dropout), this
-        cache is ~``8 * n_train * (K + 1)`` bytes of dead weight that survives every
-        ``save_mlframe_model`` round-trip. Call this method right before persistence to strip those
-        attributes; the returned ensemble can still ``.predict`` normally but ``.refit`` /
-        dropout-style methods will raise. Operation is in-place and returns ``self`` so call sites
-        can chain.
+        The stash is NO-REFIT-era dead weight: predict no longer refits a solver on component
+        dropout, so no method consumes these arrays. They are ~``8 * n_train * (K + 1)`` bytes that
+        would otherwise survive every ``save_mlframe_model`` round-trip (``__getstate__`` already
+        strips them before pickling). Call this method to strip them eagerly off a live instance;
+        the returned ensemble keeps predicting normally. Operation is in-place and returns ``self``
+        so call sites can chain.
         """
         for _attr in (
             "_linear_stack_train_preds",

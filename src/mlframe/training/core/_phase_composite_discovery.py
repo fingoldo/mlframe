@@ -235,6 +235,7 @@ def run_composite_target_discovery(
             if (_extreme_ar_skip
                     and _group_aware_recommended
                     and _lag1_ar is not None
+                    and _td_report.get("picked_target_name") == _tname_disc
                     and float(_lag1_ar) >= _extreme_ar_threshold):
                 logger.warning(
                     "[CompositeTargetDiscovery] extreme-AR + group-aware "
@@ -315,6 +316,20 @@ def run_composite_target_discovery(
                         }]
                     continue
 
+            if filtered_train_idx is None:
+                # _y_arr[None] yields shape (1, n), so the row-align guard below would print a misleading "y[1] vs df[N]"; surface the real cause instead.
+                logger.warning(
+                    "[CompositeTargetDiscovery] filtered_train_idx missing; "
+                    "skipping discovery for target='%s'.",
+                    _tname_disc,
+                )
+                metadata["composite_target_failures"].setdefault(
+                    str(_tt_disc), {})[_tname_disc] = [{
+                        "name": _tname_disc, "kept": False, "rejected": True,
+                        "reason": "filtered_train_idx is None (cannot align y to train rows)",
+                    }]
+                continue
+
             _y_train_aligned = _y_arr[filtered_train_idx]
             if len(_y_train_aligned) != len(filtered_train_df):
                 logger.warning(
@@ -322,6 +337,14 @@ def run_composite_target_discovery(
                     "(y[%d] vs filtered_train_df[%d]); skipping discovery.",
                     _tname_disc, len(_y_train_aligned), len(filtered_train_df),
                 )
+                metadata["composite_target_failures"].setdefault(
+                    str(_tt_disc), {})[_tname_disc] = [{
+                        "name": _tname_disc, "kept": False, "rejected": True,
+                        "reason": (
+                            f"row-align mismatch y[{len(_y_train_aligned)}] "
+                            f"vs filtered_train_df[{len(filtered_train_df)}]"
+                        ),
+                    }]
                 continue
 
             _disc_df = _build_disc_df_for_target(filtered_train_df, _tname_disc, _y_train_aligned)
@@ -448,7 +471,16 @@ def run_composite_target_discovery(
                         _Spec(**s) if isinstance(s, dict) else s
                         for s in _cached_payload.get("specs_export", [])
                     ]
-                except Exception:
+                except Exception as _replay_err:
+                    # Spec rebuild failed: without it the forward-applier adds no T columns, yet specs were already claimed in metadata above.
+                    # Clear the claimed specs so metadata matches the (no-column) reality; full re-discovery fallback is a larger fix.
+                    logger.warning(
+                        "[CompositeTargetDiscovery] cache replay spec rebuild "
+                        "failed for target='%s' (key=%s): %s; clearing claimed "
+                        "specs to avoid a no-column divergence.",
+                        _tname_disc, (_disc_cache_key or "?")[:16], _replay_err,
+                    )
+                    metadata["composite_target_specs"][str(_tt_disc)][_tname_disc] = []
                     _cached_specs = []
 
                 class _CacheReplay:
@@ -544,6 +576,11 @@ def run_composite_target_discovery(
                         "Per-target training continues without composite expansion.",
                         _tname_disc, _disc_err,
                     )
+                    metadata["composite_target_failures"].setdefault(
+                        str(_tt_disc), {})[_tname_disc] = [{
+                            "name": _tname_disc, "kept": False, "rejected": True,
+                            "reason": f"discovery fit raised: {_disc_err}",
+                        }]
                     continue
 
                 metadata["composite_target_specs"].setdefault(str(_tt_disc), {})
