@@ -405,12 +405,171 @@ def _coerce_x(v: Any, pd: Any) -> float:
         return float(v)
 
 
+# Per-side row cap for the adversarial classifier. A LightGBM split-classifier converges on distribution-shift signal
+# long before 200k rows/side; sampling caps the fit cost at large n without changing the verdict.
+ADV_MAX_ROWS_PER_SIDE: int = 200_000
+ADV_TOP_FEATURES: int = 20
+# Decimation cap for the ROC curve (a 200px display cannot resolve more).
+_ROC_MAX_VERTICES: int = 1000
+
+
+def _subsample_rows(n: int, cap: int, seed: int) -> np.ndarray:
+    if n <= cap:
+        return np.arange(n, dtype=np.int64)
+    return np.sort(np.random.default_rng(seed).choice(n, size=cap, replace=False))
+
+
+def adversarial_auc(
+    feature_frame_a: Any,
+    feature_frame_b: Any,
+    *,
+    feature_names: Optional[Sequence[str]] = None,
+    max_rows_per_side: int = ADV_MAX_ROWS_PER_SIDE,
+    n_splits: int = 3,
+    seed: int = 0,
+    lgbm_params: Optional[dict] = None,
+) -> Tuple[float, np.ndarray, np.ndarray, np.ndarray, Tuple[str, ...]]:
+    """Train a LightGBM classifier to separate side-A (label 0) from side-B (label 1) on a shuffled union.
+
+    Returns ``(auc, fpr, tpr, importances, names)`` where ``auc`` is the cross-validated out-of-fold ROC AUC
+    (the honest "can a model tell the two sets apart" estimate -- in-sample AUC overstates separability), ``fpr/tpr``
+    are the OOF ROC-curve points, and ``importances`` are the model's gain importances aligned to ``names``. Each side
+    is subsampled to ``max_rows_per_side`` first so a 1M-row union stays cheap. AUC ~0.5 => same distribution;
+    AUC >> 0.5 => the sets are distinguishable (CV will not transfer / covariate shift present).
+    """
+    import lightgbm as lgb
+    from sklearn.metrics import roc_auc_score, roc_curve
+    from sklearn.model_selection import StratifiedKFold, cross_val_predict
+
+    cols_a, names_a = _frame_columns(feature_frame_a, feature_names)
+    cols_b, names_b = _frame_columns(feature_frame_b, feature_names)
+    if names_a != names_b:
+        raise ValueError("adversarial_auc: the two sides must share the same feature columns")
+    names = tuple(names_a)
+
+    na = cols_a[0].shape[0] if cols_a else 0
+    nb = cols_b[0].shape[0] if cols_b else 0
+    ia = _subsample_rows(na, max_rows_per_side, seed)
+    ib = _subsample_rows(nb, max_rows_per_side, seed + 1)
+    Xa = np.column_stack([np.asarray(c, dtype=np.float64)[ia] for c in cols_a]) if cols_a else np.empty((len(ia), 0))
+    Xb = np.column_stack([np.asarray(c, dtype=np.float64)[ib] for c in cols_b]) if cols_b else np.empty((len(ib), 0))
+    X = np.vstack([Xa, Xb])
+    y = np.concatenate([np.zeros(len(ia), dtype=np.int64), np.ones(len(ib), dtype=np.int64)])
+
+    params = dict(n_estimators=200, num_leaves=31, learning_rate=0.05, subsample=0.8,
+                  colsample_bytree=0.8, n_jobs=-1, random_state=seed, verbosity=-1, importance_type="gain")
+    if lgbm_params:
+        params.update(lgbm_params)
+    clf = lgb.LGBMClassifier(**params)
+
+    # Need at least 2 of each class per fold; clamp n_splits to the minority count so a tiny synthetic still runs.
+    k = max(2, min(int(n_splits), int(min(len(ia), len(ib)))))
+    cv = StratifiedKFold(n_splits=k, shuffle=True, random_state=seed)
+    oof = cross_val_predict(clf, X, y, cv=cv, method="predict_proba")[:, 1]
+    auc = float(roc_auc_score(y, oof))
+    fpr, tpr, _ = roc_curve(y, oof)
+
+    # Importances come from a single full-data fit (the per-fold models are discarded by cross_val_predict); a full fit
+    # gives the most stable ranking of which features carry the separating signal.
+    clf.fit(X, y)
+    importances = np.asarray(clf.feature_importances_, dtype=np.float64)
+    return auc, fpr, tpr, importances, names
+
+
+def adversarial_validation(
+    train_frame: Any,
+    test_frame: Any,
+    *,
+    val_frame: Any = None,
+    feature_names: Optional[Sequence[str]] = None,
+    max_rows_per_side: int = ADV_MAX_ROWS_PER_SIDE,
+    top_features: int = ADV_TOP_FEATURES,
+    n_splits: int = 3,
+    seed: int = 0,
+    lgbm_params: Optional[dict] = None,
+    figsize: Tuple[float, float] = (12.0, 5.0),
+) -> FigureSpec:
+    """Adversarial-validation panel (R-1): "will my CV transfer?".
+
+    Trains a LightGBM classifier to separate train (label 0) from test (label 1) -- and, when ``val_frame`` is given,
+    train-vs-val too -- on a shuffled union, reports the out-of-fold ROC + AUC, and ranks the top-``top_features``
+    drifting features by classifier importance. AUC ~0.5 means train and test are indistinguishable (CV estimates
+    transfer); AUC well above ~0.6-0.7 means the sets differ and the top-importance features are the drift drivers.
+
+    Returns a 2-panel FigureSpec: left a ROC LinePanelSpec (train-vs-test, plus train-vs-val when supplied, + the
+    chance diagonal, AUCs in the title), right a BarPanelSpec of the top drifting features (train-vs-test importances).
+    """
+    auc_tt, fpr_tt, tpr_tt, imp_tt, names = adversarial_auc(
+        train_frame, test_frame, feature_names=feature_names,
+        max_rows_per_side=max_rows_per_side, n_splits=n_splits, seed=seed, lgbm_params=lgbm_params,
+    )
+
+    series_x = [fpr_tt, np.array([0.0, 1.0])]
+    series_y = [tpr_tt, np.array([0.0, 1.0])]
+    labels = [f"train-vs-test (AUC={auc_tt:.3f})", "chance"]
+    styles = ["-", "--"]
+    colors = ["crimson", "gray"]
+    title_bits = [f"train-vs-test AUC={auc_tt:.3f}"]
+
+    if val_frame is not None:
+        auc_tv, fpr_tv, tpr_tv, _, _ = adversarial_auc(
+            train_frame, val_frame, feature_names=feature_names,
+            max_rows_per_side=max_rows_per_side, n_splits=n_splits, seed=seed + 100, lgbm_params=lgbm_params,
+        )
+        series_x.insert(1, fpr_tv)
+        series_y.insert(1, tpr_tv)
+        labels.insert(1, f"train-vs-val (AUC={auc_tv:.3f})")
+        styles.insert(1, "-")
+        colors.insert(1, "steelblue")
+        title_bits.append(f"train-vs-val AUC={auc_tv:.3f}")
+
+    series_x, series_y, labels, styles, colors = _pad_roc_series(series_x, series_y, labels, styles, colors)
+    verdict = "shift => CV may NOT transfer" if auc_tt >= 0.6 else "indistinguishable => CV transfers"
+    roc = LinePanelSpec(
+        x=series_x[0],
+        y=tuple(series_y),
+        series_labels=tuple(labels),
+        line_styles=tuple(styles),
+        colors=tuple(colors),
+        title="Adversarial validation: " + "; ".join(title_bits) + f"\n({verdict})",
+        xlabel="False Positive Rate",
+        ylabel="True Positive Rate",
+    )
+
+    order = np.argsort(imp_tt)[::-1][:max(1, min(top_features, imp_tt.size))]
+    bar = BarPanelSpec(
+        categories=tuple(names[i] for i in order),
+        values=imp_tt[order],
+        title=f"Top {len(order)} drifting features (train-vs-test gain importance)",
+        xlabel="feature",
+        ylabel="LightGBM gain importance",
+        colors=("crimson",),
+        xtick_rotation=60.0,
+    )
+    return FigureSpec(suptitle="", panels=((roc, bar),), figsize=figsize)
+
+
+def _pad_roc_series(series_x, series_y, labels, styles, colors):
+    """LinePanelSpec shares one x across all y-series; ROC curves have different-length fpr/tpr per pair. Resample
+    every curve onto a common dense fpr grid so a single x carries them all (chance diagonal too)."""
+    grid = np.linspace(0.0, 1.0, _ROC_MAX_VERTICES)
+    new_y = []
+    for fx, fy in zip(series_x, series_y):
+        order = np.argsort(fx)
+        new_y.append(np.interp(grid, fx[order], fy[order]))
+    return [grid], new_y, labels, styles, colors
+
+
 __all__ = [
     "PSI_MODERATE",
     "PSI_SIGNIFICANT",
     "PSI_DEFAULT_BINS",
+    "ADV_MAX_ROWS_PER_SIDE",
+    "ADV_TOP_FEATURES",
     "compute_psi_matrix",
     "psi_heatmap",
     "residual_vs_time",
     "metric_over_time",
+    "adversarial_auc",
+    "adversarial_validation",
 ]

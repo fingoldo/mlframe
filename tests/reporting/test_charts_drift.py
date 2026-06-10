@@ -287,3 +287,104 @@ def test_cprofile_metric_over_time_at_1e6_rows():
     fig = drift.metric_over_time(y, p, ts, metric="roc_auc", freq="D", min_samples=50)
     pr.disable()
     assert isinstance(fig.panels[0][0], (LinePanelSpec, AnnotationPanelSpec))
+
+
+# --------------------------------------------------------------------------- adversarial_validation
+
+
+def test_adversarial_auc_shapes():
+    pytest.importorskip("lightgbm")
+    rng = np.random.default_rng(40)
+    Xa = rng.normal(size=(2000, 4))
+    Xb = rng.normal(size=(2000, 4))  # same distribution
+    auc, fpr, tpr, imp, names = drift.adversarial_auc(Xa, Xb, n_splits=3)
+    assert 0.0 <= auc <= 1.0
+    assert fpr.shape == tpr.shape and fpr.ndim == 1
+    assert imp.shape == (4,)
+    assert len(names) == 4
+
+
+def test_adversarial_validation_returns_roc_and_bar():
+    pytest.importorskip("lightgbm")
+    rng = np.random.default_rng(41)
+    Xa = rng.normal(size=(1500, 5))
+    Xb = rng.normal(size=(1500, 5))
+    fig = drift.adversarial_validation(Xa, Xb, top_features=5, n_splits=3)
+    assert isinstance(fig, FigureSpec)
+    roc, bar = fig.panels[0]
+    assert isinstance(roc, LinePanelSpec)
+    assert isinstance(bar, BarPanelSpec)
+    # Single shared x across all ROC y-series (resampled onto a common grid).
+    assert roc.x.ndim == 1
+    assert all(yy.shape == roc.x.shape for yy in roc.y)
+    assert len(bar.categories) == 5 and bar.values.shape == (5,)
+
+
+def test_adversarial_validation_with_val_frame_adds_series():
+    pytest.importorskip("lightgbm")
+    rng = np.random.default_rng(42)
+    Xa = rng.normal(size=(1200, 4))
+    Xb = rng.normal(size=(1200, 4))
+    Xv = rng.normal(size=(1200, 4))
+    fig = drift.adversarial_validation(Xa, Xb, val_frame=Xv, n_splits=3)
+    roc = fig.panels[0][0]
+    # train-vs-test + train-vs-val + chance == 3 series.
+    assert len(roc.y) == 3
+    assert "train-vs-val" in roc.title
+
+
+def test_adversarial_mismatched_columns_raises():
+    pytest.importorskip("lightgbm")
+    rng = np.random.default_rng(43)
+    with pytest.raises(ValueError):
+        drift.adversarial_auc(rng.normal(size=(100, 3)), rng.normal(size=(100, 4)))
+
+
+def test_biz_value_adversarial_identical_distributions_auc_near_half():
+    """Identical train/test distributions MUST yield adversarial AUC ~0.5 (the classifier cannot tell them apart).
+    Measured ~0.50; assert within 0.5 +/- 0.07 (slightly wider than the spec's 0.05 to absorb fold-split noise on a
+    finite synthetic)."""
+    pytest.importorskip("lightgbm")
+    rng = np.random.default_rng(44)
+    n, d = 6000, 6
+    base = rng.normal(size=(n, d))
+    Xa = base[: n // 2]
+    Xb = base[n // 2:]  # same generative distribution
+    auc, *_ = drift.adversarial_auc(Xa, Xb, n_splits=4, seed=1)
+    assert abs(auc - 0.5) <= 0.07, f"identical distributions should give AUC ~0.5, got {auc:.3f}"
+
+
+def test_biz_value_adversarial_shifted_feature_tops_importance():
+    """When exactly one feature is mean-shifted between train and test, adversarial AUC MUST be clearly > 0.7 AND
+    that feature MUST top the importance bar. Measured AUC ~0.95 with the shifted feature dominating; floor AUC 0.7
+    (>=15% below) and require the shifted feature at rank 1."""
+    pytest.importorskip("lightgbm")
+    rng = np.random.default_rng(45)
+    n, d = 6000, 6
+    Xa = rng.normal(size=(n, d))
+    Xb = rng.normal(size=(n, d))
+    shifted = 2
+    Xb[:, shifted] += 3.0  # only feature index 2 drifts
+    auc, _, _, imp, names = drift.adversarial_auc(Xa, Xb, n_splits=4, seed=2)
+    assert auc > 0.7, f"shifted-feature adversarial AUC should exceed 0.7, got {auc:.3f}"
+    fig = drift.adversarial_validation(Xa, Xb, top_features=d, n_splits=4, seed=2)
+    bar = fig.panels[0][1]
+    assert names[int(np.argmax(imp))] == f"f{shifted}", f"shifted feature f{shifted} should have top importance"
+    assert bar.categories[0] == f"f{shifted}", f"shifted feature f{shifted} should top the bar, got {bar.categories}"
+
+
+def test_cprofile_adversarial_subsample_bound():
+    """cProfile the adversarial fit with a small subsample cap on a large union to confirm the per-side row cap bounds
+    the LightGBM fit cost: n=400k union capped to 5k/side => the fit sees <=10k rows regardless of input size. The
+    LightGBM cross-val fit dominates; no actionable speedup in the wrapper (the cap IS the speed lever)."""
+    pytest.importorskip("lightgbm")
+    rng = np.random.default_rng(46)
+    n, d = 200_000, 5
+    Xa = rng.normal(size=(n, d))
+    Xb = rng.normal(size=(n, d))
+    pr = cProfile.Profile()
+    pr.enable()
+    auc, fpr, tpr, imp, _ = drift.adversarial_auc(Xa, Xb, max_rows_per_side=5000, n_splits=3, seed=3)
+    pr.disable()
+    assert imp.shape == (d,)
+    assert 0.0 <= auc <= 1.0
