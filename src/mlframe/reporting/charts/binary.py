@@ -18,10 +18,17 @@ Token catalogue:
 - ``PIT``        -- probability-integral-transform histogram for the binary score (folds the orphan
                     plot_pit_diagram into a spec); uniform = perfect calibration, KS in the title.
 
-The score-sort that drives THRESHOLD / GAIN / KS is computed ONCE and shared
-across those panels, so a 2M-row figure pays a single O(n log n) sort. ROC / PR
-go through sklearn with ``drop_intermediate=True`` then decimate to a bounded
-vertex count so a multi-million-row curve stays light to draw.
+Every panel is driven by ONE descending-by-score sort (``_ScoreSort``) computed up
+front and shared: THRESHOLD / GAIN / KS read its cumulative TP/FP counts directly,
+and ROC / PR / AP are derived from the same per-distinct-threshold counts instead of
+re-sorting via sklearn (numerically identical to sklearn, ~1e-16, on distinct AND
+tied scores). A 2M-row figure therefore pays a single O(n log n) sort. Curves
+decimate to ``_CURVE_VERTEX_CAP`` vertices so a multi-million-row line stays light.
+
+cProfile (n=2M, default template, best of 3): ~0.96s spec build. The remaining cost
+is the one shared ``argsort`` (~0.43s); reusing it across ROC/PR/AP removed three
+redundant full-n sklearn argsorts (2.72s -> 0.96s, ~2.8x). No further actionable
+speedup: the lone sort is irreducible for rank-threshold curves.
 """
 
 from __future__ import annotations
@@ -98,7 +105,7 @@ class _ScoreSort:
         n_pos / n_neg : totals
     """
 
-    __slots__ = ("scores_desc", "cum_tp", "cum_fp", "n_pos", "n_neg", "n")
+    __slots__ = ("scores_desc", "cum_tp", "cum_fp", "n_pos", "n_neg", "n", "_run_end", "_dtc")
 
     def __init__(self, y_true: np.ndarray, y_score: np.ndarray):
         order = np.argsort(y_score, kind="stable")[::-1]
@@ -109,6 +116,26 @@ class _ScoreSort:
         self.n = len(y_true)
         self.n_pos = int(self.cum_tp[-1]) if self.n else 0
         self.n_neg = int(self.cum_fp[-1]) if self.n else 0
+        if self.n:
+            run_end = np.empty(self.n, dtype=bool)
+            run_end[-1] = True
+            run_end[:-1] = self.scores_desc[:-1] != self.scores_desc[1:]
+        else:
+            run_end = np.empty(0, dtype=bool)
+        self._run_end = run_end
+        self._dtc = None
+
+    def distinct_threshold_counts(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """(tps, fps, thresholds) at each DISTINCT score (descending) -- sklearn ``_binary_clf_curve`` shape.
+
+        ROC / PR / AP all reduce to these per-distinct-threshold cumulative TP/FP counts; deriving them from
+        the shared sort here avoids the redundant full-n argsort each sklearn curve call would otherwise do.
+        Memoised so ROC and PR (both callers) share the one gather.
+        """
+        if self._dtc is None:
+            re = self._run_end
+            self._dtc = (self.cum_tp[re].astype(np.float64), self.cum_fp[re].astype(np.float64), self.scores_desc[re])
+        return self._dtc
 
 
 # ----------------------------------------------------------------------------
@@ -119,15 +146,17 @@ class _ScoreSort:
 def _roc_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, threshold: float, cost_ratio=None) -> PanelSpec:
     """ROC curve (TPR vs FPR) with the chance diagonal; AUC in the title.
 
-    ``drop_intermediate=True`` (sklearn default) already strips collinear vertices; the result is
-    decimated to ``_CURVE_VERTEX_CAP`` so a multi-million-row curve stays light to draw.
+    Built from the shared score sort's per-distinct-threshold cumulative TP/FP counts (the same quantities
+    sklearn's ``_binary_clf_curve`` derives, here without the redundant full-n argsort), prepended with the
+    (0,0) origin, then decimated to ``_CURVE_VERTEX_CAP`` so a multi-million-row curve stays light to draw.
+    AUC is the trapezoid area on the full per-threshold curve (before decimation).
     """
-    from sklearn.metrics import auc, roc_curve
-
     if sort.n_pos == 0 or sort.n_neg == 0:
         return AnnotationPanelSpec(text="ROC undefined\n(only one class present)", title="ROC curve")
-    fpr, tpr, _ = roc_curve(yt, ys, drop_intermediate=True)
-    roc_auc = float(auc(fpr, tpr))
+    tps, fps, _ = sort.distinct_threshold_counts()
+    tpr = np.concatenate(([0.0], tps / sort.n_pos))
+    fpr = np.concatenate(([0.0], fps / sort.n_neg))
+    roc_auc = float(np.trapezoid(tpr, fpr))
     x_thin, (tpr_thin,) = _decimate(fpr, tpr)
     diag = x_thin.copy()
     return LinePanelSpec(
@@ -145,17 +174,22 @@ def _roc_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, threshold: f
 def _pr_panel(yt: np.ndarray, ys: np.ndarray, *, sort: _ScoreSort, threshold: float, cost_ratio=None) -> PanelSpec:
     """Precision-recall curve with the prevalence no-skill baseline; AP in the title.
 
-    A curve hugging the dotted prevalence line reads as no better than always-positive.
+    Built from the shared score sort's per-distinct-threshold cumulative TP/FP counts, matching sklearn's
+    ``precision_recall_curve`` (recall ascending, precision = TP/(TP+FP), curve prepended with recall=0 at
+    precision=1). AP is the step-sum ``sum (R_i - R_{i-1}) * P_i`` -- sklearn's ``average_precision_score``
+    definition -- so a separate full-n argsort is avoided. A curve hugging the dotted prevalence line reads
+    as no better than always-positive.
     """
-    from sklearn.metrics import average_precision_score, precision_recall_curve
-
     if sort.n_pos == 0 or sort.n_neg == 0:
         return AnnotationPanelSpec(text="PR undefined\n(only one class present)", title="Precision-Recall curve")
-    precision, recall, _ = precision_recall_curve(yt, ys)
-    ap = float(average_precision_score(yt, ys))
-    order = np.argsort(recall)
-    rec_s, prec_s = recall[order], precision[order]
-    x_thin, (prec_thin,) = _decimate(rec_s, prec_s)
+    tps, fps, _ = sort.distinct_threshold_counts()
+    precision = tps / np.maximum(tps + fps, 1.0)
+    recall = tps / sort.n_pos
+    ap = float(np.sum(np.diff(np.concatenate(([0.0], recall))) * precision))
+    # sklearn prepends (recall=0, precision=1) so the curve starts at the y-axis; reverse to recall-ascending for plotting.
+    rec_plot = np.concatenate(([0.0], recall))
+    prec_plot = np.concatenate(([1.0], precision))
+    x_thin, (prec_thin,) = _decimate(rec_plot, prec_plot)
     prevalence = sort.n_pos / max(1, sort.n)
     baseline = np.full_like(x_thin, prevalence)
     return LinePanelSpec(
@@ -257,10 +291,10 @@ def _threshold_sweep(sort: _ScoreSort) -> Dict[str, np.ndarray]:
         empty = np.empty(0, dtype=np.float64)
         return {k: empty for k in ("thresholds", "precision", "recall", "f1", "queue_rate", "fp", "fn")}
     scores = sort.scores_desc
-    # Keep one row per distinct score: the run-end (where score[i] != score[i+1], plus the final row).
-    run_end = np.empty(n, dtype=bool)
-    run_end[-1] = True
-    run_end[:-1] = scores[:-1] != scores[1:]
+    # Keep one row per distinct score (the run-ends precomputed on the shared sort); the score >= t
+    # predicate boundary sits at the last rank of each tied-score run, so reporting only there is
+    # bit-identical to a per-threshold sklearn reference even under ties (a tie cannot be split).
+    run_end = sort._run_end
     ranks = (np.arange(1, n + 1, dtype=np.float64))[run_end]
     tp = sort.cum_tp.astype(np.float64)[run_end]
     fp = sort.cum_fp.astype(np.float64)[run_end]

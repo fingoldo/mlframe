@@ -178,6 +178,32 @@ def test_finite_binary_drops_non_finite_and_out_of_range_labels():
 
 
 @pytest.mark.parametrize("distinct", [True, False])
+def test_roc_auc_and_pr_ap_match_sklearn(distinct):
+    """ROC AUC and PR AP derived from the shared sort must match sklearn to float64 epsilon
+    (the redundant-argsort elimination must stay numerically identical, on distinct AND tied scores)."""
+    from sklearn.metrics import average_precision_score, roc_auc_score
+
+    rng = np.random.default_rng(21)
+    n = 6000
+    y = rng.integers(0, 2, n)
+    if distinct:
+        s = rng.random(n)
+    else:
+        s = np.round(np.clip(0.4 * y + 0.3 * rng.standard_normal(n) + 0.5, 0, 1), 2)
+    yt, ys = _finite_binary(y, s)
+    sort = _ScoreSort(yt, ys)
+    tps, fps, _ = sort.distinct_threshold_counts()
+    tpr = np.concatenate(([0.0], tps / sort.n_pos))
+    fpr = np.concatenate(([0.0], fps / sort.n_neg))
+    my_auc = float(np.trapezoid(tpr, fpr))
+    precision = tps / np.maximum(tps + fps, 1.0)
+    recall = tps / sort.n_pos
+    my_ap = float(np.sum(np.diff(np.concatenate(([0.0], recall))) * precision))
+    assert my_auc == pytest.approx(roc_auc_score(yt, ys), abs=1e-12)
+    assert my_ap == pytest.approx(average_precision_score(yt, ys), abs=1e-12)
+
+
+@pytest.mark.parametrize("distinct", [True, False])
 def test_threshold_sweep_matches_sklearn_reference(distinct):
     from sklearn.metrics import f1_score, precision_score, recall_score
 
