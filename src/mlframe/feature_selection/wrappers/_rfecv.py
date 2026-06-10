@@ -216,6 +216,10 @@ class RFECV(BaseEstimator, TransformerMixin):
         estimators_save_path: str = None,  # fitted estimators get saved into join(estimators_save_path,estimator_type_name,nestimator_nfeatures_nfold.dump)
         # Required features and achieved ml metrics get saved in a dict join(estimators_save_path,required_features.dump).
         frac: float = None,
+        # Skip the full re-fit when fit() is called again on identical inputs. Despite the legacy "same_shape" name, the
+        # skip keys on CONTENT: it invalidates on (a) X content / column-name change, (b) y / TARGET content change, AND
+        # (c) ANY selector- or wrapped-estimator-parameter change (set_params or direct attribute assignment alike;
+        # params are re-read at every fit call) -- so it never replays a stale support_ for a changed target or settings.
         skip_retraining_on_same_shape: bool = True,
         stop_file: str = "stop",
         report_ndigits: int = 4,

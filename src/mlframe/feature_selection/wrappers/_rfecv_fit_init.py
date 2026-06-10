@@ -21,6 +21,33 @@ from ._rfecv_validate import _sanitize_X_inputs
 logger = logging.getLogger("mlframe.feature_selection.wrappers._rfecv")
 
 
+def _current_params_signature(self) -> object:
+    """Hashable fingerprint of the selector's CURRENT params (``get_params(deep=True)``).
+
+    Folded into the skip-retraining signature so ANY selector- or wrapped-estimator-parameter
+    change invalidates the in-object identity skip (params are re-read at every fit call, so
+    ``set_params`` and direct attribute assignment are both captured). ``deep=True`` expands
+    nested ``get_params``-bearing objects (``estimator__C`` etc.) so in-place mutation of the
+    wrapped estimator's hyperparams also invalidates. On any failure returns a per-call unique
+    token (identity equality) => never matches a stored signature => conservative full refit.
+
+    IMPORTANT: callers that STORE the signature after a successful fit must refresh this slot
+    with post-fit values (see ``_rfecv_finalize`` / ``_rfecv_stability_select``): ``fit`` may
+    resolve params in place (e.g. ``scoring=None -> make_scorer(...)`` at ``_rfecv_fit``;
+    ``force_parallel`` thread pinning mutates the wrapped estimator), so the stored signature
+    must reflect the state the NEXT fit's ``get_params`` will see, else identical refits would
+    never skip.
+    """
+    try:
+        # Lazy import: ``filters._mrmr_fingerprints`` top-level imports ``wrappers`` (RFECV), so a
+        # module-level import here would create a hard import cycle; at call time it is cache-free.
+        from mlframe.feature_selection.filters._mrmr_fingerprints import _hashable_params_signature
+
+        return _hashable_params_signature(self.get_params(deep=True))
+    except Exception:
+        return object()
+
+
 def _init_fit_state(
     self,
     X: Union[pd.DataFrame, np.ndarray, "pl.DataFrame"],
@@ -28,7 +55,7 @@ def _init_fit_state(
     groups: Union[pd.Series, np.ndarray, None],
     sample_weight: Union[np.ndarray, pd.Series, None],
 ) -> tuple[Any, Any, tuple, bool, bool]:
-    """Validate inputs, convert polars -> pandas, compute the (X, y) signature, and decide whether to short-circuit.
+    """Validate inputs, convert polars -> pandas, compute the (X, y, selector-params) signature, and decide whether to short-circuit.
 
     Returns
     -------
@@ -292,7 +319,15 @@ def _init_fit_state(
             repr(np.asarray(X).ravel()[:100].tolist()).encode("utf-8"),
             digest_size=12,
         ).hexdigest()
-    signature = (X.shape, y.shape, columns_key, _y_hash, _x_hash)
+    # 2026-06-10 fix: fold the selector's OWN parameter signature (incl. the wrapped estimator's params via
+    # ``deep=True`` expansion) into the skip signature. Pre-fix the signature was
+    # ``(X.shape, y.shape, columns_key, y_hash, x_hash)`` -- SELECTOR/ESTIMATOR PARAMS were absent: refitting
+    # the same RFECV instance with changed settings (``set_params`` or direct attribute assignment, e.g. a new
+    # ``max_nfeatures`` / ``scoring`` / mutated ``estimator`` hyperparams) on identical data silently replayed
+    # the prior fit's ``support_`` computed under the OLD params. Same bug class as MRMR's in-object skip
+    # (fixed same day) and the earlier y-content hole fixed above. See ``_current_params_signature`` for the
+    # set_params/attribute-assignment capture semantics and the post-fit refresh contract at the store sites.
+    signature = (X.shape, y.shape, columns_key, _y_hash, _x_hash, _current_params_signature(self))
     # Invalidate stale support_/cache at fit entry so a partial-fit failure cannot leave a previous-fit's selection silently in place.
     # The cache is rebuilt below only on a successful path.
     self._selected_cols_cache = None

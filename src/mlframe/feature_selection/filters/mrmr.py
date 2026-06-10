@@ -795,7 +795,10 @@ class MRMR(BaseEstimator, TransformerMixin):
         # service
         random_state: int = None,
         n_jobs: int = -1,
-        # Skip the full re-fit when a process-cache hit replays a prior fit on the SAME content. The fit cache keys on CONTENT signatures of X and y (not merely shape), so a same-shape-but-different-y call never replays a stale fit.
+        # Skip the full re-fit when a process-cache hit replays a prior fit on the SAME content. The cache invalidates on
+        # (a) X content change, (b) y / TARGET content change, AND (c) ANY selector-parameter change (set_params or direct
+        # attribute assignment alike; params are re-read at every fit call) -- so it never replays a stale fit for a changed
+        # target or changed settings. Both layers honour this: the in-object identity skip and the process-wide _FIT_CACHE.
         skip_retraining_on_same_content: bool = True,
         # Deprecated alias for ``skip_retraining_on_same_content`` (the old name implied shape-only keying, which was always a misnomer). Pass ``None`` to defer to the new name; a non-None value overrides it with a DeprecationWarning.
         skip_retraining_on_same_shape: bool = None,

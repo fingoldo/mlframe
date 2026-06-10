@@ -264,7 +264,23 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # ``_full_x_content_hash`` - asymmetric guarantees between the two
     # cache layers. Fold X content hash here so both layers agree.
     _x_hash_for_sig = _full_x_content_hash(X)
-    signature = (X.shape, y.shape, _y_hash_for_sig, _x_hash_for_sig, _x_cols_sig)
+    # 2026-06-10 fix: fold the selector's OWN parameter signature into the in-object skip signature.
+    # Pre-fix the signature was ``(X.shape, y.shape, y_hash, x_hash, x_cols)`` -- SELECTOR PARAMS were
+    # absent: refitting the same MRMR instance with changed settings (via ``set_params`` or direct
+    # attribute assignment, e.g. ``selector.n_features_to_select = 3``) on identical data silently
+    # replayed the prior fit, returning a selection computed under the OLD params. Same asymmetric-
+    # guarantees bug class as the 2026-05-30 X-content fix above: the process-wide ``_FIT_CACHE``
+    # below already folds ``_hashable_params_signature`` while this layer did not. ``get_params``
+    # introspects ``__init__`` arg names and reads CURRENT attribute values at fit time, so params
+    # changed after a previous fit are captured on the next ``fit`` call. ``deep=True`` additionally
+    # expands nested ``get_params``-bearing objects (``param__subparam``) so in-place mutation of a
+    # nested estimator/config also invalidates the skip. On any ``get_params`` failure we fall back
+    # to a per-call unique token (identity equality) => never matches => conservative full refit.
+    try:
+        _self_params_sig = _hashable_params_signature(self.get_params(deep=True))
+    except Exception:
+        _self_params_sig = object()
+    signature = (X.shape, y.shape, _y_hash_for_sig, _x_hash_for_sig, _x_cols_sig, _self_params_sig)
     if getattr(self, "skip_retraining_on_same_content", None) if getattr(self, "skip_retraining_on_same_content", None) is not None else getattr(self, "skip_retraining_on_same_shape", True):
         # Empty X hash (uncacheable) => fall through to full fit to
         # avoid risking a wrong replay, mirroring the _FIT_CACHE rule
@@ -7280,6 +7296,14 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         predictors_str = textwrap.shorten(predictors_str, width=300)
         logger.info("MRMR+ selected %d out of %d features: %s", self.n_features_, self.n_features_in_, predictors_str)
 
+    # Refresh the params slot with POST-fit values before storing: should fit ever resolve/normalise a
+    # param in place (RFECV does this with ``scoring``), the entry-time params fingerprint would never
+    # match the NEXT fit's ``get_params`` and identical refits would never skip. The data slots
+    # (shapes/hashes/columns) stay as computed at fit entry.
+    try:
+        signature = signature[:-1] + (_hashable_params_signature(self.get_params(deep=True)),)
+    except Exception:
+        signature = signature[:-1] + (object(),)  # unique token => next identical fit refits (conservative)
     self.signature = signature
     self.ran_out_of_time_ = ran_out_of_time
 

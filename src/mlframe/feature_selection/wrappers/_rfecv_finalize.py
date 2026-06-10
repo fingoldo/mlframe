@@ -207,7 +207,13 @@ def _finalize_fit_results(
             self.support_ = support_mask
             self.n_features_ = int(support_mask.sum())
 
-    self.signature = signature
+    # Refresh the params slot with POST-fit values before storing: fit resolves some params in place
+    # (``scoring=None -> make_scorer(...)``, ``force_parallel`` thread pinning on the wrapped estimator),
+    # so the entry-time params fingerprint would never match the NEXT fit's ``get_params`` and identical
+    # refits would never skip. The data slots (shapes/hashes/columns) stay as computed at fit entry.
+    from ._rfecv_fit_init import _current_params_signature
+
+    self.signature = signature[:-1] + (_current_params_signature(self),)
 
     # Cache resolved column list so transform() avoids per-call reconstruction.
     self._selected_cols_cache = None

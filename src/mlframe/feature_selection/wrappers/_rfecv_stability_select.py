@@ -184,7 +184,11 @@ def _fit_stability_selection(self, X, y, signature):
     self.stability_selection_freq_ = selection_freq
 
     self._selected_cols_cache = [c for c, s in zip(feature_names, support_mask) if s]
-    self.signature = signature
+    # Refresh the params slot with POST-fit values before storing (fit may resolve params in place,
+    # e.g. ``scoring=None -> make_scorer(...)``); see ``_rfecv_fit_init._current_params_signature``.
+    from ._rfecv_fit_init import _current_params_signature
+
+    self.signature = signature[:-1] + (_current_params_signature(self),)
 
     if self.verbose:
         logger.info(
