@@ -229,10 +229,10 @@ def test_metric_over_time_regime_shading():
     fig = drift.metric_over_time(y, p, ts, metric="roc_auc", freq="D", min_samples=10, regimes=regimes)
     panel = fig.panels[0][0]
     assert panel.vspans is not None and len(panel.vspans) == 2
-    assert "train" in panel.title and "test" in panel.title
-    # vspans carry numeric x bounds + color + alpha.
-    x0, x1, color, alpha = panel.vspans[0]
-    assert x1 > x0 and color == "blue" and 0.0 < alpha < 1.0
+    # G13: regime labels now ride on the vspans (5-tuple) as legend proxies, not folded into the title.
+    x0, x1, color, alpha, label = panel.vspans[0]
+    assert x1 > x0 and color == "blue" and 0.0 < alpha < 1.0 and label == "train"
+    assert panel.vspans[1][4] == "test"
 
 
 def test_metric_over_time_no_buckets_is_annotation():
@@ -314,9 +314,10 @@ def test_adversarial_validation_returns_roc_and_bar():
     roc, bar = fig.panels[0]
     assert isinstance(roc, LinePanelSpec)
     assert isinstance(bar, BarPanelSpec)
-    # Single shared x across all ROC y-series (resampled onto a common grid).
-    assert roc.x.ndim == 1
-    assert all(yy.shape == roc.x.shape for yy in roc.y)
+    # G11: per-series x -- each ROC curve keeps its native fpr grid (no resample onto a shared grid).
+    assert isinstance(roc.x, tuple)
+    assert len(roc.x) == len(roc.y)
+    assert all(xx.shape == yy.shape for xx, yy in zip(roc.x, roc.y))
     assert len(bar.categories) == 5 and bar.values.shape == (5,)
 
 

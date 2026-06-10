@@ -212,6 +212,9 @@ def psi_heatmap(
         cell_text=cell_text,
         text_format=".2f",
         colorbar_label="PSI",
+        # Iso-PSI triage contours: the renderer draws a line only where the heatmap crosses 0.10 / 0.25, so the
+        # moderate / significant drift boundaries are visible directly on the grid rather than read off the colorbar.
+        threshold_contours=((PSI_MODERATE, "orange"), (PSI_SIGNIFICANT, "red")),
     )
     fs = figsize or (max(8.0, 0.6 * n_buckets + 4.0), max(3.0, 0.32 * n_feat + 1.5))
     return FigureSpec(suptitle="", panels=((heat,),), figsize=fs)
@@ -345,15 +348,12 @@ def metric_over_time(
         x, yvals = x[keep], yvals[keep]
 
     vspans = _regimes_to_vspans(regimes, regime_alpha)
-    regime_note = ""
-    if regimes:
-        regime_note = " | regimes: " + ", ".join(str(r[3]) for r in regimes if len(r) >= 4 and r[3])
     direction = "higher=better" if higher_is_better else "lower=better"
     line = LinePanelSpec(
         x=x,
         y=yvals,
         series_labels=(metric,),
-        title=(title or f"{metric} over time ({direction})") + regime_note,
+        title=title or f"{metric} over time ({direction})",
         xlabel="time",
         ylabel=metric,
         line_styles=("lines+markers",),
@@ -374,24 +374,29 @@ def _is_datetime_index(idx: Any) -> bool:
 
 def _regimes_to_vspans(
     regimes: Optional[Sequence[Tuple[Any, Any, str, str]]], alpha: float
-) -> Optional[Tuple[Tuple[float, float, str, float], ...]]:
-    """Convert ``(start, end, color, label)`` regime spans to LinePanelSpec ``vspans`` ``(x0, x1, color, alpha)``.
+) -> Optional[Tuple[Tuple[Any, ...], ...]]:
+    """Convert ``(start, end, color, label)`` regime spans to LinePanelSpec ``vspans``.
 
-    start/end are coerced to the same numeric x-scale as the line (datetime -> int64 ns, else float). Labels are
-    dropped here (vspans are unlabeled) -- the caller folds them into the title.
+    start/end are coerced to the same numeric x-scale as the line (datetime -> int64 ns, else float). A non-empty
+    label emits a 5-tuple ``(x0, x1, color, alpha, label)`` so the renderer adds a legend proxy per regime; an empty
+    label stays the 4-tuple ``(x0, x1, color, alpha)``.
     """
     if not regimes:
         return None
     import pandas as pd
 
-    out: List[Tuple[float, float, str, float]] = []
+    out: List[Tuple[Any, ...]] = []
     for span in regimes:
         if len(span) < 3:
             continue
         start, end, color = span[0], span[1], span[2]
+        label = str(span[3]) if len(span) >= 4 and span[3] else ""
         x0 = _coerce_x(start, pd)
         x1 = _coerce_x(end, pd)
-        out.append((x0, x1, str(color), float(alpha)))
+        if label:
+            out.append((x0, x1, str(color), float(alpha), label))
+        else:
+            out.append((x0, x1, str(color), float(alpha)))
     return tuple(out) if out else None
 
 
@@ -409,8 +414,6 @@ def _coerce_x(v: Any, pd: Any) -> float:
 # long before 200k rows/side; sampling caps the fit cost at large n without changing the verdict.
 ADV_MAX_ROWS_PER_SIDE: int = 200_000
 ADV_TOP_FEATURES: int = 20
-# Decimation cap for the ROC curve (a 200px display cannot resolve more).
-_ROC_MAX_VERTICES: int = 1000
 
 
 def _subsample_rows(n: int, cap: int, seed: int) -> np.ndarray:
@@ -523,10 +526,12 @@ def adversarial_validation(
         colors.insert(1, "steelblue")
         title_bits.append(f"train-vs-val AUC={auc_tv:.3f}")
 
-    series_x, series_y, labels, styles, colors = _pad_roc_series(series_x, series_y, labels, styles, colors)
+    # Each ROC curve has its own fpr grid (different per train-vs-test / train-vs-val pair); LinePanelSpec carries a
+    # tuple of per-series x arrays so every curve keeps its native vertices instead of being resampled onto a shared grid.
+    series_x = [np.asarray(fx, dtype=np.float64) for fx in series_x]
     verdict = "shift => CV may NOT transfer" if auc_tt >= 0.6 else "indistinguishable => CV transfers"
     roc = LinePanelSpec(
-        x=series_x[0],
+        x=tuple(series_x),
         y=tuple(series_y),
         series_labels=tuple(labels),
         line_styles=tuple(styles),
@@ -547,17 +552,6 @@ def adversarial_validation(
         xtick_rotation=60.0,
     )
     return FigureSpec(suptitle="", panels=((roc, bar),), figsize=figsize)
-
-
-def _pad_roc_series(series_x, series_y, labels, styles, colors):
-    """LinePanelSpec shares one x across all y-series; ROC curves have different-length fpr/tpr per pair. Resample
-    every curve onto a common dense fpr grid so a single x carries them all (chance diagonal too)."""
-    grid = np.linspace(0.0, 1.0, _ROC_MAX_VERTICES)
-    new_y = []
-    for fx, fy in zip(series_x, series_y):
-        order = np.argsort(fx)
-        new_y.append(np.interp(grid, fx[order], fy[order]))
-    return [grid], new_y, labels, styles, colors
 
 
 __all__ = [
