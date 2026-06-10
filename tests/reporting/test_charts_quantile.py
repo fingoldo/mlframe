@@ -15,11 +15,12 @@ import pytest
 
 from mlframe.reporting.charts.quantile import (
     ALLOWED_QUANTILE_PANEL_TOKENS, compose_quantile_figure,
+    _model_diagnostics_decompose,
 )
 from mlframe.reporting.output import parse_plot_output_dsl
 from mlframe.reporting.renderers import render_and_save
 from mlframe.reporting.spec import (
-    FigureSpec, HistogramPanelSpec, LinePanelSpec,
+    AnnotationPanelSpec, BarPanelSpec, FigureSpec, HistogramPanelSpec, LinePanelSpec,
 )
 
 
@@ -60,6 +61,7 @@ class TestAllowedTokens:
         assert ALLOWED_QUANTILE_PANEL_TOKENS == frozenset({
             "RELIABILITY", "COVERAGE", "PINBALL_BY_ALPHA", "INTERVAL_BAND",
             "WIDTH_DIST", "PIT_HIST",
+            "QUANTILE_RELIABILITY", "PINBALL_DECOMP", "QUANTILE_CROSSING",
         })
 
 
@@ -198,3 +200,175 @@ class TestRender:
             render_and_save(spec, parse_plot_output_dsl("plotly[html]"),
                             str(tmp_path / "qr"))
         assert os.path.exists(tmp_path / "qr.html")
+
+
+# ----------------------------------------------------------------------------
+# Reliability extension (R-6): QUANTILE_RELIABILITY / PINBALL_DECOMP / QUANTILE_CROSSING
+# ----------------------------------------------------------------------------
+
+
+@pytest.fixture
+def synth_qr_calibrated():
+    """Heteroscedastic-free linear DGP with well-calibrated, varying, monotone quantile preds.
+
+    y = x + N(0, 0.5). The true tau-quantile of y|x is ``x + 0.5 * Phi^{-1}(tau)``,
+    so feeding exactly that as q_tau yields a calibrated, never-crossing predictor.
+    """
+    from scipy.stats import norm
+    rng = np.random.default_rng(0)
+    n = 6000
+    x = rng.standard_normal(n)
+    y = x + rng.standard_normal(n) * 0.5
+    alphas = (0.1, 0.5, 0.9)
+    preds = np.column_stack([x + 0.5 * norm.ppf(a) for a in alphas])
+    return y, preds, alphas
+
+
+@pytest.fixture
+def synth_qr_miscalibrated():
+    """Same DGP, but every quantile shifted DOWN by 1.0 -> systematically over-predicting q.
+
+    With q_tau pushed below the true conditional quantile, FEWER y fall below q_tau, so the
+    recalibrated observed coverage sits well BELOW nominal tau -- a large, detectable deviation.
+    """
+    from scipy.stats import norm
+    rng = np.random.default_rng(0)
+    n = 6000
+    x = rng.standard_normal(n)
+    y = x + rng.standard_normal(n) * 0.5
+    alphas = (0.1, 0.5, 0.9)
+    preds = np.column_stack([x + 0.5 * norm.ppf(a) - 1.0 for a in alphas])
+    return y, preds, alphas
+
+
+@pytest.fixture
+def synth_qr_crossing():
+    """Independent-head quantile preds that cross: the tau=0.9 column is forced BELOW tau=0.1.
+
+    Produces a clearly non-zero adjacent-pair crossing rate.
+    """
+    rng = np.random.default_rng(1)
+    n = 4000
+    x = rng.standard_normal(n)
+    y = x + rng.standard_normal(n) * 0.5
+    alphas = (0.1, 0.5, 0.9)
+    q10 = x + 1.0
+    q50 = x
+    q90 = x - 1.0  # deliberately inverted vs q10
+    preds = np.column_stack([q10, q50, q90])
+    return y, preds, alphas
+
+
+class TestQuantileReliabilityPanelTypes:
+    def test_quantile_reliability_returns_line(self, synth_qr_calibrated):
+        y, p, alphas = synth_qr_calibrated
+        spec = compose_quantile_figure(y, p, alphas, panels_template="QUANTILE_RELIABILITY")
+        panel = spec.panels[0][0]
+        assert isinstance(panel, LinePanelSpec)
+        # K observed curves + K nominal lines.
+        assert len(panel.y) == 2 * len(alphas)
+        assert any("nominal" in s for s in panel.series_labels)
+        assert any("obs" in s for s in panel.series_labels)
+
+    def test_pinball_decomp_returns_bar(self, synth_qr_calibrated):
+        y, p, alphas = synth_qr_calibrated
+        spec = compose_quantile_figure(y, p, alphas, panels_template="PINBALL_DECOMP")
+        panel = spec.panels[0][0]
+        assert isinstance(panel, BarPanelSpec)
+        assert len(panel.categories) == len(alphas)
+
+    def test_pinball_decomp_corp_three_series_when_md_available(self, synth_qr_calibrated):
+        if _model_diagnostics_decompose() is None:
+            pytest.skip("model-diagnostics not importable")
+        y, p, alphas = synth_qr_calibrated
+        spec = compose_quantile_figure(y, p, alphas, panels_template="PINBALL_DECOMP")
+        panel = spec.panels[0][0]
+        assert isinstance(panel.values, tuple) and len(panel.values) == 3
+        assert panel.series_labels == ("miscalibration", "discrimination", "uncertainty")
+
+    def test_quantile_crossing_returns_bar(self, synth_qr_calibrated):
+        y, p, alphas = synth_qr_calibrated
+        spec = compose_quantile_figure(y, p, alphas, panels_template="QUANTILE_CROSSING")
+        panel = spec.panels[0][0]
+        assert isinstance(panel, BarPanelSpec)
+        # K-1 adjacent pairs.
+        assert len(panel.categories) == len(alphas) - 1
+        assert panel.values.shape == (len(alphas) - 1,)
+
+    def test_quantile_crossing_placeholder_when_single_alpha(self, synth_qr_calibrated):
+        y, p, alphas = synth_qr_calibrated
+        spec = compose_quantile_figure(
+            y, p[:, [1]], (alphas[1],), panels_template="QUANTILE_CROSSING",
+        )
+        panel = spec.panels[0][0]
+        assert isinstance(panel, AnnotationPanelSpec)
+        assert "needs >= 2" in panel.text
+
+    def test_new_tokens_render_matplotlib(self, synth_qr_calibrated, tmp_path):
+        y, p, alphas = synth_qr_calibrated
+        spec = compose_quantile_figure(
+            y, p, alphas,
+            panels_template="QUANTILE_RELIABILITY PINBALL_DECOMP QUANTILE_CROSSING",
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            render_and_save(spec, parse_plot_output_dsl("matplotlib[png]"),
+                            str(tmp_path / "qr6"))
+        assert os.path.exists(tmp_path / "qr6.png")
+        assert os.path.getsize(tmp_path / "qr6.png") > 5000
+
+
+class TestQuantileReliabilityBizValue:
+    """Quantitative wins: calibrated -> near-nominal + zero crossing; broken -> detectable."""
+
+    def _reliability_curves(self, y, p, alphas):
+        spec = compose_quantile_figure(y, p, alphas, panels_template="QUANTILE_RELIABILITY")
+        panel = spec.panels[0][0]
+        K = len(alphas)
+        obs = panel.y[:K]
+        nominal = panel.y[K:]
+        return obs, nominal
+
+    def test_biz_calibrated_reliability_tracks_nominal(self, synth_qr_calibrated):
+        y, p, alphas = synth_qr_calibrated
+        obs, nominal = self._reliability_curves(y, p, alphas)
+        for k, a in enumerate(alphas):
+            mean_abs_dev = float(np.mean(np.abs(obs[k] - a)))
+            # Calibrated: recalibrated coverage stays within 0.05 of nominal tau across the range.
+            assert mean_abs_dev < 0.05, f"tau={a} dev {mean_abs_dev}"
+
+    def test_biz_miscalibrated_reliability_off_nominal(self, synth_qr_miscalibrated):
+        y, p, alphas = synth_qr_miscalibrated
+        obs, nominal = self._reliability_curves(y, p, alphas)
+        # q shifted below the true quantile => observed coverage well BELOW nominal at tau=0.5.
+        mid = alphas.index(0.5)
+        dev = float(np.mean(obs[mid] - 0.5))
+        assert dev < -0.2, f"miscalibrated mid-tau drop only {dev}"
+
+    def test_biz_calibrated_crossing_near_zero(self, synth_qr_calibrated):
+        y, p, alphas = synth_qr_calibrated
+        spec = compose_quantile_figure(y, p, alphas, panels_template="QUANTILE_CROSSING")
+        rates = spec.panels[0][0].values
+        assert float(rates.max()) < 0.01, f"calibrated crossing rate {rates.max()}"
+
+    def test_biz_crossing_rate_clearly_positive(self, synth_qr_crossing):
+        y, p, alphas = synth_qr_crossing
+        spec = compose_quantile_figure(y, p, alphas, panels_template="QUANTILE_CROSSING")
+        rates = spec.panels[0][0].values
+        # Inverted heads => every row violates both adjacent pairs.
+        assert float(rates.max()) > 0.9, f"crossing rate too low {rates.max()}"
+
+    def test_biz_corp_miscalibration_jumps_on_shift(
+        self, synth_qr_calibrated, synth_qr_miscalibrated,
+    ):
+        if _model_diagnostics_decompose() is None:
+            pytest.skip("model-diagnostics not importable")
+        yc, pc, alphas = synth_qr_calibrated
+        ym, pm, _ = synth_qr_miscalibrated
+        mid = alphas.index(0.5)
+        spec_c = compose_quantile_figure(yc, pc, alphas, panels_template="PINBALL_DECOMP")
+        spec_m = compose_quantile_figure(ym, pm, alphas, panels_template="PINBALL_DECOMP")
+        miscal_c = float(spec_c.panels[0][0].values[0][mid])
+        miscal_m = float(spec_m.panels[0][0].values[0][mid])
+        # CORP miscalibration component must rise sharply for the shifted predictor.
+        assert miscal_m > miscal_c + 0.1, f"calib {miscal_c} vs miscal {miscal_m}"

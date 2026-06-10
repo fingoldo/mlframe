@@ -24,6 +24,23 @@ Token catalogue (6 standard panels):
                         values; uniform = well-calibrated.
                         Skipped with a placeholder when K < 3 (PIT
                         requires K >= 3 alphas to interpolate).
+
+Reliability extension (R-6):
+- ``QUANTILE_RELIABILITY`` -- per tau, the isotonic-recalibrated observed
+                        coverage E[1(y<=q_pred)|q_pred] vs the nominal tau
+                        (CORP-style reliability for quantiles). Calibrated
+                        models track the horizontal tau line; a curve that
+                        sits above/below tau is over/under-predicting at
+                        that level.
+- ``PINBALL_DECOMP`` -- CORP additive decomposition of pinball loss per tau
+                        (miscalibration - discrimination + uncertainty) when
+                        ``model-diagnostics`` is importable; otherwise plain
+                        mean pinball per tau as a bar (the line-plot variant
+                        is ``PINBALL_BY_ALPHA``).
+- ``QUANTILE_CROSSING`` -- per adjacent (tau_lo<tau_hi) pair, the fraction of
+                        rows where q_tau_lo > q_tau_hi (a monotonicity
+                        violation). Independent quantile heads cross silently;
+                        any non-zero bar is a correctness problem.
 """
 
 from __future__ import annotations
@@ -36,8 +53,22 @@ from mlframe.reporting.charts._layout import (
     figsize_for_grid, pack_panels, parse_panel_template,
 )
 from mlframe.reporting.spec import (
-    AnnotationPanelSpec, FigureSpec, HistogramPanelSpec, LinePanelSpec, PanelSpec,
+    AnnotationPanelSpec, BarPanelSpec, FigureSpec, HistogramPanelSpec,
+    LinePanelSpec, PanelSpec,
 )
+
+
+def _model_diagnostics_decompose():
+    """Return ``model_diagnostics.scoring.(decompose, PinballLoss)`` or ``None``.
+
+    DEPEND path for the CORP pinball decomposition; the import is gated so a
+    host without the wheel (or a future 3.x break) falls back to plain pinball.
+    """
+    try:
+        from model_diagnostics.scoring import PinballLoss, decompose
+        return decompose, PinballLoss
+    except Exception:
+        return None
 
 
 # ----------------------------------------------------------------------------
@@ -297,6 +328,172 @@ def _pit_hist_panel(y_true, preds_NK, alphas) -> PanelSpec:
 
 
 # ----------------------------------------------------------------------------
+# Reliability extension (R-6)
+# ----------------------------------------------------------------------------
+
+# Cap on rows fed to the per-tau isotonic fit: O(n log n) sort dominates, and a
+# 100k uniform subsample reproduces the recalibrated curve within plotting noise
+# while keeping the panel sub-second at n>=1e6 (see _benchmarks/profile harness).
+_ISOTONIC_FIT_CAP = 100_000
+_RELIABILITY_GRID = 25
+
+
+def _isotonic_recalibrated_coverage(q_pred, indicator, grid):
+    """Isotonic E[indicator | q_pred] evaluated on ``grid`` (clipped out-of-range).
+
+    ``indicator`` is the 0/1 event ``y <= q_pred``; the isotonic fit gives the
+    monotone-in-q_pred recalibrated coverage. For a calibrated tau-quantile this
+    is ~tau across the whole predicted range.
+    """
+    from sklearn.isotonic import IsotonicRegression
+
+    iso = IsotonicRegression(out_of_bounds="clip")
+    iso.fit(q_pred, indicator)
+    return iso.predict(grid)
+
+
+def _quantile_reliability_panel(y_true, preds_NK, alphas) -> PanelSpec:
+    """Isotonic-recalibrated observed coverage vs predicted quantile, per tau (R-6).
+
+    For each tau_k the recalibrated curve E[1(y<=q_k)|q_k] should sit on the
+    horizontal tau_k line; sustained deviation is miscalibration at that level.
+    Predictions that are constant within a tau (degenerate single-valued q_k)
+    give a single point -- still plotted, just uninformative about shape.
+    """
+    y = np.asarray(y_true, dtype=np.float64).ravel()
+    P = np.asarray(preds_NK, dtype=np.float64)
+    a_arr = np.asarray(alphas, dtype=np.float64)
+    K = a_arr.shape[0]
+    n = y.shape[0]
+
+    if n > _ISOTONIC_FIT_CAP:
+        rng = np.random.default_rng(0)
+        sub = rng.choice(n, size=_ISOTONIC_FIT_CAP, replace=False)
+        y = y[sub]
+        P = P[sub]
+
+    quantile_grid = np.linspace(0.02, 0.98, _RELIABILITY_GRID)
+    curves: List[np.ndarray] = []
+    nominal: List[np.ndarray] = []
+    labels: List[str] = []
+    styles: List[str] = []
+    for k in range(K):
+        q_k = P[:, k]
+        indicator = (y <= q_k).astype(np.float64)
+        grid = np.quantile(q_k, quantile_grid)
+        recal = _isotonic_recalibrated_coverage(q_k, indicator, grid)
+        curves.append(recal)
+        nominal.append(np.full(_RELIABILITY_GRID, float(a_arr[k])))
+        labels.append(f"tau={a_arr[k]:g} (obs)")
+        styles.append("lines+markers")
+    for k in range(K):
+        labels.append(f"tau={a_arr[k]:g} (nominal)")
+        styles.append(":")
+    x_axis = np.linspace(0.0, 1.0, _RELIABILITY_GRID)
+    return LinePanelSpec(
+        x=x_axis,
+        y=tuple(curves + nominal),
+        series_labels=tuple(labels),
+        title="Quantile reliability (isotonic-recalibrated coverage vs tau)",
+        xlabel="Predicted-quantile rank (low -> high)",
+        ylabel="Recalibrated P(y <= q_tau)",
+        line_styles=tuple(styles),
+    )
+
+
+def _pinball_decomp_panel(y_true, preds_NK, alphas) -> PanelSpec:
+    """CORP pinball-loss decomposition per tau, or plain mean pinball if unavailable (R-6).
+
+    With ``model-diagnostics`` present this draws the additive
+    ``miscalibration - discrimination + uncertainty`` bars per tau (a high
+    miscalibration share is the actionable signal). Without it, falls back to a
+    single mean-pinball bar per tau (complementing the line-plot PINBALL_BY_ALPHA).
+    """
+    y = np.asarray(y_true, dtype=np.float64).ravel()
+    P = np.asarray(preds_NK, dtype=np.float64)
+    a_arr = np.asarray(alphas, dtype=np.float64)
+    K = a_arr.shape[0]
+    cats = tuple(f"{a_arr[k]:g}" for k in range(K))
+
+    md = _model_diagnostics_decompose()
+    if md is None:
+        from mlframe.metrics.quantile import pinball_loss
+        losses = np.array(
+            [pinball_loss(y, P[:, k], float(a_arr[k])) for k in range(K)],
+            dtype=np.float64,
+        )
+        return BarPanelSpec(
+            categories=cats,
+            values=losses,
+            title=f"Mean pinball by tau (mean={losses.mean():.4f})",
+            xlabel="tau",
+            ylabel="Pinball loss",
+            colors=("crimson",),
+        )
+
+    decompose, PinballLoss = md
+    miscal = np.empty(K, dtype=np.float64)
+    discr = np.empty(K, dtype=np.float64)
+    uncert = np.empty(K, dtype=np.float64)
+    for k in range(K):
+        df = decompose(y, P[:, k], scoring_function=PinballLoss(level=float(a_arr[k])))
+        miscal[k] = float(df["miscalibration"][0])
+        discr[k] = float(df["discrimination"][0])
+        uncert[k] = float(df["uncertainty"][0])
+    return BarPanelSpec(
+        categories=cats,
+        values=(miscal, discr, uncert),
+        series_labels=("miscalibration", "discrimination", "uncertainty"),
+        title="Pinball CORP decomposition by tau (score = miscal - discr + uncert)",
+        xlabel="tau",
+        ylabel="Loss component",
+        colors=("crimson", "seagreen", "slategray"),
+    )
+
+
+def _quantile_crossing_panel(y_true, preds_NK, alphas) -> PanelSpec:
+    """Adjacent-pair quantile-crossing violation rate (R-6).
+
+    For each adjacent pair (tau_j < tau_{j+1}) the bar is the fraction of rows
+    where q_{tau_j} > q_{tau_{j+1}} -- a monotonicity violation that independent
+    quantile heads produce silently. The title surfaces the single worst pair's
+    raw row count so a tiny-but-nonzero rate is not lost to rounding.
+    """
+    P = np.asarray(preds_NK, dtype=np.float64)
+    a_arr = np.asarray(alphas, dtype=np.float64)
+    K = a_arr.shape[0]
+    n = P.shape[0]
+    if K < 2:
+        return AnnotationPanelSpec(
+            text="Quantile crossing skipped: needs >= 2 alphas",
+            title="Quantile crossing (adjacent-pair violation rate)",
+        )
+    cats: List[str] = []
+    rates = np.empty(K - 1, dtype=np.float64)
+    counts = np.empty(K - 1, dtype=np.int64)
+    for j in range(K - 1):
+        viol = P[:, j] > P[:, j + 1]
+        c = int(viol.sum())
+        counts[j] = c
+        rates[j] = (c / n) if n else 0.0
+        cats.append(f"{a_arr[j]:g}>{a_arr[j + 1]:g}")
+    worst = int(np.argmax(counts))
+    title = (
+        f"Quantile crossing rate (worst {cats[worst]}: "
+        f"{counts[worst]} rows, {rates[worst]:.3%})"
+    )
+    return BarPanelSpec(
+        categories=tuple(cats),
+        values=rates,
+        title=title,
+        xlabel="Adjacent tau pair",
+        ylabel="Fraction of rows with q_lo > q_hi",
+        colors=("indianred",),
+        xtick_rotation=30.0,
+    )
+
+
+# ----------------------------------------------------------------------------
 # Token registry + composer
 # ----------------------------------------------------------------------------
 
@@ -308,6 +505,9 @@ _TOKEN_BUILDERS: Dict[str, Callable] = {
     "INTERVAL_BAND": _interval_band_panel,
     "WIDTH_DIST": _width_dist_panel,
     "PIT_HIST": _pit_hist_panel,
+    "QUANTILE_RELIABILITY": _quantile_reliability_panel,
+    "PINBALL_DECOMP": _pinball_decomp_panel,
+    "QUANTILE_CROSSING": _quantile_crossing_panel,
 }
 
 ALLOWED_QUANTILE_PANEL_TOKENS = frozenset(_TOKEN_BUILDERS)
