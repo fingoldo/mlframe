@@ -398,6 +398,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # WHY the FE search stopped (residual fraction, max raw MI, maxT floor). Always present
     # so transform / pickle / clone never trip on a missing attribute.
     self.sufficient_summary_ = None
+    # Count of FE operator-search iterations actually executed (``_run_fe_step`` calls). The
+    # sufficient-summary early-stop reduces this by skipping provably-pointless steps; the
+    # biz_value test asserts on it as a DETERMINISTIC work-saved proxy (timing on a contended
+    # box is jittery). Always present for transform / pickle / clone.
+    self._fe_steps_executed_ = 0
     # Deferred hinge-leg buffer: the hinge stage detects + held-out-validates the
     # legs early (it needs the raw source columns before pair-FE rewrites them) but
     # DEFERS materialising them into the candidate matrix until support finalisation,
@@ -5882,6 +5887,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
         # Feature engineering iteration delegated to ``_run_fe_step`` (testable / experiment-friendly outside
         # the screening loop). Returns updated state + n_recommended_features; zero breaks the outer loop.
+        self._fe_steps_executed_ += 1
         fe_result = self._run_fe_step(
             data=data, cols=cols, nbins=nbins, X=X,
             target_names=target_names, target_indices=target_indices,
