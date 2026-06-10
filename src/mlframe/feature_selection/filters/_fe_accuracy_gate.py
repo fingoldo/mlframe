@@ -41,11 +41,16 @@ def measure_feature_uplift(
     classification: bool,
     n_splits: int = 10,
     seed: int = 0,
-) -> float:
+):
     """Held-out uplift of a linear probe fitted on ``[X_base | X_eng]`` versus
     ``X_base`` alone. Positive => the engineered set adds generalisable signal.
     Returns the mean held-out score delta (AUC binary / accuracy multiclass /
-    R^2 regression). 0.0 on degenerate input."""
+    R^2 regression), or ``None`` when the uplift CANNOT be measured (degenerate
+    input, too few rows/classes, or a probe exception). ``None`` is the fail-OPEN
+    sentinel: callers must KEEP the engineered column when they cannot assess it
+    (a probe that errors must not silently evict a candidate -- the documented
+    contract of ``keep_engineered_over_source``). A genuine measured zero uplift
+    still returns ``0.0`` (and is correctly dropped)."""
     X_base = np.asarray(X_base, dtype=np.float64)
     X_eng = np.asarray(X_eng, dtype=np.float64)
     y = np.asarray(y).ravel()
@@ -55,11 +60,11 @@ def measure_feature_uplift(
         X_eng = X_eng[:, None]
     n = X_base.shape[0]
     if n != X_eng.shape[0] or n != y.size or n < 40 or X_eng.shape[1] == 0:
-        return 0.0
+        return None
     yf = y.astype(np.float64, copy=False) if y.dtype.kind in ("f", "i", "u", "b") else np.zeros(n)
     finite = np.isfinite(X_base).all(1) & np.isfinite(X_eng).all(1) & np.isfinite(yf)
     if int(finite.sum()) < 40:
-        return 0.0
+        return None
     X_base, X_eng, y = X_base[finite], X_eng[finite], y[finite]
 
     from sklearn.linear_model import LogisticRegression, Ridge
@@ -71,11 +76,11 @@ def measure_feature_uplift(
     if classification:
         classes, y_enc = np.unique(y, return_inverse=True)
         if classes.size < 2:
-            return 0.0
+            return None
         binary = classes.size == 2
         n_splits = min(n_splits, int(np.min(np.bincount(y_enc))))
         if n_splits < 2:
-            return 0.0
+            return None
         split_iter = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed).split(X_base, y_enc)
     else:
         y_enc = y.astype(np.float64)
@@ -104,10 +109,10 @@ def measure_feature_uplift(
 
             deltas.append(_score(X_aug) - _score(X_base))
     except Exception as exc:  # pragma: no cover - the probe must never break a fit
-        logger.debug("measure_feature_uplift: probe failed (%s); returning 0.0", exc)
-        return 0.0
+        logger.debug("measure_feature_uplift: probe failed (%s); fail-open (None)", exc)
+        return None
     if not deltas:
-        return 0.0
+        return None
     return float(np.mean(deltas))
 
 
@@ -155,4 +160,7 @@ def keep_engineered_over_source(
         rng = np.random.default_rng(seed)
         idx = rng.choice(n, max_probe_n, replace=False)
         src_vals, eng_mat, y = src_vals[idx], eng_mat[idx], y[idx]
-    return measure_feature_uplift(src_vals, eng_mat, y, classification=infer_classification(y)) >= threshold
+    uplift = measure_feature_uplift(src_vals, eng_mat, y, classification=infer_classification(y))
+    # Fail-open: a probe that COULD NOT measure uplift (None) must KEEP the column
+    # (the docstring contract) -- never silently evict on an unmeasurable probe.
+    return True if uplift is None else uplift >= threshold
