@@ -57,6 +57,40 @@ def _is_composite(name: str) -> bool:
     return name.count("(") >= 4 and name.count(",") >= 2
 
 
+def _split_outer_operands(name: str) -> list:
+    """Split an outer ``binary(LEFT,RIGHT)`` form into its two top-level operand
+    substrings at the OUTER (depth-0) comma. Nested inner commas (each inner pair's
+    own argument comma) are NOT split on -- only the outer binary's comma is. So
+    ``add(div(sqr(a),neg(b)),mul(log(c),sin(d)))`` -> ``['div(sqr(a),neg(b))',
+    'mul(log(c),sin(d))']``. Returns ``[]`` if there is no top-level paren."""
+    if "(" not in name:
+        return []
+    inner = name[name.index("(") + 1 : name.rindex(")")]
+    parts, depth, last = [], 0, 0
+    for i, ch in enumerate(inner):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            parts.append(inner[last:i])
+            last = i + 1
+    parts.append(inner[last:])
+    return parts
+
+
+def _has_cd_two_operand_side(name: str) -> bool:
+    """True iff one TOP-LEVEL operand of the composite is a genuine TWO-OPERAND form
+    over BOTH ``c`` and ``d`` (e.g. ``mul(log(c),sin(d))`` / ``div(log(c),reciproc(d))``).
+
+    This is the STRICT discriminator the c-only-surrogate regression would fail: a
+    wrong selection like ``add(invcbrt(c),neg(div(sqr(a),b)))`` has a ``c``-only side
+    (``invcbrt(c)`` -- no ``d``) and an ``(a,b)`` side, so NO single operand carries
+    both ``c`` and ``d``; the genuine ``(c,d)`` interaction term is missing. The clean
+    composite always has one operand covering ``{c, d}`` jointly."""
+    return any({"c", "d"} <= _bare_vars(p) for p in _split_outer_operands(name))
+
+
 # ---------------------------------------------------------------------------
 # UNIT: nested-parent recipe build + replay round-trip.
 # ---------------------------------------------------------------------------
@@ -221,4 +255,61 @@ def test_fe_max_engineered_operands_zero_disables_feedforward():
     sel = list(fs.get_feature_names_out())
     assert not any(_is_composite(s) for s in sel), (
         f"fe_max_engineered_operands=0 should disable composites: {sel}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# STRICT PIN: the CLEAN F1 composite must be recovered at every seed.
+# ---------------------------------------------------------------------------
+# This pins the behaviour the user expected but that was NOT pinned before: on
+# F1 ``y = a**2/b + f/5 + log(c)*sin(d)`` with ``fe_max_steps=2`` the selection must
+# contain an ADDITIVE composite whose two operands cover BOTH genuine pairs -- and
+# crucially the ``(c, d)`` part must be a genuine TWO-OPERAND interaction over c AND d,
+# NOT a c-only surrogate (e.g. ``add(invcbrt(c), neg(a**2/b))`` -- which a prior run
+# reported and which the loose ``_bare_vars`` pair-coverage check alone would let pass
+# only because the OTHER operand happens to mention nothing of c/d). The n-dependence
+# probe (2026-06-10) confirmed this clean composite is recovered at n=30k/50k/100k on
+# every seed (the wrong c-only form did NOT reproduce -- that earlier run was a stale
+# pull), so a strict n=30k multi-seed assertion is a faithful, RAM-safe regression guard.
+# n=30000 (not 100k) keeps it deterministic on RAM-tight boxes; n_workers=1 forces the
+# serial FE path (the loky-worker buffer intermittently OOMs at 100k -- a Windows-paging
+# fragility unrelated to composite discovery, which is path-independent).
+@pytest.mark.slow
+@pytest.mark.timeout(900)
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_strict_pin_clean_additive_composite_covers_both_pairs_two_operand(seed):
+    """STRICT REGRESSION PIN (2026-06-10): F1 / ``fe_max_steps=2`` must surface an
+    additive composite over BOTH genuine pairs, with the ``(c,d)`` side a real
+    two-operand interaction (NOT a c-only surrogate). Asserted on 3 seeds at n=30000."""
+    df, y = _canonical_fixture(seed=seed, n=30_000)
+    fs = MRMR(verbose=0, fe_max_steps=2, n_workers=1)
+    fs.fit(df, y)
+    sel = list(fs.get_feature_names_out())
+
+    composites = [s for s in sel if _is_composite(s)]
+    assert composites, f"[seed={seed}] no engineered-x-engineered composite: {sel}"
+
+    # Among the composites, find one that is the CLEAN additive cross-pair form.
+    clean = [
+        s
+        for s in composites
+        if s.startswith("add(")  # additive top-level binary
+        and {"a", "b"} <= _bare_vars(s)  # the (a,b) signal pair present
+        and {"c", "d"} <= _bare_vars(s)  # the (c,d) signal pair present
+        and _has_cd_two_operand_side(s)  # (c,d) is a real TWO-operand side, not c-only
+    ]
+    assert clean, (
+        f"[seed={seed}] no CLEAN additive composite covering BOTH {{a,b}} AND a "
+        f"genuine two-operand {{c,d}} side (a c-only surrogate like "
+        f"add(invcbrt(c),...) would fail HERE). composites={composites} sel={sel}"
+    )
+
+    # The CLEAN composite must ALSO be the top-ranked engineered factor (support_rank 0).
+    comp = clean[0]
+    prov = fs.fe_provenance_
+    row = prov[prov["feature_name"] == comp]
+    assert not row.empty, f"[seed={seed}] composite {comp} missing from fe_provenance_"
+    assert int(row["support_rank"].iloc[0]) == 0, (
+        f"[seed={seed}] clean composite {comp} is not top-ranked: "
+        f"rank={int(row['support_rank'].iloc[0])}"
     )
