@@ -49,6 +49,9 @@ import matplotlib as mpl
 import matplotlib.cm as cm
 from matplotlib import pyplot as plt
 
+from mlframe.metrics.core import _close_unless_interactive
+from mlframe.metrics.calibration import _show_plots_unless_agg
+
 import pandas as pd, numpy as np
 from pyutilz.pythonlib import ensure_dict_elem
 from pyutilz.pythonlib import sort_dict_by_value
@@ -150,7 +153,7 @@ def optimize_pipeline_by_gridsearch(X, Y, title: str, cv_func: object, cv_result
 
 
 def compare_cv_metrics(cv_results: dict, metric: str = "root_mean_squared_error", extended: bool = False, cmap=cm.viridis, figsize=(20, 8), agg_fcn=np.median):
-    plt.figure(figsize=figsize)
+    fig = plt.figure(figsize=figsize)
 
     mean_scores = {}
     metrics_source = "extended_metrics" if extended else "metrics"
@@ -176,7 +179,12 @@ def compare_cv_metrics(cv_results: dict, metric: str = "root_mean_squared_error"
         plt.plot(vals, label=f"{estimator_name}: {mean_score:.4f}", linestyle="dotted" if "Dummy" in estimator_name else "solid")  # , c=m.to_rgba(mean_score)
     plt.legend(bbox_to_anchor=(1.1, 1.05))
     plt.title(f"CV {metrics_source} comparison: {metric}")
-    plt.show()
+    # Route display through the headless-aware helpers so the gridsearch loop (one figure per explored config)
+    # does not leak pyplot figures: on Agg plt.show() is a no-op that never releases the figure, and unclosed
+    # figures accumulate (matplotlib warns past 20) holding MBs each. Returns the figure for programmatic retrieval.
+    was_shown = _show_plots_unless_agg()
+    _close_unless_interactive(fig, was_shown=was_shown)
+    return fig
 
 
 def compute_ml_metrics(y_true, y_preds, scorers: Sequence, storage: dict = None) -> dict:
@@ -198,7 +206,7 @@ def visualize_prediction_vs_truth(
     samples=(1, 50, 75),
     title="",
     metrics: dict = None,
-) -> dict:
+):
     if metrics is None:
         metrics = {}
     fig, axs = plt.subplots(1, len(samples), sharey=False, figsize=(20, 5))
@@ -224,4 +232,6 @@ def visualize_prediction_vs_truth(
                 axs[i].plot(y_true[sample], marker="v", label="true")
             axs[i].legend()
             axs[i].set_title(sample_title)
-    plt.show()
+    was_shown = _show_plots_unless_agg()
+    _close_unless_interactive(fig, was_shown=was_shown)
+    return fig
