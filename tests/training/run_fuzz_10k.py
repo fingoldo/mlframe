@@ -109,6 +109,10 @@ def _run_one_seed(seed: int, per_seed_timeout_s: int) -> tuple[int, str]:
     cmd = [
         sys.executable, "-m", "pytest",
         "tests/training/test_fuzz_suite.py::test_fuzz_train_mlframe_models_suite",
+        # --run-fuzz is REQUIRED: conftest.pytest_collection_modifyitems skips all fuzz-marked
+        # tests without it (a no-op run otherwise -- 0 combos generated). Do NOT add --fast/-m:
+        # the fuzz test is slow_only, which --fast mode deselects.
+        "--run-fuzz",
         "--no-cov", "-s", "-p", "no:randomly", "-q", "--tb=no",
     ]
     p = subprocess.Popen(
