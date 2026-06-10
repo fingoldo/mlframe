@@ -214,6 +214,32 @@ def _ensure_kaleido_server_started() -> bool:
         return False
 
 
+def _per_series_flags(flag, n: int):
+    """Normalize a per-series bool flag (single bool / tuple / None) into a length-n bool list."""
+    if flag is None:
+        return [False] * n
+    if isinstance(flag, (tuple, list, np.ndarray)):
+        seq = list(flag)
+        return [bool(seq[i]) if i < len(seq) else False for i in range(n)]
+    return [bool(flag)] * n
+
+
+def _line_uses_secondary_y(p) -> bool:
+    n = len(p.y) if isinstance(p.y, tuple) else 1
+    return any(_per_series_flags(p.secondary_y, n))
+
+
+def _err_to_plotly(err):
+    """Spec error-bar field -> plotly ``error_y`` / ``error_x`` dict (data mode, asymmetric where a pair is given)."""
+    if err is None:
+        return None
+    if isinstance(err, tuple):
+        return dict(type="data", symmetric=False,
+                    array=np.asarray(err[1], dtype=float), arrayminus=np.asarray(err[0], dtype=float),
+                    visible=True)
+    return dict(type="data", symmetric=True, array=np.asarray(err, dtype=float), visible=True)
+
+
 class PlotlyRenderer:
     backend = "plotly"
 
@@ -232,8 +258,9 @@ class PlotlyRenderer:
         if rows == 0 or cols == 0:
             raise ValueError("FigureSpec has no panels")
 
-        # Per-panel subplot spec: heatmap needs no shared axes; default
-        # ``xy`` works for everything else.
+        # Per-panel subplot spec: heatmap needs no shared axes; default ``xy`` works for everything else. A line
+        # panel that requests a secondary y-axis must declare ``secondary_y=True`` at subplot-creation time (plotly
+        # can't add a right axis after the grid is built), so detect that here.
         sub_specs: List[List[dict]] = []
         for r, row in enumerate(spec.panels):
             row_specs: List[dict] = []
@@ -241,7 +268,10 @@ class PlotlyRenderer:
                 if c >= len(row) or row[c] is None:
                     row_specs.append({})  # empty cell
                 else:
-                    row_specs.append({"type": "xy"})
+                    cell = {"type": "xy"}
+                    if isinstance(row[c], LinePanelSpec) and _line_uses_secondary_y(row[c]):
+                        cell["secondary_y"] = True
+                    row_specs.append(cell)
             sub_specs.append(row_specs)
 
         # Build subplot titles list (row-major). Plotly's subplot_titles
@@ -261,6 +291,7 @@ class PlotlyRenderer:
 
         subplots_kwargs = dict(
             rows=rows, cols=cols,
+            specs=sub_specs,
             subplot_titles=subplot_titles,
             shared_xaxes=spec.sharex,
             shared_yaxes=spec.sharey,
@@ -568,13 +599,25 @@ class PlotlyRenderer:
         if p.inline_labels and len(p.inline_labels) == n and n <= _SCATTER_MAX_POINTS:
             text = [t[2] for t in p.inline_labels]
 
+        # Per-point error bars (e.g. Wilson CIs on reliability bins). CI panels carry n=bin-count points (no
+        # downsample reorder), so the error arrays align with x/y as-passed; only attach when not downsampled.
+        error_y = error_x = None
+        if n <= _SCATTER_MAX_POINTS:
+            error_y = _err_to_plotly(p.y_err)
+            error_x = _err_to_plotly(p.x_err)
+
         # WebGL renders large scatters orders of magnitude faster than SVG-mode go.Scatter; ndarrays pass
-        # through to plotly natively (faster + smaller than .tolist()).
-        trace_cls = go.Scattergl if n > _SCATTER_WEBGL_THRESHOLD else go.Scatter
+        # through to plotly natively (faster + smaller than .tolist()). Scattergl has no error_y/error_x support,
+        # so a panel carrying error bars uses SVG-mode go.Scatter (bin counts are small, so no perf concern).
+        if error_y is not None or error_x is not None:
+            trace_cls = go.Scatter
+        else:
+            trace_cls = go.Scattergl if n > _SCATTER_WEBGL_THRESHOLD else go.Scatter
         fig.add_trace(
             trace_cls(x=x, y=y,
                       mode="markers+text" if text else "markers",
                       marker=marker,
+                      error_y=error_y, error_x=error_x,
                       text=text,
                       textposition="top center" if text else None,
                       textfont=dict(size=8),
@@ -582,6 +625,32 @@ class PlotlyRenderer:
                       showlegend=bool(p.legend_label)),
             row=row, col=col,
         )
+
+        # Emphasised subset (worst-K errors): resolve indices against the ORIGINAL arrays (pre-downsample).
+        if p.highlight_indices is not None:
+            hi = np.asarray(p.highlight_indices, dtype=np.int64)
+            ox, oy = np.asarray(p.x), np.asarray(p.y)
+            hi = hi[(hi >= 0) & (hi < len(ox))]
+            if hi.size:
+                fig.add_trace(
+                    go.Scatter(x=ox[hi], y=oy[hi], mode="markers",
+                               marker=dict(symbol="circle-open", size=12,
+                                           line=dict(color=p.highlight_color, width=2)),
+                               name="worst-K", showlegend=True),
+                    row=row, col=col,
+                )
+
+        if p.trend_line is not None and n > 1:
+            from mlframe.reporting.renderers._trend import robust_fit_endpoints
+            ends = robust_fit_endpoints(np.asarray(p.x), np.asarray(p.y), p.trend_line)
+            if ends is not None:
+                (tx0, ty0), (tx1, ty1) = ends
+                fig.add_trace(
+                    go.Scatter(x=[tx0, tx1], y=[ty0, ty1], mode="lines",
+                               line=dict(color="darkorange", width=2),
+                               name=f"robust fit ({p.trend_line})", showlegend=True),
+                    row=row, col=col,
+                )
 
         if p.perfect_fit_line and n > 0:
             # Span the y=x line over the UNION of both axes so it stays the true diagonal even when prediction
@@ -712,6 +781,36 @@ class PlotlyRenderer:
                         font=dict(color=text_color, size=10),
                         row=row, col=col,
                     )
+        # Iso-value contour overlays at named matrix levels (PSI 0.10 / 0.25 triage lines). Drawn as a line-only
+        # go.Contour over the categorical axes: plotly maps category positions to 0..n-1, so the numeric contour
+        # x/y (the label lists) line up cell-for-cell with the heatmap.
+        if p.threshold_contours:
+            mat = np.asarray(p.matrix, dtype=float)
+            if mat.ndim == 2 and mat.shape[0] >= 2 and mat.shape[1] >= 2:
+                lo, hi = float(np.nanmin(mat)), float(np.nanmax(mat))
+                for level, color in p.threshold_contours:
+                    if not (lo < level < hi):  # contour only exists when the level is crossed
+                        continue
+                    fig.add_trace(
+                        go.Contour(z=mat.tolist(), x=list(p.col_labels), y=list(p.row_labels),
+                                   contours=dict(start=level, end=level, size=1,
+                                                 coloring="none", showlabels=False),
+                                   line=dict(color=color, width=1.6),
+                                   showscale=False, hoverinfo="skip"),
+                        row=row, col=col,
+                    )
+        if p.trend_line is not None and p.trend_xy is not None:
+            from mlframe.reporting.renderers._trend import robust_fit_endpoints
+            ends = robust_fit_endpoints(p.trend_xy[0], p.trend_xy[1], p.trend_line)
+            if ends is not None:
+                (tx0, ty0), (tx1, ty1) = ends
+                fig.add_trace(
+                    go.Scatter(x=[tx0, tx1], y=[ty0, ty1], mode="lines",
+                               line=dict(color="darkorange", width=2),
+                               name=f"robust fit ({p.trend_line})", showlegend=True),
+                    row=row, col=col,
+                )
+
         fig.update_xaxes(title_text=p.xlabel, row=row, col=col,
                          tickangle=-45)
         fig.update_yaxes(title_text=p.ylabel, row=row, col=col,
@@ -721,55 +820,81 @@ class PlotlyRenderer:
         import plotly.graph_objects as go
 
         from mlframe.reporting.colors import line_color
+        horizontal = p.orientation == "horizontal"
+        cats = list(p.categories)
+
+        def _add_bar(values, color, label, show):
+            if horizontal:
+                # Categories on y, values on x; reverse so the first category sits on top (worst-first reads down).
+                fig.add_trace(
+                    go.Bar(y=cats, x=np.asarray(values).tolist(), orientation="h",
+                           name=label, showlegend=show, marker=dict(color=color)),
+                    row=row, col=col,
+                )
+            else:
+                fig.add_trace(
+                    go.Bar(x=cats, y=np.asarray(values).tolist(),
+                           name=label, showlegend=show, marker=dict(color=color)),
+                    row=row, col=col,
+                )
+
         if isinstance(p.values, tuple):
             for i, series in enumerate(p.values):
                 lbl = p.series_labels[i] if p.series_labels else f"series {i}"
-                # 2026-05-09: default plotly's qualitative palette
-                # ('Plotly': bright violet/red/green) is too saturated
-                # and clashes with matplotlib's tab10 in the same
-                # figure. Fall back to ``line_color(i)`` (tab10) when
-                # the spec doesn't pin colors -- cross-backend parity
-                # with matplotlib's bar default.
-                if p.colors is not None and i < len(p.colors):
-                    color = p.colors[i]
-                else:
-                    color = line_color(i)
-                col_kw = {"marker": dict(color=color)}
-                fig.add_trace(
-                    go.Bar(x=list(p.categories), y=series.tolist(),
-                           name=lbl, showlegend=True, **col_kw),
-                    row=row, col=col,
-                )
+                # plotly's default qualitative palette clashes with matplotlib's tab10 in the same figure; fall
+                # back to ``line_color(i)`` (tab10) when the spec doesn't pin colors for cross-backend parity.
+                color = p.colors[i] if (p.colors is not None and i < len(p.colors)) else line_color(i)
+                _add_bar(series, color, lbl, True)
             fig.update_layout(barmode="group")
         else:
-            col_kw = dict(marker=dict(color=p.colors[0] if p.colors else "steelblue"))
-            fig.add_trace(
-                go.Bar(x=list(p.categories),
-                       y=np.asarray(p.values).tolist(),
-                       showlegend=False, **col_kw),
-                row=row, col=col,
-            )
-        fig.update_xaxes(title_text=p.xlabel, row=row, col=col,
-                         tickangle=-p.xtick_rotation if p.xtick_rotation else 0)
-        fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid)
+            _add_bar(p.values, p.colors[0] if p.colors else "steelblue", "", False)
+
+        # Reference line perpendicular to the bars (global metric). vline for horizontal bars (value axis is x),
+        # hline for vertical bars (value axis is y).
+        if p.hline is not None:
+            hval, hcolor, hlabel = p.hline
+            line_kw = dict(line=dict(color=hcolor, dash="dash", width=1.3),
+                           annotation_text=hlabel or None, annotation_position="top right",
+                           row=row, col=col)
+            if horizontal:
+                fig.add_vline(x=hval, **line_kw)
+            else:
+                fig.add_hline(y=hval, **line_kw)
+
+        if horizontal:
+            fig.update_yaxes(autorange="reversed", row=row, col=col)
+            fig.update_xaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid)
+            fig.update_yaxes(title_text=p.xlabel, row=row, col=col)
+        else:
+            fig.update_xaxes(title_text=p.xlabel, row=row, col=col,
+                             tickangle=-p.xtick_rotation if p.xtick_rotation else 0)
+            fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid)
 
     def _line(self, fig, p: LinePanelSpec, row: int, col: int) -> None:
         import plotly.graph_objects as go
         from mlframe.reporting.colors import line_color
 
         ys = p.y if isinstance(p.y, tuple) else (p.y,)
+        xs_per_series = isinstance(p.x, tuple)
         labels = p.series_labels or (None,) * len(ys)
         styles = p.line_styles or ("-",) * len(ys)
         cols = p.colors or tuple(line_color(i) for i in range(len(ys)))
-        x = np.asarray(p.x) if isinstance(p.x, np.ndarray) else p.x
+        sec = _per_series_flags(p.secondary_y, len(ys))
+        fills = _per_series_flags(p.fill_to_baseline, len(ys))
+        has_secondary = any(sec)
         # matplotlib linestyle tokens -> plotly dash; "markers" / "lines+markers" select the trace mode.
         _STYLE_MAP = {"-": "solid", "--": "dash", ":": "dot", "-.": "dashdot"}
 
+        def _xi(i):
+            v = p.x[i] if xs_per_series else p.x
+            return np.asarray(v) if isinstance(v, np.ndarray) else v
+
         if p.band is not None:
+            x0 = _xi(0)
             lower, upper = np.asarray(p.band[0]), np.asarray(p.band[1])
             band_color = p.band_color or cols[0]
             fig.add_trace(
-                go.Scatter(x=np.concatenate([x, x[::-1]]),
+                go.Scatter(x=np.concatenate([x0, x0[::-1]]),
                            y=np.concatenate([upper, lower[::-1]]),
                            fill="toself", fillcolor=_rgba(band_color, 0.2),
                            line=dict(width=0), hoverinfo="skip",
@@ -786,27 +911,81 @@ class PlotlyRenderer:
             else:
                 mode, dash = "lines", _STYLE_MAP.get(token, "solid")
             yv = np.asarray(y) if isinstance(y, np.ndarray) else y
+            # Area fill under the curve to the panel baseline; "tozeroy" when baseline is 0, else explicit.
+            trace_kw = {}
+            if fills[i]:
+                trace_kw["fill"] = "tozeroy" if p.fill_baseline == 0.0 else "tonexty"
+                trace_kw["fillcolor"] = _rgba(cols[i % len(cols)], 0.2)
+                if p.step_fill:
+                    trace_kw["line_shape"] = "hv"
+            sec_kw = {"secondary_y": sec[i]} if has_secondary else {}
             fig.add_trace(
-                go.Scatter(x=x, y=yv,
+                go.Scatter(x=_xi(i), y=yv,
                            mode=mode,
                            line=dict(color=cols[i % len(cols)], dash=dash),
                            marker=dict(color=cols[i % len(cols)], size=5),
                            name=labels[i] if i < len(labels) else None,
-                           showlegend=any(labels)),
-                row=row, col=col,
+                           showlegend=any(labels),
+                           **trace_kw),
+                row=row, col=col, **sec_kw,
             )
 
-        for vx0, vx1, vcolor, valpha in (p.vspans or ()):
+        for span in (p.vspans or ()):
+            vx0, vx1, vcolor, valpha = span[0], span[1], span[2], span[3]
+            vlabel = span[4] if len(span) > 4 else ""
             fig.add_vrect(x0=vx0, x1=vx1, fillcolor=_rgba(vcolor, valpha),
                           line_width=0, layer="below", row=row, col=col)
+            if vlabel:
+                # No native per-vrect legend in plotly; add an invisible scatter proxy so the regime label shows.
+                fig.add_trace(
+                    go.Scatter(x=[None], y=[None], mode="markers",
+                               marker=dict(size=8, color=_rgba(vcolor, max(valpha, 0.3)), symbol="square"),
+                               name=vlabel, showlegend=True),
+                    row=row, col=col,
+                )
         for vx, vcolor, vlabel in (p.vlines or ()):
-            fig.add_vline(x=vx, line=dict(color=vcolor, dash="dot", width=1.2),
-                          annotation_text=vlabel or None, annotation_position="top",
-                          row=row, col=col)
+            # add_vline does arithmetic on x that raises on a datetime axis; a line-shape with the x in data coords
+            # and y spanning the panel's y-domain works on numeric AND datetime axes alike (G4).
+            self._add_vline_datetime_safe(fig, vx, vcolor, vlabel, row, col)
 
         fig.update_xaxes(title_text=p.xlabel, row=row, col=col, showgrid=p.grid,
                          tickangle=-30 if p.x_is_time else 0)
-        fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid)
+        fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid,
+                         secondary_y=False)
+        if has_secondary:
+            fig.update_yaxes(title_text=p.secondary_ylabel, row=row, col=col,
+                             secondary_y=True, showgrid=False)
+
+    @staticmethod
+    def _is_datetime_like(v) -> bool:
+        import datetime as _dt
+        if isinstance(v, (np.datetime64,)):
+            return True
+        if isinstance(v, (_dt.datetime, _dt.date)):
+            return True
+        return False
+
+    def _add_vline_datetime_safe(self, fig, vx, vcolor, vlabel, row: int, col: int) -> None:
+        """Vertical reference line that works on numeric AND datetime x-axes.
+
+        ``fig.add_vline`` computes ``x1 - x0`` internally, which raises ``TypeError`` on datetime x. For datetime
+        markers we instead add a line shape with the x in data coords and y spanning the subplot's y-domain (the
+        temporal change-point markers that previously fell back to vspans now render as true vlines)."""
+        if self._is_datetime_like(vx):
+            import pandas as pd
+            x_coord = pd.Timestamp(vx) if not isinstance(vx, np.datetime64) else pd.Timestamp(vx)
+            fig.add_shape(type="line", x0=x_coord, x1=x_coord, y0=0, y1=1,
+                          yref="y domain", xref="x",
+                          line=dict(color=vcolor, dash="dot", width=1.2),
+                          row=row, col=col)
+            if vlabel:
+                fig.add_annotation(x=x_coord, y=1, yref="y domain", yanchor="bottom",
+                                   text=vlabel, showarrow=False, font=dict(size=9),
+                                   row=row, col=col)
+        else:
+            fig.add_vline(x=vx, line=dict(color=vcolor, dash="dot", width=1.2),
+                          annotation_text=vlabel or None, annotation_position="top",
+                          row=row, col=col)
 
     def _violin(self, fig, p: ViolinPanelSpec, row: int, col: int) -> None:
         import plotly.graph_objects as go

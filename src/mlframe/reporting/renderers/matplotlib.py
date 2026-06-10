@@ -28,6 +28,28 @@ _SCATTER_MAX_POINTS = 50_000
 _HIST_PREBIN_THRESHOLD = 50_000
 
 
+def _err_to_mpl(err):
+    """Spec error-bar field -> matplotlib ``errorbar`` yerr/xerr arg.
+
+    A single array is symmetric; a (lower, upper) pair is asymmetric and matplotlib wants a (2, N) array of the
+    DISTANCES from the point (Wilson CIs are asymmetric, so the spec carries absolute distances per side)."""
+    if err is None:
+        return None
+    if isinstance(err, tuple):
+        return np.vstack([np.asarray(err[0], dtype=float), np.asarray(err[1], dtype=float)])
+    return np.asarray(err, dtype=float)
+
+
+def _per_series_flags(flag, n: int):
+    """Normalize a per-series bool flag (single bool / tuple / None) into a length-n bool list."""
+    if flag is None:
+        return [False] * n
+    if isinstance(flag, (tuple, list, np.ndarray)):
+        seq = list(flag)
+        return [bool(seq[i]) if i < len(seq) else False for i in range(n)]
+    return [bool(flag)] * n
+
+
 class MatplotlibRenderer:
     backend = "matplotlib"
 
@@ -178,6 +200,15 @@ class MatplotlibRenderer:
                 color_arr = color_arr[idx]
             rasterized = True  # capped scatter still rasterized so a vector export stays small.
 
+        # Per-point error bars (e.g. Wilson CIs on reliability bins). Drawn before the scatter so the markers
+        # sit on top. Subsample never reorders for these CI panels (n is bin-count, well under the cap), so the
+        # error arrays align with x/y as-passed.
+        if p.y_err is not None or p.x_err is not None:
+            yerr = _err_to_mpl(p.y_err)
+            xerr = _err_to_mpl(p.x_err)
+            ax.errorbar(x, y, yerr=yerr, xerr=xerr, fmt="none",
+                        ecolor="gray", elinewidth=1.0, capsize=3, alpha=0.7, zorder=1)
+
         kw = {"alpha": p.point_alpha, "rasterized": rasterized}
         kw["s"] = size_arr if size_arr is not None else float(p.point_size)
         if color_arr is not None:
@@ -186,6 +217,26 @@ class MatplotlibRenderer:
         elif p.point_color is not None:
             kw["color"] = p.point_color
         sc = ax.scatter(x, y, **kw)
+
+        # Emphasised subset (worst-K errors): drawn on top, larger + colored. Indices are positions into the
+        # ORIGINAL arrays, so resolve against the pre-subsample data (``p.x`` / ``p.y``), not the capped ``x``/``y``.
+        if p.highlight_indices is not None:
+            hi = np.asarray(p.highlight_indices, dtype=np.int64)
+            ox, oy = np.asarray(p.x), np.asarray(p.y)
+            hi = hi[(hi >= 0) & (hi < len(ox))]
+            if hi.size:
+                base_s = float(p.point_size) if size_arr is None else float(np.median(np.asarray(p.point_size)))
+                ax.scatter(ox[hi], oy[hi], s=base_s * 4.0, facecolors="none",
+                           edgecolors=p.highlight_color, linewidths=1.5, zorder=5,
+                           label="worst-K")
+
+        if p.trend_line is not None and n > 1:
+            from mlframe.reporting.renderers._trend import robust_fit_endpoints
+            ends = robust_fit_endpoints(np.asarray(p.x), np.asarray(p.y), p.trend_line)
+            if ends is not None:
+                (tx0, ty0), (tx1, ty1) = ends
+                ax.plot([tx0, tx1], [ty0, ty1], color="darkorange", linestyle="-",
+                        linewidth=1.6, zorder=4, label=f"robust fit ({p.trend_line})")
 
         if p.perfect_fit_line and n > 0:
             # Span y=x over the UNION of both axes (so it stays the diagonal even when prediction collapse makes
@@ -208,7 +259,7 @@ class MatplotlibRenderer:
         ax.set_xlabel(p.xlabel)
         ax.set_ylabel(p.ylabel)
         ax.set_title(p.title)
-        if p.legend_label or p.perfect_fit_line:
+        if p.legend_label or p.perfect_fit_line or p.trend_line or p.highlight_indices is not None:
             ax.legend(loc="best", fontsize=8, framealpha=0.7)
         if p.grid:
             ax.grid(True, alpha=0.3)
@@ -293,6 +344,24 @@ class MatplotlibRenderer:
                     ax.text(j, i, format(p.cell_text[i, j], p.text_format),
                             ha="center", va="center", fontsize=7,
                             color=text_color)
+        # Iso-value contour overlays at named matrix levels (PSI 0.10 / 0.25 triage lines on the drift heatmap).
+        # Contour coords are the imshow cell-center grid (0..ncols-1, 0..nrows-1) so lines land between cells.
+        if p.threshold_contours:
+            mat = np.asarray(p.matrix, dtype=float)
+            if mat.ndim == 2 and mat.shape[0] >= 2 and mat.shape[1] >= 2:
+                gx, gy = np.meshgrid(np.arange(mat.shape[1]), np.arange(mat.shape[0]))
+                for level, color in p.threshold_contours:
+                    lo, hi = float(np.nanmin(mat)), float(np.nanmax(mat))
+                    if lo < level < hi:  # contour only exists when the level is crossed
+                        ax.contour(gx, gy, mat, levels=[level], colors=[color], linewidths=1.4)
+        if p.trend_line is not None and p.trend_xy is not None:
+            from mlframe.reporting.renderers._trend import robust_fit_endpoints
+            ends = robust_fit_endpoints(p.trend_xy[0], p.trend_xy[1], p.trend_line)
+            if ends is not None:
+                (tx0, ty0), (tx1, ty1) = ends
+                ax.plot([tx0, tx1], [ty0, ty1], color="darkorange", linestyle="-",
+                        linewidth=1.6, label=f"robust fit ({p.trend_line})")
+                ax.legend(loc="best", fontsize=8, framealpha=0.7)
         cbar = fig.colorbar(im, ax=ax)
         if p.colorbar_label:
             cbar.set_label(p.colorbar_label)
@@ -301,65 +370,120 @@ class MatplotlibRenderer:
         ax.set_title(p.title)
 
     def _bar(self, ax, p: BarPanelSpec) -> None:
-        x = np.arange(len(p.categories))
+        horizontal = p.orientation == "horizontal"
+        pos = np.arange(len(p.categories))
         if isinstance(p.values, tuple):
             # Grouped bars.
             n_series = len(p.values)
-            width = 0.8 / n_series
+            thickness = 0.8 / n_series
             for i, series in enumerate(p.values):
-                offset = (i - (n_series - 1) / 2) * width
+                offset = (i - (n_series - 1) / 2) * thickness
                 kw = {}
                 if p.colors is not None and i < len(p.colors):
                     kw["color"] = p.colors[i]
                 lbl = p.series_labels[i] if p.series_labels else None
-                ax.bar(x + offset, series, width=width, label=lbl, **kw)
+                if horizontal:
+                    ax.barh(pos + offset, series, height=thickness, label=lbl, **kw)
+                else:
+                    ax.bar(pos + offset, series, width=thickness, label=lbl, **kw)
             if p.series_labels:
                 ax.legend(loc="best", fontsize=8, framealpha=0.7)
         else:
             kw = {"color": p.colors[0] if p.colors else "steelblue"}
-            ax.bar(x, p.values, **kw)
-        ax.set_xticks(x)
-        ax.set_xticklabels(p.categories, rotation=p.xtick_rotation,
-                           ha="right" if p.xtick_rotation else "center", fontsize=8)
+            if horizontal:
+                ax.barh(pos, p.values, **kw)
+            else:
+                ax.bar(pos, p.values, **kw)
+
+        # Reference line perpendicular to the bars (global metric across a per-segment bar). axvline for
+        # horizontal bars (value axis is x), axhline for vertical bars (value axis is y).
+        if p.hline is not None:
+            hval, hcolor, hlabel = p.hline
+            if horizontal:
+                ax.axvline(hval, color=hcolor, linestyle="--", linewidth=1.3, label=hlabel or None)
+            else:
+                ax.axhline(hval, color=hcolor, linestyle="--", linewidth=1.3, label=hlabel or None)
+            if hlabel:
+                ax.legend(loc="best", fontsize=8, framealpha=0.7)
+
+        if horizontal:
+            ax.set_yticks(pos)
+            ax.set_yticklabels(p.categories, fontsize=8)
+            ax.invert_yaxis()  # first category on top -> worst-first ranking reads top-down
+        else:
+            ax.set_xticks(pos)
+            ax.set_xticklabels(p.categories, rotation=p.xtick_rotation,
+                               ha="right" if p.xtick_rotation else "center", fontsize=8)
         ax.set_xlabel(p.xlabel)
         ax.set_ylabel(p.ylabel)
         ax.set_title(p.title)
         if p.grid:
-            ax.grid(True, alpha=0.3, axis="y")
+            ax.grid(True, alpha=0.3, axis="x" if horizontal else "y")
 
     def _line(self, ax, p: LinePanelSpec, fig=None) -> None:
         from mlframe.reporting.colors import line_color
 
         ys = p.y if isinstance(p.y, tuple) else (p.y,)
+        # Per-series x: a tuple of x arrays parallel to ``y`` (ROC overlays with different fpr grids); else shared.
+        xs_per_series = isinstance(p.x, tuple)
         labels = p.series_labels or (None,) * len(ys)
         styles = p.line_styles or ("-",) * len(ys)
         cols = p.colors or tuple(line_color(i) for i in range(len(ys)))
+        sec = _per_series_flags(p.secondary_y, len(ys))
+        fills = _per_series_flags(p.fill_to_baseline, len(ys))
+
+        def _xi(i):
+            return p.x[i] if xs_per_series else p.x
+
+        # Lazily create the twin axis only when a series actually needs it.
+        ax2 = ax.twinx() if any(sec) else None
+        proxies = []  # legend proxies for labeled vspans
 
         if p.band is not None:
             lower, upper = np.asarray(p.band[0]), np.asarray(p.band[1])
             band_color = p.band_color or cols[0]
-            ax.fill_between(p.x, lower, upper, color=band_color, alpha=0.2,
-                            label=p.band_label, zorder=0)
+            ax.fill_between(_xi(0) if not xs_per_series else p.x[0], lower, upper,
+                            color=band_color, alpha=0.2, label=p.band_label, zorder=0)
 
         for i, y in enumerate(ys):
             token = styles[i % len(styles)]
             color = cols[i % len(cols)]
             label = labels[i] if i < len(labels) else None
+            target = ax2 if (ax2 is not None and sec[i]) else ax
+            xi = _xi(i)
             if token == "markers":
-                ax.plot(p.x, y, linestyle="none", marker="o", markersize=4, color=color, label=label)
+                target.plot(xi, y, linestyle="none", marker="o", markersize=4, color=color, label=label)
             elif token == "lines+markers":
-                ax.plot(p.x, y, linestyle="-", marker="o", markersize=4, color=color, label=label)
+                target.plot(xi, y, linestyle="-", marker="o", markersize=4, color=color, label=label)
             else:
-                ax.plot(p.x, y, token, color=color, label=label)
+                target.plot(xi, y, token, color=color, label=label)
+            if fills[i]:
+                step = "post" if p.step_fill else None
+                target.fill_between(xi, p.fill_baseline, y, color=color, alpha=0.2, step=step, zorder=0)
 
-        for vx0, vx1, vcolor, valpha in (p.vspans or ()):
+        for span in (p.vspans or ()):
+            vx0, vx1, vcolor, valpha = span[0], span[1], span[2], span[3]
+            vlabel = span[4] if len(span) > 4 else ""
             ax.axvspan(vx0, vx1, color=vcolor, alpha=valpha, zorder=0)
+            if vlabel:
+                from matplotlib.patches import Patch
+                proxies.append(Patch(facecolor=vcolor, alpha=valpha, label=vlabel))
         for vx, vcolor, vlabel in (p.vlines or ()):
             ax.axvline(vx, color=vcolor, linestyle=":", linewidth=1.2,
                        label=vlabel or None)
 
-        if any(labels) or p.band_label or any((p.vlines or ())):
-            ax.legend(loc="best", fontsize=8, framealpha=0.7)
+        if ax2 is not None:
+            ax2.set_ylabel(p.secondary_ylabel)
+        if any(labels) or p.band_label or any((p.vlines or ())) or proxies or (ax2 is not None and any(sec)):
+            handles, leg_labels = ax.get_legend_handles_labels()
+            if ax2 is not None:
+                h2, l2 = ax2.get_legend_handles_labels()
+                handles += h2
+                leg_labels += l2
+            handles += proxies
+            leg_labels += [pr.get_label() for pr in proxies]
+            if handles:
+                ax.legend(handles, leg_labels, loc="best", fontsize=8, framealpha=0.7)
         ax.set_xlabel(p.xlabel)
         ax.set_ylabel(p.ylabel)
         ax.set_title(p.title)

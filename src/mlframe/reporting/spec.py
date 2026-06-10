@@ -55,6 +55,15 @@ class ScatterPanelSpec:
     # When the colorbar represents a meaningful axis (e.g. bin population),
     # set ``colorbar_label`` so renderers add a labelled colorbar.
     colorbar_label: Optional[str] = None
+    # Per-point error bars (e.g. Wilson CIs on reliability-diagram bins). Same length as ``y`` / ``x``.
+    # ``y_err`` may be a single array (symmetric) or a (lower, upper) pair of arrays (asymmetric, as Wilson is).
+    y_err: Optional[Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]] = None
+    x_err: Optional[Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]] = None
+    # Emphasised subset (e.g. worst-K regression errors): integer indices into x/y drawn on top, larger + colored.
+    highlight_indices: Optional[np.ndarray] = None
+    highlight_color: str = "red"
+    # Robust fit-line overlay drawn beside any y=x line: "theil-sen" or "huber" (None = no trend line).
+    trend_line: Optional[Literal["theil-sen", "huber"]] = None
 
 
 @dataclass(frozen=True)
@@ -104,6 +113,14 @@ class HeatmapPanelSpec:
     cell_text: Optional[np.ndarray] = None
     text_format: str = ".2f"
     colorbar_label: Optional[str] = None
+    # Contour overlays at named matrix levels (e.g. PSI 0.10 / 0.25 triage lines on a drift heatmap):
+    # tuple of (value, color). Renderers draw an iso-value contour through the cell grid at each level.
+    threshold_contours: Optional[Tuple[Tuple[float, str], ...]] = None
+    # Robust fit-line overlay for hexbin/2D-density pred-vs-actual heatmaps (drawn beside the y=x diagonal):
+    # "theil-sen" or "huber". The renderer needs the underlying point cloud, supplied via ``trend_xy``.
+    trend_line: Optional[Literal["theil-sen", "huber"]] = None
+    # (x, y) point arrays the trend line is fit on; required when ``trend_line`` is set on a heatmap.
+    trend_xy: Optional[Tuple[np.ndarray, np.ndarray]] = None
 
 
 @dataclass(frozen=True)
@@ -125,6 +142,12 @@ class BarPanelSpec:
     grid: bool = True
     # Rotate x-tick labels (useful for long category names).
     xtick_rotation: float = 0.0
+    # "vertical" (default) or "horizontal": horizontal bars suit long category labels (CONFUSED_PAIRS "A->B: x%")
+    # and worst-first segment rankings (longest bar = worst segment reads top-down).
+    orientation: Literal["vertical", "horizontal"] = "vertical"
+    # Reference line across the value axis (e.g. global metric on a per-segment bar): (value, color, label).
+    # Drawn horizontally for vertical bars / vertically for horizontal bars (always perpendicular to the bars).
+    hline: Optional[Tuple[float, str, str]] = None
 
 
 @dataclass(frozen=True)
@@ -135,22 +158,35 @@ class LinePanelSpec:
     ``series_labels`` for the legend.
     """
 
-    x: np.ndarray
+    # Shared x for all series, OR a tuple of per-series x arrays (parallel to ``y``) when series have different
+    # x supports -- e.g. two ROC curves with different fpr grids (adversarial-validation train-vs-test overlay).
+    x: Union[np.ndarray, Tuple[np.ndarray, ...]]
     y: Union[np.ndarray, Tuple[np.ndarray, ...]]
     series_labels: Optional[Tuple[str, ...]] = None
     title: str = ""
     xlabel: str = ""
     ylabel: str = ""
+    # Right-hand secondary y-axis. Per-series bool (parallel to ``y``) or a single bool for all series. Series flagged
+    # True plot against a 2nd axis (mpl twinx / plotly yaxis2) -- e.g. COVERAGE width or THRESHOLD queue-rate.
+    secondary_y: Optional[Union[bool, Tuple[bool, ...]]] = None
+    secondary_ylabel: str = ""
+    # Area fill under each series down to the panel baseline (GAIN curve, SCORE_DIST). Per-series bool or one bool.
+    # ``step_fill`` makes the fill a step (left-closed) instead of linear interpolation (histogram-style SCORE_DIST).
+    fill_to_baseline: Optional[Union[bool, Tuple[bool, ...]]] = None
+    step_fill: bool = False
+    fill_baseline: float = 0.0
     # Per-series draw style. matplotlib linestyle tokens ('-', '--', ':', '-.') plus two extra
     # tokens: "markers" (marker-only series, e.g. y_true as points under a fitted line) and
     # "lines+markers". Cycled when shorter than the series tuple.
     line_styles: Optional[Tuple[str, ...]] = None
     colors: Optional[Tuple[str, ...]] = None
     grid: bool = True
-    # Vertical reference lines: tuple of (x, color, label). label may be "" for unlabeled.
-    vlines: Optional[Tuple[Tuple[float, str, str], ...]] = None
-    # Shaded vertical spans (change-points / train-val-test split shading): (x0, x1, color, alpha).
-    vspans: Optional[Tuple[Tuple[float, float, str, float], ...]] = None
+    # Vertical reference lines: tuple of (x, color, label). label may be "" for unlabeled. ``x`` may be a float OR a
+    # datetime / numpy datetime64 (temporal change-point markers); renderers draw these on a datetime x-axis too.
+    vlines: Optional[Tuple[Tuple[Any, str, str], ...]] = None
+    # Shaded vertical spans (change-points / train-val-test split shading): (x0, x1, color, alpha) or, to carry a
+    # legend label, (x0, x1, color, alpha, label). A non-empty label adds a legend proxy for the span.
+    vspans: Optional[Tuple[Tuple[Any, ...], ...]] = None
     # X axis carries timestamps: renderers rotate/format tick labels (mpl autofmt_xdate, plotly tickangle).
     x_is_time: bool = False
     # Shaded band between two series (interval bands, metric +- std over time): (lower, upper) arrays
