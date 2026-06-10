@@ -158,6 +158,22 @@ class TestTrendLine:
         assert robust_fit_endpoints(np.ones(5), np.arange(5.0), "theil-sen") is None  # all x identical
         assert robust_fit_endpoints(np.array([1.0]), np.array([1.0]), "huber") is None  # < 2 points
 
+    def test_robust_fit_large_n_is_bounded(self):
+        # Default-ON hexbin overlay can feed millions of points; the fit-cap keeps it fast and still slope-correct.
+        import time
+        rng = np.random.default_rng(7)
+        n = 2_000_000
+        x = rng.standard_normal(n) * 5.0
+        y = 2.0 * x + rng.standard_normal(n)
+        t0 = time.perf_counter()
+        ends = robust_fit_endpoints(x, y, "theil-sen")
+        elapsed = time.perf_counter() - t0
+        assert ends is not None
+        (x0, y0), (x1, y1) = ends
+        slope = (y1 - y0) / (x1 - x0)
+        assert abs(slope - 2.0) < 0.2, f"capped fit slope {slope} should still recover ~2.0"
+        assert elapsed < 5.0, f"capped robust fit took {elapsed:.2f}s; should stay well under 5s at 2M points"
+
 
 # ----------------------------------------------------------------------------
 # G2 — BarPanelSpec.orientation

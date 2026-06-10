@@ -12,6 +12,11 @@ from typing import Optional, Tuple
 
 import numpy as np
 
+# Theil-Sen pairwise-slope cost grows with n and Huber iterates over every point; a robust line is a visual
+# guide, so fit on at most this many points (x extremes always kept so the endpoints anchor the true range).
+# Bounds the default-ON hexbin pred-vs-actual overlay on multi-million-row clouds.
+_TREND_FIT_CAP = 20_000
+
 
 def robust_fit_endpoints(
     x: np.ndarray, y: np.ndarray, method: str
@@ -33,10 +38,20 @@ def robust_fit_endpoints(
     if x_hi <= x_lo:
         return None
 
+    if x.size > _TREND_FIT_CAP:
+        rng = np.random.default_rng(0)
+        keep = rng.choice(x.size, size=_TREND_FIT_CAP - 2, replace=False)
+        # Always retain the x extremes so the fit spans the full range it will be drawn across.
+        keep = np.concatenate([keep, [int(np.argmin(x)), int(np.argmax(x))]])
+        x = x[keep]
+        y = y[keep]
+
     method = method.lower()
     if method == "theil-sen":
         from sklearn.linear_model import TheilSenRegressor
-        model = TheilSenRegressor(random_state=0)
+        # Bound the pairwise-slope subpopulation: a fixed 1000-pair sample recovers the slope to ~1e-3 in ~1s
+        # vs ~6.5s at the sklearn default 1e4, and the result is a visual guide, not a published estimate.
+        model = TheilSenRegressor(random_state=0, max_subpopulation=1000)
     elif method == "huber":
         from sklearn.linear_model import HuberRegressor
         model = HuberRegressor()
