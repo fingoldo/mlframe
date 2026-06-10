@@ -100,7 +100,7 @@ def _silence_tiny_model_output():
 
 def _build_tiny_model(family: str, *, n_estimators: int, num_leaves: int,
                       learning_rate: float, random_state: int,
-                      deterministic: bool = False) -> Any:
+                      deterministic: bool = False, inner_n_jobs: int = -1) -> Any:
     """Lazy-build a tiny regressor for the requested family. Lazy
     imports keep the discovery module light when those libraries
     aren't installed.
@@ -141,7 +141,7 @@ def _build_tiny_model(family: str, *, n_estimators: int, num_leaves: int,
             num_leaves=num_leaves,
             learning_rate=learning_rate,
             random_state=random_state,
-            n_jobs=-1, verbose=-1, force_col_wise=True,
+            n_jobs=inner_n_jobs, verbose=-1, force_col_wise=True,
         )
         if deterministic:
             # ``force_col_wise`` + ``force_row_wise`` are mutually
@@ -158,7 +158,7 @@ def _build_tiny_model(family: str, *, n_estimators: int, num_leaves: int,
             max_depth=4,
             learning_rate=learning_rate,
             random_state=random_state,
-            n_jobs=-1, verbosity=0,
+            n_jobs=inner_n_jobs, verbosity=0,
         )
         if deterministic:
             kwargs["tree_method"] = "hist"
@@ -209,6 +209,7 @@ def _tiny_cv_rmse_raw_y(
     cv_folds: int,
     random_state: int,
     n_jobs: int = 1,
+    inner_n_jobs: int = -1,
     deterministic: bool = False,
     return_per_bin: bool = False,
     n_bins: int = 5,
@@ -290,6 +291,7 @@ def _tiny_cv_rmse_raw_y(
                 learning_rate=learning_rate,
                 random_state=random_state,
                 deterministic=deterministic,
+                inner_n_jobs=inner_n_jobs,
             )
             if n_jobs > 1 and hasattr(model, "set_params"):
                 try:
@@ -568,6 +570,7 @@ def _tiny_cv_rmse_y_scale(
     cv_folds: int,
     random_state: int,
     n_jobs: int = 1,
+    inner_n_jobs: int = -1,
     deterministic: bool = False,
     return_per_bin: bool = False,
     n_bins: int = 5,
@@ -640,6 +643,7 @@ def _tiny_cv_rmse_y_scale(
                 learning_rate=learning_rate,
                 random_state=random_state,
                 deterministic=deterministic,
+                inner_n_jobs=inner_n_jobs,
             )
             # When folds run in parallel, cap LightGBM's intra-fit
             # threads to avoid CPU oversubscription.

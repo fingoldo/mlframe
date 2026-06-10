@@ -157,7 +157,7 @@ def _filter_features(
         if not _is_numeric_column(df, col):
             drops.append({"name": col, "reason": "non_numeric"})
             continue
-        arr = _extract_column_array(df, col)[train_idx]
+        arr = _extract_column_array(df, col, rows=train_idx)
         finite_mask = np.isfinite(arr)
         if finite_mask.sum() < 50:
             drops.append({

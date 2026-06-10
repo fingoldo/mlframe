@@ -40,9 +40,16 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _extract_column_array(df: Any, col: str) -> np.ndarray:
+def _extract_column_array(df: Any, col: str, rows: np.ndarray | None = None) -> np.ndarray:
     """Pull a single column out as a 1-D float32 ndarray. Polars / pandas
     only -- never materialise a whole-frame conversion.
+
+    ``rows`` (optional integer index array): materialise ONLY those rows. The
+    screening / rerank callers keep a 20-100k sample of a 4M+ row column, so
+    pulling the full column first (``to_numpy()`` on a non-f32 dtype allocates
+    every row) then slicing wastes O(N) per column over ~500 columns. The
+    polars ``gather`` / pandas positional-take materialises O(len(rows)) and is
+    value-identical to ``_extract_column_array(df, col)[rows]``.
 
     float32 halves the memory of the discovery feature-matrix vs the prior
     float64 default. On a 4M-row x ~500-col frame that's the difference
@@ -61,8 +68,13 @@ def _extract_column_array(df: Any, col: str) -> np.ndarray:
         # Polars Series.to_numpy() already returns an ndarray; the prior
         # np.asarray wrapper allocated a redundant view. copy=False keeps
         # the astype zero-copy when the source dtype already matches.
-        return df.get_column(col).to_numpy().astype(np.float32, copy=False)
+        s = df.get_column(col)
+        if rows is not None:
+            s = s.gather(rows)
+        return s.to_numpy().astype(np.float32, copy=False)
     if isinstance(df, pd.DataFrame):
+        if rows is not None:
+            return df[col].iloc[rows].to_numpy(dtype=np.float32)
         return df[col].to_numpy(dtype=np.float32)
     raise TypeError(
         f"CompositeTargetDiscovery: unsupported df type {type(df).__name__}"
@@ -136,17 +148,31 @@ def _safe_abs_corr_all(
     the scalar ``_safe_corr`` path.
     """
     y_finite = np.isfinite(y)
-    if y_finite.sum() < 3:
+    n_finite = int(y_finite.sum())
+    if n_finite < 3:
         return np.zeros(X.shape[1])
-    y_f = y[y_finite]
-    X_f = X[y_finite]
+    # Gate the row-subset copy: when y is all-finite (the typical case once the
+    # caller has gated columns on finite count), X[y_finite] would copy the
+    # whole (N, F) matrix for nothing -- on a 4M x 500 f32 frame that is an
+    # 8 GB transient on top of the sampler's budgeted column_stack alloc.
+    if n_finite == y_finite.shape[0]:
+        y_f = y
+        X_f = X
+    else:
+        y_f = y[y_finite]
+        X_f = X[y_finite]
     y_dev = y_f - y_f.mean()
     var_y = float(np.dot(y_dev, y_dev))
     if var_y < 1e-24:
         return np.zeros(X.shape[1])
+    # Keep the centred X_dev (numerically stable -- the sumsq-minus-n*mean^2
+    # computational formula risks catastrophic cancellation on large-offset
+    # columns, which would corrupt the near-1 leak-corr decision). But fold the
+    # variance with einsum so we do NOT also allocate the (X_dev*X_dev) square
+    # temporary: 3 full-matrix temps -> 1 (plus the X_f-copy gate above).
     X_means = X_f.mean(axis=0)
     X_dev = X_f - X_means
-    var_X = (X_dev * X_dev).sum(axis=0)
+    var_X = np.einsum("ij,ij->j", X_dev, X_dev)
     out = np.zeros(X.shape[1])
     safe = var_X >= 1e-24
     if safe.any():
@@ -311,10 +337,19 @@ def _mi_to_target_prebinned(
     # target-finite only, the per-column inner loop handles its own
     # NaN masking.
     finite = np.isfinite(target)
-    if finite.sum() < 5 * nbins:
+    n_fin = int(finite.sum())
+    if n_fin < 5 * nbins:
         return 0.0
-    t_f = target[finite]
-    fb_f = feature_binned[finite]
+    # Gate the whole-matrix boolean slice: when the target is all-finite
+    # (typical for y/T screening), feature_binned[finite] copies the entire
+    # (n, F) int64 matrix for nothing (~160 MB/call x ~65 calls/fit). The
+    # slice equals the array on an all-true mask, so this is bit-identical.
+    if n_fin == finite.shape[0]:
+        t_f = target
+        fb_f = feature_binned
+    else:
+        t_f = target[finite]
+        fb_f = feature_binned[finite]
     qs = np.linspace(0.0, 1.0, nbins + 1)[1:-1]
     t_edges = np.nanquantile(t_f, qs)
     t_idx = np.searchsorted(t_edges, t_f, side="right").astype(np.int64)
@@ -324,12 +359,17 @@ def _mi_to_target_prebinned(
         col_b = fb_f[:, j]
         # Filter out -1 sentinel (non-finite feature rows) for this column
         col_valid = col_b >= 0
-        if col_valid.sum() < 5 * nbins:
+        n_cv = int(col_valid.sum())
+        if n_cv < 5 * nbins:
             per_feat[j] = 0.0
             continue
-        per_feat[j] = _mi_from_binned_pair(
-            col_b[col_valid], t_idx[col_valid], nbins=nbins,
-        )
+        # Skip the two per-column gathers when the column has no sentinel.
+        if n_cv == col_b.shape[0]:
+            per_feat[j] = _mi_from_binned_pair(col_b, t_idx, nbins=nbins)
+        else:
+            per_feat[j] = _mi_from_binned_pair(
+                col_b[col_valid], t_idx[col_valid], nbins=nbins,
+            )
     if aggregation == "sum":
         return float(np.sum(per_feat))
     return float(np.mean(per_feat))

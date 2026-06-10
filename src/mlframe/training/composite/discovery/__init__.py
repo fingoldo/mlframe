@@ -378,7 +378,10 @@ class CompositeTargetDiscovery:
         sample slice -- never on the full frame."""
         if not cols:
             return np.zeros((idx.size, 0), dtype=np.float64)
-        cols_arrays = [_extract_column_array(df, c)[idx] for c in cols]
+        # Gather only the sampled rows (O(len(idx)) per column) instead of
+        # materialising the full column then slicing -- this is the MI-screening
+        # sample, a small fraction of a 4M+ row frame over ~500 columns.
+        cols_arrays = [_extract_column_array(df, c, rows=idx) for c in cols]
         return np.column_stack(cols_arrays)
 
     def _reject(

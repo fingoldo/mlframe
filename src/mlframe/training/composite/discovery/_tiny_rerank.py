@@ -168,18 +168,29 @@ def _tiny_model_rerank(
     # lazy-init serialization point inside the threaded loop and
     # ensures the read-only cache is fully populated by the time
     # workers run.
+    # Build the full screen-sample feature matrix ONCE, then derive each
+    # base's "all features except this base" matrix via np.delete on the
+    # in-RAM matrix instead of re-extracting B+1 full-column passes from the
+    # frame (the prior _build_feature_matrix per base re-gathered ~all columns
+    # of a 4M-row frame for each unique base, differing by one column).
+    # np.delete preserves the surviving column order, so x_full minus the base
+    # column index is bit-identical to building from ``usable_features`` minus
+    # that column.
+    _usable_list = list(usable_features)
+    _x_full = self._build_feature_matrix(df, _usable_list, train_idx_screen)
+    _col_index = {c: i for i, c in enumerate(_usable_list)}
     for spec in kept_specs:
         if spec.base_column in _per_base_cache:
             continue
-        base_screen = (
-            _extract_column_array(df, spec.base_column)[train_idx_screen]
+        base_screen = _extract_column_array(
+            df, spec.base_column, rows=train_idx_screen,
         )
-        x_remaining = [
-            c for c in usable_features if c != spec.base_column
-        ]
-        x_matrix = self._build_feature_matrix(
-            df, x_remaining, train_idx_screen,
-        )
+        if spec.base_column in _col_index:
+            x_matrix = np.delete(_x_full, _col_index[spec.base_column], axis=1)
+        else:
+            # Base is not among the screened features (e.g. a lag column the
+            # user excluded); no column to drop -- reuse x_full read-only.
+            x_matrix = _x_full
         _per_base_cache[spec.base_column] = (base_screen, x_matrix)
     _tiny_rerank_ram_checkpoint(f"per_base_cache_built(n_unique_bases={len(_per_base_cache)})")
 
@@ -232,6 +243,7 @@ def _tiny_model_rerank(
                     ),
                     n_seed_repeats=n_seed_repeats,
                     base_random_state=self.config.random_state,
+                    inner_n_jobs=_rerank_inner_n_jobs,
                     return_per_seed=True,
                     return_per_bin=want_per_bin,
                     n_bins=per_bin_n_bins_pre or 5,
@@ -264,6 +276,7 @@ def _tiny_model_rerank(
                     ),
                     n_seed_repeats=n_seed_repeats,
                     base_random_state=self.config.random_state,
+                    inner_n_jobs=_rerank_inner_n_jobs,
                     return_per_bin=want_per_bin,
                     n_bins=per_bin_n_bins_pre or 5,
                     time_aware=base_t_aware,
@@ -295,7 +308,21 @@ def _tiny_model_rerank(
         _rerank_n_jobs = max(1, min(len(kept_specs), _cpu))
     else:
         _rerank_n_jobs = max(1, _rerank_n_jobs_cfg)
-    _tiny_rerank_ram_checkpoint(f"pre_parallel_loop(n_specs={len(kept_specs)}, n_families={len(families)}, rerank_n_jobs={_rerank_n_jobs})")
+    # Cap each inner LGBM/XGB to its fair share of cores when the OUTER rerank
+    # runs N spec-workers in parallel (threading backend). Without this, N
+    # workers x all-core boosters demand N*cpu threads on the dominant rerank
+    # phase: the existing fold-level cap only fires when tiny_model_n_jobs>1
+    # (default 1), so it never applied here. -1 (all cores) when sequential.
+    if _rerank_n_jobs > 1:
+        try:
+            import os as _os
+            _cpu_total = _os.cpu_count() or 1
+        except Exception:
+            _cpu_total = 1
+        _rerank_inner_n_jobs = max(1, _cpu_total // _rerank_n_jobs)
+    else:
+        _rerank_inner_n_jobs = -1
+    _tiny_rerank_ram_checkpoint(f"pre_parallel_loop(n_specs={len(kept_specs)}, n_families={len(families)}, rerank_n_jobs={_rerank_n_jobs}, inner_n_jobs={_rerank_inner_n_jobs})")
     if _rerank_n_jobs > 1 and len(kept_specs) > 1:
         from joblib import Parallel as _Parallel, delayed as _delayed
         _rerank_results = _Parallel(
