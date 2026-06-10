@@ -314,7 +314,15 @@ def _linear_residual_multi_fit(
             if np.any(col_norms < 1e-12):
                 cond = float("inf")
             else:
-                sv = np.linalg.svd(base_centered, compute_uv=False)
+                # BKW scaled condition index: equilibrate columns to unit
+                # norm BEFORE the SVD. Without this the condition number is
+                # scale-VARIANT -- two independent bases in different units
+                # (e.g. N(0,1) and N(0,1e6)) read cond ~ 1e6 and get falsely
+                # rejected as collinear (alphas=0), silently killing a valid
+                # multi-base residual. Unit-norm scaling measures genuine
+                # multicollinearity (column angle), not unit mismatch.
+                base_scaled = base_centered / col_norms
+                sv = np.linalg.svd(base_scaled, compute_uv=False)
                 cond = float(sv.max() / max(sv.min(), np.finfo(np.float64).tiny))
     except np.linalg.LinAlgError:
         cond = float("inf")

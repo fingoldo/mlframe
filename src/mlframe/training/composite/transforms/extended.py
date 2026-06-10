@@ -60,7 +60,7 @@ logger = logging.getLogger("mlframe.training.composite_transforms_extended")
 _RECIPROCAL_EPS_FLOOR: float = 1e-12
 _POLY_DEG2_RIDGE: float = 1e-8  # tiny diag ridge for normal-eq stability
 _SPLINE_DEFAULT_K: int = 3
-_SPLINE_DEFAULT_S_MULT: float = 1.0  # smoothing = len(x) * std(y) * s_mult
+_SPLINE_DEFAULT_S_MULT: float = 1.0  # smoothing = m * var_noise * s_mult (scipy s bounds the residual SS)
 
 
 # ============================================================
@@ -356,7 +356,21 @@ def _smoothing_spline_residual_fit(
             "y_mean": float(yc.mean()),
         }
     yc_avg = np.bincount(inv_idx, weights=yc_s) / np.bincount(inv_idx)
-    s = max(unique_b.size, 1) * float(np.std(yc_avg)) * _SPLINE_DEFAULT_S_MULT
+    # scipy UnivariateSpline's smoothing factor bounds the residual sum of
+    # squares: sum((y - g(b))^2) <= s, so the correct scale is m * var(noise),
+    # NOT m * std(signal). The previous m * std(yc_avg) over-smoothed badly
+    # (std not variance, and signal std not noise std) -- the spline absorbed
+    # the genuine signal into g(base), leaving residual ~ signal instead of
+    # noise. Estimate the noise variance robustly with the lag-1 first-
+    # difference (Rice / von Neumann) estimator on the base-sorted means:
+    # consecutive differences of a smooth curve are noise-dominated, so
+    # 0.5 * mean(diff^2) is a signal-curvature-robust noise-variance estimate.
+    if yc_avg.size >= 2:
+        d = np.diff(yc_avg)
+        var_noise = 0.5 * float(np.mean(d * d))
+    else:
+        var_noise = float(np.var(yc_avg))
+    s = max(unique_b.size, 1) * var_noise * _SPLINE_DEFAULT_S_MULT
     return {
         "knots_b": unique_b.astype(np.float64, copy=False),
         "knots_y": yc_avg.astype(np.float64, copy=False),

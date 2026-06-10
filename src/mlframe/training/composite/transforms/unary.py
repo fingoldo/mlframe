@@ -40,6 +40,9 @@ except Exception:  # pragma: no cover - numba is a hard dep but allow graceful s
 # Brent step on tiny data.
 _YJ_NUMBA_MIN_N: int = 10_000
 
+# Yeo-Johnson inverse has a lambda-dependent asymptote: for lam<0 the nonneg branch base ``t*lam+1`` reaches 0 at t=-1/lam (y->+inf) and goes negative beyond it; for lam>2 the neg branch base does the same. ``base**(1/lam)`` on a non-positive base is NaN, which ``np.clip`` cannot repair, so an out-of-range inner T-prediction silently poisoned predict()/predict_pre_clip. We floor the base to a tiny positive value so the inverse SATURATES at the asymptote (large finite y, then bounded by the post-inverse y-clip) instead of returning NaN. Floor only bites within ~1e-12 of the asymptote, so the forward/inverse round-trip stays value-identical on every realistic y.
+_YJ_INV_BASE_FLOOR: float = 1e-12
+
 
 if _HAS_NUMBA:
     @_numba.njit(cache=True, fastmath=True, parallel=True)
@@ -84,12 +87,18 @@ if _HAS_NUMBA:
                 if lam_is_zero:
                     out[i] = np.expm1(ti)
                 else:
-                    out[i] = (ti * lam + 1.0) ** inv_lam - 1.0
+                    base = ti * lam + 1.0
+                    if base < _YJ_INV_BASE_FLOOR:
+                        base = _YJ_INV_BASE_FLOOR
+                    out[i] = base ** inv_lam - 1.0
             else:
                 if lam_is_two:
                     out[i] = -np.expm1(-ti)
                 else:
-                    out[i] = -((-ti * two_minus_lam + 1.0) ** inv_2ml - 1.0)
+                    base = -ti * two_minus_lam + 1.0
+                    if base < _YJ_INV_BASE_FLOOR:
+                        base = _YJ_INV_BASE_FLOOR
+                    out[i] = -(base ** inv_2ml - 1.0)
         return out
 
 
@@ -175,10 +184,12 @@ def _yj_inverse_scalar(t: float, lam: float) -> float:
     if t >= 0.0:
         if abs(lam) < 1e-12:
             return float(np.expm1(t))
-        return float(np.power(t * lam + 1.0, 1.0 / lam) - 1.0)
+        base = max(t * lam + 1.0, _YJ_INV_BASE_FLOOR)
+        return float(np.power(base, 1.0 / lam) - 1.0)
     if abs(lam - 2.0) < 1e-12:
         return float(-np.expm1(-t))
-    return float(-(np.power(-t * (2.0 - lam) + 1.0, 1.0 / (2.0 - lam)) - 1.0))
+    base = max(-t * (2.0 - lam) + 1.0, _YJ_INV_BASE_FLOOR)
+    return float(-(np.power(base, 1.0 / (2.0 - lam)) - 1.0))
 
 
 def _yj_forward_numpy(y: np.ndarray, lam: float) -> np.ndarray:
@@ -205,11 +216,13 @@ def _yj_inverse_numpy(t: np.ndarray, lam: float) -> np.ndarray:
     if abs(lam) < 1e-12:
         out[nonneg] = np.expm1(pos)
     else:
-        out[nonneg] = np.power(pos * lam + 1.0, 1.0 / lam) - 1.0
+        base_pos = np.maximum(pos * lam + 1.0, _YJ_INV_BASE_FLOOR)
+        out[nonneg] = np.power(base_pos, 1.0 / lam) - 1.0
     if abs(lam - 2.0) < 1e-12:
         out[~nonneg] = -np.expm1(-neg)
     else:
-        out[~nonneg] = -(np.power(-neg * (2.0 - lam) + 1.0, 1.0 / (2.0 - lam)) - 1.0)
+        base_neg = np.maximum(-neg * (2.0 - lam) + 1.0, _YJ_INV_BASE_FLOOR)
+        out[~nonneg] = -(np.power(base_neg, 1.0 / (2.0 - lam)) - 1.0)
     return out
 
 

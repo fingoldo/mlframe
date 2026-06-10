@@ -124,9 +124,13 @@ def _predict_unclipped(self, X: Any) -> tuple[np.ndarray, int, dict[str, Any]]:
         y_hat = transform.inverse(t_hat, base_arr, params, **inverse_kwargs)
     else:
         y_hat = np.full_like(t_hat, fill_value=np.nan, dtype=np.float64)
-        # Inverse on valid rows only; placeholder base for invalid
-        # rows is irrelevant since we overwrite immediately.
-        base_safe = np.where(domain_ok, base_arr, 1.0)
+        # Inverse on valid rows only; placeholder base for invalid rows is
+        # irrelevant since we overwrite immediately. domain_ok is (n,);
+        # base_arr is (n,) single-base or (n,K) multi-base, so broadcast the
+        # row mask along the column axis (a flat np.where would raise a
+        # (n,) vs (n,K) broadcast ValueError for K>=2).
+        mask = domain_ok if base_arr.ndim == 1 else domain_ok[:, None]
+        base_safe = np.where(mask, base_arr, 1.0)
         y_hat_valid = transform.inverse(
             t_hat, base_safe, params, **inverse_kwargs,
         )
@@ -141,6 +145,23 @@ def _predict_unclipped(self, X: Any) -> tuple[np.ndarray, int, dict[str, Any]]:
                 f"CompositeTargetEstimator: unknown fallback_predict "
                 f"'{self.fallback_predict}'; choose 'y_train_median' or 'nan'."
             )
+
+    # General non-finite guard: a transform inverse can produce NaN/inf even
+    # on a domain-valid row (e.g. Yeo-Johnson saturating past its asymptote,
+    # logratio exp-overflow). np.clip cannot repair NaN, so a single poisoned
+    # row would otherwise leak straight through predict()/predict_pre_clip.
+    # Route non-finite outputs to the same fallback as domain violations.
+    nonfinite = ~np.isfinite(y_hat)
+    if nonfinite.any():
+        if self.fallback_predict == "y_train_median":
+            y_hat[nonfinite] = params["y_train_median"]
+        # 'nan' fallback: leave as-is (caller opted into NaN sentinels).
+        logger.warning(
+            "[CompositeTargetEstimator] transform='%s' base='%s': %d row(s) "
+            "inverted to non-finite y; routed to fallback_predict='%s'.",
+            self.transform_name, self.base_column,
+            int(nonfinite.sum()), self.fallback_predict,
+        )
 
     n_violation = int((~domain_ok).sum())
     n_rows = int(t_hat.size)
@@ -256,29 +277,35 @@ def predict_quantile(
 
     transform = get_transform(self.transform_name)
     params = self.fitted_params_
-    base_columns = self._resolve_base_columns()
-    base_arr = self._extract_base_for_transform(X, base_columns)
+    # Unary transforms (requires_base=False) have no base column; extracting
+    # one raises 'base_columns is empty'. Mirror _predict_unclipped: defer to
+    # a zeros placeholder sized to t_raw, which the unary inverse ignores.
+    if transform.requires_base:
+        base_columns = self._resolve_base_columns()
+        base_arr = self._extract_base_for_transform(X, base_columns)
 
-    # Sign-flip guard for ratio: T < 0 and base < 0 produces
-    # positive y; high T-quantile would swap to low y-quantile.
-    if self.transform_name == "ratio":
-        if np.any(base_arr < 0):
-            raise NotImplementedError(
-                "predict_quantile is not supported for transform 'ratio' "
-                "when base contains negative values: y = T * base flips "
-                "the quantile ordering on negative-base rows. Use "
-                "predict() for point predictions or switch transform."
-            )
+        # Sign-flip guard for ratio: T < 0 and base < 0 produces
+        # positive y; high T-quantile would swap to low y-quantile.
+        if self.transform_name == "ratio":
+            if np.any(base_arr < 0):
+                raise NotImplementedError(
+                    "predict_quantile is not supported for transform 'ratio' "
+                    "when base contains negative values: y = T * base flips "
+                    "the quantile ordering on negative-base rows. Use "
+                    "predict() for point predictions or switch transform."
+                )
 
-    # logratio domain check: base must be > 0 (already required at
-    # fit time, but predict-time inputs may differ).
-    if self.transform_name == "logratio":
-        if np.any(base_arr <= 0):
-            raise NotImplementedError(
-                "predict_quantile for transform 'logratio' requires "
-                "base > 0 on every row. Filter the input or use "
-                "predict() with the wrapper's domain fallback."
-            )
+        # logratio domain check: base must be > 0 (already required at
+        # fit time, but predict-time inputs may differ).
+        if self.transform_name == "logratio":
+            if np.any(base_arr <= 0):
+                raise NotImplementedError(
+                    "predict_quantile for transform 'logratio' requires "
+                    "base > 0 on every row. Filter the input or use "
+                    "predict() with the wrapper's domain fallback."
+                )
+    else:
+        base_arr = None
 
     alpha_is_scalar = np.isscalar(alpha)
     try:
@@ -290,6 +317,9 @@ def predict_quantile(
         t_raw = np.asarray(
             inner.predict_quantile(X, alpha=alpha), dtype=np.float64,
         )
+
+    if base_arr is None:
+        base_arr = np.zeros(t_raw.shape[0], dtype=np.float64)
 
     # Preserve quantile dimensionality: scalar alpha -> 1-D (n_samples,);
     # array alpha -> 2-D (n_samples, K). Flattening unconditionally would
