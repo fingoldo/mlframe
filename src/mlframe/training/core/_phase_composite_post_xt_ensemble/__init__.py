@@ -217,41 +217,53 @@ def _build_cross_target_ensemble_for_target(
         return
     # Score components on the train slice in y-scale (same rows wrappers were fitted on).
     _y_full_for_rmse = target_by_type.get(_tt_e, {}).get(_orig_tname)
-    _component_train_rmses: list[float] = []
-    if _y_full_for_rmse is not None:
-        _y_train_for_rmse = np.asarray(_y_full_for_rmse)[filtered_train_idx]
-        _frame_key = (id(filtered_train_df), getattr(filtered_train_df, "shape", None))
-        for _comp, _name in zip(_components, _component_names):
-            try:
-                _pred = _get_train_pred(_comp, _frame_key)
-                _diff = _pred - _y_train_for_rmse.astype(np.float64)
-                _component_train_rmses.append(
-                    float(np.sqrt(np.mean(_diff * _diff)))
-                )
-            except Exception as _rmse_err:
-                logger.warning(
-                    "[CompositeCrossTargetEnsemble] could not score "
-                    "component '%s' on train: %s. Skipping in "
-                    "ensemble weighting.", _name, _rmse_err,
-                )
-                _component_train_rmses.append(float("nan"))
-    else:
-        _component_train_rmses = [float("nan")] * len(_components)
-    _rmse_arr = np.asarray(_component_train_rmses, dtype=np.float64)
-    _finite = np.isfinite(_rmse_arr)
-    if _finite.sum() == 0:
-        logger.warning(
-            "[CompositeCrossTargetEnsemble] target='%s': no "
-            "component scored on train; ensemble skipped.",
-            _orig_tname,
-        )
-        return
-    if not _finite.all():
-        _rmse_arr[~_finite] = float(np.median(_rmse_arr[_finite]))
-    # If oof_holdout_frac > 0, replace train-RMSE proxy with honest holdout (re-fit on 1-frac, predict on frac).
+
+    def _compute_train_rmse_proxy() -> np.ndarray:
+        """Full-train predict per component -> y-scale RMSE proxy. Median-fills
+        non-finite. Deferred when honest OOF will replace it (see below)."""
+        _rmses: list[float] = []
+        if _y_full_for_rmse is not None:
+            _y_train_for_rmse = np.asarray(_y_full_for_rmse)[filtered_train_idx]
+            _frame_key = (id(filtered_train_df), getattr(filtered_train_df, "shape", None))
+            for _comp, _name in zip(_components, _component_names):
+                try:
+                    _pred = _get_train_pred(_comp, _frame_key)
+                    _diff = _pred - _y_train_for_rmse.astype(np.float64)
+                    _rmses.append(float(np.sqrt(np.mean(_diff * _diff))))
+                except Exception as _rmse_err:
+                    logger.warning(
+                        "[CompositeCrossTargetEnsemble] could not score "
+                        "component '%s' on train: %s. Skipping in "
+                        "ensemble weighting.", _name, _rmse_err,
+                    )
+                    _rmses.append(float("nan"))
+        else:
+            _rmses = [float("nan")] * len(_components)
+        _arr = np.asarray(_rmses, dtype=np.float64)
+        _fin = np.isfinite(_arr)
+        if _fin.any() and not _fin.all():
+            _arr[~_fin] = float(np.median(_arr[_fin]))
+        return _arr
+
+    # If oof_holdout_frac > 0, the honest holdout REPLACES the train-RMSE proxy
+    # (re-fit on 1-frac, predict on frac), so computing the proxy first is a
+    # wasted full-train predict per component on the default honest-OOF path.
+    # Defer it; compute only as the fallback when the OOF produces no matrix.
     _oof_frac = float(getattr(
         composite_target_discovery_config, "oof_holdout_frac", 0.0,
     ))
+    _defer_train_proxy = _oof_frac > 0.0 and _y_full_for_rmse is not None
+    if _defer_train_proxy:
+        _rmse_arr = np.ones(len(_components), dtype=np.float64)
+    else:
+        _rmse_arr = _compute_train_rmse_proxy()
+        if not np.isfinite(_rmse_arr).any():
+            logger.warning(
+                "[CompositeCrossTargetEnsemble] target='%s': no "
+                "component scored on train; ensemble skipped.",
+                _orig_tname,
+            )
+            return
     _oof_y_full = _y_full_for_rmse
     _oof_pred_matrix = None
     _oof_y_holdout = None
@@ -517,6 +529,19 @@ def _build_cross_target_ensemble_for_target(
             with np.errstate(invalid="ignore", divide="ignore"):
                 _oof_rmses = np.where(_n_fin > 0, np.sqrt(_sq_sum / np.maximum(_n_fin, 1)), np.nan)
             _oof_rmses = _oof_rmses.astype(np.float64, copy=False)
+        elif _defer_train_proxy:
+            # OOF produced no usable matrix and the train-RMSE proxy was
+            # deferred -> compute it now as the fallback weighting surface.
+            _rmse_arr = _compute_train_rmse_proxy()
+            if not np.isfinite(_rmse_arr).any():
+                logger.warning(
+                    "[CompositeCrossTargetEnsemble] target='%s': honest OOF "
+                    "produced no matrix and no component scored on train; "
+                    "ensemble skipped.", _orig_tname,
+                )
+                return
+            _oof_rmses = _rmse_arr
+        if _oof_pred_matrix is not None and _oof_pred_matrix.shape[1] > 0:
             logger.info(
                 "[CompositeCrossTargetEnsemble] target='%s' using "
                 "honest OOF holdout (frac=%.2f, n=%d) for ensemble "

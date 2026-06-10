@@ -310,40 +310,34 @@ def _prebin_feature_columns(
     return binned
 
 
-def _mi_to_target_prebinned(
+def _mi_per_feature_prebinned(
     feature_binned: np.ndarray,
     target: np.ndarray,
     *,
     nbins: int,
-    aggregation: str = "mean",
-) -> float:
-    """MI between pre-binned feature columns and ``target``.
+) -> np.ndarray | None:
+    """Per-feature MI(target, feature_binned[:, j]) vector (length F).
 
-    ``feature_binned`` is the output of ``_prebin_feature_columns`` --
-    integer bin indices (0..nbins-1, -1 for non-finite rows) with the
-    SAME number of rows as ``target``.  Only the target is binned here
-    (once), saving the per-column quantile + searchsorted cost.
+    Returns None for the degenerate-shape / too-few-finite cases the aggregate
+    treats as 0.0. The per-feature values are INDEPENDENT of which other
+    columns are present, so a caller that screens many bases (each excluding
+    one column) can compute this vector ONCE and derive ``mi_y`` per base by
+    excluding the base's column, instead of re-binning + re-MI'ing the shared
+    columns per base.
     """
     if feature_binned.shape[0] == 0 or feature_binned.shape[1] == 0:
-        return 0.0
+        return None
     if feature_binned.shape[0] != target.shape[0]:
-        return 0.0
-    # Wave 24 P1 fix (2026-05-20): pre-fix the size-gate used
-    # ``feature_binned[:, 0] >= 0`` which masked rows where COLUMN 0
-    # had a -1 sentinel (NaN). When column 0 was NaN-heavy but other
-    # columns were clean, the early-return zeroed MI for EVERY feature
-    # in the batch silently. The inner per-column loop already filters
-    # column-specific sentinels (line 305); gate the size check on
-    # target-finite only, the per-column inner loop handles its own
-    # NaN masking.
+        return None
+    # Wave 24 P1 fix (2026-05-20): gate the size check on target-finite only;
+    # the per-column inner loop handles its own -1 sentinel masking (a
+    # COLUMN-0-NaN early return would zero MI for the whole batch silently).
     finite = np.isfinite(target)
     n_fin = int(finite.sum())
     if n_fin < 5 * nbins:
-        return 0.0
-    # Gate the whole-matrix boolean slice: when the target is all-finite
-    # (typical for y/T screening), feature_binned[finite] copies the entire
-    # (n, F) int64 matrix for nothing (~160 MB/call x ~65 calls/fit). The
-    # slice equals the array on an all-true mask, so this is bit-identical.
+        return None
+    # Gate the whole-matrix boolean slice: on an all-finite target the
+    # feature_binned[finite] copy is the whole (n, F) int64 matrix for nothing.
     if n_fin == finite.shape[0]:
         t_f = target
         fb_f = feature_binned
@@ -370,9 +364,33 @@ def _mi_to_target_prebinned(
             per_feat[j] = _mi_from_binned_pair(
                 col_b[col_valid], t_idx[col_valid], nbins=nbins,
             )
+    return per_feat
+
+
+def _aggregate_mi_per_feature(per_feat: np.ndarray | None, aggregation: str) -> float:
+    if per_feat is None or per_feat.size == 0:
+        return 0.0
     if aggregation == "sum":
         return float(np.sum(per_feat))
     return float(np.mean(per_feat))
+
+
+def _mi_to_target_prebinned(
+    feature_binned: np.ndarray,
+    target: np.ndarray,
+    *,
+    nbins: int,
+    aggregation: str = "mean",
+) -> float:
+    """MI between pre-binned feature columns and ``target``.
+
+    ``feature_binned`` is the output of ``_prebin_feature_columns`` --
+    integer bin indices (0..nbins-1, -1 for non-finite rows) with the
+    SAME number of rows as ``target``.  Only the target is binned here
+    (once), saving the per-column quantile + searchsorted cost.
+    """
+    per_feat = _mi_per_feature_prebinned(feature_binned, target, nbins=nbins)
+    return _aggregate_mi_per_feature(per_feat, aggregation)
 
 
 def _mi_from_binned_pair(

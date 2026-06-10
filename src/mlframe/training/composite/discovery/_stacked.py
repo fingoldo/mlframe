@@ -66,6 +66,26 @@ def fit_stacked(
     _train_idx_arr = np.asarray(train_idx)
     y_full = _extract_column_array(df, target_col)
     y_train = y_full[_train_idx_arr]
+    # Slice the train frame ONCE -- X_train is invariant across specs, so the
+    # prior per-spec rebuild materialised the same train slice N times (the
+    # sibling fit_stacked_on_residual already hoists this).
+    if hasattr(df, "iloc"):
+        X_train = df.iloc[_train_idx_arr].reset_index(drop=True)
+    else:
+        try:
+            import polars as _pl  # type: ignore
+            if isinstance(df, _pl.DataFrame):
+                mask = np.zeros(df.height, dtype=bool)
+                mask[_train_idx_arr] = True
+                X_train = df.filter(_pl.Series(mask))
+            else:
+                raise TypeError(type(df).__name__)
+        except Exception:
+            logger.warning(
+                "[CompositeTargetDiscovery.stacked] cannot slice df type=%s; skipping pass 2.",
+                type(df).__name__,
+            )
+            return self
     oof_cols: dict[str, np.ndarray] = {}
     for spec in top_specs:
         def _factory(_s=spec):  # bind spec
@@ -74,23 +94,6 @@ def fit_stacked(
                 transform_name=_s.transform_name,
                 base_column=_s.base_column,
             )
-        if hasattr(df, "iloc"):
-            X_train = df.iloc[_train_idx_arr].reset_index(drop=True)
-        else:
-            try:
-                import polars as _pl  # type: ignore
-                if isinstance(df, _pl.DataFrame):
-                    mask = np.zeros(df.height, dtype=bool)
-                    mask[_train_idx_arr] = True
-                    X_train = df.filter(_pl.Series(mask))
-                else:
-                    raise TypeError(type(df).__name__)
-            except Exception:
-                logger.warning(
-                    "[CompositeTargetDiscovery.stacked] cannot slice df type=%s; skipping pass 2.",
-                    type(df).__name__,
-                )
-                return self
         try:
             preds = composite_oof_predictions(
                 _factory, X_train, y_train,

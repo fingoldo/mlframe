@@ -11,6 +11,11 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+# Byte-size threshold above which a full pandas-frame copy is flagged as an
+# OOM risk (the polars path is zero-copy). 2 GB mirrors the suite-wide
+# eager-conversion gate documented in CLAUDE.md.
+_FEATURE_STACK_LARGE_FRAME_BYTES: int = 2 * 1024 ** 3
+
 
 # ----------------------------------------------------------------------
 # composite_predictions_as_feature (composite x FE-pipeline stacking).
@@ -70,6 +75,22 @@ def composite_predictions_as_feature(
     if _is_polars:
         return df.with_columns(pl.Series(name=column_name, values=preds))
     if isinstance(df, pd.DataFrame):
+        # pandas has no zero-copy column append, so ``df.copy()`` doubles peak
+        # RAM. That is fine on the small frames this opt-in stacking helper
+        # typically sees, but on a multi-GB frame it is a silent OOM risk --
+        # warn so the caller can switch to the polars zero-copy path.
+        try:
+            _sz = int(df.memory_usage(index=False, deep=False).sum())
+        except Exception:
+            _sz = 0
+        if _sz > _FEATURE_STACK_LARGE_FRAME_BYTES:
+            logger.warning(
+                "composite_predictions_as_feature: appending '%s' requires a "
+                "full copy of a %.1f GB pandas frame (pandas has no zero-copy "
+                "column add) -- this doubles peak RAM. Pass a polars frame for "
+                "the zero-copy with_columns path on large data.",
+                column_name, _sz / 1024 ** 3,
+            )
         out = df.copy()
         out[column_name] = preds
         return out

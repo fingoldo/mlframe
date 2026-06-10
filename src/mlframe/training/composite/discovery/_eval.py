@@ -159,9 +159,20 @@ def eval_one_transform(
 
     # MI(T, X_remaining) on the same valid rows -- comparable
     # to mi_y_for_base computed on the same x_remaining.
-    x_screen_valid = x_remaining_matrix[valid_screen]
+    # x_screen_valid (the full-precision float slice) is ONLY needed on the
+    # non-prebinned MI path or for the bootstrap CI; in the default config
+    # (mi_estimator='bin', bootstrap off) it was a dead ~80-200 MB copy per
+    # work item. Gate it, and gate the prebinned slice on valid_screen.all().
+    _bootstrap_n_cfg = int(getattr(self.config, "mi_gain_bootstrap_n", 0))
+    _need_x_screen_valid = (_x_prebinned is None) or (_bootstrap_n_cfg > 0)
+    x_screen_valid = (
+        x_remaining_matrix[valid_screen] if _need_x_screen_valid else None
+    )
     if _x_prebinned is not None:
-        _x_pb_valid = _x_prebinned[valid_screen]
+        _x_pb_valid = (
+            _x_prebinned if bool(valid_screen.all())
+            else _x_prebinned[valid_screen]
+        )
         mi_t = _mi_to_target_prebinned(
             _x_pb_valid, t_screen, **_mi_kwargs,
         )

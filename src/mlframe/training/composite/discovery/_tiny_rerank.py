@@ -661,10 +661,35 @@ def _tiny_model_rerank(
                         (spec.name, family)
                     )
                     raw_per_seed = raw_per_seed_per_family.get(family)
+                    # The one-sided Wilcoxon signed-rank test cannot reach a
+                    # p-value below gate_alpha unless there are enough paired
+                    # seeds: the most extreme configuration (all diffs favouring
+                    # the composite) gives min-p = 1/2^n, so n must satisfy
+                    # 1/2^n <= gate_alpha. At the default n_seed_repeats=3 and
+                    # gate_alpha=0.05 the floor is 0.125 -> the gate is
+                    # UNPASSABLE and silently rejects every spec. Require the
+                    # statistically-minimum seed count; below it, skip the
+                    # Wilcoxon rejection (threshold gate still applies) and warn.
+                    _min_seeds_wilcoxon = int(math.ceil(
+                        math.log2(1.0 / max(gate_alpha, 1e-12))
+                    ))
                     if (comp_per_seed is not None
                             and raw_per_seed is not None
                             and len(comp_per_seed) == len(raw_per_seed)
-                            and len(comp_per_seed) >= 3):
+                            and len(comp_per_seed) < _min_seeds_wilcoxon):
+                        logger.warning(
+                            "[CompositeTargetDiscovery] Wilcoxon gate skipped: "
+                            "n_seed_repeats=%d < %d, the minimum for a one-sided "
+                            "test to reach p<=gate_alpha=%.3g (min-p=1/2^n). "
+                            "Raise tiny_model_n_seed_repeats to >=%d to enable "
+                            "the gate; the threshold gate still applies.",
+                            len(comp_per_seed), _min_seeds_wilcoxon,
+                            gate_alpha, _min_seeds_wilcoxon,
+                        )
+                    elif (comp_per_seed is not None
+                            and raw_per_seed is not None
+                            and len(comp_per_seed) == len(raw_per_seed)
+                            and len(comp_per_seed) >= _min_seeds_wilcoxon):
                         try:
                             from scipy.stats import wilcoxon
                             diff = comp_per_seed - raw_per_seed

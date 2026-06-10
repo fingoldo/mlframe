@@ -16,7 +16,9 @@ import numpy as np
 from ..spec import CompositeSpec
 from .forward_stepwise import forward_stepwise_multi_base
 from .screening import (
+    _aggregate_mi_per_feature,
     _extract_column_array,
+    _mi_per_feature_prebinned,
     _mi_to_target,
     _mi_to_target_prebinned,
     _prebin_feature_columns,
@@ -345,6 +347,20 @@ def fit(
     if _ram_profiler_on:
         _phase_ram_report(_ram_state, "prebin_features_done")
 
+    # Per-feature MI(y, x_j) is INDEPENDENT of which base column is excluded, so
+    # compute the full-feature vector ONCE and derive each base's mi_y by
+    # excluding that base's column (mean/sum over the survivors) -- instead of
+    # re-binning + re-MI'ing the shared columns per base candidate. Bit-identical
+    # for the prebinned (mi_estimator='bin') path; the knn path keeps the
+    # per-base call.
+    _mi_aggregation = getattr(self.config, "mi_aggregation", "mean")
+    _per_feat_y_full = (
+        _mi_per_feature_prebinned(
+            _full_x_prebinned, y_screen, nbins=int(self.config.mi_nbins),
+        )
+        if _full_x_prebinned is not None else None
+    )
+
     _base_contexts: dict[str, dict[str, Any]] = {}
     for base in base_candidates:
         base_train = _extract_column_array(df, base)[train_idx]
@@ -368,9 +384,21 @@ def fit(
             aggregation=getattr(self.config, "mi_aggregation", "mean"),
         )
         if _x_prebinned is not None:
-            mi_y_for_base = _mi_to_target_prebinned(
-                _x_prebinned, y_screen, **_mi_kwargs,
-            )
+            if _per_feat_y_full is not None and base in _col_index:
+                # Decompose: aggregate the precomputed per-feature MI over all
+                # features except the base column (bit-identical to re-MI'ing
+                # x_remaining vs y, since per-feature MI is base-invariant).
+                mi_y_for_base = _aggregate_mi_per_feature(
+                    np.delete(_per_feat_y_full, _drop_idx), _mi_aggregation,
+                )
+            elif _per_feat_y_full is not None:
+                mi_y_for_base = _aggregate_mi_per_feature(
+                    _per_feat_y_full, _mi_aggregation,
+                )
+            else:
+                mi_y_for_base = _mi_to_target_prebinned(
+                    _x_prebinned, y_screen, **_mi_kwargs,
+                )
         else:
             mi_y_for_base = _mi_to_target(
                 x_remaining_matrix, y_screen,

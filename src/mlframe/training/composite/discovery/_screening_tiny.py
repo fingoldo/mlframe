@@ -415,7 +415,17 @@ def _tiny_cv_rmse_y_scale_multiseed(
     ``n_seed_repeats=1`` is the legacy single-seed path -- exact
     same numerical result as calling the underlying function once.
     """
-    if n_seed_repeats <= 1:
+    # Seed-invariant splitters ignore random_state: TimeSeriesSplit (time_aware)
+    # has a fixed forward-walk, GroupKFold partitions by group, and either makes
+    # every "seed repeat" an EXACT duplicate. Collapse to one honest measurement
+    # (per_seed length 1) -- this avoids N identical fits on the dominant rerank
+    # phase AND avoids pseudo-replicating a single measurement into a falsely-
+    # powered Wilcoxon (the gate then correctly skips on n=1).
+    _seed_invariant = bool(kwargs.get("time_aware", False)) or (
+        kwargs.get("groups", None) is not None
+    )
+    _effective_repeats = 1 if _seed_invariant else n_seed_repeats
+    if _effective_repeats <= 1:
         kwargs["random_state"] = base_random_state
         result = _tiny_cv_rmse_y_scale(*args, **kwargs)
         if return_per_seed:
@@ -431,7 +441,7 @@ def _tiny_cv_rmse_y_scale_multiseed(
     seed_results = []
     seed_per_bins = []
     return_pb = kwargs.get("return_per_bin", False)
-    for s_idx in range(n_seed_repeats):
+    for s_idx in range(_effective_repeats):
         kwargs["random_state"] = base_random_state + s_idx * 7919
         result = _tiny_cv_rmse_y_scale(*args, **kwargs)
         if return_pb and isinstance(result, tuple):
@@ -473,7 +483,13 @@ def _tiny_cv_rmse_raw_y_multiseed(
 ):
     """Multi-seed wrapper around :func:`_tiny_cv_rmse_raw_y`. See
     :func:`_tiny_cv_rmse_y_scale_multiseed` for the rationale."""
-    if n_seed_repeats <= 1:
+    # Seed-invariant splitters (TimeSeriesSplit / GroupKFold) collapse to one
+    # honest measurement -- see _tiny_cv_rmse_y_scale_multiseed.
+    _seed_invariant = bool(kwargs.get("time_aware", False)) or (
+        kwargs.get("groups", None) is not None
+    )
+    _effective_repeats = 1 if _seed_invariant else n_seed_repeats
+    if _effective_repeats <= 1:
         kwargs["random_state"] = base_random_state
         result = _tiny_cv_rmse_raw_y(*args, **kwargs)
         if return_per_seed:
@@ -489,7 +505,7 @@ def _tiny_cv_rmse_raw_y_multiseed(
     seed_results = []
     seed_per_bins = []
     return_pb = kwargs.get("return_per_bin", False)
-    for s_idx in range(n_seed_repeats):
+    for s_idx in range(_effective_repeats):
         kwargs["random_state"] = base_random_state + s_idx * 7919
         result = _tiny_cv_rmse_raw_y(*args, **kwargs)
         if return_pb and isinstance(result, tuple):

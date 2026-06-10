@@ -746,11 +746,26 @@ def compute_oof_holdout_predictions(
     # features) that silently turned a random holdout into a trailing slice and changed the OOF leakage profile.
     # Random shuffle is the safe default when no explicit time signal is given.
     use_time_split = False
+    _time_order = None
     if time_ordering is not None:
-        use_time_split = _is_monotone_nondecreasing(time_ordering)
-        if use_time_split:
+        if _is_monotone_nondecreasing(time_ordering):
+            use_time_split = True
             logger.info(
                 "composite OOF: time_ordering signal is monotone non-decreasing; using trailing-slice holdout instead of random shuffle."
+            )
+        else:
+            # Explicit but non-monotone time signal: recover the forward-walk by
+            # SORTING rows by time, instead of silently random-shuffling (which
+            # discards the very signal the caller passed and leaks future rows
+            # into the refit-train slice). argsort is stable so ties keep their
+            # original order.
+            _time_order = np.argsort(np.asarray(time_ordering), kind="stable")
+            use_time_split = True
+            logger.warning(
+                "composite OOF: time_ordering was supplied but is NOT monotone "
+                "non-decreasing; sorting rows by time to build the trailing-slice "
+                "holdout (previously this silently fell back to a random shuffle, "
+                "discarding the time signal)."
             )
 
     n_holdout = max(int(round(n_train * holdout_frac)), 1)
@@ -766,8 +781,13 @@ def compute_oof_holdout_predictions(
             _group_holdout = _g_arr
     if use_time_split:
         cutoff = n_train - n_holdout
-        train_idx = np.arange(cutoff, dtype=np.int64)
-        holdout_idx = np.arange(cutoff, n_train, dtype=np.int64)
+        if _time_order is not None:
+            # Non-monotone path: trailing slice in TIME order.
+            train_idx = _time_order[:cutoff].astype(np.int64)
+            holdout_idx = _time_order[cutoff:].astype(np.int64)
+        else:
+            train_idx = np.arange(cutoff, dtype=np.int64)
+            holdout_idx = np.arange(cutoff, n_train, dtype=np.int64)
     elif _group_holdout is not None:
         uniq, first_idx = np.unique(_group_holdout, return_index=True)
         rng = np.random.default_rng(random_state)
