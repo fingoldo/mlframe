@@ -500,6 +500,51 @@ class MRMR(BaseEstimator, TransformerMixin):
         fe_sufficient_summary_maxt_permutations: int = 25,
         fe_sufficient_summary_maxt_quantile: float = 0.95,
         fe_sufficient_summary_ridge_alpha: float = 1e-3,
+        # AUTO-ESCALATION to the richer SHIPPED bases (2026-06-10, backlog idea B) --
+        # DEFAULT-ON. When a prospective pair PASSED the pair-MI prescreen (joint-MI
+        # ratio gate + order-2 maxT floor) but the unary/binary operator search admitted
+        # NOTHING for it, the legacy behaviour was only the "FE produced 0 engineered
+        # features despite N pair(s) passing the pair-MI gate" WARNING -- detected
+        # signal, silently abandoned. With this ON the FE step ESCALATES those pairs to
+        # the two richer shipped basis families and lets the EXISTING gates decide
+        # ("escalation proposes, gates decide"): (1) the signal-adaptive ORTH-POLY pair
+        # warp -- the rank-1 ALS per-operand fit re-run at ``fe_escalation_poly_degree``
+        # across all four shipped bases (chebyshev/hermite/legendre/laguerre), best
+        # basis by held-out reconstruction |corr|; (2) DEMODULATED adaptive-frequency
+        # FOURIER/CHIRP warps -- for a multiplicative pair ``y ~ g(a)*b`` the shipped
+        # held-out multitone detector is run on ``(z01(a), t = y_c * zscore(b))``
+        # (E[t|a] ~ g(a)), locking an INNER frequency (``sin(3.7*a)*b``) no library
+        # unary can express; the chirp axis covers growing-frequency inners. Candidates
+        # must clear the order-2 maxT floor on the Miller-Madow-debiased MI scale, a
+        # marginal-permutation floor, and the S5 conditional-MI redundancy gate vs the
+        # admitted engineered support -- a pure-noise pair that slipped the prescreen
+        # admits NOTHING (measured 0/N on noise controls). Structurally a no-op when
+        # every surviving pair already produced an admitted column (the common case).
+        # Recipes are standard ``unary_binary`` + ``prewarp`` specs (the Fourier mix is
+        # the closed-form ``fourier_adaptive`` spec), so transform()/pickle/stability-
+        # vote treat escalated features exactly like default-prewarp pair features.
+        # See ``_fe_auto_escalation.py`` + tests/feature_selection/test_fe_auto_escalation.py.
+        fe_auto_escalation_enable: bool = True,
+        # Escalate at most this many prescreen-surviving zero-admission pairs per FE
+        # step (strongest joint MI first) to bound the proposer cost.
+        fe_escalation_max_pairs: int = 8,
+        # Below this many rows escalation is skipped entirely: the S5 gate falls back
+        # to marginal admission under ~500 rows and the adaptive-frequency detector is
+        # n-gated at 800 inside, so small-n escalation would lose its hard noise gates.
+        fe_escalation_min_rows: int = 500,
+        # Held-out floor shared by the proposers: the ALS rank-1 reconstruction must
+        # track y on the stride-validation slice with |corr| >= this, and the Fourier
+        # detector's held-out periodogram floor is max(this, 0.30) (the shipped robust
+        # anti-chance-peak floor).
+        fe_escalation_min_val_corr: float = 0.15,
+        # ALS warp degree for the escalated orth-poly proposer. Higher than the default
+        # prewarp's 4 on purpose: escalation only runs where that default failed.
+        fe_escalation_poly_degree: int = 6,
+        # Max validated frequencies per demodulated Fourier/chirp warp (multitone cap).
+        fe_escalation_fourier_max_freqs: int = 3,
+        # Keep at most this many candidates per escalated pair (by debiased MI) before
+        # the floors + S5 gate, so the gate pool stays small.
+        fe_escalation_max_candidates_per_pair: int = 3,
         # ``fe_npermutations`` default 0->3:
         # pre-fix value 0 combined with ``fe_min_nonzero_confidence=1.0``
         # made the FE confidence gate STRUCTURALLY UNREACHABLE (confidence

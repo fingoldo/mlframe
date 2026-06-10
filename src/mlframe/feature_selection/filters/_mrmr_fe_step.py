@@ -1340,6 +1340,103 @@ def _run_fe_step(
             # processed", which is name-agnostic.
             checked_pairs.add(raw_vars_pair)
 
+        # AUTO-ESCALATION to the richer SHIPPED bases (2026-06-10, backlog idea B,
+        # default-ON). A pair that PASSED the pair-MI prescreen (ratio gate + order-2
+        # maxT floor) but for which the unary/binary search above admitted NOTHING used
+        # to end in the log_fe_summary WARNING below -- detected signal, silently
+        # abandoned. Escalate instead: PROPOSE candidates from the richer shipped basis
+        # families (signal-adaptive orth-poly ALS warp across the 4 polynomial bases at
+        # a higher degree + DEMODULATED adaptive-frequency Fourier/chirp warps -- e.g.
+        # the sin(3.7*a)*b inner frequency no library unary can express) and let the
+        # EXISTING gates decide (maxT floor on MM-debiased MI + marginal-permutation
+        # floor + the S5 conditional-MI redundancy gate vs the admitted engineered
+        # support). Structurally a no-op (one set-difference) when every surviving pair
+        # produced an admitted column -- the common case. See ``_fe_auto_escalation``.
+        if bool(getattr(self, "fe_auto_escalation_enable", True)) and prospective_pairs:
+            try:
+                _esc_pairs_with_additions = {
+                    _rp for _rp, _v in prospective_additions.items() if _v[0]
+                }
+                _esc_failed = [
+                    (_k[0], float(_k[1])) for _k in prospective_pairs
+                    if _k[0] not in _esc_pairs_with_additions
+                ]
+                if _esc_failed:
+                    from ._fe_auto_escalation import run_fe_auto_escalation
+                    from ._mi_greedy_cmi_fe import _cmi_from_binned as _esc_mi, _quantile_bin as _esc_qbin
+                    # Admitted-support context for the S5 gate: the engineered columns
+                    # the main path just materialised (continuous values + marginal MI).
+                    _esc_y = np.asarray(classes_y)
+                    if not np.issubdtype(_esc_y.dtype, np.integer):
+                        _esc_y = _esc_y.astype(np.int64)
+                    _, _esc_y_dense = np.unique(_esc_y, return_inverse=True)
+                    _esc_y_dense = _esc_y_dense.astype(np.int64)
+                    _esc_admitted_pool: dict = {}
+                    for _rp, (_tpf, _tvals, _ncols, _nnb, _msgs) in prospective_additions.items():
+                        if not _tpf or _tvals is None or not _ncols:
+                            continue
+                        for _jc, _cname in enumerate(_ncols):
+                            if _tvals.shape[1] <= _jc:
+                                continue
+                            _cv = np.asarray(_tvals[:, _jc], dtype=np.float64)
+                            _cb = _esc_qbin(_cv, nbins=int(self.quantization_nbins))
+                            _esc_admitted_pool[_cname] = (_cv, float(_esc_mi(_cb, _esc_y_dense, None)))
+                    _esc_admitted = run_fe_auto_escalation(
+                        self,
+                        failed_pairs=_esc_failed,
+                        X=X, cols=cols,
+                        classes_y=classes_y,
+                        pair_maxt_floor=float(_pair_maxt_floor),
+                        admitted_pool=_esc_admitted_pool,
+                        verbose=verbose,
+                    )
+                    if _esc_admitted:
+                        # Materialise exactly like the unary/binary survivors above:
+                        # discretised codes into data/X, name into cols, nbins in
+                        # lockstep, recipe registered, continuous values stashed for
+                        # the engineered-operand feed-forward, index promoted below.
+                        if not _is_polars_input and hasattr(X, "columns"):
+                            X = X.copy()
+                        _esc_new_codes = np.empty(
+                            shape=(len(X), len(_esc_admitted)), dtype=self.quantization_dtype,
+                        )
+                        for _je, _ec in enumerate(_esc_admitted):
+                            _esc_new_codes[:, _je] = discretize_array(
+                                arr=np.asarray(_ec["values"], dtype=np.float64),
+                                n_bins=self.quantization_nbins,
+                                method=self.quantization_method,
+                                dtype=self.quantization_dtype,
+                            )
+                        _n_cols_before_esc = len(cols)
+                        data = np.append(data, _esc_new_codes, axis=1)
+                        nbins = np.concatenate([
+                            np.asarray(nbins),
+                            np.asarray([self.quantization_nbins] * len(_esc_admitted), dtype=np.asarray(nbins).dtype),
+                        ])
+                        cols = cols + [_ec["name"] for _ec in _esc_admitted]
+                        _newly_engineered_indices.extend(range(_n_cols_before_esc, len(cols)))
+                        n_recommended_features += len(_esc_admitted)
+                        _eng_cont_store = getattr(self, "_engineered_continuous_", None)
+                        if _eng_cont_store is None:
+                            _eng_cont_store = {}
+                            self._engineered_continuous_ = _eng_cont_store
+                        if _is_polars_input:
+                            X = X.with_columns([
+                                pl.Series(_ec["name"], _esc_new_codes[:, _je])
+                                for _je, _ec in enumerate(_esc_admitted)
+                            ])
+                        for _je, _ec in enumerate(_esc_admitted):
+                            if not _is_polars_input:
+                                X[_ec["name"]] = _esc_new_codes[:, _je]
+                            _eng_cont_store[_ec["name"]] = np.asarray(_ec["values"], dtype=np.float64)
+                            if engineered_recipes is not None:
+                                engineered_recipes[_ec["name"]] = _ec["recipe"]
+            except Exception:
+                logger.warning(
+                    "MRMR FE auto-escalation failed; continuing with the unary/binary survivors only.",
+                    exc_info=True,
+                )
+
         # ROOT CAUSE 5 fix (2026-06-01): promote the freshly-appended engineered
         # columns directly into ``selected_vars`` (cols-space). They already
         # cleared every FE gate (pair-MI prevalence, engineered-MI prevalence,
