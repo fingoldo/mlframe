@@ -25,6 +25,8 @@ import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin, clone
 
+from mlframe.utils.misc import rng_hygienic_fit
+
 logger = logging.getLogger(__name__)
 
 
@@ -254,6 +256,7 @@ class GroupAwareMRMR(BaseEstimator, TransformerMixin):
             f"GroupAwareMRMR cannot map its selection back to clusters."
         )
 
+    @rng_hygienic_fit
     def fit(self, X, y, **fit_params):
         # **fit_params (e.g. ``groups`` for a GroupKFold cv, ``sample_weight``)
         # are row-aligned, so they pass straight through to the inner selector

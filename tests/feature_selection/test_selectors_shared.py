@@ -341,8 +341,15 @@ class TestSharedTrivialInputs:
             # Some selectors require >= 2 features (e.g. mRMR redundancy
             # term needs pairs). Tolerated.
             pytest.skip("selector requires >=2 features")
-        # If fit succeeded: n_features_ must be in [0, 1]
-        assert 0 <= selector.n_features_ <= 1
+        # Exactly ONE raw feature exists, so n_features_in_ must be 1 and the
+        # raw column must be selected. n_features_ itself can exceed 1 because
+        # MRMR's default hinge FE legitimately engineers relu legs off the kink
+        # in y=(a>0) (the engineered tail is recreated from recipes at transform,
+        # never leaked into the caller's X); assert on the RAW selection instead.
+        assert selector.n_features_in_ == 1
+        raw_selected = int(np.asarray(selector.get_support()).sum()) \
+            if callable(getattr(selector, "get_support", None)) else len(getattr(selector, "support_", [0]))
+        assert raw_selected == 1, "the single informative raw column must be selected"
 
     def test_all_noise_features(self, selector_factory):
         """No feature carries any signal. Selector should run without

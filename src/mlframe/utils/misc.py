@@ -63,6 +63,97 @@ def set_random_seed(seed: int = 42, set_hash_seed: bool = False, set_torch_seed:
             pass
 
 
+import contextlib
+import functools
+
+
+def rng_hygienic_fit(fit_method):
+    """Decorator wrapping a selector ``fit`` so it does not leave the caller's
+    process-global ``numpy`` / ``random`` RNG mutated. Within-fit determinism is
+    bit-identical (any internal seeding still runs); the global stream is restored
+    on return. Apply to selectors whose fit internally seeds or draws from the
+    global RNG (the FS global-``np.random`` bug class)."""
+    @functools.wraps(fit_method)
+    def _wrapped(self, *args, **kwargs):
+        with preserve_global_rng():
+            return fit_method(self, *args, **kwargs)
+    return _wrapped
+
+
+def _restore_caller_frame_columns(X, original_cols):
+    """Drop any columns a fit added to the caller's pandas DataFrame in place.
+
+    Mutate-and-restore (CLAUDE.md RAM rule): a fit that temporarily materialises
+    engineered columns (hinge legs, cat crosses, target-prefix probes) into the
+    working frame must NOT leave them in the caller's reference -- on a 100 GB
+    frame the leaked columns are both a memory leak and a silent schema corruption
+    that breaks every downstream consumer iterating ``X.columns``. We restore by
+    NAME-SET so a fit that legitimately reorders is untouched; only ADDED columns
+    are dropped. No ``X.copy()`` -- we mutate the same reference back to its entry
+    schema.
+    """
+    if original_cols is None:
+        return
+    try:
+        added = [c for c in X.columns if c not in original_cols]
+    except Exception:
+        return
+    if added:
+        try:
+            X.drop(columns=added, inplace=True)
+        except Exception:
+            pass
+
+
+def hygienic_fit(fit_method):
+    """Decorator wrapping a selector ``fit`` so it leaves the caller's environment
+    untouched: (1) global numpy/random RNG restored (see :func:`rng_hygienic_fit`),
+    and (2) the caller's input pandas DataFrame restored to its entry column schema
+    (any columns the fit materialised in place are dropped on return). Apply to
+    selectors whose fit engineers columns into the working frame (MRMR's hinge /
+    cat-cross / target-prefix FE), so ``X`` in == ``X`` out."""
+    @functools.wraps(fit_method)
+    def _wrapped(self, X, *args, **kwargs):
+        original_cols = None
+        try:
+            import pandas as _pd
+            if isinstance(X, _pd.DataFrame):
+                original_cols = list(X.columns)
+        except Exception:
+            original_cols = None
+        with preserve_global_rng():
+            try:
+                return fit_method(self, X, *args, **kwargs)
+            finally:
+                _restore_caller_frame_columns(X, original_cols)
+    return _wrapped
+
+
+@contextlib.contextmanager
+def preserve_global_rng():
+    """Snapshot the process-global ``numpy`` + ``random`` RNG state on entry and
+    restore it on exit (success OR exception).
+
+    Library fit paths that internally call :func:`set_random_seed` (to make any
+    sub-estimator with ``random_state=None`` reproducible WITHIN the fit) must
+    not leave the caller's global RNG clobbered afterwards -- that is the exact
+    hygiene violation ``set_random_seed``'s own docstring warns against. Wrap the
+    fit body in this context manager: the internal seeding still runs (so the
+    selection output is bit-identical), but the caller's ``np.random`` /
+    ``random`` stream resumes untouched. numpy + random cover essentially all
+    sibling-code RNG sharing; cupy/numba/torch global state is not restored here
+    (rarely shared cross-library, and snapshotting it is disproportionately
+    costly).
+    """
+    np_state = np.random.get_state()
+    py_state = random.getstate()
+    try:
+        yield
+    finally:
+        np.random.set_state(np_state)
+        random.setstate(py_state)
+
+
 def get_pipeline_last_element(clf) -> object:
     for elem_name, elem in clf.named_steps.items():
         pass

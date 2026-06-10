@@ -4,6 +4,7 @@ from __future__ import annotations
 
 
 import copy
+import functools
 import hashlib
 import logging
 import textwrap
@@ -787,6 +788,28 @@ class RFECV(BaseEstimator, TransformerMixin):
             )
         return np.asarray([self.feature_names_in_[i] for i in self.support_], dtype=object)
 
+    def get_support(self, indices: bool = False):
+        """sklearn ``SelectorMixin`` protocol. Returns a bool mask of length
+        ``n_features_in_`` (``indices=False``) or the integer indices of the
+        selected features (``indices=True``). ``support_`` is stored as either a
+        bool mask or an int-index array depending on the fit path, so normalise
+        both shapes here -- sklearn tooling that introspects selection via
+        ``get_support`` (SelectFromModel-style pipelines, set_output column
+        derivation) relies on this method existing.
+        """
+        if not hasattr(self, "support_"):
+            from sklearn.exceptions import NotFittedError as _NFE
+            raise _NFE("RFECV is not fitted; call fit() first.")
+        n = int(getattr(self, "n_features_in_", len(self.support_)))
+        support = np.asarray(self.support_)
+        if support.size and isinstance(self.support_[0], (bool, np.bool_)):
+            mask = support.astype(bool)
+        else:
+            mask = np.zeros(n, dtype=bool)
+            if support.size:
+                mask[support.astype(int)] = True
+        return np.where(mask)[0] if indices else mask
+
     def transform(self, X, y=None):
         # Polars X (callers like _passthrough_cols_fit_transform keep the native frame) breaks the legacy ``X[:, self.support_]`` mask
         # path with ``expected N values when selecting columns by boolean mask, got M`` when the polars schema has more cols than the
@@ -851,7 +874,24 @@ class RFECV(BaseEstimator, TransformerMixin):
 # self with no cycle.
 # ----------------------------------------------------------------------
 from ._rfecv_fit import fit as _fit_func  # noqa: E402
-RFECV.fit = _fit_func
+
+
+@functools.wraps(_fit_func)
+def _fit_with_rng_hygiene(self, *args, **kwargs):
+    # _rfecv_fit.fit calls set_random_seed(random_state) to make sub-estimators
+    # with random_state=None reproducible WITHIN the fit; that clobbers the
+    # caller's process-global numpy/random RNG (the violation set_random_seed's
+    # own docstring forbids). Snapshot+restore around fit so within-fit
+    # determinism is bit-identical while the caller's global RNG resumes
+    # untouched. Verified: RFECV's only global-RNG touch is that seed call (all
+    # real randomness -- permutation/conditional FI, MBH search -- is locally
+    # threaded), so restoring afterward cannot change selection output.
+    from mlframe.utils.misc import preserve_global_rng
+    with preserve_global_rng():
+        return _fit_func(self, *args, **kwargs)
+
+
+RFECV.fit = _fit_with_rng_hygiene
 
 from ._rfecv_stability_select import (  # noqa: E402
     _fit_stability_selection as _fit_stability_selection_func,

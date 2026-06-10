@@ -86,7 +86,7 @@ from pyutilz.system import tqdmu  # noqa: F401
 from mlframe.core.arrays import arrayMinMax  # noqa: F401
 from mlframe.feature_selection.wrappers import RFECV  # noqa: F401
 from mlframe.metrics.core import compute_probabilistic_multiclass_error  # noqa: F401
-from mlframe.utils.misc import set_random_seed  # noqa: F401
+from mlframe.utils.misc import set_random_seed, hygienic_fit  # noqa: F401
 
 from ._internals import (  # noqa: F401
     ENSURE_ARROW_DF_SUPPORT,
@@ -2894,6 +2894,7 @@ class MRMR(BaseEstimator, TransformerMixin):
         except Exception:
             pass
 
+    @hygienic_fit
     def fit(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | np.ndarray, groups: pd.Series | np.ndarray = None, sample_weight: np.ndarray | pd.Series | None = None, **fit_params):
         """Public ``fit`` wrapper. The body (``_fit_impl``) is run inside a try / finally so the
         temporary target columns injected into a caller-supplied pandas frame are always dropped,

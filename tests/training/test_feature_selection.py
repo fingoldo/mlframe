@@ -134,29 +134,26 @@ class TestMRMRFeatureSelection:
         # Signature should be set
         assert selector.signature is not None
 
-    def test_mrmr_different_quantization_methods(self, sample_regression_data):
-        """Test MRMR with different quantization methods."""
+    @pytest.mark.parametrize("method", ["quantile", "uniform"])
+    def test_mrmr_different_quantization_methods(self, sample_regression_data, method):
+        """Each supported quantization method must fit cleanly -- a crash IS the
+        failure (the prior loop-with-except-warn swallowed every exception incl.
+        the assertion, so the test could never fail)."""
         df, feature_names, y = sample_regression_data
         X = df[feature_names].iloc[:200]  # Small subset for speed
         y_subset = y[:200]
 
-        # Only 'quantile' and 'uniform' are supported by discretize_array
-        for method in ["quantile", "uniform"]:
-            selector = MRMR(
-                verbose=0,
-                max_runtime_mins=0.5,
-                quantization_method=method,
-                quantization_nbins=5,
-                use_simple_mode=True,
-                n_workers=1,
-            )
-
-            try:
-                selector.fit(X, y_subset)
-                assert hasattr(selector, "n_features_in_")
-            except Exception as e:
-                # Some methods may not work with certain data
-                warnings.warn(f"Quantization method {method} failed: {e}")
+        selector = MRMR(
+            verbose=0,
+            max_runtime_mins=0.5,
+            quantization_method=method,
+            quantization_nbins=5,
+            use_simple_mode=True,
+            n_workers=1,
+        )
+        selector.fit(X, y_subset)  # no try/except: a crash is a real failure
+        assert selector.n_features_in_ == X.shape[1]
+        assert selector.n_features_ >= 1
 
 
 # ================================================================================================
@@ -647,57 +644,34 @@ class TestFeatureSelectionEdgeCases:
     """Test edge cases in feature selection."""
 
     def test_mrmr_with_constant_feature(self):
-        """Test MRMR handles constant features."""
-        np.random.seed(42)
-        X = pd.DataFrame(
-            {
-                "feature_0": np.random.randn(100),
-                "constant": np.ones(100),  # Constant feature
-                "feature_2": np.random.randn(100),
-            }
-        )
-        y = np.random.randn(100)
+        """MRMR must fit with a constant column present (MI=0 surfaces it; the
+        column is not rejected at entry per FS-P2-2) and must NOT select it while
+        the two genuinely-informative features exist."""
+        rng = np.random.default_rng(42)
+        f0 = rng.standard_normal(100)
+        f2 = rng.standard_normal(100)
+        X = pd.DataFrame({"feature_0": f0, "constant": np.ones(100), "feature_2": f2})
+        y = 2.0 * f0 - 1.5 * f2 + 0.1 * rng.standard_normal(100)  # signal in f0,f2 only
 
-        selector = MRMR(
-            verbose=0,
-            max_runtime_mins=0.5,
-            quantization_nbins=3,
-            n_workers=1,
-        )
-
-        # Should handle constant feature gracefully
-        try:
-            selector.fit(X, y)
-            # Success path: selector should have produced some result attribute
-            assert hasattr(selector, "selected_features_") or hasattr(selector, "support_") or True
-        except Exception as e:
-            pytest.skip(f"Constant features raised expected error: {type(e).__name__}")
+        selector = MRMR(verbose=0, max_runtime_mins=0.5, quantization_nbins=3, n_workers=1)
+        selector.fit(X, y)  # no skip-on-exception: a crash is a real failure
+        assert selector.n_features_in_ == 3
+        assert "constant" not in set(selector.get_feature_names_out())
 
     def test_mrmr_with_nan_values(self):
-        """Test MRMR with NaN values in data."""
-        np.random.seed(42)
-        X = pd.DataFrame(
-            {
-                "feature_0": np.random.randn(100),
-                "feature_1": np.random.randn(100),
-            }
-        )
+        """MRMR handles NaN in X natively (nan_strategy) -- fit must SUCCEED and the
+        NaN-bearing informative feature stays selectable (no silent except-pass)."""
+        rng = np.random.default_rng(42)
+        f0 = rng.standard_normal(100)
+        f1 = rng.standard_normal(100)
+        X = pd.DataFrame({"feature_0": f0, "feature_1": f1})
         X.loc[10:15, "feature_0"] = np.nan  # Add NaN values
-        y = np.random.randn(100)
+        y = 2.0 * f0 + 0.1 * rng.standard_normal(100)  # signal driven by feature_0
 
-        selector = MRMR(
-            verbose=0,
-            max_runtime_mins=0.5,
-            quantization_nbins=3,
-            n_workers=1,
-        )
-
-        # May handle or raise error
-        try:
-            selector.fit(X, y)
-        except Exception:
-            # Expected - NaN handling varies
-            pass
+        selector = MRMR(verbose=0, max_runtime_mins=0.5, quantization_nbins=3, n_workers=1)
+        selector.fit(X, y)  # native NaN handling -- must not raise
+        assert selector.n_features_in_ == 2
+        assert "feature_0" in set(selector.get_feature_names_out())
 
     def test_rfecv_with_single_feature(self):
         """Test RFECV with single feature."""
@@ -786,17 +760,15 @@ class TestModelCloningInTrainingSuite:
         cb1.fit(X1, y)
         cb2.fit(X2, y)
 
-        # Predictions should be different because they used different features
-        pred1 = cb1.predict(X1[:10])
-        pred2 = cb2.predict(X2[:10])
+        # Probe ALL samples (not just the first 10) so the differ-assertion is a
+        # real sensor: two models fit on disjoint feature blocks must disagree on
+        # at least one of 200 rows. The old `... or True` made this unfalsifiable.
+        pred1 = cb1.predict(X1)
+        pred2 = cb2.predict(X2)
 
-        # Models should be independent objects
-        assert cb1 is not cb2, "Models should be different objects"
-
-        # At least some predictions should differ (they use completely different features)
-        # Note: They might accidentally agree on some samples, but not all
-        assert not np.array_equal(pred1, pred2) or True, (
-            "Models trained on different features should give different predictions"
+        assert cb1 is not cb2, "clone() must produce a distinct object"
+        assert not np.array_equal(pred1, pred2), (
+            "models fit on disjoint feature blocks should differ on >=1 sample"
         )
 
     def test_mrmr_not_prefitted_after_creation(self):

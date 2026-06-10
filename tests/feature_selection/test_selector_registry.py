@@ -16,6 +16,36 @@ def test_builtin_registrations_present():
     assert "MRMR" in available
     assert "RFECV" in available
     assert "BorutaShap" in available
+    assert "ShapProxiedFS" in available  # was registered but had no presence sensor
+
+
+def test_every_registered_selector_has_contract_spec():
+    """Tripwire: every production-registered selector MUST have a contract spec in
+    tests/feature_selection/_selector_factories.SELECTOR_SPECS, so registration
+    implies shared-contract coverage (a 5th registry entry without a spec fails
+    here instead of silently escaping the cross-selector battery). Closes the
+    "two hand-rolled factory lists can drift" gap (shared_lift-02)."""
+    from tests.feature_selection._selector_factories import SELECTOR_SPECS
+
+    missing = set(fs_registry.available()) - set(SELECTOR_SPECS)
+    assert not missing, (
+        f"registry selectors without a contract spec: {sorted(missing)} -- add a "
+        f"SelectorSpec in _selector_factories.py so registration implies contract coverage"
+    )
+
+
+def test_rfecv_and_shap_proxied_specs_instantiate_real_types():
+    """The RFECV / ShapProxiedFS specs build the real classes via the registry
+    (only MRMR had an instantiate-type sensor before)."""
+    from mlframe.feature_selection.wrappers import RFECV
+    from sklearn.linear_model import LogisticRegression
+    rfecv = fs_registry.get("RFECV").instantiate(
+        estimator=LogisticRegression(max_iter=50), cluster_reduce=False)
+    assert isinstance(rfecv, RFECV)
+
+    from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
+    sp = fs_registry.get("ShapProxiedFS").instantiate()
+    assert isinstance(sp, ShapProxiedFS)
 
 
 def test_get_unknown_raises():

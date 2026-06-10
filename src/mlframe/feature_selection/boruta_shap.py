@@ -677,7 +677,8 @@ from ._boruta_shap_fit_explain import (  # noqa: E402
     fit as _fit_func,
     explain as _explain_func,
 )
-BorutaShap.fit = _fit_func
+from mlframe.utils.misc import rng_hygienic_fit  # noqa: E402
+BorutaShap.fit = rng_hygienic_fit(_fit_func)
 BorutaShap.explain = _explain_func
 
 from ._boruta_shap_io_plot import (  # noqa: E402,F401
