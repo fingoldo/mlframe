@@ -491,6 +491,16 @@ def plot_beautified_lift(
     return fig
 
 
+def _decimate_curve_vertices(arrays: tuple, max_points: int = 2000) -> tuple:
+    """Uniform-stride decimation of parallel curve-vertex arrays for plotting; both endpoints are always kept.
+    Display-only: metrics (AP / AUC / Brier) stay computed on the full data."""
+    n = len(arrays[0])
+    if n <= max_points:
+        return arrays
+    idx = np.linspace(0, n - 1, max_points).round().astype(np.int64)
+    return tuple(a[idx] for a in arrays)
+
+
 def plot_pr_curve(
     y: np.ndarray,
     preds: np.ndarray,
@@ -499,11 +509,12 @@ def plot_pr_curve(
     thresh: float = 0.5,
     ax: Optional[object] = None,
 ):
-    """Dual PR + ROC on same axes with PR baseline and classification_report printed at thresh.
+    """Dual PR + ROC on same axes with PR baseline and classification_report logged at thresh.
 
     Adapted from OldEnsembling.plot_pr; returns Figure instead of showing plot.
+    Curve vertices are decimated to ~2000 points for plotting; all displayed
+    metrics are computed on the full data.
     """
-    from scipy import stats
     from sklearn.metrics import (
         precision_recall_curve,
         average_precision_score,
@@ -517,10 +528,15 @@ def plot_pr_curve(
     preds = np.asarray(preds, dtype=float)
 
     precision, recall, _ = precision_recall_curve(y, preds)
-    dummy_predictions = np.full(len(y), float(stats.mode(y, keepdims=False).mode))
-    dummy_precision, dummy_recall, _ = precision_recall_curve(y, dummy_predictions)
+    recall, precision = _decimate_curve_vertices((recall, precision))
+    # The dummy (constant-prediction) PR baseline is analytic: a single threshold gives precision [prevalence, 1], recall [1, 0],
+    # and AP = positive-class prevalence. Running precision_recall_curve on np.full(n, mode) wasted a full-n pass for 2 points.
+    classes, counts = np.unique(y, return_counts=True)
+    prevalence = float(counts[-1]) / float(counts.sum())
+    dummy_precision = np.array([prevalence, 1.0])
+    dummy_recall = np.array([1.0, 0.0])
     pr_auc = average_precision_score(y, preds)
-    dummy_pr_auc = average_precision_score(y, dummy_predictions)
+    dummy_pr_auc = prevalence
 
     if ax is None:
         fig, ax = plt.subplots()
@@ -539,7 +555,8 @@ def plot_pr_curve(
 
     fpr, tpr, _ = roc_curve(y, preds)
     roc_auc = auc(fpr, tpr)
-    ax.plot(fpr, tpr, "b", label="ROC AUC=%0.3f" % roc_auc)
+    fpr_d, tpr_d = _decimate_curve_vertices((fpr, tpr))
+    ax.plot(fpr_d, tpr_d, "b", label="ROC AUC=%0.3f" % roc_auc)
     ax.plot([0, 1], [0, 1], "r--")
     ax.legend(loc="lower right")
 
@@ -554,7 +571,7 @@ def plot_pr_curve(
         fig.savefig(save_as, bbox_inches="tight")
 
     try:
-        print(classification_report(y, preds > thresh))
+        logger.info("classification report at thresh=%s:\n%s", thresh, classification_report(y, preds > thresh))
     except Exception as exc:
         logger.warning("classification_report failed: %s", exc)
 
@@ -580,6 +597,7 @@ def plot_roc_curve(
 
     fpr, tpr, _ = roc_curve(y, preds)
     roc_auc = auc(fpr, tpr)
+    fpr_d, tpr_d = _decimate_curve_vertices((fpr, tpr))
 
     if ax is None:
         fig, ax = plt.subplots()
@@ -587,7 +605,7 @@ def plot_roc_curve(
         fig = ax.figure
 
     ax.set_title("ROC")
-    ax.plot(fpr, tpr, "b", label="AUC = %0.2f" % roc_auc)
+    ax.plot(fpr_d, tpr_d, "b", label="AUC = %0.2f" % roc_auc)
     ax.plot([0, 1], [0, 1], "r--")
     ax.set_xlim([0.0, 1.0])
     ax.set_ylim([0.0, 1.0])

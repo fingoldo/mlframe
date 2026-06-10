@@ -76,23 +76,45 @@ def plot_target_distribution(
     finite_y = y_arr[np.isfinite(y_arr)]
     finite_t = t_arr[np.isfinite(t_arr)]
     fig, ax = plt.subplots(figsize=figsize)
-    ax.hist(finite_y, bins=bins, alpha=0.5, label=f"y (n={finite_y.size})",
-            color="tab:blue", density=True)
-    ax.hist(finite_t, bins=bins, alpha=0.5, label=f"T (n={finite_t.size})",
-            color="tab:orange", density=True)
+    # Pre-bin once with np.histogram on shared edges instead of two full-n ax.hist calls: matplotlib re-bins each series internally,
+    # which dominates wall time on multi-million-row inputs; shared edges also make the two overlaid densities directly comparable.
+    if finite_y.size or finite_t.size:
+        lo = min([float(a.min()) for a in (finite_y, finite_t) if a.size])
+        hi = max([float(a.max()) for a in (finite_y, finite_t) if a.size])
+        if lo == hi:
+            lo, hi = lo - 0.5, hi + 0.5
+        edges = np.linspace(lo, hi, bins + 1)
+        width = edges[1] - edges[0]
+        for arr, color, name in ((finite_y, "tab:blue", "y"), (finite_t, "tab:orange", "T")):
+            if arr.size == 0:
+                continue
+            counts, _ = np.histogram(arr, bins=edges)
+            ax.bar(edges[:-1], counts / (arr.size * width), width=width, align="edge",
+                   alpha=0.5, color=color, label=f"{name} (n={arr.size})")
     ax.set_xlabel("value")
     ax.set_ylabel("density")
     ax.set_title(title)
     ax.legend(loc="best")
-    # Annotate skew + std for a quick read.
+    # Annotate skew + std for a quick read. Moments are annotation-only precision: on huge inputs a 100k subsample is statistically
+    # indistinguishable at the 2-decimal display resolution and saves several full-array passes; the subsample size is disclosed.
     if finite_y.size > 1 and finite_t.size > 1:
         from scipy.stats import skew, kurtosis
+        moment_cap = 100_000
+        sub_y, sub_t = finite_y, finite_t
+        sub_note = ""
+        if max(finite_y.size, finite_t.size) > moment_cap:
+            rng = np.random.default_rng(0)
+            if finite_y.size > moment_cap:
+                sub_y = finite_y[rng.choice(finite_y.size, size=moment_cap, replace=False)]
+            if finite_t.size > moment_cap:
+                sub_t = finite_t[rng.choice(finite_t.size, size=moment_cap, replace=False)]
+            sub_note = f"\n(moments on {moment_cap:,}-row subsample)"
         try:
             text = (
-                f"y: std={np.std(finite_y):.3g}, skew={skew(finite_y):.2f}, "
-                f"excess kurt={kurtosis(finite_y):.2f}\n"
-                f"T: std={np.std(finite_t):.3g}, skew={skew(finite_t):.2f}, "
-                f"excess kurt={kurtosis(finite_t):.2f}"
+                f"y: std={np.std(sub_y):.3g}, skew={skew(sub_y):.2f}, "
+                f"excess kurt={kurtosis(sub_y):.2f}\n"
+                f"T: std={np.std(sub_t):.3g}, skew={skew(sub_t):.2f}, "
+                f"excess kurt={kurtosis(sub_t):.2f}" + sub_note
             )
             ax.text(0.02, 0.98, text, transform=ax.transAxes,
                     va="top", ha="left",
@@ -102,6 +124,15 @@ def plot_target_distribution(
             pass
     fig.tight_layout()
     return fig
+
+
+def _qq_decimation_indices(n: int, max_points: int = 2000, tail_keep: int = 20) -> np.ndarray:
+    """Order-statistic ranks to plot on a QQ scatter: uniform stride over the bulk, plus the first/last ``tail_keep`` ranks kept
+    exactly -- tail behaviour is the whole point of a QQ plot, so the extreme order statistics must never be decimated away."""
+    if n <= max_points:
+        return np.arange(n)
+    mid = np.linspace(tail_keep, n - 1 - tail_keep, max_points - 2 * tail_keep).round().astype(np.int64)
+    return np.unique(np.concatenate([np.arange(tail_keep), mid, np.arange(n - tail_keep, n)]))
 
 
 def plot_qq(
@@ -116,6 +147,10 @@ def plot_qq(
     bows away from the line at the extremes; light-tail (uniform-ish)
     bows toward the line. Useful for diagnosing whether ``logratio``
     actually normalised the target.
+
+    The scatter is decimated to ~2000 order statistics on large inputs
+    (a screen has fewer horizontal pixels) while the extreme ranks are
+    always kept; the fit line uses the full order statistics.
     """
     plt = _lazy_pyplot()
     t_arr = np.asarray(t).reshape(-1)
@@ -129,10 +164,24 @@ def plot_qq(
         ax.set_title(title)
         return fig
 
-    from scipy.stats import probplot
+    from scipy.stats import linregress, norm
+
+    n = finite.size
+    osr = np.sort(finite)
+    # Filliben order-statistic medians: the exact positions scipy.stats.probplot uses, so the undecimated output is identical to the
+    # probplot(plot=ax) call this replaces -- probplot itself was dropped because it scatter-plots all n points (5s+ savefig at 2M).
+    pos = (np.arange(1.0, n + 1.0) - 0.3175) / (n + 0.365)
+    pos[0] = 1.0 - 0.5 ** (1.0 / n)
+    pos[-1] = 0.5 ** (1.0 / n)
+    osm = norm.ppf(pos)
+    fit = linregress(osm, osr)
+
     fig, ax = plt.subplots(figsize=figsize)
-    # probplot draws scatter + best-fit line; we keep both.
-    probplot(finite, dist="norm", plot=ax)
+    idx = _qq_decimation_indices(n)
+    ax.plot(osm[idx], osr[idx], "bo")
+    ax.plot([osm[0], osm[-1]], [fit.slope * osm[0] + fit.intercept, fit.slope * osm[-1] + fit.intercept], "r-")
+    ax.set_xlabel("Theoretical quantiles")
+    ax.set_ylabel("Ordered Values")
     ax.set_title(title)
     fig.tight_layout()
     return fig
