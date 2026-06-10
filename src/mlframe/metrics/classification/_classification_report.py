@@ -28,6 +28,7 @@ import numba
 from .._numba_params import NUMBA_NJIT_PARAMS, _PARALLEL_REDUCTION_THRESHOLD  # noqa: F401
 from ..calibration._calibration_plot import (  # noqa: F401
     DEFAULT_TITLE_METRICS_TOKENS,
+    calibration_binning,
     fast_calibration_binning,
     render_title_metric_token,
     show_calibration_plot,
@@ -193,6 +194,7 @@ def fast_calibration_report(
     show_prob_histogram: bool = True,
     prob_histogram_yscale: str = "auto",
     show_inline_population_labels: bool = True,
+    binning_strategy: str = "auto",
     #
     plot_file: str = "",
     plot_outputs: Optional[str] = None,
@@ -233,35 +235,47 @@ def fast_calibration_report(
 
     if backend not in ("plotly", "matplotlib"):
         raise ValueError(f"backend must be 'plotly' or 'matplotlib'; got {backend!r}.")
-    if len(y_true) == 0:
-        (
-            brier_loss,
-            calibration_mae,
-            calibration_std,
-            calibration_coverage,
-        ) = (
-            1.0,
-            1.0,
-            1.0,
-            0.0,
-        )
-        roc_auc, pr_auc, ice, ll, precision, recall, f1 = 0.5, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0
-        ece, brier_reliability, brier_resolution, brier_uncertainty = 1.0, 1.0, 0.0, 0.0
-        metrics_string, fig = "", None
+
+    def _degenerate_result():
+        """Empty / all-non-finite input: degenerate metrics, no crash."""
         return (
-            brier_loss, calibration_mae, calibration_std, calibration_coverage,
-            ece, brier_reliability, brier_resolution, brier_uncertainty,
-            roc_auc, pr_auc, ice, ll, precision, recall, f1,
-            metrics_string, fig,
+            1.0, 1.0, 1.0, 0.0,            # brier, cal_mae, cal_std, cal_cov
+            1.0, 1.0, 0.0, 0.0,            # ece, rel, res, unc
+            0.5, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0,  # roc, pr, ice, ll, precision, recall, f1
+            "", None,                      # metrics_string, fig
         )
+
+    if len(y_true) == 0:
+        return _degenerate_result()
+
+    # NaN / inf pre-mask. The preds path is NaN-guarded upstream (argmax_classes_safe)
+    # but the probs path is not, and floor(nan) under numba (boundscheck off) yields an
+    # undefined index -> out-of-bounds write in the binning kernel (silent corruption).
+    # Drop non-finite scores here (cheap vectorized check, house "fastmath + Python NaN-gate"
+    # pattern) so the whole report runs on finite data; log the dropped count once.
+    _y_pred_arr = np.asarray(y_pred, dtype=np.float64)
+    _finite_mask = np.isfinite(_y_pred_arr)
+    if not _finite_mask.all():
+        _n_dropped = int((~_finite_mask).sum())
+        logger.warning(
+            "fast_calibration_report: dropped %d/%d non-finite probabilities before binning.",
+            _n_dropped, len(_y_pred_arr),
+        )
+        y_pred = _y_pred_arr[_finite_mask]
+        y_true = np.asarray(y_true)[_finite_mask]
+        if len(y_true) == 0:
+            logger.warning("fast_calibration_report: all probabilities were non-finite; skipping calibration.")
+            return _degenerate_result()
 
     brier_loss = fast_brier_score_loss(y_true=y_true, y_prob=y_pred)
 
-    freqs_predicted, freqs_true, hits = fast_calibration_binning(y_true=y_true, y_pred=y_pred, nbins=nbins)
+    freqs_predicted, freqs_true, hits = calibration_binning(
+        y_true=y_true, y_pred=y_pred, nbins=nbins, strategy=binning_strategy,
+    )
     if verbose:
         print("freqs_predicted", freqs_predicted)
         print("freqs_true", freqs_true)
-    min_hits, max_hits = np.min(hits), np.max(hits)
+    min_hits, max_hits = (np.min(hits), np.max(hits)) if len(hits) > 0 else (0, 0)
     calibration_mae, calibration_std, calibration_coverage = calibration_metrics_from_freqs(
         freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins, array_size=len(y_true), use_weights=use_weights
     )

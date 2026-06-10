@@ -171,10 +171,17 @@ def render_title_metric_token(
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def fast_calibration_binning(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100):
-    """Computes bins of predicted vs actual events frequencies. Corresponds to sklearn's UNIFORM strategy."""
+    """Computes bins of predicted vs actual events frequencies. Corresponds to sklearn's UNIFORM strategy.
+
+    ``freqs_predicted`` is the MEAN predicted probability within each bin (sum(y_pred)/hits),
+    not the bin centre. The bin centre is wrong-width and biases the reliability x-positions
+    (and the downstream calibration_mae) toward the grid rather than where the predictions
+    actually sit. The centre is used only as an empty-bin fallback (no present bin can hit it).
+    """
 
     pockets_predicted = np.zeros(nbins, dtype=np.int64)
     pockets_true = np.zeros(nbins, dtype=np.int64)
+    pockets_pred_sum = np.zeros(nbins, dtype=np.float64)
 
     # compute span
 
@@ -192,21 +199,112 @@ def fast_calibration_binning(y_true: np.ndarray, y_pred: np.ndarray, nbins: int 
             ind = floor((predicted_prob - min_val) * multiplier)
             pockets_predicted[ind] += 1
             pockets_true[ind] += true_class
+            pockets_pred_sum[ind] += predicted_prob
     else:
         ind = 0
         for true_class, predicted_prob in zip(y_true, y_pred):
             pockets_predicted[ind] += 1
             pockets_true[ind] += true_class
+            pockets_pred_sum[ind] += predicted_prob
 
     idx = np.nonzero(pockets_predicted > 0)[0]
 
     hits = pockets_predicted[idx]
     if len(hits) > 0:
-        freqs_predicted, freqs_true = (min_val + (np.arange(nbins)[idx] + 0.5) * span / nbins).astype(np.float64), pockets_true[idx] / pockets_predicted[idx]
+        # Mean predicted prob per present bin; bin-centre kept only as the empty-bin fallback geometry.
+        centres = (min_val + (np.arange(nbins)[idx] + 0.5) * span / nbins).astype(np.float64)
+        freqs_predicted = pockets_pred_sum[idx] / hits
+        for b in range(len(hits)):
+            if hits[b] == 0:
+                freqs_predicted[b] = centres[b]
+        freqs_true = pockets_true[idx] / pockets_predicted[idx]
     else:
         freqs_predicted, freqs_true = np.array((), dtype=np.float64), np.array((), dtype=np.float64)
 
     return freqs_predicted, freqs_true, hits
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _quantile_binning_kernel(y_true: np.ndarray, y_pred: np.ndarray, edges: np.ndarray):
+    """Bin (y_true, y_pred) into the pockets defined by ascending ``edges`` (len = nbins+1).
+
+    Equal-population (quantile) edges are computed by the Python wrapper; this kernel just
+    assigns each sample to its pocket via a linear scan over the (small) edge array and
+    returns mean-pred / observed-freq / population per non-empty pocket. Mirrors
+    fast_calibration_binning's outputs so downstream metrics are strategy-agnostic.
+    """
+    nbins = len(edges) - 1
+    pockets_predicted = np.zeros(nbins, dtype=np.int64)
+    pockets_true = np.zeros(nbins, dtype=np.int64)
+    pockets_pred_sum = np.zeros(nbins, dtype=np.float64)
+
+    for i in range(len(y_pred)):
+        p = y_pred[i]
+        # Find pocket: largest b with edges[b] <= p. Clamp to [0, nbins-1].
+        b = 0
+        for e in range(1, nbins):
+            if p >= edges[e]:
+                b = e
+            else:
+                break
+        pockets_predicted[b] += 1
+        pockets_true[b] += y_true[i]
+        pockets_pred_sum[b] += p
+
+    idx = np.nonzero(pockets_predicted > 0)[0]
+    hits = pockets_predicted[idx]
+    if len(hits) > 0:
+        freqs_predicted = pockets_pred_sum[idx] / hits
+        freqs_true = pockets_true[idx] / pockets_predicted[idx]
+    else:
+        freqs_predicted, freqs_true = np.array((), dtype=np.float64), np.array((), dtype=np.float64)
+    return freqs_predicted, freqs_true, hits
+
+
+def calibration_binning(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    nbins: int = 100,
+    strategy: str = "auto",
+):
+    """Bin predictions for a reliability diagram. Strategy dispatcher (default ``"auto"``).
+
+    - ``"uniform"``: equal-width bins over [min, max] (sklearn UNIFORM). Hot njit path.
+    - ``"quantile"``: equal-population bins via ``np.quantile`` edges. Rare-event models
+      (1-5% positives) concentrate near 0 and collapse into 1-2 uniform bins; quantile
+      binning spreads the mass across all ``nbins`` so the reliability diagram is readable.
+    - ``"auto"``: quantile when the positive base rate < 10%, else uniform.
+
+    Returns ``(freqs_predicted, freqs_true, hits)`` — same contract as fast_calibration_binning;
+    ``freqs_predicted`` is the per-bin mean predicted probability in both strategies.
+    """
+    if strategy not in ("uniform", "quantile", "auto"):
+        raise ValueError(f"strategy must be 'uniform', 'quantile', or 'auto'; got {strategy!r}.")
+    n = len(y_pred)
+    if n == 0:
+        empty = np.array((), dtype=np.float64)
+        return empty, empty, np.array((), dtype=np.int64)
+
+    resolved = strategy
+    if strategy == "auto":
+        base_rate = float(np.mean(y_true))
+        resolved = "quantile" if (0.0 < base_rate < 0.10) else "uniform"
+
+    if resolved == "uniform":
+        return fast_calibration_binning(y_true=y_true, y_pred=y_pred, nbins=nbins)
+
+    # Quantile: equal-population edges. Dedup collapsed edges (heavy ties at 0) so an
+    # empty/degenerate pocket isn't manufactured; fall back to uniform when <2 edges remain.
+    qs = np.linspace(0.0, 1.0, nbins + 1)
+    edges = np.quantile(np.asarray(y_pred, dtype=np.float64), qs)
+    edges = np.unique(edges)
+    if len(edges) < 2:
+        return fast_calibration_binning(y_true=y_true, y_pred=y_pred, nbins=nbins)
+    return _quantile_binning_kernel(
+        np.asarray(y_true).astype(np.int64, copy=False),
+        np.asarray(y_pred, dtype=np.float64),
+        edges.astype(np.float64),
+    )
 
 
 def _close_unless_interactive(figs, was_shown: bool) -> None:
