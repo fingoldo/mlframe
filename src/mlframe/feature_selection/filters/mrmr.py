@@ -372,7 +372,18 @@ class MRMR(BaseEstimator, TransformerMixin):
         max_veteranes_interactions_order: int = 1,
         only_unknown_interactions: bool = False,
         # feature engineering settings
-        fe_max_steps=1,
+        # MULTI-STEP FE DEFAULT 1 -> 2 (2026-06-10, user request). At step k>1 the operand
+        # pool also carries the engineered columns selected by the prior step (capped by
+        # ``fe_max_engineered_operands``), so the pair search builds COMPOSITES of two
+        # engineered features -- e.g. the additive ``add(div(sqr(a),neg(b)),mul(log(c),sin(d)))``
+        # that captures ~the entire deterministic signal of ``y = a**2/b + log(c)*sin(d)`` in a
+        # SINGLE feature, where step-1 (fe_max_steps=1) recovers only the two separate halves.
+        # An n-dependence probe (n=30k/50k/100k, multiple seeds) confirmed the clean composite
+        # is recovered at every n with no spurious cross-mix, and the strict pin test
+        # (test_mrmr_fe_composite_feedforward.py) guards it. Cost: one extra augmented-pool FE
+        # pass; ``fe_max_engineered_operands`` (default 8) bounds the O(k^2) pair blow-up.
+        # Set ``fe_max_steps=1`` to restore the single-step behaviour (no composites).
+        fe_max_steps=2,
         # after the FE step appends engineered columns, run ONE more
         # screening pass over the AUGMENTED pool (raw + engineered) so the
         # engineered columns -- which are already quantised bin-code columns --

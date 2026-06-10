@@ -230,8 +230,10 @@ def test_fe_max_steps_2_discovers_additive_composite_of_two_engineered():
 @pytest.mark.slow
 @pytest.mark.timeout(600)
 def test_fe_max_steps_1_unchanged_no_composite():
-    """``fe_max_steps=1`` (the default) must NOT build engineered-x-engineered
-    composites -- selection keeps the two real step-1 engineered features only."""
+    """``fe_max_steps=1`` (opt-in since 2026-06-10 -- the default is now 2) must NOT
+    build engineered-x-engineered composites -- selection keeps the two real step-1
+    engineered features only. Pins that the single-step path stays reachable and
+    unchanged after the default flip to 2."""
     df, y = _canonical_fixture(seed=0, n=100_000)
     fs = MRMR(verbose=0, fe_max_steps=1, n_workers=1)  # serial: avoid loky-worker OOM flakiness
     fs.fit(df, y)

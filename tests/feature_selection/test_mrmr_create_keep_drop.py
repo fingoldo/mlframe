@@ -820,9 +820,11 @@ def _fit_and_eval(formula, n, fe_max_steps=1):
     spec = FORMULAS[formula]
     df, y = spec["builder"](SEED, n)
     df_cols = set(df.columns)
-    kwargs = dict(verbose=0, random_seed=SEED)
-    if fe_max_steps and fe_max_steps != 1:
-        kwargs["fe_max_steps"] = fe_max_steps
+    # Pass fe_max_steps EXPLICITLY (was conditionally omitted when ==1, which silently
+    # tracked the MRMR default; the default flipped 1->2 on 2026-06-10, so omitting it
+    # would have run these step-1 cases at step-2 and changed their selections). These
+    # registry cases pin per-case fe_max_steps, so the kwarg is always threaded.
+    kwargs = dict(verbose=0, random_seed=SEED, fe_max_steps=fe_max_steps if fe_max_steps else 1)
     fs = MRMR(**kwargs)
     fs.fit(df, y)
     selected = list(fs.get_feature_names_out())
