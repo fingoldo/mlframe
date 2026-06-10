@@ -192,6 +192,62 @@ def test_biz_val_resid_vs_pred_funnel_widens_band_under_heteroscedasticity():
     assert audit.hetero_significant, "heteroscedastic synth should trip the audit hetero flag"
 
 
+def test_decile_vectorization_parity_vs_rank_reference():
+    """The quantile-cut + bincount decile means must match the plain full-argsort rank reference on continuous data.
+
+    Pins the parity of the perf vectorization (full argsort -> np.quantile cut-points; per-bin loop -> weighted
+    bincount). Ties at decile boundaries can shift a row between adjacent buckets, so this uses continuous (all-distinct)
+    data where both methods produce identical bucket populations -> bit-identical means.
+    """
+    from mlframe.reporting.charts.regression import _err_by_decile_panel
+
+    rng = np.random.default_rng(7)
+    n = 30_000
+    yt = rng.normal(0.0, 3.0, n)
+    yp = yt + rng.normal(0.0, 0.5, n)
+    resid = yt - yp
+    k = 10
+    order = np.argsort(yt, kind="stable")
+    ranks = np.empty(n, dtype=np.int64)
+    ranks[order] = np.arange(n)
+    which = np.minimum((ranks * k) // n, k - 1)
+    ref_abs = np.array([np.mean(np.abs(resid[which == b])) for b in range(k)])
+    ref_signed = np.array([np.mean(resid[which == b]) for b in range(k)])
+
+    bar = _flat(compose_regression_figure(yt, yp, panels_template="ERR_BY_DECILE"))[0]
+    new_abs, new_signed = bar.values
+    assert np.max(np.abs(new_abs - ref_abs)) < 1e-9
+    assert np.max(np.abs(new_signed - ref_signed)) < 1e-9
+
+
+def test_resid_vs_pred_band_parity_vs_per_call_percentile():
+    """The batched np.percentile([25,50,75]) per bin must match three separate percentile calls (perf parity)."""
+    from mlframe.reporting.charts.regression import _resid_vs_pred_panel
+
+    rng = np.random.default_rng(8)
+    n = 40_000
+    yt = rng.normal(0.0, 2.0, n)
+    yp = rng.uniform(-3.0, 3.0, n)
+    resid = yt - yp
+    n_bins = min(20, max(2, n // 10))
+    edges = np.linspace(float(yp.min()), float(yp.max()), n_bins + 1)
+    which = np.clip(np.digitize(yp, edges[1:-1]), 0, n_bins - 1)
+    ref_q25, ref_q75, ref_med = [], [], []
+    for b in range(n_bins):
+        sel = resid[which == b]
+        if sel.size == 0:
+            continue
+        ref_q25.append(np.percentile(sel, 25))
+        ref_med.append(np.median(sel))
+        ref_q75.append(np.percentile(sel, 75))
+    line = _resid_vs_pred_panel(yt, yp, audit=None)
+    new_med = np.asarray(line.y[0])
+    new_q25, new_q75 = line.band
+    assert np.max(np.abs(new_med - np.array(ref_med))) < 1e-12
+    assert np.max(np.abs(new_q25 - np.array(ref_q25))) < 1e-12
+    assert np.max(np.abs(new_q75 - np.array(ref_q75))) < 1e-12
+
+
 def test_biz_val_resid_vs_pred_flat_band_when_homoscedastic():
     """Homoscedastic counterpart: constant-variance residuals keep the band ~uniform (ratio near 1), Spearman ~ 0.
 
