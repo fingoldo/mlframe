@@ -120,6 +120,30 @@ class TestReportingConfigHistogramFields:
                 assert cfg.show_inline_population_labels is label
 
 
+class TestReportingConfigFigsizeAndCurves:
+    """INV-59 figsize float typing + the training_curves render toggle."""
+
+    def test_figsize_accepts_fractional_sizes(self):
+        # Pre-fix the annotation was Tuple[int, int] so pydantic coerced/rejected floats.
+        cfg = ReportingConfig(figsize=(12.5, 4.5))
+        assert cfg.figsize == (12.5, 4.5)
+
+    def test_figsize_default_is_float_tuple(self):
+        cfg = ReportingConfig()
+        assert cfg.figsize == (15.0, 5.0)
+        assert all(isinstance(v, float) for v in cfg.figsize)
+
+    def test_training_curves_default_true(self):
+        # Default ON; the renderer no-ops when charts aren't saved or no history exists.
+        assert ReportingConfig().training_curves is True
+
+    def test_training_curves_can_be_disabled(self):
+        assert ReportingConfig(training_curves=False).training_curves is False
+
+    def test_training_curves_in_model_dump(self):
+        assert "training_curves" in ReportingConfig().model_dump()
+
+
 class TestReportingConfigMetricComputeGates:
     """compute_*set_metrics fields lifted from trainer-internal TrainingControlConfig."""
 

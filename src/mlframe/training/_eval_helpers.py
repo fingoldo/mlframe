@@ -460,7 +460,9 @@ def _compute_split_metrics(
     df_prepared = _prepare_df_for_model(df, model_type_name) if df is not None else None
 
     effective_show_fi = show_fi and not has_other_splits
-    split_plot_file = f"{plot_file}_{split_name}" if plot_file else ""
+    # plot_file ends in os.sep (a chart directory); join the split name so the file is
+    # `<dir>/val_perfplot.png`, not the underscore-prefixed `<dir>/_val_perfplot.png`.
+    split_plot_file = os.path.join(plot_file, split_name) if plot_file else ""
 
     # Splice the split-specific target rate into
     # model_name for THIS split's report only. ``select_target`` stamped

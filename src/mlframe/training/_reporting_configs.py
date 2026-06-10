@@ -81,7 +81,9 @@ class ReportingConfig(BaseConfig):
     keep only one.
     """
 
-    figsize: Tuple[int, int] = (15, 5)
+    # Floats not ints: every chart layer downstream (FigureSpec.figsize) already takes
+    # Tuple[float, float]; an int-only annotation rejected fractional sizes via pydantic.
+    figsize: Tuple[float, float] = (15.0, 5.0)
     print_report: bool = True
     show_perf_chart: bool = True
     show_fi: bool = True
@@ -188,6 +190,9 @@ class ReportingConfig(BaseConfig):
     calibration_binning: Literal["auto", "uniform", "quantile"] = "auto"
     # Render Wilson 95% binomial confidence bands on the per-bin empirical frequencies in the reliability diagram. ON by default -- the band tells the operator which deviations from the diagonal are sampling noise vs real miscalibration.
     reliability_show_ci: bool = True
+
+    # Per-model train/val metric-vs-iteration curves (from evals_result_ / ES callback history), early-stop point marked. ON by default; the renderer only emits when charts are saved AND iteration history is available, so it is a no-op for models without boosting history.
+    training_curves: bool = True
 
     @field_validator("title_metrics_template")
     @classmethod
