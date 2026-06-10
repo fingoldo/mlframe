@@ -85,3 +85,97 @@ class TestPanelTemplateValidation:
         """``PR_CURVES`` not in default but is in allowed token set."""
         cfg = ReportingConfig(multiclass_panels="CONFUSION PR_CURVES ROC")
         assert "PR_CURVES" in cfg.multiclass_panels
+
+    def test_quantile_default(self):
+        cfg = ReportingConfig()
+        toks = cfg.quantile_panels.split()
+        assert "RELIABILITY" in toks
+        assert "PIT_HIST" in toks
+
+    def test_regression_default(self):
+        cfg = ReportingConfig()
+        toks = cfg.regression_panels.split()
+        assert "SCATTER" in toks
+        assert "RESID_HIST" in toks
+
+    def test_unknown_quantile_token_raises(self):
+        with pytest.raises(Exception, match="Unknown quantile"):
+            ReportingConfig(quantile_panels="RELIABILITY ZZZ")
+
+    def test_unknown_regression_token_raises(self):
+        with pytest.raises(Exception, match="Unknown regression"):
+            ReportingConfig(regression_panels="SCATTER ZZZ")
+
+
+class TestNewPanelsDefaultOn:
+    """Each wave-2/3 panel must be (a) in its target type's default template
+    and (b) accepted by the validator. The validator now sources its allowed
+    sets directly from the chart modules' frozensets, so a builder dropping a
+    token would trip both halves here."""
+
+    def test_ndcg_by_qsize_default_on_and_valid(self):
+        cfg = ReportingConfig()
+        assert "NDCG_BY_QSIZE" in cfg.ltr_panels.split()
+        assert ReportingConfig(ltr_panels="NDCG_BY_QSIZE").ltr_panels == "NDCG_BY_QSIZE"
+
+    def test_confused_pairs_default_on_and_valid(self):
+        cfg = ReportingConfig()
+        assert "CONFUSED_PAIRS" in cfg.multiclass_panels.split()
+        assert ReportingConfig(multiclass_panels="CONFUSED_PAIRS").multiclass_panels == "CONFUSED_PAIRS"
+
+    def test_coverage_default_on_and_valid(self):
+        cfg = ReportingConfig()
+        assert "COVERAGE" in cfg.quantile_panels.split()
+        assert ReportingConfig(quantile_panels="COVERAGE").quantile_panels == "COVERAGE"
+
+    def test_resid_vs_pred_default_on_and_valid(self):
+        cfg = ReportingConfig()
+        assert "RESID_VS_PRED" in cfg.regression_panels.split()
+        assert ReportingConfig(regression_panels="RESID_VS_PRED").regression_panels == "RESID_VS_PRED"
+
+    def test_err_by_decile_default_on_and_valid(self):
+        cfg = ReportingConfig()
+        assert "ERR_BY_DECILE" in cfg.regression_panels.split()
+        assert ReportingConfig(regression_panels="ERR_BY_DECILE").regression_panels == "ERR_BY_DECILE"
+
+    def test_validator_allowed_sets_match_chart_frozensets(self):
+        """The validator must accept exactly the chart modules' frozensets --
+        every token in each ALLOWED_*_PANEL_TOKENS round-trips through its
+        field, proving the validator is sourced from the single source of
+        truth (not a drifted literal copy)."""
+        from mlframe.reporting.charts import (
+            ALLOWED_LTR_PANEL_TOKENS,
+            ALLOWED_MULTICLASS_PANEL_TOKENS,
+            ALLOWED_MULTILABEL_PANEL_TOKENS,
+            ALLOWED_QUANTILE_PANEL_TOKENS,
+            ALLOWED_REGRESSION_PANEL_TOKENS,
+        )
+        for field, allowed in (
+            ("multiclass_panels", ALLOWED_MULTICLASS_PANEL_TOKENS),
+            ("multilabel_panels", ALLOWED_MULTILABEL_PANEL_TOKENS),
+            ("ltr_panels", ALLOWED_LTR_PANEL_TOKENS),
+            ("quantile_panels", ALLOWED_QUANTILE_PANEL_TOKENS),
+            ("regression_panels", ALLOWED_REGRESSION_PANEL_TOKENS),
+        ):
+            template = " ".join(sorted(allowed))
+            cfg = ReportingConfig(**{field: template})
+            assert getattr(cfg, field) == template
+
+
+class TestCalibrationAndReliabilityKnobs:
+    def test_calibration_binning_default_auto(self):
+        assert ReportingConfig().calibration_binning == "auto"
+
+    def test_calibration_binning_accepts_uniform_quantile(self):
+        assert ReportingConfig(calibration_binning="uniform").calibration_binning == "uniform"
+        assert ReportingConfig(calibration_binning="quantile").calibration_binning == "quantile"
+
+    def test_calibration_binning_rejects_unknown(self):
+        with pytest.raises(Exception):
+            ReportingConfig(calibration_binning="bogus")
+
+    def test_reliability_show_ci_default_on(self):
+        assert ReportingConfig().reliability_show_ci is True
+
+    def test_reliability_show_ci_can_disable(self):
+        assert ReportingConfig(reliability_show_ci=False).reliability_show_ci is False
