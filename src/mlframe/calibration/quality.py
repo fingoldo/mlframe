@@ -336,6 +336,7 @@ def plot_pit_diagram(
     caption: str = "",
     bins: int = 20,
     figsize: tuple = (15, 5),
+    plot_file: str = "",
 ):
     """
     Plots a Probability Integral Transform (PIT) diagram for binary predictions.
@@ -344,9 +345,10 @@ def plot_pit_diagram(
         predicted_probs (array-like): Predicted probabilities for the positive class.
         true_labels (array-like): Binary true labels (0 or 1).
         bins (int): Number of bins for the histogram.
+        plot_file (str): when set, save the figure here (``.png`` appended if no extension).
 
-    Returns:
-        None
+    The figure is always closed afterwards (no pyplot-registry leak) and shown only on an
+    interactive backend.
     """
 
     if pit_values is None:
@@ -360,8 +362,7 @@ def plot_pit_diagram(
     ks_stat = kolmogorov_smirnov_statistic(pit_values)
     caption += f" PIT Diagram. KS={ks_stat:.4f}"
 
-    # Plot histogram of PIT values
-    plt.figure(figsize=figsize)
+    fig = plt.figure(figsize=figsize)
     plt.hist(pit_values, bins=bins, range=(0, 1), density=True, alpha=0.75, edgecolor="black", color="skyblue")
     plt.axhline(1, color="green", linestyle="--", label="Perfect calibration")
     plt.xlabel("Predicted probs CDF")
@@ -369,7 +370,15 @@ def plot_pit_diagram(
     plt.title(caption)
     plt.legend()
     plt.grid(True, linestyle="--", alpha=0.7)
-    plt.show()
+
+    if plot_file:
+        import os as _os
+        _root, _ext = _os.path.splitext(plot_file)
+        fig.savefig(plot_file if _ext else plot_file + ".png", bbox_inches="tight")
+
+    from mlframe.metrics.calibration import _close_unless_interactive, _show_plots_unless_agg
+    _was_shown = _show_plots_unless_agg()
+    _close_unless_interactive(fig, was_shown=_was_shown)
 
 
 def kolmogorov_smirnov_statistic(pit_values):

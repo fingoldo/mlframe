@@ -547,8 +547,9 @@ def plot_best_dummy_baseline_overlay(
                 # графиков" double-render seen 2026-05-26).
                 _plt.close(fig)
             except Exception:
-                _plt.ion()
-                _plt.show()
+                # block=False (not plt.ion()) so the process-global interactive flag is not leaked; close after to avoid the leak.
+                _plt.show(block=False)
+                _plt.close(fig)
         else:
             # In a script/CI: close after save to avoid figure leak.
             _plt.close(fig)

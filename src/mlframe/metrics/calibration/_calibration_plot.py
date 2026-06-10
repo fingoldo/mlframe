@@ -355,8 +355,8 @@ def _close_unless_interactive(figs, was_shown: bool) -> None:
 
 
 def _show_plots_unless_agg() -> bool:
-    """Call ``plt.ion(); plt.show()`` only when matplotlib is on an
-    interactive backend. Returns True iff show was actually invoked.
+    """Show the current figures only when matplotlib is on an interactive backend.
+    Returns True iff show was actually invoked.
 
     Background: when the global backend is ``Agg`` (matplotlib's headless
     default for pytest / CI / scripted runs and the one pinned by
@@ -365,12 +365,14 @@ def _show_plots_unless_agg() -> bool:
     UserWarning and renders nothing. The interactive-kernel branch
     (IPython / Jupyter) is already routed through ``display(fig)``
     upstream; this helper guards the bare-Python fallback.
+
+    Uses ``plt.show(block=False)`` rather than ``plt.ion()`` so the process-global
+    interactive flag is never silently flipped on (it would leak into the user's session).
     """
     import matplotlib as _mpl
     if _mpl.get_backend().lower() in {"agg", "pdf", "ps", "svg", "cairo"}:
         return False  # non-interactive backend; plt.show would just warn
-    plt.ion()
-    plt.show()
+    plt.show(block=False)
     return True
 
 

@@ -111,15 +111,17 @@ def showcase_features_and_targets(
                         plot_data = target.values
                     else:
                         plot_data = target
+                _hist_fig = plt.figure()
                 plt.hist(plot_data, bins=30, color="skyblue", edgecolor="black")
-
-                # Add titles and labels
                 plt.title(f"{target_name} Histogram")
                 plt.xlabel("Value")
                 plt.ylabel("Frequency")
 
-                # Show the plot
-                plt.show()
+                # Show only on an interactive backend, then always close so the per-target
+                # histograms do not accumulate toward the "More than 20 figures" warning.
+                from mlframe.metrics.calibration import _close_unless_interactive, _show_plots_unless_agg
+                _hist_shown = _show_plots_unless_agg()
+                _close_unless_interactive(_hist_fig, was_shown=_hist_shown)
 
                 # Wave 55 (2026-05-20): unknown target type (LazyFrame / torch tensor / list)
                 # left desc_data undefined, causing NameError on the display below. Skip
