@@ -159,7 +159,20 @@ class CompositeTargetDiscovery:
         target_col = self._target_col
         y_full = _extract_column_array(df, target_col)
         for spec in self.specs_:
-            base_full = _extract_column_array(df, spec.base_column)
+            # Multi-base specs (linear_residual_multi, auto-promoted by default
+            # via multi_base_enabled) carry extra_base_columns; build the full
+            # (n, K) base matrix so domain_check/forward see all K columns. A
+            # 1-D pull of base_column alone would raise "base has 1 columns but
+            # fitted alphas has K entries" -- the other consumers (ensemble)
+            # already stack; this public generator was the one that did not.
+            extra = tuple(getattr(spec, "extra_base_columns", ()) or ())
+            if extra:
+                base_full = np.column_stack(
+                    [_extract_column_array(df, c)
+                     for c in (spec.base_column, *extra)]
+                )
+            else:
+                base_full = _extract_column_array(df, spec.base_column)
             transform = get_transform(spec.transform_name)
             valid = transform.domain_check(y_full, base_full)
             t = np.full(y_full.shape[0], np.nan, dtype=np.float64)

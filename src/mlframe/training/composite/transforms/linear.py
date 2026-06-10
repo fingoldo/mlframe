@@ -284,8 +284,24 @@ def _linear_residual_multi_fit(
     # import ...`` would create a hard cycle the meta-test flags.
     if base.ndim == 1:
         base = base.reshape(-1, 1)
-    n, k = base.shape
+    base_f = base.astype(np.float64)
     y_f = y.astype(np.float64)
+    # Drop non-finite rows (non-finite y OR any non-finite base column) before
+    # the OLS. Lag / rolling bases carry leading NaN; np.linalg.lstsq / svd
+    # raise LinAlgError on NaN, which the callers' broad except silently
+    # degrades to a single-base / collinear (alphas=0) fallback -- so the
+    # default-ON multi-base promotion died precisely on the canonical lag-base
+    # case, losing the benchmark-validated win. Masking here makes every caller
+    # NaN-safe and mirrors _linear_residual_multi_domain's finite gate.
+    row_finite = np.isfinite(y_f) & np.all(np.isfinite(base_f), axis=1)
+    if not bool(row_finite.all()):
+        base_f = base_f[row_finite]
+        y_f = y_f[row_finite]
+        if sample_weight is not None:
+            sample_weight = np.asarray(
+                sample_weight, dtype=np.float64,
+            ).reshape(-1)[row_finite]
+    n, k = base_f.shape
     if n < k + 1:
         return {
             "alphas": [0.0] * k,
@@ -293,7 +309,6 @@ def _linear_residual_multi_fit(
             "condition_number": float("nan"),
             "collinear_fallback": True,
         }
-    base_f = base.astype(np.float64)
     X = np.column_stack([base_f, np.ones(n, dtype=np.float64)])
 
     # Condition-number gate (Belsley/Kuh/Welsch). Computed on the

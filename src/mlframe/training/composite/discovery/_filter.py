@@ -210,6 +210,34 @@ def _filter_features(
                 col_means, X_train.shape,
             )[non_finite_mask]
         abs_corrs = _safe_abs_corr_all(_y_for_corr, X_train)
+        # Mean-imputation dilutes |corr| by ~sqrt(frac_finite) for NaN-bearing
+        # columns (imputed rows contribute 0 to the centred cross-product but
+        # inflate the variance denominator). With the near-1 forbidden-base
+        # threshold this lets an exact y-copy carrying even a handful of NaN
+        # rows slip the leak gate and become the composite base. Recompute
+        # those columns EXACTLY with per-pair finite masking in float64 (cheap:
+        # only NaN-bearing columns, and they already cleared the >=50-finite
+        # gate). float64 also clears the float32 ~1e-5 accumulation that sits
+        # inside the threshold band.
+        col_has_nan = non_finite_mask.any(axis=0)
+        if col_has_nan.any():
+            y64 = np.asarray(_y_for_corr, dtype=np.float64)
+            y_ok = np.isfinite(y64)
+            for j in np.nonzero(col_has_nan)[0]:
+                finite_rows = (~non_finite_mask[:, j]) & y_ok
+                if int(finite_rows.sum()) < 3:
+                    continue
+                xj = X_train[finite_rows, j].astype(np.float64)
+                yj = y64[finite_rows]
+                x_dev = xj - xj.mean()
+                y_dev = yj - yj.mean()
+                var_x = float(np.dot(x_dev, x_dev))
+                var_y = float(np.dot(y_dev, y_dev))
+                if var_x < 1e-24 or var_y < 1e-24:
+                    continue
+                abs_corrs[j] = abs(
+                    float(np.dot(x_dev, y_dev)) / np.sqrt(var_x * var_y)
+                )
         threshold = float(self.config.forbidden_base_corr_threshold)
         for col, corr_val in zip(candidates, abs_corrs.tolist()):
             if corr_val >= threshold:
