@@ -96,11 +96,10 @@ def _fake_audit():
 
 
 class TestRegressionSpec:
-    def test_returns_2_panel_grid(self):
-        """2026-05-22: layout dropped from 3 panels to 2. The 3rd
-        ``Residuals vs predicted`` scatter was removed; the
-        Spearman / heteroscedasticity diagnostic it carried moves
-        into the scatter (left) title."""
+    def test_returns_4_panel_grid(self):
+        """The default template restores RESID_VS_PRED and adds ERR_BY_DECILE,
+        so the legacy adapter now packs SCATTER + RESID_HIST + RESID_VS_PRED +
+        ERR_BY_DECILE into a 2x2 grid (scatter + residual hist on the top row)."""
         rng = np.random.default_rng(0)
         y_true = rng.standard_normal(200)
         y_pred = y_true + rng.standard_normal(200) * 0.2
@@ -109,8 +108,8 @@ class TestRegressionSpec:
             header_str="VAL CB ...", metrics_str="MAE=1.2 R2=0.95",
         )
         assert spec.suptitle == "VAL CB ..."
-        assert len(spec.panels) == 1
-        assert len(spec.panels[0]) == 2
+        n_panels = sum(1 for row in spec.panels for c in row if c is not None)
+        assert n_panels == 4
         assert isinstance(spec.panels[0][0], ScatterPanelSpec)
         assert isinstance(spec.panels[0][1], HistogramPanelSpec)
 
@@ -126,7 +125,9 @@ class TestRegressionSpec:
         )
         title = spec.panels[0][0].title
         assert "MAE=0.1 RMSE=0.15" in title
-        assert "Spearman(resid,preds)" in title
+        # Heteroscedasticity is about residual MAGNITUDE vs prediction, so the
+        # diagnostic correlates |resid| (not signed resid) against preds.
+        assert "Spearman(|resid|,preds)" in title
 
     def test_scatter_title_metrics_only_when_audit_missing(self):
         """When the caller passes ``audit=None`` the scatter title is
@@ -184,15 +185,25 @@ class TestTemporalSpec:
         assert isinstance(spec.panels[0][0], LinePanelSpec)
 
     def test_segments_in_title(self):
+        rng = np.random.default_rng(0)
+        rates = rng.uniform(0.4, 0.6, 20)
+        bins = [
+            SimpleNamespace(bin_start=float(i), target_rate=float(rates[i]), kept=True)
+            for i in range(20)
+        ]
         audit = SimpleNamespace(
-            time_bins=np.arange(20),
-            rates=np.random.default_rng(0).uniform(0.4, 0.6, 20),
+            bins=bins,
             target_name="x", granularity="day",
             target_type="binary_classification",
-            segments=[(0, 10), (10, 20)],
+            timestamp_col="Time",
+            segments=[
+                {"start_idx": 0, "end_idx": 10, "mean_rate": 0.45},
+                {"start_idx": 10, "end_idx": 20, "mean_rate": 0.55},
+            ],
+            change_point_indices=[10],
         )
         spec = build_temporal_audit_spec(audit)
-        assert "2 segments" in spec.panels[0][0].title
+        assert "2 segment(s)" in spec.panels[0][0].title
 
     def test_renders_via_plotly(self, tmp_path):
         audit = SimpleNamespace(
