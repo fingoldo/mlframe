@@ -282,11 +282,132 @@ def weak_segment_heatmap(
     )
 
 
+@dataclass(frozen=True)
+class ErrorBiasResult:
+    """Per-feature OVER/UNDER/MAJORITY overlay figure + the group-mean table.
+
+    ``group_means`` is a small DataFrame indexed by feature, columns OVER/UNDER/MAJORITY (each the group's mean
+    feature value). ``group_masks`` are the boolean row selectors so a caller can reuse the tagging.
+    """
+
+    figure: FigureSpec
+    group_means: Any  # pandas.DataFrame
+    group_masks: Dict[str, np.ndarray]
+
+
+def _signed_error(y_true: np.ndarray, y_pred: np.ndarray) -> np.ndarray:
+    """Signed prediction error y_pred - y_true: positive => OVER-estimate, negative => UNDER-estimate."""
+    return _as_float_1d(y_pred) - _as_float_1d(y_true)
+
+
+def _tag_error_groups(
+    signed_err: np.ndarray,
+    tail_fraction: float,
+) -> Dict[str, np.ndarray]:
+    """Split rows into OVER / UNDER / MAJORITY by signed-error quantile.
+
+    The top ``tail_fraction`` of signed errors (most positive) are OVER-estimates, the bottom ``tail_fraction``
+    (most negative) UNDER-estimates, the middle is MAJORITY. Quantile cut via ``np.quantile`` (k-way partition,
+    O(n)); no full sort.
+    """
+    n = signed_err.size
+    finite = np.isfinite(signed_err)
+    hi_cut = np.quantile(signed_err[finite], 1.0 - tail_fraction) if finite.any() else np.inf
+    lo_cut = np.quantile(signed_err[finite], tail_fraction) if finite.any() else -np.inf
+    over = finite & (signed_err >= hi_cut)
+    under = finite & (signed_err <= lo_cut)
+    majority = finite & ~over & ~under
+    return {"OVER": over, "UNDER": under, "MAJORITY": majority}
+
+
+def error_bias_per_feature(
+    X: Any,
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    *,
+    feature_names: Optional[Sequence[str]] = None,
+    features: Optional[Sequence[str]] = None,
+    max_features: int = 4,
+    tail_fraction: float = DEFAULT_TAIL_FRACTION,
+    nbins: int = DEFAULT_OVERLAY_BINS,
+    title: str = "Error bias per feature (OVER / UNDER / MAJORITY)",
+    seed: int = 0,
+) -> ErrorBiasResult:
+    """Own Evidently error-bias reimplementation: which feature values drive extreme errors.
+
+    Rows are tagged into the top-``tail_fraction`` signed-error OVER-estimates, the bottom-``tail_fraction``
+    UNDER-estimates, and the MAJORITY middle. For each (up to ``max_features``) feature the three groups' value
+    distributions are overlaid as density histograms (one LinePanelSpec per feature), and a group-mean table is
+    returned. Per-feature binning is via ``np.histogram`` (O(n)); group means via masked sums.
+    """
+    import pandas as pd
+
+    mat, names = _resolve_feature_matrix(X, feature_names)
+    signed = _signed_error(y_true, y_pred)
+    masks = _tag_error_groups(signed, tail_fraction)
+
+    if features is not None:
+        sel = [names.index(f) for f in features if f in names]
+    else:
+        sel = list(range(min(max_features, mat.shape[1])))
+
+    group_colors = {"OVER": "#d62728", "UNDER": "#1f77b4", "MAJORITY": "#7f7f7f"}
+    panels: List[PanelSpec] = []
+    rows: Dict[str, List[float]] = {g: [] for g in ("OVER", "UNDER", "MAJORITY")}
+    feat_index: List[str] = []
+
+    for j in sel:
+        col = mat[:, j]
+        finite = np.isfinite(col)
+        cf = col[finite]
+        if cf.size == 0:
+            continue
+        edges = np.histogram_bin_edges(cf, bins=nbins)
+        centers = (edges[:-1] + edges[1:]) / 2.0
+        series: List[np.ndarray] = []
+        labels: List[str] = []
+        cols: List[str] = []
+        for g in ("OVER", "UNDER", "MAJORITY"):
+            gvals = col[masks[g] & finite]
+            dens, _ = np.histogram(gvals, bins=edges, density=True)
+            series.append(dens)
+            labels.append(g)
+            cols.append(group_colors[g])
+            rows[g].append(float(gvals.mean()) if gvals.size else float("nan"))
+        feat_index.append(names[j])
+        panels.append(LinePanelSpec(
+            x=centers,
+            y=tuple(series),
+            series_labels=tuple(labels),
+            colors=tuple(cols),
+            line_styles=("-", "-", "--"),
+            title=f"{names[j]} value distribution by error group",
+            xlabel=names[j],
+            ylabel="Density",
+        ))
+
+    group_means = pd.DataFrame(
+        {g: rows[g] for g in ("OVER", "UNDER", "MAJORITY")},
+        index=feat_index,
+    )
+    grid = pack_panels(panels, max_cols=2)
+    n_rows = len(grid)
+    fig = FigureSpec(
+        suptitle=title,
+        panels=grid,
+        figsize=figsize_for_grid(max(n_rows, 1), 2, cell_width=6.0, cell_height=4.0),
+    )
+    return ErrorBiasResult(fig, group_means, masks)
+
+
 __all__ = [
     "WeakSegmentResult",
+    "ErrorBiasResult",
     "weak_segment_heatmap",
+    "error_bias_per_feature",
     "DEFAULT_HEATMAP_BINS",
     "DEFAULT_TREE_DEPTH",
+    "DEFAULT_TREE_FIT_CAP",
     "DEFAULT_OVERLAY_BINS",
     "DEFAULT_WORST_K",
     "DEFAULT_TAIL_FRACTION",

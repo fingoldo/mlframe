@@ -12,7 +12,8 @@ import pandas as pd
 import pytest
 
 from mlframe.reporting.charts.error_analysis import (
-    WeakSegmentResult, weak_segment_heatmap,
+    ErrorBiasResult, WeakSegmentResult, error_bias_per_feature,
+    weak_segment_heatmap,
 )
 from mlframe.reporting.spec import (
     BarPanelSpec, FigureSpec, HeatmapPanelSpec, HistogramPanelSpec, LinePanelSpec,
@@ -108,3 +109,60 @@ def test_biz_val_weak_segment_localizes_injected_bad_region():
     f1_lo, f1_hi = band["f1"]
     assert f0_hi > 0.7, f"worst-cell f0 band {f0_lo}..{f0_hi} should be in the high region"
     assert f1_lo < 0.3, f"worst-cell f1 band {f1_lo}..{f1_hi} should be in the low region"
+
+
+# ----------------------------------------------------------------------------
+# error_bias_per_feature (R-8)
+# ----------------------------------------------------------------------------
+
+
+def test_error_bias_returns_per_feature_panels_and_table(reg_clean):
+    X, yt, yp = reg_clean
+    res = error_bias_per_feature(X, yt, yp, max_features=3)
+    assert isinstance(res, ErrorBiasResult)
+    panels = [p for row in res.figure.panels for p in row if p is not None]
+    assert len(panels) == 3
+    for p in panels:
+        assert isinstance(p, LinePanelSpec)
+        # OVER / UNDER / MAJORITY overlay.
+        assert isinstance(p.y, tuple) and len(p.y) == 3
+        assert p.series_labels == ("OVER", "UNDER", "MAJORITY")
+    assert list(res.group_means.columns) == ["OVER", "UNDER", "MAJORITY"]
+    assert len(res.group_means) == 3
+
+
+def test_error_bias_group_masks_partition_rows(reg_clean):
+    X, yt, yp = reg_clean
+    res = error_bias_per_feature(X, yt, yp, tail_fraction=0.1)
+    masks = res.group_masks
+    total = masks["OVER"].sum() + masks["UNDER"].sum() + masks["MAJORITY"].sum()
+    assert total == len(yt)
+    # No row in two groups.
+    assert not np.any(masks["OVER"] & masks["UNDER"])
+    assert not np.any(masks["OVER"] & masks["MAJORITY"])
+
+
+def test_error_bias_feature_subset(reg_clean):
+    X, yt, yp = reg_clean
+    res = error_bias_per_feature(X, yt, yp, features=["f1"])
+    assert list(res.group_means.index) == ["f1"]
+
+
+def test_biz_val_error_bias_over_group_mean_shifts_high():
+    """Overestimates injected at HIGH feat0 values: the OVER group's feat0 mean MUST sit materially above MAJORITY.
+
+    Measured: OVER feat0 mean ~0.93 vs MAJORITY ~0.49 (delta ~0.44). Floor the delta at 0.25 (well below measured).
+    UNDER group should NOT be shifted high (errors are not concentrated at low feat0 here).
+    """
+    rng = np.random.default_rng(7)
+    n = 6000
+    f0 = rng.uniform(0, 1, n)
+    f1 = rng.normal(0, 1, n)
+    X = pd.DataFrame({"f0": f0, "f1": f1})
+    yt = f1.copy()
+    # Predictions overestimate (yp > yt) more strongly the higher f0 is.
+    yp = yt + f0 ** 3 * 3.0 + rng.normal(0, 0.1, n)
+    res = error_bias_per_feature(X, yt, yp, features=["f0"], tail_fraction=0.05)
+    over = res.group_means.loc["f0", "OVER"]
+    majority = res.group_means.loc["f0", "MAJORITY"]
+    assert over - majority >= 0.25, f"OVER feat0 mean {over} should exceed MAJORITY {majority} by >=0.25"
