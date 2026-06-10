@@ -73,7 +73,7 @@ def synth_ltr_large():
 class TestAllowedTokens:
     def test_allowed_set_matches_documented(self):
         assert ALLOWED_LTR_PANEL_TOKENS == frozenset({
-            "NDCG_K", "NDCG_DIST", "LIFT", "MRR_DIST",
+            "NDCG_K", "NDCG_DIST", "NDCG_BY_QSIZE", "LIFT", "MRR_DIST",
             "SCORE_BY_REL", "TOP1_BY_QSIZE",
         })
 

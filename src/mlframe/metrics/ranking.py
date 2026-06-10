@@ -419,6 +419,98 @@ def _summary_batched_kernel(
     return ndcg_sums, ndcg_counts, map_sums, map_counts, mrr_sum, mrr_count
 
 
+@numba.njit(fastmath=False, cache=True, nogil=True, parallel=True)
+def _per_query_ndcg_kernel(
+    sorted_y_true: np.ndarray,
+    sorted_y_score: np.ndarray,
+    group_starts: np.ndarray,
+    k: int,
+) -> np.ndarray:
+    """Per-group NDCG@k over the sorted-groups layout from ``_iter_group_slices``.
+
+    Returns an (n_groups,) float64 array; NaN marks degenerate groups (empty or IDCG=0).
+    One batched dispatch replaces n_groups Python->numba transitions; each prange iteration writes only its own slot so the parallel pass is race-free.
+    """
+    n_groups = len(group_starts) - 1
+    out = np.full(n_groups, np.nan, dtype=np.float64)
+    for i in prange(n_groups):
+        s = group_starts[i]
+        e = group_starts[i + 1]
+        if e > s:
+            out[i] = _ndcg_one_query(sorted_y_true[s:e], sorted_y_score[s:e], k)
+    return out
+
+
+@numba.njit(fastmath=False, cache=True, nogil=True, parallel=True)
+def _per_query_mrr_kernel(
+    sorted_y_true: np.ndarray,
+    sorted_y_score: np.ndarray,
+    group_starts: np.ndarray,
+) -> np.ndarray:
+    """Per-group reciprocal rank over the sorted-groups layout from ``_iter_group_slices``.
+
+    Returns an (n_groups,) float64 array; NaN marks groups with no relevant item (callers choose their own no-hit convention, e.g. 0.0 for the MRR histogram).
+    """
+    n_groups = len(group_starts) - 1
+    out = np.full(n_groups, np.nan, dtype=np.float64)
+    for i in prange(n_groups):
+        s = group_starts[i]
+        e = group_starts[i + 1]
+        if e > s:
+            out[i] = _mrr_one_query(sorted_y_true[s:e], sorted_y_score[s:e])
+    return out
+
+
+@numba.njit(fastmath=False, cache=True, nogil=True, parallel=True)
+def _lift_curve_kernel(
+    sorted_y_true: np.ndarray,
+    sorted_y_score: np.ndarray,
+    group_starts: np.ndarray,
+    max_k: int,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Cumulative-relevance lift accumulators per rank position, over the sorted-groups layout.
+
+    For each rank position kpos in 0..max_k-1 and each group long enough to reach it:
+    cum_rel@kpos / ideal_cum_rel@kpos is added into ``lift_sums[kpos]`` (skipped while the ideal cumulative is still 0) and ``counts[kpos]`` is incremented.
+    Caller divides sums by counts to get the mean lift curve.
+
+    Groups are processed in fixed chunks with per-chunk accumulators because element-wise ``+=`` on a shared array inside prange would race; the final reduce is serial and deterministic.
+    """
+    n_groups = len(group_starts) - 1
+    n_chunks = 64 if n_groups > 64 else (n_groups if n_groups > 0 else 1)
+    lift_chunks = np.zeros((n_chunks, max_k), dtype=np.float64)
+    count_chunks = np.zeros((n_chunks, max_k), dtype=np.int64)
+    for c in prange(n_chunks):
+        g_lo = c * n_groups // n_chunks
+        g_hi = (c + 1) * n_groups // n_chunks
+        for i in range(g_lo, g_hi):
+            s = group_starts[i]
+            e = group_starts[i + 1]
+            n = e - s
+            if n <= 0:
+                continue
+            y_t = sorted_y_true[s:e]
+            y_sc = sorted_y_score[s:e]
+            order = np.argsort(-y_sc, kind="mergesort")
+            rels_ideal = -np.sort(-y_t)
+            limit = n if n < max_k else max_k
+            cum = 0.0
+            ideal_cum = 0.0
+            for kpos in range(limit):
+                cum += y_t[order[kpos]]
+                ideal_cum += rels_ideal[kpos]
+                if ideal_cum > 0.0:
+                    lift_chunks[c, kpos] += cum / ideal_cum
+                    count_chunks[c, kpos] += 1
+    lift_sums = np.zeros(max_k, dtype=np.float64)
+    counts = np.zeros(max_k, dtype=np.int64)
+    for c in range(n_chunks):
+        for kpos in range(max_k):
+            lift_sums[kpos] += lift_chunks[c, kpos]
+            counts[kpos] += count_chunks[c, kpos]
+    return lift_sums, counts
+
+
 def compute_ranking_summary(
     y_true: np.ndarray,
     y_score: np.ndarray,

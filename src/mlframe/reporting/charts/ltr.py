@@ -4,23 +4,31 @@ Each panel builder takes ``(y_true, y_score, group_ids)`` (1-D arrays
 of length N; per-row relevance, per-row predicted score, per-row
 query identifier) and returns one ``PanelSpec``.
 
-Token catalogue (all 6):
-- ``NDCG_K``        — NDCG@k curve for k=1..max_per_query
-- ``NDCG_DIST``     — per-query NDCG@10 distribution (violin)
-- ``LIFT``          — cumulative relevance vs rank position (lift / gain
-                      curve aggregated over queries)
-- ``MRR_DIST``      — per-query reciprocal rank histogram (where the
-                      first relevant doc lands per query)
-- ``SCORE_BY_REL``  — predicted-score box-plot per relevance grade
-                      (well-separated grades = good ranker)
-- ``TOP1_BY_QSIZE`` — top-1 accuracy as a function of query size
-                      (line: x = bucketed query size, y = % queries
-                      where the top-scored doc is the true top doc)
+Token catalogue (all 7):
+- ``NDCG_K``         — NDCG@k curve for k=1..max_per_query
+- ``NDCG_DIST``      — per-query NDCG@10 distribution (violin)
+- ``NDCG_BY_QSIZE``  — mean NDCG@10 binned by query size (bar; exposes
+                       small-group metric inflation)
+- ``LIFT``           — cumulative relevance vs rank position (lift / gain
+                       curve aggregated over queries)
+- ``MRR_DIST``       — per-query reciprocal rank histogram (where the
+                       first relevant doc lands per query)
+- ``SCORE_BY_REL``   — predicted-score box-plot per relevance grade
+                       (well-separated grades = good ranker)
+- ``TOP1_BY_QSIZE``  — top-1 accuracy as a function of query size
+                       (line: x = bucketed query size, y = % queries
+                       where the top-scored doc is the true top doc)
+
+Heavy per-query work runs through the batched numba kernels in
+``mlframe.metrics.ranking`` over the sorted-groups layout; panel builders
+share that layout (and the per-query NDCG@10 vector) through the
+``shared`` cache that ``compose_ltr_figure`` threads through one figure
+build, so the group sort and kernels run once per figure, not per panel.
 """
 
 from __future__ import annotations
 
-from typing import Callable, Dict, List, Sequence, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -47,22 +55,66 @@ def _per_query_groups(group_ids: np.ndarray) -> List[np.ndarray]:
     return [sort_idx[starts[i]:starts[i + 1]] for i in range(len(starts) - 1)]
 
 
-def _ndcg_k_panel(y_true, y_score, group_ids) -> LinePanelSpec:
-    """Mean NDCG@k across queries, k=1..max_per_query."""
-    from mlframe.metrics.ranking import ndcg_at_k
+def _sorted_layout(
+    y_true, y_score, group_ids, shared: Optional[dict] = None,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Group-sorted layout ``(sorted_y_true, sorted_y_score, group_starts, group_sizes)``.
 
-    queries = _per_query_groups(group_ids)
-    if not queries:
+    Cached in ``shared`` (one dict per figure build) so the O(N log N)
+    group sort + float64 conversion run once per figure, not per panel.
+    """
+    if shared is not None and "layout" in shared:
+        return shared["layout"]
+    from mlframe.metrics.ranking import _iter_group_slices
+
+    sorted_y_true, sorted_y_score, group_starts = _iter_group_slices(
+        np.asarray(y_true), np.asarray(y_score, dtype=np.float64),
+        np.asarray(group_ids),
+    )
+    layout = (sorted_y_true, sorted_y_score, group_starts, np.diff(group_starts))
+    if shared is not None:
+        shared["layout"] = layout
+    return layout
+
+
+def _per_query_ndcg10(
+    y_true, y_score, group_ids, shared: Optional[dict] = None,
+) -> np.ndarray:
+    """Per-query NDCG@10 vector (NaN for degenerate queries), shared by
+    NDCG_DIST and NDCG_BY_QSIZE so the kernel runs once per figure."""
+    if shared is not None and "ndcg10" in shared:
+        return shared["ndcg10"]
+    from mlframe.metrics.ranking import _per_query_ndcg_kernel
+
+    sorted_y_true, sorted_y_score, group_starts, _ = _sorted_layout(
+        y_true, y_score, group_ids, shared)
+    vals = _per_query_ndcg_kernel(sorted_y_true, sorted_y_score, group_starts, 10)
+    if shared is not None:
+        shared["ndcg10"] = vals
+    return vals
+
+
+def _ndcg_k_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> LinePanelSpec:
+    """Mean NDCG@k across queries, k=1..max_per_query.
+
+    One batched kernel pass with ``eval_ks=1..max_k`` replaces the prior
+    50 independent full ``ndcg_at_k`` calls (each re-sorting all groups).
+    """
+    from mlframe.metrics.ranking import _summary_batched_kernel
+
+    sorted_y_true, sorted_y_score, group_starts, sizes = _sorted_layout(
+        y_true, y_score, group_ids, shared)
+    n_groups = len(group_starts) - 1
+    if n_groups == 0 or int(sizes.max(initial=0)) < 1:
         return LinePanelSpec(x=np.array([1]), y=np.array([0.0]),
                              title="NDCG@k", xlabel="k", ylabel="Mean NDCG@k")
-    max_k = int(max(len(q) for q in queries))
-    max_k = min(max_k, 50)  # cap for plot readability
-    ks = np.arange(1, max_k + 1)
-    ndcgs = np.zeros(len(ks))
-    for i, k in enumerate(ks):
-        ndcgs[i] = ndcg_at_k(y_true, y_score, group_ids, k=int(k))
+    max_k = min(int(sizes.max()), 50)  # cap for plot readability
+    eval_ks = np.arange(1, max_k + 1, dtype=np.int64)
+    ndcg_sums, ndcg_counts, _, _, _, _ = _summary_batched_kernel(
+        sorted_y_true, sorted_y_score, group_starts, eval_ks)
+    ndcgs = np.where(ndcg_counts > 0, ndcg_sums / np.maximum(ndcg_counts, 1), np.nan)
     return LinePanelSpec(
-        x=ks.astype(np.float64),
+        x=eval_ks.astype(np.float64),
         y=ndcgs,
         title=f"NDCG@k curve (max k = {max_k})",
         xlabel="k",
@@ -70,68 +122,80 @@ def _ndcg_k_panel(y_true, y_score, group_ids) -> LinePanelSpec:
     )
 
 
-def _ndcg_dist_panel(y_true, y_score, group_ids) -> ViolinPanelSpec:
+def _ndcg_dist_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> ViolinPanelSpec:
     """Per-query NDCG@10 (or full-query) distribution as a single violin.
 
     Tail at low NDCG = query types where the model is failing.
+    Singleton queries are skipped (their NDCG is trivially 1.0 / NaN).
     """
-    from mlframe.metrics.ranking import _ndcg_one_query
-
-    queries = _per_query_groups(group_ids)
-    per_q: List[float] = []
-    for q_idx in queries:
-        if len(q_idx) < 2:
-            continue
-        v = _ndcg_one_query(
-            np.asarray(y_true, dtype=np.float64)[q_idx],
-            np.asarray(y_score, dtype=np.float64)[q_idx],
-            10,
-        )
-        if not np.isnan(v):
-            per_q.append(v)
-    if not per_q:
-        per_q = [0.0]
+    _, _, _, sizes = _sorted_layout(y_true, y_score, group_ids, shared)
+    ndcg10 = _per_query_ndcg10(y_true, y_score, group_ids, shared)
+    per_q = ndcg10[(sizes >= 2) & ~np.isnan(ndcg10)]
+    if per_q.size == 0:
+        per_q = np.array([0.0])
     return ViolinPanelSpec(
-        groups=(np.asarray(per_q),),
-        group_labels=(f"all queries (n={len(per_q)})",),
+        groups=(per_q,),
+        group_labels=(f"all queries (n={per_q.size})",),
         title=f"Per-query NDCG@10 (mean={np.mean(per_q):.3f})",
         xlabel="",
         ylabel="NDCG@10",
     )
 
 
-def _lift_panel(y_true, y_score, group_ids) -> LinePanelSpec:
+def _ndcg_by_qsize_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> BarPanelSpec:
+    """Mean NDCG@10 binned by query size (log2-spaced bins) with per-bin query counts.
+
+    Tiny groups score trivially high NDCG (a 1-doc query with any positive item is a guaranteed 1.0), so a high overall mean can be pure
+    small-group inflation; this panel makes the size dependence visible. Singleton queries are INCLUDED here on purpose (NDCG_DIST excludes
+    them) precisely because their inflated contribution is what the panel exposes.
+    """
+    _, _, _, sizes = _sorted_layout(y_true, y_score, group_ids, shared)
+    ndcg10 = _per_query_ndcg10(y_true, y_score, group_ids, shared)
+    valid = ~np.isnan(ndcg10)
+    if sizes.size == 0 or not valid.any():
+        return BarPanelSpec(
+            categories=("(no data)",), values=np.array([0.0]),
+            title="Mean NDCG@10 by query size",
+            xlabel="Query size (docs per query, log2 bins)",
+            ylabel="Mean NDCG@10",
+        )
+    sizes_v = sizes[valid].astype(np.int64)
+    vals_v = ndcg10[valid]
+    bin_idx = np.floor(np.log2(sizes_v)).astype(np.int64)  # size 1 -> bin 0, 2-3 -> 1, 4-7 -> 2, ...
+    categories: List[str] = []
+    means: List[float] = []
+    for b in np.unique(bin_idx):
+        m = bin_idx == b
+        lo, hi = int(2 ** b), int(2 ** (b + 1)) - 1
+        label = f"{lo}" if lo == hi else f"{lo}-{hi}"
+        categories.append(f"{label} (n={int(m.sum()):_})")
+        means.append(float(np.mean(vals_v[m])))
+    return BarPanelSpec(
+        categories=tuple(categories),
+        values=np.asarray(means),
+        title="Mean NDCG@10 by query size (small groups inflate NDCG)",
+        xlabel="Query size (docs per query, log2 bins)",
+        ylabel="Mean NDCG@10",
+        xtick_rotation=30.0,
+    )
+
+
+def _lift_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> LinePanelSpec:
     """Cumulative-relevance lift curve.
 
-    For each rank position 1..max_q, compute the average relevance
-    accumulated up to that position across all queries (normalised
-    by the per-query best-possible cumulative relevance at that rank).
+    For each rank position 1..max_q (capped at 50), the average across queries of cumulative relevance accumulated up to that position,
+    normalised by the per-query best-possible cumulative relevance at the same position.
     """
-    queries = _per_query_groups(group_ids)
-    y_true = np.asarray(y_true, dtype=np.float64)
-    y_score = np.asarray(y_score, dtype=np.float64)
-    max_k = max((len(q) for q in queries), default=1)
-    max_k = min(max_k, 50)
-    lift = np.zeros(max_k)
-    counts = np.zeros(max_k)
-    for q_idx in queries:
-        if len(q_idx) < 1:
-            continue
-        scores_q = y_score[q_idx]
-        rels_q = y_true[q_idx]
-        # Sort by predicted score descending.
-        order = np.argsort(-scores_q)
-        ordered_rels = rels_q[order]
-        cum = np.cumsum(ordered_rels)
-        # Normalise by best-possible cumulative at each k.
-        ideal_order = np.argsort(-rels_q)
-        ideal_cum = np.cumsum(rels_q[ideal_order])
-        for k in range(min(len(q_idx), max_k)):
-            if ideal_cum[k] > 0:
-                lift[k] += cum[k] / ideal_cum[k]
-                counts[k] += 1
-    counts[counts == 0] = 1
-    lift = lift / counts
+    from mlframe.metrics.ranking import _lift_curve_kernel
+
+    sorted_y_true, sorted_y_score, group_starts, sizes = _sorted_layout(
+        y_true, y_score, group_ids, shared)
+    max_k = min(int(sizes.max(initial=1)), 50)
+    if max_k < 1:
+        max_k = 1
+    lift_sums, counts = _lift_curve_kernel(
+        sorted_y_true, sorted_y_score, group_starts, max_k)
+    lift = lift_sums / np.maximum(counts, 1)
     return LinePanelSpec(
         x=np.arange(1, max_k + 1, dtype=np.float64),
         y=lift,
@@ -141,33 +205,22 @@ def _lift_panel(y_true, y_score, group_ids) -> LinePanelSpec:
     )
 
 
-def _mrr_dist_panel(y_true, y_score, group_ids) -> HistogramPanelSpec:
+def _mrr_dist_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> HistogramPanelSpec:
     """Per-query reciprocal rank distribution.
 
-    For each query, find the first relevant doc in the score-sorted
-    order; reciprocal of its 1-indexed rank. Queries with no relevant
-    doc contribute 0.
+    For each query, reciprocal of the 1-indexed rank of the first relevant doc in the score-sorted order; queries with no relevant doc
+    contribute 0.
     """
-    queries = _per_query_groups(group_ids)
-    y_true = np.asarray(y_true)
-    y_score = np.asarray(y_score, dtype=np.float64)
-    rrs: List[float] = []
-    for q_idx in queries:
-        if len(q_idx) == 0:
-            continue
-        rels_q = y_true[q_idx]
-        scores_q = y_score[q_idx]
-        order = np.argsort(-scores_q)
-        first_rel = -1
-        for pos, idx in enumerate(order):
-            if rels_q[idx] > 0:
-                first_rel = pos + 1
-                break
-        rrs.append(1.0 / first_rel if first_rel > 0 else 0.0)
-    if not rrs:
-        rrs = [0.0]
+    from mlframe.metrics.ranking import _per_query_mrr_kernel
+
+    sorted_y_true, sorted_y_score, group_starts, _ = _sorted_layout(
+        y_true, y_score, group_ids, shared)
+    rrs_raw = _per_query_mrr_kernel(sorted_y_true, sorted_y_score, group_starts)
+    rrs = np.where(np.isnan(rrs_raw), 0.0, rrs_raw)
+    if rrs.size == 0:
+        rrs = np.array([0.0])
     return HistogramPanelSpec(
-        values=np.asarray(rrs),
+        values=rrs,
         bins=20,
         title=f"Per-query Reciprocal Rank (MRR={np.mean(rrs):.3f})",
         xlabel="Reciprocal rank (1 = first hit at top)",
@@ -176,7 +229,7 @@ def _mrr_dist_panel(y_true, y_score, group_ids) -> HistogramPanelSpec:
     )
 
 
-def _score_by_rel_panel(y_true, y_score, group_ids) -> ViolinPanelSpec:
+def _score_by_rel_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> ViolinPanelSpec:
     """Predicted-score distribution per relevance grade.
 
     Well-separated violins = ranker correctly orders grades. Heavily
@@ -215,15 +268,18 @@ def _score_by_rel_panel(y_true, y_score, group_ids) -> ViolinPanelSpec:
         y_true_arr.dtype.kind == "f"
         and not np.array_equal(y_true_arr, np.round(y_true_arr))
     )
+    unique_vals_full = None
     if is_float_continuous:
-        n_unique = int(np.unique(y_true_arr).size)
+        unique_vals_full = np.unique(y_true_arr)
+        n_unique = int(unique_vals_full.size)
     else:
         # Cheap path: cap at 13 unique values to avoid full unique scan
         # on N=5M when grades are integer with thousands of levels.
         n_unique = int(np.unique(y_true_arr[:50_000]).size)
         if n_unique > 12:
             # Confirm on full array to be safe
-            n_unique = int(np.unique(y_true_arr).size)
+            unique_vals_full = np.unique(y_true_arr)
+            n_unique = int(unique_vals_full.size)
 
     use_quartile_bins = is_float_continuous or n_unique > 12
 
@@ -254,9 +310,11 @@ def _score_by_rel_panel(y_true, y_score, group_ids) -> ViolinPanelSpec:
                         f"{qlabel} [{lo:.3g}..{hi:.3g}] (n={int(mask.sum()):_})"
                     )
     else:
-        # Discrete-grade path (original behavior, n_unique <= 12)
-        grades = sorted(set(int(g) for g in y_true_arr.tolist()))
-        for idx, g in enumerate(grades):
+        # Discrete-grade path (n_unique <= 12). The head probe above may miss grades that only appear later in the array, so the grade list
+        # always comes from a full-array unique (vectorised ~20 ms at 2M; the prior python set-comprehension over .tolist() cost ~0.25 s).
+        grades_arr = unique_vals_full if unique_vals_full is not None else np.unique(y_true_arr)
+        for idx, g_raw in enumerate(grades_arr):
+            g = int(g_raw)
             mask = y_true_arr == g
             if mask.any():
                 full = y_score_arr[mask]
@@ -276,7 +334,7 @@ def _score_by_rel_panel(y_true, y_score, group_ids) -> ViolinPanelSpec:
     )
 
 
-def _top1_by_qsize_panel(y_true, y_score, group_ids) -> LinePanelSpec:
+def _top1_by_qsize_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -> LinePanelSpec:
     """Top-1 accuracy bucketed by query size.
 
     For each query size bucket [2,3], [4,5], [6,8], [9,15], [16+]:
@@ -346,6 +404,7 @@ def _top1_by_qsize_panel(y_true, y_score, group_ids) -> LinePanelSpec:
 _TOKEN_BUILDERS: Dict[str, Callable] = {
     "NDCG_K": _ndcg_k_panel,
     "NDCG_DIST": _ndcg_dist_panel,
+    "NDCG_BY_QSIZE": _ndcg_by_qsize_panel,
     "LIFT": _lift_panel,
     "MRR_DIST": _mrr_dist_panel,
     "SCORE_BY_REL": _score_by_rel_panel,
@@ -360,7 +419,7 @@ def compose_ltr_figure(
     y_score,
     group_ids,
     *,
-    panels_template: str = "NDCG_K NDCG_DIST LIFT MRR_DIST SCORE_BY_REL",
+    panels_template: str = "NDCG_K NDCG_DIST NDCG_BY_QSIZE LIFT MRR_DIST SCORE_BY_REL",
     suptitle: str = "",
     max_cols: int = 2,
     cell_width: float = 6.0,
@@ -394,8 +453,10 @@ def compose_ltr_figure(
             f"Unknown LTR panel tokens {unknown}. "
             f"Allowed: {sorted(ALLOWED_LTR_PANEL_TOKENS)}"
         )
+    # One shared cache per figure: the group sort + per-query NDCG kernel results are reused by every panel that needs them.
+    shared: Dict[str, object] = {}
     panels: List[PanelSpec] = [
-        _TOKEN_BUILDERS[tok](y_true, y_score, group_ids) for tok in tokens
+        _TOKEN_BUILDERS[tok](y_true, y_score, group_ids, shared) for tok in tokens
     ]
     grid = pack_panels(panels, max_cols=max_cols)
     n_rows = len(grid)
