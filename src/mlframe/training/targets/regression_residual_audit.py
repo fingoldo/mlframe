@@ -677,7 +677,17 @@ def plot_residual_diagnostics(
         if int(_mask.sum()) < 5:
             return audit
         if audit is None:
-            audit = audit_residuals(_yt[_mask], _yp[_mask], seed=seed)
+            # Re-attempt the audit for the chart, but a second failure must not crash the report -- render the
+            # composer without it (hist Normal overlay + hypothesis text omitted) rather than dropping the chart.
+            try:
+                audit = audit_residuals(_yt[_mask], _yp[_mask], seed=seed)
+            except Exception as _audit_err:
+                logger.warning(
+                    "residual audit unavailable for the regression chart (%s); "
+                    "rendering scatter + residual hist without the noise-distribution hypothesis.",
+                    _audit_err,
+                )
+                audit = None
         spec = build_regression_panel_spec(
             _yt, _yp,
             audit=audit, header_str=header_str, metrics_str=metrics_str,
@@ -710,10 +720,14 @@ def plot_residual_diagnostics(
 
     residuals = y_true_f - y_pred_f
 
-    # Subsample for plotting so 9M-row datasets don't render 9M points.
+    # Subsample for plotting so 9M-row datasets don't render 9M points. Extremes-preserving so the largest-|resid|
+    # points (the heteroscedasticity funnel mouth + the MaxError row the title quotes) survive the draw -- a uniform
+    # rng.choice silently drops exactly the points these panels exist to show.
     if residuals.size > plot_sample_size:
-        rng = np.random.default_rng(seed)
-        idx = rng.choice(residuals.size, size=plot_sample_size, replace=False)
+        from mlframe.reporting.charts._sampling import subsample_preserving_extremes
+        idx = subsample_preserving_extremes(
+            y_pred_f, residuals, sample_size=plot_sample_size, extreme_values=residuals, rng=seed,
+        )
         plot_resid = residuals[idx]
         plot_pred = y_pred_f[idx]
     else:
