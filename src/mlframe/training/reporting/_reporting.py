@@ -75,6 +75,26 @@ def _maybe_display(obj):
             _ipython_display(obj)
         except UnicodeEncodeError:
             logger.debug("_maybe_display: skipped display() (console encoding cannot represent the object).")
+        return
+    # No IPython kernel (script / CI): the styled fairness / error-segmentation tables would vanish silently. Log a
+    # plain text rendering instead so the only error-segmentation artifact survives in script logs (INV-52).
+    text = _frame_to_text(obj)
+    if text is not None:
+        logger.info("%s", text)
+
+
+def _frame_to_text(obj) -> Optional[str]:
+    """Best-effort plain-text rendering of a DataFrame / pandas Styler for the no-IPython log fallback.
+
+    Returns ``None`` for objects that are not frame-like (nothing to log)."""
+    data = getattr(obj, "data", obj)  # a pandas Styler exposes the underlying frame at ``.data``
+    to_string = getattr(data, "to_string", None)
+    if not callable(to_string):
+        return None
+    try:
+        return to_string()
+    except Exception:
+        return None
 
 
 def _style_with_caption(df, caption: str):
@@ -303,6 +323,10 @@ def _render_training_curves(
             _charts = metrics.setdefault("charts", {"saved": [], "failed": []})
             _charts.setdefault("saved", []).append("training_curve")
             _charts.setdefault("paths", []).append(base)
+            # INV-56: optionally retain the PURE-DATA FigureSpec (no live matplotlib/plotly handle, so it stays
+            # pickle-safe) when the caller wants to re-render or post-tweak the panel later.
+            if getattr(reporting_config, "keep_figure_handles", False):
+                metrics.setdefault("figure_specs", {})["training_curve"] = spec
     except Exception:
         logger.exception("training-curve render failed; continuing.")
         if isinstance(metrics, dict):
@@ -523,6 +547,12 @@ def report_model_perf(
         binary_panels or multiclass_panels or multilabel_panels or ltr_panels or quantile_panels
     ):
         from mlframe.reporting.auto_dispatch import render_multi_target_panels
+        # INV-37: stamp the [NF / M rows] shape annotation onto the panel-grid suptitle like the FI plot header, so a
+        # multi-target panel grid is self-describing (how many features + rows produced it).
+        _n_cols_hdr = n_features if n_features is not None else (len(columns) if columns is not None and len(columns) > 0 else 0)
+        _nfeatures_hdr = f"{_n_cols_hdr:_}F/" if _n_cols_hdr > 0 else ""
+        _n_rows_hdr = len(preds) if (preds is not None and hasattr(preds, "__len__")) else (len(targets) if hasattr(targets, "__len__") else 0)
+        _shape_hdr = f" [{_nfeatures_hdr}{get_human_readable_set_size(_n_rows_hdr)} rows]" if _n_rows_hdr else ""
         with phase("render_multi_target_panels"):
             _rendered_tag = render_multi_target_panels(
                 targets=np.asarray(targets) if not isinstance(targets, np.ndarray) else targets,
@@ -537,7 +567,7 @@ def report_model_perf(
                 ltr_panels=ltr_panels,
                 quantile_panels=quantile_panels,
                 base_path=plot_file,
-                suptitle=(report_title + " " + model_name).strip(),
+                suptitle=(report_title + " " + model_name).strip() + _shape_hdr,
                 # Authoritative target_type gate — prevents regression
                 # targets that happen to carry group_ids from FTE
                 # (grouped-CV pattern) from incorrectly triggering the
@@ -548,6 +578,7 @@ def report_model_perf(
             # INV-48: account which panel grids rendered so a run can assert
             # chart presence. The no-crash contract holds -- a failed render is
             # logged + swallowed inside the dispatcher and recorded as "failed".
+            # INV-56: also stamp the base path so the accounting points at the on-disk artifact, not just a tag.
             if isinstance(metrics, dict):
                 _charts = metrics.setdefault("charts", {"saved": [], "failed": []})
                 _which = (
@@ -556,6 +587,7 @@ def report_model_perf(
                 ) or "panels"
                 if _rendered_tag:
                     _charts["saved"].append(f"{_rendered_tag}_panels")
+                    _charts.setdefault("paths", []).append(f"{plot_file}_{_rendered_tag}_panels")
                 else:
                     _charts["failed"].append(f"{_which}_panels")
 

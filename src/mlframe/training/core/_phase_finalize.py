@@ -467,6 +467,15 @@ def finalize_suite(ctx: TrainingContext) -> dict:
     # ``verbose=0`` silences the duplicate "Saved metadata to ..." log line; main.py already saved partway.
     _finalize_and_save_metadata(ctx, verbose=0)
 
+    # One-line chart-accounting INFO at suite end (INV-14): independent of verbose so an operator always learns
+    # whether diagnostics were saved, skipped by design (no data_dir), or lost to a render failure.
+    try:
+        from ._setup_helpers import log_chart_summary
+        log_chart_summary(ctx.metadata, save_charts=bool(getattr(ctx, "save_charts", False)),
+                          data_dir=getattr(ctx, "data_dir", "") or None)
+    except Exception as _cs_err:
+        logger.debug("[finalize] chart-summary log failed: %s", _cs_err)
+
     if ctx.verbose:
         logger.info("[phases] Top phases by wall-clock time:\n%s", format_phase_summary())
 
