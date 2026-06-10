@@ -629,11 +629,12 @@ def _render_split_diagnostics(
 
     # Temporal per-split panels (residual-vs-time / metric-over-time) only when timestamps cover this split.
     if split_ts is not None and task == "regression":
+        # MSE-over-time for regression; roc_auc would need a binary target.
         render_target_drift_diagnostics(
             train_frame=None, test_frame=None, y_true=y_arr, y_pred=y_pred,
             timestamps=split_ts, task=task, plot_outputs=plot_outputs,
             base_path=split_plot_file, metrics_dict=metrics_dict,
-            feature_names=feature_names,
+            feature_names=feature_names, metric="mse",
         )
     elif split_ts is not None and task == "classification" and probs is not None:
         probs_arr = np.asarray(probs)

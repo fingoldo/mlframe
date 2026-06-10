@@ -279,7 +279,8 @@ def render_target_drift_diagnostics(
                     logger.exception("diagnostics_dispatch: residual_vs_time failed; continuing.")
                     _record(charts, "residual_vs_time", False)
             try:
-                spec = metric_over_time(yt[:m], yp[:m], ts[:m], metric=metric)
+                higher_is_better = metric not in ("mse", "brier")
+                spec = metric_over_time(yt[:m], yp[:m], ts[:m], metric=metric, higher_is_better=higher_is_better)
                 ok = _save_spec(spec, plot_outputs, base_path + "_metric_over_time")
                 _record(charts, "metric_over_time", ok)
             except Exception:
