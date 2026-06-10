@@ -552,6 +552,9 @@ def report_regression_model_perf(
             # + hypothesis text are simply omitted), so a failed audit no
             # longer downgrades the chart to the extension-less legacy save.
             if plot_outputs and plot_file:
+                # G6: per-call regression panel template override from ReportingConfig (SCATTER / RESID_HIST /
+                # RESID_VS_PRED / ERR_BY_DECILE); None falls back to the composer default.
+                _regression_panels = getattr(reporting_config, "regression_panels", None)
                 _plot_residual_diagnostics(
                     targets, preds, audit=_audit,
                     plot_outputs=plot_outputs,
@@ -561,6 +564,7 @@ def report_regression_model_perf(
                     plot_sample_size=plot_sample_size,
                     seed=DEFAULT_RANDOM_SEED,
                     dpi=plot_dpi,
+                    panels_template=_regression_panels,
                 )
             else:
                 # Legacy matplotlib-only path. Kept for callers that

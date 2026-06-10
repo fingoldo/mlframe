@@ -221,6 +221,7 @@ def train_and_evaluate_model(
     calib_idx = data.calib_idx
     group_ids = data.group_ids
     sample_weight = data.sample_weight
+    timestamps = data.timestamps
     drop_columns = list(data.drop_columns) if data.drop_columns else []
     target_label_encoder = data.target_label_encoder
     skip_infinity_checks = data.skip_infinity_checks
@@ -806,6 +807,9 @@ def train_and_evaluate_model(
             # classification / degenerate train targets; the reporter
             # auto-falls back to the per-split eval envelope in that case.
             y_train_envelope_stats=_y_train_envelope_stats,
+            # Full-length row timestamps; _compute_split_metrics slices per
+            # split idx to gate the residual-vs-time / metric-over-time panels.
+            split_timestamps=timestamps,
         )
 
         has_val = (val_idx is not None and len(val_idx) > 0) or val_df is not None

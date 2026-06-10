@@ -41,6 +41,82 @@ from ._setup_helpers import (
 logger = logging.getLogger("mlframe.training.core._phase_train_one_target")
 
 
+def _render_per_target_diagnostics(
+    *,
+    target_type,
+    plot_file,
+    save_charts,
+    reporting_config,
+    current_train_target,
+    current_val_target,
+    current_test_target,
+    train_df,
+    test_df,
+    timestamps,
+    test_idx,
+    metadata,
+    cur_target_name,
+):
+    """Render the once-per-target diagnostics (distribution overlay, adversarial validation, PSI drift) near suite start.
+
+    Default-ON when charts are saved (``save_charts`` + ``plot_file`` + a ``plot_outputs`` DSL). These need no trained
+    model: the distribution overlay compares per-split y, adversarial validation separates train-vs-test feature frames,
+    and PSI uses the test frame + its timestamps. All builders cap their own compute, so 100GB frames stay safe.
+    """
+    plot_outputs = getattr(reporting_config, "plot_outputs", None)
+    if not (save_charts and plot_file and plot_outputs):
+        return
+    tt = (str(target_type) or "").lower()
+    task = "classification" if ("class" in tt or "label" in tt) else "regression"
+
+    def _arr(v):
+        if v is None:
+            return None
+        try:
+            return v.to_numpy() if hasattr(v, "to_numpy") else np.asarray(v)
+        except Exception:
+            return None
+
+    y_by_split = {}
+    for name, val in (("train", current_train_target), ("val", current_val_target), ("test", current_test_target)):
+        a = _arr(val)
+        if a is not None and a.ndim == 1 and a.size > 0:
+            y_by_split[name] = a
+
+    charts_acc = metadata.setdefault("charts", {"saved": [], "failed": []})
+    from mlframe.reporting.diagnostics_dispatch import (
+        render_target_dist_overlay, render_target_drift_diagnostics,
+    )
+
+    if y_by_split:
+        try:
+            render_target_dist_overlay(
+                y_true_by_split=y_by_split, task=task,
+                plot_outputs=plot_outputs, base_path=f"{plot_file}_target",
+                metrics_dict=charts_acc if isinstance(charts_acc, dict) else None,
+            )
+        except Exception as _e:
+            logger.warning("per-target distribution overlay failed for target='%s': %s", cur_target_name, _e)
+
+    _ts_test = None
+    if timestamps is not None and test_idx is not None:
+        try:
+            _ts_test = np.asarray(timestamps)[test_idx]
+        except Exception:
+            _ts_test = None
+
+    if train_df is not None and test_df is not None:
+        try:
+            render_target_drift_diagnostics(
+                train_frame=train_df, test_frame=test_df,
+                timestamps=_ts_test, task=task,
+                plot_outputs=plot_outputs, base_path=f"{plot_file}_target",
+                metrics_dict={"charts": charts_acc} if isinstance(charts_acc, dict) else None,
+            )
+        except Exception as _e:
+            logger.warning("per-target drift/adversarial diagnostics failed for target='%s': %s", cur_target_name, _e)
+
+
 def _setup_per_target_mlframe_models(
     *,
     ctx,
@@ -303,6 +379,22 @@ def _setup_per_target_mlframe_models(
                 cur_target_name, _audit_err,
             )
 
+    _render_per_target_diagnostics(
+        target_type=target_type,
+        plot_file=plot_file,
+        save_charts=save_charts,
+        reporting_config=reporting_config,
+        current_train_target=current_train_target,
+        current_val_target=current_val_target,
+        current_test_target=current_test_target,
+        train_df=filtered_train_df,
+        test_df=test_df_pd,
+        timestamps=timestamps,
+        test_idx=test_idx,
+        metadata=metadata,
+        cur_target_name=cur_target_name,
+    )
+
     if verbose:
         logger.info(f"select_target...")
 
@@ -526,6 +618,11 @@ def _setup_per_target_mlframe_models(
         common_params["calib_df"] = _calib_df
         common_params["calib_target"] = current_calib_target
         common_params["calib_idx"] = _calib_idx
+
+    # Full-length row timestamps reach DataConfig.timestamps so the per-split reporter can slice them and render the
+    # residual-vs-time / metric-over-time temporal-drift panels under the same FTE-timestamp gate as the target audit.
+    if timestamps is not None:
+        common_params["timestamps"] = timestamps
 
     return {
         "plot_file": plot_file,

@@ -437,6 +437,7 @@ def _compute_split_metrics(
     target_type: str | None = None,
     y_train_envelope_stats: Any = None,
     reporting_config: Any = None,
+    split_timestamps=None,
 ):
     """Unified metrics computation for train/val/test splits."""
     # Derive columns from df if available (for feature importance)
@@ -518,7 +519,123 @@ def _compute_split_metrics(
         y_train_envelope_stats=y_train_envelope_stats,
         reporting_config=reporting_config,
     )
+
+    _render_split_diagnostics(
+        split_name=split_name,
+        df=df_prepared,
+        target=target,
+        preds=preds,
+        probs=probs,
+        target_type=target_type,
+        plot_outputs=plot_outputs,
+        split_plot_file=split_plot_file,
+        metrics_dict=metrics_dict,
+        columns=columns,
+        subgroups=subgroups,
+        idx=idx,
+        split_timestamps=split_timestamps,
+    )
     return preds, probs, columns
+
+
+def _render_split_diagnostics(
+    *,
+    split_name: str,
+    df,
+    target,
+    preds,
+    probs,
+    target_type: str | None,
+    plot_outputs: str | None,
+    split_plot_file: str,
+    metrics_dict: dict,
+    columns,
+    subgroups,
+    idx,
+    split_timestamps,
+):
+    """Render the per-split error-analysis + temporal-drift diagnostics default-ON and attach the worst-K table.
+
+    The diagnostics render only when a feature frame + chart output path + DSL are present (the same render gate the
+    rest of the suite honours). Failures are swallowed inside the orchestrator (additive panels never abort a run).
+    Large-n safety lives in the orchestrator (worst-error-preserving subsample, column views, capped adversarial fit).
+    """
+    if df is None or not split_plot_file or not plot_outputs:
+        return
+    tt = (target_type or "").lower()
+    # Regression vs classification gate; the error-analysis builders take "regression" / "classification".
+    if "regress" in tt:
+        task = "regression"
+    elif tt in ("binary_classification", "multiclass_classification", "multilabel_classification"):
+        task = "classification"
+    else:
+        # Unknown target_type: infer from probs presence (classification has probs).
+        task = "classification" if probs is not None else "regression"
+
+    # Multilabel / multiclass y is not 1-D pred-vs-actual error analysis material; skip those (their own panels cover them).
+    y_arr = np.asarray(target)
+    if y_arr.ndim != 1:
+        return
+    # For classification the per-row "prediction" the error builders score is the predicted class; preds is that vector.
+    y_pred = np.asarray(preds).ravel() if preds is not None else None
+    if y_pred is None or y_pred.ndim != 1 or len(y_pred) != len(y_arr):
+        return
+
+    feature_names = list(columns) if columns else None
+    fi = None
+    if isinstance(metrics_dict, dict):
+        _fi = metrics_dict.get("feature_importances")
+        if isinstance(_fi, dict) and feature_names:
+            fi = [float(_fi.get(c, 0.0)) for c in feature_names]
+
+    # Resolve subgroups to this split's row masks (subgroups are full-length boolean arrays keyed by name).
+    split_subgroups = None
+    if subgroups and idx is not None:
+        try:
+            split_subgroups = {k: np.asarray(v)[idx] for k, v in subgroups.items()}
+        except Exception:
+            split_subgroups = None
+
+    split_ts = None
+    if split_timestamps is not None and idx is not None:
+        try:
+            split_ts = np.asarray(split_timestamps)[idx]
+        except Exception:
+            split_ts = None
+
+    from mlframe.reporting.diagnostics_dispatch import (
+        render_split_error_diagnostics, render_target_drift_diagnostics,
+    )
+
+    res = render_split_error_diagnostics(
+        df=df, y_true=y_arr, y_pred=y_pred, task=task,
+        plot_outputs=plot_outputs, base_path=split_plot_file,
+        metrics_dict=metrics_dict, feature_names=feature_names,
+        feature_importances=fi, subgroups=split_subgroups,
+        timestamps=split_ts,
+    )
+    if isinstance(metrics_dict, dict) and res.get("worst_k_table") is not None:
+        metrics_dict["worst_k_table"] = res["worst_k_table"]
+        metrics_dict["worst_k_indices"] = res["worst_k_indices"]
+
+    # Temporal per-split panels (residual-vs-time / metric-over-time) only when timestamps cover this split.
+    if split_ts is not None and task == "regression":
+        render_target_drift_diagnostics(
+            train_frame=None, test_frame=None, y_true=y_arr, y_pred=y_pred,
+            timestamps=split_ts, task=task, plot_outputs=plot_outputs,
+            base_path=split_plot_file, metrics_dict=metrics_dict,
+            feature_names=feature_names,
+        )
+    elif split_ts is not None and task == "classification" and probs is not None:
+        probs_arr = np.asarray(probs)
+        _score = probs_arr[:, 1] if (probs_arr.ndim == 2 and probs_arr.shape[1] == 2) else None
+        if _score is not None and len(_score) == len(y_arr):
+            render_target_drift_diagnostics(
+                train_frame=None, test_frame=None, y_true=y_arr, y_pred=_score,
+                timestamps=split_ts, task="classification", plot_outputs=plot_outputs,
+                base_path=split_plot_file, metrics_dict=metrics_dict,
+                feature_names=feature_names, metric="roc_auc",
+            )
 
 
 def run_confidence_analysis(

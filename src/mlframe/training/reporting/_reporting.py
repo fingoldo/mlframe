@@ -289,6 +289,11 @@ def report_model_perf(
     else:
         is_probabilistic = is_classifier(model) or type(model).__name__ == "NGBClassifier"
     if is_probabilistic:
+        # G7: calibration binning strategy + reliability-CI toggle from ReportingConfig
+        # (default-ON binning="auto"; reliability_show_ci forwarded for when the wave-5 y_err
+        # spec field lands so the Wilson band renders).
+        _calib_binning = getattr(reporting_config, "calibration_binning", None)
+        _reliability_show_ci = getattr(reporting_config, "reliability_show_ci", None)
         with phase(
             "report_probabilistic_model_perf",
             n_rows=(len(targets) if hasattr(targets, '__len__') else None),
@@ -310,6 +315,8 @@ def report_model_perf(
                 title_metrics_tokens=title_metrics_tokens,
                 multilabel_dispatch_config=multilabel_dispatch_config,
                 plot_dpi=plot_dpi,
+                calibration_binning=_calib_binning,
+                reliability_show_ci=_reliability_show_ci,
             )
     else:
         with phase(

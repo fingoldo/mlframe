@@ -322,6 +322,7 @@ class DataConfig(BaseConfig):
     # Additional data
     group_ids: Optional[Any] = None  # np.ndarray - for per-group AUC computation
     sample_weight: Optional[Any] = None  # np.ndarray or pd.Series
+    timestamps: Optional[Any] = None  # np.ndarray - full-length row timestamps; per-split slices feed the temporal-drift diagnostics
 
     # Data configuration
     drop_columns: List[str] = Field(default_factory=list)

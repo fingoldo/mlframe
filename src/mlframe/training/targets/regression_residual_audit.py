@@ -642,6 +642,7 @@ def plot_residual_diagnostics(
     header_str: str = "",
     metrics_str: str = "",
     dpi: int | None = None,
+    panels_template: str | None = None,
 ) -> ResidualAudit | None:
     """Render the residual histogram + residuals-vs-predicted plot
     on the supplied matplotlib axes.
@@ -668,7 +669,7 @@ def plot_residual_diagnostics(
     # shared renderer. Default behaviour preserved for callers that
     # supply their own axes.
     if plot_outputs and base_path:
-        from mlframe.reporting.charts.regression import build_regression_panel_spec
+        from mlframe.reporting.charts.regression import DEFAULT_REGRESSION_PANELS, build_regression_panel_spec
         from mlframe.reporting.output import parse_plot_output_dsl
         from mlframe.reporting.renderers import render_and_save
         _yt = np.asarray(y_true, dtype=np.float64).ravel()
@@ -692,6 +693,7 @@ def plot_residual_diagnostics(
             _yt, _yp,
             audit=audit, header_str=header_str, metrics_str=metrics_str,
             plot_sample_size=plot_sample_size, seed=seed,
+            panels_template=panels_template or DEFAULT_REGRESSION_PANELS,
         )
         if dpi is not None:
             import dataclasses as _dc
