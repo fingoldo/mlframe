@@ -350,6 +350,41 @@ class TestBuildConfigsFromParams:
         assert 'col1' in data_config.drop_columns
         assert 'col3' in data_config.drop_columns
 
+    def test_reporting_defaults_single_sourced_from_config_not_drifted(self):
+        """INV-45: trainer-level reporting defaults must equal ReportingConfig defaults.
+
+        Pre-fix trainer.py re-typed plot_outputs='plotly[html,png]' (slow kaleido PNG path)
+        and a stale title_metrics_template (missing KS/MCC/BSS), plus panel templates missing
+        CONFUSED_PAIRS / NDCG_BY_QSIZE / COVERAGE. The defaults are now single-sourced.
+        """
+        from mlframe.training.trainer import _build_configs_from_params
+        from mlframe.training.configs import ReportingConfig
+
+        _, _, _, reporting_config, *_ = _build_configs_from_params()
+        ref = ReportingConfig()
+        for field in (
+            "plot_outputs", "title_metrics_template", "title_metrics_tokens",
+            "multiclass_panels", "multilabel_panels", "ltr_panels", "quantile_panels",
+        ):
+            assert getattr(reporting_config, field) == getattr(ref, field), (
+                f"trainer reporting default for {field!r} drifted from ReportingConfig "
+                f"default: {getattr(reporting_config, field)!r} != {getattr(ref, field)!r}"
+            )
+        # The slow kaleido PNG path must NOT be the default.
+        assert reporting_config.plot_outputs == "plotly[html] + matplotlib[png]"
+        assert reporting_config.plot_outputs != "plotly[html,png]"
+
+    def test_explicit_reporting_overrides_still_apply(self):
+        """The None-sentinel single-sourcing must not break explicit caller overrides."""
+        from mlframe.training.trainer import _build_configs_from_params
+
+        _, _, _, reporting_config, *_ = _build_configs_from_params(
+            plot_outputs="matplotlib[png]",
+            title_metrics_template="ICE CMAEW",
+        )
+        assert reporting_config.plot_outputs == "matplotlib[png]"
+        assert reporting_config.title_metrics_tokens == ("ICE", "CMAEW")
+
 
 # =============================================================================
 # Train and Evaluate Model Tests (Integration)

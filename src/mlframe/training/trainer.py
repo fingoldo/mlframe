@@ -397,13 +397,18 @@ def _build_configs_from_params(
     show_prob_histogram=True,
     prob_histogram_yscale="auto",
     show_inline_population_labels=True,
-    title_metrics_template="ICE BR_DECOMP ECE CMAEW LL ROC_AUC PR_AUC",
-    plot_outputs="plotly[html,png]",
+    # None sentinels: when the caller omits these, ReportingConfig's own field defaults are the
+    # single source, so trainer-level defaults can never drift from the config (the prior literals
+    # had drifted: a stale title template missing KS/MCC/BSS and the slow kaleido-PNG plot_outputs).
+    title_metrics_template=None,
+    plot_outputs=None,
     plot_dpi=None,
-    multiclass_panels="CONFUSION PR_F1 ROC CALIB_GRID PROB_DIST TOP_K_ACC",
-    multilabel_panels="PR_F1 CALIB_GRID COOCCURRENCE CARDINALITY JACCARD_DIST",
-    ltr_panels="NDCG_K NDCG_DIST LIFT MRR_DIST SCORE_BY_REL",
-    quantile_panels="RELIABILITY PINBALL_BY_ALPHA INTERVAL_BAND WIDTH_DIST PIT_HIST",
+    # None sentinels (same single-source rationale as title_metrics_template / plot_outputs above):
+    # the trainer literals had drifted from the config (missing CONFUSED_PAIRS / NDCG_BY_QSIZE / COVERAGE).
+    multiclass_panels=None,
+    multilabel_panels=None,
+    ltr_panels=None,
+    quantile_panels=None,
     # Naming params
     model_name="",
     model_name_prefix="",
@@ -512,14 +517,19 @@ def _build_configs_from_params(
         show_prob_histogram=show_prob_histogram,
         prob_histogram_yscale=prob_histogram_yscale,
         show_inline_population_labels=show_inline_population_labels,
-        title_metrics_template=title_metrics_template,
-        plot_outputs=plot_outputs,
         plot_dpi=plot_dpi,
-        multiclass_panels=multiclass_panels,
-        multilabel_panels=multilabel_panels,
-        ltr_panels=ltr_panels,
-        quantile_panels=quantile_panels,
     )
+    # Pass only when explicitly set; otherwise ReportingConfig's field default is the single source.
+    for _name, _val in (
+        ("title_metrics_template", title_metrics_template),
+        ("plot_outputs", plot_outputs),
+        ("multiclass_panels", multiclass_panels),
+        ("multilabel_panels", multilabel_panels),
+        ("ltr_panels", ltr_panels),
+        ("quantile_panels", quantile_panels),
+    ):
+        if _val is not None:
+            _rep_kwargs[_name] = _val
     if honest_estimator_diagnostics is not None:
         _rep_kwargs["honest_estimator_diagnostics"] = honest_estimator_diagnostics
     if mase_seasonality is not None:
