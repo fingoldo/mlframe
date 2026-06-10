@@ -435,6 +435,36 @@ class MRMR(BaseEstimator, TransformerMixin):
         # "in at least 3 of 5 folds" (the Meinshausen-Buhlmann-style support threshold).
         # Higher = stricter (drops more as fold-specific); 0 disables the vote.
         fe_stability_vote_quorum: float = 0.6,
+        # SUCCESSIVE-HALVING / RUNG-SCHEDULE FE-search budget (backlog #16, 2026-06-10).
+        # ON by default. Routes the expensive per-pair operator search
+        # (``check_prospective_fe_pairs`` -- all unary x binary transforms / CMA-ES /
+        # full discretize / prewarp, ~4-50s per pair) via a CHEAP rung-0 SCREEN: rank the
+        # gate-surviving prospective pairs by their JOINT MI ``pair_mi`` (a monotone-ish
+        # proxy of the operator-search outcome that the pair-MI gate ALREADY computed, so
+        # the screen is FREE) and run the expensive search only on the top fraction. GATES
+        # UNCHANGED -- this changes WHERE the compute goes, not admission, and generalises
+        # the existing ``fe_synergy_max_pairs`` per-pair budget to the whole pool. Measured
+        # 1.7-2.2x at keep_frac=0.5 / up to 11x at keep_frac=0.25 (n=5000, p=40, canonical
+        # fixture + noise) with NO genuine signal pair dropped across 5 seeds (the relative
+        # pair_mi floor below protects a moderate-MI genuine winner from the fractional
+        # cut). Self-gates to a no-op below ``fe_rung_min_pairs`` pairs / all-zero pair_mi.
+        # Set False to byte-reproduce the flat top-K sweep.
+        fe_rung_schedule_enable: bool = True,
+        # Rung-0 keep fraction. None (default) routes per (n_rows, n_pairs) through the
+        # per-host ``kernel_tuning_cache`` (the iron rule -- never hardcode one threshold
+        # across hardware / data shapes), with a measurement-backed fallback (0.34 large
+        # pool / 0.50 moderate / 1.0 small). A float in (0, 1] forces that fraction. The
+        # relative pair_mi floor below is applied REGARDLESS of this fraction, so a small
+        # fraction never drops a genuine moderate-MI winner.
+        fe_rung_keep_frac: float | None = None,
+        # ALWAYS keep a prospective pair whose ``pair_mi >= fe_rung_rel_floor * max_pair_mi``
+        # regardless of its rank, so a moderate-MI genuine winner survives the fractional
+        # rung. 0.40 was the binding no-drop value in the benchmark (protects a pair at
+        # 0.45*max while still cutting (c,noise) spurious survivors at 0.17*max).
+        fe_rung_rel_floor: float = 0.40,
+        # Below this many prospective pairs the rung screen is a structural no-op
+        # (byte-identical flat sweep): a handful of pairs is already cheap to search fully.
+        fe_rung_min_pairs: int = 6,
         # ``fe_npermutations`` default 0->3:
         # pre-fix value 0 combined with ``fe_min_nonzero_confidence=1.0``
         # made the FE confidence gate STRUCTURALLY UNREACHABLE (confidence

@@ -661,6 +661,32 @@ def _run_fe_step(
     # Also need to sort them by their members usage frequency+members ids sum. this way, their splitting will benefit more from caching.
     prospective_pairs = sort_dict_by_value(prospective_pairs, reverse=True)
 
+    # SUCCESSIVE-HALVING / RUNG-SCHEDULE FE-search budget (2026-06-10, backlog #16).
+    # ON by default. Before the EXPENSIVE per-pair operator search below
+    # (``check_prospective_fe_pairs`` -- all unary x binary transforms / CMA-ES / full
+    # discretize / prewarp, ~4-50s per pair), run a CHEAP rung-0 SCREEN: rank the
+    # gate-surviving prospective pairs by their JOINT MI ``pair_mi`` (key[1] -- a
+    # monotone-ish proxy of the operator-search outcome ALREADY computed by the pair-MI
+    # gate, so the screen is FREE) and keep only the top fraction (UNION a relative-MI
+    # floor so a moderate-MI genuine winner is never cut). The expensive search then runs
+    # on the survivors only. GATES UNCHANGED -- this changes WHERE the compute goes, not
+    # admission (a pair the rung-0 screen drops simply never gets the operator search,
+    # exactly as the synergy budget already caps synergy pairs; this generalises that to
+    # the whole pool). Measured 1.7-2.2x at keep_frac=0.5 with NO genuine signal pair
+    # dropped (n=5000/p=40 canonical fixture + noise, 5 seeds). Self-gates to a no-op
+    # below ``fe_rung_min_pairs`` pairs / all-zero pair_mi (byte-identical flat sweep).
+    if bool(getattr(self, "fe_rung_schedule_enable", True)) and len(prospective_pairs) >= int(getattr(self, "fe_rung_min_pairs", 6)):
+        from ._fe_rung_schedule import apply_rung_schedule
+        _rung_n_rows = int(data.shape[0]) if hasattr(data, "shape") else 0
+        prospective_pairs, _rung_info = apply_rung_schedule(
+            prospective_pairs,
+            n_rows=_rung_n_rows,
+            keep_frac=getattr(self, "fe_rung_keep_frac", None),
+            rel_floor=float(getattr(self, "fe_rung_rel_floor", 0.40)),
+            min_pairs=int(getattr(self, "fe_rung_min_pairs", 6)),
+            verbose=verbose,
+        )
+
     # cols-space indices of polynom-pair engineered columns appended by the
     # ``run_polynom_pair_fe`` block below; promoted into ``selected_vars``
     # alongside the unary/binary indices so a polynom feature that cleared the
