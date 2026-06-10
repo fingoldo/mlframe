@@ -141,9 +141,23 @@ class LinePanelSpec:
     title: str = ""
     xlabel: str = ""
     ylabel: str = ""
-    line_styles: Optional[Tuple[str, ...]] = None  # e.g. ('-', '--', ':')
+    # Per-series draw style. matplotlib linestyle tokens ('-', '--', ':', '-.') plus two extra
+    # tokens: "markers" (marker-only series, e.g. y_true as points under a fitted line) and
+    # "lines+markers". Cycled when shorter than the series tuple.
+    line_styles: Optional[Tuple[str, ...]] = None
     colors: Optional[Tuple[str, ...]] = None
     grid: bool = True
+    # Vertical reference lines: tuple of (x, color, label). label may be "" for unlabeled.
+    vlines: Optional[Tuple[Tuple[float, str, str], ...]] = None
+    # Shaded vertical spans (change-points / train-val-test split shading): (x0, x1, color, alpha).
+    vspans: Optional[Tuple[Tuple[float, float, str, float], ...]] = None
+    # X axis carries timestamps: renderers rotate/format tick labels (mpl autofmt_xdate, plotly tickangle).
+    x_is_time: bool = False
+    # Shaded band between two series (interval bands, metric +- std over time): (lower, upper) arrays
+    # of the same length as ``x``. Drawn underneath the line series.
+    band: Optional[Tuple[np.ndarray, np.ndarray]] = None
+    band_color: Optional[str] = None  # defaults to the first series color
+    band_label: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -201,6 +215,19 @@ class NetworkPanelSpec:
     edge_width_range: Tuple[float, float] = (0.5, 6.0)
 
 
+@dataclass(frozen=True)
+class AnnotationPanelSpec:
+    """Centered free-text panel on empty axes.
+
+    Replaces fake degenerate-chart placeholders (e.g. a [0.0] histogram standing in for
+    "metric unavailable") with an honest text cell.
+    """
+
+    text: str
+    title: str = ""
+    fontsize: int = 10
+
+
 # Type alias: union of all panel specs (renderers dispatch on isinstance).
 PanelSpec = Union[
     ScatterPanelSpec,
@@ -210,6 +237,7 @@ PanelSpec = Union[
     LinePanelSpec,
     ViolinPanelSpec,
     NetworkPanelSpec,
+    AnnotationPanelSpec,
     None,  # ``None`` = empty grid cell
 ]
 
@@ -261,6 +289,7 @@ __all__ = [
     "LinePanelSpec",
     "ViolinPanelSpec",
     "NetworkPanelSpec",
+    "AnnotationPanelSpec",
     "PanelSpec",
     "FigureSpec",
 ]

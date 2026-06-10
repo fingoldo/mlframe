@@ -20,11 +20,33 @@ from typing import Any, List, Tuple
 import numpy as np
 
 from mlframe.reporting.spec import (
-    BarPanelSpec, FigureSpec, HeatmapPanelSpec, HistogramPanelSpec,
-    LinePanelSpec, NetworkPanelSpec, ScatterPanelSpec, ViolinPanelSpec,
+    AnnotationPanelSpec, BarPanelSpec, FigureSpec, HeatmapPanelSpec,
+    HistogramPanelSpec, LinePanelSpec, NetworkPanelSpec, ScatterPanelSpec,
+    ViolinPanelSpec,
 )
 
 logger = logging.getLogger(__name__)
+
+# Renderer-level safety nets for specs carrying raw large-n data. Builders are expected to
+# pre-sample / pre-bin, but the renderer is public API: above these thresholds a raw spec would
+# embed n values into the HTML (37 MB / 73 MB per panel at 2M, browser-freezing).
+_HIST_PREBIN_THRESHOLD = 50_000
+_SCATTER_MAX_POINTS = 50_000
+# WebGL traces render large scatters orders of magnitude faster than SVG-mode go.Scatter.
+_SCATTER_WEBGL_THRESHOLD = 10_000
+_SCATTER_DOWNSAMPLE_WARNED = False
+
+
+def _warn_scatter_downsample(n: int) -> None:
+    global _SCATTER_DOWNSAMPLE_WARNED
+    if not _SCATTER_DOWNSAMPLE_WARNED:
+        logger.warning(
+            "[plotly-render] scatter panel carries %d raw points; downsampled to %d "
+            "(extremes preserved) to keep the figure responsive. Pre-sample at the spec "
+            "builder to silence this. Fires once per process.",
+            n, _SCATTER_MAX_POINTS,
+        )
+        _SCATTER_DOWNSAMPLE_WARNED = True
 
 
 # Process-singleton: track whether the persistent kaleido sync server
@@ -195,7 +217,13 @@ def _ensure_kaleido_server_started() -> bool:
 class PlotlyRenderer:
     backend = "plotly"
 
-    def render(self, spec: FigureSpec) -> Any:
+    def render(self, spec: FigureSpec, *, static_legend: bool = False) -> Any:
+        """Build a plotly figure from the spec.
+
+        ``static_legend`` enables a figure-level legend. The interactive HTML output identifies series via
+        hover tooltips, so legends stay off there; a STATIC export (png/svg/pdf) has no hover, so when the
+        save-format set includes one the caller passes ``static_legend=True`` to make the export readable.
+        """
         import plotly.graph_objects as go
         from plotly.subplots import make_subplots
 
@@ -270,21 +298,14 @@ class PlotlyRenderer:
             width=int(spec.figsize[0] * 80),   # ~80px per matplotlib inch
             height=int(spec.figsize[1] * 80),
             margin=dict(l=60, r=40, t=80 if spec.suptitle else 50, b=50),
-            # 2026-05-09: kept at ``False`` after a brief experiment
-            # with ``True``. Plotly stacks legend entries from ALL
-            # subplots into a single legend in the top-right corner —
-            # for multi-panel grids this both overlaps subplot colorbars
-            # and makes the legend a meaningless soup
-            # (precision/recall/F1 from the bar panel mixed with
-            # label_0..N from the reliability lines and true/predicted
-            # from the cardinality bars). Plotly users get color
-            # identification via hover-tooltips on the interactive HTML
-            # output. Multi-figure legends would need ``legendgroup``
-            # + per-subplot legend domains (plotly 5.x feature); deliberate
-            # non-implementation -- no real user complaint yet, hover-tooltips
-            # cover the use case.
-            showlegend=False,
+            # Interactive HTML identifies series via hover tooltips, so the legend defaults off there to avoid
+            # the multi-subplot soup (precision/recall/F1 mixed with reliability lines). A static export has no
+            # hover; the caller flips ``static_legend`` when a png/svg/pdf is in the save set so it stays readable.
+            showlegend=static_legend,
         )
+        if static_legend:
+            fig.update_layout(legend=dict(font=dict(size=9), itemsizing="constant",
+                                          bgcolor="rgba(255,255,255,0.6)"))
         return fig
 
     def save(self, fig: Any, path: str, fmt: str) -> None:
@@ -491,31 +512,50 @@ class PlotlyRenderer:
             self._violin(fig, panel, row, col)
         elif isinstance(panel, NetworkPanelSpec):
             self._network(fig, panel, row, col)
+        elif isinstance(panel, AnnotationPanelSpec):
+            self._annotation(fig, panel, row, col)
         else:
             raise TypeError(f"unknown panel type: {type(panel).__name__}")
+
+    def _annotation(self, fig, p: AnnotationPanelSpec, row: int, col: int) -> None:
+        fig.add_annotation(text=p.text.replace("\n", "<br>"), x=0.5, y=0.5,
+                           xref="x domain", yref="y domain", showarrow=False,
+                           font=dict(size=p.fontsize), align="center",
+                           row=row, col=col)
+        fig.update_xaxes(visible=False, row=row, col=col)
+        fig.update_yaxes(visible=False, row=row, col=col)
 
     def _scatter(self, fig, p: ScatterPanelSpec, row: int, col: int) -> None:
         import plotly.graph_objects as go
 
-        marker = dict(opacity=p.point_alpha)
-        # ScatterPanelSpec.point_size follows matplotlib's ``s=`` semantics
-        # (area in points-squared). plotly's ``marker.size`` is the
-        # marker DIAMETER in pixels. Without conversion, large
-        # mpl-area sizes blow up to giant circles and plotly's
-        # auto-axis range goes haywire (calibration chart visible bug
-        # 2026-05-09: 500-area markers rendered as 500-px diameter,
-        # extending y-axis to [-3, 1] instead of [0, 1]).
-        # Conversion: plotly_diameter_px = sqrt(mpl_area_pt2) * 1.33
-        # (approx 1.33 px per point at default DPI).
-        def _mpl_area_to_plotly_size(area_value: float) -> float:
-            return float(math.sqrt(max(area_value, 0.0)) * 1.33)
+        x = np.asarray(p.x)
+        y = np.asarray(p.y)
+        n = len(x)
 
-        if isinstance(p.point_size, np.ndarray):
-            marker["size"] = [_mpl_area_to_plotly_size(s) for s in p.point_size]
+        # Per-point size / color arrays must follow the SAME row subset as x/y when downsampling.
+        size_arr = p.point_size if isinstance(p.point_size, np.ndarray) else None
+        color_arr = p.point_color if isinstance(p.point_color, np.ndarray) else None
+
+        if n > _SCATTER_MAX_POINTS:
+            _warn_scatter_downsample(n)
+            from mlframe.reporting.charts._sampling import subsample_preserving_extremes
+            idx = subsample_preserving_extremes(x, y, sample_size=_SCATTER_MAX_POINTS)
+            x, y = x[idx], y[idx]
+            if size_arr is not None and len(size_arr) == n:
+                size_arr = size_arr[idx]
+            if color_arr is not None and len(color_arr) == n:
+                color_arr = color_arr[idx]
+
+        marker = dict(opacity=p.point_alpha)
+        # ScatterPanelSpec.point_size follows matplotlib's ``s=`` (area in pt^2); plotly marker.size is the
+        # DIAMETER in px. Without conversion large mpl areas blow up to giant circles and the auto-axis range
+        # goes haywire. Conversion: plotly_diameter_px = sqrt(mpl_area_pt2) * 1.33.
+        if size_arr is not None:
+            marker["size"] = (np.sqrt(np.maximum(np.asarray(size_arr, dtype=float), 0.0)) * 1.33).tolist()
         else:
-            marker["size"] = _mpl_area_to_plotly_size(float(p.point_size))
-        if isinstance(p.point_color, np.ndarray):
-            marker["color"] = p.point_color.tolist()
+            marker["size"] = float(math.sqrt(max(float(p.point_size), 0.0)) * 1.33)
+        if color_arr is not None:
+            marker["color"] = np.asarray(color_arr)
             marker["colorscale"] = _mpl_to_plotly_cmap(p.colormap)
             marker["showscale"] = bool(p.colorbar_label)
             if p.colorbar_label:
@@ -523,33 +563,41 @@ class PlotlyRenderer:
         elif p.point_color is not None:
             marker["color"] = p.point_color
 
-        # Hover labels for inline_labels (population annotations).
+        # Hover labels for inline_labels (population annotations). Only valid when no downsample reordered rows.
         text = None
-        if p.inline_labels and len(p.inline_labels) == len(p.x):
+        if p.inline_labels and len(p.inline_labels) == n and n <= _SCATTER_MAX_POINTS:
             text = [t[2] for t in p.inline_labels]
 
+        # WebGL renders large scatters orders of magnitude faster than SVG-mode go.Scatter; ndarrays pass
+        # through to plotly natively (faster + smaller than .tolist()).
+        trace_cls = go.Scattergl if n > _SCATTER_WEBGL_THRESHOLD else go.Scatter
         fig.add_trace(
-            go.Scatter(x=p.x.tolist() if isinstance(p.x, np.ndarray) else p.x,
-                       y=p.y.tolist() if isinstance(p.y, np.ndarray) else p.y,
-                       mode="markers+text" if text else "markers",
-                       marker=marker,
-                       text=text,
-                       textposition="top center" if text else None,
-                       textfont=dict(size=8),
-                       name=p.legend_label or "",
-                       showlegend=bool(p.legend_label)),
+            trace_cls(x=x, y=y,
+                      mode="markers+text" if text else "markers",
+                      marker=marker,
+                      text=text,
+                      textposition="top center" if text else None,
+                      textfont=dict(size=8),
+                      name=p.legend_label or "",
+                      showlegend=bool(p.legend_label)),
             row=row, col=col,
         )
 
-        if p.perfect_fit_line and len(p.x) > 0:
-            xmin, xmax = float(np.min(p.x)), float(np.max(p.x))
+        if p.perfect_fit_line and n > 0:
+            # Span the y=x line over the UNION of both axes so it stays the true diagonal even when prediction
+            # collapse (constant y) makes the y-range a single point; scaleanchor squares the panel so y=x is 45deg.
+            lo = float(min(np.min(x), np.min(y)))
+            hi = float(max(np.max(x), np.max(y)))
             fig.add_trace(
-                go.Scatter(x=[xmin, xmax], y=[xmin, xmax],
+                go.Scatter(x=[lo, hi], y=[lo, hi],
                            mode="lines",
                            line=dict(color="green", dash="dash"),
                            name="Perfect fit", showlegend=True),
                 row=row, col=col,
             )
+            fig.update_yaxes(scaleanchor=_axis_ref(fig, row, col), scaleratio=1.0,
+                             range=[lo, hi], row=row, col=col)
+            fig.update_xaxes(range=[lo, hi], row=row, col=col)
 
         fig.update_xaxes(title_text=p.xlabel, row=row, col=col, showgrid=p.grid)
         fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid)
@@ -557,12 +605,26 @@ class PlotlyRenderer:
     def _histogram(self, fig, p: HistogramPanelSpec, row: int, col: int) -> None:
         import plotly.graph_objects as go
 
-        if p.bin_centers is not None:
-            # Pre-binned: bar trace at centers.
-            heights = np.asarray(p.values).tolist()
-            width = p.bin_width or (
-                (p.bin_centers[1] - p.bin_centers[0]) if len(p.bin_centers) > 1 else 1.0
-            )
+        # ``overlay_x_lo/hi`` anchors the Normal-overlay grid. When we pre-bin (here or upstream) they come from
+        # the bin EDGES, avoiding two extra full-n min/max passes over raw values (PERF-18).
+        overlay_x_lo = overlay_x_hi = None
+        bin_centers = p.bin_centers
+        heights = None
+        if bin_centers is None and len(np.asarray(p.values)) > _HIST_PREBIN_THRESHOLD:
+            # Raw spec with n above the embed-hazard ceiling: bin once with numpy instead of shipping n values
+            # into the HTML (37 MB / browser-freezing at 2M).
+            from mlframe.reporting.charts._sampling import prebin_histogram
+            heights, centers, width0 = prebin_histogram(np.asarray(p.values), p.bins, p.density)
+            if heights is not None:
+                bin_centers = centers
+
+        if bin_centers is not None:
+            if heights is None:
+                heights = np.asarray(p.values)
+                width = float(p.bin_width or (
+                    (bin_centers[1] - bin_centers[0]) if len(bin_centers) > 1 else 1.0))
+            else:
+                width = float(width0)
             colors_kw = dict(color=p.color)
             if p.bar_colors is not None:
                 _h_min = float(np.min(p.bar_colors))
@@ -570,19 +632,22 @@ class PlotlyRenderer:
                 if _h_max <= _h_min:
                     _h_max = _h_min + 1.0
                 colors_kw = dict(
-                    color=p.bar_colors.tolist(),
+                    color=np.asarray(p.bar_colors),
                     colorscale=_mpl_to_plotly_cmap(p.colormap),
                 )
             fig.add_trace(
-                go.Bar(x=p.bin_centers.tolist(), y=heights,
+                go.Bar(x=np.asarray(bin_centers), y=np.asarray(heights),
                        width=width,
                        marker=dict(line=dict(color="white", width=0.5), **colors_kw),
                        showlegend=False),
                 row=row, col=col,
             )
+            if len(bin_centers) > 0:
+                overlay_x_lo = float(bin_centers[0] - width / 2.0)
+                overlay_x_hi = float(bin_centers[-1] + width / 2.0)
         else:
             fig.add_trace(
-                go.Histogram(x=np.asarray(p.values).tolist(),
+                go.Histogram(x=np.asarray(p.values),
                              nbinsx=p.bins,
                              histnorm="probability density" if p.density else "",
                              marker=dict(color=p.color, line=dict(color="white", width=0.4)),
@@ -593,15 +658,17 @@ class PlotlyRenderer:
         if p.overlay_normal is not None:
             mu, sigma = p.overlay_normal
             if sigma > 0:
-                vals = np.asarray(p.values)
-                x_grid = np.linspace(float(np.min(vals)), float(np.max(vals)), 200)
+                if overlay_x_lo is None:
+                    vals = np.asarray(p.values)
+                    overlay_x_lo, overlay_x_hi = float(np.min(vals)), float(np.max(vals))
+                x_grid = np.linspace(overlay_x_lo, overlay_x_hi, 200)
                 normal_pdf = (
                     1 / (sigma * np.sqrt(2 * np.pi))
                     * np.exp(-0.5 * ((x_grid - mu) / sigma) ** 2)
                 )
                 label = p.overlay_label or f"Normal(mu={mu:.2g}, sigma={sigma:.2g})"
                 fig.add_trace(
-                    go.Scatter(x=x_grid.tolist(), y=normal_pdf.tolist(),
+                    go.Scatter(x=x_grid, y=normal_pdf,
                                mode="lines",
                                line=dict(color="red", dash="dash", width=1.4),
                                name=label, showlegend=True),
@@ -694,21 +761,51 @@ class PlotlyRenderer:
         labels = p.series_labels or (None,) * len(ys)
         styles = p.line_styles or ("-",) * len(ys)
         cols = p.colors or tuple(line_color(i) for i in range(len(ys)))
-        # matplotlib '--' / ':' / '-' -> plotly 'dash' / 'dot' / 'solid'.
+        x = np.asarray(p.x) if isinstance(p.x, np.ndarray) else p.x
+        # matplotlib linestyle tokens -> plotly dash; "markers" / "lines+markers" select the trace mode.
         _STYLE_MAP = {"-": "solid", "--": "dash", ":": "dot", "-.": "dashdot"}
-        for i, y in enumerate(ys):
-            mpl_style = styles[i % len(styles)]
-            dash = _STYLE_MAP.get(mpl_style, "solid")
+
+        if p.band is not None:
+            lower, upper = np.asarray(p.band[0]), np.asarray(p.band[1])
+            band_color = p.band_color or cols[0]
             fig.add_trace(
-                go.Scatter(x=p.x.tolist() if isinstance(p.x, np.ndarray) else p.x,
-                           y=y.tolist() if isinstance(y, np.ndarray) else y,
-                           mode="lines",
+                go.Scatter(x=np.concatenate([x, x[::-1]]),
+                           y=np.concatenate([upper, lower[::-1]]),
+                           fill="toself", fillcolor=_rgba(band_color, 0.2),
+                           line=dict(width=0), hoverinfo="skip",
+                           name=p.band_label or "band", showlegend=bool(p.band_label)),
+                row=row, col=col,
+            )
+
+        for i, y in enumerate(ys):
+            token = styles[i % len(styles)]
+            if token == "markers":
+                mode, dash = "markers", "solid"
+            elif token == "lines+markers":
+                mode, dash = "lines+markers", "solid"
+            else:
+                mode, dash = "lines", _STYLE_MAP.get(token, "solid")
+            yv = np.asarray(y) if isinstance(y, np.ndarray) else y
+            fig.add_trace(
+                go.Scatter(x=x, y=yv,
+                           mode=mode,
                            line=dict(color=cols[i % len(cols)], dash=dash),
+                           marker=dict(color=cols[i % len(cols)], size=5),
                            name=labels[i] if i < len(labels) else None,
                            showlegend=any(labels)),
                 row=row, col=col,
             )
-        fig.update_xaxes(title_text=p.xlabel, row=row, col=col, showgrid=p.grid)
+
+        for vx0, vx1, vcolor, valpha in (p.vspans or ()):
+            fig.add_vrect(x0=vx0, x1=vx1, fillcolor=_rgba(vcolor, valpha),
+                          line_width=0, layer="below", row=row, col=col)
+        for vx, vcolor, vlabel in (p.vlines or ()):
+            fig.add_vline(x=vx, line=dict(color=vcolor, dash="dot", width=1.2),
+                          annotation_text=vlabel or None, annotation_position="top",
+                          row=row, col=col)
+
+        fig.update_xaxes(title_text=p.xlabel, row=row, col=col, showgrid=p.grid,
+                         tickangle=-30 if p.x_is_time else 0)
         fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid)
 
     def _violin(self, fig, p: ViolinPanelSpec, row: int, col: int) -> None:
@@ -855,6 +952,29 @@ _MPL_TO_PLOTLY = {
     "Blues": "Blues",
     "Greens": "Greens",
 }
+
+
+def _axis_ref(fig, row: int, col: int) -> str:
+    """x-axis reference string for the subplot at (row, col), e.g. ``"x"`` / ``"x4"`` — for scaleanchor."""
+    try:
+        n_cols = len(fig._grid_ref[0])
+        idx = (row - 1) * n_cols + col
+    except Exception:
+        idx = 1
+    return "x" if idx == 1 else f"x{idx}"
+
+
+def _rgba(color: str, alpha: float) -> str:
+    """Best-effort named/hex color -> rgba() string with the given alpha; leaves rgb()/rgba() as-is."""
+    c = str(color)
+    if c.startswith("rgba(") or c.startswith("rgb("):
+        return c
+    try:
+        import matplotlib.colors as mcolors
+        r, g, b = mcolors.to_rgb(c)
+        return f"rgba({int(r * 255)},{int(g * 255)},{int(b * 255)},{alpha})"
+    except Exception:
+        return c
 
 
 def _mpl_to_plotly_cmap(name: str) -> str:

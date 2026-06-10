@@ -23,6 +23,43 @@ from mlframe.reporting.spec import FigureSpec
 
 logger = logging.getLogger(__name__)
 
+# Static (non-interactive) export formats: no hover, so plotly legends must be enabled for these to be readable.
+_STATIC_FORMATS = frozenset({"png", "svg", "pdf", "jpg", "jpeg"})
+
+# Process-wide counter of charts dropped by the multi-backend render thread (timeout OR exception). On timeout the
+# worker thread is abandoned and the chart is silently lost; this counter (mirror of plotly's kaleido oneshot stats)
+# lets the suite-end summary quote how many diagnostics went missing instead of failing silently.
+_RENDER_FAILURE_COUNT = 0
+_RENDER_TIMEOUT_COUNT = 0
+_RENDER_EXCEPTION_COUNT = 0
+
+
+def get_render_failure_stats() -> "Dict[str, int]":
+    """Returns ``{"total", "timeouts", "exceptions"}`` charts dropped by ``render_and_save`` backend threads.
+
+    Mirrors ``plotly.get_kaleido_oneshot_stats``; the suite-end summary surfaces this so silently-dropped
+    diagnostics are visible. Cleared via ``reset_render_failure_stats``.
+    """
+    return {"total": _RENDER_FAILURE_COUNT,
+            "timeouts": _RENDER_TIMEOUT_COUNT,
+            "exceptions": _RENDER_EXCEPTION_COUNT}
+
+
+def reset_render_failure_stats() -> None:
+    global _RENDER_FAILURE_COUNT, _RENDER_TIMEOUT_COUNT, _RENDER_EXCEPTION_COUNT
+    _RENDER_FAILURE_COUNT = 0
+    _RENDER_TIMEOUT_COUNT = 0
+    _RENDER_EXCEPTION_COUNT = 0
+
+
+def _record_render_failure(timed_out: bool) -> None:
+    global _RENDER_FAILURE_COUNT, _RENDER_TIMEOUT_COUNT, _RENDER_EXCEPTION_COUNT
+    _RENDER_FAILURE_COUNT += 1
+    if timed_out:
+        _RENDER_TIMEOUT_COUNT += 1
+    else:
+        _RENDER_EXCEPTION_COUNT += 1
+
 
 def _detect_interactive_session() -> bool:
     """True iff we're inside an IPython kernel or interactive Python REPL.
@@ -163,7 +200,12 @@ def render_and_save(
 
     def _do_backend(backend: str, fmts) -> "Tuple[str, Any]":
         renderer = get_renderer(backend)
-        fig = renderer.render(spec)
+        # plotly legends default off (hover identifies series interactively); enable them when a static format
+        # is in this backend's save set since a png/svg/pdf export has no hover (INV-28).
+        if backend == "plotly" and (set(fmts) & _STATIC_FORMATS):
+            fig = renderer.render(spec, static_legend=True)
+        else:
+            fig = renderer.render(spec)
         for fmt in fmts:
             if multi_output:
                 path = f"{base_path}.{backend}.{fmt}"
@@ -173,7 +215,7 @@ def render_and_save(
         return backend, fig
 
     if len(output.backends) > 1:
-        from concurrent.futures import ThreadPoolExecutor
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FutureTimeout
         # max_workers = backend count; each task = one render+save pipeline.
         with ThreadPoolExecutor(max_workers=len(output.backends)) as _ex:
             _futures = [
@@ -184,11 +226,17 @@ def render_and_save(
             for f in _futures:
                 try:
                     _results.append(f.result(timeout=60))
+                except _FutureTimeout:
+                    _record_render_failure(timed_out=True)
+                    logger.warning(
+                        "render_and_save: backend future exceeded 60s; the worker thread is abandoned and one "
+                        "chart is dropped. See get_render_failure_stats(). ", exc_info=True,
+                    )
                 except Exception:
-                    import logging
-                    logging.getLogger(__name__).warning(
-                        "render_and_save: backend future timed out or failed; "
-                        "skipping one render output.", exc_info=True,
+                    _record_render_failure(timed_out=False)
+                    logger.warning(
+                        "render_and_save: backend future failed; one render output dropped. "
+                        "See get_render_failure_stats().", exc_info=True,
                     )
     else:
         # Single-backend path: skip the thread pool overhead.
@@ -218,4 +266,10 @@ def render_and_save(
     return handles if keep_handles else None
 
 
-__all__ = ["render_and_save", "set_inline_display_mode"]
+__all__ = [
+    "render_and_save",
+    "set_inline_display_mode",
+    "get_inline_display_mode",
+    "get_render_failure_stats",
+    "reset_render_failure_stats",
+]

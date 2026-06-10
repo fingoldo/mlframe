@@ -8,14 +8,24 @@ calls so we don't init a GUI backend on headless / parallel runs.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import numpy as np
 
 from mlframe.reporting.spec import (
-    BarPanelSpec, FigureSpec, HeatmapPanelSpec, HistogramPanelSpec,
-    LinePanelSpec, NetworkPanelSpec, ScatterPanelSpec, ViolinPanelSpec,
+    AnnotationPanelSpec, BarPanelSpec, FigureSpec, HeatmapPanelSpec,
+    HistogramPanelSpec, LinePanelSpec, NetworkPanelSpec, ScatterPanelSpec,
+    ViolinPanelSpec,
 )
+
+logger = logging.getLogger(__name__)
+
+# Above this many raw scatter points, cap (downsample preserving extremes) and rasterize so the saved vector
+# file (pdf/svg) doesn't embed millions of DOM nodes (3.2s + bloat at 2M).
+_SCATTER_MAX_POINTS = 50_000
+# Pre-bin a raw histogram above this n with np.histogram + ax.bar instead of letting ax.hist re-scan full n.
+_HIST_PREBIN_THRESHOLD = 50_000
 
 
 class MatplotlibRenderer:
@@ -86,15 +96,35 @@ class MatplotlibRenderer:
         fig.savefig(path, format=fmt, bbox_inches="tight", pad_inches=0.15)
 
     def show(self, fig: Any) -> None:
-        # Switch to interactive backend for show-only; rare in mlframe but
-        # supported for notebook users who want pop-up windows.
+        # The renderer builds figures via ``Figure()`` + ``FigureCanvasAgg`` (never through pyplot), so they
+        # have no pyplot manager and no ``.number`` -- ``plt.figure(fig.number)`` would raise. In an IPython
+        # kernel the right call is ``IPython.display.display(fig)``, which renders inline without pyplot. Outside
+        # a kernel, attach to a pyplot manager and show a window (best-effort; headless/no-display is a no-op).
+        import sys
+        if "IPython" in sys.modules:
+            try:
+                ip = sys.modules["IPython"].get_ipython()
+            except Exception:
+                ip = None
+            if ip is not None:
+                from IPython.display import display
+                display(fig)
+                return
         try:
+            import matplotlib
             import matplotlib.pyplot as plt
-            plt.figure(fig.number)  # bind to pyplot manager
+            # Only pop a window when matplotlib is in interactive mode (a REPL with plt.ion()). In a plain
+            # script / test the backend may still be a blocking GUI backend (Tk), and plt.show() would hang on
+            # the mainloop -- so a non-interactive context is a no-op.
+            if not matplotlib.is_interactive():
+                return
+            manager = plt.figure().canvas.manager
+            manager.canvas.figure = fig
+            fig.set_canvas(manager.canvas)
             plt.show()
-        except Exception:
-            # Headless or missing display -- silent no-op.
-            pass
+        except Exception as e:
+            logger.debug("MatplotlibRenderer.show() no-op (no interactive display): %s: %s",
+                         type(e).__name__, e)
 
     # ------------------------------------------------------------------
     # Per-panel dispatch
@@ -110,37 +140,68 @@ class MatplotlibRenderer:
         elif isinstance(panel, BarPanelSpec):
             self._bar(ax, panel)
         elif isinstance(panel, LinePanelSpec):
-            self._line(ax, panel)
+            self._line(ax, panel, fig)
         elif isinstance(panel, ViolinPanelSpec):
             self._violin(ax, panel)
         elif isinstance(panel, NetworkPanelSpec):
             self._network(ax, panel, fig)
+        elif isinstance(panel, AnnotationPanelSpec):
+            self._annotation(ax, panel)
         else:
             raise TypeError(f"unknown panel type: {type(panel).__name__}")
 
+    def _annotation(self, ax, p: AnnotationPanelSpec) -> None:
+        ax.text(0.5, 0.5, p.text, ha="center", va="center", fontsize=p.fontsize,
+                transform=ax.transAxes, wrap=True)
+        ax.set_title(p.title)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+
     def _scatter(self, ax, p: ScatterPanelSpec, fig) -> None:
         import matplotlib
-        kw = {"alpha": p.point_alpha}
-        if isinstance(p.point_size, np.ndarray):
-            kw["s"] = p.point_size
-        else:
-            kw["s"] = float(p.point_size)
-        if isinstance(p.point_color, np.ndarray):
-            kw["c"] = p.point_color
+        x = np.asarray(p.x)
+        y = np.asarray(p.y)
+        n = len(x)
+        size_arr = p.point_size if isinstance(p.point_size, np.ndarray) else None
+        color_arr = p.point_color if isinstance(p.point_color, np.ndarray) else None
+
+        rasterized = False
+        if n > _SCATTER_MAX_POINTS:
+            from mlframe.reporting.charts._sampling import subsample_preserving_extremes
+            idx = subsample_preserving_extremes(x, y, sample_size=_SCATTER_MAX_POINTS)
+            x, y = x[idx], y[idx]
+            if size_arr is not None and len(size_arr) == n:
+                size_arr = size_arr[idx]
+            if color_arr is not None and len(color_arr) == n:
+                color_arr = color_arr[idx]
+            rasterized = True  # capped scatter still rasterized so a vector export stays small.
+
+        kw = {"alpha": p.point_alpha, "rasterized": rasterized}
+        kw["s"] = size_arr if size_arr is not None else float(p.point_size)
+        if color_arr is not None:
+            kw["c"] = color_arr
             kw["cmap"] = matplotlib.colormaps[p.colormap]
         elif p.point_color is not None:
             kw["color"] = p.point_color
-        sc = ax.scatter(p.x, p.y, **kw)
+        sc = ax.scatter(x, y, **kw)
 
-        if p.perfect_fit_line and len(p.x) > 0:
-            xmin, xmax = float(np.min(p.x)), float(np.max(p.x))
-            ax.plot([xmin, xmax], [xmin, xmax], "g--", label="Perfect fit")
+        if p.perfect_fit_line and n > 0:
+            # Span y=x over the UNION of both axes (so it stays the diagonal even when prediction collapse makes
+            # y constant) and square the panel so y=x is a true 45-degree line.
+            lo = float(min(np.min(x), np.min(y)))
+            hi = float(max(np.max(x), np.max(y)))
+            ax.plot([lo, hi], [lo, hi], "g--", label="Perfect fit")
+            ax.set_xlim(lo, hi)
+            ax.set_ylim(lo, hi)
+            ax.set_aspect("equal", "datalim")
 
         if p.inline_labels:
-            for x, y, txt in p.inline_labels:
-                ax.text(x, y, txt, fontsize=8, ha="right", va="bottom")
+            for lx, ly, txt in p.inline_labels:
+                ax.text(lx, ly, txt, fontsize=8, ha="right", va="bottom")
 
-        if p.colorbar_label and isinstance(p.point_color, np.ndarray):
+        if p.colorbar_label and color_arr is not None:
             cbar = fig.colorbar(sc, ax=ax)
             cbar.set_label(p.colorbar_label)
 
@@ -154,10 +215,19 @@ class MatplotlibRenderer:
 
     def _histogram(self, ax, p: HistogramPanelSpec) -> None:
         import matplotlib
-        if p.bin_centers is not None:
-            # Pre-binned: bar plot at centers.
-            heights = np.asarray(p.values)
-            width = float(p.bin_width or (p.bin_centers[1] - p.bin_centers[0]) if len(p.bin_centers) > 1 else 1.0)
+        overlay_x_lo = overlay_x_hi = None
+        bin_centers = p.bin_centers
+        heights = None
+        width = None
+        if bin_centers is None and len(np.asarray(p.values)) > _HIST_PREBIN_THRESHOLD:
+            # Above the hazard ceiling, bin once with numpy instead of letting ax.hist re-scan the full n array.
+            from mlframe.reporting.charts._sampling import prebin_histogram
+            heights, bin_centers, width = prebin_histogram(np.asarray(p.values), p.bins, p.density)
+
+        if bin_centers is not None:
+            if heights is None:
+                heights = np.asarray(p.values)
+                width = float(p.bin_width or (bin_centers[1] - bin_centers[0]) if len(bin_centers) > 1 else 1.0)
             colors_kw = {"color": p.color}
             if p.bar_colors is not None:
                 cm = matplotlib.colormaps[p.colormap]
@@ -166,8 +236,11 @@ class MatplotlibRenderer:
                 if _h_max <= _h_min:
                     _h_max = _h_min + 1.0
                 colors_kw = {"color": cm((np.asarray(p.bar_colors) - _h_min) / (_h_max - _h_min))}
-            ax.bar(p.bin_centers, heights, width=width, align="center",
+            ax.bar(bin_centers, heights, width=width, align="center",
                    edgecolor="white", linewidth=0.5, **colors_kw)
+            if len(bin_centers) > 0:
+                overlay_x_lo = float(bin_centers[0] - width / 2.0)
+                overlay_x_hi = float(bin_centers[-1] + width / 2.0)
         else:
             ax.hist(p.values, bins=p.bins, alpha=0.6, color=p.color,
                     edgecolor="white", linewidth=0.4, density=p.density)
@@ -175,8 +248,10 @@ class MatplotlibRenderer:
         if p.overlay_normal is not None:
             mu, sigma = p.overlay_normal
             if sigma > 0:
-                vals = np.asarray(p.values)
-                x_grid = np.linspace(float(np.min(vals)), float(np.max(vals)), 200)
+                if overlay_x_lo is None:
+                    vals = np.asarray(p.values)
+                    overlay_x_lo, overlay_x_hi = float(np.min(vals)), float(np.max(vals))
+                x_grid = np.linspace(overlay_x_lo, overlay_x_hi, 200)
                 normal_pdf = (
                     1 / (sigma * np.sqrt(2 * np.pi))
                     * np.exp(-0.5 * ((x_grid - mu) / sigma) ** 2)
@@ -252,23 +327,46 @@ class MatplotlibRenderer:
         if p.grid:
             ax.grid(True, alpha=0.3, axis="y")
 
-    def _line(self, ax, p: LinePanelSpec) -> None:
+    def _line(self, ax, p: LinePanelSpec, fig=None) -> None:
         from mlframe.reporting.colors import line_color
 
         ys = p.y if isinstance(p.y, tuple) else (p.y,)
         labels = p.series_labels or (None,) * len(ys)
         styles = p.line_styles or ("-",) * len(ys)
         cols = p.colors or tuple(line_color(i) for i in range(len(ys)))
+
+        if p.band is not None:
+            lower, upper = np.asarray(p.band[0]), np.asarray(p.band[1])
+            band_color = p.band_color or cols[0]
+            ax.fill_between(p.x, lower, upper, color=band_color, alpha=0.2,
+                            label=p.band_label, zorder=0)
+
         for i, y in enumerate(ys):
-            ax.plot(p.x, y, styles[i % len(styles)], color=cols[i % len(cols)],
-                    label=labels[i] if i < len(labels) else None)
-        if any(labels):
+            token = styles[i % len(styles)]
+            color = cols[i % len(cols)]
+            label = labels[i] if i < len(labels) else None
+            if token == "markers":
+                ax.plot(p.x, y, linestyle="none", marker="o", markersize=4, color=color, label=label)
+            elif token == "lines+markers":
+                ax.plot(p.x, y, linestyle="-", marker="o", markersize=4, color=color, label=label)
+            else:
+                ax.plot(p.x, y, token, color=color, label=label)
+
+        for vx0, vx1, vcolor, valpha in (p.vspans or ()):
+            ax.axvspan(vx0, vx1, color=vcolor, alpha=valpha, zorder=0)
+        for vx, vcolor, vlabel in (p.vlines or ()):
+            ax.axvline(vx, color=vcolor, linestyle=":", linewidth=1.2,
+                       label=vlabel or None)
+
+        if any(labels) or p.band_label or any((p.vlines or ())):
             ax.legend(loc="best", fontsize=8, framealpha=0.7)
         ax.set_xlabel(p.xlabel)
         ax.set_ylabel(p.ylabel)
         ax.set_title(p.title)
         if p.grid:
             ax.grid(True, alpha=0.3)
+        if p.x_is_time and fig is not None:
+            fig.autofmt_xdate()
 
     def _violin(self, ax, p: ViolinPanelSpec) -> None:
         ax.violinplot(p.groups, showmeans=False, showextrema=False,

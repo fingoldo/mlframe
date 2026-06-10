@@ -12,6 +12,14 @@ from __future__ import annotations
 
 
 from mlframe.reporting.renderers.base import Renderer, get_renderer
-from mlframe.reporting.renderers.save import render_and_save
+from mlframe.reporting.renderers.save import (
+    get_render_failure_stats, render_and_save, reset_render_failure_stats,
+)
 
-__all__ = ["Renderer", "get_renderer", "render_and_save"]
+__all__ = [
+    "Renderer",
+    "get_renderer",
+    "render_and_save",
+    "get_render_failure_stats",
+    "reset_render_failure_stats",
+]
