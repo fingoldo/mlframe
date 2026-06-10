@@ -175,6 +175,8 @@ class ReportingConfig(BaseConfig):
     honest_estimator_diagnostics: bool = True
 
     # Per-target_type panel templates. Same DSL grammar as ``title_metrics_template`` (space-separated tokens, validator checks against the chart modules' ALLOWED_*_PANEL_TOKENS frozensets, no duplicates). All-by-default; operator removes tokens to skip individual panels.
+    # Binary classification previously had no curve charts (only a reliability diagram); these render ROC/PR/SCORE_DIST/KS/THRESHOLD/GAIN by default.
+    binary_panels: str = "ROC PR SCORE_DIST KS THRESHOLD GAIN"
     multiclass_panels: str = "CONFUSION CONFUSED_PAIRS PR_F1 ROC CALIB_GRID PROB_DIST TOP_K_ACC"
     multilabel_panels: str = "PR_F1 CALIB_GRID COOCCURRENCE CARDINALITY JACCARD_DIST"
     ltr_panels: str = "NDCG_K NDCG_DIST NDCG_BY_QSIZE LIFT MRR_DIST SCORE_BY_REL"
@@ -218,7 +220,7 @@ class ReportingConfig(BaseConfig):
         return v
 
     @field_validator(
-        "multiclass_panels", "multilabel_panels", "ltr_panels",
+        "binary_panels", "multiclass_panels", "multilabel_panels", "ltr_panels",
         "quantile_panels", "regression_panels",
     )
     @classmethod
@@ -230,6 +232,7 @@ class ReportingConfig(BaseConfig):
         # validator runs at config CONSTRUCTION, not module import, so there
         # is no import cycle with the reporting layer.
         from mlframe.reporting.charts import (
+            ALLOWED_BINARY_PANEL_TOKENS,
             ALLOWED_LTR_PANEL_TOKENS,
             ALLOWED_MULTICLASS_PANEL_TOKENS,
             ALLOWED_MULTILABEL_PANEL_TOKENS,
@@ -237,6 +240,7 @@ class ReportingConfig(BaseConfig):
             ALLOWED_REGRESSION_PANEL_TOKENS,
         )
         _ALLOWED = {
+            "binary": ALLOWED_BINARY_PANEL_TOKENS,
             "multiclass": ALLOWED_MULTICLASS_PANEL_TOKENS,
             "multilabel": ALLOWED_MULTILABEL_PANEL_TOKENS,
             "ltr": ALLOWED_LTR_PANEL_TOKENS,

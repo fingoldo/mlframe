@@ -9,9 +9,8 @@ Dispatch rules (probabilistic targets only):
 - ``targets.ndim == 2``                  -> multilabel (panels=multilabel_panels)
 - ``probs.shape[1] >= 3 and targets.ndim == 1`` -> multiclass (panels=multiclass_panels)
 - ``group_ids is not None`` (any shape)  -> LTR (panels=ltr_panels)
-- otherwise                              -> binary (skip; existing
-                                            calibration plot already
-                                            covers this)
+- 1-D targets + 1-class/2-column probs   -> binary curve panels (panels=binary_panels)
+- regression                             -> skip (dedicated scatter/residual charts)
 
 The dispatcher is opt-in per panel-template kwarg: if the relevant
 ``*_panels`` kwarg is None or empty, that branch is skipped.
@@ -36,10 +35,13 @@ def render_multi_target_panels(
     group_ids: Optional[np.ndarray] = None,
     quantile_alphas: Optional[Sequence[float]] = None,
     plot_outputs: Optional[str] = None,
+    binary_panels: Optional[str] = None,
     multiclass_panels: Optional[str] = None,
     multilabel_panels: Optional[str] = None,
     ltr_panels: Optional[str] = None,
     quantile_panels: Optional[str] = None,
+    threshold: float = 0.5,
+    cost_ratio: Optional[Any] = None,
     base_path: str = "",
     suptitle: str = "",
     max_cols: int = 2,
@@ -81,14 +83,15 @@ def render_multi_target_panels(
     # multiclass / learning_to_rank each gate exactly one branch.
     tt = (target_type or "").lower()
     if tt:
-        # Regression and binary classification have their own dedicated
-        # report charts (regression scatter / calibration plot); panels
-        # from this dispatcher would be redundant or semantically wrong.
-        if tt in ("regression", "binary_classification"):
+        # Regression has its own dedicated report charts (scatter / residual
+        # panels); this dispatcher's panels would be redundant there.
+        if tt == "regression":
             return None
         # Each remaining target_type maps to exactly one branch.
         # When the matching panel template is empty, return None
         # silently (operator opted out of that target_type's panels).
+        if tt == "binary_classification" and not binary_panels:
+            return None
         if tt == "learning_to_rank" and not ltr_panels:
             return None
         if tt == "quantile_regression" and not quantile_panels:
@@ -221,7 +224,42 @@ def render_multi_target_panels(
             logger.exception("Multiclass panel rendering failed; continuing.")
             return None
 
-    # Binary or regression -- existing reporting paths cover them.
+    # Binary classification: 1-D targets, 1-class-or-2-column probs. The score
+    # is the positive-class column (probs[:, 1] for a 2-column proba matrix,
+    # else the 1-D probs / preds). Regression is already excluded above by the
+    # authoritative target_type gate; the shape heuristic here is the binary
+    # back-compat path for callers that do not pass target_type.
+    _bin_allowed = (tt == "" or tt == "binary_classification")
+    if _bin_allowed and binary_panels and targets_arr is not None and targets_arr.ndim == 1:
+        y_score = None
+        if probs_arr.ndim == 2 and probs_arr.shape[1] == 2:
+            y_score = probs_arr[:, 1]
+        elif probs_arr.ndim == 1:
+            y_score = probs_arr
+        elif probs_arr.ndim == 2 and probs_arr.shape[1] == 1:
+            y_score = probs_arr.ravel()
+        if y_score is not None:
+            try:
+                from mlframe.reporting.charts.binary import compose_binary_figure
+                from mlframe.reporting.output import parse_plot_output_dsl
+                from mlframe.reporting.renderers import render_and_save
+
+                spec = compose_binary_figure(
+                    targets_arr, np.asarray(y_score),
+                    panels_template=binary_panels, threshold=threshold,
+                    cost_ratio=cost_ratio, suptitle=suptitle, max_cols=max_cols,
+                )
+                if plot_dpi is not None:
+                    import dataclasses as _dc
+                    spec = _dc.replace(spec, dpi=plot_dpi)
+                render_and_save(spec, parse_plot_output_dsl(plot_outputs),
+                                base_path + "_binary_panels")
+                return "binary"
+            except Exception:
+                logger.exception("Binary panel rendering failed; continuing.")
+                return None
+
+    # Regression -- existing reporting paths cover it.
     return None
 
 

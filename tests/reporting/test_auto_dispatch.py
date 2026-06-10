@@ -1,9 +1,9 @@
 """Tests for ``mlframe.reporting.auto_dispatch.render_multi_target_panels``.
 
-Covers shape-based dispatch (multiclass / multilabel / LTR / no-op) +
+Covers shape-based dispatch (binary / multiclass / multilabel / LTR / no-op) +
 file emission via the matplotlib + plotly backends, and the no-op
 short-circuits (empty base_path / empty plot_outputs / empty templates /
-binary classification / regression).
+regression).
 """
 
 from __future__ import annotations
@@ -62,10 +62,10 @@ def ltr_inputs():
 
 @pytest.fixture
 def binary_inputs():
-    """Binary: 200 rows, 2 classes -- should NOT trigger any panel branch."""
+    """Binary: 1000 rows, 2 classes with a planted signal so the curve panels build cleanly."""
     rng = np.random.default_rng(0)
-    y = rng.integers(0, 2, 200)
-    p = rng.uniform(0, 1, 200)
+    y = rng.integers(0, 2, 1000)
+    p = np.clip(y * 0.5 + rng.normal(0, 0.3, 1000) + 0.25, 0.0, 1.0)
     proba = np.column_stack([1 - p, p])
     return y, proba, [0, 1]
 
@@ -116,17 +116,34 @@ class TestDispatch:
         assert tag == "ltr"
         assert os.path.exists(tmp_path / "ltr_ltr_panels.png")
 
-    def test_binary_is_skipped(self, binary_inputs, tmp_path):
+    def test_binary_renders_default_on(self, binary_inputs, tmp_path):
+        """Binary classification now renders curve panels (ROC/PR/...) by default
+        when binary_panels is supplied. Authoritative target_type gate routes it."""
+        y, proba, classes = binary_inputs
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            tag = render_multi_target_panels(
+                targets=y, probs=proba, classes=classes,
+                plot_outputs="matplotlib[png]",
+                binary_panels="ROC PR SCORE_DIST KS THRESHOLD GAIN",
+                base_path=str(tmp_path / "bin"),
+                target_type="binary_classification",
+            )
+        assert tag == "binary"
+        assert os.path.exists(tmp_path / "bin_binary_panels.png")
+
+    def test_binary_skipped_when_no_binary_template(self, binary_inputs, tmp_path):
+        """Binary opt-out: no binary_panels template -> no binary panels, and
+        multiclass/multilabel templates do not misfire on a 2-column proba."""
         y, proba, classes = binary_inputs
         tag = render_multi_target_panels(
             targets=y, probs=proba, classes=classes,
             plot_outputs="matplotlib[png]",
-            # Provide all templates -- binary still should not trigger any.
             multiclass_panels="CONFUSION", multilabel_panels="PR_F1",
             base_path=str(tmp_path / "bin"),
+            target_type="binary_classification",
         )
         assert tag is None
-        # No file written.
         assert not list(tmp_path.glob("bin*"))
 
     def test_regression_is_skipped(self, tmp_path):
@@ -393,6 +410,34 @@ class TestReportModelPerfIntegration:
                 print_report=False,
             )
         assert os.path.exists(tmp_path / "smoke_multilabel_panels.png")
+
+    def test_binary_via_report_model_perf(self, binary_inputs, tmp_path):
+        """Binary curve panels render default-ON through report_model_perf, the
+        decile table lands in the metrics dict, and metrics['charts'] is recorded."""
+        from mlframe.training.evaluation import report_model_perf
+        y, proba, classes = binary_inputs
+        metrics: dict = {}
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            report_model_perf(
+                targets=y, columns=[], model_name="testbin", model=None,
+                preds=(proba[:, 1] > 0.5).astype(int), probs=proba, classes=classes,
+                plot_file=str(tmp_path / "smoke"),
+                plot_outputs="matplotlib[png]",
+                binary_panels="ROC PR SCORE_DIST KS THRESHOLD GAIN",
+                target_type="binary_classification",
+                metrics=metrics,
+                show_perf_chart=False, show_fi=False, print_report=False,
+            )
+        assert os.path.exists(tmp_path / "smoke_binary_panels.png")
+        assert metrics["charts"]["saved"] == ["binary_panels"]
+        assert metrics["charts"]["failed"] == []
+        dec = metrics["binary_decile_table"]
+        assert dec["decile"].tolist() == list(range(1, 11))
+        # Terminal cumulative gain is 1.0 by construction (all positives captured).
+        assert abs(float(dec["gain"][-1]) - 1.0) < 1e-9
+        # Planted signal: top decile lift clearly above the no-skill 1.0.
+        assert float(dec["lift"][0]) >= 1.3
 
     def test_no_panels_kwargs_means_no_file(self, mc_inputs, tmp_path):
         """When the caller doesn't opt in (templates remain None),

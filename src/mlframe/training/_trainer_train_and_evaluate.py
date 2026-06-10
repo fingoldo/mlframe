@@ -267,6 +267,7 @@ def train_and_evaluate_model(
     title_metrics_tokens = reporting.title_metrics_tokens
     plot_outputs = reporting.plot_outputs
     plot_dpi = reporting.plot_dpi
+    binary_panels = reporting.binary_panels
     multiclass_panels = reporting.multiclass_panels
     multilabel_panels = reporting.multilabel_panels
     ltr_panels = reporting.ltr_panels
@@ -790,6 +791,7 @@ def train_and_evaluate_model(
             title_metrics_tokens=title_metrics_tokens,
             plot_outputs=plot_outputs,
             plot_dpi=plot_dpi,
+            binary_panels=binary_panels,
             multiclass_panels=multiclass_panels,
             multilabel_panels=multilabel_panels,
             ltr_panels=ltr_panels,

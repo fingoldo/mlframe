@@ -179,6 +179,7 @@ def report_model_perf(
     plot_outputs: str | None = None,
     plot_dpi: int | None = None,
     target_type: str | None = None,
+    binary_panels: str | None = None,
     multiclass_panels: str | None = None,
     multilabel_panels: str | None = None,
     ltr_panels: str | None = None,
@@ -344,17 +345,18 @@ def report_model_perf(
     # templates are unset. Failures are logged + swallowed (panels are
     # additive; existing perf chart + FI still emit).
     if plot_file and plot_outputs and (
-        multiclass_panels or multilabel_panels or ltr_panels or quantile_panels
+        binary_panels or multiclass_panels or multilabel_panels or ltr_panels or quantile_panels
     ):
         from mlframe.reporting.auto_dispatch import render_multi_target_panels
         with phase("render_multi_target_panels"):
-            render_multi_target_panels(
+            _rendered_tag = render_multi_target_panels(
                 targets=np.asarray(targets) if not isinstance(targets, np.ndarray) else targets,
                 probs=probs, preds=preds,
                 classes=classes, group_ids=group_ids,
                 quantile_alphas=quantile_alphas,
                 plot_outputs=plot_outputs,
                 plot_dpi=plot_dpi,
+                binary_panels=binary_panels,
                 multiclass_panels=multiclass_panels,
                 multilabel_panels=multilabel_panels,
                 ltr_panels=ltr_panels,
@@ -368,6 +370,43 @@ def report_model_perf(
                 # nonsense for regression + paid 10-30s on 5M rows.
                 target_type=target_type,
             )
+            # INV-48: account which panel grids rendered so a run can assert
+            # chart presence. The no-crash contract holds -- a failed render is
+            # logged + swallowed inside the dispatcher and recorded as "failed".
+            if isinstance(metrics, dict):
+                _charts = metrics.setdefault("charts", {"saved": [], "failed": []})
+                _which = (
+                    "binary" if (target_type or "").lower() == "binary_classification"
+                    else (target_type or "").lower()
+                ) or "panels"
+                if _rendered_tag:
+                    _charts["saved"].append(f"{_rendered_tag}_panels")
+                else:
+                    _charts["failed"].append(f"{_which}_panels")
+
+    # Binary decile gains/lift/KS table -- surfaced in the metrics dict (not a
+    # chart panel) so the operator gets the gains-table view alongside the curves.
+    if (
+        isinstance(metrics, dict)
+        and (target_type or "").lower() == "binary_classification"
+        and probs is not None
+    ):
+        try:
+            from mlframe.reporting.charts.binary import binary_decile_table
+            probs_arr = np.asarray(probs)
+            if probs_arr.ndim == 2 and probs_arr.shape[1] == 2:
+                _score = probs_arr[:, 1]
+            elif probs_arr.ndim == 1:
+                _score = probs_arr
+            elif probs_arr.ndim == 2 and probs_arr.shape[1] == 1:
+                _score = probs_arr.ravel()
+            else:
+                _score = None
+            if _score is not None:
+                _yt = np.asarray(targets).ravel()
+                metrics["binary_decile_table"] = binary_decile_table(_yt, _score)
+        except Exception:
+            logger.exception("binary_decile_table computation failed; continuing.")
 
     if show_fi:
         n_cols = n_features if n_features is not None else (len(columns) if columns is not None and len(columns) > 0 else 0)
