@@ -36,21 +36,37 @@ from mlframe.reporting.spec import (
 # ----------------------------------------------------------------------------
 
 
+def _per_label_prf1(y_true: np.ndarray, y_pred: np.ndarray):
+    """Vectorised per-label precision / recall / F1 for the positive class.
+
+    Replaces K separate ``precision_recall_fscore_support`` calls with one
+    pass of per-column confusion counts. ``y_true`` / ``y_pred`` are (N, K)
+    {0,1}; the 2-bit code ``2*true + pred`` per column maps to TN/FP/FN/TP,
+    tallied with a single bincount over the flattened (column, code) index.
+    ``zero_division=0`` semantics (sklearn default) for empty denominators.
+    """
+    yt = (np.asarray(y_true) == 1).astype(np.intp)
+    yp = (np.asarray(y_pred) == 1).astype(np.intp)
+    K = yt.shape[1]
+    code = (yt * 2 + yp)                                   # (N, K) in {0,1,2,3}
+    flat = (np.arange(K) * 4 + code).ravel()               # column-offset code
+    counts = np.bincount(flat, minlength=K * 4).reshape(K, 4)
+    tp = counts[:, 3].astype(np.float64)
+    fp = counts[:, 1].astype(np.float64)
+    fn = counts[:, 2].astype(np.float64)
+    pred_pos = tp + fp
+    true_pos = tp + fn
+    precision = np.divide(tp, pred_pos, out=np.zeros(K), where=pred_pos > 0)
+    recall = np.divide(tp, true_pos, out=np.zeros(K), where=true_pos > 0)
+    denom = precision + recall
+    f1 = np.divide(2.0 * precision * recall, denom, out=np.zeros(K), where=denom > 0)
+    return precision, recall, f1
+
+
 def _pr_f1_panel(y_true, y_proba, labels) -> BarPanelSpec:
     """Per-label precision / recall / F1 bar."""
-    from sklearn.metrics import precision_recall_fscore_support
-
     y_pred = (y_proba >= 0.5).astype(np.int8)
-    K = y_true.shape[1]
-    p_arr = np.zeros(K)
-    r_arr = np.zeros(K)
-    f_arr = np.zeros(K)
-    for k in range(K):
-        p, r, f, _ = precision_recall_fscore_support(
-            y_true[:, k], y_pred[:, k], average="binary",
-            zero_division=0, labels=[0, 1],
-        )
-        p_arr[k], r_arr[k], f_arr[k] = p, r, f
+    p_arr, r_arr, f_arr = _per_label_prf1(y_true, y_pred)
     return BarPanelSpec(
         categories=tuple(str(l) for l in labels),
         values=(p_arr, r_arr, f_arr),
@@ -80,14 +96,17 @@ def _roc_panel(y_true, y_proba, labels) -> LinePanelSpec:
         roc_auc = auc(fpr, tpr)
         series.append(np.interp(x_grid, fpr, tpr))
         series_labels.append(f"{labels[k]} (AUC={roc_auc:.3f})")
+    # Chance diagonal (TPR == FPR) anchors AUC=0.5 so curves below it read as worse-than-random.
+    chance = x_grid.copy()
     return LinePanelSpec(
         x=x_grid,
-        y=tuple(series),
-        series_labels=tuple(series_labels),
+        y=tuple([chance] + series),
+        series_labels=tuple(["chance"] + series_labels),
         title="Per-label ROC",
         xlabel="False Positive Rate",
         ylabel="True Positive Rate",
-        colors=tuple(line_color(i) for i in range(K)),
+        line_styles=tuple([":"] + ["-"] * K),
+        colors=tuple(["gray"] + [line_color(i) for i in range(K)]),
     )
 
 
@@ -104,11 +123,12 @@ def _calib_grid_panel(y_true, y_proba, labels) -> LinePanelSpec:
         proba_k = y_proba[:, k]
         true_k = y_true[:, k].astype(np.float64)
         bin_idx = np.clip(np.digitize(proba_k, edges[1:-1]), 0, n_bins - 1)
+        # Per-bin observed mean via two bincounts (sum / count) instead of an inner n_bins x O(N) mask loop.
+        counts = np.bincount(bin_idx, minlength=n_bins)
+        sums = np.bincount(bin_idx, weights=true_k, minlength=n_bins)
         observed = np.full(n_bins, np.nan)
-        for b in range(n_bins):
-            mask = bin_idx == b
-            if mask.any():
-                observed[b] = float(true_k[mask].mean())
+        nz = counts > 0
+        observed[nz] = sums[nz] / counts[nz]
         series.append(observed)
         series_labels.append(str(labels[k]))
     diag = x_grid.copy()

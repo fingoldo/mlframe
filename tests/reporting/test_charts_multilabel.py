@@ -83,8 +83,10 @@ class TestPanelTypes:
         spec = compose_multilabel_figure(y, p, lbl, panels_template="ROC")
         panel = spec.panels[0][0]
         assert isinstance(panel, LinePanelSpec)
-        assert isinstance(panel.y, tuple) and len(panel.y) == 3
-        assert all("AUC=" in s or "n/a" in s for s in panel.series_labels)
+        # 1 chance diagonal + K per-label curves.
+        assert isinstance(panel.y, tuple) and len(panel.y) == 4
+        assert panel.series_labels[0] == "chance"
+        assert all("AUC=" in s or "n/a" in s for s in panel.series_labels[1:])
 
     def test_calib_grid_returns_line_with_K_plus_diagonal(self, synth_3label):
         y, p, lbl = synth_3label
