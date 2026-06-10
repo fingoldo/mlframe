@@ -7,6 +7,31 @@ this directory. Severity is post-verification (corrections that downgraded are r
 Disposition buckets: **RESOLVED** (fixed this program) · **FUTURE** (tracked, out of this batch) ·
 **DOC** (documented, no code change) · **REJECTED** (anti-recommendation w/ reason).
 
+## FINAL LANDED-STATUS RECONCILIATION (completeness check)
+
+6 commits: 8c2c4038 (keystone+4 prod fixes), 5eba48e5 (FE-gate fail-open), 09f28a87 (artifacts/gitignore),
+88f3023d (9 packs), 3533427c (null-FDR perf+value-proof). Every one of the 146 findings is in exactly one
+bucket below — nothing silently dropped.
+
+### LANDED + verified + committed (~40 findings)
+- **Keystone contract infra** (new `_selector_factories.py` + `test_selector_contract_shared.py` + registry tripwire): shared_lift-02/04/07/08/11/12/13/15/16/22, param_axes-02, gaps_selection_masking-05/08/15, coverage_asymmetry-01/02, test_code_quality-15(new file uses capability flags). Plus shared_lift-01/03 (Boruta + GroupAware prod-wrap enrolled as specs).
+- **9 biz-value/contract packs** (88f3023d): param_axes-04/06/07/17, coverage_asymmetry-08/09/10/11/12/14/16/17, gaps_selection_masking-01/02/03(boruta)/17, bizvalue-01/03/04/07.
+- **B3 hygiene**: gaps_fe_masking-10 (golden NameError), training_integration-08 + param_axes-11 (cannot-fail tests), test_code_quality-06/17 (D:/Temp, .bak).
+- **B4**: gaps_fe_masking-03 (FE-gate fail-open).
+
+### PROD BUGS found by this work (beyond the 146) — 4 FIXED, 2 SENSORED
+FIXED: RFECV.get_support added; RFECV global-RNG leak; BorutaShap/ShapProxiedFS/HybridSelector RNG leaks; MRMR caller-frame mutation; (B4) FE-gate fail-closed.
+SENSORED (xfail regression sensors, fix tracked): PB-5 RFECV/ShapProxied/Hybrid pure-null FP-control; PB-6 MRMR empty support_ vs min_features_fallback.
+
+### FUTURE — NOT yet implemented (~100 findings, each still has its row in the table below)
+The large remaining tranche: the 97-layer consolidation (test_code_quality-01/02/16, param_axes-08, L-effort), RFECV 12-knob pack (coverage_asymmetry-03), ShapProxiedFS su_seeded knobs (coverage_asymmetry-15), pre_screen (coverage_asymmetry-18), cluster_aggregate extras, per-axis param families (param_axes-01/05/09/12/13/14/15/16, gaps_fe_masking-04..09/11..18), the remaining lifted-contract variants NOT in the new file (shared_lift-05 gfno-input_features, -06 set_output, -09 regression_df wiring, -10 determinism-unify, -14/17/18/19/20/21/23, -24 full), gaps_selection_masking-06/07/09/10/11/12/13/16, bizvalue-02/05/06/08(partial)/09/10/11/12/13/14/15, the full training_integration set incl. P0-01 save→load→predict parity + 02/03/04/05/06/07/09/10/11/12/13/14/15/16/17/18, test_code_quality-03(gpu markers)/04/05/07/08/09/10/11/13/14, the two PROD-BUG fixes (PB-5/PB-6), and the OLD-suite retrofit (merge test_fs_selector_contract.py / test_selectors_shared.py onto the single factory source — drift is currently killed via the new file + tripwire, not a full merge).
+
+NOTE on honesty: the keystone landed a NEW comprehensive contract file rather than retrofitting the two pre-existing
+parallel suites; the registry tripwire prevents future drift, but the OLD files still carry their own factory lists
+(a tracked FUTURE merge). No finding's coverage is overstated above.
+
+---
+
 ## Severity rollup (146 total)
 
 | key | P0 | P1 | P2 | LOW | total |
