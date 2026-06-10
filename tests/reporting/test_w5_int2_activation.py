@@ -106,8 +106,14 @@ def test_regression_scatter_highlights_worst_k_red():
     )
     sc = _panels_of_type(spec, ScatterPanelSpec)[0]
     assert sc.highlight_indices is not None
-    assert set(np.asarray(sc.highlight_indices).tolist()) == set(bad.tolist())
     assert sc.highlight_color == "red"
+    # highlight_indices are PANEL-relative positions (the renderer resolves them against the panel x/y, which are
+    # the finite-filtered + sorted arrays). The highlighted predictions must be the gross-error rows we injected.
+    hi = np.asarray(sc.highlight_indices, dtype=np.int64)
+    assert hi.size == len(bad)
+    highlighted_pred = np.asarray(sc.x)[hi]
+    expected_pred = y_pred[bad]
+    assert np.allclose(np.sort(highlighted_pred), np.sort(expected_pred))
 
     import matplotlib
     matplotlib.use("Agg")
@@ -116,6 +122,25 @@ def test_regression_scatter_highlights_worst_k_red():
     n_collections = max(len(ax.collections) for ax in fig.axes)
     assert n_collections >= 2, "worst-K overlay must add a 2nd scatter PathCollection"
     matplotlib.pyplot.close(fig)
+
+
+def test_regression_worst_k_survives_subsample():
+    from mlframe.reporting.charts.regression import compose_regression_figure
+
+    rng = np.random.default_rng(11)
+    n = 20_000  # > DEFAULT_REGRESSION_SCATTER_SAMPLE so the subsample path runs
+    y_true = rng.normal(size=n)
+    y_pred = y_true + rng.normal(scale=0.05, size=n)
+    bad = np.array([3, 7777, 15123], dtype=np.int64)
+    y_pred[bad] += 8.0
+    spec = compose_regression_figure(
+        y_true, y_pred, panels_template="SCATTER", worst_k_indices=bad,
+    )
+    sc = _panels_of_type(spec, ScatterPanelSpec)[0]
+    hi = np.asarray(sc.highlight_indices, dtype=np.int64)
+    assert hi.size == len(bad)
+    highlighted_pred = np.asarray(sc.x)[hi]
+    assert np.allclose(np.sort(highlighted_pred), np.sort(y_pred[bad])), "worst-K rows must be present + highlighted post-subsample"
 
 
 # ---------------------------------------------------------------------------

@@ -59,6 +59,56 @@ def _finite_pair(y_true: np.ndarray, y_pred: np.ndarray) -> Tuple[np.ndarray, np
     return yt[mask], yp[mask]
 
 
+def _worst_k_into_finite(y_true, y_pred, worst_k_indices) -> Optional[np.ndarray]:
+    """Remap worst-K positions from the ORIGINAL arrays onto the finite-filtered index space.
+
+    The panel's x/y are ``_finite_pair`` outputs (non-finite rows dropped); the worst-K indices the integrator
+    supplies index the original arrays. Map each original position to its rank among the finite rows (dropped rows
+    contribute no highlight). Returns positions into the finite arrays, or None when no usable worst-K survives.
+    """
+    if worst_k_indices is None:
+        return None
+    wk = np.asarray(worst_k_indices, dtype=np.int64).ravel()
+    if wk.size == 0:
+        return None
+    yt = np.asarray(y_true, dtype=np.float64).ravel()
+    yp = np.asarray(y_pred, dtype=np.float64).ravel()
+    finite = np.isfinite(yt) & np.isfinite(yp)
+    finite_pos = np.cumsum(finite) - 1  # rank among finite rows for each original position
+    wk = wk[(wk >= 0) & (wk < finite.size)]
+    wk = wk[finite[wk]]
+    if wk.size == 0:
+        return None
+    return finite_pos[wk].astype(np.int64)
+
+
+def _remap_through_order(order: np.ndarray, wk_finite: Optional[np.ndarray], n: int) -> Optional[np.ndarray]:
+    """Map finite-index worst-K positions through an ``argsort`` permutation (panel sorted by ``order``)."""
+    if wk_finite is None or wk_finite.size == 0:
+        return None
+    inverse = np.empty(n, dtype=np.int64)
+    inverse[order] = np.arange(n, dtype=np.int64)
+    return inverse[wk_finite]
+
+
+def _append_missing_worst_k(s_pred, s_true, yp_finite, yt_finite, wk_finite):
+    """Ensure every worst-K row is present in the (subsampled) panel arrays, appending those the subsample dropped.
+
+    The extremes-preserving subsample keeps the largest |resid| rows, but a worst-K set ranked on loss (classification)
+    or a custom score may not be a strict subset, so append any missing rows and return highlight positions into the
+    final panel arrays.
+    """
+    if wk_finite is None or wk_finite.size == 0:
+        return s_pred, s_true, None
+    wk_pred = yp_finite[wk_finite]
+    wk_true = yt_finite[wk_finite]
+    base = len(s_pred)
+    s_pred = np.concatenate([s_pred, wk_pred])
+    s_true = np.concatenate([s_true, wk_true])
+    highlight = np.arange(base, base + wk_finite.size, dtype=np.int64)
+    return s_pred, s_true, highlight
+
+
 def _scatter_panel(
     y_true: np.ndarray,
     y_pred: np.ndarray,
@@ -68,16 +118,27 @@ def _scatter_panel(
     hexbin_threshold: int = DEFAULT_HEXBIN_THRESHOLD,
     density_bins: int = DEFAULT_DENSITY_BINS,
     seed: int = 42,
+    worst_k_indices: Optional[np.ndarray] = None,
+    trend_line: Optional[str] = "theil-sen",
 ) -> PanelSpec:
     """Predictions-vs-true panel.
 
     Above ``hexbin_threshold`` points: a log-density 2-D histogram (HeatmapPanelSpec) — a hexbin/hist2d analogue that
-    stays readable at millions of rows. Below it: a raw scatter with an extremes-preserving subsample so the headline
-    MaxError point (and the axis-anchoring range endpoints) are always drawn. The y=x diagonal is always present.
+    stays readable at millions of rows; the robust trend line is fit on the full cloud and drawn beside y=x. Below it:
+    a raw scatter with an extremes-preserving subsample so the headline MaxError point (and the axis-anchoring range
+    endpoints) are always drawn, with the worst-K residual rows highlighted red. The y=x diagonal is always present.
+
+    ``worst_k_indices`` are positions into the ORIGINAL (pre-finite-filter) ``y_pred``/``y_true``; they are remapped
+    onto the finite-filtered scatter's own index space (the renderer resolves them against the panel's full x/y, which
+    are the finite arrays). On the hexbin path individual points are not drawn, so the highlight is skipped there.
+    ``trend_line`` overlays a robust (Theil-Sen / Huber) fit beside the y=x diagonal so a systematic slope bias is
+    visible even when the cloud hugs the diagonal.
     """
     yt, yp = _finite_pair(y_true, y_pred)
     n = yt.size
     showing = min(sample_size, n)
+    # Map original-array worst-K positions onto the finite-filtered index space the panel x/y live in.
+    wk_finite = _worst_k_into_finite(y_true, y_pred, worst_k_indices)
 
     if n > hexbin_threshold:
         lo = float(min(yp.min(), yt.min())) if n else 0.0
@@ -100,6 +161,8 @@ def _scatter_panel(
             xlabel="Predictions",
             ylabel="True values",
             colorbar_label="log(1 + count)",
+            trend_line=trend_line,
+            trend_xy=(yp, yt) if trend_line is not None else None,
         )
 
     if n > sample_size:
@@ -108,10 +171,15 @@ def _scatter_panel(
         s_pred, s_true = yp[idx], yt[idx]
         showing_note = f"(showing {showing:,} / {n:,} sampled)"
         scatter_title = f"{title}\n{showing_note}" if title else showing_note
+        # The subsample may not contain every worst-K row; the renderer resolves highlight_indices against the FULL
+        # panel x/y, so pass the panel's own (subsampled) data plus the worst-K rows guaranteed present via extremes.
+        s_pred, s_true, wk_panel = _append_missing_worst_k(s_pred, s_true, yp, yt, wk_finite)
     else:
         order = np.argsort(yp)
         s_pred, s_true = yp[order], yt[order]
         scatter_title = title
+        # Sorted by yp, so remap worst-K finite positions through the argsort inverse.
+        wk_panel = _remap_through_order(order, wk_finite, n)
     return ScatterPanelSpec(
         x=s_pred,
         y=s_true,
@@ -122,6 +190,9 @@ def _scatter_panel(
         point_color="steelblue",
         point_alpha=0.3,
         point_size=10.0,
+        highlight_indices=wk_panel,
+        highlight_color="red",
+        trend_line=trend_line,
     )
 
 
@@ -306,6 +377,8 @@ def compose_regression_figure(
     sample_size: int = DEFAULT_REGRESSION_SCATTER_SAMPLE,
     hexbin_threshold: int = DEFAULT_HEXBIN_THRESHOLD,
     seed: int = 42,
+    worst_k_indices: Optional[np.ndarray] = None,
+    trend_line: Optional[str] = "theil-sen",
     max_cols: int = 2,
     cell_width: float = 6.0,
     cell_height: float = 4.0,
@@ -314,8 +387,10 @@ def compose_regression_figure(
     """Build a regression-quality FigureSpec from a panel template.
 
     ``audit`` is a duck-typed ResidualAudit (used by RESID_HIST + RESID_VS_PRED). ``metrics_str`` (MAE/RMSE/MaxError/R2
-    + optional Spearman) becomes the SCATTER panel title. The default template restores the residuals-vs-predicted
-    panel dropped in 2026-05 and adds the per-decile error breakdown.
+    + optional Spearman) becomes the SCATTER panel title. ``worst_k_indices`` (original-array positions of the worst
+    residual rows, from the error-analysis pass) highlights those points red on the pred-vs-actual scatter. ``trend_line``
+    overlays a robust fit (Theil-Sen / Huber, None to disable) beside y=x. The default template restores the
+    residuals-vs-predicted panel dropped in 2026-05 and adds the per-decile error breakdown.
     """
     tokens = parse_panel_template(panels_template)
     unknown = [t for t in tokens if t not in _TOKEN_BUILDERS]
@@ -338,6 +413,7 @@ def compose_regression_figure(
             panels.append(_scatter_panel(
                 y_true, y_pred, title=scatter_title,
                 sample_size=sample_size, hexbin_threshold=hexbin_threshold, seed=seed,
+                worst_k_indices=worst_k_indices, trend_line=trend_line,
             ))
         elif tok == "RESID_HIST":
             panels.append(_resid_hist_panel(
@@ -373,12 +449,15 @@ def build_regression_panel_spec(
     plot_sample_size: int = DEFAULT_REGRESSION_SCATTER_SAMPLE,
     seed: int = 42,
     panels_template: str = DEFAULT_REGRESSION_PANELS,
+    worst_k_indices: Optional[np.ndarray] = None,
+    trend_line: Optional[str] = "theil-sen",
 ) -> FigureSpec:
     """Thin adapter preserving the legacy 2-panel call signature.
 
     Delegates to ``compose_regression_figure``. The legacy callers passed ``figsize`` for a single-row layout; we keep
     honouring an explicit ``figsize`` but let the composer pack >2 panels into a grid when the (now default) template
-    asks for more. ``audit`` stays duck-typed (ResidualAudit).
+    asks for more. ``audit`` stays duck-typed (ResidualAudit). ``worst_k_indices`` / ``trend_line`` forward the worst-K
+    red overlay + robust fit to the SCATTER panel.
     """
     # Honour the legacy single-row figsize only when the template is the legacy 2-panel set; otherwise let the grid size itself.
     legacy_two = parse_panel_template(panels_template) == ["SCATTER", "RESID_HIST"]
@@ -390,6 +469,8 @@ def build_regression_panel_spec(
         metrics_str=metrics_str,
         sample_size=plot_sample_size,
         seed=seed,
+        worst_k_indices=worst_k_indices,
+        trend_line=trend_line,
         figsize=figsize if legacy_two else None,
     )
 
