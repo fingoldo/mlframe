@@ -156,6 +156,16 @@ def build_calibration_spec(
 
     point_size = _bubble_point_size(hits)
 
+    # Wilson CI band on the observed frequency per bin: ``freqs_true`` is the per-bin positive rate, ``hits`` its
+    # count, so the binomial interval reflects sampling uncertainty (wide where a bin holds few points). The spec
+    # carries asymmetric error bars as (lower_distance, upper_distance) from the point; nan-CI bins (n==0) -> 0 dist.
+    y_err: Optional[Tuple[np.ndarray, np.ndarray]] = None
+    if show_wilson_ci and len(hits) > 0:
+        lower, upper = wilson_ci(freqs_true, hits.astype(np.float64))
+        lo_dist = np.where(np.isfinite(lower), freqs_true - lower, 0.0)
+        hi_dist = np.where(np.isfinite(upper), upper - freqs_true, 0.0)
+        y_err = (np.clip(lo_dist, 0.0, None), np.clip(hi_dist, 0.0, None))
+
     scatter = ScatterPanelSpec(
         x=freqs_predicted,
         y=freqs_true,
@@ -169,6 +179,7 @@ def build_calibration_spec(
         point_size=point_size,
         inline_labels=inline_labels,
         colorbar_label=colorbar_label,
+        y_err=y_err,
     )
 
     resolved_yscale = _resolve_yscale(yscale, hits)
