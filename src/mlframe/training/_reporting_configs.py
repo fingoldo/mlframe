@@ -174,11 +174,18 @@ class ReportingConfig(BaseConfig):
     # Honest-estimator diagnostics aggregator: ON by default. When True, ``finalize_suite`` invokes ``training.honest_diagnostics.run_honest_diagnostics(ctx, models, metadata)`` so every run emits bootstrap CI per top-line metric, categorical PSI drift summary, reliability/calibration plot, and the provenance disposition table. Set False on hot loops or batch runs where the ~1-3s aggregator wall time matters more than the audit trail.
     honest_estimator_diagnostics: bool = True
 
-    # Per-target_type panel templates. Same DSL grammar as ``title_metrics_template`` (space-separated tokens, validator checks against frozen allowed set, no duplicates). All-by-default; operator removes tokens to skip individual panels.
-    multiclass_panels: str = "CONFUSION PR_F1 ROC CALIB_GRID PROB_DIST TOP_K_ACC"
+    # Per-target_type panel templates. Same DSL grammar as ``title_metrics_template`` (space-separated tokens, validator checks against the chart modules' ALLOWED_*_PANEL_TOKENS frozensets, no duplicates). All-by-default; operator removes tokens to skip individual panels.
+    multiclass_panels: str = "CONFUSION CONFUSED_PAIRS PR_F1 ROC CALIB_GRID PROB_DIST TOP_K_ACC"
     multilabel_panels: str = "PR_F1 CALIB_GRID COOCCURRENCE CARDINALITY JACCARD_DIST"
-    ltr_panels: str = "NDCG_K NDCG_DIST LIFT MRR_DIST SCORE_BY_REL"
-    quantile_panels: str = "RELIABILITY PINBALL_BY_ALPHA INTERVAL_BAND WIDTH_DIST PIT_HIST"
+    ltr_panels: str = "NDCG_K NDCG_DIST NDCG_BY_QSIZE LIFT MRR_DIST SCORE_BY_REL"
+    quantile_panels: str = "RELIABILITY COVERAGE PINBALL_BY_ALPHA INTERVAL_BAND WIDTH_DIST PIT_HIST"
+    # Regression report panels (SCATTER + residual hist + residual-vs-pred funnel + per-decile error). Rendered by ``compose_regression_figure``; all-by-default like the other panel templates.
+    regression_panels: str = "SCATTER RESID_HIST RESID_VS_PRED ERR_BY_DECILE"
+
+    # Calibration binning strategy for the reliability diagram + ECE bins. ``"auto"`` (default) picks quantile (equal-population) bins under a rare-event base rate where uniform bins collapse to <=2 populated bins, uniform otherwise. ``"uniform"`` / ``"quantile"`` force one strategy.
+    calibration_binning: Literal["auto", "uniform", "quantile"] = "auto"
+    # Render Wilson 95% binomial confidence bands on the per-bin empirical frequencies in the reliability diagram. ON by default -- the band tells the operator which deviations from the diagonal are sampling noise vs real miscalibration.
+    reliability_show_ci: bool = True
 
     @field_validator("title_metrics_template")
     @classmethod
@@ -210,29 +217,31 @@ class ReportingConfig(BaseConfig):
         parse_plot_output_dsl(v)
         return v
 
-    @field_validator("multiclass_panels", "multilabel_panels", "ltr_panels", "quantile_panels")
+    @field_validator(
+        "multiclass_panels", "multilabel_panels", "ltr_panels",
+        "quantile_panels", "regression_panels",
+    )
     @classmethod
     def _validate_panel_template(cls, v: str, info) -> str:
-        # Per-target_type allowed token sets. PR2 will populate the actual
-        # panel-builder dispatch; for now we allow the documented token
-        # vocabulary (validator catches typos at config-construction time).
+        # Source the allowed token sets from the chart modules' own
+        # ALLOWED_*_PANEL_TOKENS frozensets (the single source of truth that
+        # the composers also key off), so any new builder token is valid here
+        # without a duplicated literal that can drift. Imported lazily: this
+        # validator runs at config CONSTRUCTION, not module import, so there
+        # is no import cycle with the reporting layer.
+        from mlframe.reporting.charts import (
+            ALLOWED_LTR_PANEL_TOKENS,
+            ALLOWED_MULTICLASS_PANEL_TOKENS,
+            ALLOWED_MULTILABEL_PANEL_TOKENS,
+            ALLOWED_QUANTILE_PANEL_TOKENS,
+            ALLOWED_REGRESSION_PANEL_TOKENS,
+        )
         _ALLOWED = {
-            "multiclass": frozenset({
-                "CONFUSION", "PR_F1", "ROC", "PR_CURVES",
-                "CALIB_GRID", "PROB_DIST", "TOP_K_ACC",
-            }),
-            "multilabel": frozenset({
-                "PR_F1", "ROC", "CALIB_GRID", "COOCCURRENCE",
-                "CARDINALITY", "JACCARD_DIST", "HAMMING_DIST",
-            }),
-            "ltr": frozenset({
-                "NDCG_K", "NDCG_DIST", "LIFT", "MRR_DIST",
-                "SCORE_BY_REL", "TOP1_BY_QSIZE",
-            }),
-            "quantile": frozenset({
-                "RELIABILITY", "PINBALL_BY_ALPHA", "INTERVAL_BAND",
-                "WIDTH_DIST", "PIT_HIST",
-            }),
+            "multiclass": ALLOWED_MULTICLASS_PANEL_TOKENS,
+            "multilabel": ALLOWED_MULTILABEL_PANEL_TOKENS,
+            "ltr": ALLOWED_LTR_PANEL_TOKENS,
+            "quantile": ALLOWED_QUANTILE_PANEL_TOKENS,
+            "regression": ALLOWED_REGRESSION_PANEL_TOKENS,
         }
         target_key = info.field_name.replace("_panels", "")
         allowed = _ALLOWED[target_key]
