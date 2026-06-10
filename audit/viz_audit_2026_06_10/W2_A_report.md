@@ -100,7 +100,10 @@ counting group-sort on integer ids in `_iter_group_slices`, gated on id dtype.
 
 ## Commits
 
-<filled below>
+- `ce522ee4` perf(ltr): batch per-query LTR chart kernels; add NDCG_BY_QSIZE panel
+  (ranking.py + ltr.py + test_charts_ltr.py token reframe)
+- `050d765d` test(ltr): parity + content-sanity tests (tests/reporting/test_ltr_charts_perf.py, 29 tests)
+- `0c7a0648` bench(ltr): extend bench to 2M + cProfile compose_ltr_figure (bench + report + results)
 
 ## Deviations
 
