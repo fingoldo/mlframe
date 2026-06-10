@@ -698,6 +698,20 @@ class MRMR(BaseEstimator, TransformerMixin):
         # feature never exceeds 8.3% of the weakest genuine one); 0.15 sits in the middle
         # with ~2x margin both sides. Larger = stricter (drops more as redundant).
         fe_engineered_cmi_retain_frac: float = 0.15,
+        # COST GUARD for the ``conditional_mi`` acceptance gate. The greedy gate is
+        # O(K^2) in the engineered-candidate count K (each remaining candidate is
+        # re-scored against the admitted support in EACH greedy round, and each
+        # scoring runs a 25-permutation within-stratum conditional-permutation null).
+        # On a wide FE candidate pool (the synergy bootstrap / GBM seeder can surface
+        # dozens-to-hundreds of survivors) this blows up unbounded (~2.0x per doubling
+        # of K). When the surviving pool exceeds this cap the gate PRE-RANKS by
+        # marginal MI and keeps only the top-M before the greedy -- bounding the cost
+        # to O(M^2). Safe for the redundancy decision: the gate already admits in
+        # marginal-MI order and a redundant remap shares its genuine sibling's
+        # marginal MI, so every genuine driver's representative is retained while only
+        # the deep-tail redundant remaps (rejected anyway) are dropped pre-greedy.
+        # ``<= 0`` disables the cap (unbounded greedy).
+        fe_engineered_cmi_max_candidates: int = 64,
         fe_good_to_best_feature_mi_threshold: float = 0.98,  # when multiple good transformations exist for the same factors pair.
         fe_max_external_validation_factors: int = 0,  # how many other factors to validate against
         fe_max_polynoms: int = 0,
@@ -2924,6 +2938,11 @@ class MRMR(BaseEstimator, TransformerMixin):
             "fe_sufficient_summary_maxt_permutations": 25,
             "fe_sufficient_summary_maxt_quantile": 0.95,
             "fe_sufficient_summary_ridge_alpha": 1e-3,
+            # CMI-redundancy gate cost guard (2026-06-11). Old pickles default to the
+            # same 64-candidate cap; it only fires on pools WIDER than the cap (deep-tail
+            # low-marginal-MI redundant remaps), so a re-fit of any pickle whose pool was
+            # already <= 64 candidates is byte-identical.
+            "fe_engineered_cmi_max_candidates": 64,
         }
         for k, v in defaults.items():
             state.setdefault(k, v)
