@@ -15,22 +15,44 @@ and n=50000) and never drops a raw that carries genuine independent signal.
 
 Decision (per raw operand of >=1 surviving engineered survivor):
 
-    raw is REDUNDANT given its engineered survivors iff BOTH
-      (1) CMI(raw; y | engineered survivors) <= conditional-permutation floor
-          (the significance leg -- the residual is indistinguishable from the
-          within-stratum shuffle null), OR
-      (2) the DEBIASED EXCESS  max(0, CMI - null_mean)  is below
-          ``retain_frac`` * (the weakest engineered survivor's own debiased
-          marginal excess) -- the scale-free relative-gap leg.
+  STEP 0 -- DPI-TRAP CONSUMER FILTER (2026-06-10). Restrict the conditioning /
+  anchor set to engineered children that are TRUE COMBINATIONS: they draw genuine
+  signal from a SECOND signal-bearing raw source besides the raw under test. A
+  child whose ONLY signal-bearing parent is the raw itself (``relu_lt(x_a)`` /
+  ``exp(x0)`` / ``He2(a)`` and friends -- a monotone/basis self-transform) is the
+  data-processing-inequality trap the S5 gate warns about: conditioning a raw on a
+  basis of ITSELF drives CMI to ~0 for EVERY raw -- genuine or redundant -- so it
+  proves nothing. A "signal-bearing" parent is one whose own marginal debiased
+  excess clears its marginal permutation null (a noise operand, e.g. ``x3`` in
+  ``add(exp(x0),sign(x3))``, does NOT count -- so that child is a self-transform of
+  x0, not a combination). When NO legitimate multi-source consumer survives this
+  filter the raw is NOT redundancy-dropped (the protective retention stands).
 
-A redundant operand's excess collapses to ~0 (its conditional MI given the
-engineered child is pure finite-sample / binning-gap bias, which the
-within-stratum permutation null reproduces and the excess subtracts). A raw
-carrying a PRIVATE additive term keeps a large excess (a substantial fraction of
-the engineered anchor) and is KEPT. Both the relative bar and the anchor live on
-the debiased-excess scale, so the finite-sample bias cancels and the verdict is
-the same at every n (validated ws1 / F2 / F4 on n=1000..50000 in
-``D:/Temp/feq_proto2.py`` / ``feq_proto3.py``).
+  STEP 1 -- KEEP iff EITHER leg holds (DROP only when BOTH fail):
+      (A) SIGNIFICANT INDEPENDENT RESIDUAL -- CMI(raw; y | combination children)
+          clears the within-stratum conditional-permutation floor AND the debiased
+          conditional excess retains >= ``RAW_SELF_RETAIN_FRAC`` of the raw's OWN
+          marginal debiased excess. A genuine PRIVATE LINEAR term keeps ~6-11% of
+          its marginal given the interaction product; a fully-subsumed ``a**2/b``
+          ratio operand keeps ~0.3-2% and barely (or never) clears the floor.
+      (B) THE STRONGEST CONSUMING CHILD IS NOT A SUPERSET -- its own marginal
+          debiased excess is <= ``RAW_SUPERSET_MULT`` x the raw's marginal excess.
+          A child that merely RE-EXPRESSES the raw through a (near-)monotone unary
+          paired with a noise operand (``add(exp(x0),sign(x3))`` ~1.8x the raw) is
+          NOT a superset; the raw keeps a cleaner LINEAR signal than the noise-
+          polluted child, so it is retained for downstream linear usability. A true
+          combination (the ``a**2/b`` ratio ~6x, the interaction product ~5x) IS a
+          superset and does not trip leg B -- those genuinely-subsumed operands rely
+          on leg A's failure to drop.
+
+A redundant operand's conditional excess collapses to ~0 (its CMI given the
+combination child is pure finite-sample / binning-gap bias, reproduced by the
+within-stratum permutation null and subtracted by the excess) AND a strictly-more-
+informative combination child captures it -> both legs fail -> DROP. A raw carrying
+a private term (linear / additive) or paired only with noise keeps a significant
+residual or is not faced with a superset -> KEPT. All scales are debiased excesses
+or scale-free multiples, so the verdict is n-stable (validated on the genuine
+x_a/x_b/x0 + subsumed a**2/b a/b across n=500..100000 cells, 2026-06-10).
 
 All MI/CMI uses the production primitives (``_cmi_from_binned`` / ``_quantile_bin``
 / ``_renumber_joint``) and the production conditional-permutation null
@@ -52,6 +74,24 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 # engineered survivor's own debiased excess to be judged a genuine independent
 # term. 0.15 sat with >=2x margin both sides across the validated cells.
 DEFAULT_RAW_RETAIN_FRAC = 0.15
+
+# SELF-RETENTION fraction (keep leg A, 2026-06-10). The raw must retain >= this
+# fraction of its OWN marginal debiased excess as CONDITIONAL excess (given the
+# combination child) to count as a significant independent residual. A genuine
+# private LINEAR term keeps ~6-11% of its marginal given the interaction product;
+# a fully-subsumed ``a**2/b`` ratio operand keeps ~0.3-2%. 0.05 sits between with
+# >=2x margin on both sides across the validated genuine/subsumed cells.
+RAW_SELF_RETAIN_FRAC = 0.05
+
+# SUPERSET multiple (keep leg B, 2026-06-10). A consuming engineered child counts
+# as a genuine SUPERSET (capable of subsuming the raw) only when its own marginal
+# debiased excess exceeds this multiple of the raw's marginal excess. A ratio /
+# interaction product is ~5-6x the operand's marginal (superset -> may subsume via
+# leg A's failure); a (near-)monotone re-expression paired with a noise operand is
+# only ~1.8x (NOT a superset -> the raw is kept for downstream linear usability).
+# 3.0 separates the validated re-expression case (x0, 1.8x) from the genuine
+# combinations (>=5x) with comfortable margin.
+RAW_SUPERSET_MULT = 3.0
 
 # Equi-frequency bins for raw / engineered / target columns. 10 matches the S5
 # gate; deliberately NOT finer -- a very fine engineered binning fragments the
@@ -120,7 +160,14 @@ def drop_redundant_raw_operands(
         ``data`` column leaves a fully-subsumed DENOMINATOR operand (``b`` in
         ``a**2/b``) a spurious residual CMI and wrongly keeps it. Falls back to the
         ``data`` codes for any survivor missing from the snapshot.
-    retain_frac : TAU (scale-free relative-retention fraction).
+    retain_frac : ACCEPTED FOR BACK-COMPAT but no longer drives the verdict. The
+        2026-06-10 redesign replaced the single ``retain_frac * weakest-anchor``
+        relative bar (which over-dropped genuine raws whose linear/additive private
+        term sits beside a high-MI interaction child) with the two scale-free legs
+        described in the module docstring -- ``RAW_SELF_RETAIN_FRAC`` (the raw's own
+        marginal-excess self-retention) and ``RAW_SUPERSET_MULT`` (the child-is-a-
+        superset test). The kwarg is kept so existing callers
+        (``fe_raw_redundancy_retain_frac``) do not break.
     seed : RNG seed for the conditional-permutation null (deterministic).
     verbose : >0 logs each kept/dropped operand.
 
@@ -225,13 +272,90 @@ def drop_redundant_raw_operands(
         _, _, exc = _excess_and_floor(eb, y_arr, None, seed=seed)
         eng_anchor_excess[ei] = exc
 
+    # DPI-TRAP GUARD (2026-06-10): an engineered child is a LEGITIMATE subsumer of a
+    # raw operand only when it draws genuine signal from a SECOND raw source -- i.e.
+    # it re-expresses a COMBINATION (the ``a**2/b`` ratio ``div(neg(a),sqrt(b))``,
+    # the interaction product ``mul(x_a,x_b)``) rather than being a sole-operand
+    # monotone/basis transform of the raw itself (``relu_lt(x_a)`` / ``exp(x0)`` /
+    # ``He2(a)`` ...). Conditioning a raw on a basis of ITSELF is the data-processing-
+    # inequality trap the S5 gate docstring warns about: CMI(raw; y | own-transform)
+    # collapses to ~0 for EVERY raw -- genuine OR redundant -- so it cannot
+    # distinguish a fully-subsumed operand from one carrying a private additive term
+    # the transform does not span (e.g. the LINEAR ``x_a`` in ``sign(x_a+x_b+2 x_a x_b)``
+    # given ``mul(x_a,x_b)`` -- raw retains CMI ~0.32). A "second signal-bearing
+    # source" is another raw parent whose OWN marginal debiased excess clears its
+    # marginal permutation null (so a child built from the raw + a NOISE column, e.g.
+    # ``add(exp(x0),sign(x3))`` where x3 is pure noise, is NOT a legitimate subsumer:
+    # x0 is its only signal source). When a raw has NO legitimate multi-source
+    # consumer it is never redundancy-dropped here -- the protective retention stands.
+    # Compute each raw operand's MARGINAL (cmi, floor, debiased-excess) once (one
+    # marginal perm-null per consumed raw); cache the tuple. The marginal excess is
+    # the raw's OWN signal scale, reused below as (a) the "signal-bearing source"
+    # test and (b) the keep-rule's self-retention reference.
+    _raw_marg_cache: dict[str, tuple] = {}
+
+    def _raw_marginal(_rname: str) -> tuple:
+        if _rname in _raw_marg_cache:
+            return _raw_marg_cache[_rname]
+        try:
+            _ridx = cols.index(_rname)
+        except ValueError:
+            _raw_marg_cache[_rname] = (0.0, 0.0, 0.0)
+            return _raw_marg_cache[_rname]
+        _rb = np.asarray(data[:, _ridx]).astype(np.int64).ravel()
+        _res = _excess_and_floor(_rb, y_arr, None, seed=seed)
+        _raw_marg_cache[_rname] = _res
+        return _res
+
+    def _raw_is_signal_bearing(_rname: str) -> bool:
+        _mcmi, _mfloor, _mexc = _raw_marginal(_rname)
+        return _mcmi > _mfloor and _mexc > 0.0
+
+    # raw_name -> list of engineered survivor names that consume it (parsed earlier
+    # as ``eng_consumers``). Build the set of distinct SIGNAL-BEARING raw parents of
+    # each engineered survivor so we can tell a true combination from a self-transform.
+    _eng_signal_parents: dict[int, set[str]] = {}
+    for ei in eng_idx:
+        _parents = set()
+        _toks = [t for t in _TOKEN_SPLIT.split(cols[ei]) if t]
+        for t in _toks:
+            base = t if t in raw_name_set else (t.split("__", 1)[0] if ("__" in t and t.split("__", 1)[0] in raw_name_set) else None)
+            if base is not None:
+                _parents.add(base)
+        _eng_signal_parents[ei] = {p for p in _parents if _raw_is_signal_bearing(p)}
+
     drop_names: list[str] = []
     drop_idx_set: set[int] = set()
     for ri in raw_sel_idx:
         rname = cols[ri]
-        consumers = eng_consumers.get(rname)
-        if not consumers:
+        all_consumers = eng_consumers.get(rname)
+        if not all_consumers:
             continue  # raw not consumed by any survivor -> genuine, keep
+        # DPI-TRAP GUARD: restrict the conditioning / anchor set to engineered children
+        # that are TRUE COMBINATIONS -- they draw genuine signal from a SECOND raw source
+        # besides ``rname`` (>= 2 signal-bearing raw parents). A child whose only
+        # signal-bearing parent is ``rname`` itself is a monotone/basis self-transform;
+        # conditioning the raw on it is the data-processing-inequality trap (CMI ~0 for
+        # EVERY raw) and cannot prove redundancy, so it is excluded. When NO legitimate
+        # multi-source consumer remains, the raw is NOT redundancy-dropped here (the
+        # protective retention stands) -- this is what restores the genuine ``x_a``/``x_b``
+        # (interaction-product operands carrying a private LINEAR term) and ``x0``
+        # (paired with a noise column in ``add(exp(x0),sign(x3))``) the 2026-06-08
+        # blanket sweep wrongly dropped, while the true ``a**2/b`` ratio operands -- whose
+        # subsumer ``div(neg(a),sqrt(b))`` is a genuine two-source combination -- still drop.
+        consumers = [
+            ei for ei in all_consumers
+            if len(_eng_signal_parents.get(ei, set()) - {rname}) >= 1
+        ]
+        if not consumers:
+            if verbose:
+                logger.info(
+                    "raw-redundancy: KEEP %s (no multi-source engineered subsumer; "
+                    "consumers %s are sole-operand self-transforms -- DPI-trap, cannot "
+                    "prove redundancy)",
+                    rname, [cols[e] for e in all_consumers],
+                )
+            continue
         # The raw column is binned at the SCREENING codes the selector itself used
         # (already integer 0..k in ``data``). We do NOT up-resolve the raw from
         # continuous values: the redundancy verdict must judge the raw at the
@@ -240,26 +364,53 @@ def drop_redundant_raw_operands(
         rb = np.asarray(data[:, ri]).astype(np.int64).ravel()
         z_support, _ = _renumber_joint(*(eng_bin[ei] for ei in consumers))
         cmi, floor, excess = _excess_and_floor(rb, y_arr, z_support, seed=seed)
-        # Anchor = weakest consuming engineered survivor's own debiased excess.
-        anchor = min(eng_anchor_excess[ei] for ei in consumers)
-        rel_bar = float(retain_frac) * max(0.0, anchor)
+        # Raw's OWN marginal debiased excess -- the reference scale for both keep legs.
+        _r_mcmi, _r_mfloor, raw_marg_excess = _raw_marginal(rname)
+        # Strongest consuming engineered survivor's own debiased marginal excess.
+        max_anchor = max(eng_anchor_excess[ei] for ei in consumers)
+        # TWO KEEP LEGS (2026-06-10). The raw survives the redundancy drop iff EITHER:
+        #   (A) it carries a SIGNIFICANT INDEPENDENT RESIDUAL given the combination
+        #       child(ren): its conditional CMI clears the within-stratum permutation
+        #       floor AND its debiased conditional excess retains >= RAW_SELF_RETAIN_FRAC
+        #       of its OWN marginal excess. The floor leg alone admits a borderline
+        #       noise-crossing (a true ``a**2/b`` operand whose residual just nicks the
+        #       floor at one n); the self-retention fraction is the n-stable gate that
+        #       a genuine private LINEAR term (``x_a``/``x_b`` keep ~6-11% of their
+        #       marginal given the product) clears and a subsumed operand (~1-2%) does
+        #       not. OR
+        #   (B) the strongest consuming child is NOT a genuine SUPERSET of the raw --
+        #       its own marginal excess is <= RAW_SUPERSET_MULT x the raw's marginal
+        #       excess. A child that merely RE-EXPRESSES the raw through a (near-)
+        #       monotone transform plus a noise operand (``add(exp(x0),sign(x3))``,
+        #       x3 noise: child ~1.8x the raw, NOT a superset) leaves a cleaner LINEAR
+        #       signal in the raw than in the noise-polluted child, so the raw is kept
+        #       for downstream linear usability. A true combination (the ``a**2/b``
+        #       ratio is ~6x the operand's marginal; the interaction product ~5x) is a
+        #       superset and does NOT trip leg B -- those rely on leg A instead.
+        # Fails both -> the raw is genuinely subsumed (no significant residual AND a
+        # strictly-more-informative combination child captures it) -> DROP.
         passes_floor = cmi > floor
-        passes_rel = excess >= rel_bar
-        if passes_floor and passes_rel:
+        keep_leg_a = passes_floor and (excess >= RAW_SELF_RETAIN_FRAC * max(0.0, raw_marg_excess))
+        keep_leg_b = max_anchor <= RAW_SUPERSET_MULT * max(0.0, raw_marg_excess)
+        if keep_leg_a or keep_leg_b:
             if verbose:
                 logger.info(
-                    "raw-redundancy: KEEP %s (cmi=%.4f floor=%.4f excess=%.5f "
-                    "rel_bar=%.5f -- carries independent signal given %s)",
-                    rname, cmi, floor, excess, rel_bar, [cols[e] for e in consumers],
+                    "raw-redundancy: KEEP %s (cmi=%.4f floor=%.4f cond_excess=%.5f "
+                    "marg_excess=%.5f max_child_anchor=%.4f legA=%s legB=%s -- carries "
+                    "independent signal / child is a re-expression not a superset, given %s)",
+                    rname, cmi, floor, excess, raw_marg_excess, max_anchor,
+                    keep_leg_a, keep_leg_b, [cols[e] for e in consumers],
                 )
             continue
         drop_names.append(rname)
         drop_idx_set.add(ri)
         if verbose:
             logger.info(
-                "raw-redundancy: DROP %s (cmi=%.4f floor=%.4f excess=%.5f "
-                "rel_bar=%.5f -- redundant given %s)",
-                rname, cmi, floor, excess, rel_bar, [cols[e] for e in consumers],
+                "raw-redundancy: DROP %s (cmi=%.4f floor=%.4f cond_excess=%.5f "
+                "marg_excess=%.5f max_child_anchor=%.4f -- no significant residual AND "
+                "fully subsumed by a strictly-more-informative combination child %s)",
+                rname, cmi, floor, excess, raw_marg_excess, max_anchor,
+                [cols[e] for e in consumers],
             )
 
     if not drop_idx_set:

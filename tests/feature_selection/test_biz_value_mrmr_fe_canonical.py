@@ -396,3 +396,134 @@ def test_genuine_independent_raw_kept_alongside_engineered():
     out = list(fs.get_feature_names_out())
     assert "c" in out, f"genuine independent raw c wrongly dropped: {out}"
     assert "e" not in out, f"pure-noise e admitted: {out}"
+
+
+# ---------------------------------------------------------------------------
+# UNIT regression for the 2026-06-10 raw-redundancy-drop fix (offending commit
+# 63bd507b). The blanket conditional-redundancy sweep DROPPED screening-confirmed
+# genuine raw operands that carry a PRIVATE term the engineered child does not
+# span -- because it (a) conditioned a raw on engineered children that are sole-
+# operand SELF-TRANSFORMS of that same raw (the data-processing-inequality trap:
+# CMI ~0 for every raw) and (b) used a single ``retain_frac * weakest-anchor``
+# relative bar that a genuine linear term sitting beside a high-MI interaction
+# product could never clear. These deterministic unit cases pin BOTH directions:
+# the genuine operand survives AND the truly-subsumed ratio operand still drops.
+# They drive ``drop_redundant_raw_operands`` directly (no RNG-sensitive full-FE
+# recipe selection), so they are fast and stable.
+# ---------------------------------------------------------------------------
+def _bin10(v, nbins=10):
+    """Equi-frequency 10-bin codes (the screening-resolution the selector saw)."""
+    import numpy as _np
+    v = _np.asarray(v, dtype=_np.float64)
+    edges = _np.quantile(v, _np.linspace(0, 1, nbins + 1)[1:-1])
+    return _np.searchsorted(edges, v).astype(_np.int64)
+
+
+def test_redundancy_drop_keeps_linear_term_beside_interaction_product():
+    """``y=sign(x_a+x_b+2 x_a x_b)``: the engineered product ``mul(x_a,x_b)`` is a
+    TRUE two-source combination, but x_a / x_b each carry a PRIVATE LINEAR term the
+    product does not span -> they must be KEPT (keep leg A: significant residual).
+    The relu-hinge self-transforms of x_a are sole-operand DPI-trap consumers and
+    must not be allowed to manufacture a spurious 'subsumed' verdict."""
+    from mlframe.feature_selection.filters._fe_raw_redundancy_drop import (
+        drop_redundant_raw_operands,
+    )
+
+    n = 2000
+    rng = np.random.default_rng(42)
+    x_a = rng.normal(size=n)
+    x_b = rng.normal(size=n)
+    y_cont = x_a + x_b + 2.0 * x_a * x_b + 0.3 * rng.normal(size=n)
+    y = (np.sign(y_cont) > 0).astype(np.int64)
+    prod = x_a * x_b
+    relu_a = np.maximum(x_a + 0.5, 0.0)
+    relu_b = np.maximum(x_b - 0.5, 0.0)
+    cols = ["x_a", "x_b", "mul(x_a,x_b)", "x_a__relu_gt0.5", "x_b__relu_gt-0.5", "y"]
+    raw_name_set = {"x_a", "x_b"}
+    data = np.column_stack([
+        _bin10(x_a), _bin10(x_b), _bin10(prod), _bin10(relu_a), _bin10(relu_b), y,
+    ]).astype(np.int64)
+    eng_cont = {
+        "mul(x_a,x_b)": prod,
+        "x_a__relu_gt0.5": relu_a,
+        "x_b__relu_gt-0.5": relu_b,
+    }
+    kept_idx, dropped = drop_redundant_raw_operands(
+        data=data, cols=cols, selected_cols_idx=[0, 1, 2, 3, 4],
+        raw_name_set=raw_name_set, y_binned=data[:, 5], y_continuous=None,
+        engineered_continuous=eng_cont, seed=42,
+    )
+    kept_names = {cols[i] for i in kept_idx}
+    assert "x_a" in kept_names and "x_b" in kept_names, (
+        f"genuine linear operands wrongly dropped: kept={kept_names}, dropped={dropped}"
+    )
+
+
+def test_redundancy_drop_keeps_signal_raw_paired_with_noise_operand():
+    """``y=0.5 x0 + noise``; engineered ``add(exp(x0),sign(x3))`` mixes x0 with a
+    NOISE column x3. x3 is not signal-bearing, so the child is effectively a
+    monotone RE-EXPRESSION of x0 (child ~1.8x x0's marginal, NOT a strict superset)
+    -> x0 must be KEPT (keep leg B). The raw carries a cleaner LINEAR signal than
+    the noise-polluted child for downstream linear usability."""
+    from mlframe.feature_selection.filters._fe_raw_redundancy_drop import (
+        drop_redundant_raw_operands,
+    )
+
+    n = 1500
+    rng = np.random.default_rng(7)
+    x0 = rng.normal(size=n)
+    x3 = rng.normal(size=n)  # pure noise
+    y_cont = 0.5 * x0 + 1.0 * rng.normal(size=n)
+    y = (y_cont > np.median(y_cont)).astype(np.int64)
+    child = np.exp(x0) + np.sign(x3)
+    cols = ["x0", "x3", "add(exp(x0),sign(x3))", "y"]
+    raw_name_set = {"x0", "x3"}
+    data = np.column_stack([_bin10(x0), _bin10(x3), _bin10(child), y]).astype(np.int64)
+    kept_idx, dropped = drop_redundant_raw_operands(
+        data=data, cols=cols, selected_cols_idx=[0, 2],
+        raw_name_set=raw_name_set, y_binned=data[:, 3], y_continuous=None,
+        engineered_continuous={"add(exp(x0),sign(x3))": child}, seed=7,
+    )
+    kept_names = {cols[i] for i in kept_idx}
+    assert "x0" in kept_names, (
+        f"genuine x0 wrongly dropped (paired with noise operand): kept={kept_names}, "
+        f"dropped={dropped}"
+    )
+
+
+def test_redundancy_drop_still_drops_subsumed_ratio_operand_unit():
+    """``y=0.30 a**2/b``: the ratio ``div(neg(a),sqrt(b))`` is a TRUE two-source
+    combination FULLY determining y, so the DENOMINATOR operand ``b`` carries NO
+    private term beyond the ratio -> it must still DROP (both keep legs fail: no
+    significant residual AND the ratio child is a genuine >=5x superset of b's own
+    marginal). Pins that the genuine-keep fix (DPI-trap filter + self-retention /
+    superset legs) did NOT regress the subsumed-drop behaviour the offending commit
+    63bd507b introduced. (The numerator ``a`` is a borderline-high-marginal case
+    whose verdict depends on the screening binning; the END-TO-END
+    ``test_subsumed_ratio_operands_drop_at_small_n`` covers a + b dropping through
+    the real pipeline. This unit pins the unambiguous denominator drop.)"""
+    from mlframe.feature_selection.filters._fe_raw_redundancy_drop import (
+        drop_redundant_raw_operands,
+    )
+
+    n = 2000
+    rng = np.random.default_rng(42)
+    a = rng.uniform(0.0, 1.0, n)
+    b = rng.uniform(0.0, 1.0, n)
+    e = rng.uniform(0.0, 1.0, n)
+    y_cont = 0.30 * (a ** 2) / b + 0.01 * e
+    y = (y_cont > np.median(y_cont)).astype(np.int64)
+    ratio = -a / np.sqrt(b)
+    cols = ["a", "b", "div(neg(a),sqrt(b))", "y"]
+    raw_name_set = {"a", "b"}
+    data = np.column_stack([_bin10(a), _bin10(b), _bin10(ratio), y]).astype(np.int64)
+    kept_idx, dropped = drop_redundant_raw_operands(
+        data=data, cols=cols, selected_cols_idx=[0, 1, 2],
+        raw_name_set=raw_name_set, y_binned=data[:, 3],
+        y_continuous=y_cont,  # continuous target -> faithful equi-freq anchor
+        engineered_continuous={"div(neg(a),sqrt(b))": ratio}, seed=42,
+    )
+    assert "b" in dropped, (
+        f"subsumed ratio denominator operand 'b' was NOT dropped (regression): kept="
+        f"{[cols[i] for i in kept_idx]}, dropped={dropped}"
+    )
