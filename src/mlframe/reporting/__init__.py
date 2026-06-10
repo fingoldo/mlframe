@@ -21,10 +21,13 @@ from mlframe.reporting.output import (
     BACKEND_FORMATS,
 )
 from mlframe.reporting.auto_dispatch import render_multi_target_panels
+from mlframe.reporting.catalog import available_panels, describe_available_panels
 
 __all__ = [
     "PlotOutputSpec",
     "parse_plot_output_dsl",
     "BACKEND_FORMATS",
     "render_multi_target_panels",
+    "available_panels",
+    "describe_available_panels",
 ]
