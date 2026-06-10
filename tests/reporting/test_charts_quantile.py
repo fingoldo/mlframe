@@ -58,7 +58,7 @@ def synth_qr_5alpha():
 class TestAllowedTokens:
     def test_allowed_set(self):
         assert ALLOWED_QUANTILE_PANEL_TOKENS == frozenset({
-            "RELIABILITY", "PINBALL_BY_ALPHA", "INTERVAL_BAND",
+            "RELIABILITY", "COVERAGE", "PINBALL_BY_ALPHA", "INTERVAL_BAND",
             "WIDTH_DIST", "PIT_HIST",
         })
 
@@ -92,9 +92,12 @@ class TestPanelTypes:
         spec = compose_quantile_figure(y, p, alphas, panels_template="INTERVAL_BAND")
         panel = spec.panels[0][0]
         assert isinstance(panel, LinePanelSpec)
-        # 4 series: lo, median, hi, y_true
-        assert len(panel.y) == 4
+        # median line + y_true markers, with the lo..hi interval drawn as a filled band.
+        assert len(panel.y) == 2
         assert "y_true" in panel.series_labels
+        assert panel.band is not None and len(panel.band) == 2
+        # y_true is rendered as markers, not a connected line.
+        assert panel.line_styles[1] == "markers"
 
     def test_width_dist_returns_histogram(self, synth_qr_3alpha):
         y, p, alphas = synth_qr_3alpha
@@ -114,13 +117,14 @@ class TestPanelTypes:
         assert "PIT" in panel.title
 
     def test_pit_hist_placeholder_when_K_lt_3(self, synth_qr_3alpha):
-        # K = 2 alphas (drop median).
+        # K = 2 alphas (drop median) -> honest annotation placeholder, not a fake histogram.
+        from mlframe.reporting.spec import AnnotationPanelSpec
         y, p, alphas = synth_qr_3alpha
         spec = compose_quantile_figure(y, p[:, [0, 2]], (alphas[0], alphas[2]),
                                         panels_template="PIT_HIST")
         panel = spec.panels[0][0]
-        assert isinstance(panel, HistogramPanelSpec)
-        assert "skipped" in panel.title.lower()
+        assert isinstance(panel, AnnotationPanelSpec)
+        assert "requires k >= 3" in panel.text.lower()
 
 
 # ----------------------------------------------------------------------------
