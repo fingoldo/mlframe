@@ -207,6 +207,19 @@ class TestNeuralNetStrategy:
         assert 'imp' in step_names
         assert 'scaler' in step_names
 
+    def test_numeric_only_transformer_passes_string_cats_around_scaler(self):
+        """Regression (bug-hunt): with cat_features NOT threaded (empty), _NumericOnlyTransformer must still route ONLY numeric columns to the
+        inner scaler/imputer -- a raw string column passes through untouched. Pre-fix it sent the string column to StandardScaler ->
+        'could not convert string to float' (the 2nd-largest fuzz failure class at 1k rows)."""
+        import pandas as pd
+        import numpy as np
+        from mlframe.training.strategies.base import _NumericOnlyTransformer
+        X = pd.DataFrame({"num": np.arange(10.0), "cat_raw": list("ABABABABAB")})  # string col, NO named cats
+        t = _NumericOnlyTransformer(StandardScaler(), cat_features=[])
+        Xt = t.fit_transform(X)  # pre-fix: ValueError could not convert string to float: 'A'
+        assert "cat_raw" in Xt.columns                          # string col passed through untouched
+        assert abs(float(np.asarray(Xt["num"]).mean())) < 1e-6  # numeric col was scaled
+
     def test_build_pipeline_full_when_learnable_cat_embeddings_off(self):
         """Knob OFF: the legacy full preprocessing (encoder + imputer + scaler) is restored verbatim."""
         strategy = NeuralNetStrategy()

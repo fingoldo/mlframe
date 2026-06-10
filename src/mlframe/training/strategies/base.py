@@ -151,7 +151,13 @@ class _NumericOnlyTransformer(TransformerMixin, BaseEstimator):
         self.cat_features = list(cat_features or [])
 
     def _num_cols(self, X):
-        return [c for c in X.columns if c not in set(self.cat_features)]
+        import pandas as _pd
+        named = set(self.cat_features)
+        # Route ONLY numeric columns to the inner imputer/scaler. Categoricals -- whether explicitly named OR raw object/category/string columns
+        # that arrive when the suite didn't thread cat_features (requires_encoding off) -- must pass THROUGH untouched so the estimator's own
+        # factorizer/embedding handles them; feeding a string column to StandardScaler raises "could not convert string to float".
+        return [c for c in X.columns
+                if c not in named and getattr(X[c], "ndim", 1) == 1 and _pd.api.types.is_numeric_dtype(X[c])]
 
     def fit(self, X, y=None):
         import numpy as _np

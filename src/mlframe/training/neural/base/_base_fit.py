@@ -82,9 +82,15 @@ class _FitMixin:
         cats = fit_params.pop("cat_features", None)
         if not getattr(self, "use_learnable_cat_embeddings", True):
             return X, eval_set
-        if not cats or not hasattr(X, "columns"):
+        if not hasattr(X, "columns"):
             return X, eval_set
-        present = [c for c in cats if c in X.columns]
+        present = [c for c in (cats or []) if c in X.columns]
+        # With requires_encoding off (learnable embeddings on) the strategy skips the CatBoostEncoder, so raw object/category/string columns
+        # reach the estimator. If the suite did not thread an explicit cat_features list, the MLP must still factorize+embed every non-numeric
+        # column itself -- otherwise _validate_no_nan_inf rejects the object dtype ("requires numeric dtype"). Union the explicit list with any
+        # remaining non-numeric column so no raw categorical slips through to the network (auto-detected cats are embedded just like named ones).
+        _auto = [c for c in X.columns if c not in present and getattr(X[c], "ndim", 1) == 1 and not pd.api.types.is_numeric_dtype(X[c])]
+        present = present + _auto
         if not present:
             return X, eval_set
 

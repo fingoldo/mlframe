@@ -118,6 +118,22 @@ def test_no_cat_features_trains_identically_hook_noop():
     assert np.all(np.isfinite(preds))
 
 
+def test_mlp_auto_factorizes_raw_object_cat_without_explicit_cat_features():
+    """Regression (bug-hunt): learnable cat embeddings on -> strategy skips the CatBoostEncoder, so a raw object categorical reaches the MLP.
+    When the caller does NOT thread cat_features (the suite path), the fit boundary must AUTO-DETECT + factorize the non-numeric column itself;
+    pre-fix it fell through to _validate_no_nan_inf and raised "X has dtype('O'); PytorchLightningEstimator requires numeric dtype" -- the
+    single dominant fuzz failure class (44 combos) at 1k rows."""
+    X, cats, rng = _make_frame()  # 'color' object col + 2 numeric columns; NO cat_features threaded
+    lut = {"red": 1.0, "green": -2.0, "blue": 5.0, "yellow": 0.0}
+    y = np.array([lut[c] for c in cats], dtype=np.float32) + rng.normal(scale=0.1, size=len(cats)).astype(np.float32)
+    reg = PytorchLightningRegressor(**_common(torch.float32, torch.nn.MSELoss()))
+    reg.fit(X, y)  # no cat_features -> the raw object 'color' column must be auto-factorized, not crash
+    assert reg._n_cat_features_ == 1                # auto-detected the object column
+    assert reg._cat_cardinalities_ == [4]
+    preds = np.asarray(reg.predict(X))
+    assert preds.shape == (len(cats),) and np.all(np.isfinite(preds))
+
+
 def test_fit_pickle_unpickle_predict_round_trip():
     X, cats, rng = _make_frame(seed=7)
     y = (X["num_0"] + np.isin(cats, ["red"]).astype(np.float32) * 3.0).to_numpy().astype(np.float32)
