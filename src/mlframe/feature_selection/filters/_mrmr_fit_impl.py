@@ -5715,6 +5715,36 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         # Persist cache for next fit() call
         if cat_fe_state.streaming_cache_out:
             self._cat_fe_cache_ = cat_fe_state.streaming_cache_out
+        # Stamp the fit-time categorical -> integer-code mapping onto every cat-FE recipe whose source columns are
+        # categorical / string. Without this, ``transform`` on a raw frame routes string source values through
+        # ``astype(int64)`` -> ValueError -> all-zero codes, so the carefully-discovered cat-interaction (factorize /
+        # target_encoding) feature collapses to a CONSTANT column at serving time -- a silent train/serve skew (the
+        # FS-side analog of the 4b299e25 neural ``_apply_cat_codes`` bug). ``categorize_dataset`` codes Categorical via
+        # ``.cat.codes`` (category order) and object/string via ``pd.factorize`` (first-appearance order, training-data
+        # dependent); only a stored map can reproduce those codes at transform. The map is built ONCE per distinct source
+        # column from the raw ``_x_for_cat`` frame and shared across recipes referencing that column.
+        if cat_fe_state.recipes and not _is_polars_input and hasattr(_x_for_cat, "columns"):
+            from .engineered_recipes._recipe_extract import build_category_code_map as _build_cat_code_map
+            _src_map_cache: dict = {}
+            for _ri, r in enumerate(cat_fe_state.recipes):
+                _maps_for_recipe: dict = {}
+                for _src in (getattr(r, "src_names", ()) or ()):
+                    if _src not in _src_map_cache:
+                        if _src in _x_for_cat.columns:
+                            try:
+                                _src_map_cache[_src] = _build_cat_code_map(_x_for_cat[_src])
+                            except Exception:
+                                _src_map_cache[_src] = {}
+                        else:
+                            _src_map_cache[_src] = {}
+                    if _src_map_cache[_src]:
+                        _maps_for_recipe[_src] = _src_map_cache[_src]
+                if _maps_for_recipe:
+                    # ``extra`` is a read-only MappingProxyType on a frozen recipe; ``with_extra`` returns a fresh copy carrying the maps.
+                    try:
+                        cat_fe_state.recipes[_ri] = r.with_extra(cat_code_maps=_maps_for_recipe)
+                    except Exception:
+                        pass
         # Cat-FE recipes feed the same engineered_recipes dict numeric FE uses; the fit-end splitter copies
         # any recipe whose engineered name appears in selected_vars_names into ``self._engineered_recipes_``.
         for r in cat_fe_state.recipes:
