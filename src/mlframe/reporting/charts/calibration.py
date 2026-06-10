@@ -19,7 +19,7 @@ import numpy as np
 
 from mlframe.reporting.colors import CALIBRATION
 from mlframe.reporting.spec import (
-    FigureSpec, HistogramPanelSpec, ScatterPanelSpec,
+    FigureSpec, HistogramPanelSpec, LinePanelSpec, ScatterPanelSpec,
 )
 
 # Cap on per-point bubble area so a single dominant bin can't occlude its
@@ -201,4 +201,69 @@ def build_calibration_spec(
     )
 
 
-__all__ = ["build_calibration_spec", "wilson_ci", "MAX_BUBBLE_AREA", "INLINE_LABEL_MAX_BINS"]
+def _reliability_curve(p: np.ndarray, y: np.ndarray, edges: np.ndarray) -> np.ndarray:
+    """Observed positive rate per uniform bin (nan for empty bins). Vectorized via bincount."""
+    nbins = len(edges) - 1
+    bin_ids = np.clip(np.digitize(p, edges, right=False) - 1, 0, nbins - 1)
+    counts = np.bincount(bin_ids, minlength=nbins).astype(np.float64)
+    sums = np.bincount(bin_ids, weights=y, minlength=nbins)
+    out = np.full(nbins, np.nan)
+    nz = counts > 0
+    out[nz] = sums[nz] / counts[nz]
+    return out
+
+
+def build_reliability_overlay_spec(
+    raw_probs: np.ndarray,
+    y_true: np.ndarray,
+    *,
+    calibrated_probs: Optional[dict] = None,
+    series_labels: Optional[dict] = None,
+    n_bins: int = 15,
+    title: str = "Reliability diagram (OOF)",
+    figsize: Tuple[float, float] = (6.0, 5.0),
+) -> FigureSpec:
+    """Overlay reliability curves (perfect diagonal + raw + each calibrated candidate).
+
+    Single source for the multi-curve reliability diagram (calibration-policy OOF plot).
+    All curves share the uniform-bin centre x-grid; each series y is the observed positive
+    rate per bin. Empty bins are NaN (the renderer skips them). Returns a one-panel FigureSpec.
+    """
+    raw_probs = np.asarray(raw_probs, dtype=np.float64).ravel()
+    y = np.asarray(y_true, dtype=np.float64).ravel()
+    edges = np.linspace(0.0, 1.0, n_bins + 1)
+    centers = 0.5 * (edges[:-1] + edges[1:])
+
+    series = [centers.copy()]  # perfect diagonal as the first series
+    labels = ["perfect"]
+    styles = [":"]
+    series.append(_reliability_curve(raw_probs, y, edges))
+    labels.append("raw OOF")
+    styles.append("lines+markers")
+
+    calibrated_probs = calibrated_probs or {}
+    series_labels = series_labels or {}
+    for name, cal_p in calibrated_probs.items():
+        series.append(_reliability_curve(np.asarray(cal_p, dtype=np.float64).ravel(), y, edges))
+        labels.append(series_labels.get(name, str(name)))
+        styles.append("lines+markers")
+
+    line = LinePanelSpec(
+        x=centers,
+        y=tuple(series),
+        series_labels=tuple(labels),
+        line_styles=tuple(styles),
+        title=title,
+        xlabel="predicted probability",
+        ylabel="empirical frequency",
+    )
+    return FigureSpec(suptitle="", panels=((line,),), figsize=figsize)
+
+
+__all__ = [
+    "build_calibration_spec",
+    "build_reliability_overlay_spec",
+    "wilson_ci",
+    "MAX_BUBBLE_AREA",
+    "INLINE_LABEL_MAX_BINS",
+]

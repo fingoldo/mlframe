@@ -214,16 +214,18 @@ def _emit_reliability_plot(
 ) -> Optional[str]:
     """Render a reliability diagram for every candidate alongside the raw OOF curve.
 
-    Returns the absolute path on success, ``None`` if matplotlib is unavailable or
-    the write fails. The plot is small (single figure, 4-6 lines) and is meant for
-    inclusion in the honest-diagnostics report bundle.
+    Routed through the shared ``build_reliability_overlay_spec`` + renderer pipeline
+    (a multi-series LinePanelSpec: perfect diagonal + raw OOF + per-candidate curves)
+    so the reliability diagram has ONE implementation across the suite. Returns the
+    absolute path on success, ``None`` if the render dependency is missing or the
+    write fails.
     """
     try:
-        import matplotlib
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-    except ImportError:
-        logger.warning("pick_best_calibrator: matplotlib not available; skipping reliability plot")
+        from mlframe.reporting.charts.calibration import build_reliability_overlay_spec
+        from mlframe.reporting.output import parse_plot_output_dsl
+        from mlframe.reporting.renderers import render_and_save
+    except ImportError as exc:
+        logger.warning("pick_best_calibrator: reporting stack unavailable; skipping reliability plot: %s", exc)
         return None
     try:
         os.makedirs(os.path.dirname(os.path.abspath(plot_path)) or ".", exist_ok=True)
@@ -236,44 +238,32 @@ def _emit_reliability_plot(
         raw_p = raw_p[:, 1]
     raw_p = raw_p.ravel()
     y = np.asarray(oof_y, dtype=np.float64).ravel()
-    edges = np.linspace(0.0, 1.0, n_bins + 1)
-    centers = 0.5 * (edges[:-1] + edges[1:])
 
-    def _curve(p: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        bin_ids = np.clip(np.digitize(p, edges, right=False) - 1, 0, n_bins - 1)
-        xs = np.full(n_bins, np.nan)
-        ys = np.full(n_bins, np.nan)
-        for b in range(n_bins):
-            mask = bin_ids == b
-            if mask.any():
-                xs[b] = float(p[mask].mean())
-                ys[b] = float(y[mask].mean())
-        return xs, ys
+    calibrated = {
+        name: np.asarray(info["calibrated_probs"]).ravel()
+        for name, info in candidates.items()
+        if info.get("calibrated_probs") is not None
+    }
+    labels = {
+        name: f"{name} ECE={info['ece_mean']:.4f}"
+        for name, info in candidates.items()
+        if info.get("calibrated_probs") is not None
+    }
 
-    fig, ax = plt.subplots(figsize=(6, 5))
-    ax.plot([0, 1], [0, 1], linestyle="--", color="gray", label="perfect")
-    raw_x, raw_y = _curve(raw_p)
-    ax.plot(raw_x, raw_y, marker="o", label="raw OOF")
-    for name, info in candidates.items():
-        cal_p = info.get("calibrated_probs")
-        if cal_p is None:
-            continue
-        cx, cy = _curve(np.asarray(cal_p).ravel())
-        ax.plot(cx, cy, marker="x", label=f"{name} ECE={info['ece_mean']:.4f}")
-    ax.set_xlabel("predicted probability")
-    ax.set_ylabel("empirical frequency")
-    ax.set_title("Reliability diagram (OOF)")
-    ax.legend(loc="best", fontsize=8)
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
-    fig.tight_layout()
+    spec = build_reliability_overlay_spec(
+        raw_p, y, calibrated_probs=calibrated, series_labels=labels, n_bins=n_bins,
+    )
+
+    root, ext = os.path.splitext(plot_path)
+    fmt = ext.lstrip(".").lower()
+    if fmt not in ("png", "pdf", "svg", "jpg", "jpeg"):
+        fmt = "png"
+        plot_path = root + ".png"
     try:
-        fig.savefig(plot_path, dpi=100)
+        render_and_save(spec, parse_plot_output_dsl(f"matplotlib[{fmt}]"), root, interactive=False)
     except OSError as exc:
-        logger.warning("pick_best_calibrator: savefig failed for %s: %s", plot_path, exc)
-        plt.close(fig)
+        logger.warning("pick_best_calibrator: reliability render failed for %s: %s", plot_path, exc)
         return None
-    plt.close(fig)
     return os.path.abspath(plot_path)
 
 
