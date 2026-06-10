@@ -217,10 +217,91 @@ def psi_heatmap(
     return FigureSpec(suptitle="", panels=((heat,),), figsize=fs)
 
 
+def _time_bucket_edges(ts: np.ndarray, n_buckets: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Equal-count time buckets by sorted timestamp order.
+
+    Returns ``(order, bucket_of, bucket_centers)`` where ``bucket_of[i]`` is row i's bucket index and
+    ``bucket_centers`` are the per-bucket mean timestamps (float; used as the x-axis). Equal-count (not equal-width)
+    buckets keep each bucket's residual statistics comparably estimated even when timestamps are clustered.
+    """
+    n = ts.shape[0]
+    order = np.argsort(ts, kind="stable")
+    nb = max(1, min(int(n_buckets), n))
+    bounds = np.linspace(0, n, nb + 1).astype(np.int64)
+    bucket_of = np.empty(n, dtype=np.int64)
+    centers = np.empty(nb, dtype=np.float64)
+    ts_f = ts.astype(np.float64)
+    for b in range(nb):
+        idx = order[bounds[b]:bounds[b + 1]]
+        bucket_of[idx] = b
+        centers[b] = float(np.mean(ts_f[idx])) if idx.size else np.nan
+    return order, bucket_of, centers
+
+
+def residual_vs_time(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    timestamps: np.ndarray,
+    *,
+    n_time_buckets: int = 20,
+    x_is_time: bool = True,
+    title: str = "Regression residual drift over time",
+    figsize: Tuple[float, float] = (10.0, 4.0),
+) -> FigureSpec:
+    """Regression residual mean +- std per time bin (INV-26).
+
+    Residual = y_true - y_pred is bucketed into equal-count time bins; the line is the per-bin mean residual and the
+    band is mean +- std. A mean drifting off zero is bias drift (model goes stale); a band that widens over time is
+    variance drift (the model's errors grow). A flat zero reference line is overlaid for the eye. Aggregate-first via
+    weighted bincount (one O(n) pass for the mean, one for the second moment) -- no per-row python at 1M rows.
+    Returns a single-panel FigureSpec.
+    """
+    yt = np.asarray(y_true, dtype=np.float64).ravel()
+    yp = np.asarray(y_pred, dtype=np.float64).ravel()
+    ts = np.asarray(timestamps).ravel()
+    mask = np.isfinite(yt) & np.isfinite(yp)
+    yt, yp, ts = yt[mask], yp[mask], ts[mask]
+    n = yt.size
+    if n == 0:
+        panel: PanelSpec = AnnotationPanelSpec(text="residual_vs_time: no finite data", title=title)
+        return FigureSpec(suptitle="", panels=((panel,),), figsize=figsize)
+
+    resid = yt - yp
+    _, bucket_of, centers = _time_bucket_edges(ts, n_time_buckets)
+    nb = centers.shape[0]
+    counts = np.bincount(bucket_of, minlength=nb).astype(np.float64)
+    counts_safe = np.where(counts > 0, counts, 1.0)
+    mean = np.bincount(bucket_of, weights=resid, minlength=nb) / counts_safe
+    mean_sq = np.bincount(bucket_of, weights=resid * resid, minlength=nb) / counts_safe
+    var = np.clip(mean_sq - mean * mean, 0.0, None)
+    std = np.sqrt(var)
+    empty = counts == 0
+    mean[empty] = np.nan
+    std[empty] = np.nan
+
+    zero = np.zeros_like(centers)
+    line = LinePanelSpec(
+        x=centers,
+        y=(mean, zero),
+        series_labels=("mean residual", "zero"),
+        title=title,
+        xlabel="time",
+        ylabel="residual (y_true - y_pred)",
+        line_styles=("lines+markers", "--"),
+        colors=("steelblue", "green"),
+        x_is_time=x_is_time,
+        band=(mean - std, mean + std),
+        band_color="steelblue",
+        band_label="+/- 1 std",
+    )
+    return FigureSpec(suptitle="", panels=((line,),), figsize=figsize)
+
+
 __all__ = [
     "PSI_MODERATE",
     "PSI_SIGNIFICANT",
     "PSI_DEFAULT_BINS",
     "compute_psi_matrix",
     "psi_heatmap",
+    "residual_vs_time",
 ]

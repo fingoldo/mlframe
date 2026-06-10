@@ -115,3 +115,82 @@ def test_cprofile_psi_at_1e6_rows():
     s = io.StringIO()
     pstats.Stats(pr, stream=s).sort_stats("cumulative").print_stats(8)
     assert "histogram" in s.getvalue() or matrix.size > 0
+
+
+# --------------------------------------------------------------------------- residual_vs_time
+
+
+def test_residual_vs_time_shape_and_band():
+    rng = np.random.default_rng(20)
+    n = 5000
+    ts = np.arange(n)
+    yt = rng.normal(size=n)
+    yp = yt + rng.normal(0.0, 0.5, n)  # unbiased noise
+    fig = drift.residual_vs_time(yt, yp, ts, n_time_buckets=10)
+    assert isinstance(fig, FigureSpec)
+    panel = fig.panels[0][0]
+    assert isinstance(panel, LinePanelSpec)
+    mean = panel.y[0]
+    assert mean.shape == (10,)
+    assert panel.band is not None
+    lower, upper = panel.band
+    assert lower.shape == (10,) and upper.shape == (10,)
+    assert np.all(upper[np.isfinite(upper)] >= lower[np.isfinite(lower)])
+    # Unbiased residuals: per-bucket mean stays near zero.
+    assert float(np.nanmax(np.abs(mean))) < 0.1
+
+
+def test_residual_vs_time_empty_is_annotation():
+    fig = drift.residual_vs_time(np.array([np.nan]), np.array([np.nan]), np.array([0]))
+    assert isinstance(fig.panels[0][0], AnnotationPanelSpec)
+
+
+def test_biz_value_residual_vs_time_detects_bias_drift():
+    """A model whose residual mean ramps from ~0 early to ~+3 late MUST show a late-bucket mean residual clearly
+    above zero while early buckets sit near zero. Measured late mean ~3.0; floor at +2.5 (>=15% margin); early
+    ceiling at 0.5."""
+    rng = np.random.default_rng(21)
+    n = 12000
+    ts = np.arange(n)
+    drift_term = np.linspace(0.0, 3.0, n)  # residual grows linearly => bias drift
+    yt = rng.normal(size=n)
+    yp = yt - drift_term  # resid = yt - yp = drift_term + 0
+    fig = drift.residual_vs_time(yt, yp, ts, n_time_buckets=10)
+    mean = fig.panels[0][0].y[0]
+    early = float(np.nanmean(mean[:2]))
+    late = float(np.nanmean(mean[-2:]))
+    assert late > 2.5, f"late bias should exceed +2.5, got {late:.3f}"
+    assert abs(early) < 0.5, f"early bias should sit near zero, got {early:.3f}"
+
+
+def test_biz_value_residual_vs_time_detects_variance_drift():
+    """A model with constant-zero bias but residual std ramping from ~0.2 early to ~3 late MUST show the +-std band
+    widening over time. Measured late half-width ~3.0; floor: late band width >= 4x the early band width."""
+    rng = np.random.default_rng(22)
+    n = 12000
+    ts = np.arange(n)
+    scale = np.linspace(0.2, 3.0, n)
+    yt = rng.normal(size=n)
+    yp = yt + rng.normal(size=n) * scale  # zero-mean, growing-variance residual
+    fig = drift.residual_vs_time(yt, yp, ts, n_time_buckets=10)
+    lower, upper = fig.panels[0][0].band
+    width = upper - lower
+    early_w = float(np.nanmean(width[:2]))
+    late_w = float(np.nanmean(width[-2:]))
+    assert late_w > 4.0 * early_w, f"late band width {late_w:.3f} should exceed 4x early {early_w:.3f}"
+
+
+def test_cprofile_residual_vs_time_at_1e6_rows():
+    """cProfile residual_vs_time at n=1e6. Hot path is two weighted np.bincount passes (mean + second moment) +
+    one argsort for bucketing -- all O(n) C. No actionable speedup; argsort dominates and is irreducible for
+    equal-count time bucketing."""
+    rng = np.random.default_rng(23)
+    n = 1_000_000
+    ts = np.arange(n)
+    yt = rng.normal(size=n)
+    yp = yt + rng.normal(0.0, 0.5, n)
+    pr = cProfile.Profile()
+    pr.enable()
+    fig = drift.residual_vs_time(yt, yp, ts, n_time_buckets=20)
+    pr.disable()
+    assert fig.panels[0][0].y[0].shape == (20,)
