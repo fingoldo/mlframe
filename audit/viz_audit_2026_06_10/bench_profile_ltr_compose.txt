@@ -1,0 +1,38 @@
+         328 function calls in 0.162 seconds
+
+   Ordered by: cumulative time
+   List reduced from 81 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.162    0.162 C:\Users\Admin\Machine learning\mlframe\src\mlframe\reporting\charts\ltr.py:417(compose_ltr_figure)
+        1    0.050    0.050    0.067    0.067 C:\Users\Admin\Machine learning\mlframe\src\mlframe\reporting\charts\ltr.py:97(_ndcg_k_panel)
+        1    0.022    0.022    0.037    0.037 C:\Users\Admin\Machine learning\mlframe\src\mlframe\reporting\charts\ltr.py:232(_score_by_rel_panel)
+        1    0.001    0.001    0.028    0.028 C:\Users\Admin\Machine learning\mlframe\src\mlframe\reporting\charts\ltr.py:125(_ndcg_dist_panel)
+        2    0.028    0.014    0.028    0.014 C:\Users\Admin\Machine learning\mlframe\src\mlframe\reporting\charts\ltr.py:80(_per_query_ndcg10)
+        1    0.020    0.020    0.020    0.020 C:\Users\Admin\Machine learning\mlframe\src\mlframe\reporting\charts\ltr.py:183(_lift_panel)
+        6    0.001    0.000    0.017    0.003 C:\Users\Admin\Machine learning\mlframe\src\mlframe\reporting\charts\ltr.py:58(_sorted_layout)
+        1    0.010    0.010    0.016    0.016 C:\Users\Admin\Machine learning\mlframe\src\mlframe\metrics\ranking.py:164(_iter_group_slices)
+        3    0.000    0.000    0.009    0.003 C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\numpy\lib\_arraysetops_impl.py:145(unique)
+        3    0.000    0.000    0.008    0.003 C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\numpy\lib\_arraysetops_impl.py:348(_unique1d)
+        3    0.006    0.002    0.006    0.002 {built-in method numpy._core._multiarray_umath._unique_hash}
+        1    0.005    0.005    0.005    0.005 C:\Users\Admin\Machine learning\mlframe\src\mlframe\reporting\charts\ltr.py:208(_mrr_dist_panel)
+       23    0.004    0.000    0.004    0.000 {method 'reduce' of 'numpy.ufunc' objects}
+        2    0.000    0.000    0.004    0.002 C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\numpy\_core\fromnumeric.py:51(_wrapfunc)
+        5    0.004    0.001    0.004    0.001 C:\Users\Admin\Machine learning\mlframe\src\mlframe\reporting\charts\_sampling.py:37(subsample_for_density)
+        1    0.002    0.002    0.004    0.004 C:\Users\Admin\Machine learning\mlframe\src\mlframe\reporting\charts\ltr.py:145(_ndcg_by_qsize_panel)
+        6    0.000    0.000    0.003    0.001 {method 'sum' of 'numpy.ndarray' objects}
+        6    0.000    0.000    0.003    0.001 C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\numpy\_core\_methods.py:49(_sum)
+        1    0.000    0.000    0.003    0.003 C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\numpy\_core\fromnumeric.py:1129(argsort)
+        1    0.003    0.003    0.003    0.003 {method 'argsort' of 'numpy.ndarray' objects}
+       11    0.002    0.000    0.002    0.000 {built-in method numpy.asarray}
+        3    0.002    0.001    0.002    0.001 {method 'flatten' of 'numpy.ndarray' objects}
+        1    0.000    0.000    0.001    0.001 C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\numpy\_core\numeric.py:680(flatnonzero)
+        1    0.000    0.000    0.001    0.001 C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\numpy\_core\fromnumeric.py:2018(nonzero)
+        1    0.001    0.001    0.001    0.001 {method 'nonzero' of 'numpy.ndarray' objects}
+        3    0.000    0.000    0.001    0.000 C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\numpy\_core\fromnumeric.py:3735(mean)
+        3    0.000    0.000    0.000    0.000 C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\numpy\_core\_methods.py:117(_mean)
+        3    0.000    0.000    0.000    0.000 {method 'max' of 'numpy.ndarray' objects}
+        3    0.000    0.000    0.000    0.000 C:\Users\Admin\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\numpy\_core\_methods.py:41(_amax)
+        4    0.000    0.000    0.000    0.000 {method 'astype' of 'numpy.ndarray' objects}
+
+

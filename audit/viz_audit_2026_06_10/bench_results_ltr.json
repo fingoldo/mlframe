@@ -1,0 +1,104 @@
+[
+  {
+    "function": "_ndcg_dist_panel (batched per-query NDCG)",
+    "n": 100000,
+    "time_s": 0.006,
+    "notes": ""
+  },
+  {
+    "function": "_mrr_dist_panel (batched per-query MRR)",
+    "n": 100000,
+    "time_s": 0.002,
+    "notes": ""
+  },
+  {
+    "function": "_lift_panel (batched lift kernel)",
+    "n": 100000,
+    "time_s": 0.004,
+    "notes": ""
+  },
+  {
+    "function": "_ndcg_k_panel (1 batched eval_ks pass)",
+    "n": 100000,
+    "time_s": 0.008,
+    "notes": ""
+  },
+  {
+    "function": "_ndcg_by_qsize_panel (shared NDCG10)",
+    "n": 100000,
+    "time_s": 0.006,
+    "notes": ""
+  },
+  {
+    "function": "_ndcg_dist_panel (batched per-query NDCG)",
+    "n": 400000,
+    "time_s": 0.033,
+    "notes": ""
+  },
+  {
+    "function": "_mrr_dist_panel (batched per-query MRR)",
+    "n": 400000,
+    "time_s": 0.014,
+    "notes": ""
+  },
+  {
+    "function": "_lift_panel (batched lift kernel)",
+    "n": 400000,
+    "time_s": 0.017,
+    "notes": ""
+  },
+  {
+    "function": "_ndcg_k_panel (1 batched eval_ks pass)",
+    "n": 400000,
+    "time_s": 0.028,
+    "notes": ""
+  },
+  {
+    "function": "_ndcg_by_qsize_panel (shared NDCG10)",
+    "n": 400000,
+    "time_s": 0.025,
+    "notes": ""
+  },
+  {
+    "function": "_ndcg_dist_panel (batched per-query NDCG)",
+    "n": 2000000,
+    "time_s": 0.113,
+    "notes": ""
+  },
+  {
+    "function": "_mrr_dist_panel (batched per-query MRR)",
+    "n": 2000000,
+    "time_s": 0.055,
+    "notes": ""
+  },
+  {
+    "function": "_lift_panel (batched lift kernel)",
+    "n": 2000000,
+    "time_s": 0.094,
+    "notes": ""
+  },
+  {
+    "function": "_ndcg_k_panel (1 batched eval_ks pass)",
+    "n": 2000000,
+    "time_s": 0.144,
+    "notes": ""
+  },
+  {
+    "function": "_ndcg_by_qsize_panel (shared NDCG10)",
+    "n": 2000000,
+    "time_s": 0.129,
+    "notes": ""
+  },
+  {
+    "function": "compose_ltr_figure (default 6-panel)",
+    "n": 1000000,
+    "time_s": 0.185,
+    "notes": ""
+  },
+  {
+    "function": "compose_ltr_figure (default 6-panel)",
+    "n": 2000000,
+    "time_s": 0.282,
+    "notes": ""
+  }
+]
