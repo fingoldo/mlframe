@@ -62,6 +62,18 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _slugify_class(name: str) -> str:
+    """Filesystem-safe class-name slug for per-class plot filenames."""
+    try:
+        from pyutilz.strings import slugify
+        slug = slugify(name)
+    except Exception:
+        slug = ""
+    if not slug:
+        slug = "".join(ch if ch.isalnum() else "-" for ch in name).strip("-")
+    return slug or "class"
+
+
 def report_probabilistic_model_perf(
     targets: np.ndarray | pd.Series,
     columns: Sequence[str],
@@ -84,6 +96,7 @@ def report_probabilistic_model_perf(
     print_report: bool = True,
     show_perf_chart: bool = True,
     plot_file: str = "",
+    plot_outputs: str | None = None,
     custom_ice_metric: Callable | None = None,
     custom_rice_metric: Callable | None = None,
     metrics: dict[str, Any] | None = None,
@@ -357,6 +370,12 @@ def report_probabilistic_model_perf(
             logger.debug("compute_batch_aucs precompute failed (%s); using per-class path.", e)
             _precomputed_aucs_per_class = None
 
+    # DSL render spec for the reliability diagram. Default ON when the caller
+    # supplies plot_outputs (e.g. "png,html" from ReportingConfig.plot_outputs);
+    # routes every class's chart through build_calibration_spec so plotly HTML is
+    # produced for the single most important classification chart, not just PNG.
+    _plot_outputs_dsl = plot_outputs if plot_outputs else None
+
     true_classes = []
     for class_id, class_name in enumerate(classes):
         if str(class_name).isnumeric() and target_label_encoder:
@@ -389,6 +408,20 @@ def report_probabilistic_model_perf(
             class_robust_integral_error = custom_rice_metric(y_true=y_true, y_score=y_score)
             title += f", RICE={class_robust_integral_error:.{calib_report_ndigits}f}"
 
+        # Per-class plot path: every class gets a distinct filename. A bare
+        # ``_perfplot.png`` was reused inside this loop so only the LAST class's
+        # chart survived on disk for multiclass / multilabel runs. The class id
+        # guarantees uniqueness even when two labels slugify to the same string;
+        # the slug keeps the filename human-readable. ``base_path`` mirrors the
+        # same per-class suffix so the DSL render path writes distinct files too.
+        _class_perfplot = ""
+        _class_base_path = ""
+        if plot_file:
+            _slug = _slugify_class(str_class_name)
+            _suffix = f"_perfplot_c{class_id}_{_slug}" if len(classes) != 2 else "_perfplot"
+            _class_perfplot = f"{plot_file}{_suffix}.png"
+            _class_base_path = f"{plot_file}{_suffix}"
+
         # Build kwargs for fast_calibration_report. title_metrics_tokens is the
         # post-validation tuple from ReportingConfig - if None, the function's
         # own DEFAULT_TITLE_METRICS_TOKENS applies.
@@ -406,7 +439,7 @@ def report_probabilistic_model_perf(
             # Saving plots even when show_perf_chart=False is deliberate - users get
             # artifacts on disk without GUI popups. The Agg save-only fastpath in
             # show_calibration_plot handles this case without Qt overhead.
-            plot_file=plot_file + "_perfplot.png" if plot_file else "",
+            plot_file=_class_perfplot,
             show_plots=show_perf_chart,
             ndigits=calib_report_ndigits,
             verbose=verbose,
@@ -415,6 +448,13 @@ def report_probabilistic_model_perf(
             show_inline_population_labels=show_inline_population_labels,
             dpi=plot_dpi,
         )
+        # Thread the DSL render path: when ReportingConfig.plot_outputs is set,
+        # fast_calibration_report routes the reliability diagram through
+        # build_calibration_spec (matplotlib PNG + plotly HTML + any future
+        # backend) instead of the matplotlib-only legacy plotter.
+        if _plot_outputs_dsl and _class_base_path:
+            _fcr_kwargs["plot_outputs"] = _plot_outputs_dsl
+            _fcr_kwargs["base_path"] = _class_base_path
         if title_metrics_tokens is not None:
             _fcr_kwargs["title_metrics_tokens"] = title_metrics_tokens
 

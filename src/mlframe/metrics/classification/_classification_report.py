@@ -195,6 +195,8 @@ def fast_calibration_report(
     show_inline_population_labels: bool = True,
     #
     plot_file: str = "",
+    plot_outputs: Optional[str] = None,
+    base_path: Optional[str] = None,
     figsize: tuple = (15, 6),
     ndigits: int = 3,
     backend: str = "matplotlib",
@@ -365,7 +367,8 @@ def fast_calibration_report(
 
     fig = None
 
-    if plot_file or show_plots:
+    _dsl_render = bool(plot_outputs and base_path)
+    if plot_file or show_plots or _dsl_render:
 
         plot_title = metrics_string
 
@@ -379,6 +382,8 @@ def fast_calibration_report(
             plot_title=plot_title,
             show_plots=show_plots,
             plot_file=plot_file,
+            plot_outputs=plot_outputs,
+            base_path=base_path,
             figsize=figsize,
             backend=backend,
             show_prob_histogram=show_prob_histogram,

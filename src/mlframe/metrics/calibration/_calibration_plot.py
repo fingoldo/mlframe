@@ -24,12 +24,9 @@ from math import floor
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
-import pandas as pd
 import numba
 import matplotlib
 from matplotlib import pyplot as plt
-import plotly.graph_objects as go
-from plotly.io import write_image
 
 # Single source of truth for numba kwargs across mlframe.metrics modules.
 from .._numba_params import NUMBA_NJIT_PARAMS
@@ -329,6 +326,43 @@ def show_calibration_plot(
             f"got {prob_histogram_yscale!r}."
         )
 
+    # DSL render path (single source of truth for the reliability diagram via
+    # build_calibration_spec). Checked BEFORE the no-consumer short-circuit so a
+    # caller that supplies plot_outputs + base_path always gets disk artifacts
+    # (PNG + plotly HTML) regardless of show_plots / plot_file / session kind.
+    # backend="plotly" is also routed here so the legacy inline-plotly branch
+    # below never runs -- one PlotlyRenderer, no duplicated styling.
+    if (plot_outputs and base_path) or (backend == "plotly" and (plot_file or show_plots)):
+        from mlframe.reporting.charts.calibration import build_calibration_spec
+        from mlframe.reporting.output import parse_plot_output_dsl
+        from mlframe.reporting.renderers import render_and_save
+        spec = build_calibration_spec(
+            freqs_predicted, freqs_true, hits,
+            plot_title=plot_title,
+            show_prob_histogram=show_prob_histogram,
+            show_inline_population_labels=show_inline_population_labels,
+            label_freq=label_freq, label_prob=label_prob,
+            label_histogram=label_histogram,
+            colorbar_label=colorbar_label,
+            figsize=figsize,
+            yscale=prob_histogram_yscale,
+        )
+        if plot_outputs and base_path:
+            _outputs = parse_plot_output_dsl(plot_outputs)
+            _base = base_path
+        else:
+            # backend="plotly" with a legacy plot_file: derive the plotly DSL
+            # clause from the file extension (os.path.splitext handles
+            # extension-less paths correctly) and strip it to form the base path.
+            _root, _ext = os.path.splitext(plot_file) if plot_file else ("", "")
+            _fmt = _ext.lstrip(".").lower()
+            if _fmt not in ("html", "png", "svg", "pdf", "json"):
+                _fmt = "html"
+            _outputs = parse_plot_output_dsl(f"plotly[{_fmt}]")
+            _base = _root or "calibration"
+        render_and_save(spec, _outputs, _base)
+        return None
+
     # 2026-05-09: short-circuit when there is NO plot consumer. The
     # ``show_plots=True`` default expresses "render if a human can see
     # it"; in a script / CI / fuzz process (no IPython kernel, no
@@ -350,27 +384,6 @@ def show_calibration_plot(
         if not _is_interactive:
             return None
 
-    # 2026-05-08: opt-in DSL render path. When ``plot_outputs`` + ``base_path``
-    # are supplied, route through the shared spec pipeline (matplotlib +
-    # plotly + any future backends via the same DSL). Default behaviour
-    # preserved -- legacy callers see no change.
-    if plot_outputs and base_path:
-        from mlframe.reporting.charts.calibration import build_calibration_spec
-        from mlframe.reporting.output import parse_plot_output_dsl
-        from mlframe.reporting.renderers import render_and_save
-        spec = build_calibration_spec(
-            freqs_predicted, freqs_true, hits,
-            plot_title=plot_title,
-            show_prob_histogram=show_prob_histogram,
-            show_inline_population_labels=show_inline_population_labels,
-            label_freq=label_freq, label_prob=label_prob,
-            label_histogram=label_histogram,
-            colorbar_label=colorbar_label,
-            figsize=figsize,
-        )
-        render_and_save(spec, parse_plot_output_dsl(plot_outputs), base_path)
-        return None
-
     if freqs_predicted.size == 0:
         # calibration_binning returns an empty array when all bins are filtered out
         # (single-class preds, all-NaN preds, or the sparse-hits filter at metrics.py:600).
@@ -378,8 +391,6 @@ def show_calibration_plot(
         # the surrounding training loop does not crash on degenerate calibration data.
         logger.warning("show_calibration_plot: no bin data available; skipping plot.")
         return None
-
-    x_min, x_max = np.min(freqs_predicted), np.max(freqs_predicted)
 
     # nbins-derived bar width: use the bin centre spacing as the bar width.
     # When all bins have data this matches fast_calibration_binning's geometry;
@@ -584,80 +595,4 @@ def show_calibration_plot(
             _show_plots_unless_agg()
         _close_unless_interactive(fig, was_shown=show_plots)
 
-    else:
-
-        df = pd.DataFrame(
-            {
-                label_prob: freqs_predicted,
-                label_freq: freqs_true,
-                "NCases": hits,
-            }
-        )
-        hover_data = {label_prob: ":.2%", label_freq: ":.2%", "NCases": True}
-
-        if use_size:
-            df["size"] = 5000 * hits / hits.sum()
-            hover_data["size"] = False
-
-        if show_prob_histogram:
-            from plotly.subplots import make_subplots
-            fig = make_subplots(
-                rows=2, cols=1,
-                shared_xaxes=True,
-                row_heights=[0.75, 0.25],
-                vertical_spacing=0.05,
-            )
-            calib_row, hist_row = 1, 2
-        else:
-            fig = go.Figure()
-            calib_row = hist_row = None
-
-        marker_dict = {"color": df["NCases"], "colorscale": "RdYlBu", "showscale": True}
-        if use_size:
-            marker_dict["size"] = df["size"]
-        scatter_trace = go.Scatter(
-            x=df[label_prob],
-            y=df[label_freq],
-            mode="markers",
-            marker=marker_dict,
-            name=label_real,
-            hovertemplate=f"{label_prob}: %{{x:.2%}}<br>{label_freq}: %{{y:.2%}}<br>NCases: %{{marker.color}}<extra></extra>",
-        )
-        perfect_trace = go.Scatter(
-            x=[x_min, x_max], y=[x_min, x_max],
-            line={"color": "green", "dash": "dash"}, name=label_perfect, mode="lines",
-        )
-        if show_prob_histogram:
-            fig.add_trace(scatter_trace, row=calib_row, col=1)
-            fig.add_trace(perfect_trace, row=calib_row, col=1)
-            fig.add_trace(
-                go.Bar(
-                    x=df[label_prob], y=df["NCases"], name=label_histogram,
-                    marker={"color": "steelblue"}, showlegend=False,
-                ),
-                row=hist_row, col=1,
-            )
-            fig.update_yaxes(title_text=label_freq, row=calib_row, col=1)
-            fig.update_yaxes(
-                title_text=label_histogram,
-                type=_resolve_yscale(hits),
-                row=hist_row, col=1,
-            )
-            fig.update_xaxes(title_text=label_prob, row=hist_row, col=1)
-        else:
-            fig.add_trace(scatter_trace)
-            fig.add_trace(perfect_trace)
-        fig.update(layout_coloraxis_showscale=False)
-
-        if plot_title:
-            fig.update_layout(title=plot_title)
-
-        if plot_file:
-            ext = plot_file.split(".")[-1]
-            if not ext:
-                ext = "png"
-            write_image(fig, file=plot_file, format=ext)
-
-        if show_plots:
-            fig.show()
     return fig

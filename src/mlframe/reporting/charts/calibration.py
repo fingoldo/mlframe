@@ -22,6 +22,16 @@ from mlframe.reporting.spec import (
     FigureSpec, HistogramPanelSpec, ScatterPanelSpec,
 )
 
+# Cap on per-point bubble area so a single dominant bin can't occlude its
+# neighbours; populations above the cap are sqrt-compressed instead of clipped
+# flat so relative ordering is still visible.
+MAX_BUBBLE_AREA: float = 800.0
+# Inline per-bin population labels turn into unreadable soup past this many
+# bins (nbins=100 is a supported value); auto-disable above it.
+INLINE_LABEL_MAX_BINS: int = 25
+# z for a two-sided 95% Wilson binomial interval.
+_WILSON_Z_95: float = 1.959963984540054
+
 
 def _format_population(n: float) -> str:
     """Compact thousands/millions/billions for inline scatter labels."""
@@ -32,6 +42,64 @@ def _format_population(n: float) -> str:
     if n >= 1e3:
         return f"{n/1e3:.1f}K"
     return f"{n:.0f}"
+
+
+def _resolve_yscale(yscale: str, hits: np.ndarray) -> str:
+    """auto -> log iff max/min population skew > 100, else linear. Explicit modes pass through."""
+    if yscale != "auto":
+        return yscale
+    if len(hits) == 0:
+        return "linear"
+    max_h = float(np.max(hits))
+    min_h = max(float(np.min(hits)), 1.0)
+    return "log" if (max_h / min_h) > 100.0 else "linear"
+
+
+def wilson_ci(p_hat: np.ndarray, n: np.ndarray, z: float = _WILSON_Z_95):
+    """Wilson score interval for a binomial proportion.
+
+    Returns ``(lower, upper)`` arrays clipped to ``[0, 1]``. The Wilson interval
+    is preferred over the normal-approximation (Wald) interval for the small / extreme-p
+    per-bin counts a reliability diagram produces -- it never escapes [0, 1] and stays
+    sensible at p_hat in {0, 1}. Bins with n == 0 yield (nan, nan).
+
+    Center / half-width:
+        denom  = 1 + z^2/n
+        center = (p_hat + z^2/(2n)) / denom
+        half   = z*sqrt(p_hat*(1-p_hat)/n + z^2/(4n^2)) / denom
+    """
+    p = np.asarray(p_hat, dtype=np.float64)
+    nn = np.asarray(n, dtype=np.float64)
+    lower = np.full(p.shape, np.nan)
+    upper = np.full(p.shape, np.nan)
+    valid = nn > 0
+    if not np.any(valid):
+        return lower, upper
+    pv = p[valid]
+    nv = nn[valid]
+    z2 = z * z
+    denom = 1.0 + z2 / nv
+    center = (pv + z2 / (2.0 * nv)) / denom
+    half = (z * np.sqrt(pv * (1.0 - pv) / nv + z2 / (4.0 * nv * nv))) / denom
+    lower[valid] = np.clip(center - half, 0.0, 1.0)
+    upper[valid] = np.clip(center + half, 0.0, 1.0)
+    return lower, upper
+
+
+def _bubble_point_size(hits: np.ndarray) -> np.ndarray:
+    """Population -> bubble area with a cap so one dominant bin can't dwarf the rest.
+
+    Below the cap the area is the legacy ``5000*h/sum(h)`` scaling; above it the area
+    is sqrt-compressed toward ``MAX_BUBBLE_AREA`` so high-population bins stay the largest
+    without occluding neighbours.
+    """
+    h = np.asarray(hits, dtype=np.float64)
+    total = float(h.sum()) if h.size else 1.0
+    raw = 5000.0 * h / max(total, 1.0)
+    over = raw > MAX_BUBBLE_AREA
+    if np.any(over):
+        raw[over] = MAX_BUBBLE_AREA * np.sqrt(raw[over] / MAX_BUBBLE_AREA)
+    return raw
 
 
 def build_calibration_spec(
@@ -47,12 +115,24 @@ def build_calibration_spec(
     label_histogram: str = "Bin population",
     colorbar_label: str = "Bin population",
     figsize: Tuple[float, float] = (12.0, 6.0),
+    yscale: str = "auto",
+    show_wilson_ci: bool = True,
 ) -> FigureSpec:
     """Build a calibration-report FigureSpec.
 
     Parameters mirror the legacy ``show_calibration_plot`` signature for
     back-compat. The histogram bottom panel uses the same colormap as
     the scatter so the colorbar reads consistently across both subplots.
+
+    ``yscale`` controls the bottom bin-population histogram ("auto"/"log"/"linear");
+    "auto" goes log only when the population max/min skew exceeds 100 so a
+    heavy-tailed rare-event distribution does not hide low-population bins.
+
+    ``show_wilson_ci`` (default on) attaches a 95% Wilson binomial CI band on
+    ``freqs_true`` (computed from ``hits``) so each reliability point carries its
+    uncertainty. Bubble area is capped (``MAX_BUBBLE_AREA``) so one dominant bin
+    cannot occlude its neighbours, and inline labels auto-disable past
+    ``INLINE_LABEL_MAX_BINS`` to avoid label soup at large ``nbins``.
     """
     freqs_predicted = np.asarray(freqs_predicted, dtype=np.float64)
     freqs_true = np.asarray(freqs_true, dtype=np.float64)
@@ -64,16 +144,17 @@ def build_calibration_spec(
         bar_width = 0.05
 
     inline_labels: Optional[Tuple[Tuple[float, float, str], ...]] = None
-    if show_inline_population_labels and len(hits) > 0:
+    if (
+        show_inline_population_labels
+        and len(hits) > 0
+        and len(freqs_predicted) <= INLINE_LABEL_MAX_BINS
+    ):
         inline_labels = tuple(
             (float(x), float(y), _format_population(float(h)))
             for x, y, h in zip(freqs_predicted, freqs_true, hits)
         )
 
-    # 5000 * h / sum(h) is the same scaling as the legacy ``show_calibration_plot``
-    # (renders bigger circles for high-population bins).
-    total_hits = float(hits.sum()) if len(hits) > 0 else 1.0
-    point_size = 5000.0 * np.asarray(hits, dtype=np.float64) / max(total_hits, 1.0)
+    point_size = _bubble_point_size(hits)
 
     scatter = ScatterPanelSpec(
         x=freqs_predicted,
@@ -90,6 +171,7 @@ def build_calibration_spec(
         colorbar_label=colorbar_label,
     )
 
+    resolved_yscale = _resolve_yscale(yscale, hits)
     if not show_prob_histogram:
         return FigureSpec(
             suptitle="",
@@ -106,7 +188,7 @@ def build_calibration_spec(
         title="",
         xlabel=label_prob,
         ylabel=label_histogram,
-        yscale="linear",
+        yscale=resolved_yscale if resolved_yscale in ("linear", "log") else "linear",
         density=False,
     )
 
@@ -119,4 +201,4 @@ def build_calibration_spec(
     )
 
 
-__all__ = ["build_calibration_spec"]
+__all__ = ["build_calibration_spec", "wilson_ci", "MAX_BUBBLE_AREA", "INLINE_LABEL_MAX_BINS"]
