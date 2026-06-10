@@ -6658,7 +6658,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                     _cv = X[_sn].to_numpy()
                 if _cv is None:
                     continue
-                _cv = np.asarray(_cv, dtype=np.float64).reshape(-1)
+                try:
+                    _cv = np.asarray(_cv, dtype=np.float64).reshape(-1)
+                except (TypeError, ValueError):
+                    continue  # a raw categorical/string selected column (e.g. under skip_categorical_encoding) is not a numeric R^2-baseline regressor -- exclude it from the linear design
                 if _cv.shape[0] == _y_for_hinge_gate.shape[0] and np.all(np.isfinite(_cv)):
                     _sel_value_cols.append(_cv)
 
