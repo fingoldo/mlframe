@@ -1080,11 +1080,13 @@ def _run_fe_step(
             if len(_cmi_cands) >= 2:
                 _retain = float(getattr(self, "fe_engineered_cmi_retain_frac", 0.15))
                 _escape = float(getattr(self, "fe_engineered_cmi_significance_escape_margin", 3.0))
+                _cmi_max_cands = int(getattr(self, "fe_engineered_cmi_max_candidates", 64))
                 _accepted, _diag = apply_cmi_redundancy_gate(
                     _cmi_cands, _y_dense,
                     nbins=int(self.quantization_nbins),
                     retain_frac=_retain,
                     significance_escape_margin=_escape,
+                    max_candidates=_cmi_max_cands,
                     seed=int(getattr(self, "random_state", 0) or 0),
                     verbose=int(bool(verbose)),
                 )

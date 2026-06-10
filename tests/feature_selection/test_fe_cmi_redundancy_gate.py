@@ -339,9 +339,21 @@ def test_escape_disabled_reproduces_false_reject():
 def test_escape_does_not_admit_monotone_redundant_remaps():
     """The escape must NOT admit a feature whose information IS in the support: a
     MONOTONE remap of an admitted driver (same quantile bins -> CMI given the
-    driver == 0) is rejected 'redundant_below_floor' (it cannot even clear its
-    floor), so the escape never fires for it. Guards against the escape
-    re-opening a false-ADMIT path."""
+    driver == 0) is rejected as REDUNDANT, never via the loosened relative bar,
+    so the escape never re-opens a false-ADMIT path.
+
+    Composed-gate note (2026-06-11): with the cost-cap/partition-dedup fix in the
+    same gate, an exact monotone remap is now caught EARLIER and more cheaply --
+    it bins to the IDENTICAL equi-frequency partition as the driver, so the
+    partition-dedup collapses it to ``redundant_partition_duplicate`` BEFORE the
+    greedy floor check (it never pays the per-round permutation-null cost). Absent
+    that collapse (e.g. a remap that is monotone-but-binned-distinctly, or with the
+    dedup disabled) it falls through to the greedy and is rejected
+    ``redundant_below_floor`` (its CMI given the driver == 0 cannot clear the
+    floor). BOTH are exact-redundancy rejections the escape never overrides; the
+    load-bearing guarantee is that NO monotone remap is ADMITTED and that any
+    rejection reason is a genuine-redundancy reason, NOT ``redundant_below_rel_bar``
+    (which the escape could loosen)."""
     rng = np.random.default_rng(0)
     n = 20_000
     A = rng.normal(size=n)
@@ -358,11 +370,13 @@ def test_escape_does_not_admit_monotone_redundant_remaps():
     admitted = [g for g in group if g in accepted]
     # Exactly one survivor (A and its monotone remaps are the SAME binned column).
     assert len(admitted) == 1, f"monotone-redundant remap FALSELY ADMITTED as extra info: {admitted}"
+    _REDUNDANT_REASONS = {"redundant_below_floor", "redundant_partition_duplicate"}
     for nm in group:
         if nm not in admitted:
-            assert diag[nm]["reason"] == "redundant_below_floor", (
-                f"monotone redundant remap {nm} should be rejected at the floor "
-                f"(CMI given the driver == 0), not via the relative bar: {diag[nm]}"
+            assert diag[nm]["reason"] in _REDUNDANT_REASONS, (
+                f"monotone redundant remap {nm} should be rejected as exact redundancy "
+                f"(partition-duplicate dedup or below-floor), NOT via the loosened "
+                f"relative bar: {diag[nm]}"
             )
 
 
