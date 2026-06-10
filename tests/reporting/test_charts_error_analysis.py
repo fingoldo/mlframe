@@ -12,8 +12,8 @@ import pandas as pd
 import pytest
 
 from mlframe.reporting.charts.error_analysis import (
-    ErrorBiasResult, WeakSegmentResult, error_bias_per_feature,
-    weak_segment_heatmap,
+    ErrorBiasResult, WeakSegmentResult, WorstKResult, error_bias_per_feature,
+    weak_segment_heatmap, worst_k_table,
 )
 from mlframe.reporting.spec import (
     BarPanelSpec, FigureSpec, HeatmapPanelSpec, HistogramPanelSpec, LinePanelSpec,
@@ -166,3 +166,65 @@ def test_biz_val_error_bias_over_group_mean_shifts_high():
     over = res.group_means.loc["f0", "OVER"]
     majority = res.group_means.loc["f0", "MAJORITY"]
     assert over - majority >= 0.25, f"OVER feat0 mean {over} should exceed MAJORITY {majority} by >=0.25"
+
+
+# ----------------------------------------------------------------------------
+# worst_k_table (R-9 / INV-25)
+# ----------------------------------------------------------------------------
+
+
+def test_worst_k_table_columns_and_size(reg_clean):
+    X, yt, yp = reg_clean
+    res = worst_k_table(X, yt, yp, task="regression", k=15)
+    assert isinstance(res, WorstKResult)
+    assert len(res.table) == 15
+    assert {"y_true", "y_pred", "resid", "loss"}.issubset(res.table.columns)
+    assert res.table.index.name == "rank"
+    assert len(res.indices) == 15
+
+
+def test_worst_k_table_sorted_worst_first(reg_clean):
+    X, yt, yp = reg_clean
+    res = worst_k_table(X, yt, yp, k=20)
+    losses = res.table["loss"].to_numpy()
+    assert np.all(np.diff(losses) <= 1e-9), "rows must be worst-first by loss"
+    # The worst row is the global max |resid|.
+    all_resid_abs = np.abs(yt - yp)
+    assert res.table["loss"].iloc[0] == pytest.approx(all_resid_abs.max())
+
+
+def test_worst_k_indices_point_to_original_rows(reg_clean):
+    X, yt, yp = reg_clean
+    res = worst_k_table(X, yt, yp, k=10)
+    idx = res.highlight_indices()
+    # The selected indices must be the 10 largest |resid| in the original arrays.
+    all_resid_abs = np.abs(yt - yp)
+    expected = set(np.argsort(all_resid_abs)[::-1][:10].tolist())
+    assert set(idx.tolist()) == expected
+
+
+def test_worst_k_table_ids_timestamps_and_fi(reg_clean):
+    X, yt, yp = reg_clean
+    n = len(yt)
+    ids = np.arange(n)
+    ts = pd.date_range("2020-01-01", periods=n, freq="h")
+    fi = [0.1, 0.7, 0.2]  # f1 most important
+    res = worst_k_table(X, yt, yp, k=5, ids=ids, timestamps=ts,
+                        feature_importances=fi, top_fi=2)
+    assert "id" in res.table.columns and "timestamp" in res.table.columns
+    # Top-2 FI features f1, f2 (by importance order 0.7, 0.2) present.
+    assert "f1" in res.table.columns
+    # ids are the original-row positions.
+    assert list(res.table["id"]) == list(res.indices)
+
+
+def test_worst_k_classification_uses_loss(reg_clean):
+    X, _, _ = reg_clean
+    rng = np.random.default_rng(3)
+    n = len(X)
+    y = (rng.uniform(0, 1, n) < 0.4).astype(float)
+    p = np.clip(rng.uniform(0, 1, n), 0.01, 0.99)
+    res = worst_k_table(X, y, p, task="classification", k=10)
+    # Worst loss row should be a confidently-wrong prediction.
+    worst = res.table.iloc[0]
+    assert worst["loss"] > 1.0  # log-loss of a confidently wrong call

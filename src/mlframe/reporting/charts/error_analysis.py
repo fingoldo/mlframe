@@ -283,6 +283,86 @@ def weak_segment_heatmap(
 
 
 @dataclass(frozen=True)
+class WorstKResult:
+    """Top-K worst-error rows DataFrame + the original-row indices for scatter highlighting.
+
+    ``table`` columns: id / timestamp (when supplied) / y_true / y_pred / resid / loss + the top-FI feature values.
+    ``indices`` are positions into the ORIGINAL (pre-finite-filter) arrays so the integrator can mark those points
+    red on the pred-vs-actual scatter.
+    """
+
+    table: Any  # pandas.DataFrame
+    indices: np.ndarray
+
+    def highlight_indices(self) -> np.ndarray:
+        """Original-array positions of the worst-K rows (for red scatter highlight)."""
+        return self.indices
+
+
+def worst_k_table(
+    X: Any,
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    *,
+    task: str = "regression",
+    k: int = DEFAULT_WORST_K,
+    feature_names: Optional[Sequence[str]] = None,
+    feature_importances: Optional[Sequence[float]] = None,
+    top_fi: int = 5,
+    ids: Optional[Sequence[Any]] = None,
+    timestamps: Optional[Sequence[Any]] = None,
+) -> WorstKResult:
+    """Top-K worst predictions by |resid| (regression) or loss (classification).
+
+    Returns a small DataFrame (id / timestamp / y_true / y_pred / resid / loss + the ``top_fi`` highest-importance
+    feature values) sorted worst-first, plus the original-row indices so the integrator can highlight those points
+    red on the pred-vs-actual scatter. The K worst rows are found with ``np.argpartition`` (O(n)), not a full sort.
+    """
+    import pandas as pd
+
+    yt = _as_float_1d(y_true)
+    yp = _as_float_1d(y_pred)
+    loss = _per_row_error(yt, yp, task=task)
+    resid = yt - yp
+    finite = np.isfinite(loss)
+    finite_idx = np.flatnonzero(finite)
+    score = loss[finite]
+    n = score.size
+    kk = min(int(k), n)
+    if kk <= 0:
+        empty = pd.DataFrame()
+        return WorstKResult(empty, np.empty(0, dtype=np.int64))
+
+    part = np.argpartition(score, n - kk)[n - kk:]
+    order = part[np.argsort(score[part])[::-1]]
+    sel = finite_idx[order]
+
+    mat, names = _resolve_feature_matrix(X, feature_names)
+    if feature_importances is not None and len(feature_importances) == len(names):
+        fi = np.asarray(feature_importances, dtype=np.float64)
+        fi_cols = [int(j) for j in np.argsort(fi)[::-1][:top_fi]]
+    else:
+        fi_cols = list(range(min(top_fi, len(names))))
+
+    data: Dict[str, Any] = {}
+    if ids is not None:
+        data["id"] = np.asarray(ids)[sel]
+    if timestamps is not None:
+        data["timestamp"] = np.asarray(timestamps)[sel]
+    data["y_true"] = yt[sel]
+    data["y_pred"] = yp[sel]
+    data["resid"] = resid[sel]
+    data["loss"] = loss[sel]
+    for j in fi_cols:
+        data[names[j]] = mat[sel, j]
+
+    table = pd.DataFrame(data)
+    table.index = np.arange(1, len(sel) + 1)
+    table.index.name = "rank"
+    return WorstKResult(table, sel.astype(np.int64))
+
+
+@dataclass(frozen=True)
 class ErrorBiasResult:
     """Per-feature OVER/UNDER/MAJORITY overlay figure + the group-mean table.
 
@@ -403,8 +483,10 @@ def error_bias_per_feature(
 __all__ = [
     "WeakSegmentResult",
     "ErrorBiasResult",
+    "WorstKResult",
     "weak_segment_heatmap",
     "error_bias_per_feature",
+    "worst_k_table",
     "DEFAULT_HEATMAP_BINS",
     "DEFAULT_TREE_DEPTH",
     "DEFAULT_TREE_FIT_CAP",
