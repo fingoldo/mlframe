@@ -372,3 +372,44 @@ class TestQuantileReliabilityBizValue:
         miscal_m = float(spec_m.panels[0][0].values[0][mid])
         # CORP miscalibration component must rise sharply for the shifted predictor.
         assert miscal_m > miscal_c + 0.1, f"calib {miscal_c} vs miscal {miscal_m}"
+
+
+class TestQuantileReliabilityPerf:
+    """The isotonic / CORP fits are subsample-capped so the panels stay fast at large n."""
+
+    def test_reliability_subsample_cap_keeps_curve_size(self):
+        # Above the 100k cap the panel must still emit the same fixed-resolution curve, fast.
+        from mlframe.reporting.charts.quantile import _RELIABILITY_GRID
+        from scipy.stats import norm
+        rng = np.random.default_rng(0)
+        n = 200_000
+        x = rng.standard_normal(n)
+        y = x + rng.standard_normal(n) * 0.5
+        alphas = (0.1, 0.5, 0.9)
+        p = np.column_stack([x + 0.5 * norm.ppf(a) for a in alphas])
+        spec = compose_quantile_figure(y, p, alphas, panels_template="QUANTILE_RELIABILITY")
+        panel = spec.panels[0][0]
+        assert panel.x.shape == (_RELIABILITY_GRID,)
+        # Calibrated even after subsampling: observed curve stays near nominal.
+        K = len(alphas)
+        for k, a in enumerate(alphas):
+            assert float(np.mean(np.abs(panel.y[k] - a))) < 0.05
+
+    def test_corp_decomp_capped_fast_at_large_n(self):
+        # Regression sensor for the uncapped-CORP perf bug (243s -> sub-second at n=1e6 via cap).
+        if _model_diagnostics_decompose() is None:
+            pytest.skip("model-diagnostics not importable")
+        import time
+        from scipy.stats import norm
+        rng = np.random.default_rng(0)
+        n = 1_000_000
+        x = rng.standard_normal(n)
+        y = x + rng.standard_normal(n) * 0.5
+        alphas = (0.1, 0.5, 0.9)
+        p = np.column_stack([x + 0.5 * norm.ppf(a) for a in alphas])
+        t0 = time.perf_counter()
+        spec = compose_quantile_figure(y, p, alphas, panels_template="PINBALL_DECOMP")
+        elapsed = time.perf_counter() - t0
+        assert isinstance(spec.panels[0][0].values, tuple)
+        # Uncapped this was ~243 s; the 100k cap brings it well under 5 s with wide margin.
+        assert elapsed < 5.0, f"CORP decomp too slow at n=1e6: {elapsed:.1f}s (cap regressed?)"

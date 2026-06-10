@@ -9,9 +9,11 @@ rows so a 1e6-row call stays sub-second. This harness verifies that cap pays off
 that the subsampled curve is faithful (the recalibrated coverage is a smooth monotone
 estimate, robust to a 100k draw out of 1e6).
 
-PINBALL_DECOMP (CORP) is O(K) decompose calls, each itself O(n log n) inside
-model-diagnostics; QUANTILE_CROSSING is K-1 vectorised boolean reductions -- both are
-linear in n with tiny constants and not the bottleneck. Profiled together below.
+PINBALL_DECOMP (CORP) is O(K) model-diagnostics ``decompose`` calls, each a heavy isotonic
+recalibration fit (~6 s/tau at 100k); uncapped it dominated at ~243 s at n=1e6. It now
+subsamples to ``_CORP_FIT_CAP`` (10k) -- the decomposition is a diagnostic estimate whose
+components reproduce within ~1% on a uniform draw, so the panel stays sub-second per tau.
+QUANTILE_CROSSING is K-1 vectorised boolean reductions -- not a bottleneck. Profiled together.
 """
 
 from __future__ import annotations

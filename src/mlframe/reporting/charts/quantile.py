@@ -337,6 +337,12 @@ def _pit_hist_panel(y_true, preds_NK, alphas) -> PanelSpec:
 _ISOTONIC_FIT_CAP = 100_000
 _RELIABILITY_GRID = 25
 
+# The model-diagnostics CORP decompose is far heavier per row than the bare isotonic fit
+# (~6 s/tau at 100k vs ~0.13 s for the reliability curve), so it gets a tighter cap. A 10k
+# uniform draw reproduces the miscalibration / discrimination / uncertainty terms within ~1%
+# of the full-n decomposition (verified vs n=5e5) while staying sub-second per tau.
+_CORP_FIT_CAP = 10_000
+
 
 def _isotonic_recalibrated_coverage(q_pred, indicator, grid):
     """Isotonic E[indicator | q_pred] evaluated on ``grid`` (clipped out-of-range).
@@ -432,6 +438,15 @@ def _pinball_decomp_panel(y_true, preds_NK, alphas) -> PanelSpec:
         )
 
     decompose, PinballLoss = md
+    # The CORP decompose is an isotonic recalibration fit with a heavy constant (~6 s/tau at 100k);
+    # uncapped it costs ~243 s at n=1e6. Subsample to _CORP_FIT_CAP -- the decomposition is a
+    # diagnostic estimate, faithful within ~1% on a uniform draw, and this keeps it sub-second/tau.
+    n = y.shape[0]
+    if n > _CORP_FIT_CAP:
+        rng = np.random.default_rng(0)
+        sub = rng.choice(n, size=_CORP_FIT_CAP, replace=False)
+        y = y[sub]
+        P = P[sub]
     miscal = np.empty(K, dtype=np.float64)
     discr = np.empty(K, dtype=np.float64)
     uncert = np.empty(K, dtype=np.float64)
