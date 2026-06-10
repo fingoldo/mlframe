@@ -43,9 +43,18 @@ class PrePipelinePredictShim(BaseEstimator):
             return X
         try:
             return self.pre_pipeline.transform(X)
-        except Exception:
-            # Let inner.predict / inner.fit raise the more descriptive error on pd/pl boundary mismatches (mirrors the previous local-class behaviour).
-            return X
+        except Exception as exc:
+            # NEVER fall back to the untransformed X: a fitted pre_pipeline
+            # (StandardScaler / SimpleImputer / ...) means the inner was
+            # trained on SCALED features, so feeding it raw X silently
+            # produces garbage whenever raw X is shape-compatible (the
+            # common case for linear / MLP tiers inside the NNLS stack).
+            # Raise loudly with context instead of masking the failure.
+            raise RuntimeError(
+                f"PrePipelinePredictShim({self.name}): pre_pipeline.transform "
+                f"failed; refusing to feed untransformed X to the inner "
+                f"(would predict on unscaled features). Original error: {exc!r}"
+            ) from exc
 
     def fit(self, X: Any, y: Any, sample_weight: Any = None, **kwargs: Any) -> "PrePipelinePredictShim":
         X_in = self._transform(X)

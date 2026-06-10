@@ -900,6 +900,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
                                 y_full=_y_full,
                                 test_idx=getattr(ctx, "test_idx", None),
                                 test_df_pd=test_df_pd,
+                                train_idx=_train_idx,
                                 plot_file=getattr(ctx, "plot_file", None),
                                 reporting_config=getattr(ctx, "reporting_config", None),
                             )

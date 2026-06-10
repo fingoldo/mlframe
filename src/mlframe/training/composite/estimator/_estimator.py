@@ -529,7 +529,11 @@ class CompositeTargetEstimator(BaseEstimator, RegressorMixin):
         # already do this at the suite level. We must not silently
         # materialise large polars frames -- that defeats the whole
         # zero-copy Arrow path on multi-GB datasets.
-        X_valid = self._subset_rows(X, valid)
+        # No-copy passthrough when every row passes domain_check (the common
+        # case). _subset_rows copies the whole frame even on an all-True mask
+        # (polars .filter / pandas .loc+reset_index / ndarray fancy-index all
+        # materialise), which on a 100+ GB frame doubles peak RAM for nothing.
+        X_valid = X if bool(valid.all()) else self._subset_rows(X, valid)
         # For grouped transforms, the group_column is metadata for the
         # transform (per-row alpha lookup) and is commonly non-numeric
         # (e.g. group_id strings). Tree models like LightGBM reject object

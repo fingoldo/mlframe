@@ -112,6 +112,7 @@ def emit_per_model_composite_y_scale_test(
     y_full: np.ndarray,
     test_idx,
     test_df_pd,
+    train_idx=None,
     plot_file: str | None = None,
     reporting_config: Any = None,
 ) -> None:
@@ -145,20 +146,27 @@ def emit_per_model_composite_y_scale_test(
                 (composite_spec["base_column"], *_extra) if _extra else None
             )
             _y_full_arr = np.asarray(y_full)
-            # Train rows the wrapper needs for the y-clip envelope: pass the
-            # FULL y (the wrapper sees the same y_train the end-of-target pass
-            # uses, sliced to filtered_train_idx). Here at per-model time we
-            # do not have filtered_train_idx; pass the full y so the clip
-            # envelope is conservative (a superset of the train range). The
-            # end-of-target pass will re-fit the envelope using the precise
-            # train slice via the same CompositeTargetEstimator instance.
+            # y-clip envelope MUST be train-only: this wrapper persists (the
+            # end-of-target pass skips already-wrapped entries for idempotency),
+            # so a full-y envelope here would leak val/test range into the
+            # post-inverse clip and flatter the reported TEST metrics. Slice to
+            # the train rows when available; fall back to full y only when the
+            # caller cannot supply train_idx (still no leak into the inner --
+            # just a wider, conservative envelope).
+            if train_idx is not None:
+                try:
+                    _y_train_arr = _y_full_arr[train_idx]
+                except Exception:
+                    _y_train_arr = _y_full_arr
+            else:
+                _y_train_arr = _y_full_arr
             _wrapper = CompositeTargetEstimator.from_fitted_inner(
                 fitted_inner=_inner,
                 transform_name=composite_spec["transform_name"],
                 base_column=composite_spec["base_column"],
                 base_columns=_base_columns,
                 transform_fitted_params=composite_spec["fitted_params"],
-                y_train=_y_full_arr,
+                y_train=_y_train_arr,
             )
             # Mutate the entry so downstream callers (and the end-of-target
             # wrap-pass idempotency check) see the wrapped form.
