@@ -44,7 +44,7 @@ def _extract_column(X: Any, name: str) -> np.ndarray:
 _NAN_CODE_KEY = "__MLFRAME_CAT_NAN__"
 
 
-def build_category_code_map(values) -> dict:
+def build_category_code_map(values, block_has_nan: bool | None = None) -> dict:
     """Build the fit-time ``raw_value -> integer_code`` mapping for a categorical
     source column so a ``factorize`` / ``target_encoding`` recipe can reproduce
     the SAME codes at transform time.
@@ -62,6 +62,22 @@ def build_category_code_map(values) -> dict:
       under ``_NAN_CODE_KEY`` so the replay can route NaN cells there); without
       NaN, codes are the un-shifted base (``0..K-1``).
 
+    ``block_has_nan``: ``categorize_dataset`` factorises ALL categorical columns
+    as ONE 2-D block and applies the ``+1`` shift to the WHOLE block when ANY
+    column in that block has a NaN (``_discretization_dataset.py`` :
+    ``_has_nan = (new_vals < 0).any()`` over the full block ->
+    ``new_vals = new_vals + 1``). So a NaN-FREE categorical paired with a
+    NaN-bearing categorical ALSO gets its codes shifted ``+1`` at fit time. A
+    per-column ``has_nan`` would say "NaN-free -> unshifted" and produce
+    off-by-one codes at transform -- a silent train/serve skew for the
+    ``factorize(cat_nanfree__cat_withnan)`` recipe. Pass ``block_has_nan=True``
+    (computed once over the full categorical block at the stamping site) to apply
+    the shift even for a NaN-free column: its real categories become ``base + 1``,
+    but NO ``_NAN_CODE_KEY`` is added because that column owns no NaN cell and
+    never receives code ``0``. ``block_has_nan=False`` forces the unshifted base.
+    ``None`` (default) keeps the legacy per-column behaviour, which is correct
+    only for a single-column block.
+
     Returns a plain ``{str(value): int(code)}`` dict (JSON / pickle friendly),
     optionally with the ``_NAN_CODE_KEY`` entry. Returns ``{}`` for numeric
     columns (already integer-coded; no map needed)."""
@@ -71,17 +87,24 @@ def build_category_code_map(values) -> dict:
     if isinstance(ser.dtype, pd.CategoricalDtype):
         cats = ser.cat.categories
         base = {str(c): int(i) for i, c in enumerate(cats)}
-        has_nan = bool(ser.isna().any())
+        col_has_nan = bool(ser.isna().any())
     elif ser.dtype.kind in ("O", "U", "S", "b") or str(ser.dtype) in ("string", "boolean"):
         codes, uniques = pd.factorize(ser, use_na_sentinel=True)
         base = {str(u): int(i) for i, u in enumerate(uniques)}
-        has_nan = bool((np.asarray(codes) < 0).any())
+        col_has_nan = bool((np.asarray(codes) < 0).any())
     else:
         return {}
-    if has_nan:
-        # ``categorize_dataset`` shifts -1 (NaN) -> 0 and real categories +1 when any NaN present.
+    # Whether the +1 shift applies is a BLOCK property in ``categorize_dataset``
+    # (shifts the whole block if ANY categorical column has a NaN), not a
+    # per-column one. When the caller knows the block-level answer, honour it;
+    # otherwise fall back to this column's own NaN presence (single-column block).
+    apply_shift = col_has_nan if block_has_nan is None else bool(block_has_nan)
+    if apply_shift:
+        # ``categorize_dataset`` shifts -1 (NaN) -> 0 and real categories +1 when any NaN present in the block.
         shifted = {k: v + 1 for k, v in base.items()}
-        shifted[_NAN_CODE_KEY] = 0
+        if col_has_nan:
+            # Only THIS column's NaN cells map to 0; a NaN-free column in a shifted block owns no 0-code cell.
+            shifted[_NAN_CODE_KEY] = 0
         return shifted
     return base
 
