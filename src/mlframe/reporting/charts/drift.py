@@ -297,6 +297,114 @@ def residual_vs_time(
     return FigureSpec(suptitle="", panels=((line,),), figsize=figsize)
 
 
+def metric_over_time(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    timestamps: np.ndarray,
+    *,
+    metric: str = "roc_auc",
+    freq: str = "D",
+    min_samples: int = 100,
+    regimes: Optional[Sequence[Tuple[Any, Any, str, str]]] = None,
+    regime_alpha: float = 0.12,
+    higher_is_better: bool = True,
+    title: Optional[str] = None,
+    x_is_time: bool = True,
+    figsize: Tuple[float, float] = (11.0, 4.0),
+    max_vertices: int = 2000,
+) -> FigureSpec:
+    """Rolling metric per time bucket as a LinePanelSpec with split / regime shading (INV-9).
+
+    Wraps ``training.evaluation.compute_ml_perf_by_time`` (numpy-fast, byte-identical day-divisor path) to compute the
+    chosen metric per ``freq`` time bucket, then renders it as a single line with optional shaded ``regimes`` (e.g.
+    train / val / test spans, or detected regime changes) via ``vspans``. ``regimes`` is a sequence of
+    ``(start, end, color, label)`` where start/end are timestamps (matched onto the bucket x-axis); the label rides in
+    the title since vspans are unlabeled. Curves are decimated to ``max_vertices`` so a multi-year daily series stays
+    light. Returns a single-panel FigureSpec.
+    """
+    from mlframe.training.evaluation import compute_ml_perf_by_time
+
+    perf = compute_ml_perf_by_time(y_true, y_pred, timestamps, freq=freq, metric=metric, min_samples=min_samples)
+    # Under-populated buckets are kept with a NaN metric (compute_ml_perf_by_time does not drop them); a figure is
+    # only meaningful when at least one bucket cleared min_samples and produced a finite metric.
+    if perf is None or len(perf) == 0 or metric not in perf.columns or not np.isfinite(perf[metric].to_numpy(dtype=np.float64)).any():
+        panel: PanelSpec = AnnotationPanelSpec(
+            text=f"metric_over_time: no buckets with >= {min_samples} samples", title=title or metric,
+        )
+        return FigureSpec(suptitle="", panels=((panel,),), figsize=figsize)
+
+    idx = perf.index
+    # Numeric x for the line (nanosecond epoch for timestamps; renderers format ticks via x_is_time). Datetime index
+    # converts to int64 ns directly; a non-datetime fallback uses the row ordinal.
+    x = idx.values.astype("datetime64[ns]").astype(np.int64).astype(np.float64) if _is_datetime_index(idx) else np.arange(len(idx), dtype=np.float64)
+    yvals = perf[metric].to_numpy(dtype=np.float64)
+
+    if x.size > max_vertices:
+        keep = np.linspace(0, x.size - 1, max_vertices).astype(np.int64)
+        keep = np.unique(keep)
+        x, yvals = x[keep], yvals[keep]
+
+    vspans = _regimes_to_vspans(regimes, regime_alpha)
+    regime_note = ""
+    if regimes:
+        regime_note = " | regimes: " + ", ".join(str(r[3]) for r in regimes if len(r) >= 4 and r[3])
+    direction = "higher=better" if higher_is_better else "lower=better"
+    line = LinePanelSpec(
+        x=x,
+        y=yvals,
+        series_labels=(metric,),
+        title=(title or f"{metric} over time ({direction})") + regime_note,
+        xlabel="time",
+        ylabel=metric,
+        line_styles=("lines+markers",),
+        colors=("steelblue",),
+        x_is_time=x_is_time,
+        vspans=vspans,
+    )
+    return FigureSpec(suptitle="", panels=((line,),), figsize=figsize)
+
+
+def _is_datetime_index(idx: Any) -> bool:
+    """True when a pandas index carries datetime64 values (so we can take .astype('datetime64[ns]')."""
+    try:
+        return np.issubdtype(np.asarray(idx.values).dtype, np.datetime64)
+    except (TypeError, AttributeError):
+        return False
+
+
+def _regimes_to_vspans(
+    regimes: Optional[Sequence[Tuple[Any, Any, str, str]]], alpha: float
+) -> Optional[Tuple[Tuple[float, float, str, float], ...]]:
+    """Convert ``(start, end, color, label)`` regime spans to LinePanelSpec ``vspans`` ``(x0, x1, color, alpha)``.
+
+    start/end are coerced to the same numeric x-scale as the line (datetime -> int64 ns, else float). Labels are
+    dropped here (vspans are unlabeled) -- the caller folds them into the title.
+    """
+    if not regimes:
+        return None
+    import pandas as pd
+
+    out: List[Tuple[float, float, str, float]] = []
+    for span in regimes:
+        if len(span) < 3:
+            continue
+        start, end, color = span[0], span[1], span[2]
+        x0 = _coerce_x(start, pd)
+        x1 = _coerce_x(end, pd)
+        out.append((x0, x1, str(color), float(alpha)))
+    return tuple(out) if out else None
+
+
+def _coerce_x(v: Any, pd: Any) -> float:
+    """Coerce a regime boundary to the numeric x-scale: datetime-like -> int64 ns, else float."""
+    if isinstance(v, (int, float, np.integer, np.floating)):
+        return float(v)
+    try:
+        return float(pd.Timestamp(v).value)
+    except (ValueError, TypeError):
+        return float(v)
+
+
 __all__ = [
     "PSI_MODERATE",
     "PSI_SIGNIFICANT",
@@ -304,4 +412,5 @@ __all__ = [
     "compute_psi_matrix",
     "psi_heatmap",
     "residual_vs_time",
+    "metric_over_time",
 ]

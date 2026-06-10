@@ -194,3 +194,96 @@ def test_cprofile_residual_vs_time_at_1e6_rows():
     fig = drift.residual_vs_time(yt, yp, ts, n_time_buckets=20)
     pr.disable()
     assert fig.panels[0][0].y[0].shape == (20,)
+
+
+# --------------------------------------------------------------------------- metric_over_time
+
+
+def _binary_time_data(n, seed, signal=0.5):
+    rng = np.random.default_rng(seed)
+    import pandas as pd
+    ts = pd.date_range("2023-01-01", periods=n, freq="h").values
+    y = (rng.random(n) < 0.4).astype(int)
+    noise = rng.random(n)
+    p = np.clip(y * signal + noise * (1.0 - signal), 0.0, 1.0)
+    return y, p, ts
+
+
+def test_metric_over_time_returns_line_panel():
+    pytest.importorskip("pandas")
+    y, p, ts = _binary_time_data(3000, 0, signal=0.6)
+    fig = drift.metric_over_time(y, p, ts, metric="roc_auc", freq="D", min_samples=10)
+    assert isinstance(fig, FigureSpec)
+    panel = fig.panels[0][0]
+    assert isinstance(panel, LinePanelSpec)
+    assert panel.x_is_time is True
+    assert panel.y.ndim == 1 and panel.y.size > 0
+    assert "roc_auc" in panel.series_labels
+
+
+def test_metric_over_time_regime_shading():
+    pd = pytest.importorskip("pandas")
+    y, p, ts = _binary_time_data(2000, 1, signal=0.6)
+    regimes = [(pd.Timestamp("2023-01-01"), pd.Timestamp("2023-01-30"), "blue", "train"),
+               (pd.Timestamp("2023-01-30"), pd.Timestamp("2023-03-01"), "orange", "test")]
+    fig = drift.metric_over_time(y, p, ts, metric="roc_auc", freq="D", min_samples=10, regimes=regimes)
+    panel = fig.panels[0][0]
+    assert panel.vspans is not None and len(panel.vspans) == 2
+    assert "train" in panel.title and "test" in panel.title
+    # vspans carry numeric x bounds + color + alpha.
+    x0, x1, color, alpha = panel.vspans[0]
+    assert x1 > x0 and color == "blue" and 0.0 < alpha < 1.0
+
+
+def test_metric_over_time_no_buckets_is_annotation():
+    pytest.importorskip("pandas")
+    y, p, ts = _binary_time_data(200, 2)
+    fig = drift.metric_over_time(y, p, ts, metric="roc_auc", freq="D", min_samples=100000)
+    assert isinstance(fig.panels[0][0], AnnotationPanelSpec)
+
+
+def test_metric_over_time_decimates_to_max_vertices():
+    pytest.importorskip("pandas")
+    y, p, ts = _binary_time_data(40000, 3, signal=0.6)
+    fig = drift.metric_over_time(y, p, ts, metric="roc_auc", freq="D", min_samples=5, max_vertices=20)
+    assert fig.panels[0][0].x.size <= 20
+
+
+def test_biz_value_metric_over_time_drops_in_bad_regime():
+    """A model that is informative in the first half of the series and pure-noise in the second MUST show its rolling
+    AUC drop from near-1.0 early to near-0.5 late. Measured early ~0.99 / late ~0.5; floors: early >= 0.85,
+    late <= 0.65, and early - late >= 0.2."""
+    pd = pytest.importorskip("pandas")
+    rng = np.random.default_rng(31)
+    n = 6000
+    half = n // 2
+    ts = pd.date_range("2023-01-01", periods=n, freq="h").values
+    y = (rng.random(n) < 0.4).astype(int)
+    p = np.empty(n)
+    p[:half] = np.clip(y[:half] * 0.9 + rng.random(half) * 0.1, 0, 1)  # informative
+    p[half:] = rng.random(n - half)  # pure noise, independent of y
+    fig = drift.metric_over_time(y, p, ts, metric="roc_auc", freq="D", min_samples=12)
+    yvals = fig.panels[0][0].y
+    k = max(1, yvals.size // 4)
+    early = float(np.nanmean(yvals[:k]))
+    late = float(np.nanmean(yvals[-k:]))
+    assert early >= 0.85, f"early AUC should be high, got {early:.3f}"
+    assert late <= 0.65, f"late AUC should collapse toward 0.5, got {late:.3f}"
+    assert early - late >= 0.2, f"AUC drop should exceed 0.2, got {early - late:.3f}"
+
+
+def test_cprofile_metric_over_time_at_1e6_rows():
+    """cProfile metric_over_time at n=1e6 (daily freq path). The byte-identical numpy fast path in
+    compute_ml_perf_by_time (argsort + run-length slices) dominates; the spec wrapper itself is O(buckets). No
+    actionable speedup in the wrapper -- per-bucket metric calls are the cost and live in evaluation.py (out of scope)."""
+    pd = pytest.importorskip("pandas")
+    rng = np.random.default_rng(33)
+    n = 1_000_000
+    ts = pd.date_range("2022-01-01", periods=n, freq="min").values
+    y = (rng.random(n) < 0.4).astype(int)
+    p = np.clip(y * 0.55 + rng.random(n) * 0.45, 0, 1)
+    pr = cProfile.Profile()
+    pr.enable()
+    fig = drift.metric_over_time(y, p, ts, metric="roc_auc", freq="D", min_samples=50)
+    pr.disable()
+    assert isinstance(fig.panels[0][0], (LinePanelSpec, AnnotationPanelSpec))
