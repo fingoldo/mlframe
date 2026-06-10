@@ -142,6 +142,174 @@ def _canonical_multilabel_y(targets) -> np.ndarray:
     return targets_arr
 
 
+def _unwrap_booster(model: Any) -> Any:
+    """Peel common mlframe wrappers to reach the underlying lgb/xgb/catboost estimator that holds iteration history.
+
+    Returns the first object in the wrapper chain exposing a recognised history accessor (or the original model).
+    """
+    seen = set()
+    cur = model
+    for _ in range(6):  # bounded: wrapper nesting is shallow (composite -> calibrated -> base)
+        if cur is None or id(cur) in seen:
+            break
+        seen.add(id(cur))
+        if any(hasattr(cur, a) for a in ("evals_result_", "evals_result", "get_evals_result")):
+            return cur
+        nxt = None
+        for attr in ("base_estimator", "estimator", "best_estimator_", "model_", "_model", "regressor_", "classifier_"):
+            if hasattr(cur, attr):
+                nxt = getattr(cur, attr)
+                break
+        if nxt is None:
+            break
+        cur = nxt
+    return cur
+
+
+def _canonicalize_split_names(split_names: list) -> dict:
+    """Map booster eval-set names to ``compose_training_curve_figure``'s canonical ``train`` / ``val`` keys.
+
+    Keys already recognised by the alias set (``train`` / ``valid`` / ``validation`` / ``learn`` / ...) pass through.
+    lightgbm's positional ``valid_0`` / ``valid_1`` / ... default names are not in that set; by the mlframe convention
+    that the FIRST eval set is the training fold and the LAST is the holdout, the lowest-index ``valid_N`` maps to
+    ``train`` and the highest to ``val``. When an explicit train key (e.g. lgb's ``training``) is already present, a
+    lone positional ``valid_N`` is the holdout and maps to ``val`` (not a second train). Leftovers keep their name.
+    """
+    out: dict = {}
+    recognised_train = {"train", "training", "learn"}
+    recognised_val = {"val", "valid", "validation", "test", "eval", "holdout"}
+    has_train = False
+    has_val = False
+    positional = []  # (index, original_name) for the lgb ``valid_<N>`` / xgb ``validation_<N>`` families
+    for name in split_names:
+        low = str(name).strip().lower()
+        if low in recognised_train:
+            has_train = True
+            continue
+        if low in recognised_val:
+            has_val = True
+            continue
+        for prefix in ("valid_", "validation_"):
+            if low.startswith(prefix) and low[len(prefix):].isdigit():
+                positional.append((int(low[len(prefix):]), name))
+                break
+    if positional:
+        positional.sort()
+        if has_train:
+            # An explicit train split already exists; the (lone or last) positional is the holdout.
+            if not has_val:
+                out[positional[-1][1]] = "val"
+        else:
+            out[positional[0][1]] = "train"
+            if len(positional) > 1:
+                out[positional[-1][1]] = "val"
+    return out
+
+
+def _extract_training_history(model: Any) -> tuple[dict | None, int | None]:
+    """Extract ``{metric: {split: [...]}}`` history + the early-stopping iteration from a fitted booster.
+
+    Handles lgb (``evals_result_``: ``{split: {metric: [...]}}``), xgb (``evals_result()``: same shape), and
+    catboost (``get_evals_result()``: ``{split: {metric: [...]}}``). Returns ``(history_by_metric, es_iteration)``
+    transposed to the metric-major shape ``compose_training_curve_figure`` expects, or ``(None, None)`` when the
+    model carries no usable iteration history (non-boosting estimators, or boosters fit without an eval set).
+    """
+    est = _unwrap_booster(model)
+    raw = None
+    try:
+        if hasattr(est, "evals_result_") and getattr(est, "evals_result_"):
+            raw = getattr(est, "evals_result_")
+        elif hasattr(est, "get_evals_result"):
+            r = est.get_evals_result()
+            raw = r if r else None
+        elif hasattr(est, "evals_result") and callable(getattr(est, "evals_result")):
+            r = est.evals_result()
+            raw = r if r else None
+    except Exception:
+        logger.debug("training-curve: evals_result extraction raised; skipping curves for this model.", exc_info=True)
+        return None, None
+    if not raw:
+        return None, None
+
+    # raw is split-major ``{split: {metric: [...]}}``; transpose to metric-major ``{metric: {split: [...]}}`` and
+    # canonicalise the split names so ``normalize_history`` keeps both curves. lightgbm names eval sets ``valid_0``,
+    # ``valid_1``, ... in eval_set order (NOT recognised by the canonical alias set); by mlframe convention the FIRST
+    # eval set is train and the LAST is the holdout, so map the lowest ``valid_N`` -> train and the highest -> val.
+    split_names = list(raw.keys())
+    canon_split = _canonicalize_split_names(split_names)
+    by_metric: dict = {}
+    try:
+        for split, metrics_map in raw.items():
+            if not hasattr(metrics_map, "items"):
+                continue
+            split_key = canon_split.get(split, str(split))
+            for metric, series in metrics_map.items():
+                if series is None or not hasattr(series, "__len__") or len(series) == 0:
+                    continue
+                by_metric.setdefault(str(metric), {}).setdefault(split_key, list(series))
+    except Exception:
+        logger.debug("training-curve: evals_result had an unexpected shape; skipping.", exc_info=True)
+        return None, None
+    if not by_metric:
+        return None, None
+
+    es_iteration = None
+    for attr in ("best_iteration_", "best_iteration"):
+        if hasattr(est, attr):
+            try:
+                bi = int(getattr(est, attr))
+                if bi >= 0:
+                    es_iteration = bi
+                break
+            except (TypeError, ValueError):
+                pass
+    return by_metric, es_iteration
+
+
+def _render_training_curves(
+    model: Any,
+    *,
+    model_name: str,
+    plot_file: str,
+    plot_outputs: str | None,
+    plot_dpi: int | None,
+    metrics: dict | None,
+    reporting_config: Any,
+) -> None:
+    """Render per-model train-vs-val iteration curves when charts are saved AND the model carries boosting history.
+
+    Default-ON via ``ReportingConfig.training_curves`` (no-op when off, when charts are not being saved to disk, or
+    when the model exposes no iteration history). Failures are logged + swallowed -- the curve panel is additive.
+    """
+    if not (plot_file and plot_outputs):
+        return
+    if not getattr(reporting_config, "training_curves", True):
+        return
+    history, es_iteration = _extract_training_history(model)
+    if not history:
+        return
+    try:
+        from mlframe.reporting.charts.training_curve import compose_training_curve_figure
+        from mlframe.reporting.output import parse_plot_output_dsl
+        from mlframe.reporting.renderers import render_and_save
+
+        spec = compose_training_curve_figure(history, es_iteration=es_iteration, suptitle=f"{model_name} training curves")
+        if plot_dpi is not None:
+            from dataclasses import replace
+            spec = replace(spec, dpi=plot_dpi)
+        base = plot_file + "_training_curve"
+        render_and_save(spec, parse_plot_output_dsl(plot_outputs), base)
+        if isinstance(metrics, dict):
+            _charts = metrics.setdefault("charts", {"saved": [], "failed": []})
+            _charts.setdefault("saved", []).append("training_curve")
+            _charts.setdefault("paths", []).append(base)
+    except Exception:
+        logger.exception("training-curve render failed; continuing.")
+        if isinstance(metrics, dict):
+            _charts = metrics.setdefault("charts", {"saved": [], "failed": []})
+            _charts.setdefault("failed", []).append("training_curve")
+
+
 def report_model_perf(
     targets: np.ndarray | pd.Series,
     columns: Sequence[str],
@@ -390,6 +558,20 @@ def report_model_perf(
                     _charts["saved"].append(f"{_rendered_tag}_panels")
                 else:
                     _charts["failed"].append(f"{_which}_panels")
+
+    # Per-model train-vs-val iteration curves (INV-24): default-ON; no-op for non-boosting models, when charts are
+    # not saved to disk, or when the model carries no eval history.
+    if model is not None:
+        with phase("render_training_curves"):
+            _render_training_curves(
+                model,
+                model_name=(report_title + " " + model_name).strip(),
+                plot_file=plot_file,
+                plot_outputs=plot_outputs,
+                plot_dpi=plot_dpi,
+                metrics=metrics,
+                reporting_config=reporting_config,
+            )
 
     # Binary decile gains/lift/KS table -- surfaced in the metrics dict (not a
     # chart panel) so the operator gets the gains-table view alongside the curves.
