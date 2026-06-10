@@ -476,6 +476,30 @@ class MRMR(BaseEstimator, TransformerMixin):
         # Below this many prospective pairs the rung screen is a structural no-op
         # (byte-identical flat sweep): a handful of pairs is already cheap to search fully.
         fe_rung_min_pairs: int = 6,
+        # SUFFICIENT-SUMMARY EARLY-STOP (backlog #22, 2026-06-10) -- DEFAULT-ON. The user's
+        # "compare-to-theoretical-max" idea, realised cheaply via a Data-Processing-Inequality
+        # (DPI) residual test. After each MRMR feature SELECTION (once per fit/screen pass, NOT
+        # per candidate pair), fit a CHEAP ridge of y on the SMALL selected set
+        # ``E_hat[y|selected]`` (1-5 cols -- engineered features linearise the signal so a linear
+        # fit captures E[y|selected]; the design is tiny because the SELECTED set is small) and
+        # form the residual ``r = y - E_hat``. If ``MI(r; x_j) <= the maxT permutation null`` for
+        # EVERY raw feature AND the residual is small relative to y (``Var(r)/Var(y) <=
+        # fe_sufficient_summary_residual_frac``, the H(y)-relative size guard), STOP the FE search:
+        # by the DPI any future engineered candidate is a function of the raws, so it cannot have
+        # more MI with r than the raws do -> the selection has reached I(observables; y), the
+        # theoretical max, and the remaining search is provably pointless. The final selection is
+        # UNCHANGED (verified byte-identical with early-stop on vs off on genuine multi-signal
+        # fixtures) -- this only skips work that could find nothing. CONSERVATIVE: fires only when
+        # BOTH the variance guard AND the all-raws maxT test pass, so it never stops while a
+        # genuine second signal (incl. a NONLINEAR leftover the linear E_hat underfits, caught by
+        # MI(r; raw)) is still discoverable. Reuses the SHIPPED MI kernels + maxT permutation null
+        # (``pooled_permutation_null_gain_floor``). Set False to disable. See
+        # ``_fe_sufficient_summary.py``.
+        fe_sufficient_summary_early_stop: bool = True,
+        fe_sufficient_summary_residual_frac: float = 0.25,
+        fe_sufficient_summary_maxt_permutations: int = 25,
+        fe_sufficient_summary_maxt_quantile: float = 0.95,
+        fe_sufficient_summary_ridge_alpha: float = 1e-3,
         # ``fe_npermutations`` default 0->3:
         # pre-fix value 0 combined with ``fe_min_nonzero_confidence=1.0``
         # made the FE confidence gate STRUCTURALLY UNREACHABLE (confidence
@@ -2785,6 +2809,14 @@ class MRMR(BaseEstimator, TransformerMixin):
             "fe_triple_maxt_null_permutations": 25,
             "fe_triple_maxt_null_quantile": 0.95,
             "fe_triple_maxt_min_triples": 4,
+            # SUFFICIENT-SUMMARY EARLY-STOP (backlog #22, 2026-06-10). DEFAULT-ON; pre-feature
+            # pickles default to the same on/0.25 contract for re-fits (the early-stop never
+            # changes the final selection, so an old pickle's behaviour is unchanged either way).
+            "fe_sufficient_summary_early_stop": True,
+            "fe_sufficient_summary_residual_frac": 0.25,
+            "fe_sufficient_summary_maxt_permutations": 25,
+            "fe_sufficient_summary_maxt_quantile": 0.95,
+            "fe_sufficient_summary_ridge_alpha": 1e-3,
         }
         for k, v in defaults.items():
             state.setdefault(k, v)

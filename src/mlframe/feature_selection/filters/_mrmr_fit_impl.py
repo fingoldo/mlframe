@@ -392,6 +392,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # present (empty when hinge off / no kink) so transform / pickle / clone
     # never trip on a missing attribute.
     self._hinge_features_ = []
+    # SUFFICIENT-SUMMARY EARLY-STOP verdict (backlog #22). The fitted-attribute mirror of
+    # the last sufficient-summary check in the greedy FE loop (a SufficientSummaryVerdict,
+    # or None when the early-stop never ran / was disabled). Surfaced so callers can inspect
+    # WHY the FE search stopped (residual fraction, max raw MI, maxT floor). Always present
+    # so transform / pickle / clone never trip on a missing attribute.
+    self.sufficient_summary_ = None
     # Deferred hinge-leg buffer: the hinge stage detects + held-out-validates the
     # legs early (it needs the raw source columns before pair-FE rewrites them) but
     # DEFERS materialising them into the candidate matrix until support finalisation,
@@ -5838,6 +5844,40 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
                 ran_out_of_time = True
                 if verbose:
                     logger.info("MRMR.fit: runtime budget %.1f min exceeded at FE step %d; stopping.", self.max_runtime_mins, num_fs_steps)
+                break
+
+        # SUFFICIENT-SUMMARY EARLY-STOP (backlog #22, DEFAULT-ON). The user's
+        # "compare-to-theoretical-max" idea via a DPI residual test. Once the
+        # current selection already captures all the information the observables
+        # carry about y -- i.e. the residual r = y - E_hat[y|selected] is pure
+        # noise w.r.t. EVERY raw feature (all raws at the maxT permutation null)
+        # AND small relative to y (Var(r)/Var(y) guard) -- any future engineered
+        # candidate is, by the Data-Processing Inequality, a function of the raws
+        # and CANNOT have more MI with r than the raws do, so the remaining FE
+        # search is provably pointless. Skip it. This NEVER changes the final
+        # selection (it only skips work that could find nothing -- with it OFF the
+        # loop would run the remaining steps and engineer nothing new); verified
+        # byte-identical on genuine multi-signal fixtures. CONSERVATIVE: stops only
+        # when BOTH guards pass, so a genuine unfound second signal (incl. a
+        # NONLINEAR leftover the linear E_hat underfits, caught by MI(r; raw))
+        # blocks the stop. ``self.sufficient_summary_`` surfaces the verdict.
+        if bool(getattr(self, "fe_sufficient_summary_early_stop", True)) and len(selected_vars) > 0:
+            from ._fe_sufficient_summary import check_sufficient_summary_for_mrmr
+            _ss_verdict = check_sufficient_summary_for_mrmr(
+                self,
+                data=data, nbins=nbins, cols=cols,
+                selected_vars=selected_vars,
+                target_indices=target_indices,
+                X=X, y=y, verbose=verbose,
+            )
+            self.sufficient_summary_ = _ss_verdict
+            if _ss_verdict.reached:
+                if verbose:
+                    logger.info(
+                        "MRMR.fit: sufficient-summary early-stop at FE step %d -- %s. "
+                        "Skipping the remaining FE search (selection unchanged).",
+                        num_fs_steps, _ss_verdict.reason,
+                    )
                 break
 
         # Feature engineering iteration delegated to ``_run_fe_step`` (testable / experiment-friendly outside
