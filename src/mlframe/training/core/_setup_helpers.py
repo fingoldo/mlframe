@@ -485,6 +485,35 @@ def _should_skip_catboost_metamodel(
     return model_or_pipeline_name in ("cb", "cb_rfecv")
 
 
+def log_chart_summary(metadata: dict | None, *, save_charts: bool, data_dir: str | None) -> str:
+    """Emit a one-line INFO at suite end with the chart count + destination, independent of verbose.
+
+    A default ``train_mlframe_models_suite(...)`` saves nothing (``data_dir=""``) and renders nothing
+    on a non-interactive run, with no trace -- so an operator cannot tell whether charts were skipped by
+    design or lost to a bug. This reads the ``metadata["charts"]`` accounting (the saved/failed lists
+    INV-48 stamps) and logs either the count + destination, the "0 charts saved; set
+    output_config.data_dir" hint, or the failure count. Returns the message so callers can assert on it.
+
+    Call site is the suite-finalize path (``_phase_finalize`` / orchestrator), owned by the integrator.
+    """
+    charts = (metadata or {}).get("charts") if isinstance(metadata, dict) else None
+    n_saved = len(charts.get("saved", [])) if isinstance(charts, dict) else 0
+    n_failed = len(charts.get("failed", [])) if isinstance(charts, dict) else 0
+
+    if n_saved == 0 and not (save_charts and data_dir):
+        msg = (
+            "[reporting] 0 charts saved; set output_config.data_dir (and keep save_charts=True) "
+            "to persist diagnostics to disk."
+        )
+    else:
+        dest = f"{data_dir}/charts" if data_dir else "(not saved)"
+        msg = f"[reporting] {n_saved} chart(s) saved to {dest}"
+        if n_failed:
+            msg += f"; {n_failed} render(s) failed (see WARN logs)"
+    logger.info(msg)
+    return msg
+
+
 # Metadata builders / finalizers live in ``_setup_helpers_metadata``;
 # re-exported here so historical
 # ``from mlframe.training.core._setup_helpers import _finalize_and_save_metadata``
