@@ -2460,18 +2460,21 @@ class MRMR(BaseEstimator, TransformerMixin):
             complementary_pairs_stability,
         )
         import pandas as pd
-        X_arr = X.to_numpy() if hasattr(X, "to_numpy") else np.asarray(X)
+        # Pass the FRAME (not to_numpy()) so per-column dtypes survive: a mixed numeric+categorical frame -> to_numpy() is an object array that
+        # (a) crashed the cluster correlation's float64 coercion and (b) would feed the bootstrap sub-MRMR all-object columns. The stability helpers
+        # cluster only the numeric columns (categoricals -> singletons) and hand the sub-selector dtype-preserved rows.
+        X_df = X if hasattr(X, "iloc") else pd.DataFrame(np.asarray(X))
         y_arr = (
             y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
         ).ravel()
-        feature_names = (
-            list(X.columns) if hasattr(X, "columns")
-            else [f"f{i}" for i in range(X_arr.shape[1])]
-        )
+        feature_names = list(X_df.columns)
 
         def _inner_selector(X_sub, y_sub):
-            X_sub_df = pd.DataFrame(X_sub, columns=feature_names)
-            y_sub_s = pd.Series(y_sub, name="y")
+            # X_sub is a dtype-preserved frame row-subset (from .iloc) -> reset its index so it aligns with the default-indexed y_sub below; the
+            # no-frame fallback (ndarray subset) wraps as before. (Wrapping a frame via pd.DataFrame(frame) would keep its non-default index and
+            # mis-align against y_sub.)
+            X_sub_df = X_sub.reset_index(drop=True) if hasattr(X_sub, "iloc") else pd.DataFrame(X_sub, columns=feature_names)
+            y_sub_s = pd.Series(np.asarray(y_sub), name="y")
             # Use a fresh sibling instance with classic method to avoid
             # recursion AND drop bootstrap-incompatible settings.
             sub = type(self)(
@@ -2497,7 +2500,7 @@ class MRMR(BaseEstimator, TransformerMixin):
                 getattr(self, "stability_selection_corr_threshold", 0.8)
             )
             sel, freq, info = cluster_stability_selection(
-                X_arr, y_arr, _inner_selector,
+                X_df, y_arr, _inner_selector,
                 n_bootstrap=int(getattr(self, "stability_n_bootstrap", 50)),
                 pi_threshold=float(
                     getattr(self, "stability_pi_threshold", 0.6)
@@ -2507,7 +2510,7 @@ class MRMR(BaseEstimator, TransformerMixin):
             )
         elif method == "complementary_pairs":
             sel, freq, info = complementary_pairs_stability(
-                X_arr, y_arr, _inner_selector,
+                X_df, y_arr, _inner_selector,
                 n_pairs=int(getattr(self, "stability_n_bootstrap", 50)),
                 pi_threshold=float(
                     getattr(self, "stability_pi_threshold", 0.6)
