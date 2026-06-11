@@ -468,3 +468,44 @@ fitted params, MI numbers) that drives the suite-level post-hoc wrapping via
 - `docs/composite_targets_tutorial.ipynb` — end-to-end notebook.
 - `docs/calibration_policy.md` — conformal / calibration policy.
 - `docs/MULTI_OUTPUT.md`, `docs/MULTI_TARGET_REGRESSION.md` — vector-target depth.
+
+## Advanced discovery: opt-in steps (default ON)
+
+Three discovery steps with measured value are now **enabled by default** (each
+compute-bounded by its caps; set the flag `False` for the fastest fit):
+
+- **Auto transform-chaining** (`auto_chain_discovery_enabled=True`): composes
+  `residual → tail-compression` chains and *appends to `specs_`* only the chains
+  that beat both single stages on held-out RMSE (empty when none win). The
+  winning chain is selected like any other spec, so you get it automatically.
+- **Region-adaptive transform selection** (`region_adaptive_enabled=True`): picks
+  the best transform per quantile region of the base; surfaces on
+  `discovery.region_adaptive_specs_` (an informational artefact — it does not
+  alter `specs_`).
+- **Interaction-base discovery** (`interaction_base_discovery_enabled=True`):
+  surfaces `a OP b` interaction bases whose synergy MI beats both marginals on
+  `discovery.interaction_bases_`.
+
+```python
+disc = CompositeTargetDiscovery(CompositeTargetDiscoveryConfig(enabled=True)).fit(df, "y", feats, train_idx)
+disc.specs_                     # includes any winning auto-chain spec
+disc.region_adaptive_specs_     # per-region best-transform artefacts
+disc.interaction_bases_         # interaction-base candidates + synergy scores
+```
+
+Other opt-in discovery signals: `transform_waic_validation_enabled` (WAIC/LOO
+ranking signal alongside MI-gain), `auto_base_structural_boost` (near-affine /
+low-card / monotone base hints, default ON). `suggest_discovery_config(df, y, feats)`
+picks sensible defaults from the data; `discover_and_wrap(...)` runs the whole
+flow and returns a fitted estimator + report. `discover_incremental(prior, new_df)`
+warm-starts on appended data.
+
+## Uncertainty quantification at a glance
+
+| Need | Use |
+|------|-----|
+| Constant-width band, any model | `calibrate_conformal` → `predict_interval` |
+| Adaptive width (heteroscedastic) | `calibrate_conformal_cqr` → `predict_interval_cqr` |
+| Per-group coverage | `calibrate_conformal_mondrian` → `predict_interval_mondrian` |
+| Covariate shift | `calibrate_conformal_weighted` → `predict_interval_weighted` |
+| Full quantiles | `CompositeQuantileEstimator.predict_quantile` |
