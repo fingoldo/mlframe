@@ -18,18 +18,19 @@ Conventions:
 
 from __future__ import annotations
 
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 
 CALIBRATION = "RdYlBu"
 CONFUSION = "RdBu_r"
-# 2026-05-09: was ``"viridis"``. Viridis maps high values to bright
-# yellow which (a) clashes visually with the tab10 categorical
-# palette used in adjacent bar / line panels of the same figure and
-# (b) makes white-text overlays on diagonal cells invisible. ``Blues``
-# is single-hue (consistent with tab10[0] for cross-panel coherence)
-# and its high-end stays dark enough for white text. ``auto_text_color``
-# below handles the contrast computation regardless of colormap.
+# CB-safe heatmap defaults. ``HEATMAP_CMAP`` (viridis) is perceptually uniform and colourblind-safe for
+# unsigned magnitude heatmaps (confusion / PSI drift / weak-segment / co-occurrence / per-label threshold /
+# 2-D PDP); ``DIVERGING_CMAP`` (RdBu_r) is the signed/centred-at-zero counterpart. ``auto_text_color`` picks
+# the cell-text colour by perceived luminance, so the bright high-end of viridis stays readable.
+HEATMAP_CMAP = "viridis"
+DIVERGING_CMAP = "RdBu_r"
+# Generic-heatmap placeholder kept as the spec-field default; renderers resolve it to ``HEATMAP_CMAP`` so an
+# un-overridden HeatmapPanelSpec renders CB-safe on both backends. Builders that want a specific map pass it.
 HEATMAP_GENERIC = "Blues"
 
 BAR_PRIMARY = "steelblue"
@@ -67,6 +68,17 @@ LINE_PALETTE: Tuple[str, ...] = (
 def line_color(idx: int) -> str:
     """Cyclic line color for index ``idx`` (per-class line plots)."""
     return LINE_PALETTE[idx % len(LINE_PALETTE)]
+
+
+def resolve_heatmap_cmap(colormap: Optional[str]) -> str:
+    """Resolve a HeatmapPanelSpec colormap to the CB-safe default when it was left at the generic placeholder.
+
+    An un-overridden ``HeatmapPanelSpec.colormap`` is ``HEATMAP_GENERIC``; mapping it to ``HEATMAP_CMAP`` here
+    means both renderers default heatmaps to perceptually-uniform viridis while an explicit override is honoured.
+    """
+    if colormap is None or colormap == HEATMAP_GENERIC:
+        return HEATMAP_CMAP
+    return colormap
 
 
 # Feature "friend graph" node classes (mlframe.feature_selection friend_graph):
@@ -123,8 +135,8 @@ def auto_text_color(value: float, colormap: str,
 
 
 __all__ = [
-    "CALIBRATION", "CONFUSION", "HEATMAP_GENERIC",
+    "CALIBRATION", "CONFUSION", "HEATMAP_GENERIC", "HEATMAP_CMAP", "DIVERGING_CMAP",
     "BAR_PRIMARY", "PERFECT_FIT_LINE", "NORMAL_OVERLAY", "ZERO_LINE",
-    "LINE_PALETTE", "line_color", "auto_text_color",
+    "LINE_PALETTE", "line_color", "auto_text_color", "resolve_heatmap_cmap",
     "FRIEND_GRAPH_NODE_COLORS", "FRIEND_GRAPH_EDGE_CMAP", "friend_graph_node_color",
 ]

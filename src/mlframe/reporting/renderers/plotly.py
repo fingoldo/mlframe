@@ -436,11 +436,13 @@ class PlotlyRenderer:
 
     def _heatmap(self, fig, p: HeatmapPanelSpec, row: int, col: int) -> None:
         import plotly.graph_objects as go
+        from mlframe.reporting.colors import resolve_heatmap_cmap
+        cmap_name = resolve_heatmap_cmap(p.colormap)
 
         fig.add_trace(
             go.Heatmap(z=p.matrix.tolist(),
                        x=list(p.col_labels), y=list(p.row_labels),
-                       colorscale=_mpl_to_plotly_cmap(p.colormap),
+                       colorscale=_mpl_to_plotly_cmap(cmap_name),
                        colorbar=dict(title=p.colorbar_label) if p.colorbar_label else None,
                        showscale=True),
             row=row, col=col,
@@ -458,7 +460,7 @@ class PlotlyRenderer:
             for i in range(mat.shape[0]):
                 for j in range(mat.shape[1]):
                     text_color = auto_text_color(
-                        float(mat[i, j]), p.colormap, vmin=vmin, vmax=vmax,
+                        float(mat[i, j]), cmap_name, vmin=vmin, vmax=vmax,
                     )
                     fig.add_annotation(
                         text=format(p.cell_text[i, j], p.text_format),

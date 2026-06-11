@@ -32,7 +32,7 @@ import numpy as np
 from mlframe.reporting.charts._layout import (
     figsize_for_grid, pack_panels, parse_panel_template,
 )
-from mlframe.reporting.colors import HEATMAP_GENERIC, line_color
+from mlframe.reporting.colors import HEATMAP_CMAP, line_color
 from mlframe.reporting.spec import (
     AnnotationPanelSpec, BarPanelSpec, FigureSpec, HeatmapPanelSpec,
     HistogramPanelSpec, LinePanelSpec, PanelSpec,
@@ -178,7 +178,7 @@ def _cooccurrence_panel(y_true, y_proba, labels) -> HeatmapPanelSpec:
         title="Label co-occurrence (true → predicted)",
         xlabel="Predicted label",
         ylabel="True label",
-        colormap=HEATMAP_GENERIC,
+        colormap=HEATMAP_CMAP,
         cell_text=matrix,
         text_format=".2f",
         colorbar_label="P(predicted | true)",
@@ -379,7 +379,7 @@ def _threshold_sweep_panel(y_true, y_proba, labels) -> PanelSpec:
         title="Per-label F1 threshold sweep (row label marks the F1-optimal t*)",
         xlabel="Threshold (predict positive when proba >= t)",
         ylabel="Label",
-        colormap=HEATMAP_GENERIC,
+        colormap=HEATMAP_CMAP,
         colorbar_label="F1",
     )
 

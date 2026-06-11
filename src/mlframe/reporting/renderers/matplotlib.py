@@ -320,7 +320,9 @@ class MatplotlibRenderer:
 
     def _heatmap(self, ax, p: HeatmapPanelSpec, fig) -> None:
         import matplotlib
-        cm = matplotlib.colormaps[p.colormap]
+        from mlframe.reporting.colors import resolve_heatmap_cmap
+        cmap_name = resolve_heatmap_cmap(p.colormap)
+        cm = matplotlib.colormaps[cmap_name]
         im = ax.imshow(p.matrix, cmap=cm, aspect="auto")
         ax.set_xticks(range(len(p.col_labels)))
         ax.set_xticklabels(p.col_labels, rotation=45, ha="right", fontsize=8)
@@ -339,7 +341,7 @@ class MatplotlibRenderer:
             for i in range(mat.shape[0]):
                 for j in range(mat.shape[1]):
                     text_color = auto_text_color(
-                        float(mat[i, j]), p.colormap, vmin=vmin, vmax=vmax,
+                        float(mat[i, j]), cmap_name, vmin=vmin, vmax=vmax,
                     )
                     ax.text(j, i, format(p.cell_text[i, j], p.text_format),
                             ha="center", va="center", fontsize=7,
