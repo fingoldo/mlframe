@@ -31,8 +31,20 @@ def test_init_fit_state_imported(parent_module, init_sibling):
 
 def test_rfecv_fit_bound_to_class(parent_module):
     from mlframe.feature_selection.wrappers._rfecv import RFECV
-    # fit is bound at parent bottom in _rfecv.py; identity is parent.fit IS RFECV.fit
-    assert RFECV.fit is parent_module.fit
+    # The split-out ``_rfecv_fit.fit`` is the function bound onto the class at the
+    # bottom of _rfecv.py. REFRAMED (2026-06-11): commit 6e9741cd interposed a thin
+    # ``_fit_with_rng_hygiene`` wrapper (``@functools.wraps(_fit_func)``) that
+    # snapshots/restores the caller's global RNG around the fit (a real prod fix --
+    # _rfecv_fit.fit's set_random_seed otherwise clobbers the process-global RNG).
+    # So the class binding is now the WRAPPER, not the raw module fit. The sensor's
+    # intent -- "the class's fit resolves to the carved-out module's fit" -- holds via
+    # ``functools.wraps``'s ``__wrapped__`` link. Accept either the direct binding
+    # (no wrapper) or the wrapped binding (wrapper -> _rfecv_fit.fit).
+    bound = RFECV.fit
+    assert bound is parent_module.fit or getattr(bound, "__wrapped__", None) is parent_module.fit, (
+        f"RFECV.fit must resolve to _rfecv_fit.fit (directly or via __wrapped__); "
+        f"got {bound!r} with __wrapped__={getattr(bound, '__wrapped__', None)!r}"
+    )
 
 
 def test_facade_loc_budget(parent_module):
