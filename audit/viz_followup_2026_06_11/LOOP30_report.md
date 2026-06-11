@@ -47,4 +47,4 @@ Render-pipeline wiring into the report assembly = FUTURE (keeps the report hot p
 `scripts/render_gallery.py`.
 
 ## Disposition: RESOLVED
-Commit hash: see below.
+Commit hash: 8058bc2d.
