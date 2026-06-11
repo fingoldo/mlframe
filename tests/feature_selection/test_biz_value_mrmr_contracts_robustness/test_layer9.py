@@ -1,4 +1,6 @@
-"""Layer 9 biz_value MRMR contracts: TIME-SERIES LAGGED FEATURES.
+"""Consolidated from test_biz_value_mrmr_layer9.py.
+
+Layer 9 biz_value MRMR contracts: TIME-SERIES LAGGED FEATURES.
 
 WHY THIS LAYER
 --------------

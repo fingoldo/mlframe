@@ -156,6 +156,9 @@ class TestLayer55_CumulativeRosterSize:
         # Every biz_value mrmr test file in the directory except this one.
         pattern = "test_biz_value_mrmr_*.py"
         all_files = sorted(p.name for p in tests_dir.glob(pattern))
+        # Layers consolidated into themed subpackages (test_biz_value_mrmr_<theme>/) still count:
+        # each themed submodule is a relocated prior-layer biz_value test module.
+        all_files += sorted(p.name for p in tests_dir.glob("test_biz_value_mrmr_*/test_*.py"))
         prior = [
             n for n in all_files
             if n != "test_biz_value_mrmr_layer55.py"

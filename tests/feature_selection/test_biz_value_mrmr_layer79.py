@@ -142,11 +142,17 @@ class TestPriorLayerDiscoverability:
 
     def test_layer_count_matches_expected_78(self):
         root = Path(__file__).parent
-        present = sorted(
+        present_set = {
             int(p.stem.replace("test_biz_value_mrmr_layer", ""))
             for p in root.glob("test_biz_value_mrmr_layer*.py")
             if p.stem.replace("test_biz_value_mrmr_layer", "").isdigit()
-        )
+        }
+        # Layers consolidated into themed subpackages keep a "...layerNN.py" provenance marker in
+        # each submodule docstring; count those relocated layers too.
+        for p in root.glob("test_biz_value_mrmr_*/test_*.py"):
+            for n in re.findall(r"layer(\d+)\.py", p.read_text(encoding="utf-8")):
+                present_set.add(int(n))
+        present = sorted(present_set)
         # L6..L78 inclusive = 73 layer files. L79 lives in *this* module
         # (counted only when run from outside, not by glob from inside).
         assert len(present) >= 73, (

@@ -1,4 +1,6 @@
-"""Layer 20 biz_value MRMR contracts: HIGH-DIMENSIONAL TEXT/EMBEDDING
+"""Consolidated from test_biz_value_mrmr_layer20.py.
+
+Layer 20 biz_value MRMR contracts: HIGH-DIMENSIONAL TEXT/EMBEDDING
 FEATURES + WIDE-MATRIX SCALE.
 
 WHY THIS LAYER

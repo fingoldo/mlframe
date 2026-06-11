@@ -1,4 +1,6 @@
-"""Layer 14 biz_value MRMR contracts: sklearn PIPELINE / CLONE / PICKLE /
+"""Consolidated from test_biz_value_mrmr_layer14.py.
+
+Layer 14 biz_value MRMR contracts: sklearn PIPELINE / CLONE / PICKLE /
 GridSearchCV / set_output / fit_transform / CV-stability.
 
 WHY THIS LAYER

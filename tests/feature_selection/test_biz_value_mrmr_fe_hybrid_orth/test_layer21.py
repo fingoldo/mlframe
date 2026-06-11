@@ -1,4 +1,6 @@
-"""Layer 21 biz_value: HYBRID ORTHOGONAL-POLYNOMIAL + MI-GREEDY FEATURE ENGINEERING.
+"""Consolidated from test_biz_value_mrmr_layer21.py.
+
+Layer 21 biz_value: HYBRID ORTHOGONAL-POLYNOMIAL + MI-GREEDY FEATURE ENGINEERING.
 
 Validates the new ``hybrid_orth_mi_fe`` pipeline introduced 2026-05-31:
 univariate orthogonal-polynomial basis expansion (Hermite for Gaussian,

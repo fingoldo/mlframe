@@ -1,4 +1,6 @@
-"""Layer 12 biz_value MRMR contracts: CONCEPT DRIFT + StabilityMRMR.
+"""Consolidated from test_biz_value_mrmr_layer12.py.
+
+Layer 12 biz_value MRMR contracts: CONCEPT DRIFT + StabilityMRMR.
 
 WHY THIS LAYER
 --------------

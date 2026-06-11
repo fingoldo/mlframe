@@ -1,4 +1,6 @@
-"""Layer 6 biz_value MRMR contracts: adversarial decoy resistance.
+"""Consolidated from test_biz_value_mrmr_layer6.py.
+
+Layer 6 biz_value MRMR contracts: adversarial decoy resistance.
 
 THE TRAP
 --------

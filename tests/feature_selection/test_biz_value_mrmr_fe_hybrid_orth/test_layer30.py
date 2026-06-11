@@ -1,4 +1,6 @@
-"""Layer 30 biz_value: HYBRID FE PERF OPTIMIZATION (dedup hotspot).
+"""Consolidated from test_biz_value_mrmr_layer30.py.
+
+Layer 30 biz_value: HYBRID FE PERF OPTIMIZATION (dedup hotspot).
 
 Layer 25 pinned the hybrid orthogonal-polynomial FE pipeline at p=200 to a 30s
 wall budget. cProfile against that fixture attributed ~5.0s out of ~4.8s wall

@@ -1,4 +1,6 @@
-"""Layer 18 biz_value MRMR contracts: DEGENERATE INPUT FEATURES.
+"""Consolidated from test_biz_value_mrmr_layer18.py.
+
+Layer 18 biz_value MRMR contracts: DEGENERATE INPUT FEATURES.
 
 WHY THIS LAYER
 --------------

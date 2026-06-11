@@ -1,4 +1,6 @@
-"""Layer 31 biz_value: HYBRID FE PERF — replace per-column sklearn MI loop
+"""Consolidated from test_biz_value_mrmr_layer31.py.
+
+Layer 31 biz_value: HYBRID FE PERF — replace per-column sklearn MI loop
 with numba prange batch dispatcher.
 
 Layer 30 collapsed the dedup hotspot from ~5s to ~50ms (100x). cProfile on

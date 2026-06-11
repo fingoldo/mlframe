@@ -1,4 +1,6 @@
-"""Layer 32 biz_value: SPLINE + FOURIER EXTRA-BASIS FE.
+"""Consolidated from test_biz_value_mrmr_layer32.py.
+
+Layer 32 biz_value: SPLINE + FOURIER EXTRA-BASIS FE.
 
 Validates the new B-spline + Fourier basis FE family introduced 2026-05-31
 as a complement to the orthogonal-polynomial path (Hermite / Legendre /

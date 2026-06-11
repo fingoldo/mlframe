@@ -50,6 +50,7 @@ NEVER xfail.
 """
 from __future__ import annotations
 
+import re
 import time
 import warnings
 from pathlib import Path
@@ -515,11 +516,17 @@ class TestRosterAtLeast82PriorLayers:
 
     def test_roster_holds_at_least_82_layer_modules(self):
         root = Path(__file__).parent
-        present = sorted(
+        present_set = {
             int(p.stem.replace("test_biz_value_mrmr_layer", ""))
             for p in root.glob("test_biz_value_mrmr_layer*.py")
             if p.stem.replace("test_biz_value_mrmr_layer", "").isdigit()
-        )
+        }
+        # Layers consolidated into themed subpackages keep a "...layerNN.py" provenance marker in
+        # each submodule docstring; count those relocated layers too.
+        for p in root.glob("test_biz_value_mrmr_*/test_*.py"):
+            for n in re.findall(r"layer(\d+)\.py", p.read_text(encoding="utf-8")):
+                present_set.add(int(n))
+        present = sorted(present_set)
         # L83 (this module) plus L6..L82 = 78 files; we tolerate any
         # numbering gap >= L6 as long as the top-end pin holds.
         assert len(present) >= 78, (
@@ -533,7 +540,12 @@ class TestRosterAtLeast82PriorLayers:
 
     def test_layer29_module_present_for_baseline_reference(self):
         root = Path(__file__).parent
-        assert (root / "test_biz_value_mrmr_layer29.py").exists(), (
+        flat = root / "test_biz_value_mrmr_layer29.py"
+        relocated = any(
+            "layer29.py" in p.read_text(encoding="utf-8")
+            for p in root.glob("test_biz_value_mrmr_*/test_*.py")
+        )
+        assert flat.exists() or relocated, (
             "Layer 29 module missing; Layer 83 expands L29's 5-dataset "
             "validation to 10 mechanisms and uses it as the reference."
         )

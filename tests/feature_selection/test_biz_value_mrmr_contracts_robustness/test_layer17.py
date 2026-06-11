@@ -1,4 +1,6 @@
-"""Layer 17 biz_value MRMR contracts: TARGET-LEAKAGE DETECTION.
+"""Consolidated from test_biz_value_mrmr_layer17.py.
+
+Layer 17 biz_value MRMR contracts: TARGET-LEAKAGE DETECTION.
 
 WHY THIS LAYER
 --------------

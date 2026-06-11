@@ -1,4 +1,6 @@
-"""Layer 23 biz_value: AUTO-WIRED HYBRID ORTHOGONAL-POLYNOMIAL FE INSIDE MRMR.fit().
+"""Consolidated from test_biz_value_mrmr_layer23.py.
+
+Layer 23 biz_value: AUTO-WIRED HYBRID ORTHOGONAL-POLYNOMIAL FE INSIDE MRMR.fit().
 
 Validates the 6 new ``fe_hybrid_orth_*`` MRMR constructor parameters and
 their integration with the screening + transform pipeline introduced

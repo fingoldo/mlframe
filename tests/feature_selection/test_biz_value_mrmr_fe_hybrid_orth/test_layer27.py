@@ -1,4 +1,6 @@
-"""Layer 27 biz_value: STRESS-TEST the FE pipelines under hostile production conditions.
+"""Consolidated from test_biz_value_mrmr_layer27.py.
+
+Layer 27 biz_value: STRESS-TEST the FE pipelines under hostile production conditions.
 
 Layers 21-26 pinned the happy-path contracts of the three live FE constructors:
   * Layer 21 / 22  -- orth-poly univariate / cross-basis (auto-wired in MRMR at L23).

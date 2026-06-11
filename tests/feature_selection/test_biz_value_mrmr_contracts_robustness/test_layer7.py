@@ -1,4 +1,6 @@
-"""Layer 7 biz_value MRMR contracts: MNAR (Missing Not At Random).
+"""Consolidated from test_biz_value_mrmr_layer7.py.
+
+Layer 7 biz_value MRMR contracts: MNAR (Missing Not At Random).
 
 WHY THIS LAYER
 --------------

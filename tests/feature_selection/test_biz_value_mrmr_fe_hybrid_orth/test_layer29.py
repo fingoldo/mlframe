@@ -1,4 +1,6 @@
-"""Layer 29 biz_value: VALIDATE HYBRID FE ON sklearn TOY DATASETS (real data).
+"""Consolidated from test_biz_value_mrmr_layer29.py.
+
+Layer 29 biz_value: VALIDATE HYBRID FE ON sklearn TOY DATASETS (real data).
 
 Layers 21-28 pinned hybrid orthogonal-polynomial FE on SYNTHETIC quadratic /
 XOR / saddle / cross-basis signals where the engineered ``He_n`` columns are

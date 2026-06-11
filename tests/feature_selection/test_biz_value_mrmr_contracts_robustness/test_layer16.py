@@ -1,4 +1,6 @@
-"""Layer 16 biz_value MRMR contracts: MULTICLASS + ORDINAL classification.
+"""Consolidated from test_biz_value_mrmr_layer16.py.
+
+Layer 16 biz_value MRMR contracts: MULTICLASS + ORDINAL classification.
 
 WHY THIS LAYER
 --------------

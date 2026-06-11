@@ -1,4 +1,6 @@
-"""Layer 15 biz_value MRMR contracts: CONTINUOUS REGRESSION targets.
+"""Consolidated from test_biz_value_mrmr_layer15.py.
+
+Layer 15 biz_value MRMR contracts: CONTINUOUS REGRESSION targets.
 
 WHY THIS LAYER
 --------------

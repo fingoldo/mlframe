@@ -1,4 +1,6 @@
-"""Layer 11 biz_value MRMR contracts: ANOMALY / OUTLIER RESISTANCE.
+"""Consolidated from test_biz_value_mrmr_layer11.py.
+
+Layer 11 biz_value MRMR contracts: ANOMALY / OUTLIER RESISTANCE.
 
 WHY THIS LAYER
 --------------

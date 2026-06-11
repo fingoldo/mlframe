@@ -260,6 +260,9 @@ class TestPriorLayerRoster:
     def test_at_least_100_biz_value_modules_on_disk(self):
         root = Path(__file__).parent
         mods = sorted(root.glob("test_biz_value_*.py"))
+        # Layers consolidated into themed subpackages (test_biz_value_mrmr_<theme>/) still count:
+        # each themed submodule is a relocated prior-layer biz_value test module.
+        mods += sorted(root.glob("test_biz_value_mrmr_*/test_*.py"))
         # Exclude this very module from the prior-layer count.
         prior = [p for p in mods if p.name != Path(__file__).name]
         assert len(prior) >= 100, (

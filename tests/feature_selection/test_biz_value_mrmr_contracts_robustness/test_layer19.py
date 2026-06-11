@@ -1,4 +1,6 @@
-"""Layer 19 biz_value MRMR contracts: TRAIN/TEST DISTRIBUTION-SHIFT.
+"""Consolidated from test_biz_value_mrmr_layer19.py.
+
+Layer 19 biz_value MRMR contracts: TRAIN/TEST DISTRIBUTION-SHIFT.
 
 WHY THIS LAYER
 --------------

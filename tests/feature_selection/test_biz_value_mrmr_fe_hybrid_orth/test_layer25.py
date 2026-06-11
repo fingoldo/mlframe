@@ -1,4 +1,6 @@
-"""Layer 25 biz_value: HYBRID FE SCALE + EDGE CASES + PERF GATES.
+"""Consolidated from test_biz_value_mrmr_layer25.py.
+
+Layer 25 biz_value: HYBRID FE SCALE + EDGE CASES + PERF GATES.
 
 Layers 21-24 pinned the hybrid orthogonal-polynomial FE pipeline
 (``fe_hybrid_orth_enable=True``) on small, clean, in-distribution

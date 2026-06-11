@@ -1,4 +1,6 @@
-"""Layer 8 biz_value MRMR contracts: polynomial-expansion explosion.
+"""Consolidated from test_biz_value_mrmr_layer8.py.
+
+Layer 8 biz_value MRMR contracts: polynomial-expansion explosion.
 
 WHY THIS LAYER
 --------------

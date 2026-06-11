@@ -1,4 +1,6 @@
-"""Layer 10 biz_value MRMR contracts: HIGH-CARDINALITY CATEGORICAL.
+"""Consolidated from test_biz_value_mrmr_layer10.py.
+
+Layer 10 biz_value MRMR contracts: HIGH-CARDINALITY CATEGORICAL.
 
 WHY THIS LAYER
 --------------

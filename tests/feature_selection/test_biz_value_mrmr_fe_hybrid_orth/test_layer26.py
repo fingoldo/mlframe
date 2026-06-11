@@ -1,4 +1,6 @@
-"""Layer 26 biz_value: GENERIC MI-GREEDY FE CONSTRUCTOR INSIDE MRMR.fit().
+"""Consolidated from test_biz_value_mrmr_layer26.py.
+
+Layer 26 biz_value: GENERIC MI-GREEDY FE CONSTRUCTOR INSIDE MRMR.fit().
 
 Validates the 5 new ``fe_mi_greedy_*`` MRMR constructor parameters and the
 new ``_mi_greedy_fe`` module (sibling to the Layer 23 orthogonal-polynomial

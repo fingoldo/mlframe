@@ -531,6 +531,13 @@ class TestLayerRoster:
             mobj = rx.search(os.path.basename(path))
             if mobj is not None:
                 layer_numbers.add(int(mobj.group(1)))
+        # Layers consolidated into themed subpackages (test_biz_value_mrmr_<theme>/) keep a
+        # "...layerNN.py" provenance marker in each submodule docstring; harvest those too so a
+        # relocated layer still counts as present.
+        for sub in glob.glob(os.path.join(this_dir, "test_biz_value_mrmr_*", "test_*.py")):
+            with open(sub, encoding="utf-8") as fh:
+                for n in re.findall(r"layer(\d+)\.py", fh.read()):
+                    layer_numbers.add(int(n))
         # Every integer in [6, 64] must have a dedicated layerN.py.
         expected_layer_numbers = set(range(6, 65))
         missing_layers = expected_layer_numbers - layer_numbers

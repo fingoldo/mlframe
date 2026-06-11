@@ -1,4 +1,6 @@
-"""Layer 28 biz_value: PUSH HYBRID FE THROUGH SKLEARN ECOSYSTEM EDGE CASES.
+"""Consolidated from test_biz_value_mrmr_layer28.py.
+
+Layer 28 biz_value: PUSH HYBRID FE THROUGH SKLEARN ECOSYSTEM EDGE CASES.
 
 Layers 21-23 pinned standalone + auto-wired hybrid orthogonal-polynomial
 FE; Layer 14 pinned MRMR's generic sklearn-integration surface (clone /

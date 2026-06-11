@@ -1,4 +1,6 @@
-"""Layer 24 biz_value: HYBRID FE LIFT ON PRODUCTION-SHAPED REAL-WORLD SCENARIOS.
+"""Consolidated from test_biz_value_mrmr_layer24.py.
+
+Layer 24 biz_value: HYBRID FE LIFT ON PRODUCTION-SHAPED REAL-WORLD SCENARIOS.
 
 Layers 21-23 pinned the API contract: hybrid orthogonal-polynomial FE
 auto-wires into ``MRMR.fit`` via ``fe_hybrid_orth_enable=True``, generates

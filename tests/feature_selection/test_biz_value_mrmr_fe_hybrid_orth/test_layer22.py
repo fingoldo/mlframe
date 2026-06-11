@@ -1,4 +1,6 @@
-"""Layer 22 biz_value: CROSS-BASIS PAIR ORTHOGONAL-POLYNOMIAL FE.
+"""Consolidated from test_biz_value_mrmr_layer22.py.
+
+Layer 22 biz_value: CROSS-BASIS PAIR ORTHOGONAL-POLYNOMIAL FE.
 
 Validates ``hybrid_orth_mi_pair_fe`` introduced 2026-05-31, which extends
 Layer 21's univariate-only pipeline with a pair-cross-basis stage:

@@ -1,4 +1,6 @@
-"""Layer 13 biz_value MRMR contracts: EXTREMELY IMBALANCED BINARY ``y``.
+"""Consolidated from test_biz_value_mrmr_layer13.py.
+
+Layer 13 biz_value MRMR contracts: EXTREMELY IMBALANCED BINARY ``y``.
 
 WHY THIS LAYER
 --------------
