@@ -13,6 +13,14 @@ Token catalogue (all 7):
 - ``CARDINALITY``  — distribution of #labels per row (pred vs true grouped bar)
 - ``JACCARD_DIST`` — per-row Jaccard score histogram
 - ``HAMMING_DIST`` — per-row Hamming distance histogram
+- ``THRESHOLD_SWEEP`` — per-label F1 across a shared threshold grid as a
+                     label x threshold heatmap; the F1-optimal threshold per
+                     label is marked in the row label. Picking one global 0.5
+                     cutoff across labels is wrong when labels have different
+                     base rates; this surfaces the per-label optimum at a
+                     glance. Vectorised via a per-label probability histogram +
+                     reverse-cumsum (no per-threshold recompute, no per-label
+                     argsort) over a shared <=200-point grid.
 """
 
 from __future__ import annotations
@@ -26,8 +34,8 @@ from mlframe.reporting.charts._layout import (
 )
 from mlframe.reporting.colors import HEATMAP_GENERIC, line_color
 from mlframe.reporting.spec import (
-    BarPanelSpec, FigureSpec, HeatmapPanelSpec, HistogramPanelSpec,
-    LinePanelSpec, PanelSpec,
+    AnnotationPanelSpec, BarPanelSpec, FigureSpec, HeatmapPanelSpec,
+    HistogramPanelSpec, LinePanelSpec, PanelSpec,
 )
 
 
@@ -241,6 +249,141 @@ def _hamming_dist_panel(y_true, y_proba, labels) -> HistogramPanelSpec:
     )
 
 
+# Shared threshold-grid resolution for the per-label sweep. 200 points reads as a smooth heatmap row and
+# is the cap the diagnostic guidance specifies; the optimum-finding is over this grid (not exhaustive).
+_SWEEP_N_THRESHOLDS: int = 200
+
+
+def _uniform_unit_grid(thresholds: np.ndarray) -> bool:
+    """True when ``thresholds`` is the uniform ``linspace(0, 1, T)`` grid the njit fast path assumes."""
+    T = thresholds.shape[0]
+    return bool(T >= 2 and thresholds[0] == 0.0 and thresholds[-1] == 1.0)
+
+
+def _grid_fire_index(pk: np.ndarray, thresholds: np.ndarray) -> np.ndarray:
+    """Per-probability count of grid thresholds it fires at (proba >= t), i.e. searchsorted-right.
+
+    For the uniform ``linspace(0, 1, T)`` grid the index is ``floor(p*(T-1)) + 1`` with a one-step
+    comparison correction for the floating-point rounding at exact grid points, making it BIT-IDENTICAL
+    to ``np.searchsorted(thresholds, pk, 'right')`` -- the index picks the F1-optimal threshold, so an
+    off-by-one column shift would silently move the chosen cutoff and is not acceptable. The hot sweep
+    uses the fused njit kernel below; this stays as the readable reference + the non-uniform fallback.
+    """
+    T = thresholds.shape[0]
+    if _uniform_unit_grid(thresholds):
+        cand = np.clip(np.floor(pk * (T - 1)).astype(np.int64), 0, T - 1)
+        cand -= (thresholds[cand] > pk).astype(np.int64)
+        cand = np.clip(cand, -1, T - 1)
+        up = (cand + 1 < T) & (thresholds[np.clip(cand + 1, 0, T - 1)] <= pk)
+        cand = cand + up.astype(np.int64)
+        return np.clip(cand + 1, 0, T)
+    return np.clip(np.searchsorted(thresholds, pk, side="right"), 0, T)
+
+
+def _f1_sweep_uniform_grid(yt: np.ndarray, P: np.ndarray, T: int):
+    """Fused single-pass (K, T) F1 sweep on the uniform unit grid via the njit kernel (or numpy fallback).
+
+    One typed O(N) pass per label accumulates the positive/negative grid-fire histograms with the exact
+    fire index inline (no length-n temporaries), then reverse-cumsums to TP(t)/FP(t). Bit-identical to the
+    ``_grid_fire_index`` reference by construction (same integer index). Falls back to the vectorised numpy
+    path when numba is unavailable.
+    """
+    try:
+        from ._threshold_sweep_kernel import f1_sweep_kernel
+    except Exception:
+        return None
+    return f1_sweep_kernel(
+        np.ascontiguousarray(yt, dtype=np.uint8),
+        np.ascontiguousarray(P, dtype=np.float64),
+        int(T),
+    )
+
+
+def _per_label_f1_sweep(y_true: np.ndarray, y_proba: np.ndarray, thresholds: np.ndarray) -> np.ndarray:
+    """(K, T) F1 matrix: F1 of each label at each shared threshold, fully vectorised.
+
+    For label k and threshold grid edge ``t``, the operating point predicts positive where
+    ``proba_k >= t``. TP(t) / FP(t) are decreasing step functions of t; rather than recompute per
+    threshold (or argsort per label), each label's positive- and negative-class probabilities are
+    histogrammed into the ``T`` grid bins ONCE and reverse-cumsummed, so TP(t) = #positives with proba in
+    [t, 1] and FP(t) = #negatives with proba in [t, 1] fall straight out. One O(N) pass per label, no sort.
+
+    On the standard uniform unit grid the per-label pass is a fused njit kernel (no length-n temporaries);
+    otherwise the readable numpy histogram path runs. ``thresholds`` is ascending in [0, 1]; F1 is reported
+    at each grid point (predict-positive when proba >= threshold), zero-division -> 0 (sklearn default).
+    """
+    yt = (np.asarray(y_true) == 1)
+    P = np.asarray(y_proba, dtype=np.float64)
+    K = P.shape[1]
+    T = thresholds.shape[0]
+    if _uniform_unit_grid(thresholds):
+        fast = _f1_sweep_uniform_grid(yt, P, T)
+        if fast is not None:
+            return fast
+    f1 = np.zeros((K, T), dtype=np.float64)
+    n_pos = yt.sum(axis=0).astype(np.float64)
+    for k in range(K):
+        pk = P[:, k]
+        pos_mask = yt[:, k]
+        # Index of the highest grid threshold each proba still fires at (proba >= t): bins 0..idx-1.
+        idx = _grid_fire_index(pk, thresholds)
+        pos_idx = idx[pos_mask]
+        neg_idx = idx[~pos_mask]
+        # bincount over 0..T then drop the final "fires nowhere" overflow bin, reverse-cumsum to get
+        # cumulative "fires at grid point >= j" counts.
+        pos_hist = np.bincount(pos_idx, minlength=T + 1)[1:].astype(np.float64)
+        neg_hist = np.bincount(neg_idx, minlength=T + 1)[1:].astype(np.float64)
+        tp = np.cumsum(pos_hist[::-1])[::-1]
+        fp = np.cumsum(neg_hist[::-1])[::-1]
+        pred_pos = tp + fp
+        with np.errstate(divide="ignore", invalid="ignore"):
+            denom = pred_pos + n_pos[k]
+            f1[k] = np.where(denom > 0, 2.0 * tp / denom, 0.0)
+    return f1
+
+
+def _threshold_sweep_panel(y_true, y_proba, labels) -> PanelSpec:
+    """Per-label F1 across a shared threshold grid as a label x threshold heatmap.
+
+    Each row is one label's F1 curve over the threshold grid; the cell color is the F1. The F1-optimal
+    threshold per label is folded into the row label (``name @t*=0.37``) so the operator reads off the
+    per-label cutoff directly -- a single global 0.5 is wrong when labels have different base rates. The
+    sweep is vectorised per label via a probability histogram + reverse-cumsum (no per-threshold recompute,
+    no per-label argsort); the grid is capped at ``_SWEEP_N_THRESHOLDS`` points.
+    """
+    P = np.asarray(y_proba, dtype=np.float64)
+    K = P.shape[1]
+    if K == 0:
+        return AnnotationPanelSpec(
+            text="Threshold sweep skipped: no labels",
+            title="Per-label F1 threshold sweep",
+        )
+    thresholds = np.linspace(0.0, 1.0, _SWEEP_N_THRESHOLDS)
+    f1 = _per_label_f1_sweep(y_true, P, thresholds)
+    best_col = np.argmax(f1, axis=1)
+    best_t = thresholds[best_col]
+    best_f1 = f1[np.arange(K), best_col]
+    row_labels = tuple(
+        f"{labels[k]} @t*={best_t[k]:.2f} (F1={best_f1[k]:.2f})" for k in range(K)
+    )
+    # Column labels: a sparse subset of the grid so the axis stays readable at 200 thresholds.
+    n_ticks = min(11, _SWEEP_N_THRESHOLDS)
+    tick_pos = np.linspace(0, _SWEEP_N_THRESHOLDS - 1, n_ticks).astype(int)
+    col_labels = tuple(
+        f"{thresholds[j]:.2f}" if j in set(tick_pos.tolist()) else "" for j in range(_SWEEP_N_THRESHOLDS)
+    )
+    return HeatmapPanelSpec(
+        matrix=f1,
+        row_labels=row_labels,
+        col_labels=col_labels,
+        title="Per-label F1 threshold sweep (row label marks the F1-optimal t*)",
+        xlabel="Threshold (predict positive when proba >= t)",
+        ylabel="Label",
+        colormap=HEATMAP_GENERIC,
+        colorbar_label="F1",
+    )
+
+
 # ----------------------------------------------------------------------------
 # Token registry + composer
 # ----------------------------------------------------------------------------
@@ -254,6 +397,7 @@ _TOKEN_BUILDERS: Dict[str, Callable] = {
     "CARDINALITY": _cardinality_panel,
     "JACCARD_DIST": _jaccard_dist_panel,
     "HAMMING_DIST": _hamming_dist_panel,
+    "THRESHOLD_SWEEP": _threshold_sweep_panel,
 }
 
 ALLOWED_MULTILABEL_PANEL_TOKENS = frozenset(_TOKEN_BUILDERS)

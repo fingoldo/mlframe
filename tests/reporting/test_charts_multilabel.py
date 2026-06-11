@@ -59,7 +59,7 @@ class TestAllowedTokens:
     def test_allowed_set_matches_documented(self):
         assert ALLOWED_MULTILABEL_PANEL_TOKENS == frozenset({
             "PR_F1", "ROC", "CALIB_GRID", "COOCCURRENCE",
-            "CARDINALITY", "JACCARD_DIST", "HAMMING_DIST",
+            "CARDINALITY", "JACCARD_DIST", "HAMMING_DIST", "THRESHOLD_SWEEP",
         })
 
 
@@ -217,3 +217,120 @@ class TestRender:
             render_and_save(spec, parse_plot_output_dsl("plotly[html]"),
                             str(tmp_path / "ml"))
         assert os.path.exists(tmp_path / "ml.html")
+
+
+# ----------------------------------------------------------------------------
+# THRESHOLD_SWEEP (per-label F1 x threshold heatmap)
+# ----------------------------------------------------------------------------
+
+from sklearn.metrics import f1_score  # noqa: E402
+
+from mlframe.reporting.charts.multilabel import (  # noqa: E402
+    _per_label_f1_sweep, _SWEEP_N_THRESHOLDS, _threshold_sweep_panel,
+)
+from mlframe.reporting.spec import AnnotationPanelSpec  # noqa: E402
+
+
+def _planted_optima(n: int, true_optima, seed: int):
+    """Build a K-label synthetic where label k's F1-optimal threshold sits near ``true_optima[k]``.
+
+    Positives get probabilities centred above their target threshold, negatives below it, with enough
+    separation that the F1-maximising cut lands near the planted value. Base rates vary per label so a
+    single global 0.5 cutoff is demonstrably wrong.
+    """
+    rng = np.random.default_rng(seed)
+    K = len(true_optima)
+    y = np.zeros((n, K), dtype=np.int8)
+    proba = np.zeros((n, K), dtype=np.float64)
+    base_rates = np.linspace(0.15, 0.55, K)
+    for k, (t_opt, br) in enumerate(zip(true_optima, base_rates)):
+        yk = (rng.random(n) < br).astype(np.int8)
+        y[:, k] = yk
+        # Positives concentrate above t_opt, negatives below -> the F1 optimum sits near t_opt.
+        pos = np.clip(t_opt + 0.18 + rng.normal(0, 0.08, n), 0.01, 0.99)
+        neg = np.clip(t_opt - 0.18 + rng.normal(0, 0.08, n), 0.01, 0.99)
+        proba[:, k] = np.where(yk == 1, pos, neg)
+    return y, proba, [f"label{k}" for k in range(K)]
+
+
+class TestThresholdSweep:
+    def test_token_registered(self):
+        assert "THRESHOLD_SWEEP" in ALLOWED_MULTILABEL_PANEL_TOKENS
+
+    def test_sweep_shape(self, synth_3label):
+        y, p, lbl = synth_3label
+        fig = compose_multilabel_figure(y, p, lbl, panels_template="THRESHOLD_SWEEP")
+        panel = [pp for row in fig.panels for pp in row if pp is not None][0]
+        assert isinstance(panel, HeatmapPanelSpec)
+        assert panel.matrix.shape == (3, _SWEEP_N_THRESHOLDS)
+        assert len(panel.row_labels) == 3
+        # Each row label carries the per-label optimal threshold marker.
+        assert all("@t*=" in rl for rl in panel.row_labels)
+
+    def test_sweep_f1_matches_sklearn(self):
+        rng = np.random.default_rng(0)
+        n, K = 2000, 3
+        y = rng.integers(0, 2, (n, K))
+        proba = np.clip(y * 0.5 + rng.random((n, K)) * 0.6, 0, 1)
+        thresholds = np.linspace(0.0, 1.0, _SWEEP_N_THRESHOLDS)
+        f1 = _per_label_f1_sweep(y, proba, thresholds)
+        for k in range(K):
+            for j in range(0, _SWEEP_N_THRESHOLDS, 17):
+                ref = f1_score(y[:, k], (proba[:, k] >= thresholds[j]).astype(int), zero_division=0)
+                assert abs(ref - f1[k, j]) < 1e-9
+
+    def test_sweep_empty_labels_annotates(self):
+        y = np.zeros((10, 0))
+        p = np.zeros((10, 0))
+        panel = _threshold_sweep_panel(y, p, [])
+        assert isinstance(panel, AnnotationPanelSpec)
+
+    def test_sweep_njit_kernel_matches_numpy_fallback(self):
+        """The njit fast path MUST be bit-identical to the numpy fallback (selection-altering index)."""
+        from mlframe.reporting.charts._threshold_sweep_kernel import (
+            _NUMBA_AVAILABLE, _f1_sweep_numba, _f1_sweep_numpy,
+        )
+        if not _NUMBA_AVAILABLE:
+            pytest.skip("numba unavailable; only the numpy fallback path exists")
+        rng = np.random.default_rng(7)
+        n, K = 5000, 4
+        y = rng.integers(0, 2, (n, K)).astype(np.uint8)
+        proba = np.clip(y * 0.5 + rng.random((n, K)) * 0.6, 0.0, 1.0)
+        kn = _f1_sweep_numba(np.ascontiguousarray(y), np.ascontiguousarray(proba), _SWEEP_N_THRESHOLDS)
+        kp = _f1_sweep_numpy(np.ascontiguousarray(y), np.ascontiguousarray(proba), _SWEEP_N_THRESHOLDS)
+        assert np.array_equal(kn, kp)
+
+    def test_biz_val_threshold_sweep_recovers_per_label_optimum(self):
+        """The F1-optimal threshold per label MUST be recovered near its planted value.
+
+        Three labels with planted optima at 0.30 / 0.50 / 0.70 and differing base rates. The sweep's
+        argmax-F1 threshold for each label must land within 0.10 of the planted optimum -- proving the
+        per-label cutoff (not a single global 0.5) is what the heatmap surfaces.
+        """
+        true_opt = [0.30, 0.50, 0.70]
+        y, proba, lbl = _planted_optima(8000, true_opt, seed=11)
+        thresholds = np.linspace(0.0, 1.0, _SWEEP_N_THRESHOLDS)
+        f1 = _per_label_f1_sweep(y, proba, thresholds)
+        recovered = thresholds[np.argmax(f1, axis=1)]
+        for k, t_opt in enumerate(true_opt):
+            assert abs(recovered[k] - t_opt) <= 0.10, (
+                f"label{k}: recovered t*={recovered[k]:.3f} not within 0.10 of planted {t_opt}"
+            )
+        # The recovered optima must genuinely differ -> a single global cutoff would be wrong.
+        assert recovered.max() - recovered.min() >= 0.25
+
+    def test_sweep_render_matplotlib(self, synth_3label, tmp_path):
+        y, p, lbl = synth_3label
+        spec = compose_multilabel_figure(y, p, lbl, panels_template="THRESHOLD_SWEEP")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            render_and_save(spec, parse_plot_output_dsl("matplotlib[png]"), str(tmp_path / "sweep"))
+        assert os.path.exists(tmp_path / "sweep.png")
+
+    def test_sweep_render_plotly(self, synth_3label, tmp_path):
+        y, p, lbl = synth_3label
+        spec = compose_multilabel_figure(y, p, lbl, panels_template="THRESHOLD_SWEEP")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            render_and_save(spec, parse_plot_output_dsl("plotly[html]"), str(tmp_path / "sweep"))
+        assert os.path.exists(tmp_path / "sweep.html")
