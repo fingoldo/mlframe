@@ -196,9 +196,15 @@ def _pr_f1_panel(y_true, y_proba, classes, *, y_pred=None) -> BarPanelSpec:
     from sklearn.metrics import precision_recall_fscore_support
 
     K = len(classes)
-    precision, recall, f1, _ = precision_recall_fscore_support(
-        y_true, _resolve_pred(y_pred, y_proba), labels=list(range(K)), average=None, zero_division=0,
-    )
+    yt = np.asarray(y_true)
+    yp = _resolve_pred(y_pred, y_proba)
+    # sklearn raises "Found empty input array" on n==0; an all-zeros P/R/F1 bar is the honest empty-data reading.
+    if yt.size == 0:
+        precision = recall = f1 = np.zeros(K, dtype=np.float64)
+    else:
+        precision, recall, f1, _ = precision_recall_fscore_support(
+            yt, yp, labels=list(range(K)), average=None, zero_division=0,
+        )
     return BarPanelSpec(
         categories=tuple(str(c) for c in classes),
         values=(np.asarray(precision), np.asarray(recall), np.asarray(f1)),
@@ -241,17 +247,25 @@ def _roc_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, show_auc_ci: 
     proba_s = y_proba[sub]
     for k in range(K):
         bin_y = (yt_s == k).astype(np.int8)
+        col = proba_s[:, k]
+        # roc_curve rejects non-finite scores; a single class or an all-NaN proba column has no defined curve.
+        if bin_y.sum() == 0 or bin_y.sum() == len(bin_y) or not np.isfinite(col).any():
+            interpolated.append(np.full_like(x_grid, np.nan))
+            labels.append(f"{classes[k]} (n/a)")
+            continue
+        finite = np.isfinite(col)
+        bin_y, col = bin_y[finite], col[finite]
         if bin_y.sum() == 0 or bin_y.sum() == len(bin_y):
             interpolated.append(np.full_like(x_grid, np.nan))
             labels.append(f"{classes[k]} (n/a)")
             continue
-        fpr, tpr, _ = roc_curve(bin_y, proba_s[:, k])
+        fpr, tpr, _ = roc_curve(bin_y, col)
         roc_auc = auc(fpr, tpr)
         interpolated.append(np.interp(x_grid, fpr, tpr))
         if show_auc_ci:
             # DeLong CI from the same stratified subsample (the displayed AUC's data); closed-form, no extra sort cost
             # beyond two midrank argsorts the panel would not otherwise pay.
-            _, lo, hi = delong_auc_ci(bin_y, proba_s[:, k])
+            _, lo, hi = delong_auc_ci(bin_y, col)
             labels.append(f"{classes[k]} (AUC={roc_auc:.3f} [{lo:.3f}, {hi:.3f}])")
         else:
             labels.append(f"{classes[k]} (AUC={roc_auc:.3f})")
@@ -295,14 +309,18 @@ def _pr_curves_panel(y_true, y_proba, classes, *, y_pred=None, sub=None) -> Line
     for k in range(K):
         bin_full = int((yt == k).sum())                              # full-n prevalence numerator
         bin_y = (yt_s == k).astype(np.int8)
-        if bin_full == 0:
+        col = proba_s[:, k]
+        finite = np.isfinite(col)
+        # No positives, or an all-NaN proba column -> no defined PR curve (sklearn rejects non-finite scores).
+        if bin_full == 0 or not finite.any() or int(bin_y[finite].sum()) == 0:
             interpolated.append(np.full_like(x_grid, np.nan))
             labels.append(f"{classes[k]} (n/a)")
             baselines.append(np.full_like(x_grid, np.nan))
             baseline_labels.append("")
             continue
-        ap = average_precision_score(bin_y, proba_s[:, k])           # stratified-subsample AP
-        precision, recall, _ = precision_recall_curve(bin_y, proba_s[:, k])
+        bin_yf, colf = bin_y[finite], col[finite]
+        ap = average_precision_score(bin_yf, colf)                   # stratified-subsample AP
+        precision, recall, _ = precision_recall_curve(bin_yf, colf)
         order = np.argsort(recall)
         interpolated.append(np.interp(x_grid, recall[order], precision[order]))
         labels.append(f"{classes[k]} (AP={ap:.3f})")

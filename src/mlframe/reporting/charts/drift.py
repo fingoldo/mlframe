@@ -414,6 +414,9 @@ def _coerce_x(v: Any, pd: Any) -> float:
 # long before 200k rows/side; sampling caps the fit cost at large n without changing the verdict.
 ADV_MAX_ROWS_PER_SIDE: int = 200_000
 ADV_TOP_FEATURES: int = 20
+# Minimum rows per side for the adversarial CV: a stratified 2-fold needs >= 2 of each class per fold, so fewer
+# rows per side makes cross_val_predict raise on a 0-sample fold.
+MIN_ADV_ROWS_PER_SIDE: int = 4
 
 
 def _subsample_rows(n: int, cap: int, seed: int) -> np.ndarray:
@@ -502,6 +505,20 @@ def adversarial_validation(
     Returns a 2-panel FigureSpec: left a ROC LinePanelSpec (train-vs-test, plus train-vs-val when supplied, + the
     chance diagonal, AUCs in the title), right a BarPanelSpec of the top drifting features (train-vs-test importances).
     """
+    # Stratified CV needs >= MIN_ADV_ROWS_PER_SIDE rows per side and >= 1 feature column; an empty / tiny side makes
+    # cross_val_predict raise on a 0-sample fold. Surface an honest placeholder instead of crashing the report.
+    cols_a, _ = _frame_columns(train_frame, feature_names)
+    cols_b, _ = _frame_columns(test_frame, feature_names)
+    na = cols_a[0].shape[0] if cols_a else 0
+    nb = cols_b[0].shape[0] if cols_b else 0
+    if not cols_a or not cols_b or min(na, nb) < MIN_ADV_ROWS_PER_SIDE:
+        ann = AnnotationPanelSpec(
+            text=f"Adversarial validation skipped: needs >= {MIN_ADV_ROWS_PER_SIDE} rows/side and >= 1 feature "
+                 f"(got train={na}, test={nb}, n_features={len(cols_a)})",
+            title="Adversarial validation",
+        )
+        return FigureSpec(suptitle="", panels=((ann,),), figsize=figsize)
+
     auc_tt, fpr_tt, tpr_tt, imp_tt, names = adversarial_auc(
         train_frame, test_frame, feature_names=feature_names,
         max_rows_per_side=max_rows_per_side, n_splits=n_splits, seed=seed, lgbm_params=lgbm_params,

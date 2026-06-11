@@ -26,6 +26,22 @@ logger = logging.getLogger(__name__)
 _SCATTER_MAX_POINTS = 50_000
 # Pre-bin a raw histogram above this n with np.histogram + ax.bar instead of letting ax.hist re-scan full n.
 _HIST_PREBIN_THRESHOLD = 50_000
+# Above this many heatmap cells the per-cell text turns to unreadable soup; skip it (also keeps the plotly
+# per-annotation O(cells) loop from stalling on a degenerate huge-K grid).
+_HEATMAP_CELL_TEXT_MAX = 400
+
+
+def _finite_range(mat):
+    """``(vmin, vmax)`` over finite entries, or ``None`` when the matrix is empty / all non-finite.
+
+    Heatmap cell-text color resolution needs a real value range; ``np.nanmin`` raises on an empty array and
+    returns NaN on an all-NaN matrix, so callers gate the per-cell text loop on a non-None result.
+    """
+    a = np.asarray(mat, dtype=float)
+    finite = a[np.isfinite(a)]
+    if finite.size == 0:
+        return None
+    return float(finite.min()), float(finite.max())
 
 
 def _err_to_mpl(err):
@@ -293,8 +309,15 @@ class MatplotlibRenderer:
                 overlay_x_lo = float(bin_centers[0] - width / 2.0)
                 overlay_x_hi = float(bin_centers[-1] + width / 2.0)
         else:
-            ax.hist(p.values, bins=p.bins, alpha=0.6, color=p.color,
-                    edgecolor="white", linewidth=0.4, density=p.density)
+            # ax.hist autodetects its range from the data and raises on empty / all-non-finite input; drop
+            # non-finite first and fall back to an empty axes when nothing is left to bin.
+            vals = np.asarray(p.values, dtype=float).ravel()
+            vals = vals[np.isfinite(vals)]
+            if vals.size:
+                ax.hist(vals, bins=p.bins, alpha=0.6, color=p.color,
+                        edgecolor="white", linewidth=0.4, density=p.density)
+            else:
+                ax.text(0.5, 0.5, "no finite values", ha="center", va="center", transform=ax.transAxes, fontsize=9)
 
         if p.overlay_normal is not None:
             mu, sigma = p.overlay_normal
@@ -328,7 +351,8 @@ class MatplotlibRenderer:
         ax.set_xticklabels(p.col_labels, rotation=45, ha="right", fontsize=8)
         ax.set_yticks(range(len(p.row_labels)))
         ax.set_yticklabels(p.row_labels, fontsize=8)
-        if p.cell_text is not None:
+        rng = _finite_range(p.matrix)
+        if p.cell_text is not None and rng is not None and p.matrix.size <= _HEATMAP_CELL_TEXT_MAX:
             from mlframe.reporting.colors import auto_text_color
             # Compute global vmin / vmax so each cell's text color reflects
             # its position in the actual color range — naive
@@ -336,13 +360,11 @@ class MatplotlibRenderer:
             # [0.3, 0.85] (all values map to the high-luminance end of
             # the colormap and white text becomes invisible).
             mat = p.matrix
-            vmin = float(np.nanmin(mat))
-            vmax = float(np.nanmax(mat))
+            vmin, vmax = rng
             for i in range(mat.shape[0]):
                 for j in range(mat.shape[1]):
-                    text_color = auto_text_color(
-                        float(mat[i, j]), cmap_name, vmin=vmin, vmax=vmax,
-                    )
+                    cell = float(mat[i, j])
+                    text_color = auto_text_color(cell if np.isfinite(cell) else vmin, cmap_name, vmin=vmin, vmax=vmax)
                     ax.text(j, i, format(p.cell_text[i, j], p.text_format),
                             ha="center", va="center", fontsize=7,
                             color=text_color)

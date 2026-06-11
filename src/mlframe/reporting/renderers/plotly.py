@@ -50,6 +50,18 @@ _SCATTER_MAX_POINTS = 50_000
 # WebGL traces render large scatters orders of magnitude faster than SVG-mode go.Scatter.
 _SCATTER_WEBGL_THRESHOLD = 10_000
 _SCATTER_DOWNSAMPLE_WARNED = False
+# Above this many heatmap cells, per-cell text is unreadable soup AND the plotly add_annotation loop (one layout
+# copy per cell) stalls; skip the text past it (matches the matplotlib renderer cap).
+_HEATMAP_CELL_TEXT_MAX = 400
+
+
+def _finite_range(mat):
+    """``(vmin, vmax)`` over finite entries, or ``None`` when the matrix is empty / all non-finite."""
+    a = np.asarray(mat, dtype=float)
+    finite = a[np.isfinite(a)]
+    if finite.size == 0:
+        return None
+    return float(finite.min()), float(finite.max())
 
 
 def _warn_scatter_downsample(n: int) -> None:
@@ -452,16 +464,17 @@ class PlotlyRenderer:
         # one global font color and produces white-on-yellow
         # invisibility on viridis high-end / RdYlBu high-end). Per-cell
         # ``auto_text_color`` flips by perceived luminance.
-        if p.cell_text is not None:
+        # Skip per-cell text on an empty / all-non-finite matrix (nanmin raises / poisons the color scale) or a
+        # huge grid where the per-annotation O(cells) plotly layout copy stalls and the text is unreadable soup anyway.
+        rng = _finite_range(p.matrix)
+        if p.cell_text is not None and rng is not None and p.matrix.size <= _HEATMAP_CELL_TEXT_MAX:
             from mlframe.reporting.colors import auto_text_color
             mat = p.matrix
-            vmin = float(np.nanmin(mat))
-            vmax = float(np.nanmax(mat))
+            vmin, vmax = rng
             for i in range(mat.shape[0]):
                 for j in range(mat.shape[1]):
-                    text_color = auto_text_color(
-                        float(mat[i, j]), cmap_name, vmin=vmin, vmax=vmax,
-                    )
+                    cell = float(mat[i, j])
+                    text_color = auto_text_color(cell if np.isfinite(cell) else vmin, cmap_name, vmin=vmin, vmax=vmax)
                     fig.add_annotation(
                         text=format(p.cell_text[i, j], p.text_format),
                         x=p.col_labels[j], y=p.row_labels[i],

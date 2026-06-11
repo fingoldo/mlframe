@@ -96,11 +96,19 @@ def _roc_panel(y_true, y_proba, labels) -> LinePanelSpec:
     series_labels: List[str] = []
     for k in range(K):
         bin_y = y_true[:, k].astype(np.int8)
-        if bin_y.sum() == 0 or bin_y.sum() == len(bin_y):
+        col = y_proba[:, k]
+        finite = np.isfinite(col)
+        # roc_curve rejects non-finite scores; a single class or all-NaN proba column has no defined curve.
+        if bin_y.sum() == 0 or bin_y.sum() == len(bin_y) or not finite.any():
             series.append(np.full_like(x_grid, np.nan))
             series_labels.append(f"{labels[k]} (n/a)")
             continue
-        fpr, tpr, _ = roc_curve(bin_y, y_proba[:, k])
+        bin_yf, colf = bin_y[finite], col[finite]
+        if bin_yf.sum() == 0 or bin_yf.sum() == len(bin_yf):
+            series.append(np.full_like(x_grid, np.nan))
+            series_labels.append(f"{labels[k]} (n/a)")
+            continue
+        fpr, tpr, _ = roc_curve(bin_yf, colf)
         roc_auc = auc(fpr, tpr)
         series.append(np.interp(x_grid, fpr, tpr))
         series_labels.append(f"{labels[k]} (AUC={roc_auc:.3f})")

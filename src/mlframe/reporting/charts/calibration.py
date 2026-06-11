@@ -19,7 +19,7 @@ import numpy as np
 
 from mlframe.reporting.colors import HEATMAP_CMAP
 from mlframe.reporting.spec import (
-    FigureSpec, HistogramPanelSpec, LinePanelSpec, ScatterPanelSpec,
+    AnnotationPanelSpec, FigureSpec, HistogramPanelSpec, LinePanelSpec, ScatterPanelSpec,
 )
 
 # Cap on per-point bubble area so a single dominant bin can't occlude its
@@ -137,6 +137,14 @@ def build_calibration_spec(
     freqs_predicted = np.asarray(freqs_predicted, dtype=np.float64)
     freqs_true = np.asarray(freqs_true, dtype=np.float64)
     hits = np.asarray(hits)
+
+    # No bins, or no bin with any finite (pred, obs) point: the scatter would set NaN axis limits and the
+    # bin-population histogram would reduce over an empty array. Emit an honest placeholder instead.
+    finite_bin = np.isfinite(freqs_predicted) & np.isfinite(freqs_true)
+    if freqs_predicted.size == 0 or not finite_bin.any():
+        ann = AnnotationPanelSpec(text=(plot_title + "\n" if plot_title else "") + "calibration unavailable: no finite bins",
+                                  title=plot_title or "Calibration")
+        return FigureSpec(suptitle="", panels=((ann,),), figsize=figsize)
 
     if len(freqs_predicted) > 1:
         bar_width = float(np.mean(np.diff(np.sort(freqs_predicted))))

@@ -85,6 +85,10 @@ def _metric_panel(
         n_iter = max(n_iter, splits["val"].shape[0])
 
     x = np.arange(n_iter, dtype=np.float64)
+    # Shared x requires every series to span n_iter; a booster that early-stops one eval set leaves train/val ragged.
+    # Right-pad the short series with NaN (renders as a gap) so the shared-x panel stays valid instead of crashing.
+    if any(s.shape[0] != n_iter for s in series):
+        series = [s if s.shape[0] == n_iter else np.concatenate([s, np.full(n_iter - s.shape[0], np.nan)]) for s in series]
     vlines = None
     vspans = None
     title = f"{metric} vs iteration"

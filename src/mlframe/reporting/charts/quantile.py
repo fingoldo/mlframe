@@ -394,6 +394,17 @@ def _quantile_reliability_panel(y_true, preds_NK, alphas) -> PanelSpec:
     K = a_arr.shape[0]
     n = y.shape[0]
 
+    # Isotonic + np.quantile both need >=1 finite (y, q) row; empty or all-NaN inputs index OOB / raise in sklearn.
+    row_ok = np.isfinite(y) & np.all(np.isfinite(P), axis=1) if n else np.zeros(0, dtype=bool)
+    if int(row_ok.sum()) < 2:
+        return AnnotationPanelSpec(
+            text="Quantile reliability skipped: needs >= 2 finite (y, q) rows",
+            title="Quantile reliability (isotonic-recalibrated coverage vs tau)",
+        )
+    y = y[row_ok]
+    P = P[row_ok]
+    n = y.shape[0]
+
     if n > _ISOTONIC_FIT_CAP:
         rng = np.random.default_rng(0)
         sub = rng.choice(n, size=_ISOTONIC_FIT_CAP, replace=False)
@@ -452,13 +463,20 @@ def _pinball_decomp_panel(y_true, preds_NK, alphas) -> PanelSpec:
     K = a_arr.shape[0]
     cats = tuple(f"{a_arr[k]:g}" for k in range(K))
 
-    md = _model_diagnostics_decompose()
-    if md is None:
+    # Both the plain pinball and the CORP isotonic fit need finite (y, q) rows; non-finite raises in sklearn / NaN-poisons.
+    row_ok = np.isfinite(y) & np.all(np.isfinite(P), axis=1) if y.size else np.zeros(0, dtype=bool)
+    y = y[row_ok]
+    P = P[row_ok]
+    n = y.shape[0]
+
+    def _plain_pinball_bar() -> PanelSpec:
+        if n == 0:
+            return AnnotationPanelSpec(
+                text="Pinball decomposition skipped: no finite (y, q) rows",
+                title="Pinball by tau",
+            )
         from mlframe.metrics.quantile import pinball_loss
-        losses = np.array(
-            [pinball_loss(y, P[:, k], float(a_arr[k])) for k in range(K)],
-            dtype=np.float64,
-        )
+        losses = np.array([pinball_loss(y, P[:, k], float(a_arr[k])) for k in range(K)], dtype=np.float64)
         return BarPanelSpec(
             categories=cats,
             values=losses,
@@ -468,11 +486,16 @@ def _pinball_decomp_panel(y_true, preds_NK, alphas) -> PanelSpec:
             colors=("crimson",),
         )
 
+    md = _model_diagnostics_decompose()
+    # CORP decompose is an isotonic recalibration fit needing >=2 rows; on degenerate input it raises (out-of-range
+    # recalibration) -- fall back to the plain pinball bar rather than crash the whole figure.
+    if md is None or n < 2:
+        return _plain_pinball_bar()
+
     decompose, PinballLoss = md
     # The CORP decompose is an isotonic recalibration fit with a heavy constant (~6 s/tau at 100k);
     # uncapped it costs ~243 s at n=1e6. Subsample to _CORP_FIT_CAP -- the decomposition is a
     # diagnostic estimate, faithful within ~1% on a uniform draw, and this keeps it sub-second/tau.
-    n = y.shape[0]
     if n > _CORP_FIT_CAP:
         rng = np.random.default_rng(0)
         sub = rng.choice(n, size=_CORP_FIT_CAP, replace=False)
@@ -481,11 +504,15 @@ def _pinball_decomp_panel(y_true, preds_NK, alphas) -> PanelSpec:
     miscal = np.empty(K, dtype=np.float64)
     discr = np.empty(K, dtype=np.float64)
     uncert = np.empty(K, dtype=np.float64)
-    for k in range(K):
-        df = decompose(y, P[:, k], scoring_function=PinballLoss(level=float(a_arr[k])))
-        miscal[k] = float(df["miscalibration"][0])
-        discr[k] = float(df["discrimination"][0])
-        uncert[k] = float(df["uncertainty"][0])
+    try:
+        for k in range(K):
+            df = decompose(y, P[:, k], scoring_function=PinballLoss(level=float(a_arr[k])))
+            miscal[k] = float(df["miscalibration"][0])
+            discr[k] = float(df["discrimination"][0])
+            uncert[k] = float(df["uncertainty"][0])
+    except (ValueError, IndexError):
+        # Degenerate predictions push isotonic recalibration outside the scoring range; plain pinball still informs.
+        return _plain_pinball_bar()
     return BarPanelSpec(
         categories=cats,
         values=(miscal, discr, uncert),

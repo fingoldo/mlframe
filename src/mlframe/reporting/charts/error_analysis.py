@@ -37,8 +37,8 @@ from mlframe.reporting.charts._layout import (
 )
 from mlframe.reporting.charts._sampling import subsample_for_density
 from mlframe.reporting.spec import (
-    BarPanelSpec, FigureSpec, HeatmapPanelSpec, HistogramPanelSpec,
-    LinePanelSpec, PanelSpec,
+    AnnotationPanelSpec, BarPanelSpec, FigureSpec, HeatmapPanelSpec,
+    HistogramPanelSpec, LinePanelSpec, PanelSpec,
 )
 
 # A 1-2-feature weak-segment grid: more cells than this fragments support per cell into noise (FreaAI keeps slices coarse so findings stay actionable).
@@ -536,6 +536,10 @@ def error_bias_per_feature(
         {g: rows[g] for g in ("OVER", "UNDER", "MAJORITY")},
         index=feat_index,
     )
+    if not panels:
+        # No usable feature (all-NaN columns, zero features, or none selected); an empty grid would crash the renderer.
+        ann = AnnotationPanelSpec(text=f"{title}\n(no usable feature columns)", title=title)
+        return ErrorBiasResult(FigureSpec(suptitle=title, panels=((ann,),), figsize=(8.0, 3.0)), group_means, masks)
     grid = pack_panels(panels, max_cols=2)
     n_rows = len(grid)
     fig = FigureSpec(
