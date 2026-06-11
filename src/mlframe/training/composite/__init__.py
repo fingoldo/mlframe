@@ -263,6 +263,9 @@ from ..configs import CompositeTargetDiscoveryConfig  # noqa: E402,F401
 from .classification import CompositeClassificationEstimator  # noqa: E402,F401
 from .conformal import conformal_quantile  # noqa: E402,F401
 
+# GLM-family composite (log-link Poisson / Gamma / Tweedie residual over a base mean).
+from .glm import CompositeGLMEstimator  # noqa: E402,F401
+
 # Curated public surface for ``from ...composite import *`` -- excludes the
 # submodule names + stdlib leakage (logging / annotations) that bare star-import
 # would otherwise pull in. Direct ``from ...composite import <submodule>`` and
@@ -271,6 +274,7 @@ from .conformal import conformal_quantile  # noqa: E402,F401
 __all__ = [
     # estimators / discovery / ensemble
     "CompositeTargetEstimator", "CompositeClassificationEstimator",
+    "CompositeGLMEstimator",
     "CompositeTargetDiscovery", "CompositeTargetDiscoveryConfig",
     "CompositeCrossTargetEnsemble", "CompositeSpec", "CompositeProvenance",
     "DiscoveryCache",
