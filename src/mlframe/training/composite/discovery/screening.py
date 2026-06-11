@@ -358,6 +358,38 @@ def _prebin_feature_columns(
     return binned
 
 
+def _prebin_feature_columns_cached(
+    feature_matrix: np.ndarray, *, nbins: int, use_cache: bool = True,
+) -> np.ndarray:
+    """Cache-consulting wrapper around :func:`_prebin_feature_columns`.
+
+    The bin codes are deterministic on ``(feature_matrix VALUES + dtype + shape, nbins)`` -- a
+    second discovery on the SAME screen sample + nbins but a different config recomputes the
+    IDENTICAL codes. This wrapper keys an in-process :class:`PrebinCache` by a content hash
+    (``prebin_matrix_signature``) so the second run skips the O(n*F*log n) per-column quantile
+    binning and returns BIT-IDENTICAL codes from cache.
+
+    100GB-frame rule: ``feature_matrix`` here is the SMALL screen sample (``mi_sample_n`` rows),
+    not the raw frame; the cached value is the int16/int32 code matrix (half/quarter the float
+    bytes) and is size-gated inside ``PrebinCache.put`` so a pathological sample is never pinned.
+
+    ``use_cache=False`` bypasses lookup AND store (force-recompute path for benches / tests that
+    measure the uncached cost or assert bit-identity against a fresh recompute).
+    """
+    if not use_cache:
+        return _prebin_feature_columns(feature_matrix, nbins=nbins)
+    from ..cache import get_prebin_cache, prebin_matrix_signature
+
+    cache = get_prebin_cache()
+    sig = prebin_matrix_signature(feature_matrix, nbins)
+    cached = cache.get(sig)
+    if cached is not None:
+        return cached
+    codes = _prebin_feature_columns(feature_matrix, nbins=nbins)
+    cache.put(sig, codes)
+    return codes
+
+
 def _mi_per_feature_prebinned(
     feature_binned: np.ndarray,
     target: np.ndarray,

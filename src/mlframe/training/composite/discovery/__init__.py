@@ -67,6 +67,7 @@ from .screening import (
     _mi_to_target,
     _mi_to_target_prebinned,
     _prebin_feature_columns,
+    _prebin_feature_columns_cached,
     _per_bin_rmse,
     _residualise,
     _safe_abs_corr_all,

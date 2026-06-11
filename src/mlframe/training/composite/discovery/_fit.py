@@ -8,6 +8,7 @@ sites that invoke ``disc.fit(...)`` continue to work unchanged.
 from __future__ import annotations
 
 import logging
+import os
 import threading
 from timeit import default_timer as timer
 from typing import Any, Sequence
@@ -24,6 +25,7 @@ from .screening import (
     _mi_to_target,
     _mi_to_target_prebinned,
     _prebin_feature_columns,
+    _prebin_feature_columns_cached,
     _sample_indices,
 )
 from ..transforms import (
@@ -399,9 +401,16 @@ def fit(
     )
     if _ram_profiler_on:
         _phase_ram_report(_ram_state, "build_full_x_matrix_done")
+    # Cache-consulting prebin: codes are deterministic on (matrix bytes, nbins), so a re-discovery
+    # on the SAME screen sample + nbins with a different config (transforms / rerank / re-enabled
+    # bin estimator) reuses the bit-identical codes instead of recomputing the per-column quantile
+    # binning. Opt out via MLFRAME_PREBIN_CACHE=0 (force fresh recompute, no store).
+    _prebin_use_cache = os.environ.get("MLFRAME_PREBIN_CACHE", "1").strip().lower() not in (
+        "0", "false", "no", "off",
+    )
     _full_x_prebinned = (
-        _prebin_feature_columns(
-            _full_x_matrix, nbins=int(self.config.mi_nbins),
+        _prebin_feature_columns_cached(
+            _full_x_matrix, nbins=int(self.config.mi_nbins), use_cache=_prebin_use_cache,
         )
         if self.config.mi_estimator == "bin" else None
     )

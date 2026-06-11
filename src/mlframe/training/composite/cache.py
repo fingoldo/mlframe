@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 from typing import Any, Dict, List, NewType, Optional, Sequence
 
 # The disk-backed ``DiscoveryCache`` store (which owns the pickle / filelock / tempfile / glob
@@ -552,6 +553,149 @@ def make_discovery_cache_key(
     h.update(b"|")
     h.update(str(int(_legacy_random_state_sentinel)).encode("utf-8"))
     return h.hexdigest()
+
+
+# ----------------------------------------------------------------------------------------------
+# Prebinned-feature-matrix cache (in-process, content-hash-keyed).
+#
+# ``_prebin_feature_columns`` (screening.py) turns the SMALL screen-sized float feature matrix
+# into an (n_sample, n_feat) int16/int32 code matrix via per-column ``np.quantile`` +
+# ``np.searchsorted`` -- O(n*F*log n). The codes are a DETERMINISTIC function of the binned bytes
+# (the exact sampled rows) and ``nbins`` only: NOTHING else in the discovery config touches them.
+# So a second discovery on the SAME data + sample + nbins but a DIFFERENT config (different
+# ``mi_estimator`` re-enabling bin, different transform set, different rerank knobs) recomputes
+# the identical codes. This cache stores those codes keyed by a content hash of the float matrix
+# bytes + nbins so the second run skips the quantile binning and reuses bit-identical codes.
+#
+# 100GB-frame rule: the matrix that gets binned is ALREADY the screen sample (``mi_sample_n``
+# rows, typ. 20-100k), never the raw 100GB frame -- discovery builds it once via
+# ``_build_feature_matrix(df, features, train_idx_screen)``. The cached value is the int16/int32
+# code matrix (HALF/QUARTER the float bytes). We STILL gate on byte size: a code matrix above
+# ``_PREBIN_CACHE_MAX_BYTES`` (default 512 MiB, override via env) is NOT stored, so a pathological
+# huge screen sample never pins hundreds of MB in the per-process cache. The signature itself is
+# computed over the float matrix bytes (cheap blake2b over a contiguous buffer), never a frame copy.
+# ----------------------------------------------------------------------------------------------
+
+_PREBIN_CACHE_MAX_BYTES_DEFAULT: int = 512 * 1024 * 1024  # 512 MiB per code-matrix ceiling.
+_PREBIN_CACHE_MAX_ENTRIES_DEFAULT: int = 32  # FIFO/LRU cap on stored code matrices.
+
+
+def _prebin_cache_max_bytes() -> int:
+    """Per-entry byte ceiling for the prebin code cache (env-overridable)."""
+    raw = os.environ.get("MLFRAME_PREBIN_CACHE_MAX_BYTES")
+    try:
+        return int(raw) if raw else _PREBIN_CACHE_MAX_BYTES_DEFAULT
+    except (TypeError, ValueError):
+        return _PREBIN_CACHE_MAX_BYTES_DEFAULT
+
+
+def prebin_matrix_signature(feature_matrix: np.ndarray, nbins: int) -> str:
+    """Content-hash key for the (feature_matrix, nbins) -> bin-codes mapping.
+
+    The bin codes are a deterministic function of the matrix VALUES + dtype + shape + ``nbins``
+    (per-column ``np.quantile`` cut edges then ``searchsorted``). Folding all four into a blake2b
+    digest gives a key that hits iff a later call would recompute byte-identical codes, and misses
+    on any change (a different sample, a re-ordered/rescaled column, a different nbins). The hash
+    is over the contiguous matrix buffer -- O(matrix bytes), no copy of the source frame.
+    """
+    arr = np.ascontiguousarray(feature_matrix)
+    h = hashlib.blake2b(digest_size=16)
+    h.update(b"prebin_v1|nbins=")
+    h.update(str(int(nbins)).encode("utf-8"))
+    h.update(b"|dtype=")
+    h.update(str(arr.dtype).encode("utf-8"))
+    h.update(b"|shape=")
+    h.update(str(arr.shape).encode("utf-8"))
+    h.update(b"|data=")
+    h.update(arr.tobytes())
+    return h.hexdigest()
+
+
+class PrebinCache:
+    """In-process LRU of (signature -> int16/int32 bin-code matrix).
+
+    Keeps the SMALL deterministic prebin codes alive across discovery runs in one process so a
+    re-discovery with a different config (same data/sample/nbins) skips the quantile binning. The
+    stored array is the caller's code matrix held by reference (no copy -- the caller already owns
+    it and treats prebin codes as read-only downstream). Size-gated per entry (``max_bytes``) and
+    count-capped (``max_entries``) so a pathological screen sample never pins hundreds of MB.
+
+    Thread-safe: a single ``RLock`` guards the OrderedDict (discovery's per-base loop can dispatch
+    in parallel and several workers may probe the cache concurrently).
+    """
+
+    def __init__(
+        self,
+        *,
+        max_entries: int = _PREBIN_CACHE_MAX_ENTRIES_DEFAULT,
+        max_bytes: Optional[int] = None,
+    ) -> None:
+        import collections
+        import threading
+        self._store: "collections.OrderedDict[str, np.ndarray]" = collections.OrderedDict()
+        self._lock = threading.RLock()
+        self.max_entries = int(max_entries)
+        self._max_bytes_override = max_bytes
+        self.hits = 0
+        self.misses = 0
+        self.stores = 0
+        self.skipped_oversize = 0
+
+    @property
+    def max_bytes(self) -> int:
+        return self._max_bytes_override if self._max_bytes_override is not None else _prebin_cache_max_bytes()
+
+    def get(self, signature: str) -> Optional[np.ndarray]:
+        with self._lock:
+            val = self._store.get(signature)
+            if val is None:
+                self.misses += 1
+                return None
+            self._store.move_to_end(signature)  # LRU: mark most-recently-used.
+            self.hits += 1
+            return val
+
+    def put(self, signature: str, codes: np.ndarray) -> bool:
+        """Store ``codes`` under ``signature``. Returns False (and stores nothing) if the array
+        exceeds the per-entry byte ceiling (100GB-frame guard). Never copies ``codes``."""
+        nbytes = int(getattr(codes, "nbytes", 0))
+        if nbytes > self.max_bytes:
+            with self._lock:
+                self.skipped_oversize += 1
+            logger.debug(
+                "PrebinCache: not caching %d-byte code matrix (> %d ceiling)", nbytes, self.max_bytes,
+            )
+            return False
+        with self._lock:
+            self._store[signature] = codes
+            self._store.move_to_end(signature)
+            self.stores += 1
+            while len(self._store) > self.max_entries:
+                self._store.popitem(last=False)  # evict least-recently-used.
+        return True
+
+    def clear(self) -> None:
+        with self._lock:
+            self._store.clear()
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._store)
+
+
+# Module-level singleton: discovery runs within one process share the prebin codes. A process
+# boundary (the 100GB-frame "never pickle a frame" rule) is the natural cache boundary -- we never
+# persist these codes to disk (they are cheap to rebuild relative to the discovery they feed, and
+# disk-persisting a per-run code matrix risks the oversize-pickle hazard DiscoveryCache guards).
+_PREBIN_CACHE_SINGLETON: Optional[PrebinCache] = None
+
+
+def get_prebin_cache() -> PrebinCache:
+    """Return the shared per-process :class:`PrebinCache` (lazily constructed)."""
+    global _PREBIN_CACHE_SINGLETON
+    if _PREBIN_CACHE_SINGLETON is None:
+        _PREBIN_CACHE_SINGLETON = PrebinCache()
+    return _PREBIN_CACHE_SINGLETON
 
 
 # The disk-backed ``DiscoveryCache`` store + its byte-total helper live in the sibling
